@@ -33,12 +33,12 @@ import type {
   LlmGetProviderStatusResponse,
 } from '@ptah-extension/shared';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { redact } from '../output/redactor.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import { suggestClosest } from './_string-distance.js';
 
 /** Sub-commands accepted by `ptah provider ...`. */
@@ -217,18 +217,19 @@ async function runSetKey(
       : undefined;
 
   return engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
-    const result = await callRpc<{ success: boolean; error?: string }>(
-      ctx.transport,
-      'llm:setApiKey',
-      { provider, apiKey },
-    );
+    const result = await callRpc<{
+      success: boolean;
+      verified?: boolean;
+      error?: string;
+    }>(ctx.transport, 'llm:setApiKey', { provider, apiKey });
     if (!result.success) {
       await formatter.writeNotification('task.error', {
         provider,
-        ptah_code: 'internal_failure',
+        verified: false,
+        ptah_code: 'auth_required',
         message: result.error ?? 'llm:setApiKey returned success=false',
       });
-      return ExitCode.InternalFailure;
+      return ExitCode.AuthRequired;
     }
     if (baseUrlOverride !== undefined) {
       const baseResult = await callRpc<{ success: boolean; error?: string }>(
@@ -254,8 +255,9 @@ async function runSetKey(
     await formatter.writeNotification('provider.key.set', {
       provider,
       success: true,
+      verified: result.verified === true,
     });
-    return ExitCode.Success;
+    return result.verified === true ? ExitCode.Success : ExitCode.AuthRequired;
   });
 }
 

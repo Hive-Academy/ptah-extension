@@ -17,6 +17,7 @@ import {
   ExecutionNode,
   FlatStreamEventUnion,
   ExecutionChatMessage,
+  MessageStartEvent,
   SessionId,
   UNKNOWN_AGENT_TOOL_CALL_ID,
 } from '@ptah-extension/shared';
@@ -37,6 +38,20 @@ import {
   StreamingAccumulatorCore,
   type AccumulatorContext,
 } from './accumulator-core.service';
+
+/**
+ * Terminal reasons that mark a turn as user/SDK-aborted rather than cleanly
+ * completed. After one of these, the SDK still emits a trailing
+ * "[Request interrupted by user]" assistant message — that content must NOT
+ * resurrect the visual streaming flag via the resume self-heal, or the stop
+ * button reappears and the user has to click it twice to clear the spinner.
+ * A clean turn-end (`completed`) or a background-task pause is unaffected, so
+ * legitimate background resume still self-heals.
+ */
+const ABORTED_TERMINAL_REASONS: ReadonlySet<string> = new Set([
+  'aborted_streaming',
+  'aborted_tools',
+]);
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
@@ -89,6 +104,7 @@ export class StreamingHandlerService {
     event: FlatStreamEventUnion,
     tabId?: string,
     sessionId?: string,
+    options?: { isReplay?: boolean },
   ): {
     tabId: string;
     queuedContent?: string;
@@ -98,6 +114,7 @@ export class StreamingHandlerService {
     postTokens?: number;
     durationMs?: number;
   } | null {
+    const isReplay = options?.isReplay ?? false;
     try {
       let primaryTab: TabState | undefined;
       if (tabId) {
@@ -131,6 +148,9 @@ export class StreamingHandlerService {
       }
 
       if (!primaryTab) {
+        if (this.routeBackgroundEvent(event)) {
+          return null;
+        }
         if (!this.warnedNoTargetSessions.has(event.sessionId)) {
           this.warnedNoTargetSessions.add(event.sessionId);
           console.warn(
@@ -145,6 +165,7 @@ export class StreamingHandlerService {
         primaryTab,
         event,
         sessionId,
+        isReplay,
       );
       const allBoundTabs = this.tabManager.findTabsBySessionId(
         SessionId.from(event.sessionId),
@@ -152,7 +173,7 @@ export class StreamingHandlerService {
       if (allBoundTabs.length > 1) {
         for (const otherTab of allBoundTabs) {
           if (otherTab.id === primaryTab.id) continue;
-          this.processEventForTab(otherTab, event, sessionId);
+          this.processEventForTab(otherTab, event, sessionId, isReplay);
         }
       }
 
@@ -187,6 +208,7 @@ export class StreamingHandlerService {
     initialTab: TabState,
     event: FlatStreamEventUnion,
     sessionId?: string,
+    isReplay = false,
   ): {
     tabId: string;
     queuedContent?: string;
@@ -215,6 +237,22 @@ export class StreamingHandlerService {
     }
 
     const state = targetTab.streamingState as StreamingState;
+
+    // Capture the SDK's real transcript UUID for the user's own turn — emitted
+    // on the user `message_start` because `replay-user-messages` is enabled —
+    // and stamp it onto the optimistic bubble so fork/rewind anchor on the real
+    // id. Live turns only; history replay already carries real uuids as ids.
+    if (
+      !isReplay &&
+      event.eventType === 'message_start' &&
+      (event as MessageStartEvent).role === 'user'
+    ) {
+      this.tabManager.reconcileUserMessageNativeUuid(
+        targetTab.id,
+        event.messageId,
+      );
+    }
+
     const ctx: AccumulatorContext = {
       sessionManager: this.sessionManager,
       deduplication: this.deduplication,
@@ -256,12 +294,67 @@ export class StreamingHandlerService {
     }
     if (result.stateMutated) {
       this.batchedUpdate.scheduleUpdate(targetTab.id, state);
+      // Content is flowing, so the SDK is actively generating for this tab.
+      // Re-assert the visual streaming flag if a turn-end (Stop hook, result,
+      // or a background-task pause that flipped the tab to 'awaiting-background'
+      // /'loaded') cleared it and the agent then resumed on its own. The next
+      // real turn-end clears it again; the membership guard keeps steady-state
+      // per-delta streaming a no-op.
+      //
+      // Exception: a user/SDK abort ends the turn and the SDK then emits a
+      // trailing "[Request interrupted by user]" message. That content must
+      // not self-heal the spinner back on, so skip the re-mark when the tab's
+      // last turn ended in an aborted terminal reason.
+      //
+      // Exception: a historical replay (session opened from the sidebar)
+      // pushes finalized events through this same path. Those mutate state but
+      // must NOT light up the spinner — the replay has no live turn and no
+      // terminal event to clear the flag again, so it would stick on `loaded`.
+      const lastReason = targetTab.lastTerminalReason;
+      const wasAborted =
+        lastReason != null && ABORTED_TERMINAL_REASONS.has(lastReason);
+      if (
+        !isReplay &&
+        !wasAborted &&
+        !this.tabManager.isTabStreaming(targetTab.id)
+      ) {
+        this.tabManager.markTabStreaming(targetTab.id);
+      }
     }
     if (result.agentStartFlushNeeded) {
       this.batchedUpdate.flushSync();
     }
 
     return null;
+  }
+
+  private routeBackgroundEvent(event: FlatStreamEventUnion): boolean {
+    const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
+      event.sessionId,
+    );
+    if (!lookup) return false;
+
+    const { tab } = lookup;
+    let state: StreamingState =
+      tab.streamingState ?? createEmptyStreamingState();
+
+    const ctx: AccumulatorContext = {
+      sessionManager: this.sessionManager,
+      deduplication: this.deduplication,
+      batchedUpdate: this.batchedUpdate,
+      backgroundAgentStore: this.backgroundAgentStore,
+      agentMonitorStore: this.agentMonitorStore,
+    };
+
+    const result = this.accumulatorCore.process(state, event, ctx);
+    if (result.compactionComplete && result.replacementState) {
+      state = result.replacementState;
+    }
+
+    return this.tabManager.updateBackgroundTab(tab.id, {
+      streamingState: state,
+      status: 'streaming',
+    });
   }
 
   /**

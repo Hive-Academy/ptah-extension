@@ -11,13 +11,7 @@ import {
   DestroyRef,
   output,
 } from '@angular/core';
-import {
-  LucideAngularModule,
-  Search,
-  Check,
-  KeyRound,
-  X,
-} from 'lucide-angular';
+import { LucideAngularModule, Search, Check } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
   SkillShEntry,
@@ -42,124 +36,6 @@ interface DisplaySkillEntry extends SkillShEntry {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="space-y-3">
-      @if (keyStatus() === 'not-configured' && !bannerDismissed()) {
-        <div
-          class="rounded-lg border border-base-300 bg-base-200/40 p-2.5 space-y-2"
-        >
-          @if (!showKeyForm()) {
-            <div class="flex items-center gap-2">
-              <div
-                class="w-6 h-6 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0"
-              >
-                <lucide-angular
-                  [img]="KeyRoundIcon"
-                  class="w-3 h-3 text-primary"
-                  aria-hidden="true"
-                />
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="text-xs font-medium text-base-content">
-                  Add a skills.sh API key
-                </div>
-                <p class="text-[10px] text-base-content/50 leading-tight">
-                  Get richer descriptions and live popularity rankings. Without
-                  a key, results come from the local
-                  <code>npx skills</code> CLI.
-                </p>
-              </div>
-              <button
-                type="button"
-                class="btn btn-primary btn-xs shrink-0"
-                (click)="showKeyForm.set(true)"
-              >
-                Connect
-              </button>
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs btn-square shrink-0"
-                (click)="bannerDismissed.set(true)"
-                aria-label="Dismiss"
-              >
-                <lucide-angular
-                  [img]="XIcon"
-                  class="w-3 h-3"
-                  aria-hidden="true"
-                />
-              </button>
-            </div>
-          } @else {
-            @if (keyError()) {
-              <div class="alert alert-error alert-sm py-1 px-2">
-                <span class="text-xs">{{ keyError() }}</span>
-              </div>
-            }
-            <form class="space-y-2" (submit)="saveKey($event)">
-              <input
-                type="password"
-                autocomplete="off"
-                class="input input-bordered input-sm w-full text-xs"
-                placeholder="skills.sh API key (sk_live_...)"
-                [value]="keyInput()"
-                (input)="onKeyInput($event)"
-                aria-label="skills.sh API key"
-              />
-              <div class="flex gap-1.5">
-                <button
-                  type="submit"
-                  class="btn btn-primary btn-xs flex-1"
-                  [disabled]="isSavingKey() || keyInput().trim().length === 0"
-                >
-                  @if (isSavingKey()) {
-                    <span class="loading loading-spinner loading-xs"></span>
-                    Connecting...
-                  } @else {
-                    Save
-                  }
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-xs"
-                  (click)="cancelKeyForm()"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-            <p class="text-[10px] text-base-content/40 text-center">
-              Stored encrypted in your OS keychain. Request a key at
-              <a href="mailto:skills-api@vercel.com" class="link link-hover"
-                >skills-api&#64;vercel.com</a
-              >.
-            </p>
-          }
-        </div>
-      } @else if (keyStatus() === 'configured') {
-        <div
-          class="flex items-center justify-between px-2 py-1 rounded-md bg-success/10 border border-success/20"
-        >
-          <div class="flex items-center gap-1.5 text-[11px] text-success">
-            <lucide-angular
-              [img]="CheckIcon"
-              class="w-3 h-3"
-              aria-hidden="true"
-            />
-            <span>skills.sh API connected</span>
-          </div>
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs text-[10px]"
-            [disabled]="isRemovingKey()"
-            (click)="removeKey()"
-          >
-            @if (isRemovingKey()) {
-              <span class="loading loading-spinner loading-xs"></span>
-            } @else {
-              Remove key
-            }
-          </button>
-        </div>
-      }
-
       <!-- View Toggle -->
       <div class="tabs tabs-boxed tabs-xs bg-base-300/50 p-0.5">
         <button
@@ -567,8 +443,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   /** Lucide icon references */
   protected readonly SearchIcon = Search;
   protected readonly CheckIcon = Check;
-  protected readonly KeyRoundIcon = KeyRound;
-  protected readonly XIcon = X;
 
   readonly searchQuery = signal('');
   readonly searchResults = signal<DisplaySkillEntry[]>([]);
@@ -583,16 +457,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   readonly uninstallingSkillIds = signal<Set<string>>(new Set());
   readonly error = signal<string | null>(null);
   readonly activeView = signal<'browse' | 'installed'>('browse');
-
-  readonly keyStatus = signal<'unknown' | 'configured' | 'not-configured'>(
-    'unknown',
-  );
-  readonly showKeyForm = signal(false);
-  readonly bannerDismissed = signal(false);
-  readonly keyInput = signal('');
-  readonly isSavingKey = signal(false);
-  readonly isRemovingKey = signal(false);
-  readonly keyError = signal<string | null>(null);
 
   readonly installedCount = computed(() => this.installedSkills().length);
 
@@ -635,7 +499,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     this.loadInstalled();
     this.loadPopular();
     this.loadRecommendations();
-    this.checkKeyStatus();
   }
 
   ngOnDestroy(): void {
@@ -749,78 +612,6 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     } finally {
       if (!this.destroyed)
         this.removeFromSet(this.uninstallingSkillIds, skill.name);
-    }
-  }
-
-  onKeyInput(event: Event): void {
-    this.keyInput.set((event.target as HTMLInputElement).value);
-  }
-
-  cancelKeyForm(): void {
-    this.showKeyForm.set(false);
-    this.keyInput.set('');
-    this.keyError.set(null);
-  }
-
-  async saveKey(event: Event): Promise<void> {
-    event.preventDefault();
-    const apiKey = this.keyInput().trim();
-    if (apiKey.length === 0 || this.isSavingKey()) return;
-
-    this.isSavingKey.set(true);
-    this.keyError.set(null);
-    try {
-      const result = await this.rpcService.call('skillsSh:setApiKey', {
-        apiKey,
-      });
-      if (this.destroyed) return;
-      if (result.isSuccess() && result.data.success) {
-        this.keyInput.set('');
-        this.showKeyForm.set(false);
-        this.keyStatus.set('configured');
-        this.loadPopular();
-        this.loadRecommendations();
-      } else {
-        this.keyError.set(
-          (result.isSuccess() ? '' : result.error) || 'Failed to save API key',
-        );
-      }
-    } catch {
-      if (this.destroyed) return;
-      this.keyError.set('Failed to save API key');
-    } finally {
-      if (!this.destroyed) this.isSavingKey.set(false);
-    }
-  }
-
-  async removeKey(): Promise<void> {
-    if (this.isRemovingKey()) return;
-    this.isRemovingKey.set(true);
-    try {
-      const result = await this.rpcService.call('skillsSh:deleteApiKey', {});
-      if (this.destroyed) return;
-      if (result.isSuccess() && result.data.success) {
-        this.keyStatus.set('not-configured');
-        this.bannerDismissed.set(false);
-        this.loadPopular();
-        this.loadRecommendations();
-      }
-    } catch {
-      if (this.destroyed) return;
-    } finally {
-      if (!this.destroyed) this.isRemovingKey.set(false);
-    }
-  }
-
-  private async checkKeyStatus(): Promise<void> {
-    try {
-      const result = await this.rpcService.call('skillsSh:getApiKeyStatus', {});
-      if (this.destroyed) return;
-      const configured = result.isSuccess() && result.data.configured === true;
-      this.keyStatus.set(configured ? 'configured' : 'not-configured');
-    } catch {
-      if (this.destroyed) return;
-      this.keyStatus.set('not-configured');
     }
   }
 

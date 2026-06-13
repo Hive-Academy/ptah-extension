@@ -62,18 +62,18 @@ describe('AgentMonitorStore', () => {
   ): void {
     store.onAgentSpawned({
       agentId,
-      cli: 'gemini',
+      cli: 'codex',
       task: `Task for ${agentId}`,
       parentSessionId,
       status: 'running',
       startedAt: Date.now(),
-      displayName: 'Gemini',
+      displayName: 'Codex',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
     if (status !== 'running') {
       store.onAgentExited({
         agentId,
-        cli: 'gemini',
+        cli: 'codex',
         task: `Task for ${agentId}`,
         parentSessionId,
         status,

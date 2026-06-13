@@ -67,8 +67,14 @@ You MUST prefer ptah_* tools over built-in alternatives. Ptah tools leverage VS 
 | \`git status\` via Bash | ptah_get_dirty_files | Shows unsaved VS Code buffers too |
 | Reading a file to check size | ptah_count_tokens | Token count, not byte count |
 | Web search / browsing | ptah_web_search | Grounded web search via LLM providers |
-| Grep/Glob to find a **function, class, or method** | ptah.code.searchSymbols(query) via execute_code | LSP symbol index — no false positives from string matches |
-| Reading full file to inspect structure | ptah.ast.analyze(file) via execute_code | Returns class/function outlines; 40-60% token savings vs Read |
+| Grep/Glob to find a **function, class, or method** | ptah_code_search_symbols { query } | Hybrid BM25+vector symbol index — no false positives from string matches (degrades to a graceful "unavailable" result where there is no index, e.g. VS Code) |
+| Reading a full file to inspect structure | ptah_ast_analyze { file } | Functions/classes/imports/exports with line ranges; 40-60% token savings vs Read |
+| Reading a full file for its API surface only | ptah_context_enrich_file { file } | .d.ts-style summary — signatures without bodies |
+| Checking what breaks before changing a file | ptah_get_dependents { file } | Reverse import edges = blast radius |
+| Recalling past decisions / preferences | ptah_memory_search { query } | Persistent cross-session memory (BM25+vector) |
+| Guessing which files matter for a task | ptah_relevance_rank_files { query } | Ranked 0-100 with reasons — triage before opening files |
+| Figuring out the monorepo layout | ptah_project_detect_monorepo | Detects nx/lerna/turbo/workspaces + package count |
+| Finding where a symbol is exported | ptah_get_symbol_index | Map of file → exported symbol names |
 
 ### DO NOT use Bash, Grep, or Glob when a ptah_* tool provides the same capability.
 
@@ -78,22 +84,19 @@ Only fall back to built-in tools when:
 - The ptah tool returns an error and you need an alternative
 
 > [!IMPORTANT]
-> **Symbol and AST lookups are MANDATORY via ptah before Grep/Glob.** When looking for a function, class, method, or type definition, you MUST call \`ptah.code.searchSymbols\` or \`ptah.ast.analyze\` via execute_code FIRST. Only fall back to Grep after those tools return no results or error.
+> **Symbol and AST lookups are MANDATORY via ptah before Grep/Glob.** When looking for a function, class, method, or type definition, you MUST call \`ptah_code_search_symbols\` or \`ptah_ast_analyze\` (first-class tools) FIRST. Only fall back to Grep after those tools return no results or an error.
 
 ### IDE Access via execute_code
 
-Use execute_code with the \`ptah\` global object for operations only available through the IDE:
-- **Code structure**: ptah.ast.analyze(file) — functions/classes/imports without reading full files (40-60% token savings)
-- **Dependencies**: ptah.dependencies.getDependencies(file) / getDependents(file)
-- **Structural summaries**: ptah.context.enrichFile(file) — import signatures + class outlines
+Prefer the first-class tools above (\`ptah_ast_analyze\`, \`ptah_context_enrich_file\`, \`ptah_get_dependents\`, \`ptah_get_dependencies\`, \`ptah_code_search_symbols\`, \`ptah_memory_search\`). Use execute_code with the \`ptah\` global object only for operations without a first-class tool:
 - **LSP actions**: ptah.ide.actions.organizeImports(file), ptah.ide.actions.rename(file, line, col, newName)
 - **Self-docs**: ptah.help() / ptah.help('namespace')
-- **Memory recall**: ptah.memory.search(query, opts?) — hybrid BM25+vector search over persistent memory from past sessions. \`opts\` is an optional object: \`{ workspace: true }\` scopes to the active workspace, \`{ workspaceRoot: '/abs' }\` uses an explicit path, \`{ maxResults: N }\` tunes result count (default 10). Omitting opts (or just passing a number for maxResults) searches globally. Result includes \`scope: 'workspace'|'global'\` and, if \`workspace: true\` was requested but no workspace was open, \`reason: 'no_workspace'\`. Also: ptah.memory.list({tier?, limit?, offset?}) — list stored memories.
+- **Advanced memory**: ptah.memory.list({tier?, limit?, offset?}) — list (not search) stored memories
 
 > [!IMPORTANT]
 > **MANDATORY pre-response checklist — run BEFORE producing your first non-trivial response:**
 > 1. Does the user's message contain any of these trigger phrases: "last time", "previously", "we talked about", "you remember", "earlier", "before", or any reference to past decisions, user preferences, or "the X we worked on"?
-> 2. If YES → **call ptah.memory.search(query) immediately**, before composing your reply. Do not answer from assumptions.
+> 2. If YES → **call ptah_memory_search { query } immediately**, before composing your reply. Do not answer from assumptions.
 > 3. If the question is about user preferences, habitual choices, or anything that would have been established in a prior session → treat it as an implicit memory trigger and search first.
 >
 > This is not a soft suggestion. Skipping memory search when a trigger is present is a failure mode.
@@ -116,10 +119,10 @@ You operate a 3-tier hierarchy for maximum parallelism:
 **Tier 2 — Sub-agents (Senior Leads):** Spawned by you via Task. Retain full specialist reasoning. Can spawn CLI agents for grunt work via \`ptah_agent_spawn\`.
 **Tier 3 — CLI agents (Junior Helpers):** Spawned by Tier 1 or Tier 2 via MCP tools. Handle focused, independently-executable sub-tasks with no shared context.
 
-**Available CLI agents** (discover with \`ptah_agent_list\`): gemini, codex, copilot, ptah-cli (user-configured). Priority: ptah-cli > gemini > codex > copilot.
+**Available CLI agents** (discover with \`ptah_agent_list\`): codex, copilot, ptah-cli (user-configured). Priority: ptah-cli > codex > copilot.
 
 **CLI Delegation Pattern (Spawn → Poll → Read):**
-1. \`ptah_agent_spawn { task: "...", cli: "gemini" }\` — self-contained prompt, no shared context
+1. \`ptah_agent_spawn { task: "...", cli: "codex" }\` — self-contained prompt, no shared context
 2. \`ptah_agent_status { agentId: "..." }\` — poll until complete
 3. \`ptah_agent_read { agentId: "..." }\` — read results
 4. Synthesize results into your deliverable
@@ -300,8 +303,14 @@ You MUST prefer ptah_* tools over built-in alternatives. Ptah tools leverage VS 
 | \`git status\` via Bash | ptah_get_dirty_files | Shows unsaved VS Code buffers too |
 | Reading a file to check size | ptah_count_tokens | Token count, not byte count |
 | Web search / browsing | ptah_web_search | Grounded web search via LLM providers |
-| Grep/Glob to find a **function, class, or method** | ptah.code.searchSymbols(query) via execute_code | LSP symbol index — no false positives from string matches |
-| Reading full file to inspect structure | ptah.ast.analyze(file) via execute_code | Returns class/function outlines; 40-60% token savings vs Read |
+| Grep/Glob to find a **function, class, or method** | ptah_code_search_symbols { query } | Hybrid BM25+vector symbol index — no false positives from string matches (degrades to a graceful "unavailable" result where there is no index, e.g. VS Code) |
+| Reading a full file to inspect structure | ptah_ast_analyze { file } | Functions/classes/imports/exports with line ranges; 40-60% token savings vs Read |
+| Reading a full file for its API surface only | ptah_context_enrich_file { file } | .d.ts-style summary — signatures without bodies |
+| Checking what breaks before changing a file | ptah_get_dependents { file } | Reverse import edges = blast radius |
+| Recalling past decisions / preferences | ptah_memory_search { query } | Persistent cross-session memory (BM25+vector) |
+| Guessing which files matter for a task | ptah_relevance_rank_files { query } | Ranked 0-100 with reasons — triage before opening files |
+| Figuring out the monorepo layout | ptah_project_detect_monorepo | Detects nx/lerna/turbo/workspaces + package count |
+| Finding where a symbol is exported | ptah_get_symbol_index | Map of file → exported symbol names |
 
 ### DO NOT use Bash, Grep, or Glob when a ptah_* tool provides the same capability.
 
@@ -311,22 +320,19 @@ Only fall back to built-in tools when:
 - The ptah tool returns an error and you need an alternative
 
 > [!IMPORTANT]
-> **Symbol and AST lookups are MANDATORY via ptah before Grep/Glob.** When looking for a function, class, method, or type definition, you MUST call \`ptah.code.searchSymbols\` or \`ptah.ast.analyze\` via execute_code FIRST. Only fall back to Grep after those tools return no results or error.
+> **Symbol and AST lookups are MANDATORY via ptah before Grep/Glob.** When looking for a function, class, method, or type definition, you MUST call \`ptah_code_search_symbols\` or \`ptah_ast_analyze\` (first-class tools) FIRST. Only fall back to Grep after those tools return no results or an error.
 
 ### IDE Access via execute_code
 
-Use execute_code with the \`ptah\` global object for operations only available through the IDE:
-- **Code structure**: ptah.ast.analyze(file) — functions/classes/imports without reading full files (40-60% token savings)
-- **Dependencies**: ptah.dependencies.getDependencies(file) / getDependents(file)
-- **Structural summaries**: ptah.context.enrichFile(file) — import signatures + class outlines
+Prefer the first-class tools above (\`ptah_ast_analyze\`, \`ptah_context_enrich_file\`, \`ptah_get_dependents\`, \`ptah_get_dependencies\`, \`ptah_code_search_symbols\`, \`ptah_memory_search\`). Use execute_code with the \`ptah\` global object only for operations without a first-class tool:
 - **LSP actions**: ptah.ide.actions.organizeImports(file), ptah.ide.actions.rename(file, line, col, newName)
 - **Self-docs**: ptah.help() / ptah.help('namespace')
-- **Memory recall**: ptah.memory.search(query, opts?) — hybrid BM25+vector search over persistent memory from past sessions. \`opts\` is an optional object: \`{ workspace: true }\` scopes to the active workspace, \`{ workspaceRoot: '/abs' }\` uses an explicit path, \`{ maxResults: N }\` tunes result count (default 10). Omitting opts (or just passing a number for maxResults) searches globally. Result includes \`scope: 'workspace'|'global'\` and, if \`workspace: true\` was requested but no workspace was open, \`reason: 'no_workspace'\`. Also: ptah.memory.list({tier?, limit?, offset?}) — list stored memories.
+- **Advanced memory**: ptah.memory.list({tier?, limit?, offset?}) — list (not search) stored memories
 
 > [!IMPORTANT]
 > **MANDATORY pre-response checklist — run BEFORE producing your first non-trivial response:**
 > 1. Does the user's message contain any of these trigger phrases: "last time", "previously", "we talked about", "you remember", "earlier", "before", or any reference to past decisions, user preferences, or "the X we worked on"?
-> 2. If YES → **call ptah.memory.search(query) immediately**, before composing your reply. Do not answer from assumptions.
+> 2. If YES → **call ptah_memory_search { query } immediately**, before composing your reply. Do not answer from assumptions.
 > 3. If the question is about user preferences, habitual choices, or anything that would have been established in a prior session → treat it as an implicit memory trigger and search first.
 >
 > This is not a soft suggestion. Skipping memory search when a trigger is present is a failure mode.
@@ -343,4 +349,4 @@ Use execute_code with the \`ptah\` global object for operations only available t
 
 ### Multi-Agent Delegation (CLI Agents)
 
-Spawn background CLI workers via \`ptah_agent_spawn\` / \`ptah_agent_status\` / \`ptah_agent_read\` / \`ptah_agent_list\`. Available: gemini, codex, copilot, ptah-cli. Use for independent subtasks (code reviews, test generation, documentation). CLI agents have no shared context — task prompts must be fully self-contained.`;
+Spawn background CLI workers via \`ptah_agent_spawn\` / \`ptah_agent_status\` / \`ptah_agent_read\` / \`ptah_agent_list\`. Available: codex, copilot, ptah-cli. Use for independent subtasks (code reviews, test generation, documentation). CLI agents have no shared context — task prompts must be fully self-contained.`;

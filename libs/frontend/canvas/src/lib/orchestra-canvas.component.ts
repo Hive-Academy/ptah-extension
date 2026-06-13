@@ -18,7 +18,14 @@ import {
   GridstackItemComponent,
   nodesCB,
 } from 'gridstack/dist/angular';
-import { LucideAngularModule, Plus, X, Check } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Plus,
+  X,
+  Check,
+  Lock,
+  Unlock,
+} from 'lucide-angular';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { AppStateManager } from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
@@ -60,11 +67,35 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
     NativePopoverComponent,
   ],
   template: `
-    <div #canvasContainer class="flex flex-col h-full bg-base-100 relative">
+    <div
+      #canvasContainer
+      class="flex flex-col h-full bg-base-100 relative"
+      data-testid="canvas-grid"
+    >
       @if (canvasStore.tiles().length === 0) {
         <!-- Empty state: no tiles yet -->
         <ptah-canvas-empty-state (createSession)="openNewSessionPopover()" />
       } @else {
+        <!-- Lock toggle: freezes the layout and disables drag/resize -->
+        <button
+          class="absolute top-3 right-3 z-20 btn btn-circle btn-sm shadow-lg"
+          [class.btn-primary]="locked()"
+          [class.btn-ghost]="!locked()"
+          [title]="
+            locked()
+              ? 'Unlock tiles (enable drag & resize)'
+              : 'Lock tiles (freeze layout)'
+          "
+          [attr.aria-label]="locked() ? 'Unlock tiles' : 'Lock tiles'"
+          [attr.aria-pressed]="locked()"
+          (click)="toggleLock()"
+        >
+          <lucide-angular
+            [img]="locked() ? LockIcon : UnlockIcon"
+            class="w-4 h-4"
+          />
+        </button>
+
         <!-- Gridstack drag-and-resize grid -->
         <div class="flex-1 overflow-auto">
           <gridstack [options]="gsOptions" (changeCB)="onGridChange($event)">
@@ -79,6 +110,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
                 }"
               >
                 <ptah-canvas-tile
+                  data-testid="canvas-tile"
                   [tabId]="tile.tabId"
                   [focused]="canvasStore.focusedTabId() === tile.tabId"
                   (focusRequested)="canvasStore.focusTile($event)"
@@ -223,6 +255,11 @@ export class OrchestraCanvasComponent implements OnDestroy {
   protected readonly PlusIcon = Plus;
   protected readonly XIcon = X;
   protected readonly CheckIcon = Check;
+  protected readonly LockIcon = Lock;
+  protected readonly UnlockIcon = Unlock;
+
+  /** When locked, drag/resize is disabled and the auto-layout is frozen. */
+  protected readonly locked = signal(false);
 
   protected readonly sessionPopoverOpen = signal(false);
   protected readonly sessionNameInput = signal('');
@@ -263,6 +300,8 @@ export class OrchestraCanvasComponent implements OnDestroy {
       const { cellHeight, tiles: tileLayouts } = this.layout();
       const gridComp = this.gridComp();
       if (!gridComp?.grid || tileLayouts.length === 0) return;
+      // Locked: keep the user's arrangement; don't re-flow on container resize.
+      if (this.locked()) return;
 
       const grid = gridComp.grid;
       const tiles = untracked(() => this.canvasStore.tiles());
@@ -393,6 +432,19 @@ export class OrchestraCanvasComponent implements OnDestroy {
   protected handleCancelSession(): void {
     this.sessionPopoverOpen.set(false);
     this.sessionNameInput.set('');
+  }
+
+  /**
+   * Toggle the locked state of the canvas.
+   *
+   * Locking calls Gridstack's setStatic() to disable drag/resize on every tile
+   * and freezes the auto-layout effect so the current arrangement is preserved
+   * across container resizes. Unlocking restores managed drag/resize behaviour.
+   */
+  protected toggleLock(): void {
+    const next = !this.locked();
+    this.locked.set(next);
+    this.gridComp()?.grid?.setStatic(next);
   }
 
   /**

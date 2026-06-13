@@ -36,7 +36,6 @@ import { ChatRpcHandlers } from '@ptah-extension/rpc-handlers';
 import {
   EditorRpcHandlers,
   FileRpcHandlers,
-  ConfigExtendedRpcHandlers,
   CommandRpcHandlers,
   AgentRpcHandlers,
   LayoutRpcHandlers,
@@ -65,8 +64,6 @@ export class ElectronRpcMethodRegistrationService {
     private readonly editorHandlers: EditorRpcHandlers,
     @inject(FileRpcHandlers)
     private readonly fileHandlers: FileRpcHandlers,
-    @inject(ConfigExtendedRpcHandlers)
-    private readonly configExtendedHandlers: ConfigExtendedRpcHandlers,
     @inject(CommandRpcHandlers)
     private readonly commandHandlers: CommandRpcHandlers,
     @inject(AgentRpcHandlers)
@@ -158,10 +155,6 @@ export class ElectronRpcMethodRegistrationService {
     }> = [
       { name: 'EditorRpcHandlers', handler: this.editorHandlers },
       { name: 'FileRpcHandlers', handler: this.fileHandlers },
-      {
-        name: 'ConfigExtendedRpcHandlers',
-        handler: this.configExtendedHandlers,
-      },
       { name: 'CommandRpcHandlers', handler: this.commandHandlers },
       { name: 'AgentRpcHandlers', handler: this.agentHandlers },
       { name: 'LayoutRpcHandlers', handler: this.layoutHandlers },

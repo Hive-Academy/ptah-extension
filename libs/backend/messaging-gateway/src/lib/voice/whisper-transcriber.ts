@@ -29,6 +29,10 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  VoiceAssetsUnavailableError,
+  isModuleNotFound,
+} from './voice-assets-error';
 
 /** Loosely-typed shape we actually call from `nodejs-whisper`. */
 export interface NodejsWhisperApi {
@@ -51,14 +55,22 @@ export type WhisperDownloadEvent =
   | { kind: 'download:error'; model: string; error: string };
 
 const defaultLoader: NodejsWhisperLoader = async () => {
-  const mod = require('nodejs-whisper') as
-    | NodejsWhisperApi
-    | { nodewhisper: NodejsWhisperApi };
+  let mod: NodejsWhisperApi | { nodewhisper: NodejsWhisperApi };
+  try {
+    mod = require('nodejs-whisper') as
+      | NodejsWhisperApi
+      | { nodewhisper: NodejsWhisperApi };
+  } catch (error: unknown) {
+    if (isModuleNotFound(error)) {
+      throw new VoiceAssetsUnavailableError('nodejs-whisper', error);
+    }
+    throw error;
+  }
   if (typeof mod === 'function') return mod;
   if (typeof (mod as { nodewhisper?: unknown }).nodewhisper === 'function') {
     return (mod as { nodewhisper: NodejsWhisperApi }).nodewhisper;
   }
-  throw new Error('nodejs-whisper module does not expose a callable export');
+  throw new VoiceAssetsUnavailableError('nodejs-whisper');
 };
 
 @injectable()

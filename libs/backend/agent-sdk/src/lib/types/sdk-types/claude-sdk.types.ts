@@ -128,6 +128,8 @@ export type {
   ThinkingDisabled,
   ThinkingEnabled,
   ToolConfig,
+  UserPromptExpansionHookInput,
+  UserPromptExpansionHookSpecificOutput,
   UserPromptSubmitHookInput,
   UserPromptSubmitHookSpecificOutput,
   WorktreeCreateHookInput,
@@ -170,6 +172,7 @@ import type {
   SessionStartHookInput,
   SessionEndHookInput,
   SetupHookInput,
+  UserPromptExpansionHookInput,
   UserPromptSubmitHookInput,
   WorktreeCreateHookInput,
   WorktreeRemoveHookInput,
@@ -469,6 +472,14 @@ export function isTextBlock(
   return block.type === 'text';
 }
 
+export const SDK_INTERRUPT_SENTINEL = '[Request interrupted by user]';
+
+export function isInterruptSentinelText(
+  text: string | null | undefined,
+): boolean {
+  return typeof text === 'string' && text.trim() === SDK_INTERRUPT_SENTINEL;
+}
+
 export function isToolUseBlock(
   block: ContentBlock | { type: string },
 ): block is ToolUseBlock {
@@ -549,6 +560,12 @@ export function isUserPromptSubmitHook(
   input: HookInput,
 ): input is UserPromptSubmitHookInput {
   return input.hook_event_name === 'UserPromptSubmit';
+}
+
+export function isUserPromptExpansionHook(
+  input: HookInput,
+): input is UserPromptExpansionHookInput {
+  return input.hook_event_name === 'UserPromptExpansion';
 }
 
 export function isSessionStartHook(

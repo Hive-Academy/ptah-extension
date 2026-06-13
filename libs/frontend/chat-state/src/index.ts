@@ -46,3 +46,7 @@ export {
   type CompactionStateView,
 } from './lib/conversation-registry.service';
 export { TabSessionBinding } from './lib/tab-session-binding.service';
+export {
+  SessionLivenessRegistry,
+  type LivenessStatus,
+} from './lib/session-liveness.registry';

@@ -776,11 +776,11 @@ You have CLI agents available as junior helpers. Use them for focused,
 independently-executable sub-tasks to speed up your work.
 
 **Available agents** (from discovery):
-[injected from ptah_agent_list — e.g., "gemini, ptah-cli"]
+[injected from ptah_agent_list — e.g., "ptah-cli, codex"]
 
 **How to delegate:**
 
-1. Spawn: `ptah_agent_spawn { task: "...", cli: "gemini", taskFolder: "...", files: [...] }`
+1. Spawn: `ptah_agent_spawn { task: "...", cli: "codex", taskFolder: "...", files: [...] }`
 2. Poll: `ptah_agent_status { agentId: "..." }` (repeat until not "running")
 3. Read: `ptah_agent_read { agentId: "..." }`
 4. Use the results in your deliverable
@@ -802,21 +802,21 @@ Append these examples to the injection block based on the sub-agent being invoke
 
 ```
 **When to delegate:** Research specific codebase areas, analyze dependencies, survey file structures
-**Example:** ptah_agent_spawn { task: "List all Angular components in libs/frontend/ and categorize by Atomic Design level", cli: "gemini" }
+**Example:** ptah_agent_spawn { task: "List all Angular components in libs/frontend/ and categorize by Atomic Design level", cli: "codex" }
 ```
 
 #### software-architect
 
 ```
 **When to delegate:** Analyze existing patterns in specific modules, check dependency graphs, POC spikes
-**Example:** ptah_agent_spawn { task: "Analyze the DI setup in libs/backend/vscode-core/src. List all tokens and providers.", cli: "gemini" }
+**Example:** ptah_agent_spawn { task: "Analyze the DI setup in libs/backend/vscode-core/src. List all tokens and providers.", cli: "codex" }
 ```
 
 #### team-leader
 
 ```
 **When to delegate:** Spawn CLI developer agents for batch sub-tasks, parallel file verification
-**Example:** ptah_agent_spawn { task: "Verify these files exist and are non-empty: [list]", cli: "gemini" }
+**Example:** ptah_agent_spawn { task: "Verify these files exist and are non-empty: [list]", cli: "codex" }
 ```
 
 #### backend-developer
@@ -830,7 +830,7 @@ Append these examples to the injection block based on the sub-agent being invoke
 
 ```
 **When to delegate:** Component scaffolding, style migration, template generation
-**Example:** ptah_agent_spawn { task: "Generate Angular standalone component skeleton for 'StatusBadge' following project conventions", cli: "gemini" }
+**Example:** ptah_agent_spawn { task: "Generate Angular standalone component skeleton for 'StatusBadge' following project conventions", cli: "codex" }
 ```
 
 #### devops-engineer
@@ -844,14 +844,14 @@ Append these examples to the injection block based on the sub-agent being invoke
 
 ```
 **When to delegate:** Test file generation per module (in parallel), fixture creation, coverage analysis
-**Example:** Spawn 3 agents for 3 modules: ptah_agent_spawn { task: "Write Jest tests for [module]...", cli: "gemini" } (x3)
+**Example:** Spawn 3 agents for 3 modules: ptah_agent_spawn { task: "Write Jest tests for [module]...", cli: "codex" } (x3)
 ```
 
 #### code-style-reviewer / code-logic-reviewer
 
 ```
 **When to delegate:** File-level reviews across many files in parallel
-**Example:** Spawn agents per file: ptah_agent_spawn { task: "Review [file] for naming conventions and error handling", cli: "gemini" }
+**Example:** Spawn agents per file: ptah_agent_spawn { task: "Review [file] for naming conventions and error handling", cli: "codex" }
 ```
 
 #### researcher-expert
@@ -865,14 +865,14 @@ Append these examples to the injection block based on the sub-agent being invoke
 
 ```
 **When to delegate:** Parallel analysis of different modules for improvement opportunities
-**Example:** ptah_agent_spawn { task: "Analyze libs/backend/vscode-core/ for deprecated API usage and modernization opportunities", cli: "gemini" }
+**Example:** ptah_agent_spawn { task: "Analyze libs/backend/vscode-core/ for deprecated API usage and modernization opportunities", cli: "codex" }
 ```
 
 #### technical-content-writer
 
 ```
 **When to delegate:** Draft sections, research codebase features for content accuracy
-**Example:** ptah_agent_spawn { task: "Read libs/backend/agent-sdk/src and produce a technical summary of capabilities", cli: "gemini" }
+**Example:** ptah_agent_spawn { task: "Read libs/backend/agent-sdk/src and produce a technical summary of capabilities", cli: "codex" }
 ```
 
 See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive delegation reference.

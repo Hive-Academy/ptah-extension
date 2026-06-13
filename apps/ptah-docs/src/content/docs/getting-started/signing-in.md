@@ -61,7 +61,6 @@ Ptah ships with first-class support for several AI providers. You only need to c
 | Claude     | API key                          | Your Anthropic Console              |
 | Copilot    | OAuth (device flow) or CLI login | Your GitHub account                 |
 | Codex      | API key or CLI login             | Your OpenAI dashboard               |
-| Gemini     | API key                          | Google AI Studio                    |
 | Ollama     | Local endpoint (no key)          | `http://localhost:11434` by default |
 | OpenRouter | API key                          | Your OpenRouter dashboard           |
 

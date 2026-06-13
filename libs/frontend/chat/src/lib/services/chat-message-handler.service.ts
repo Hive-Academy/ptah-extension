@@ -30,21 +30,25 @@ import {
   SdkTurnFailedPayloadSchema,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
-import { MessageSenderService } from './message-sender.service';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import {
+  SessionLivenessRegistry,
   TabId,
   TabManagerService,
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
-import { StreamRouter } from '@ptah-extension/chat-routing';
+import {
+  StreamRouter,
+  WorkflowSessionClaimService,
+} from '@ptah-extension/chat-routing';
 
 @Injectable({ providedIn: 'root' })
 export class ChatMessageHandler implements MessageHandler {
   private readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly tabManager = inject(TabManagerService);
-  private readonly messageSender = inject(MessageSenderService);
+  private readonly liveness = inject(SessionLivenessRegistry);
+  private readonly workflowClaims = inject(WorkflowSessionClaimService);
   /**
    * Authoritative StreamRouter.
    *
@@ -63,6 +67,7 @@ export class ChatMessageHandler implements MessageHandler {
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
+    MESSAGE_TYPES.CHAT_COMPLETE,
     MESSAGE_TYPES.CHAT_ERROR,
     MESSAGE_TYPES.PERMISSION_REQUEST,
     MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
@@ -73,7 +78,6 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
     MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP,
     MESSAGE_TYPES.SESSION_METADATA_CHANGED,
-    MESSAGE_TYPES.SETUP_WIZARD_START_NEW_PROJECT_CHAT,
     MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE,
     MESSAGE_TYPES.SESSION_TURN_ENDED,
     MESSAGE_TYPES.SESSION_TURN_FAILED,
@@ -84,6 +88,9 @@ export class ChatMessageHandler implements MessageHandler {
     switch (message.type) {
       case MESSAGE_TYPES.CHAT_CHUNK:
         this.handleChatChunk(message.payload);
+        break;
+      case MESSAGE_TYPES.CHAT_COMPLETE:
+        this.handleChatComplete(message.payload);
         break;
       case MESSAGE_TYPES.CHAT_ERROR:
         this.handleChatError(message.payload);
@@ -115,9 +122,6 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.SESSION_METADATA_CHANGED:
         this.handleSessionMetadataChanged();
         break;
-      case MESSAGE_TYPES.SETUP_WIZARD_START_NEW_PROJECT_CHAT:
-        this.handleSetupWizardStartNewProjectChat(message.payload);
-        break;
       case MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE:
         this.handleSessionCompactionComplete(message.payload);
         break;
@@ -131,6 +135,46 @@ export class ChatMessageHandler implements MessageHandler {
         this.handleSessionSubagentEnded(message.payload);
         break;
     }
+  }
+
+  private workspaceFor(sessionId: string): string | undefined {
+    return this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId)
+      ?.workspacePath;
+  }
+
+  /**
+   * CHAT_COMPLETE is intentionally NOT used to finalize streaming — it fires
+   * per-turn (on each message_complete) and SESSION_STATS is the authoritative
+   * end-of-turn signal (TASK_2025_101). The ONLY completion we action here is
+   * the native `/clear` command, which the backend signals via this channel
+   * with `command: 'clear'`. It wipes the target tab to a fresh, empty
+   * conversation; every other CHAT_COMPLETE is ignored.
+   */
+  private handleChatComplete(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as {
+      command?: unknown;
+      tabId?: unknown;
+      surfaceMode?: unknown;
+    };
+    if (
+      typeof data.tabId === 'string' &&
+      this.workflowClaims.surfaceFor(data.tabId)
+    ) {
+      return;
+    }
+    if (data.surfaceMode === true) return;
+    if (data.command !== 'clear') return;
+    if (typeof data.tabId !== 'string') return;
+    const target = this.tabManager.tabs().find((t) => t.id === data.tabId);
+    if (!target) return;
+    if (target.claudeSessionId) {
+      this.liveness.markIdle(
+        target.claudeSessionId,
+        this.workspaceFor(target.claudeSessionId),
+      );
+    }
+    this.tabManager.resetTabToFresh(data.tabId);
   }
 
   private handleSessionSubagentEnded(payload: unknown): void {
@@ -147,6 +191,12 @@ export class ChatMessageHandler implements MessageHandler {
         parsed.error,
       );
       return;
+    }
+    if (parsed.data.backgroundTasks.length === 0) {
+      this.liveness.markIdle(
+        parsed.data.sessionId,
+        this.workspaceFor(parsed.data.sessionId),
+      );
     }
     this.chatStore.handleSubagentEndedNotification(parsed.data);
   }
@@ -166,6 +216,12 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
+    const ws = this.workspaceFor(parsed.data.sessionId);
+    if (parsed.data.backgroundTasks.length > 0) {
+      this.liveness.markAwaitingBackground(parsed.data.sessionId, ws);
+    } else {
+      this.liveness.markIdle(parsed.data.sessionId, ws);
+    }
     this.chatStore.handleTurnEndedNotification(parsed.data);
   }
 
@@ -184,6 +240,10 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
+    this.liveness.markFailed(
+      parsed.data.sessionId,
+      this.workspaceFor(parsed.data.sessionId),
+    );
     this.chatStore.handleTurnFailedNotification(parsed.data);
   }
 
@@ -237,23 +297,64 @@ export class ChatMessageHandler implements MessageHandler {
       return;
     }
 
-    const { tabId, sessionId, event } = payload as {
+    const { tabId, sessionId, event, surfaceMode } = payload as {
       tabId?: string;
       sessionId?: string;
       event: FlatStreamEventUnion;
+      surfaceMode?: boolean;
     };
 
+    const claimedSurface = tabId ? this.workflowClaims.surfaceFor(tabId) : null;
+    if (claimedSurface) {
+      if (event?.sessionId) {
+        this.liveness.markStreaming(
+          event.sessionId,
+          this.workspaceFor(event.sessionId),
+        );
+      }
+      this.streamRouter.routeStreamEventForSurface(event, claimedSurface);
+      return;
+    }
+
+    if (surfaceMode === true) {
+      return;
+    }
+
+    if (event?.sessionId) {
+      this.liveness.markStreaming(
+        event.sessionId,
+        this.workspaceFor(event.sessionId),
+      );
+    }
     this.chatStore.processStreamEvent(event, tabId, sessionId);
     const originTabId = tabId ? TabId.safeParse(tabId) : null;
     this.streamRouter.routeStreamEvent(event, originTabId ?? undefined);
   }
   private handleChatError(payload: unknown): void {
-    const { tabId, sessionId, error } =
+    const { tabId, sessionId, error, surfaceMode } =
       (payload as {
         tabId?: string;
         sessionId?: string;
         error?: string;
+        surfaceMode?: boolean;
       }) ?? {};
+
+    const claimedSurface = tabId ? this.workflowClaims.surfaceFor(tabId) : null;
+    if (claimedSurface) {
+      console.error('[ChatMessageHandler] Workflow chat error:', {
+        tabId,
+        sessionId,
+        error,
+      });
+      if (sessionId) {
+        this.liveness.markFailed(sessionId, this.workspaceFor(sessionId));
+      }
+      return;
+    }
+
+    if (surfaceMode === true) {
+      return;
+    }
 
     console.error('[ChatMessageHandler] Chat error:', {
       tabId,
@@ -318,6 +419,15 @@ export class ChatMessageHandler implements MessageHandler {
       }) ?? {};
 
     if (realSessionId) {
+      const claimedSurface = tabId
+        ? this.workflowClaims.surfaceFor(tabId)
+        : null;
+      if (claimedSurface) {
+        this.streamRouter.refreshQuestionTargetsForSession(
+          realSessionId as ClaudeSessionId,
+        );
+        return;
+      }
       this.chatStore.handleSessionIdResolved({
         tabId: tabId as string,
         realSessionId: realSessionId as string,
@@ -383,30 +493,5 @@ export class ChatMessageHandler implements MessageHandler {
         '[ChatMessageHandler] permission:session-cleanup received but sessionId is undefined!',
       );
     }
-  }
-
-  /**
-   * SETUP_WIZARD_START_NEW_PROJECT_CHAT: backend handoff from the wizard
-   * welcome screen's "Start New Project" button. Creates a fresh chat tab
-   * and submits the seed `prompt` as the first user turn so the
-   * saas-workspace-initializer skill can begin guiding the conversation.
-   */
-  private handleSetupWizardStartNewProjectChat(payload: unknown): void {
-    const { prompt } = (payload as { prompt?: string }) ?? {};
-    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
-      console.warn(
-        '[ChatMessageHandler] setup-wizard:start-new-project-chat received but prompt is missing!',
-      );
-      return;
-    }
-
-    const tabId = this.tabManager.createTab();
-    this.tabManager.switchTab(tabId);
-    this.messageSender.send(prompt, { tabId }).catch((error: unknown) => {
-      console.error(
-        '[ChatMessageHandler] Failed to seed new-project chat:',
-        error instanceof Error ? error.message : String(error),
-      );
-    });
   }
 }

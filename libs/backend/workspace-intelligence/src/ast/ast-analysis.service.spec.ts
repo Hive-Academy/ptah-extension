@@ -7,6 +7,10 @@ import {
 import { Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { GenericAstNode } from './ast.types';
+import {
+  LANGUAGE_QUERIES_MAP,
+  EXTENSION_LANGUAGE_MAP,
+} from './tree-sitter.config';
 
 describe('AstAnalysisService', () => {
   let service: AstAnalysisService;
@@ -427,6 +431,104 @@ describe('AstAnalysisService', () => {
       expect(mockLogger.debug).toHaveBeenCalledWith(
         expect.stringContaining('analyzeSource'),
       );
+    });
+  });
+
+  describe('multi-language support (python, go)', () => {
+    const matchWith = (caps: Record<string, string>): QueryMatch => ({
+      pattern: 0,
+      captures: Object.entries(caps).map(([name, text]) => ({
+        name,
+        text,
+        node: {} as GenericAstNode,
+        startPosition: { row: 0, column: 0 },
+        endPosition: { row: 0, column: 0 },
+      })),
+    });
+
+    it('registers query + extension entries for python and go', () => {
+      for (const lang of ['python', 'go'] as const) {
+        expect(LANGUAGE_QUERIES_MAP[lang].functionQuery).toBeTruthy();
+        expect(LANGUAGE_QUERIES_MAP[lang].classQuery).toBeTruthy();
+        expect(LANGUAGE_QUERIES_MAP[lang].importQuery).toBeTruthy();
+        // Neither language has export statements.
+        expect(LANGUAGE_QUERIES_MAP[lang].exportQuery).toBe('');
+      }
+      expect(EXTENSION_LANGUAGE_MAP['.py']).toBe('python');
+      expect(EXTENSION_LANGUAGE_MAP['.go']).toBe('go');
+    });
+
+    it('extracts python functions, classes, and imports from matches', async () => {
+      mockParserService.queryMulti.mockResolvedValue(
+        Result.ok(
+          new Map<string, QueryMatch[]>([
+            [
+              'functions',
+              [
+                matchWith({
+                  'function.name': 'top_level',
+                  'function.params': '(a, b)',
+                  'function.declaration': 'def top_level(a, b):',
+                }),
+              ],
+            ],
+            [
+              'classes',
+              [
+                matchWith({
+                  'class.name': 'Animal',
+                  'class.declaration': 'class Animal:',
+                }),
+              ],
+            ],
+            ['imports', [matchWith({ 'import.source': 'os' })]],
+          ]),
+        ),
+      );
+
+      const result = await service.analyzeSource('', 'python', 'mod.py');
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value?.functions[0].name).toBe('top_level');
+      expect(result.value?.functions[0].parameters).toEqual(['a', 'b']);
+      expect(result.value?.classes[0].name).toBe('Animal');
+      expect(result.value?.imports[0].source).toBe('os');
+    });
+
+    it('extracts go methods, structs, and strips quoted import paths', async () => {
+      mockParserService.queryMulti.mockResolvedValue(
+        Result.ok(
+          new Map<string, QueryMatch[]>([
+            [
+              'functions',
+              [
+                matchWith({
+                  'method.name': 'Area',
+                  'method.params': '()',
+                  'method.declaration': 'func (r Rect) Area() float64 {}',
+                }),
+              ],
+            ],
+            [
+              'classes',
+              [
+                matchWith({
+                  'class.name': 'Rect',
+                  'class.declaration': 'type Rect struct {}',
+                }),
+              ],
+            ],
+            ['imports', [matchWith({ 'import.source': '"fmt"' })]],
+          ]),
+        ),
+      );
+
+      const result = await service.analyzeSource('', 'go', 'main.go');
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value?.functions[0].name).toBe('Area');
+      expect(result.value?.classes[0].name).toBe('Rect');
+      expect(result.value?.imports[0].source).toBe('fmt');
     });
   });
 

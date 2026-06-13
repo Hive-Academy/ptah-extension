@@ -166,7 +166,7 @@ When decomposing (MODE 1), team-leader records per-batch executor recommendation
 ```markdown
 ## Batch 2: UI Atom Components - PENDING
 
-**Recommended Executor**: gemini CLI (x3 parallel)
+**Recommended Executor**: codex CLI (x3 parallel)
 **Fallback Executor**: frontend-developer (sub-agent)
 **Execution Mode**: parallel
 **Rationale**: 3 independent components, no cross-file coupling, boilerplate-heavy — CLI agents excel at this shape and parallel fan-out cuts wall time ~3x.
@@ -175,31 +175,31 @@ When decomposing (MODE 1), team-leader records per-batch executor recommendation
 
 Executor recommendation dimensions team-leader MUST fill:
 
-| Field                   | Values                                                                    | How to decide                                                     |
-| ----------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| **Recommended Executor**| `backend-developer`, `frontend-developer`, `gemini CLI`, `codex CLI`, etc.| Match task to agent capability                                    |
-| **Execution Mode**      | `sequential` or `parallel`                                                | Parallel only if tasks are independent and file-disjoint          |
-| **Rationale**           | 1-2 sentence justification                                                | Why this executor + mode fit the batch shape                      |
+| Field                    | Values                                                                   | How to decide                                            |
+| ------------------------ | ------------------------------------------------------------------------ | -------------------------------------------------------- |
+| **Recommended Executor** | `backend-developer`, `frontend-developer`, `ptah-cli`, `codex CLI`, etc. | Match task to agent capability                           |
+| **Execution Mode**       | `sequential` or `parallel`                                               | Parallel only if tasks are independent and file-disjoint |
+| **Rationale**            | 1-2 sentence justification                                               | Why this executor + mode fit the batch shape             |
 
 ### Executor Selection Heuristics (for Team-Leader to Apply)
 
-| Batch Shape                             | Recommended Executor               | Mode       |
-| --------------------------------------- | ---------------------------------- | ---------- |
-| 3+ independent tasks, boilerplate       | CLI (gemini preferred) x N         | parallel   |
-| 3+ independent tasks, standard logic    | CLI x N                            | parallel   |
-| Tightly coupled tasks in same file      | Sub-agent developer                | sequential |
-| Cross-file refactoring                  | Sub-agent developer                | sequential |
-| Architecture decisions required         | Sub-agent developer                | sequential |
-| Migration/scaffolding across many files | CLI x N                            | parallel   |
+| Batch Shape                             | Recommended Executor         | Mode       |
+| --------------------------------------- | ---------------------------- | ---------- |
+| 3+ independent tasks, boilerplate       | CLI (ptah-cli preferred) x N | parallel   |
+| 3+ independent tasks, standard logic    | CLI x N                      | parallel   |
+| Tightly coupled tasks in same file      | Sub-agent developer          | sequential |
+| Cross-file refactoring                  | Sub-agent developer          | sequential |
+| Architecture decisions required         | Sub-agent developer          | sequential |
+| Migration/scaffolding across many files | CLI x N                      | parallel   |
 
 ### Handling Team-Leader Responses
 
-| Response Pattern                        | Meaning                                   | Orchestrator Action                                                                          |
-| --------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `NEEDS REVIEW: [paths]`                 | Files exist, require code-logic-reviewer  | Orchestrator spawns `code-logic-reviewer`, then re-invokes team-leader MODE 2 with result    |
-| `NEXT BATCH ASSIGNED: [executor/mode]`  | Prior batch committed, next batch ready   | Orchestrator spawns the recommended executor(s) per mode (parallel fan-out or single invoke) |
-| `BATCH REJECTED: [issues]`              | Verification failed                       | Orchestrator re-invokes the same developer/CLI with issues to fix                            |
-| `ALL BATCHES COMPLETE`                  | All tasks done, ready for QA              | Orchestrator invokes team-leader MODE 3                                                      |
+| Response Pattern                       | Meaning                                  | Orchestrator Action                                                                          |
+| -------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `NEEDS REVIEW: [paths]`                | Files exist, require code-logic-reviewer | Orchestrator spawns `code-logic-reviewer`, then re-invokes team-leader MODE 2 with result    |
+| `NEXT BATCH ASSIGNED: [executor/mode]` | Prior batch committed, next batch ready  | Orchestrator spawns the recommended executor(s) per mode (parallel fan-out or single invoke) |
+| `BATCH REJECTED: [issues]`             | Verification failed                      | Orchestrator re-invokes the same developer/CLI with issues to fix                            |
+| `ALL BATCHES COMPLETE`                 | All tasks done, ready for QA             | Orchestrator invokes team-leader MODE 3                                                      |
 
 ### Response Detection Logic
 
@@ -235,8 +235,8 @@ ELSE IF response contains "ALL BATCHES COMPLETE":
 5. Team-leader verifies files exist, responds "NEEDS REVIEW: [paths]"
 6. Orchestrator spawns code-logic-reviewer, captures verdict
 7. Orchestrator re-invokes team-leader MODE 2 with reviewer verdict
-8. Team-leader commits, responds "NEXT BATCH ASSIGNED: gemini CLI x3 parallel"
-9. Orchestrator reads Batch 2 recommendation → spawns 3 gemini CLI agents in parallel
+8. Team-leader commits, responds "NEXT BATCH ASSIGNED: codex CLI x3 parallel"
+9. Orchestrator reads Batch 2 recommendation → spawns 3 codex CLI agents in parallel
 10. Orchestrator polls all 3, reads results, synthesizes a combined report
 11. Orchestrator invokes team-leader MODE 2 with combined report
 12. Team-leader verifies, responds "NEEDS REVIEW: [paths]"

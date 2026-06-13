@@ -8,7 +8,6 @@
  * - formatTokens / formatDuration display helpers
  * - extractCodexStats — parses "Usage: N input, M output tokens" (accumulates multi-turn)
  * - extractCopilotStats — parses "Usage: {model}, {in} input, {out} output, ${cost}, {dur}s"
- * - extractGeminiStats — re-exported from gemini-output.utils.ts for backward compat
  */
 
 import type { CliOutputSegment } from '@ptah-extension/shared';

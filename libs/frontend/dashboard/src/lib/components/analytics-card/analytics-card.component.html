@@ -49,26 +49,22 @@
     } @else {
       <ptah-session-metrics-cards [aggregates]="aggregates()" />
 
-      <div class="flex items-center gap-2">
-        <span class="text-xs text-base-content/50">Show:</span>
-        <div class="join">
-          <button
-            class="join-item btn btn-xs"
-            [class.btn-active]="displayCount() === 5"
-            (click)="setDisplayCount(5)"
-          >
-            5
-          </button>
-          <button
-            class="join-item btn btn-xs"
-            [class.btn-active]="displayCount() === 10"
-            (click)="setDisplayCount(10)"
-          >
-            10
-          </button>
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs text-base-content/50">Range:</span>
+        <div class="join" role="group" aria-label="Filter sessions by date range">
+          @for (option of dateRangeOptions; track option.value) {
+            <button
+              class="join-item btn btn-xs"
+              [class.btn-active]="dateRange() === option.value"
+              [attr.aria-pressed]="dateRange() === option.value"
+              (click)="setDateRange(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          }
         </div>
         <span class="text-[10px] text-base-content/40">
-          of {{ allSessionCount() }} sessions
+          {{ totalSessionCount() }} sessions
         </span>
       </div>
 

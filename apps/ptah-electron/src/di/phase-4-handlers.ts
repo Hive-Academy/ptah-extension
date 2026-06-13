@@ -39,6 +39,7 @@ import {
   SkillsSynthesisRpcHandlers,
   CronRpcHandlers,
   GatewayRpcHandlers,
+  VoiceRpcHandlers,
   IndexingRpcHandlers,
   SkillsShRpcHandlers,
   registerHarnessServices,
@@ -48,7 +49,6 @@ import {
 import {
   EditorRpcHandlers,
   FileRpcHandlers,
-  ConfigExtendedRpcHandlers,
   CommandRpcHandlers,
   AgentRpcHandlers,
   LayoutRpcHandlers,
@@ -70,10 +70,9 @@ import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method
  * when ElectronRpcMethodRegistrationService.registerAll() runs in main.ts.
  *
  * NOTE: Factory-based registrations (SetupRpcHandlers, WizardGenerationRpcHandlers,
- * EnhancedPromptsRpcHandlers, LlmRpcHandlers, EditorRpcHandlers,
- * ConfigExtendedRpcHandlers) exist because these handlers need the
- * DependencyContainer interface itself (no reflection metadata) or resolve
- * WEBVIEW_MANAGER which is registered later in main.ts Phase 4.
+ * EnhancedPromptsRpcHandlers, LlmRpcHandlers, EditorRpcHandlers) exist because
+ * these handlers need the DependencyContainer interface itself (no reflection
+ * metadata) or resolve WEBVIEW_MANAGER which is registered later in main.ts Phase 4.
  */
 export function registerPhase4Handlers(
   container: DependencyContainer,
@@ -108,6 +107,7 @@ export function registerPhase4Handlers(
   container.registerSingleton(SkillsSynthesisRpcHandlers);
   container.registerSingleton(CronRpcHandlers);
   container.registerSingleton(GatewayRpcHandlers);
+  container.registerSingleton(VoiceRpcHandlers);
   container.registerSingleton(IndexingRpcHandlers);
 
   logger.info(
@@ -150,14 +150,6 @@ export function registerPhase4Handlers(
       ),
   });
   container.registerSingleton(FileRpcHandlers);
-  container.register(ConfigExtendedRpcHandlers, {
-    useFactory: (c) =>
-      new ConfigExtendedRpcHandlers(
-        c.resolve(TOKENS.LOGGER),
-        c.resolve(TOKENS.RPC_HANDLER),
-        c,
-      ),
-  });
   container.registerSingleton(CommandRpcHandlers);
   container.registerSingleton(AgentRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);
@@ -177,7 +169,6 @@ export function registerPhase4Handlers(
       handlers: [
         'EditorRpcHandlers',
         'FileRpcHandlers',
-        'ConfigExtendedRpcHandlers',
         'CommandRpcHandlers',
         'AgentRpcHandlers',
         'SkillsShRpcHandlers',

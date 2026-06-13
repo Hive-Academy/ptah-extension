@@ -1,6 +1,6 @@
 ---
 title: CLI Agent Not Detected
-description: Making Copilot, Gemini, and Codex CLIs visible to Ptah.
+description: Making Copilot and Codex CLIs visible to Ptah.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
@@ -16,7 +16,6 @@ Ptah can drive several external CLI agents as providers. Each one has to be inst
 | Provider | Install command                              | Binary name |
 | -------- | -------------------------------------------- | ----------- |
 | Copilot  | Follow the official Copilot CLI instructions | `copilot`   |
-| Gemini   | `npm install -g @google/gemini-cli`          | `gemini`    |
 | Codex    | Follow the official Codex CLI instructions   | `codex`     |
 
 After installing, **fully quit and restart Ptah** so it picks up the new `PATH`.
@@ -44,7 +43,7 @@ If you install Node via a version manager (nvm-windows, fnm), reinstall global C
 
 **Symptom:** CLI detected but the first message fails with "authentication required."
 **Likely cause:** The CLI has not completed its own login flow yet.
-**Fix:** Open a terminal and run the CLI's login command once (for example `gemini auth login`). Return to Ptah; the next request will use the stored credentials.
+**Fix:** Open a terminal and run the CLI's login command once (for example `codex login`). Return to Ptah; the next request will use the stored credentials.
 
 ---
 
@@ -59,7 +58,7 @@ You can override auto-detection by setting an absolute path in `~/.ptah/settings
 ```json
 {
   "providers": {
-    "gemini": { "executablePath": "/opt/homebrew/bin/gemini" }
+    "codex": { "executablePath": "/opt/homebrew/bin/codex" }
   }
 }
 ```

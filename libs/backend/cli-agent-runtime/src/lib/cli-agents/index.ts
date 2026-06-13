@@ -1,7 +1,7 @@
 /**
  * CLI Agents Module - Barrel Exports
  *
- * library. CLI agents are external agent processes (Gemini, Codex, Copilot, Cursor)
+ * library. CLI agents are external agent processes (Codex, Copilot, Cursor)
  * that Ptah spawns and coordinates via stdio — they are peers of the Agent SDK,
  * not LLM providers, hence `cli-agents/` lives as a sibling of `providers/`.
  */

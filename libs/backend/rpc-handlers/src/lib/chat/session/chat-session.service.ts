@@ -98,6 +98,7 @@ interface AutoResumePreflight {
   model?: ChatContinueParams['model'];
   thinking?: ChatContinueParams['thinking'];
   effort?: ChatContinueParams['effort'];
+  surfaceMode?: ChatContinueParams['surfaceMode'];
 }
 
 @injectable()
@@ -301,6 +302,7 @@ export class ChatSessionService {
               import('@ptah-extension/shared').FlatStreamEventUnion
             >,
             dispatch.tabId,
+            params.surfaceMode,
           );
         }
         return dispatch.result;
@@ -395,6 +397,7 @@ export class ChatSessionService {
         tabId as SessionId,
         stream,
         tabId,
+        params.surfaceMode,
       );
 
       return { success: true };
@@ -706,7 +709,24 @@ export class ChatSessionService {
 
       await this.sdkAdapter.interruptSession(sessionId);
 
-      return { success: true };
+      const resumableSubagents = this.subagentRegistry.getResumableBySession(
+        sessionId as string,
+      );
+      if (resumableSubagents.length > 0) {
+        this.logger.info('RPC: chat:abort - interrupted subagents resumable', {
+          sessionId,
+          count: resumableSubagents.length,
+          agents: resumableSubagents.map((s) => ({
+            agentId: s.agentId,
+            agentType: s.agentType,
+          })),
+        });
+      }
+
+      return {
+        success: true,
+        ...(resumableSubagents.length > 0 && { resumableSubagents }),
+      };
     } catch (error) {
       this.logger.error(
         'RPC: chat:abort failed',
@@ -897,7 +917,12 @@ export class ChatSessionService {
         effort: params.effort,
         prompt,
       });
-      this.streamBroadcaster.streamEventsToWebview(sessionId, stream, tabId);
+      this.streamBroadcaster.streamEventsToWebview(
+        sessionId,
+        stream,
+        tabId,
+        params.surfaceMode,
+      );
       this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
       return { justResumed: true };
     } catch (resumeError) {

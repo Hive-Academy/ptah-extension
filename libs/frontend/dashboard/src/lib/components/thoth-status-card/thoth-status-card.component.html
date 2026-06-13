@@ -1,28 +1,18 @@
 <section aria-label="Thoth status">
-  <header class="flex items-center justify-between mb-2">
-    <div class="flex items-center gap-2">
-      <lucide-angular
-        [img]="RadioTowerIcon"
-        class="w-4 h-4 text-primary"
-        aria-hidden="true"
-      ></lucide-angular>
-      <h3 class="text-base font-bold">Thoth</h3>
-    </div>
-    @if (isLoading()) {
+  @if (isLoading()) {
+    <div class="flex justify-end mb-2">
       <span class="loading loading-spinner loading-xs" aria-label="Refreshing"></span>
-    }
-  </header>
+    </div>
+  }
 
   <div class="grid grid-cols-2 xl:grid-cols-4 gap-3" role="list">
     @for (tile of tiles(); track tile.id) {
-      <button
-        type="button"
+      <div
         role="listitem"
-        class="stats stats-vertical bg-base-200/40 border border-base-content/10 shadow-sm text-left transition-colors hover:border-primary/50 hover:bg-base-200/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        class="stats stats-vertical bg-base-200/40 border border-base-content/10 shadow-sm"
+        data-testid="dashboard-status-card"
+        [attr.data-pillar]="tile.id"
         [class.opacity-60]="!tile.available"
-        (click)="openTab(tile.id)"
-        (keydown)="onRowKeydown($event, tile.id)"
-        [attr.aria-label]="'Open ' + tile.label + ' tab'"
       >
         <div class="stat p-4">
           <div class="stat-figure" [class]="tile.accent">
@@ -33,16 +23,15 @@
             ></lucide-angular>
           </div>
 
-          <div class="stat-title flex items-center gap-1 text-base-content/60">
+          <div class="stat-title text-base-content/60">
             {{ tile.label }}
-            <lucide-angular
-              [img]="ChevronRightIcon"
-              class="w-3 h-3 opacity-50"
-              aria-hidden="true"
-            ></lucide-angular>
           </div>
 
-          <div class="stat-value text-3xl flex items-baseline gap-1.5" [class]="tile.accent">
+          <div
+            class="stat-value text-3xl flex items-baseline gap-1.5"
+            data-testid="dashboard-status-card-value"
+            [class]="tile.accent"
+          >
             {{ tile.value }}
             @if (tile.unit) {
               <span class="text-xs font-medium text-base-content/40">{{ tile.unit }}</span>
@@ -72,7 +61,7 @@
             </div>
           }
         </div>
-      </button>
+      </div>
     }
   </div>
 </section>

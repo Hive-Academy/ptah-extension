@@ -1,0 +1,50 @@
+<div class="p-6 max-w-4xl mx-auto">
+  <div class="flex justify-between items-center mb-6">
+    <h2 class="text-2xl font-bold">New Template</h2>
+    <button class="btn btn-ghost btn-sm" (click)="router.navigate(['/admin', 'marketing-campaign-templates'])">Cancel</button>
+  </div>
+
+  <div class="space-y-6">
+    <section class="card bg-base-100 shadow-sm border border-base-200 p-6">
+      <h3 class="text-lg font-semibold mb-4 text-primary">Template Details</h3>
+      <div class="space-y-4">
+        <div class="form-control w-full">
+          <label for="tpl-name" class="label-text font-medium mb-1">Template Name</label>
+          <input id="tpl-name" type="text" maxlength="100" class="input input-bordered w-full" [ngModel]="name()" (ngModelChange)="name.set($event)" placeholder="e.g. Discord Promotion / Free Year" />
+          <span class="label-text-alt mt-1 opacity-60">Must be unique. Internal label, shown only to admins.</span>
+        </div>
+
+        <div class="form-control w-full">
+          <label for="tpl-subject" class="label-text font-medium mb-1">Subject</label>
+          <input id="tpl-subject" type="text" maxlength="200" class="input input-bordered w-full" [ngModel]="subject()" (ngModelChange)="subject.set($event)" placeholder="Email subject line" />
+        </div>
+
+        <div class="form-control w-full">
+          <label for="tpl-html" class="label-text font-medium mb-1">HTML Body</label>
+          <textarea id="tpl-html" class="textarea textarea-bordered h-64 font-mono text-sm" [ngModel]="htmlBody()" (ngModelChange)="htmlBody.set($event)" placeholder="&lt;div&gt;...&lt;/div&gt;"></textarea>
+          <span class="label-text-alt mt-1 opacity-60">Variables: {{'{{firstName}}'}}, {{'{{email}}'}}, {{'{{unsubscribeUrl}}'}}. Disallowed HTML tags or attributes are rejected on save.</span>
+        </div>
+
+        <div class="form-control w-full">
+          <label for="tpl-vars" class="label-text font-medium mb-1">Variables (optional)</label>
+          <input id="tpl-vars" type="text" class="input input-bordered w-full" [ngModel]="variablesRaw()" (ngModelChange)="variablesRaw.set($event)" placeholder="firstName, email" />
+          <span class="label-text-alt mt-1 opacity-60">Comma or space separated. Metadata only — shown in the templates list. {{ parsedVariables().length }} detected.</span>
+        </div>
+      </div>
+    </section>
+
+    @if (error()) {
+      <div class="alert alert-error shadow-none">
+        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        <span>{{ error() }}</span>
+      </div>
+    }
+
+    <div class="flex justify-end pt-4 pb-12">
+      <button class="btn btn-primary px-12" [disabled]="!canSubmit()" (click)="submit()">
+        @if (isLoading()) { <span class="loading loading-spinner loading-xs"></span> }
+        Save Template
+      </button>
+    </div>
+  </div>
+</div>

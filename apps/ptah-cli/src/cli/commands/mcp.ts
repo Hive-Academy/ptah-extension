@@ -23,17 +23,17 @@
  *     (or when `mcpDirectory:listInstalled` shows the server is already there
  *     before we hit the install RPC).
  *
- * `--target` is constrained to the canonical 5-target enum
- * (`vscode|claude|cursor|gemini|copilot`) at the CLI layer; an invalid value
+ * `--target` is constrained to the canonical 4-target enum
+ * (`vscode|claude|cursor|copilot`) at the CLI layer; an invalid value
  * exits with `ExitCode.UsageError` BEFORE bootstrapping DI — matches the
  * "rejected fast" pattern used by `git discard --confirm`.
  */
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import type {
   InstalledMcpServer,
   McpDirectoryGetDetailsResult,
@@ -84,7 +84,6 @@ const VALID_TARGETS: readonly McpInstallTarget[] = [
   'vscode',
   'claude',
   'cursor',
-  'gemini',
   'copilot',
 ];
 

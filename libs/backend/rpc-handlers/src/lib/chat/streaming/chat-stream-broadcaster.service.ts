@@ -61,6 +61,12 @@ export class ChatStreamBroadcaster {
     private readonly ptahCli: ChatPtahCliService,
   ) {}
 
+  private readonly streamingSessionIds = new Set<string>();
+
+  isStreaming(sessionId: string): boolean {
+    return this.streamingSessionIds.has(sessionId);
+  }
+
   /**
    * Stream flat events to webview
    * Handles SDK AsyncIterable<FlatStreamEventUnion> → webview messages.
@@ -76,6 +82,7 @@ export class ChatStreamBroadcaster {
     sessionId: SessionId,
     stream: AsyncIterable<FlatStreamEventUnion>,
     tabId: string,
+    surfaceMode?: boolean,
   ): Promise<void> {
     this.logger.info(
       `[RPC] streamExecutionNodesToWebview STARTED for session ${sessionId}, tabId ${tabId}`,
@@ -86,6 +93,7 @@ export class ChatStreamBroadcaster {
     const isPtahCliSession = this.ptahCli.hasSession(tabId);
     let streamExitedNormally = false;
 
+    this.streamingSessionIds.add(sessionId as string);
     try {
       for await (const event of stream) {
         eventCount++;
@@ -131,6 +139,7 @@ export class ChatStreamBroadcaster {
           tabId, // For frontend tab routing
           sessionId: event.sessionId, // Real SDK UUID from the event
           event,
+          ...(surfaceMode ? { surfaceMode: true } : {}),
         });
         if (event.eventType === 'message_start') {
           turnCompleteSent = false;
@@ -155,6 +164,7 @@ export class ChatStreamBroadcaster {
               tabId,
               sessionId,
               code: 0,
+              ...(surfaceMode ? { surfaceMode: true } : {}),
             },
           );
         }
@@ -167,6 +177,7 @@ export class ChatStreamBroadcaster {
             tabId,
             sessionId,
             code: 0,
+            ...(surfaceMode ? { surfaceMode: true } : {}),
           },
         );
       }
@@ -218,9 +229,11 @@ export class ChatStreamBroadcaster {
           error: isCorruptedResume
             ? 'Session could not be resumed. The conversation data may be corrupted. Please start a new session.'
             : errorMessage,
+          ...(surfaceMode ? { surfaceMode: true } : {}),
         });
       }
     } finally {
+      this.streamingSessionIds.delete(sessionId as string);
       this.ptahCli.deleteSession(sessionId as string);
       this.ptahCli.deleteSession(tabId);
       if (streamExitedNormally && this.sdkAdapter.isSessionActive(sessionId)) {

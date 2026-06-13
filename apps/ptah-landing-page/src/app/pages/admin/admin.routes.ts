@@ -37,6 +37,13 @@ export const ADMIN_ROUTES: Routes = [
           ),
       },
       {
+        path: 'marketing/templates/new',
+        loadComponent: () =>
+          import('./marketing/template-create/template-create').then(
+            (m) => m.TemplateCreate,
+          ),
+      },
+      {
         path: 'marketing/campaigns',
         pathMatch: 'full',
         redirectTo: 'marketing-campaigns',

@@ -213,6 +213,93 @@ describe('protocol-handlers › tools/list', () => {
 });
 
 // ---------------------------------------------------------------------------
+// tools/list — eager (_meta alwaysLoad) marking
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › tools/list eager _meta marking', () => {
+  function getTools(
+    res: MCPResponse,
+  ): Array<{ name: string; _meta?: Record<string, unknown> }> {
+    const result = res.result as
+      | { tools: Array<{ name: string; _meta?: Record<string, unknown> }> }
+      | undefined;
+    return result?.tools ?? [];
+  }
+
+  function isEager(
+    tool: { _meta?: Record<string, unknown> } | undefined,
+  ): boolean {
+    return tool?._meta?.['anthropic/alwaysLoad'] === true;
+  }
+
+  async function listTools(
+    overrides: Partial<ProtocolHandlerDependencies> = {},
+  ): Promise<Array<{ name: string; _meta?: Record<string, unknown> }>> {
+    return getTools(
+      await handleMCPRequest(
+        makeRequest({ id: 'eager', method: 'tools/list' }),
+        buildDeps(overrides),
+      ),
+    );
+  }
+
+  it('marks the always-eager core tools with _meta alwaysLoad === true', async () => {
+    const tools = await listTools();
+    for (const name of [
+      'execute_code',
+      'ptah_search_files',
+      'ptah_ast_analyze',
+      'ptah_context_enrich_file',
+      'ptah_get_diagnostics',
+      'ptah_workspace_analyze',
+    ]) {
+      expect(isEager(tools.find((t) => t.name === name))).toBe(true);
+    }
+  });
+
+  it('does NOT mark non-eager tools (e.g. a browser tool) with _meta', async () => {
+    const tools = await listTools();
+    const browser = tools.find((t) => t.name === 'ptah_browser_navigate');
+    expect(browser).toBeDefined();
+    expect(isEager(browser)).toBe(false);
+    expect(browser?._meta).toBeUndefined();
+  });
+
+  it('marks IDE-only eager tools only when hasIDECapabilities is true', async () => {
+    const withIde = await listTools({ hasIDECapabilities: true });
+    for (const name of [
+      'ptah_lsp_references',
+      'ptah_lsp_definitions',
+      'ptah_get_dirty_files',
+    ]) {
+      expect(isEager(withIde.find((t) => t.name === name))).toBe(true);
+    }
+  });
+
+  it('does NOT mark IDE-only eager tools when hasIDECapabilities is false', async () => {
+    const tools = await listTools({ hasIDECapabilities: false });
+    expect(tools.find((t) => t.name === 'ptah_lsp_references')).toBeUndefined();
+  });
+
+  it('marks SQLite-only eager tools only when hasSqliteLayer is true', async () => {
+    const withSqlite = await listTools({ hasSqliteLayer: true });
+    for (const name of ['ptah_code_search_symbols', 'ptah_memory_search']) {
+      expect(isEager(withSqlite.find((t) => t.name === name))).toBe(true);
+    }
+  });
+
+  it('does NOT mark SQLite-only eager tools when hasSqliteLayer is falsy', async () => {
+    const tools = await listTools();
+    expect(
+      isEager(tools.find((t) => t.name === 'ptah_code_search_symbols')),
+    ).toBe(false);
+    expect(isEager(tools.find((t) => t.name === 'ptah_memory_search'))).toBe(
+      false,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // tools/call — individual tool routing
 // ---------------------------------------------------------------------------
 
@@ -315,7 +402,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
       makeRequest({
         id: 7,
         method: 'tools/call',
-        params: { name: 'ptah_agent_spawn', arguments: { cli: 'gemini' } },
+        params: { name: 'ptah_agent_spawn', arguments: { cli: 'codex' } },
       }),
       deps,
     );

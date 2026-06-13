@@ -36,15 +36,15 @@ jest.mock(
 
 import { execute } from './session.js';
 import type { SessionExecuteHooks } from './session.js';
-import { SdkInitFailedError, withEngine } from '../bootstrap/with-engine.js';
+import { SdkInitFailedError, withEngine } from '@ptah-extension/cli-engine';
 import type {
   CliBootstrapOptions,
   CliBootstrapResult,
-} from '../../di/container.js';
+} from '@ptah-extension/cli-engine';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { Formatter } from '../output/formatter.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import {
   PLATFORM_TOKENS,
   type IStateStorage,
@@ -287,6 +287,7 @@ describe('ptah session start --task — headless end-to-end', () => {
         withEngine: h.withEngineHook,
         randomUUID: () => 'tab-headless',
         installSigint: () => () => undefined,
+        exit: () => undefined,
       },
     );
 
@@ -356,6 +357,7 @@ describe('ptah session start --task — headless end-to-end', () => {
         withEngine: h.withEngineHook,
         randomUUID: () => 'tab-order',
         installSigint: () => () => undefined,
+        exit: () => undefined,
       },
     );
     expect(exit).toBe(ExitCode.Success);

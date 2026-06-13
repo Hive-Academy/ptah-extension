@@ -21,7 +21,11 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
-import type { FlatStreamEventUnion, AuthEnv } from '@ptah-extension/shared';
+import type {
+  FlatStreamEventUnion,
+  AuthEnv,
+  MessageAnchorHint,
+} from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
@@ -312,61 +316,48 @@ export class SessionHistoryReaderService {
   }
 
   /**
-   * Regex that matches native Anthropic message UUIDs.
-   * Anthropic UUIDs: msg_01<base64url> (e.g. msg_01AbCdEfGhIjKlMnOpQrStUv)
-   *   or bedrock variants: msg_bdrk_01... (non-digit second char after msg_).
-   *
-   * Ptah-generated IDs: msg_<unix-timestamp>_<random>
-   *   e.g. msg_1778055502540_cegogbr â€” starts with 10+ consecutive digits after msg_.
-   *
-   * Negative lookahead `(?!\d{10,}_)` rejects Ptah-format IDs while accepting
-   * all known Anthropic UUID variants (always start with a non-digit char after msg_).
+   * Regex matching a Claude Agent SDK transcript line UUID — the value the
+   * SDK's `forkSession()` accepts as `upToMessageId`. The SDK matches it
+   * against each transcript line's `uuid` field and validates it with this
+   * exact shape (a standard UUID). It REJECTS Anthropic `msg_...` message ids
+   * and Ptah-generated `msg_<timestamp>_<random>` fallbacks.
    */
-  private readonly NATIVE_SDK_UUID_PATTERN =
-    /^msg_(?!\d{10,}_)[0-9A-Za-z][0-9A-Za-z_]{19,}$/;
+  private readonly LINE_UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   /**
-   * Resolve a message ID sent by the frontend to a native SDK message UUID
-   * that the Claude Agent SDK's `forkSession()` will accept.
+   * Resolve a message ID sent by the frontend to the transcript line UUID that
+   * the Claude Agent SDK's `forkSession()` will accept.
    *
-   * Background:
-   *   - Live streaming events carry `messageId = message.id || sdkMessage.uuid`
-   *     which are Anthropic-native UUIDs (msg_01...). These pass through
-   *     unchanged.
-   *   - History-loaded sessions replay JSONL lines. When a JSONL line has no
-   *     `uuid` field the replay assigns a Ptah-generated fallback ID
-   *     (`msg_<timestamp>_<random>`). The SDK rejects these.
-   *   - Some legacy JSONL files may also store non-standard UUID values.
-   *
-   * Resolution strategy:
-   *   1. If `upToMessageId` already looks native (matches NATIVE_SDK_UUID_PATTERN
-   *      with a base64url-only suffix), return it unchanged.
-   *   2. Read raw JSONL for the session. If a JSONL line's `uuid` field exactly
-   *      matches `upToMessageId` but isn't native, walk *backward* from that
-   *      position to find the nearest preceding line with a native `uuid` and
-   *      return that. This preserves the user's intent (fork "around here")
-   *      while giving the SDK a valid anchor point.
-   *   3. If no JSONL line matches `upToMessageId` at all, throw SdkError with
-   *      a descriptive message ("upToMessageId not found in session history").
+   * The SDK fork anchor is a transcript LINE uuid (standard UUID), matched via
+   * `entry.uuid === upToMessageId`. The frontend may send one of:
+   *   - A line UUID (history view sources `id = msg.uuid`, and live streaming
+   *     can carry the SDK message `uuid`). This is already valid → return as-is.
+   *   - An Anthropic message id (`msg_01...`, from a live assistant
+   *     `message.id`). Map it to the owning line's `uuid`.
+   *   - A Ptah-generated fallback (`msg_<timestamp>_<random>`, assigned during
+   *     replay when a JSONL line had no `uuid`). No valid anchor of its own →
+   *     walk backward to the nearest preceding line that has a real line UUID.
    *
    * @param sessionId - Session to search in
    * @param workspacePath - Workspace root for locating the JSONL file
-   * @param upToMessageId - ID provided by the frontend (may be native or Ptah-generated)
-   * @returns Resolved native SDK message UUID
+   * @param upToMessageId - ID provided by the frontend
+   * @returns Resolved transcript line UUID accepted by `forkSession()`
    * @throws SdkError if the ID cannot be resolved
    */
   async resolveNativeMessageId(
     sessionId: string,
     workspacePath: string,
     upToMessageId: string,
+    hint?: MessageAnchorHint,
   ): Promise<string> {
-    if (this.NATIVE_SDK_UUID_PATTERN.test(upToMessageId)) {
+    if (this.LINE_UUID_PATTERN.test(upToMessageId)) {
       return upToMessageId;
     }
 
     this.logger.info(
-      '[SessionHistoryReader] Non-native upToMessageId â€” resolving via JSONL scan',
-      { sessionId, upToMessageId },
+      '[SessionHistoryReader] Non-line-UUID upToMessageId - resolving via JSONL scan',
+      { sessionId, upToMessageId, hasTextHint: !!hint?.text },
     );
     this.validateSessionId(sessionId);
     const sessionsDir =
@@ -385,34 +376,93 @@ export class SessionHistoryReaderService {
         `upToMessageId '${upToMessageId}' cannot be resolved: session file not found for session '${sessionId}'`,
       );
     }
-    const matchIndex = messages.findIndex((m) => m.uuid === upToMessageId);
+
+    // Primary: the anchor is itself a known id in the transcript (an Anthropic
+    // `message.id` or a line `uuid`). Walk back to the nearest line UUID.
+    let matchIndex = messages.findIndex((m) => m.message?.id === upToMessageId);
     if (matchIndex === -1) {
-      throw new SdkError(
-        `upToMessageId '${upToMessageId}' ${MESSAGE_ID_NOT_FOUND_PHRASE} for session '${sessionId}'. ` +
-          'The message may belong to a different session or the history may have been compacted.',
-      );
+      matchIndex = messages.findIndex((m) => m.uuid === upToMessageId);
     }
-    for (let i = matchIndex; i >= 0; i--) {
-      const candidate = messages[i].uuid;
-      if (candidate && this.NATIVE_SDK_UUID_PATTERN.test(candidate)) {
+    if (matchIndex !== -1) {
+      for (let i = matchIndex; i >= 0; i--) {
+        const candidate = messages[i].uuid;
+        if (candidate && this.LINE_UUID_PATTERN.test(candidate)) {
+          this.logger.info(
+            '[SessionHistoryReader] Resolved upToMessageId to transcript line UUID',
+            {
+              sessionId,
+              upToMessageId,
+              resolvedId: candidate,
+              matchIndex,
+              resolvedIndex: i,
+            },
+          );
+          return candidate;
+        }
+      }
+    }
+
+    // Fallback: the anchor is a client-only optimistic id (`msg_<ts>_<rand>`)
+    // that was never persisted to the transcript — the common live-session
+    // case. Recover the real line UUID by matching the user prompt text the
+    // frontend supplied. Every user line in the transcript carries a UUID, so
+    // this resolves whenever the text is found.
+    if (hint?.text) {
+      const resolved = this.resolveAnchorByPromptText(messages, hint);
+      if (resolved) {
         this.logger.info(
-          '[SessionHistoryReader] Resolved non-native upToMessageId to nearest native UUID',
+          '[SessionHistoryReader] Resolved upToMessageId via prompt-text hint',
           {
             sessionId,
             upToMessageId,
-            resolvedId: candidate,
-            matchIndex,
-            resolvedIndex: i,
+            resolvedId: resolved,
+            occurrence: hint.occurrence ?? 0,
           },
         );
-        return candidate;
+        return resolved;
       }
     }
+
     throw new SdkError(
-      `upToMessageId '${upToMessageId}' found in session history at index ${matchIndex} ` +
-        `but no native SDK UUID exists at or before that position in session '${sessionId}'. ` +
-        'Fork is not supported at this checkpoint.',
+      `upToMessageId '${upToMessageId}' ${MESSAGE_ID_NOT_FOUND_PHRASE} for session '${sessionId}'. ` +
+        'The message may belong to a different session or the history may have been compacted.',
     );
+  }
+
+  /**
+   * Locate the transcript line UUID of the user prompt whose verbatim text
+   * matches {@link MessageAnchorHint.text}. Used to recover a fork/rewind
+   * anchor when the frontend supplied a client-only optimistic id that never
+   * reached the transcript. Sidechain (subagent) lines and tool_result-only
+   * user lines are excluded — the SDK fork matcher only accepts main-chain
+   * line UUIDs. Identical duplicate prompts are disambiguated by
+   * {@link MessageAnchorHint.occurrence}.
+   */
+  private resolveAnchorByPromptText(
+    messages: SessionHistoryMessage[],
+    hint: MessageAnchorHint,
+  ): string | null {
+    const target = hint.text.trim();
+    if (!target) return null;
+    const matches: string[] = [];
+    for (const msg of messages) {
+      if (msg.type !== 'user') continue;
+      if ((msg as { isSidechain?: boolean }).isSidechain) continue;
+      const uuid = msg.uuid;
+      if (!uuid || !this.LINE_UUID_PATTERN.test(uuid)) continue;
+      const content = msg.message?.content;
+      const isToolResultOnly =
+        Array.isArray(content) &&
+        content.every(
+          (block) => (block as { type?: string })?.type === 'tool_result',
+        );
+      if (isToolResultOnly) continue;
+      const text = this.eventFactory.extractTextContent(content).trim();
+      if (text && text === target) matches.push(uuid);
+    }
+    if (matches.length === 0) return null;
+    const occurrence = hint.occurrence ?? 0;
+    return matches[occurrence] ?? matches[matches.length - 1];
   }
 
   private async hydrateMissingPricing(

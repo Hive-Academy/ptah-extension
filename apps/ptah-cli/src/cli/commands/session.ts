@@ -43,13 +43,14 @@
 import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
-import { withEngine, SdkInitFailedError } from '../bootstrap/with-engine.js';
+import { withEngine, SdkInitFailedError } from '@ptah-extension/cli-engine';
+import type { ThothTierOption } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
-import { emitFatalError } from '../output/stderr-json.js';
+import { emitFatalError } from '@ptah-extension/cli-engine';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { PtahErrorCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import { ChatBridge } from '../session/chat-bridge.js';
 import { ApprovalBridge } from '../session/approval-bridge.js';
 import {
@@ -86,7 +87,11 @@ export interface SessionOptions {
   task?: string;
   /** For `start` — system prompt preset selection. */
   profile?: 'claude_code' | 'enhanced';
-  /** For `start --once` — single-turn mode. Currently informational. */
+  /**
+   * For `start --once` — force the auto-exit path after the first turn. A
+   * `start --task` run auto-exits regardless; `--once` only matters for a
+   * task-less `start` that would otherwise stay persistent.
+   */
   once?: boolean;
   /** For `rename --to <name>`. */
   to?: string;
@@ -98,6 +103,13 @@ export interface SessionOptions {
   scope?: string;
   /** Optional explicit cwd override (proxies `globals.cwd`). */
   cwd?: string;
+  /**
+   * Optional explicit Thoth tier override. When provided, `runStart` /
+   * `runResume` use it verbatim instead of deriving the tier from
+   * `once`/`task`. The `init` smoke-turn sets `'off'` so a setup command never
+   * opens the database.
+   */
+  thoth?: ThothTierOption;
 }
 
 export interface SessionStderrLike {
@@ -119,6 +131,13 @@ export interface SessionExecuteHooks {
   installSigint?: (handler: () => void) => () => void;
   /** Override the drain timeout (default 5_000 ms). */
   drainTimeoutMs?: number;
+  /**
+   * Override hook for tests — terminates the process on the one-shot exit
+   * path (`--once`, or `start --task`). Defaults to real `process.exit`.
+   * Tests pass a `jest.fn()` so the auto-exit path can be asserted without
+   * tearing down the worker.
+   */
+  exit?: (code: number) => void;
 }
 
 /** Persisted shape under `WORKSPACE_STATE_STORAGE` namespace `'sessions'`. */
@@ -148,6 +167,7 @@ export async function executeSessionStart(
     scope?: string;
     resumeId?: string;
     cwd?: string;
+    thoth?: ThothTierOption;
   },
   globals?: GlobalOptions,
   hooks: SessionExecuteHooks = {},
@@ -163,6 +183,7 @@ export async function executeSessionStart(
         task: opts.task,
         scope: opts.scope,
         cwd: opts.cwd,
+        thoth: opts.thoth,
       }
     : {
         subcommand: 'start',
@@ -171,6 +192,7 @@ export async function executeSessionStart(
         once: opts.once,
         scope: opts.scope,
         cwd: opts.cwd,
+        thoth: opts.thoth,
       };
   const effectiveGlobals: GlobalOptions = globals ?? {
     json: true,
@@ -280,57 +302,67 @@ async function runStart(
   const uuid = hooks.randomUUID ?? randomUUID;
   const tabId = uuid();
 
-  const exitCode = await engine(globals, { mode: 'full' }, async (ctx) => {
-    const workspaceProvider = ctx.container.resolve<IWorkspaceProvider>(
-      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
-    );
-    const storage = ctx.container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
-    );
-    const workspacePath =
-      workspaceProvider.getWorkspaceRoot() ?? globals.cwd ?? process.cwd();
-    const entry: PersistedSession = {
-      tabId,
-      createdAt: Date.now(),
-      workspacePath,
-    };
-    await persistSession(storage, entry);
+  const hasTask = typeof opts.task === 'string' && opts.task.trim().length > 0;
+  const thothTier: ThothTierOption =
+    opts.thoth ?? (opts.once === true || hasTask ? 'oneshot' : 'runtime');
 
-    await formatter.writeNotification('session.created', {
-      session_id: tabId,
-      tab_id: tabId,
-    });
-
-    return await runStreamingTurn({
-      ctx,
-      tabId,
-      formatter,
-      stderr,
-      hooks,
-      command: 'session.start',
-      task: opts.task,
-      rpcMethod: 'chat:start',
-      buildParams: () => ({
+  const exitCode = await engine(
+    globals,
+    { mode: 'full', thoth: thothTier },
+    async (ctx) => {
+      const workspaceProvider = ctx.container.resolve<IWorkspaceProvider>(
+        PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      );
+      const storage = ctx.container.resolve<IStateStorage>(
+        PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
+      );
+      const workspacePath =
+        workspaceProvider.getWorkspaceRoot() ?? globals.cwd ?? process.cwd();
+      const entry: PersistedSession = {
         tabId,
-        prompt: opts.task,
+        createdAt: Date.now(),
         workspacePath,
-        options: opts.profile ? { preset: opts.profile } : undefined,
-      }),
-      requireTask: false,
-      onSessionResolved: async (sdkSessionId) => {
-        const current = loadPersistedSession(storage, tabId);
-        if (current) {
-          await persistSession(storage, { ...current, sdkSessionId });
-        }
-        await formatter.writeNotification('session.id_resolved', {
-          tab_id: tabId,
-          session_id: sdkSessionId,
-        });
-      },
-    });
-  });
+      };
+      await persistSession(storage, entry);
 
-  if (opts.once === true) {
+      await formatter.writeNotification('session.created', {
+        session_id: tabId,
+        tab_id: tabId,
+      });
+
+      return await runStreamingTurn({
+        ctx,
+        tabId,
+        formatter,
+        stderr,
+        hooks,
+        command: 'session.start',
+        task: opts.task,
+        rpcMethod: 'chat:start',
+        buildParams: () => ({
+          tabId,
+          prompt: opts.task,
+          workspacePath,
+          options: opts.profile ? { preset: opts.profile } : undefined,
+        }),
+        requireTask: false,
+        onSessionResolved: async (sdkSessionId) => {
+          const current = loadPersistedSession(storage, tabId);
+          if (current) {
+            await persistSession(storage, { ...current, sdkSessionId });
+          }
+          await formatter.writeNotification('session.id_resolved', {
+            tab_id: tabId,
+            session_id: sdkSessionId,
+          });
+        },
+      });
+    },
+  );
+
+  const shouldAutoExit = opts.once === true || hasTask;
+
+  if (shouldAutoExit) {
     await formatter.close();
 
     const drainTimeoutMs = hooks.drainTimeoutMs ?? 5_000;
@@ -354,7 +386,12 @@ async function runStart(
         clearTimeout(timeoutHandle);
       }
     }
-    process.exit(exitCode);
+    const exit =
+      hooks.exit ??
+      ((code: number): void => {
+        process.exit(code);
+      });
+    exit(exitCode);
   }
 
   return exitCode;
@@ -374,7 +411,11 @@ async function runResume(
   }
   const id = opts.id;
 
-  return engine(globals, { mode: 'full' }, async (ctx) => {
+  const hasTask = typeof opts.task === 'string' && opts.task.trim().length > 0;
+  const thothTier: ThothTierOption =
+    opts.thoth ?? (hasTask ? 'oneshot' : 'off');
+
+  return engine(globals, { mode: 'full', thoth: thothTier }, async (ctx) => {
     const workspaceProvider = ctx.container.resolve<IWorkspaceProvider>(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );

@@ -66,7 +66,6 @@ The wizard's suggestions are a starting point, not a prescription. Nothing gener
 Ptah scans your `PATH` and common install locations for installed CLI agents and registers the ones it finds:
 
 - **GitHub Copilot CLI**
-- **Gemini CLI**
 - **OpenAI Codex CLI**
 - **Claude CLI**
 - **ptah-cli** (the bundled CLI that ships with the desktop app)

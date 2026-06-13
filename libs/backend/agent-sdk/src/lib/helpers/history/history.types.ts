@@ -63,6 +63,8 @@ export interface SessionHistoryMessage extends Omit<JSONLMessage, 'message'> {
   /** Message with role field - actual JSONL format */
   readonly message?: {
     readonly role?: string;
+    /** Anthropic API message id (e.g. 'msg_01...') — present on assistant messages */
+    readonly id?: string;
     /** Model identifier from Claude API response (e.g., 'claude-sonnet-4-20250514') */
     readonly model?: string;
     readonly content?: readonly ContentBlock[] | string;

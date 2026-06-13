@@ -3,10 +3,13 @@ import {
   ChangeDetectionStrategy,
   inject,
   OnInit,
-  computed,
 } from '@angular/core';
 import { LucideAngularModule, ChartColumn } from 'lucide-angular';
-import { SessionAnalyticsStateService } from '../../services/session-analytics-state.service';
+import {
+  SessionAnalyticsStateService,
+  SessionDateRange,
+  SESSION_DATE_RANGE_OPTIONS,
+} from '../../services/session-analytics-state.service';
 import { MetricsCardsComponent } from '../session-analytics/metrics-cards.component';
 import { SessionStatsCardComponent } from '../session-analytics/session-stats-card.component';
 
@@ -22,7 +25,7 @@ import { SessionStatsCardComponent } from '../session-analytics/session-stats-ca
  *
  * Composition:
  * - Aggregate `MetricsCardsComponent` (top summary row)
- * - Display count toggle (5 / 10 sessions)
+ * - Date-range filter (1 day / 2 days / 3 days / 1 week)
  * - Per-session `SessionStatsCardComponent` grid
  *
  * Data flow:
@@ -46,15 +49,14 @@ export class AnalyticsCardComponent implements OnInit {
   private readonly analyticsState = inject(SessionAnalyticsStateService);
 
   readonly ChartColumnIcon = ChartColumn;
+  readonly dateRangeOptions = SESSION_DATE_RANGE_OPTIONS;
 
   readonly isLoading = this.analyticsState.isLoading;
   readonly loadError = this.analyticsState.loadError;
   readonly displayedSessions = this.analyticsState.displayedSessions;
   readonly aggregates = this.analyticsState.aggregates;
-  readonly displayCount = this.analyticsState.displayCount;
-  readonly allSessionCount = computed(
-    () => this.analyticsState.allSessions().length,
-  );
+  readonly dateRange = this.analyticsState.dateRange;
+  readonly totalSessionCount = this.analyticsState.totalSessionCount;
 
   ngOnInit(): void {
     this.analyticsState.loadDashboardData();
@@ -64,7 +66,7 @@ export class AnalyticsCardComponent implements OnInit {
     this.analyticsState.loadDashboardData();
   }
 
-  setDisplayCount(count: 5 | 10): void {
-    this.analyticsState.setDisplayCount(count);
+  setDateRange(range: SessionDateRange): void {
+    this.analyticsState.setDateRange(range);
   }
 }

@@ -14,6 +14,7 @@ export type MemoryCuratorEventKind =
   | 'tool-failure'
   | 'rate-limited'
   | 'error'
+  | 'curator-error'
   | 'embedder-download';
 
 export type EmbedderDownloadPhaseWire =
@@ -75,6 +76,8 @@ export interface MemoryTriggersDto {
     readonly enabled: boolean;
   };
   readonly maxCuratesPerHour?: number;
+  readonly curatorProvider?: string;
+  readonly curatorModel?: string;
 }
 
 export interface SkillTriggersDto {
@@ -82,6 +85,9 @@ export interface SkillTriggersDto {
   readonly idleMs: number;
   readonly bootScan: boolean;
   readonly subagentStop?: {
+    readonly enabled: boolean;
+  };
+  readonly turnComplete?: {
     readonly enabled: boolean;
   };
   readonly postToolUse?: {
@@ -100,6 +106,7 @@ export interface MemoryDbHealthDto {
   readonly code_symbols_vec: number;
   readonly coherent: boolean;
   readonly mismatches: readonly string[];
+  readonly countErrors?: readonly string[];
 }
 
 export interface EligibilityHistogramDto {

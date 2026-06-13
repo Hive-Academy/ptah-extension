@@ -13,6 +13,8 @@ export const GATEWAY_TOKENS = {
   GATEWAY_TOKEN_VAULT: Symbol.for('PtahGatewayTokenVault'),
   /** BindingStore — gateway_bindings persistence. */
   GATEWAY_BINDING_STORE: Symbol.for('PtahGatewayBindingStore'),
+  /** ConversationStore — gateway_conversations persistence. */
+  GATEWAY_CONVERSATION_STORE: Symbol.for('PtahGatewayConversationStore'),
   /** MessageStore — gateway_messages persistence. */
   GATEWAY_MESSAGE_STORE: Symbol.for('PtahGatewayMessageStore'),
   /** StreamCoalescer factory. */

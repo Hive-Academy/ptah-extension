@@ -3,7 +3,7 @@
  *
  * Async agent orchestration via CLI agents. Provides spawn, status, read,
  * steer, stop, list, waitFor methods for managing headless CLI agents
- * (Gemini, Codex) as background workers.
+ * (Codex, Copilot) as background workers.
  *
  * Pattern: libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/orchestration-namespace.builder.ts
  */

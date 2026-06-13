@@ -6,15 +6,16 @@ import {
   effect,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Brain, LucideAngularModule } from 'lucide-angular';
 
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import {
   WorkspaceIndexingComponent,
   WorkspaceIndexingService,
 } from '@ptah-extension/workspace-indexing';
-import type { MemoryWire } from '@ptah-extension/shared';
 
 import {
   MemoryStateService,
@@ -26,9 +27,22 @@ import { MemoryRpcService } from '../services/memory-rpc.service';
 import { MemoryDiagnosticsAccordionComponent } from './diagnostics/memory-diagnostics-accordion.component';
 import { TimelineViewComponent } from './timeline-view.component';
 import { CorpusListComponent } from './corpus-list.component';
+import { MemoryIndexingBannerComponent } from './memory-indexing-banner.component';
+import { MemoryStatsStripComponent } from './memory-stats-strip.component';
+import { MemorySearchBarComponent } from './memory-search-bar.component';
+import { MemoryEntryListComponent } from './memory-entry-list.component';
+import { MemoryIndexedCodeComponent } from './memory-indexed-code.component';
+import {
+  MemoryDangerZoneComponent,
+  type MemoryPurgeRequest,
+} from './memory-danger-zone.component';
 
-/** Sub-view selector inside the Memory tab. */
-export type MemoryTabView = 'list' | 'timeline' | 'corpus';
+export type MemoryTabView =
+  | 'memories'
+  | 'timeline'
+  | 'corpus'
+  | 'code'
+  | 'maintenance';
 
 interface ViewChip {
   readonly id: MemoryTabView;
@@ -37,286 +51,72 @@ interface ViewChip {
 
 const SEARCH_DEBOUNCE_MS = 300;
 
-interface TierChip {
-  readonly id: MemoryTierFilter;
-  readonly label: string;
-}
-
-/**
- * MemoryCuratorTabComponent
- *
- * Memory tab content for the Thoth hub. Renders four logical sections:
- *
- * 1. Search input + tier filter chips (debounced search at {@link SEARCH_DEBOUNCE_MS} ms).
- * 2. Stats panel with core / recall / archival counts (from `memory:stats` with
- *    a fallback to client-side totals derived from the loaded entries).
- * 3. Entry list with per-row pin / unpin / forget actions.
- * 4. Settings panel: read-only display of the current memory.* file-based
- *    settings (those settings are edited via the Settings view, not here).
- *
- * All RPC calls are routed through {@link MemoryStateService}, which in turn
- * delegates to {@link import('../services/memory-rpc.service').MemoryRpcService}.
- */
 @Component({
   selector: 'ptah-memory-curator-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule,
+    LucideAngularModule,
     WorkspaceIndexingComponent,
     MemoryDiagnosticsAccordionComponent,
     TimelineViewComponent,
     CorpusListComponent,
+    MemoryIndexingBannerComponent,
+    MemoryStatsStripComponent,
+    MemorySearchBarComponent,
+    MemoryEntryListComponent,
+    MemoryIndexedCodeComponent,
+    MemoryDangerZoneComponent,
   ],
   template: `
     @if (!isElectron()) {
-      <div role="alert" class="alert alert-info">
-        <span class="text-sm">
-          Memory curation is only available in the Ptah desktop app.
-          <a
-            class="link link-primary ml-1"
-            href="https://github.com/HiveAcademy/ptah-extension/releases"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Download Ptah desktop</a
-          >.
-        </span>
+      <div
+        class="flex flex-col items-center gap-2 px-6 py-16 text-center"
+        role="status"
+      >
+        <lucide-angular
+          [img]="BrainIcon"
+          class="size-8 text-base-content/30"
+          aria-hidden="true"
+        />
+        <p class="text-sm font-medium">Memory lives in the desktop app</p>
+        <p class="text-xs text-base-content/60">
+          Memory curation needs the local index and runs only in Ptah desktop.
+        </p>
+        <a
+          class="btn btn-sm btn-primary mt-1"
+          href="https://github.com/HiveAcademy/ptah-extension/releases"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Download Ptah desktop</a
+        >
       </div>
     } @else {
-      <div class="flex h-full w-full flex-col gap-4">
-        <nav
-          role="tablist"
-          aria-label="Memory tab view"
-          class="join self-start"
-        >
-          @for (chip of viewChips; track chip.id) {
-            <button
-              type="button"
-              role="tab"
-              class="join-item btn btn-sm"
-              [class.btn-primary]="view() === chip.id"
-              [attr.aria-selected]="view() === chip.id"
-              (click)="onViewChange(chip.id)"
+      <div class="space-y-6">
+        <header class="flex flex-wrap items-start justify-between gap-3">
+          <div class="flex items-start gap-3">
+            <span
+              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-content/10 bg-base-200/60 text-primary"
             >
-              {{ chip.label }}
-            </button>
-          }
-        </nav>
-
-        @if (view() === 'timeline') {
-          <ptah-timeline-view />
-        } @else if (view() === 'corpus') {
-          <ptah-corpus-list />
-        } @else {
-          @let banner = indexingUiState();
-          @switch (banner.kind) {
-            @case ('never-indexed') {
-              <div
-                class="alert alert-warning shadow-sm"
-                role="status"
-                data-testid="memory-banner-never-indexed"
-              >
-                <div class="flex flex-1 flex-col gap-1">
-                  <span class="text-sm font-semibold">
-                    Your workspace isn't indexed yet
-                  </span>
-                  <span class="text-xs">
-                    Memory search and code navigation need a local index. Click
-                    <strong>Index now</strong> to build one. Files are read on
-                    your machine; nothing is uploaded.
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-primary"
-                  [disabled]="!hasWorkspace() || indexingBusy()"
-                  (click)="onIndexNow()"
-                  aria-label="Index workspace now"
-                >
-                  @if (indexingBusy()) {
-                    <span class="loading loading-spinner loading-xs"></span>
-                  }
-                  Index now
-                </button>
-              </div>
-            }
-            @case ('code-only-no-memory') {
-              <div
-                class="alert alert-info shadow-sm"
-                role="status"
-                data-testid="memory-banner-code-only"
-              >
-                <div class="flex flex-1 flex-col gap-1">
-                  <span class="text-sm font-semibold">
-                    Code index ready — chat to populate memory
-                  </span>
-                  <span class="text-xs">
-                    Your codebase is indexed for symbol search ({{
-                      banner.codeSymbolCount
-                    }}
-                    symbols). Memory entries will appear here after your next
-                    qualifying conversation (5+ turns).
-                  </span>
-                </div>
-              </div>
-            }
-            @case ('indexing') {
-              <div
-                class="alert shadow-sm"
-                role="status"
-                data-testid="memory-banner-indexing"
-              >
-                <div class="flex flex-1 flex-col gap-1">
-                  <span class="text-sm font-semibold">
-                    Indexing workspace… {{ banner.percent }}%
-                  </span>
-                  @if (banner.totalKnown) {
-                    <progress
-                      class="progress progress-primary w-full h-1.5"
-                      [value]="banner.percent"
-                      max="100"
-                    ></progress>
-                  } @else {
-                    <progress
-                      class="progress progress-primary w-full h-1.5"
-                    ></progress>
-                  }
-                </div>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-ghost"
-                  (click)="onCancelIndex()"
-                  aria-label="Cancel indexing"
-                >
-                  Cancel
-                </button>
-              </div>
-            }
-            @case ('paused') {
-              <div
-                class="alert alert-warning shadow-sm"
-                role="status"
-                data-testid="memory-banner-paused"
-              >
-                <span class="text-sm flex-1">
-                  Indexing paused at {{ banner.percent }}%.
-                </span>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-primary"
-                  (click)="onResumeIndex()"
-                >
-                  Resume
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-ghost"
-                  (click)="onCancelIndex()"
-                >
-                  Cancel
-                </button>
-              </div>
-            }
-            @case ('stale') {
-              <div
-                class="alert alert-warning shadow-sm"
-                role="status"
-                data-testid="memory-banner-stale"
-              >
-                <span class="text-sm flex-1">
-                  Workspace changed since last index — re-index to keep memory
-                  search accurate.
-                </span>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-primary"
-                  (click)="onIndexNow()"
-                >
-                  Re-index
-                </button>
-              </div>
-            }
-            @case ('error') {
-              <div
-                class="alert alert-error shadow-sm"
-                role="status"
-                data-testid="memory-banner-error"
-              >
-                <span class="text-sm flex-1">
-                  Indexing failed: {{ banner.message }}
-                </span>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-primary"
-                  (click)="onIndexNow()"
-                >
-                  Try again
-                </button>
-              </div>
-            }
-          }
-
-          <!-- Workspace scope toggle -->
-          <div
-            class="join mb-2"
-            role="tablist"
-            aria-label="Memory workspace scope"
-          >
-            <button
-              type="button"
-              role="tab"
-              class="join-item btn btn-sm"
-              [class.btn-primary]="scopeFilter() === 'workspace'"
-              [attr.aria-selected]="scopeFilter() === 'workspace'"
-              (click)="onScopeFilterChange('workspace')"
-            >
-              This workspace
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="join-item btn btn-sm"
-              [class.btn-primary]="scopeFilter() === 'all'"
-              [attr.aria-selected]="scopeFilter() === 'all'"
-              (click)="onScopeFilterChange('all')"
-            >
-              All workspaces
-            </button>
-          </div>
-
-          <!-- Search + tier filter -->
-          <div class="flex flex-col gap-2 md:flex-row md:items-center">
-            <input
-              type="search"
-              class="input input-sm input-bordered w-full md:max-w-md"
-              placeholder="Search memory (BM25 + vector hybrid)..."
-              [value]="searchInput()"
-              (input)="onSearchInput($event)"
-              aria-label="Search memory entries"
-            />
-            <div
-              role="tablist"
-              aria-label="Memory tier filter"
-              class="flex flex-wrap gap-1"
-            >
-              @for (chip of tierChips; track chip.id) {
-                <button
-                  type="button"
-                  role="tab"
-                  class="btn btn-xs"
-                  [class.btn-primary]="tierFilter() === chip.id"
-                  [class.btn-ghost]="tierFilter() !== chip.id"
-                  [attr.aria-selected]="tierFilter() === chip.id"
-                  (click)="onTierChipClick(chip.id)"
-                >
-                  {{ chip.label }}
-                </button>
-              }
+              <lucide-angular
+                [img]="BrainIcon"
+                class="w-5 h-5"
+                aria-hidden="true"
+              />
+            </span>
+            <div>
+              <h1 class="text-xl font-semibold tracking-tight">Memory</h1>
+              <p class="mt-0.5 text-sm text-base-content/60">
+                Facts, events, and code Thoth has learned across sessions.
+              </p>
             </div>
-            <div class="flex gap-1 ml-auto">
+          </div>
+          @if (view() === 'code') {
+            <div class="flex items-center gap-2">
               <button
                 type="button"
-                class="btn btn-sm btn-outline"
+                class="btn btn-sm btn-ghost"
                 [disabled]="purgingJunk() || !hasWorkspace()"
                 [attr.title]="
                   !hasWorkspace()
@@ -333,7 +133,7 @@ interface TierChip {
               </button>
               <button
                 type="button"
-                class="btn btn-sm btn-outline"
+                class="btn btn-sm btn-ghost"
                 [disabled]="loading()"
                 (click)="onRebuildIndex()"
               >
@@ -343,378 +143,133 @@ interface TierChip {
                 Rebuild index
               </button>
             </div>
-          </div>
-
-          @if (error()) {
-            <div role="alert" class="alert alert-error">
-              <span class="text-sm">{{ error() }}</span>
-            </div>
           }
+        </header>
 
-          <!-- Purge by pattern toolbar -->
-          <section
-            class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-200/40 p-3 md:flex-row md:items-center"
-            aria-label="Purge memory entries by subject pattern"
-          >
-            <div class="flex flex-1 flex-col gap-1">
-              <label
-                for="memory-purge-pattern"
-                class="text-xs uppercase text-base-content/60"
-              >
-                Purge by subject pattern
-              </label>
-              <input
-                id="memory-purge-pattern"
-                type="text"
-                class="input input-sm input-bordered w-full"
-                placeholder="e.g. preferences  (substring)  or  alice@%  (like)"
-                [value]="purgePattern()"
-                (input)="onPurgePatternInput($event)"
-                [disabled]="purging()"
-                aria-label="Pattern to match against memory subject"
-              />
-            </div>
-            <div class="flex flex-col gap-1">
-              <label
-                for="memory-purge-mode"
-                class="text-xs uppercase text-base-content/60"
-              >
-                Mode
-              </label>
-              <select
-                id="memory-purge-mode"
-                class="select select-sm select-bordered"
-                [value]="purgeMode()"
-                (change)="onPurgeModeChange($event)"
-                [disabled]="purging()"
-                aria-label="Pattern match mode"
-              >
-                <option value="substring">substring</option>
-                <option value="like">like</option>
-              </select>
-            </div>
+        <ptah-memory-stats-strip
+          [counts]="statCounts()"
+          [lastCuratedLabel]="lastCuratedAtLabel()"
+        />
+
+        <nav
+          role="tablist"
+          aria-label="Memory views"
+          class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
+        >
+          @for (chip of viewChips; track chip.id) {
             <button
               type="button"
-              class="btn btn-sm btn-error md:self-end"
-              [disabled]="purgeDisabled()"
-              [attr.title]="
-                !hasWorkspace() ? 'Open a workspace to purge memory.' : null
-              "
-              (click)="onPurge()"
+              role="tab"
+              class="tab"
+              [class.tab-active]="view() === chip.id"
+              [attr.aria-selected]="view() === chip.id"
+              (click)="onViewChange(chip.id)"
             >
-              @if (purging()) {
-                <span class="loading loading-spinner loading-xs"></span>
-              }
-              Purge
+              {{ chip.label }}
             </button>
-          </section>
-
-          @if (!hasWorkspace()) {
-            <p class="text-xs text-base-content/60">
-              Open a workspace to purge memory.
-            </p>
           }
-          @if (scopeFilter() === 'all') {
-            <p class="text-xs text-warning mt-1">
-              Switch to 'This workspace' to purge.
-              <button
-                type="button"
-                class="btn btn-xs btn-link p-0"
-                (click)="onScopeFilterChange('workspace')"
+        </nav>
+
+        @switch (view()) {
+          @case ('timeline') {
+            <div class="space-y-4">
+              <ptah-timeline-view />
+            </div>
+          }
+          @case ('corpus') {
+            <div class="space-y-4">
+              <ptah-corpus-list />
+            </div>
+          }
+          @case ('code') {
+            <div class="space-y-6">
+              <ptah-memory-indexed-code
+                [searchValue]="symbolInput()"
+                [items]="state.symbolItems()"
+                [total]="state.symbolTotal()"
+                [loading]="state.symbolLoading()"
+                [error]="state.symbolError()"
+                [offset]="state.symbolOffset()"
+                [prevDisabled]="symbolPrevDisabled()"
+                [nextDisabled]="symbolNextDisabled()"
+                [workspaceRoot]="workspaceRoot()"
+                (searchInput)="onSymbolSearchInput($event)"
+                (reload)="onSymbolReload()"
+                (prev)="onSymbolPrev()"
+                (next)="onSymbolNext()"
+              />
+
+              <section class="space-y-2">
+                <h2 class="text-sm font-medium text-base-content/80">
+                  Advanced indexing
+                </h2>
+                <ptah-workspace-indexing />
+              </section>
+            </div>
+          }
+          @case ('maintenance') {
+            <div class="space-y-6">
+              <section
+                class="space-y-2"
+                data-testid="memory-diagnostics-details"
               >
-                Switch
-              </button>
-            </p>
-          }
-
-          @if (purgeError()) {
-            <div role="alert" class="alert alert-error">
-              <span class="text-sm">{{ purgeError() }}</span>
-            </div>
-          }
-          @if (purgeInfo()) {
-            <div role="status" class="alert alert-success">
-              <span class="text-sm">{{ purgeInfo() }}</span>
-            </div>
-          }
-
-          <!-- Stats panel -->
-          <section
-            class="grid grid-cols-2 gap-2 md:grid-cols-5"
-            aria-label="Memory tier statistics"
-          >
-            <div class="rounded-lg bg-base-200 p-3">
-              <div class="text-xs uppercase text-base-content/60">Core</div>
-              <div class="text-2xl font-semibold text-base-content">
-                {{ statCounts().core }}
-              </div>
-            </div>
-            <div class="rounded-lg bg-base-200 p-3">
-              <div class="text-xs uppercase text-base-content/60">Recall</div>
-              <div class="text-2xl font-semibold text-base-content">
-                {{ statCounts().recall }}
-              </div>
-            </div>
-            <div class="rounded-lg bg-base-200 p-3">
-              <div class="text-xs uppercase text-base-content/60">Archival</div>
-              <div class="text-2xl font-semibold text-base-content">
-                {{ statCounts().archival }}
-              </div>
-            </div>
-            <div
-              class="rounded-lg bg-base-200 p-3"
-              title="Indexed code symbols (functions, classes, methods) — shown separately from curated memory"
-            >
-              <div class="text-xs uppercase text-base-content/60">
-                Code index
-              </div>
-              <div class="text-2xl font-semibold text-base-content">
-                {{ statCounts().codeIndex }}
-              </div>
-            </div>
-            <div class="rounded-lg bg-base-200 p-3">
-              <div class="text-xs uppercase text-base-content/60">
-                Last curated
-              </div>
-              <div class="text-sm font-medium text-base-content">
-                {{ lastCuratedAtLabel() }}
-              </div>
-            </div>
-          </section>
-
-          <!-- Entry list -->
-          <section class="flex-1 overflow-auto" aria-label="Memory entries">
-            @if (loading() && filteredEntries().length === 0) {
-              <div class="flex items-center justify-center py-8">
-                <span class="loading loading-spinner loading-md"></span>
-              </div>
-            } @else if (filteredEntries().length === 0) {
-              <div
-                class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60"
-              >
-                No memory entries match the current filter.
-              </div>
-            } @else {
-              <ul class="flex flex-col gap-2">
-                @for (entry of filteredEntries(); track entry.id) {
-                  <li
-                    class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-100 p-3 md:flex-row md:items-start"
-                  >
-                    <div class="flex-1">
-                      <div class="flex flex-wrap items-center gap-2">
-                        <span
-                          class="badge badge-sm"
-                          [class]="tierBadgeClass(entry.tier)"
-                        >
-                          {{ entry.tier }}
-                        </span>
-                        <span class="badge badge-sm badge-ghost">
-                          {{ entry.kind }}
-                        </span>
-                        @if (entry.pinned) {
-                          <span class="badge badge-sm badge-warning"
-                            >pinned</span
-                          >
-                        }
-                        <span class="text-xs text-base-content/60">
-                          score {{ entry.salience.toFixed(2) }}
-                        </span>
-                      </div>
-                      @if (entry.subject) {
-                        <div class="mt-1 text-sm font-medium text-base-content">
-                          {{ entry.subject }}
-                        </div>
-                      }
-                      <div
-                        class="mt-1 line-clamp-3 text-sm text-base-content/80"
-                      >
-                        {{ entry.content }}
-                      </div>
-                    </div>
-                    <div class="flex shrink-0 gap-1">
-                      @if (entry.pinned) {
-                        <button
-                          type="button"
-                          class="btn btn-xs btn-ghost"
-                          (click)="onUnpin(entry.id)"
-                          [attr.aria-label]="'Unpin entry ' + entry.id"
-                        >
-                          Unpin
-                        </button>
-                      } @else {
-                        <button
-                          type="button"
-                          class="btn btn-xs btn-ghost"
-                          (click)="onPin(entry.id)"
-                          [attr.aria-label]="'Pin entry ' + entry.id"
-                        >
-                          Pin
-                        </button>
-                      }
-                      <button
-                        type="button"
-                        class="btn btn-xs btn-ghost text-error"
-                        (click)="onForget(entry.id)"
-                        [attr.aria-label]="'Forget entry ' + entry.id"
-                      >
-                        Forget
-                      </button>
-                    </div>
-                  </li>
-                }
-              </ul>
-            }
-          </section>
-
-          <details
-            class="rounded-md border border-base-300 bg-base-100"
-            [open]="diagnosticsOpen()"
-            (toggle)="onDiagnosticsToggle($event)"
-            data-testid="memory-diagnostics-details"
-          >
-            <summary
-              class="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-base-content/70 hover:bg-base-200"
-            >
-              Diagnostics
-            </summary>
-            <div class="border-t border-base-300">
-              @if (diagnosticsOpen()) {
+                <h2 class="text-sm font-medium text-base-content/80">
+                  Diagnostics
+                </h2>
                 <ptah-memory-diagnostics-accordion />
-              }
-            </div>
-          </details>
+              </section>
 
-          <details
-            class="rounded-md border border-base-300 bg-base-100"
-            [open]="advancedIndexingOpen()"
-            (toggle)="onAdvancedToggle($event)"
-          >
-            <summary
-              class="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-base-content/70 hover:bg-base-200"
-            >
-              Advanced indexing settings
-            </summary>
-            <div class="border-t border-base-300 p-2">
-              <ptah-workspace-indexing />
+              <ptah-memory-danger-zone
+                [purging]="purging()"
+                [error]="purgeError()"
+                [info]="purgeInfo()"
+                [hasWorkspace]="hasWorkspace()"
+                [scopeIsAll]="scopeFilter() === 'all'"
+                (purge)="onPurge($event)"
+                (inputChanged)="onPurgeInputChanged()"
+                (switchScope)="onScopeFilterChange('workspace')"
+              />
             </div>
-          </details>
+          }
+          @default {
+            <div class="space-y-4">
+              <ptah-memory-indexing-banner
+                [state]="indexingUiState()"
+                [hasWorkspace]="hasWorkspace()"
+                [busy]="indexingBusy()"
+                (indexNow)="onIndexNow()"
+                (resumeIndex)="onResumeIndex()"
+                (cancelIndex)="onCancelIndex()"
+              />
 
-          <details
-            class="rounded-md border border-base-300 bg-base-100"
-            [open]="indexedCodeOpen()"
-            (toggle)="onIndexedCodeToggle($event)"
-            data-testid="memory-indexed-code-details"
-          >
-            <summary
-              class="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-base-content/70 hover:bg-base-200"
-            >
-              Indexed code
-            </summary>
-            <div class="border-t border-base-300 p-3 flex flex-col gap-2">
-              <div class="flex flex-col gap-2 md:flex-row md:items-center">
-                <input
-                  type="search"
-                  class="input input-sm input-bordered w-full md:max-w-md"
-                  placeholder="Search indexed symbols..."
-                  [value]="symbolInput()"
-                  (input)="onSymbolSearchInput($event)"
-                  aria-label="Search indexed code symbols"
-                />
+              <ptah-memory-search-bar
+                [searchValue]="searchInput()"
+                [tier]="tierFilter()"
+                [scope]="scopeFilter()"
+                (searchInput)="onSearchInput($event)"
+                (tierChange)="onTierChipClick($event)"
+                (scopeChange)="onScopeFilterChange($event)"
+              />
+
+              @if (error()) {
                 <div
-                  class="flex items-center gap-2 ml-auto text-xs text-base-content/70"
+                  class="rounded-xl border border-error/40 bg-error/5 px-4 py-3"
+                  role="alert"
                 >
-                  <span data-testid="symbol-total"
-                    >{{ state.symbolTotal() }} symbols</span
-                  >
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-ghost"
-                    [disabled]="state.symbolLoading()"
-                    (click)="onSymbolReload()"
-                    aria-label="Reload symbol list"
-                  >
-                    @if (state.symbolLoading()) {
-                      <span class="loading loading-spinner loading-xs"></span>
-                    }
-                    Re-load
-                  </button>
-                </div>
-              </div>
-
-              @if (state.symbolError()) {
-                <div role="alert" class="alert alert-error">
-                  <span class="text-sm">{{ state.symbolError() }}</span>
+                  <span class="text-sm text-error">{{ error() }}</span>
                 </div>
               }
 
-              @if (state.symbolLoading() && state.symbolItems().length === 0) {
-                <div class="flex items-center justify-center py-6">
-                  <span class="loading loading-spinner loading-md"></span>
-                </div>
-              } @else if (state.symbolItems().length === 0) {
-                <div
-                  class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60"
-                >
-                  No indexed code symbols match the current search.
-                </div>
-              } @else {
-                <ul class="flex flex-col gap-1">
-                  @for (sym of state.symbolItems(); track sym.id) {
-                    <li
-                      class="flex flex-col gap-1 rounded-md border border-base-300 bg-base-100 p-2 md:flex-row md:items-center md:gap-3"
-                    >
-                      <span class="font-mono text-sm text-base-content">
-                        {{ sym.symbolName }}
-                      </span>
-                      <span class="badge badge-sm badge-ghost">{{
-                        sym.kind
-                      }}</span>
-                      <span
-                        class="flex-1 truncate text-xs text-base-content/60"
-                        [attr.title]="sym.filePath"
-                      >
-                        {{ symbolRelativePath(sym.filePath) }}
-                      </span>
-                      <span class="badge badge-sm badge-outline">
-                        {{ sym.tokenCount }} tok
-                      </span>
-                    </li>
-                  }
-                </ul>
-              }
-
-              <div
-                class="flex items-center justify-between pt-1 text-xs text-base-content/70"
-              >
-                <span>
-                  {{ state.symbolOffset() + 1 }}–{{
-                    state.symbolOffset() + state.symbolItems().length
-                  }}
-                  of {{ state.symbolTotal() }}
-                </span>
-                <div class="flex gap-1">
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-ghost"
-                    [disabled]="symbolPrevDisabled() || state.symbolLoading()"
-                    (click)="onSymbolPrev()"
-                    aria-label="Previous symbol page"
-                  >
-                    Prev
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-ghost"
-                    [disabled]="symbolNextDisabled() || state.symbolLoading()"
-                    (click)="onSymbolNext()"
-                    aria-label="Next symbol page"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
+              <ptah-memory-entry-list
+                class="mt-1 block"
+                [entries]="filteredEntries()"
+                [loading]="loading()"
+                (pin)="onPin($event)"
+                (unpin)="onUnpin($event)"
+                (forget)="onForget($event)"
+              />
             </div>
-          </details>
+          }
         }
       </div>
     }
@@ -727,63 +282,42 @@ export class MemoryCuratorTabComponent implements OnInit {
   private readonly rpcService = inject(MemoryRpcService);
   private readonly indexingService = inject(WorkspaceIndexingService);
 
+  private readonly dangerZone = viewChild(MemoryDangerZoneComponent);
+
+  protected readonly BrainIcon = Brain;
+
   protected readonly indexingUiState = this.indexingService.uiState;
   protected readonly indexingBusy = computed(() => {
     const kind = this.indexingUiState().kind;
     return kind === 'indexing' || kind === 'loading';
   });
-  private readonly _advancedIndexingOpen = signal<boolean>(false);
-  protected readonly advancedIndexingOpen =
-    this._advancedIndexingOpen.asReadonly();
-  private readonly _diagnosticsOpen = signal<boolean>(false);
-  protected readonly diagnosticsOpen = this._diagnosticsOpen.asReadonly();
   protected readonly purgingJunk = signal<boolean>(false);
 
-  /** Whether the webview is running inside the Electron desktop app. */
   public readonly isElectron = computed(
     () => this.vscodeService.config()?.isElectron === true,
   );
 
-  protected readonly tierChips: readonly TierChip[] = [
-    { id: 'all', label: 'All' },
-    { id: 'core', label: 'Core' },
-    { id: 'recall', label: 'Recall' },
-    { id: 'archival', label: 'Archival' },
-  ];
-
   protected readonly viewChips: readonly ViewChip[] = [
-    { id: 'list', label: 'List' },
+    { id: 'memories', label: 'Memories' },
     { id: 'timeline', label: 'Timeline' },
     { id: 'corpus', label: 'Corpus' },
+    { id: 'code', label: 'Code index' },
+    { id: 'maintenance', label: 'Maintenance' },
   ];
 
-  private readonly _view = signal<MemoryTabView>('list');
+  private readonly _view = signal<MemoryTabView>('memories');
   public readonly view = this._view.asReadonly();
 
-  /** Local mirror of the search input — debounced into `state.search()`. */
   protected readonly searchInput = signal<string>('');
 
-  /** Pattern entered into the purge toolbar input. */
-  protected readonly purgePattern = signal<string>('');
-  /** Match mode for the purge pattern (substring → escaped LIKE, like → raw). */
-  protected readonly purgeMode = signal<'substring' | 'like'>('substring');
-  /** Whether a purge RPC is in flight (disables the button + input). */
   protected readonly purging = signal<boolean>(false);
-  /** Error message from the most recent purge RPC, surfaced inline. */
   protected readonly purgeError = signal<string | null>(null);
-  /** Info message after a successful purge (e.g. "Deleted 4 entries."). */
   protected readonly purgeInfo = signal<string | null>(null);
-  /** True when a workspace is currently open (path is non-empty). */
   protected readonly hasWorkspace = computed(() =>
     Boolean(this.appState.workspaceInfo()?.path),
   );
-  /** Combined disabled signal for the Purge button. */
-  protected readonly purgeDisabled = computed(
-    () =>
-      !this.purgePattern().trim() ||
-      this.purging() ||
-      !this.hasWorkspace() ||
-      this.scopeFilter() === 'all',
+  protected readonly workspaceRoot = computed(
+    () => this.appState.workspaceInfo()?.path ?? '',
   );
   protected readonly tierFilter = this.state.tierFilter;
   protected readonly scopeFilter = this.state.scopeFilter;
@@ -791,10 +325,6 @@ export class MemoryCuratorTabComponent implements OnInit {
   protected readonly loading = this.state.loading;
   protected readonly error = this.state.error;
 
-  /**
-   * Counts shown in the stats panel — prefers the authoritative
-   * `memory:stats` payload, falls back to client-side totals.
-   */
   protected readonly statCounts = computed(() => {
     const remote = this.state.stats();
     if (remote) {
@@ -827,8 +357,6 @@ export class MemoryCuratorTabComponent implements OnInit {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private symbolDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   protected readonly symbolInput = signal<string>('');
-  protected readonly _indexedCodeOpen = signal<boolean>(false);
-  protected readonly indexedCodeOpen = this._indexedCodeOpen.asReadonly();
   protected readonly symbolPrevDisabled = computed(
     () => this.state.symbolOffset() === 0,
   );
@@ -872,20 +400,6 @@ export class MemoryCuratorTabComponent implements OnInit {
     const root = this.appState.workspaceInfo()?.path;
     if (root) {
       void this.indexingService.loadStatus(root).catch(() => undefined);
-    }
-  }
-
-  protected onAdvancedToggle(event: Event): void {
-    const target = event.target as HTMLDetailsElement | null;
-    if (target) {
-      this._advancedIndexingOpen.set(target.open);
-    }
-  }
-
-  protected onDiagnosticsToggle(event: Event): void {
-    const target = event.target as HTMLDetailsElement | null;
-    if (target) {
-      this._diagnosticsOpen.set(target.open);
     }
   }
 
@@ -936,8 +450,7 @@ export class MemoryCuratorTabComponent implements OnInit {
     }
   }
 
-  protected onSearchInput(event: Event): void {
-    const value = (event.target as HTMLInputElement).value;
+  protected onSearchInput(value: string): void {
     this.searchInput.set(value);
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer);
@@ -976,31 +489,16 @@ export class MemoryCuratorTabComponent implements OnInit {
     void this.state.rebuildIndex();
   }
 
-  protected onPurgePatternInput(event: Event): void {
-    this.purgePattern.set((event.target as HTMLInputElement).value);
+  protected onPurgeInputChanged(): void {
     this.purgeInfo.set(null);
     this.purgeError.set(null);
   }
 
-  protected onPurgeModeChange(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
-    if (value === 'substring' || value === 'like') {
-      this.purgeMode.set(value);
-    }
-    this.purgeInfo.set(null);
-    this.purgeError.set(null);
-  }
-
-  /**
-   * Purge memory entries whose subject matches the entered pattern. Requires
-   * user confirmation via `window.confirm` and refreshes the list + stats on
-   * success. Errors are surfaced through the shared `state.error` signal.
-   */
-  protected onPurge(): void {
+  protected onPurge(request: MemoryPurgeRequest): void {
     if (this.purging()) return;
-    const pattern = this.purgePattern().trim();
+    const pattern = request.pattern.trim();
     if (pattern === '') return;
-    const mode = this.purgeMode();
+    const mode = request.mode;
     const workspaceRoot = this.appState.workspaceInfo()?.path ?? null;
 
     if (!workspaceRoot) {
@@ -1030,7 +528,7 @@ export class MemoryCuratorTabComponent implements OnInit {
         mode,
         workspaceRoot,
       );
-      this.purgePattern.set('');
+      this.dangerZone()?.clearPattern();
       this.purgeInfo.set(
         `Deleted ${result.deleted} ${result.deleted === 1 ? 'entry' : 'entries'}.`,
       );
@@ -1047,15 +545,7 @@ export class MemoryCuratorTabComponent implements OnInit {
     }
   }
 
-  protected onIndexedCodeToggle(event: Event): void {
-    const target = event.target as HTMLDetailsElement | null;
-    if (target) {
-      this._indexedCodeOpen.set(target.open);
-    }
-  }
-
-  protected onSymbolSearchInput(event: Event): void {
-    const value = (event.target as HTMLInputElement).value;
+  protected onSymbolSearchInput(value: string): void {
     this.symbolInput.set(value);
     if (this.symbolDebounceTimer !== null) {
       clearTimeout(this.symbolDebounceTimer);
@@ -1083,30 +573,5 @@ export class MemoryCuratorTabComponent implements OnInit {
       this.state.symbolOffset() + this.state.symbolLimit(),
     );
     void this.state.loadSymbols();
-  }
-
-  protected symbolRelativePath(filePath: string): string {
-    const root = this.appState.workspaceInfo()?.path ?? '';
-    if (root.length === 0) return filePath;
-    const normalizedRoot = root.replace(/\\/g, '/');
-    const normalizedPath = filePath.replace(/\\/g, '/');
-    if (
-      normalizedPath === normalizedRoot ||
-      normalizedPath.startsWith(normalizedRoot + '/')
-    ) {
-      return normalizedPath.slice(normalizedRoot.length + 1);
-    }
-    return filePath;
-  }
-
-  protected tierBadgeClass(tier: MemoryWire['tier']): string {
-    switch (tier) {
-      case 'core':
-        return 'badge-primary';
-      case 'recall':
-        return 'badge-info';
-      case 'archival':
-        return 'badge-neutral';
-    }
   }
 }

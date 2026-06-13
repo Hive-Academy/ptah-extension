@@ -195,12 +195,12 @@ describe('PtahFileSettingsManager', () => {
 
     it('preserves array values across the flatten/unflatten cycle', async () => {
       const writer = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
-      await writer.set('agentOrchestration.disabledClis', ['gemini', 'codex']);
+      await writer.set('agentOrchestration.disabledClis', ['codex', 'copilot']);
 
       const reader = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
       expect(reader.get<string[]>('agentOrchestration.disabledClis')).toEqual([
-        'gemini',
         'codex',
+        'copilot',
       ]);
     });
 

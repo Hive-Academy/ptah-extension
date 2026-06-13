@@ -179,8 +179,11 @@ export class ChatStore {
     return this.sessionLoader.loadMoreSessions();
   }
 
-  async switchSession(sessionId: SessionId): Promise<void> {
-    return this.sessionLoader.switchSession(sessionId);
+  async switchSession(
+    sessionId: SessionId,
+    opts?: { reason?: 'compaction'; activate?: boolean },
+  ): Promise<void> {
+    return this.sessionLoader.switchSession(sessionId, opts);
   }
 
   removeSessionFromList(sessionId: SessionId): void {
@@ -267,16 +270,6 @@ export class ChatStore {
    */
   handleSubagentEndedNotification(payload: SdkSubagentEndedPayload): void {
     this.turnEndHandler.handleSubagentEnded(payload);
-  }
-
-  /**
-   * Public accessor for marking a tab idle from external handlers.
-   * Used by ChatMessageHandler for CHAT_COMPLETE fallback. Only removes the
-   * visual streaming indicator â€” full state reset is handled by
-   * finalizeCurrentMessage / handleError / handleCompaction.
-   */
-  markTabIdle(tabId: string): void {
-    this.tabManager.markTabIdle(tabId);
   }
 
   findTabBySessionId(sessionId: string): TabState | null {

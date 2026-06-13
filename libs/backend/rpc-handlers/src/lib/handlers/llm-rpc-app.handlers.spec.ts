@@ -57,9 +57,11 @@ import {
   createMockConfigManager,
   createMockRpcHandler,
   createMockSentryService,
+  createMockAuthSecretsService,
   type MockConfigManager,
   type MockRpcHandler,
   type MockSentryService,
+  type MockAuthSecretsService,
 } from '@ptah-extension/vscode-core/testing';
 import {
   PLATFORM_TOKENS,
@@ -120,6 +122,7 @@ interface Harness {
   secretStorage: MockSecretStorage;
   modelDiscovery: MockModelDiscovery;
   configManager: MockConfigManager;
+  authSecrets: MockAuthSecretsService;
   sentry: MockSentryService;
 }
 
@@ -127,6 +130,8 @@ function makeHarness(
   opts: {
     configSeed?: Record<string, unknown>;
     secretSeed?: Record<string, string>;
+    authCredentials?: Partial<Record<'apiKey', string>>;
+    authProviderKeys?: Record<string, string>;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -134,6 +139,10 @@ function makeHarness(
   const secretStorage = createMockSecretStorage({ seed: opts.secretSeed });
   const modelDiscovery = createMockModelDiscovery();
   const configManager = createMockConfigManager({ values: opts.configSeed });
+  const authSecrets = createMockAuthSecretsService({
+    credentials: opts.authCredentials,
+    providerKeys: opts.authProviderKeys,
+  });
   const sentry = createMockSentryService();
   const container = createMockContainer({
     secretStorage,
@@ -150,6 +159,7 @@ function makeHarness(
       typeof LlmRpcHandlers
     >[4],
     configManager as unknown as ConstructorParameters<typeof LlmRpcHandlers>[5],
+    authSecrets as unknown as ConstructorParameters<typeof LlmRpcHandlers>[6],
   );
 
   return {
@@ -160,6 +170,7 @@ function makeHarness(
     secretStorage,
     modelDiscovery,
     configManager,
+    authSecrets,
     sentry,
   };
 }
@@ -267,6 +278,34 @@ describe('LlmRpcHandlers', () => {
       expect(openrouter?.isDefault).toBe(true);
     });
 
+    it('reports hasApiKey=true for anthropic when only the SDK slot is populated', async () => {
+      const h = makeHarness({
+        authCredentials: { apiKey: `sk-ant-${'a'.repeat(25)}` },
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        providers: Array<{ name: string; hasApiKey: boolean }>;
+      }>(h, 'llm:getProviderStatus');
+
+      const anthropic = result.providers.find((p) => p.name === 'anthropic');
+      expect(anthropic?.hasApiKey).toBe(true);
+    });
+
+    it('reports hasApiKey=true for a third-party provider via the SDK provider slot', async () => {
+      const h = makeHarness({
+        authProviderKeys: { openrouter: `sk-or-${'b'.repeat(25)}` },
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        providers: Array<{ name: string; hasApiKey: boolean }>;
+      }>(h, 'llm:getProviderStatus');
+
+      const openrouter = result.providers.find((p) => p.name === 'openrouter');
+      expect(openrouter?.hasApiKey).toBe(true);
+    });
+
     it('defaults to anthropic when config has no defaultProvider set', async () => {
       const h = makeHarness();
       h.handlers.register();
@@ -314,41 +353,100 @@ describe('LlmRpcHandlers', () => {
       expect(h.secretStorage.store).not.toHaveBeenCalled();
     });
 
-    it('stores the key and mutates process.env for known providers', async () => {
+    it('rejects a malformed key without writing to any slot', async () => {
       const h = makeHarness();
       h.handlers.register();
 
-      const result = await call<{ success: boolean }>(h, 'llm:setApiKey', {
+      const result = await call<{
+        success: boolean;
+        verified?: boolean;
+        error?: string;
+      }>(h, 'llm:setApiKey', {
         provider: 'anthropic',
-        apiKey: 'sk-ant-fresh',
+        apiKey: 'sk-ant-tooshort',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.verified).toBe(false);
+      expect(result.error).toMatch(/sk-ant-/);
+      expect(h.secretStorage.store).not.toHaveBeenCalled();
+      expect(h.authSecrets.setCredential).not.toHaveBeenCalled();
+    });
+
+    it('stores the key, mutates process.env, AND populates the SDK-read slot for anthropic', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const key = `sk-ant-${'a'.repeat(25)}`;
+      const result = await call<{ success: boolean; verified?: boolean }>(
+        h,
+        'llm:setApiKey',
+        { provider: 'anthropic', apiKey: key },
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.verified).toBe(true);
+      expect(h.secretStorage.store).toHaveBeenCalledWith(
+        'ptah.apiKey.anthropic',
+        key,
+      );
+      expect(process.env['ANTHROPIC_API_KEY']).toBe(key);
+      // SDK-read slot (AuthSecretsService) + active auth method persisted.
+      expect(h.authSecrets.setCredential).toHaveBeenCalledWith('apiKey', key);
+      expect(h.configManager.set).toHaveBeenCalledWith('authMethod', 'apiKey');
+    });
+
+    it('writes the per-provider SDK slot + thirdParty method for third-party providers', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const key = `sk-or-${'b'.repeat(25)}`;
+      const result = await call<{ success: boolean }>(h, 'llm:setApiKey', {
+        provider: 'openrouter',
+        apiKey: key,
       });
 
       expect(result.success).toBe(true);
       expect(h.secretStorage.store).toHaveBeenCalledWith(
-        'ptah.apiKey.anthropic',
-        'sk-ant-fresh',
+        'ptah.apiKey.openrouter',
+        key,
       );
-      expect(process.env['ANTHROPIC_API_KEY']).toBe('sk-ant-fresh');
+      expect(h.authSecrets.setProviderKey).toHaveBeenCalledWith(
+        'openrouter',
+        key,
+      );
+      expect(h.authSecrets.setCredential).not.toHaveBeenCalled();
+      expect(h.configManager.set).toHaveBeenCalledWith(
+        'authMethod',
+        'thirdParty',
+      );
+      expect(h.configManager.set).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        'openrouter',
+      );
     });
 
     it('stores the key without env mutation for unknown providers', async () => {
       const h = makeHarness();
       h.handlers.register();
 
+      const key = 'custom-key-abcdefghij';
       const result = await call<{ success: boolean }>(h, 'llm:setApiKey', {
         provider: 'custom',
-        apiKey: 'sk-custom',
+        apiKey: key,
       });
 
       expect(result.success).toBe(true);
       expect(h.secretStorage.store).toHaveBeenCalledWith(
         'ptah.apiKey.custom',
-        'sk-custom',
+        key,
       );
       // Unknown providers have no env var entry → no env mutation.
       expect(process.env['ANTHROPIC_API_KEY']).toBe(
         envSnapshot['ANTHROPIC_API_KEY'],
       );
+      // Unknown providers route to the per-provider SDK slot (thirdParty path).
+      expect(h.authSecrets.setProviderKey).toHaveBeenCalledWith('custom', key);
     });
 
     it('never logs the raw apiKey (security)', async () => {
@@ -357,7 +455,7 @@ describe('LlmRpcHandlers', () => {
 
       await call(h, 'llm:setApiKey', {
         provider: 'anthropic',
-        apiKey: 'sk-ant-SECRET-VALUE',
+        apiKey: `sk-ant-${'SECRETVALUE'.repeat(2)}`,
       });
 
       const allLogArgs = [
@@ -365,7 +463,7 @@ describe('LlmRpcHandlers', () => {
         ...h.logger.info.mock.calls,
       ].flat();
       for (const arg of allLogArgs) {
-        expect(JSON.stringify(arg)).not.toContain('SECRET-VALUE');
+        expect(JSON.stringify(arg)).not.toContain('SECRETVALUE');
       }
     });
   });
@@ -401,6 +499,8 @@ describe('LlmRpcHandlers', () => {
         'ptah.apiKey.anthropic',
       );
       expect(process.env['ANTHROPIC_API_KEY']).toBeUndefined();
+      // Also clears the SDK-read slot so removal is honored at session start.
+      expect(h.authSecrets.deleteCredential).toHaveBeenCalledWith('apiKey');
     });
 
     it('captures storage failures to Sentry and returns structured error', async () => {

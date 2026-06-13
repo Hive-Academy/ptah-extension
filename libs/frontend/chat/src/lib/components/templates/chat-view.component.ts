@@ -69,7 +69,7 @@ import {
   ExecutionChatMessage,
   SessionId,
 } from '@ptah-extension/shared';
-import type { SubagentRecord } from '@ptah-extension/shared';
+import type { SubagentRecord, MessageAnchorHint } from '@ptah-extension/shared';
 
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 
@@ -883,7 +883,7 @@ export class ChatViewComponent {
    * This prevents creating a new session when the tab is in streaming status.
    */
   handleResumeAgent(agent: SubagentRecord): void {
-    const prompt = `Resume the interrupted ${agent.agentType} agent (agentId: ${agent.agentId}) using the Task tool with resume parameter set to "${agent.agentId}".`;
+    const prompt = `Resume agent ${agent.agentId} (the interrupted ${agent.agentType} agent) and have it continue its previous work from where it was interrupted.`;
     const tabId = this._sessionContext?.() ?? undefined;
     this.chatStore.sendOrQueueMessage(prompt, { tabId });
     this.chatStore.removeResumableSubagent(agent.toolCallId);
@@ -902,14 +902,62 @@ export class ChatViewComponent {
     }
 
     const agentList = agents
-      .map((a) => `- ${a.agentType} (agentId: ${a.agentId})`)
+      .map((a) => `- Resume agent ${a.agentId} (${a.agentType})`)
       .join('\n');
-    const prompt = `Resume all ${agents.length} interrupted agents using the Task tool with resume parameter for each:\n${agentList}`;
+    const prompt = `Resume all ${agents.length} interrupted agents and have each continue its previous work from where it was interrupted:\n${agentList}`;
     const tabId = this._sessionContext?.() ?? undefined;
     this.chatStore.sendOrQueueMessage(prompt, { tabId });
     for (const agent of agents) {
       this.chatStore.removeResumableSubagent(agent.toolCallId);
     }
+  }
+
+  /**
+   * Build the fork/rewind anchor hint for a clicked message.
+   *
+   * A live user bubble carries a client-only optimistic id that was never
+   * written to the session transcript, so the backend cannot map it to the
+   * SDK line UUID that `forkSession`/`rewindFiles` require. The hint lets the
+   * backend recover that UUID by matching the prompt's verbatim text.
+   * `occurrence` disambiguates identical repeated prompts (e.g. two "commit"
+   * messages) by counting how many earlier user messages share the same text.
+   *
+   * Returns `undefined` for non-user messages or empty text — history-loaded
+   * messages already carry the real UUID as their id, so the hint is unused.
+   */
+  /**
+   * Resolve the fork/rewind anchor for a clicked message to the SDK's real
+   * transcript line UUID. A live user bubble renders under an optimistic
+   * client-only id, but `StreamingHandlerService` stamps the real uuid (from
+   * the SDK user `message_start`) onto `nativeUuid` during the turn. Prefer
+   * that; fall back to the message id (already the real uuid for
+   * history-loaded messages). This is the documented checkpoint/fork id — no
+   * reconstruction needed.
+   */
+  private resolveAnchorId(messageId: string): string {
+    const message = this.resolvedMessages().find((m) => m.id === messageId);
+    return message?.nativeUuid ?? messageId;
+  }
+
+  private buildAnchorHint(messageId: string): MessageAnchorHint | undefined {
+    const messages = this.resolvedMessages();
+    const index = messages.findIndex((m) => m.id === messageId);
+    if (index === -1) return undefined;
+    const message = messages[index];
+    if (message.role !== 'user') return undefined;
+    const text = (message.rawContent ?? '').trim();
+    if (!text) return undefined;
+    let occurrence = 0;
+    for (let i = 0; i < index; i++) {
+      const earlier = messages[i];
+      if (
+        earlier.role === 'user' &&
+        (earlier.rawContent ?? '').trim() === text
+      ) {
+        occurrence++;
+      }
+    }
+    return { text, occurrence };
   }
 
   /**
@@ -931,8 +979,10 @@ export class ChatViewComponent {
     try {
       const result = await this._claudeRpc.forkSession(
         sessionId,
-        messageId,
+        this.resolveAnchorId(messageId),
         undefined,
+        undefined,
+        this.buildAnchorHint(messageId),
       );
 
       if (result.isSuccess()) {
@@ -988,10 +1038,13 @@ export class ChatViewComponent {
     sessionId: SessionId,
     messageId: string,
   ): Promise<void> {
+    const anchorId = this.resolveAnchorId(messageId);
+    const anchorHint = this.buildAnchorHint(messageId);
     const dryRun = await this._claudeRpc.rewindFiles(
       sessionId,
-      messageId,
+      anchorId,
       true,
+      anchorHint,
     );
 
     if (!dryRun.isSuccess()) {
@@ -1022,8 +1075,8 @@ export class ChatViewComponent {
           (files.length > 10 ? `\n…and ${files.length - 10} more` : '');
 
     const header = checkpointsLost
-      ? 'A new session will be forked from this message.'
-      : `${files.length} file(s) will be reverted (${ins} insertions, ${del} deletions removed). A new session will be forked from this message.`;
+      ? 'The conversation will be rewound to this message in place.'
+      : `${files.length} file(s) will be reverted (${ins} insertions, ${del} deletions removed). The conversation will be rewound to this message in place.`;
 
     const dialogResult = await this._confirmDialog.confirmWithCheckboxes({
       title: 'Rewind to this message?',
@@ -1051,8 +1104,9 @@ export class ChatViewComponent {
     } else {
       const commit = await this._claudeRpc.rewindFiles(
         sessionId,
-        messageId,
+        anchorId,
         false,
+        anchorHint,
       );
       if (!commit.isSuccess()) {
         const errMsg = commit.error ?? 'unknown error';
@@ -1070,9 +1124,10 @@ export class ChatViewComponent {
 
     const forkResult = await this._claudeRpc.forkSession(
       sessionId,
-      messageId,
+      anchorId,
       undefined,
       'rewind',
+      anchorHint,
     );
 
     if (!forkResult.isSuccess()) {
@@ -1089,31 +1144,36 @@ export class ChatViewComponent {
     }
 
     const newSessionId = forkResult.data.newSessionId;
-    let swapFailed = false;
 
-    if (this._appState.layoutMode() === 'grid') {
-      const adopted = await this._appState.requestCanvasSession(
+    // The SDK forked to a NEW session id (it has no in-place conversation
+    // rewind — `Query` only exposes `rewindFiles`). Make that fork transparent:
+    // keep the SAME tab/canvas tile and swap the session it points at, instead
+    // of opening a second tab/tile and leaving the original behind. Then load
+    // the truncated transcript and activate the forked session so it is live
+    // and ready for the next turn.
+    const originTab = this._tabManager.findTabBySessionId(sessionId);
+    const originName =
+      originTab?.name ?? this._tabManager.activeTab()?.name ?? 'Session';
+    const replacementTitle = `${originName} (rewind)`;
+    const targetTabId = originTab?.id ?? this._tabManager.activeTabId();
+
+    let swapFailed = false;
+    if (targetTabId) {
+      this._tabManager.rebindTabSession(
+        targetTabId,
         newSessionId,
-        'Rewind',
+        replacementTitle,
       );
-      if (!adopted) {
-        swapFailed = true;
-        this.showActionError(
-          'Rewind canvas tile could not be opened (tile cap reached or canvas not mounted).',
-        );
-      }
-    } else {
-      this._tabManager.openSessionTab(newSessionId, 'Rewind');
-      try {
-        await this.chatStore.switchSession(newSessionId);
-      } catch (err: unknown) {
-        swapFailed = true;
-        this.showActionError(
-          `Rewind tab opened, but loading history failed: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
+    }
+    try {
+      await this.chatStore.switchSession(newSessionId, { activate: true });
+    } catch (err: unknown) {
+      swapFailed = true;
+      this.showActionError(
+        `Rewind loaded the forked session, but activating it failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
 
     let deleteSuffix: string | null = null;
@@ -1131,7 +1191,7 @@ export class ChatViewComponent {
 
     if (swapFailed) return;
 
-    const baseMsg = 'Rewind complete — switched to new session';
+    const baseMsg = 'Rewind complete — conversation rewound to this message';
     const suffixes = [rollbackSuffix, deleteSuffix].filter(
       (s): s is string => s !== null,
     );

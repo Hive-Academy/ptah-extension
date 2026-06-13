@@ -13,13 +13,17 @@ import * as agentCliCmd from './commands/agent-cli.js';
 import * as analyzeCmd from './commands/analyze.js';
 import * as authCmd from './commands/auth.js';
 import * as configCmd from './commands/config.js';
+import * as cronCmd from './commands/cron.js';
 import * as doctorCmd from './commands/doctor.js';
 import * as executeSpecCmd from './commands/execute-spec.js';
+import * as gatewayCmd from './commands/gateway.js';
 import * as gitCmd from './commands/git.js';
 import * as harnessCmd from './commands/harness.js';
+import * as initCmd from './commands/init.js';
 import * as interactCmd from './commands/interact.js';
 import * as licenseCmd from './commands/license.js';
 import * as mcpCmd from './commands/mcp.js';
+import * as memoryCmd from './commands/memory.js';
 import * as mcpServeCmd from './commands/mcp-serve.js';
 import * as pluginCmd from './commands/plugin.js';
 import * as promptsCmd from './commands/prompts.js';
@@ -31,6 +35,8 @@ import * as sessionCmd from './commands/session.js';
 import * as settingsCmd from './commands/settings.js';
 import * as setupCmd from './commands/setup.js';
 import * as skillCmd from './commands/skill.js';
+import * as skillSynthesisCmd from './commands/skill-synthesis.js';
+import * as tuiCmd from './commands/tui.js';
 import * as websearchCmd from './commands/websearch.js';
 import * as wizardCmd from './commands/wizard.js';
 import * as workspaceCmd from './commands/workspace.js';
@@ -137,6 +143,15 @@ function collectCsv(raw: string): string[] {
 }
 
 /**
+ * Commander value coercer for boolean flags that take an explicit value
+ * (`--enabled true|false`). Accepts `true|1|yes|on` (case-insensitive) as
+ * truthy; everything else is false. Used by `cron create|update|toggle`.
+ */
+function parseBoolFlag(raw: string): boolean {
+  return ['true', '1', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
+
+/**
  * Build the root commander program with every subcommand wired to its stub
  * handler. The caller is responsible for invoking `parseAsync(argv)`.
  */
@@ -186,6 +201,21 @@ export function buildRouter(): Command {
       'show sensitive values verbatim (config list only)',
       false,
     );
+
+  // -- ptah init -------------------------------------------------------------
+  // Interactive first-run setup wizard (clack) when stdout is an interactive
+  // TTY and --json was not requested. In machine mode (default / non-TTY /
+  // --json / --quiet) it never prompts — it emits a structured `init.plan`
+  // with the discrete commands an agent should run to finish setup.
+  program
+    .command('init')
+    .description(
+      'interactive first-run setup (license, provider, credentials, verify). In machine mode emits a non-interactive init.plan.',
+    )
+    .action(async () => {
+      const exit = await initCmd.execute({}, resolveGlobals(program));
+      process.exitCode = exit;
+    });
 
   // -- ptah config -----------------------------------------------------------
   const config = program
@@ -595,13 +625,13 @@ export function buildRouter(): Command {
     });
 
   // -- ptah agent-cli --------------------------------------------------------
-  // Allowlist enforced — only `glm` and `gemini` are accepted for `--cli`;
+  // Allowlist enforced — only `glm` is accepted for `--cli`;
   // rejection emits ptah_code: cli_agent_unavailable and exits 3
   // (AuthRequired). NEVER bypassable via env vars.
   const agentCli = program
     .command('agent-cli')
     .description(
-      'manage CLI agents (detect / config / models / stop / resume) — allowlist: glm, gemini',
+      'manage CLI agents (detect / config / models / stop / resume) — allowlist: glm',
     );
 
   agentCli
@@ -652,9 +682,9 @@ export function buildRouter(): Command {
   agentCliModels
     .command('list')
     .description(
-      'emit agent_cli.models via agent:listCliModels (--cli optional; only glm/gemini accepted)',
+      'emit agent_cli.models via agent:listCliModels (--cli optional; only glm accepted)',
     )
-    .option('--cli <id>', 'scope to a single allowlisted CLI (glm|gemini)')
+    .option('--cli <id>', 'scope to a single allowlisted CLI (glm)')
     .action(async (opts: { cli?: string }) => {
       const exit = await agentCliCmd.execute(
         { subcommand: 'models-list', cli: opts.cli },
@@ -666,9 +696,9 @@ export function buildRouter(): Command {
   agentCli
     .command('stop <id>')
     .description(
-      'stop a running CLI agent via agent:stop (--cli required; only glm/gemini accepted)',
+      'stop a running CLI agent via agent:stop (--cli required; only glm accepted)',
     )
-    .requiredOption('--cli <id>', 'allowlisted CLI id (glm|gemini)')
+    .requiredOption('--cli <id>', 'allowlisted CLI id (glm)')
     .action(async (id: string, opts: { cli: string }) => {
       const exit = await agentCliCmd.execute(
         { subcommand: 'stop', agentId: id, cli: opts.cli },
@@ -680,9 +710,9 @@ export function buildRouter(): Command {
   agentCli
     .command('resume <id>')
     .description(
-      'resume a CLI agent session via agent:resumeCliSession (--cli required; only glm/gemini accepted)',
+      'resume a CLI agent session via agent:resumeCliSession (--cli required; only glm accepted)',
     )
-    .requiredOption('--cli <id>', 'allowlisted CLI id (glm|gemini)')
+    .requiredOption('--cli <id>', 'allowlisted CLI id (glm)')
     .option('--task <text>', 'free-form task prompt for the resumed session')
     .action(async (id: string, opts: { cli: string; task?: string }) => {
       const exit = await agentCliCmd.execute(
@@ -1291,7 +1321,7 @@ export function buildRouter(): Command {
     )
     .requiredOption(
       '--target <id>',
-      'install target (vscode|claude|cursor|gemini|copilot)',
+      'install target (vscode|claude|cursor|copilot)',
     )
     .action(async (name: string, opts: { target: string }) => {
       const exit = await mcpCmd.execute(
@@ -1308,7 +1338,7 @@ export function buildRouter(): Command {
     )
     .requiredOption(
       '--target <id>',
-      'install target (vscode|claude|cursor|gemini|copilot)',
+      'install target (vscode|claude|cursor|copilot)',
     )
     .action(async (key: string, opts: { target: string }) => {
       const exit = await mcpCmd.execute(
@@ -1903,7 +1933,7 @@ export function buildRouter(): Command {
   session
     .command('start')
     .description(
-      'start a new chat session — synthesizes a tabId, persists the entry, and (with --task) streams a turn',
+      'start a new chat session — synthesizes a tabId, persists the entry, and (with --task) streams a turn. With --task it runs a single turn and exits cleanly; without --task it opens a persistent session that stays running. For one-shot human use add --human (and optionally --once).',
     )
     .option('--profile <name>', 'system prompt preset (claude_code|enhanced)')
     .option('--task <text>', 'initial prompt — when given, streams the turn')
@@ -2261,10 +2291,23 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  // -- ptah tui --------------------------------------------------------------
+  program
+    .command('tui')
+    .description(
+      'launch the interactive Ptah terminal UI (requires a real TTY)',
+    )
+    .action(async () => {
+      const exit = await tuiCmd.execute({}, resolveGlobals(program));
+      process.exitCode = exit;
+    });
+
   // -- ptah interact ---------------------------------------------------------
   program
     .command('interact')
-    .description('persistent JSON-RPC 2.0 stdio session')
+    .description(
+      'persistent JSON-RPC 2.0 stdio session — BLOCKS reading newline-delimited requests from stdin until EOF (Ctrl-D) or SIGINT (Ctrl-C). For machine/A2A hosts. For a one-shot human run prefer `ptah session start --task "..." --once --human`.',
+    )
     .option('--session <id>', 'resume or create the session with this id')
     .option(
       '--proxy-start',
@@ -2327,6 +2370,548 @@ export function buildRouter(): Command {
     .action(async (opts: { allowTools?: string[] }) => {
       const exit = await mcpServeCmd.execute(
         opts.allowTools !== undefined ? { allowTools: opts.allowTools } : {},
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah memory -----------------------------------------------------------
+  // Backed by shared MemoryRpcHandlers over the `memory:*` namespace. Runs
+  // under the Thoth one-shot tier so the SQLite store opens + migrates for the
+  // duration of the command and exits cleanly. Read verbs attach a `degraded`
+  // field derived from db:health + embedder:status.
+  const memory = program
+    .command('memory')
+    .description(
+      'inspect and curate Memory Curator entries (list / search / get / stats / pin / unpin / forget)',
+    );
+
+  memory
+    .command('list')
+    .description('emit memory.list via memory:list')
+    .option('--tier <tier>', 'filter by tier (core|recall|archival)')
+    .option('--limit <n>', 'max entries to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .option('--offset <n>', 'page offset', (raw) => Number.parseInt(raw, 10))
+    .action(
+      async (opts: { tier?: string; limit?: number; offset?: number }) => {
+        const exit = await memoryCmd.execute(
+          {
+            subcommand: 'list',
+            tier: opts.tier,
+            limit: opts.limit,
+            offset: opts.offset,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  memory
+    .command('search <query>')
+    .description('hybrid BM25+vec search via memory:search')
+    .option('--top-k <n>', 'max hits to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .action(async (query: string, opts: { topK?: number }) => {
+      const exit = await memoryCmd.execute(
+        { subcommand: 'search', query, topK: opts.topK },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  memory
+    .command('get <id>')
+    .description('emit memory.entry (memory + chunks) via memory:get')
+    .action(async (id: string) => {
+      const exit = await memoryCmd.execute(
+        { subcommand: 'get', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  memory
+    .command('stats')
+    .description(
+      'emit memory.stats (per-tier counts + lastCuratedAt) via memory:stats',
+    )
+    .action(async () => {
+      const exit = await memoryCmd.execute(
+        { subcommand: 'stats' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  memory
+    .command('pin <id>')
+    .description('pin a memory via memory:pin and emit memory.pinned')
+    .action(async (id: string) => {
+      const exit = await memoryCmd.execute(
+        { subcommand: 'pin', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  memory
+    .command('unpin <id>')
+    .description('unpin a memory via memory:unpin and emit memory.pinned')
+    .action(async (id: string) => {
+      const exit = await memoryCmd.execute(
+        { subcommand: 'unpin', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  memory
+    .command('forget <id>')
+    .description('delete a memory via memory:forget and emit memory.forgotten')
+    .action(async (id: string) => {
+      const exit = await memoryCmd.execute(
+        { subcommand: 'forget', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah cron -------------------------------------------------------------
+  // Backed by shared CronRpcHandlers over the `cron:*` namespace. Runs under
+  // the Thoth one-shot tier — store-backed verbs only; the scheduler loop
+  // itself runs in the long-running `runtime` tier (ptah interact / session).
+  const cron = program
+    .command('cron')
+    .description(
+      'manage scheduled jobs (list / get / create / update / delete / toggle / run-now / runs / next-fire)',
+    );
+
+  cron
+    .command('list')
+    .description('emit cron.list via cron:list')
+    .option('--enabled-only', 'only include enabled jobs', false)
+    .action(async (opts: { enabledOnly?: boolean }) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'list', enabledOnly: opts.enabledOnly === true },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  cron
+    .command('get <id>')
+    .description('emit cron.job via cron:get')
+    .action(async (id: string) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'get', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  cron
+    .command('create')
+    .description('create a scheduled job via cron:create and emit cron.created')
+    .requiredOption('--name <name>', 'job name')
+    .requiredOption('--cron-expr <expr>', 'cron expression (e.g. "0 9 * * *")')
+    .requiredOption('--prompt <text>', 'prompt to run on each fire')
+    .option('--timezone <tz>', 'IANA timezone (defaults to backend default)')
+    .option('--workspace-root <dir>', 'workspace root scope for the job')
+    .option('--enabled <bool>', 'initial enabled state', parseBoolFlag)
+    .action(
+      async (opts: {
+        name: string;
+        cronExpr: string;
+        prompt: string;
+        timezone?: string;
+        workspaceRoot?: string;
+        enabled?: boolean;
+      }) => {
+        const exit = await cronCmd.execute(
+          {
+            subcommand: 'create',
+            name: opts.name,
+            cronExpr: opts.cronExpr,
+            prompt: opts.prompt,
+            timezone: opts.timezone,
+            workspaceRoot: opts.workspaceRoot,
+            enabled: opts.enabled,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  cron
+    .command('update <id>')
+    .description(
+      'patch a scheduled job via cron:update (any subset of fields) and emit cron.updated',
+    )
+    .option('--name <name>', 'new job name')
+    .option('--cron-expr <expr>', 'new cron expression')
+    .option('--prompt <text>', 'new prompt')
+    .option('--timezone <tz>', 'new IANA timezone')
+    .option('--workspace-root <dir>', 'new workspace root scope')
+    .option('--enabled <bool>', 'new enabled state', parseBoolFlag)
+    .action(
+      async (
+        id: string,
+        opts: {
+          name?: string;
+          cronExpr?: string;
+          prompt?: string;
+          timezone?: string;
+          workspaceRoot?: string;
+          enabled?: boolean;
+        },
+      ) => {
+        const exit = await cronCmd.execute(
+          {
+            subcommand: 'update',
+            id,
+            name: opts.name,
+            cronExpr: opts.cronExpr,
+            prompt: opts.prompt,
+            timezone: opts.timezone,
+            workspaceRoot: opts.workspaceRoot,
+            enabled: opts.enabled,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  cron
+    .command('delete <id>')
+    .description('delete a scheduled job via cron:delete and emit cron.deleted')
+    .action(async (id: string) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'delete', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  cron
+    .command('toggle <id>')
+    .description('enable/disable a job via cron:toggle and emit cron.toggled')
+    .requiredOption(
+      '--enabled <bool>',
+      'enabled state (true|false)',
+      parseBoolFlag,
+    )
+    .action(async (id: string, opts: { enabled: boolean }) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'toggle', id, enabled: opts.enabled },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  cron
+    .command('run-now <id>')
+    .description('trigger an immediate run via cron:runNow and emit cron.run')
+    .action(async (id: string) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'run-now', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  cron
+    .command('runs <id>')
+    .description('emit cron.runs (run history) via cron:runs')
+    .option('--limit <n>', 'max runs to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .option('--offset <n>', 'page offset', (raw) => Number.parseInt(raw, 10))
+    .action(async (id: string, opts: { limit?: number; offset?: number }) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'runs', id, limit: opts.limit, offset: opts.offset },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  cron
+    .command('next-fire <id>')
+    .description(
+      'emit cron.next_fire (next scheduled timestamp) via cron:nextFire',
+    )
+    .action(async (id: string) => {
+      const exit = await cronCmd.execute(
+        { subcommand: 'next-fire', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah gateway ----------------------------------------------------------
+  // Backed by shared GatewayRpcHandlers over the `gateway:*` namespace. Runs
+  // under the Thoth one-shot tier — store-backed verbs only. Adapters serve
+  // live only in the long-running `runtime` tier (ptah interact / session /
+  // Ptah desktop), so `start` emits an honest adaptersLive:false notice rather
+  // than faking adapter liveness. `set-token` reads the secret from stdin or a
+  // masked prompt — never argv.
+  const gateway = program
+    .command('gateway')
+    .description(
+      'manage the messaging gateway (status / start / stop / set-token / bindings / approve / block / messages / test)',
+    );
+
+  gateway
+    .command('status')
+    .description('emit gateway.status via gateway:status')
+    .action(async () => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'status' },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('start')
+    .description(
+      'persist enabled flags via gateway:start (one-shot — emits adaptersLive:false notice; adapters run only in long-running hosts)',
+    )
+    .option(
+      '--platform <id>',
+      'scope to a single platform (telegram|discord|slack)',
+    )
+    .action(async (opts: { platform?: string }) => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'start', platform: opts.platform },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('stop')
+    .description(
+      'clear enabled flags via gateway:stop and emit gateway.stopped',
+    )
+    .option(
+      '--platform <id>',
+      'scope to a single platform (telegram|discord|slack)',
+    )
+    .action(async (opts: { platform?: string }) => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'stop', platform: opts.platform },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('set-token <platform>')
+    .description(
+      'store a bot token via gateway:setToken — the secret is read from stdin (--stdin, machine-mode default) or a masked prompt under --human; NEVER from argv. Slack: pipe the bot token then the app token on a second line.',
+    )
+    .option(
+      '--stdin',
+      'read the token from stdin (default in machine mode)',
+      false,
+    )
+    .action(async (platform: string, opts: { stdin?: boolean }) => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'set-token', platform, stdin: opts.stdin === true },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('bindings')
+    .description('emit gateway.bindings via gateway:listBindings')
+    .option('--platform <id>', 'filter by platform (telegram|discord|slack)')
+    .option(
+      '--status <status>',
+      'filter by approval status (pending|approved|rejected|revoked)',
+    )
+    .action(async (opts: { platform?: string; status?: string }) => {
+      const exit = await gatewayCmd.execute(
+        {
+          subcommand: 'bindings',
+          filterPlatform: opts.platform,
+          status: opts.status,
+        },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('approve <bindingId>')
+    .description(
+      'approve a pending binding via gateway:approveBinding (--code is the 6-digit pairing code the bot sent the user)',
+    )
+    .requiredOption('--code <code>', 'pairing code from the bot message')
+    .action(async (bindingId: string, opts: { code: string }) => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'approve', bindingId, code: opts.code },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('block <bindingId>')
+    .description(
+      'block a binding via gateway:blockBinding and emit gateway.binding_blocked',
+    )
+    .option(
+      '--status <status>',
+      'terminal state (rejected|revoked; defaults to rejected)',
+    )
+    .action(async (bindingId: string, opts: { status?: string }) => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'block', bindingId, blockStatus: opts.status },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  gateway
+    .command('messages')
+    .description('emit gateway.messages via gateway:listMessages')
+    .requiredOption('--binding-id <id>', 'binding id to read messages for')
+    .option('--limit <n>', 'max messages to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .option(
+      '--before <ts>',
+      'cursor: only messages with createdAt < ts',
+      (raw) => Number.parseInt(raw, 10),
+    )
+    .action(
+      async (opts: { bindingId: string; limit?: number; before?: number }) => {
+        const exit = await gatewayCmd.execute(
+          {
+            subcommand: 'messages',
+            bindingId: opts.bindingId,
+            limit: opts.limit,
+            before: opts.before,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
+
+  gateway
+    .command('test <platform>')
+    .description('issue a delivery test via gateway:test and emit gateway.test')
+    .option(
+      '--binding-id <id>',
+      'binding override (defaults to first approved)',
+    )
+    .action(async (platform: string, opts: { bindingId?: string }) => {
+      const exit = await gatewayCmd.execute(
+        { subcommand: 'test', platform, testBindingId: opts.bindingId },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  // -- ptah skill-synthesis --------------------------------------------------
+  // Backed by shared SkillSynthesisRpcHandlers over the `skillSynthesis:*`
+  // namespace. Sibling of `ptah skill` (skills.sh packs), which is untouched.
+  // Runs under the Thoth one-shot tier — store-backed candidate operations.
+  const skillSynthesis = program
+    .command('skill-synthesis')
+    .description(
+      'inspect synthesized-skill candidates (list / get / promote / reject / invocations / stats)',
+    );
+
+  skillSynthesis
+    .command('list')
+    .description('emit skill_synthesis.list via skillSynthesis:listCandidates')
+    .option(
+      '--status <status>',
+      'filter by status (candidate|promoted|rejected|all)',
+    )
+    .option('--limit <n>', 'max candidates to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .action(async (opts: { status?: string; limit?: number }) => {
+      const exit = await skillSynthesisCmd.execute(
+        { subcommand: 'list', status: opts.status, limit: opts.limit },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skillSynthesis
+    .command('get <id>')
+    .description(
+      'emit skill_synthesis.candidate via skillSynthesis:getCandidate',
+    )
+    .action(async (id: string) => {
+      const exit = await skillSynthesisCmd.execute(
+        { subcommand: 'get', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skillSynthesis
+    .command('promote <id>')
+    .description(
+      'promote a candidate via skillSynthesis:promote and emit skill_synthesis.promoted',
+    )
+    .action(async (id: string) => {
+      const exit = await skillSynthesisCmd.execute(
+        { subcommand: 'promote', id },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skillSynthesis
+    .command('reject <id>')
+    .description(
+      'reject a candidate via skillSynthesis:reject and emit skill_synthesis.rejected',
+    )
+    .option('--reason <text>', 'optional rejection reason')
+    .action(async (id: string, opts: { reason?: string }) => {
+      const exit = await skillSynthesisCmd.execute(
+        { subcommand: 'reject', id, reason: opts.reason },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skillSynthesis
+    .command('invocations <skillId>')
+    .description(
+      'emit skill_synthesis.invocations via skillSynthesis:invocations',
+    )
+    .option('--limit <n>', 'max invocations to return', (raw) =>
+      Number.parseInt(raw, 10),
+    )
+    .action(async (skillId: string, opts: { limit?: number }) => {
+      const exit = await skillSynthesisCmd.execute(
+        { subcommand: 'invocations', skillId, limit: opts.limit },
+        resolveGlobals(program),
+      );
+      process.exitCode = exit;
+    });
+
+  skillSynthesis
+    .command('stats')
+    .description('emit skill_synthesis.stats via skillSynthesis:stats')
+    .action(async () => {
+      const exit = await skillSynthesisCmd.execute(
+        { subcommand: 'stats' },
         resolveGlobals(program),
       );
       process.exitCode = exit;

@@ -8,6 +8,19 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import {
+  CalendarClock,
+  CirclePause,
+  CirclePlay,
+  Clock,
+  LucideAngularModule,
+  Pencil,
+  Play,
+  Power,
+  PowerOff,
+  RefreshCw,
+  Trash2,
+} from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
 import type {
   CronCreateParams,
@@ -68,59 +81,168 @@ function emptyForm(timezone: string): CronJobFormState {
   selector: 'ptah-cron-scheduler-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule],
   template: `
     @if (!isElectron()) {
-      <div class="alert alert-info">
-        <span class="text-sm">
-          Cron jobs are only available in the Ptah desktop app.
-          <a
-            class="link link-primary ml-1"
-            href="https://github.com/HiveAcademy/ptah-extension/releases"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Download Ptah desktop</a
-          >.
-        </span>
+      <div
+        class="flex flex-col items-center gap-2 px-6 py-16 text-center"
+        data-testid="cron-empty-state"
+      >
+        <lucide-angular
+          [img]="CalendarClockIcon"
+          class="size-8 text-base-content/30"
+          aria-hidden="true"
+        />
+        <p class="text-sm font-medium">Schedules need the desktop app</p>
+        <p class="text-xs text-base-content/60">
+          Cron jobs run headless Ptah sessions in the background, which is only
+          available in the Ptah desktop app.
+        </p>
+        <a
+          class="link link-primary text-xs"
+          href="https://github.com/HiveAcademy/ptah-extension/releases"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Download Ptah desktop</a
+        >
       </div>
     } @else {
-      <div class="flex h-full w-full flex-col gap-4">
-        <!-- Aggregate stats -->
-        <section
-          class="grid grid-cols-2 gap-3 md:grid-cols-4"
-          aria-label="Cron statistics"
-        >
-          <div class="card bg-base-200">
-            <div class="card-body p-3">
-              <div class="text-xs text-base-content/60">Total jobs</div>
-              <div class="text-lg font-semibold">{{ stats().total }}</div>
+      <div class="space-y-6">
+        <header class="flex flex-wrap items-start justify-between gap-3">
+          <div class="flex items-start gap-3">
+            <span
+              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-content/10 bg-base-200/60 text-info"
+            >
+              <lucide-angular
+                [img]="CalendarClockIcon"
+                class="w-5 h-5"
+                aria-hidden="true"
+              />
+            </span>
+            <div>
+              <h1 class="text-xl font-semibold tracking-tight">Schedules</h1>
+              <p class="mt-0.5 text-sm text-base-content/60">
+                Cron jobs that run headless Ptah sessions on a schedule.
+              </p>
             </div>
           </div>
-          <div class="card bg-base-200">
-            <div class="card-body p-3">
-              <div class="text-xs text-base-content/60">Enabled</div>
-              <div class="text-lg font-semibold text-success">
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm btn-square text-base-content/50 transition-colors duration-150 hover:text-base-content"
+              aria-label="Refresh jobs"
+              title="Refresh jobs"
+              [disabled]="loading()"
+              (click)="refresh()"
+            >
+              <lucide-angular
+                [img]="RefreshCwIcon"
+                class="size-4"
+                [class.animate-spin]="loading()"
+                aria-hidden="true"
+              />
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm transition-colors duration-150"
+              data-testid="cron-new-job-btn"
+              (click)="newJob()"
+            >
+              New job
+            </button>
+          </div>
+        </header>
+
+        <div
+          class="grid grid-cols-2 gap-3 xl:grid-cols-4"
+          aria-label="Cron statistics"
+        >
+          <div
+            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+          >
+            <div class="stat p-4">
+              <div class="stat-figure text-primary">
+                <lucide-angular
+                  [img]="CalendarClockIcon"
+                  class="w-6 h-6"
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="stat-title text-base-content/60">Jobs</div>
+              <div
+                class="stat-value text-2xl text-primary"
+                data-testid="cron-stat-total"
+              >
+                {{ stats().total }}
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+          >
+            <div class="stat p-4">
+              <div class="stat-figure text-success">
+                <lucide-angular
+                  [img]="CirclePlayIcon"
+                  class="w-6 h-6"
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="stat-title text-base-content/60">Enabled</div>
+              <div
+                class="stat-value text-2xl text-success"
+                data-testid="cron-stat-enabled"
+              >
                 {{ stats().enabled }}
               </div>
             </div>
           </div>
-          <div class="card bg-base-200">
-            <div class="card-body p-3">
-              <div class="text-xs text-base-content/60">Disabled</div>
-              <div class="text-lg font-semibold text-base-content/70">
+
+          <div
+            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+          >
+            <div class="stat p-4">
+              <div class="stat-figure text-base-content/50">
+                <lucide-angular
+                  [img]="CirclePauseIcon"
+                  class="w-6 h-6"
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="stat-title text-base-content/60">Disabled</div>
+              <div
+                class="stat-value text-2xl text-base-content/70"
+                data-testid="cron-stat-disabled"
+              >
                 {{ stats().disabled }}
               </div>
             </div>
           </div>
-          <div class="card bg-base-200">
-            <div class="card-body p-3">
-              <div class="text-xs text-base-content/60">Next run</div>
-              <div class="text-sm font-mono">
+
+          <div
+            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+          >
+            <div class="stat p-4">
+              <div class="stat-figure text-info">
+                <lucide-angular
+                  [img]="ClockIcon"
+                  class="w-6 h-6"
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="stat-title text-base-content/60">Next run</div>
+              <div class="stat-value text-sm font-medium text-info">
                 {{ formatTime(stats().nextRunAt) }}
               </div>
+              @if (stats().nextRunAt !== null) {
+                <div class="stat-desc text-base-content/60">
+                  {{ formatRelative(stats().nextRunAt) }}
+                </div>
+              }
             </div>
           </div>
-        </section>
+        </div>
 
         @if (error()) {
           <div role="alert" class="alert alert-error text-sm">
@@ -128,52 +250,50 @@ function emptyForm(timezone: string): CronJobFormState {
           </div>
         }
 
-        <!-- Toolbar -->
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            class="btn btn-primary btn-sm"
-            (click)="newJob()"
+        @if (jobs().length === 0) {
+          <div
+            class="flex flex-col items-center gap-2 px-6 py-16 text-center"
+            data-testid="cron-empty-state"
           >
-            New job
-          </button>
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm"
-            [disabled]="loading()"
-            (click)="refresh()"
+            <lucide-angular
+              [img]="CalendarClockIcon"
+              class="size-8 text-base-content/30"
+              aria-hidden="true"
+            />
+            <p class="text-sm font-medium">No scheduled jobs yet</p>
+            <p class="max-w-sm text-xs text-base-content/60">
+              Cron jobs run a prompt on a recurring schedule as a headless Ptah
+              session — perfect for nightly builds, digests, or maintenance.
+            </p>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm mt-1 transition-colors duration-150"
+              (click)="newJob()"
+            >
+              New job
+            </button>
+          </div>
+        } @else {
+          <section
+            class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+            aria-label="Scheduled jobs"
           >
-            Refresh
-          </button>
-          <span class="text-xs text-base-content/60">
-            Detected timezone: {{ detectedTimezone }}
-          </span>
-        </div>
-
-        <!-- Jobs table -->
-        <section
-          class="overflow-x-auto rounded-lg bg-base-200 p-2"
-          aria-label="Scheduled jobs"
-        >
-          @if (jobs().length === 0) {
-            <div class="p-4 text-sm text-base-content/60">
-              No scheduled jobs yet. Click "New job" to create one.
-            </div>
-          } @else {
             <table class="table table-sm">
               <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Schedule</th>
-                  <th>Next run</th>
-                  <th>Status</th>
-                  <th class="text-right">Actions</th>
+                <tr class="text-xs text-base-content/50">
+                  <th class="font-normal">Name</th>
+                  <th class="font-normal">Schedule</th>
+                  <th class="font-normal">Next run</th>
+                  <th class="font-normal">Status</th>
+                  <th class="text-right font-normal">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 @for (job of jobs(); track job.id) {
                   <tr
-                    [class.bg-base-300]="selectedJobId() === job.id"
+                    class="group cursor-pointer transition-colors duration-150 hover:bg-base-300/20"
+                    data-testid="cron-job-row"
+                    [class.bg-base-300/40]="selectedJobId() === job.id"
                     (click)="selectJob(job.id)"
                   >
                     <td>
@@ -195,107 +315,149 @@ function emptyForm(timezone: string): CronJobFormState {
                       </div>
                     </td>
                     <td>
-                      @if (job.enabled) {
-                        <span class="badge badge-success badge-sm"
-                          >enabled</span
-                        >
-                      } @else {
-                        <span class="badge badge-ghost badge-sm">disabled</span>
-                      }
+                      <span class="inline-flex items-center gap-1.5">
+                        <span
+                          class="inline-block size-1.5 rounded-full"
+                          [class.bg-success]="job.enabled"
+                          [class.bg-base-content/30]="!job.enabled"
+                        ></span>
+                        <span class="text-xs text-base-content/70">
+                          {{ job.enabled ? 'enabled' : 'disabled' }}
+                        </span>
+                      </span>
                     </td>
                     <td class="text-right">
-                      <button
-                        type="button"
-                        class="btn btn-ghost btn-xs"
-                        (click)="$event.stopPropagation(); runNow(job.id)"
+                      <div
+                        class="inline-flex items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       >
-                        Run now
-                      </button>
-                      <button
-                        type="button"
-                        class="btn btn-ghost btn-xs"
-                        (click)="$event.stopPropagation(); editJob(job)"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        class="btn btn-ghost btn-xs"
-                        (click)="$event.stopPropagation(); toggleEnabled(job)"
-                      >
-                        {{ job.enabled ? 'Disable' : 'Enable' }}
-                      </button>
-                      <button
-                        type="button"
-                        class="btn btn-ghost btn-xs text-error"
-                        (click)="$event.stopPropagation(); confirmDelete(job)"
-                      >
-                        Delete
-                      </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-xs btn-square text-base-content/50 transition-colors duration-150"
+                          aria-label="Run now"
+                          title="Run now"
+                          (click)="$event.stopPropagation(); runNow(job.id)"
+                        >
+                          <lucide-angular
+                            [img]="PlayIcon"
+                            class="size-3.5"
+                            aria-hidden="true"
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-xs btn-square text-base-content/50 transition-colors duration-150"
+                          aria-label="Edit job"
+                          title="Edit job"
+                          (click)="$event.stopPropagation(); editJob(job)"
+                        >
+                          <lucide-angular
+                            [img]="PencilIcon"
+                            class="size-3.5"
+                            aria-hidden="true"
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-xs btn-square text-base-content/50 transition-colors duration-150"
+                          [attr.aria-label]="
+                            job.enabled ? 'Disable job' : 'Enable job'
+                          "
+                          [attr.title]="
+                            job.enabled ? 'Disable job' : 'Enable job'
+                          "
+                          (click)="$event.stopPropagation(); toggleEnabled(job)"
+                        >
+                          <lucide-angular
+                            [img]="job.enabled ? PowerOffIcon : PowerIcon"
+                            class="size-3.5"
+                            aria-hidden="true"
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-xs btn-square text-base-content/50 transition-colors duration-150 hover:text-error"
+                          aria-label="Delete job"
+                          title="Delete job"
+                          (click)="$event.stopPropagation(); confirmDelete(job)"
+                        >
+                          <lucide-angular
+                            [img]="Trash2Icon"
+                            class="size-3.5"
+                            aria-hidden="true"
+                          />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 }
               </tbody>
             </table>
-          }
-        </section>
+          </section>
+        }
 
-        <!-- Editor form -->
         @if (formOpen()) {
           <section
-            class="rounded-lg border border-base-300 bg-base-100 p-4"
+            class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40 p-5"
             aria-label="Job editor"
+            data-testid="cron-form"
           >
-            <h2 class="mb-3 text-sm font-semibold">
+            <h2 class="text-sm font-semibold">
               {{ form().id ? 'Edit job' : 'New job' }}
             </h2>
-            <div class="grid gap-3 md:grid-cols-2">
-              <label class="form-control">
-                <span class="label-text text-xs">Name</span>
+            <div class="mt-4 grid max-w-2xl gap-4 sm:grid-cols-2">
+              <label class="flex flex-col gap-1">
+                <span class="text-xs text-base-content/60">Name</span>
                 <input
                   type="text"
                   class="input input-bordered input-sm"
+                  data-testid="cron-form-name"
                   [value]="form().name"
                   (input)="patchForm({ name: inputValue($event) })"
                 />
               </label>
 
-              <label class="form-control">
-                <span class="label-text text-xs">Cron expression</span>
+              <label class="flex flex-col gap-1">
+                <span class="text-xs text-base-content/60"
+                  >Cron expression</span
+                >
                 <input
                   type="text"
                   class="input input-bordered input-sm font-mono"
+                  data-testid="cron-form-expr"
                   placeholder="*/5 * * * *"
                   [value]="form().cronExpr"
                   (input)="patchForm({ cronExpr: inputValue($event) })"
                 />
                 @if (exprPreview().valid) {
-                  <span class="mt-1 text-xs text-success">
+                  <span class="text-xs text-success">
                     {{ exprPreview().description }}
                   </span>
                 } @else if (form().cronExpr.length > 0) {
-                  <span class="mt-1 text-xs text-error">
+                  <span class="text-xs text-error">
                     {{ exprPreview().error }}
                   </span>
                 }
               </label>
 
-              <label class="form-control md:col-span-2">
-                <span class="label-text text-xs">Prompt / handler</span>
+              <label class="flex flex-col gap-1 sm:col-span-2">
+                <span class="text-xs text-base-content/60"
+                  >Prompt / handler</span
+                >
                 <textarea
                   class="textarea textarea-bordered textarea-sm font-mono"
                   rows="3"
+                  data-testid="cron-form-prompt"
                   [value]="form().prompt"
                   (input)="patchForm({ prompt: inputValue($event) })"
                 ></textarea>
-                <span class="mt-1 text-xs text-base-content/50">
+                <span class="text-xs text-base-content/50">
                   Reserved internal handlers (prefixed "handler:") are rejected
                   by the backend.
                 </span>
               </label>
 
-              <label class="form-control">
-                <span class="label-text text-xs"
+              <label class="flex flex-col gap-1">
+                <span class="text-xs text-base-content/60"
                   >Workspace root (optional)</span
                 >
                 <input
@@ -306,8 +468,8 @@ function emptyForm(timezone: string): CronJobFormState {
                 />
               </label>
 
-              <label class="form-control">
-                <span class="label-text text-xs">Timezone</span>
+              <label class="flex flex-col gap-1">
+                <span class="text-xs text-base-content/60">Timezone</span>
                 <select
                   class="select select-bordered select-sm"
                   [value]="form().timezone"
@@ -317,23 +479,27 @@ function emptyForm(timezone: string): CronJobFormState {
                     <option [value]="tz">{{ tz }}</option>
                   }
                 </select>
+                <span class="text-xs text-base-content/50">
+                  Detected timezone: {{ detectedTimezone }}
+                </span>
               </label>
 
-              <label class="label cursor-pointer justify-start gap-2">
+              <label class="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
                   class="toggle toggle-sm toggle-primary"
                   [checked]="form().enabled"
                   (change)="patchForm({ enabled: checkboxValue($event) })"
                 />
-                <span class="label-text text-xs">Enabled</span>
+                <span class="text-xs text-base-content/60">Enabled</span>
               </label>
             </div>
 
-            <div class="mt-4 flex gap-2">
+            <div class="mt-5 flex gap-2">
               <button
                 type="button"
-                class="btn btn-primary btn-sm"
+                class="btn btn-primary btn-sm transition-colors duration-150"
+                data-testid="cron-form-submit"
                 [disabled]="!canSubmit() || loading()"
                 (click)="submitForm()"
               >
@@ -341,7 +507,7 @@ function emptyForm(timezone: string): CronJobFormState {
               </button>
               <button
                 type="button"
-                class="btn btn-ghost btn-sm"
+                class="btn btn-ghost btn-sm transition-colors duration-150"
                 (click)="closeForm()"
               >
                 Cancel
@@ -350,10 +516,12 @@ function emptyForm(timezone: string): CronJobFormState {
           </section>
         }
 
-        <!-- Runs history for selected job -->
         @if (selectedJob()) {
-          <section class="rounded-lg bg-base-200 p-3" aria-label="Run history">
-            <header class="mb-2 flex items-center justify-between">
+          <section
+            class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+            aria-label="Run history"
+          >
+            <header class="flex items-center justify-between gap-3 px-4 py-3">
               <h2 class="text-sm font-semibold">
                 Run history — {{ selectedJob()?.name }}
               </h2>
@@ -362,18 +530,26 @@ function emptyForm(timezone: string): CronJobFormState {
               </span>
             </header>
             @if (runs().length === 0) {
-              <p class="text-xs text-base-content/60">No runs recorded yet.</p>
+              <p class="px-4 pb-3 text-xs text-base-content/60">
+                No runs recorded yet.
+              </p>
             } @else {
-              <ul class="divide-y divide-base-300 text-xs">
+              <ul class="divide-y divide-base-300">
                 @for (run of runs(); track run.id) {
-                  <li class="flex items-center justify-between py-1.5">
-                    <span class="font-mono">{{
+                  <li class="flex items-center justify-between gap-3 px-4 py-2">
+                    <span class="font-mono text-xs">{{
                       formatTime(run.scheduledFor)
                     }}</span>
-                    <span class="badge badge-sm" [class]="statusClass(run)">
-                      {{ run.status }}
+                    <span class="inline-flex items-center gap-1.5">
+                      <span
+                        class="inline-block size-1.5 rounded-full"
+                        [class]="statusDotClass(run)"
+                      ></span>
+                      <span class="text-xs text-base-content/70">
+                        {{ run.status }}
+                      </span>
                     </span>
-                    <span class="truncate text-base-content/60">
+                    <span class="truncate text-xs text-base-content/60">
                       {{ run.resultSummary || run.errorMessage || '' }}
                     </span>
                   </li>
@@ -383,18 +559,12 @@ function emptyForm(timezone: string): CronJobFormState {
           </section>
         }
 
-        <!-- Settings (read-only) -->
-        <section
-          class="rounded-lg border border-base-300 p-3 text-xs"
-          aria-label="Cron settings"
-        >
-          <h2 class="mb-1 text-sm font-semibold">Settings</h2>
-          <p class="text-base-content/60">
-            Cron settings live in <code>~/.ptah/settings.json</code> under
-            <code>cron.*</code>. Edit that file and restart Ptah desktop to
-            change defaults.
-          </p>
-        </section>
+        <p class="text-xs text-base-content/50">
+          Cron settings live in
+          <span class="font-mono">~/.ptah/settings.json</span> under
+          <span class="font-mono">cron.*</span>. Edit that file and restart Ptah
+          desktop to change defaults.
+        </p>
       </div>
     }
   `,
@@ -405,6 +575,17 @@ export class CronSchedulerTabComponent implements OnInit {
   private readonly cronExpr = inject(CronExpressionService);
 
   protected readonly detectedTimezone = detectUserTimezone();
+
+  protected readonly CalendarClockIcon = CalendarClock;
+  protected readonly CirclePlayIcon = CirclePlay;
+  protected readonly CirclePauseIcon = CirclePause;
+  protected readonly ClockIcon = Clock;
+  protected readonly RefreshCwIcon = RefreshCw;
+  protected readonly PlayIcon = Play;
+  protected readonly PencilIcon = Pencil;
+  protected readonly PowerIcon = Power;
+  protected readonly PowerOffIcon = PowerOff;
+  protected readonly Trash2Icon = Trash2;
 
   public readonly isElectron = computed(
     () => this.vscodeService.config()?.isElectron === true,
@@ -566,18 +747,18 @@ export class CronSchedulerTabComponent implements OnInit {
     return future ? `in ${days}d` : `${days}d ago`;
   }
 
-  public statusClass(run: JobRunDto): string {
+  public statusDotClass(run: JobRunDto): string {
     switch (run.status) {
       case 'succeeded':
-        return 'badge-success';
+        return 'bg-success';
       case 'failed':
-        return 'badge-error';
+        return 'bg-error';
       case 'running':
-        return 'badge-info';
+        return 'bg-info';
       case 'skipped':
-        return 'badge-warning';
+        return 'bg-warning';
       default:
-        return 'badge-ghost';
+        return 'bg-base-content/30';
     }
   }
 

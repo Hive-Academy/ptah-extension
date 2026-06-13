@@ -14,6 +14,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { GATEWAY_TOKENS } from './tokens';
 import { GatewayService } from '../gateway.service';
 import { BindingStore } from '../binding.store';
+import { ConversationStore } from '../conversation.store';
 import { MessageStore } from '../message.store';
 import { FfmpegDecoder } from '../voice/ffmpeg-decoder';
 import { WhisperTranscriber } from '../voice/whisper-transcriber';
@@ -30,6 +31,10 @@ export function registerMessagingGatewayServices(
   container.registerSingleton(
     GATEWAY_TOKENS.GATEWAY_BINDING_STORE,
     BindingStore,
+  );
+  container.registerSingleton(
+    GATEWAY_TOKENS.GATEWAY_CONVERSATION_STORE,
+    ConversationStore,
   );
   container.registerSingleton(
     GATEWAY_TOKENS.GATEWAY_MESSAGE_STORE,

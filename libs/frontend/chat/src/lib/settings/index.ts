@@ -12,3 +12,4 @@ export { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.compone
 export { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 export { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 export { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
+export { VoiceConfigComponent } from './ptah-ai/voice-config.component';

@@ -76,8 +76,14 @@ const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
 export class SkillSynthesisService {
   private static readonly RING_CAPACITY = 200;
   private started = false;
-  /** Sessions already analyzed in this process (≤1 candidate per session). */
-  private readonly analyzedSessions = new Set<string>();
+  /**
+   * Highest trajectory turn count analyzed per session in this process. A
+   * session is re-analyzed only once it has grown beyond the previously
+   * analyzed turn count, so a turn-complete trigger that fired while the
+   * session was still ineligible (<5 turns) can succeed later. Duplicate
+   * candidates are still prevented by the trajectory-hash dedup downstream.
+   */
+  private readonly analyzedSessions = new Map<string, number>();
   /** Disposer returned by the session-end registry — called in stop(). */
   private _sessionEndDisposer?: () => void;
   private readonly events: SkillSynthesisEvent[] = [];
@@ -234,12 +240,18 @@ export class SkillSynthesisService {
           force?: boolean;
           embeddingProvider?: IEmbedder | null;
           signal?: AbortSignal;
+          transcriptPath?: string;
         },
-    maybeOptions?: { force?: boolean; signal?: AbortSignal },
+    maybeOptions?: {
+      force?: boolean;
+      signal?: AbortSignal;
+      transcriptPath?: string;
+    },
   ): Promise<RegisterCandidateResult | null> {
     let embeddingProvider: IEmbedder | null | undefined;
     let force = false;
     let signal: AbortSignal | undefined;
+    let transcriptPath: string | undefined;
     if (
       embeddingProviderOrOptions &&
       typeof embeddingProviderOrOptions === 'object' &&
@@ -248,6 +260,7 @@ export class SkillSynthesisService {
       embeddingProvider = embeddingProviderOrOptions.embeddingProvider;
       force = embeddingProviderOrOptions.force === true;
       signal = embeddingProviderOrOptions.signal;
+      transcriptPath = embeddingProviderOrOptions.transcriptPath;
     } else {
       embeddingProvider = embeddingProviderOrOptions as
         | IEmbedder
@@ -255,6 +268,7 @@ export class SkillSynthesisService {
         | undefined;
       force = maybeOptions?.force === true;
       signal = maybeOptions?.signal;
+      transcriptPath = maybeOptions?.transcriptPath;
     }
 
     if (signal?.aborted) return null;
@@ -274,14 +288,23 @@ export class SkillSynthesisService {
     if (force) {
       this.analyzedSessions.delete(sessionId);
     }
-    if (this.analyzedSessions.has(sessionId)) return null;
-    this.analyzedSessions.add(sessionId);
 
     const trajectory = await this.extractor.extract(
       sessionId,
       workspaceRoot,
       settings.eligibilityMinTurns,
+      transcriptPath,
     );
+    if (trajectory) {
+      const lastTurnCount = this.analyzedSessions.get(sessionId);
+      if (
+        lastTurnCount !== undefined &&
+        trajectory.turnCount <= lastTurnCount
+      ) {
+        return null;
+      }
+      this.analyzedSessions.set(sessionId, trajectory.turnCount);
+    }
     if (!trajectory) {
       this.logger.info(
         '[skill-synthesis] session ineligible (trajectory null — <5 turns or no success marker)',

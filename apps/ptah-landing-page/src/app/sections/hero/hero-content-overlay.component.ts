@@ -35,7 +35,7 @@ import {
       >
         <span class="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span>
         <span class="text-sm font-medium text-amber-300/90 tracking-wide"
-          >Provider-Agnostic AI Orchestration</span
+          >VS Code · Electron · CLI — One Platform, Every AI</span
         >
       </div>
 
@@ -54,9 +54,9 @@ import {
         [viewportConfig]="subheadlineConfig"
         class="text-base md:text-lg lg:text-xl text-white/70 mb-12 max-w-2xl leading-relaxed font-light"
       >
-        The agentic harness for VS Code that unifies OpenAI, Claude, and GitHub
-        Copilot into one seamless orchestration workflow. Intelligent workspace
-        analysis, project-adaptive agents, and full provider freedom.
+        The AI coding orchestra that runs inside VS Code, as a standalone
+        desktop app, or headless in CI. Connect Claude, GitHub Copilot, OpenAI
+        Codex, or any local Ollama model — Ptah orchestrates them all.
       </p>
 
       <!-- CTA Buttons -->
@@ -97,6 +97,18 @@ import {
           </a>
         </div>
       </div>
+
+      <!-- Tertiary CLI ghost link -->
+      <a
+        viewportAnimation
+        [viewportConfig]="ctaConfig"
+        href="https://docs.ptah.live/providers/ptah-cli/"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="text-[#f4d47c]/70 hover:text-[#f4d47c] text-sm font-medium transition-colors mt-4 mb-8 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
+      >
+        Try the CLI →
+      </a>
 
       <!-- Social Proof Stats -->
       <div
@@ -197,10 +209,10 @@ import {
 })
 export class HeroContentOverlayComponent {
   public readonly stats = [
-    { value: '13', label: 'AI agents' },
+    { value: '9', label: 'concurrent tiles' },
     { value: '200+', label: 'LLM models' },
-    { value: '14', label: 'MCP tools' },
-    { value: '4', label: 'agent runtimes' },
+    { value: '4', label: 'providers' },
+    { value: '100-day', label: 'free trial' },
   ];
 
   /**

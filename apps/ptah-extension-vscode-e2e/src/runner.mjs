@@ -47,15 +47,40 @@ async function main() {
   fs.mkdirSync(userDataDir, { recursive: true });
   fs.mkdirSync(extensionsDir, { recursive: true });
 
+  // Open VS Code on a real (temp) workspace folder. Without one, activation
+  // runs in the empty-window state — workspace-dependent services see
+  // `workspaceRoot: <none>` and the run diverges from how users actually
+  // launch the extension.
+  const workspaceDir = path.join(tmpRoot, 'workspace');
+  fs.mkdirSync(workspaceDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(workspaceDir, 'package.json'),
+    JSON.stringify({ name: 'ptah-e2e-fixture', version: '0.0.1' }, null, 2),
+  );
+  fs.writeFileSync(
+    path.join(workspaceDir, 'index.js'),
+    'console.log("ptah e2e fixture");\n',
+  );
+
   console.log('[e2e] extensionDevelopmentPath:', extensionDevelopmentPath);
   console.log('[e2e] extensionTestsPath:      ', extensionTestsPath);
   console.log('[e2e] userDataDir:             ', userDataDir);
+  console.log('[e2e] workspaceDir:            ', workspaceDir);
 
   try {
     await runTests({
       extensionDevelopmentPath,
       extensionTestsPath,
+      // PTAH_E2E=1 does two things inside the extension host:
+      //   1. bootstrap.ts seeds a previousUserContext into (in-memory)
+      //      globalState so activation takes the community path instead of
+      //      the license-blocked welcome page — extension-test instances run
+      //      with in-memory storage, so this cannot be seeded from outside.
+      //   2. verifyAndReportRpcRegistration asserts (throws) on RPC
+      //      registration drift instead of just logging.
+      extensionTestsEnv: { PTAH_E2E: '1' },
       launchArgs: [
+        workspaceDir,
         '--user-data-dir',
         userDataDir,
         '--extensions-dir',

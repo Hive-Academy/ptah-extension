@@ -209,6 +209,70 @@ describe('GitRpcHandlers.register()', () => {
 });
 
 // ===========================================================================
+// git:info
+// ===========================================================================
+
+describe('git:info handler', () => {
+  it('uses the active workspace root when no workspaceRoot param is given', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:info');
+
+    await handler({});
+
+    expect(gitInfo.getGitInfo).toHaveBeenCalledWith('/workspace');
+  });
+
+  it('scopes to params.workspaceRoot when it is a registered workspace folder', async () => {
+    const { handlers, rpc, workspace, gitInfo } = buildSuite();
+    workspace.getWorkspaceFolders.mockReturnValue(['/workspace', '/other']);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:info');
+
+    await handler({ workspaceRoot: '/other' });
+
+    expect(gitInfo.getGitInfo).toHaveBeenCalledWith('/other');
+  });
+
+  it('matches registered folders ignoring slash direction and trailing slashes', async () => {
+    const { handlers, rpc, workspace, gitInfo } = buildSuite();
+    workspace.getWorkspaceFolders.mockReturnValue(['D:\\projects\\other']);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:info');
+
+    await handler({ workspaceRoot: 'D:/projects/other/' });
+
+    expect(gitInfo.getGitInfo).toHaveBeenCalledWith('D:/projects/other/');
+  });
+
+  it('returns the non-git default for an unregistered workspaceRoot', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:info');
+
+    const result = (await handler({ workspaceRoot: '/elsewhere' })) as {
+      isGitRepo: boolean;
+      files: unknown[];
+    };
+
+    expect(result.isGitRepo).toBe(false);
+    expect(result.files).toEqual([]);
+    expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
+  });
+
+  it('returns the non-git default when no workspace is open', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite(null);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:info');
+
+    const result = (await handler({})) as { isGitRepo: boolean };
+
+    expect(result.isGitRepo).toBe(false);
+    expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
 // git:branches
 // ===========================================================================
 
@@ -227,6 +291,17 @@ describe('git:branches handler', () => {
     expect(result.current).toBe('');
     expect(result.local).toEqual([]);
     expect(result.remote).toEqual([]);
+  });
+
+  it('scopes to params.workspaceRoot when it is a registered workspace folder', async () => {
+    const { handlers, rpc, workspace, gitInfo } = buildSuite();
+    workspace.getWorkspaceFolders.mockReturnValue(['/workspace', '/other']);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:branches');
+
+    await handler({ includeRemote: false, workspaceRoot: '/other' });
+
+    expect(gitInfo.getBranches).toHaveBeenCalledWith('/other', false);
   });
 
   it('delegates to gitInfo.getBranches with includeRemote param', async () => {
@@ -248,6 +323,26 @@ describe('git:branches handler', () => {
 
     expect(gitInfo.getBranches).toHaveBeenCalledWith('/workspace', true);
     expect(result.current).toBe('main');
+  });
+});
+
+// ===========================================================================
+// git:discard — workspaceRoot scoping guard for a destructive operation
+// ===========================================================================
+
+describe('git:discard handler workspace scoping', () => {
+  it('rejects an unregistered workspaceRoot instead of falling back to the active folder', async () => {
+    const { handlers, rpc } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:discard');
+
+    const result = (await handler({
+      paths: ['src/main.ts'],
+      workspaceRoot: '/elsewhere',
+    })) as { success: boolean; error?: string };
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
   });
 });
 

@@ -38,4 +38,13 @@ export type GitChangeKind =
 export interface GitStatusUpdatePayload extends GitInfoResult {
   /** Distinct change kinds coalesced during the watcher debounce window. */
   causes?: readonly GitChangeKind[];
+  /**
+   * Absolute path of the workspace folder this status was computed for.
+   * Consumers MUST route the payload by this field instead of attributing
+   * it to whatever workspace is currently active — with multiple workspace
+   * folders open, pushes for a newly-activated folder can arrive while the
+   * frontend still displays the previous one. Absent only on payloads from
+   * older backends; treat absence as "active workspace".
+   */
+  workspaceRoot?: string;
 }

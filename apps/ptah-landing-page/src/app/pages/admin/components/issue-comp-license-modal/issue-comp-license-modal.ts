@@ -51,6 +51,13 @@ export class IssueCompLicenseModalComponent {
       !this.isLoading(),
   );
 
+  public readonly emailSent = computed(
+    () => this.result() !== null && !this.result()?.warning && this.sendEmail(),
+  );
+  public readonly emailError = computed(
+    () => this.result()?.warning?.error ?? null,
+  );
+
   public open() {
     this.isOpen.set(true);
     this.error.set(null);
@@ -94,7 +101,7 @@ export class IssueCompLicenseModalComponent {
         this.isLoading.set(false);
         const errorBody = (err as any)?.error;
         const code = errorBody?.code;
-        const existing = errorBody?.existing;
+        const existing = errorBody?.existingLicense;
 
         if (code === 'EXISTING_ACTIVE_LICENSE' && existing) {
           this.error.set(

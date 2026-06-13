@@ -10,7 +10,7 @@ Hosts rival CLI orchestration (`cli-agents/`), user-configured Anthropic-compati
 
 **Belongs here**:
 
-- CLI agent process supervision (Gemini, Codex, Copilot, Cursor)
+- CLI agent process supervision (Codex, Copilot, Cursor)
 - `PtahCliAdapter` + `PtahCliRegistry` (user-configured Anthropic-compatible CLIs)
 - Cross-CLI MCP installation surface (`mcp-directory/`)
 - DI registration for the above (`registerCliAgentRuntimeServices`)

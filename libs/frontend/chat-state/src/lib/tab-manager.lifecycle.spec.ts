@@ -156,6 +156,48 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
     });
   });
 
+  describe('resetTabToFresh (/clear)', () => {
+    it('wipes conversation state, keeps the tab, and emits a reset event', () => {
+      const id = service.createTab('Busy');
+      service.attachSession(id, SESS_X);
+      service.markTabStreaming(id);
+      service.setLiveModelStats(id, {
+        model: 'm',
+        contextUsed: 1,
+        contextWindow: 2,
+        contextPercent: 50,
+      });
+      service.setQueuedContent(id, 'queued');
+      service.markCompactionStart(id);
+
+      service.resetTabToFresh(id);
+
+      const tab = service.tabs().find((t) => t.id === id);
+      expect(service.tabs().length).toBe(1);
+      expect(tab?.claudeSessionId).toBeNull();
+      expect(tab?.status).toBe('fresh');
+      expect(tab?.name).toBe('New Chat');
+      expect(tab?.messages).toEqual([]);
+      expect(tab?.streamingState).toBeNull();
+      expect(tab?.liveModelStats ?? null).toBeNull();
+      expect(service.isTabStreaming(id)).toBe(false);
+      expect(service.activeTabQueuedContent()).toBeNull();
+      expect(service.activeTabIsCompacting()).toBe(false);
+      expect(partition.unregisterSession).toHaveBeenCalledWith(SESS_X);
+
+      const evt = service.closedTab();
+      expect(evt?.tabId).toBe(id);
+      expect(evt?.sessionId).toBe(SESS_X);
+      expect(evt?.kind).toBe('reset');
+    });
+
+    it('is a no-op for unknown ids', () => {
+      service.createTab('keep');
+      expect(() => service.resetTabToFresh('missing')).not.toThrow();
+      expect(service.closedTab()).toBeNull();
+    });
+  });
+
   describe('openSessionTab', () => {
     it('creates a new tab when no matching session exists', () => {
       const id = service.openSessionTab('sess-1', 'My Session');
@@ -354,8 +396,9 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       expect(TabId.validate(id)).toBe(true);
     });
 
-    it('loadTabState restores persisted tabs and clears streamingState', () => {
+    it('loadTabState restores persisted tabs, clears streamingState, preserves claudeSessionId', () => {
       const persistedId = TabId.create();
+      const persistedSessionId = SessionId.create();
       localStorage.setItem(
         'ptah.tabs',
         JSON.stringify({
@@ -364,7 +407,7 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
           tabs: [
             {
               id: persistedId,
-              claudeSessionId: SessionId.create(),
+              claudeSessionId: persistedSessionId,
               name: 'persisted',
               title: 'persisted',
               order: 0,
@@ -380,7 +423,7 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       service.loadTabState();
       const tab = service.tabs()[0];
       expect(tab?.streamingState).toBeNull();
-      expect(tab?.claudeSessionId).toBeNull();
+      expect(tab?.claudeSessionId).toBe(persistedSessionId);
       expect(tab?.status).toBe('loaded');
     });
 

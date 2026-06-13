@@ -10,6 +10,8 @@
  * No DI, no IO. Pure types only — safe to import from any layer.
  */
 
+import type { FatalErrorCodeValue } from '@ptah-extension/cli-engine';
+
 /** JSON-RPC version literal. */
 export const JSON_RPC_VERSION = '2.0' as const;
 
@@ -27,7 +29,7 @@ export const JSON_RPC_VERSION = '2.0' as const;
  * to stderr but does NOT abort the process; callers can opt out of the
  * stderr warning with the global `--quiet` flag.
  */
-export const JSONRPC_SCHEMA_VERSION = '0.1' as const;
+export const JSONRPC_SCHEMA_VERSION = '0.2' as const;
 
 /** A JSON value that can appear inside `params`, `result`, or `error.data`. */
 export type JsonValue =
@@ -252,6 +254,7 @@ export type PtahNotification =
   | 'agent_cli.resumed'
   | 'debug.di.phase'
   | 'doctor.report'
+  | 'init.plan'
   | 'system.schema.version';
 
 /**
@@ -313,6 +316,8 @@ export const PTAH_ERROR_CODES = [
 
 /** Ptah-specific error codes (carried in `error.data.ptah_code`). */
 export type PtahErrorCode = (typeof PTAH_ERROR_CODES)[number];
+
+type _FatalSubset = FatalErrorCodeValue extends PtahErrorCode ? true : never;
 
 /** Process exit codes. */
 export const ExitCode = {

@@ -8,7 +8,6 @@ import type {
   MultiPhaseAnalysisResponse,
   SavedAnalysisMetadata,
   WizardInstallPackAgentsResult,
-  WizardStartNewProjectChatResult,
 } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
 
@@ -453,26 +452,5 @@ export class WizardRpcService {
       fromCache: false,
       error: result.error || 'Failed to install agents',
     };
-  }
-
-  /**
-   * Hand off the new-project flow to the chat surface.
-   * Calls the wizard:start-new-project-chat backend handler — the backend
-   * enables the saas-workspace-initializer plugin, focuses chat, broadcasts
-   * the seed prompt via SETUP_WIZARD_START_NEW_PROJECT_CHAT, and disposes
-   * the wizard webview.
-   */
-  public async startNewProjectChat(): Promise<void> {
-    const result = await this.rpcService.call(
-      'wizard:start-new-project-chat',
-      {},
-    );
-    if (!result.isSuccess()) {
-      throw new Error(result.error || 'Failed to start new project chat');
-    }
-    const data = result.data as WizardStartNewProjectChatResult | undefined;
-    if (data && data.success === false) {
-      throw new Error(data.error || 'Failed to start new project chat');
-    }
   }
 }

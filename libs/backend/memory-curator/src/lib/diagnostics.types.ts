@@ -17,6 +17,7 @@ export type MemoryCuratorEventKind =
   | 'tool-failure'
   | 'rate-limited'
   | 'error'
+  | 'curator-error'
   | 'embedder-download';
 
 export interface MemoryCuratorEvent {
@@ -45,6 +46,7 @@ export interface MemoryDbHealth {
   readonly code_symbols_vec: number;
   readonly coherent: boolean;
   readonly mismatches: readonly string[];
+  readonly countErrors?: readonly string[];
 }
 
 export interface MemoryDiagnosticsSnapshot {

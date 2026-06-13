@@ -18,6 +18,10 @@ import {
 } from './memory-trigger-toggle.component';
 import { DbHealthPanelComponent } from './db-health-panel.component';
 import { EventFeedComponent } from './event-feed.component';
+import {
+  CuratorModelPickerComponent,
+  type CuratorModelChange,
+} from './curator-model-picker.component';
 
 @Component({
   selector: 'ptah-memory-diagnostics-accordion',
@@ -27,35 +31,28 @@ import { EventFeedComponent } from './event-feed.component';
     MemoryTriggerToggleComponent,
     DbHealthPanelComponent,
     EventFeedComponent,
+    CuratorModelPickerComponent,
   ],
   template: `
-    <div class="flex flex-col gap-3 p-3">
+    <div class="flex flex-col gap-3">
       <section class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div class="rounded-md border border-base-300 bg-base-100 px-3 py-2">
-          <div
-            class="text-xs font-semibold uppercase tracking-wide text-base-content/70"
-          >
-            Last curator run
-          </div>
+        <div class="rounded-xl border border-base-300 bg-base-200/40 px-4 py-3">
+          <div class="text-xs text-base-content/60">Last curator run</div>
           <div class="mt-1 text-sm" data-testid="last-curator-run">
             {{ lastRunLabel() }}
           </div>
         </div>
-        <div class="rounded-md border border-base-300 bg-base-100 px-3 py-2">
-          <div
-            class="text-xs font-semibold uppercase tracking-wide text-base-content/70"
-          >
-            Last decay sweep
-          </div>
+        <div class="rounded-xl border border-base-300 bg-base-200/40 px-4 py-3">
+          <div class="text-xs text-base-content/60">Last decay sweep</div>
           <div class="mt-1 text-sm" data-testid="last-decay-run">
             {{ lastDecayLabel() }}
           </div>
         </div>
       </section>
 
-      <section class="rounded-md border border-base-300 bg-base-100">
+      <section class="rounded-xl border border-base-300 bg-base-200/40">
         <header
-          class="border-b border-base-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-base-content/70"
+          class="border-b border-base-300 px-4 py-2.5 text-sm font-medium text-base-content/80"
         >
           Triggers
         </header>
@@ -124,11 +121,8 @@ import { EventFeedComponent } from './event-feed.component';
               (triggerChange)="onMaxCuratesChange($event)"
             />
           </div>
-          <div class="border-t border-base-300 px-3 py-2">
-            <label
-              class="text-xs font-semibold uppercase tracking-wide text-base-content/70"
-              for="memory-cue-list"
-            >
+          <div class="border-t border-base-300 px-4 py-2.5">
+            <label class="text-xs text-base-content/60" for="memory-cue-list">
               Cue list (read-only)
             </label>
             <textarea
@@ -146,6 +140,14 @@ import { EventFeedComponent } from './event-feed.component';
           </div>
         }
       </section>
+
+      @if (triggers(); as t) {
+        <ptah-curator-model-picker
+          [curatorProvider]="t.curatorProvider ?? ''"
+          [curatorModel]="t.curatorModel ?? ''"
+          (curatorChange)="onCuratorModelChange($event)"
+        />
+      }
 
       <ptah-event-feed [events]="recentEvents()" [now]="now()" />
 
@@ -293,6 +295,13 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
       ? (c.value ?? this.triggers()?.maxCuratesPerHour ?? 0)
       : 0;
     void this.state.setTriggers({ maxCuratesPerHour: value });
+  }
+
+  protected onCuratorModelChange(change: CuratorModelChange): void {
+    void this.state.setTriggers({
+      curatorProvider: change.curatorProvider,
+      curatorModel: change.curatorModel,
+    });
   }
 }
 

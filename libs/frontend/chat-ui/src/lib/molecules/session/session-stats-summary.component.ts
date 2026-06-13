@@ -72,19 +72,20 @@ export interface ModelUsageEntry {
             <div
               class="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto text-xs"
             >
-              @if (liveModelStats()) {
-                @if (!hasMultipleModels()) {
-                  <span
-                    class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
+              @if (!hasMultipleModels() && primaryModelName(); as modelName) {
+                <span
+                  class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
+                  [title]="modelName"
+                >
+                  <span class="text-[10px] uppercase text-base-content/50"
+                    >Model</span
                   >
-                    <span class="text-[10px] uppercase text-base-content/50"
-                      >Model</span
-                    >
-                    <span class="text-purple-400 font-semibold">{{
-                      formatModelName(liveModelStats()!.model)
-                    }}</span>
-                  </span>
-                }
+                  <span class="text-purple-400 font-semibold">{{
+                    formatModelName(modelName)
+                  }}</span>
+                </span>
+              }
+              @if (liveModelStats()) {
                 <span
                   class="inline-flex items-center gap-1 bg-cyan-600/15 border border-cyan-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
                   [title]="contextTooltip()"
@@ -275,10 +276,10 @@ export interface ModelUsageEntry {
           <!-- Expanded: full card grid with inline collapse button -->
           <div class="grid grid-cols-2 gap-1.5">
             <!-- Model Card -->
-            @if (liveModelStats()) {
+            @if (!hasMultipleModels() && primaryModelName(); as modelName) {
               <div
                 class="bg-base-200/50 rounded px-2 py-1.5 border border-purple-600/20"
-                [title]="liveModelStats()!.model"
+                [title]="modelName"
               >
                 <div
                   class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight"
@@ -288,7 +289,7 @@ export interface ModelUsageEntry {
                 <div
                   class="text-sm font-semibold text-purple-400 truncate leading-tight mt-0.5"
                 >
-                  {{ formatModelName(liveModelStats()!.model) }}
+                  {{ formatModelName(modelName) }}
                 </div>
               </div>
             }
@@ -726,6 +727,18 @@ export class SessionStatsSummaryComponent {
   readonly hasMultipleModels = computed(
     () => (this.modelUsageList()?.length ?? 0) >= 2,
   );
+
+  /**
+   * Model name to surface in the single-model badge/card. Prefers the live
+   * session model; falls back to the sole entry in the usage breakdown so the
+   * model still shows when live stats are absent (e.g. loaded sessions).
+   */
+  readonly primaryModelName = computed(() => {
+    const live = this.liveModelStats()?.model;
+    if (live) return live;
+    const list = this.modelUsageList();
+    return list && list.length > 0 ? list[0].model : null;
+  });
 
   /** Total input tokens across all models in the breakdown */
   readonly totalModelInputTokens = computed(() => {

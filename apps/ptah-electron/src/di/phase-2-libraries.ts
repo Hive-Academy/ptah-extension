@@ -18,7 +18,10 @@ import {
   registerSdkServices,
   wireAgentAdapterAliases,
 } from '@ptah-extension/agent-sdk';
-import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
+import {
+  registerAuthProvidersServices,
+  registerCuratorAuthServices,
+} from '@ptah-extension/auth-providers';
 import { registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import {
   registerAgentGenerationServices,
@@ -27,6 +30,7 @@ import {
 import {
   registerPersistenceSqliteServices,
   PERSISTENCE_TOKENS,
+  resolvePtahDbPath,
   resolveVecPackageName,
   resolveVecBinaryName,
   type SqliteConnectionService,
@@ -37,7 +41,10 @@ import { app } from 'electron';
 import { registerMemoryCuratorServices } from '@ptah-extension/memory-curator';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis';
+import {
+  registerSkillSynthesisServices,
+  SKILL_REPROPAGATION_TOKEN,
+} from '@ptah-extension/skill-synthesis';
 import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
 import {
   registerMessagingGatewayServices,
@@ -46,6 +53,7 @@ import {
 import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import { ElectronSafeStorageVault } from '../services/platform/electron-safe-storage-vault';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
+import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
 
 /**
  * Phase 2: Register library services in the order required by inter-library deps.
@@ -61,6 +69,7 @@ export function registerPhase2Libraries(
   registerWorkspaceIntelligenceServices(container, logger);
   registerAuthProvidersServices(container, logger);
   registerSdkServices(container, logger);
+  registerCuratorAuthServices(container, logger);
   registerCliAgentRuntimeServices(container, logger);
 
   wireAgentAdapterAliases(container);
@@ -84,9 +93,7 @@ export function registerPhase2Libraries(
     '[Electron DI] ElectronSetupWizardService registered (overrides SetupWizardService) (TASK_2025_214)',
   );
   try {
-    const isDev = process.env['NODE_ENV'] === 'development';
-    const dbFileName = isDev ? 'ptah-dev.sqlite' : 'ptah.sqlite';
-    const dbPath = path.join(os.homedir(), '.ptah', 'state', dbFileName);
+    const dbPath = resolvePtahDbPath();
     container.register(PERSISTENCE_TOKENS.SQLITE_DB_PATH, {
       useValue: dbPath,
     });
@@ -100,19 +107,31 @@ export function registerPhase2Libraries(
       useValue: workerEntry,
     });
 
+    const modelCacheDir = path.join(os.homedir(), '.ptah', 'models');
+    try {
+      fs.mkdirSync(modelCacheDir, { recursive: true });
+    } catch (error) {
+      logger.warn(
+        '[Electron DI] Failed to create embedder model cache dir (non-fatal)',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+    container.register(PERSISTENCE_TOKENS.EMBEDDER_MODEL_CACHE_DIR, {
+      useValue: modelCacheDir,
+    });
+
     registerPersistenceSqliteServices(container, logger);
     try {
       const sqliteConnection = container.resolve<SqliteConnectionService>(
         PERSISTENCE_TOKENS.SQLITE_CONNECTION,
       );
-      const hostFallbackResolver =
-        createElectronVecPathFallbackResolver(logger);
+      const electronVecResolver = createElectronVecPathResolver(logger);
       sqliteConnection.configure({
-        vecPathFallbackResolver: hostFallbackResolver,
+        vecPathResolver: electronVecResolver,
       });
     } catch (error) {
       logger.warn(
-        '[Electron DI] Failed to wire electron vec fallback resolver (non-fatal)',
+        '[Electron DI] Failed to wire electron vec resolver (non-fatal)',
         { error: error instanceof Error ? error.message : String(error) },
       );
     }
@@ -120,6 +139,7 @@ export function registerPhase2Libraries(
     logger.info('[Electron DI] Memory curator services registered (Track 1)', {
       dbPath,
       workerEntry,
+      modelCacheDir,
     });
   } catch (error) {
     logger.warn(
@@ -130,6 +150,10 @@ export function registerPhase2Libraries(
     );
   }
   registerSkillSynthesisServices(container, logger);
+  container.registerInstance(
+    SKILL_REPROPAGATION_TOKEN,
+    new ElectronSkillRepropagation(container),
+  );
   try {
     registerCronSchedulerServices(container, logger);
     logger.info('[Electron DI] Cron scheduler services registered (Track 3)');
@@ -158,9 +182,7 @@ export function registerPhase2Libraries(
   }
 }
 
-function createElectronVecPathFallbackResolver(
-  logger: Logger,
-): SqliteVecPathResolver {
+function createElectronVecPathResolver(logger: Logger): SqliteVecPathResolver {
   return () => {
     const packageName = resolveVecPackageName();
     if (!packageName) {

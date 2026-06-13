@@ -27,6 +27,8 @@ export * from './rpc/rpc-indexing.types';
 
 export * from './rpc/rpc-update.types';
 
+export * from './rpc/rpc-skill-clone.types';
+
 import type {
   SubagentQueryParams,
   SubagentQueryResult,
@@ -68,6 +70,8 @@ import type {
   SessionForkResult,
   SessionRewindParams,
   SessionRewindResult,
+  SessionStatusParams,
+  SessionStatusResponse,
 } from './rpc/rpc-session.types';
 
 import type {
@@ -166,8 +170,6 @@ import type {
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
   WizardInstallPackAgentsResult,
-  WizardStartNewProjectChatParams,
-  WizardStartNewProjectChatResult,
 } from './rpc/rpc-setup.types';
 
 import type {
@@ -336,6 +338,23 @@ import type {
 } from './rpc/rpc-indexing.types';
 
 import type {
+  SkillSynthesisListClonesParams,
+  SkillSynthesisListClonesResult,
+  SkillSynthesisGetCloneParams,
+  SkillSynthesisGetCloneResult,
+  SkillSynthesisEnhanceNowParams,
+  SkillSynthesisEnhanceNowResult,
+  SkillSynthesisRevertEnhancementParams,
+  SkillSynthesisRevertEnhancementResult,
+  SkillSynthesisRebaseCloneParams,
+  SkillSynthesisRebaseCloneResult,
+  SkillSynthesisKeepCloneParams,
+  SkillSynthesisKeepCloneResult,
+  SkillSynthesisInvocationStatsParams,
+  SkillSynthesisInvocationStatsResult,
+} from './rpc/rpc-skill-clone.types';
+
+import type {
   HarnessInitializeParams,
   HarnessInitializeResponse,
   HarnessSuggestConfigParams,
@@ -356,8 +375,6 @@ import type {
   HarnessSavePresetResponse,
   HarnessLoadPresetsParams,
   HarnessLoadPresetsResponse,
-  HarnessChatParams,
-  HarnessChatResponse,
   HarnessDesignAgentsParams,
   HarnessDesignAgentsResponse,
   HarnessGenerateSkillsParams,
@@ -366,8 +383,10 @@ import type {
   HarnessGenerateDocumentResponse,
   HarnessAnalyzeIntentParams,
   HarnessAnalyzeIntentResponse,
-  HarnessConverseParams,
-  HarnessConverseResponse,
+  HarnessStartNewProjectParams,
+  HarnessStartNewProjectResult,
+  HarnessWorkflowPromptParams,
+  HarnessWorkflowPromptResponse,
 } from './rpc/rpc-harness.types';
 
 import type {
@@ -490,6 +509,10 @@ export interface RpcMethodRegistry {
   'session:rewindFiles': {
     params: SessionRewindParams;
     result: SessionRewindResult;
+  };
+  'session:status': {
+    params: SessionStatusParams;
+    result: SessionStatusResponse;
   };
   'context:getAllFiles': {
     params: ContextGetAllFilesParams;
@@ -629,10 +652,6 @@ export interface RpcMethodRegistry {
   'wizard:install-pack-agents': {
     params: WizardInstallPackAgentsParams;
     result: WizardInstallPackAgentsResult;
-  };
-  'wizard:start-new-project-chat': {
-    params: WizardStartNewProjectChatParams;
-    result: WizardStartNewProjectChatResult;
   };
   'license:getStatus': {
     params: LicenseGetStatusParams;
@@ -888,18 +907,6 @@ export interface RpcMethodRegistry {
   'skillsSh:detectRecommended': {
     params: Record<string, never>;
     result: SkillDetectionResult;
-  };
-  'skillsSh:setApiKey': {
-    params: { apiKey: string };
-    result: { success: boolean };
-  };
-  'skillsSh:getApiKeyStatus': {
-    params: Record<string, never>;
-    result: { configured: boolean };
-  };
-  'skillsSh:deleteApiKey': {
-    params: Record<string, never>;
-    result: { success: boolean };
   };
   'mcpDirectory:search': {
     params: McpDirectorySearchParams;
@@ -1222,10 +1229,6 @@ export interface RpcMethodRegistry {
     params: HarnessLoadPresetsParams;
     result: HarnessLoadPresetsResponse;
   };
-  'harness:chat': {
-    params: HarnessChatParams;
-    result: HarnessChatResponse;
-  };
   'harness:design-agents': {
     params: HarnessDesignAgentsParams;
     result: HarnessDesignAgentsResponse;
@@ -1242,9 +1245,13 @@ export interface RpcMethodRegistry {
     params: HarnessAnalyzeIntentParams;
     result: HarnessAnalyzeIntentResponse;
   };
-  'harness:converse': {
-    params: HarnessConverseParams;
-    result: HarnessConverseResponse;
+  'harness:start-new-project': {
+    params: HarnessStartNewProjectParams;
+    result: HarnessStartNewProjectResult;
+  };
+  'harness:workflow-prompt': {
+    params: HarnessWorkflowPromptParams;
+    result: HarnessWorkflowPromptResponse;
   };
   'memory:list': { params: MemoryListParams; result: MemoryListResult };
   'memory:search': { params: MemorySearchParams; result: MemorySearchResult };
@@ -1389,6 +1396,34 @@ export interface RpcMethodRegistry {
     params: SkillGetTriggersParams;
     result: SkillGetTriggersResult;
   };
+  'skillSynthesis:listClones': {
+    params: SkillSynthesisListClonesParams;
+    result: SkillSynthesisListClonesResult;
+  };
+  'skillSynthesis:getClone': {
+    params: SkillSynthesisGetCloneParams;
+    result: SkillSynthesisGetCloneResult;
+  };
+  'skillSynthesis:enhanceNow': {
+    params: SkillSynthesisEnhanceNowParams;
+    result: SkillSynthesisEnhanceNowResult;
+  };
+  'skillSynthesis:revertEnhancement': {
+    params: SkillSynthesisRevertEnhancementParams;
+    result: SkillSynthesisRevertEnhancementResult;
+  };
+  'skillSynthesis:rebaseClone': {
+    params: SkillSynthesisRebaseCloneParams;
+    result: SkillSynthesisRebaseCloneResult;
+  };
+  'skillSynthesis:keepClone': {
+    params: SkillSynthesisKeepCloneParams;
+    result: SkillSynthesisKeepCloneResult;
+  };
+  'skillSynthesis:invocationStats': {
+    params: SkillSynthesisInvocationStatsParams;
+    result: SkillSynthesisInvocationStatsResult;
+  };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -1433,6 +1468,43 @@ export interface RpcMethodRegistry {
   'gateway:test': {
     params: GatewayTestParams;
     result: GatewayTestResult;
+  };
+  'gateway:getAllowList': {
+    params: GatewayGetAllowListParams;
+    result: GatewayGetAllowListResult;
+  };
+  'gateway:setAllowList': {
+    params: GatewaySetAllowListParams;
+    result: GatewaySetAllowListResult;
+  };
+  'gateway:getDiscordAppId': {
+    params: GatewayGetDiscordAppIdParams;
+    result: GatewayGetDiscordAppIdResult;
+  };
+  'gateway:setDiscordAppId': {
+    params: GatewaySetDiscordAppIdParams;
+    result: GatewaySetDiscordAppIdResult;
+  };
+  'gateway:registerDiscordCommands': {
+    params: GatewayRegisterDiscordCommandsParams;
+    result: GatewayRegisterDiscordCommandsResult;
+  };
+  'gateway:listDiscordGuilds': {
+    params: GatewayListDiscordGuildsParams;
+    result: GatewayListDiscordGuildsResult;
+  };
+
+  'voice:transcribe': {
+    params: VoiceTranscribeParams;
+    result: VoiceTranscribeResult;
+  };
+  'voice:getConfig': {
+    params: VoiceGetConfigParams;
+    result: VoiceGetConfigResult;
+  };
+  'voice:setConfig': {
+    params: VoiceSetConfigParams;
+    result: VoiceSetConfigResult;
   };
 
   'db:health': {
@@ -1657,6 +1729,8 @@ export interface GatewayBindingDto {
   id: string;
   platform: GatewayPlatformId;
   externalChatId: string;
+  /** Allow-list id (Telegram user / Discord guild / Slack team), or null for pre-0020 rows. */
+  allowListId: string | null;
   displayName: string | null;
   approvalStatus: GatewayApprovalStatus;
   ptahSessionId: string | null;
@@ -1772,6 +1846,74 @@ export interface GatewayTestParams {
 export type GatewayTestResult =
   | { ok: true; bindingId: string; externalMsgId: string | null }
   | { ok: false; error: string };
+
+export interface GatewayGetAllowListParams {
+  platform: GatewayPlatformId;
+}
+export interface GatewayGetAllowListResult {
+  entries: string[];
+}
+
+export interface GatewaySetAllowListParams {
+  platform: GatewayPlatformId;
+  entries: string[];
+}
+export interface GatewaySetAllowListResult {
+  ok: true;
+}
+
+export type GatewayGetDiscordAppIdParams = Record<string, never>;
+export interface GatewayGetDiscordAppIdResult {
+  applicationId: string | null;
+}
+
+export interface GatewaySetDiscordAppIdParams {
+  applicationId: string;
+}
+export interface GatewaySetDiscordAppIdResult {
+  ok: true;
+}
+
+export type GatewayRegisterDiscordCommandsParams = Record<string, never>;
+export type GatewayRegisterDiscordCommandsResult =
+  | { ok: true; registered: number; scope: 'guild' | 'global' }
+  | { ok: false; error: string };
+
+export interface GatewayDiscordGuildDto {
+  id: string;
+  name: string;
+}
+export type GatewayListDiscordGuildsParams = Record<string, never>;
+export interface GatewayListDiscordGuildsResult {
+  guilds: GatewayDiscordGuildDto[];
+}
+
+export interface VoiceTranscribeParams {
+  /** Base64-encoded audio recording from the renderer (MediaRecorder output). */
+  audioBase64: string;
+  /** MIME type of the recording, e.g. 'audio/webm' or 'audio/webm;codecs=opus'. */
+  mimeType: string;
+}
+
+export type VoiceTranscribeResult =
+  | { ok: true; transcript: string }
+  | { ok: false; error: string; code?: string; remediation?: string };
+
+export interface VoiceConfigDto {
+  whisperModel: string;
+}
+
+export type VoiceGetConfigParams = Record<string, never>;
+
+export type VoiceGetConfigResult =
+  | { ok: true; config: VoiceConfigDto }
+  | { ok: false; error: string };
+
+export interface VoiceSetConfigParams {
+  whisperModel: string;
+}
+
+export type VoiceSetConfigResult = { ok: true } | { ok: false; error: string };
 
 export interface ScheduledJobDto {
   id: string;
@@ -1914,6 +2056,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:stats-batch': true,
   'session:forkSession': true,
   'session:rewindFiles': true,
+  'session:status': true,
   'context:getAllFiles': true,
   'context:getFileSuggestions': true,
   'autocomplete:agents': true,
@@ -1948,7 +2091,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'wizard:load-analysis': true,
   'wizard:list-agent-packs': true,
   'wizard:install-pack-agents': true,
-  'wizard:start-new-project-chat': true,
   'license:getStatus': true,
   'license:setKey': true,
   'license:clearKey': true,
@@ -2006,9 +2148,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillsSh:uninstall': true,
   'skillsSh:getPopular': true,
   'skillsSh:detectRecommended': true,
-  'skillsSh:setApiKey': true,
-  'skillsSh:getApiKeyStatus': true,
-  'skillsSh:deleteApiKey': true,
   'mcpDirectory:search': true,
   'mcpDirectory:getDetails': true,
   'mcpDirectory:install': true,
@@ -2083,12 +2222,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:apply': true,
   'harness:save-preset': true,
   'harness:load-presets': true,
-  'harness:chat': true,
   'harness:design-agents': true,
   'harness:generate-skills': true,
   'harness:generate-document': true,
   'harness:analyze-intent': true,
-  'harness:converse': true,
+  'harness:start-new-project': true,
+  'harness:workflow-prompt': true,
 
   'memory:list': true,
   'memory:search': true,
@@ -2134,6 +2273,13 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:analyzeNow': true,
   'skillSynthesis:setTriggers': true,
   'skillSynthesis:getTriggers': true,
+  'skillSynthesis:listClones': true,
+  'skillSynthesis:getClone': true,
+  'skillSynthesis:enhanceNow': true,
+  'skillSynthesis:revertEnhancement': true,
+  'skillSynthesis:rebaseClone': true,
+  'skillSynthesis:keepClone': true,
+  'skillSynthesis:invocationStats': true,
 
   'cron:list': true,
   'cron:get': true,
@@ -2154,6 +2300,16 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'gateway:blockBinding': true,
   'gateway:listMessages': true,
   'gateway:test': true,
+  'gateway:getAllowList': true,
+  'gateway:setAllowList': true,
+  'gateway:getDiscordAppId': true,
+  'gateway:setDiscordAppId': true,
+  'gateway:registerDiscordCommands': true,
+  'gateway:listDiscordGuilds': true,
+
+  'voice:transcribe': true,
+  'voice:getConfig': true,
+  'voice:setConfig': true,
 
   'db:health': true,
   'db:reset': true,

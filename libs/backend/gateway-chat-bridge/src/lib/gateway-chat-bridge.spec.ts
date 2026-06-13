@@ -7,10 +7,13 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   BindingId,
   ConversationKey,
-  type BindingStore,
+  type ConversationStore,
   type GatewayBinding,
+  type GatewayConversation,
+  type GatewayConversationId,
   type GatewayInboundEvent,
   type GatewayService,
+  type OutboundRoute,
 } from '@ptah-extension/messaging-gateway';
 import type {
   FlatStreamEventUnion,
@@ -27,7 +30,7 @@ function createLogger(): Logger {
 }
 
 class FakeGateway extends EventEmitter {
-  appendOutboundChunk = jest.fn<void, [ConversationKey, string]>();
+  appendOutboundChunk = jest.fn<void, [OutboundRoute, string]>();
   drainOutbound = jest.fn<Promise<void>, [ConversationKey]>(async () => {
     /* no-op */
   });
@@ -44,6 +47,7 @@ function makeBinding(
     id: BindingId.create(overrides.id ?? 'binding-1'),
     platform: overrides.platform ?? 'telegram',
     externalChatId: overrides.externalChatId ?? 'chat-1',
+    allowListId: null,
     displayName: null,
     approvalStatus: 'approved',
     ptahSessionId: overrides.ptahSessionId ?? null,
@@ -56,23 +60,46 @@ function makeBinding(
   };
 }
 
-function makeEvent(binding: GatewayBinding, body: string): GatewayInboundEvent {
+function makeConversation(
+  binding: GatewayBinding,
+  overrides: Partial<Omit<GatewayConversation, 'id'>> & { id?: string } = {},
+): GatewayConversation {
+  return {
+    id: (overrides.id ?? 'conv-1') as GatewayConversationId,
+    bindingId: binding.id,
+    externalConversationId: overrides.externalConversationId ?? 'default',
+    ptahSessionId: overrides.ptahSessionId ?? null,
+    createdAt: 1,
+    lastActiveAt: 1,
+  };
+}
+
+function makeEvent(
+  binding: GatewayBinding,
+  body: string,
+  opts: { conversation?: GatewayConversation; conversationId?: string } = {},
+): GatewayInboundEvent {
+  const conversation = opts.conversation ?? makeConversation(binding);
   return {
     binding,
+    conversation,
     message: {
       platform: binding.platform,
       externalChatId: binding.externalChatId,
       externalMsgId: 'm-1',
       body,
+      conversationId: opts.conversationId,
       conversationKey: ConversationKey.for(
         binding.platform,
         binding.externalChatId,
+        opts.conversationId,
       ),
     },
   } as GatewayInboundEvent;
 }
 
 const SDK_UUID = '11111111-2222-4333-8444-555555555555';
+const SDK_UUID_B = '99999999-8888-4777-8666-555555555555';
 
 function textDelta(sessionId: string, delta: string): FlatStreamEventUnion {
   return {
@@ -108,6 +135,20 @@ async function scriptedStream(
   };
 }
 
+function gatedStream(
+  gate: Promise<void>,
+  events: FlatStreamEventUnion[],
+): AsyncIterable<FlatStreamEventUnion> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      await gate;
+      for (const e of events) {
+        yield e;
+      }
+    },
+  };
+}
+
 async function flushUntil(
   predicate: () => boolean,
   attempts = 50,
@@ -122,7 +163,7 @@ async function flushUntil(
 interface Harness {
   bridge: GatewayChatBridge;
   gateway: FakeGateway;
-  bindings: jest.Mocked<Pick<BindingStore, 'setPtahSessionId' | 'findById'>>;
+  conversations: jest.Mocked<Pick<ConversationStore, 'setPtahSessionId'>>;
   adapter: jest.Mocked<
     Pick<
       IAgentAdapter,
@@ -137,10 +178,9 @@ interface Harness {
 
 function setup(options?: { workspaceRoot?: string | null }): Harness {
   const gateway = new FakeGateway();
-  const bindings = {
-    setPtahSessionId: jest.fn((id: BindingId) => makeBinding({ id })),
-    findById: jest.fn(),
-  } as unknown as Harness['bindings'];
+  const conversations = {
+    setPtahSessionId: jest.fn(),
+  } as unknown as Harness['conversations'];
   const adapter = {
     startChatSession: jest.fn(),
     resumeSession: jest.fn(),
@@ -160,17 +200,18 @@ function setup(options?: { workspaceRoot?: string | null }): Harness {
   const bridge = new GatewayChatBridge(
     createLogger(),
     gateway as unknown as GatewayService,
-    bindings as unknown as BindingStore,
+    conversations as unknown as ConversationStore,
     adapter as unknown as IAgentAdapter,
     workspace as unknown as IWorkspaceProvider,
   );
-  return { bridge, gateway, bindings, adapter, workspace };
+  return { bridge, gateway, conversations, adapter, workspace };
 }
 
 describe('GatewayChatBridge', () => {
-  it('starts a new session for the first inbound (no ptahSessionId)', async () => {
+  it('starts a new session keyed on the conversation row id (gw-<conversationId>)', async () => {
     const h = setup();
     const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, { id: 'conv-42' });
     h.adapter.startChatSession.mockResolvedValue(
       await scriptedStream([
         textDelta(SDK_UUID, 'hi'),
@@ -179,18 +220,21 @@ describe('GatewayChatBridge', () => {
     );
 
     h.bridge.start();
-    h.gateway.emit('inbound', makeEvent(binding, 'hello agent'));
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'hello agent', { conversation }),
+    );
     await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
 
     expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
     const config = h.adapter.startChatSession.mock.calls[0][0];
     expect(config.prompt).toBe('hello agent');
-    expect(config.tabId).toBe(`gw-${binding.id}`);
+    expect(config.tabId).toBe('gw-conv-42');
     expect(config.projectPath).toBe('/ws/proj');
     expect(config.workspaceId).toBe('/ws/proj');
   });
 
-  it('appends a chunk per text_delta and drains exactly once', async () => {
+  it('appends a route-bearing chunk per text_delta and drains exactly once', async () => {
     const h = setup();
     const binding = makeBinding({ workspaceRoot: '/ws/proj' });
     h.adapter.startChatSession.mockResolvedValue(
@@ -206,16 +250,69 @@ describe('GatewayChatBridge', () => {
     h.gateway.emit('inbound', makeEvent(binding, 'go'));
     await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
 
-    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(key, 'foo');
-    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(key, 'bar');
+    const expectedRoute = {
+      conversationKey: key,
+      platform: binding.platform,
+      externalChatId: binding.externalChatId,
+    };
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
+      expectedRoute,
+      'foo',
+    );
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
+      expectedRoute,
+      'bar',
+    );
     expect(h.gateway.appendOutboundChunk).toHaveBeenCalledTimes(2);
     expect(h.gateway.drainOutbound).toHaveBeenCalledTimes(1);
     expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
   });
 
-  it('persists the first non-tabId sessionId exactly once', async () => {
+  it('includes conversationId in the outbound route for threaded inbound', async () => {
+    const h = setup();
+    const binding = makeBinding({
+      platform: 'discord',
+      workspaceRoot: '/ws/proj',
+    });
+    const conversation = makeConversation(binding, {
+      id: 'conv-thread',
+      externalConversationId: 'thread-9',
+    });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'reply'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'go', { conversation, conversationId: 'thread-9' }),
+    );
+    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+
+    const key = ConversationKey.for(
+      binding.platform,
+      binding.externalChatId,
+      'thread-9',
+    );
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
+      {
+        conversationKey: key,
+        platform: 'discord',
+        externalChatId: binding.externalChatId,
+        conversationId: 'thread-9',
+      },
+      'reply',
+    );
+    expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
+  });
+
+  it('persists the first non-tabId sessionId to the conversation row exactly once', async () => {
     const h = setup();
     const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, { id: 'conv-7' });
     h.adapter.startChatSession.mockResolvedValue(
       await scriptedStream([
         textDelta(SDK_UUID, 'a'),
@@ -225,12 +322,12 @@ describe('GatewayChatBridge', () => {
     );
 
     h.bridge.start();
-    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
     await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
 
-    expect(h.bindings.setPtahSessionId).toHaveBeenCalledTimes(1);
-    expect(h.bindings.setPtahSessionId).toHaveBeenCalledWith(
-      binding.id,
+    expect(h.conversations.setPtahSessionId).toHaveBeenCalledTimes(1);
+    expect(h.conversations.setPtahSessionId).toHaveBeenCalledWith(
+      conversation.id,
       SDK_UUID,
     );
   });
@@ -255,10 +352,10 @@ describe('GatewayChatBridge', () => {
     );
   });
 
-  it('resumes an active persisted session instead of starting new', async () => {
+  it('resumes an active persisted session from conversation.ptahSessionId', async () => {
     const h = setup();
-    const binding = makeBinding({
-      workspaceRoot: '/ws/proj',
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, {
       ptahSessionId: SDK_UUID,
     });
     h.adapter.isSessionActive.mockReturnValue(true);
@@ -270,7 +367,7 @@ describe('GatewayChatBridge', () => {
     );
 
     h.bridge.start();
-    h.gateway.emit('inbound', makeEvent(binding, 'again'));
+    h.gateway.emit('inbound', makeEvent(binding, 'again', { conversation }));
     await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
 
     expect(h.adapter.resumeSession).toHaveBeenCalledTimes(1);
@@ -280,10 +377,190 @@ describe('GatewayChatBridge', () => {
     expect(cfg?.prompt).toBe('again');
   });
 
-  it('resumes a non-active persisted id; falls back to startChatSession on resume error', async () => {
+  it('ignores a stale binding.ptahSessionId when the conversation row has none', async () => {
     const h = setup();
     const binding = makeBinding({
       workspaceRoot: '/ws/proj',
+      ptahSessionId: SDK_UUID,
+    });
+    const conversation = makeConversation(binding, { ptahSessionId: null });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID_B, 'fresh'),
+        messageComplete(SDK_UUID_B),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
+    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+
+    expect(h.adapter.resumeSession).not.toHaveBeenCalled();
+    expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs two conversations on one binding concurrently without prompt bleed', async () => {
+    const h = setup();
+    const binding = makeBinding({
+      platform: 'discord',
+      workspaceRoot: '/ws/proj',
+    });
+    const convA = makeConversation(binding, {
+      id: 'conv-a',
+      externalConversationId: 'thread-a',
+    });
+    const convB = makeConversation(binding, {
+      id: 'conv-b',
+      externalConversationId: 'thread-b',
+    });
+    const release: Record<string, () => void> = {};
+    h.adapter.startChatSession.mockImplementation(async (config) => {
+      const gate = new Promise<void>((r) => {
+        release[config.tabId] = r;
+      });
+      const uuid = config.tabId === 'gw-conv-a' ? SDK_UUID : SDK_UUID_B;
+      const delta = config.tabId === 'gw-conv-a' ? 'answer-a' : 'answer-b';
+      return gatedStream(gate, [textDelta(uuid, delta), messageComplete(uuid)]);
+    });
+
+    h.bridge.start();
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'prompt A', {
+        conversation: convA,
+        conversationId: 'thread-a',
+      }),
+    );
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'prompt B', {
+        conversation: convB,
+        conversationId: 'thread-b',
+      }),
+    );
+    await flushUntil(() => h.adapter.startChatSession.mock.calls.length === 2);
+
+    expect(h.adapter.startChatSession).toHaveBeenCalledTimes(2);
+    const byTab = new Map(
+      h.adapter.startChatSession.mock.calls.map(([cfg]) => [cfg.tabId, cfg]),
+    );
+    expect(byTab.get('gw-conv-a')?.prompt).toBe('prompt A');
+    expect(byTab.get('gw-conv-b')?.prompt).toBe('prompt B');
+
+    release['gw-conv-a']();
+    release['gw-conv-b']();
+    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length === 2);
+
+    const keyA = ConversationKey.for(
+      'discord',
+      binding.externalChatId,
+      'thread-a',
+    );
+    const keyB = ConversationKey.for(
+      'discord',
+      binding.externalChatId,
+      'thread-b',
+    );
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationKey: keyA,
+        conversationId: 'thread-a',
+      }),
+      'answer-a',
+    );
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationKey: keyB,
+        conversationId: 'thread-b',
+      }),
+      'answer-b',
+    );
+    expect(h.gateway.drainOutbound).toHaveBeenCalledWith(keyA);
+    expect(h.gateway.drainOutbound).toHaveBeenCalledWith(keyB);
+    expect(h.conversations.setPtahSessionId).toHaveBeenCalledWith(
+      convA.id,
+      SDK_UUID,
+    );
+    expect(h.conversations.setPtahSessionId).toHaveBeenCalledWith(
+      convB.id,
+      SDK_UUID_B,
+    );
+  });
+
+  it('serializes turns for the same conversation key', async () => {
+    const h = setup();
+    const binding = makeBinding({
+      platform: 'discord',
+      workspaceRoot: '/ws/proj',
+    });
+    const conversation = makeConversation(binding, {
+      id: 'conv-a',
+      externalConversationId: 'thread-a',
+    });
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((r) => {
+      releaseFirst = r;
+    });
+    let calls = 0;
+    h.adapter.startChatSession.mockImplementation(async () => {
+      calls++;
+      if (calls === 1) {
+        return gatedStream(firstGate, [
+          textDelta(SDK_UUID, 'one'),
+          messageComplete(SDK_UUID),
+        ]);
+      }
+      return scriptedStream([
+        textDelta(SDK_UUID_B, 'two'),
+        messageComplete(SDK_UUID_B),
+      ]);
+    });
+
+    h.bridge.start();
+    const event = (body: string): GatewayInboundEvent =>
+      makeEvent(binding, body, { conversation, conversationId: 'thread-a' });
+    h.gateway.emit('inbound', event('first'));
+    h.gateway.emit('inbound', event('second'));
+    await flushUntil(() => false, 5);
+
+    expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
+
+    releaseFirst();
+    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length === 2);
+
+    expect(h.adapter.startChatSession).toHaveBeenCalledTimes(2);
+    expect(h.adapter.startChatSession.mock.calls[0][0].prompt).toBe('first');
+    expect(h.adapter.startChatSession.mock.calls[1][0].prompt).toBe('second');
+  });
+
+  it('resumes a persisted conversation session on a fresh bridge after restart', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, {
+      id: 'conv-restored',
+      ptahSessionId: SDK_UUID,
+    });
+    h.adapter.isSessionActive.mockReturnValue(false);
+    h.adapter.resumeSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'restored'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
+    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+
+    expect(h.adapter.resumeSession).toHaveBeenCalledTimes(1);
+    expect(h.adapter.resumeSession.mock.calls[0][0]).toBe(SDK_UUID);
+    expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+  });
+
+  it('resumes a non-active persisted id; falls back to startChatSession on resume error', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, {
       ptahSessionId: SDK_UUID,
     });
     h.adapter.isSessionActive.mockReturnValue(false);
@@ -296,7 +573,7 @@ describe('GatewayChatBridge', () => {
     );
 
     h.bridge.start();
-    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
     await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
 
     expect(h.adapter.resumeSession).toHaveBeenCalled();
@@ -305,8 +582,8 @@ describe('GatewayChatBridge', () => {
 
   it('falls back to startChatSession when a resumed stream produces zero events', async () => {
     const h = setup();
-    const binding = makeBinding({
-      workspaceRoot: '/ws/proj',
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, {
       ptahSessionId: SDK_UUID,
     });
     h.adapter.isSessionActive.mockReturnValue(true);
@@ -319,7 +596,7 @@ describe('GatewayChatBridge', () => {
     );
 
     h.bridge.start();
-    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
     await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
 
     expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
@@ -337,7 +614,9 @@ describe('GatewayChatBridge', () => {
     expect(h.adapter.startChatSession).not.toHaveBeenCalled();
     expect(h.adapter.resumeSession).not.toHaveBeenCalled();
     expect(h.gateway.appendOutboundChunk).toHaveBeenCalledTimes(1);
-    expect(h.gateway.appendOutboundChunk.mock.calls[0][0]).toBe(key);
+    expect(h.gateway.appendOutboundChunk.mock.calls[0][0].conversationKey).toBe(
+      key,
+    );
     expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
   });
 

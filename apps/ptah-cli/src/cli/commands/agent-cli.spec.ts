@@ -2,23 +2,23 @@
  * Unit tests for `ptah agent-cli` command.
  *
  * Locked allowlist contract:
- *   - `validateCliAgent` accepts ONLY `'glm' | 'gemini'`. Everything else → null.
+ *   - `validateCliAgent` accepts ONLY `'glm'`. Everything else → null.
  *   - Rejection emits `task.error` with `ptah_code: 'cli_agent_unavailable'`,
- *     `data: { requested_cli, allowed: ['glm','gemini'] }`, and returns
+ *     `data: { requested_cli, allowed: ['glm'] }`, and returns
  *     `ExitCode.AuthRequired = 3`.
  *   - **CRITICAL**: rejection STILL fires when `process.env.PTAH_AGENT_CLI_OVERRIDE`
  *     is set. The shim never reads env. This test guards against future drift.
  *
  * Coverage:
- *   - validateCliAgent: glm/gemini accepted; copilot/codex/anthropic/'' rejected
+ *   - validateCliAgent: glm accepted; gemini/copilot/codex/anthropic/'' rejected
  *   - validateCliAgent ignores PTAH_AGENT_CLI_OVERRIDE
  *   - detect, config get, config set, models list happy paths
  *   - models list with --cli copilot rejected (exit 3, task.error payload)
  *   - models list with --cli glm returns empty array
- *   - models list with --cli gemini returns curated gemini models
+ *   - models list with --cli gemini now rejected (exit 3)
  *   - stop without --cli rejected (exit 3) — even with override env set
  *   - resume with --cli codex rejected (exit 3) — even with override env set
- *   - stop / resume happy paths with --cli gemini
+ *   - stop / resume happy paths with --cli glm
  */
 
 import {
@@ -31,7 +31,7 @@ import {
 import { ExitCode } from '../jsonrpc/types.js';
 import type { Formatter } from '../output/formatter.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 
 const baseGlobals: GlobalOptions = {
   json: true,
@@ -128,17 +128,17 @@ function makeEngine(): MockEngine {
 // ---------------------------------------------------------------------------
 
 describe('CLI_AGENT_ALLOWLIST contract', () => {
-  it('contains exactly two entries: glm and gemini', () => {
-    expect(CLI_AGENT_ALLOWLIST).toEqual(['glm', 'gemini']);
+  it('contains exactly one entry: glm', () => {
+    expect(CLI_AGENT_ALLOWLIST).toEqual(['glm']);
   });
 
   it('validateCliAgent accepts allowlisted ids', () => {
     expect(validateCliAgent('glm')).toBe('glm');
-    expect(validateCliAgent('gemini')).toBe('gemini');
   });
 
   it('validateCliAgent rejects all non-allowlisted ids', () => {
     for (const id of [
+      'gemini',
       'copilot',
       'codex',
       'claude',
@@ -166,11 +166,11 @@ describe('CLI_AGENT_ALLOWLIST contract', () => {
     process.env.PTAH_AGENT_CLI_OVERRIDE = '1';
     try {
       // Even with override set, non-allowlisted ids stay rejected.
+      expect(validateCliAgent('gemini')).toBeNull();
       expect(validateCliAgent('copilot')).toBeNull();
       expect(validateCliAgent('codex')).toBeNull();
       // Allowlisted ids unchanged.
       expect(validateCliAgent('glm')).toBe('glm');
-      expect(validateCliAgent('gemini')).toBe('gemini');
     } finally {
       if (prev === undefined) delete process.env.PTAH_AGENT_CLI_OVERRIDE;
       else process.env.PTAH_AGENT_CLI_OVERRIDE = prev;
@@ -186,7 +186,7 @@ describe('ptah agent-cli detect', () => {
   it('emits agent_cli.detection with clis payload', async () => {
     const ft = makeFormatter();
     const engine = makeEngine();
-    const clis = [{ type: 'gemini', available: true, version: '1.0' }];
+    const clis = [{ type: 'codex', available: true, version: '1.0' }];
     engine.scripted.set('agent:detectClis', {
       success: true,
       data: { clis },
@@ -345,7 +345,7 @@ describe('ptah agent-cli models list', () => {
     const engine = makeEngine();
     engine.scripted.set('agent:listCliModels', {
       success: true,
-      data: { gemini: ['g1'], codex: ['c1'], copilot: ['cp1'] },
+      data: { codex: ['c1'], copilot: ['cp1'] },
     });
 
     const code = await execute({ subcommand: 'models-list' }, baseGlobals, {
@@ -356,17 +356,13 @@ describe('ptah agent-cli models list', () => {
     expect(code).toBe(ExitCode.Success);
     expect(ft.notifications[0]).toEqual({
       method: 'agent_cli.models',
-      params: { gemini: ['g1'], codex: ['c1'], copilot: ['cp1'] },
+      params: { codex: ['c1'], copilot: ['cp1'] },
     });
   });
 
-  it('--cli gemini returns curated gemini models', async () => {
+  it('--cli gemini rejected with cli_agent_unavailable + exit 3', async () => {
     const ft = makeFormatter();
     const engine = makeEngine();
-    engine.scripted.set('agent:listCliModels', {
-      success: true,
-      data: { gemini: ['g1', 'g2'], codex: ['c1'], copilot: ['cp1'] },
-    });
 
     const code = await execute(
       { subcommand: 'models-list', cli: 'gemini' },
@@ -374,11 +370,19 @@ describe('ptah agent-cli models list', () => {
       { formatter: ft.formatter, withEngine: engine.withEngine },
     );
 
-    expect(code).toBe(ExitCode.Success);
-    expect(ft.notifications[0]).toEqual({
-      method: 'agent_cli.models',
-      params: { cli: 'gemini', models: ['g1', 'g2'] },
-    });
+    expect(code).toBe(ExitCode.AuthRequired);
+    expect(code).toBe(3);
+    expect(engine.invoked.count).toBe(0);
+
+    expect(ft.notifications).toHaveLength(1);
+    expect(ft.notifications[0]?.method).toBe('task.error');
+    const payload = ft.notifications[0]?.params as {
+      ptah_code: string;
+      data: { requested_cli: string; allowed: string[] };
+    };
+    expect(payload.ptah_code).toBe('cli_agent_unavailable');
+    expect(payload.data.requested_cli).toBe('gemini');
+    expect(payload.data.allowed).toEqual(['glm']);
   });
 
   it('--cli glm returns empty models array (not in curated payload)', async () => {
@@ -386,7 +390,7 @@ describe('ptah agent-cli models list', () => {
     const engine = makeEngine();
     engine.scripted.set('agent:listCliModels', {
       success: true,
-      data: { gemini: ['g1'], codex: [], copilot: [] },
+      data: { codex: [], copilot: [] },
     });
 
     const code = await execute(
@@ -424,7 +428,7 @@ describe('ptah agent-cli models list', () => {
     };
     expect(payload.ptah_code).toBe('cli_agent_unavailable');
     expect(payload.data.requested_cli).toBe('copilot');
-    expect(payload.data.allowed).toEqual(['glm', 'gemini']);
+    expect(payload.data.allowed).toEqual(['glm']);
   });
 });
 
@@ -439,7 +443,7 @@ describe('ptah agent-cli stop', () => {
     const engine = makeEngine();
 
     const code = await execute(
-      { subcommand: 'stop', cli: 'gemini' },
+      { subcommand: 'stop', cli: 'glm' },
       baseGlobals,
       {
         formatter: ft.formatter,
@@ -499,7 +503,7 @@ describe('ptah agent-cli stop', () => {
     expect(payload.data.requested_cli).toBe('');
   });
 
-  it('--cli gemini happy path emits agent_cli.stopped', async () => {
+  it('--cli glm happy path emits agent_cli.stopped', async () => {
     const ft = makeFormatter();
     const engine = makeEngine();
     engine.scripted.set('agent:stop', {
@@ -508,7 +512,7 @@ describe('ptah agent-cli stop', () => {
     });
 
     const code = await execute(
-      { subcommand: 'stop', agentId: 'agent-42', cli: 'gemini' },
+      { subcommand: 'stop', agentId: 'agent-42', cli: 'glm' },
       baseGlobals,
       { formatter: ft.formatter, withEngine: engine.withEngine },
     );
@@ -520,7 +524,7 @@ describe('ptah agent-cli stop', () => {
     });
     expect(ft.notifications[0]).toEqual({
       method: 'agent_cli.stopped',
-      params: { agentId: 'agent-42', cli: 'gemini' },
+      params: { agentId: 'agent-42', cli: 'glm' },
     });
   });
 });
@@ -536,7 +540,7 @@ describe('ptah agent-cli resume', () => {
     const engine = makeEngine();
 
     const code = await execute(
-      { subcommand: 'resume', cli: 'gemini' },
+      { subcommand: 'resume', cli: 'glm' },
       baseGlobals,
       {
         formatter: ft.formatter,
@@ -572,14 +576,14 @@ describe('ptah agent-cli resume', () => {
       };
       expect(payload.ptah_code).toBe('cli_agent_unavailable');
       expect(payload.data.requested_cli).toBe('codex');
-      expect(payload.data.allowed).toEqual(['glm', 'gemini']);
+      expect(payload.data.allowed).toEqual(['glm']);
     } finally {
       if (prev === undefined) delete process.env.PTAH_AGENT_CLI_OVERRIDE;
       else process.env.PTAH_AGENT_CLI_OVERRIDE = prev;
     }
   });
 
-  it('--cli gemini happy path emits agent_cli.resumed', async () => {
+  it('--cli glm happy path emits agent_cli.resumed', async () => {
     const ft = makeFormatter();
     const engine = makeEngine();
     engine.scripted.set('agent:resumeCliSession', {
@@ -591,7 +595,7 @@ describe('ptah agent-cli resume', () => {
       {
         subcommand: 'resume',
         cliSessionId: 'sess-9',
-        cli: 'gemini',
+        cli: 'glm',
         task: 'continue',
       },
       baseGlobals,
@@ -603,7 +607,7 @@ describe('ptah agent-cli resume', () => {
       method: 'agent:resumeCliSession',
       params: {
         cliSessionId: 'sess-9',
-        cli: 'gemini',
+        cli: 'glm',
         task: 'continue',
       },
     });
@@ -611,7 +615,7 @@ describe('ptah agent-cli resume', () => {
       method: 'agent_cli.resumed',
       params: {
         cliSessionId: 'sess-9',
-        cli: 'gemini',
+        cli: 'glm',
         agentId: 'new-agent-7',
       },
     });

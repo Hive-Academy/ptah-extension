@@ -15,7 +15,7 @@ Autopilot lets the main chat agent decide, in real time, whether a subtask shoul
 
 When Autopilot is on:
 
-1. The main agent sees the full catalog of available agents — built-in specialists, `.claude/agents/` entries, and any detected CLI agents (ptah-cli, Gemini, Codex, Copilot).
+1. The main agent sees the full catalog of available agents — built-in specialists, `.claude/agents/` entries, and any detected CLI agents (ptah-cli, Codex, Copilot).
 2. As the conversation progresses, the agent can call `ptah_agent_spawn` to delegate a well-scoped subtask.
 3. Sub-agents run in parallel (up to three concurrent by default), stream their output into the [Execution Tree](/chat/execution-tree/), and report back.
 4. The main agent integrates the results and continues the conversation.
@@ -38,7 +38,7 @@ When Autopilot is off, the main agent answers everything itself. Tool calls stil
 
 When Autopilot picks a CLI agent to run a subtask, it uses this priority:
 
-`ptah-cli > gemini > codex > copilot`
+`ptah-cli > codex > copilot`
 
 You can disable specific CLIs from the agent orchestration settings (`agentOrchestration.disabledClis` in `~/.ptah/settings.json`), which removes them from Autopilot's candidate pool.
 

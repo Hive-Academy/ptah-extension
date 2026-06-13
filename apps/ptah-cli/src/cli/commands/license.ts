@@ -12,11 +12,11 @@
  * No DI mocking in production; tests inject hooks via {@link LicenseExecuteHooks}.
  */
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 
 export type LicenseSubcommand = 'status' | 'set' | 'clear';
 
@@ -104,8 +104,13 @@ async function runSet(
       plan?: { name?: string };
       error?: string;
     }>(ctx.transport, 'license:setKey', { licenseKey: key });
-    if (result?.success === false) {
-      throw new Error(result.error ?? 'license:setKey failed');
+    if (result?.success !== true) {
+      await formatter.writeNotification('task.error', {
+        success: false,
+        ptah_code: 'license_required',
+        message: result?.error ?? 'license:setKey returned success=false',
+      });
+      return ExitCode.LicenseRequired;
     }
     let expiryWarning: 'near_expiry' | 'critical' | null = null;
     let daysRemaining: number | null = null;

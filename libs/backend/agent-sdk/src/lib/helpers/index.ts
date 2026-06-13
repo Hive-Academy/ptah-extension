@@ -85,6 +85,12 @@ export {
 } from './user-prompt-submit-callback-registry';
 export { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
 export {
+  UserPromptExpansionCallbackRegistry,
+  type UserPromptExpansionCallback,
+  type UserPromptExpansionPayload,
+} from './user-prompt-expansion-callback-registry';
+export { UserPromptExpansionHookHandler } from './user-prompt-expansion-hook-handler';
+export {
   StopCallbackRegistry,
   type StopCallback,
   type StopPayload,
@@ -138,13 +144,16 @@ export {
 export { SdkModuleLoader } from './sdk-module-loader';
 export {
   SdkQueryRunner,
+  type OneShotAuthOverride,
   type OneShotRunInput,
   type OneShotRunResult,
   type InteractiveRunInput,
   type InteractiveRunResult,
 } from './sdk-query-runner.service';
 export { MemoryPromptInjector } from './memory-prompt-injector';
+export { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 export { SdkInternalQueryCuratorLlm } from '../curator-llm-adapter';
+export type { ICuratorAuthResolver } from '../curator-llm-adapter';
 export {
   SdkModelService,
   TIER_ENV_VAR_MAP,

@@ -35,6 +35,7 @@ import {
   SdkModuleLoader,
   SdkModelService,
   MemoryPromptInjector,
+  CodeSymbolPromptInjector,
   SdkInternalQueryCuratorLlm,
   HistoryEventFactory,
   JsonlReaderService,
@@ -54,6 +55,8 @@ import {
   SessionStartHookHandler,
   UserPromptSubmitCallbackRegistry,
   UserPromptSubmitHookHandler,
+  UserPromptExpansionCallbackRegistry,
+  UserPromptExpansionHookHandler,
   StopCallbackRegistry,
   StopHookHandler,
   StopFailureHookHandler,
@@ -237,6 +240,18 @@ export function registerSdkServices(
   );
 
   container.register(
+    SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_REGISTRY,
+    { useClass: UserPromptExpansionCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_HOOK_HANDLER,
+    { useClass: UserPromptExpansionHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
     SDK_TOKENS.SDK_STOP_CALLBACK_REGISTRY,
     { useClass: StopCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
@@ -394,6 +409,11 @@ export function registerSdkServices(
   container.registerSingleton(
     SDK_TOKENS.SDK_MEMORY_PROMPT_INJECTOR,
     MemoryPromptInjector,
+  );
+
+  container.registerSingleton(
+    SDK_TOKENS.SDK_CODE_SYMBOL_PROMPT_INJECTOR,
+    CodeSymbolPromptInjector,
   );
 
   container.register(

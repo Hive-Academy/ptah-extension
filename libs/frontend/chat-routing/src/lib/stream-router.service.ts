@@ -428,6 +428,13 @@ export class StreamRouter {
     if (containing) {
       const surfaces = this.binding.surfacesFor(containing.id);
       if (surfaces.length > 0) {
+        const interactive = surfaces.filter((s) =>
+          this.surfaceRegistry.isInteractive(s),
+        );
+        if (interactive.length > 0) {
+          this.permissionHandler.attachPromptTargets(prompt.id, interactive);
+          return tabs;
+        }
         console.warn('prompt.received.no-tab-surface-only', {
           promptId: prompt.id,
           sessionId: prompt.sessionId,
@@ -492,6 +499,16 @@ export class StreamRouter {
     if (containing) {
       const surfaces = this.binding.surfacesFor(containing.id);
       if (surfaces.length > 0) {
+        const interactive = surfaces.filter((s) =>
+          this.surfaceRegistry.isInteractive(s),
+        );
+        if (interactive.length > 0) {
+          this.permissionHandler.attachQuestionTargets(
+            question.id,
+            interactive,
+          );
+          return tabs;
+        }
         console.warn('question.received.no-tab-surface-only', {
           questionId: question.id,
           sessionId: question.sessionId,
@@ -755,10 +772,13 @@ export class StreamRouter {
   /**
    * Reactive cleanup driven by `TabManagerService.closedTab`. Performs:
    *   - cleanupSessionDeduplication (always, when sessionId present)
-   *   - clearSessionAgents (only on `kind === 'close'` — pop-out transfers
-   *     keep agents alive in the target panel)
+   *   - clearSessionAgents (on `kind === 'close'` or `'reset'` — pop-out
+   *     transfers keep agents alive in the target panel)
    *   - unbind the tab from its conversation
    *   - remove the conversation if no other tab still references it
+   *
+   * `reset` (the `/clear` command) shares all of `close`'s teardown; the tab
+   * itself survives — TabManager re-empties it rather than removing it.
    *
    * Wrapped in try/catch so a single defect can't wedge the effect runner
    * for subsequent close events.
@@ -768,14 +788,14 @@ export class StreamRouter {
       if (evt.sessionId) {
         const sid = evt.sessionId as ClaudeSessionId;
         this.streamingHandler.cleanupSessionDeduplication(sid);
-        if (evt.kind === 'close') {
+        if (evt.kind === 'close' || evt.kind === 'reset') {
           this.agentMonitorStore.forceClearSessionAgents(sid);
           this.backgroundAgentStore.clearSession(sid);
           this.treeBuilder.clearForSession(sid);
         }
       }
 
-      if (evt.kind === 'close') {
+      if (evt.kind === 'close' || evt.kind === 'reset') {
         this.treeBuilder.clearForTab(evt.tabId);
         this.batchedUpdate.clearPendingUpdates(evt.tabId);
       }

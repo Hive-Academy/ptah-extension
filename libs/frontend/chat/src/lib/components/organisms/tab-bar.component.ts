@@ -17,7 +17,10 @@ import {
   AwaitingBackgroundIndicatorComponent,
   TabItemComponent,
 } from '@ptah-extension/chat-ui';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  SessionLivenessRegistry,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 
 /**
  * TabBarComponent - Chrome-style scrollable tab bar
@@ -60,6 +63,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
             [tab]="tab"
             [isActive]="tab.id === activeTabId()"
             [isStreaming]="tabManager.isTabStreaming(tab.id)"
+            [livenessStatus]="livenessFor(tab.claudeSessionId)"
             (tabSelect)="onSelectTab($event)"
             (tabClose)="onCloseTab($event)"
             (viewModeToggle)="onToggleViewMode($event)"
@@ -95,6 +99,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 })
 export class TabBarComponent {
   protected readonly tabManager = inject(TabManagerService);
+  private readonly liveness = inject(SessionLivenessRegistry);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly ngZone = inject(NgZone);
@@ -146,6 +151,13 @@ export class TabBarComponent {
     );
 
     this.destroyRef.onDestroy(() => this.cleanup());
+  }
+
+  protected livenessFor(
+    sessionId: string | null,
+  ): import('@ptah-extension/chat-state').LivenessStatus | undefined {
+    if (!sessionId) return undefined;
+    return this.liveness.statuses().get(sessionId);
   }
 
   protected onScroll(): void {

@@ -28,16 +28,20 @@ export class MessageDispatchService {
   private readonly permissionHandler = inject(PermissionHandlerService);
 
   /**
-   * SDK-native slash commands that only work with direct Anthropic API.
-   * These commands are handled internally by the Claude Agent SDK and require
-   * Claude-specific model behavior. Third-party providers (Ollama, Kimi,
-   * Copilot, Codex, LM Studio, etc.) don't support them.
+   * SDK-native slash commands whose output is only correct on a first-party
+   * Anthropic connection. `/context` and `/cost` read from the runtime's
+   * Anthropic context-window + pricing tables, which the SDK does not resolve
+   * for non-`api.anthropic.com` base URLs (it falls back to a hardcoded 200k
+   * window and has no pricing for third-party models) — so the numbers are
+   * wrong on proxied providers (Copilot, Codex, Ollama, Kimi, LM Studio, …).
+   *
+   * `/compact` and `/review` are NOT here: both are summarization/review model
+   * calls that route through the provider's own model via the translation
+   * proxy, so they work for every provider.
    */
-  private static readonly SDK_NATIVE_COMMANDS = new Set([
-    'compact',
+  private static readonly ANTHROPIC_ONLY_COMMANDS = new Set([
     'context',
     'cost',
-    'review',
   ]);
 
   /**
@@ -104,8 +108,8 @@ export class MessageDispatchService {
   }
 
   /**
-   * Check if the message is an SDK-native slash command that won't work
-   * with the current (non-Anthropic) provider.
+   * Check if the message is a slash command whose output is inaccurate on the
+   * current (non-Anthropic) provider.
    */
   private isBlockedSlashCommand(content: string): boolean {
     const trimmed = content.trim();
@@ -114,7 +118,7 @@ export class MessageDispatchService {
     const commandName =
       spaceIdx === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIdx);
 
-    if (!MessageDispatchService.SDK_NATIVE_COMMANDS.has(commandName))
+    if (!MessageDispatchService.ANTHROPIC_ONLY_COMMANDS.has(commandName))
       return false;
     if (this.authState.isLoading()) return false;
 
@@ -145,11 +149,12 @@ export class MessageDispatchService {
       id: genId(),
       role: 'assistant',
       rawContent:
-        `The \`${commandName}\` command is a built-in Claude Agent SDK feature ` +
-        `that only works with direct Anthropic authentication (API key).\n\n` +
-        `Your current provider does not support this command. ` +
-        `To use SDK commands like \`/compact\`, \`/context\`, \`/cost\`, and \`/review\`, ` +
-        `switch to a direct Anthropic connection in **Settings > Authentication**.`,
+        `The \`${commandName}\` command reports context-window and cost figures ` +
+        `from Anthropic's runtime tables, which aren't resolved for your current ` +
+        `provider — so the numbers would be inaccurate.\n\n` +
+        `It's available on a direct Anthropic connection (API key or Claude ` +
+        `subscription) in **Settings > Authentication**. ` +
+        `\`/compact\` and \`/review\` work on every provider.`,
     });
 
     this.tabManager.setMessages(activeTabId, [

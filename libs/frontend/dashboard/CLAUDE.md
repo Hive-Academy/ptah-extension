@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Home/dashboard surface for Ptah. Stacked two-row layout: a top Thoth pillar stat-tile row (memory · skills · cron · gateway, daisyUI `stats` tiles with big numbers + click-through to the matching Thoth tab) and a session analytics row (aggregate metrics + enhanced per-session cards with token-composition bars, per-model usage, and subagent emphasis). Back button sits left of the title.
+Home/dashboard surface for Ptah. The dashboard grid renders the session analytics row (aggregate metrics + enhanced per-session cards with token-composition bars, per-model usage, and subagent emphasis). Back button sits left of the title. The Thoth pillar stat tiles (`ThothStatusCardComponent`, still exported from here) are rendered by the Thoth page (`thoth-shell`), not by the dashboard grid — they are read-only there (no click-through).
 
 ## Boundaries
 
@@ -30,7 +30,7 @@ From `src/index.ts`:
 
 ## Key Files
 
-- `src/lib/components/dashboard-grid/dashboard-grid.component.ts:32` — page chrome; navigates back to chat via `AppStateManager.setCurrentView('chat')`.
+- `src/lib/components/dashboard-grid/dashboard-grid.component.ts` — page chrome; navigates back to chat via `AppStateManager.setCurrentView('chat')`. Hosts only `<ptah-analytics-card />`.
 - `src/lib/services/thoth-status.service.ts:1` — aggregates state from `MemoryRpcService`, `SkillSynthesisRpcService`, `CronRpcService`, `GatewayRpcService` to compute pillar summaries with `available: false` fallbacks (`'desktop-only' | 'error'`).
 - `src/lib/services/session-analytics-state.service.ts` — signal state for session aggregate totals.
 

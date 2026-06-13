@@ -1,8 +1,7 @@
 /**
  * Shared Skill Sync Utilities
  *
- * Extracted from CopilotSkillInstaller and GeminiSkillInstaller
- * to eliminate code duplication (~230 lines duplicated).
+ * Extracted from CopilotSkillInstaller to eliminate code duplication.
  *
  * Contains:
  * - stripAllowedToolsFromFrontmatter: Remove Claude-specific fields from SKILL.md
@@ -10,11 +9,44 @@
  * - normalizeCrlf: Normalize Windows CRLF to LF for regex compatibility
  */
 
-import { mkdir, readFile, writeFile, readdir, lstat } from 'fs/promises';
+import {
+  mkdir,
+  readFile,
+  writeFile,
+  readdir,
+  lstat,
+  stat,
+  rm,
+} from 'fs/promises';
 import { join, extname } from 'path';
+import {
+  mergeAgentsRegion,
+  PTAH_AGENTS_REGION_BEGIN,
+  PTAH_AGENTS_REGION_END,
+  type AgentBody,
+} from '@ptah-extension/shared';
 
 /** Maximum directory recursion depth to prevent symlink loops */
 const MAX_RECURSION_DEPTH = 20;
+
+/** Manifest file recording which workspace entries Ptah owns (provenance, not name). */
+export const CLI_MANAGED_MANIFEST = '.ptah-managed.json';
+
+export {
+  mergeAgentsRegion,
+  PTAH_AGENTS_REGION_BEGIN,
+  PTAH_AGENTS_REGION_END,
+  type AgentBody,
+};
+
+/** Per-kind list of managed entry names (folder/file basenames) Ptah wrote. */
+export interface CliManagedManifest {
+  skills?: string[];
+  commands?: string[];
+  agents?: string[];
+}
+
+type ManagedKind = keyof CliManagedManifest;
 
 /**
  * Normalize CRLF line endings to LF.
@@ -228,4 +260,140 @@ export async function copyDirectoryRecursive(
   }
 
   return count;
+}
+
+export async function readManagedManifest(
+  dir: string,
+): Promise<CliManagedManifest> {
+  try {
+    const raw = await readFile(join(dir, CLI_MANAGED_MANIFEST), 'utf8');
+    const parsed = JSON.parse(raw) as CliManagedManifest;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function writeManagedManifest(
+  dir: string,
+  manifest: CliManagedManifest,
+): Promise<void> {
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, CLI_MANAGED_MANIFEST),
+    JSON.stringify(manifest, null, 2),
+    'utf8',
+  );
+}
+
+function manifestHas(
+  manifest: CliManagedManifest,
+  kind: ManagedKind,
+  name: string,
+): boolean {
+  return (manifest[kind] ?? []).includes(name);
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await stat(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface WorkspaceSkillCopyResult {
+  filesCopied: number;
+  skipped: boolean;
+  skipReason?: 'foreign';
+}
+
+export async function copyWorkspaceSkill(
+  sourceSkillDir: string,
+  skillsBaseDir: string,
+  skillFolderName: string,
+  manifest: CliManagedManifest,
+): Promise<WorkspaceSkillCopyResult> {
+  const targetDir = join(skillsBaseDir, skillFolderName);
+  const exists = await pathExists(targetDir);
+  if (exists && !manifestHas(manifest, 'skills', skillFolderName)) {
+    return { filesCopied: 0, skipped: true, skipReason: 'foreign' };
+  }
+
+  await mkdir(targetDir, { recursive: true });
+  const filesCopied = await copyDirectoryRecursive(
+    sourceSkillDir,
+    targetDir,
+    0,
+    skillFolderName,
+  );
+  return { filesCopied, skipped: false };
+}
+
+export interface WorkspaceCommandCopyResult {
+  written: boolean;
+  skipped: boolean;
+  skipReason?: 'foreign';
+}
+
+export async function copyWorkspaceCommandMd(
+  sourceFile: string,
+  commandsBaseDir: string,
+  fileName: string,
+  manifest: CliManagedManifest,
+): Promise<WorkspaceCommandCopyResult> {
+  const targetFile = join(commandsBaseDir, fileName);
+  const exists = await pathExists(targetFile);
+  if (exists && !manifestHas(manifest, 'commands', fileName)) {
+    return { written: false, skipped: true, skipReason: 'foreign' };
+  }
+  await mkdir(commandsBaseDir, { recursive: true });
+  const content = await readFile(sourceFile, 'utf8');
+  await writeFile(targetFile, content, 'utf8');
+  return { written: true, skipped: false };
+}
+
+export async function reapPrefixedHomeEntries(
+  dir: string,
+  prefixes: string[],
+): Promise<number> {
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const entry of entries) {
+    if (prefixes.some((p) => entry.startsWith(p))) {
+      await rm(join(dir, entry), { recursive: true, force: true });
+      removed++;
+    }
+  }
+  return removed;
+}
+
+export async function reapExactEntries(
+  dir: string,
+  names: string[],
+): Promise<number> {
+  if (names.length === 0) {
+    return 0;
+  }
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return 0;
+  }
+  const wanted = new Set(names);
+  let removed = 0;
+  for (const entry of entries) {
+    if (wanted.has(entry)) {
+      await rm(join(dir, entry), { recursive: true, force: true });
+      removed++;
+    }
+  }
+  return removed;
 }

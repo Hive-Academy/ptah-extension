@@ -52,6 +52,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
   template: `
     <div
       class="canvas-tile flex flex-col border rounded-lg h-full overflow-hidden transition-shadow"
+      [attr.data-focused]="focused()"
       [class.border-primary]="focused()"
       [class.ring-2]="focused()"
       [class.ring-primary]="focused()"

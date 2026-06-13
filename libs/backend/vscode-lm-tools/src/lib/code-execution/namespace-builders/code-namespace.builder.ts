@@ -9,6 +9,7 @@
 
 import type {
   IMemoryReader,
+  ICodeSymbolReader,
   MemoryHit,
 } from '@ptah-extension/memory-contracts';
 import type {
@@ -17,13 +18,27 @@ import type {
 } from '@ptah-extension/workspace-intelligence';
 
 export interface CodeNamespaceDependencies {
+  /**
+   * Dedicated hybrid (BM25 + vector) search over the code_symbols index.
+   * Present in SQLite-backed runtimes (Electron); preferred when available.
+   */
+  getCodeSymbolSearch?: () => ICodeSymbolReader | undefined;
   getMemorySearch: () => IMemoryReader | undefined;
   getSymbolIndexer: () => CodeSymbolIndexer | undefined;
   getWorkspaceRoot: () => string;
 }
 
+export interface SymbolHit {
+  readonly subject: string | null;
+  readonly filePath: string;
+  readonly symbolName: string;
+  readonly kind: string;
+  readonly text: string;
+  readonly score: number;
+}
+
 export interface SymbolSearchResult {
-  hits: readonly MemoryHit[];
+  hits: readonly SymbolHit[];
   bm25Only: boolean;
 }
 
@@ -58,21 +73,62 @@ export interface CodeNamespace {
 export function buildCodeNamespace(
   deps: CodeNamespaceDependencies,
 ): CodeNamespace {
-  const { getMemorySearch, getSymbolIndexer, getWorkspaceRoot } = deps;
+  const {
+    getCodeSymbolSearch,
+    getMemorySearch,
+    getSymbolIndexer,
+    getWorkspaceRoot,
+  } = deps;
 
   return {
     async searchSymbols(query, options = {}) {
+      const maxResults = options.maxResults ?? 20;
+      const workspaceRoot = getWorkspaceRoot();
+
+      // Preferred path: dedicated hybrid search over the code_symbols index.
+      const codeReader = getCodeSymbolSearch?.();
+      if (codeReader) {
+        try {
+          const page = await codeReader.searchSymbols(
+            query,
+            maxResults,
+            workspaceRoot,
+          );
+          const hits: SymbolHit[] = page.hits
+            .filter((h) =>
+              options.filePath != null
+                ? h.filePath.includes(options.filePath)
+                : true,
+            )
+            .map((h) => ({
+              subject: h.subject,
+              filePath: h.filePath,
+              symbolName: h.symbolName,
+              kind: h.kind,
+              text: h.text,
+              score: h.score,
+            }));
+          return { hits, bm25Only: page.bm25Only ?? false };
+        } catch (err) {
+          return {
+            hits: [] as [],
+            bm25Only: true as const,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }
+
+      // Fallback: filter generic memory hits for legacy `code:` subjects.
+      // Retained for runtimes where the dedicated reader is not registered.
       const reader = getMemorySearch();
       if (!reader) {
         return {
           hits: [] as [],
           bm25Only: true as const,
-          error: 'Memory search service not available',
+          error: 'Code symbol search service not available',
         };
       }
       try {
-        const maxResults = options.maxResults ?? 20;
-        const workspaceRoot = getWorkspaceRoot();
         const page = await reader.search(query, maxResults, workspaceRoot);
         const codeHits = page.hits.filter(
           (hit: MemoryHit) =>
@@ -80,13 +136,21 @@ export function buildCodeNamespace(
             typeof hit.subject === 'string' &&
             hit.subject.startsWith('code:'),
         );
-        const filtered =
-          options.filePath != null
-            ? codeHits.filter((h: MemoryHit) =>
-                h.subject?.includes(options.filePath as string),
-              )
-            : codeHits;
-        return { hits: filtered, bm25Only: page.bm25Only ?? false };
+        const hits: SymbolHit[] = codeHits
+          .filter((h) =>
+            options.filePath != null
+              ? (h.subject ?? '').includes(options.filePath)
+              : true,
+          )
+          .map((h) => ({
+            subject: h.subject,
+            filePath: subjectToFilePath(h.subject),
+            symbolName: subjectToSymbolName(h.subject),
+            kind: '',
+            text: h.chunkText,
+            score: h.score,
+          }));
+        return { hits, bm25Only: page.bm25Only ?? false };
       } catch (err) {
         return {
           hits: [] as [],
@@ -126,4 +190,21 @@ export function buildCodeNamespace(
       }
     },
   };
+}
+
+/** Parse the file path from a legacy `code:<path>#<name>` memory subject. */
+function subjectToFilePath(subject: string | null): string {
+  if (!subject) return '';
+  const withoutPrefix = subject.startsWith('code:')
+    ? subject.slice('code:'.length)
+    : subject;
+  const hashIdx = withoutPrefix.lastIndexOf('#');
+  return hashIdx >= 0 ? withoutPrefix.slice(0, hashIdx) : withoutPrefix;
+}
+
+/** Parse the symbol name from a legacy `code:<path>#<name>` memory subject. */
+function subjectToSymbolName(subject: string | null): string {
+  if (!subject) return '';
+  const hashIdx = subject.lastIndexOf('#');
+  return hashIdx >= 0 ? subject.slice(hashIdx + 1) : '';
 }

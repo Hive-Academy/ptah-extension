@@ -26,7 +26,11 @@ import {
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryStore } from './memory.store';
 import { SalienceScorer } from './salience-scorer';
-import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
+import type {
+  ICuratorLLM,
+  ExtractedMemoryDraft,
+  ResolvedMemoryDraft,
+} from './curator-llm/curator-llm.interface';
 import { memoryId, type MemoryTier } from './memory.types';
 import type { MemoryCuratorEvent } from './diagnostics.types';
 import type { CorpusStore } from './knowledge-agents/corpus.store';
@@ -248,7 +252,12 @@ export class MemoryCuratorService {
       return emptyStats;
     }
 
-    const drafts = await this.llm.extract(transcript, input.signal);
+    let drafts: readonly ExtractedMemoryDraft[];
+    try {
+      drafts = await this.llm.extract(transcript, input.signal);
+    } catch (error: unknown) {
+      return this.recordCuratorError(input.sessionId, error, 'extract');
+    }
     if (drafts.length === 0) {
       const emptyStats: CuratorRunStats = {
         extracted: 0,
@@ -277,7 +286,17 @@ export class MemoryCuratorService {
             .map((m) => ({ id: m.id, subject: m.subject, content: m.content }))
         : [];
 
-    const resolved = await this.llm.resolve(drafts, related, input.signal);
+    let resolved: readonly ResolvedMemoryDraft[];
+    try {
+      resolved = await this.llm.resolve(drafts, related, input.signal);
+    } catch (error: unknown) {
+      return this.recordCuratorError(
+        input.sessionId,
+        error,
+        'resolve',
+        drafts.length,
+      );
+    }
 
     let merged = 0;
     let created = 0;
@@ -378,6 +397,40 @@ export class MemoryCuratorService {
     });
     this.triggerCorpusAutoRebuild(stats.created, input.workspaceRoot ?? null);
     return stats;
+  }
+
+  private recordCuratorError(
+    sessionId: string,
+    error: unknown,
+    stage: 'extract' | 'resolve',
+    extractedCount = 0,
+  ): CuratorRunStats {
+    const detail = error instanceof Error ? error.message : String(error);
+    const message =
+      stage === 'extract'
+        ? `memory extraction failed: ${detail}`
+        : `memory resolution failed (${extractedCount} extracted): ${detail}`;
+    const zeroedStats: CuratorRunStats = {
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    };
+    this.lastRunAtMs = Date.now();
+    this.lastRunStatsCache = zeroedStats;
+    this.pushEvent({
+      kind: 'curator-error',
+      timestamp: this.lastRunAtMs,
+      sessionId,
+      error: message,
+    });
+    this.logger.warn('[memory-curator] curator LLM run failed', {
+      sessionId,
+      stage,
+      extracted: extractedCount,
+      error: detail,
+    });
+    return zeroedStats;
   }
 
   /**

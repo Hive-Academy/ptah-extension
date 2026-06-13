@@ -20,6 +20,12 @@ export const AUTH_PROVIDERS_TOKENS = {
   SDK_OLLAMA_DISCOVERY: Symbol.for('SdkOllamaDiscovery'),
   SDK_LM_STUDIO_PROXY: Symbol.for('SdkLmStudioProxy'),
   SDK_OLLAMA_CLOUD_METADATA: Symbol.for('SdkOllamaCloudMetadata'),
+
+  SDK_CURATOR_PROXY_MANAGER: Symbol.for('SdkCuratorProxyManager'),
+  SDK_CURATOR_COPILOT_PROXY: Symbol.for('SdkCuratorCopilotProxy'),
+  SDK_CURATOR_CODEX_PROXY: Symbol.for('SdkCuratorCodexProxy'),
+  SDK_CURATOR_OPENROUTER_PROXY: Symbol.for('SdkCuratorOpenRouterProxy'),
+  SDK_CURATOR_LM_STUDIO_PROXY: Symbol.for('SdkCuratorLmStudioProxy'),
 } as const;
 
 export type AuthProvidersDIToken = keyof typeof AUTH_PROVIDERS_TOKENS;

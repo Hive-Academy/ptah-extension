@@ -37,6 +37,7 @@ export {
   CronRpcHandlers,
   EmbedderRpcHandlers,
   GatewayRpcHandlers,
+  VoiceRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,
   IndexingRpcHandlers,

@@ -70,6 +70,7 @@ class TabItemStubComponent {
   @Input() tab: TabState | null = null;
   @Input() isActive = false;
   @Input() isStreaming = false;
+  @Input() livenessStatus: unknown = undefined;
   @Output() tabSelect = new EventEmitter<string>();
   @Output() tabClose = new EventEmitter<string>();
   @Output() viewModeToggle = new EventEmitter<string>();

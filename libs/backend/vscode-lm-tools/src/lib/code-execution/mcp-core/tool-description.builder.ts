@@ -252,7 +252,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
     name: 'ptah_agent_spawn',
     description:
       'Spawn a headless agent to work on a task in the background. ' +
-      'Supports CLI agents (Gemini, Codex, Copilot) and Ptah CLI agents (OpenRouter, Moonshot, Z.AI). ' +
+      'Supports CLI agents (Codex, Copilot) and Ptah CLI agents (OpenRouter, Moonshot, Z.AI). ' +
       'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
       'For Ptah CLI agents, pass ptahCliId (from ptah_agent_list). ' +
@@ -272,7 +272,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         },
         cli: {
           type: 'string',
-          enum: ['gemini', 'codex', 'copilot', 'cursor'],
+          enum: ['codex', 'copilot', 'cursor'],
           description:
             'Which CLI agent to use. Each requires its CLI installed on PATH. ' +
             'Omit to use the default (auto-detected or user-configured). ' +
@@ -309,7 +309,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         model: {
           type: 'string',
           description:
-            'Model override for the CLI agent (e.g., "gemini-2.5-pro" for Gemini, "claude-sonnet-4.6" for Copilot). ' +
+            'Model override for the CLI agent (e.g., "claude-sonnet-4.6" for Copilot). ' +
             'Uses user-configured default if omitted.',
         },
         modelTier: {
@@ -328,7 +328,6 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
           type: 'string',
           description:
             'Resume a previous CLI agent session by its CLI-native session ID. ' +
-            'For Gemini, this is the UUID from the init event. ' +
             'The agent will continue from where the previous session left off.',
         },
       },
@@ -925,14 +924,16 @@ export function buildHarnessSearchSkillsTool(): MCPToolDefinition {
   return {
     name: 'ptah_harness_search_skills',
     description:
-      'Harness-builder tool: search the skills provided by installed Ptah plugins ' +
-      '(SKILL.md files under ~/.ptah/plugins for the workspace-enabled plugins). ' +
+      'Harness-builder tool: search both the locally installed Ptah plugin skills ' +
+      '(SKILL.md files under ~/.ptah/plugins, including harness-authored ptah-harness-* plugins) ' +
+      'AND the skills.sh marketplace. Each result is tagged with source: "local" or "skills.sh"; ' +
+      'skills.sh entries carry their install source (owner/repo) and installs count. ' +
       'Returns skill IDs, names, descriptions, plugin IDs, and per-skill enabled/disabled status. ' +
-      'Use this when authoring or configuring a harness to discover which plugin skills exist and ' +
-      'whether they are enabled. NOTE: this is the on-disk plugin inventory, NOT the set of skills ' +
-      'you can invoke right now via the Skill tool — those are already listed in your context. ' +
-      'Pass an optional query to filter by name or description (case-insensitive substring); ' +
-      'omit it to list every installed plugin skill.',
+      'Use this when authoring or configuring a harness to discover which skills exist. NOTE: local ' +
+      'results are the on-disk plugin inventory, NOT the set of skills you can invoke right now via ' +
+      'the Skill tool. A query is required to reach skills.sh; omit it to list only local plugin skills. ' +
+      'To install a skills.sh skill, run `npx skills add <owner/repo> --skill <id> -y` via Bash — it ' +
+      'lands in ~/.claude/skills and is then natively discovered.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -998,7 +999,8 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
     name: 'ptah_harness_search_mcp_registry',
     description:
       'Harness-builder tool: search the official MCP Server Registry ' +
-      '(registry.modelcontextprotocol.io) for servers matching a query. ' +
+      '(registry.modelcontextprotocol.io) AND, when a Smithery API key is configured, the Smithery ' +
+      'registry for servers matching a query. Each result is tagged with source: "official" or "smithery". ' +
       'Returns server names and descriptions. Use specific technology keywords ' +
       '(e.g., "github", "postgresql", "slack") for best results. Pair with ' +
       'harness_list_installed_mcp to see which servers are already configured before adding more.',
@@ -1032,6 +1034,233 @@ export function buildHarnessListInstalledMcpTool(): MCPToolDefinition {
       'Reads from .vscode/mcp.json and .mcp.json in the workspace root and returns each ' +
       "server's name, config, and source file. Use this to check what is already available " +
       'before searching the registry with ptah_harness_search_mcp_registry.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_ast_analyze tool definition
+ * Tree-sitter structural analysis — functions/classes/imports/exports
+ */
+export function buildAstAnalyzeTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_ast_analyze',
+    description:
+      'Analyze a JavaScript/TypeScript file with Tree-sitter and return its structure — functions, classes, imports, and exports with line ranges — WITHOUT reading the full file (40-60% fewer tokens). Use this before reading a file to understand its shape and decide what to read.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          description: 'File path (absolute or relative to workspace root)',
+        },
+      },
+      required: ['file'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_context_enrich_file tool definition
+ * .d.ts-style structural summary of a file
+ */
+export function buildContextEnrichFileTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_context_enrich_file',
+    description:
+      "Generate a .d.ts-style structural summary of a file — imports, class outlines, and function signatures without bodies — for a large token reduction over reading the whole file. Use when you need a file's API surface, not its implementation.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          description: 'File path (absolute or relative to workspace root)',
+        },
+        language: {
+          type: 'string',
+          enum: ['typescript', 'javascript'],
+          description: 'Optional language hint',
+        },
+      },
+      required: ['file'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_get_dependents tool definition
+ * Reverse import edges — what imports this file (refactor blast radius)
+ */
+export function buildGetDependentsTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_get_dependents',
+    description:
+      'List the files that import the given file (reverse dependency edges). Essential for assessing blast radius before changing or renaming a module. Builds the workspace import graph on first use, then answers from cache.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          description: 'File path (absolute or relative to workspace root)',
+        },
+      },
+      required: ['file'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_get_dependencies tool definition
+ * Forward import edges — what this file imports
+ */
+export function buildGetDependenciesTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_get_dependencies',
+    description:
+      'List the files that the given file imports (forward dependency edges). Use to understand what a module depends on. Builds the workspace import graph on first use, then answers from cache.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          description: 'File path (absolute or relative to workspace root)',
+        },
+        depth: {
+          type: 'number',
+          description: 'Transitive traversal depth, 1-3 (default: 1)',
+        },
+      },
+      required: ['file'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_code_search_symbols tool definition
+ * Hybrid BM25 + vector search over the indexed workspace symbol table
+ */
+export function buildCodeSearchSymbolsTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_code_search_symbols',
+    description:
+      'Search indexed workspace code symbols (functions, classes, methods) by semantic description using hybrid BM25 + vector search. Prefer this over Grep to find a symbol by what it does across files. Returns symbol hits with file path, kind, name, and score. NOTE: backed by the SQLite symbol index — returns an "index unavailable" result on runtimes without it (e.g. VS Code); fall back to ptah_search_files or Grep in that case.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Natural-language description of the symbol to find (e.g. "validate auth token")',
+        },
+        maxResults: {
+          type: 'number',
+          description: 'Maximum hits to return (default: 20)',
+        },
+        filePath: {
+          type: 'string',
+          description:
+            'Optional: restrict results to symbols in this file path',
+        },
+      },
+      required: ['query'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_memory_search tool definition
+ * Hybrid search over persistent cross-session memory
+ */
+export function buildMemorySearchTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_memory_search',
+    description:
+      'Search persistent memory from past sessions (facts, preferences, prior decisions) using hybrid BM25 + vector search. Call this when the user references past work ("last time", "previously", "the X we set up") or when prior context would help. Defaults to the active workspace scope. NOTE: backed by the memory store — returns a "not available" result on runtimes without it (e.g. VS Code).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'What to recall (natural language)',
+        },
+        maxResults: {
+          type: 'number',
+          description: 'Maximum memory hits to return (default: 10, max: 50)',
+        },
+        global: {
+          type: 'boolean',
+          description:
+            'Search across all workspaces instead of just the active one (default: false)',
+        },
+      },
+      required: ['query'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_relevance_rank_files tool definition
+ * Semantic file triage — rank files by relevance to a query
+ */
+export function buildRelevanceRankFilesTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_relevance_rank_files',
+    description:
+      'Rank workspace files by relevance to a natural-language query, each with a 0-100 score and the reasons behind it. Use to triage which files to open first for a task instead of guessing — prefer over scanning many files with Read/Grep.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'What you are looking for (natural language)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum files to return (default: 20)',
+        },
+      },
+      required: ['query'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_project_detect_monorepo tool definition
+ * Identify monorepo tooling and layout
+ */
+export function buildProjectDetectMonorepoTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_project_detect_monorepo',
+    description:
+      'Detect whether the workspace is a monorepo and identify the tool (nx, lerna, turborepo, pnpm/yarn workspaces). Returns isMonorepo, type, the config files that indicated it, and package count when detectable. Use to understand workspace layout before navigating a multi-package repo.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_get_symbol_index tool definition
+ * Map of file -> exported symbol names from the import graph
+ */
+export function buildGetSymbolIndexTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_get_symbol_index',
+    description:
+      'List the exported symbols for every file in the workspace import graph (a map of file path to exported symbol names). Use to discover where a symbol is exported from, or to get an at-a-glance map of the public surface. Builds the workspace import graph on first use, then answers from cache.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -1119,7 +1348,7 @@ Use ptah.ast BEFORE reading files to understand structure at 40-60% token saving
 - ptah.context.* - Token budget optimization, enrichFile() for structural summaries (40-60% token reduction)
 - ptah.relevance.* - File relevance scoring
 - ptah.orchestration.* - Workflow state management
-- ptah.agent.* - Agent orchestration (spawn, monitor Gemini CLI / Codex SDK / VS Code LM)
+- ptah.agent.* - Agent orchestration (spawn, monitor Codex SDK / Copilot SDK / VS Code LM)
 
 ## Error Handling
 If a call fails, it returns an error message. Use try-catch for robustness:

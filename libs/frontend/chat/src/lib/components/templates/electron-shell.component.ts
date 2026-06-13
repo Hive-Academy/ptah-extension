@@ -39,6 +39,7 @@ import {
   LayoutGrid,
   Wrench,
   Store,
+  RadioTower,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
@@ -236,6 +237,17 @@ import {
             >
               <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
               Dashboard
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'thoth'"
+              [attr.aria-selected]="appState.currentView() === 'thoth'"
+              title="Thoth — agentic platform"
+              (click)="openThoth()"
+            >
+              <lucide-angular [img]="RadioTowerIcon" class="w-3.5 h-3.5" />
+              Thoth
             </button>
             <button
               role="tab"
@@ -564,6 +576,7 @@ export class ElectronShellComponent {
   readonly LayoutGridIcon = LayoutGrid;
   readonly WrenchIcon = Wrench;
   readonly StoreIcon = Store;
+  readonly RadioTowerIcon = RadioTower;
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
@@ -583,6 +596,13 @@ export class ElectronShellComponent {
 
   openDashboard(): void {
     this.appState.setCurrentView('analytics');
+  }
+
+  openThoth(): void {
+    if (!this.appState.thothFirstRunDismissed()) {
+      this.appState.dismissThothFirstRun();
+    }
+    this.appState.setCurrentView('thoth');
   }
 
   openSetupHub(): void {

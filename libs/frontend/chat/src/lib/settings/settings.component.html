@@ -22,6 +22,7 @@
           class="btn btn-ghost btn-xs gap-1.5"
           (click)="backToChat()"
           aria-label="Back to Chat"
+          data-testid="settings-back"
         >
           <lucide-angular [img]="ArrowLeftIcon" class="w-3.5 h-3.5" />
           <span class="text-xs">Back</span>
@@ -139,7 +140,10 @@
     <!-- Tab 1: Claude Auth                          -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'claude-auth') {
-      <div class="border border-secondary/30 rounded-md bg-secondary/5">
+      <div
+        class="border border-secondary/30 rounded-md bg-secondary/5"
+        data-testid="settings-section-auth"
+      >
         <div class="p-3">
           <div class="flex items-center gap-1.5 mb-2">
             <span class="text-sm">🔐</span>
@@ -287,6 +291,10 @@
 
         <!-- Web Search Config (free for all users, not premium-gated) -->
         <ptah-web-search-config />
+
+        @if (isElectron) {
+          <ptah-voice-config />
+        }
       }
     }
 

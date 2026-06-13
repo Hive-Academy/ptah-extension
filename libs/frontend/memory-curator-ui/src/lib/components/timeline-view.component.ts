@@ -55,43 +55,53 @@ import { TimelineFiltersComponent } from './timeline-filters.component';
         </div>
       }
 
-      <section class="flex-1 overflow-auto" aria-label="Memory timeline rows">
+      <section aria-label="Memory timeline rows">
         @if (state.loading() && state.rows().length === 0) {
-          <div class="flex items-center justify-center py-8">
-            <span class="loading loading-spinner loading-md"></span>
+          <div
+            class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+          >
+            <div class="divide-y divide-base-300/70">
+              @for (n of skeletonRows; track n) {
+                <div class="flex flex-col gap-2 px-4 py-3">
+                  <div class="skeleton h-3 w-40"></div>
+                  <div class="skeleton h-3 w-full"></div>
+                </div>
+              }
+            </div>
           </div>
         } @else if (state.rows().length === 0) {
-          <div
-            class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60"
-          >
-            No memories match the current filters. Try widening the date range
-            or removing concept/file filters.
+          <div class="flex flex-col items-center gap-2 px-6 py-12 text-center">
+            <p class="text-sm font-medium">No timeline events</p>
+            <p class="text-xs text-base-content/60">
+              Try widening the date range or removing concept/file filters.
+            </p>
           </div>
         } @else {
-          <ul class="flex flex-col gap-2">
+          <ul
+            class="divide-y divide-base-300/70 overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+          >
             @for (row of state.rows(); track row.id) {
               <li
-                class="flex flex-col gap-1 rounded-lg border border-base-300 bg-base-100 p-3"
-                [class.bg-base-200]="row.id === state.anchorId()"
+                class="group flex flex-col gap-1 px-4 py-3 transition-colors duration-150 hover:bg-base-300/30"
+                [class.bg-base-300/30]="row.id === state.anchorId()"
               >
-                <div class="flex flex-wrap items-center gap-2 text-xs">
-                  <span class="badge badge-sm badge-info">{{ row.type }}</span>
+                <div class="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span
+                    class="inline-block size-1.5 rounded-full bg-info"
+                    aria-hidden="true"
+                  ></span>
                   <span class="text-base-content/60">
-                    {{ formatCapturedAt(row.capturedAt) }}
+                    {{ row.type }} · {{ formatCapturedAt(row.capturedAt) }} ·
+                    {{ row.score.toFixed(2) }}
                   </span>
-                  <span class="text-base-content/60">
-                    score {{ row.score.toFixed(2) }}
-                  </span>
-                  <div class="ml-auto flex gap-1">
-                    <button
-                      type="button"
-                      class="btn btn-xs btn-ghost"
-                      (click)="onDrill(row.id)"
-                      [attr.aria-label]="'Drill into timeline for ' + row.id"
-                    >
-                      Timeline
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs ml-auto text-base-content/50 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+                    (click)="onDrill(row.id)"
+                    [attr.aria-label]="'Drill into timeline for ' + row.id"
+                  >
+                    Timeline
+                  </button>
                 </div>
                 @if (row.subject !== null) {
                   <div class="text-sm font-medium text-base-content">
@@ -99,17 +109,13 @@ import { TimelineFiltersComponent } from './timeline-filters.component';
                   </div>
                 }
                 @if (row.concepts.length > 0) {
-                  <div class="flex flex-wrap gap-1">
-                    @for (concept of row.concepts; track concept) {
-                      <span class="badge badge-xs badge-ghost">
-                        {{ concept }}
-                      </span>
-                    }
+                  <div class="text-xs text-base-content/60">
+                    {{ row.concepts.join(' · ') }}
                   </div>
                 }
                 @if (row.files.length > 0) {
                   <div
-                    class="line-clamp-1 font-mono text-xs text-base-content/70"
+                    class="line-clamp-1 font-mono text-xs text-base-content/50"
                   >
                     {{ row.files.join(', ') }}
                   </div>
@@ -141,6 +147,8 @@ import { TimelineFiltersComponent } from './timeline-filters.component';
 })
 export class TimelineViewComponent implements OnInit {
   protected readonly state = inject(TimelineStateService);
+
+  protected readonly skeletonRows = [0, 1, 2, 3] as const;
 
   public ngOnInit(): void {
     if (this.state.rows().length === 0) {

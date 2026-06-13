@@ -96,6 +96,62 @@ describe('TrajectoryExtractor', () => {
     expect(a?.hash).toBe(b?.hash);
   });
 
+  it.each([
+    'All 42 tests passing.',
+    'Implementation complete.',
+    'implementation is complete',
+    'Build succeeded.',
+    'typecheck green',
+    'lint passing',
+    'All checks passed',
+  ])('treats "%s" as a success marker', async (marker) => {
+    reader.readJsonlMessages.mockResolvedValue([
+      userTurn('do the work'),
+      assistantTurn('starting'),
+      userTurn('continue'),
+      assistantTurn('still going'),
+      userTurn('finish'),
+      assistantTurn(marker),
+    ]);
+    const out = await extractor.extract('s1', '/ws');
+    expect(out).not.toBeNull();
+  });
+
+  it('does not treat bare "fixed" or "successfully" as a success marker', async () => {
+    reader.readJsonlMessages.mockResolvedValue([
+      userTurn('do the work'),
+      assistantTurn('starting'),
+      userTurn('continue'),
+      assistantTurn('still going'),
+      userTurn('finish'),
+      assistantTurn('I successfully read the file and fixed a typo earlier'),
+    ]);
+    const out = await extractor.extract('s1', '/ws');
+    expect(out).toBeNull();
+  });
+
+  it('reads the explicit transcriptPath instead of resolving by session id', async () => {
+    reader.readJsonlMessages.mockResolvedValue([
+      userTurn('subagent task'),
+      assistantTurn('working'),
+      userTurn('continue'),
+      assistantTurn('more work'),
+      userTurn('finish'),
+      assistantTurn('Task complete'),
+    ]);
+    const explicitPath =
+      '/home/u/.claude/projects/proj/parent/subagents/agent-abc123.jsonl';
+    const out = await extractor.extract(
+      'agent-abc123',
+      '/ws',
+      undefined,
+      explicitPath,
+    );
+    expect(out).not.toBeNull();
+    expect(reader.findSessionsDirectory).not.toHaveBeenCalled();
+    expect(reader.readJsonlMessages).toHaveBeenCalledWith(explicitPath);
+  });
+
   it('normalizes workspace-specific paths so hashes are workspace-independent', async () => {
     const trace = (root: string) => [
       userTurn(`open ${root}/src/file.ts`),

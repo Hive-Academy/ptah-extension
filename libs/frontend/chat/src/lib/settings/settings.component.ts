@@ -29,6 +29,7 @@ import { McpPortConfigComponent } from './pro-features/mcp-port-config.component
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
+import { VoiceConfigComponent } from './ptah-ai/voice-config.component';
 import {
   PluginStatusWidgetComponent,
   PluginBrowserModalComponent,
@@ -74,6 +75,7 @@ import { ChatStore } from '../services/chat.store';
     AgentOrchestrationConfigComponent,
     PtahCliConfigComponent,
     WebSearchConfigComponent,
+    VoiceConfigComponent,
     PluginStatusWidgetComponent,
     PluginBrowserModalComponent,
     SetupStatusWidgetComponent,
@@ -113,6 +115,8 @@ export class SettingsComponent implements OnInit {
 
   /** Whether the plugin browser modal is open */
   readonly isPluginBrowserOpen = signal(false);
+
+  readonly isElectron = this.vscodeService.isElectron;
 
   readonly isPremium = computed(
     () => this.chatStore.licenseStatus()?.isPremium ?? false,

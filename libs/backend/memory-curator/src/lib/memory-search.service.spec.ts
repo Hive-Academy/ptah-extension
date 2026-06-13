@@ -19,6 +19,7 @@ import type { MemoryStore } from './memory.store';
 import { MemorySearchService } from './memory-search.service';
 import { EmbedderWorkerClient } from './embedder/embedder-worker-client';
 import type { ObservationQueueStore } from './observation-queue.store';
+import { escapeFtsQuery } from './fts-query.util';
 
 interface RecordingTracer extends ITracer {
   readonly spans: string[];
@@ -128,11 +129,13 @@ function makeObservationQueue(): ObservationQueueStore {
   } as unknown as ObservationQueueStore;
 }
 
-/** Unwrap the private `escapeFtsQuery` method for white-box assertion. */
-function escape(service: MemorySearchService, q: string): string {
-  return (
-    service as unknown as { escapeFtsQuery(q: string): string }
-  ).escapeFtsQuery(q);
+/**
+ * Thin wrapper preserving the original `escape(service, q)` call sites; the
+ * escaper now lives in the shared `fts-query.util` module (see its spec for the
+ * full assertion set). Retained here for the Porter stemming integration test.
+ */
+function escape(_service: MemorySearchService, q: string): string {
+  return escapeFtsQuery(q);
 }
 
 function makeService(): MemorySearchService {
@@ -193,164 +196,6 @@ function makeServiceWithReranker(options: {
   );
   return { service, rerankMock, logger };
 }
-
-// ---------------------------------------------------------------------------
-// escapeFtsQuery — unit tests
-// ---------------------------------------------------------------------------
-
-describe('MemorySearchService.escapeFtsQuery', () => {
-  let service: MemorySearchService;
-
-  beforeEach(() => {
-    service = makeService();
-  });
-
-  it('strips double-quote metacharacter from query', () => {
-    // Quotes in the input are stripped: 'foo "bar" baz' becomes three
-    // clean tokens. Each token is re-wrapped in its own synthesised quotes.
-    const result = escape(service, 'hello "world" thing');
-    expect(result).toContain('"hello"');
-    expect(result).toContain('"world"');
-    expect(result).toContain('"thing"*');
-    // The surrounding output structure is exactly three tokens joined by OR.
-    expect(result).toBe('"hello" OR "world" OR "thing"*');
-  });
-
-  it('strips asterisk metacharacter from query tokens', () => {
-    const result = escape(service, 'foo* bar*');
-    // The * from the raw tokens is stripped; only the synthesised trailing *
-    // on the last token is present.
-    expect(result).toBe('"foo" OR "bar"*');
-  });
-
-  it('strips opening and closing parentheses from query', () => {
-    const result = escape(service, '(hello) (world)');
-    expect(result).toBe('"hello" OR "world"*');
-  });
-
-  it('drops single-character tokens', () => {
-    const result = escape(service, 'a the quick b fox');
-    // 'a' and 'b' (single chars) are dropped; 'the' is two chars -> kept.
-    expect(result).not.toMatch(/"a"/);
-    expect(result).not.toMatch(/"b"/);
-    expect(result).toContain('"the"');
-    expect(result).toContain('"quick"');
-    expect(result).toContain('"fox"*');
-  });
-
-  it('applies prefix match (* suffix) only to the last token', () => {
-    const result = escape(service, 'alpha beta gamma');
-    expect(result).toBe('"alpha" OR "beta" OR "gamma"*');
-    // Only the last token ends with *
-    const parts = result.split(' OR ');
-    expect(parts.at(-1)).toMatch(/"\w+"\*$/);
-    for (const p of parts.slice(0, -1)) {
-      expect(p).not.toMatch(/\*$/);
-    }
-  });
-
-  it('returns the no-match sentinel for an empty string', () => {
-    expect(escape(service, '')).toBe('""');
-  });
-
-  it('returns the no-match sentinel when all tokens are single characters', () => {
-    expect(escape(service, 'a b c')).toBe('""');
-  });
-
-  it('returns the no-match sentinel for a string that is only metacharacters', () => {
-    expect(escape(service, '"*(*)')).toBe('""');
-  });
-
-  it('joins multi-token query with OR', () => {
-    const result = escape(service, 'memory retrieval pipeline');
-    expect(result).toBe('"memory" OR "retrieval" OR "pipeline"*');
-  });
-
-  it('single surviving token gets the prefix match', () => {
-    const result = escape(service, 'configur');
-    expect(result).toBe('"configur"*');
-  });
-
-  it('lowercases tokens before quoting', () => {
-    const result = escape(service, 'Hello World');
-    expect(result).toBe('"hello" OR "world"*');
-  });
-
-  // -------------------------------------------------------------------------
-  // New metacharacter coverage (F-H1 security fix)
-  // -------------------------------------------------------------------------
-
-  it('strips caret ^ metacharacter', () => {
-    const result = escape(service, 'foo^bar baz');
-    // ^ is stripped; the remaining alpha chars form tokens
-    expect(result).not.toContain('^');
-    // 'foobar' or 'foo' and 'bar' depending on split — key is no caret
-    expect(result).not.toContain('"^"');
-  });
-
-  it('strips colon : column-qualifier metacharacter', () => {
-    const result = escape(service, 'subject:secret foo');
-    expect(result).not.toContain(':');
-    expect(result).toContain('"foo"*');
-  });
-
-  it('strips plus + operator', () => {
-    const result = escape(service, '+required term');
-    expect(result).not.toContain('+');
-    expect(result).toContain('"required"');
-    expect(result).toContain('"term"*');
-  });
-
-  it('strips minus - operator', () => {
-    const result = escape(service, 'foo -exclude bar');
-    expect(result).not.toContain('-');
-    expect(result).toContain('"foo"');
-    expect(result).toContain('"bar"*');
-  });
-
-  it('strips tilde ~ proximity operator', () => {
-    const result = escape(service, 'hello~world');
-    expect(result).not.toContain('~');
-  });
-
-  it('neutralises FTS5 AND keyword (case-insensitive)', () => {
-    const result = escape(service, 'foo AND bar');
-    expect(result).toBe('"foo" OR "bar"*');
-  });
-
-  it('neutralises FTS5 OR keyword (case-insensitive)', () => {
-    const result = escape(service, 'foo OR bar');
-    expect(result).toBe('"foo" OR "bar"*');
-  });
-
-  it('neutralises FTS5 NOT keyword (case-insensitive)', () => {
-    const result = escape(service, 'foo NOT bar');
-    expect(result).toBe('"foo" OR "bar"*');
-  });
-
-  it('neutralises FTS5 NEAR keyword (case-insensitive)', () => {
-    const result = escape(service, 'NEAR foo bar');
-    expect(result).toBe('"foo" OR "bar"*');
-  });
-
-  it('neutralises lowercase fts5 keywords', () => {
-    const result = escape(service, 'foo and bar or baz');
-    expect(result).toBe('"foo" OR "bar" OR "baz"*');
-  });
-
-  it('returns no-match sentinel for a query of only FTS5 keywords', () => {
-    expect(escape(service, 'AND OR NOT NEAR')).toBe('""');
-  });
-
-  it('subject:foo column-qualifier does not survive stripping', () => {
-    // "subject" and "foo" become separate tokens; colon is stripped
-    const result = escape(service, 'subject:foo');
-    expect(result).not.toContain(':');
-    // Both halves survive as tokens (both > 1 char)
-    expect(result).toContain('"subject"');
-    expect(result).toContain('"foo"*');
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Reranker integration
@@ -954,6 +799,22 @@ describe('MemorySearchService — workspaceRoot filtering', () => {
     const callArgs = allMock.mock.calls[0] as unknown[];
     // workspaceRoot should appear somewhere in the params list
     expect(callArgs).toContain('/workspace/project');
+  });
+
+  it('BM25: workspace-scoped query joins memories and filters m.workspace_root', async () => {
+    const { service, prepareMock } = makeServiceForWorkspaceFilter();
+
+    await service.searchRich('hello', 10, '/workspace/project');
+
+    const bm25Sql = prepareMock.mock.calls
+      .map((c) => c[0] as string)
+      .find((sql) => sql.includes('memory_chunks_fts'));
+    expect(bm25Sql).toBeDefined();
+    // memory_chunks has no workspace_root column — it must be filtered via the
+    // parent memories table, else SQLite throws "no such column: mc.workspace_root".
+    expect(bm25Sql).toContain('JOIN memories m ON m.id = mc.memory_id');
+    expect(bm25Sql).toContain('m.workspace_root IS ?');
+    expect(bm25Sql).not.toContain('mc.workspace_root');
   });
 
   it('BM25: omits workspaceRoot param when not provided (global search)', async () => {
