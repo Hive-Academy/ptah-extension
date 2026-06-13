@@ -1,7 +1,7 @@
 /**
  * CLI Skill Installer Interface
  *
- * Each rival CLI (Gemini, Cursor, Codex, Copilot) has its own installer that
+ * Each rival CLI (Cursor, Codex, Copilot) has its own installer that
  * copies Ptah skills/commands from the user layer (~/.ptah/user/) into the
  * CLI's WORKSPACE-level discovery directory, mirroring {workspace}/.claude/.
  *
@@ -11,7 +11,7 @@
 import type { CliTarget, CliSkillSyncStatus } from '@ptah-extension/shared';
 
 /** Format used to emit workspace command files for a CLI, or null when the CLI has no project-command surface. */
-export type CliCommandFormat = 'md' | 'toml' | null;
+export type CliCommandFormat = 'md' | null;
 
 /** Source roots in the user layer (~/.ptah/user/) feeding workspace propagation. */
 export interface CliSkillSyncSources {
@@ -53,7 +53,7 @@ export interface ICliSkillInstaller {
 
   /**
    * Resolve the workspace skills directory for this CLI, or null if unsupported.
-   * e.g. Gemini -> {ws}/.gemini/skills, Codex -> {ws}/.agents/skills,
+   * e.g. Codex -> {ws}/.agents/skills,
    * Copilot -> {ws}/.github/skills, Cursor -> {ws}/.cursor/skills.
    */
   resolveSkillsTarget(workspaceRoot: string): string | null;
@@ -64,7 +64,7 @@ export interface ICliSkillInstaller {
    */
   resolveCommandsTarget(workspaceRoot: string): string | null;
 
-  /** Command file format for this CLI (toml for Gemini, md for Cursor, null otherwise). */
+  /** Command file format for this CLI (md for Cursor, null otherwise). */
   readonly commandFormat: CliCommandFormat;
 
   /**

@@ -72,51 +72,152 @@ export class HarnessWorkspaceContextService {
     const languages: string[] = [];
 
     const pkgPath = path.join(workspaceRoot, 'package.json');
-    const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf-8')) as {
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-    };
-    const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+    try {
+      const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf-8')) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 
-    languages.push('TypeScript');
+      languages.push('TypeScript');
 
-    if (allDeps['@angular/core']) {
-      frameworks.push('Angular');
-      projectType = 'angular';
-    }
-    if (allDeps['react']) {
-      frameworks.push('React');
-      if (projectType === 'workspace') projectType = 'react';
-    }
-    if (allDeps['next']) {
-      frameworks.push('Next.js');
-      projectType = 'nextjs';
-    }
-    if (allDeps['@nestjs/core']) {
-      frameworks.push('NestJS');
-      if (projectType === 'workspace') projectType = 'nestjs';
-    }
-    if (allDeps['vue']) {
-      frameworks.push('Vue');
-      if (projectType === 'workspace') projectType = 'vue';
-    }
-    if (allDeps['express']) {
-      frameworks.push('Express');
-    }
-    if (allDeps['nx'] || allDeps['@nx/workspace']) {
-      projectType = 'nx-monorepo';
+      if (allDeps['@angular/core']) {
+        frameworks.push('Angular');
+        projectType = 'angular';
+      }
+      if (allDeps['react']) {
+        frameworks.push('React');
+        if (projectType === 'workspace') projectType = 'react';
+      }
+      if (allDeps['next']) {
+        frameworks.push('Next.js');
+        projectType = 'nextjs';
+      }
+      if (allDeps['@nestjs/core']) {
+        frameworks.push('NestJS');
+        if (projectType === 'workspace') projectType = 'nestjs';
+      }
+      if (allDeps['vue']) {
+        frameworks.push('Vue');
+        if (projectType === 'workspace') projectType = 'vue';
+      }
+      if (allDeps['express']) {
+        frameworks.push('Express');
+      }
+      if (allDeps['nx'] || allDeps['@nx/workspace']) {
+        projectType = 'nx-monorepo';
+      }
+    } catch (error: unknown) {
+      this.logger.debug('No readable package.json in workspace', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
-    await fs.access(path.join(workspaceRoot, 'requirements.txt'));
-    languages.push('Python');
-
-    await fs.access(path.join(workspaceRoot, 'go.mod'));
-    languages.push('Go');
-
-    await fs.access(path.join(workspaceRoot, 'Cargo.toml'));
-    languages.push('Rust');
+    if (await this.fileExists(path.join(workspaceRoot, 'requirements.txt'))) {
+      languages.push('Python');
+    }
+    if (await this.fileExists(path.join(workspaceRoot, 'go.mod'))) {
+      languages.push('Go');
+    }
+    if (await this.fileExists(path.join(workspaceRoot, 'Cargo.toml'))) {
+      languages.push('Rust');
+    }
 
     return { projectName, projectType, frameworks, languages };
+  }
+
+  async isWorkspaceEffectivelyEmpty(): Promise<boolean> {
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+    if (!workspaceRoot) {
+      return true;
+    }
+
+    let entries: string[];
+    try {
+      entries = await fs.readdir(workspaceRoot);
+    } catch (error: unknown) {
+      this.logger.debug('Failed to read workspace root for emptiness check', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+
+    const meaningful = entries.filter((entry) => !entry.startsWith('.'));
+    if (meaningful.length === 0) {
+      return true;
+    }
+
+    if (meaningful.includes('package.json')) {
+      return false;
+    }
+
+    const sourceExtensions = [
+      '.ts',
+      '.tsx',
+      '.js',
+      '.jsx',
+      '.py',
+      '.go',
+      '.rs',
+      '.java',
+      '.rb',
+      '.cs',
+      '.php',
+    ];
+    const manifestFiles = [
+      'requirements.txt',
+      'pyproject.toml',
+      'go.mod',
+      'Cargo.toml',
+      'pom.xml',
+      'build.gradle',
+      'Gemfile',
+    ];
+
+    for (const entry of meaningful) {
+      if (manifestFiles.includes(entry)) {
+        return false;
+      }
+      const ext = path.extname(entry).toLowerCase();
+      if (sourceExtensions.includes(ext)) {
+        return false;
+      }
+    }
+
+    for (const entry of meaningful) {
+      const entryPath = path.join(workspaceRoot, entry);
+      let isDir = false;
+      try {
+        isDir = (await fs.stat(entryPath)).isDirectory();
+      } catch {
+        continue;
+      }
+      if (!isDir) continue;
+
+      let childEntries: string[];
+      try {
+        childEntries = await fs.readdir(entryPath);
+      } catch {
+        continue;
+      }
+      for (const child of childEntries) {
+        const ext = path.extname(child).toLowerCase();
+        if (sourceExtensions.includes(ext)) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -128,13 +229,6 @@ export class HarnessWorkspaceContextService {
    */
   getAvailableAgents(): AvailableAgent[] {
     return [
-      {
-        id: 'gemini',
-        name: 'Gemini CLI',
-        description: 'Google Gemini CLI agent for code generation and analysis',
-        type: 'cli',
-        available: true,
-      },
       {
         id: 'codex',
         name: 'Codex CLI',

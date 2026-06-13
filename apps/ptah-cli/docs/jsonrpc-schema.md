@@ -63,10 +63,10 @@ Notifications carry no `id` and require no response. Each `params` includes a ba
 Example:
 
 ```json
-{ "jsonrpc": "2.0", "method": "session.ready", "params": { "session_id": "tab-abc", "version": "0.1.5", "schema_version": "0.1", "capabilities": ["chat", "session", "permission", "question"], "protocol_version": "2.0" } }
+{ "jsonrpc": "2.0", "method": "session.ready", "params": { "session_id": "tab-abc", "version": "0.1.5", "schema_version": "0.2", "capabilities": ["chat", "session", "permission", "question"], "protocol_version": "2.0" } }
 ```
 
-> `schema_version` (added 2026-05) advertises the Ptah JSON-RPC schema version (see `JSONRPC_SCHEMA_VERSION` in `apps/ptah-cli/src/cli/jsonrpc/types.ts`). The field is **additive** — clients written against the pre-`schema_version` shape continue to work unchanged. Hosts that pin a specific schema version should match against this field. The CLI bumps it only on breaking wire changes; all Phase-5 additions (this field, `session.describe`, `session.methods`) are backward-compatible at `0.1`.
+> `schema_version` (added 2026-05) advertises the Ptah JSON-RPC schema version (see `JSONRPC_SCHEMA_VERSION` in `apps/ptah-cli/src/cli/jsonrpc/types.ts`). The field is **additive** — clients written against the pre-`schema_version` shape continue to work unchanged. Hosts that pin a specific schema version should match against this field. The CLI bumps the MINOR component on backward-compatible surface additions and the MAJOR component on breaking wire changes. `0.2` adds the Thoth RPC namespaces (`cron`, `gateway`, `voice`, `memory`, `mem`, `corpus`, `skillSynthesis`, `db`, `embedder`, `indexing`) and their push notifications, all additive over `0.1`. A host that advertises `PTAH_HOST_SCHEMA_VERSION=0.1` still runs against a `0.2` CLI — `checkSchemaVersionSkew()` emits a non-fatal stderr warning and never aborts.
 
 ### 1.2 Agent execution (`agent.*`)
 
@@ -429,7 +429,7 @@ Example — describe the live surface (in `interact` mode):
 CLI reply:
 
 ```json
-{ "jsonrpc": "2.0", "id": "desc-1", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.1", "mode": "interact", "catalog": { "methods": ["task.submit", "task.cancel", "session.shutdown", "session.history", "rpc.call", "session.describe", "session.methods"], "tools": [] }, "errorCodes": ["db_lock", "provider_unavailable", "auth_required", "rate_limited", "license_required", "unknown", "internal_failure", "cli_agent_unavailable", "sdk_init_failed", "workspace_missing", "proxy_bind_failed", "proxy_invalid_request", "permission_gate_unavailable", "claude_cli_not_found", "mcp_handshake_failed", "mcp_tool_not_found", "mcp_invalid_tool_args", "mcp_tool_denied"], "capabilities": ["chat", "session", "permission", "question"] } }
+{ "jsonrpc": "2.0", "id": "desc-1", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.2", "mode": "interact", "catalog": { "methods": ["task.submit", "task.cancel", "session.shutdown", "session.history", "rpc.call", "session.describe", "session.methods"], "tools": [] }, "errorCodes": ["db_lock", "provider_unavailable", "auth_required", "rate_limited", "license_required", "unknown", "internal_failure", "cli_agent_unavailable", "sdk_init_failed", "workspace_missing", "proxy_bind_failed", "proxy_invalid_request", "permission_gate_unavailable", "claude_cli_not_found", "mcp_handshake_failed", "mcp_tool_not_found", "mcp_invalid_tool_args", "mcp_tool_denied"], "capabilities": ["chat", "session", "permission", "question"] } }
 ```
 
 Example — describe in `mcp-serve` mode (catalog includes the 7 MCP tools):
@@ -441,7 +441,7 @@ Example — describe in `mcp-serve` mode (catalog includes the 7 MCP tools):
 CLI reply (abbreviated):
 
 ```json
-{ "jsonrpc": "2.0", "id": "desc-2", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.1", "mode": "mcp-serve", "catalog": { "methods": ["initialize", "tools/list", "tools/call", "notifications/cancelled", "session.describe", "session.methods"], "tools": [{ "name": "agent_spawn", "description": "..." }, { "name": "agent_status", "description": "..." }, { "name": "agent_read", "description": "..." }, { "name": "agent_steer", "description": "..." }, { "name": "agent_stop", "description": "..." }, { "name": "agent_list", "description": "..." }, { "name": "session_submit", "description": "..." }] }, "errorCodes": [...], "capabilities": ["mcp"] } }
+{ "jsonrpc": "2.0", "id": "desc-2", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.2", "mode": "mcp-serve", "catalog": { "methods": ["initialize", "tools/list", "tools/call", "notifications/cancelled", "session.describe", "session.methods"], "tools": [{ "name": "agent_spawn", "description": "..." }, { "name": "agent_status", "description": "..." }, { "name": "agent_read", "description": "..." }, { "name": "agent_steer", "description": "..." }, { "name": "agent_stop", "description": "..." }, { "name": "agent_list", "description": "..." }, { "name": "session_submit", "description": "..." }] }, "errorCodes": [...], "capabilities": ["mcp"] } }
 ```
 
 Example — methods-only introspection:
@@ -489,7 +489,7 @@ Errors are emitted as JSON-RPC error responses on stderr. Notifications never ca
 | `generation_failed`           | Agent-generation pipeline failed (`data.item_id` carries the failed item)                         | `1`          | Sometimes (retry-item)           |
 | `harness_invalid`             | `.ptah/` directory in invalid state                                                               | `1`          | Yes (re-run init)                |
 | `mcp_install_failed`          | MCP server install rejected by target CLI (`data.target` carries the target id)                   | `1`          | Sometimes                        |
-| `cli_agent_unavailable`       | Required CLI agent (gemini/glm) not on PATH OR rejected by allowlist                              | `3`          | No (user install)                |
+| `cli_agent_unavailable`       | Required CLI agent (glm) not on PATH OR rejected by allowlist                                     | `3`          | No (user install)                |
 | `proxy_bind_failed`           | Anthropic proxy could not bind requested host/port (`data.host`/`data.port`/`data.cause`)         | `1`          | Sometimes (try a different port) |
 | `proxy_invalid_request`       | Proxy received a malformed Anthropic Messages request (HTTP 400; `data.detail` carries the cause) | `1`          | Yes (caller fix)                 |
 | `permission_gate_unavailable` | `ptah proxy start` invoked without `--auto-approve` and not embedded in `ptah interact`           | `3`          | No (user action)                 |
@@ -506,7 +506,59 @@ Example — license required on `session start`:
 { "jsonrpc": "2.0", "id": null, "error": { "code": -32603, "message": "license invalid", "data": { "ptah_code": "license_required", "command": "session start" } } }
 ```
 
-## 5. Source references
+## 5. Thoth namespaces (`rpc.call` parity)
+
+The CLI registers the full shared RPC handler set, so the ten Thoth namespaces are reachable over the in-process transport and via `rpc.call` inside `ptah interact`. They are also fronted by first-class subcommands (`ptah memory|cron|gateway|skill-synthesis`).
+
+| Namespace         | Methods                                                                                                          | Backed by                          |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `memory:`         | `list`, `search`, `get`, `pin`, `unpin`, `forget`, `rebuildIndex`, `stats`                                       | memory-curator                     |
+| `mem:`            | `searchIndex`, `timeline`, `getObservations`                                                                     | memory-curator                     |
+| `corpus:`         | `list`, `get`, `build`, `prime`, `query`, `reprime`, `rebuild`, `delete`                                         | memory-curator                     |
+| `embedder:`       | `status`, `retry`                                                                                                | memory-curator (embedder worker)   |
+| `skillSynthesis:` | `listCandidates`, `getCandidate`, `promote`, `reject`, `invocations`, `stats`                                    | skill-synthesis                    |
+| `cron:`           | `list`, `get`, `create`, `update`, `delete`, `toggle`, `runNow`, `runs`, `nextFire`                              | cron-scheduler                     |
+| `gateway:`        | `status`, `start`, `stop`, `setToken`, `listBindings`, `approveBinding`, `blockBinding`, `listMessages`, `test`  | messaging-gateway                  |
+| `voice:`          | `transcribe`, `getConfig`, `setConfig`                                                                           | messaging-gateway (FFmpeg/Whisper) |
+| `db:`             | `health`, `reset`                                                                                                | persistence-sqlite                 |
+| `indexing:`       | `getStatus`, `start`, `pause`, `resume`, `cancel`, `setPipelineEnabled`, `dismissStale`, `acknowledgeDisclosure` | memory-curator + workspace indexer |
+
+### 5.1 Activation tiers
+
+These namespaces register unconditionally, but their backing subsystems activate per command tier:
+
+| Tier      | Commands                                | Behavior                                                                   |
+| --------- | --------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `off`     | `--version`, `config get                | set`, `init`, `doctor`, `provider`                                         | No DB open, no worker, no loop, no adapters. Store-only methods are not reachable. |
+| `oneshot` | `memory                                 | cron                                                                       | gateway                                                                            | skill-synthesis`, `run --task`, `execute-spec`, `session start --once/--task` | DB opened + migrated; embedder spawns lazily on first embed. No cron loop, no gateway adapters, no triggers. |
+| `runtime` | `interact`, interactive `session start` | + memory/skill triggers, cron loop, gateway adapters (enabled-flag gated). |
+
+`indexing:start` invoked under the `oneshot` tier returns a documented not-wired structured error — index run-dependencies (the AST symbol-indexer closure) are wired only in the `runtime` tier so a short-lived process never spawns unbounded indexing work.
+
+`gateway:start` invoked under `oneshot` persists the enabled flags and returns `{ adaptersLive: false, notice: 'adapters serve while a long-running Ptah process (ptah interact / ptah session start / Ptah desktop) is alive' }` — it never fakes adapter liveness.
+
+`voice:transcribe` returns `{ ok: false, code: 'VOICE_ASSETS_UNAVAILABLE', remediation, error }` when `ffmpeg-static`/`nodejs-whisper` are absent (the published CLI omits these heavy assets); install them alongside `@hive-academy/ptah-cli` or use the Ptah desktop app.
+
+### 5.2 Push notifications
+
+The following push notifications stream on stdout from the Thoth subsystems (forwarded via the CLI NDJSON notification pipe). Payload contracts match the Electron renderer message shapes:
+
+| Notification                  | Source                        |
+| ----------------------------- | ----------------------------- |
+| `MEMORY_EXTRACTED`            | memory-curator `onEvent`      |
+| `MEMORY_OBSERVATION_CAPTURED` | observation queue `onCapture` |
+| `MEMORY_CORPUS_CHANGED`       | corpus store `onChange`       |
+| `VEC_STATUS_CHANGED`          | vec status service            |
+| `EMBEDDER_STATUS_CHANGED`     | embedder status service       |
+
+Gateway inbound events and cron run-update events broadcast through the same notification pipe from library/handler code.
+
+### 5.3 Concurrency + at-rest notes
+
+- **Shared SQLite**: `~/.ptah/state/ptah.sqlite` (or `ptah-dev.sqlite` under `NODE_ENV=development`) is shared with the Ptah desktop app. SQLite runs in WAL mode so concurrent readers/writers coexist; cron uses a slot-claim contract (`SlotAlreadyClaimedError` means another live worker already owns the slot — treated as success, not failure).
+- **Gateway token vault**: the CLI stores platform tokens with AES-256-GCM under a machine-derived key (hostname + username via PBKDF2-SHA512, per-install random salt). This protects against casual disclosure of the settings store, NOT against an attacker with filesystem access who knows hostname + username. The Ptah desktop app's OS-keychain `safeStorage` posture is stronger. Raw secrets are never logged or emitted on NDJSON.
+
+## 6. Source references
 
 - Type definitions: `apps/ptah-cli/src/cli/jsonrpc/types.ts` (`PtahNotification`, `PtahOutboundRequest`, `PtahInboundRequest`, `PtahErrorCode`, `ExitCode`, `JsonRpcErrorCode`).
 - Server: `apps/ptah-cli/src/cli/jsonrpc/server.ts`.

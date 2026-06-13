@@ -162,7 +162,7 @@ CLI AGENT DELEGATION (3-tier hierarchy):
     Tier 2: Sub-agents (Senior Leads) — via Agent tool
       Tier 3: CLI agents (Junior Helpers) — via ptah.agent.spawn
 
-Available CLI agents: gemini, codex, copilot, ptah-cli (max 3 concurrent).
+Available CLI agents: codex, copilot, ptah-cli (max 3 concurrent).
 Sub-agents decide when to delegate grunt work vs do it directly.
 
 SPECIALIST AGENTS (14):
@@ -229,11 +229,11 @@ Call this after writing any JSON file to ensure clean, parseable output.`,
 
   agent: `ptah.agent - CLI Agent Orchestration (TASK_2025_157)
 
-Spawn Gemini CLI or Codex CLI as background workers for parallel task execution.
+Spawn Codex CLI or Copilot CLI as background workers for parallel task execution.
 
 LIFECYCLE:
 - spawn(request) - Launch a CLI agent with a task
-  request: { task: string, cli?: 'gemini'|'codex'|'copilot', workingDirectory?: string, timeout?: number, files?: string[], taskFolder?: string }
+  request: { task: string, cli?: 'codex'|'copilot', workingDirectory?: string, timeout?: number, files?: string[], taskFolder?: string }
   returns: { agentId, cli, status, startedAt }
 
 - status(agentId?) - Get agent status (omit agentId for all agents)
@@ -257,7 +257,7 @@ WAITING:
   Default pollInterval: 2000ms
 
 EXAMPLE:
-  const result = await ptah.agent.spawn({ task: 'Review auth code for security issues', cli: 'gemini' });
+  const result = await ptah.agent.spawn({ task: 'Review auth code for security issues', cli: 'codex' });
   const status = await ptah.agent.status(result.agentId);
   if (status.status === 'completed') {
     const output = await ptah.agent.read(result.agentId);

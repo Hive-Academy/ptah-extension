@@ -4,6 +4,12 @@ const GRID_COLUMNS = 12;
 const MARGIN = 8;
 const TILE_HEIGHT_UNITS = 6;
 const MIN_CELL_HEIGHT = 20;
+/**
+ * Each session tile is kept at least this fraction of the viewport height.
+ * When tiles span multiple rows the canvas scrolls vertically instead of
+ * shrinking every tile to fit, so a 4-tile layout stays readable.
+ */
+const MIN_TILE_VIEWPORT_RATIO = 0.7;
 
 const BREAKPOINT_NARROW = 500;
 const BREAKPOINT_MEDIUM = 900;
@@ -71,9 +77,16 @@ export class CanvasLayoutService {
 
     const totalMargins = (rows + 1) * MARGIN;
     const availableHeight = height - totalMargins;
+    const fitCellHeight = Math.floor(
+      availableHeight / (rows * TILE_HEIGHT_UNITS),
+    );
+    const minTileCellHeight = Math.floor(
+      (height * MIN_TILE_VIEWPORT_RATIO) / TILE_HEIGHT_UNITS,
+    );
     const cellHeight = Math.max(
       MIN_CELL_HEIGHT,
-      Math.floor(availableHeight / (rows * TILE_HEIGHT_UNITS)),
+      fitCellHeight,
+      minTileCellHeight,
     );
 
     const tiles: TileLayout[] = [];

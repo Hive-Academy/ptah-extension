@@ -1,12 +1,12 @@
 /**
- * BindingStore.setPtahSessionId — unit tests against a real in-memory
- * better-sqlite3 database. Skipped automatically when the native module is
- * not available in the test environment (mirrors the migration specs).
+ * BindingStore — unit tests against a real in-memory better-sqlite3
+ * database. Skipped automatically when the native module is not available
+ * in the test environment (mirrors the migration specs).
  */
 import 'reflect-metadata';
 
 import { BindingStore } from './binding.store';
-import { BindingId, type GatewayPlatform } from './types';
+import type { BindingId, GatewayPlatform } from './types';
 import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 
 const SCHEMA = `
@@ -45,7 +45,7 @@ try {
 
 const maybe = nativeAvailable ? describe : describe.skip;
 
-maybe('BindingStore.setPtahSessionId', () => {
+maybe('BindingStore', () => {
   let db: NativeDb;
   let store: BindingStore;
 
@@ -68,28 +68,6 @@ maybe('BindingStore.setPtahSessionId', () => {
     const binding = store.upsertPending({ platform, externalChatId });
     return binding.id;
   }
-
-  it('updates ptah_session_id and last_active_at, round-trips via findById', () => {
-    const id = seed('telegram', 'chat-1');
-    const before = store.findById(id);
-    const sessionUuid = '11111111-2222-4333-8444-555555555555';
-
-    const returned = store.setPtahSessionId(id, sessionUuid);
-
-    expect(returned.ptahSessionId).toBe(sessionUuid);
-    const reread = store.findById(id);
-    expect(reread?.ptahSessionId).toBe(sessionUuid);
-    expect(reread?.lastActiveAt).not.toBeNull();
-    expect(reread?.lastActiveAt ?? 0).toBeGreaterThanOrEqual(
-      before?.lastActiveAt ?? 0,
-    );
-  });
-
-  it('throws when the binding id is unknown', () => {
-    expect(() =>
-      store.setPtahSessionId(BindingId.create('does-not-exist'), 'session-x'),
-    ).toThrow(/not found/);
-  });
 
   it('persists allowListId on insert and round-trips it via findById', () => {
     const created = store.upsertPending({

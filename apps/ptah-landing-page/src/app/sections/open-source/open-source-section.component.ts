@@ -159,9 +159,9 @@ import {
                 Standalone Desktop App
               </h3>
               <p class="text-gray-400 mb-6 leading-relaxed">
-                Download the Electron app for Windows, macOS, or Linux. Same
-                powerful features, no VS Code required. Use your existing
-                subscription.
+                Download the Electron app for Windows, macOS, or Linux. Includes
+                the Thoth suite: memory curator, skill synthesis, cron
+                scheduler, and messaging gateway. Use your existing license.
               </p>
               <ul class="space-y-2.5 mb-8">
                 <li class="flex items-start gap-2.5">
@@ -181,7 +181,7 @@ import {
                     aria-hidden="true"
                   />
                   <span class="text-sm text-gray-400"
-                    >Works with your existing license</span
+                    >Unlocks Thoth suite (Electron-exclusive)</span
                   >
                 </li>
                 <li class="flex items-start gap-2.5">
@@ -303,7 +303,7 @@ import {
             class="inline-flex flex-col sm:flex-row items-center gap-4 sm:gap-6 p-6 sm:p-8 rounded-2xl border border-white/5 bg-white/[0.02]"
           >
             <p class="text-gray-300 text-base sm:text-lg">
-              Ready to get started?
+              Three ways to start. All on one license.
             </p>
             <div class="flex items-center gap-3">
               <a

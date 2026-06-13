@@ -60,7 +60,7 @@ test.describe('webview > monitor > spawn', () => {
       type: 'agent:spawned',
       payload: {
         agentId: 'a-42',
-        provider: 'gemini',
+        provider: 'codex',
         status: 'queued',
         prompt: 'Audit dependency licenses',
       },
@@ -95,7 +95,7 @@ test.describe('webview > monitor > spawn', () => {
   }) => {
     await bridge.inject({
       type: 'agent:spawn:error',
-      payload: { code: 'PROVIDER_UNAVAILABLE', message: 'Gemini CLI missing' },
+      payload: { code: 'PROVIDER_UNAVAILABLE', message: 'Codex CLI missing' },
     });
     await expect(webviewPage).toHaveURL(/127\.0\.0\.1/);
   });

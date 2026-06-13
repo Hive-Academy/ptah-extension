@@ -16,7 +16,7 @@
  * first-time send when `isFirstFlush === true`). We surface that flag so
  * the adapter can choose `sendMessage` vs `editMessage`.
  */
-import type { ConversationKey } from './types';
+import type { ConversationKey, GatewayPlatform } from './types';
 
 export interface CoalescerOptions {
   /** Idle window — flush this long after the last chunk. Default 800ms. */
@@ -27,8 +27,18 @@ export interface CoalescerOptions {
   maxAgeMs?: number;
 }
 
+export interface OutboundRoute {
+  readonly conversationKey: ConversationKey;
+  readonly platform: GatewayPlatform;
+  readonly externalChatId: string;
+  readonly conversationId?: string;
+}
+
 export interface FlushPayload {
   readonly conversationKey: ConversationKey;
+  readonly platform: GatewayPlatform;
+  readonly externalChatId: string;
+  readonly conversationId?: string;
   readonly body: string;
   readonly isFirstFlush: boolean;
 }
@@ -36,6 +46,7 @@ export interface FlushPayload {
 export type FlushCallback = (payload: FlushPayload) => Promise<void> | void;
 
 interface BufferState {
+  route: OutboundRoute;
   /**
    * Cumulative body for the current stream — grows as chunks arrive and is
    * passed to the flush callback in full each time. Adapters that support
@@ -82,11 +93,13 @@ export class StreamCoalescer {
    * Append a new chunk. Resets the idle timer. May trigger an immediate
    * flush if the buffer crossed `maxTokens`.
    */
-  append(conversationKey: ConversationKey, chunk: string): void {
+  append(route: OutboundRoute, chunk: string): void {
     if (!chunk) return;
+    const conversationKey = route.conversationKey;
     let state = this.buffers.get(conversationKey);
     if (!state) {
       state = {
+        route,
         body: '',
         pendingDelta: '',
         startedAt: Date.now(),
@@ -163,7 +176,14 @@ export class StreamCoalescer {
       state.idleTimer = null;
     }
     try {
-      await this.flush({ conversationKey, body, isFirstFlush });
+      await this.flush({
+        conversationKey,
+        platform: state.route.platform,
+        externalChatId: state.route.externalChatId,
+        conversationId: state.route.conversationId,
+        body,
+        isFirstFlush,
+      });
     } finally {
       state.flushing = false;
       if (state.pendingDelta) {

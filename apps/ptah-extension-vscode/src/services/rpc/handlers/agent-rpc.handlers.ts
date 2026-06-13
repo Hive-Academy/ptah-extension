@@ -39,7 +39,7 @@ import * as os from 'os';
  * RPC handlers for agent orchestration operations.
  *
  * Exposes agent orchestration config to the frontend for:
- * - Displaying detected CLI agents (Gemini, Codex)
+ * - Displaying detected CLI agents (Codex, Copilot)
  * - Configuring default CLI, max concurrent agents, timeout
  * - Triggering re-detection of CLI agents
  */
@@ -129,7 +129,6 @@ export class AgentRpcHandlers {
             detectedClis,
             preferredAgentOrder: getCfg<string[]>('preferredAgentOrder', []),
             maxConcurrentAgents: getCfg<number>('maxConcurrentAgents', 5),
-            geminiModel: getCfg<string>('geminiModel', ''),
             codexModel: getCfg<string>('codexModel', ''),
             copilotModel: getCfg<string>('copilotModel', ''),
             cursorModel: getCfg<string>('cursorModel', ''),
@@ -306,9 +305,6 @@ export class AgentRpcHandlers {
       await setCfg('maxConcurrentAgents', clamped);
     }
 
-    if (params.geminiModel !== undefined) {
-      await setCfg('geminiModel', params.geminiModel || undefined);
-    }
     if (params.codexModel !== undefined) {
       await setCfg('codexModel', params.codexModel || undefined);
     }
@@ -432,8 +428,6 @@ export class AgentRpcHandlers {
    * (same models shown in the VS Code Language Model dropdown), strips the
    * `copilot/` prefix, and generates clean display names. Falls back to the
    * adapter's curated list if the LM API call fails.
-   *
-   * For Gemini: uses the adapter's curated list (no VS Code LM integration).
    */
   private registerListCliModels(): void {
     this.rpcHandler.registerMethod<void, AgentListCliModelsResult>(
@@ -443,7 +437,6 @@ export class AgentRpcHandlers {
           this.logger.debug('RPC: agent:listCliModels called');
 
           const modelMap = await this.cliDetection.listModelsForAll();
-          const gemini = (modelMap['gemini'] ?? []) as CliModelOption[];
           const codex = (modelMap['codex'] ?? []) as CliModelOption[];
           const cursor = (modelMap['cursor'] ?? []) as CliModelOption[];
           let copilot = await this.getCopilotModelsFromVsCodeLm();
@@ -452,14 +445,12 @@ export class AgentRpcHandlers {
           }
 
           const result: AgentListCliModelsResult = {
-            gemini,
             codex,
             copilot,
             cursor,
           };
 
           this.logger.debug('RPC: agent:listCliModels success', {
-            geminiCount: result.gemini.length,
             codexCount: result.codex.length,
             copilotCount: result.copilot.length,
             cursorCount: result.cursor.length,
@@ -679,7 +670,7 @@ export class AgentRpcHandlers {
   /**
    * agent:resumeCliSession - Resume a CLI agent session.
    *
-   * For real CLIs (Gemini, Copilot, Codex): spawns a new CLI process with
+   * For real CLIs (Copilot, Codex): spawns a new CLI process with
    * resumeSessionId set (--resume flag, client.resumeSession(), etc.).
    *
    * For Ptah CLI: routes through PtahCliRegistry.spawnAgent() with

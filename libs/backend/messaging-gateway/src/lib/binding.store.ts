@@ -171,18 +171,6 @@ export class BindingStore {
     return updated;
   }
 
-  setPtahSessionId(id: BindingId, ptahSessionId: string): GatewayBinding {
-    this.sqlite.db
-      .prepare(
-        `UPDATE gateway_bindings SET ptah_session_id = ?, last_active_at = ? WHERE id = ?`,
-      )
-      .run(ptahSessionId, Date.now(), id);
-    const updated = this.findById(id);
-    if (!updated)
-      throw new Error(`BindingStore.setPtahSessionId: binding ${id} not found`);
-    return updated;
-  }
-
   setStatus(id: BindingId, status: ApprovalStatus): GatewayBinding {
     this.sqlite.db
       .prepare(

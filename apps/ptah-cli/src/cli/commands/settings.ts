@@ -32,11 +32,11 @@ import type { Readable } from 'node:stream';
 
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { EngineContext } from '../bootstrap/with-engine.js';
+import type { EngineContext } from '@ptah-extension/cli-engine';
 
 export type SettingsSubcommand = 'export' | 'import';
 

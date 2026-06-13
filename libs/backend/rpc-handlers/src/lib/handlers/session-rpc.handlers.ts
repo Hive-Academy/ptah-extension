@@ -279,11 +279,12 @@ export class SessionRpcHandlers {
       'session:list',
       async (params: SessionListParams) => {
         try {
-          const { workspacePath, limit = 10, offset = 0 } = params;
+          const { workspacePath, limit = 10, offset = 0, since } = params;
           this.logger.debug('RPC: session:list called', {
             workspacePath,
             limit,
             offset,
+            since,
           });
 
           if (!this.isAuthorizedWorkspace(workspacePath)) {
@@ -293,8 +294,12 @@ export class SessionRpcHandlers {
             );
             throw new Error('workspace-not-authorized');
           }
-          const allSessions =
+          const workspaceSessions =
             await this.metadataStore.getForWorkspace(workspacePath);
+          const allSessions =
+            since === undefined
+              ? workspaceSessions
+              : workspaceSessions.filter((s) => s.lastActiveAt >= since);
           const total = allSessions.length;
           const paginated = allSessions.slice(offset, offset + limit);
           const hasMore = offset + limit < total;

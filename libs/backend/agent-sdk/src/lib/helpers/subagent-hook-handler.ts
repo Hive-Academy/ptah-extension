@@ -378,8 +378,10 @@ export class SubagentHookHandler {
   }
 
   private deriveSubagentSessionId(agentTranscriptPath: string): string | null {
-    const match = /([0-9a-f-]{36})\.jsonl$/i.exec(agentTranscriptPath);
-    return match ? match[1] : null;
+    const agentMatch = /agent-([0-9a-f]+)\.jsonl$/i.exec(agentTranscriptPath);
+    if (agentMatch) return `agent-${agentMatch[1]}`;
+    const uuidMatch = /([0-9a-f-]{36})\.jsonl$/i.exec(agentTranscriptPath);
+    return uuidMatch ? uuidMatch[1] : null;
   }
 
   /**

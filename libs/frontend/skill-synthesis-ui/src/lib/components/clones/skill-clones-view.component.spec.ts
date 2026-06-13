@@ -161,16 +161,17 @@ describe('SkillClonesViewComponent', () => {
     expect(rows.length).toBe(2);
   });
 
-  it('renders the diverged badge for diverged rows', () => {
+  it('renders the diverged status for diverged rows', () => {
     const state = makeStateStub([
       clone({ cloneStatus: 'diverged', diverged: true }),
     ]);
     const { fixture } = setup({ isElectron: true, state });
-    const badge = (fixture.nativeElement as HTMLElement).querySelector(
+    const status = (fixture.nativeElement as HTMLElement).querySelector(
       '[data-testid="clones-status-badge"]',
     ) as HTMLElement;
-    expect(badge.textContent?.trim()).toBe('diverged');
-    expect(badge.className).toContain('badge-warning');
+    expect(status.textContent?.trim()).toBe('diverged');
+    const dot = status.previousElementSibling as HTMLElement | null;
+    expect(dot?.className).toContain('bg-warning');
   });
 
   it('shows Rebase/Keep only for diverged rows, not for normal rows', () => {

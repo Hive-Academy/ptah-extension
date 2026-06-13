@@ -30,8 +30,6 @@ test.describe('Setup wizard (DOM)', () => {
     const step = page.locator('[data-testid="wizard-step"]');
     await expect(step).toHaveAttribute('data-step', 'welcome');
 
-    await page.getByRole('button', { name: 'Project Analysis' }).click();
-
     await page.locator('[data-testid="wizard-next-btn"]').click();
 
     await expect(step).toHaveAttribute('data-step', 'scan');

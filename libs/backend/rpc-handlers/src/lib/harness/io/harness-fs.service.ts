@@ -97,6 +97,39 @@ export class HarnessFsService {
     return { skillId: sanitizedName, skillPath: skillMdPath };
   }
 
+  async discoverHarnessPluginPaths(): Promise<string[]> {
+    const pluginsBase = path.join(os.homedir(), '.ptah', 'plugins');
+    let entries: string[];
+    try {
+      entries = await fs.readdir(pluginsBase);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.logger.warn(
+          `RPC: harness:apply failed to read plugins directory: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      return [];
+    }
+
+    const paths: string[] = [];
+    for (const entry of entries) {
+      if (!entry.startsWith('ptah-harness-')) continue;
+      const pluginPath = path.join(pluginsBase, entry);
+      try {
+        if ((await fs.stat(pluginPath)).isDirectory()) {
+          paths.push(pluginPath);
+        }
+      } catch (error: unknown) {
+        this.logger.debug('Skipping unreadable harness plugin dir', {
+          path: pluginPath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return paths;
+  }
+
   /**
    * Discover MCP servers visible to the current workspace.
    *

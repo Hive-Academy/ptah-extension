@@ -97,7 +97,7 @@ export async function registerPostInit(
   }
   const isFirstTime = context.globalState.get('ptah.firstActivation', true);
   if (isFirstTime) {
-    await ptahExtension.showWelcome();
+    void ptahExtension.showWelcome();
     await context.globalState.update('ptah.firstActivation', false);
   }
   void licenseStatus;

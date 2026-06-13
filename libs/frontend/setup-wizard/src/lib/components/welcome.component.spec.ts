@@ -7,10 +7,9 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 /**
  * WelcomeComponent tests.
  *
- * The welcome screen has two entry points: existing-project analysis (drives
- * the wizard locally) and new-project chat handoff (delegates to the backend
- * via WizardRpcService.startNewProjectChat). These tests assert component
- * creation and the two entry-point handlers.
+ * The welcome screen is the analysis entry point: it loads saved analyses
+ * and advances the wizard to the scan step. New-project creation lives in
+ * the harness builder, not the wizard.
  */
 describe('WelcomeComponent', () => {
   let component: WelcomeComponent;
@@ -29,7 +28,6 @@ describe('WelcomeComponent', () => {
       listAnalyses: jest.fn().mockResolvedValue([]),
       loadAnalysis: jest.fn(),
       recommendAgents: jest.fn(),
-      startNewProjectChat: jest.fn().mockResolvedValue(undefined),
     } as unknown as Partial<WizardRpcService>;
 
     await TestBed.configureTestingModule({
@@ -49,33 +47,11 @@ describe('WelcomeComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  describe('Start Setup (existing project)', () => {
+  describe('Start Setup', () => {
     it('should advance to scan step', () => {
       component['onStartSetup']();
 
       expect(mockStateService.setCurrentStep).toHaveBeenCalledWith('scan');
-    });
-  });
-
-  describe('Start Setup (new project)', () => {
-    it('should delegate to wizardRpc.startNewProjectChat', async () => {
-      await component['onStartNewProject']();
-
-      expect(mockRpcService.startNewProjectChat).toHaveBeenCalled();
-    });
-
-    it('should swallow RPC errors and log them', async () => {
-      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {
-        /* silence */
-      });
-      (mockRpcService.startNewProjectChat as jest.Mock).mockRejectedValueOnce(
-        new Error('boom'),
-      );
-
-      await expect(component['onStartNewProject']()).resolves.toBeUndefined();
-      expect(errSpy).toHaveBeenCalled();
-
-      errSpy.mockRestore();
     });
   });
 });

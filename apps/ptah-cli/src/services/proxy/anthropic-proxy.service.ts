@@ -51,8 +51,8 @@ import type {
 } from '@ptah-extension/platform-core';
 import type { McpHttpServerOverride } from '@ptah-extension/shared';
 
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
-import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
+import type { CliWebviewManagerAdapter } from '@ptah-extension/cli-engine';
 import type { JsonRpcServer } from '../../cli/jsonrpc/server.js';
 import { ChatBridge } from '../../cli/session/chat-bridge.js';
 import {
@@ -77,7 +77,7 @@ import {
   writeProxyTokenFile,
 } from './proxy-auth.js';
 import { tokenFingerprint } from './proxy-registry.js';
-import { emitFatalError } from '../../cli/output/stderr-json.js';
+import { emitFatalError } from '@ptah-extension/cli-engine';
 
 /** Configuration for the proxy lifecycle. */
 export interface AnthropicProxyConfig {

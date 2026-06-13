@@ -482,7 +482,8 @@ export class MessageFinalizationService {
     });
     if (
       node.type === 'agent' &&
-      node.status === 'complete' &&
+      node.status !== 'interrupted' &&
+      node.status !== 'resumed' &&
       node.toolCallId &&
       toolCallIds.has(node.toolCallId)
     ) {

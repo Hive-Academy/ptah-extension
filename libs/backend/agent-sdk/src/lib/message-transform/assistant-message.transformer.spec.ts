@@ -94,6 +94,26 @@ describe('AssistantMessageTransformer', () => {
     expect((events[2] as { model?: string }).model).toBe('claude-opus');
   });
 
+  it('skips a message whose only content is the SDK interrupt sentinel', () => {
+    const msg = {
+      uuid: 'u-int',
+      message: {
+        id: 'm-int',
+        model: 'claude-opus',
+        content: [{ type: 'text', text: '[Request interrupted by user]' }],
+      },
+    } as never;
+
+    const events = transformer.transform(
+      msg,
+      state,
+      helpers,
+      'sess-int' as never,
+    );
+
+    expect(events).toEqual([]);
+  });
+
   it('marks background Task tools through the state mutator and registry', () => {
     const msg = {
       uuid: 'u-2',

@@ -14,15 +14,9 @@
  *  - vscode:  .vscode/mcp.json           (workspace, root key: "servers")
  *  - claude:  .mcp.json                   (workspace, root key: "mcpServers") — shared with codex/ptah-cli
  *  - cursor:  .cursor/mcp.json            (workspace, root key: "mcpServers")
- *  - gemini:  ~/.gemini/settings.json     (user-global, root key: "mcpServers")
  *  - copilot: ~/.copilot/mcp-config.json  (user-global, root key: "mcpServers")
  */
-export type McpInstallTarget =
-  | 'vscode'
-  | 'claude'
-  | 'cursor'
-  | 'gemini'
-  | 'copilot';
+export type McpInstallTarget = 'vscode' | 'claude' | 'cursor' | 'copilot';
 
 /** Base fields shared by all transport types */
 interface McpServerConfigBase {

@@ -159,12 +159,12 @@ describe('mcp-response-formatter › agent namespace', () => {
   it('formatAgentList renders a table of detected agents', () => {
     const agents = [
       {
-        cli: 'gemini',
+        cli: 'codex',
         installed: true,
         supportsSteer: true,
       },
       {
-        cli: 'codex',
+        cli: 'copilot',
         installed: false,
         supportsSteer: false,
       },
@@ -173,7 +173,7 @@ describe('mcp-response-formatter › agent namespace', () => {
     const out = formatAgentList(agents);
     expect(out).toMatch(/Available Agents/);
     expect(out).toMatch(/\*\*Total:\*\* 2/);
-    expect(out).toMatch(/gemini/);
+    expect(out).toMatch(/codex/);
     expect(out).toMatch(/installed/);
     expect(out).toMatch(/not installed/);
   });
@@ -186,7 +186,7 @@ describe('mcp-response-formatter › agent namespace', () => {
   it('formatAgentSpawn includes model tier when provided', () => {
     const result = {
       agentId: 'agent-42',
-      cli: 'gemini',
+      cli: 'codex',
       status: 'running',
       startedAt: '2026-04-24T00:00:00Z',
       cliSessionId: 'sess-xyz',
@@ -195,7 +195,7 @@ describe('mcp-response-formatter › agent namespace', () => {
     const out = formatAgentSpawn(result, { modelTier: 'opus' });
     expect(out).toMatch(/Agent Spawned/);
     expect(out).toMatch(/agent-42/);
-    expect(out).toMatch(/gemini/);
+    expect(out).toMatch(/codex/);
     expect(out).toMatch(/Model Tier.*opus/);
     expect(out).toMatch(/sess-xyz/);
   });

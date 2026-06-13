@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Owns the single shared `~/.ptah/ptah.db` SQLite connection and the forward-only migration runner. Provides the `IEmbedder` contract consumed by `memory-curator`, `skill-synthesis`, `cron-scheduler`, and `messaging-gateway`.
+Owns the single shared `~/.ptah/state/ptah.sqlite` SQLite connection and the forward-only migration runner. Provides the `IEmbedder` contract consumed by `memory-curator`, `skill-synthesis`, `cron-scheduler`, and `messaging-gateway`.
 
 ## Boundaries
 
@@ -45,7 +45,7 @@ Owns the single shared `~/.ptah/ptah.db` SQLite connection and the forward-only 
 - **Single shared connection** — never open ad-hoc connections; always inject via `PERSISTENCE_TOKENS.SQLITE_CONNECTION`.
 - **Migrations are forward-only and append-only** — never rewrite or remove a migration that has shipped.
 - `IEmbedder` is the only interface consumers can rely on for vector embeddings; concrete embedder is registered by `memory-curator`.
-- DB path resolution is fixed at `~/.ptah/ptah.db` (see service implementation).
+- The DB path is host-injected via `PERSISTENCE_TOKENS.SQLITE_DB_PATH`; use the exported `resolvePtahDbPath()` helper, which resolves to `~/.ptah/state/ptah.sqlite` (`ptah-dev.sqlite` when `NODE_ENV=development`).
 - `catch (error: unknown)`.
 
 ## Cross-Lib Rules

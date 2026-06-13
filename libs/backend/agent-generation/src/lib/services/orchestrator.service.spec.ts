@@ -615,10 +615,10 @@ describe('AgentGenerationOrchestratorService', () => {
 
       const cliResults: CliGenerationResult[] = [
         {
-          cli: 'gemini',
+          cli: 'cursor',
           agentsWritten: 1,
           agentsFailed: 0,
-          paths: ['/home/user/.gemini/agents/backend-developer.md'],
+          paths: ['/home/user/.cursor/agents/backend-developer.md'],
           errors: [],
         },
       ];
@@ -626,7 +626,7 @@ describe('AgentGenerationOrchestratorService', () => {
 
       const result = await service.generateAgents({
         workspacePath: '/workspace/test-project',
-        targetClis: ['gemini'],
+        targetClis: ['cursor'],
       });
 
       expect(mocks.multiCliWriter.writeForClis).toHaveBeenCalledTimes(1);
@@ -1001,7 +1001,7 @@ describe('AgentGenerationOrchestratorService', () => {
 
       const result = await service.generateAgents({
         workspacePath: '/workspace/test-project',
-        targetClis: ['gemini'],
+        targetClis: ['cursor'],
       });
 
       expect(result.isOk()).toBe(true);

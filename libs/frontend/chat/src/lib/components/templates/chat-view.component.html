@@ -199,20 +199,33 @@
               >
             </div>
 
-            <!-- Right: Cancel button -->
-            <button
-              class="btn btn-ghost btn-xs"
-              (click)="cancelQueue()"
-              type="button"
-              title="Cancel queued message"
-            >
-              ✕
-            </button>
+            <!-- Right: Edit + Cancel buttons -->
+            <div class="flex items-center gap-1">
+              <button
+                class="btn btn-ghost btn-xs"
+                (click)="editQueue()"
+                type="button"
+                title="Edit queued message"
+              >
+                Edit
+              </button>
+              <button
+                class="btn btn-ghost btn-xs"
+                (click)="cancelQueue()"
+                type="button"
+                title="Cancel queued message"
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
-          <!-- Queued content preview (truncated) -->
-          <div
-            class="text-xs text-base-content/70 bg-base-200 rounded px-2 py-1 max-h-12 overflow-hidden"
+          <!-- Queued content preview (click to edit) -->
+          <button
+            class="w-full text-left text-xs text-base-content/70 bg-base-200 hover:bg-base-300 rounded px-2 py-1 max-h-12 overflow-hidden transition-colors cursor-text"
+            (click)="editQueue()"
+            type="button"
+            title="Edit queued message"
           >
             {{ resolvedQueuedContent()?.substring(0, 100) }}
             @if (
@@ -220,7 +233,7 @@
             ) {
               <span>...</span>
             }
-          </div>
+          </button>
         </div>
       }
 

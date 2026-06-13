@@ -13,17 +13,28 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  VoiceAssetsUnavailableError,
+  isModuleNotFound,
+} from './voice-assets-error';
 
 /** Test seam: locate the ffmpeg binary path. Default uses ffmpeg-static. */
 export type FfmpegBinaryResolver = () => string;
 
 const defaultResolver: FfmpegBinaryResolver = () => {
-
-  const ffmpegPath = require('ffmpeg-static') as string | { default?: string };
+  let ffmpegPath: string | { default?: string };
+  try {
+    ffmpegPath = require('ffmpeg-static') as string | { default?: string };
+  } catch (error: unknown) {
+    if (isModuleNotFound(error)) {
+      throw new VoiceAssetsUnavailableError('ffmpeg-static', error);
+    }
+    throw error;
+  }
   if (typeof ffmpegPath === 'string') return ffmpegPath;
   if (ffmpegPath && typeof ffmpegPath.default === 'string')
     return ffmpegPath.default;
-  throw new Error('ffmpeg-static did not export a binary path');
+  throw new VoiceAssetsUnavailableError('ffmpeg-static');
 };
 
 @injectable()

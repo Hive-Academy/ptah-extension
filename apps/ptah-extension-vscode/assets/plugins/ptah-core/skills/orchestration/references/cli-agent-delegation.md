@@ -24,7 +24,7 @@ Tier 3: CLI agents (Junior Helpers)
   ├── Spawned by sub-agents via MCP tools (ptah_agent_spawn)
   ├── Handle focused, independently-executable sub-tasks
   ├── No shared context — fully self-contained prompts
-  └── Available: gemini, codex, copilot, ptah-cli (user-configured)
+  └── Available: ptah-cli, codex, copilot (user-configured)
 ```
 
 **Key Principle**: Sub-agents delegate grunt work downward, but retain ownership of synthesis, decisions, and quality.
@@ -46,10 +46,10 @@ ptah_agent_list {}
 ```json
 {
   "agents": [
-    { "id": "agent-123", "cli": "gemini", "status": "running", "task": "..." },
+    { "id": "agent-123", "cli": "codex", "status": "running", "task": "..." },
     { "id": "agent-456", "cli": "ptah-cli", "status": "completed", "task": "..." }
   ],
-  "available_clis": ["gemini", "codex", "copilot", "ptah-cli"]
+  "available_clis": ["ptah-cli", "codex", "copilot"]
 }
 ```
 
@@ -64,7 +64,7 @@ The `available_clis` field tells sub-agents which CLI agents the user has config
 ```
 ptah_agent_spawn {
   task: "Analyze all TypeScript interfaces in libs/shared/src and list their fields with types",
-  cli: "gemini",
+  cli: "codex",
   taskFolder: "D:/projects/ptah-extension/.ptah/specs/TASK_2025_042",
   files: ["libs/shared/src/lib/types/**/*.ts"]
 }
@@ -75,7 +75,7 @@ ptah_agent_spawn {
 | Parameter    | Required | Description                                                 |
 | ------------ | -------- | ----------------------------------------------------------- |
 | `task`       | Yes      | Self-contained task prompt (see Task Prompt Template below) |
-| `cli`        | Yes      | CLI agent to use: gemini, codex, copilot, ptah-cli          |
+| `cli`        | Yes      | CLI agent to use: ptah-cli, codex, copilot                  |
 | `taskFolder` | No       | Folder for agent to write results                           |
 | `files`      | No       | Files/globs the agent should focus on                       |
 
@@ -165,9 +165,9 @@ When multiple independent sub-tasks exist, spawn CLI agents in parallel:
 
 ```
 # Spawn 3 agents for independent analysis
-agent1 = ptah_agent_spawn { task: "Analyze module A...", cli: "gemini" }
-agent2 = ptah_agent_spawn { task: "Analyze module B...", cli: "gemini" }
-agent3 = ptah_agent_spawn { task: "Analyze module C...", cli: "gemini" }
+agent1 = ptah_agent_spawn { task: "Analyze module A...", cli: "codex" }
+agent2 = ptah_agent_spawn { task: "Analyze module B...", cli: "codex" }
+agent3 = ptah_agent_spawn { task: "Analyze module C...", cli: "codex" }
 
 # Poll all until complete
 wait_all(agent1, agent2, agent3)
@@ -185,12 +185,12 @@ result3 = ptah_agent_read { agentId: agent3.agentId }
 When sub-tasks depend on each other:
 
 ```
-agent1 = ptah_agent_spawn { task: "Find all API endpoints...", cli: "gemini" }
+agent1 = ptah_agent_spawn { task: "Find all API endpoints...", cli: "codex" }
 wait(agent1)
 result1 = ptah_agent_read { agentId: agent1.agentId }
 
 # Use result1 to inform next task
-agent2 = ptah_agent_spawn { task: "For each endpoint: ${result1}, check auth...", cli: "gemini" }
+agent2 = ptah_agent_spawn { task: "For each endpoint: ${result1}, check auth...", cli: "codex" }
 wait(agent2)
 result2 = ptah_agent_read { agentId: agent2.agentId }
 ```
@@ -266,7 +266,7 @@ The requested CLI agent is not configured or not available.
 **Action**:
 
 - Check `ptah_agent_list` for available alternatives
-- Fall back to the CLI agent selection priority: ptah-cli > gemini > codex > copilot
+- Fall back to the CLI agent selection priority: ptah-cli > codex > copilot
 - If no CLI agents available, complete the sub-task manually
 
 ### Concurrency Limit Reached
@@ -328,22 +328,22 @@ ptah_agent_spawn {
 → { agentId: "agent-101", cliSessionId: "8e3f6fd9..." }
 ```
 
-### Resume Example (Gemini CLI)
+### Resume Example (Copilot CLI)
 
 ```
 # Original spawn
-ptah_agent_spawn { task: "Analyze all services...", cli: "gemini" }
-→ { agentId: "agent-200", cliSessionId: "gemini-uuid-456" }
+ptah_agent_spawn { task: "Analyze all services...", cli: "copilot" }
+→ { agentId: "agent-200", cliSessionId: "copilot-uuid-456" }
 
 # Agent times out
 ptah_agent_status { agentId: "agent-200" }
-→ { status: "timeout", cliSessionId: "gemini-uuid-456" }
+→ { status: "timeout", cliSessionId: "copilot-uuid-456" }
 
 # Resume
 ptah_agent_spawn {
   task: "Continue the previous task",
-  cli: "gemini",
-  resume_session_id: "gemini-uuid-456"
+  cli: "copilot",
+  resume_session_id: "copilot-uuid-456"
 }
 ```
 
@@ -363,7 +363,7 @@ ptah_agent_spawn {
 - The `resume_session_id` is the **CLI Session ID** from `ptah_agent_status`, NOT the Ptah `agentId`
 - When resuming, use a continuation prompt (e.g., "Continue the previous task") — the original task is already in the session context
 - The resumed agent gets a new `agentId` but loads the old session's conversation history
-- Supported by: **ptah-cli**, **gemini**, **copilot**. Codex does not support resume (ephemeral sessions).
+- Supported by: **ptah-cli**, **copilot**. Codex does not support resume (ephemeral sessions).
 
 ---
 
@@ -371,12 +371,11 @@ ptah_agent_spawn {
 
 When multiple CLI agents are available, prefer in this order:
 
-| Priority | CLI Agent | Strengths                             |
-| -------- | --------- | ------------------------------------- |
-| 1        | ptah-cli  | Best integration, project-aware       |
-| 2        | gemini    | Fast, good at analysis and generation |
-| 3        | codex     | Strong at code generation             |
-| 4        | copilot   | General purpose, widely available     |
+| Priority | CLI Agent | Strengths                         |
+| -------- | --------- | --------------------------------- |
+| 1        | ptah-cli  | Best integration, project-aware   |
+| 2        | codex     | Strong at code generation         |
+| 3        | copilot   | General purpose, widely available |
 
 Sub-agents should select based on availability and task fit. The priority order is a default — specific tasks may warrant a different choice.
 
@@ -391,7 +390,7 @@ Sub-agents should select based on availability and task fit. The priority order 
 ```
 ptah_agent_spawn {
   task: "List all Angular components in libs/frontend/chat/src and categorize them by Atomic Design level (atom/molecule/organism/template/page). Format as a markdown table.",
-  cli: "gemini",
+  cli: "codex",
   files: ["libs/frontend/chat/src/**/*.component.ts"]
 }
 ```
@@ -403,7 +402,7 @@ ptah_agent_spawn {
 ```
 ptah_agent_spawn {
   task: "Analyze the dependency injection setup in libs/backend/vscode-core/src. List all DI tokens, their types, and where they are provided. Identify any circular dependency risks.",
-  cli: "gemini",
+  cli: "codex",
   files: ["libs/backend/vscode-core/src/**/*.ts"]
 }
 ```
@@ -433,7 +432,7 @@ ptah_agent_spawn {
 ```
 ptah_agent_spawn {
   task: "Generate an Angular standalone component skeleton for 'AgentStatusBadge' following the project's patterns (zoneless, signals, DaisyUI). Include: component class, template, and a basic spec file. Use the existing agent-card.component.ts as a reference for conventions.",
-  cli: "gemini",
+  cli: "codex",
   files: ["libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts"]
 }
 ```
@@ -457,13 +456,13 @@ ptah_agent_spawn {
 # Parallel test generation for multiple modules
 ptah_agent_spawn {
   task: "Write Jest unit tests for libs/backend/agent-sdk/src/lib/ptah-cli/ptah-cli-registry.ts. Cover all public methods with happy path and error cases. Use jest.mock for dependencies.",
-  cli: "gemini",
+  cli: "codex",
   files: ["libs/backend/agent-sdk/src/lib/ptah-cli/ptah-cli-registry.ts"]
 }
 
 ptah_agent_spawn {
   task: "Write Jest unit tests for libs/backend/llm-abstraction/src/lib/services/agent-process-manager.service.ts. Cover all public methods.",
-  cli: "gemini",
+  cli: "codex",
   files: ["libs/backend/llm-abstraction/src/lib/services/agent-process-manager.service.ts"]
 }
 ```
@@ -475,7 +474,7 @@ ptah_agent_spawn {
 ```
 ptah_agent_spawn {
   task: "Review the file libs/backend/agent-sdk/src/lib/ptah-cli/ptah-cli-registry.ts for: naming conventions, consistent error handling, proper TypeScript usage, no any types. Report issues as a numbered list with line references.",
-  cli: "gemini",
+  cli: "codex",
   files: ["libs/backend/agent-sdk/src/lib/ptah-cli/ptah-cli-registry.ts"]
 }
 ```
@@ -488,12 +487,12 @@ ptah_agent_spawn {
 # Parallel research
 ptah_agent_spawn {
   task: "Research the Claude Agent SDK npm package (@anthropic-ai/claude-agent-sdk). List: main classes, key methods, streaming support, error handling patterns. Focus on version 0.2.x.",
-  cli: "gemini"
+  cli: "codex"
 }
 
 ptah_agent_spawn {
   task: "Analyze how the existing codebase uses @anthropic-ai/claude-agent-sdk. Find all import statements, usage patterns, and integration points. List file paths and key code snippets.",
-  cli: "gemini",
+  cli: "codex",
   files: ["libs/backend/agent-sdk/src/**/*.ts"]
 }
 ```
@@ -505,7 +504,7 @@ ptah_agent_spawn {
 ```
 ptah_agent_spawn {
   task: "Analyze libs/backend/vscode-core/src for modernization opportunities: deprecated API usage, outdated patterns, missing TypeScript strict features, potential performance improvements. Format as a prioritized list.",
-  cli: "gemini",
+  cli: "codex",
   files: ["libs/backend/vscode-core/src/**/*.ts"]
 }
 ```
@@ -517,7 +516,7 @@ ptah_agent_spawn {
 ```
 ptah_agent_spawn {
   task: "Read the source code in libs/backend/agent-sdk/src and produce a technical summary of the Agent SDK's capabilities. Include: key features, supported operations, integration patterns. Write in a tone suitable for developer documentation.",
-  cli: "gemini",
+  cli: "codex",
   files: ["libs/backend/agent-sdk/src/**/*.ts"]
 }
 ```

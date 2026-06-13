@@ -59,6 +59,7 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
       this.editorServices = [
         this.injector.get(editorModule.EditorService),
         this.injector.get(editorModule.GitStatusService),
+        this.injector.get(editorModule.GitBranchesService),
         this.injector.get(editorModule.TerminalService),
       ];
       return this.editorServices;

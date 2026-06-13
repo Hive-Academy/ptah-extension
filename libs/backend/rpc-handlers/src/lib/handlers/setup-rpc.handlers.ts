@@ -28,7 +28,6 @@ import {
 } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
-  IPlatformCommands,
   IFileSystemProvider,
   IMemoryWriter,
   MemoryWriteRequest,
@@ -45,11 +44,7 @@ import {
   AgentRecommendationService,
   AnalysisStorageService,
 } from '@ptah-extension/agent-generation';
-import {
-  SDK_TOKENS,
-  PluginLoaderService,
-  SkillJunctionService,
-} from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import type {
   MultiPhaseAnalysisResponse,
   SavedAnalysisMetadata,
@@ -58,44 +53,11 @@ import type {
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
   WizardInstallPackAgentsResult,
-  WizardStartNewProjectChatParams,
-  WizardStartNewProjectChatResult,
 } from '@ptah-extension/shared';
-import { MESSAGE_TYPES, Result } from '@ptah-extension/shared';
+import { Result } from '@ptah-extension/shared';
 import type { MultiPhaseManifest } from '@ptah-extension/agent-generation';
 import type { RpcMethodName } from '@ptah-extension/shared';
-import type { WebviewBroadcaster } from '../harness/streaming';
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
-
-/**
- * Plugin id of the SaaS workspace initializer skill pack — auto-enabled when
- * `wizard:start-new-project-chat` runs so the seeded chat session has
- * `saas-workspace-initializer` discoverable in `.claude/skills/`.
- */
-const SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID = 'ptah-nx-saas';
-
-/**
- * Verbatim seed prompt posted as the first user turn after the wizard hands
- * off to the chat view. The skill name and Stage A wording are load-bearing —
- * the saas-workspace-initializer skill keys off them.
- */
-const NEW_PROJECT_CHAT_SEED_PROMPT =
-  "I'm starting a new SaaS project. Use the saas-workspace-initializer skill " +
-  'to drive Stage A — discovery, write the roadmap to .ptah/roadmap.md, then ' +
-  'scaffold the foundation. Stop after foundation; remaining roadmap items ' +
-  'run in separate sessions.';
-
-/** ViewType of the wizard webview panel — must match SetupWizardService. */
-const WIZARD_VIEW_TYPE = 'ptah.setupWizard';
-
-/**
- * Local interface for the wizard webview lifecycle service we need
- * (just `disposeWebview`). Resolved dynamically because it is registered
- * in `agent-generation`.
- */
-interface WizardWebviewLifecycleLike {
-  disposeWebview(viewType: string): void;
-}
 
 /**
  * SetupStatus response type for setup-status:get-status RPC method
@@ -123,7 +85,6 @@ export class SetupRpcHandlers {
     'wizard:load-analysis',
     'wizard:list-agent-packs',
     'wizard:install-pack-agents',
-    'wizard:start-new-project-chat',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -139,8 +100,6 @@ export class SetupRpcHandlers {
     private readonly container: DependencyContainer,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
-    @inject(TOKENS.PLATFORM_COMMANDS)
-    private readonly platformCommands: IPlatformCommands,
   ) {}
 
   /**
@@ -199,7 +158,6 @@ export class SetupRpcHandlers {
     this.registerLoadAnalysis();
     this.registerListAgentPacks();
     this.registerInstallPackAgents();
-    this.registerStartNewProjectChat();
 
     this.logger.debug('Setup RPC handlers registered', {
       methods: [
@@ -212,7 +170,6 @@ export class SetupRpcHandlers {
         'wizard:load-analysis',
         'wizard:list-agent-packs',
         'wizard:install-pack-agents',
-        'wizard:start-new-project-chat',
       ],
     });
   }
@@ -866,138 +823,6 @@ export class SetupRpcHandlers {
         params.agentFiles,
         targetDir,
       );
-    });
-  }
-
-  /**
-   * wizard:start-new-project-chat — hand the New Project flow off to the
-   * chat view with the saas-workspace-initializer skill primed.
-   *
-   * Steps:
-   *   1. Ensure the `ptah-nx-saas` plugin is enabled in the workspace plugin
-   *      config (via PluginLoaderService.saveWorkspacePluginConfig).
-   *   2. If the plugin set changed, refresh `.claude/skills/` junctions via
-   *      SkillJunctionService.createJunctions(...).
-   *   3. Focus the chat view (IPlatformCommands.focusChat — VS Code uses
-   *      `ptah.main.focus`, Electron broadcasts SWITCH_VIEW, CLI is no-op).
-   *   4. Broadcast SETUP_WIZARD_START_NEW_PROJECT_CHAT to the webview with
-   *      the verbatim seed prompt — the frontend creates a chat tab and
-   *      issues `chat:start` with the prompt as the first user turn.
-   *   5. Dispose the wizard webview panel (mirrors wizard:cancel cleanup).
-   */
-  private registerStartNewProjectChat(): void {
-    this.rpcHandler.registerMethod<
-      WizardStartNewProjectChatParams,
-      WizardStartNewProjectChatResult
-    >('wizard:start-new-project-chat', async () => {
-      this.logger.debug('RPC: wizard:start-new-project-chat called');
-
-      try {
-        const config = this.pluginLoader.getWorkspacePluginConfig();
-        const enabled = new Set(config.enabledPluginIds);
-        let pluginConfigChanged = false;
-        if (!enabled.has(SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID)) {
-          enabled.add(SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID);
-          await this.pluginLoader.saveWorkspacePluginConfig({
-            enabledPluginIds: Array.from(enabled),
-            disabledSkillIds: config.disabledSkillIds,
-          });
-          pluginConfigChanged = true;
-          this.logger.info(
-            '[wizard:start-new-project-chat] Enabled ptah-nx-saas plugin for workspace',
-          );
-        }
-        if (pluginConfigChanged) {
-          try {
-            const skillJunction = this.resolveService<SkillJunctionService>(
-              SDK_TOKENS.SDK_SKILL_JUNCTION,
-              'SkillJunctionService',
-            );
-            const refreshedConfig =
-              this.pluginLoader.getWorkspacePluginConfig();
-            const pluginPaths = this.pluginLoader.resolvePluginPaths(
-              refreshedConfig.enabledPluginIds,
-            );
-            const junctionResult = skillJunction.createJunctions(
-              pluginPaths,
-              refreshedConfig.disabledSkillIds,
-            );
-            this.logger.debug(
-              '[wizard:start-new-project-chat] Skill junctions refreshed',
-              {
-                created: junctionResult.created,
-                skipped: junctionResult.skipped,
-                removed: junctionResult.removed,
-                errorCount: junctionResult.errors.length,
-              },
-            );
-          } catch (error: unknown) {
-            this.logger.warn(
-              '[wizard:start-new-project-chat] Failed to refresh skill junctions (non-fatal)',
-              {
-                error: error instanceof Error ? error.message : String(error),
-              },
-            );
-          }
-        }
-        try {
-          await this.platformCommands.focusChat();
-        } catch (error: unknown) {
-          this.logger.warn(
-            '[wizard:start-new-project-chat] focusChat failed (non-fatal)',
-            {
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
-        }
-        try {
-          const webviewManager = this.resolveService<WebviewBroadcaster>(
-            TOKENS.WEBVIEW_MANAGER,
-            'WebviewManager',
-          );
-          await webviewManager.broadcastMessage(
-            MESSAGE_TYPES.SETUP_WIZARD_START_NEW_PROJECT_CHAT,
-            { prompt: NEW_PROJECT_CHAT_SEED_PROMPT },
-          );
-        } catch (error: unknown) {
-          this.logger.warn(
-            '[wizard:start-new-project-chat] Failed to broadcast seed prompt',
-            {
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
-        }
-        try {
-          const wizardLifecycle =
-            this.resolveService<WizardWebviewLifecycleLike>(
-              AGENT_GENERATION_TOKENS.WIZARD_WEBVIEW_LIFECYCLE,
-              'WizardWebviewLifecycleService',
-            );
-          wizardLifecycle.disposeWebview(WIZARD_VIEW_TYPE);
-        } catch (error: unknown) {
-          this.logger.debug(
-            '[wizard:start-new-project-chat] Wizard panel dispose skipped (non-fatal)',
-            {
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
-        }
-
-        return { success: true };
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.error(
-          '[wizard:start-new-project-chat] Failed to hand off to chat',
-          error instanceof Error ? error : new Error(message),
-        );
-        this.sentryService.captureException(
-          error instanceof Error ? error : new Error(message),
-          {
-            errorSource: 'SetupRpcHandlers.registerStartNewProjectChat',
-          },
-        );
-        return { success: false, error: message };
-      }
     });
   }
 

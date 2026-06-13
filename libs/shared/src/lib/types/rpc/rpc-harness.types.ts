@@ -5,6 +5,7 @@
  * The harness builder configures: agents, skills, system prompts, MCP servers, and CLAUDE.md.
  */
 
+import { z } from 'zod';
 import type { FlatStreamEventUnion } from '../execution';
 
 /** Workspace context describing the current project environment for harness operations */
@@ -125,14 +126,6 @@ export interface HarnessClaudeMdConfig {
   customSections: Record<string, string>;
   previewContent: string;
 }
-
-export type HarnessWizardStep =
-  | 'persona'
-  | 'agents'
-  | 'skills'
-  | 'prompts'
-  | 'mcp'
-  | 'review';
 
 /** Suggested MCP server from persona-based AI suggestions */
 export interface McpServerSuggestion {
@@ -266,30 +259,6 @@ export interface HarnessLoadPresetsResponse {
   presets: HarnessPreset[];
 }
 
-/** harness:chat — Step-contextual AI chat message */
-export interface HarnessChatParams {
-  step: HarnessWizardStep;
-  message: string;
-  context: Partial<HarnessConfig>;
-}
-export interface HarnessChatResponse {
-  reply: string;
-  suggestedActions?: HarnessChatAction[];
-}
-
-/** Action suggested by AI chat in the wizard */
-export interface HarnessChatAction {
-  type:
-    | 'toggle-agent'
-    | 'add-skill'
-    | 'update-prompt'
-    | 'add-mcp-server'
-    | 'add-subagent'
-    | 'create-skill';
-  label: string;
-  payload: Record<string, unknown>;
-}
-
 /** harness:design-agents — AI designs a custom subagent fleet for the persona */
 export interface HarnessDesignAgentsParams {
   persona: PersonaDefinition;
@@ -355,19 +324,74 @@ export interface HarnessConversationMessage {
   content: string;
 }
 
-/** harness:converse — Send a message in the conversational harness builder */
-export interface HarnessConverseParams {
-  message: string;
-  history: HarnessConversationMessage[];
-  config: Partial<HarnessConfig>;
-  workspaceContext?: HarnessWorkspaceContext;
+/** harness:start-new-project — hand the New Project flow off to the chat surface */
+export type HarnessStartNewProjectParams = Record<string, never>;
+export interface HarnessStartNewProjectResult {
+  success: boolean;
+  error?: string;
 }
 
-export interface HarnessConverseResponse {
-  reply: string;
-  configUpdates?: Partial<HarnessConfig>;
-  isConfigComplete?: boolean;
+/** harness:workflow-prompt — compose the seed prompt for an agent-driven harness workflow */
+export interface HarnessWorkflowPromptParams {
+  mode: 'configure-harness';
+  intent: string;
 }
+export interface HarnessWorkflowPromptResponse {
+  prompt: string;
+}
+
+/**
+ * Zod schema validating a `Partial<HarnessConfig>` at the `proposeConfig` MCP
+ * tool boundary. Every field is optional so the agent can stream incremental
+ * config decisions; structures are intentionally permissive (the agent owns
+ * the authoring contract) while still rejecting non-object payloads.
+ */
+export const HarnessConfigUpdatesSchema = z
+  .object({
+    name: z.string(),
+    persona: z
+      .object({
+        label: z.string(),
+        description: z.string(),
+        goals: z.array(z.string()),
+        templateId: z.string().optional(),
+      })
+      .partial(),
+    agents: z
+      .object({
+        enabledAgents: z.record(z.string(), z.unknown()),
+        harnessSubagents: z.array(z.unknown()),
+      })
+      .partial(),
+    skills: z
+      .object({
+        selectedSkills: z.array(z.string()),
+        createdSkills: z.array(z.unknown()),
+      })
+      .partial(),
+    prompt: z
+      .object({
+        systemPrompt: z.string(),
+        enhancedSections: z.record(z.string(), z.string()),
+      })
+      .partial(),
+    mcp: z
+      .object({
+        servers: z.array(z.unknown()),
+        enabledTools: z.record(z.string(), z.array(z.string())),
+      })
+      .partial(),
+    claudeMd: z
+      .object({
+        generateProjectClaudeMd: z.boolean(),
+        customSections: z.record(z.string(), z.string()),
+        previewContent: z.string(),
+      })
+      .partial(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .partial();
 
 /** Operation types that can produce streaming events */
 export type HarnessStreamOperation =
@@ -375,9 +399,7 @@ export type HarnessStreamOperation =
   | 'suggest-config'
   | 'design-agents'
   | 'generate-skills'
-  | 'generate-document'
-  | 'chat'
-  | 'converse';
+  | 'generate-document';
 
 /** Streaming event payload broadcast from backend during harness operations */
 export interface HarnessStreamPayload {

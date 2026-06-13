@@ -48,6 +48,16 @@ export const THOTH_FIRST_RUN_DISMISSED_KEY = 'ptah-thoth-first-run-dismissed';
 export const LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY =
   'ptah-hermes-first-run-dismissed';
 
+/**
+ * Request to open the harness-builder surface and run an agent-driven
+ * workflow. `new-project` auto-starts the workflow with the seed prompt;
+ * `configure-harness` opens the surface and waits for the first user turn.
+ */
+export interface HarnessWorkflowRequest {
+  mode: 'new-project' | 'configure-harness';
+  seedPrompt?: string;
+}
+
 /** Request to open/focus a session in a canvas tile */
 export interface CanvasSessionRequest {
   sessionId: string;
@@ -122,6 +132,9 @@ export class AppStateManager implements MessageHandler {
   );
   /** Signal bridge: request to create a new session as a canvas tile (from "New Session" in grid mode) */
   private readonly _newCanvasSessionRequest = signal<string | null>(null);
+  /** Signal bridge: request to open the harness surface and run a workflow */
+  private readonly _harnessWorkflowRequest =
+    signal<HarnessWorkflowRequest | null>(null);
 
   /**
    * Active tab inside the Thoth hub. Persisted via setter so re-entering
@@ -176,6 +189,8 @@ export class AppStateManager implements MessageHandler {
   readonly canvasSessionRequest = this._canvasSessionRequest.asReadonly();
   /** Pending request to create a new canvas tile (consumed by OrchestraCanvasComponent) */
   readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
+  /** Pending request to open the harness surface workflow (consumed by HarnessBuilderViewComponent) */
+  readonly harnessWorkflowRequest = this._harnessWorkflowRequest.asReadonly();
   /** Active tab id inside the Thoth hub (memory / skills / cron / gateway). */
   readonly thothActiveTab = this._thothActiveTab.asReadonly();
   /** Selected marketplace provider id (null when none selected). */
@@ -429,10 +444,7 @@ export class AppStateManager implements MessageHandler {
    * the promise still settles via a 5s safety timeout to `false` so awaiters
    * are never wedged.
    */
-  requestCanvasSession(
-    sessionId: string,
-    name?: string,
-  ): Promise<boolean> {
+  requestCanvasSession(sessionId: string, name?: string): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       let settled = false;
       const settle = (success: boolean): void => {
@@ -469,5 +481,24 @@ export class AppStateManager implements MessageHandler {
   /** Clear the new canvas session request after the canvas has processed it */
   clearNewCanvasSessionRequest(): void {
     this._newCanvasSessionRequest.set(null);
+  }
+
+  /** Request that the harness surface opens and runs the given workflow. */
+  requestHarnessWorkflow(req: HarnessWorkflowRequest): void {
+    this._harnessWorkflowRequest.set(req);
+  }
+
+  /**
+   * Consume the pending harness workflow request (read-and-clear). Returns
+   * the request or null. Mirrors the canvas request consume pattern — the
+   * harness view reads this once on init so re-entry doesn't replay a stale
+   * workflow.
+   */
+  consumeHarnessWorkflowRequest(): HarnessWorkflowRequest | null {
+    const req = this._harnessWorkflowRequest();
+    if (req) {
+      this._harnessWorkflowRequest.set(null);
+    }
+    return req;
   }
 }

@@ -291,6 +291,10 @@
 
         <!-- Web Search Config (free for all users, not premium-gated) -->
         <ptah-web-search-config />
+
+        @if (isElectron) {
+          <ptah-voice-config />
+        }
       }
     }
 

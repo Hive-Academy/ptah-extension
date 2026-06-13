@@ -79,7 +79,7 @@ export class AgentMonitorTreeBuilderService {
   /**
    * Build ExecutionNode tree from flat CliOutputSegment[].
    *
-   * Converts structured CLI output segments (from Copilot/Gemini SDK adapters)
+   * Converts structured CLI output segments (from Copilot/Codex SDK adapters)
    * into ExecutionNode[] suitable for rendering by ExecutionNodeComponent.
    *
    * Algorithm:

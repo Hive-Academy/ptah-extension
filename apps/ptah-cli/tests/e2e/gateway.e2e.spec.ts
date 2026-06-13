@@ -1,76 +1,207 @@
 /**
- * Messaging Gateway e2e.
+ * Messaging Gateway e2e — TASK_2026_141 Batch 7, Task 7.3.
  *
- * Surface under test: `gateway:status`, `gateway:listBindings`,
- * `gateway:approveBinding`, `gateway:blockBinding`, `gateway:listMessages`
- * RPC methods backed by `@ptah-extension/messaging-gateway`.
+ * Flow: status default-off → set-token via stdin (assert ciphertext lands,
+ *       plaintext ABSENT from secrets file AND stdout) → bindings empty →
+ *       start one-shot returns adaptersLive:false notice → stop.
  *
- * Why skipped:
- *   The RPC methods are registered on the in-process `cli-message-transport`
- *   but are not accessible via the `ptah interact` stdio inbound channel (which
- *   only surfaces `task.submit / task.cancel / session.shutdown / session.history`).
- *
- *   One-shot subcommand dispatching would work, but the `ptah gateway`
- *   subcommand group has not yet been added to `apps/ptah-cli/src/cli/router.ts`
- *   as of the Thoth hub work.
- *
- *   A direct in-process integration test (instantiating GatewayService with a
- *   fake IMessagingAdapter without the CLI) is also feasible but requires
- *   wiring the full tsyringe DI container (Logger, IWorkspaceProvider,
- *   ITokenVault, SqliteConnectionService) in the test — that level of harness
- *   setup is beyond the current e2e test conventions.
- *
- * When unblocked, the test flow is:
- *   1. tmp = await createTmpHome()
- *   2. Register a fake IMessagingAdapter for the 'telegram' platform.
- *   3. spawnOneshot(['gateway', 'status', '--json'])
- *      → assert result.enabled === false (default off).
- *   4. Simulate an inbound message from an unknown sender via the adapter.
- *   5. spawnOneshot(['gateway', 'list-bindings', '--json'])
- *      → assert one binding with approvalStatus === 'pending'.
- *   6. Assert the adapter received a pairing-code reply (no echo of user message).
- *   7. Extract bindingId; call spawnOneshot(['gateway', 'approve-binding',
- *      '--binding-id', bindingId, '--json'])
- *      → assert binding.approvalStatus === 'approved'.
- *   8. Simulate a second inbound message on the approved binding.
- *   9. spawnOneshot(['gateway', 'list-messages', '--binding-id', bindingId, '--json'])
- *      → assert ≥1 message row logged with direction === 'inbound'.
- *  10. tmp.cleanup()
- *
- * Stream coalescer assertion (when adapter supports edit callbacks):
- *   A 10-chunk burst injected via appendOutboundChunk should produce ≤3
- *   outbound adapter.editMessage calls within a 250ms window. This verifies
- *   the coalescer debounce logic from architecture §9.6.
- *
- * Prerequisite:
- *   - `ptah gateway status|start|stop|set-token|list-bindings|approve-binding|
- *       block-binding|list-messages` CLI subcommands in router.ts; OR
- *   - A harness helper that wires GatewayService with a fake adapter and exposes
- *     inbound injection without requiring the full DI container.
+ * Fake-adapter inbound simulation re-scoped out (no cross-process injection
+ * seam — recorded per R11.2). Binding approve/block covered at unit level.
  */
 
-describe.skip('messaging gateway e2e (TASK_2026_HERMES Track 4 — requires ptah gateway CLI subcommands)', () => {
-  it('inbound message from unknown sender creates a pending binding and sends pairing code — no echo', () => {
-    /* Stub — see file header. */
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+
+import { CliRunner, createTmpHome, type TmpHome } from './_harness';
+
+jest.setTimeout(90_000);
+
+const FAKE_TOKEN = 'tg-test-token-e2e-12345-never-used';
+
+interface GatewayStatusPayload {
+  enabled: boolean;
+  adapters: Array<{ platform: string; running: boolean }>;
+  adaptersLive: boolean;
+}
+
+interface GatewayTokenSetPayload {
+  platform: string;
+  ok: boolean;
+}
+
+interface GatewayBindingsPayload {
+  bindings: unknown[];
+}
+
+interface GatewayStartedPayload {
+  adaptersLive: boolean;
+  notice: string;
+}
+
+interface GatewayStoppedPayload {
+  ok: boolean;
+}
+
+function findNotification<T = unknown>(
+  lines: unknown[],
+  method: string,
+): T | undefined {
+  for (const line of lines) {
+    if (
+      typeof line === 'object' &&
+      line !== null &&
+      (line as { method?: unknown }).method === method
+    ) {
+      return (line as { params: T }).params;
+    }
+  }
+  return undefined;
+}
+
+describe('messaging gateway e2e (TASK_2026_141 Batch 7)', () => {
+  let tmp: TmpHome;
+
+  beforeEach(async () => {
+    tmp = await createTmpHome('ptah-e2e-gw-');
   });
 
-  it('gateway:approveBinding transitions binding to approved status', () => {
-    /* Stub — see file header. */
+  afterEach(async () => {
+    await tmp.cleanup();
   });
 
-  it('inbound on approved binding persists a gateway_messages row with direction inbound', () => {
-    /* Stub — see file header. */
+  it('gateway status returns enabled:false by default', async () => {
+    const result = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['gateway', 'status', '--json'],
+      timeoutMs: 60_000,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.hasMalformedStdout).toBe(false);
+
+    const payload = findNotification<GatewayStatusPayload>(
+      result.stdoutLines,
+      'gateway.status',
+    );
+    expect(payload).toBeDefined();
+    expect(payload!.enabled).toBe(false);
+    expect(payload!.adaptersLive).toBe(false);
   });
 
-  it('10-chunk outbound burst coalesces to ≤3 adapter edits within 250ms window', () => {
-    /* Stub — see file header. */
+  it('set-token via stdin: ciphertext lands in secrets file, plaintext absent from file and stdout', async () => {
+    const result = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['gateway', 'set-token', 'telegram', '--stdin', '--json'],
+      stdin: `${FAKE_TOKEN}\n`,
+      timeoutMs: 60_000,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.hasMalformedStdout).toBe(false);
+
+    const payload = findNotification<GatewayTokenSetPayload>(
+      result.stdoutLines,
+      'gateway.token_set',
+    );
+    expect(payload).toBeDefined();
+    expect(payload!.ok).toBe(true);
+    expect(payload!.platform).toBe('telegram');
+
+    expect(result.stdoutRaw).not.toContain(FAKE_TOKEN);
+
+    const secretsPath = path.join(tmp.path, '.ptah', 'secrets.enc.json');
+    expect(fs.existsSync(secretsPath)).toBe(true);
+    const secretsContent = fs.readFileSync(secretsPath, 'utf8');
+
+    expect(secretsContent).not.toContain(FAKE_TOKEN);
+
+    const secrets = JSON.parse(secretsContent) as {
+      entries: Record<string, unknown>;
+    };
+    const TOKEN_KEY = 'gateway.telegram.tokenCipher';
+    expect(
+      Object.prototype.hasOwnProperty.call(secrets.entries, TOKEN_KEY),
+    ).toBe(true);
+    const cipher = secrets.entries[TOKEN_KEY];
+    expect(typeof cipher).toBe('object');
+    expect(cipher).not.toBeNull();
   });
 
-  it('gateway:blockBinding transitions binding to rejected and drops subsequent inbound', () => {
-    /* Stub — see file header. */
+  it('bindings list returns empty array in fresh state', async () => {
+    const statsResult = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['gateway', 'status', '--json'],
+      timeoutMs: 60_000,
+    });
+    expect(statsResult.exitCode).toBe(0);
+
+    const result = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['gateway', 'bindings', '--json'],
+      timeoutMs: 60_000,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.hasMalformedStdout).toBe(false);
+
+    const payload = findNotification<GatewayBindingsPayload>(
+      result.stdoutLines,
+      'gateway.bindings',
+    );
+    expect(payload).toBeDefined();
+    expect(Array.isArray(payload!.bindings)).toBe(true);
+    expect(payload!.bindings.length).toBe(0);
   });
 
-  it('gateway:listMessages returns rows scoped to a single bindingId', () => {
-    /* Stub — see file header. */
+  it('gateway start one-shot returns adaptersLive:false honest notice', async () => {
+    const statsResult = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['gateway', 'status', '--json'],
+      timeoutMs: 60_000,
+    });
+    expect(statsResult.exitCode).toBe(0);
+
+    const result = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['gateway', 'start', '--json'],
+      timeoutMs: 60_000,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.hasMalformedStdout).toBe(false);
+
+    const payload = findNotification<GatewayStartedPayload>(
+      result.stdoutLines,
+      'gateway.started',
+    );
+    expect(payload).toBeDefined();
+    expect(payload!.adaptersLive).toBe(false);
+    expect(typeof payload!.notice).toBe('string');
+    expect(payload!.notice.length).toBeGreaterThan(0);
+  });
+
+  it('gateway stop exits cleanly', async () => {
+    const statsResult = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['gateway', 'status', '--json'],
+      timeoutMs: 60_000,
+    });
+    expect(statsResult.exitCode).toBe(0);
+
+    const result = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['gateway', 'stop', '--json'],
+      timeoutMs: 60_000,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.hasMalformedStdout).toBe(false);
+
+    const payload = findNotification<GatewayStoppedPayload>(
+      result.stdoutLines,
+      'gateway.stopped',
+    );
+    expect(payload).toBeDefined();
+    expect(payload!.ok).toBe(true);
   });
 });

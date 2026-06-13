@@ -48,7 +48,7 @@ Ptah uses a three-tier orchestration model:
 
 1. **Orchestrator** — the top-level agent that plans, decomposes, and delegates.
 2. **Senior leads** — specialists (architect, backend-dev, reviewer, etc.) spawned as sub-agents.
-3. **CLI helpers** — external CLI agents (Copilot CLI, Gemini CLI, Codex CLI, ptah-cli) spawned in parallel for bulk or exploratory work.
+3. **CLI helpers** — external CLI agents (Copilot CLI, Codex CLI, ptah-cli) spawned in parallel for bulk or exploratory work.
 
 :::tip[When to use what]
 
@@ -79,9 +79,9 @@ Each agent is a Markdown file with YAML frontmatter describing its name, descrip
     See all 13 agents and when to reach for each. [Catalog →](/agents/built-in-agents/)
   </Card>
   <Card title="Spawn CLI agents" icon="seti:shell">
-    Parallelize work with Copilot, Gemini, Codex, and ptah-cli. [CLI agents →](/agents/cli-agents/)
+    Parallelize work with Copilot, Codex, and ptah-cli. [CLI agents →](/agents/cli-agents/)
   </Card>
   <Card title="Sync to your CLIs" icon="random">
-    Push your Ptah agents to Copilot, Gemini, Codex, and Cursor. [Sync →](/agents/syncing-to-cli/)
+    Push your Ptah agents to Copilot, Codex, and Cursor. [Sync →](/agents/syncing-to-cli/)
   </Card>
 </CardGrid>

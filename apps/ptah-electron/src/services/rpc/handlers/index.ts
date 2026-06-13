@@ -11,7 +11,6 @@
 
 export { EditorRpcHandlers } from './editor-rpc.handlers';
 export { FileRpcHandlers } from './file-rpc.handlers';
-export { ConfigExtendedRpcHandlers } from './config-extended-rpc.handlers';
 export { CommandRpcHandlers } from './command-rpc.handlers';
 export { AgentRpcHandlers } from './agent-rpc.handlers';
 export { LayoutRpcHandlers } from './layout-rpc.handlers';
