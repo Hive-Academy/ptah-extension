@@ -974,13 +974,13 @@ describe('SessionRpcHandlers', () => {
         cli: 'ptah-cli',
         // no ptahCliId — synthesized by the removed recoverMissingCliSessions()
       } as CliSessionReference;
-      const gemini = { cli: 'gemini' } as CliSessionReference;
+      const codex = { cli: 'codex' } as CliSessionReference;
 
       h.metadataStore.get.mockResolvedValue(
         makeMetadata({
           sessionId: VALID_SESSION_ID,
           workspaceId: WORKSPACE,
-          cliSessions: [realCli, ghostCli, gemini],
+          cliSessions: [realCli, ghostCli, codex],
         }) as never,
       );
       h.handlers.register();
@@ -992,7 +992,7 @@ describe('SessionRpcHandlers', () => {
       );
 
       // Real ptah-cli stays; ghost is filtered; non-ptah-cli passes through.
-      expect(result.cliSessions).toEqual([realCli, gemini]);
+      expect(result.cliSessions).toEqual([realCli, codex]);
     });
 
     it('returns [] and captures to Sentry when the store throws (never bubbles)', async () => {
@@ -1035,7 +1035,7 @@ describe('SessionRpcHandlers', () => {
         makeMetadata({
           sessionId: 'sess-ok',
           cliSessions: [
-            { cli: 'gemini' } as CliSessionReference,
+            { cli: 'copilot' } as CliSessionReference,
             { cli: 'codex' } as CliSessionReference,
           ],
         }) as never,
@@ -1063,7 +1063,7 @@ describe('SessionRpcHandlers', () => {
       // Deduped CLI agent list from metadata.
       expect(result.sessionStats[0].cliAgents?.sort()).toEqual([
         'codex',
-        'gemini',
+        'copilot',
       ]);
     });
 

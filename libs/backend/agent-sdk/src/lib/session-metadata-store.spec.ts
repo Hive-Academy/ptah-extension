@@ -46,8 +46,8 @@ function cliRef(
 ): CliSessionReference {
   return {
     cliSessionId: 'cli-1',
-    cli: 'gemini',
-    agentId: 'agent-gemini-1' as AgentId,
+    cli: 'codex',
+    agentId: 'agent-codex-1' as AgentId,
     task: 'do a thing',
     startedAt: '2026-01-01T00:00:00.000Z',
     status: 'completed',

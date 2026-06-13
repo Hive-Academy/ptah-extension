@@ -27,11 +27,11 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname as pathDirname, join as pathJoin } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 
 export interface AnalyzeOptions {
   /** Model id forwarded to wizard:deep-analyze. Optional. */

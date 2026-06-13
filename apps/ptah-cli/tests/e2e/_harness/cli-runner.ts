@@ -102,6 +102,8 @@ export interface OneshotResult {
   stderr: string;
   /** True if any stdout line failed to parse as JSON. */
   hasMalformedStdout: boolean;
+  /** True if the harness wall-clock deadline elapsed and killed the child. */
+  timedOut: boolean;
 }
 
 export interface SessionReady {
@@ -165,20 +167,37 @@ export interface RunnerHandle {
 const STDERR_CAP_BYTES = 1_048_576; // 1 MB
 
 /**
- * Windows native fail-fast exit codes the spawned CLI can hit intermittently
- * during its native-heavy cold bootstrap (better-sqlite3 / sqlite-vec /
+ * Native fail-fast exit codes the spawned CLI can hit intermittently during its
+ * native-heavy cold bootstrap (better-sqlite3 / sqlite-vec /
  * @huggingface/transformers / web-tree-sitter) under system memory pressure —
- * NOT a logic failure in the CLI under test:
+ * NOT a logic failure in the CLI under test.
+ *
+ * Windows __fastfail / structured-exception codes:
  *   - 3221226505 = 0xC0000409  STATUS_STACK_BUFFER_OVERRUN (__fastfail)
  *   - 3221225477 = 0xC0000005  STATUS_ACCESS_VIOLATION
  *   - 3221226356 = 0xC0000374  STATUS_HEAP_CORRUPTION
+ *
+ * POSIX 128+signal codes (surface as a numeric `code` when the runtime reports
+ * the translated value rather than a `signal`):
+ *   - 134 = 128 + SIGABRT (6)   native abort()
+ *   - 135 = 128 + SIGBUS  (7)
+ *   - 137 = 128 + SIGKILL (9)   OOM-killer on memory-constrained CI runners
+ *   - 139 = 128 + SIGSEGV (11)
+ *
  * These surface as a child that dies before emitting any terminal JSON-RPC
  * envelope. They are non-deterministic, so the harness retries them a bounded
  * number of times instead of failing the run. A genuine command failure exits
- * with a deterministic ExitCode (0–5) and is NEVER retried.
+ * with a deterministic ExitCode (0–5) and is NEVER retried; neither is a
+ * harness-initiated timeout kill (tracked separately via `timedOut`).
  */
 const NATIVE_FAILFAST_EXIT_CODES = new Set<number>([
-  3221226505, 3221225477, 3221226356,
+  3221226505, 3221225477, 3221226356, 134, 135, 137, 139,
+]);
+const NATIVE_CRASH_SIGNALS = new Set<NodeJS.Signals>([
+  'SIGSEGV',
+  'SIGABRT',
+  'SIGBUS',
+  'SIGKILL',
 ]);
 const NATIVE_CRASH_MAX_ATTEMPTS = 3;
 
@@ -186,7 +205,7 @@ function isNativeCrashExit(
   code: number | null,
   signal: NodeJS.Signals | null,
 ): boolean {
-  if (signal === 'SIGSEGV' || signal === 'SIGABRT' || signal === 'SIGBUS') {
+  if (signal !== null && NATIVE_CRASH_SIGNALS.has(signal)) {
     return true;
   }
   return code !== null && NATIVE_FAILFAST_EXIT_CODES.has(code);
@@ -326,7 +345,11 @@ export class CliRunner {
     for (let attempt = 1; attempt <= NATIVE_CRASH_MAX_ATTEMPTS; attempt++) {
       lastResult = await runOneshotAttempt(opts);
       const crashed = isNativeCrashExit(lastResult.exitCode, lastResult.signal);
-      if (!crashed || hasTerminalEnvelope(lastResult.stdoutLines)) {
+      const retriable =
+        crashed &&
+        !lastResult.timedOut &&
+        !hasTerminalEnvelope(lastResult.stdoutLines);
+      if (!retriable) {
         return lastResult;
       }
       if (attempt < NATIVE_CRASH_MAX_ATTEMPTS) {
@@ -395,6 +418,7 @@ async function runOneshotAttempt(opts: OneshotOptions): Promise<OneshotResult> {
 
   const deadline = opts.timeoutMs ?? 30_000;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let timedOut = false;
   const exitPromise = new Promise<{
     code: number | null;
     signal: NodeJS.Signals | null;
@@ -407,6 +431,7 @@ async function runOneshotAttempt(opts: OneshotOptions): Promise<OneshotResult> {
     signal: NodeJS.Signals | null;
   }>((resolve) => {
     timer = setTimeout(() => {
+      timedOut = true;
       void killTree(child).then(() => {
         child.once('exit', (code, signal) => resolve({ code, signal }));
       });
@@ -422,6 +447,7 @@ async function runOneshotAttempt(opts: OneshotOptions): Promise<OneshotResult> {
       stdoutRaw,
       stderr: stderrBuf,
       hasMalformedStdout,
+      timedOut,
     };
   } finally {
     if (timer !== null) clearTimeout(timer);

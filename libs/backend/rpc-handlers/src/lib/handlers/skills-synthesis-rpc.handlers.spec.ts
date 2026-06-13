@@ -152,6 +152,7 @@ function makeDiagnostics() {
         bootScan: true,
         subagentStop: { enabled: true },
         postToolUse: { enabled: true, minEditCount: 3 },
+        turnComplete: { enabled: true },
         maxAnalyzesPerHour: 6,
       },
     }),
@@ -239,6 +240,7 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
         bootScan: false,
         subagentStop: { enabled: true },
         postToolUse: { enabled: true, minEditCount: 3 },
+        turnComplete: { enabled: true },
         maxAnalyzesPerHour: 6,
       },
     });

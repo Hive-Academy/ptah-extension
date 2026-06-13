@@ -24,7 +24,7 @@ const MAX_ROWS = 10;
   template: `
     <div class="rounded-md border border-base-300 bg-base-100">
       <header
-        class="border-b border-base-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-base-content/70"
+        class="border-b border-base-300 px-3 py-2 text-sm font-semibold text-base-content"
       >
         Recent events
       </header>
@@ -101,6 +101,14 @@ function buildOutcome(ev: MemoryCuratorEventWire): string {
   if (ev.kind === 'commit-detect') {
     const sha = ev.stats?.['sha'];
     if (typeof sha === 'string' && sha.length > 0) return `commit ${sha}`;
+  }
+  if (ev.kind === 'tool-failure') {
+    const tool = ev.stats?.['tool'];
+    const error = ev.stats?.['error'];
+    const toolText = typeof tool === 'string' ? tool : 'tool';
+    const errorText =
+      typeof error === 'string' && error.length > 0 ? ` — ${error}` : '';
+    return `observed ${toolText} failure during session${errorText}`;
   }
   const stats = ev.stats;
   if (stats) {

@@ -8,7 +8,11 @@
  */
 
 import type { DependencyContainer, InjectionToken } from 'tsyringe';
-import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type {
+  Logger,
+  RpcHandler,
+  RpcVerificationResult,
+} from '@ptah-extension/vscode-core';
 import {
   verifyRpcRegistration,
   assertRpcRegistration,
@@ -42,7 +46,8 @@ export interface VerifyAndReportRpcRegistrationOptions {
    */
   readonly excluded?: readonly string[];
   /**
-   * When true (VS Code + Electron) and `NODE_ENV === 'development'`, call
+   * When true (VS Code + Electron) and `NODE_ENV === 'development'` (or
+   * `PTAH_E2E === '1'` — set by the e2e runners), call
    * `assertRpcRegistration` after reporting so registration drift throws
    * before the webview mounts. TUI passes `false` to keep boot permissive.
    * Defaults to `true`.
@@ -54,10 +59,13 @@ export interface VerifyAndReportRpcRegistrationOptions {
  * Run `verifyRpcRegistration`, report drift to Sentry (if registered), and
  * optionally assert in development. Safe to call unconditionally — all error
  * paths swallow exceptions so registration drift never breaks activation.
+ *
+ * Returns the verification result so apps can expose it (the VS Code
+ * extension surfaces it through its activation exports for the e2e suite).
  */
 export function verifyAndReportRpcRegistration(
   options: VerifyAndReportRpcRegistrationOptions,
-): void {
+): RpcVerificationResult {
   const {
     rpcHandler,
     logger,
@@ -94,9 +102,14 @@ export function verifyAndReportRpcRegistration(
     );
   }
 
-  if (assertInDevelopment && process.env['NODE_ENV'] === 'development') {
+  const assertEnabled =
+    process.env['NODE_ENV'] === 'development' ||
+    process.env['PTAH_E2E'] === '1';
+  if (assertInDevelopment && assertEnabled) {
     assertRpcRegistration(rpcHandler, logger, excludeList);
   }
+
+  return verificationResult;
 }
 
 /**

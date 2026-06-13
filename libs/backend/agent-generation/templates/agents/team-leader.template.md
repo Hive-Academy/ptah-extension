@@ -297,7 +297,7 @@ Use Write tool to create `.ptah/specs/TASK_[ID]/tasks.md`:
 
 ## Batch 1: [Name] ⏸️ PENDING
 
-**Recommended Executor**: [backend-developer | frontend-developer | gemini CLI x N | codex CLI | ptah-cli]
+**Recommended Executor**: [backend-developer | frontend-developer | ptah-cli x N | codex CLI | copilot CLI]
 **Fallback Executor**: [sub-agent type to use if primary fails]
 **Execution Mode**: [sequential | parallel]
 **Rationale**: [1-2 sentences explaining why this executor and mode fit the batch shape]
@@ -480,16 +480,16 @@ You are NOT a delegator. You do NOT spawn CLI agents or sub-agents. You produce 
 
 Apply these heuristics when filling `Recommended Executor` + `Execution Mode` on each batch:
 
-| Batch Shape                             | Recommended Executor       | Mode       |
-| --------------------------------------- | -------------------------- | ---------- |
-| 3+ independent tasks, boilerplate       | CLI (gemini preferred) x N | parallel   |
-| 3+ independent tasks, standard logic    | CLI x N                    | parallel   |
-| Tightly coupled tasks in same file      | Sub-agent developer        | sequential |
-| Cross-file refactoring                  | Sub-agent developer        | sequential |
-| Architecture decisions required         | Sub-agent developer        | sequential |
-| Migration/scaffolding across many files | CLI x N                    | parallel   |
+| Batch Shape                             | Recommended Executor         | Mode       |
+| --------------------------------------- | ---------------------------- | ---------- |
+| 3+ independent tasks, boilerplate       | CLI (ptah-cli preferred) x N | parallel   |
+| 3+ independent tasks, standard logic    | CLI x N                      | parallel   |
+| Tightly coupled tasks in same file      | Sub-agent developer          | sequential |
+| Cross-file refactoring                  | Sub-agent developer          | sequential |
+| Architecture decisions required         | Sub-agent developer          | sequential |
+| Migration/scaffolding across many files | CLI x N                      | parallel   |
 
-CLI selection priority (when recommending CLI): `ptah-cli > gemini > codex > copilot`.
+CLI selection priority (when recommending CLI): `ptah-cli > codex > copilot`.
 
 #### Parallel-Eligible Checklist
 

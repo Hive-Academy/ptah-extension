@@ -48,6 +48,7 @@ import {
   isJsonRpcErrorResponse,
   isJsonRpcNotification,
   isJsonRpcSuccessResponse,
+  JSONRPC_SCHEMA_VERSION,
   type JsonRpcMessage,
 } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
@@ -594,7 +595,7 @@ describe('ptah mcp-serve', () => {
 
       expect(result.serverName).toBe('ptah');
       expect(result.mode).toBe('mcp-serve');
-      expect(result.schemaVersion).toBe('0.1');
+      expect(result.schemaVersion).toBe(JSONRPC_SCHEMA_VERSION);
       expect(result.version).toBe('0.2.32');
       expect(result.catalog.tools).toHaveLength(7);
       expect(result.catalog.tools.map((t) => t.name)).toEqual([
@@ -709,7 +710,7 @@ describe('ptah mcp-serve', () => {
         };
       };
       expect(params.level).toBe('debug');
-      expect(params.data.schema_version).toBe('0.1');
+      expect(params.data.schema_version).toBe(JSONRPC_SCHEMA_VERSION);
       expect(params.data.capabilities).toEqual(['mcp']);
 
       h.stdin.end();

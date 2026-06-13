@@ -92,7 +92,7 @@ When CLI delegation is enabled or auto, add to context.md:
 
 **Mode**: [enabled|disabled|auto]
 **Available Agents**: [list from ptah_agent_list]
-**Selection Priority**: ptah-cli > gemini > codex > copilot
+**Selection Priority**: ptah-cli > codex > copilot
 ```
 
 ---

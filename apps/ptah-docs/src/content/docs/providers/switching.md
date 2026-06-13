@@ -11,7 +11,7 @@ Ptah is designed so you can change providers at any point. The in-chat model sel
 
 ## Provider vs. model
 
-- **Provider** = the service (Claude, Copilot, Codex, Gemini, Ollama, OpenRouter, ptah-cli).
+- **Provider** = the service (Claude, Copilot, Codex, Ollama, OpenRouter, ptah-cli).
 - **Model** = a specific endpoint within a provider (`claude-sonnet-4.6`, `gpt-5-mini`, `qwen2.5-coder:32b`, etc.).
 
 Switching model within the same provider is cheap and transparent. Switching provider is heavier — a new connection, new auth, new pricing, new (or no) prompt cache.
@@ -32,7 +32,7 @@ Switching model within the same provider is cheap and transparent. Switching pro
 
 Common reasons to switch provider mid-conversation:
 
-- **Long context needed** — move from Claude Sonnet (200k) to Gemini 2.5 Pro (2M).
+- **Long context needed** — move from Claude Sonnet (200k) to a larger-context model on OpenRouter.
 - **Rate limit** — you hit Anthropic's TPM; fail over to OpenRouter-hosted Claude.
 - **Privacy moment** — move to local Ollama for a sensitive subtask, then back.
 - **Cost control** — drop from Opus to Haiku for a follow-up clarification.

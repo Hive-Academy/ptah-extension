@@ -6,11 +6,11 @@ import type {
   EffectiveRouteResult,
 } from '@ptah-extension/auth-providers';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import { executeSessionStart } from './session.js';
 
 const CANCEL_EXIT_CODE = 130;
@@ -624,7 +624,7 @@ async function runSmokeTurn(
   spin.start('Running a quick test turn');
   try {
     const exit = await runSmoke(
-      { task: 'Reply with the single word: ready', once: true },
+      { task: 'Reply with the single word: ready', once: true, thoth: 'off' },
       { ...globals, json: true },
     );
     spin.stop(

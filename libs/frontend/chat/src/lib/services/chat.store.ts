@@ -179,8 +179,11 @@ export class ChatStore {
     return this.sessionLoader.loadMoreSessions();
   }
 
-  async switchSession(sessionId: SessionId): Promise<void> {
-    return this.sessionLoader.switchSession(sessionId);
+  async switchSession(
+    sessionId: SessionId,
+    opts?: { reason?: 'compaction'; activate?: boolean },
+  ): Promise<void> {
+    return this.sessionLoader.switchSession(sessionId, opts);
   }
 
   removeSessionFromList(sessionId: SessionId): void {

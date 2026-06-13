@@ -1,3 +1,5 @@
+import type { PopulatedSkillTriggers } from './triggers/skill-trigger-config';
+
 export type SkillSynthesisEventKind =
   | 'analyze-run'
   | 'curator-pass'
@@ -45,17 +47,5 @@ export interface SkillSynthesisDiagnosticsSnapshot {
   readonly eligibilityHistogram: EligibilityHistogram;
   readonly byStatus: SkillCandidateStatusCounts;
   readonly recentEvents: readonly SkillSynthesisEvent[];
-  readonly triggers: {
-    readonly sessionEnd: boolean;
-    readonly idleMs: number;
-    readonly bootScan: boolean;
-    readonly subagentStop: {
-      readonly enabled: boolean;
-    };
-    readonly postToolUse: {
-      readonly enabled: boolean;
-      readonly minEditCount: number;
-    };
-    readonly maxAnalyzesPerHour: number;
-  };
+  readonly triggers: PopulatedSkillTriggers;
 }

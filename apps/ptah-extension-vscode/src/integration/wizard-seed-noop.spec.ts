@@ -128,15 +128,10 @@ import {
   createMockSentryService,
   type MockRpcHandler,
 } from '@ptah-extension/vscode-core/testing';
-import type {
-  IWorkspaceProvider,
-  IPlatformCommands,
-} from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   createMockWorkspaceProvider,
-  createMockPlatformCommands,
   type MockWorkspaceProvider,
-  type MockPlatformCommands,
 } from '@ptah-extension/platform-core/testing';
 import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
@@ -261,7 +256,6 @@ interface Harness {
   rpcHandler: MockRpcHandler;
   container: MockContainer;
   workspace: MockWorkspaceProvider;
-  platformCommands: MockPlatformCommands;
 }
 
 function makeHarness(): Harness {
@@ -272,7 +266,6 @@ function makeHarness(): Harness {
   const workspace = createMockWorkspaceProvider({ folders: [WORKSPACE] });
   const container = createMockContainer();
   const sentry = createMockSentryService();
-  const platformCommands = createMockPlatformCommands();
 
   const handlers = new SetupRpcHandlers(
     logger as unknown as Logger,
@@ -282,7 +275,6 @@ function makeHarness(): Harness {
     workspace as unknown as IWorkspaceProvider,
     container as unknown as DependencyContainer,
     sentry as unknown as SentryService,
-    platformCommands as unknown as IPlatformCommands,
   );
 
   return {
@@ -291,7 +283,6 @@ function makeHarness(): Harness {
     rpcHandler,
     container,
     workspace,
-    platformCommands,
   };
 }
 

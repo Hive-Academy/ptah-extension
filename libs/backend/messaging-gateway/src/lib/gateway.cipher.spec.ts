@@ -25,6 +25,7 @@ import type { BoltSlackAdapter } from './adapters/slack/bolt.adapter';
 import type { FfmpegDecoder } from './voice/ffmpeg-decoder';
 import type { WhisperTranscriber } from './voice/whisper-transcriber';
 import type { BindingStore } from './binding.store';
+import type { ConversationStore } from './conversation.store';
 import type { MessageStore } from './message.store';
 import type { ITokenVault } from './token-vault.interface';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -125,6 +126,19 @@ function createBindingStore(): jest.Mocked<BindingStore> {
   } as unknown as jest.Mocked<BindingStore>;
 }
 
+function createConversationStore(): jest.Mocked<ConversationStore> {
+  return {
+    findById: jest.fn(),
+    findByExternal: jest.fn(),
+    listByBinding: jest.fn().mockReturnValue([]),
+    resolveOrCreate: jest.fn(),
+    resolveOrAdopt: jest.fn(),
+    setPtahSessionId: jest.fn(),
+    touch: jest.fn(),
+    deleteByBinding: jest.fn(),
+  } as unknown as jest.Mocked<ConversationStore>;
+}
+
 function createMessageStore(): jest.Mocked<MessageStore> {
   return {
     insert: jest.fn(),
@@ -196,6 +210,7 @@ function buildServiceWithRealStore(
     createWorkspace(),
     vault,
     createBindingStore(),
+    createConversationStore(),
     createMessageStore(),
     {} as unknown as GrammyTelegramAdapter,
     {} as unknown as DiscordAdapter,

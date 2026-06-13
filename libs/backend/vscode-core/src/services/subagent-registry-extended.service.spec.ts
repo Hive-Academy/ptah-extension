@@ -379,4 +379,108 @@ describe('SubagentRegistryService — extended methods', () => {
       expect(service.size).toBe(0);
     });
   });
+
+  describe('session teardown guard', () => {
+    it('keeps an interrupted record when completed arrives during teardown', () => {
+      service.register(
+        makeReg({ toolCallId: 'tc-race', parentSessionId: 'sess-race' }),
+      );
+      service.beginSessionTeardown('sess-race');
+      service.markAllInterrupted('sess-race');
+
+      service.update('tc-race', { status: 'completed' });
+
+      const record = service.get('tc-race');
+      expect(record).not.toBeNull();
+      expect(record?.status).toBe('interrupted');
+
+      service.endSessionTeardown('sess-race');
+    });
+
+    it('still deletes completed records during teardown when not interrupted', () => {
+      service.register(
+        makeReg({ toolCallId: 'tc-run', parentSessionId: 'sess-race' }),
+      );
+      service.beginSessionTeardown('sess-race');
+
+      service.update('tc-run', { status: 'completed' });
+
+      expect(service.get('tc-run')).toBeNull();
+      service.endSessionTeardown('sess-race');
+    });
+
+    it('deletes completed interrupted records after teardown ends', () => {
+      service.register(
+        makeReg({ toolCallId: 'tc-after', parentSessionId: 'sess-race' }),
+      );
+      service.beginSessionTeardown('sess-race');
+      service.markAllInterrupted('sess-race');
+      service.endSessionTeardown('sess-race');
+
+      service.update('tc-after', { status: 'completed' });
+
+      expect(service.get('tc-after')).toBeNull();
+    });
+  });
+
+  describe('register supersedes interrupted records with same agentId', () => {
+    it('removes the interrupted record when the agent is re-registered (resume observed)', () => {
+      service.register(
+        makeReg({
+          toolCallId: 'tc-orig',
+          agentId: 'agent-res',
+          parentSessionId: 'sess-res',
+        }),
+      );
+      service.update('tc-orig', { status: 'interrupted' });
+
+      service.register(
+        makeReg({
+          toolCallId: 'tc-resumed',
+          agentId: 'agent-res',
+          parentSessionId: 'sess-res',
+        }),
+      );
+
+      expect(service.get('tc-orig')).toBeNull();
+      expect(service.wasInjected('tc-orig')).toBe(true);
+      expect(service.get('tc-resumed')?.status).toBe('running');
+    });
+
+    it('does not remove running records with the same agentId', () => {
+      service.register(makeReg({ toolCallId: 'tc-r1', agentId: 'agent-dup' }));
+      service.register(makeReg({ toolCallId: 'tc-r2', agentId: 'agent-dup' }));
+
+      expect(service.get('tc-r1')).not.toBeNull();
+      expect(service.get('tc-r2')).not.toBeNull();
+    });
+
+    it('ignores registrations without an agentId', () => {
+      service.register(
+        makeReg({ toolCallId: 'tc-int', agentId: 'agent-keep' }),
+      );
+      service.update('tc-int', { status: 'interrupted' });
+
+      service.register(makeReg({ toolCallId: 'tc-anon', agentId: undefined }));
+
+      expect(service.get('tc-int')?.status).toBe('interrupted');
+    });
+  });
+
+  describe('injection attempts', () => {
+    it('counts attempts per toolCallId', () => {
+      expect(service.getInjectionAttempts('tc-att')).toBe(0);
+      expect(service.recordInjectionAttempt('tc-att')).toBe(1);
+      expect(service.recordInjectionAttempt('tc-att')).toBe(2);
+      expect(service.getInjectionAttempts('tc-att')).toBe(2);
+    });
+
+    it('resets attempts when the record is removed', () => {
+      service.register(makeReg({ toolCallId: 'tc-att2' }));
+      service.recordInjectionAttempt('tc-att2');
+      service.remove('tc-att2');
+
+      expect(service.getInjectionAttempts('tc-att2')).toBe(0);
+    });
+  });
 });

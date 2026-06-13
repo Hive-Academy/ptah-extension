@@ -10,7 +10,6 @@ import type {
 import {
   copyWorkspaceSkill,
   copyWorkspaceCommandMd,
-  writeWorkspaceCommandToml,
   readManagedManifest,
   writeManagedManifest,
   reapExactEntries,
@@ -180,29 +179,19 @@ export abstract class WorkspaceSkillInstaller implements ICliSkillInstaller {
       const sourceFile = join(commandsRoot, fileName);
       const commandName = fileName.replace(/\.md$/, '');
       try {
-        const result =
-          this.commandFormat === 'toml'
-            ? await writeWorkspaceCommandToml(
-                sourceFile,
-                commandsTarget,
-                commandName,
-                manifest,
-              )
-            : await copyWorkspaceCommandMd(
-                sourceFile,
-                commandsTarget,
-                fileName,
-                manifest,
-              );
+        const result = await copyWorkspaceCommandMd(
+          sourceFile,
+          commandsTarget,
+          fileName,
+          manifest,
+        );
         if (result.skipped) {
           errors.push(
             `Skipped command ${commandName} for ${this.target}: foreign entry exists`,
           );
           continue;
         }
-        written.push(
-          this.commandFormat === 'toml' ? `${commandName}.toml` : fileName,
-        );
+        written.push(fileName);
       } catch (error: unknown) {
         errors.push(
           `Failed to write command ${commandName}: ${

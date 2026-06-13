@@ -18,11 +18,12 @@
  * - harness:apply            — Apply the full harness config to workspace
  * - harness:save-preset      — Save config as reusable preset
  * - harness:load-presets     — List saved presets
- * - harness:chat             — Step-contextual AI chat message
  * - harness:design-agents    — AI designs a custom subagent fleet
  * - harness:generate-skills  — AI generates specialized skill specs
  * - harness:generate-document — Generate comprehensive PRD document
  * - harness:analyze-intent   — AI architects complete harness from freeform input
+ * - harness:start-new-project — Hand the New Project flow off to the harness surface
+ * - harness:workflow-prompt   — Compose the configure-mode first-turn prompt
  */
 
 import { Injectable, inject } from '@angular/core';
@@ -44,8 +45,6 @@ import type {
   HarnessSavePresetParams,
   HarnessSavePresetResponse,
   HarnessLoadPresetsResponse,
-  HarnessChatParams,
-  HarnessChatResponse,
   HarnessDesignAgentsParams,
   HarnessDesignAgentsResponse,
   HarnessGenerateSkillsParams,
@@ -54,8 +53,9 @@ import type {
   HarnessGenerateDocumentResponse,
   HarnessAnalyzeIntentParams,
   HarnessAnalyzeIntentResponse,
-  HarnessConverseParams,
-  HarnessConverseResponse,
+  HarnessStartNewProjectResult,
+  HarnessWorkflowPromptParams,
+  HarnessWorkflowPromptResponse,
 } from '@ptah-extension/shared';
 
 @Injectable({ providedIn: 'root' })
@@ -208,20 +208,6 @@ export class HarnessRpcService {
   }
 
   /**
-   * Send a step-contextual AI chat message.
-   * Uses a 1-minute timeout for LLM response.
-   */
-  public async chat(params: HarnessChatParams): Promise<HarnessChatResponse> {
-    const result = await this.rpcService.call('harness:chat', params, {
-      timeout: 60_000,
-    });
-    if (result.isSuccess() && result.data) {
-      return result.data;
-    }
-    throw new Error(result.error || 'Failed to get chat response');
-  }
-
-  /**
    * AI-design a custom subagent fleet based on persona and goals.
    * Uses a 2-minute timeout since this involves LLM processing.
    */
@@ -292,15 +278,34 @@ export class HarnessRpcService {
     throw new Error(result.error || 'Failed to analyze intent');
   }
 
-  public async converse(
-    params: HarnessConverseParams,
-  ): Promise<HarnessConverseResponse> {
-    const result = await this.rpcService.call('harness:converse', params, {
-      timeout: 300_000,
-    });
+  /**
+   * Hand the New Project flow off to the harness workflow surface.
+   * The backend enables the ptah-nx-saas plugin, refreshes skill junctions,
+   * focuses the chat/main view, broadcasts HARNESS_OPEN_WORKFLOW with the
+   * seed prompt, and disposes the wizard panel.
+   */
+  public async startNewProject(): Promise<HarnessStartNewProjectResult> {
+    const result = await this.rpcService.call('harness:start-new-project', {});
     if (result.isSuccess() && result.data) {
       return result.data;
     }
-    throw new Error(result.error || 'Failed to get conversation response');
+    throw new Error(result.error || 'Failed to start new project');
+  }
+
+  /**
+   * Compose the configure-mode first-turn prompt (workspace context,
+   * agents/skills, instructions to call the proposeConfig tool).
+   */
+  public async workflowPrompt(
+    params: HarnessWorkflowPromptParams,
+  ): Promise<HarnessWorkflowPromptResponse> {
+    const result = await this.rpcService.call(
+      'harness:workflow-prompt',
+      params,
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to compose workflow prompt');
   }
 }

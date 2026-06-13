@@ -3,7 +3,7 @@ title: MCP & Skills
 description: How Ptah uses the Model Context Protocol and Skills to extend every provider with consistent tools and knowledge.
 ---
 
-**Model Context Protocol (MCP)** is the open standard for connecting language models to external tools and data. **Skills** are scoped knowledge packs the model can invoke on demand. Ptah uses both to deliver a consistent, high-leverage experience across every provider — Claude, Gemini, Codex, Copilot, and local CLI agents alike.
+**Model Context Protocol (MCP)** is the open standard for connecting language models to external tools and data. **Skills** are scoped knowledge packs the model can invoke on demand. Ptah uses both to deliver a consistent, high-leverage experience across every provider — Claude, Codex, Copilot, and local CLI agents alike.
 
 ## The two pillars
 

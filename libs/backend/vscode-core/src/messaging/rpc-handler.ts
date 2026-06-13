@@ -75,6 +75,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'mcpDirectory:', // MCP Server Directory (search, getDetails, install, uninstall, listInstalled, getPopular)
   'cron:', // Scheduled cron jobs (list, get, create, update, delete, toggle, runNow, runs, nextFire)
   'gateway:', // MCP gateway status, bindings, and messages
+  'voice:', // Voice input transcription (chat input mic → Whisper)
   'memory:', // Memory curator (list, search, get, pin, unpin, forget, rebuildIndex, stats)
   'mem:', // Progressive disclosure memory search (searchIndex, timeline, getObservations)
   'corpus:', // Knowledge corpus (list, get, build, prime, query, reprime, rebuild, delete)

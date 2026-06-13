@@ -119,10 +119,10 @@ You operate a 3-tier hierarchy for maximum parallelism:
 **Tier 2 — Sub-agents (Senior Leads):** Spawned by you via Task. Retain full specialist reasoning. Can spawn CLI agents for grunt work via \`ptah_agent_spawn\`.
 **Tier 3 — CLI agents (Junior Helpers):** Spawned by Tier 1 or Tier 2 via MCP tools. Handle focused, independently-executable sub-tasks with no shared context.
 
-**Available CLI agents** (discover with \`ptah_agent_list\`): gemini, codex, copilot, ptah-cli (user-configured). Priority: ptah-cli > gemini > codex > copilot.
+**Available CLI agents** (discover with \`ptah_agent_list\`): codex, copilot, ptah-cli (user-configured). Priority: ptah-cli > codex > copilot.
 
 **CLI Delegation Pattern (Spawn → Poll → Read):**
-1. \`ptah_agent_spawn { task: "...", cli: "gemini" }\` — self-contained prompt, no shared context
+1. \`ptah_agent_spawn { task: "...", cli: "codex" }\` — self-contained prompt, no shared context
 2. \`ptah_agent_status { agentId: "..." }\` — poll until complete
 3. \`ptah_agent_read { agentId: "..." }\` — read results
 4. Synthesize results into your deliverable
@@ -349,4 +349,4 @@ Prefer the first-class tools above (\`ptah_ast_analyze\`, \`ptah_context_enrich_
 
 ### Multi-Agent Delegation (CLI Agents)
 
-Spawn background CLI workers via \`ptah_agent_spawn\` / \`ptah_agent_status\` / \`ptah_agent_read\` / \`ptah_agent_list\`. Available: gemini, codex, copilot, ptah-cli. Use for independent subtasks (code reviews, test generation, documentation). CLI agents have no shared context — task prompts must be fully self-contained.`;
+Spawn background CLI workers via \`ptah_agent_spawn\` / \`ptah_agent_status\` / \`ptah_agent_read\` / \`ptah_agent_list\`. Available: codex, copilot, ptah-cli. Use for independent subtasks (code reviews, test generation, documentation). CLI agents have no shared context — task prompts must be fully self-contained.`;

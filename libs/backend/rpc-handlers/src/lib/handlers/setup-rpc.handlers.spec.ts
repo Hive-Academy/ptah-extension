@@ -3,8 +3,7 @@
  *
  * Surface under test: setup RPC methods covering status, wizard launch,
  * analysis (deep-analyze / recommend-agents / cancel-analysis), saved
- * analyses (list/load), agent pack browser (list/install), and the new
- * `wizard:start-new-project-chat` chat-handoff entry point.
+ * analyses (list/load), and the agent pack browser (list/install).
  *
  * Behavioural contracts locked in here:
  *   - Registration: `register()` wires every method into the mock RpcHandler.
@@ -23,12 +22,6 @@
  *   - `wizard:cancel-analysis` is best-effort — it returns
  *     `{ cancelled: true }` as soon as any service cancels, and
  *     `{ cancelled: false }` only when every service throws.
- *   - `wizard:start-new-project-chat`:
- *       * Enables the `ptah-nx-saas` plugin via PluginLoaderService when
- *         not already enabled, and refreshes skill junctions if changed.
- *       * Always focuses chat via IPlatformCommands and broadcasts the
- *         seed prompt; missing webview / skill-junction services are
- *         tolerated as best-effort soft failures.
  *
  * Mocking posture: direct constructor injection, narrow
  * `jest.Mocked<Pick<T, ...>>` surfaces for the DI container and
@@ -154,15 +147,10 @@ import {
   type MockRpcHandler,
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
-import type {
-  IWorkspaceProvider,
-  IPlatformCommands,
-} from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   createMockWorkspaceProvider,
-  createMockPlatformCommands,
   type MockWorkspaceProvider,
-  type MockPlatformCommands,
 } from '@ptah-extension/platform-core/testing';
 import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
@@ -269,7 +257,6 @@ interface Harness {
   workspace: MockWorkspaceProvider;
   container: MockContainer;
   sentry: MockSentryService;
-  platformCommands: MockPlatformCommands;
 }
 
 function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
@@ -282,7 +269,6 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   });
   const container = createMockContainer();
   const sentry = createMockSentryService();
-  const platformCommands = createMockPlatformCommands();
 
   const handlers = new SetupRpcHandlers(
     logger as unknown as Logger,
@@ -292,7 +278,6 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     workspace as unknown as IWorkspaceProvider,
     container as unknown as DependencyContainer,
     sentry as unknown as SentryService,
-    platformCommands as unknown as IPlatformCommands,
   );
 
   return {
@@ -304,7 +289,6 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     workspace,
     container,
     sentry,
-    platformCommands,
   };
 }
 
@@ -362,7 +346,6 @@ describe('SetupRpcHandlers', () => {
           'wizard:list-analyses',
           'wizard:load-analysis',
           'wizard:recommend-agents',
-          'wizard:start-new-project-chat',
         ].sort(),
       );
     });
@@ -745,99 +728,6 @@ describe('SetupRpcHandlers', () => {
       // Either the untrusted-source guard fires, or the network fetch
       // fails first — either way, we MUST NOT see success=true.
       expect(response.error).toBeDefined();
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // wizard:start-new-project-chat
-  // -------------------------------------------------------------------------
-
-  describe('wizard:start-new-project-chat', () => {
-    it('enables the ptah-nx-saas plugin and refreshes skill junctions when not already enabled', async () => {
-      const h = makeHarness();
-      const createJunctions = jest
-        .fn()
-        .mockReturnValue({ created: 1, skipped: 0, removed: 0, errors: [] });
-      h.container.__register(Symbol.for('SdkSkillJunction'), {
-        createJunctions,
-      });
-      const broadcastMessage = jest.fn().mockResolvedValue(undefined);
-      h.container.__register(Symbol.for('WebviewManager'), {
-        broadcastMessage,
-      });
-      h.container.__register(AGENT_GENERATION_TOKENS.WIZARD_WEBVIEW_LIFECYCLE, {
-        disposeWebview: jest.fn(),
-      });
-
-      h.pluginLoader.resolvePluginPaths.mockReturnValue([
-        '/plugins/ptah-nx-saas',
-      ]);
-
-      h.handlers.register();
-
-      const result = await call<{ success: boolean }>(
-        h,
-        'wizard:start-new-project-chat',
-      );
-
-      expect(result.success).toBe(true);
-      expect(h.pluginLoader.saveWorkspacePluginConfig).toHaveBeenCalledWith({
-        enabledPluginIds: ['ptah-nx-saas'],
-        disabledSkillIds: [],
-      });
-      expect(createJunctions).toHaveBeenCalled();
-      expect(h.platformCommands.focusChat).toHaveBeenCalled();
-      expect(broadcastMessage).toHaveBeenCalledWith(
-        'setup-wizard:start-new-project-chat',
-        expect.objectContaining({
-          prompt: expect.stringContaining('saas-workspace-initializer'),
-        }),
-      );
-    });
-
-    it('skips plugin enablement and junction refresh when ptah-nx-saas is already enabled', async () => {
-      const h = makeHarness();
-      h.pluginLoader.getWorkspacePluginConfig.mockReturnValue({
-        enabledPluginIds: ['ptah-nx-saas'],
-        disabledSkillIds: [],
-      });
-      const createJunctions = jest.fn();
-      h.container.__register(Symbol.for('SdkSkillJunction'), {
-        createJunctions,
-      });
-      h.container.__register(Symbol.for('WebviewManager'), {
-        broadcastMessage: jest.fn().mockResolvedValue(undefined),
-      });
-      h.container.__register(AGENT_GENERATION_TOKENS.WIZARD_WEBVIEW_LIFECYCLE, {
-        disposeWebview: jest.fn(),
-      });
-
-      h.handlers.register();
-
-      const result = await call<{ success: boolean }>(
-        h,
-        'wizard:start-new-project-chat',
-      );
-
-      expect(result.success).toBe(true);
-      expect(h.pluginLoader.saveWorkspacePluginConfig).not.toHaveBeenCalled();
-      expect(createJunctions).not.toHaveBeenCalled();
-    });
-
-    it('returns success even when broadcast / dispose / junction refresh fail (best-effort)', async () => {
-      const h = makeHarness();
-      // No webview, no junction service, no wizard lifecycle registered →
-      // resolveService throws for each, handler should swallow them.
-      h.handlers.register();
-
-      const result = await call<{ success: boolean; error?: string }>(
-        h,
-        'wizard:start-new-project-chat',
-      );
-
-      expect(result.success).toBe(true);
-      // Plugin enablement still happened.
-      expect(h.pluginLoader.saveWorkspacePluginConfig).toHaveBeenCalled();
     });
   });
 

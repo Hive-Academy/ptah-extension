@@ -4,8 +4,7 @@
  * Coverage matrix (6 tools × {community/pro/expired/null} status):
  *
  *   1. `session_submit` — denied unless Pro.
- *   2. `agent_spawn cli=gemini` — always allowed.
- *   3. `agent_spawn cli=codex|copilot|cursor` — always allowed.
+ *   2. `agent_spawn cli=codex|copilot|cursor` — always allowed.
  *   4. `agent_spawn ptahCliId=openrouter` — denied unless Pro.
  *   5. `agent_status/read/stop/steer` targeting a Ptah CLI agent — denied unless Pro.
  *   6. `agent_status/read/stop/steer` targeting a rival CLI agent — always allowed.
@@ -84,7 +83,7 @@ function makeLicense(
 }
 
 function makeAgentMgr(
-  table: Record<string, 'ptah-cli' | 'gemini' | 'codex' | 'copilot' | 'cursor'>,
+  table: Record<string, 'ptah-cli' | 'codex' | 'copilot' | 'cursor'>,
   options: { throwOn?: string } = {},
 ): AgentProcessManager {
   const getStatus = jest.fn((agentId?: string) => {
@@ -183,7 +182,7 @@ describe('McpLicenseGate', () => {
   });
 
   describe('agent_spawn', () => {
-    it.each(['gemini', 'codex', 'copilot', 'cursor'] as const)(
+    it.each(['codex', 'copilot', 'cursor'] as const)(
       'allows free-tier agent_spawn cli=%s',
       (cli) => {
         const gate = makeGate(makeLicense(COMMUNITY_STATUS), makeAgentMgr({}));
@@ -220,7 +219,7 @@ describe('McpLicenseGate', () => {
       expect(
         gate.evaluate('agent_spawn', {
           task: 't',
-          cli: 'gemini',
+          cli: 'codex',
           ptahCliId: '',
         }),
       ).toEqual({ allowed: true });
@@ -230,7 +229,7 @@ describe('McpLicenseGate', () => {
   describe('agent_status / agent_read / agent_stop / agent_steer', () => {
     const agentTable = {
       'agent-ptah': 'ptah-cli' as const,
-      'agent-gemini': 'gemini' as const,
+      'agent-codex': 'codex' as const,
     };
 
     it.each(['agent_status', 'agent_read', 'agent_stop', 'agent_steer'])(
@@ -249,13 +248,13 @@ describe('McpLicenseGate', () => {
     );
 
     it.each(['agent_status', 'agent_read', 'agent_stop', 'agent_steer'])(
-      '%s targeting a gemini agent → allowed on community',
+      '%s targeting a codex agent → allowed on community',
       (tool) => {
         const gate = makeGate(
           makeLicense(COMMUNITY_STATUS),
           makeAgentMgr(agentTable),
         );
-        expect(gate.evaluate(tool, { agentId: 'agent-gemini' })).toEqual({
+        expect(gate.evaluate(tool, { agentId: 'agent-codex' })).toEqual({
           allowed: true,
         });
       },
@@ -299,10 +298,10 @@ describe('McpLicenseGate', () => {
       expect(gate.shouldGateAsPtahCli('a-1')).toBe(true);
     });
 
-    it('returns false for a gemini agent', () => {
+    it('returns false for a codex agent', () => {
       const gate = makeGate(
         makeLicense(PRO_STATUS),
-        makeAgentMgr({ 'a-1': 'gemini' }),
+        makeAgentMgr({ 'a-1': 'codex' }),
       );
       expect(gate.shouldGateAsPtahCli('a-1')).toBe(false);
     });
@@ -315,7 +314,7 @@ describe('McpLicenseGate', () => {
     it('fails closed when AgentProcessManager throws unexpectedly', () => {
       const gate = makeGate(
         makeLicense(PRO_STATUS),
-        makeAgentMgr({ 'a-1': 'gemini' }, { throwOn: 'a-1' }),
+        makeAgentMgr({ 'a-1': 'codex' }, { throwOn: 'a-1' }),
       );
       expect(gate.shouldGateAsPtahCli('a-1')).toBe(true);
     });

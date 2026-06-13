@@ -29,9 +29,9 @@ export interface CliCommandOptions {
   readonly binaryPath?: string;
   /** Port of the running Ptah HTTP MCP server. When provided, adapters that support it will configure a direct MCP connection (bypassing VS Code's IDE bridge which blocks headless permissions). */
   readonly mcpPort?: number;
-  /** Resume a previous CLI session by its CLI-native session ID. When set, the adapter adds appropriate resume flags (e.g., --resume for Gemini). */
+  /** Resume a previous CLI session by its CLI-native session ID. When set, the adapter adds appropriate resume flags (e.g., --resume for Copilot). */
   readonly resumeSessionId?: string;
-  /** Project-specific guidance to provide as system context. Adapters with native system prompt support (Gemini) handle this natively; others prepend to task prompt via buildTaskPrompt(). */
+  /** Project-specific guidance to provide as system context. Adapters with native system prompt support handle this natively; others prepend to task prompt via buildTaskPrompt(). */
   readonly projectGuidance?: string;
   /** Full system prompt content (prompt harness). Replaces projectGuidance for premium users.
    *  Includes core prompt, enhanced prompts, skill catalog, and MCP docs. */
@@ -55,7 +55,7 @@ export interface SdkHandle {
   readonly onOutput: (callback: (data: string) => void) => void;
   /** Register a callback to receive structured output segments. Optional — only SDK adapters with structured event data implement this. */
   readonly onSegment?: (callback: (segment: CliOutputSegment) => void) => void;
-  /** Get CLI-native session ID (e.g., Gemini session UUID from init event). Returns undefined if not yet available or not supported by this adapter. */
+  /** Get CLI-native session ID (e.g., a session UUID from an init event). Returns undefined if not yet available or not supported by this adapter. */
   readonly getSessionId?: () => string | undefined;
   /** Register a callback to receive rich FlatStreamEventUnion events.
    *  Only Ptah CLI adapter implements this. Enables full ExecutionNode rendering. */
@@ -98,7 +98,7 @@ export interface CliAdapter {
    * Whether this adapter supports the Ptah MCP server connection.
    * Adapters that run in-process via the Claude Agent SDK (Codex, Copilot)
    * can access VS Code internal APIs through MCP. External CLI processes
-   * (Gemini) cannot and should return false.
+   * (Cursor) cannot and should return false.
    * Defaults to true when not specified (backwards-compatible).
    */
   readonly supportsMcp?: boolean;

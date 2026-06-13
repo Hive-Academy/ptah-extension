@@ -18,6 +18,9 @@ describe('skill-trigger-config', () => {
         subagentStop: {
           enabled: SKILL_TRIGGER_DEFAULTS.subagentStop.enabled,
         },
+        turnComplete: {
+          enabled: SKILL_TRIGGER_DEFAULTS.turnComplete.enabled,
+        },
         postToolUse: {
           enabled: SKILL_TRIGGER_DEFAULTS.postToolUse.enabled,
           minEditCount: SKILL_TRIGGER_DEFAULTS.postToolUse.minEditCount,
@@ -26,13 +29,14 @@ describe('skill-trigger-config', () => {
       });
     });
 
-    it('reads seeded values across all seven keys', () => {
+    it('reads seeded values across all keys', () => {
       const ws = createMockWorkspaceProvider({
         config: {
           [`ptah.${SKILL_TRIGGER_KEYS.sessionEnd}`]: false,
           [`ptah.${SKILL_TRIGGER_KEYS.idleMs}`]: 12000,
           [`ptah.${SKILL_TRIGGER_KEYS.bootScan}`]: false,
           [`ptah.${SKILL_TRIGGER_KEYS.subagentStop.enabled}`]: false,
+          [`ptah.${SKILL_TRIGGER_KEYS.turnComplete.enabled}`]: false,
           [`ptah.${SKILL_TRIGGER_KEYS.postToolUse.enabled}`]: false,
           [`ptah.${SKILL_TRIGGER_KEYS.postToolUse.minEditCount}`]: 9,
           [`ptah.${SKILL_TRIGGER_KEYS.maxAnalyzesPerHour}`]: 99,
@@ -44,8 +48,17 @@ describe('skill-trigger-config', () => {
         idleMs: 12000,
         bootScan: false,
         subagentStop: { enabled: false },
+        turnComplete: { enabled: false },
         postToolUse: { enabled: false, minEditCount: 9 },
         maxAnalyzesPerHour: 99,
+      });
+    });
+
+    it('defaults turnComplete to enabled when only that key is unseeded', () => {
+      const ws = createMockWorkspaceProvider();
+      const out = readSkillTriggers(ws);
+      expect(out.turnComplete).toEqual({
+        enabled: SKILL_TRIGGER_DEFAULTS.turnComplete.enabled,
       });
     });
   });
@@ -62,6 +75,13 @@ describe('skill-trigger-config', () => {
         ]),
       );
       expect(out).toHaveLength(2);
+    });
+
+    it('flattens nested turnComplete object into dotted keys', () => {
+      const out = flattenSkillTriggers({
+        turnComplete: { enabled: false },
+      });
+      expect(out).toEqual([[SKILL_TRIGGER_KEYS.turnComplete.enabled, false]]);
     });
 
     it('emits leaf keys for scalar fields', () => {

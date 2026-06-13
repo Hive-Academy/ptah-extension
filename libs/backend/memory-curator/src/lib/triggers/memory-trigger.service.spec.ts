@@ -38,6 +38,16 @@ import type {
   ObservationQueueStore,
 } from '../observation-queue.store';
 
+/**
+ * Pin the fake clock to a top-of-hour instant. CuratorRateLimitService buckets
+ * by the wall-clock-aligned hour (`Math.floor(now / HOUR_MS) * HOUR_MS`), so a
+ * bare `jest.useFakeTimers()` — which seeds from real time — makes any
+ * `advanceTimersByTime(...)` straddle an hour boundary whenever CI happens to
+ * run within a few seconds of the top of an hour, silently resetting the bucket
+ * and double-firing curate. Seeding at :00:00 gives a full hour of headroom.
+ */
+const FAKE_CLOCK_EPOCH = Date.UTC(2026, 0, 1, 0, 0, 0);
+
 function makeLogger(): Logger {
   return {
     info: jest.fn(),
@@ -448,7 +458,7 @@ function postToolUsePayload(
 
 describe('MemoryTriggerService', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -738,7 +748,7 @@ describe('MemoryTriggerService', () => {
 
 describe('MemoryTriggerService — user-cue trigger', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -876,7 +886,7 @@ describe('MemoryTriggerService — user-cue trigger', () => {
 
 describe('MemoryTriggerService — commit-detect trigger', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -1009,7 +1019,7 @@ describe('MemoryTriggerService — commit-detect trigger', () => {
 
 describe('MemoryTriggerService — lifecycle and rate-limit windows', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -1049,7 +1059,7 @@ describe('MemoryTriggerService — lifecycle and rate-limit windows', () => {
 
 describe('MemoryTriggerService — episode / failure / session-end', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -1075,6 +1085,32 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
         stats: expect.objectContaining({ tool: 'Bash' }),
       }),
     );
+  });
+
+  it('tool-failure event carries a single-line truncated error snippet', async () => {
+    const { service, toolFailure, curator } = buildService();
+    service.start();
+    const rawError = `TypeError: x is undefined\n    at foo (bar.ts:1)\n${'y'.repeat(300)}`;
+    toolFailure.fire({
+      toolName: 'Bash',
+      toolInput: { command: 'npm test' },
+      error: rawError,
+      isInterrupt: false,
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 10,
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    const call = (curator.pushEvent as jest.Mock).mock.calls.find(
+      ([e]: [{ kind: string }]) => e.kind === 'tool-failure',
+    );
+    expect(call).toBeDefined();
+    const snippet = call[0].stats.error as string;
+    expect(snippet).toContain('TypeError: x is undefined');
+    expect(snippet).not.toContain('\n');
+    expect(snippet.length).toBeLessThanOrEqual(141);
+    expect(snippet.endsWith('…')).toBe(true);
   });
 
   it('recovery-only episode (turnCount === 0) does NOT fire episode-trigger', async () => {
@@ -1222,7 +1258,7 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
 
 describe('MemoryTriggerService — buffer preservation under rate-limit', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -1356,7 +1392,7 @@ describe('MemoryTriggerService — buffer preservation under rate-limit', () => 
 
 describe('MemoryTriggerService — turn recording independent of firing', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -1447,7 +1483,7 @@ describe('MemoryTriggerService — turn recording independent of firing', () => 
 
 describe('MemoryTriggerService — salience boost threading', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -1511,7 +1547,7 @@ describe('MemoryTriggerService — salience boost threading', () => {
 
 describe('MemoryTriggerService — observation queue side effects', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -1640,7 +1676,7 @@ describe('MemoryTriggerService — observation queue side effects', () => {
 
 describe('MemoryTriggerService — invokeCurate transcript composition + queue lifecycle', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
   });
   afterEach(() => {
     jest.useRealTimers();

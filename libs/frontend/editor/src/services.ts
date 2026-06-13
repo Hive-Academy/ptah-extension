@@ -20,6 +20,7 @@ export {
 } from './lib/services/editor/editor-internal-state';
 export { provideEditorInternalState } from './lib/services/editor-internal-state.provider';
 export { GitStatusService } from './lib/services/git-status.service';
+export { GitBranchesService } from './lib/services/git-branches.service';
 export { TerminalService } from './lib/services/terminal.service';
 export { WorktreeService } from './lib/services/worktree.service';
 export type { TerminalTab, PtahTerminalApi } from './lib/types/terminal.types';

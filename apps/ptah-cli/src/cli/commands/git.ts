@@ -20,11 +20,11 @@
  * No DI mocking in production; tests inject hooks via {@link GitExecuteHooks}.
  */
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 
 export type GitSubcommand =
   | 'info'

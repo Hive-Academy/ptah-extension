@@ -5,8 +5,9 @@
  *
  * Inbound `GatewayInboundEvent`s are serialized per conversation via
  * {@link ConversationQueue}; each turn either starts a new SDK session (first
- * message) or resumes the persisted one. Gateway-originated sessions run with
- * bypass permission (v1 auto-approve) once the real SDK session UUID resolves.
+ * message for the conversation row) or resumes the one persisted on it.
+ * Gateway-originated sessions run with bypass permission (v1 auto-approve)
+ * once the real SDK session UUID resolves.
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -17,10 +18,11 @@ import {
 import {
   GATEWAY_TOKENS,
   ConversationKey,
-  type GatewayService,
-  type BindingStore,
-  type GatewayBinding,
+  type ConversationStore,
+  type GatewayConversation,
   type GatewayInboundEvent,
+  type GatewayService,
+  type OutboundRoute,
 } from '@ptah-extension/messaging-gateway';
 import {
   SessionId,
@@ -39,8 +41,8 @@ export class GatewayChatBridge {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(GATEWAY_TOKENS.GATEWAY_SERVICE)
     private readonly gateway: GatewayService,
-    @inject(GATEWAY_TOKENS.GATEWAY_BINDING_STORE)
-    private readonly bindings: BindingStore,
+    @inject(GATEWAY_TOKENS.GATEWAY_CONVERSATION_STORE)
+    private readonly conversations: ConversationStore,
     @inject(TOKENS.AGENT_ADAPTER)
     private readonly agentAdapter: IAgentAdapter,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -75,15 +77,15 @@ export class GatewayChatBridge {
 
   private async runTurn(event: GatewayInboundEvent): Promise<void> {
     if (this.stopped) return;
-    const { binding } = event;
-    const conversationKey = this.resolveConversationKey(event);
+    const { binding, conversation } = event;
+    const route = this.resolveRoute(event);
     const body = event.message.body;
 
     const workspaceRoot =
       binding.workspaceRoot ?? this.workspace.getWorkspaceRoot() ?? null;
     if (!workspaceRoot) {
       await this.sendError(
-        conversationKey,
+        route,
         'No workspace is open in Ptah. Open a project folder, then try again.',
       );
       return;
@@ -93,22 +95,27 @@ export class GatewayChatBridge {
     const drainOnce = async (): Promise<void> => {
       if (drained) return;
       drained = true;
-      await this.gateway.drainOutbound(conversationKey);
+      await this.gateway.drainOutbound(route.conversationKey);
     };
 
-    const tabId = `gw-${binding.id}`;
+    const tabId = `gw-${conversation.id}`;
 
     try {
-      const stream = await this.openStream(binding, body, workspaceRoot, tabId);
-      await this.pumpStream(stream, binding, tabId, conversationKey, drainOnce);
-    } catch (error: unknown) {
-      const recovered = await this.tryFallbackStart(
-        error,
-        binding,
+      const stream = await this.openStream(
+        conversation,
         body,
         workspaceRoot,
         tabId,
-        conversationKey,
+      );
+      await this.pumpStream(stream, conversation, tabId, route, drainOnce);
+    } catch (error: unknown) {
+      const recovered = await this.tryFallbackStart(
+        error,
+        conversation,
+        body,
+        workspaceRoot,
+        tabId,
+        route,
         drainOnce,
       );
       if (!recovered) {
@@ -117,7 +124,7 @@ export class GatewayChatBridge {
           error instanceof Error ? error : new Error(String(error)),
         );
         await this.sendError(
-          conversationKey,
+          route,
           'Ptah could not complete this request. Please try again.',
         );
       }
@@ -132,12 +139,12 @@ export class GatewayChatBridge {
   }
 
   private async openStream(
-    binding: GatewayBinding,
+    conversation: GatewayConversation,
     body: string,
     workspaceRoot: string,
     tabId: string,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
-    const persistedId = binding.ptahSessionId;
+    const persistedId = conversation.ptahSessionId;
     const canResume =
       !!persistedId &&
       this.agentAdapter.isSessionActive(SessionId.from(persistedId));
@@ -158,7 +165,7 @@ export class GatewayChatBridge {
         this.logger.warn(
           '[gateway-chat-bridge] resume of persisted session failed; falling back to new session',
           {
-            bindingId: String(binding.id),
+            conversationId: String(conversation.id),
             error: error instanceof Error ? error.message : String(error),
           },
         );
@@ -184,9 +191,9 @@ export class GatewayChatBridge {
 
   private async pumpStream(
     stream: AsyncIterable<FlatStreamEventUnion>,
-    binding: GatewayBinding,
+    conversation: GatewayConversation,
     tabId: string,
-    conversationKey: ConversationKey,
+    route: OutboundRoute,
     drainOnce: () => Promise<void>,
   ): Promise<void> {
     let eventCount = 0;
@@ -196,10 +203,10 @@ export class GatewayChatBridge {
       eventCount++;
       if (!sessionUuidBound && event.sessionId && event.sessionId !== tabId) {
         sessionUuidBound = true;
-        await this.bindSession(binding, event.sessionId);
+        await this.bindSession(conversation, event.sessionId);
       }
       if (event.eventType === 'text_delta' && event.delta) {
-        this.gateway.appendOutboundChunk(conversationKey, event.delta);
+        this.gateway.appendOutboundChunk(route, event.delta);
       } else if (event.eventType === 'message_complete') {
         await drainOnce();
       }
@@ -212,24 +219,24 @@ export class GatewayChatBridge {
 
   private async tryFallbackStart(
     error: unknown,
-    binding: GatewayBinding,
+    conversation: GatewayConversation,
     body: string,
     workspaceRoot: string,
     tabId: string,
-    conversationKey: ConversationKey,
+    route: OutboundRoute,
     drainOnce: () => Promise<void>,
   ): Promise<boolean> {
-    if (!binding.ptahSessionId) return false;
+    if (!conversation.ptahSessionId) return false;
     this.logger.warn(
       '[gateway-chat-bridge] resumed turn failed; retrying with a new session',
       {
-        bindingId: String(binding.id),
+        conversationId: String(conversation.id),
         error: error instanceof Error ? error.message : String(error),
       },
     );
     try {
       const stream = await this.startNew(body, workspaceRoot, tabId);
-      await this.pumpStream(stream, binding, tabId, conversationKey, drainOnce);
+      await this.pumpStream(stream, conversation, tabId, route, drainOnce);
       return true;
     } catch (fallbackError: unknown) {
       this.logger.error(
@@ -243,15 +250,15 @@ export class GatewayChatBridge {
   }
 
   private async bindSession(
-    binding: GatewayBinding,
+    conversation: GatewayConversation,
     sessionUuid: string,
   ): Promise<void> {
-    if (sessionUuid !== binding.ptahSessionId) {
+    if (sessionUuid !== conversation.ptahSessionId) {
       try {
-        this.bindings.setPtahSessionId(binding.id, sessionUuid);
+        this.conversations.setPtahSessionId(conversation.id, sessionUuid);
       } catch (error: unknown) {
         this.logger.warn('[gateway-chat-bridge] failed to persist sessionId', {
-          bindingId: String(binding.id),
+          conversationId: String(conversation.id),
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -265,7 +272,7 @@ export class GatewayChatBridge {
       this.logger.warn(
         '[gateway-chat-bridge] failed to set bypass permission',
         {
-          bindingId: String(binding.id),
+          conversationId: String(conversation.id),
           error: error instanceof Error ? error.message : String(error),
         },
       );
@@ -273,17 +280,29 @@ export class GatewayChatBridge {
   }
 
   private async sendError(
-    conversationKey: ConversationKey,
+    route: OutboundRoute,
     message: string,
   ): Promise<void> {
-    this.gateway.appendOutboundChunk(conversationKey, message);
-    await this.gateway.drainOutbound(conversationKey);
+    this.gateway.appendOutboundChunk(route, message);
+    await this.gateway.drainOutbound(route.conversationKey);
+  }
+
+  private resolveRoute(event: GatewayInboundEvent): OutboundRoute {
+    const conversationKey = this.resolveConversationKey(event);
+    const { platform, externalChatId, conversationId } = event.message;
+    return conversationId !== undefined
+      ? { conversationKey, platform, externalChatId, conversationId }
+      : { conversationKey, platform, externalChatId };
   }
 
   private resolveConversationKey(event: GatewayInboundEvent): ConversationKey {
     return (
       event.message.conversationKey ??
-      ConversationKey.for(event.binding.platform, event.binding.externalChatId)
+      ConversationKey.for(
+        event.message.platform,
+        event.message.externalChatId,
+        event.message.conversationId,
+      )
     );
   }
 }

@@ -402,7 +402,7 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
       makeRequest({
         id: 7,
         method: 'tools/call',
-        params: { name: 'ptah_agent_spawn', arguments: { cli: 'gemini' } },
+        params: { name: 'ptah_agent_spawn', arguments: { cli: 'codex' } },
       }),
       deps,
     );

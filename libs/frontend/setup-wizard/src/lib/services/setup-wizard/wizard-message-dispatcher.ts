@@ -34,99 +34,74 @@ export interface WizardMessageHandlers {
   handleError(payload: WizardErrorPayload): void;
 }
 
+const WIZARD_MESSAGE_TYPES: readonly WizardMessageType[] = [
+  'setup-wizard:scan-progress',
+  'setup-wizard:analysis-stream',
+  'setup-wizard:analysis-complete',
+  'setup-wizard:available-agents',
+  'setup-wizard:generation-progress',
+  'setup-wizard:generation-complete',
+  'setup-wizard:generation-stream',
+  'setup-wizard:enhance-stream',
+  'setup-wizard:error',
+];
+
 /**
- * WizardMessageDispatcher — registers the window 'message' listener,
- * validates incoming data as a {@link WizardMessage}, and routes each
- * message to its handler on {@link WizardMessageHandlers}.
- *
- * Owns the listener lifecycle (register/dispose) and the exhaustive
- * type-safety switch; handlers live on other helpers / the coordinator.
+ * WizardMessageDispatcher — validates an inbound {@link WizardMessage} and
+ * routes it to its handler on {@link WizardMessageHandlers}. Inbound delivery
+ * is owned by the canonical `MessageRouterService`, which unwraps the Electron
+ * IPC `BATCH` envelope before dispatch.
  */
 export class WizardMessageDispatcher {
-  /** Stored reference for removeEventListener in dispose(). */
-  private messageHandler: ((event: MessageEvent) => void) | null = null;
-
-  /** Guard against duplicate registration when the coordinator is reused. */
-  private registered = false;
+  public readonly handledMessageTypes: readonly string[] = WIZARD_MESSAGE_TYPES;
 
   public constructor(
     private readonly handlers: WizardMessageHandlers,
     private readonly errorStateSignal: WritableSignal<ErrorState | null>,
   ) {}
 
-  /**
-   * Ensure message listener is registered exactly once.
-   * Safe to call multiple times.
-   */
-  public ensureRegistered(): void {
-    if (this.registered) return;
-    this.setupListener();
-    this.registered = true;
-  }
-
-  /**
-   * Remove the message listener (for tests or explicit teardown).
-   * Root services (providedIn: 'root') normally never dispose.
-   */
-  public dispose(): void {
-    if (this.messageHandler) {
-      window.removeEventListener('message', this.messageHandler);
-      this.messageHandler = null;
-      this.registered = false;
-    }
-  }
-
-  private setupListener(): void {
-    this.messageHandler = (event: MessageEvent): void => {
-      const message = event.data;
-      if (!WizardMessageDispatcher.isWizardMessage(message)) {
-        return;
-      }
-
-      try {
-        switch (message.type) {
-          case 'setup-wizard:scan-progress':
-            this.handlers.handleScanProgress(message.payload);
-            break;
-          case 'setup-wizard:analysis-complete':
-            this.handlers.handleAnalysisComplete(message.payload);
-            break;
-          case 'setup-wizard:available-agents':
-            this.handlers.handleAvailableAgents(message.payload);
-            break;
-          case 'setup-wizard:generation-progress':
-            this.handlers.handleGenerationProgress(message.payload);
-            break;
-          case 'setup-wizard:generation-complete':
-            this.handlers.handleGenerationComplete(message.payload);
-            break;
-          case 'setup-wizard:analysis-stream':
-            this.handlers.handleAnalysisStream(message.payload);
-            break;
-          case 'setup-wizard:generation-stream':
-            this.handlers.handleGenerationStream(message.payload);
-            break;
-          case 'setup-wizard:enhance-stream':
-            this.handlers.handleEnhanceStream(message.payload);
-            break;
-          case 'setup-wizard:error':
-            this.handlers.handleError(message.payload);
-            break;
-          default: {
-            const _exhaustiveCheck: never = message;
-            console.warn('Unhandled wizard message type:', _exhaustiveCheck);
-          }
+  public dispatch(message: WizardMessage): void {
+    try {
+      switch (message.type) {
+        case 'setup-wizard:scan-progress':
+          this.handlers.handleScanProgress(message.payload);
+          break;
+        case 'setup-wizard:analysis-complete':
+          this.handlers.handleAnalysisComplete(message.payload);
+          break;
+        case 'setup-wizard:available-agents':
+          this.handlers.handleAvailableAgents(message.payload);
+          break;
+        case 'setup-wizard:generation-progress':
+          this.handlers.handleGenerationProgress(message.payload);
+          break;
+        case 'setup-wizard:generation-complete':
+          this.handlers.handleGenerationComplete(message.payload);
+          break;
+        case 'setup-wizard:analysis-stream':
+          this.handlers.handleAnalysisStream(message.payload);
+          break;
+        case 'setup-wizard:generation-stream':
+          this.handlers.handleGenerationStream(message.payload);
+          break;
+        case 'setup-wizard:enhance-stream':
+          this.handlers.handleEnhanceStream(message.payload);
+          break;
+        case 'setup-wizard:error':
+          this.handlers.handleError(message.payload);
+          break;
+        default: {
+          const _exhaustiveCheck: never = message;
+          console.warn('Unhandled wizard message type:', _exhaustiveCheck);
         }
-      } catch (error) {
-        console.error('Error handling setup wizard message:', error);
-        this.errorStateSignal.set({
-          message: 'Failed to process backend message',
-          details: error instanceof Error ? error.message : String(error),
-        });
       }
-    };
-
-    window.addEventListener('message', this.messageHandler);
+    } catch (error) {
+      console.error('Error handling setup wizard message:', error);
+      this.errorStateSignal.set({
+        message: 'Failed to process backend message',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /** Type guard for {@link WizardMessage} discriminated union. */
@@ -140,19 +115,7 @@ export class WizardMessageDispatcher {
       return false;
     }
 
-    const validTypes: WizardMessageType[] = [
-      'setup-wizard:scan-progress',
-      'setup-wizard:analysis-stream',
-      'setup-wizard:analysis-complete',
-      'setup-wizard:available-agents',
-      'setup-wizard:generation-progress',
-      'setup-wizard:generation-complete',
-      'setup-wizard:generation-stream',
-      'setup-wizard:enhance-stream',
-      'setup-wizard:error',
-    ];
-
-    return validTypes.includes(
+    return WIZARD_MESSAGE_TYPES.includes(
       (message as { type: string }).type as WizardMessageType,
     );
   }

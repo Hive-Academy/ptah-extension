@@ -102,7 +102,7 @@ export const AGENT_FILE_WRITER_SERVICE = Symbol.for('AgentFileWriterService');
 
 /**
  * MultiCliAgentWriterService - Transform and write agents for non-Claude CLIs
- * Responsibilities: Transform Claude agents to Copilot/Gemini format, write to user-level directories
+ * Responsibilities: Transform Claude agents to Copilot/Cursor format, write to user-level directories
  */
 export const MULTI_CLI_AGENT_WRITER_SERVICE = Symbol.for(
   'MultiCliAgentWriterService',

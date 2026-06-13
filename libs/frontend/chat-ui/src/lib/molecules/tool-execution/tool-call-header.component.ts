@@ -407,7 +407,7 @@ export class ToolCallHeaderComponent {
 
   /**
    * Check if this is a Ptah MCP server tool call
-   * Matches both ptah-cli format (mcp__ptah__*) and Copilot/Gemini format (ptah-ptah_*)
+   * Matches both ptah-cli format (mcp__ptah__*) and Copilot format (ptah-ptah_*)
    */
   isPtahMcpTool(): boolean {
     const toolName = this.node().toolName || '';
@@ -420,7 +420,7 @@ export class ToolCallHeaderComponent {
    * Extract clean tool name from Ptah MCP tool
    * Handles both naming conventions:
    * - mcp__ptah__workspace_analyze -> "workspace analyze" (ptah-cli)
-   * - ptah-ptah_search_files -> "search files" (Copilot/Gemini)
+   * - ptah-ptah_search_files -> "search files" (Copilot)
    */
   protected getPtahToolName(): string {
     const toolName = this.node().toolName || '';

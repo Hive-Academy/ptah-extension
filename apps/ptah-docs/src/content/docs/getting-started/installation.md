@@ -90,7 +90,7 @@ AppImages on some distributions require FUSE. If the AppImage fails to start, in
 
 On the first launch, your operating system may ask Ptah to grant a few permissions:
 
-- **Firewall / network access** — required to reach provider APIs (Claude, Copilot, Codex, Gemini, etc.), the license server, and the plugin registry. Allow access on both private and public networks if prompted.
+- **Firewall / network access** — required to reach provider APIs (Claude, Copilot, Codex, etc.), the license server, and the plugin registry. Allow access on both private and public networks if prompted.
 - **Clipboard access** (macOS) — used by copy/paste actions inside the chat and terminal panels.
 - **Keychain / Credential Manager** — Ptah stores your license key and provider credentials in the OS secure store via Electron's `safeStorage` API.
 - **File-system access** — macOS may prompt the first time you open a workspace folder. Grant access to the parent folder where your projects live.

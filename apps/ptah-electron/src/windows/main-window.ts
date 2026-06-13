@@ -71,6 +71,17 @@ export function createMainWindow(stateStorage?: IStateStorage): BrowserWindow {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 15, y: 15 },
   });
+
+  const windowSession = mainWindow.webContents.session;
+  windowSession.setPermissionRequestHandler(
+    (contents, _permission, callback) => {
+      callback(contents.id === mainWindow.webContents.id);
+    },
+  );
+  windowSession.setPermissionCheckHandler((contents, _permission) => {
+    return contents === null || contents.id === mainWindow.webContents.id;
+  });
+
   mainWindow.webContents.on('context-menu', (_event, params) => {
     const menuItems: Electron.MenuItemConstructorOptions[] = [];
 
