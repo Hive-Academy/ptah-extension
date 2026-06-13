@@ -86,7 +86,10 @@ import {
   AgentProcessManager,
   CliDetectionService,
   McpRegistryProvider,
+  SmitheryRegistrySource,
+  SkillsShApiClient,
 } from '@ptah-extension/cli-agent-runtime';
+import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
 
 /**
  * Duplicated from SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER to avoid circular dependency
@@ -247,6 +250,15 @@ interface PtahCliRegistryLike {
  */
 export const BROWSER_CAPABILITIES_TOKEN = Symbol.for('BrowserCapabilities');
 
+/**
+ * SecretStorage slot for the Smithery API key. Duplicated as a literal to avoid
+ * importing rpc-handlers (forbidden cycle); must match SMITHERY_API_KEY_SECRET_ID
+ * in libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.schema.ts.
+ *
+ * @warning Keep this string value in sync with the canonical definition.
+ */
+const SMITHERY_API_KEY_SECRET_ID = 'smithery.apiKey';
+
 @injectable()
 export class PtahAPIBuilder {
   constructor(
@@ -348,6 +360,12 @@ export class PtahAPIBuilder {
 
     @inject(BROWSER_CAPABILITIES_TOKEN, { isOptional: true })
     private readonly browserCapabilities: IBrowserCapabilities | undefined,
+
+    @inject(SkillsShApiClient, { isOptional: true })
+    private readonly skillsShApiClient: SkillsShApiClient | undefined,
+
+    @inject(TOKENS.AUTH_SECRETS_SERVICE, { isOptional: true })
+    private readonly authSecretsService: IAuthSecretsService | undefined,
   ) {
     this.logger.info('PtahAPIBuilder initialized with 15 namespaces');
   }
@@ -589,10 +607,32 @@ export class PtahAPIBuilder {
             'SDK_PLUGIN_LOADER not registered — harness namespace requires the plugin loader',
           );
         }
+        const webviewManager = this.webviewManager;
+        const authSecretsService = this.authSecretsService;
+        const smitheryRegistry = authSecretsService
+          ? new SmitheryRegistrySource({
+              getApiKey: async () =>
+                (await authSecretsService.getProviderKey(
+                  SMITHERY_API_KEY_SECRET_ID,
+                )) ?? null,
+              logger: this.logger,
+            })
+          : undefined;
         return buildHarnessNamespace({
           pluginLoader: this.pluginLoader,
           mcpRegistry: new McpRegistryProvider(this.logger),
+          skillsDirectory: this.skillsShApiClient,
+          smitheryRegistry,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
+          broadcast: (type, payload) => {
+            if (!webviewManager) {
+              this.logger.debug(
+                '[PtahAPIBuilder] WebviewManager not registered, skipping harness broadcast',
+              );
+              return;
+            }
+            void webviewManager.broadcastMessage(type, payload);
+          },
           logger: this.logger,
         });
       }),

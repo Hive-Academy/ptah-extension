@@ -1,57 +1,344 @@
 /**
- * Skill Synthesis e2e.
+ * Skill Synthesis e2e — TASK_2026_141 Batch 7, Task 7.4.
  *
- * Surface under test: `skillSynthesis:listCandidates`, `skillSynthesis:stats`,
- * `skillSynthesis:promote` RPC methods backed by `@ptah-extension/skill-synthesis`.
- * The auto-promotion path requires the `SkillInvocationTracker` to record ≥3
- * successful invocations against the same candidate before the promotion
- * service elevates its status and materialises `~/.ptah/skills/<name>/SKILL.md`.
+ * Re-scope (recorded): 3-invocation auto-promotion requires real sessions
+ * (SkillInvocationTracker hooks into agent session lifecycle); cannot be
+ * driven hermetically without API spend. Re-scoped to unit tests per R11.2.
  *
- * Why skipped:
- *   Recording invocations requires completed chat sessions driven by real agent
- *   turns (the invocation tracker is hooked into the agent session lifecycle,
- *   not a free-standing CLI command). Replaying three synthetic "successful
- *   sessions" through the tracker without real Claude API calls is not currently
- *   possible with the CLI harness. The placeholders below document the observable
- *   surfaces. Unblocking paths:
- *     (a) A `ptah skill-synthesis record-invocation` CLI command is added to
- *         the router, enabling synthetic seeding in headless mode; or
- *     (b) The harness exposes an RPC method that drives the invocation tracker
- *         directly (no upstream API call needed).
- *
- * When unblocked, the test flow is:
- *   1. createTmpHome() — isolated ~/.ptah for this test.
- *   2. Three synthetic invocation records are seeded (via CLI command or RPC).
- *   3. The promotion service auto-fires (watches the threshold) and the
- *      candidate status transitions to 'promoted'.
- *   4. CliRunner.spawnOneshot(['skill-synthesis', 'list', '--status', 'promoted'])
- *      → assert at least one candidate in result.
- *   5. Assert `fs.existsSync(path.join(tmp.ptahDir, 'skills', <name>, 'SKILL.md'))`.
- *   6. tmp.cleanup() — remove generated SKILL.md.
- *
- * Prerequisite: `ptah skill-synthesis list|promote|reject|invocations|stats`
- * CLI subcommands added to `apps/ptah-cli/src/cli/router.ts` (not yet present
- * as of the Thoth hub work).
+ * Replacement flow: seed candidate + invocation rows directly into the tmp
+ * SQLite via better-sqlite3; drive list/stats/promote/reject through real
+ * CLI spawns. Promote asserts SKILL.md materialized under tmp
+ * ~/.ptah/skills/<name>/.
  */
 
-describe.skip('skill synthesis e2e (TASK_2026_HERMES Track 2 — requires real session invocations)', () => {
-  it('3 successful invocations auto-promote a candidate', () => {
-    /* Stub — see file header. */
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+
+import { CliRunner, createTmpHome, type TmpHome } from './_harness';
+
+interface SqliteDb {
+  prepare(sql: string): { run(...args: unknown[]): void };
+  exec(sql: string): void;
+  transaction<T>(fn: () => T): () => T;
+  close(): void;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const openDatabase = require('better-sqlite3') as new (
+  path: string,
+  opts?: Record<string, unknown>,
+) => SqliteDb;
+
+jest.setTimeout(90_000);
+
+interface SkillSynthesisStatsPayload {
+  totalCandidates: number;
+  totalPromoted: number;
+  totalRejected: number;
+  totalInvocations: number;
+  activeSkills: number;
+}
+
+interface SkillSynthesisListPayload {
+  candidates: Array<{
+    id: string;
+    name: string;
+    status: string;
+    successCount: number;
+  }>;
+}
+
+interface SkillSynthesisPromotedPayload {
+  id: string;
+  promoted: boolean;
+  reason: string | null;
+  filePath: string | null;
+}
+
+interface SkillSynthesisRejectedPayload {
+  id: string;
+  rejected: boolean;
+}
+
+function findNotification<T = unknown>(
+  lines: unknown[],
+  method: string,
+): T | undefined {
+  for (const line of lines) {
+    if (
+      typeof line === 'object' &&
+      line !== null &&
+      (line as { method?: unknown }).method === method
+    ) {
+      return (line as { params: T }).params;
+    }
+  }
+  return undefined;
+}
+
+async function seedSkillCandidates(
+  dbPath: string,
+  candidates: Array<{
+    id: string;
+    name: string;
+    description: string;
+    bodyPath: string;
+    successCount: number;
+    status: 'candidate' | 'promoted' | 'rejected';
+  }>,
+): Promise<void> {
+  const db = new openDatabase(dbPath);
+  const t = Date.now();
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO skill_candidates
+      (id, name, description, body_path, source_session_ids, trajectory_hash,
+       embedding_rowid, status, success_count, failure_count,
+       created_at, promoted_at, rejected_at, rejected_reason)
+    VALUES
+      (?, ?, ?, ?, '[]', ?,
+       NULL, ?, ?, 0,
+       ?, NULL, NULL, NULL)
+  `);
+  const insert = db.transaction(() => {
+    for (const c of candidates) {
+      stmt.run(
+        c.id,
+        c.name,
+        c.description,
+        c.bodyPath,
+        `traj-${c.id}`,
+        c.status,
+        c.successCount,
+        t,
+      );
+    }
+  });
+  insert();
+  db.close();
+}
+
+async function seedSkillInvocations(
+  dbPath: string,
+  invocations: Array<{
+    id: string;
+    skillId: string;
+    sessionId: string;
+    succeeded: number;
+  }>,
+): Promise<void> {
+  const db = new openDatabase(dbPath);
+  const t = Date.now();
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO skill_invocations
+      (id, skill_id, session_id, succeeded, invoked_at, notes)
+    VALUES (?, ?, ?, ?, ?, NULL)
+  `);
+  const insert = db.transaction(() => {
+    for (const inv of invocations) {
+      stmt.run(inv.id, inv.skillId, inv.sessionId, inv.succeeded, t);
+    }
+  });
+  insert();
+  db.close();
+}
+
+describe('skill synthesis e2e (TASK_2026_141 Batch 7 — direct DB seed)', () => {
+  let tmp: TmpHome;
+
+  beforeEach(async () => {
+    tmp = await createTmpHome('ptah-e2e-ss-');
   });
 
-  it('promoted candidate materialises SKILL.md at ~/.ptah/skills/<name>/SKILL.md', () => {
-    /* Stub — see file header. */
+  afterEach(async () => {
+    await tmp.cleanup();
   });
 
-  it('skillSynthesis:stats reflects totalPromoted ≥ 1 after auto-promotion', () => {
-    /* Stub — see file header. */
+  it('skill-synthesis stats exits 0 and returns zero counts on fresh DB', async () => {
+    const result = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['skill-synthesis', 'stats', '--json'],
+      timeoutMs: 60_000,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.hasMalformedStdout).toBe(false);
+
+    const payload = findNotification<SkillSynthesisStatsPayload>(
+      result.stdoutLines,
+      'skill_synthesis.stats',
+    );
+    expect(payload).toBeDefined();
+    expect(typeof payload!.totalCandidates).toBe('number');
+    expect(typeof payload!.totalPromoted).toBe('number');
+    expect(typeof payload!.totalRejected).toBe('number');
   });
 
-  it('skillSynthesis:reject transitions candidate to rejected status', () => {
-    /* Stub — see file header. */
+  it('skill-synthesis list returns seeded candidate rows', async () => {
+    const statsResult = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['skill-synthesis', 'stats', '--json'],
+      timeoutMs: 60_000,
+    });
+    expect(statsResult.exitCode).toBe(0);
+
+    const dbPath = path.join(tmp.path, '.ptah', 'state', 'ptah.sqlite');
+    const candidateId = '01SSKILL_E2E_CANDIDATE_001';
+    await seedSkillCandidates(dbPath, [
+      {
+        id: candidateId,
+        name: 'e2e-test-skill',
+        description: 'E2E test skill candidate',
+        bodyPath: '/nonexistent/SKILL.md',
+        successCount: 1,
+        status: 'candidate',
+      },
+    ]);
+
+    const listResult = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['skill-synthesis', 'list', '--json'],
+      timeoutMs: 60_000,
+    });
+    expect(listResult.exitCode).toBe(0);
+    expect(listResult.hasMalformedStdout).toBe(false);
+
+    const payload = findNotification<SkillSynthesisListPayload>(
+      listResult.stdoutLines,
+      'skill_synthesis.list',
+    );
+    expect(payload).toBeDefined();
+    expect(Array.isArray(payload!.candidates)).toBe(true);
+    const ids = payload!.candidates.map((c) => c.id);
+    expect(ids).toContain(candidateId);
   });
 
-  it('skillSynthesis:listCandidates filter=all returns candidates across all statuses', () => {
-    /* Stub — see file header. */
+  it('skill-synthesis promote materializes SKILL.md under tmp ~/.ptah/skills/<name>/', async () => {
+    const statsResult = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['skill-synthesis', 'stats', '--json'],
+      timeoutMs: 60_000,
+    });
+    expect(statsResult.exitCode).toBe(0);
+
+    const dbPath = path.join(tmp.path, '.ptah', 'state', 'ptah.sqlite');
+    const candidateId = '01SSKILL_E2E_PROMOTE_0001';
+    const skillName = 'e2e-promotable-skill';
+
+    await seedSkillCandidates(dbPath, [
+      {
+        id: candidateId,
+        name: skillName,
+        description: 'Skill that meets promotion threshold',
+        bodyPath: '/nonexistent/SKILL.md',
+        successCount: 5,
+        status: 'candidate',
+      },
+    ]);
+
+    await seedSkillInvocations(dbPath, [
+      {
+        id: `inv-${candidateId}-1`,
+        skillId: candidateId,
+        sessionId: 'e2e-session-1',
+        succeeded: 1,
+      },
+      {
+        id: `inv-${candidateId}-2`,
+        skillId: candidateId,
+        sessionId: 'e2e-session-2',
+        succeeded: 1,
+      },
+      {
+        id: `inv-${candidateId}-3`,
+        skillId: candidateId,
+        sessionId: 'e2e-session-3',
+        succeeded: 1,
+      },
+    ]);
+
+    const promoteResult = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['skill-synthesis', 'promote', candidateId, '--json'],
+      timeoutMs: 60_000,
+    });
+    expect(promoteResult.exitCode).toBe(0);
+    expect(promoteResult.hasMalformedStdout).toBe(false);
+
+    const payload = findNotification<SkillSynthesisPromotedPayload>(
+      promoteResult.stdoutLines,
+      'skill_synthesis.promoted',
+    );
+    expect(payload).toBeDefined();
+    expect(payload!.promoted).toBe(true);
+
+    const skillsDir = path.join(tmp.path, '.ptah', 'skills');
+    let foundSkillMd = false;
+    if (fs.existsSync(skillsDir)) {
+      const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (
+          entry.isDirectory() &&
+          entry.name !== '_candidates' &&
+          entry.name.startsWith('e2e-promotable')
+        ) {
+          const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
+          if (fs.existsSync(skillMdPath)) {
+            foundSkillMd = true;
+            break;
+          }
+        }
+      }
+    }
+    expect(foundSkillMd).toBe(true);
+  });
+
+  it('skill-synthesis reject transitions candidate to rejected status', async () => {
+    const statsResult = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['skill-synthesis', 'stats', '--json'],
+      timeoutMs: 60_000,
+    });
+    expect(statsResult.exitCode).toBe(0);
+
+    const dbPath = path.join(tmp.path, '.ptah', 'state', 'ptah.sqlite');
+    const candidateId = '01SSKILL_E2E_REJECT_00001';
+    await seedSkillCandidates(dbPath, [
+      {
+        id: candidateId,
+        name: 'e2e-reject-skill',
+        description: 'Skill to reject',
+        bodyPath: '/nonexistent/SKILL.md',
+        successCount: 1,
+        status: 'candidate',
+      },
+    ]);
+
+    const rejectResult = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['skill-synthesis', 'reject', candidateId, '--json'],
+      timeoutMs: 60_000,
+    });
+    expect(rejectResult.exitCode).toBe(0);
+    expect(rejectResult.hasMalformedStdout).toBe(false);
+
+    const payload = findNotification<SkillSynthesisRejectedPayload>(
+      rejectResult.stdoutLines,
+      'skill_synthesis.rejected',
+    );
+    expect(payload).toBeDefined();
+    expect(payload!.rejected).toBe(true);
+
+    const listResult = await CliRunner.spawnOneshot({
+      home: tmp,
+      args: ['skill-synthesis', 'list', '--status', 'rejected', '--json'],
+      timeoutMs: 60_000,
+    });
+    const listPayload = findNotification<SkillSynthesisListPayload>(
+      listResult.stdoutLines,
+      'skill_synthesis.list',
+    );
+    expect(listPayload).toBeDefined();
+    const rejectedIds = listPayload!.candidates.map((c) => c.id);
+    expect(rejectedIds).toContain(candidateId);
   });
 });

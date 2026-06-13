@@ -16,3 +16,5 @@ export {
   StreamingSurfaceRegistry,
   type SurfaceAdapter,
 } from './lib/streaming-surface-registry.service';
+
+export { WorkflowSessionClaimService } from './lib/workflow-session-claim.service';

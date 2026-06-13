@@ -482,7 +482,7 @@ describe('SessionHistoryReaderService', () => {
       expect(result).toBe(LINE_UUID);
     });
 
-    it('throws SdkError when a Ptah ID is at index 0 and no preceding line UUID exists', async () => {
+    it('throws the unresolvable-anchor SdkError when a Ptah ID is at index 0 and no preceding line UUID exists', async () => {
       const stubs = makeStubs();
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
         '/home/user/.claude/projects/workspace',
@@ -496,13 +496,53 @@ describe('SessionHistoryReaderService', () => {
       ]);
 
       const service = makeService(stubs);
+      // No line UUID to anchor on and no text hint → the unified
+      // "not found in session history" error, which carries the phrase the
+      // fork/rewind callers treat as an expected (non-Sentry) user condition.
       await expect(
         service.resolveNativeMessageId('valid-session', '/workspace', PTAH_ID),
       ).rejects.toMatchObject({
-        message: expect.stringContaining(
-          'no native SDK UUID exists at or before that position',
-        ),
+        message: expect.stringContaining('not found in session history'),
       });
+    });
+
+    it('resolves a client-only optimistic id to the real line UUID via the prompt-text hint', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/home/user/.claude/projects/workspace',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'user',
+          uuid: LINE_UUID,
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'commit' }],
+          },
+          timestamp: '2026-01-01T00:00:00Z',
+        } as SessionHistoryMessage,
+        {
+          type: 'user',
+          uuid: LINE_UUID_2,
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'commit' }],
+          },
+          timestamp: '2026-01-01T00:00:02Z',
+        } as SessionHistoryMessage,
+      ]);
+
+      const service = makeService(stubs);
+
+      // The optimistic id is absent from the transcript; the hint recovers the
+      // real UUID. occurrence:1 selects the SECOND identical "commit" prompt.
+      const result = await service.resolveNativeMessageId(
+        'valid-session',
+        '/workspace',
+        'msg_1780940558448_oekdvwh',
+        { text: 'commit', occurrence: 1 },
+      );
+      expect(result).toBe(LINE_UUID_2);
     });
 
     it('walks backward and returns nearest preceding line UUID for a Ptah ID', async () => {

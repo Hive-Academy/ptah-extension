@@ -447,6 +447,7 @@ export class AgentGenerationOrchestratorService {
           cliResults = await this.multiCliWriter.writeForClis(
             renderedAgents,
             options.targetClis,
+            options.workspacePath,
           );
           for (const result of cliResults) {
             if (result.errors.length > 0) {

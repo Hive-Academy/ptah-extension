@@ -427,7 +427,7 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
       return json2md([
         { h2: 'Available Agents' },
         {
-          p: 'No agents found. Install a CLI agent (Gemini, Codex, Copilot) or configure a Ptah CLI agent.',
+          p: 'No agents found. Install a CLI agent (Codex, Copilot) or configure a Ptah CLI agent.',
         },
       ]);
     }

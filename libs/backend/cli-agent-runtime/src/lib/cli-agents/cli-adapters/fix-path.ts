@@ -6,7 +6,7 @@
  *
  * This means npm global bin (~/.nvm/versions/node/*\/bin,
  * ~/.npm-global/bin, ~/.local/bin, ~/.bun/bin, ~/.volta/bin, …) is
- * missing, and `which gemini` / `which codex` / `which copilot` all
+ * missing, and `which codex` / `which copilot` all
  * fail. CLI detection then reports every CLI as "Not Found".
  *
  * The fix mirrors the standard Electron pattern (used by Atom, Hyper,

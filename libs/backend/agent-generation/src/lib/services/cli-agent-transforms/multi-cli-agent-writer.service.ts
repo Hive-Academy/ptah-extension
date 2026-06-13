@@ -1,41 +1,42 @@
 /**
  * Multi-CLI Agent Writer Service
  *
- * Orchestrates agent transformation and writing for all target CLIs.
- * Called by AgentGenerationOrchestratorService after Phase 4 (Claude agent writing).
- * Transforms GeneratedAgent[] from Claude format to each target CLI format and
- * writes to user-level directories.
+ * Transforms Claude-format agents and writes them to each rival CLI's
+ * WORKSPACE-level agents directory (decision #4):
+ * - Cursor:        per-file {ws}/.cursor/agents/{slug}.md (bare-name)
+ * - Copilot:       per-file {ws}/.github/agents/{slug}.agent.md + home-copy reap
+ * - Codex:         merged into a delimited Ptah region inside {ws}/AGENTS.md
  *
- * Pattern: @injectable() singleton. Uses ICliAgentTransformer strategy instances.
- * Evidence: AgentFileWriterService (file-writer.service.ts:49) handles Claude writes;
- * this service handles non-Claude writes.
- *
- * Security: Uses fs.promises directly (NOT AgentFileWriterService) because target
- * paths are outside .claude/. Paths are computed from homedir() (not user input),
- * so there is no path traversal risk.
+ * Security: Uses fs.promises directly (NOT AgentFileWriterService) because the
+ * target paths are outside .claude/. Paths derive from workspaceRoot (not user
+ * input), so there is no path-traversal risk.
  */
 
 import { injectable, inject } from 'tsyringe';
-import { mkdir, writeFile } from 'fs/promises';
-import { dirname } from 'path';
+import { homedir } from 'os';
+import { mkdir, writeFile, readFile, readdir, rm } from 'fs/promises';
+import { dirname, join } from 'path';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
-import type { CliTarget, CliGenerationResult } from '@ptah-extension/shared';
+import {
+  mergeAgentsRegion,
+  type CliTarget,
+  type CliGenerationResult,
+} from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../../types/core.types';
 import type { ICliAgentTransformer } from './cli-agent-transformer.interface';
 import { CopilotAgentTransformer } from './copilot-agent-transformer';
-import { GeminiAgentTransformer } from './gemini-agent-transformer';
 import { CodexAgentTransformer } from './codex-agent-transformer';
 import { CursorAgentTransformer } from './cursor-agent-transformer';
 
+const LEGACY_HOME_PREFIXES = ['ptah-', 'ptahsynth-'];
+
 @injectable()
 export class MultiCliAgentWriterService {
-  /** Transformers indexed by CLI target */
   private readonly transformers: Map<CliTarget, ICliAgentTransformer> =
     new Map();
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     this.transformers.set('copilot', new CopilotAgentTransformer());
-    this.transformers.set('gemini', new GeminiAgentTransformer());
     this.transformers.set('codex', new CodexAgentTransformer());
     this.transformers.set('cursor', new CursorAgentTransformer());
 
@@ -43,18 +44,16 @@ export class MultiCliAgentWriterService {
   }
 
   /**
-   * Transform and write agents for multiple CLI targets.
-   *
-   * Does NOT use AgentFileWriterService (targets are outside .claude/).
-   * Uses fs.promises directly for user-level directory writes.
+   * Transform and write agents for multiple CLI targets at the workspace level.
    *
    * @param agents - Claude-format GeneratedAgent[] from orchestrator Phase 3
    * @param targetClis - CLI targets to write for (filtered by detection + premium)
-   * @returns Per-CLI generation results
+   * @param workspaceRoot - Workspace root the rival agent dirs are written under
    */
   async writeForClis(
     agents: GeneratedAgent[],
     targetClis: CliTarget[],
+    workspaceRoot: string,
   ): Promise<CliGenerationResult[]> {
     const results: CliGenerationResult[] = [];
 
@@ -72,20 +71,33 @@ export class MultiCliAgentWriterService {
         continue;
       }
 
-      const result = await this.writeForSingleCli(agents, cli, transformer);
+      if (cli === 'codex') {
+        results.push(
+          await this.writeCodexMerged(agents, transformer, workspaceRoot),
+        );
+        continue;
+      }
+
+      const result = await this.writeForSingleCli(
+        agents,
+        cli,
+        transformer,
+        workspaceRoot,
+      );
+      if (cli === 'copilot') {
+        await this.reapCopilotHomeAgents();
+      }
       results.push(result);
     }
 
     return results;
   }
 
-  /**
-   * Transform and write agents for a single CLI target.
-   */
   private async writeForSingleCli(
     agents: GeneratedAgent[],
     cli: CliTarget,
     transformer: ICliAgentTransformer,
+    workspaceRoot: string,
   ): Promise<CliGenerationResult> {
     let agentsWritten = 0;
     let agentsFailed = 0;
@@ -98,7 +110,7 @@ export class MultiCliAgentWriterService {
 
     for (const agent of agents) {
       try {
-        const transformResult = transformer.transform(agent);
+        const transformResult = transformer.transform(agent, workspaceRoot);
         await mkdir(dirname(transformResult.filePath), { recursive: true });
         await writeFile(
           transformResult.filePath,
@@ -108,12 +120,7 @@ export class MultiCliAgentWriterService {
 
         paths.push(transformResult.filePath);
         agentsWritten++;
-
-        this.logger.debug(
-          `[MultiCliWriter] Wrote ${transformResult.agentId} for ${cli}`,
-          { path: transformResult.filePath },
-        );
-      } catch (error) {
+      } catch (error: unknown) {
         agentsFailed++;
         const errorMsg = `Failed to write ${
           agent.sourceTemplateId
@@ -130,12 +137,85 @@ export class MultiCliAgentWriterService {
       failed: agentsFailed,
     });
 
-    return {
-      cli,
-      agentsWritten,
-      agentsFailed,
-      paths,
-      errors,
-    };
+    return { cli, agentsWritten, agentsFailed, paths, errors };
+  }
+
+  private async writeCodexMerged(
+    agents: GeneratedAgent[],
+    transformer: ICliAgentTransformer,
+    workspaceRoot: string,
+  ): Promise<CliGenerationResult> {
+    const errors: string[] = [];
+    const agentsFilePath = join(workspaceRoot, 'AGENTS.md');
+
+    if (agents.length === 0) {
+      return {
+        cli: 'codex',
+        agentsWritten: 0,
+        agentsFailed: 0,
+        paths: [],
+        errors,
+      };
+    }
+
+    try {
+      const bodies = agents.map((agent) => {
+        const result = transformer.transform(agent, workspaceRoot);
+        return { name: result.agentId, content: result.content };
+      });
+
+      let existing = '';
+      try {
+        existing = await readFile(agentsFilePath, 'utf8');
+      } catch {
+        existing = '';
+      }
+
+      const merged = mergeAgentsRegion(existing, bodies);
+      await mkdir(dirname(agentsFilePath), { recursive: true });
+      await writeFile(agentsFilePath, merged, 'utf8');
+
+      this.logger.info('[MultiCliWriter] codex AGENTS.md merge complete', {
+        agents: agents.length,
+        path: agentsFilePath,
+      });
+
+      return {
+        cli: 'codex',
+        agentsWritten: agents.length,
+        agentsFailed: 0,
+        paths: [agentsFilePath],
+        errors,
+      };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.warn('[MultiCliWriter] codex AGENTS.md merge failed', {
+        error: msg,
+      });
+      return {
+        cli: 'codex',
+        agentsWritten: 0,
+        agentsFailed: agents.length,
+        paths: [],
+        errors: [`Failed to merge AGENTS.md: ${msg}`],
+      };
+    }
+  }
+
+  private async reapCopilotHomeAgents(): Promise<void> {
+    const homeAgentsDir = join(homedir(), '.copilot', 'agents');
+    let entries: string[];
+    try {
+      entries = await readdir(homeAgentsDir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (LEGACY_HOME_PREFIXES.some((p) => entry.startsWith(p))) {
+        await rm(join(homeAgentsDir, entry), { force: true }).catch(
+          () => undefined,
+        );
+      }
+    }
   }
 }

@@ -44,6 +44,7 @@ const ELECTRON_NAMED_EXPORTS = [
   'powerMonitor',
   'systemPreferences',
   'globalShortcut',
+  'net',
 ];
 
 const isProd = process.env.NODE_ENV === 'production';

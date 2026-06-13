@@ -42,7 +42,7 @@ Each session in Ptah carries a metadata record alongside its message transcript.
   "archived": false,
   "pinned": true,
   "resumeSessionIds": {
-    "gemini": "sess_7a2f...",
+    "copilot": "sess_7a2f...",
     "codex": null
   }
 }

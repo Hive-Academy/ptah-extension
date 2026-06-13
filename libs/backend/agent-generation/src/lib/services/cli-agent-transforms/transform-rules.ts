@@ -2,7 +2,7 @@
  * Agent Transform Rules
  *
  * Shared transformation rules and regex patterns.
- * Used by both CopilotAgentTransformer and GeminiAgentTransformer.
+ * Used by CopilotAgentTransformer.
  * Extracts common rewrite logic to avoid duplication.
  *
  * Design: Pure functions with no I/O or DI dependencies.
@@ -61,12 +61,6 @@ const CLI_TOOL_MAPPINGS: Record<
     slashPrefix: 'copilot',
     productName: 'GitHub Copilot CLI',
   },
-  gemini: {
-    askUser: 'ask the user directly in your response',
-    taskDelegate: 'gemini --agent',
-    slashPrefix: 'gemini',
-    productName: 'Gemini CLI',
-  },
   codex: {
     askUser: 'ask the user directly in your response',
     taskDelegate: 'codex exec',
@@ -107,17 +101,16 @@ function normalizeCrlf(content: string): string {
  */
 export function stripInternalReferences(content: string): string {
   const patterns = createClaudePatterns();
-  return content.replace(patterns.internalImport, '').replace(
-    /\n{3,}/g,
-    '\n\n',
-  );
+  return content
+    .replace(patterns.internalImport, '')
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 /**
  * Rewrite YAML frontmatter for the target CLI.
  *
  * Keeps `name` and `description` fields (used by all CLIs).
- * Both Copilot and Gemini use the same frontmatter format:
+ * All target CLIs use the same frontmatter format:
  * ```yaml
  * ---
  * name: agent-name
@@ -134,12 +127,11 @@ export function rewriteFrontmatter(
   description: string,
 ): string {
   const normalized = normalizeCrlf(content);
-  const prefixedName = `ptah-${agentId}`;
   const frontmatterMatch = normalized.match(/^---\n([\s\S]*?)\n---/);
   if (!frontmatterMatch) {
-    return `---\nname: ${prefixedName}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---\n\n${normalized}`;
+    return `---\nname: ${agentId}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---\n\n${normalized}`;
   }
-  const newFrontmatter = `---\nname: ${prefixedName}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---`;
+  const newFrontmatter = `---\nname: ${agentId}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---`;
   return normalized.replace(frontmatterMatch[0], newFrontmatter);
 }
 
@@ -170,8 +162,8 @@ export function rewriteToolReferences(content: string, cli: CliTarget): string {
  * Rewrite slash command references for the target CLI.
  *
  * Replaces Claude-specific slash commands:
- * - /orchestrate -> copilot orchestrate / gemini orchestrate
- * - /review-code -> copilot review-code / gemini review-code
+ * - /orchestrate -> copilot orchestrate
+ * - /review-code -> copilot review-code
  */
 export function rewriteSlashCommands(content: string, cli: CliTarget): string {
   const mapping = CLI_TOOL_MAPPINGS[cli];

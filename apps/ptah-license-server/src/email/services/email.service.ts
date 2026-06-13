@@ -243,7 +243,7 @@ export class EmailService {
           </div>
           <div class="content">
             <div class="plan-badge">${plan}</div>
-            <p>You now have access to Ptah's full AI coding orchestra — 4 agent runtimes, 200+ LLM models, and 14 MCP tools, all unified in VS Code.</p>
+            <p>You now have access to Ptah's full AI coding orchestra — 3 agent runtimes, 200+ LLM models, and 14 MCP tools, all unified in VS Code.</p>
             <p style="color: #94a3b8; font-size: 14px;">Here's your license key:</p>
             <div class="license-key">${licenseKey}</div>
             ${expirationText}
@@ -626,7 +626,7 @@ export class EmailService {
             <div class="feature-list">
               <div class="feature-item">
                 <span class="feature-icon">&#10003;</span>
-                <span>4 agent runtimes — Gemini CLI, Codex, Copilot, Ptah CLI</span>
+                <span>3 agent runtimes — Codex, Copilot, Ptah CLI</span>
               </div>
               <div class="feature-item">
                 <span class="feature-icon">&#10003;</span>
@@ -723,7 +723,7 @@ export class EmailService {
               </tr>
               <tr>
                 <td>Agent orchestration</td>
-                <td class="check">4 runtimes (Gemini, Codex, Copilot, Ptah CLI)</td>
+                <td class="check">3 runtimes (Codex, Copilot, Ptah CLI)</td>
                 <td class="cross">Single agent</td>
               </tr>
               <tr>
@@ -816,7 +816,7 @@ export class EmailService {
 
             <div class="warning-box">
               <strong>Tomorrow you lose access to:</strong><br>
-              <span style="color: #cbd5e1;">4 agent runtimes, 200+ LLM models, 14 MCP tools, skill plugins, and fire-and-check orchestration. You'll be moved to the Community tier with a single agent and basic tools.</span>
+              <span style="color: #cbd5e1;">3 agent runtimes, 200+ LLM models, 14 MCP tools, skill plugins, and fire-and-check orchestration. You'll be moved to the Community tier with a single agent and basic tools.</span>
             </div>
 
             <div style="text-align: center;">
@@ -896,7 +896,7 @@ export class EmailService {
               <h3>Restore the full orchestra anytime:</h3>
               <div class="feature-item">
                 <span class="feature-icon">&#10003;</span>
-                <span>4 agent runtimes — spawn, delegate, conquer</span>
+                <span>3 agent runtimes — spawn, delegate, conquer</span>
               </div>
               <div class="feature-item">
                 <span class="feature-icon">&#10003;</span>
@@ -1000,7 +1000,7 @@ export class EmailService {
 
             <div class="upgrade-box">
               <strong>Ready for the full orchestra?</strong>
-              <p style="color: #cbd5e1; margin: 8px 0 0;">Upgrade to Pro for 4 agent runtimes, 200+ LLM models, 14 MCP tools, skill plugins, and fire-and-check orchestration.</p>
+              <p style="color: #cbd5e1; margin: 8px 0 0;">Upgrade to Pro for 3 agent runtimes, 200+ LLM models, 14 MCP tools, skill plugins, and fire-and-check orchestration.</p>
             </div>
 
             <a href="${frontendUrl}/pricing" class="cta-button">Upgrade to Pro</a>

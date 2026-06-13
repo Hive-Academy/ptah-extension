@@ -7,7 +7,7 @@ sidebar:
 
 # Ptah CLI
 
-The **Ptah CLI** provider lets you register any command-line AI agent — your own, a teammate's, or an experimental one — and have Ptah use it as a sub-agent on equal footing with Gemini, Codex, and Copilot.
+The **Ptah CLI** provider lets you register any command-line AI agent — your own, a teammate's, or an experimental one — and have Ptah use it as a sub-agent on equal footing with Codex and Copilot.
 
 Ptah-CLI agents have the **highest priority** in CLI detection. When Autopilot needs to delegate a subtask and a ptah-cli agent is registered and enabled, it's picked first.
 
@@ -55,7 +55,7 @@ You can also manage Ptah CLI agents from **Settings → Providers → Ptah CLI**
 
 When Autopilot delegates a subtask:
 
-`ptah-cli > gemini > codex > copilot`
+`ptah-cli > codex > copilot`
 
 To keep a ptah-cli agent out of Autopilot but leave it available for manual selection, add its id to `agentOrchestration.disabledClis`:
 

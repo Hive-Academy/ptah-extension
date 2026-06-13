@@ -21,7 +21,11 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
-import type { FlatStreamEventUnion, AuthEnv } from '@ptah-extension/shared';
+import type {
+  FlatStreamEventUnion,
+  AuthEnv,
+  MessageAnchorHint,
+} from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
@@ -345,14 +349,15 @@ export class SessionHistoryReaderService {
     sessionId: string,
     workspacePath: string,
     upToMessageId: string,
+    hint?: MessageAnchorHint,
   ): Promise<string> {
     if (this.LINE_UUID_PATTERN.test(upToMessageId)) {
       return upToMessageId;
     }
 
     this.logger.info(
-      '[SessionHistoryReader] Non-line-UUID upToMessageId â€” resolving via JSONL scan',
-      { sessionId, upToMessageId },
+      '[SessionHistoryReader] Non-line-UUID upToMessageId - resolving via JSONL scan',
+      { sessionId, upToMessageId, hasTextHint: !!hint?.text },
     );
     this.validateSessionId(sessionId);
     const sessionsDir =
@@ -371,37 +376,93 @@ export class SessionHistoryReaderService {
         `upToMessageId '${upToMessageId}' cannot be resolved: session file not found for session '${sessionId}'`,
       );
     }
+
+    // Primary: the anchor is itself a known id in the transcript (an Anthropic
+    // `message.id` or a line `uuid`). Walk back to the nearest line UUID.
     let matchIndex = messages.findIndex((m) => m.message?.id === upToMessageId);
     if (matchIndex === -1) {
       matchIndex = messages.findIndex((m) => m.uuid === upToMessageId);
     }
-    if (matchIndex === -1) {
-      throw new SdkError(
-        `upToMessageId '${upToMessageId}' ${MESSAGE_ID_NOT_FOUND_PHRASE} for session '${sessionId}'. ` +
-          'The message may belong to a different session or the history may have been compacted.',
-      );
+    if (matchIndex !== -1) {
+      for (let i = matchIndex; i >= 0; i--) {
+        const candidate = messages[i].uuid;
+        if (candidate && this.LINE_UUID_PATTERN.test(candidate)) {
+          this.logger.info(
+            '[SessionHistoryReader] Resolved upToMessageId to transcript line UUID',
+            {
+              sessionId,
+              upToMessageId,
+              resolvedId: candidate,
+              matchIndex,
+              resolvedIndex: i,
+            },
+          );
+          return candidate;
+        }
+      }
     }
-    for (let i = matchIndex; i >= 0; i--) {
-      const candidate = messages[i].uuid;
-      if (candidate && this.LINE_UUID_PATTERN.test(candidate)) {
+
+    // Fallback: the anchor is a client-only optimistic id (`msg_<ts>_<rand>`)
+    // that was never persisted to the transcript — the common live-session
+    // case. Recover the real line UUID by matching the user prompt text the
+    // frontend supplied. Every user line in the transcript carries a UUID, so
+    // this resolves whenever the text is found.
+    if (hint?.text) {
+      const resolved = this.resolveAnchorByPromptText(messages, hint);
+      if (resolved) {
         this.logger.info(
-          '[SessionHistoryReader] Resolved upToMessageId to transcript line UUID',
+          '[SessionHistoryReader] Resolved upToMessageId via prompt-text hint',
           {
             sessionId,
             upToMessageId,
-            resolvedId: candidate,
-            matchIndex,
-            resolvedIndex: i,
+            resolvedId: resolved,
+            occurrence: hint.occurrence ?? 0,
           },
         );
-        return candidate;
+        return resolved;
       }
     }
+
     throw new SdkError(
-      `upToMessageId '${upToMessageId}' found in session history at index ${matchIndex} ` +
-        `but no native SDK UUID exists at or before that position in session '${sessionId}'. ` +
-        'Fork is not supported at this checkpoint.',
+      `upToMessageId '${upToMessageId}' ${MESSAGE_ID_NOT_FOUND_PHRASE} for session '${sessionId}'. ` +
+        'The message may belong to a different session or the history may have been compacted.',
     );
+  }
+
+  /**
+   * Locate the transcript line UUID of the user prompt whose verbatim text
+   * matches {@link MessageAnchorHint.text}. Used to recover a fork/rewind
+   * anchor when the frontend supplied a client-only optimistic id that never
+   * reached the transcript. Sidechain (subagent) lines and tool_result-only
+   * user lines are excluded — the SDK fork matcher only accepts main-chain
+   * line UUIDs. Identical duplicate prompts are disambiguated by
+   * {@link MessageAnchorHint.occurrence}.
+   */
+  private resolveAnchorByPromptText(
+    messages: SessionHistoryMessage[],
+    hint: MessageAnchorHint,
+  ): string | null {
+    const target = hint.text.trim();
+    if (!target) return null;
+    const matches: string[] = [];
+    for (const msg of messages) {
+      if (msg.type !== 'user') continue;
+      if ((msg as { isSidechain?: boolean }).isSidechain) continue;
+      const uuid = msg.uuid;
+      if (!uuid || !this.LINE_UUID_PATTERN.test(uuid)) continue;
+      const content = msg.message?.content;
+      const isToolResultOnly =
+        Array.isArray(content) &&
+        content.every(
+          (block) => (block as { type?: string })?.type === 'tool_result',
+        );
+      if (isToolResultOnly) continue;
+      const text = this.eventFactory.extractTextContent(content).trim();
+      if (text && text === target) matches.push(uuid);
+    }
+    if (matches.length === 0) return null;
+    const occurrence = hint.occurrence ?? 0;
+    return matches[occurrence] ?? matches[matches.length - 1];
   }
 
   private async hydrateMissingPricing(

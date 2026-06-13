@@ -252,7 +252,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
     name: 'ptah_agent_spawn',
     description:
       'Spawn a headless agent to work on a task in the background. ' +
-      'Supports CLI agents (Gemini, Codex, Copilot) and Ptah CLI agents (OpenRouter, Moonshot, Z.AI). ' +
+      'Supports CLI agents (Codex, Copilot) and Ptah CLI agents (OpenRouter, Moonshot, Z.AI). ' +
       'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
       'For Ptah CLI agents, pass ptahCliId (from ptah_agent_list). ' +
@@ -272,7 +272,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         },
         cli: {
           type: 'string',
-          enum: ['gemini', 'codex', 'copilot', 'cursor'],
+          enum: ['codex', 'copilot', 'cursor'],
           description:
             'Which CLI agent to use. Each requires its CLI installed on PATH. ' +
             'Omit to use the default (auto-detected or user-configured). ' +
@@ -309,7 +309,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         model: {
           type: 'string',
           description:
-            'Model override for the CLI agent (e.g., "gemini-2.5-pro" for Gemini, "claude-sonnet-4.6" for Copilot). ' +
+            'Model override for the CLI agent (e.g., "claude-sonnet-4.6" for Copilot). ' +
             'Uses user-configured default if omitted.',
         },
         modelTier: {
@@ -328,7 +328,6 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
           type: 'string',
           description:
             'Resume a previous CLI agent session by its CLI-native session ID. ' +
-            'For Gemini, this is the UUID from the init event. ' +
             'The agent will continue from where the previous session left off.',
         },
       },
@@ -925,14 +924,16 @@ export function buildHarnessSearchSkillsTool(): MCPToolDefinition {
   return {
     name: 'ptah_harness_search_skills',
     description:
-      'Harness-builder tool: search the skills provided by installed Ptah plugins ' +
-      '(SKILL.md files under ~/.ptah/plugins for the workspace-enabled plugins). ' +
+      'Harness-builder tool: search both the locally installed Ptah plugin skills ' +
+      '(SKILL.md files under ~/.ptah/plugins, including harness-authored ptah-harness-* plugins) ' +
+      'AND the skills.sh marketplace. Each result is tagged with source: "local" or "skills.sh"; ' +
+      'skills.sh entries carry their install source (owner/repo) and installs count. ' +
       'Returns skill IDs, names, descriptions, plugin IDs, and per-skill enabled/disabled status. ' +
-      'Use this when authoring or configuring a harness to discover which plugin skills exist and ' +
-      'whether they are enabled. NOTE: this is the on-disk plugin inventory, NOT the set of skills ' +
-      'you can invoke right now via the Skill tool — those are already listed in your context. ' +
-      'Pass an optional query to filter by name or description (case-insensitive substring); ' +
-      'omit it to list every installed plugin skill.',
+      'Use this when authoring or configuring a harness to discover which skills exist. NOTE: local ' +
+      'results are the on-disk plugin inventory, NOT the set of skills you can invoke right now via ' +
+      'the Skill tool. A query is required to reach skills.sh; omit it to list only local plugin skills. ' +
+      'To install a skills.sh skill, run `npx skills add <owner/repo> --skill <id> -y` via Bash — it ' +
+      'lands in ~/.claude/skills and is then natively discovered.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -998,7 +999,8 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
     name: 'ptah_harness_search_mcp_registry',
     description:
       'Harness-builder tool: search the official MCP Server Registry ' +
-      '(registry.modelcontextprotocol.io) for servers matching a query. ' +
+      '(registry.modelcontextprotocol.io) AND, when a Smithery API key is configured, the Smithery ' +
+      'registry for servers matching a query. Each result is tagged with source: "official" or "smithery". ' +
       'Returns server names and descriptions. Use specific technology keywords ' +
       '(e.g., "github", "postgresql", "slack") for best results. Pair with ' +
       'harness_list_installed_mcp to see which servers are already configured before adding more.',
@@ -1346,7 +1348,7 @@ Use ptah.ast BEFORE reading files to understand structure at 40-60% token saving
 - ptah.context.* - Token budget optimization, enrichFile() for structural summaries (40-60% token reduction)
 - ptah.relevance.* - File relevance scoring
 - ptah.orchestration.* - Workflow state management
-- ptah.agent.* - Agent orchestration (spawn, monitor Gemini CLI / Codex SDK / VS Code LM)
+- ptah.agent.* - Agent orchestration (spawn, monitor Codex SDK / Copilot SDK / VS Code LM)
 
 ## Error Handling
 If a call fails, it returns an error message. Use try-catch for robustness:

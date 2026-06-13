@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   inject,
   OnInit,
+  OnDestroy,
   signal,
   computed,
   viewChild,
@@ -20,14 +21,32 @@ import {
   PanelRightClose,
 } from 'lucide-angular';
 import { FormsModule } from '@angular/forms';
-import { MarkdownModule } from 'ngx-markdown';
-import { WebviewNavigationService } from '@ptah-extension/core';
-import { ExecutionNodeComponent } from '@ptah-extension/chat';
+import {
+  ExecutionNodeComponent,
+  PermissionRequestCardComponent,
+  QuestionCardComponent,
+} from '@ptah-extension/chat';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
+import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
+import {
+  WebviewNavigationService,
+  AppStateManager,
+} from '@ptah-extension/core';
+import type {
+  PermissionResponse,
+  AskUserQuestionResponse,
+} from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
 import { HarnessRpcService } from '../services/harness-rpc.service';
-import { HarnessStreamingService } from '../services/harness-streaming.service';
+import {
+  HarnessWorkflowService,
+  type HarnessWorkflowMode,
+} from '../services/harness-workflow.service';
 import { HarnessConfigPreviewComponent } from './harness-config-preview.component';
+
+interface UserBubble {
+  text: string;
+}
 
 @Component({
   selector: 'ptah-harness-builder-view',
@@ -35,8 +54,9 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
   imports: [
     LucideAngularModule,
     FormsModule,
-    MarkdownModule,
     ExecutionNodeComponent,
+    PermissionRequestCardComponent,
+    QuestionCardComponent,
     HarnessConfigPreviewComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -52,7 +72,6 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
     `,
   ],
   template: `
-    <!-- Loading state -->
     @if (isInitializing()) {
       <div class="flex items-center justify-center h-full">
         <div class="text-center">
@@ -62,14 +81,11 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
             aria-hidden="true"
           />
           <p class="mt-3 text-sm text-base-content/60">
-            Initializing Harness Builder...
+            Initializing AI Team Builder...
           </p>
         </div>
       </div>
-    }
-
-    <!-- Error state -->
-    @else if (initError()) {
+    } @else if (initError()) {
       <div class="flex items-center justify-center h-full">
         <div class="alert alert-error max-w-md">
           <span>{{ initError() }}</span>
@@ -78,16 +94,14 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
           </button>
         </div>
       </div>
-    }
-
-    <!-- Main conversational UI -->
-    @else {
-      <!-- Header -->
+    } @else {
       <header
         class="flex items-center justify-between px-4 py-3 border-b border-base-300 bg-base-100 shrink-0"
       >
         <div class="flex items-center gap-2">
-          <h1 class="text-base font-bold text-base-content">Harness Builder</h1>
+          <h1 class="text-base font-bold text-base-content">
+            {{ headerTitle() }}
+          </h1>
           @if (state.configSummary() !== 'No configuration yet') {
             <span class="text-xs text-base-content/40 hidden sm:inline">
               {{ state.configSummary() }}
@@ -113,26 +127,26 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
           <button
             class="btn btn-ghost btn-sm btn-circle"
             (click)="requestClose()"
-            aria-label="Close harness builder"
+            aria-label="Close AI Team Builder"
           >
             <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       </header>
 
-      <!-- Body: split layout -->
       <div class="flex flex-1 min-h-0 overflow-hidden">
-        <!-- LEFT: Conversation area -->
         <div class="flex flex-col flex-1 min-w-0 border-r border-base-300">
-          <!-- Scrollable transcript -->
           <div
             #scrollContainer
             class="flex-1 overflow-y-auto p-4 space-y-4"
             role="log"
             aria-label="Conversation transcript"
           >
-            <!-- Welcome message when no conversation yet -->
-            @if (state.conversationMessages().length === 0 && !isProcessing()) {
+            @if (
+              userBubbles().length === 0 &&
+              executionNodes().length === 0 &&
+              !isProcessing()
+            ) {
               <div
                 class="flex flex-col items-center justify-center h-full text-center px-4"
               >
@@ -142,41 +156,38 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
                   aria-hidden="true"
                 />
                 <h2 class="text-lg font-semibold text-base-content mb-2">
-                  Describe your harness
+                  Describe your AI team
                 </h2>
                 <p class="text-sm text-base-content/50 max-w-md">
-                  Tell me what you're building and I'll configure the agents,
-                  skills, prompts, and MCP servers for your workspace.
+                  Tell me what you're building and I'll plan it with you, then
+                  configure the agents, skills, prompts, and MCP servers for
+                  your workspace.
                 </p>
               </div>
             }
 
-            <!-- Conversation messages -->
-            @for (msg of state.conversationMessages(); track $index) {
-              @if (msg.role === 'user') {
-                <div class="flex justify-end">
-                  <div
-                    class="max-w-[85%] px-4 py-3 rounded-2xl rounded-br-md bg-primary text-primary-content text-sm whitespace-pre-wrap"
-                  >
-                    {{ msg.content }}
-                  </div>
+            @for (bubble of userBubbles(); track $index) {
+              <div class="flex justify-end">
+                <div
+                  class="max-w-[85%] px-4 py-3 rounded-2xl rounded-br-md bg-primary text-primary-content text-sm whitespace-pre-wrap"
+                >
+                  {{ bubble.text }}
                 </div>
-              } @else {
-                <div class="flex justify-start w-full">
-                  <div
-                    class="max-w-[90%] px-4 py-3 rounded-2xl rounded-bl-md bg-base-200 text-base-content text-sm leading-relaxed"
-                  >
-                    <markdown
-                      [data]="msg.content"
-                      class="prose prose-sm prose-invert max-w-none"
-                    />
-                  </div>
-                </div>
-              }
+              </div>
             }
 
-            <!-- Processing indicator (no streaming events yet) -->
-            @if (isProcessing() && !streaming.isStreaming()) {
+            @if (executionNodes().length > 0) {
+              <div class="space-y-1">
+                @for (node of executionNodes(); track node.id) {
+                  <ptah-execution-node
+                    [node]="node"
+                    [isStreaming]="isProcessing()"
+                  />
+                }
+              </div>
+            }
+
+            @if (isProcessing() && executionNodes().length === 0) {
               <div class="flex justify-start">
                 <div class="px-4 py-3 rounded-2xl rounded-bl-md bg-base-200">
                   <span
@@ -186,22 +197,26 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
               </div>
             }
 
-            <!-- Inline execution nodes -->
-            @if (executionNodes().length > 0) {
-              <div class="space-y-1">
-                @for (node of executionNodes(); track node.id) {
-                  <ptah-execution-node
-                    [node]="node"
-                    [isStreaming]="streaming.isStreaming()"
-                  />
-                }
+            @for (perm of surfacePermissions(); track perm.id) {
+              <div class="px-1 py-1">
+                <ptah-permission-request-card
+                  [request]="perm"
+                  (responded)="onPermissionResponse($event)"
+                />
+              </div>
+            }
+
+            @for (question of surfaceQuestions(); track question.id) {
+              <div class="px-1 py-1">
+                <ptah-question-card
+                  [request]="question"
+                  (answered)="onQuestionResponse($event)"
+                />
               </div>
             }
           </div>
 
-          <!-- Input bar -->
           <div class="px-4 py-3 border-t border-base-300 bg-base-100 shrink-0">
-            <!-- Config complete banner -->
             @if (state.isConfigComplete() && !isProcessing()) {
               <div
                 class="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-success/10 border border-success/20"
@@ -257,10 +272,8 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
           </div>
         </div>
 
-        <!-- RIGHT: Side panel (config) -->
         @if (showSidePanel()) {
           <aside class="flex flex-col w-[420px] bg-base-100 shrink-0 min-h-0">
-            <!-- Panel header -->
             <div
               class="flex items-center gap-2 px-3 py-2 border-b border-base-300 bg-base-200/40 shrink-0"
             >
@@ -272,7 +285,6 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
               <span class="text-xs font-medium">Config</span>
             </div>
 
-            <!-- Config content -->
             <div class="flex-1 min-h-0 overflow-y-auto p-3">
               <ptah-harness-config-preview />
 
@@ -312,7 +324,7 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
               Discard unsaved changes?
             </h2>
             <p class="text-sm text-base-content/70 mb-4">
-              You have an in-progress harness configuration. Closing now will
+              You have an in-progress AI team configuration. Closing now will
               reset it.
             </p>
             <div class="flex justify-end gap-2">
@@ -337,12 +349,14 @@ import { HarnessConfigPreviewComponent } from './harness-config-preview.componen
     }
   `,
 })
-export class HarnessBuilderViewComponent implements OnInit {
+export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
   protected readonly state = inject(HarnessBuilderStateService);
   private readonly rpc = inject(HarnessRpcService);
+  private readonly workflow = inject(HarnessWorkflowService);
   private readonly navigation = inject(WebviewNavigationService);
-  protected readonly streaming = inject(HarnessStreamingService);
+  private readonly appState = inject(AppStateManager);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
+  private readonly permissionHandler = inject(PermissionHandlerService);
 
   protected readonly XIcon = X;
   protected readonly SendIcon = Send;
@@ -357,18 +371,30 @@ export class HarnessBuilderViewComponent implements OnInit {
 
   readonly isInitializing = signal(true);
   readonly initError = signal<string | null>(null);
-  readonly isProcessing = signal(false);
   readonly isApplying = signal(false);
   readonly showSidePanel = signal(true);
   readonly showCloseConfirmation = signal(false);
 
+  private readonly _viewMode = signal<HarnessWorkflowMode>('configure-harness');
+  private readonly _userBubbles = signal<UserBubble[]>([]);
+  readonly userBubbles = this._userBubbles.asReadonly();
+
   protected messageText = '';
+
+  protected readonly isProcessing = computed(() =>
+    this.workflow.isProcessing(),
+  );
+
+  protected readonly headerTitle = computed(() =>
+    this._viewMode() === 'new-project'
+      ? 'New Project Setup'
+      : 'AI Team Builder',
+  );
 
   protected readonly executionNodes = computed(() => {
     const streamState = this.state.streamingState();
     if (streamState.events.size === 0) return [];
-    const operationId = this.state.currentOperationId() ?? 'harness-converse';
-    return this.treeBuilder.buildTree(streamState, operationId);
+    return this.treeBuilder.buildTree(streamState, 'harness-workflow');
   });
 
   protected readonly canSend = computed(
@@ -380,9 +406,21 @@ export class HarnessBuilderViewComponent implements OnInit {
     return !!(cfg.persona || cfg.agents || cfg.skills || cfg.prompt || cfg.mcp);
   });
 
+  protected readonly surfacePermissions = computed(() =>
+    this.permissionHandler
+      .permissionRequests()
+      .filter((p) => this.permissionHandler.hasSurfaceTargets(p.id)),
+  );
+
+  protected readonly surfaceQuestions = computed(() =>
+    this.permissionHandler
+      .questionRequests()
+      .filter((q) => this.permissionHandler.hasSurfaceTargets(q.id)),
+  );
+
   constructor() {
     effect(() => {
-      this.state.conversationMessages();
+      this._userBubbles();
       this.state.streamingState();
       const container = this.scrollContainer()?.nativeElement;
       if (container) {
@@ -399,6 +437,26 @@ export class HarnessBuilderViewComponent implements OnInit {
 
   public ngOnInit(): void {
     this.initializeBuilder();
+
+    const request = this.appState.consumeHarnessWorkflowRequest();
+    if (request) {
+      this._viewMode.set(request.mode);
+      if (request.mode === 'new-project' && request.seedPrompt) {
+        this._userBubbles.set([{ text: request.seedPrompt }]);
+        this.workflow
+          .startWorkflow('new-project', request.seedPrompt)
+          .catch((error: unknown) => {
+            console.error(
+              '[HarnessBuilderView] startWorkflow failed:',
+              error instanceof Error ? error.message : String(error),
+            );
+          });
+      }
+    }
+  }
+
+  public ngOnDestroy(): void {
+    this.workflow.dispose();
   }
 
   public async initializeBuilder(): Promise<void> {
@@ -412,7 +470,7 @@ export class HarnessBuilderViewComponent implements OnInit {
       this.initError.set(
         err instanceof Error
           ? err.message
-          : 'Failed to initialize harness builder',
+          : 'Failed to initialize AI Team Builder',
       );
     } finally {
       this.isInitializing.set(false);
@@ -437,6 +495,7 @@ export class HarnessBuilderViewComponent implements OnInit {
   }
 
   private performClose(): void {
+    this.workflow.dispose();
     this.state.reset();
     this.navigation.navigateToView('chat');
   }
@@ -453,41 +512,32 @@ export class HarnessBuilderViewComponent implements OnInit {
     if (!text || this.isProcessing()) return;
 
     this.messageText = '';
-    this.isProcessing.set(true);
-    this.streaming.reset();
+    this._userBubbles.update((bubbles) => [...bubbles, { text }]);
 
-    this.state.addConversationMessage({ role: 'user', content: text });
-
-    try {
-      const response = await this.rpc.converse({
-        message: text,
-        history: this.state.conversationMessages().slice(0, -1),
-        config: this.state.config(),
-        workspaceContext: this.state.workspaceContext() ?? undefined,
-      });
-
-      if (response.configUpdates) {
-        this.state.applyConfigUpdates(response.configUpdates);
+    if (!this.workflow.isActive()) {
+      if (this._viewMode() === 'configure-harness') {
+        try {
+          const composed = await this.rpc.workflowPrompt({
+            mode: 'configure-harness',
+            intent: text,
+          });
+          await this.workflow.startWorkflow(
+            'configure-harness',
+            composed.prompt,
+          );
+        } catch (error: unknown) {
+          console.error(
+            '[HarnessBuilderView] configure-harness start failed:',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        return;
       }
-
-      if (response.isConfigComplete) {
-        this.state.setConfigComplete(true);
-      }
-
-      this.state.addConversationMessage({
-        role: 'assistant',
-        content: response.reply,
-      });
-    } catch (err) {
-      const errorMsg =
-        err instanceof Error ? err.message : 'Something went wrong';
-      this.state.addConversationMessage({
-        role: 'assistant',
-        content: `I encountered an error: ${errorMsg}. Please try again.`,
-      });
-    } finally {
-      this.isProcessing.set(false);
+      await this.workflow.startWorkflow(this._viewMode(), text);
+      return;
     }
+
+    await this.workflow.sendMessage(text);
   }
 
   protected async applyConfig(): Promise<void> {
@@ -533,19 +583,20 @@ export class HarnessBuilderViewComponent implements OnInit {
         config: fullConfig,
         outputFormat: 'claude-md',
       });
-      this.state.addConversationMessage({
-        role: 'assistant',
-        content: 'Configuration has been applied to your workspace.',
-      });
     } catch (err) {
-      const errorMsg =
-        err instanceof Error ? err.message : 'Failed to apply configuration';
-      this.state.addConversationMessage({
-        role: 'assistant',
-        content: `Failed to apply: ${errorMsg}`,
-      });
+      this.initError.set(
+        err instanceof Error ? err.message : 'Failed to apply configuration',
+      );
     } finally {
       this.isApplying.set(false);
     }
+  }
+
+  protected onPermissionResponse(response: PermissionResponse): void {
+    this.permissionHandler.handlePermissionResponse(response);
+  }
+
+  protected onQuestionResponse(response: AskUserQuestionResponse): void {
+    this.permissionHandler.handleQuestionResponse(response);
   }
 }

@@ -17,6 +17,7 @@ import {
   ExecutionNode,
   FlatStreamEventUnion,
   ExecutionChatMessage,
+  MessageStartEvent,
   SessionId,
   UNKNOWN_AGENT_TOOL_CALL_ID,
 } from '@ptah-extension/shared';
@@ -147,6 +148,9 @@ export class StreamingHandlerService {
       }
 
       if (!primaryTab) {
+        if (this.routeBackgroundEvent(event)) {
+          return null;
+        }
         if (!this.warnedNoTargetSessions.has(event.sessionId)) {
           this.warnedNoTargetSessions.add(event.sessionId);
           console.warn(
@@ -233,6 +237,22 @@ export class StreamingHandlerService {
     }
 
     const state = targetTab.streamingState as StreamingState;
+
+    // Capture the SDK's real transcript UUID for the user's own turn — emitted
+    // on the user `message_start` because `replay-user-messages` is enabled —
+    // and stamp it onto the optimistic bubble so fork/rewind anchor on the real
+    // id. Live turns only; history replay already carries real uuids as ids.
+    if (
+      !isReplay &&
+      event.eventType === 'message_start' &&
+      (event as MessageStartEvent).role === 'user'
+    ) {
+      this.tabManager.reconcileUserMessageNativeUuid(
+        targetTab.id,
+        event.messageId,
+      );
+    }
+
     const ctx: AccumulatorContext = {
       sessionManager: this.sessionManager,
       deduplication: this.deduplication,
@@ -306,6 +326,35 @@ export class StreamingHandlerService {
     }
 
     return null;
+  }
+
+  private routeBackgroundEvent(event: FlatStreamEventUnion): boolean {
+    const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
+      event.sessionId,
+    );
+    if (!lookup) return false;
+
+    const { tab } = lookup;
+    let state: StreamingState =
+      tab.streamingState ?? createEmptyStreamingState();
+
+    const ctx: AccumulatorContext = {
+      sessionManager: this.sessionManager,
+      deduplication: this.deduplication,
+      batchedUpdate: this.batchedUpdate,
+      backgroundAgentStore: this.backgroundAgentStore,
+      agentMonitorStore: this.agentMonitorStore,
+    };
+
+    const result = this.accumulatorCore.process(state, event, ctx);
+    if (result.compactionComplete && result.replacementState) {
+      state = result.replacementState;
+    }
+
+    return this.tabManager.updateBackgroundTab(tab.id, {
+      streamingState: state,
+      status: 'streaming',
+    });
   }
 
   /**

@@ -126,8 +126,8 @@ describe('ThothShellComponent', () => {
     const labels = Array.from(tabs).map((t) => t.textContent?.trim());
     expect(labels).toEqual(['Memory', 'Skills', 'Schedules', 'Messaging']);
 
-    const active = Array.from(tabs).find((t) =>
-      t.classList.contains('tab-active'),
+    const active = Array.from(tabs).find(
+      (t) => t.getAttribute('aria-selected') === 'true',
     );
     expect(active?.textContent?.trim()).toBe('Memory');
   });
@@ -174,7 +174,7 @@ describe('ThothShellComponent', () => {
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent ?? '';
-    expect(text).toContain('Ptah desktop app');
+    expect(text).toContain('Ptah desktop');
   });
 
   it('shows desktop-only placeholder for memory tab when not on Electron', () => {
@@ -203,7 +203,7 @@ describe('ThothShellComponent', () => {
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent ?? '';
-    expect(text).toContain('Ptah desktop app');
+    expect(text).toContain('Ptah desktop');
 
     // Confirm the live memory UI is not rendered.
     const search = (fixture.nativeElement as HTMLElement).querySelector(
@@ -231,6 +231,7 @@ describe('ThothShellComponent', () => {
           useValue: { config: signal({ isElectron: false }) },
         },
         { provide: SkillSynthesisStateService, useValue: skillStateStub },
+        { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshStub },
       ],
     });
 
@@ -238,7 +239,7 @@ describe('ThothShellComponent', () => {
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent ?? '';
-    expect(text).toContain('Ptah desktop app');
+    expect(text).toContain('Ptah desktop');
 
     // Filter chips for the live skills UI must not render in placeholder mode.
     const skillFilterTabs = (

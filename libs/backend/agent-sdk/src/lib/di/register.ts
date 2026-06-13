@@ -55,6 +55,8 @@ import {
   SessionStartHookHandler,
   UserPromptSubmitCallbackRegistry,
   UserPromptSubmitHookHandler,
+  UserPromptExpansionCallbackRegistry,
+  UserPromptExpansionHookHandler,
   StopCallbackRegistry,
   StopHookHandler,
   StopFailureHookHandler,
@@ -234,6 +236,18 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER,
     { useClass: UserPromptSubmitHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_REGISTRY,
+    { useClass: UserPromptExpansionCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_HOOK_HANDLER,
+    { useClass: UserPromptExpansionHookHandler },
     { lifecycle: Lifecycle.Singleton },
   );
 

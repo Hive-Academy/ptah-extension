@@ -235,13 +235,7 @@ export class CommandDiscoveryService {
       );
 
       return commands.filter(Boolean) as CommandInfo[];
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      console.debug(
-        `[CommandDiscovery] Directory ${dir} not accessible:`,
-        errorMessage,
-      );
+    } catch {
       return [];
     }
   }
@@ -267,12 +261,6 @@ export class CommandDiscoveryService {
           }
         }
       } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        console.debug(
-          `[CommandDiscovery] Cannot scan ${currentDir}:`,
-          errorMessage,
-        );
         sentryService.captureException(
           error instanceof Error ? error : new Error(String(error)),
           { errorSource: 'CommandDiscoveryService.getAllMarkdownFiles' },

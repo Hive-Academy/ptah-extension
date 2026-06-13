@@ -26,8 +26,19 @@ export interface GitBranchInfo {
   behind: number;
 }
 
+/**
+ * Workspace-scoping param shared by every git:* request. Absolute path of
+ * the workspace folder to operate on; must be one of the registered
+ * workspace folders. When omitted, the backend's active workspace folder is
+ * used — which is subject to switch timing, so callers that know their
+ * workspace should always pass it.
+ */
+export interface GitWorkspaceScopedParams {
+  workspaceRoot?: string;
+}
+
 /** Parameters for git:info RPC method */
-export type GitInfoParams = Record<string, never>;
+export type GitInfoParams = GitWorkspaceScopedParams;
 
 /** Response from git:info RPC method */
 export interface GitInfoResult {
@@ -143,7 +154,7 @@ export interface GitWorktreeChangedNotification {
 }
 
 /** Parameters for git:stage RPC method */
-export interface GitStageParams {
+export interface GitStageParams extends GitWorkspaceScopedParams {
   /** File paths to stage (relative to workspace root) */
   paths: string[];
 }
@@ -155,7 +166,7 @@ export interface GitStageResult {
 }
 
 /** Parameters for git:unstage RPC method */
-export interface GitUnstageParams {
+export interface GitUnstageParams extends GitWorkspaceScopedParams {
   /** File paths to unstage (relative to workspace root) */
   paths: string[];
 }
@@ -167,7 +178,7 @@ export interface GitUnstageResult {
 }
 
 /** Parameters for git:discard RPC method */
-export interface GitDiscardParams {
+export interface GitDiscardParams extends GitWorkspaceScopedParams {
   /** File paths to discard changes for (relative to workspace root) */
   paths: string[];
 }
@@ -179,7 +190,7 @@ export interface GitDiscardResult {
 }
 
 /** Parameters for git:commit RPC method */
-export interface GitCommitParams {
+export interface GitCommitParams extends GitWorkspaceScopedParams {
   /** Commit message */
   message: string;
 }
@@ -193,7 +204,7 @@ export interface GitCommitResult {
 }
 
 /** Parameters for git:showFile RPC method */
-export interface GitShowFileParams {
+export interface GitShowFileParams extends GitWorkspaceScopedParams {
   /** Relative file path from workspace root */
   path: string;
 }
@@ -229,7 +240,7 @@ export interface BranchRef {
 }
 
 /** Parameters for git:branches RPC method */
-export interface GitBranchesParams {
+export interface GitBranchesParams extends GitWorkspaceScopedParams {
   /** Whether to include remote-tracking branches in the result */
   includeRemote?: boolean;
 }
@@ -245,7 +256,7 @@ export interface GitBranchesResult {
 }
 
 /** Parameters for git:checkout RPC method */
-export interface GitCheckoutParams {
+export interface GitCheckoutParams extends GitWorkspaceScopedParams {
   /** Branch name to checkout or create */
   branch: string;
   /** Whether to create a new branch (-b flag) */
@@ -275,7 +286,7 @@ export interface StashEntry {
 }
 
 /** Parameters for git:stashList RPC method */
-export type GitStashListParams = Record<string, never>;
+export type GitStashListParams = GitWorkspaceScopedParams;
 
 /** Result from git:stashList RPC method */
 export interface GitStashListResult {
@@ -296,7 +307,7 @@ export interface TagRef {
 }
 
 /** Parameters for git:tags RPC method */
-export interface GitTagsParams {
+export interface GitTagsParams extends GitWorkspaceScopedParams {
   /** Maximum number of tags to return (default: 20) */
   limit?: number;
 }
@@ -317,7 +328,7 @@ export interface RemoteInfo {
 }
 
 /** Parameters for git:remotes RPC method */
-export type GitRemotesParams = Record<string, never>;
+export type GitRemotesParams = GitWorkspaceScopedParams;
 
 /** Result from git:remotes RPC method */
 export interface GitRemotesResult {
@@ -325,7 +336,7 @@ export interface GitRemotesResult {
 }
 
 /** Parameters for git:lastCommit RPC method */
-export interface GitLastCommitParams {
+export interface GitLastCommitParams extends GitWorkspaceScopedParams {
   /** Git ref to inspect (default: HEAD) */
   ref?: string;
 }

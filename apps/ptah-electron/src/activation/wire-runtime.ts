@@ -23,7 +23,13 @@ import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method
 import { createApplicationMenu } from '../menu/application-menu';
 import { syncCliAgentsOnActivation } from './cli-agent-sync';
 import { syncCliSkillsOnActivation } from './cli-skill-sync';
-import { activateSkillJunctions, initPluginLoader } from './plugin-activation';
+import {
+  activateSkillJunctions,
+  initPluginLoader,
+  mirrorUserLayer,
+  reconcileUserLayer,
+  syncSkillRegistryCatalog,
+} from './plugin-activation';
 import {
   PERSISTENCE_TOKENS,
   VecStatusService,
@@ -522,18 +528,39 @@ export async function wireRuntime(
     const contentDownload = container.resolve<ContentDownloadService>(
       PLATFORM_TOKENS.CONTENT_DOWNLOAD,
     );
-    contentDownload.ensureContent().then((result) => {
-      if (!result.success) {
-        console.warn(
-          '[Ptah Electron] Content download failed (non-blocking):',
-          result.error ?? 'Unknown error',
-        );
-      }
-    });
     initPluginLoader(container, contentDownload.getPluginsPath());
+    const userLayerRoots = await mirrorUserLayer(container, workspaceRoot);
+    const sqliteOpen =
+      refs.sqliteConnection !== null && refs.sqliteConnection.isOpen;
+    if (sqliteOpen) {
+      void syncSkillRegistryCatalog(container);
+    }
+    contentDownload
+      .ensureContent()
+      .then(async (result) => {
+        if (!result.success) {
+          console.warn(
+            '[Ptah Electron] Content download failed (non-blocking):',
+            result.error ?? 'Unknown error',
+          );
+        }
+        await mirrorUserLayer(container, workspaceRoot);
+        if (!result.fromCache) {
+          await reconcileUserLayer(container, workspaceRoot, sqliteOpen);
+        }
+      })
+      .catch((err: unknown) => {
+        console.warn(
+          '[Ptah Electron] Post-download reconcile failed (non-fatal):',
+          err instanceof Error ? err.message : String(err),
+        );
+      });
     refs.skillJunctionRef = activateSkillJunctions(
       container,
       contentDownload.getPluginsPath(),
+      userLayerRoots
+        ? { skills: userLayerRoots.skills, commands: userLayerRoots.commands }
+        : undefined,
     );
     try {
       const providerModels = container.resolve(
@@ -793,18 +820,6 @@ export async function wireRuntime(
   }
   try {
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
-    let pluginsPathForSync: string;
-    try {
-      const contentDownloadForSync = container.resolve<ContentDownloadService>(
-        PLATFORM_TOKENS.CONTENT_DOWNLOAD,
-      );
-      pluginsPathForSync = contentDownloadForSync.getPluginsPath();
-    } catch {
-      const os = await import('os');
-      const path = await import('path');
-      pluginsPathForSync = path.join(os.homedir(), '.ptah', 'plugins');
-    }
-
     const currentWorkspaceRoot = startupWorkspaceRoot;
 
     refs.licenseReactivityDisposable = bindLicenseReactivity({
@@ -823,7 +838,7 @@ export async function wireRuntime(
         }
       },
       syncCliSkills: () => {
-        syncCliSkillsOnActivation(container, pluginsPathForSync);
+        syncCliSkillsOnActivation(container, currentWorkspaceRoot);
       },
       syncCliAgents: () => {
         if (currentWorkspaceRoot) {

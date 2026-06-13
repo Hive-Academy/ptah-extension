@@ -282,6 +282,8 @@ describe('StreamingHandlerService', () => {
       markTabIdle: jest.fn(),
       markTabStreaming: jest.fn(),
       isTabStreaming: jest.fn().mockReturnValue(false),
+      findTabBySessionIdAcrossWorkspaces: jest.fn(() => null),
+      updateBackgroundTab: jest.fn(() => false),
     } as unknown as jest.Mocked<
       Pick<
         TabManagerService,

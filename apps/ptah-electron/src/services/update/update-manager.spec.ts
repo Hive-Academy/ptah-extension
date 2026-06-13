@@ -7,7 +7,7 @@
  *
  * Strategy:
  *   - Mock 'electron' so app.getVersion() is controllable.
- *   - Mock global.fetch to return a releases payload.
+ *   - Mock electron net.fetch to return a releases payload.
  *   - Override process.platform for installer-asset selection tests.
  *   - Instantiate UpdateManager directly (no DI container).
  */
@@ -16,14 +16,16 @@ import 'reflect-metadata';
 
 jest.mock('electron', () => ({
   app: { getVersion: jest.fn(() => '0.1.48') },
+  net: { fetch: jest.fn() },
 }));
 
-import { app } from 'electron';
+import { app, net } from 'electron';
 import { UpdateManager } from './update-manager';
 import type { UpdateLifecycleState } from '@ptah-extension/shared';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 const getVersion = app.getVersion as jest.Mock;
+const netFetch = net.fetch as unknown as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // DI stub factories
@@ -97,7 +99,7 @@ function release(version: string, opts: ReleaseOpts = {}) {
 }
 
 function mockFetchReleases(releases: unknown[]) {
-  global.fetch = jest.fn().mockResolvedValue({
+  netFetch.mockResolvedValue({
     ok: true,
     json: jest.fn().mockResolvedValue(releases),
   } as unknown as Response);
@@ -132,6 +134,7 @@ beforeEach(() => {
   getVersion.mockReturnValue('0.1.48');
   setPlatform('win32');
   delete process.env['NODE_ENV'];
+  netFetch.mockReset();
 });
 
 afterEach(() => {
@@ -151,7 +154,6 @@ describe('UpdateManager', () => {
   describe('dev-mode gate', () => {
     it('returns early without fetching or setting an interval when NODE_ENV=development', async () => {
       process.env['NODE_ENV'] = 'development';
-      global.fetch = jest.fn();
       const { manager, logger } = createUpdateManager();
 
       await manager.start();
@@ -159,7 +161,7 @@ describe('UpdateManager', () => {
       expect(logger.info).toHaveBeenCalledWith(
         expect.stringContaining('development'),
       );
-      expect(global.fetch).not.toHaveBeenCalled();
+      expect(netFetch).not.toHaveBeenCalled();
       expect(manager.getCheckInterval()).toBeNull();
     });
   });
@@ -277,9 +279,10 @@ describe('UpdateManager', () => {
     });
 
     it('broadcasts error when the GitHub request returns a non-2xx status', async () => {
-      global.fetch = jest
-        .fn()
-        .mockResolvedValue({ ok: false, status: 503 } as unknown as Response);
+      netFetch.mockResolvedValue({
+        ok: false,
+        status: 503,
+      } as unknown as Response);
       const { manager, webviewManager } = createUpdateManager();
 
       await manager.checkViaGitHub();
@@ -292,12 +295,44 @@ describe('UpdateManager', () => {
     });
 
     it('broadcasts error when fetch rejects (network error)', async () => {
-      global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+      netFetch.mockRejectedValue(new Error('ECONNREFUSED'));
       const { manager, webviewManager } = createUpdateManager();
 
       await manager.checkViaGitHub();
 
       expect(lastState(webviewManager)?.state).toBe('error');
+    });
+
+    it('unwraps error.cause so a bare "fetch failed" surfaces its real reason', async () => {
+      const wrapped = new TypeError('fetch failed');
+      (wrapped as { cause?: unknown }).cause = new Error(
+        'getaddrinfo ENOTFOUND api.github.com',
+      );
+      netFetch.mockRejectedValue(wrapped);
+      const { manager, webviewManager } = createUpdateManager();
+
+      await manager.checkViaGitHub();
+
+      const state = lastState(webviewManager);
+      expect(state?.state).toBe('error');
+      expect(
+        (state as Extract<UpdateLifecycleState, { state: 'error' }>).message,
+      ).toBe('fetch failed: getaddrinfo ENOTFOUND api.github.com');
+    });
+
+    it('reports a timeout when the request aborts', async () => {
+      const abort = new Error('The operation was aborted');
+      abort.name = 'AbortError';
+      netFetch.mockRejectedValue(abort);
+      const { manager, webviewManager } = createUpdateManager();
+
+      await manager.checkViaGitHub();
+
+      const state = lastState(webviewManager);
+      expect(state?.state).toBe('error');
+      expect(
+        (state as Extract<UpdateLifecycleState, { state: 'error' }>).message,
+      ).toContain('timed out');
     });
   });
 
@@ -310,7 +345,7 @@ describe('UpdateManager', () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(netFetch).toHaveBeenCalledTimes(1);
       expect(manager.getCheckInterval()).not.toBeNull();
       expect(availablePayload(webviewManager)?.newVersion).toBe('0.1.49');
     });
@@ -333,13 +368,11 @@ describe('UpdateManager', () => {
       const { manager } = createUpdateManager();
 
       await manager.start();
-      const initial = (global.fetch as jest.Mock).mock.calls.length;
+      const initial = netFetch.mock.calls.length;
 
       await jest.advanceTimersByTimeAsync(4 * 60 * 60 * 1000);
 
-      expect((global.fetch as jest.Mock).mock.calls.length).toBeGreaterThan(
-        initial,
-      );
+      expect(netFetch.mock.calls.length).toBeGreaterThan(initial);
     });
   });
 

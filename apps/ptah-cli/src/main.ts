@@ -22,7 +22,7 @@ import 'reflect-metadata';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import { buildRouter } from './cli/router.js';
 import { JSONRPC_SCHEMA_VERSION } from './cli/jsonrpc/types.js';
-import { CliDIContainer } from './di/container.js';
+import { CliDIContainer } from '@ptah-extension/cli-engine';
 fixPath();
 
 let shuttingDown = false;

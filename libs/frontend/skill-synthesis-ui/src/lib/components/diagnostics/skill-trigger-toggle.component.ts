@@ -10,6 +10,7 @@ export type SkillTriggerKey =
   | 'idleMs'
   | 'bootScan'
   | 'subagentStop'
+  | 'turnComplete'
   | 'postToolUse'
   | 'postToolUseMinEditCount'
   | 'maxAnalyzesPerHour';

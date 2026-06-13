@@ -469,12 +469,17 @@ export class GitWatcherService {
     if (this.isDisposed || !this.workspacePath || !this.broadcastFn) return;
 
     const causes = this.drainCauses();
+    const workspaceRoot = this.workspacePath;
 
     try {
-      const result: GitInfoResult = await this.gitInfo.getGitInfo(
-        this.workspacePath,
-      );
-      const payload: GitStatusUpdatePayload = { ...result, causes };
+      const result: GitInfoResult =
+        await this.gitInfo.getGitInfo(workspaceRoot);
+      if (this.workspacePath !== workspaceRoot) return;
+      const payload: GitStatusUpdatePayload = {
+        ...result,
+        causes,
+        workspaceRoot,
+      };
       this.broadcastFn(GIT_STATUS_UPDATE, payload);
     } catch (err) {
       this.logger.warn('[GitWatcher] Failed to fetch git info', {

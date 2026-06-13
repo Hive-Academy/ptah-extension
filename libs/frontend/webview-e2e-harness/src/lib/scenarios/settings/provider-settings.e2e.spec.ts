@@ -1,7 +1,7 @@
 /**
  * E2E: settings — provider selection & validation.
  *
- * Validates that switching the active CLI provider (gemini/codex/copilot)
+ * Validates that switching the active CLI provider (codex/copilot)
  * emits a settings RPC, that the save action persists the choice via the
  * extension host, and that invalid input (e.g. blank API endpoint) surfaces
  * validation feedback before any RPC fires.
@@ -37,7 +37,7 @@ test.describe('webview > settings > provider', () => {
       // Try selecting by visible text; ignore if option absent in placeholder.
       await providerSelect
         .first()
-        .selectOption({ label: /gemini/i })
+        .selectOption({ label: /codex/i })
         .catch(() => undefined);
     }
     const out = await bridge.outbound();

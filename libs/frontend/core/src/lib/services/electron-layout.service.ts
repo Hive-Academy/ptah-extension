@@ -552,9 +552,6 @@ export class ElectronLayoutService implements MessageHandler {
       if (typeof state.editorWidth === 'number') {
         this.setEditorPanelWidth(state.editorWidth);
       }
-      if (typeof state.editorVisible === 'boolean') {
-        this._editorPanelVisible.set(state.editorVisible);
-      }
     }
     void this.syncFromBackend(state ?? null);
   }

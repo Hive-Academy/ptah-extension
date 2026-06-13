@@ -84,6 +84,7 @@ export const ExecutionChatMessageSchema = z.object({
   timestamp: z.number(),
   streamingState: ExecutionNodeSchema.nullable(),
   rawContent: z.string().optional(),
+  nativeUuid: z.string().optional(),
   files: z.array(z.string()).readonly().optional(),
   imageCount: z.number().optional(),
   sessionId: z.string().optional(),

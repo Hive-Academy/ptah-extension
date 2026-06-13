@@ -1,29 +1,40 @@
-
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
-import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
+import {
+  AGENT_GENERATION_TOKENS,
+  type UserLayerMirrorService,
+} from '@ptah-extension/agent-generation';
 import { DIContainer } from '../di/container';
+
+const RIVAL_HOME_REAPED_AT = 'rival_home_reaped_at';
+const LEGACY_PREFIXES = ['ptah-', 'ptahsynth-'];
 
 export function syncCliAgentsOnActivation(
   workspaceRoot: string,
   logger: Logger,
 ): void {
   (async () => {
-    const { readdir, readFile } = await import('fs/promises');
+    const { readdir, readFile, rm } = await import('fs/promises');
     const { join } = await import('path');
+    const { homedir } = await import('os');
     const { createHash } = await import('crypto');
 
-    const agentsDir = join(workspaceRoot, '.claude', 'agents');
+    await reapStaleHomeAgents(logger, { readdir, rm, join, homedir });
+
+    const mirror = DIContainer.getContainer().resolve<UserLayerMirrorService>(
+      AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
+    );
+    const agentsDir = mirror.getUserLayerRoots().agents;
     let agentFileNames: string[];
     try {
       const entries = await readdir(agentsDir);
       agentFileNames = entries
-        .filter((f) => f.endsWith('.md') && !f.startsWith('.backup-'))
+        .filter((f) => f.endsWith('.md') && !f.startsWith('.'))
         .sort();
     } catch {
-      logger.debug('CLI agent sync skipped (no .claude/agents/ directory)');
+      logger.debug('CLI agent sync skipped (no ~/.ptah/user/agents directory)');
       return;
     }
     if (agentFileNames.length === 0) {
@@ -38,7 +49,6 @@ export function syncCliAgentsOnActivation(
             const content = await readFile(filePath, 'utf8');
             return { name, filePath, content };
           } catch {
-            logger.debug(`CLI agent sync: skipping unreadable file ${name}`);
             return null;
           }
         }),
@@ -55,7 +65,7 @@ export function syncCliAgentsOnActivation(
 
     const combinedContent = agentFiles.map((f) => f.content).join('\n---\n');
     const contentHash = createHash('sha1')
-      .update(combinedContent)
+      .update(`${workspaceRoot}|${combinedContent}`)
       .digest('hex');
 
     const cliDetection = DIContainer.getContainer().resolve(
@@ -67,10 +77,7 @@ export function syncCliAgentsOnActivation(
     const targetClis = installedClis
       .filter(
         (c) =>
-          (c.cli === 'copilot' ||
-            c.cli === 'gemini' ||
-            c.cli === 'codex' ||
-            c.cli === 'cursor') &&
+          (c.cli === 'copilot' || c.cli === 'codex' || c.cli === 'cursor') &&
           c.installed,
       )
       .map((c) => c.cli);
@@ -116,6 +123,7 @@ export function syncCliAgentsOnActivation(
       writeForClis: (
         agents: unknown[],
         targetClis: string[],
+        workspaceRoot: string,
       ) => Promise<
         Array<{
           cli: string;
@@ -128,6 +136,7 @@ export function syncCliAgentsOnActivation(
     const writeResults = await multiCliWriter.writeForClis(
       agents,
       staleTargets,
+      workspaceRoot,
     );
     const successfulClis = writeResults
       .filter((r) => r.agentsFailed === 0)
@@ -152,4 +161,57 @@ export function syncCliAgentsOnActivation(
           : String(agentSyncError),
     });
   });
+}
+
+async function reapStaleHomeAgents(
+  logger: Logger,
+  fns: {
+    readdir: (p: string) => Promise<string[]>;
+    rm: (
+      p: string,
+      opts: { recursive?: boolean; force?: boolean },
+    ) => Promise<void>;
+    join: (...parts: string[]) => string;
+    homedir: () => string;
+  },
+): Promise<void> {
+  try {
+    const stateStorage = DIContainer.resolve<IStateStorage>(
+      PLATFORM_TOKENS.STATE_STORAGE,
+    );
+    if (stateStorage.get<number>(RIVAL_HOME_REAPED_AT) !== undefined) {
+      return;
+    }
+    const home = fns.homedir();
+    const dirs = [
+      fns.join(home, '.codex', 'agents'),
+      fns.join(home, '.copilot', 'agents'),
+      fns.join(home, '.cursor', 'agents'),
+      fns.join(home, '.codex', 'skills'),
+      fns.join(home, '.agents', 'skills'),
+      fns.join(home, '.copilot', 'skills'),
+      fns.join(home, '.cursor', 'skills'),
+    ];
+    let removed = 0;
+    for (const dir of dirs) {
+      let entries: string[];
+      try {
+        entries = await fns.readdir(dir);
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (LEGACY_PREFIXES.some((p) => entry.startsWith(p))) {
+          await fns.rm(fns.join(dir, entry), { recursive: true, force: true });
+          removed++;
+        }
+      }
+    }
+    await stateStorage.update(RIVAL_HOME_REAPED_AT, Date.now());
+    logger.info('Stale rival home copies reaped', { removed });
+  } catch (reapError) {
+    logger.debug('Stale home reap failed (non-fatal)', {
+      error: reapError instanceof Error ? reapError.message : String(reapError),
+    });
+  }
 }

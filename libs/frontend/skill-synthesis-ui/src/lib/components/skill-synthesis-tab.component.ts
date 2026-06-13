@@ -14,11 +14,11 @@ import {
   FormGroup,
 } from '@angular/forms';
 import { VSCodeService } from '@ptah-extension/core';
+import { LucideAngularModule, Sparkles } from 'lucide-angular';
 import type {
   SkillSynthesisCandidateSummary,
-  SkillSynthesisInvocationEntry,
-  SkillSynthesisRunCuratorResult,
   SkillSynthesisSettingsDto,
+  SkillSynthesisRunCuratorResult,
 } from '@ptah-extension/shared';
 
 import {
@@ -26,30 +26,27 @@ import {
   SkillSynthesisStateService,
 } from '../services/skill-synthesis-state.service';
 import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
+import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
 import { SkillDiagnosticsAccordionComponent } from './diagnostics/skill-diagnostics-accordion.component';
+import { SkillClonesViewComponent } from './clones/skill-clones-view.component';
+import { SkillStatsStripComponent } from './skill-stats-strip.component';
+import { SkillPipelineStatusComponent } from './skill-pipeline-status.component';
+import {
+  SkillCandidatesTableComponent,
+  type SkillCandidateAction,
+} from './skill-candidates-table.component';
+import { SkillInvocationsPanelComponent } from './skill-invocations-panel.component';
+import { SkillSettingsPanelComponent } from './skill-settings-panel.component';
 
 type ActionKind = 'promote' | 'reject';
+
+type SkillSubView = 'candidates' | 'activity' | 'clones' | 'settings';
 
 interface ActionDialogState {
   readonly kind: ActionKind;
   readonly candidate: SkillSynthesisCandidateSummary;
 }
 
-/**
- * SkillSynthesisTabComponent
- *
- * Skills tab inside the Thoth shell. Renders:
- * - a candidate table filtered by `pending | promoted | rejected | all`
- * - per-row Promote / Reject buttons (each opens a small DaisyUI modal
- *   for an optional reason)
- * - a drill-down panel showing invocation history of the selected
- *   candidate
- * - an aggregate stats card (counts by status + invocations)
- * - a read-only settings panel listing `skillSynthesis.*` keys
- *
- * VS Code parity: works in BOTH Electron and VS Code — skills are not
- * Electron-only. The backend writes SKILL.md to disk on promote.
- */
 @Component({
   selector: 'ptah-skill-synthesis-tab',
   standalone: true,
@@ -58,573 +55,197 @@ interface ActionDialogState {
     CommonModule,
     FormsModule,
     ReactiveFormsModule,
+    LucideAngularModule,
     SkillDiagnosticsAccordionComponent,
+    SkillClonesViewComponent,
+    SkillStatsStripComponent,
+    SkillPipelineStatusComponent,
+    SkillCandidatesTableComponent,
+    SkillInvocationsPanelComponent,
+    SkillSettingsPanelComponent,
   ],
   template: `
     @if (!isElectron()) {
-      <div role="alert" class="alert alert-info">
-        <span class="text-sm">
+      <div
+        class="flex flex-col items-center gap-2 px-6 py-16 text-center"
+        role="alert"
+      >
+        <lucide-angular
+          [img]="SparklesIcon"
+          class="size-8 text-base-content/30"
+          aria-hidden="true"
+        />
+        <p class="text-sm font-medium">
           Skill synthesis is only available in the Ptah desktop app.
-          <a
-            class="link link-primary ml-1"
-            href="https://github.com/HiveAcademy/ptah-extension/releases"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Download Ptah desktop</a
-          >.
-        </span>
+        </p>
+        <p class="text-xs text-base-content/60">
+          Download Ptah desktop to let Thoth synthesize reusable skills from
+          your sessions.
+        </p>
+        <a
+          class="link link-primary text-xs"
+          href="https://github.com/HiveAcademy/ptah-extension/releases"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Download Ptah desktop</a
+        >
       </div>
     } @else {
-      <div class="flex h-full w-full flex-col gap-4">
-        <!-- Stats card -->
-        <section
-          class="card bg-base-200 shadow-sm"
-          aria-label="Skill synthesis stats"
-        >
-          <div class="card-body p-4">
-            <div class="flex items-center justify-between">
-              <h2 class="card-title text-sm">Stats</h2>
-              <button
-                type="button"
-                class="btn btn-sm btn-outline"
-                [disabled]="curatorRunning() || loading()"
-                (click)="onRunCurator()"
-              >
-                {{ curatorRunning() ? 'Running...' : 'Run Curator' }}
-              </button>
+      <div class="space-y-6">
+        <header class="flex flex-wrap items-start justify-between gap-3">
+          <div class="flex items-start gap-3">
+            <span
+              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-content/10 bg-base-200/60 text-secondary"
+            >
+              <lucide-angular
+                [img]="SparklesIcon"
+                class="w-5 h-5"
+                aria-hidden="true"
+              />
+            </span>
+            <div>
+              <h1 class="text-xl font-semibold tracking-tight">Skills</h1>
+              <p class="mt-0.5 text-sm text-base-content/60">
+                Reusable skills Thoth synthesizes from successful sessions.
+              </p>
             </div>
-            @if (stats(); as s) {
-              <div class="stats stats-horizontal w-full bg-base-100">
-                <div class="stat px-3 py-2">
-                  <div class="stat-title text-xs">Candidates</div>
-                  <div
-                    class="stat-value text-lg"
-                    data-testid="skills-stat-candidates"
-                  >
-                    {{ s.totalCandidates }}
-                  </div>
-                </div>
-                <div class="stat px-3 py-2">
-                  <div class="stat-title text-xs">Promoted</div>
-                  <div
-                    class="stat-value text-lg"
-                    data-testid="skills-stat-promoted"
-                  >
-                    {{ s.totalPromoted }}
-                  </div>
-                </div>
-                <div class="stat px-3 py-2">
-                  <div class="stat-title text-xs">Rejected</div>
-                  <div class="stat-value text-lg">{{ s.totalRejected }}</div>
-                </div>
-                <div class="stat px-3 py-2">
-                  <div class="stat-title text-xs">Active skills</div>
-                  <div class="stat-value text-lg">{{ s.activeSkills }}</div>
-                </div>
-                <div class="stat px-3 py-2">
-                  <div class="stat-title text-xs">Invocations</div>
-                  <div class="stat-value text-lg">{{ s.totalInvocations }}</div>
-                </div>
-              </div>
-            } @else {
-              <div class="text-xs text-base-content/60">
-                Loading stats&hellip;
-              </div>
-            }
           </div>
-        </section>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm transition-colors duration-150"
+              [disabled]="curatorRunning() || loading()"
+              (click)="onRunCurator()"
+            >
+              @if (curatorRunning()) {
+                <span class="loading loading-spinner loading-xs"></span>
+              }
+              Run Curator
+            </button>
+          </div>
+        </header>
 
-        <!-- Filter chips -->
+        <ptah-skill-stats-strip [stats]="stats()" />
+
         <div
           role="tablist"
-          aria-label="Status filter"
-          class="tabs tabs-boxed self-start"
+          aria-label="Skills views"
+          class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
         >
-          @for (f of filters; track f.id) {
+          @for (v of subViews; track v.id) {
             <button
               type="button"
               role="tab"
-              class="tab tab-sm"
-              [attr.data-testid]="'skills-filter-' + f.id"
-              [class.tab-active]="statusFilter() === f.id"
-              [attr.aria-selected]="statusFilter() === f.id"
-              (click)="onFilterChange(f.id)"
+              class="tab transition-colors duration-150"
+              [class.tab-active]="subView() === v.id"
+              [attr.aria-selected]="subView() === v.id"
+              (click)="setSubView(v.id)"
             >
-              {{ f.label }}
+              {{ v.label }}
             </button>
           }
         </div>
 
-        <!-- Error banner -->
-        @if (error(); as msg) {
-          <div role="alert" class="alert alert-error py-2 text-sm">
-            <span>{{ msg }}</span>
-          </div>
-        }
+        @switch (subView()) {
+          @case ('candidates') {
+            <div class="space-y-4">
+              <nav
+                role="tablist"
+                aria-label="Status filter"
+                class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
+              >
+                @for (f of filters; track f.id) {
+                  <button
+                    type="button"
+                    role="tab"
+                    class="tab transition-colors duration-150"
+                    [attr.data-testid]="'skills-filter-' + f.id"
+                    [class.tab-active]="statusFilter() === f.id"
+                    [attr.aria-selected]="statusFilter() === f.id"
+                    (click)="onFilterChange(f.id)"
+                  >
+                    {{ f.label }}
+                  </button>
+                }
+              </nav>
 
-        <!-- Candidates table -->
-        <section
-          class="card bg-base-200 shadow-sm"
-          aria-label="Skill candidates"
-        >
-          <div class="card-body p-0">
-            <div class="overflow-x-auto">
-              <table class="table table-sm">
-                <thead>
-                  <tr>
-                    <th scope="col">Name</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Pinned</th>
-                    <th scope="col" class="text-right">Successes</th>
-                    <th scope="col" class="text-right">Failures</th>
-                    <th scope="col" class="w-1">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (c of candidates(); track c.id) {
-                    <tr
-                      data-testid="skills-candidate-row"
-                      class="hover cursor-pointer"
-                      [class.bg-base-300]="selectedCandidateId() === c.id"
-                      (click)="onSelectRow(c.id)"
-                    >
-                      <td>
-                        <div class="flex flex-col">
-                          <span class="font-medium">{{ c.name }}</span>
-                          <span class="text-xs text-base-content/60">
-                            {{ c.description }}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <span
-                          class="badge badge-sm"
-                          data-testid="skills-candidate-status"
-                          [class]="statusClass(c)"
-                        >
-                          {{ c.status }}
-                        </span>
-                      </td>
-                      <td>
-                        @if (c.pinned) {
-                          <span class="badge badge-warning badge-xs"
-                            >Pinned</span
-                          >
-                        }
-                      </td>
-                      <td class="text-right tabular-nums">
-                        {{ c.successCount }}
-                      </td>
-                      <td class="text-right tabular-nums">
-                        {{ c.failureCount }}
-                      </td>
-                      <td>
-                        <div class="flex justify-end gap-1">
-                          <button
-                            type="button"
-                            data-testid="skills-promote-btn"
-                            class="btn btn-xs btn-success"
-                            [disabled]="c.status === 'promoted' || loading()"
-                            (click)="onOpenAction('promote', c, $event)"
-                          >
-                            Promote
-                          </button>
-                          <button
-                            type="button"
-                            data-testid="skills-reject-btn"
-                            class="btn btn-xs btn-error btn-outline"
-                            [disabled]="c.status === 'rejected' || loading()"
-                            (click)="onOpenAction('reject', c, $event)"
-                          >
-                            Reject
-                          </button>
-                          @if (c.status === 'promoted') {
-                            <button
-                              type="button"
-                              class="btn btn-xs btn-outline"
-                              [disabled]="loading()"
-                              (click)="onTogglePin(c, $event)"
-                            >
-                              {{ c.pinned ? 'Unpin' : 'Pin' }}
-                            </button>
-                          }
-                        </div>
-                      </td>
-                    </tr>
-                  } @empty {
-                    <tr>
-                      <td
-                        colspan="6"
-                        class="text-center text-sm text-base-content/60"
-                      >
-                        @if (loading()) {
-                          <span>Loading candidates&hellip;</span>
-                        } @else {
-                          <span data-testid="skills-empty-state"
-                            >No candidates for this filter.</span
-                          >
-                        }
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
+              @if (ineligibleHint(); as hint) {
+                <p class="text-xs text-base-content/60">{{ hint }}</p>
+              }
 
-        <!-- Drill-down: invocations for the selected candidate -->
-        @if (selectedCandidate(); as sc) {
-          <section
-            class="card bg-base-200 shadow-sm"
-            aria-label="Invocation history"
-          >
-            <div class="card-body p-4">
-              <div class="flex items-center justify-between">
-                <h2 class="card-title text-sm">
-                  Invocations &mdash;
-                  <span class="font-mono text-xs">{{ sc.name }}</span>
-                </h2>
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-xs"
-                  (click)="onClearSelection()"
-                >
-                  Close
-                </button>
-              </div>
-
-              @if (invocations().length === 0) {
-                <div class="text-xs text-base-content/60">
-                  No invocations recorded for this candidate yet.
+              @if (error(); as msg) {
+                <div role="alert" class="alert alert-error py-2 text-sm">
+                  <span>{{ msg }}</span>
                 </div>
-              } @else {
-                <div class="overflow-x-auto">
-                  <table class="table table-xs">
-                    <thead>
-                      <tr>
-                        <th scope="col">When</th>
-                        <th scope="col">Session</th>
-                        <th scope="col">Outcome</th>
-                        <th scope="col">Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      @for (inv of invocations(); track inv.id) {
-                        <tr>
-                          <td class="font-mono text-xs">
-                            {{ formatTime(inv.invokedAt) }}
-                          </td>
-                          <td class="font-mono text-xs">{{ inv.sessionId }}</td>
-                          <td>
-                            <span
-                              class="badge badge-xs"
-                              [class.badge-success]="inv.succeeded"
-                              [class.badge-error]="!inv.succeeded"
-                            >
-                              {{ inv.succeeded ? 'success' : 'failure' }}
-                            </span>
-                          </td>
-                          <td class="text-xs">{{ inv.notes ?? '—' }}</td>
-                        </tr>
-                      }
-                    </tbody>
-                  </table>
+              }
+
+              <ptah-skill-candidates-table
+                [candidates]="candidates()"
+                [selectedCandidateId]="selectedCandidateId()"
+                [loading]="loading()"
+                (selectRow)="onSelectRow($event)"
+                (promote)="onOpenAction('promote', $event)"
+                (reject)="onOpenAction('reject', $event)"
+                (togglePin)="onTogglePin($event)"
+              />
+
+              @if (selectedCandidate(); as sc) {
+                <ptah-skill-invocations-panel
+                  [candidate]="sc"
+                  [invocations]="invocations()"
+                  (closed)="onClearSelection()"
+                />
+              }
+
+              @if (toast(); as t) {
+                <div
+                  role="alert"
+                  class="alert py-2 text-sm"
+                  [class.alert-success]="t.kind === 'success'"
+                  [class.alert-error]="t.kind === 'error'"
+                >
+                  <span>{{ t.message }}</span>
                 </div>
               }
             </div>
-          </section>
-        }
-
-        <!-- Toast notification -->
-        @if (toast(); as t) {
-          <div
-            role="alert"
-            class="alert py-2 text-sm"
-            [class.alert-success]="t.kind === 'success'"
-            [class.alert-error]="t.kind === 'error'"
-          >
-            <span>{{ t.message }}</span>
-          </div>
-        }
-
-        <!-- Editable Settings form -->
-        @if (settingsLoaded()) {
-          <section
-            class="card bg-base-200 shadow-sm"
-            aria-label="Skill synthesis settings"
-          >
-            <div class="card-body p-4">
-              <h2 class="card-title text-sm">Settings</h2>
-
-              <form [formGroup]="settingsForm">
-                <!-- Core settings -->
-                <fieldset class="fieldset border border-base-300 rounded p-3">
-                  <legend class="fieldset-legend text-xs font-semibold">
-                    Core
-                  </legend>
-                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <label class="form-control">
-                      <span class="label label-text text-xs">Enabled</span>
-                      <input
-                        type="checkbox"
-                        class="checkbox"
-                        formControlName="enabled"
-                      />
-                    </label>
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Successes to promote</span
-                      >
-                      <input
-                        type="number"
-                        class="input input-bordered input-sm"
-                        formControlName="successesToPromote"
-                      />
-                    </label>
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Dedup cosine threshold</span
-                      >
-                      <input
-                        type="number"
-                        step="0.01"
-                        class="input input-bordered input-sm"
-                        formControlName="dedupCosineThreshold"
-                      />
-                    </label>
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Max active skills</span
-                      >
-                      <input
-                        type="number"
-                        class="input input-bordered input-sm"
-                        formControlName="maxActiveSkills"
-                      />
-                    </label>
-                    <label class="form-control sm:col-span-2">
-                      <span class="label label-text text-xs"
-                        >Candidates dir</span
-                      >
-                      <input
-                        type="text"
-                        class="input input-bordered input-sm"
-                        formControlName="candidatesDir"
-                      />
-                    </label>
-                  </div>
-                </fieldset>
-
-                <!-- Eligibility and Quality settings -->
-                <fieldset
-                  class="fieldset border border-base-300 rounded p-3 mt-2"
-                >
-                  <legend class="fieldset-legend text-xs font-semibold">
-                    Eligibility &amp; Quality
-                  </legend>
-                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Eligibility min turns</span
-                      >
-                      <input
-                        type="number"
-                        class="input input-bordered input-sm"
-                        formControlName="eligibilityMinTurns"
-                      />
-                    </label>
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Eviction decay rate (0-1)</span
-                      >
-                      <input
-                        type="number"
-                        step="0.01"
-                        class="input input-bordered input-sm"
-                        formControlName="evictionDecayRate"
-                      />
-                    </label>
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Generalization context threshold</span
-                      >
-                      <input
-                        type="number"
-                        class="input input-bordered input-sm"
-                        formControlName="generalizationContextThreshold"
-                      />
-                    </label>
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Min trajectory fidelity ratio (0-1)</span
-                      >
-                      <input
-                        type="number"
-                        step="0.01"
-                        class="input input-bordered input-sm"
-                        formControlName="minTrajectoryFidelityRatio"
-                      />
-                    </label>
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Min abstraction edit distance (0-1)</span
-                      >
-                      <input
-                        type="number"
-                        step="0.01"
-                        class="input input-bordered input-sm"
-                        formControlName="minAbstractionEditDistance"
-                      />
-                    </label>
-                  </div>
-                </fieldset>
-
-                <!-- Dedup settings -->
-                <fieldset
-                  class="fieldset border border-base-300 rounded p-3 mt-2"
-                >
-                  <legend class="fieldset-legend text-xs font-semibold">
-                    Cluster Dedup
-                  </legend>
-                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Dedup cluster threshold (0-1)</span
-                      >
-                      <input
-                        type="number"
-                        step="0.01"
-                        class="input input-bordered input-sm"
-                        formControlName="dedupClusterThreshold"
-                      />
-                    </label>
-                  </div>
-                </fieldset>
-
-                <!-- LLM Judge settings -->
-                <fieldset
-                  class="fieldset border border-base-300 rounded p-3 mt-2"
-                >
-                  <legend class="fieldset-legend text-xs font-semibold">
-                    LLM Judge
-                  </legend>
-                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Judge enabled</span
-                      >
-                      <input
-                        type="checkbox"
-                        class="checkbox"
-                        formControlName="judgeEnabled"
-                      />
-                    </label>
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Min judge score (0-10)</span
-                      >
-                      <input
-                        type="number"
-                        step="0.1"
-                        class="input input-bordered input-sm"
-                        formControlName="minJudgeScore"
-                      />
-                    </label>
-                    <label class="form-control sm:col-span-2">
-                      <span class="label label-text text-xs"
-                        >Judge model ('inherit' = workspace default)</span
-                      >
-                      <input
-                        type="text"
-                        class="input input-bordered input-sm"
-                        formControlName="judgeModel"
-                      />
-                    </label>
-                  </div>
-                </fieldset>
-
-                <!-- Pinning and Curator settings -->
-                <fieldset
-                  class="fieldset border border-base-300 rounded p-3 mt-2"
-                >
-                  <legend class="fieldset-legend text-xs font-semibold">
-                    Pinning &amp; Curator
-                  </legend>
-                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Max pinned skills</span
-                      >
-                      <input
-                        type="number"
-                        class="input input-bordered input-sm"
-                        formControlName="maxPinnedSkills"
-                      />
-                    </label>
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Curator enabled</span
-                      >
-                      <input
-                        type="checkbox"
-                        class="checkbox"
-                        formControlName="curatorEnabled"
-                      />
-                    </label>
-                    <label class="form-control">
-                      <span class="label label-text text-xs"
-                        >Curator interval (hours)</span
-                      >
-                      <input
-                        type="number"
-                        class="input input-bordered input-sm"
-                        formControlName="curatorIntervalHours"
-                      />
-                    </label>
-                  </div>
-                </fieldset>
-              </form>
-
-              <div class="mt-3 flex justify-end">
-                <button
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  [disabled]="loading() || settingsForm.invalid"
-                  (click)="onSaveSettings()"
-                >
-                  Save Settings
-                </button>
-              </div>
+          }
+          @case ('activity') {
+            <div class="space-y-4">
+              <ptah-skill-pipeline-status
+                [lastAnalyzeRunAt]="lastAnalyzeRunAt()"
+                [histogram]="eligibilityHistogram()"
+                [recentEvents]="recentEvents()"
+              />
+              <ptah-skill-diagnostics-accordion />
             </div>
-          </section>
-        } @else {
-          <section
-            class="card bg-base-200 shadow-sm"
-            aria-label="Skill synthesis settings"
-          >
-            <div class="card-body p-4">
-              <h2 class="card-title text-sm">Settings</h2>
-              <div class="text-xs text-base-content/60">
-                Loading settings&hellip;
-              </div>
+          }
+          @case ('clones') {
+            <div class="space-y-4">
+              <ptah-skill-clones-view />
             </div>
-          </section>
+          }
+          @case ('settings') {
+            <div class="space-y-4">
+              <ptah-skill-settings-panel
+                [form]="settingsForm"
+                [loaded]="settingsLoaded()"
+                [saving]="loading()"
+                (save)="onSaveSettings()"
+              />
+              @if (toast(); as t) {
+                <div
+                  role="alert"
+                  class="alert py-2 text-sm"
+                  [class.alert-success]="t.kind === 'success'"
+                  [class.alert-error]="t.kind === 'error'"
+                >
+                  <span>{{ t.message }}</span>
+                </div>
+              }
+            </div>
+          }
         }
 
-        <details
-          class="collapse collapse-arrow bg-base-200"
-          data-test="diagnostics-accordion"
-        >
-          <summary class="collapse-title text-sm font-medium">
-            Diagnostics
-          </summary>
-          <div class="collapse-content p-0">
-            <ptah-skill-diagnostics-accordion />
-          </div>
-        </details>
-
-        <!-- Curator report modal -->
         @if (curatorReport(); as report) {
           <dialog
             class="modal modal-open"
@@ -633,24 +254,24 @@ interface ActionDialogState {
             aria-label="Curator report"
           >
             <div class="modal-box">
-              <h3 class="text-base font-semibold">Curator Report</h3>
-              <div class="mt-2 text-sm space-y-1">
-                <p class="font-mono text-xs break-all">
+              <h3 class="text-base font-semibold">Curator report</h3>
+              <div class="mt-2 space-y-1 text-sm">
+                <p class="break-all font-mono text-xs">
                   {{ report.reportPath || '(no report path)' }}
                 </p>
                 <p>
-                  <span class="font-semibold">Changes queued:</span>
+                  <span class="font-medium">Changes queued:</span>
                   {{ report.changesQueued }}
                 </p>
                 <p>
-                  <span class="font-semibold">Skipped (pinned):</span>
+                  <span class="font-medium">Skipped (pinned):</span>
                   {{ report.skippedPinned }}
                 </p>
               </div>
               @if (report.overlaps && report.overlaps.length > 0) {
                 <div class="mt-3">
-                  <p class="text-xs font-semibold mb-1">Overlaps:</p>
-                  <ul class="text-xs space-y-1 list-disc list-inside">
+                  <p class="mb-1 text-xs font-medium">Overlaps:</p>
+                  <ul class="list-inside list-disc space-y-1 text-xs">
                     @for (o of report.overlaps; track o.skillIdA) {
                       <li>
                         {{ o.skillIdA }} ↔ {{ o.skillIdB }}: {{ o.reason }}
@@ -673,7 +294,6 @@ interface ActionDialogState {
         }
       </div>
 
-      <!-- Action modal (Promote / Reject with optional reason) -->
       @if (actionDialog(); as dlg) {
         <dialog
           class="modal modal-open"
@@ -689,13 +309,13 @@ interface ActionDialogState {
               <span class="font-mono">{{ dlg.candidate.name }}</span>
             </p>
 
-            <label class="form-control mt-3 w-full">
-              <span class="label-text text-xs">
+            <label class="mt-3 flex flex-col gap-1">
+              <span class="text-xs text-base-content/60">
                 Reason
                 <span class="text-base-content/50">(optional)</span>
               </span>
               <textarea
-                class="textarea textarea-bordered textarea-sm mt-1 w-full"
+                class="textarea textarea-bordered textarea-sm w-full"
                 rows="3"
                 [(ngModel)]="actionReason"
                 [attr.aria-label]="dlg.kind + ' reason'"
@@ -714,7 +334,7 @@ interface ActionDialogState {
               <button
                 type="button"
                 data-testid="skills-action-confirm"
-                class="btn btn-sm"
+                class="btn btn-sm transition-colors duration-150"
                 [class.btn-success]="dlg.kind === 'promote'"
                 [class.btn-error]="dlg.kind === 'reject'"
                 [disabled]="loading()"
@@ -733,9 +353,11 @@ export class SkillSynthesisTabComponent implements OnInit {
   private readonly state = inject(SkillSynthesisStateService);
   private readonly rpc = inject(SkillSynthesisRpcService);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly diagnostics = inject(SkillDiagnosticsStateService);
   private readonly fb = inject(FormBuilder);
 
-  /** Whether the webview is running inside the Electron desktop app. */
+  protected readonly SparklesIcon = Sparkles;
+
   public readonly isElectron = computed(
     () => this.vscodeService.config()?.isElectron === true,
   );
@@ -749,11 +371,23 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly loading = this.state.loading;
   public readonly error = this.state.error;
 
-  /**
-   * Reactive form for the 17 skill-synthesis settings fields.
-   * Uses FormBuilder so Angular CD properly tracks mutations and validation
-   * hooks are available per-field.
-   */
+  public readonly lastAnalyzeRunAt = this.diagnostics.lastAnalyzeRunAt;
+  public readonly eligibilityHistogram = this.diagnostics.eligibilityHistogram;
+  public readonly recentEvents = this.diagnostics.recentEvents;
+
+  public readonly ineligibleHint = computed<string | null>(() => {
+    const events = this.recentEvents();
+    if (events.length === 0) return null;
+    const latest = events[0];
+    if (latest.kind === 'ineligible') {
+      return 'Recent sessions were marked ineligible — see Activity for the breakdown.';
+    }
+    if (latest.kind === 'rate-limited') {
+      return 'Analysis was rate-limited — see Activity for details.';
+    }
+    return null;
+  });
+
   public readonly settingsForm: FormGroup = this.fb.group({
     enabled: [true],
     successesToPromote: [3],
@@ -774,24 +408,19 @@ export class SkillSynthesisTabComponent implements OnInit {
     curatorIntervalHours: [24],
   });
 
-  /** True once settings have been loaded from the backend. */
   public readonly settingsLoaded = signal<boolean>(false);
 
-  /** Toast notification (auto-clears after 3s). */
   public readonly toast = signal<{
     message: string;
     kind: 'success' | 'error';
   } | null>(null);
 
-  /** Curator in-flight state. */
   public readonly curatorRunning = signal<boolean>(false);
 
-  /** Curator report to display in the modal (null = modal closed). */
   public readonly curatorReport = signal<SkillSynthesisRunCuratorResult | null>(
     null,
   );
 
-  /** Filter chip definitions, ordered for the tablist. */
   protected readonly filters: ReadonlyArray<{
     readonly id: SkillStatusFilter;
     readonly label: string;
@@ -802,20 +431,33 @@ export class SkillSynthesisTabComponent implements OnInit {
     { id: 'all', label: 'All' },
   ];
 
-  /** Current action dialog (promote/reject) or `null` when closed. */
+  protected readonly subViews: ReadonlyArray<{
+    readonly id: SkillSubView;
+    readonly label: string;
+  }> = [
+    { id: 'candidates', label: 'Candidates' },
+    { id: 'activity', label: 'Activity' },
+    { id: 'clones', label: 'Clones' },
+    { id: 'settings', label: 'Settings' },
+  ];
+
+  private readonly _subView = signal<SkillSubView>('candidates');
+  protected readonly subView = this._subView.asReadonly();
+
   public readonly actionDialog = signal<ActionDialogState | null>(null);
 
-  /** Two-way bound reason text for the action modal. */
   public actionReason = '';
-
-  /** Whether any action button should be disabled while a row is busy. */
-  public readonly anyBusy = computed(() => this.loading());
 
   public ngOnInit(): void {
     if (!this.isElectron()) return;
     void this.state.refreshCandidates();
     void this.state.loadStats();
+    void this.diagnostics.refresh();
     void this.loadSettings();
+  }
+
+  protected setSubView(view: SkillSubView): void {
+    this._subView.set(view);
   }
 
   private async loadSettings(): Promise<void> {
@@ -842,11 +484,9 @@ export class SkillSynthesisTabComponent implements OnInit {
     }
   }
 
-  protected async onTogglePin(
-    c: SkillSynthesisCandidateSummary,
-    event: Event,
-  ): Promise<void> {
-    event.stopPropagation();
+  protected async onTogglePin(action: SkillCandidateAction): Promise<void> {
+    action.event.stopPropagation();
+    const c = action.candidate;
     try {
       if (c.pinned) {
         await this.rpc.unpin(c.id);
@@ -896,14 +536,10 @@ export class SkillSynthesisTabComponent implements OnInit {
     void this.state.selectCandidate(null);
   }
 
-  protected onOpenAction(
-    kind: ActionKind,
-    candidate: SkillSynthesisCandidateSummary,
-    event: Event,
-  ): void {
-    event.stopPropagation();
+  protected onOpenAction(kind: ActionKind, action: SkillCandidateAction): void {
+    action.event.stopPropagation();
     this.actionReason = '';
-    this.actionDialog.set({ kind, candidate });
+    this.actionDialog.set({ kind, candidate: action.candidate });
   }
 
   protected onCloseDialog(): void {
@@ -923,28 +559,5 @@ export class SkillSynthesisTabComponent implements OnInit {
     await this.state.loadStats();
     this.actionDialog.set(null);
     this.actionReason = '';
-  }
-
-  protected statusClass(c: SkillSynthesisCandidateSummary): string {
-    switch (c.status) {
-      case 'promoted':
-        return 'badge-success';
-      case 'rejected':
-        return 'badge-error';
-      default:
-        return 'badge-ghost';
-    }
-  }
-
-  protected formatTime(epochMs: number): string {
-    if (!Number.isFinite(epochMs)) return '—';
-    return new Date(epochMs).toLocaleString();
-  }
-
-  protected trackInvocation(
-    _index: number,
-    item: SkillSynthesisInvocationEntry,
-  ): string {
-    return item.id;
   }
 }

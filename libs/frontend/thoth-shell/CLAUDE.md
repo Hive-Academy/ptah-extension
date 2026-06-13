@@ -4,7 +4,7 @@
 
 ## Purpose
 
-The four-tab "Thoth" hub component composing the agentic-platform features (Memory · Skills · Schedules · Messaging). Hosts the tab strip, persists the active tab via `AppStateManager`, and slots in the per-feature tab components.
+The four-tab "Thoth" hub component composing the agentic-platform features (Memory · Skills · Schedules · Messaging). Hosts the tab strip, persists the active tab via `AppStateManager`, and slots in the per-feature tab components. A read-only pillar status row (`ThothStatusCardComponent` from `@ptah-extension/dashboard`) sits at the top of the content area above the active tab.
 
 ## Difference from `webview-shell`
 
@@ -35,7 +35,7 @@ From `src/index.ts`: `ThothShellComponent`, `ThothActiveTabId` (`'memory' | 'ski
 
 ## Dependencies
 
-**Internal**: `@ptah-extension/core` (`AppStateManager`, `VSCodeService`), `@ptah-extension/memory-curator-ui`, `@ptah-extension/skill-synthesis-ui`, `@ptah-extension/cron-scheduler-ui`, `@ptah-extension/messaging-gateway-ui`.
+**Internal**: `@ptah-extension/core` (`AppStateManager`, `VSCodeService`), `@ptah-extension/dashboard` (`ThothStatusCardComponent`), `@ptah-extension/memory-curator-ui`, `@ptah-extension/skill-synthesis-ui`, `@ptah-extension/cron-scheduler-ui`, `@ptah-extension/messaging-gateway-ui`.
 **External**: `lucide-angular` (`RadioTower`), `@angular/common`.
 
 ## Angular Conventions Observed

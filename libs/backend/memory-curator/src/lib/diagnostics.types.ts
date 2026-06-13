@@ -46,6 +46,7 @@ export interface MemoryDbHealth {
   readonly code_symbols_vec: number;
   readonly coherent: boolean;
   readonly mismatches: readonly string[];
+  readonly countErrors?: readonly string[];
 }
 
 export interface MemoryDiagnosticsSnapshot {

@@ -255,7 +255,7 @@ describe('SessionImporterService', () => {
       await store.create('parent-1', WORKSPACE, 'parent');
       await store.addCliSession('parent-1', {
         cliSessionId: 'cli-ref',
-        cli: 'gemini',
+        cli: 'codex',
         agentId: 'agent-1' as never,
         task: 't',
         startedAt: '2026-01-01T00:00:00.000Z',

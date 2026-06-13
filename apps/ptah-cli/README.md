@@ -117,6 +117,7 @@ All commands accept the [global flags](#global-flags). Most commands emit JSON-R
 | `execute-spec --id <task-id>` | Execute a stored spec via the Team Leader agent.                                                            |
 | `interact`                    | Persistent bidirectional JSON-RPC 2.0 stdio session.                                                        |
 | `mcp-serve`                   | Serve Ptah as a stdio Model Context Protocol server for external hosts.                                     |
+| `tui`                         | Launch the interactive Ink/React terminal UI (requires a real TTY).                                         |
 
 ### init
 
@@ -212,16 +213,16 @@ Step ids are `license`, `provider.default`, `provider.credential`, and `verify`.
 
 ### `agent-cli *` — CLI agent process management
 
-> Allowlist enforced: only `glm` and `gemini` are accepted for `--cli`. Rejection emits `ptah_code: cli_agent_unavailable` and exits 3. NEVER bypassable via env vars.
+> Allowlist enforced: only `glm` is accepted for `--cli`. Rejection emits `ptah_code: cli_agent_unavailable` and exits 3. NEVER bypassable via env vars.
 
-| Sub-subcommand          | Args / flags                                        | Description                                        |
-| ----------------------- | --------------------------------------------------- | -------------------------------------------------- |
-| `agent-cli detect`      | —                                                   | Emit `agent_cli.detection` via `agent:detectClis`. |
-| `agent-cli config get`  | —                                                   | Read the agent orchestration config.               |
-| `agent-cli config set`  | `--key <k>` `--value <v>` (both required)           | Write a single config entry.                       |
-| `agent-cli models list` | `[--cli <glm\|gemini>]`                             | List available models per CLI agent.               |
-| `agent-cli stop <id>`   | `--cli <glm\|gemini>` (required)                    | Stop a running CLI agent.                          |
-| `agent-cli resume <id>` | `--cli <glm\|gemini>` (required), `[--task <text>]` | Resume a CLI agent session.                        |
+| Sub-subcommand          | Args / flags                                | Description                                        |
+| ----------------------- | ------------------------------------------- | -------------------------------------------------- |
+| `agent-cli detect`      | —                                           | Emit `agent_cli.detection` via `agent:detectClis`. |
+| `agent-cli config get`  | —                                           | Read the agent orchestration config.               |
+| `agent-cli config set`  | `--key <k>` `--value <v>` (both required)   | Write a single config entry.                       |
+| `agent-cli models list` | `[--cli <glm>]`                             | List available models per CLI agent.               |
+| `agent-cli stop <id>`   | `--cli <glm>` (required)                    | Stop a running CLI agent.                          |
+| `agent-cli resume <id>` | `--cli <glm>` (required), `[--task <text>]` | Resume a CLI agent session.                        |
 
 ### `auth *` — provider authentication
 
@@ -287,14 +288,14 @@ Step ids are `license`, `provider.default`, `provider.credential`, and `verify`.
 
 ### `mcp *` — MCP server registry
 
-| Sub-subcommand        | Args / flags                                                    | Description                                   |
-| --------------------- | --------------------------------------------------------------- | --------------------------------------------- |
-| `mcp search <query>`  | `[--limit <n>]`                                                 | Search the Official MCP Registry.             |
-| `mcp details <name>`  | —                                                               | Fetch a single server entry.                  |
-| `mcp install <name>`  | `--target <vscode\|claude\|cursor\|gemini\|copilot>` (required) | Install an MCP server. Idempotent per target. |
-| `mcp uninstall <key>` | `--target <vscode\|claude\|cursor\|gemini\|copilot>` (required) | Uninstall an MCP server. Idempotent.          |
-| `mcp list`            | —                                                               | List installed MCP servers across targets.    |
-| `mcp popular`         | —                                                               | Emit popular / trending MCP servers.          |
+| Sub-subcommand        | Args / flags                                            | Description                                   |
+| --------------------- | ------------------------------------------------------- | --------------------------------------------- |
+| `mcp search <query>`  | `[--limit <n>]`                                         | Search the Official MCP Registry.             |
+| `mcp details <name>`  | —                                                       | Fetch a single server entry.                  |
+| `mcp install <name>`  | `--target <vscode\|claude\|cursor\|copilot>` (required) | Install an MCP server. Idempotent per target. |
+| `mcp uninstall <key>` | `--target <vscode\|claude\|cursor\|copilot>` (required) | Uninstall an MCP server. Idempotent.          |
+| `mcp list`            | —                                                       | List installed MCP servers across targets.    |
+| `mcp popular`         | —                                                       | Emit popular / trending MCP servers.          |
 
 ### `prompts *` — Enhanced Prompts (premium-gated)
 
@@ -412,6 +413,27 @@ in the `ptah-cli-usage` skill, section 16 ("MCP-serve — Drive Ptah
 from external agents") at
 `apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/ptah-cli-usage/SKILL.md`.
 
+### `tui` — interactive terminal UI
+
+`ptah tui` launches a chat-first Ink/React terminal interface over the same
+in-process agent backend that powers `interact`. It is a second bundle
+(`tui.mjs`) shipped inside this package and dynamic-imported next to
+`main.mjs`.
+
+```bash
+ptah tui
+```
+
+| Flag     | Description                                                                     |
+| -------- | ------------------------------------------------------------------------------- |
+| _(none)_ | Uses the [global flags](#global-flags) only (`--cwd`, `--config`, `--verbose`). |
+
+The TUI requires an interactive terminal with raw-mode support. Under piped
+or redirected stdin (CI, `ptah tui < file`, pipelines) it writes a short
+explanation to stderr, emits nothing on stdout, and exits non-zero — it
+never hangs and never produces JSON-RPC frames. Respects `NO_COLOR` /
+`FORCE_COLOR`.
+
 ## Global flags
 
 | Flag               | Default                 | Behavior                                                                                              |
@@ -440,7 +462,7 @@ from external agents") at
 | `NO_COLOR`          | Disable ANSI codes (any non-empty value). Honored by formatter.                          | unset                   |
 | `FORCE_COLOR`       | Force ANSI codes on. Honored by Node.                                                    | unset                   |
 
-> `PTAH_AGENT_CLI_OVERRIDE` is **not** consulted. The CLI agent allowlist (`glm`, `gemini`) is hard-coded at command entry-points and cannot be bypassed via env vars.
+> `PTAH_AGENT_CLI_OVERRIDE` is **not** consulted. The CLI agent allowlist (`glm`) is hard-coded at command entry-points and cannot be bypassed via env vars.
 
 ## Exit codes
 
@@ -471,7 +493,7 @@ Errors are written to **stderr** as JSON-RPC error objects with the standard `co
 
 **Output is mangled when piping to `jq` / a log aggregator** — Default output is JSON-RPC NDJSON on stdout (one JSON object per line). Don't use `--human` in pipelines. Logger output goes to stderr, never stdout, so `2>/dev/null` is safe.
 
-**`agent-cli stop` rejects with `cli_agent_unavailable`** — The CLI agent allowlist accepts only `glm` and `gemini`. `copilot` and `cursor` are blocked due to Windows spawn issues. The check is at command entry-point and cannot be bypassed via env vars.
+**`agent-cli stop` rejects with `cli_agent_unavailable`** — The CLI agent allowlist accepts only `glm`. `copilot` and `cursor` are blocked due to Windows spawn issues. The check is at command entry-point and cannot be bypassed via env vars.
 
 **Verbose diagnostics for DI bootstrap problems** — Pass `--verbose` to emit `debug.di.phase` notifications for each of the 5 DI phases (config, license, auth, RPC, agent-sdk). Combine with `PTAH_LOG_LEVEL=debug` for the underlying logger output on stderr.
 

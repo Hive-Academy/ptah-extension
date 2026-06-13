@@ -23,7 +23,7 @@ import type { SettingsExecuteHooks, SettingsOptions } from './settings.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { Formatter } from '../output/formatter.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 
 // Stub the agent-sdk static import so ts-jest does not have to compile the
 // entire SDK transitive graph (pre-existing Zod schema TS errors in

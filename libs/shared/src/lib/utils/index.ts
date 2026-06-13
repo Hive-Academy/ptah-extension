@@ -6,3 +6,9 @@ export { assertNever } from './assert-never';
 export { parseWorktreeList } from './git.utils';
 export * from './image-media-type';
 export { pickPrimaryModel, type ModelUsageEntry } from './pick-primary-model';
+export {
+  mergeAgentsRegion,
+  PTAH_AGENTS_REGION_BEGIN,
+  PTAH_AGENTS_REGION_END,
+  type AgentBody,
+} from './agents-region.utils';

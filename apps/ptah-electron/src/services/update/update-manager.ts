@@ -10,7 +10,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { app } from 'electron';
+import { app, net } from 'electron';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
@@ -108,7 +108,7 @@ export class UpdateManager {
     try {
       releases = await this.fetchReleases();
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = this.describeFetchError(error);
       this.logger.warn(
         '[UpdateManager] GitHub releases check failed',
         error instanceof Error ? error : new Error(message),
@@ -171,7 +171,7 @@ export class UpdateManager {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const resp = await fetch(`${GITHUB_RELEASES_URL}?per_page=10`, {
+      const resp = await net.fetch(`${GITHUB_RELEASES_URL}?per_page=10`, {
         signal: controller.signal,
         headers: {
           Accept: 'application/vnd.github+json',
@@ -185,6 +185,30 @@ export class UpdateManager {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  /**
+   * Build a diagnosable message from a fetch rejection. `net.fetch`/undici wrap
+   * network-level failures in a generic `TypeError: fetch failed`, stashing the
+   * real reason (DNS, refused connection, TLS, proxy, timeout) on `error.cause`.
+   * Surface that cause so the banner and logs show why the check failed instead
+   * of a bare "fetch failed".
+   */
+  private describeFetchError(error: unknown): string {
+    if (!(error instanceof Error)) {
+      return String(error);
+    }
+    if (error.name === 'AbortError') {
+      return `request timed out after ${FETCH_TIMEOUT_MS}ms`;
+    }
+    const cause = (error as { cause?: unknown }).cause;
+    if (cause instanceof Error && cause.message) {
+      return `${error.message}: ${cause.message}`;
+    }
+    if (typeof cause === 'string' && cause.length > 0) {
+      return `${error.message}: ${cause}`;
+    }
+    return error.message;
   }
 
   private platformInstallerUrl(assets: GitHubReleaseAsset[]): string | null {

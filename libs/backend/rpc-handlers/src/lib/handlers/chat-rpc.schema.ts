@@ -47,6 +47,7 @@ const uuidString = (label: string) =>
 export const ChatStartParamsSchema = z
   .object({
     tabId: uuidString('tabId'),
+    surfaceMode: z.boolean().optional(),
   })
   .passthrough();
 
@@ -59,6 +60,7 @@ export const ChatContinueParamsSchema = z
   .object({
     tabId: uuidString('tabId'),
     sessionId: uuidString('sessionId'),
+    surfaceMode: z.boolean().optional(),
   })
   .passthrough();
 

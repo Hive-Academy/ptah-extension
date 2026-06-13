@@ -43,6 +43,7 @@ export class StreamingSurfaceRegistry {
   private readonly _byId = signal<ReadonlyMap<SurfaceId, SurfaceAdapter>>(
     new Map(),
   );
+  private readonly _interactive = signal<ReadonlySet<SurfaceId>>(new Set());
 
   /** Total number of registered surfaces. */
   readonly size = computed(() => this._byId().size);
@@ -55,11 +56,18 @@ export class StreamingSurfaceRegistry {
   /**
    * Register a surface adapter. If the surface id is already registered,
    * the previous adapter is replaced (component re-mount idempotency).
+   *
+   * `options.interactive` (default false) marks a surface as a permission /
+   * AskUserQuestion target. Interactive surfaces (the harness workflow
+   * surface) keep prompts alive and receive surface-attached prompt targets
+   * via `StreamRouter`; non-interactive surfaces (wizard/harness analysis)
+   * keep the auto-deny / auto-answer full-auto behavior.
    */
   register(
     surfaceId: SurfaceId,
     getState: () => StreamingState,
     setState: (state: StreamingState) => void,
+    options?: { interactive?: boolean },
   ): void {
     const adapter: SurfaceAdapter = { getState, setState };
     this._byId.update((prev) => {
@@ -67,6 +75,22 @@ export class StreamingSurfaceRegistry {
       next.set(surfaceId, adapter);
       return next;
     });
+    const interactive = options?.interactive ?? false;
+    this._interactive.update((prev) => {
+      if (interactive === prev.has(surfaceId)) return prev;
+      const next = new Set(prev);
+      if (interactive) {
+        next.add(surfaceId);
+      } else {
+        next.delete(surfaceId);
+      }
+      return next;
+    });
+  }
+
+  /** True iff the surface was registered with `{ interactive: true }`. */
+  isInteractive(surfaceId: SurfaceId): boolean {
+    return this._interactive().has(surfaceId);
   }
 
   /**
@@ -78,6 +102,12 @@ export class StreamingSurfaceRegistry {
     if (!this._byId().has(surfaceId)) return;
     this._byId.update((prev) => {
       const next = new Map(prev);
+      next.delete(surfaceId);
+      return next;
+    });
+    this._interactive.update((prev) => {
+      if (!prev.has(surfaceId)) return prev;
+      const next = new Set(prev);
       next.delete(surfaceId);
       return next;
     });

@@ -59,7 +59,7 @@ export interface MonitoredAgent {
   expanded: boolean;
   /** Order in which this card was expanded (for auto-collapse of oldest). */
   expandedAt?: number;
-  /** Structured output segments from SDK-based adapters (Gemini, Codex, Copilot). */
+  /** Structured output segments from SDK-based adapters (Codex, Copilot). */
   segments: CliOutputSegment[];
   /** Rich streaming events from Ptah CLI adapter. Enables ExecutionNode rendering. */
   streamEvents: FlatStreamEventUnion[];
@@ -68,7 +68,7 @@ export interface MonitoredAgent {
    * when SESSION_ID_RESOLVED fires. */
   parentSessionId?: string;
   /**
-   * CLI-native session ID (e.g., Gemini UUID). Enables resume.
+   * CLI-native session ID (e.g., Codex UUID). Enables resume.
    * Mutable because the session ID is often late-captured: it arrives via the
    * CLI's init event after spawn, or is attached to the exit event when the
    * process completes. Unlike `parentSessionId` (known at spawn time and
@@ -79,9 +79,9 @@ export interface MonitoredAgent {
   permissionQueue: AgentPermissionRequest[];
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */
   readonly ptahCliId?: string;
-  /** Human-readable display name for the CLI agent (e.g., 'Gemini CLI', 'Codex'). */
+  /** Human-readable display name for the CLI agent (e.g., 'Codex', 'Copilot'). */
   readonly displayName?: string;
-  /** Model identifier used by the CLI agent (e.g., 'gemini-2.5-pro', 'gpt-4o'). */
+  /** Model identifier used by the CLI agent (e.g., 'gpt-5-codex', 'gpt-4o'). */
   readonly model?: string;
 }
 
