@@ -202,6 +202,7 @@ describe('SkillSynthesisService', () => {
       's1',
       '/repo',
       expect.any(Number),
+      undefined,
     );
     expect(md.writeCandidate).toHaveBeenCalledTimes(1);
     expect(store.registerCandidate).toHaveBeenCalledTimes(1);
@@ -345,6 +346,60 @@ describe('SkillSynthesisService', () => {
   it('analyzeSession() without options preserves dedup behavior (R9)', async () => {
     const { svc, store } = setup();
     await svc.start();
+    await svc.analyzeSession('s1', '/repo');
+    const second = await svc.analyzeSession('s1', '/repo');
+    expect(second).toBeNull();
+    expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('analyzeSession() forwards an explicit transcriptPath to the extractor', async () => {
+    const { svc, extractor } = setup();
+    await svc.start();
+    const transcriptPath =
+      '/home/u/.claude/projects/proj/parent/subagents/agent-abc.jsonl';
+    await svc.analyzeSession('agent-abc', '/repo', {
+      force: false,
+      transcriptPath,
+    });
+    expect(extractor.extract).toHaveBeenCalledWith(
+      'agent-abc',
+      '/repo',
+      expect.any(Number),
+      transcriptPath,
+    );
+  });
+
+  it('analyzeSession() re-analyzes a session once it grows past the last analyzed turn count', async () => {
+    const { svc, store, extractor } = setup();
+    await svc.start();
+    (extractor.extract as jest.Mock)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        hash: 'grown-hash',
+        canonicalText: 'canon',
+        turnCount: 6,
+        sessionTurnCount: 6,
+        shortDescription: 'do thing',
+        slug: 'do-thing',
+      });
+    const first = await svc.analyzeSession('s1', '/repo');
+    expect(first).toBeNull();
+    const second = await svc.analyzeSession('s1', '/repo');
+    expect(second).not.toBeNull();
+    expect(store.registerCandidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('analyzeSession() does not re-register when the session has not grown', async () => {
+    const { svc, store, extractor } = setup();
+    await svc.start();
+    (extractor.extract as jest.Mock).mockResolvedValue({
+      hash: 'same-hash',
+      canonicalText: 'canon',
+      turnCount: 6,
+      sessionTurnCount: 6,
+      shortDescription: 'do thing',
+      slug: 'do-thing',
+    });
     await svc.analyzeSession('s1', '/repo');
     const second = await svc.analyzeSession('s1', '/repo');
     expect(second).toBeNull();

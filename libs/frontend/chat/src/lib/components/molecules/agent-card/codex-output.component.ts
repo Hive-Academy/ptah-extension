@@ -2,7 +2,7 @@
  * CodexOutputComponent
  *
  * Uses ExecutionNode tree rendering (matching
- * CopilotOutputComponent / GeminiOutputComponent pattern) instead of flat
+ * CopilotOutputComponent pattern) instead of flat
  * segment rendering. Also adds a stats bar for token usage display.
  *
  * Features:

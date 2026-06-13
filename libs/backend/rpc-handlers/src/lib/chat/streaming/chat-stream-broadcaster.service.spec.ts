@@ -50,6 +50,7 @@ function createMockLogger(): jest.Mocked<
 
 interface Harness {
   broadcaster: ChatStreamBroadcaster;
+  webviewManager: jest.Mocked<WebviewManager>;
   sdkAdapter: jest.Mocked<
     Pick<IAgentAdapter, 'isSessionActive' | 'endSession'>
   >;
@@ -106,7 +107,7 @@ function makeHarness(): Harness {
     ptahCli as unknown as ChatPtahCliService,
   );
 
-  return { broadcaster, sdkAdapter, ptahCli };
+  return { broadcaster, webviewManager, sdkAdapter, ptahCli };
 }
 
 function makeEvent(eventType: string): FlatStreamEventUnion {
@@ -163,5 +164,78 @@ describe('ChatStreamBroadcaster.isStreaming', () => {
   it('returns false for an unknown session', () => {
     const h = makeHarness();
     expect(h.broadcaster.isStreaming('never-streamed')).toBe(false);
+  });
+});
+
+describe('ChatStreamBroadcaster.streamEventsToWebview — surfaceMode', () => {
+  function broadcastsFor(
+    h: Harness,
+    type: string,
+  ): Array<Record<string, unknown>> {
+    return (h.webviewManager.broadcastMessage as jest.Mock).mock.calls
+      .filter(([t]) => t === type)
+      .map(([, payload]) => payload as Record<string, unknown>);
+  }
+
+  it('threads surfaceMode:true into CHAT_CHUNK and CHAT_COMPLETE payloads', async () => {
+    const h = makeHarness();
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      yield makeEvent('message_complete');
+    }
+
+    await h.broadcaster.streamEventsToWebview(
+      SESSION_ID,
+      stream(),
+      TAB_ID,
+      true,
+    );
+
+    for (const chunk of broadcastsFor(h, 'chat:chunk')) {
+      expect(chunk['surfaceMode']).toBe(true);
+    }
+    for (const complete of broadcastsFor(h, 'chat:complete')) {
+      expect(complete['surfaceMode']).toBe(true);
+    }
+  });
+
+  it('omits surfaceMode when the flag is not passed', async () => {
+    const h = makeHarness();
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_complete');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    for (const chunk of broadcastsFor(h, 'chat:chunk')) {
+      expect(chunk).not.toHaveProperty('surfaceMode');
+    }
+    for (const complete of broadcastsFor(h, 'chat:complete')) {
+      expect(complete).not.toHaveProperty('surfaceMode');
+    }
+  });
+
+  it('threads surfaceMode:true into the CHAT_ERROR payload', async () => {
+    const h = makeHarness();
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      throw new Error('stream exploded');
+    }
+
+    await h.broadcaster.streamEventsToWebview(
+      SESSION_ID,
+      stream(),
+      TAB_ID,
+      true,
+    );
+
+    const errors = broadcastsFor(h, 'chat:error');
+    expect(errors.length).toBeGreaterThan(0);
+    for (const err of errors) {
+      expect(err['surfaceMode']).toBe(true);
+    }
   });
 });

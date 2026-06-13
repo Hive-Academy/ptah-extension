@@ -62,6 +62,11 @@ export interface SessionListParams {
   limit?: number;
   /** Offset for pagination */
   offset?: number;
+  /**
+   * Lower bound (epoch ms) on `lastActivityAt`. When set, only sessions active
+   * at or after this timestamp are returned. Applied before pagination.
+   */
+  since?: number;
 }
 
 /** Response from session:list RPC method */
@@ -165,7 +170,7 @@ export interface SessionStatsEntry {
   readonly messageCount: number;
   /** Number of agent/subagent JSONL files found for this session */
   readonly agentSessionCount?: number;
-  /** CLI agent types used in this session (e.g., ['gemini', 'copilot']) */
+  /** CLI agent types used in this session (e.g., ['codex', 'copilot']) */
   readonly cliAgents?: readonly string[];
   /** Per-model usage breakdown (model, input/output tokens, cost) */
   readonly modelUsageList?: ReadonlyArray<{

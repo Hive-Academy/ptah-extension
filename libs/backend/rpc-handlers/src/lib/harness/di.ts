@@ -12,7 +12,7 @@
  *
  *   workspaceContext ← suggestion, fs-io
  *   streamBroadcaster, workspaceContext ← subagent-design, skill-generation,
- *                                         document-generation, chat,
+ *                                         document-generation, workflow-prompt,
  *                                         suggestion, llm-runner
  *   promptBuilder ← config-store
  *
@@ -26,13 +26,14 @@ import { HarnessStreamBroadcaster } from './streaming/harness-stream-broadcaster
 import { HarnessWorkspaceContextService } from './workspace/harness-workspace-context.service';
 import { HarnessPromptBuilderService } from './config/harness-prompt-builder.service';
 import { HarnessConfigStore } from './config/harness-config-store.service';
+import { HarnessAgentFileWriterService } from './config/harness-agent-file-writer.service';
 import { HarnessFsService } from './io/harness-fs.service';
 import { HarnessLlmRunner } from './ai/harness-llm-runner.service';
 import { HarnessSuggestionService } from './ai/harness-suggestion.service';
 import { HarnessSubagentDesignService } from './ai/harness-subagent-design.service';
 import { HarnessSkillGenerationService } from './ai/harness-skill-generation.service';
 import { HarnessDocumentGenerationService } from './ai/harness-document-generation.service';
-import { HarnessChatService } from './ai/harness-chat.service';
+import { HarnessWorkflowPromptService } from './ai/harness-workflow-prompt.service';
 
 export { HARNESS_TOKENS } from './tokens';
 
@@ -50,6 +51,10 @@ export function registerHarnessServices(container: DependencyContainer): void {
     HarnessPromptBuilderService,
   );
   container.registerSingleton(HARNESS_TOKENS.CONFIG_STORE, HarnessConfigStore);
+  container.registerSingleton(
+    HARNESS_TOKENS.AGENT_FILE_WRITER,
+    HarnessAgentFileWriterService,
+  );
   container.registerSingleton(HARNESS_TOKENS.IO_FS, HarnessFsService);
   container.registerSingleton(HARNESS_TOKENS.LLM_RUNNER, HarnessLlmRunner);
   container.registerSingleton(
@@ -68,5 +73,8 @@ export function registerHarnessServices(container: DependencyContainer): void {
     HARNESS_TOKENS.DOCUMENT_GENERATION,
     HarnessDocumentGenerationService,
   );
-  container.registerSingleton(HARNESS_TOKENS.CHAT, HarnessChatService);
+  container.registerSingleton(
+    HARNESS_TOKENS.WORKFLOW_PROMPT,
+    HarnessWorkflowPromptService,
+  );
 }

@@ -7,7 +7,7 @@
  * processes surface immediately under `--detectOpenHandles`.
  *
  * Sandboxing reality:
- *   - The CI sandbox has no `gemini` / `codex` / `openrouter` binaries on
+ *   - The CI sandbox has no `codex` / `copilot` / `openrouter` binaries on
  *     PATH. Tests that nominally hit those CLIs assert EITHER routed
  *     success OR a clean `cli_agent_unavailable` failure — anything else
  *     (license_required, fatal crash) flags a regression in the wire
@@ -201,7 +201,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
       'tools/call',
       {
         name: 'agent_spawn',
-        arguments: { cli: 'gemini', task: 'echo hi' },
+        arguments: { cli: 'codex', task: 'echo hi' },
       },
       30_000,
     );
@@ -209,7 +209,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     expect(resp.error).toBeUndefined();
     expect(resp.result).toBeDefined();
     // Goal: prove the premium gate did NOT block this Free-tier path.
-    // The sandbox likely lacks the `gemini` binary, so we accept either:
+    // The sandbox likely lacks the `codex` binary, so we accept either:
     //   - clean success (`isError !== true`)
     //   - clean unavailability (`ptah_code === 'cli_agent_unavailable'`)
     // Anything else (license_required, etc.) means a routing regression.
@@ -563,7 +563,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
       structuredContent?: Record<string, unknown>;
     }>(
       'tools/call',
-      { name: 'agent_spawn', arguments: { cli: 'gemini', task } },
+      { name: 'agent_spawn', arguments: { cli: 'codex', task } },
       30_000,
     );
     expect(resp.error).toBeUndefined();
@@ -795,7 +795,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     }>(
       'tools/call',
       // Omits the required `task` field — strict Zod rejects.
-      { name: 'agent_spawn', arguments: { cli: 'gemini' } },
+      { name: 'agent_spawn', arguments: { cli: 'codex' } },
       30_000,
     );
 

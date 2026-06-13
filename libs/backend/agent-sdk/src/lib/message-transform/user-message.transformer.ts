@@ -12,6 +12,7 @@ import {
   SDKUserMessage,
   TextBlock,
   ToolResultBlock,
+  isInterruptSentinelText,
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
 import type {
@@ -111,6 +112,14 @@ export class UserMessageTransformer {
         {
           uuid,
         },
+      );
+      return [];
+    }
+
+    if (isInterruptSentinelText(textContent)) {
+      helpers.logger.debug(
+        '[SdkMessageTransformer] Skipping SDK interrupt sentinel message',
+        { uuid },
       );
       return [];
     }

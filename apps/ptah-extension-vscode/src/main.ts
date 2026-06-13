@@ -20,6 +20,7 @@ process.on('uncaughtException', (err: unknown) => {
 import * as vscode from 'vscode';
 import {
   type Logger,
+  type RpcVerificationResult,
   TOKENS,
   SentryService,
 } from '@ptah-extension/vscode-core';
@@ -36,12 +37,24 @@ import { registerPostInit } from './activation/post-init';
 
 let ptahExtension: PtahExtension | undefined;
 
+/**
+ * Activation API surface returned from `activate()`. Consumed by the
+ * vscode e2e suite (`apps/ptah-extension-vscode-e2e`) to assert the RPC
+ * registration contract against the real bundled extension.
+ */
+export interface PtahActivationApi {
+  /** RPC verification result — undefined when activation was license-blocked. */
+  getRpcVerification(): RpcVerificationResult | undefined;
+}
+
 export async function activate(
   context: vscode.ExtensionContext,
-): Promise<void> {
+): Promise<PtahActivationApi | undefined> {
   try {
     const boot = await bootstrapVscode(context);
-    if (boot.blocked) return;
+    if (boot.blocked) {
+      return { getRpcVerification: () => undefined };
+    }
 
     await wireRuntimeVscode(context, boot.logger, boot.licenseStatus);
     ptahExtension = await registerPostInit(
@@ -52,6 +65,7 @@ export async function activate(
     );
 
     boot.logger.info('Ptah extension activated successfully');
+    return { getRpcVerification: () => boot.rpcVerification };
   } catch (error) {
     let safeMessage = 'Unknown error';
     let safeStack = '';
@@ -95,6 +109,7 @@ export async function activate(
     );
 
     vscode.window.showErrorMessage(`Ptah activation failed: ${safeMessage}`);
+    return undefined;
   }
 }
 

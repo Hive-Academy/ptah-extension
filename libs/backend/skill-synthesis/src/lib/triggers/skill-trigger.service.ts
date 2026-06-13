@@ -21,6 +21,8 @@ import {
   type CuratorRateLimitService,
   type UserPromptExpansionCallbackRegistry,
   type UserPromptExpansionPayload,
+  type StopCallbackRegistry,
+  type StopPayload,
 } from '@ptah-extension/agent-sdk';
 import {
   BootScanRunner,
@@ -39,10 +41,16 @@ const TEST_PATTERN = /\b(npm|pnpm|yarn|jest|vitest|nx)\s+(test|run\s+test)\b/;
 const EDIT_TOOL_NAMES = new Set(['Edit', 'Write', 'MultiEdit']);
 const EDIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_KEY = 'skill.analyze';
+const TURN_COMPLETE_DEBOUNCE_MS = 90 * 1000;
 
 interface SessionState {
   readonly workspaceRoot: string;
   idleTimer: ReturnType<typeof setTimeout> | null;
+}
+
+interface TurnCompleteState {
+  readonly workspaceRoot: string;
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 interface EditTestState {
@@ -60,8 +68,10 @@ export class SkillTriggerService {
   private subagentStopDisposer: (() => void) | null = null;
   private postToolUseDisposer: (() => void) | null = null;
   private userPromptExpansionDisposer: (() => void) | null = null;
+  private stopDisposer: (() => void) | null = null;
   private readonly sessions = new Map<string, SessionState>();
   private readonly editTestStates = new Map<string, EditTestState>();
+  private readonly turnCompleteStates = new Map<string, TurnCompleteState>();
   private bootScanController: AbortController | null = null;
 
   constructor(
@@ -90,6 +100,8 @@ export class SkillTriggerService {
     private readonly userPromptExpansionRegistry: UserPromptExpansionCallbackRegistry,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_INVOCATION_RECORDER)
     private readonly recorder: SkillInvocationRecorder,
+    @inject(SDK_TOKENS.SDK_STOP_CALLBACK_REGISTRY)
+    private readonly stopRegistry: StopCallbackRegistry,
   ) {}
 
   start(): void {
@@ -114,6 +126,9 @@ export class SkillTriggerService {
       this.userPromptExpansionRegistry.register((payload) => {
         this.onUserPromptExpansion(payload);
       });
+    this.stopDisposer = this.stopRegistry.register((payload) => {
+      this.onStop(payload);
+    });
 
     if (this.readBootScanFlag()) {
       this.bootScanController = new AbortController();
@@ -130,16 +145,22 @@ export class SkillTriggerService {
     this.subagentStopDisposer?.();
     this.postToolUseDisposer?.();
     this.userPromptExpansionDisposer?.();
+    this.stopDisposer?.();
     this.activityDisposer = null;
     this.sessionEndDisposer = null;
     this.subagentStopDisposer = null;
     this.postToolUseDisposer = null;
     this.userPromptExpansionDisposer = null;
+    this.stopDisposer = null;
     for (const state of this.sessions.values()) {
       if (state.idleTimer) clearTimeout(state.idleTimer);
     }
+    for (const state of this.turnCompleteStates.values()) {
+      if (state.timer) clearTimeout(state.timer);
+    }
     this.sessions.clear();
     this.editTestStates.clear();
+    this.turnCompleteStates.clear();
     this.bootScanController?.abort();
     this.bootScanController = null;
     this.started = false;
@@ -172,6 +193,55 @@ export class SkillTriggerService {
       this.sessions.delete(payload.sessionId);
     }
     this.editTestStates.delete(payload.sessionId);
+    const turnState = this.turnCompleteStates.get(payload.sessionId);
+    if (turnState) {
+      if (turnState.timer) clearTimeout(turnState.timer);
+      this.turnCompleteStates.delete(payload.sessionId);
+    }
+  }
+
+  private onStop(payload: StopPayload): void {
+    if (!this.readTurnCompleteEnabled()) return;
+    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (payload.hasBackgroundWork) return;
+
+    let state = this.turnCompleteStates.get(payload.sessionId);
+    if (!state) {
+      state = { workspaceRoot: payload.workspaceRoot, timer: null };
+      this.turnCompleteStates.set(payload.sessionId, state);
+    }
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(() => {
+      this.fireTurnComplete(payload.sessionId);
+    }, TURN_COMPLETE_DEBOUNCE_MS);
+  }
+
+  private fireTurnComplete(sessionId: string): void {
+    const state = this.turnCompleteStates.get(sessionId);
+    if (!state) return;
+    state.timer = null;
+    this.turnCompleteStates.delete(sessionId);
+
+    const decision = this.rateLimiter.tryAcquire(
+      RATE_LIMIT_KEY,
+      this.readMaxAnalyzesPerHour(),
+    );
+    if (!decision.allowed) {
+      this.synthesis.pushEvent({
+        kind: 'rate-limited',
+        timestamp: Date.now(),
+        sessionId,
+        stats: {
+          source: 'turn-complete',
+          limit: decision.limit,
+          resetAt: decision.resetAt,
+          usedThisWindow: decision.usedThisWindow,
+        },
+      });
+      return;
+    }
+
+    void this.invokeAnalyze(sessionId, state.workspaceRoot, 'turn-complete');
   }
 
   private onSubagentStop(payload: SubagentStopPayload): void {
@@ -212,6 +282,7 @@ export class SkillTriggerService {
       payload.subagentSessionId,
       payload.workspaceRoot,
       'subagent-stop',
+      payload.transcriptPath,
     );
   }
 
@@ -405,11 +476,18 @@ export class SkillTriggerService {
   private async invokeAnalyze(
     sessionId: string,
     workspaceRoot: string,
-    source: 'idle' | 'boot' | 'subagent-stop' | 'edit-then-test',
+    source:
+      | 'idle'
+      | 'boot'
+      | 'subagent-stop'
+      | 'edit-then-test'
+      | 'turn-complete',
+    transcriptPath?: string,
   ): Promise<void> {
     try {
       await this.synthesis.analyzeSession(sessionId, workspaceRoot, {
         force: false,
+        transcriptPath,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -485,6 +563,17 @@ export class SkillTriggerService {
       SKILL_TRIGGER_DEFAULTS.bootScan,
     );
     return typeof v === 'boolean' ? v : SKILL_TRIGGER_DEFAULTS.bootScan;
+  }
+
+  private readTurnCompleteEnabled(): boolean {
+    const v = this.workspace.getConfiguration<boolean>(
+      SKILL_TRIGGER_SECTION,
+      SKILL_TRIGGER_KEYS.turnComplete.enabled,
+      SKILL_TRIGGER_DEFAULTS.turnComplete.enabled,
+    );
+    return typeof v === 'boolean'
+      ? v
+      : SKILL_TRIGGER_DEFAULTS.turnComplete.enabled;
   }
 
   private readSubagentStopEnabled(): boolean {

@@ -77,10 +77,7 @@ export function syncCliAgentsOnActivation(
     const targetClis = installedClis
       .filter(
         (c) =>
-          (c.cli === 'copilot' ||
-            c.cli === 'gemini' ||
-            c.cli === 'codex' ||
-            c.cli === 'cursor') &&
+          (c.cli === 'copilot' || c.cli === 'codex' || c.cli === 'cursor') &&
           c.installed,
       )
       .map((c) => c.cli);
@@ -187,11 +184,9 @@ async function reapStaleHomeAgents(
     }
     const home = fns.homedir();
     const dirs = [
-      fns.join(home, '.gemini', 'agents'),
       fns.join(home, '.codex', 'agents'),
       fns.join(home, '.copilot', 'agents'),
       fns.join(home, '.cursor', 'agents'),
-      fns.join(home, '.gemini', 'skills'),
       fns.join(home, '.codex', 'skills'),
       fns.join(home, '.agents', 'skills'),
       fns.join(home, '.copilot', 'skills'),

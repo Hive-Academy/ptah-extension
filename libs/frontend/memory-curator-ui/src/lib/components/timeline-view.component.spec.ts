@@ -51,7 +51,7 @@ describe('TimelineViewComponent', () => {
     fixture.detectChanges();
 
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(text).toContain('No memories match');
+    expect(text).toContain('No timeline events');
     expect(searchIndexMock).toHaveBeenCalled();
   });
 

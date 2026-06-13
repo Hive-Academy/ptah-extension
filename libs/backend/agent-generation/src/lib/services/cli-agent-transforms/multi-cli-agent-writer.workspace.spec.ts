@@ -3,7 +3,6 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'fs/promises';
 import { tmpdir, homedir } from 'os';
 import { join } from 'path';
 import { MultiCliAgentWriterService } from './multi-cli-agent-writer.service';
-import { GeminiAgentTransformer } from './gemini-agent-transformer';
 import { CursorAgentTransformer } from './cursor-agent-transformer';
 import { CopilotAgentTransformer } from './copilot-agent-transformer';
 import { CodexAgentTransformer } from './codex-agent-transformer';
@@ -38,23 +37,16 @@ async function exists(p: string): Promise<boolean> {
 }
 
 describe('Workspace agent transformers (decision #4)', () => {
-  it('Gemini/Cursor agents target {ws}/.{cli}/agents/{slug}.md (bare-name)', () => {
+  it('Cursor agents target {ws}/.cursor/agents/{slug}.md (bare-name)', () => {
     const ws = '/work/space';
-    const gemini = new GeminiAgentTransformer().transform(
-      agent('backend-developer'),
-      ws,
-    );
     const cursor = new CursorAgentTransformer().transform(
       agent('backend-developer'),
       ws,
     );
-    expect(gemini.filePath).toBe(
-      join(ws, '.gemini', 'agents', 'backend-developer.md'),
-    );
     expect(cursor.filePath).toBe(
       join(ws, '.cursor', 'agents', 'backend-developer.md'),
     );
-    expect(gemini.filePath).not.toContain('ptah-');
+    expect(cursor.filePath).not.toContain('ptah-');
   });
 
   it('Copilot agent targets {ws}/.github/agents/{slug}.agent.md', () => {
@@ -79,7 +71,6 @@ describe('Workspace agent transformers (decision #4)', () => {
     const ws = '/work/space';
     const id = 'backend-developer';
     const results: Array<{ content: string }> = [
-      new GeminiAgentTransformer().transform(agent(id), ws),
       new CursorAgentTransformer().transform(agent(id), ws),
       new CopilotAgentTransformer().transform(agent(id), ws),
       new CodexAgentTransformer().transform(agent(id), ws),
@@ -106,20 +97,17 @@ describe('MultiCliAgentWriterService.writeForClis (workspace)', () => {
     return ws;
   }
 
-  it('writes Gemini + Cursor + Copilot agents to workspace dirs', async () => {
+  it('writes Cursor + Copilot agents to workspace dirs', async () => {
     const ws = await workspace();
     const svc = new MultiCliAgentWriterService(logger);
 
     const results = await svc.writeForClis(
       [agent('backend-developer')],
-      ['gemini', 'cursor', 'copilot'],
+      ['cursor', 'copilot'],
       ws,
     );
 
     expect(results.every((r) => r.agentsFailed === 0)).toBe(true);
-    expect(
-      await exists(join(ws, '.gemini', 'agents', 'backend-developer.md')),
-    ).toBe(true);
     expect(
       await exists(join(ws, '.cursor', 'agents', 'backend-developer.md')),
     ).toBe(true);

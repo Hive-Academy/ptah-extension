@@ -1,15 +1,19 @@
 /**
  * Subagent context injector.
  *
- * Owns the `[SYSTEM CONTEXT - INTERRUPTED AGENTS]` prompt prefix injection
- * + watcher pre-warming + registry mark/remove. Extracted from
- * `ChatSessionService.continueSession` so that the session service stays
- * under the 700 LOC budget and the side-effects (file watching, registry
- * mutation) are localised to a single collaborator.
+ * Owns the `[SYSTEM CONTEXT - INTERRUPTED AGENTS]` prompt prefix injection.
+ * Extracted from `ChatSessionService.continueSession` so that the session
+ * service stays under the 700 LOC budget.
  *
- * The prompt prefix string MUST stay byte-identical to the pre-extraction
- * version — including the header, numbered instructions list, agentId
- * placeholder, and `[END SYSTEM CONTEXT]\n\n` trailer.
+ * Resume contract (Claude Code 2.1.x / SDK 0.3.x): there is NO `resume`
+ * parameter on the Agent/Task tool. Resumption works by continuing the same
+ * session (`resume: sessionId`, which chat:continue already does) and
+ * instructing the model in plain text to resume the agent by its agentId.
+ *
+ * Injection is non-destructive: records stay in the registry until a resume
+ * is observed (SubagentStart with the same agentId supersedes the record) or
+ * MAX_INJECTION_ATTEMPTS unconsumed injections pass, after which the record
+ * is dropped as abandoned.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -37,6 +41,12 @@ export interface SubagentContextInjectionResult {
   injected: boolean;
 }
 
+/**
+ * Maximum number of chat:continue prompts a record's context is injected
+ * into before the record is treated as abandoned and removed.
+ */
+export const MAX_INJECTION_ATTEMPTS = 3;
+
 @injectable()
 export class ChatSubagentContextInjectorService {
   constructor(
@@ -51,11 +61,15 @@ export class ChatSubagentContextInjectorService {
    * Inject the `[SYSTEM CONTEXT - INTERRUPTED AGENTS]` prefix into `prompt`
    * for any resumable subagents whose transcript files exist on disk.
    *
-   * Side effects (preserved verbatim from pre-extraction):
-   *  1. Filters resumable subagents by transcript-file existence; agents
-   *     without a transcript on disk are removed from the registry.
-   *  2. Marks each injected subagent as injected, then removes it from the
-   *     registry so the prefix is one-shot.
+   * Side effects:
+   *  1. Agents without a transcript on disk are removed from the registry
+   *     (nothing to resume) and marked injected so history replay does not
+   *     resurrect them.
+   *  2. Each injected agent's attempt counter is incremented; records that
+   *     reach MAX_INJECTION_ATTEMPTS without being resumed are removed.
+   *  3. Records are otherwise KEPT in the registry — successful resumes are
+   *     detected by SubagentRegistryService.register() (same agentId), which
+   *     removes the superseded interrupted record.
    */
   async injectInterruptedAgentsContext(
     prompt: string,
@@ -73,11 +87,31 @@ export class ChatSubagentContextInjectorService {
         agentType: s.agentType,
         status: s.status,
         parentSessionId: s.parentSessionId,
+        injectionAttempts: this.subagentRegistry.getInjectionAttempts(
+          s.toolCallId,
+        ),
       })),
       workspacePath,
     });
     const resumableSubagents: typeof allResumable = [];
     for (const s of allResumable) {
+      if (
+        this.subagentRegistry.getInjectionAttempts(s.toolCallId) >=
+        MAX_INJECTION_ATTEMPTS
+      ) {
+        this.logger.warn(
+          'RPC: chat:continue - dropping interrupted agent after max injection attempts',
+          {
+            agentId: s.agentId,
+            agentType: s.agentType,
+            sessionId,
+            maxAttempts: MAX_INJECTION_ATTEMPTS,
+          },
+        );
+        this.subagentRegistry.markAsInjected(s.toolCallId);
+        this.subagentRegistry.remove(s.toolCallId);
+        continue;
+      }
       const hasTranscript = workspacePath
         ? await this.ptahCli.hasSubagentTranscript(
             workspacePath,
@@ -92,6 +126,7 @@ export class ChatSubagentContextInjectorService {
           'RPC: chat:continue - skipping agent without transcript on disk',
           { agentId: s.agentId, agentType: s.agentType, sessionId },
         );
+        this.subagentRegistry.markAsInjected(s.toolCallId);
         this.subagentRegistry.remove(s.toolCallId);
       }
     }
@@ -114,9 +149,9 @@ The following subagent(s) were interrupted and did not complete their work:
 ${agentDetails}
 
 IMPORTANT INSTRUCTIONS:
-1. Your FIRST action should be to resume these interrupted agents using the Task tool with the "resume" parameter set to the agentId shown above (e.g., resume: "${resumableSubagents[0].agentId}").
-2. Resume agents in the order they were interrupted (continue their previous work).
-3. After resuming completes, address the user's current message if it requires additional work.
+1. Your FIRST action should be to resume these interrupted agents so they continue their previous work. To resume an agent, invoke the Agent tool with the same subagent type shown above and a prompt that begins exactly with "Resume agent ${resumableSubagents[0].agentId}" (use each agent's own agentId), followed by an instruction to continue from where it was interrupted. If a SendMessage tool is available, you may instead send a message addressed to the agent's ID asking it to continue. Do NOT pass a "resume" parameter to the Agent tool — no such parameter exists.
+2. Resume agents in the order they are listed above.
+3. After resumption completes, address the user's current message if it requires additional work.
 4. If the user explicitly asks to start fresh or work on something completely unrelated, you may skip resumption and acknowledge the interrupted work was abandoned.
 
 [END SYSTEM CONTEXT]
@@ -134,8 +169,7 @@ IMPORTANT INSTRUCTIONS:
       })),
     });
     for (const s of resumableSubagents) {
-      this.subagentRegistry.markAsInjected(s.toolCallId);
-      this.subagentRegistry.remove(s.toolCallId);
+      this.subagentRegistry.recordInjectionAttempt(s.toolCallId);
     }
 
     return { prompt: enhancedPrompt, injected: true };

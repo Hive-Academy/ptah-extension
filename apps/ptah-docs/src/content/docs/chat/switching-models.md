@@ -13,7 +13,7 @@ Ptah lets you change provider and model at any point in a conversation. The sele
 
 ## What the selector shows
 
-- The currently active provider (Claude, Copilot, Codex, Gemini, Ollama, OpenRouter, ptah-cli, etc.).
+- The currently active provider (Claude, Copilot, Codex, Ollama, OpenRouter, ptah-cli, etc.).
 - The currently active model.
 - Live availability — providers that aren't configured or are offline are greyed out with an inline reason.
 - A search box for filtering large catalogs (OpenRouter exposes hundreds of models).

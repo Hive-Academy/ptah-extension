@@ -26,7 +26,6 @@ Every turn in Ptah is costed in real time. You see tokens in, tokens out, cache 
 - **OpenRouter** — **live pricing pulled from the OpenRouter model registry**. Prices update whenever OpenRouter updates theirs, so third-party models (Gemini, GPT, Moonshot, Z-AI, etc.) are costed accurately without app updates.
 - **Copilot** — reported as $0 because billing is handled by your Copilot subscription. Tokens are still counted.
 - **Codex / OpenAI direct** — official OpenAI pricing per model.
-- **Gemini direct** — official Google pricing.
 - **Ollama (local and cloud)** — reported as $0 for local; Ollama Cloud uses their published rates.
 - **Ptah CLI** — reported as $0 (billing is handled by whatever provider the CLI wraps).
 

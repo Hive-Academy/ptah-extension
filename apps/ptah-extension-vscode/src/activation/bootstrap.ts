@@ -3,8 +3,10 @@ import {
   type Logger,
   type LicenseService,
   type LicenseStatus,
+  type RpcVerificationResult,
   TOKENS,
   SentryService,
+  PREVIOUS_USER_CONTEXT_KEY,
 } from '@ptah-extension/vscode-core';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import { registerVscodeSettings } from '@ptah-extension/platform-vscode';
@@ -21,6 +23,8 @@ export interface BootstrapResult {
   authInitialized: boolean;
   /** True if license was invalid and blocking path was taken — caller should return. */
   blocked: boolean;
+  /** RPC registration verification result — undefined when blocked. */
+  rpcVerification?: RpcVerificationResult;
 }
 
 /**
@@ -47,6 +51,24 @@ export async function bootstrapVscode(
       release: context.extension.packageJSON['version'] as string,
       platform: 'vscode',
       extensionVersion: context.extension.packageJSON['version'] as string,
+    });
+  }
+  // E2E-only license seed. VS Code runs extension-test instances with
+  // in-memory storage, so the e2e runner cannot seed state.vscdb from
+  // outside — the seed must happen here, before verifyLicense(). Gated on
+  // ExtensionMode.Test (only set when VS Code is launched with
+  // extensionTestsPath, which a regular install can never be) AND the
+  // PTAH_E2E env flag set by the e2e runner. Seeding previousUserContext
+  // makes verifyLicense() take the documented community path with zero
+  // network calls, unblocking the full activation chain under test.
+  if (
+    context.extensionMode === vscode.ExtensionMode.Test &&
+    process.env['PTAH_E2E'] === '1'
+  ) {
+    await context.globalState.update(PREVIOUS_USER_CONTEXT_KEY, {
+      reason: 'expired',
+      persistedAt: Date.now(),
+      user: { email: 'e2e@ptah.local', firstName: null, lastName: null },
     });
   }
   const licenseService = DIContainer.resolve<LicenseService>(
@@ -86,8 +108,8 @@ export async function bootstrapVscode(
   });
   const rpcMethodRegistration = DIContainer.resolve(
     TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
-  ) as { registerAll: () => void };
-  rpcMethodRegistration.registerAll();
+  ) as { registerAll: () => RpcVerificationResult };
+  const rpcVerification = rpcMethodRegistration.registerAll();
   const agentDiscovery = DIContainer.resolve(
     TOKENS.AGENT_DISCOVERY_SERVICE,
   ) as { initializeWatchers: () => void };
@@ -127,5 +149,6 @@ export async function bootstrapVscode(
     licenseStatus,
     authInitialized,
     blocked: false,
+    rpcVerification,
   };
 }

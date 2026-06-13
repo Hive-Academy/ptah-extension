@@ -2,7 +2,7 @@
  * Agent Process Manager
  *
  * Responsibilities:
- * - Spawn CLI agent processes (gemini, codex, copilot)
+ * - Spawn CLI agent processes (codex, copilot)
  * - Track process state, output buffers, timeouts
  * - Enforce concurrent agent limits
  * - Graceful shutdown on extension deactivation
@@ -154,7 +154,6 @@ export class AgentProcessManager {
 
   private static readonly MODEL_CONFIG_KEYS: Partial<Record<CliType, string>> =
     {
-      gemini: 'geminiModel',
       codex: 'codexModel',
       copilot: 'copilotModel',
       cursor: 'cursorModel',
@@ -242,8 +241,8 @@ export class AgentProcessManager {
     const cli = request.cli ?? (await this.getPreferredCli());
     if (!cli) {
       throw new Error(
-        'No CLI agent available. Install Gemini CLI (`npm install -g @google/gemini-cli`) ' +
-          'or Codex CLI and authenticate before using agent orchestration.',
+        'No CLI agent available. Install Codex CLI, Copilot, or Ptah CLI ' +
+          'and authenticate before using agent orchestration.',
       );
     }
 
@@ -335,11 +334,7 @@ export class AgentProcessManager {
       model: resolvedModel,
     });
 
-    if (
-      request.resumeSessionId &&
-      request.cli !== 'gemini' &&
-      request.cli !== 'copilot'
-    ) {
+    if (request.resumeSessionId && request.cli !== 'copilot') {
       this.logger.warn(
         `[AgentProcessManager] resume_session_id provided for ${request.cli} which does not support session resume`,
       );
@@ -460,7 +455,7 @@ export class AgentProcessManager {
    * @param info        - Agent process info (agentId, cli, task, etc.)
    * @param timeout     - Timeout in milliseconds
    * @param captureSessionId - Optional callback to capture CLI session ID
-   *   from async init events (e.g., Gemini's init JSONL segment). Called on
+   *   from async init events (e.g., the init JSONL segment). Called on
    *   each structured segment until a session ID is captured.
    */
   private trackSdkHandle(
@@ -1110,12 +1105,7 @@ export class AgentProcessManager {
   }
 
   private async getPreferredCli(): Promise<CliType | null> {
-    const systemCliTypes = new Set<string>([
-      'gemini',
-      'codex',
-      'copilot',
-      'cursor',
-    ]);
+    const systemCliTypes = new Set<string>(['codex', 'copilot', 'cursor']);
     const disabledClis = new Set(
       this.workspace.getConfiguration<string[]>(
         'ptah',

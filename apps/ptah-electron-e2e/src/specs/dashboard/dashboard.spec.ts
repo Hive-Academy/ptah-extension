@@ -13,11 +13,9 @@ test.describe('Dashboard', () => {
       'skillSynthesis:listCandidates': { candidates: [] },
     });
 
-    await ui.goto('dashboard');
+    await ui.openTab('memory');
 
     const page = ui.page;
-
-    await expect(page.locator('[data-testid="dashboard-grid"]')).toBeVisible();
 
     const memoryCard = page.locator(
       '[data-testid="dashboard-status-card"][data-pillar="memory"]',

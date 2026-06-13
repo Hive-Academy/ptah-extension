@@ -9,12 +9,10 @@ import {
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { GeminiSkillInstaller } from './gemini-skill-installer';
 import { CursorSkillInstaller } from './cursor-skill-installer';
 import { CodexSkillInstaller } from './codex-skill-installer';
 import { CopilotSkillInstaller } from './copilot-skill-installer';
 import {
-  emitGeminiCommandToml,
   mergeAgentsRegion,
   reapPrefixedHomeEntries,
   readManagedManifest,
@@ -71,11 +69,11 @@ describe('Workspace skill installers (decision #4)', () => {
     return ws;
   }
 
-  it('Gemini: bare-name skills under .gemini/skills/{slug} + name frontmatter is bare', async () => {
+  it('Cursor: bare-name skills under .cursor/skills/{slug} + name frontmatter is bare', async () => {
     const layer = await makeUserLayer();
     cleanups.push(layer.root);
     const ws = await workspace();
-    const installer = new GeminiSkillInstaller();
+    const installer = new CursorSkillInstaller();
 
     const status = await installer.install(
       { skillsRoot: layer.skillsRoot, commandsRoot: layer.commandsRoot },
@@ -83,36 +81,15 @@ describe('Workspace skill installers (decision #4)', () => {
     );
 
     expect(status.synced).toBe(true);
-    const skillDir = join(ws, '.gemini', 'skills', 'caveman');
+    const skillDir = join(ws, '.cursor', 'skills', 'caveman');
     expect(await exists(skillDir)).toBe(true);
-    expect(await exists(join(ws, '.gemini', 'skills', 'ptah-caveman'))).toBe(
+    expect(await exists(join(ws, '.cursor', 'skills', 'ptah-caveman'))).toBe(
       false,
     );
     const skillMd = await readFile(join(skillDir, 'SKILL.md'), 'utf8');
     expect(skillMd).toContain('name: caveman');
     expect(skillMd).not.toContain('ptah-caveman');
     expect(skillMd).not.toContain('allowed-tools');
-  });
-
-  it('Gemini: commands emitted as .toml with a prompt key (not .md)', async () => {
-    const layer = await makeUserLayer();
-    cleanups.push(layer.root);
-    const ws = await workspace();
-
-    await new GeminiSkillInstaller().install(
-      { skillsRoot: layer.skillsRoot, commandsRoot: layer.commandsRoot },
-      { workspaceRoot: ws },
-    );
-
-    const tomlPath = join(ws, '.gemini', 'commands', 'deep-research.toml');
-    expect(await exists(tomlPath)).toBe(true);
-    expect(
-      await exists(join(ws, '.gemini', 'commands', 'deep-research.md')),
-    ).toBe(false);
-    const toml = await readFile(tomlPath, 'utf8');
-    expect(toml).toContain('prompt = """');
-    expect(toml).toContain('Do the research.');
-    expect(toml).not.toContain('description: research');
   });
 
   it('Cursor: commands stay .md, skills bare-name under .cursor/skills', async () => {
@@ -164,7 +141,7 @@ describe('Workspace skill installers (decision #4)', () => {
   it('No workspace root → no writes anywhere', async () => {
     const layer = await makeUserLayer();
     cleanups.push(layer.root);
-    const status = await new GeminiSkillInstaller().install({
+    const status = await new CursorSkillInstaller().install({
       skillsRoot: layer.skillsRoot,
       commandsRoot: layer.commandsRoot,
     });
@@ -176,7 +153,7 @@ describe('Workspace skill installers (decision #4)', () => {
     const layer = await makeUserLayer();
     cleanups.push(layer.root);
     const ws = await workspace();
-    const skillsTarget = join(ws, '.gemini', 'skills');
+    const skillsTarget = join(ws, '.cursor', 'skills');
     await mkdir(join(skillsTarget, 'caveman'), { recursive: true });
     await writeFile(
       join(skillsTarget, 'caveman', 'SKILL.md'),
@@ -184,7 +161,7 @@ describe('Workspace skill installers (decision #4)', () => {
       'utf8',
     );
 
-    const status = await new GeminiSkillInstaller().install(
+    const status = await new CursorSkillInstaller().install(
       { skillsRoot: layer.skillsRoot, commandsRoot: layer.commandsRoot },
       { workspaceRoot: ws },
     );
@@ -202,15 +179,15 @@ describe('Workspace skill installers (decision #4)', () => {
     cleanups.push(layer.root);
     const ws = await workspace();
 
-    await new GeminiSkillInstaller().install(
+    await new CursorSkillInstaller().install(
       { skillsRoot: layer.skillsRoot, commandsRoot: layer.commandsRoot },
       { workspaceRoot: ws },
     );
-    const skillsTarget = join(ws, '.gemini', 'skills');
+    const skillsTarget = join(ws, '.cursor', 'skills');
     const manifest = await readManagedManifest(skillsTarget);
     expect(manifest.skills).toContain('caveman');
 
-    const status = await new GeminiSkillInstaller().install(
+    const status = await new CursorSkillInstaller().install(
       { skillsRoot: layer.skillsRoot, commandsRoot: layer.commandsRoot },
       { workspaceRoot: ws },
     );
@@ -259,17 +236,6 @@ describe('Workspace skill installers (decision #4)', () => {
 
     expect(await exists(join(skillsTarget, 'caveman'))).toBe(false);
     expect(await exists(join(skillsTarget, 'caveman-notes'))).toBe(true);
-  });
-});
-
-describe('emitGeminiCommandToml', () => {
-  it('extracts body as prompt, strips frontmatter, escapes triple quotes', () => {
-    const md = '---\ndescription: x\n---\nHello """world"""\nLine two\n';
-    const toml = emitGeminiCommandToml(md);
-    expect(toml.startsWith('prompt = """\n')).toBe(true);
-    expect(toml).not.toContain('description: x');
-    expect(toml).toContain('Line two');
-    expect(toml).toContain('\\"\\"\\"');
   });
 });
 

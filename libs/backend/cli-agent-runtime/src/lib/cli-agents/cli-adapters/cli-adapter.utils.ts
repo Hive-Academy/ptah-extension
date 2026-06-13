@@ -42,7 +42,7 @@ export async function resolveCliPath(binary: string): Promise<string | null> {
  *
  * @param options.needsConsole - When true, ensures the child process gets its own
  *   console window (hidden). Required for CLIs that use node-pty/ConPTY internally
- *   (e.g., Gemini CLI's run_shell_command). Without a console, ConPTY's
+ *   for shell command execution. Without a console, ConPTY's
  *   AttachConsole() fails on Windows, breaking shell command execution.
  */
 export function spawnCli(
@@ -118,8 +118,8 @@ export function probeCliVersion(
  * Prefers systemPrompt (full prompt harness) over projectGuidance when available.
  * Appends file context and task folder instructions to the base task.
  *
- * Adapters with native system prompt support (Gemini via GEMINI_SYSTEM_MD,
- * Copilot via systemMessage) should strip both systemPrompt and projectGuidance
+ * Adapters with native system prompt support (Copilot via systemMessage)
+ * should strip both systemPrompt and projectGuidance
  * before calling this function to avoid duplication.
  */
 export function buildTaskPrompt(options: CliCommandOptions): string {

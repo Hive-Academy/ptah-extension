@@ -23,10 +23,12 @@ import {
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import {
+  MessageFinalizationService,
   SessionManager,
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from '../message-validation.service';
+import { SessionLoaderService } from './session-loader.service';
 
 @Injectable({ providedIn: 'root' })
 export class ConversationService {
@@ -34,6 +36,8 @@ export class ConversationService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
+  private readonly sessionLoader = inject(SessionLoaderService);
+  private readonly messageFinalization = inject(MessageFinalizationService);
   private readonly validator = inject(MessageValidationService);
   private readonly ptahCliState = inject(PtahCliStateService);
   private readonly injector = inject(Injector); // For lazy injection to avoid circular dependency
@@ -486,6 +490,23 @@ export class ConversationService {
         streamingHandler.finalizeCurrentMessage(activeTabId ?? undefined, true);
       } else {
         this.finalizeCurrentMessage();
+      }
+      const resumableSubagents = result.data?.resumableSubagents;
+      if (resumableSubagents && resumableSubagents.length > 0) {
+        console.log(
+          '[ConversationService] chat:abort returned resumable subagents:',
+          resumableSubagents.length,
+        );
+        this.sessionLoader.setResumableSubagents(
+          [...resumableSubagents],
+          sessionId,
+        );
+        if (activeTabId) {
+          this.messageFinalization.markAgentsAsInterruptedByToolCallIds(
+            activeTabId,
+            new Set(resumableSubagents.map((r) => r.toolCallId)),
+          );
+        }
       }
       if (activeTabId) {
         this.tabManager.markTabIdle(activeTabId);

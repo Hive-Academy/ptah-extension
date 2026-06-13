@@ -18,7 +18,6 @@ Never commit `~/.ptah/settings.json` to a shared repository. Keys are encrypted 
 | Claude     | [console.anthropic.com](https://console.anthropic.com) → API Keys | `providers.claude.apiKey`     |
 | Copilot    | GitHub account → Copilot settings (see Copilot CLI docs)          | `providers.copilot.apiKey`    |
 | Codex      | Your Codex provider dashboard                                     | `providers.codex.apiKey`      |
-| Gemini     | [aistudio.google.com](https://aistudio.google.com) → Get API key  | `providers.gemini.apiKey`     |
 | Ollama     | No key required — set `baseUrl` to your local server              | `providers.ollama.baseUrl`    |
 | OpenRouter | [openrouter.ai](https://openrouter.ai) → Keys                     | `providers.openrouter.apiKey` |
 

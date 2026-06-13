@@ -2,7 +2,7 @@
  * CLI Agent Transformer Interface
  *
  * Strategy interface for CLI-specific agent content transformation.
- * Each CLI target (Copilot, Gemini) has its own transformer that rewrites
+ * Each CLI target (Copilot, Cursor) has its own transformer that rewrites
  * Claude-format agent content into the CLI's expected format.
  *
  * Pattern: Strategy pattern mirroring ICliSkillInstaller in llm-abstraction.

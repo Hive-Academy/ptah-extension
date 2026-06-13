@@ -311,9 +311,9 @@ Tier 2: Team-Leader (Advisory only — NEVER spawns)
 | **Activation**         | Checkpoint 0.1 (auto-discovered, user-confirmed)                                                                     |
 | **Sole spawner**       | Main orchestrator (Claude) — NO agent spawns sub-agents or CLI agents                                                |
 | **Team-leader role**   | Advisory: fills `Recommended Executor` + `Execution Mode` on each batch                                              |
-| **Available agents**   | gemini, codex, copilot, ptah-cli (user-configured)                                                                   |
+| **Available agents**   | ptah-cli, codex, copilot (user-configured)                                                                           |
 | **Concurrency limit**  | Max 3 CLI agents simultaneously                                                                                      |
-| **Selection priority** | ptah-cli > gemini > codex > copilot                                                                                  |
+| **Selection priority** | ptah-cli > codex > copilot                                                                                           |
 | **Decision authority** | Team-leader recommends; orchestrator executes the recommendation                                                     |
 | **Quality ownership**  | code-logic-reviewer (spawned by orchestrator on team-leader's NEEDS REVIEW) + team-leader verification before commit |
 
@@ -345,7 +345,7 @@ independently-executable sub-tasks to speed up your work.
 
 **How to delegate:**
 
-1. Spawn: `ptah_agent_spawn { task: "...", cli: "gemini", taskFolder: "...", files: [...] }`
+1. Spawn: `ptah_agent_spawn { task: "...", cli: "codex", taskFolder: "...", files: [...] }`
 2. Poll: `ptah_agent_status { agentId: "..." }` (repeat until not "running")
 3. Read: `ptah_agent_read { agentId: "..." }`
 4. Use the results in your deliverable

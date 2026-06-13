@@ -9,7 +9,14 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { LucideAngularModule, User, LogOut, Menu, X } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  User,
+  LogOut,
+  Menu,
+  X,
+  MoreHorizontal,
+} from 'lucide-angular';
 import { AuthService } from '../services/auth.service';
 
 /**
@@ -80,6 +87,16 @@ import { AuthService } from '../services/auth.service';
           'mt-4 transition-all': !scrolled() && !mobileMenuOpen(),
         }"
       >
+        <!-- Features Anchor -->
+        <a
+          routerLink="/"
+          fragment="features"
+          class="text-white/80 hover:text-amber-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          aria-label="Jump to features"
+        >
+          Features
+        </a>
+
         <!-- Pricing Link -->
         <a
           routerLink="/pricing"
@@ -201,45 +218,72 @@ import { AuthService } from '../services/auth.service';
           </svg>
         </a>
 
-        <!-- Reddit Link -->
-        <a
-          href="https://www.reddit.com/r/ptah_coding/"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-white/70 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md p-1"
-          aria-label="Join Reddit community"
-        >
-          <svg
-            class="w-5 h-5"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-hidden="true"
+        <!-- Community Overflow Dropdown -->
+        <div class="relative">
+          <button
+            type="button"
+            class="text-white/70 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md p-1 flex items-center"
+            [attr.aria-expanded]="communityMenuOpen()"
+            aria-haspopup="true"
+            aria-label="More community links"
+            (click)="toggleCommunityMenu()"
           >
-            <path
-              d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.249-.561 1.249-1.249 0-.688-.562-1.249-1.25-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 0-.463.327.327 0 0 0-.231-.094.33.33 0 0 0-.232.094c-.53.53-1.563.764-2.498.764-.935 0-1.982-.234-2.498-.764a.326.326 0 0 0-.232-.094z"
+            <lucide-angular
+              [img]="MoreIcon"
+              class="w-5 h-5"
+              aria-hidden="true"
             />
-          </svg>
-        </a>
+          </button>
 
-        <!-- LinkedIn Link -->
-        <a
-          href="https://www.linkedin.com/showcase/ptah-coding-orchestra/"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-white/70 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md p-1"
-          aria-label="Follow on LinkedIn"
-        >
-          <svg
-            class="w-5 h-5"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path
-              d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"
-            />
-          </svg>
-        </a>
+          @if (communityMenuOpen()) {
+            <div
+              class="absolute right-0 top-full mt-2 w-44 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
+              role="menu"
+              aria-label="Community links"
+            >
+              <a
+                href="https://www.reddit.com/r/ptah_coding/"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium"
+                role="menuitem"
+                (click)="closeCommunityMenu()"
+              >
+                <svg
+                  class="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.249-.561 1.249-1.249 0-.688-.562-1.249-1.25-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 0-.463.327.327 0 0 0-.231-.094.33.33 0 0 0-.232.094c-.53.53-1.563.764-2.498.764-.935 0-1.982-.234-2.498-.764a.326.326 0 0 0-.232-.094z"
+                  />
+                </svg>
+                Reddit
+              </a>
+              <a
+                href="https://www.linkedin.com/showcase/ptah-coding-orchestra/"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium"
+                role="menuitem"
+                (click)="closeCommunityMenu()"
+              >
+                <svg
+                  class="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"
+                  />
+                </svg>
+                LinkedIn
+              </a>
+            </div>
+          }
+        </div>
 
         <!-- Marketplace CTA -->
         <a
@@ -271,6 +315,17 @@ import { AuthService } from '../services/auth.service';
         aria-label="Mobile navigation menu"
       >
         <div class="flex flex-col py-4 px-4 space-y-1">
+          <!-- Features Anchor -->
+          <a
+            routerLink="/"
+            fragment="features"
+            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+            role="menuitem"
+            (click)="closeMobileMenu()"
+          >
+            Features
+          </a>
+
           <!-- Pricing Link -->
           <a
             routerLink="/pricing"
@@ -491,6 +546,7 @@ export class NavigationComponent implements OnInit {
   public readonly LogOutIcon = LogOut;
   public readonly MenuIcon = Menu;
   public readonly XIcon = X;
+  public readonly MoreIcon = MoreHorizontal;
 
   private readonly authService = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
@@ -508,6 +564,11 @@ export class NavigationComponent implements OnInit {
    * - true: Menu open (X icon shown, overlay visible)
    */
   public readonly mobileMenuOpen = signal(false);
+
+  /**
+   * Signal tracking the desktop community overflow menu open state
+   */
+  public readonly communityMenuOpen = signal(false);
 
   /**
    * Signal tracking authentication state
@@ -580,5 +641,19 @@ export class NavigationComponent implements OnInit {
    */
   public closeMobileMenu(): void {
     this.mobileMenuOpen.set(false);
+  }
+
+  /**
+   * Toggle the desktop community overflow menu
+   */
+  public toggleCommunityMenu(): void {
+    this.communityMenuOpen.update((open) => !open);
+  }
+
+  /**
+   * Close the desktop community overflow menu
+   */
+  public closeCommunityMenu(): void {
+    this.communityMenuOpen.set(false);
   }
 }

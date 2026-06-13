@@ -55,10 +55,11 @@ import {
   isJsonRpcErrorResponse,
   isJsonRpcNotification,
   isJsonRpcSuccessResponse,
+  JSONRPC_SCHEMA_VERSION,
   type JsonRpcMessage,
 } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import {
   PLATFORM_TOKENS,
   type IHttpServerProvider,
@@ -333,7 +334,7 @@ describe('ptah interact', () => {
         throw new Error('expected session.ready notification');
       }
       const params = decoded.message.params as Record<string, unknown>;
-      expect(params['schema_version']).toBe('0.1');
+      expect(params['schema_version']).toBe(JSONRPC_SCHEMA_VERSION);
       // Pre-existing fields remain untouched.
       expect(params['session_id']).toBeDefined();
       expect(params['protocol_version']).toBe('2.0');
@@ -440,7 +441,7 @@ describe('ptah interact', () => {
 
       expect(result.serverName).toBe('ptah');
       expect(result.mode).toBe('interact');
-      expect(result.schemaVersion).toBe('0.1');
+      expect(result.schemaVersion).toBe(JSONRPC_SCHEMA_VERSION);
       expect(result.version).toBeDefined();
       expect(result.catalog.tools).toEqual([]);
       expect(result.catalog.methods).toEqual(

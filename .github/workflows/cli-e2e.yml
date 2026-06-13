@@ -7,13 +7,13 @@
 # Pipeline:
 #   1. checkout + node 22
 #   2. cache-aware npm ci (rollup linux binary workaround for Linux runner)
-#   3. nx build ptah-cli  (explicit build to avoid the nx e2e dependency graph
-#      pulling messaging-gateway / persistence-sqlite which fail to bundle
-#      without optional native deps — repo-wide known issue)
-#   4. jest e2e specs directly via the harness config
-#   5. upload jest report as artifact on failure
-#
-# Runtime budget: < 5 min per matrix cell on cached deps.
+#   3. nx run ptah-cli:restore-cli-manifest — builds the full installed-bundle
+#      layout the harness spawns (main.mjs + tui.mjs + embedder-worker.mjs +
+#      package.json); `nx build ptah-cli` alone omits tui.mjs / embedder.
+#   4. npm rebuild better-sqlite3 — undo postinstall's Electron-ABI compile so
+#      the CLI's DB-backed commands load under the runner Node ABI.
+#   5. jest e2e specs directly via the harness config
+#   6. upload jest report as artifact on failure
 
 name: CLI E2E
 
@@ -83,14 +83,29 @@ jobs:
             npm install @rollup/rollup-linux-x64-gnu --no-save --force
           fi
 
-      - name: Build CLI
-        run: npx nx build ptah-cli
+      # Build the COMPLETE installed-bundle layout the harness spawns:
+      # main.mjs + tui.mjs + embedder-worker.mjs + the copied package.json.
+      # `nx build ptah-cli` alone emits only main.mjs (deleteOutputPath wipes
+      # the dir) — the tui smoke suite then fails because dist/.../tui.mjs is
+      # absent. `restore-cli-manifest` is the same chain `nx e2e` runs and
+      # produces every artifact. (cli-engine already depends on the full
+      # backend + electron graph, so this is not heavier than the old build.)
+      - name: Build CLI + TUI harness bundles
+        run: npx nx run ptah-cli:restore-cli-manifest
+
+      # `npm ci`'s postinstall (rebuild-native.js) compiles better-sqlite3 for
+      # the Electron ABI (143), but this harness spawns the CLI under the runner
+      # Node ABI. Without this rebuild every DB-backed command (memory / cron /
+      # skill-synthesis / gateway bindings) fails with a NODE_MODULE_VERSION
+      # mismatch -> ExitCode.InternalFailure (5). Run AFTER the build (the nx
+      # build chain never recompiles native modules) and before jest spawns the
+      # CLI. Idempotent; always run.
+      - name: Rebuild native modules for runner Node ABI
+        run: npm rebuild better-sqlite3
 
       - name: Run CLI e2e harness
-        # Invoke jest directly (NOT `nx e2e ptah-cli`) because the nx target
-        # pulls 16 build dependencies including messaging-gateway and
-        # persistence-sqlite that fail to bundle without optional native
-        # deps. The CLI build above is sufficient for the harness.
+        # Invoke jest directly (NOT `nx e2e ptah-cli`) so the harness controls
+        # the run; the build step above already produced the full dist layout.
         run: npx jest --config apps/ptah-cli/jest.e2e.config.cjs --runInBand
 
       - name: Upload jest report on failure

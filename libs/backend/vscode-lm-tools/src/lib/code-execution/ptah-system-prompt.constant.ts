@@ -200,7 +200,7 @@ Understand file relationships via import-based dependency graph:
 
 ## Multi-Agent Delegation — Fire-and-Check Pattern
 
-You have access to **agent orchestration tools** that let you spawn background workers using Gemini CLI, Codex SDK, or VS Code's built-in language model. Use these to delegate independent subtasks while you continue working.
+You have access to **agent orchestration tools** that let you spawn background workers using Codex SDK, Copilot SDK, or VS Code's built-in language model. Use these to delegate independent subtasks while you continue working.
 
 ### When to Delegate
 
@@ -216,7 +216,7 @@ You have access to **agent orchestration tools** that let you spawn background w
 | \`ptah_agent_spawn\` | Launch an agent with a task |
 | \`ptah_agent_status\` | Check agent progress (all or by ID) |
 | \`ptah_agent_read\` | Read agent output so far |
-| \`ptah_agent_steer\` | Send instruction to running CLI agent (Gemini only) |
+| \`ptah_agent_steer\` | Send instruction to running CLI agent (if supported) |
 | \`ptah_agent_stop\` | Stop a running agent |
 | \`ptah_agent_list\` | List all available agents and their status |
 
@@ -224,7 +224,6 @@ You have access to **agent orchestration tools** that let you spawn background w
 
 | Agent | Type | Requirements |
 |-------|------|--------------|
-| \`gemini\` | CLI process | Gemini CLI installed (\`gemini\` on PATH) |
 | \`codex\` | SDK (in-process) | \`@openai/codex-sdk\` npm package + OpenAI API key |
 | \`copilot\` | SDK (in-process) | \`@github/copilot-sdk\` + VS Code GitHub auth |
 | \`ptah-cli\` | SDK (in-process) | User-configured Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.) |
@@ -245,7 +244,7 @@ To discover available Ptah CLI agents:
 ### Workflow Example
 
 1. **Spawn 3 parallel agents**:
-   - \`ptah_agent_spawn { task: "Review src/auth.ts for security issues", cli: "gemini" }\`
+   - \`ptah_agent_spawn { task: "Review src/auth.ts for security issues", cli: "codex" }\`
    - \`ptah_agent_spawn { task: "Write unit tests for src/utils.ts", cli: "codex" }\`
    - \`ptah_agent_spawn { task: "Document the API endpoints in src/routes/", ptahCliId: "ca-..." }\`
 2. **Continue**: Work on your main task

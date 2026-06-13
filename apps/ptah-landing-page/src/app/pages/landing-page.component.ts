@@ -3,72 +3,15 @@ import { NavigationComponent } from '../components/navigation.component';
 import { ComparisonSectionComponent } from '../sections/comparison/comparison-section.component';
 import { CTASectionComponent } from '../sections/cta/cta-section.component';
 import { FooterComponent } from '../components/footer.component';
-import { FeaturesHijackedScrollComponent } from '../sections/features/features-hijacked-scroll.component';
 import { HeroComponent } from '../sections/hero/hero.component';
 import { OpenSourceSectionComponent } from '../sections/open-source/open-source-section.component';
 import { PremiumShowcaseComponent } from '../sections/premium-showcase/premium-showcase.component';
 import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcase.component';
+import { RuntimesTriptychComponent } from '../sections/runtimes-triptych/runtimes-triptych.component';
+import { ThothSuiteComponent } from '../sections/thoth-suite/thoth-suite.component';
+import { CanvasOrchestraComponent } from '../sections/canvas-orchestra/canvas-orchestra.component';
+import { WorkspaceIntelligenceComponent } from '../sections/workspace-intelligence/workspace-intelligence.component';
 
-/**
- * LandingPageComponent - Root page component that composes all landing page sections
- *
- * Complexity Level: 2 (Medium - Composition of multiple child components with lifecycle management)
- *
- * Single Responsibility: Compose and orchestrate all landing page sections with session data initialization
- *
- * SOLID Principles Applied:
- * - Single Responsibility: Only composes sections, initializes session data, and manages Lenis scroll
- * - Open/Closed: New sections can be added via composition
- * - Composition Over Inheritance: Uses child components, no inheritance
- * - Dependency Inversion: Depends on StaticSessionProvider and LenisSmoothScrollService abstractions
- *
- * Batch 5 Enhancements (Task 5.2):
- * - Lenis smooth scroll initialization via LenisSmoothScrollService
- * - afterNextRender() for client-side only initialization
- * - DestroyRef.onDestroy() for cleanup (handled automatically by service)
- *
- * Patterns Applied:
- * - Composition Pattern: Composes NavigationComponent + 5 section components
- * - Container Pattern: Manages page-level concerns (session loading, scroll)
- * - Signal-Based State: Leverages signals from StaticSessionProvider and LenisSmoothScrollService
- *
- * Architecture:
- * ```
- * LandingPageComponent (Container)
- * ├── NavigationComponent (Fixed Header)
- * └── main
- *     ├── HeroSectionComponent (Full viewport with @hive-academy/angular-3d)
- *     ├── DemoSectionComponent (Live chat demo)
- *     ├── FeaturesSectionComponent (Hijacked scroll timeline)
- *     ├── ComparisonSectionComponent (Parallax split scroll)
- *     └── CTASectionComponent (Final CTA + Footer)
- * ```
- *
- * Lifecycle:
- * - afterNextRender: Initialize Lenis smooth scroll (client-side only)
- * - OnInit: Pre-load demo session data via StaticSessionProvider
- * - Session data flows reactively to DemoSectionComponent
- * - Lenis service handles cleanup automatically via ngOnDestroy
- *
- * Design Spec Compliance:
- * - Anubis theme (DaisyUI)
- * - Lenis smooth scroll for premium feel
- * - Responsive layout (mobile-first)
- * - Accessibility: Semantic HTML structure
- *
- * @example
- * ```typescript
- * // Usage in app.ts
- * import { LandingPageComponent } from './pages/landing-page.component';
- *
- * @Component({
- *   selector: 'app-root',
- *   template: `<ptah-landing-page />`,
- *   imports: [LandingPageComponent]
- * })
- * export class App {}
- * ```
- */
 @Component({
   selector: 'ptah-landing-page',
   standalone: true,
@@ -76,19 +19,20 @@ import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcas
     NavigationComponent,
     HeroComponent,
     VideoShowcaseComponent,
+    RuntimesTriptychComponent,
     PremiumShowcaseComponent,
+    ThothSuiteComponent,
+    CanvasOrchestraComponent,
+    WorkspaceIntelligenceComponent,
     OpenSourceSectionComponent,
-    FeaturesHijackedScrollComponent,
     ComparisonSectionComponent,
     CTASectionComponent,
     FooterComponent,
   ],
   template: `
     <div class="min-h-screen bg-base-100 text-base-content">
-      <!-- Fixed Navigation -->
       <ptah-navigation />
 
-      <!-- Main Content Sections -->
       <main>
         <ptah-hero />
 
@@ -96,9 +40,46 @@ import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcas
           <ptah-video-showcase />
         </section>
 
-        <section id="premium-showcase" aria-label="Why Ptah">
-          <ptah-premium-showcase />
-        </section>
+        <div class="relative overflow-hidden bg-slate-950" aria-hidden="true">
+          <img
+            src="/assets/backgrounds/circuit-divider.jpg"
+            alt=""
+            loading="lazy"
+            decoding="async"
+            class="w-full h-14 sm:h-20 object-cover opacity-50"
+          />
+          <div
+            class="absolute inset-0 bg-gradient-to-r from-slate-950 via-transparent to-slate-950"
+          ></div>
+        </div>
+
+        <ptah-runtimes-triptych />
+
+        @defer (on viewport) {
+          <section id="features" aria-label="Why Ptah">
+            <ptah-premium-showcase />
+          </section>
+        } @placeholder {
+          <div class="min-h-screen"></div>
+        }
+
+        @defer (on viewport) {
+          <ptah-thoth-suite />
+        } @placeholder {
+          <div class="min-h-screen"></div>
+        }
+
+        @defer (on viewport) {
+          <ptah-canvas-orchestra />
+        } @placeholder {
+          <div class="min-h-screen"></div>
+        }
+
+        @defer (on viewport) {
+          <ptah-workspace-intelligence />
+        } @placeholder {
+          <div class="min-h-screen"></div>
+        }
 
         @defer (on viewport) {
           <section id="open-source" aria-label="Open Source">
@@ -109,17 +90,23 @@ import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcas
         }
 
         @defer (on viewport) {
-          <section id="features" aria-label="Features">
-            <ptah-features-hijacked-scroll />
-          </section>
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
-        @defer (on viewport) {
           <ptah-comparison-section />
         } @placeholder {
           <div class="min-h-screen"></div>
         }
+
+        <div class="relative overflow-hidden bg-slate-950" aria-hidden="true">
+          <img
+            src="/assets/backgrounds/circuit-divider.jpg"
+            alt=""
+            loading="lazy"
+            decoding="async"
+            class="w-full h-14 sm:h-20 object-cover opacity-50"
+          />
+          <div
+            class="absolute inset-0 bg-gradient-to-r from-slate-950 via-transparent to-slate-950"
+          ></div>
+        </div>
 
         <ptah-cta-section />
       </main>

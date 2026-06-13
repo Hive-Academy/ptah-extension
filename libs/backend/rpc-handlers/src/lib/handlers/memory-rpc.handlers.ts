@@ -475,6 +475,7 @@ export class MemoryRpcHandlers {
               code_symbols_vec: snapshot.dbHealth.code_symbols_vec,
               coherent: snapshot.dbHealth.coherent,
               mismatches: snapshot.dbHealth.mismatches,
+              countErrors: snapshot.dbHealth.countErrors,
             },
             triggers: {
               preCompact: snapshot.triggers.preCompact,

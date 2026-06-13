@@ -472,6 +472,14 @@ export function isTextBlock(
   return block.type === 'text';
 }
 
+export const SDK_INTERRUPT_SENTINEL = '[Request interrupted by user]';
+
+export function isInterruptSentinelText(
+  text: string | null | undefined,
+): boolean {
+  return typeof text === 'string' && text.trim() === SDK_INTERRUPT_SENTINEL;
+}
+
 export function isToolUseBlock(
   block: ContentBlock | { type: string },
 ): block is ToolUseBlock {

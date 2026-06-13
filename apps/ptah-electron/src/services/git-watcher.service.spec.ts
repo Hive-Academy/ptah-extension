@@ -229,6 +229,50 @@ describe('GitWatcherService', () => {
       const payload = gitCalls[0][1] as GitStatusUpdatePayload;
       expect(payload.causes).toEqual(['initial']);
     });
+
+    it('fetchAndPush stamps the payload with the watched workspaceRoot', async () => {
+      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
+      (svc as unknown as { workspacePath: string }).workspacePath =
+        'D:\\fake\\ws';
+      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+
+      await (
+        svc as unknown as { fetchAndPush(): Promise<void> }
+      ).fetchAndPush();
+
+      const gitCalls = broadcast.mock.calls.filter(
+        ([t]) => t === 'git:status-update',
+      );
+      expect(gitCalls).toHaveLength(1);
+      const payload = gitCalls[0][1] as GitStatusUpdatePayload;
+      expect(payload.workspaceRoot).toBe('D:\\fake\\ws');
+    });
+
+    it('fetchAndPush drops the broadcast when the workspace switches mid-fetch', async () => {
+      (svc as unknown as { broadcastFn: Broadcast }).broadcastFn = broadcast;
+      (svc as unknown as { workspacePath: string }).workspacePath =
+        'D:\\fake\\ws-a';
+      (svc as unknown as { isDisposed: boolean }).isDisposed = false;
+
+      gitInfo.getGitInfo.mockImplementationOnce(async () => {
+        (svc as unknown as { workspacePath: string }).workspacePath =
+          'D:\\fake\\ws-b';
+        return {
+          isGitRepo: true,
+          branch: { branch: 'main', upstream: null, ahead: 0, behind: 0 },
+          files: [],
+        } as unknown as GitInfoResult;
+      });
+
+      await (
+        svc as unknown as { fetchAndPush(): Promise<void> }
+      ).fetchAndPush();
+
+      const gitCalls = broadcast.mock.calls.filter(
+        ([t]) => t === 'git:status-update',
+      );
+      expect(gitCalls).toHaveLength(0);
+    });
   });
 
   // ===========================================================================

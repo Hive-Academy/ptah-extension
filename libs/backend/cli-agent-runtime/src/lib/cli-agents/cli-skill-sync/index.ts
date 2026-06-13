@@ -12,7 +12,6 @@ export type {
 export { WorkspaceSkillInstaller } from './workspace-skill-installer.base';
 export { CodexSkillInstaller } from './codex-skill-installer';
 export { CopilotSkillInstaller } from './copilot-skill-installer';
-export { GeminiSkillInstaller } from './gemini-skill-installer';
 export { CursorSkillInstaller } from './cursor-skill-installer';
 export { CliSkillManifestTracker } from './cli-skill-manifest-tracker';
 export {
@@ -20,7 +19,6 @@ export {
   sanitizeYamlDescriptions,
   rewriteSkillName,
   copyDirectoryRecursive,
-  emitGeminiCommandToml,
   mergeAgentsRegion,
   reapPrefixedHomeEntries,
   readManagedManifest,

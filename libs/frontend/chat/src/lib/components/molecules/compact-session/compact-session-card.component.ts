@@ -161,14 +161,14 @@ export class CompactSessionCardComponent {
   readonly sessionPermissions = computed(() => {
     const permissions = this.chatStore.permissionRequests();
     const sessionId = this.tab().claudeSessionId;
-    if (!sessionId) return permissions;
+    if (!sessionId) return [];
     return permissions.filter((p) => p.sessionId === sessionId);
   });
 
   readonly sessionQuestions = computed(() => {
     const questions = this.chatStore.questionRequests();
     const sessionId = this.tab().claudeSessionId;
-    if (!sessionId) return questions;
+    if (!sessionId) return [];
     return questions.filter((q) => q.sessionId === sessionId);
   });
 

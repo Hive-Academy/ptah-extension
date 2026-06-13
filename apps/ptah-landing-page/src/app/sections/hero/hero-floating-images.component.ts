@@ -54,45 +54,45 @@ interface FloatingImage {
         class="orbit-container absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
       >
         @for (image of floatingImages; track image.src; let i = $index) {
-        <!-- Orbit item - positioned and animated via GSAP -->
-        <div
-          class="orbit-item absolute"
-          [attr.data-index]="i"
-          [attr.data-direction]="image.slideDirection"
-        >
-          <!-- Floating image -->
+          <!-- Orbit item - positioned and animated via GSAP -->
           <div
-            class="floating-image"
-            [style.width.px]="image.size"
-            [style.height.px]="image.size"
-            [style.opacity]="reducedMotion() ? 0.6 : 0.85"
-            [style.marginLeft.px]="-image.size / 2"
-            [style.marginTop.px]="-image.size / 2"
+            class="orbit-item absolute"
+            [attr.data-index]="i"
+            [attr.data-direction]="image.slideDirection"
           >
+            <!-- Floating image -->
             <div
-              class="relative w-full h-full rounded-full overflow-hidden shadow-2xl"
-              [style.transform]="'rotate(' + image.rotation + 'deg)'"
+              class="floating-image"
+              [style.width.px]="image.size"
+              [style.height.px]="image.size"
+              [style.opacity]="reducedMotion() ? 0.6 : 0.85"
+              [style.marginLeft.px]="-image.size / 2"
+              [style.marginTop.px]="-image.size / 2"
             >
-              <!-- Glow effect -->
               <div
-                class="absolute -inset-2 rounded-full bg-amber-500/20 blur-xl"
-              ></div>
-
-              <!-- Image container with border -->
-              <div
-                class="relative w-full h-full rounded-full overflow-hidden border-2 border-amber-500/30"
+                class="relative w-full h-full rounded-full overflow-hidden shadow-2xl"
+                [style.transform]="'rotate(' + image.rotation + 'deg)'"
               >
-                <img
-                  [ngSrc]="image.src"
-                  [alt]="image.alt"
-                  fill
-                  class="object-cover"
-                  priority
-                />
+                <!-- Glow effect -->
+                <div
+                  class="absolute -inset-2 rounded-full bg-amber-500/20 blur-xl"
+                ></div>
+
+                <!-- Image container with border -->
+                <div
+                  class="relative w-full h-full rounded-full overflow-hidden border-2 border-amber-500/30"
+                >
+                  <img
+                    [ngSrc]="image.src"
+                    [alt]="image.alt"
+                    fill
+                    class="object-cover"
+                    priority
+                  />
+                </div>
               </div>
             </div>
           </div>
-        </div>
         }
       </div>
     </div>
@@ -165,7 +165,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
     {
       src: '/assets/textures/ankh-sphere.png',
       alt: 'Ankh symbol',
-      size: 180,
+      size: 120,
       angleOffset: 0, // 12 o'clock position
       rotation: -10,
       slideDirection: 'slideRight',
@@ -173,7 +173,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
     {
       src: '/assets/textures/scarab.png',
       alt: 'Sacred scarab',
-      size: 160,
+      size: 105,
       angleOffset: 90, // 3 o'clock position
       rotation: 5,
       slideDirection: 'slideLeft',
@@ -181,7 +181,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
     {
       src: '/assets/textures/eye_of_horus.png',
       alt: 'Eye of Horus',
-      size: 150,
+      size: 100,
       angleOffset: 180, // 6 o'clock position
       rotation: -5,
       slideDirection: 'slideRight',
@@ -189,7 +189,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
     {
       src: '/assets/textures/sun_disk_ra.png',
       alt: 'Sun disk of Ra',
-      size: 170,
+      size: 110,
       angleOffset: 270, // 9 o'clock position
       rotation: 8,
       slideDirection: 'slideLeft',
@@ -200,7 +200,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
     afterNextRender(() => {
       if (!isPlatformBrowser(this.platformId)) return;
       const prefersReducedMotion = window.matchMedia(
-        '(prefers-reduced-motion: reduce)'
+        '(prefers-reduced-motion: reduce)',
       ).matches;
       this.reducedMotion.set(prefersReducedMotion);
 
@@ -232,7 +232,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
    */
   private getOrbitPosition(
     index: number,
-    baseAngle: number
+    baseAngle: number,
   ): { x: number; y: number } {
     const radius = this.currentRadius();
     const image = this.floatingImages[index];
@@ -312,7 +312,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
           this.currentAngle = progress * 360;
           this.updateOrbitPositions(orbitItems, this.currentAngle);
         },
-      }
+      },
     );
     const radiusProxy = { value: this.currentRadius() };
     this.radiusQuickTo = gsap.quickTo(radiusProxy, 'value', {
@@ -329,7 +329,7 @@ export class HeroFloatingImagesComponent implements OnDestroy {
    */
   private updateOrbitPositions(
     items: NodeListOf<Element>,
-    baseAngle: number
+    baseAngle: number,
   ): void {
     const radius = this.currentRadius();
 

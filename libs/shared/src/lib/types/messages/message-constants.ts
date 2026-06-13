@@ -131,8 +131,10 @@ export const MESSAGE_TYPES = {
   SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',
   SETUP_WIZARD_SCAN_PROGRESS: 'setup-wizard:scan-progress',
   SETUP_WIZARD_ANALYSIS_STREAM: 'setup-wizard:analysis-stream',
-  /** Backend → Frontend: seed a new chat session with a pre-populated user turn (new-project handoff). */
-  SETUP_WIZARD_START_NEW_PROJECT_CHAT: 'setup-wizard:start-new-project-chat',
+  /** Backend → Frontend: open an agent-driven harness workflow surface (new-project / configure-harness). */
+  HARNESS_OPEN_WORKFLOW: 'harness:open-workflow',
+  /** Backend → Frontend: agent proposed harness config updates via the proposeConfig MCP tool. */
+  HARNESS_CONFIG_PROPOSED: 'harness:config-proposed',
   ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
   ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',
   ASK_USER_QUESTION_AUTO_RESOLVED: 'ask-user-question:auto-resolved',

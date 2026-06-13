@@ -3,6 +3,13 @@ export {
   type ChatFile,
   type FileSuggestion,
 } from './file-picker.service';
+export {
+  VoiceInputService,
+  MEDIA_RECORDER_FACTORY,
+  type VoiceInputState,
+  type VoiceTranscriptionResult,
+  type MediaRecorderFactory,
+} from './voice-input.service';
 export { ChatStore } from './chat.store';
 /** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
 export { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';

@@ -43,6 +43,7 @@
       "@ptah-extension/cli-agent-runtime": [
         "./libs/backend/cli-agent-runtime/src/index.ts"
       ],
+      "@ptah-extension/cli-engine": ["./libs/backend/cli-engine/src/index.ts"],
       "@ptah-extension/core": ["./libs/frontend/core/src/index.ts"],
       "@ptah-extension/cron-scheduler": [
         "./libs/backend/cron-scheduler/src/index.ts"

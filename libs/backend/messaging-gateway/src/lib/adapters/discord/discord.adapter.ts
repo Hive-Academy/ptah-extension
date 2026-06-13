@@ -1,37 +1,3 @@
-/**
- * Discord adapter — slash `/ptah` plus free-form inbound: @mention the bot in
- * a channel to open a conversation, then type plain messages in its thread.
- *
- * Conversation model: one Discord thread per channel-conversation.
- *
- * On inbound `/ptah <prompt>` interaction the adapter:
- *   1. Calls `interaction.deferReply()` immediately so Discord doesn't
- *      time out the 3-second initial-response window.
- *   2. Resolves-or-creates a public thread for the channel (keyed by
- *      `interaction.channelId`) and `editReply()`s a short pointer to it.
- *      This happens well inside the 15-minute interaction-token window.
- *   3. Emits the inbound message exactly as before.
- *
- * All outbound traffic (`sendMessage` / `editMessage`) targets DURABLE
- * channel/thread messages via the bot REST API (`thread.send`,
- * `channel.send`, `message.edit`). Those have no token-expiry, so
- * multi-turn and unprompted messages work indefinitely — unlike the
- * interaction/webhook token, which expires after 15 minutes.
- *
- * Required bot permissions: "Send Messages", "Create Public Threads",
- * "Send Messages in Threads". Gateway intents: `Guilds`, `GuildMessages`, and
- * the privileged `MessageContent` — the last is required to read free-form
- * replies and must also be enabled on the Developer Portal Bot page.
- *
- * The conversation→thread map is in-memory (v1). Persistence across
- * process restarts is OUT OF SCOPE — on restart the next `/ptah` in a
- * channel simply creates a fresh thread. (Follow-up: persist the map.)
- *
- * Mocking strategy (default 5): the discord.js client is constructed via
- * a factory; tests pass a `FakeDiscordClient` exposing the small surface
- * we touch: `login`, `destroy`, `on('interactionCreate', ...)`,
- * `channels.fetch`, thread create/send, channel send, message edit.
- */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type {
@@ -43,14 +9,13 @@ import type {
 import { ConversationKey } from '../../types';
 
 export interface DiscordInteractionLike {
-  /** Slash-command name. */
   commandName: string;
-  /** Stable id we use as `externalMsgId`. */
   id: string;
   channelId: string;
   guildId: string | null;
   user: { id: string; username?: string };
   options: { getString(name: string): string | null };
+  channel?: { isThread(): boolean; parentId: string | null } | null;
   deferReply(): Promise<unknown>;
   editReply(payload: string | { content: string }): Promise<unknown>;
 }
@@ -78,25 +43,24 @@ export interface DiscordGuildLike {
 export interface DiscordThreadLike {
   id: string;
   send(payload: string | { content: string }): Promise<DiscordMessageLike>;
-  setArchived(archived: boolean): Promise<unknown>;
 }
 
-export interface DiscordTextChannelLike {
-  threads: {
+export interface DiscordSendableChannelLike {
+  send(payload: string | { content: string }): Promise<DiscordMessageLike>;
+  threads?: {
     create(opts: {
       name: string;
       autoArchiveDuration: number;
       type: number;
     }): Promise<DiscordThreadLike>;
   };
-  send(payload: string | { content: string }): Promise<DiscordMessageLike>;
 }
 
 export interface DiscordClientLike {
   user: { id: string } | null;
   guilds: { cache: { map<T>(fn: (g: DiscordGuildLike) => T): T[] } };
   channels: {
-    fetch(channelId: string): Promise<DiscordTextChannelLike | null>;
+    fetch(channelId: string): Promise<DiscordSendableChannelLike | null>;
   };
   login(token: string): Promise<unknown>;
   destroy(): Promise<unknown> | unknown;
@@ -148,12 +112,6 @@ const THREAD_AUTO_ARCHIVE_MINUTES = 10_080;
 const THREAD_NAME_PROMPT_CHARS = 40;
 const PUBLIC_THREAD_TYPE_FALLBACK = 11;
 
-interface ConversationThread {
-  threadId: string;
-  thread: DiscordThreadLike;
-  currentMsgId?: string;
-}
-
 @injectable()
 export class DiscordAdapter implements IMessagingAdapter {
   readonly platform = 'discord' as const;
@@ -163,11 +121,7 @@ export class DiscordAdapter implements IMessagingAdapter {
   private running = false;
 
   private allowedGuildIds = new Set<string>();
-  /** channelId → resolved thread for that conversation. */
-  private threadsByChannel = new Map<string, ConversationThread>();
-  /** outbound message id → its live Message handle (for editMessage). */
   private messagesById = new Map<string, DiscordMessageLike>();
-  /** Per-channel sliding window for edit rate limit. */
   private channelEdits = new Map<string, number[]>();
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
@@ -186,7 +140,6 @@ export class DiscordAdapter implements IMessagingAdapter {
     return this.running;
   }
 
-  /** Servers the bot is currently a member of — empty until connected. */
   listGuilds(): DiscordGuildLike[] {
     if (!this.client) return [];
     return this.client.guilds.cache.map((g) => ({ id: g.id, name: g.name }));
@@ -199,18 +152,18 @@ export class DiscordAdapter implements IMessagingAdapter {
     this.client.on('interactionCreate', async (interaction) => {
       try {
         await this.handleInteraction(interaction);
-      } catch (err) {
+      } catch (error: unknown) {
         this.logger.warn('[gateway] discord interaction handler failed', {
-          error: err instanceof Error ? err.message : String(err),
+          error: error instanceof Error ? error.message : String(error),
         });
       }
     });
     this.client.on('messageCreate', async (message) => {
       try {
         await this.handleIncomingMessage(message);
-      } catch (err) {
+      } catch (error: unknown) {
         this.logger.warn('[gateway] discord message handler failed', {
-          error: err instanceof Error ? err.message : String(err),
+          error: error instanceof Error ? error.message : String(error),
         });
       }
     });
@@ -224,28 +177,25 @@ export class DiscordAdapter implements IMessagingAdapter {
     this.running = false;
     try {
       await this.client?.destroy();
-    } catch (err) {
+    } catch (error: unknown) {
       this.logger.warn('[gateway] discord client destroy failed', {
-        error: err instanceof Error ? err.message : String(err),
+        error: error instanceof Error ? error.message : String(error),
       });
     }
     this.client = null;
-    this.threadsByChannel.clear();
     this.messagesById.clear();
     this.channelEdits.clear();
   }
 
-  async sendMessage(externalChatId: string, body: string): Promise<SendResult> {
-    await this.respectChannelRateLimit(externalChatId);
-    const conversation = this.threadsByChannel.get(externalChatId);
-    let message: DiscordMessageLike;
-    if (conversation) {
-      message = await conversation.thread.send({ content: body });
-      conversation.currentMsgId = message.id;
-    } else {
-      const channel = await this.requireChannel(externalChatId);
-      message = await channel.send({ content: body });
-    }
+  async sendMessage(
+    externalChatId: string,
+    body: string,
+    opts?: { conversationId?: string },
+  ): Promise<SendResult> {
+    const targetId = opts?.conversationId ?? externalChatId;
+    await this.respectChannelRateLimit(targetId);
+    const channel = await this.requireChannel(targetId);
+    const message = await channel.send({ content: body });
     this.messagesById.set(message.id, message);
     return { externalMsgId: message.id };
   }
@@ -272,7 +222,7 @@ export class DiscordAdapter implements IMessagingAdapter {
 
   private async requireChannel(
     channelId: string,
-  ): Promise<DiscordTextChannelLike> {
+  ): Promise<DiscordSendableChannelLike> {
     if (!this.client) {
       throw new Error('Discord adapter: client not started');
     }
@@ -283,28 +233,21 @@ export class DiscordAdapter implements IMessagingAdapter {
     return channel;
   }
 
-  private async resolveThread(
+  private async createThread(
     channelId: string,
     prompt: string,
-  ): Promise<ConversationThread> {
-    const existing = this.threadsByChannel.get(channelId);
-    if (existing) {
-      await existing.thread.setArchived(false);
-      return existing;
-    }
+  ): Promise<DiscordThreadLike> {
     const channel = await this.requireChannel(channelId);
-    const name = this.threadName(prompt);
-    const thread = await channel.threads.create({
-      name,
+    if (!channel.threads) {
+      throw new Error(
+        `Discord adapter: channel ${channelId} does not support threads`,
+      );
+    }
+    return channel.threads.create({
+      name: this.threadName(prompt),
       autoArchiveDuration: THREAD_AUTO_ARCHIVE_MINUTES,
       type: resolvePublicThreadType(),
     });
-    const conversation: ConversationThread = {
-      threadId: thread.id,
-      thread,
-    };
-    this.threadsByChannel.set(channelId, conversation);
-    return conversation;
   }
 
   private threadName(prompt: string): string {
@@ -332,24 +275,72 @@ export class DiscordAdapter implements IMessagingAdapter {
     }
     await interaction.deferReply();
     const prompt = interaction.options.getString('prompt') ?? '';
-    const conversation = await this.resolveThread(
-      interaction.channelId,
-      prompt,
-    );
-    await interaction.editReply({
-      content: `Working in thread <#${conversation.threadId}>`,
-    });
-    const externalChatId = interaction.channelId;
-    const inbound: InboundMessage = {
-      platform: 'discord',
-      externalChatId,
-      displayName: interaction.user.username,
-      externalMsgId: interaction.id,
-      body: prompt,
-      conversationKey: ConversationKey.for('discord', externalChatId),
-      allowListId: interaction.guildId ?? undefined,
-    };
-    await this.listener(inbound);
+    try {
+      if (interaction.channel?.isThread()) {
+        const parentId = interaction.channel.parentId;
+        if (parentId === null) {
+          await interaction.editReply({
+            content: 'Ptah could not open a thread here.',
+          });
+          this.logger.warn(
+            '[gateway] discord interaction dropped: thread parent unknown',
+            { threadId: interaction.channelId },
+          );
+          return;
+        }
+        const threadId = interaction.channelId;
+        await interaction.editReply({ content: 'On it.' });
+        const inbound: InboundMessage = {
+          platform: 'discord',
+          externalChatId: parentId,
+          displayName: interaction.user.username,
+          externalMsgId: interaction.id,
+          body: prompt,
+          conversationKey: ConversationKey.for('discord', parentId, threadId),
+          allowListId: interaction.guildId ?? undefined,
+          conversationId: threadId,
+          conversationMode: 'attach',
+        };
+        await this.listener(inbound);
+        return;
+      }
+
+      const externalChatId = interaction.channelId;
+      const thread = await this.createThread(externalChatId, prompt);
+      await interaction.editReply({
+        content: `Working in thread <#${thread.id}>`,
+      });
+      const inbound: InboundMessage = {
+        platform: 'discord',
+        externalChatId,
+        displayName: interaction.user.username,
+        externalMsgId: interaction.id,
+        body: prompt,
+        conversationKey: ConversationKey.for(
+          'discord',
+          externalChatId,
+          thread.id,
+        ),
+        allowListId: interaction.guildId ?? undefined,
+        conversationId: thread.id,
+        conversationMode: 'open',
+      };
+      await this.listener(inbound);
+    } catch (error: unknown) {
+      this.logger.warn('[gateway] discord interaction dispatch failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      try {
+        await interaction.editReply({
+          content: 'Ptah could not open a thread here.',
+        });
+      } catch (editError: unknown) {
+        this.logger.warn('[gateway] discord editReply after failure failed', {
+          error:
+            editError instanceof Error ? editError.message : String(editError),
+        });
+      }
+    }
   }
 
   private async handleIncomingMessage(
@@ -369,37 +360,60 @@ export class DiscordAdapter implements IMessagingAdapter {
     }
 
     const botId = this.client?.user?.id;
-    let externalChatId: string;
 
     if (message.channel.isThread()) {
       const parentId = message.channel.parentId;
-      const conversation = parentId
-        ? this.threadsByChannel.get(parentId)
-        : undefined;
-      if (!conversation || conversation.threadId !== message.channelId) return;
-      externalChatId = parentId as string;
+      if (parentId === null) {
+        this.logger.warn(
+          '[gateway] discord thread message dropped: parent channel unknown',
+          { threadId: message.channelId },
+        );
+        return;
+      }
       if (botId) body = this.stripMention(body, botId);
-    } else {
-      if (!botId || !message.mentions.has(botId)) return;
-      body = this.stripMention(body, botId);
       if (!body) return;
-      externalChatId = message.channelId;
-      const conversation = await this.resolveThread(externalChatId, body);
-      const channel = await this.requireChannel(externalChatId);
-      await channel.send({
-        content: `Working in thread <#${conversation.threadId}>`,
-      });
+      const inbound: InboundMessage = {
+        platform: 'discord',
+        externalChatId: parentId,
+        displayName: message.author.username,
+        externalMsgId: message.id,
+        body,
+        conversationKey: ConversationKey.for(
+          'discord',
+          parentId,
+          message.channelId,
+        ),
+        allowListId: message.guildId ?? undefined,
+        conversationId: message.channelId,
+        conversationMode: 'attach',
+      };
+      await this.listener(inbound);
+      return;
     }
-    if (!body) return;
 
+    if (!botId || !message.mentions.has(botId)) return;
+    body = this.stripMention(body, botId);
+    if (!body) return;
+    const externalChatId = message.channelId;
+    const thread = await this.createThread(externalChatId, body);
+    const channel = await this.requireChannel(externalChatId);
+    await channel.send({
+      content: `Working in thread <#${thread.id}>`,
+    });
     const inbound: InboundMessage = {
       platform: 'discord',
       externalChatId,
       displayName: message.author.username,
       externalMsgId: message.id,
       body,
-      conversationKey: ConversationKey.for('discord', externalChatId),
+      conversationKey: ConversationKey.for(
+        'discord',
+        externalChatId,
+        thread.id,
+      ),
       allowListId: message.guildId ?? undefined,
+      conversationId: thread.id,
+      conversationMode: 'open',
     };
     await this.listener(inbound);
   }

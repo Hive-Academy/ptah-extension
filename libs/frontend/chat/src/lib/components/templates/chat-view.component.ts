@@ -878,7 +878,7 @@ export class ChatViewComponent {
    * This prevents creating a new session when the tab is in streaming status.
    */
   handleResumeAgent(agent: SubagentRecord): void {
-    const prompt = `Resume the interrupted ${agent.agentType} agent (agentId: ${agent.agentId}) using the Task tool with resume parameter set to "${agent.agentId}".`;
+    const prompt = `Resume agent ${agent.agentId} (the interrupted ${agent.agentType} agent) and have it continue its previous work from where it was interrupted.`;
     const tabId = this._sessionContext?.() ?? undefined;
     this.chatStore.sendOrQueueMessage(prompt, { tabId });
     this.chatStore.removeResumableSubagent(agent.toolCallId);
@@ -897,9 +897,9 @@ export class ChatViewComponent {
     }
 
     const agentList = agents
-      .map((a) => `- ${a.agentType} (agentId: ${a.agentId})`)
+      .map((a) => `- Resume agent ${a.agentId} (${a.agentType})`)
       .join('\n');
-    const prompt = `Resume all ${agents.length} interrupted agents using the Task tool with resume parameter for each:\n${agentList}`;
+    const prompt = `Resume all ${agents.length} interrupted agents and have each continue its previous work from where it was interrupted:\n${agentList}`;
     const tabId = this._sessionContext?.() ?? undefined;
     this.chatStore.sendOrQueueMessage(prompt, { tabId });
     for (const agent of agents) {
@@ -1070,8 +1070,8 @@ export class ChatViewComponent {
           (files.length > 10 ? `\n…and ${files.length - 10} more` : '');
 
     const header = checkpointsLost
-      ? 'A new session will be forked from this message.'
-      : `${files.length} file(s) will be reverted (${ins} insertions, ${del} deletions removed). A new session will be forked from this message.`;
+      ? 'The conversation will be rewound to this message in place.'
+      : `${files.length} file(s) will be reverted (${ins} insertions, ${del} deletions removed). The conversation will be rewound to this message in place.`;
 
     const dialogResult = await this._confirmDialog.confirmWithCheckboxes({
       title: 'Rewind to this message?',
@@ -1139,31 +1139,36 @@ export class ChatViewComponent {
     }
 
     const newSessionId = forkResult.data.newSessionId;
-    let swapFailed = false;
 
-    if (this._appState.layoutMode() === 'grid') {
-      const adopted = await this._appState.requestCanvasSession(
+    // The SDK forked to a NEW session id (it has no in-place conversation
+    // rewind — `Query` only exposes `rewindFiles`). Make that fork transparent:
+    // keep the SAME tab/canvas tile and swap the session it points at, instead
+    // of opening a second tab/tile and leaving the original behind. Then load
+    // the truncated transcript and activate the forked session so it is live
+    // and ready for the next turn.
+    const originTab = this._tabManager.findTabBySessionId(sessionId);
+    const originName =
+      originTab?.name ?? this._tabManager.activeTab()?.name ?? 'Session';
+    const replacementTitle = `${originName} (rewind)`;
+    const targetTabId = originTab?.id ?? this._tabManager.activeTabId();
+
+    let swapFailed = false;
+    if (targetTabId) {
+      this._tabManager.rebindTabSession(
+        targetTabId,
         newSessionId,
-        'Rewind',
+        replacementTitle,
       );
-      if (!adopted) {
-        swapFailed = true;
-        this.showActionError(
-          'Rewind canvas tile could not be opened (tile cap reached or canvas not mounted).',
-        );
-      }
-    } else {
-      this._tabManager.openSessionTab(newSessionId, 'Rewind');
-      try {
-        await this.chatStore.switchSession(newSessionId);
-      } catch (err: unknown) {
-        swapFailed = true;
-        this.showActionError(
-          `Rewind tab opened, but loading history failed: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
+    }
+    try {
+      await this.chatStore.switchSession(newSessionId, { activate: true });
+    } catch (err: unknown) {
+      swapFailed = true;
+      this.showActionError(
+        `Rewind loaded the forked session, but activating it failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
 
     let deleteSuffix: string | null = null;
@@ -1181,7 +1186,7 @@ export class ChatViewComponent {
 
     if (swapFailed) return;
 
-    const baseMsg = 'Rewind complete — switched to new session';
+    const baseMsg = 'Rewind complete — conversation rewound to this message';
     const suffixes = [rollbackSuffix, deleteSuffix].filter(
       (s): s is string => s !== null,
     );

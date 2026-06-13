@@ -39,13 +39,13 @@ describe('redact', () => {
     const out = redact({
       providers: {
         anthropic: { apiKey: 'sk-anthropic', endpoint: 'https://api.x' },
-        gemini: { token: 'g-token', model: 'gemini-pro' },
+        copilot: { token: 'c-token', model: 'copilot-pro' },
       },
     });
     expect(out).toEqual({
       providers: {
         anthropic: { apiKey: DEFAULT_REDACTION, endpoint: 'https://api.x' },
-        gemini: { token: DEFAULT_REDACTION, model: 'gemini-pro' },
+        copilot: { token: DEFAULT_REDACTION, model: 'copilot-pro' },
       },
     });
   });

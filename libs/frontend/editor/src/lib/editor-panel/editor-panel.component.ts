@@ -508,6 +508,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     const workspaceRoot = this.vscodeService.config().workspaceRoot;
     if (workspaceRoot) {
       this.editorService.switchWorkspace(workspaceRoot);
+      this.gitStatus.switchWorkspace(workspaceRoot);
     }
   });
 
