@@ -114,6 +114,61 @@ test('package.json declares ptah activation events', async () => {
   );
 });
 
+// ----- RPC registration contract ------------------------------------------
+//
+// The failure mode that shipped broken to the Marketplace: RPC methods the
+// webview calls had missing or wrongly-excluded backend handlers. The
+// runtime verifier (verifyAndReportRpcRegistration) detects this at every
+// activation but only logs in production — nothing asserted on it. The
+// extension now surfaces the verification result through its activation
+// exports; this spec turns it into a hard gate against the real bundle.
+//
+// Requires the runner to seed a community license state (see runner.mjs):
+// without it activation stops at the license gate and RPC registration
+// never runs.
+
+test('extension activates past the license gate (community path)', async () => {
+  const ext = await waitForActivation();
+  assert.ok(
+    ext.exports && typeof ext.exports.getRpcVerification === 'function',
+    'activation exports missing getRpcVerification — activate() threw or the export wiring regressed',
+  );
+  assert.ok(
+    ext.exports.getRpcVerification() !== undefined,
+    'getRpcVerification() returned undefined — activation took the license-blocked ' +
+      'path, so RPC registration never ran. Check the state.vscdb seed in runner.mjs.',
+  );
+});
+
+test('every RPC method in the registry has a registered handler', async () => {
+  const ext = await waitForActivation();
+  const verification = ext.exports?.getRpcVerification?.();
+  assert.ok(verification, 'no verification result (blocked or crashed activation)');
+  assert.ok(
+    verification.expectedCount > 50,
+    `suspiciously few expected RPC methods (${verification.expectedCount}) — registry import broken?`,
+  );
+  assert.deepEqual(
+    verification.missingHandlers,
+    [],
+    `RPC methods in the registry with NO backend handler — the webview can call ` +
+      `these and they will fail at runtime:\n  ${verification.missingHandlers.join('\n  ')}`,
+  );
+});
+
+test('no orphan RPC handlers (registered but not in the registry / wrongly excluded)', async () => {
+  const ext = await waitForActivation();
+  const verification = ext.exports?.getRpcVerification?.();
+  assert.ok(verification, 'no verification result (blocked or crashed activation)');
+  assert.deepEqual(
+    verification.orphanHandlers,
+    [],
+    `Handlers registered for methods not expected on VS Code — either the method ` +
+      `name drifted from the registry, or ELECTRON_ONLY_METHODS wrongly excludes a ` +
+      `method this platform actually registers:\n  ${verification.orphanHandlers.join('\n  ')}`,
+  );
+});
+
 // ----- State-aware checks ------------------------------------------------
 //
 // The cold-start case passes trivially. The failure mode reported in

@@ -77,6 +77,7 @@ export type {
   LicenseEvents,
   LicenseTierValue,
 } from './services/license.service';
+export { PREVIOUS_USER_CONTEXT_KEY } from './services/license/license-cache';
 export { FeatureGateService } from './services/feature-gate.service';
 export type { Feature, ProOnlyFeature } from './services/feature-gate.service';
 export { SentryService } from './services/sentry.service';

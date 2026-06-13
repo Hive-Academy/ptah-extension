@@ -18,6 +18,7 @@ import {
   RpcHandler,
   TOKENS,
   CommandManager,
+  type RpcVerificationResult,
 } from '@ptah-extension/vscode-core';
 import {
   registerAllRpcHandlers,
@@ -77,21 +78,21 @@ const ELECTRON_ONLY_METHODS: readonly string[] = [
   'editor:saveFile',
   'editor:getFileTree',
   'editor:getDirectoryChildren',
+  'editor:createFile',
+  'editor:createFolder',
+  'editor:renameItem',
+  'editor:deleteItem',
+  'editor:getSetting',
+  'editor:updateSetting',
+  'editor:searchInFiles',
+  'editor:listAllFiles',
   'file:read',
   'file:exists',
   'file:save-dialog',
-  'git:info',
-  'git:worktrees',
-  'git:addWorktree',
-  'git:removeWorktree',
-  'git:stage',
-  'git:unstage',
-  'git:discard',
-  'git:commit',
-  'git:showFile',
   'terminal:create',
   'terminal:kill',
-  'license:clearKey',
+  'update:get-state',
+  'update:check-now',
   ...CronRpcHandlers.METHODS,
   ...EmbedderRpcHandlers.METHODS,
   ...GatewayRpcHandlers.METHODS,
@@ -129,8 +130,10 @@ export class RpcMethodRegistrationService {
 
   /**
    * Register all RPC methods and wire SDK / agent events.
+   * Returns the RPC registration verification result so the activation
+   * layer can expose it (consumed by the vscode e2e suite).
    */
-  registerAll(): void {
+  registerAll(): RpcVerificationResult {
     registerAllRpcHandlers(this.container, {
       exclude: [
         WorkspaceRpcHandlers,
@@ -206,7 +209,7 @@ export class RpcMethodRegistrationService {
       platform: 'vscode',
     });
 
-    verifyAndReportRpcRegistration({
+    const verification = verifyAndReportRpcRegistration({
       rpcHandler: this.rpcHandler,
       logger: this.logger,
       container: this.container,
@@ -218,6 +221,8 @@ export class RpcMethodRegistrationService {
     if (process.env['NODE_ENV'] === 'development') {
       __debugAssertSharedHandlersDisjoint();
     }
+
+    return verification;
   }
 
   /**
