@@ -439,7 +439,7 @@ export class SessionLoaderService {
    */
   async switchSession(
     sessionId: SessionId,
-    opts?: { reason?: 'compaction' },
+    opts?: { reason?: 'compaction'; activate?: boolean },
   ): Promise<void> {
     if (this._inFlightSessions.has(sessionId)) {
       console.debug(
@@ -480,7 +480,13 @@ export class SessionLoaderService {
         );
       }
       const session = this._sessions().find((s) => s.id === sessionId);
-      const title = session?.name || sessionId.substring(0, 50);
+      // Prefer the session-list name, then the existing tab's name (set by the
+      // rewind rebind before this call), and only fall back to the raw session
+      // id as a last resort. The bare-id fallback was the source of the
+      // raw-UUID tab/tile title after a rewind fork (the forked session is not
+      // yet in `_sessions()`).
+      const title =
+        session?.name || existingTab?.name || sessionId.substring(0, 50);
       const activeTabId = this.tabManager.openSessionTab(sessionId, title);
       this.tabManager.applyResumingSession(activeTabId, {
         sessionId,
@@ -499,7 +505,11 @@ export class SessionLoaderService {
         sessionId,
         tabId: activeTabId,
         workspacePath,
+        ...(opts?.activate === true ? { activate: true } : {}),
       });
+      if (opts?.activate === true && resumeResult.data?.activated === true) {
+        this.tabManager.markSessionActive(activeTabId);
+      }
 
       const events = resumeResult.data?.events;
       const messages = resumeResult.data?.messages;
