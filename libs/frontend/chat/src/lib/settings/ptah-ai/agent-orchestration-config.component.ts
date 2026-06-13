@@ -68,8 +68,8 @@ import type {
         </div>
 
         <p class="text-xs text-base-content/70 mb-3">
-          Headless agents (Gemini CLI, Codex CLI, Copilot, Cursor) for parallel
-          task execution.
+          Headless agents (Codex CLI, Copilot, Cursor) for parallel task
+          execution.
         </p>
 
         <!-- Error display -->
@@ -286,40 +286,6 @@ import type {
                     (cli.installed || cli.cli === 'cursor')
                   ) {
                     <div class="px-2 pb-2 pt-0 border-t border-base-300/30">
-                      <!-- Gemini model selector -->
-                      @if (cli.cli === 'gemini') {
-                        <div class="mt-2">
-                          <label
-                            for="agent-gemini-model"
-                            class="text-[10px] text-base-content/50 mb-0.5 block"
-                          >
-                            Model
-                          </label>
-                          <select
-                            id="agent-gemini-model"
-                            class="select select-bordered select-xs w-full"
-                            (change)="onModelSelect('gemini', $event)"
-                          >
-                            <option
-                              value=""
-                              [selected]="!agentConfig()?.geminiModel"
-                            >
-                              Default
-                            </option>
-                            @for (model of geminiModels(); track model.id) {
-                              <option
-                                [value]="model.id"
-                                [selected]="
-                                  model.id === agentConfig()?.geminiModel
-                                "
-                              >
-                                {{ model.name }}
-                              </option>
-                            }
-                          </select>
-                        </div>
-                      }
-
                       <!-- Codex model + reasoning + permissions -->
                       @if (cli.cli === 'codex') {
                         <div class="mt-2">
@@ -589,10 +555,6 @@ import type {
                 </p>
                 <div class="flex flex-col gap-1 text-xs">
                   <span class="text-base-content/50">
-                    Gemini CLI:
-                    <code>npm install -g &#64;google/gemini-cli</code>
-                  </span>
-                  <span class="text-base-content/50">
                     Codex CLI:
                     <code>npm install -g &#64;openai/codex</code>
                   </span>
@@ -637,7 +599,6 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   readonly agentConfigError = signal<string | null>(null);
   readonly isDetectingClis = signal(false);
   readonly expandedClis = signal<Set<string>>(new Set());
-  readonly geminiModels = signal<CliModelOption[]>([]);
   readonly codexModels = signal<CliModelOption[]>([]);
   readonly copilotModels = signal<CliModelOption[]>([]);
   readonly cursorModels = signal<CliModelOption[]>([]);
@@ -721,7 +682,6 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   async loadCliModels(): Promise<void> {
     const result = await this.rpcService.call('agent:listCliModels', undefined);
     if (result.isSuccess()) {
-      this.geminiModels.set(result.data.gemini);
       this.codexModels.set(result.data.codex);
       this.copilotModels.set(result.data.copilot);
       this.cursorModels.set(result.data.cursor);
@@ -729,7 +689,7 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   }
 
   public onModelSelect(
-    cli: 'gemini' | 'codex' | 'copilot' | 'cursor',
+    cli: 'codex' | 'copilot' | 'cursor',
     event: Event,
   ): void {
     const value = (event.target as HTMLSelectElement).value;
@@ -835,17 +795,15 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   }
 
   async setAgentModel(
-    cli: 'gemini' | 'codex' | 'copilot' | 'cursor',
+    cli: 'codex' | 'copilot' | 'cursor',
     model: string,
   ): Promise<void> {
     const key =
-      cli === 'gemini'
-        ? 'geminiModel'
-        : cli === 'codex'
-          ? 'codexModel'
-          : cli === 'cursor'
-            ? 'cursorModel'
-            : 'copilotModel';
+      cli === 'codex'
+        ? 'codexModel'
+        : cli === 'cursor'
+          ? 'cursorModel'
+          : 'copilotModel';
     const result = await this.rpcService.call('agent:setConfig', {
       [key]: model,
     });

@@ -163,6 +163,35 @@ jobs:
             echo "Patched to $EXPECTED"
           fi
 
+      # ----- E2E gate (BLOCKING) -------------------------------------------
+      # Run the activation + RPC registration contract suite against the
+      # exact dist/ artifact that is about to be published. Catches the
+      # failure mode that shipped in production: missing / wrongly-excluded
+      # RPC handlers invisible to unit tests.
+
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install VS Code system deps
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Cache VS Code download
+        uses: actions/cache@v4
+        with:
+          path: apps/ptah-extension-vscode-e2e/.vscode-test
+          key: vscode-test-${{ runner.os }}-stable
+
+      - name: Run VS Code E2E gate against the packaged dist
+        run: xvfb-run --auto-servernum node apps/ptah-extension-vscode-e2e/src/runner.mjs
+
       - name: Publish to VS Code Marketplace
         run: |
           cd dist/apps/ptah-extension-vscode

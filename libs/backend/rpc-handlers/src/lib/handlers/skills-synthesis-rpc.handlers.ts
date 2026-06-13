@@ -520,6 +520,7 @@ export class SkillsSynthesisRpcHandlers {
               enabled: snapshot.triggers.postToolUse.enabled,
               minEditCount: snapshot.triggers.postToolUse.minEditCount,
             },
+            turnComplete: { enabled: snapshot.triggers.turnComplete.enabled },
             maxAnalyzesPerHour: snapshot.triggers.maxAnalyzesPerHour,
           },
         };

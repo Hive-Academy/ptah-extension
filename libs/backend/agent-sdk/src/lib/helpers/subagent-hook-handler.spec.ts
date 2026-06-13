@@ -105,6 +105,79 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     );
   });
 
+  it('agent-prefixed transcript path (agent-<hex>.jsonl) → notifyAll fires with agent-prefixed id and explicit transcriptPath', async () => {
+    const logger = makeLogger();
+    const registry = makeRegistry({
+      toolCallId: 'tu-1',
+      agentType: 'backend-developer',
+    });
+    const stopRegistry = new SubagentStopCallbackRegistry(logger);
+    const captured: SubagentStopPayload[] = [];
+    stopRegistry.register((payload) => {
+      captured.push(payload);
+    });
+    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const fn = getStopCallback(handler, '/workspace', 'parent-sess-1');
+
+    const transcriptPath =
+      '/home/u/.claude/projects/proj/parent-sess-1/subagents/agent-a5fb6580acd4a4883.jsonl';
+    const input = {
+      hook_event_name: 'SubagentStop',
+      session_id: 'parent-sess-1',
+      agent_id: 'agent-xyz',
+      agent_type: 'backend-developer',
+      agent_transcript_path: transcriptPath,
+      stop_hook_active: false,
+    } as unknown as HookInput;
+
+    const result = await fn(input, 'tu-1', {
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual({ continue: true });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toEqual(
+      expect.objectContaining({
+        subagentSessionId: 'agent-a5fb6580acd4a4883',
+        parentSessionId: 'parent-sess-1',
+        workspaceRoot: '/workspace',
+        transcriptPath,
+      }),
+    );
+  });
+
+  it('Windows agent-prefixed transcript path (backslashes) derives the agent id', async () => {
+    const logger = makeLogger();
+    const registry = makeRegistry({ toolCallId: 'tu-1' });
+    const stopRegistry = new SubagentStopCallbackRegistry(logger);
+    const captured: SubagentStopPayload[] = [];
+    stopRegistry.register((payload) => {
+      captured.push(payload);
+    });
+    const handler = new SubagentHookHandler(logger, registry, stopRegistry);
+    const fn = getStopCallback(handler, 'C:\\ws', 'parent-sess-1');
+
+    const transcriptPath =
+      'C:\\Users\\u\\.claude\\projects\\proj\\parent-sess-1\\subagents\\agent-a54127225c34b5903.jsonl';
+    const input = {
+      hook_event_name: 'SubagentStop',
+      session_id: 'parent-sess-1',
+      agent_id: 'agent-xyz',
+      agent_type: 'backend-developer',
+      agent_transcript_path: transcriptPath,
+      stop_hook_active: false,
+    } as unknown as HookInput;
+
+    const result = await fn(input, 'tu-1', {
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual({ continue: true });
+    expect(captured).toHaveLength(1);
+    expect(captured[0].subagentSessionId).toBe('agent-a54127225c34b5903');
+    expect(captured[0].transcriptPath).toBe(transcriptPath);
+  });
+
   it('agent_transcript_path without UUID basename → no fan-out; logger.warn fires with path', async () => {
     const logger = makeLogger();
     const registry = makeRegistry({ toolCallId: 'tu-1' });

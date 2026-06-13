@@ -47,3 +47,5 @@ export { PERSISTENCE_TOKENS } from './lib/di/tokens';
 export type { PersistenceDIToken } from './lib/di/tokens';
 
 export { registerPersistenceSqliteServices } from './lib/di/register';
+
+export { resolvePtahDbPath } from './lib/db-path';

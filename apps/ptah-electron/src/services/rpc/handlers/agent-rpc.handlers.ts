@@ -138,7 +138,6 @@ export class AgentRpcHandlers {
               'maxConcurrentAgents',
               5,
             ),
-            geminiModel: this.getAgentCfg<string>('geminiModel', ''),
             codexModel: this.getAgentCfg<string>('codexModel', ''),
             copilotModel: this.getAgentCfg<string>('copilotModel', ''),
             cursorModel: this.getAgentCfg<string>('cursorModel', ''),
@@ -212,9 +211,6 @@ export class AgentRpcHandlers {
             'maxConcurrentAgents',
             Math.max(1, Math.min(10, params.maxConcurrentAgents)),
           );
-        }
-        if (params.geminiModel !== undefined) {
-          await this.setAgentCfg('geminiModel', params.geminiModel);
         }
         if (params.codexModel !== undefined) {
           await this.setAgentCfg('codexModel', params.codexModel);
@@ -330,20 +326,17 @@ export class AgentRpcHandlers {
 
           const modelMap = await this.cliDetection.listModelsForAll();
 
-          const gemini = (modelMap['gemini'] ?? []) as CliModelOption[];
           const codex = (modelMap['codex'] ?? []) as CliModelOption[];
           const copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
           const cursor = (modelMap['cursor'] ?? []) as CliModelOption[];
 
           const result: AgentListCliModelsResult = {
-            gemini,
             codex,
             copilot,
             cursor,
           };
 
           this.logger.debug('RPC: agent:listCliModels success', {
-            geminiCount: result.gemini.length,
             codexCount: result.codex.length,
             copilotCount: result.copilot.length,
             cursorCount: result.cursor.length,
@@ -700,7 +693,6 @@ export class AgentRpcHandlers {
     const KEYS_TO_MIGRATE = [
       'preferredAgentOrder',
       'maxConcurrentAgents',
-      'geminiModel',
       'codexModel',
       'copilotModel',
       'codexAutoApprove',

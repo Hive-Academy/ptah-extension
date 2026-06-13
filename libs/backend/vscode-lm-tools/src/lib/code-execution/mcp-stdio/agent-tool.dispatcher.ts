@@ -46,7 +46,7 @@ const MAX_TASK_LENGTH = 100 * 1024;
 const AgentSpawnSchema = z
   .object({
     task: z.string().min(1).max(MAX_TASK_LENGTH),
-    cli: z.enum(['gemini', 'codex', 'copilot', 'cursor']).optional(),
+    cli: z.enum(['codex', 'copilot', 'cursor']).optional(),
     ptahCliId: z.string().min(1).optional(),
     workingDirectory: z.string().optional(),
     timeout: z.number().int().positive().max(3_600_000).optional(),

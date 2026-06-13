@@ -11,10 +11,10 @@
  *   - `HarnessDocumentGenerationService` — PRD document generation.
  *   - `HarnessPromptBuilderService`      — template-based system-prompt + CLAUDE.md builders.
  *   - `HarnessConfigStore`               — filesystem persistence for CLAUDE.md, settings.json, presets.
- *   - `HarnessChatService`               — step-aware chat reply + conversational config builder.
+ *   - `HarnessWorkflowPromptService`     — composes the agent-driven workflow seed prompt.
  *   - `HarnessFsService`                 — custom-skill plugin write + MCP-config discovery.
  *
- * The sixteen-entry METHODS tuple is preserved verbatim so `SHARED_HANDLERS`
+ * The METHODS tuple is kept in sync with `RpcMethodName` so `SHARED_HANDLERS`
  * coverage + runtime disjoint-ness both keep working.
  *
  * Error handling is centralised via the private `runRpc` helper: every delegate
@@ -28,7 +28,7 @@
  * the service registration order is documented in `../harness/di.ts`.
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, DependencyContainer } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
@@ -39,6 +39,7 @@ import {
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
+  type IPlatformCommands,
 } from '@ptah-extension/platform-core';
 import type {
   HarnessInitializeParams,
@@ -61,8 +62,6 @@ import type {
   HarnessSavePresetResponse,
   HarnessLoadPresetsParams,
   HarnessLoadPresetsResponse,
-  HarnessChatParams,
-  HarnessChatResponse,
   HarnessDesignAgentsParams,
   HarnessDesignAgentsResponse,
   HarnessGenerateSkillsParams,
@@ -71,12 +70,22 @@ import type {
   HarnessGenerateDocumentResponse,
   HarnessAnalyzeIntentParams,
   HarnessAnalyzeIntentResponse,
-  HarnessConverseParams,
-  HarnessConverseResponse,
+  HarnessStartNewProjectParams,
+  HarnessStartNewProjectResult,
+  HarnessWorkflowPromptParams,
+  HarnessWorkflowPromptResponse,
   RpcMethodName,
 } from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 import { HARNESS_TOKENS } from '../harness/tokens';
+import {
+  NEW_PROJECT_CHAT_SEED_PROMPT,
+  SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID,
+  WIZARD_VIEW_TYPE,
+} from '../harness/harness-constants';
+import type { WebviewBroadcaster } from '../harness/streaming';
+import { HarnessWorkflowPromptParamsSchema } from './harness-rpc.schema';
 import type { HarnessWorkspaceContextService } from '../harness/workspace/harness-workspace-context.service';
 import type { HarnessSuggestionService } from '../harness/ai/harness-suggestion.service';
 import type { HarnessSubagentDesignService } from '../harness/ai/harness-subagent-design.service';
@@ -84,8 +93,17 @@ import type { HarnessSkillGenerationService } from '../harness/ai/harness-skill-
 import type { HarnessDocumentGenerationService } from '../harness/ai/harness-document-generation.service';
 import type { HarnessPromptBuilderService } from '../harness/config/harness-prompt-builder.service';
 import type { HarnessConfigStore } from '../harness/config/harness-config-store.service';
-import type { HarnessChatService } from '../harness/ai/harness-chat.service';
+import type { HarnessAgentFileWriterService } from '../harness/config/harness-agent-file-writer.service';
+import type { HarnessWorkflowPromptService } from '../harness/ai/harness-workflow-prompt.service';
 import type { HarnessFsService } from '../harness/io/harness-fs.service';
+
+interface WizardWebviewLifecycleLike {
+  disposeWebview(viewType: string): void;
+}
+
+const WIZARD_WEBVIEW_LIFECYCLE_TOKEN = Symbol.for(
+  'WizardWebviewLifecycleService',
+);
 
 /** Type of the RPC handler callback used by every `rpcHandler.registerMethod`. */
 type RpcHandlerFn<TParams, TResp> = (params: TParams) => Promise<TResp>;
@@ -110,12 +128,12 @@ export class HarnessRpcHandlers {
     'harness:apply',
     'harness:save-preset',
     'harness:load-presets',
-    'harness:chat',
     'harness:design-agents',
     'harness:generate-skills',
     'harness:generate-document',
     'harness:analyze-intent',
-    'harness:converse',
+    'harness:start-new-project',
+    'harness:workflow-prompt',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -129,6 +147,10 @@ export class HarnessRpcHandlers {
     private readonly skillJunction: SkillJunctionService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(TOKENS.PLATFORM_COMMANDS)
+    private readonly platformCommands: IPlatformCommands,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
+    private readonly container: DependencyContainer,
     @inject(HARNESS_TOKENS.WORKSPACE_CONTEXT)
     private readonly workspaceContext: HarnessWorkspaceContextService,
     @inject(HARNESS_TOKENS.SUGGESTION)
@@ -143,7 +165,10 @@ export class HarnessRpcHandlers {
     private readonly promptBuilder: HarnessPromptBuilderService,
     @inject(HARNESS_TOKENS.CONFIG_STORE)
     private readonly configStore: HarnessConfigStore,
-    @inject(HARNESS_TOKENS.CHAT) private readonly chat: HarnessChatService,
+    @inject(HARNESS_TOKENS.AGENT_FILE_WRITER)
+    private readonly agentFileWriter: HarnessAgentFileWriterService,
+    @inject(HARNESS_TOKENS.WORKFLOW_PROMPT)
+    private readonly workflowPrompt: HarnessWorkflowPromptService,
     @inject(HARNESS_TOKENS.IO_FS) private readonly fsService: HarnessFsService,
   ) {}
 
@@ -189,7 +214,7 @@ export class HarnessRpcHandlers {
     );
   }
 
-  /** Register all sixteen harness RPC methods. */
+  /** Register all harness RPC methods. */
   register(): void {
     this.registerInitialize();
     this.registerSuggestConfig();
@@ -201,12 +226,12 @@ export class HarnessRpcHandlers {
     this.registerApply();
     this.registerSavePreset();
     this.registerLoadPresets();
-    this.registerChat();
     this.registerDesignAgents();
     this.registerGenerateSkills();
     this.registerGenerateDocument();
     this.registerAnalyzeIntent();
-    this.registerConverse();
+    this.registerStartNewProject();
+    this.registerWorkflowPrompt();
 
     this.logger.debug('Harness RPC handlers registered', {
       methods: HarnessRpcHandlers.METHODS,
@@ -321,13 +346,13 @@ export class HarnessRpcHandlers {
         const config = this.configStore.normalizeHarnessConfig(params.config);
         const appliedPaths: string[] = [];
         const warnings: string[] = [];
+        const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
         const presetPath = await this.configStore.writePresetToDisk(
           config.name,
           config,
         );
         appliedPaths.push(presetPath);
         if (config.claudeMd.generateProjectClaudeMd) {
-          const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
           if (workspaceRoot) {
             const result = await this.configStore.writeClaudeMdToWorkspace(
               workspaceRoot,
@@ -338,6 +363,22 @@ export class HarnessRpcHandlers {
           } else {
             warnings.push(
               'No workspace folder open. CLAUDE.md was not generated.',
+            );
+          }
+        }
+
+        const subagents = config.agents.harnessSubagents ?? [];
+        if (subagents.length > 0) {
+          if (workspaceRoot) {
+            const outcome = await this.agentFileWriter.writeSubagentFiles(
+              workspaceRoot,
+              subagents,
+            );
+            appliedPaths.push(...outcome.writtenPaths);
+            warnings.push(...outcome.warnings);
+          } else {
+            warnings.push(
+              'No workspace folder open. Subagent files were not generated.',
             );
           }
         }
@@ -355,11 +396,20 @@ export class HarnessRpcHandlers {
             settingsError instanceof Error ? settingsError : new Error(msg),
           );
         }
-        if (config.skills.selectedSkills.length > 0) {
+        const hasCreatedSkills = config.skills.createdSkills.length > 0;
+        if (config.skills.selectedSkills.length > 0 || hasCreatedSkills) {
           try {
             const pluginPaths = this.pluginLoader.resolveCurrentPluginPaths();
+            const harnessPluginPaths =
+              await this.fsService.discoverHarnessPluginPaths();
+            const mergedPluginPaths = Array.from(
+              new Set([...pluginPaths, ...harnessPluginPaths]),
+            );
             const disabledSkillIds = this.pluginLoader.getDisabledSkillIds();
-            this.skillJunction.createJunctions(pluginPaths, disabledSkillIds);
+            this.skillJunction.createJunctions(
+              mergedPluginPaths,
+              disabledSkillIds,
+            );
           } catch (junctionError) {
             const msg =
               junctionError instanceof Error
@@ -399,47 +449,6 @@ export class HarnessRpcHandlers {
       'harness:load-presets',
       'registerLoadPresets',
       async () => ({ presets: await this.configStore.loadPresetsFromDisk() }),
-    );
-  }
-
-  /**
-   * `harness:chat` — graceful fallback path: when the chat service rejects we
-   * must NOT propagate the error (the frontend relies on non-error payloads to
-   * keep the conversation alive), so this method does not use `runRpc`.
-   */
-  private registerChat(): void {
-    this.rpcHandler.registerMethod<HarnessChatParams, HarnessChatResponse>(
-      'harness:chat',
-      async (params) => {
-        this.logger.debug('RPC: harness:chat called', {
-          step: params.step,
-          messageLength: params.message.length,
-        });
-        try {
-          const result = await this.chat.buildIntelligentChatReply(
-            params.step,
-            params.message,
-            params.context,
-          );
-          this.logger.debug('RPC: harness:chat success', {
-            replyLength: result.reply.length,
-            actionCount: result.suggestedActions?.length ?? 0,
-          });
-          return result;
-        } catch (error) {
-          const err = error instanceof Error ? error : new Error(String(error));
-          this.logger.error('RPC: harness:chat failed', err);
-          this.sentryService.captureException(err, {
-            errorSource: 'HarnessRpcHandlers.registerChat',
-          });
-          return {
-            reply: this.chat.buildChatReplyFallback(
-              params.step,
-              params.message,
-            ),
-          };
-        }
-      },
     );
   }
 
@@ -507,11 +516,132 @@ export class HarnessRpcHandlers {
     );
   }
 
-  private registerConverse(): void {
-    this.wire<HarnessConverseParams, HarnessConverseResponse>(
-      'harness:converse',
-      'registerConverse',
-      async (params) => this.chat.converseWithUser(params),
+  private resolveService<T>(token: symbol, serviceName: string): T {
+    const service = this.container.resolve<T>(token);
+    if (service === null || service === undefined) {
+      throw new Error(`${serviceName} resolved to null/undefined`);
+    }
+    return service;
+  }
+
+  private registerStartNewProject(): void {
+    this.rpcHandler.registerMethod<
+      HarnessStartNewProjectParams,
+      HarnessStartNewProjectResult
+    >('harness:start-new-project', async () => {
+      this.logger.debug('RPC: harness:start-new-project called');
+      try {
+        const config = this.pluginLoader.getWorkspacePluginConfig();
+        const enabled = new Set(config.enabledPluginIds);
+        let pluginConfigChanged = false;
+        if (!enabled.has(SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID)) {
+          enabled.add(SAAS_WORKSPACE_INITIALIZER_PLUGIN_ID);
+          await this.pluginLoader.saveWorkspacePluginConfig({
+            enabledPluginIds: Array.from(enabled),
+            disabledSkillIds: config.disabledSkillIds,
+          });
+          pluginConfigChanged = true;
+          this.logger.info(
+            '[harness:start-new-project] Enabled ptah-nx-saas plugin for workspace',
+          );
+        }
+        if (pluginConfigChanged) {
+          try {
+            const refreshedConfig =
+              this.pluginLoader.getWorkspacePluginConfig();
+            const pluginPaths = this.pluginLoader.resolvePluginPaths(
+              refreshedConfig.enabledPluginIds,
+            );
+            const junctionResult = this.skillJunction.createJunctions(
+              pluginPaths,
+              refreshedConfig.disabledSkillIds,
+            );
+            this.logger.debug(
+              '[harness:start-new-project] Skill junctions refreshed',
+              {
+                created: junctionResult.created,
+                skipped: junctionResult.skipped,
+                removed: junctionResult.removed,
+                errorCount: junctionResult.errors.length,
+              },
+            );
+          } catch (error: unknown) {
+            this.logger.warn(
+              '[harness:start-new-project] Failed to refresh skill junctions (non-fatal)',
+              {
+                error: error instanceof Error ? error.message : String(error),
+              },
+            );
+          }
+        }
+        try {
+          await this.platformCommands.focusChat();
+        } catch (error: unknown) {
+          this.logger.warn(
+            '[harness:start-new-project] focusChat failed (non-fatal)',
+            {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
+        try {
+          const webviewManager = this.resolveService<WebviewBroadcaster>(
+            TOKENS.WEBVIEW_MANAGER,
+            'WebviewManager',
+          );
+          await webviewManager.broadcastMessage(
+            MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
+            { mode: 'new-project', seedPrompt: NEW_PROJECT_CHAT_SEED_PROMPT },
+          );
+        } catch (error: unknown) {
+          this.logger.warn(
+            '[harness:start-new-project] Failed to broadcast workflow open',
+            {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
+        try {
+          const wizardLifecycle =
+            this.resolveService<WizardWebviewLifecycleLike>(
+              WIZARD_WEBVIEW_LIFECYCLE_TOKEN,
+              'WizardWebviewLifecycleService',
+            );
+          wizardLifecycle.disposeWebview(WIZARD_VIEW_TYPE);
+        } catch (error: unknown) {
+          this.logger.debug(
+            '[harness:start-new-project] Wizard panel dispose skipped (non-fatal)',
+            {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
+        return { success: true };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          '[harness:start-new-project] Failed to open workflow',
+          error instanceof Error ? error : new Error(message),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(message),
+          {
+            errorSource: 'HarnessRpcHandlers.registerStartNewProject',
+          },
+        );
+        return { success: false, error: message };
+      }
+    });
+  }
+
+  private registerWorkflowPrompt(): void {
+    this.wire<HarnessWorkflowPromptParams, HarnessWorkflowPromptResponse>(
+      'harness:workflow-prompt',
+      'registerWorkflowPrompt',
+      async (params) => {
+        const parsed = HarnessWorkflowPromptParamsSchema.parse(params);
+        return this.workflowPrompt.composePrompt(parsed);
+      },
     );
   }
 }

@@ -137,6 +137,26 @@ describe('UserMessageTransformer', () => {
     expect((events[1] as { delta: string }).delta).toBe('hello world');
   });
 
+  it('skips the SDK interrupt sentinel message (string content)', () => {
+    const msg = {
+      uuid: 'u-int-1',
+      message: { content: '[Request interrupted by user]' },
+    } as never;
+    const events = transformer.transform(msg, state, helpers);
+    expect(events).toEqual([]);
+  });
+
+  it('skips the SDK interrupt sentinel message (text block content)', () => {
+    const msg = {
+      uuid: 'u-int-2',
+      message: {
+        content: [{ type: 'text', text: '[Request interrupted by user]' }],
+      },
+    } as never;
+    const events = transformer.transform(msg, state, helpers);
+    expect(events).toEqual([]);
+  });
+
   it('skips empty user messages (no text, no tool_result)', () => {
     const msg = {
       uuid: 'u-4',

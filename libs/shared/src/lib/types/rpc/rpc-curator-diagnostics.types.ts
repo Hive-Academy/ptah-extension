@@ -87,6 +87,9 @@ export interface SkillTriggersDto {
   readonly subagentStop?: {
     readonly enabled: boolean;
   };
+  readonly turnComplete?: {
+    readonly enabled: boolean;
+  };
   readonly postToolUse?: {
     readonly enabled: boolean;
     readonly minEditCount: number;
@@ -103,6 +106,7 @@ export interface MemoryDbHealthDto {
   readonly code_symbols_vec: number;
   readonly coherent: boolean;
   readonly mismatches: readonly string[];
+  readonly countErrors?: readonly string[];
 }
 
 export interface EligibilityHistogramDto {

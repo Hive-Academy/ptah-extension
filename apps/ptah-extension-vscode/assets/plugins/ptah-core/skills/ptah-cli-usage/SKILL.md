@@ -399,7 +399,7 @@ Notes:
 | `ANTHROPIC_BASE_URL`   | Custom Anthropic-compatible endpoint              | Overrides the SDK's default base URL.                                                                               |
 
 Reminder: `PTAH_AGENT_CLI_OVERRIDE` is **not** consulted. The
-`agent-cli` allowlist (`glm`, `gemini` only) is hard-coded at command
+`agent-cli` allowlist (`glm` only) is hard-coded at command
 entry points — see
 `apps/ptah-cli/src/cli/commands/agent-cli.ts`.
 
@@ -616,7 +616,7 @@ Exit code `4`. Read-only commands (`license status`, `config list`,
   second returns `-32603 'turn already in flight'`. Serialize, or open a
   second `interact` process.
 - **Don't** rely on `PTAH_AGENT_CLI_OVERRIDE`. The `agent-cli` allowlist
-  (`glm`, `gemini`) is hard-coded; `copilot` and `cursor` are blocked
+  (`glm`) is hard-coded; `copilot` and `cursor` are blocked
   for Windows-spawn reasons.
 - **Don't** re-add `ptah run` calls. It's a deprecated alias for
   `session start --task` and emits a stderr deprecation notice.
@@ -632,7 +632,7 @@ hard-coded allowlist enforced inside the command handler — see
 and the per-subcommand validation in `validateCliAgent` at
 `agent-cli.ts:131-142`.
 
-**Allowlist**: only `glm` and `gemini` are accepted for `--cli`.
+**Allowlist**: only `glm` is accepted for `--cli`.
 `PTAH_AGENT_CLI_OVERRIDE` is **never** consulted (verified at
 `agent-cli.ts:22-23` and reinforced by the router comment at
 `router.ts:597-599`). Any other value emits `task.error` with
@@ -686,15 +686,15 @@ commas; everything else passes through as a string.
 
 Enumerate available models per CLI agent. With `--cli`, scopes the
 response to one allowlisted CLI; without, returns the full
-`AgentListCliModelsResult` shape (`gemini`, `codex`, `copilot` arrays).
+`AgentListCliModelsResult` shape (`codex`, `copilot` arrays).
 
-| Flag    | Required | Default | Notes                                         |
-| ------- | -------- | ------- | --------------------------------------------- |
-| `--cli` | no       | (all)   | One of `glm` \| `gemini`; rejection → exit 3. |
+| Flag    | Required | Default | Notes                           |
+| ------- | -------- | ------- | ------------------------------- |
+| `--cli` | no       | (all)   | Only `glm`; rejection → exit 3. |
 
 - **RPC**: `agent:listCliModels` (`agent-cli.ts:233-275`).
-- **Notification**: `agent_cli.models { gemini, codex, copilot }` (no
-  scope) or `agent_cli.models { cli, models }` (scoped to `gemini`); the
+- **Notification**: `agent_cli.models { codex, copilot }` (no
+  scope) or `agent_cli.models { cli, models }` (scoped to a CLI); the
   scoped `glm` path returns an empty array today.
 - **Exit codes**: `0`; `3` (`AuthRequired`) on `--cli` value outside the
   allowlist; `5` on RPC failure.
@@ -707,9 +707,9 @@ Terminate a running CLI-agent process by agent id.
 | ---------- | -------- | --------------------- |
 | `<id>`     | yes      | The agent id to stop. |
 
-| Flag    | Required | Default | Notes                                  |
-| ------- | -------- | ------- | -------------------------------------- |
-| `--cli` | yes      | —       | `glm` \| `gemini`; rejection → exit 3. |
+| Flag    | Required | Default | Notes                           |
+| ------- | -------- | ------- | ------------------------------- |
+| `--cli` | yes      | —       | Only `glm`; rejection → exit 3. |
 
 - **RPC**: `agent:stop` (`agent-cli.ts:277-308`).
 - **Notification**: `agent_cli.stopped { agentId, cli }`.
@@ -727,7 +727,7 @@ seeds a new prompt with `--task`.
 
 | Flag     | Required | Default | Notes                                  |
 | -------- | -------- | ------- | -------------------------------------- |
-| `--cli`  | yes      | —       | `glm` \| `gemini`; rejection → exit 3. |
+| `--cli`  | yes      | —       | Only `glm`; rejection → exit 3.        |
 | `--task` | no       | `""`    | Free-form prompt for the resumed turn. |
 
 - **RPC**: `agent:resumeCliSession` (`agent-cli.ts:310-346`).
@@ -1187,7 +1187,7 @@ agent_stop       (    "                                          )
 agent_steer      (    "                                          )
 ```
 
-`agent_list` is always free. `agent_spawn` with `cli=gemini` (or any
+`agent_list` is always free. `agent_spawn` with `cli=codex` (or any
 rival CLI that runs on the user's own binary) is always free. The
 gate fails CLOSED: license lookup throws, cache miss, or expired
 status all return `license_required`.

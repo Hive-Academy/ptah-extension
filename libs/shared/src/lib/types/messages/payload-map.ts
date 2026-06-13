@@ -112,6 +112,7 @@ import type {
   VecLoadDiagnosticWire,
   EmbedderStatusWire,
 } from '../rpc/rpc-persistence.types';
+import type { HarnessConfig } from '../rpc/rpc-harness.types';
 
 /** Payload for MESSAGE_TYPES.VEC_STATUS_CHANGED ('db:vecStatusChanged'). */
 export interface VecStatusChangedPayload {
@@ -122,6 +123,18 @@ export interface VecStatusChangedPayload {
 /** Payload for MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED ('embedder:statusChanged'). */
 export interface EmbedderStatusChangedPayload {
   readonly status: EmbedderStatusWire;
+}
+
+/** Payload for MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW ('harness:open-workflow'). */
+export interface HarnessOpenWorkflowPayload {
+  readonly mode: 'new-project' | 'configure-harness';
+  readonly seedPrompt?: string;
+}
+
+/** Payload for MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED ('harness:config-proposed'). */
+export interface HarnessConfigProposedPayload {
+  readonly configUpdates: Partial<HarnessConfig>;
+  readonly isConfigComplete?: boolean;
 }
 
 /**
@@ -229,6 +242,8 @@ export interface MessagePayloadMap {
   'memory:sessionStartInjected': MemorySessionStartInjectedPayload;
   'db:vecStatusChanged': VecStatusChangedPayload;
   'embedder:statusChanged': EmbedderStatusChangedPayload;
+  'harness:open-workflow': HarnessOpenWorkflowPayload;
+  'harness:config-proposed': HarnessConfigProposedPayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

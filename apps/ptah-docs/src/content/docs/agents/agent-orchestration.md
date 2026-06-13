@@ -38,7 +38,7 @@ Senior leads can spawn other senior leads. Hierarchy depth is capped to prevent 
 
 ### Tier 3 — CLI helpers
 
-External CLIs (Copilot, Gemini, Codex, ptah-cli) spawned for bulk, parallel, or provider-specific work. They follow the [spawn → poll → read](/agents/cli-agents/#the-spawn--poll--read-pattern) pattern and are capped at 3 concurrent.
+External CLIs (Copilot, Codex, ptah-cli) spawned for bulk, parallel, or provider-specific work. They follow the [spawn → poll → read](/agents/cli-agents/#the-spawn--poll--read-pattern) pattern and are capped at 3 concurrent.
 
 ## When to delegate
 

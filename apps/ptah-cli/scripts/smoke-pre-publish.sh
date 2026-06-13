@@ -11,6 +11,8 @@
 #   Smoke 4 — proxy SIGTERM teardown + registry cleanup
 #   Smoke 5 — REAL Anthropic API roundtrip (stream:true + stream:false)
 #   Smoke 6 — embedded proxy `proxy.shutdown` JSON-RPC RPC roundtrip
+#   Smoke 7 — tui.mjs second bundle: present in dist + `ptah tui` piped-stdin
+#             TTY guard + packed manifest name/bin regression (clobber guard)
 #
 # Smoke 5 talks to the live Anthropic API and uses
 # `claude-3-5-haiku-20241022` with `max_tokens: 16` to keep cost negligible.
@@ -575,6 +577,78 @@ smoke_6() {
 }
 
 # -----------------------------------------------------------------------------
+# Smoke 7 — tui.mjs second bundle + TTY guard + manifest clobber regression.
+# -----------------------------------------------------------------------------
+
+smoke_7() {
+  local dist_dir tui_bin dist_manifest
+  dist_dir="$(dirname "$DIST_BIN")"
+  tui_bin="$dist_dir/tui.mjs"
+  dist_manifest="$dist_dir/package.json"
+
+  if [ ! -f "$tui_bin" ]; then
+    fail 7 "tui.mjs missing at $tui_bin — run 'nx build ptah-tui' first"
+    return
+  fi
+
+  # Piped stdin (no TTY) must exit non-zero with the TTY guard message on
+  # stderr and emit ZERO bytes on stdout (the TUI never writes NDJSON).
+  local tui_stdout tui_stderr rc
+  tui_stdout="$(mktemp)"
+  tui_stderr="$(mktemp)"
+  set +e
+  echo | run_with_timeout 30 "$NODE_BIN" "$DIST_BIN" tui >"$tui_stdout" 2>"$tui_stderr"
+  rc=$?
+  set -e
+  if [ "$rc" -eq 0 ]; then
+    rm -f "$tui_stdout" "$tui_stderr"
+    fail 7 "ptah tui with piped stdin exited 0 (expected non-zero)"
+    return
+  fi
+  if [ -s "$tui_stdout" ]; then
+    rm -f "$tui_stdout" "$tui_stderr"
+    fail 7 "ptah tui wrote to stdout under piped stdin (must stay silent)"
+    return
+  fi
+  if ! grep -qi 'interactive terminal' "$tui_stderr"; then
+    rm -f "$tui_stdout" "$tui_stderr"
+    fail 7 "ptah tui stderr missing TTY guard message"
+    return
+  fi
+  rm -f "$tui_stdout" "$tui_stderr"
+
+  # Manifest clobber regression: the dist package.json must remain the CLI
+  # manifest (name @hive-academy/ptah-cli, single `ptah` bin -> ./main.mjs),
+  # NOT the ptah-tui manifest left behind by its esbuild build.
+  if [ ! -f "$dist_manifest" ]; then
+    fail 7 "dist package.json missing at $dist_manifest"
+    return
+  fi
+  set +e
+  cat "$dist_manifest" | "$NODE_BIN" -e '
+    let buf = "";
+    process.stdin.on("data", (c) => { buf += c; });
+    process.stdin.on("end", () => {
+      try {
+        const p = JSON.parse(buf);
+        if (p.name !== "@hive-academy/ptah-cli") { process.exit(1); }
+        if (!p.bin || p.bin.ptah !== "./main.mjs" || Object.keys(p.bin).length !== 1) {
+          process.exit(1);
+        }
+      } catch { process.exit(1); }
+    });
+  ' 2>/dev/null
+  local manifest_rc=$?
+  set -e
+  if [ "$manifest_rc" -ne 0 ]; then
+    fail 7 "dist package.json clobbered (not @hive-academy/ptah-cli with single ptah bin)"
+    return
+  fi
+
+  pass 7
+}
+
+# -----------------------------------------------------------------------------
 # Run all scenarios
 # -----------------------------------------------------------------------------
 
@@ -584,6 +658,7 @@ smoke_3
 smoke_4
 smoke_5
 smoke_6
+smoke_7
 
 if [ "$failures" -gt 0 ]; then
   echo "[smoke] $failures scenario(s) FAILED, $warnings skipped" >&2

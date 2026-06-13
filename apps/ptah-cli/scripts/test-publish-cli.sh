@@ -50,6 +50,36 @@ TARBALL_ABS="$DIST_DIR/$TARBALL"
 
 echo "[test-publish] Tarball: $TARBALL_ABS" >&2
 
+# Assert the second bundle (tui.mjs) ships in the tarball.
+echo "[test-publish] Asserting tui.mjs is packed..." >&2
+if ! tar -tzf "$TARBALL_ABS" | grep -q '^package/tui\.mjs$'; then
+  echo "[test-publish] FAIL: tui.mjs missing from tarball" >&2
+  exit 1
+fi
+
+# Assert the packed manifest is the CLI manifest (clobber regression). The
+# ptah-tui esbuild build copies its own package.json into the shared dist
+# dir; the restore step must leave @hive-academy/ptah-cli with a single
+# `ptah` bin -> ./main.mjs behind.
+echo "[test-publish] Asserting packed manifest name/bin..." >&2
+PACKED_MANIFEST="$DIST_DIR/package.json"
+if ! cat "$PACKED_MANIFEST" | node -e '
+  let buf = "";
+  process.stdin.on("data", (c) => { buf += c; });
+  process.stdin.on("end", () => {
+    try {
+      const p = JSON.parse(buf);
+      if (p.name !== "@hive-academy/ptah-cli") { process.exit(1); }
+      if (!p.bin || p.bin.ptah !== "./main.mjs" || Object.keys(p.bin).length !== 1) {
+        process.exit(1);
+      }
+    } catch { process.exit(1); }
+  });
+'; then
+  echo "[test-publish] FAIL: dist package.json clobbered (expected @hive-academy/ptah-cli + single ptah bin)" >&2
+  exit 1
+fi
+
 # Resolve mktemp for both POSIX and Git Bash.
 TMP_PREFIX="$(mktemp -d 2>/dev/null || mktemp -d -t ptahcli)"
 if [ -z "$TMP_PREFIX" ] || [ ! -d "$TMP_PREFIX" ]; then
@@ -91,5 +121,29 @@ if ! "$PTAH_BIN" agent list --human >/dev/null 2>&1; then
   echo "[test-publish] FAIL: ptah agent list --human exited non-zero" >&2
   exit 1
 fi
+
+echo "[test-publish] Running ptah tui under piped stdin (TTY guard)..." >&2
+TUI_STDOUT="$(mktemp)"
+TUI_STDERR="$(mktemp)"
+set +e
+echo | "$PTAH_BIN" tui >"$TUI_STDOUT" 2>"$TUI_STDERR"
+TUI_RC=$?
+set -e
+if [ "$TUI_RC" -eq 0 ]; then
+  rm -f "$TUI_STDOUT" "$TUI_STDERR"
+  echo "[test-publish] FAIL: ptah tui with piped stdin exited 0 (expected non-zero)" >&2
+  exit 1
+fi
+if [ -s "$TUI_STDOUT" ]; then
+  rm -f "$TUI_STDOUT" "$TUI_STDERR"
+  echo "[test-publish] FAIL: ptah tui wrote to stdout under piped stdin" >&2
+  exit 1
+fi
+if ! grep -qi 'interactive terminal' "$TUI_STDERR"; then
+  rm -f "$TUI_STDOUT" "$TUI_STDERR"
+  echo "[test-publish] FAIL: ptah tui stderr missing TTY guard message" >&2
+  exit 1
+fi
+rm -f "$TUI_STDOUT" "$TUI_STDERR"
 
 echo "[test-publish] PASS — installed tarball runs cleanly." >&2

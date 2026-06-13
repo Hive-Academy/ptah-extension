@@ -206,7 +206,7 @@ export class CopilotSdkAdapter implements CliAdapter {
    * Spawns: copilot -p <prompt> --output-format json --allow-all-tools --no-color
    * Resume: copilot --resume=<id> -p <prompt> ...
    *
-   * Mirrors the GeminiCliAdapter pattern (binary detection via resolveCliPath,
+   * Follows the CLI adapter pattern (binary detection via resolveCliPath,
    * spawn via spawnCli, line-buffered JSONL parsing).
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {

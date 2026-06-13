@@ -19,6 +19,7 @@ import {
   isThinkingBlock,
   isToolUseBlock,
   isToolResultBlock,
+  isInterruptSentinelText,
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
 import type {
@@ -43,6 +44,19 @@ export class AssistantMessageTransformer {
     }>;
 
     const messageId = message?.id || uuid;
+
+    if (
+      content.length > 0 &&
+      content.every(
+        (block) => isTextBlock(block) && isInterruptSentinelText(block.text),
+      )
+    ) {
+      helpers.logger.debug(
+        '[SdkMessageTransformer] Skipping SDK interrupt sentinel message',
+        { messageId },
+      );
+      return [];
+    }
 
     if (state.activeSkillToolUseIdsCount() > 0) {
       helpers.logger.info(

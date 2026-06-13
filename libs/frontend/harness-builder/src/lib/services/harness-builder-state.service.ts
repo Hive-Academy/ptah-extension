@@ -58,6 +58,7 @@ export interface HarnessSurfaceFacade {
   routeOperationEvent(operationId: string, event: FlatStreamEventUnion): void;
   unregisterAllOperationSurfaces(): void;
   resetOperationSurfaces(): void;
+  registerWorkflowSurface(surfaceId: SurfaceId): void;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -334,6 +335,28 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
    * (only fires on `compaction_complete`, where the accumulator hands back
    * a brand-new state object reference).
    */
+  /**
+   * Register the interactive workflow surface adapter against the shared
+   * `_streamingState` signal. Unlike `registerOperationSurface` (full-auto,
+   * non-interactive operations), the workflow surface is marked
+   * `{ interactive: true }` so `StreamRouter` attaches permission /
+   * AskUserQuestion prompts to it instead of auto-denying. The
+   * `HarnessWorkflowService` owns the `SurfaceId` lifecycle (claim,
+   * `onSurfaceCreated`, `onSurfaceClosed`) — this method only wires the
+   * state adapter so the canonical accumulator can mutate the streaming
+   * state in place.
+   */
+  public registerWorkflowSurface(surfaceId: SurfaceId): void {
+    this.surfaceRegistry.register(
+      surfaceId,
+      () => this._streamingState(),
+      (next) => {
+        this._streamingState.set(next);
+      },
+      { interactive: true },
+    );
+  }
+
   public registerOperationSurface(operationId: string): SurfaceId {
     const existing = this._operationSurfaces.get(operationId);
     if (existing) return existing;

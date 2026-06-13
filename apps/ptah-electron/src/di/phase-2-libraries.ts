@@ -30,6 +30,7 @@ import {
 import {
   registerPersistenceSqliteServices,
   PERSISTENCE_TOKENS,
+  resolvePtahDbPath,
   resolveVecPackageName,
   resolveVecBinaryName,
   type SqliteConnectionService,
@@ -92,9 +93,7 @@ export function registerPhase2Libraries(
     '[Electron DI] ElectronSetupWizardService registered (overrides SetupWizardService) (TASK_2025_214)',
   );
   try {
-    const isDev = process.env['NODE_ENV'] === 'development';
-    const dbFileName = isDev ? 'ptah-dev.sqlite' : 'ptah.sqlite';
-    const dbPath = path.join(os.homedir(), '.ptah', 'state', dbFileName);
+    const dbPath = resolvePtahDbPath();
     container.register(PERSISTENCE_TOKENS.SQLITE_DB_PATH, {
       useValue: dbPath,
     });

@@ -50,9 +50,26 @@ interface TableCounts {
   code_symbols_vec: number;
 }
 
+function resolveTableCount(table: string, c: TableCounts): number {
+  switch (table) {
+    case 'memory_chunks_fts':
+    case 'memory_chunks_fts_docsize':
+      return c.memory_chunks_fts ?? 0;
+    case 'memory_chunks_vec':
+    case 'memory_chunks_vec_rowids':
+      return c.memory_chunks_vec ?? 0;
+    case 'code_symbols_vec':
+    case 'code_symbols_vec_rowids':
+      return c.code_symbols_vec ?? 0;
+    default:
+      return c[table as keyof TableCounts] ?? 0;
+  }
+}
+
 function makeSqlite(
   counts: Partial<TableCounts>,
   vecLoaded = true,
+  throwOn: readonly string[] = [],
 ): SqliteConnectionService {
   const c: TableCounts = {
     memories: 0,
@@ -63,13 +80,17 @@ function makeSqlite(
     code_symbols_vec: 0,
     ...counts,
   };
+  const throwSet = new Set(throwOn);
   const db = {
     prepare: jest.fn((sql: string) => ({
       get: jest.fn(() => {
         const match = /FROM (\w+)/.exec(sql);
         if (!match) return { n: 0 };
-        const t = match[1] as keyof TableCounts;
-        return { n: c[t] ?? 0 };
+        const t = match[1];
+        if (throwSet.has(t)) {
+          throw new Error(`no such column: T.chunk_id (${t})`);
+        }
+        return { n: resolveTableCount(t, c) };
       }),
     })),
   } as unknown as SqliteDatabase;
@@ -196,6 +217,72 @@ describe('MemoryDiagnosticsService', () => {
     const snap = await service.getSnapshot('/ws');
     expect(snap.dbHealth.coherent).toBe(false);
     expect(snap.dbHealth.mismatches).toContain('code_symbols/code_symbols_vec');
+  });
+
+  it('survives a throwing fts count without zeroing other counts or reporting a false mismatch', async () => {
+    const service = new MemoryDiagnosticsService(
+      makeLogger(),
+      makeSqlite(
+        {
+          memories: 5,
+          memory_chunks: 4231,
+          memory_chunks_vec: 4231,
+          memory_chunks_fts: 4231,
+          code_symbols: 50,
+          code_symbols_vec: 50,
+        },
+        true,
+        ['memory_chunks_fts_docsize'],
+      ),
+      makeCurator(),
+      makeDecay(),
+      makeWorkspace(),
+      makeVecStatus(true),
+    );
+    const snap = await service.getSnapshot('/ws');
+
+    expect(snap.dbHealth.memories).toBe(5);
+    expect(snap.dbHealth.memory_chunks).toBe(4231);
+    expect(snap.dbHealth.memory_chunks_vec).toBe(4231);
+    expect(snap.dbHealth.code_symbols).toBe(50);
+    expect(snap.dbHealth.code_symbols_vec).toBe(50);
+    expect(snap.dbHealth.memory_chunks_fts).toBe(0);
+    expect(snap.dbHealth.mismatches).not.toContain(
+      'memory_chunks/memory_chunks_fts',
+    );
+    expect(snap.dbHealth.coherent).toBe(true);
+    expect(snap.dbHealth.countErrors).toBeDefined();
+    expect(snap.dbHealth.countErrors?.[0]).toContain(
+      'memory_chunks_fts_docsize',
+    );
+  });
+
+  it('falls back to vec rowid shadow tables when the vec count throws', async () => {
+    const service = new MemoryDiagnosticsService(
+      makeLogger(),
+      makeSqlite(
+        {
+          memories: 5,
+          memory_chunks: 12,
+          memory_chunks_vec: 12,
+          memory_chunks_fts: 12,
+          code_symbols: 50,
+          code_symbols_vec: 50,
+        },
+        true,
+        ['memory_chunks_vec', 'code_symbols_vec'],
+      ),
+      makeCurator(),
+      makeDecay(),
+      makeWorkspace(),
+      makeVecStatus(true),
+    );
+    const snap = await service.getSnapshot('/ws');
+
+    expect(snap.dbHealth.memory_chunks_vec).toBe(12);
+    expect(snap.dbHealth.code_symbols_vec).toBe(50);
+    expect(snap.dbHealth.coherent).toBe(true);
+    expect(snap.dbHealth.countErrors).toBeUndefined();
   });
 
   it('skips vec mismatch checks when sqlite-vec is not loaded', async () => {

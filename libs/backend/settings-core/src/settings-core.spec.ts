@@ -800,6 +800,8 @@ describe('TC-18: Isolation guarantee — zero unauthorized consumers', () => {
       /libs[\\/]backend[\\/]messaging-gateway[\\/]/,
       // cli-agent-runtime consumes ReasoningSettings to map UI effort to CLI flags.
       /libs[\\/]backend[\\/]cli-agent-runtime[\\/]/,
+      // cli-engine hosts the migrated CLI bootstrap (runs SETTINGS_TOKENS migrations).
+      /libs[\\/]backend[\\/]cli-engine[\\/]/,
       // tsconfig files declare path aliases — not runtime consumers.
       /tsconfig(\.\w+)?\.json$/,
       // Documentation mentions the package name in prose — not a runtime import.

@@ -11,7 +11,6 @@ export {
   spawnCli,
 } from './cli-adapter.utils';
 export { fixPath } from './fix-path';
-export { GeminiCliAdapter } from './gemini-cli.adapter';
 export { CodexCliAdapter } from './codex-cli.adapter';
 export { CopilotSdkAdapter } from './copilot-sdk.adapter';
 export { CopilotPermissionBridge } from './copilot-permission-bridge';

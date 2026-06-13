@@ -3,7 +3,7 @@
  *
  * Transforms Claude-format agents and writes them to each rival CLI's
  * WORKSPACE-level agents directory (decision #4):
- * - Gemini/Cursor: per-file {ws}/.{cli}/agents/{slug}.md (bare-name)
+ * - Cursor:        per-file {ws}/.cursor/agents/{slug}.md (bare-name)
  * - Copilot:       per-file {ws}/.github/agents/{slug}.agent.md + home-copy reap
  * - Codex:         merged into a delimited Ptah region inside {ws}/AGENTS.md
  *
@@ -25,7 +25,6 @@ import {
 import type { GeneratedAgent } from '../../types/core.types';
 import type { ICliAgentTransformer } from './cli-agent-transformer.interface';
 import { CopilotAgentTransformer } from './copilot-agent-transformer';
-import { GeminiAgentTransformer } from './gemini-agent-transformer';
 import { CodexAgentTransformer } from './codex-agent-transformer';
 import { CursorAgentTransformer } from './cursor-agent-transformer';
 
@@ -38,7 +37,6 @@ export class MultiCliAgentWriterService {
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     this.transformers.set('copilot', new CopilotAgentTransformer());
-    this.transformers.set('gemini', new GeminiAgentTransformer());
     this.transformers.set('codex', new CodexAgentTransformer());
     this.transformers.set('cursor', new CursorAgentTransformer());
 

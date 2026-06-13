@@ -47,7 +47,7 @@ import { spawnCli } from '@ptah-extension/cli-agent-runtime';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ClaudeCliHealth } from '@ptah-extension/shared';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { suggestClosest } from './_string-distance.js';
 import {
   runHeadlessLogin,
@@ -60,7 +60,7 @@ import { redact } from '../output/redactor.js';
 import { JsonRpcServer } from '../jsonrpc/server.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 
 /** Sub-commands accepted by `ptah auth ...`. */
 export type AuthSubcommand =

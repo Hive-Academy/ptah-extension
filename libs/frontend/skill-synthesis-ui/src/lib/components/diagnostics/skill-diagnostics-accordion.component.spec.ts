@@ -243,6 +243,28 @@ describe('SkillDiagnosticsAccordionComponent', () => {
     });
   });
 
+  it('toggling turnComplete persists nested DTO via setTriggers', () => {
+    const stub = makeStub();
+    stub.triggers.set({
+      sessionEnd: true,
+      idleMs: 600_000,
+      bootScan: true,
+      turnComplete: { enabled: false },
+    });
+    const fixture = createFixture(stub);
+    fixture.detectChanges();
+
+    const toggle = fixture.nativeElement.querySelector(
+      '[data-test="panel-triggers"] ptah-skill-trigger-toggle[key="turnComplete"] input[type="checkbox"]',
+    ) as HTMLInputElement;
+    expect(toggle).toBeTruthy();
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    expect(stub.setTriggers).toHaveBeenCalledWith({
+      turnComplete: { enabled: true },
+    });
+  });
+
   it('changing maxAnalyzesPerHour persists flat field via setTriggers', () => {
     const stub = makeStub();
     stub.triggers.set({

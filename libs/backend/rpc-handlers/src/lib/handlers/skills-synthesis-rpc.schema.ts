@@ -92,6 +92,11 @@ export const SkillTriggersSchema = z.object({
       minEditCount: z.number().int().min(1).max(20),
     })
     .optional(),
+  turnComplete: z
+    .object({
+      enabled: z.boolean(),
+    })
+    .optional(),
   maxAnalyzesPerHour: z.number().int().min(0).max(1000).optional(),
 });
 

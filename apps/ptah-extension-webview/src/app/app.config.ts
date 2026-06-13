@@ -34,6 +34,7 @@ import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
 import {
   WizardViewComponent,
   provideWizardInternalState,
+  SetupWizardStateService,
 } from '@ptah-extension/setup-wizard';
 import {
   provideEditorInternalState,
@@ -41,9 +42,11 @@ import {
 } from '@ptah-extension/editor';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui';
+import { ThothStatusService } from '@ptah-extension/dashboard';
 import {
   HarnessBuilderViewComponent,
   SetupHubComponent,
+  HarnessWorkflowMessageHandler,
 } from '@ptah-extension/harness-builder';
 import { MarketplaceHubComponent } from '@ptah-extension/marketplace';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui';
@@ -131,12 +134,27 @@ export const appConfig: ApplicationConfig = {
     },
     {
       provide: MESSAGE_HANDLERS,
+      useExisting: ThothStatusService,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
       useExisting: UpdateBannerService,
       multi: true,
     },
     {
       provide: MESSAGE_HANDLERS,
       useExisting: VecEmbedderRecoveryService,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: HarnessWorkflowMessageHandler,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: SetupWizardStateService,
       multi: true,
     },
     provideMonacoEditor({

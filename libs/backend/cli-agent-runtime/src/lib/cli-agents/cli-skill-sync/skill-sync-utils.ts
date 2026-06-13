@@ -1,8 +1,7 @@
 /**
  * Shared Skill Sync Utilities
  *
- * Extracted from CopilotSkillInstaller and GeminiSkillInstaller
- * to eliminate code duplication (~230 lines duplicated).
+ * Extracted from CopilotSkillInstaller to eliminate code duplication.
  *
  * Contains:
  * - stripAllowedToolsFromFrontmatter: Remove Claude-specific fields from SKILL.md
@@ -353,36 +352,6 @@ export async function copyWorkspaceCommandMd(
   const content = await readFile(sourceFile, 'utf8');
   await writeFile(targetFile, content, 'utf8');
   return { written: true, skipped: false };
-}
-
-export async function writeWorkspaceCommandToml(
-  sourceFile: string,
-  commandsBaseDir: string,
-  commandName: string,
-  manifest: CliManagedManifest,
-): Promise<WorkspaceCommandCopyResult> {
-  const fileName = `${commandName}.toml`;
-  const targetFile = join(commandsBaseDir, fileName);
-  const exists = await pathExists(targetFile);
-  if (exists && !manifestHas(manifest, 'commands', fileName)) {
-    return { written: false, skipped: true, skipReason: 'foreign' };
-  }
-  await mkdir(commandsBaseDir, { recursive: true });
-  const mdBody = await readFile(sourceFile, 'utf8');
-  await writeFile(targetFile, emitGeminiCommandToml(mdBody), 'utf8');
-  return { written: true, skipped: false };
-}
-
-function stripCommandFrontmatter(content: string): string {
-  const normalized = normalizeCrlf(content);
-  const match = normalized.match(/^---\n[\s\S]*?\n---\n?/);
-  return match ? normalized.slice(match[0].length) : normalized;
-}
-
-export function emitGeminiCommandToml(mdBody: string): string {
-  const body = stripCommandFrontmatter(mdBody).replace(/\n+$/, '');
-  const escaped = body.replace(/\\/g, '\\\\').replace(/"""/g, '\\"\\"\\"');
-  return `prompt = """\n${escaped}\n"""\n`;
 }
 
 export async function reapPrefixedHomeEntries(

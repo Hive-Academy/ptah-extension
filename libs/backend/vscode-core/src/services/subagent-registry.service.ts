@@ -88,6 +88,7 @@ export class SubagentRegistryService {
    */
   register(registration: SubagentRegistration): void {
     this.store.lazyCleanup();
+    this.removeSupersededInterrupted(registration);
     const isPendingBackground = this.store.consumePendingBackground(
       registration.toolCallId,
     );
@@ -113,6 +114,41 @@ export class SubagentRegistryService {
       parentSessionId: registration.parentSessionId,
       registrySize: this.store.size,
     });
+  }
+
+  /**
+   * When a new registration shares an agentId with an existing interrupted
+   * record, the interrupted agent is being resumed — drop the stale record
+   * so it is no longer reported as resumable.
+   */
+  private removeSupersededInterrupted(registration: SubagentRegistration): void {
+    if (!registration.agentId) {
+      return;
+    }
+
+    const toRemove: string[] = [];
+    for (const [toolCallId, record] of this.store.entries()) {
+      if (
+        toolCallId !== registration.toolCallId &&
+        record.agentId === registration.agentId &&
+        record.status === 'interrupted'
+      ) {
+        toRemove.push(toolCallId);
+      }
+    }
+
+    for (const toolCallId of toRemove) {
+      this.store.markInjected(toolCallId);
+      this.store.delete(toolCallId);
+      this.logger.info(
+        '[SubagentRegistryService.register] Removed interrupted record superseded by live resume',
+        {
+          supersededToolCallId: toolCallId,
+          agentId: registration.agentId,
+          newToolCallId: registration.toolCallId,
+        },
+      );
+    }
   }
 
   /**
@@ -154,6 +190,20 @@ export class SubagentRegistryService {
       updates.status === 'completed' ||
       updates.status === 'background_completed'
     ) {
+      if (
+        record.status === 'interrupted' &&
+        this.store.isInTeardown(record.parentSessionId)
+      ) {
+        this.logger.info(
+          '[SubagentRegistryService.update] Ignoring completed status during session teardown — keeping interrupted record for resume',
+          {
+            toolCallId,
+            agentType: record.agentType,
+            parentSessionId: record.parentSessionId,
+          },
+        );
+        return;
+      }
       this.store.delete(toolCallId);
       this.logger.debug(
         '[SubagentRegistryService.update] Subagent completed and removed',
@@ -357,6 +407,52 @@ export class SubagentRegistryService {
     );
 
     return running;
+  }
+
+  /**
+   * Mark a parent session as being torn down.
+   *
+   * While in teardown, 'completed' updates for records already marked
+   * 'interrupted' are ignored — the SDK's graceful interrupt fires
+   * SubagentStop for agents that endSession() just marked interrupted, and
+   * honoring that stop would delete the record and lose resumability.
+   *
+   * Callers MUST pair this with endSessionTeardown() (try/finally).
+   *
+   * @param parentSessionId - The parent session ID entering teardown
+   */
+  beginSessionTeardown(parentSessionId: string): void {
+    this.store.beginTeardown(parentSessionId);
+  }
+
+  /**
+   * Clear the teardown marker set by beginSessionTeardown().
+   *
+   * @param parentSessionId - The parent session ID leaving teardown
+   */
+  endSessionTeardown(parentSessionId: string): void {
+    this.store.endTeardown(parentSessionId);
+  }
+
+  /**
+   * Increment and return the number of times a record's interrupted-agent
+   * context has been injected into a chat:continue prompt.
+   *
+   * @param toolCallId - The subagent's toolCallId
+   * @returns The attempt count after incrementing
+   */
+  recordInjectionAttempt(toolCallId: string): number {
+    return this.store.recordInjectionAttempt(toolCallId);
+  }
+
+  /**
+   * Current injection-attempt count for a record.
+   *
+   * @param toolCallId - The subagent's toolCallId
+   * @returns Number of prior injection attempts
+   */
+  getInjectionAttempts(toolCallId: string): number {
+    return this.store.getInjectionAttempts(toolCallId);
   }
 
   /**

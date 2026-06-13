@@ -50,8 +50,8 @@ describe('suggestClosest', () => {
   });
 
   it('returns null when no candidate is within maxDistance', () => {
-    // 'gemini' is way more than 2 edits away from any provider above.
-    expect(suggestClosest('gemini', providers, 2)).toBeNull();
+    // 'xkcd' is way more than 2 edits away from any provider above.
+    expect(suggestClosest('xkcd', providers, 2)).toBeNull();
   });
 
   it('returns the exact match when the input matches a candidate', () => {

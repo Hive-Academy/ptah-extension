@@ -105,6 +105,7 @@ jest.mock('@ptah-extension/memory-curator', () => ({
 
 import 'reflect-metadata';
 import { ALLOWED_METHOD_PREFIXES } from '@ptah-extension/vscode-core';
+import { RPC_METHOD_NAMES } from '@ptah-extension/shared';
 import { SHARED_HANDLERS } from './register-all';
 
 describe('RPC allowlist dual-registration guard', () => {
@@ -130,6 +131,33 @@ describe('RPC allowlist dual-registration guard', () => {
       throw new Error(
         `Missing prefixes detected — add them to ALLOWED_METHOD_PREFIXES in ` +
           `libs/backend/vscode-core/src/messaging/rpc-handler.ts:\n` +
+          missing.join('\n'),
+      );
+    }
+  });
+
+  it('every method in RPC_METHOD_NAMES has its prefix in ALLOWED_METHOD_PREFIXES', () => {
+    // Covers app-local handlers (VS Code File/Editor/Command/Agent, Electron
+    // Workspace/Layout/Terminal) that are not part of SHARED_HANDLERS: every
+    // method name in the shared registry must be registrable at runtime, or
+    // RpcHandler.registerMethod throws during activation.
+    const missing: string[] = [];
+
+    for (const method of RPC_METHOD_NAMES) {
+      const colonIndex = method.indexOf(':');
+      const prefix =
+        colonIndex === -1 ? method : method.slice(0, colonIndex + 1);
+
+      if (!(ALLOWED_METHOD_PREFIXES as readonly string[]).includes(prefix)) {
+        missing.push(`  - ${method}  (prefix: "${prefix}")`);
+      }
+    }
+
+    if (missing.length > 0) {
+      throw new Error(
+        `RPC registry methods whose prefix is not in ALLOWED_METHOD_PREFIXES ` +
+          `(libs/backend/vscode-core/src/messaging/rpc-handler.ts) — these ` +
+          `methods cannot be registered at runtime:\n` +
           missing.join('\n'),
       );
     }
