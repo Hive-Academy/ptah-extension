@@ -30,7 +30,21 @@ async function waitForActivation() {
     const deadline = Date.now() + ACTIVATION_TIMEOUT_MS;
     let lastError;
     try {
-      await ext.activate();
+      await Promise.race([
+        ext.activate(),
+        new Promise((_resolve, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `ext.activate() did not resolve within ${ACTIVATION_TIMEOUT_MS}ms — ` +
+                    `activation is hanging (e.g. an awaited UI prompt or unbounded async in the activation chain).`,
+                ),
+              ),
+            ACTIVATION_TIMEOUT_MS,
+          ),
+        ),
+      ]);
     } catch (err) {
       lastError = err;
     }
