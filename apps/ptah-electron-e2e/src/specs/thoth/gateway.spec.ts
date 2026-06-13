@@ -129,16 +129,15 @@ test.describe('Thoth — Gateway tab', () => {
       },
       'gateway:listBindings': `(params) => {
         const g = globalThis;
-        g.__gatewayListCalls = (g.__gatewayListCalls || 0) + 1;
-        if (g.__gatewayListCalls <= 1) {
-          return { bindings: [${JSON.stringify(pending)}] };
+        if (g.__gatewayApproved === true) {
+          return { bindings: [${JSON.stringify(approved)}] };
         }
-        return { bindings: [${JSON.stringify(approved)}] };
+        return { bindings: [${JSON.stringify(pending)}] };
       }`,
-      'gateway:approveBinding': {
-        ok: true,
-        binding: approved,
-      },
+      'gateway:approveBinding': `(params) => {
+        globalThis.__gatewayApproved = true;
+        return { ok: true, binding: ${JSON.stringify(approved)} };
+      }`,
     });
 
     await ui.openTab('gateway');
