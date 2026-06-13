@@ -199,21 +199,6 @@
           "type": "string",
           "description": "AI model for new chat sessions. Left empty to use the SDK default (set on first initialization)."
         },
-        "ptah.autopilot.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable autopilot mode for automatic file edits."
-        },
-        "ptah.autopilot.permissionLevel": {
-          "type": "string",
-          "enum": [
-            "ask",
-            "auto-edit",
-            "yolo"
-          ],
-          "default": "ask",
-          "description": "Permission level for autopilot mode."
-        },
         "ptah.enhancedPrompts.enabled": {
           "type": "boolean",
           "default": true,
