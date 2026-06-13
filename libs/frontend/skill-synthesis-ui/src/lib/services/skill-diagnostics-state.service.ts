@@ -157,17 +157,19 @@ export class SkillDiagnosticsStateService {
   }
 
   private applySnapshot(snapshot: SkillDiagnosticsResult): void {
-    this._lastAnalyzeRunAt.set(snapshot.lastAnalyzeRunAt);
-    this._lastCuratorPassAt.set(snapshot.lastCuratorPassAt);
-    this._recentEvents.set(snapshot.recentEvents);
-    this._eligibilityHistogram.set(snapshot.eligibilityHistogram);
-    this._triggers.set(snapshot.triggers);
+    this._lastAnalyzeRunAt.set(snapshot.lastAnalyzeRunAt ?? null);
+    this._lastCuratorPassAt.set(snapshot.lastCuratorPassAt ?? null);
+    this._recentEvents.set(snapshot.recentEvents ?? []);
+    this._eligibilityHistogram.set(
+      snapshot.eligibilityHistogram ?? DEFAULT_HISTOGRAM,
+    );
+    this._triggers.set(snapshot.triggers ?? DEFAULT_TRIGGERS);
     this._byStatus.set({
-      totalCandidates: snapshot.totalCandidates,
-      totalPromoted: snapshot.totalPromoted,
-      totalRejected: snapshot.totalRejected,
-      activeSkills: snapshot.activeSkills,
-      totalInvocations: snapshot.totalInvocations,
+      totalCandidates: snapshot.totalCandidates ?? 0,
+      totalPromoted: snapshot.totalPromoted ?? 0,
+      totalRejected: snapshot.totalRejected ?? 0,
+      activeSkills: snapshot.activeSkills ?? 0,
+      totalInvocations: snapshot.totalInvocations ?? 0,
     });
   }
 }
