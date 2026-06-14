@@ -45,7 +45,11 @@ import {
   type EffortLevel,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
-import { parsePermissionLevel, parseEffortLevel } from './config-rpc.schema';
+import {
+  parsePermissionLevel,
+  parseEffortLevel,
+  parseApplyTo,
+} from './config-rpc.schema';
 
 /**
  * RPC handlers for configuration operations
@@ -136,6 +140,7 @@ export class ConfigRpcHandlers {
     >('config:model-switch', async (params) => {
       try {
         const { model, sessionId } = params;
+        const applyTo = parseApplyTo(params.applyTo);
         this.logger.info(
           '[ModelDiag] config:model-switch RECEIVED from frontend',
           {
@@ -144,7 +149,7 @@ export class ConfigRpcHandlers {
             startsWithClaude: model.startsWith('claude-'),
           },
         );
-        await this.modelSettings.selectedModel.set(model);
+        await this.modelSettings.selectedModel.set(model, applyTo);
         if (sessionId) {
           try {
             await this.sdkAdapter.setSessionModel(sessionId, model);
@@ -192,10 +197,21 @@ export class ConfigRpcHandlers {
   private registerModelSet(): void {
     this.rpcHandler.registerMethod(
       'config:model-set',
-      async (params: { model?: string; autopilot?: boolean } | undefined) => {
+      async (
+        params:
+          | {
+              model?: string;
+              autopilot?: boolean;
+              applyTo?: 'global' | 'workspace';
+            }
+          | undefined,
+      ) => {
         try {
           if (params?.model !== undefined) {
-            await this.modelSettings.selectedModel.set(params.model);
+            await this.modelSettings.selectedModel.set(
+              params.model,
+              parseApplyTo(params.applyTo),
+            );
           }
           if (params?.autopilot !== undefined) {
             await this.configManager.set('autopilot.enabled', params.autopilot);
@@ -590,12 +606,13 @@ export class ConfigRpcHandlers {
       try {
         const effort = parseEffortLevel(params.effort);
         const sessionId = params.sessionId;
+        const applyTo = parseApplyTo(params.applyTo);
         this.logger.debug('RPC: config:effort-set called', {
           effort,
           sessionId: sessionId ?? null,
         });
 
-        await this.reasoningSettings.effort.set(effort || '');
+        await this.reasoningSettings.effort.set(effort || '', applyTo);
 
         if (sessionId) {
           try {

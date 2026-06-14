@@ -49,6 +49,10 @@ export class WorkspaceScopeResolver {
     return normalizeActivePath(raw);
   }
 
+  getActivePath(): string | undefined {
+    return this.activeNormalizedPath();
+  }
+
   read<T>(globalKey: string): T | undefined {
     const norm = this.activeNormalizedPath();
     if (norm) {

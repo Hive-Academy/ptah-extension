@@ -40,6 +40,7 @@ export const AuthSettingsSchema = z.object({
   anthropicProviderId: z
     .enum(ANTHROPIC_PROVIDERS.map((p) => p.id) as [string, ...string[]])
     .optional(),
+  applyTo: z.enum(['global', 'workspace']).optional(),
 });
 
 export type AuthSettingsInput = z.infer<typeof AuthSettingsSchema>;

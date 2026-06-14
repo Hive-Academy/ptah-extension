@@ -35,6 +35,17 @@ export function parsePermissionLevel(
   return result.success ? result.data : fallback;
 }
 
+export const ApplyToSchema = z.enum(['global', 'workspace'] as const);
+
+/**
+ * Parse an `applyTo` write-target from RPC params.
+ * Returns `'global'` for any missing / unrecognized value (non-breaking default).
+ */
+export function parseApplyTo(raw: unknown): 'global' | 'workspace' {
+  const result = ApplyToSchema.safeParse(raw);
+  return result.success ? result.data : 'global';
+}
+
 export const EffortLevelSchema = z.enum([
   'low',
   'medium',

@@ -83,8 +83,70 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
+import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
 
 import { AuthRpcHandlers } from './auth-rpc.handlers';
+
+// ---------------------------------------------------------------------------
+// WorkspaceScopeResolver mock — backed by an in-memory two-tier store so the
+// handler's resolver reads/writes behave like the real global/workspace
+// fallback without a file backend.
+// ---------------------------------------------------------------------------
+
+interface MockScopeResolver {
+  read: jest.Mock<unknown, [string]>;
+  hasOverride: jest.Mock<boolean, [string]>;
+  write: jest.Mock<Promise<void>, [string, unknown, 'global' | 'workspace']>;
+  clearOverride: jest.Mock<Promise<void>, [string]>;
+  getActivePath: jest.Mock<string | undefined, []>;
+  globalStore: Map<string, unknown>;
+  workspaceStore: Map<string, unknown>;
+}
+
+function createMockScopeResolver(opts: {
+  global?: Record<string, unknown>;
+  workspace?: Record<string, unknown>;
+  activePath?: string | undefined;
+}): MockScopeResolver {
+  const globalStore = new Map<string, unknown>(
+    Object.entries(opts.global ?? {}),
+  );
+  const workspaceStore = new Map<string, unknown>(
+    Object.entries(opts.workspace ?? {}),
+  );
+  const activePath = 'activePath' in opts ? opts.activePath : '/ws/project-a';
+
+  const read = jest.fn((key: string) => {
+    if (activePath && workspaceStore.has(key)) return workspaceStore.get(key);
+    return globalStore.get(key);
+  });
+  const hasOverride = jest.fn(
+    (key: string) => !!activePath && workspaceStore.has(key),
+  );
+  const write = jest.fn(
+    async (key: string, value: unknown, target: 'global' | 'workspace') => {
+      if (target === 'workspace' && activePath) {
+        workspaceStore.set(key, value);
+      } else {
+        globalStore.set(key, value);
+      }
+    },
+  );
+  const clearOverride = jest.fn(async (key: string) => {
+    workspaceStore.delete(key);
+  });
+  const getActivePath = jest.fn(() => activePath);
+
+  return {
+    read,
+    hasOverride,
+    write,
+    clearOverride,
+    getActivePath,
+    globalStore,
+    workspaceStore,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces — only what the handler touches
@@ -176,6 +238,7 @@ interface Harness {
   platformAuth: MockAuthProvider;
   cliDetector: MockCliDetector;
   sentry: MockSentryService;
+  scopeResolver: MockScopeResolver;
 }
 
 function makeHarness(
@@ -184,6 +247,8 @@ function makeHarness(
     configSeed?: Record<string, unknown>;
     credentialsSeed?: { apiKey?: string };
     providerKeysSeed?: Record<string, string>;
+    workspaceOverrides?: Record<string, unknown>;
+    activePath?: string | undefined;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -205,6 +270,11 @@ function makeHarness(
   const platformAuth = createMockAuthProvider();
   const cliDetector = createMockCliDetector();
   const sentry = createMockSentryService();
+  const scopeResolver = createMockScopeResolver({
+    global: opts.configSeed,
+    workspace: opts.workspaceOverrides,
+    ...('activePath' in opts ? { activePath: opts.activePath } : {}),
+  });
 
   const handlers = new AuthRpcHandlers(
     logger as unknown as Logger,
@@ -219,6 +289,7 @@ function makeHarness(
     platformAuth as unknown as IPlatformAuthProvider,
     cliDetector as unknown as ClaudeCliDetector,
     sentry as unknown as SentryService,
+    scopeResolver as unknown as WorkspaceScopeResolver,
   );
 
   return {
@@ -235,6 +306,7 @@ function makeHarness(
     platformAuth,
     cliDetector,
     sentry,
+    scopeResolver,
   };
 }
 
@@ -503,6 +575,152 @@ describe('AuthRpcHandlers', () => {
       });
 
       expect(h.providerModels.clearCache).toHaveBeenCalledWith('claude');
+    });
+
+    it('defaults applyTo to global — writes authMethod/provider to the bare global key', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'auth:saveSettings', {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'openrouter',
+      });
+
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'authMethod',
+        'thirdParty',
+        'global',
+      );
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        'openrouter',
+        'global',
+      );
+      // Global tier received the value; workspace tier untouched.
+      expect(h.scopeResolver.globalStore.get('authMethod')).toBe('thirdParty');
+      expect(h.scopeResolver.workspaceStore.has('authMethod')).toBe(false);
+    });
+
+    it('routes a workspace-targeted write to the prefixed workspace key', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'auth:saveSettings', {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'openrouter',
+        applyTo: 'workspace',
+      });
+
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'authMethod',
+        'thirdParty',
+        'workspace',
+      );
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        'openrouter',
+        'workspace',
+      );
+      // Workspace tier received the value; global default untouched.
+      expect(h.scopeResolver.workspaceStore.get('authMethod')).toBe(
+        'thirdParty',
+      );
+      expect(h.scopeResolver.globalStore.has('authMethod')).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // auth:getScope
+  // -------------------------------------------------------------------------
+
+  describe('auth:getScope', () => {
+    it('reports inherited (global) scope when no workspace override exists', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey', anthropicProviderId: 'anthropic' },
+        activePath: '/ws/project-a',
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        authMethodScope: string;
+        providerScope: string;
+        activePath: string | null;
+      }>(h, 'auth:getScope');
+
+      expect(result.authMethodScope).toBe('global');
+      expect(result.providerScope).toBe('global');
+      expect(result.activePath).toBe('/ws/project-a');
+    });
+
+    it('reports workspace scope for keys that the active folder overrides', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey' },
+        workspaceOverrides: { authMethod: 'thirdParty' },
+        activePath: '/ws/project-b',
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        authMethodScope: string;
+        providerScope: string;
+      }>(h, 'auth:getScope');
+
+      expect(result.authMethodScope).toBe('workspace');
+      expect(result.providerScope).toBe('global');
+    });
+
+    it('returns null activePath when no active folder is resolved', async () => {
+      const h = makeHarness({ activePath: undefined });
+      h.handlers.register();
+
+      const result = await call<{ activePath: string | null }>(
+        h,
+        'auth:getScope',
+      );
+
+      expect(result.activePath).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // auth:clearWorkspaceOverride
+  // -------------------------------------------------------------------------
+
+  describe('auth:clearWorkspaceOverride', () => {
+    it('clears auth/provider/model/effort overrides for the active folder and reverts to global', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey', anthropicProviderId: '' },
+        workspaceOverrides: {
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openrouter',
+        },
+        activePath: '/ws/project-c',
+      });
+      h.handlers.register();
+
+      // Pre-condition: the folder overrides authMethod.
+      expect(h.scopeResolver.workspaceStore.has('authMethod')).toBe(true);
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'auth:clearWorkspaceOverride',
+      );
+
+      expect(result.success).toBe(true);
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith('authMethod');
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith(
+        'anthropicProviderId',
+      );
+      // authKey derived from the (pre-clear) workspace values: thirdParty.openrouter.
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith(
+        'provider.thirdParty.openrouter.selectedModel',
+      );
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith(
+        'provider.thirdParty.openrouter.reasoningEffort',
+      );
+      // Overrides gone → reads now fall through to the global tier.
+      expect(h.scopeResolver.workspaceStore.has('authMethod')).toBe(false);
+      expect(h.sdkAdapter.reset).toHaveBeenCalledTimes(1);
     });
   });
 
