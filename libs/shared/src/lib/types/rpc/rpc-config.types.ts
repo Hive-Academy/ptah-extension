@@ -15,7 +15,7 @@ export interface ConfigModelSwitchParams {
   model: string;
   /** Active session ID for live SDK sync (optional) */
   sessionId?: SessionId | null;
-  applyTo?: 'global' | 'workspace';
+  applyTo?: 'global' | 'app' | 'workspace';
 }
 
 /** Response from config:model-switch RPC method */
@@ -34,7 +34,7 @@ export interface ConfigEffortSetParams {
   effort: EffortLevel | undefined;
   /** Active session ID for live SDK sync (optional) */
   sessionId?: SessionId | null;
-  applyTo?: 'global' | 'workspace';
+  applyTo?: 'global' | 'app' | 'workspace';
 }
 
 /** Response from config:effort-set RPC method */

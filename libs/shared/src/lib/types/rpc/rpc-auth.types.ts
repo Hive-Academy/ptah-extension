@@ -31,7 +31,7 @@ export interface AuthSaveSettingsParams {
   providerApiKey?: string;
   /** Selected Anthropic-compatible provider ID */
   anthropicProviderId?: string;
-  applyTo?: 'global' | 'workspace';
+  applyTo?: 'global' | 'app' | 'workspace';
 }
 
 /** Response from auth:saveSettings RPC method */
@@ -176,9 +176,10 @@ export interface AuthGetAuthStatusResponse {
 
 /** Response from auth:getScope RPC method */
 export interface AuthGetScopeResult {
-  authMethodScope: 'global' | 'workspace';
-  providerScope: 'global' | 'workspace';
+  authMethodScope: 'global' | 'app' | 'workspace';
+  providerScope: 'global' | 'app' | 'workspace';
   activePath: string | null;
+  runtime?: string;
 }
 
 /** Response from auth:clearWorkspaceOverride RPC method */
