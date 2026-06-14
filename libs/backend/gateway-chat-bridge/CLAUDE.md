@@ -32,14 +32,15 @@ DI: `GATEWAY_CHAT_BRIDGE_TOKENS`, `GatewayChatBridgeDIToken`, `registerGatewayCh
 
 ## Behavior
 
-- First inbound for a binding (no `ptahSessionId` / not active) → `startChatSession({ tabId: 'gw-<bindingId>', prompt, projectPath, workspaceId, model: 'default', includePartialMessages: true })`. Subsequent turns → `resumeSession`.
+- First inbound for a binding (no `ptahSessionId` / not active) → `startChatSession({ tabId: 'gw-<bindingId>', prompt, projectPath, workspaceId, model, includePartialMessages: true })`. Subsequent turns → `resumeSession`.
+- `model` is resolved per-turn from `ModelSettings.selectedModel` (provider-aware: resolves the active provider's `provider.<authKey>.selectedModel`, falling back to `'default'` when unset) — same source the chat RPC path uses. Never hardcode a model so Codex / other providers resolve correctly.
 - First non-`tabId` `event.sessionId` is persisted via `BindingStore.setPtahSessionId` (once), then the session is switched to bypass permission (v1 auto-approve).
 - `text_delta` → `gateway.appendOutboundChunk`; `message_complete` → `gateway.drainOutbound`.
 - Resume failure or a zero-event corrupted stream falls back to a fresh `startChatSession`. Hard failures send a short error reply.
 
 ## Dependencies
 
-**Internal**: `@ptah-extension/shared`, `@ptah-extension/platform-core`, `@ptah-extension/vscode-core`, `@ptah-extension/messaging-gateway`
+**Internal**: `@ptah-extension/shared`, `@ptah-extension/platform-core`, `@ptah-extension/settings-core`, `@ptah-extension/vscode-core`, `@ptah-extension/messaging-gateway`
 **External**: `tsyringe`
 
 ## Cross-Lib Rules
