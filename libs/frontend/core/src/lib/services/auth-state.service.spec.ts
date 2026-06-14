@@ -323,6 +323,7 @@ describe('AuthStateService', () => {
       expect(rpc.call).toHaveBeenCalledWith('auth:saveSettings', {
         authMethod: 'thirdParty',
         providerApiKey: 'sk-test',
+        applyTo: 'global',
       });
       expect(rpc.call).toHaveBeenCalledWith('auth:testConnection', {});
       expect(service.connectionStatus()).toBe('success');
@@ -412,6 +413,143 @@ describe('AuthStateService', () => {
 
       expect(service.connectionStatus()).toBe('success');
       expect(service.successMessage()).toContain('Connection successful');
+    });
+  });
+
+  describe('workspace scope (auth:getScope)', () => {
+    it('populates authScope/providerScope/activeScopePath from auth:getScope', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'workspace',
+            providerScope: 'global',
+            activePath: 'D:/repo/foo',
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.authScope()).toBe('workspace');
+      expect(service.providerScope()).toBe('global');
+      expect(service.activeScopePath()).toBe('D:/repo/foo');
+      expect(service.hasWorkspaceOverride()).toBe(true);
+    });
+
+    it('leaves scope signals at defaults when auth:getScope returns no data', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.authScope()).toBe('global');
+      expect(service.providerScope()).toBe('global');
+      expect(service.activeScopePath()).toBeNull();
+      expect(service.hasWorkspaceOverride()).toBe(false);
+    });
+  });
+
+  describe('applyTo forwarding', () => {
+    function mockSaveTestRefresh(): void {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:saveSettings')
+          return rpcSuccess({ success: true });
+        if (method === 'auth:testConnection')
+          return rpcSuccess({ success: true });
+        if (method === 'auth:getAuthStatus')
+          return rpcSuccess(makeAuthStatusResponse());
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+    }
+
+    it('defaults applyTo to global when not provided', async () => {
+      mockSaveTestRefresh();
+      const service = createService();
+      await service.saveAndTest({ authMethod: 'apiKey', anthropicApiKey: 'k' });
+
+      expect(rpc.call).toHaveBeenCalledWith('auth:saveSettings', {
+        authMethod: 'apiKey',
+        anthropicApiKey: 'k',
+        applyTo: 'global',
+      });
+    });
+
+    it('forwards applyTo=workspace into auth:saveSettings', async () => {
+      mockSaveTestRefresh();
+      const service = createService();
+      await service.saveAndTest(
+        { authMethod: 'apiKey', anthropicApiKey: 'k' },
+        'workspace',
+      );
+
+      expect(rpc.call).toHaveBeenCalledWith('auth:saveSettings', {
+        authMethod: 'apiKey',
+        anthropicApiKey: 'k',
+        applyTo: 'workspace',
+      });
+    });
+
+    it('prefers an explicit applyTo on the params object over the argument', async () => {
+      mockSaveTestRefresh();
+      const service = createService();
+      await service.saveAndTest(
+        { authMethod: 'apiKey', anthropicApiKey: 'k', applyTo: 'workspace' },
+        'global',
+      );
+
+      expect(rpc.call).toHaveBeenCalledWith('auth:saveSettings', {
+        authMethod: 'apiKey',
+        anthropicApiKey: 'k',
+        applyTo: 'workspace',
+      });
+    });
+  });
+
+  describe('clearWorkspaceOverride()', () => {
+    it('calls auth:clearWorkspaceOverride then refreshes auth status', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:clearWorkspaceOverride')
+          return rpcSuccess({ success: true });
+        if (method === 'auth:getAuthStatus')
+          return rpcSuccess(makeAuthStatusResponse());
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.clearWorkspaceOverride();
+
+      expect(rpc.call).toHaveBeenCalledWith('auth:clearWorkspaceOverride', {});
+      const statusCalls = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'auth:getAuthStatus',
+      );
+      expect(statusCalls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('records an error and does not refresh when the clear fails', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:clearWorkspaceOverride')
+          return rpcSuccess({ success: false });
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.clearWorkspaceOverride();
+
+      expect(service.errorMessage()).toBe('Failed to reset to global default');
+      const statusCalls = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'auth:getAuthStatus',
+      );
+      expect(statusCalls).toHaveLength(0);
     });
   });
 
