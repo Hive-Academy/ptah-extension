@@ -12,10 +12,15 @@ import type { DependencyContainer } from 'tsyringe';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
 import { registerElectronSettings } from '@ptah-extension/platform-electron';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IWorkspaceLifecycleProvider,
+} from '@ptah-extension/platform-core';
 import { TOKENS, SentryService } from '@ptah-extension/vscode-core';
 import {
   SETTINGS_TOKENS,
   type MigrationRunner,
+  type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import { activateSessionLifecycleNotifier } from '@ptah-extension/rpc-handlers';
@@ -104,6 +109,20 @@ export async function bootstrapElectron(
 
   const container = ElectronDIContainer.setup(platformOptions);
   try {
+    const wsProvider = container.resolve<IWorkspaceProvider>(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+    );
+    const lifecycle = container.resolve<IWorkspaceLifecycleProvider>(
+      PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER,
+    );
+    const activeWorkspaceSource: IActiveWorkspaceSource = {
+      getActivePath: () =>
+        lifecycle.getActiveFolder() ?? wsProvider.getWorkspaceRoot(),
+      onDidChange: (cb) => wsProvider.onDidChangeWorkspaceFolders(cb),
+    };
+    container.register(SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE, {
+      useValue: activeWorkspaceSource,
+    });
     registerElectronSettings(container);
     const migrationRunner = container.resolve<MigrationRunner>(
       SETTINGS_TOKENS.MIGRATION_RUNNER,

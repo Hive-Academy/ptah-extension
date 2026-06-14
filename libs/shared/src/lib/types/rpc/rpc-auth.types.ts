@@ -31,6 +31,7 @@ export interface AuthSaveSettingsParams {
   providerApiKey?: string;
   /** Selected Anthropic-compatible provider ID */
   anthropicProviderId?: string;
+  applyTo?: 'global' | 'workspace';
 }
 
 /** Response from auth:saveSettings RPC method */
@@ -171,4 +172,16 @@ export interface AuthGetAuthStatusResponse {
   codexTokenStale?: boolean;
   /** Whether Claude CLI is installed and detected on the system */
   claudeCliInstalled?: boolean;
+}
+
+/** Response from auth:getScope RPC method */
+export interface AuthGetScopeResult {
+  authMethodScope: 'global' | 'workspace';
+  providerScope: 'global' | 'workspace';
+  activePath: string | null;
+}
+
+/** Response from auth:clearWorkspaceOverride RPC method */
+export interface AuthClearWorkspaceOverrideResult {
+  success: boolean;
 }

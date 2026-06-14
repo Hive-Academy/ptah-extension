@@ -104,6 +104,8 @@ import type {
   AuthCopilotStatusResponse,
   AuthCodexLoginParams,
   AuthCodexLoginResponse,
+  AuthGetScopeResult,
+  AuthClearWorkspaceOverrideResult,
 } from './rpc/rpc-auth.types';
 
 import type {
@@ -605,6 +607,14 @@ export interface RpcMethodRegistry {
     params: AuthCodexLoginParams;
     result: AuthCodexLoginResponse;
   };
+  'auth:getScope': {
+    params: Record<string, never>;
+    result: AuthGetScopeResult;
+  };
+  'auth:clearWorkspaceOverride': {
+    params: Record<string, never>;
+    result: AuthClearWorkspaceOverrideResult;
+  };
   'setup-status:get-status': {
     params: SetupStatusGetParams;
     result: SetupStatusGetResponse;
@@ -1096,7 +1106,11 @@ export interface RpcMethodRegistry {
     result: { saved: boolean; filePath?: string; error?: string };
   };
   'config:model-set': {
-    params: { model?: string; autopilot?: boolean };
+    params: {
+      model?: string;
+      autopilot?: boolean;
+      applyTo?: 'global' | 'workspace';
+    };
     result: { success: boolean };
   };
   'auth:setApiKey': {
@@ -2079,6 +2093,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:copilotLogout': true,
   'auth:copilotStatus': true,
   'auth:codexLogin': true,
+  'auth:getScope': true,
+  'auth:clearWorkspaceOverride': true,
   'setup-status:get-status': true,
   'setup-wizard:launch': true,
   'wizard:deep-analyze': true,

@@ -9,7 +9,7 @@ const MIN_CELL_HEIGHT = 20;
  * When tiles span multiple rows the canvas scrolls vertically instead of
  * shrinking every tile to fit, so a 4-tile layout stays readable.
  */
-const MIN_TILE_VIEWPORT_RATIO = 0.7;
+const MIN_TILE_VIEWPORT_RATIO = 0.9;
 
 const BREAKPOINT_NARROW = 500;
 const BREAKPOINT_MEDIUM = 900;
