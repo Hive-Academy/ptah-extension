@@ -18,6 +18,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
   SETTINGS_TOKENS,
   ReactiveSettingsStore,
@@ -33,9 +34,11 @@ import {
   MigrationRunner,
   SecretsFileStore,
   WorkspaceScopeResolver,
+  appScopePrefixFor,
   runV1Migration,
   runV2Migration,
   runV3Migration,
+  runV4Migration,
 } from '@ptah-extension/settings-core';
 import type { IActiveWorkspaceSource } from '@ptah-extension/settings-core';
 
@@ -104,6 +107,7 @@ export function registerVscodeSettings(
   container.register(SETTINGS_TOKENS.SETTINGS_STORE, {
     useValue: reactiveStore,
   });
+  const appPrefix = resolveAppPrefix(container);
   const scopeResolver = container.isRegistered(
     SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE,
   )
@@ -112,6 +116,7 @@ export function registerVscodeSettings(
         container.resolve<IActiveWorkspaceSource>(
           SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE,
         ),
+        appPrefix,
       )
     : undefined;
   if (scopeResolver) {
@@ -147,11 +152,25 @@ export function registerVscodeSettings(
     useValue: new CronSettings(reactiveStore),
   });
   const boundV3 = (dir: string) => runV3Migration(dir, masterKeyProvider);
+  const boundV4 = (dir: string) => runV4Migration(dir, appPrefix);
   container.register(SETTINGS_TOKENS.MIGRATION_RUNNER, {
     useValue: new MigrationRunner(ptahDir, [
       runV1Migration,
       runV2Migration,
       boundV3,
+      boundV4,
     ]),
   });
+}
+
+function resolveAppPrefix(container: DependencyContainer): string | undefined {
+  if (!container.isRegistered(PLATFORM_TOKENS.PLATFORM_INFO)) {
+    return undefined;
+  }
+  const info = container.resolve<IPlatformInfo>(PLATFORM_TOKENS.PLATFORM_INFO);
+  const type = info.type;
+  if (typeof type !== 'string' || type.trim() === '' || type === 'web') {
+    return undefined;
+  }
+  return appScopePrefixFor(type);
 }
