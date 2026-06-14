@@ -61,3 +61,4 @@ export type { MigrationFn } from './migrations/runner';
 export { runV1Migration } from './migrations/v1-migration';
 export { runV2Migration } from './migrations/v2-migration';
 export { runV3Migration } from './migrations/v3-migration';
+export { runV4Migration } from './migrations/v4-migration';
