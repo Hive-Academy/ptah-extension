@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Static, Text } from 'ink';
+import { Box, Text } from 'ink';
 import BigText from 'ink-big-text';
 import Gradient from 'ink-gradient';
 
@@ -12,6 +12,8 @@ interface MessageListProps {
   messages: ChatMessage[];
   isStreaming: boolean;
 }
+
+const MAX_VISIBLE_MESSAGES = 50;
 
 function WelcomeScreen(): React.JSX.Element {
   const theme = useTheme();
@@ -72,42 +74,39 @@ export function MessageList({
     return <WelcomeScreen />;
   }
 
-  const lastIdx = messages.length - 1;
-  const last = lastIdx >= 0 ? messages[lastIdx] : undefined;
-  const isLastLive = last?.isStreaming === true;
-
-  const completed = isLastLive ? messages.slice(0, -1) : messages;
-  const live = isLastLive ? last : undefined;
+  const last = messages[messages.length - 1];
 
   const showThinkingSpinner =
     isStreaming &&
-    (!live || live.role !== 'assistant' || live.content.length === 0);
+    (!last || last.role !== 'assistant' || last.content.length === 0);
+
+  // Cap the rendered history so the element tree can't grow unbounded; the
+  // bounded viewport below keeps only the most recent messages on screen.
+  const visible =
+    messages.length > MAX_VISIBLE_MESSAGES
+      ? messages.slice(-MAX_VISIBLE_MESSAGES)
+      : messages;
 
   return (
-    <Box flexDirection="column" flexGrow={1} paddingX={1} paddingY={1}>
-      <Static items={completed}>
-        {(message) => (
-          <MessageBubble
-            key={message.id}
-            role={message.role}
-            content={message.content}
-            thinking={message.thinking}
-            tools={message.tools}
-            isStreaming={false}
-          />
-        )}
-      </Static>
-
-      {live && (
+    <Box
+      flexDirection="column"
+      flexGrow={1}
+      flexShrink={1}
+      overflow="hidden"
+      justifyContent="flex-end"
+      paddingX={1}
+      paddingY={1}
+    >
+      {visible.map((message) => (
         <MessageBubble
-          key={live.id}
-          role={live.role}
-          content={live.content}
-          thinking={live.thinking}
-          tools={live.tools}
-          isStreaming={true}
+          key={message.id}
+          role={message.role}
+          content={message.content}
+          thinking={message.thinking}
+          tools={message.tools}
+          isStreaming={message.isStreaming === true}
         />
-      )}
+      ))}
 
       {showThinkingSpinner && (
         <Box paddingX={1} marginBottom={1} gap={1}>
