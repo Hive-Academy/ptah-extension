@@ -457,6 +457,179 @@ describe('AuthStateService', () => {
       expect(service.activeScopePath()).toBeNull();
       expect(service.hasWorkspaceOverride()).toBe(false);
     });
+
+    it('sets hasAppOverride when authMethodScope is "app"', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'app',
+            providerScope: 'global',
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.authScope()).toBe('app');
+      expect(service.providerScope()).toBe('global');
+      expect(service.hasAppOverride()).toBe(true);
+      expect(service.hasWorkspaceOverride()).toBe(false);
+    });
+
+    it('sets hasAppOverride when providerScope is "app"', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'global',
+            providerScope: 'app',
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.providerScope()).toBe('app');
+      expect(service.hasAppOverride()).toBe(true);
+      expect(service.hasWorkspaceOverride()).toBe(false);
+    });
+
+    it('hasAppOverride is false when both scopes are global', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'global',
+            providerScope: 'global',
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.hasAppOverride()).toBe(false);
+    });
+  });
+
+  describe('activeScope computed precedence', () => {
+    function mockScopeLoad(
+      authMethodScope: string,
+      providerScope: string,
+    ): void {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope,
+            providerScope,
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+    }
+
+    it('returns "workspace" when authMethodScope is workspace (most specific wins)', async () => {
+      mockScopeLoad('workspace', 'app');
+      const service = createService();
+      await service.loadAuthStatus();
+      expect(service.activeScope()).toBe('workspace');
+    });
+
+    it('returns "workspace" when providerScope is workspace regardless of authMethodScope', async () => {
+      mockScopeLoad('global', 'workspace');
+      const service = createService();
+      await service.loadAuthStatus();
+      expect(service.activeScope()).toBe('workspace');
+    });
+
+    it('returns "app" when authMethodScope is app and no workspace override', async () => {
+      mockScopeLoad('app', 'global');
+      const service = createService();
+      await service.loadAuthStatus();
+      expect(service.activeScope()).toBe('app');
+    });
+
+    it('returns "app" when providerScope is app and no workspace override', async () => {
+      mockScopeLoad('global', 'app');
+      const service = createService();
+      await service.loadAuthStatus();
+      expect(service.activeScope()).toBe('app');
+    });
+
+    it('returns "global" when both scopes are global', async () => {
+      mockScopeLoad('global', 'global');
+      const service = createService();
+      await service.loadAuthStatus();
+      expect(service.activeScope()).toBe('global');
+    });
+  });
+
+  describe('fetchAndPopulateScope with app scope', () => {
+    it('updates authScope/activeScope to "app" when authMethodScope is "app"', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'app',
+            providerScope: 'global',
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.authScope()).toBe('app');
+      expect(service.activeScope()).toBe('app');
+    });
+
+    it('updates both scopes to "global" when getScope returns all-global', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:getAuthStatus') {
+          return rpcSuccess(makeAuthStatusResponse());
+        }
+        if (method === 'auth:getScope') {
+          return rpcSuccess({
+            authMethodScope: 'global',
+            providerScope: 'global',
+            activePath: null,
+          });
+        }
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(service.authScope()).toBe('global');
+      expect(service.providerScope()).toBe('global');
+      expect(service.activeScope()).toBe('global');
+      expect(service.hasAppOverride()).toBe(false);
+      expect(service.hasWorkspaceOverride()).toBe(false);
+    });
   });
 
   describe('applyTo forwarding', () => {
@@ -499,6 +672,21 @@ describe('AuthStateService', () => {
       });
     });
 
+    it('forwards applyTo=app into auth:saveSettings', async () => {
+      mockSaveTestRefresh();
+      const service = createService();
+      await service.saveAndTest(
+        { authMethod: 'apiKey', anthropicApiKey: 'k' },
+        'app',
+      );
+
+      expect(rpc.call).toHaveBeenCalledWith('auth:saveSettings', {
+        authMethod: 'apiKey',
+        anthropicApiKey: 'k',
+        applyTo: 'app',
+      });
+    });
+
     it('prefers an explicit applyTo on the params object over the argument', async () => {
       mockSaveTestRefresh();
       const service = createService();
@@ -512,6 +700,80 @@ describe('AuthStateService', () => {
         anthropicApiKey: 'k',
         applyTo: 'workspace',
       });
+    });
+  });
+
+  describe('scope re-fetch after write operations', () => {
+    it('saveAndTest success triggers auth:getScope re-query so badge reflects new state', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:saveSettings')
+          return rpcSuccess({ success: true });
+        if (method === 'auth:testConnection')
+          return rpcSuccess({ success: true });
+        if (method === 'auth:getAuthStatus')
+          return rpcSuccess(makeAuthStatusResponse());
+        if (method === 'auth:getScope')
+          return rpcSuccess({
+            authMethodScope: 'app',
+            providerScope: 'global',
+            activePath: null,
+          });
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.saveAndTest(
+        { authMethod: 'apiKey', anthropicApiKey: 'k' },
+        'app',
+      );
+
+      const scopeCalls = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'auth:getScope',
+      );
+      expect(scopeCalls.length).toBeGreaterThanOrEqual(1);
+      expect(service.authScope()).toBe('app');
+      expect(service.activeScope()).toBe('app');
+    });
+
+    it('saveAndTest failure does not re-query auth:getScope', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:saveSettings')
+          return rpcSuccess({ success: false, error: 'rejected' });
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.saveAndTest({ authMethod: 'apiKey', anthropicApiKey: 'k' });
+
+      const scopeCalls = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'auth:getScope',
+      );
+      expect(scopeCalls).toHaveLength(0);
+    });
+
+    it('clearWorkspaceOverride success triggers auth:getScope re-query so badge reflects new state', async () => {
+      rpc.call.mockImplementation((async (method: string) => {
+        if (method === 'auth:clearWorkspaceOverride')
+          return rpcSuccess({ success: true });
+        if (method === 'auth:getAuthStatus')
+          return rpcSuccess(makeAuthStatusResponse());
+        if (method === 'auth:getScope')
+          return rpcSuccess({
+            authMethodScope: 'global',
+            providerScope: 'global',
+            activePath: null,
+          });
+        return rpcSuccess(undefined);
+      }) as unknown as typeof rpc.call);
+
+      const service = createService();
+      await service.clearWorkspaceOverride();
+
+      const scopeCalls = rpc.call.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'auth:getScope',
+      );
+      expect(scopeCalls.length).toBeGreaterThanOrEqual(1);
+      expect(service.activeScope()).toBe('global');
     });
   });
 
