@@ -801,10 +801,14 @@ describe('TC-18: Isolation guarantee — zero unauthorized consumers', () => {
       /libs[\\/]backend[\\/]rpc-handlers[\\/]/,
       // messaging-gateway uses GatewaySettings for secret token storage.
       /libs[\\/]backend[\\/]messaging-gateway[\\/]/,
+      // gateway-chat-bridge consumes settings (provider/model) for bridged sessions.
+      /libs[\\/]backend[\\/]gateway-chat-bridge[\\/]/,
       // cli-agent-runtime consumes ReasoningSettings to map UI effort to CLI flags.
       /libs[\\/]backend[\\/]cli-agent-runtime[\\/]/,
       // cli-engine hosts the migrated CLI bootstrap (runs SETTINGS_TOKENS migrations).
       /libs[\\/]backend[\\/]cli-engine[\\/]/,
+      // auth-providers consumes WorkspaceScopeResolver for per-workspace provider resolution.
+      /libs[\\/]backend[\\/]auth-providers[\\/]/,
       // tsconfig files declare path aliases — not runtime consumers.
       /tsconfig(\.\w+)?\.json$/,
       // Documentation mentions the package name in prose — not a runtime import.
