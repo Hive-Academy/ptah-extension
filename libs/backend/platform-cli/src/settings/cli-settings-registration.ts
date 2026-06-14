@@ -27,10 +27,12 @@ import {
   CronSettings,
   MigrationRunner,
   SecretsFileStore,
+  WorkspaceScopeResolver,
   runV1Migration,
   runV2Migration,
   runV3Migration,
 } from '@ptah-extension/settings-core';
+import type { IActiveWorkspaceSource } from '@ptah-extension/settings-core';
 
 import { FileSettingsStore } from './file-settings-store';
 import { CliMasterKeyProvider } from './cli-master-key-provider';
@@ -77,14 +79,29 @@ export function registerCliSettings(
   container.register(SETTINGS_TOKENS.SETTINGS_STORE, {
     useValue: reactiveStore,
   });
+  const scopeResolver = container.isRegistered(
+    SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE,
+  )
+    ? new WorkspaceScopeResolver(
+        reactiveStore,
+        container.resolve<IActiveWorkspaceSource>(
+          SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE,
+        ),
+      )
+    : undefined;
+  if (scopeResolver) {
+    container.register(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER, {
+      useValue: scopeResolver,
+    });
+  }
   container.register(SETTINGS_TOKENS.AUTH_SETTINGS, {
     useValue: new AuthSettings(reactiveStore),
   });
   container.register(SETTINGS_TOKENS.REASONING_SETTINGS, {
-    useValue: new ReasoningSettings(reactiveStore),
+    useValue: new ReasoningSettings(reactiveStore, scopeResolver),
   });
   container.register(SETTINGS_TOKENS.MODEL_SETTINGS, {
-    useValue: new ModelSettings(reactiveStore),
+    useValue: new ModelSettings(reactiveStore, scopeResolver),
   });
   container.register(SETTINGS_TOKENS.CLI_SUBAGENT_SETTINGS, {
     useValue: new CliSubagentSettings(reactiveStore),
