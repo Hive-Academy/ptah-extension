@@ -17,6 +17,7 @@
 
 import 'reflect-metadata';
 import { runMasterKeyProviderContract } from '@ptah-extension/platform-core/testing';
+import type { IUserInteraction } from '@ptah-extension/platform-core';
 import { VscodeMasterKeyProvider } from './vscode-master-key-provider';
 import { InMemorySecretStorage } from '../../__mocks__/vscode';
 
@@ -96,7 +97,7 @@ describe('VscodeMasterKeyProvider — IUserInteraction wiring (Deliverable D)', 
       backing as unknown as import('vscode').SecretStorage,
       {
         showErrorMessage,
-      } as unknown as import('@ptah-extension/platform-core').IUserInteraction,
+      } as unknown as IUserInteraction,
     );
 
     const key = await provider.getMasterKey();

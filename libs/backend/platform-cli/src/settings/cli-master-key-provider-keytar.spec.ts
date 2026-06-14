@@ -48,6 +48,7 @@ jest.mock(
 );
 
 import { runMasterKeyProviderContract } from '@ptah-extension/platform-core/testing';
+import type { IUserInteraction } from '@ptah-extension/platform-core';
 import { CliMasterKeyProvider } from './cli-master-key-provider';
 
 function resetFallbackWarnFlag(): void {
@@ -192,7 +193,7 @@ describe('MKP-DL — CliMasterKeyProvider (keytar): data-loss audit', () => {
     const showErrorMessage = jest.fn().mockResolvedValue(undefined);
     const provider = new CliMasterKeyProvider({
       showErrorMessage,
-    } as unknown as import('@ptah-extension/platform-core').IUserInteraction);
+    } as unknown as IUserInteraction);
 
     const key = await provider.getMasterKey();
 
