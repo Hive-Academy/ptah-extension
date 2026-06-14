@@ -46,7 +46,9 @@ export class ComputedSettingHandle<T> implements SettingHandle<T> {
 
   private physicalKey(): string {
     const logicalKey = this.resolveKey();
-    return this.resolver ? this.resolver.effectiveKey(logicalKey) : logicalKey;
+    return this.resolver
+      ? this.resolver.effectiveKey(logicalKey, this.def.appScopable === true)
+      : logicalKey;
   }
 
   get(): T {
@@ -59,7 +61,12 @@ export class ComputedSettingHandle<T> implements SettingHandle<T> {
   async set(value: T, target: WorkspaceWriteTarget = 'global'): Promise<void> {
     const validated = this.def.schema.parse(value);
     if (this.resolver) {
-      await this.resolver.write(this.resolveKey(), validated, target);
+      await this.resolver.write(
+        this.resolveKey(),
+        validated,
+        target,
+        this.def.appScopable === true,
+      );
       return;
     }
     await this.store.writeGlobal(this.resolveKey(), validated);

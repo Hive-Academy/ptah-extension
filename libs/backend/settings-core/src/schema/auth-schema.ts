@@ -11,6 +11,7 @@ export const AUTH_METHOD_DEF = defineSetting({
   schema: AUTH_METHOD_SCHEMA,
   default: 'apiKey' as const,
   sinceVersion: 1,
+  appScopable: true,
 });
 
 export const ANTHROPIC_PROVIDER_ID_DEF = defineSetting({
@@ -20,4 +21,5 @@ export const ANTHROPIC_PROVIDER_ID_DEF = defineSetting({
   schema: z.string(),
   default: '',
   sinceVersion: 1,
+  appScopable: true,
 });

@@ -41,7 +41,10 @@ export type { SettingHandle } from './repositories/setting-handle';
 export type { SecretHandle } from './repositories/secret-handle';
 export { ComputedSettingHandle } from './repositories/computed-setting-handle';
 export type { IActiveWorkspaceSource } from './scope/active-workspace-source';
-export { WorkspaceScopeResolver } from './scope/workspace-scope-resolver';
+export {
+  WorkspaceScopeResolver,
+  appScopePrefixFor,
+} from './scope/workspace-scope-resolver';
 export type { WorkspaceWriteTarget } from './scope/workspace-scope-resolver';
 export { BaseSettingsRepository } from './repositories/base-repository';
 export { AuthSettings } from './repositories/auth-settings';
