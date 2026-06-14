@@ -19,8 +19,8 @@ import type {
   AnthropicProviderInfo,
 } from '@ptah-extension/shared';
 
-type ApplyTo = 'global' | 'workspace';
-type SettingScope = 'global' | 'workspace';
+type ApplyTo = 'global' | 'app' | 'workspace';
+type SettingScope = 'global' | 'app' | 'workspace';
 
 /**
  * Auth State Service - Signal-based authentication state
@@ -125,14 +125,15 @@ export class AuthStateService {
   private readonly _persistedProviderId = signal('openrouter');
 
   /**
-   * Whether the active folder overrides the auth method, or inherits the
-   * global default. Populated from auth:getScope on every status fetch.
+   * Resolved scope level for the auth method: 'global' (inherited), 'app'
+   * (per-runtime override), or 'workspace' (per-folder override). Populated
+   * from auth:getScope on every status fetch.
    */
   private readonly _authScope = signal<SettingScope>('global');
 
   /**
-   * Whether the active folder overrides the provider, or inherits the global
-   * default. Populated from auth:getScope on every status fetch.
+   * Resolved scope level for the provider: 'global', 'app', or 'workspace'.
+   * Populated from auth:getScope on every status fetch.
    */
   private readonly _providerScope = signal<SettingScope>('global');
 
@@ -199,10 +200,10 @@ export class AuthStateService {
   /** Persisted provider ID (last loaded/saved from backend) */
   readonly persistedProviderId = this._persistedProviderId.asReadonly();
 
-  /** Whether the active folder overrides the auth method ('workspace') or inherits ('global') */
+  /** Resolved auth-method scope level ('global' | 'app' | 'workspace') */
   readonly authScope = this._authScope.asReadonly();
 
-  /** Whether the active folder overrides the provider ('workspace') or inherits ('global') */
+  /** Resolved provider scope level ('global' | 'app' | 'workspace') */
   readonly providerScope = this._providerScope.asReadonly();
 
   /** Absolute active folder path the scope applies to (null when none) */
@@ -214,6 +215,16 @@ export class AuthStateService {
       this._authScope() === 'workspace' ||
       this._providerScope() === 'workspace',
   );
+
+  readonly hasAppOverride = computed(
+    () => this._authScope() === 'app' || this._providerScope() === 'app',
+  );
+
+  readonly activeScope = computed<SettingScope>(() => {
+    if (this.hasWorkspaceOverride()) return 'workspace';
+    if (this.hasAppOverride()) return 'app';
+    return 'global';
+  });
 
   /**
    * The tile ID of the currently active (persisted) provider.
@@ -425,7 +436,7 @@ export class AuthStateService {
    * 5. On success: refresh auth status and model list
    *
    * @param params - Auth settings to save
-   * @param applyTo - Write target: 'global' default, or 'workspace' to scope to the active folder
+   * @param applyTo - Write target: 'global' default, 'app' for the current runtime, or 'workspace' for the active folder
    */
   async saveAndTest(
     params: AuthSaveSettingsParams,
@@ -697,8 +708,9 @@ export class AuthStateService {
   }
 
   /**
-   * Clear the active folder's provider/model/effort overrides, reverting it to
-   * the global default. Refreshes auth status afterward so the UI re-resolves.
+   * Clear the most-specific present override (workspace → app → global),
+   * reverting to the next-less-specific layer. Refreshes auth status afterward
+   * so the UI re-resolves.
    */
   async clearWorkspaceOverride(): Promise<void> {
     try {

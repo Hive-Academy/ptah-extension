@@ -97,14 +97,27 @@ export class AuthConfigComponent implements OnInit {
   readonly isReplacingApiKey = signal(false);
   readonly isReplacingProviderKey = signal(false);
 
-  /** Write target for the next save: global default or the active workspace. */
-  readonly applyTo = signal<'global' | 'workspace'>('global');
+  /** Write target for the next save: global default, this app (runtime), or the active workspace. */
+  readonly applyTo = signal<'global' | 'app' | 'workspace'>('global');
 
   /** Whether the active folder currently overrides auth/provider settings. */
   readonly hasWorkspaceOverride = this.authState.hasWorkspaceOverride;
 
+  readonly activeScope = this.authState.activeScope;
+
   /** Active folder path the workspace scope applies to (null when none). */
   readonly activeScopePath = this.authState.activeScopePath;
+
+  readonly scopeBadgeLabel = computed(() => {
+    switch (this.activeScope()) {
+      case 'workspace':
+        return 'Workspace override';
+      case 'app':
+        return 'App override';
+      default:
+        return 'Inherited';
+    }
+  });
 
   /**
    * Whether targeting the active workspace is available. Without an active
@@ -345,9 +358,10 @@ export class AuthConfigComponent implements OnInit {
 
   /**
    * Set the write target for the next save. Targeting the active workspace is
-   * only honored when an active folder exists.
+   * only honored when an active folder exists; 'app' and 'global' are always
+   * available.
    */
-  setApplyTo(target: 'global' | 'workspace'): void {
+  setApplyTo(target: 'global' | 'app' | 'workspace'): void {
     if (target === 'workspace' && !this.canApplyToWorkspace()) {
       return;
     }
@@ -355,7 +369,8 @@ export class AuthConfigComponent implements OnInit {
   }
 
   /**
-   * Reset the active folder back to the global default and re-resolve auth.
+   * Clear the most-specific present override (workspace → app → global),
+   * reverting to the next-less-specific layer, and re-resolve auth.
    */
   async resetToGlobalDefault(): Promise<void> {
     await this.authState.clearWorkspaceOverride();

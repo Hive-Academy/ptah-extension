@@ -659,19 +659,26 @@
   <div class="form-control">
     <div class="label py-1 justify-start gap-2">
       <span class="label-text text-xs font-medium">Apply to</span>
-      @if (hasWorkspaceOverride()) {
+      @if (activeScope() === 'workspace') {
         <span
           class="badge badge-info badge-xs gap-0.5"
           aria-label="This workspace overrides the global default"
         >
-          <span>Workspace override</span>
+          <span>{{ scopeBadgeLabel() }}</span>
+        </span>
+      } @else if (activeScope() === 'app') {
+        <span
+          class="badge badge-warning badge-xs gap-0.5"
+          aria-label="This app overrides the global default"
+        >
+          <span>{{ scopeBadgeLabel() }}</span>
         </span>
       } @else {
         <span
           class="badge badge-ghost badge-xs gap-0.5"
           aria-label="Inheriting the global default"
         >
-          <span>Inherited</span>
+          <span>{{ scopeBadgeLabel() }}</span>
         </span>
       }
     </div>
@@ -689,6 +696,16 @@
       <button
         type="button"
         class="flex-1 btn btn-xs rounded-md transition-all"
+        [class.btn-primary]="applyTo() === 'app'"
+        [class.btn-ghost]="applyTo() !== 'app'"
+        (click)="setApplyTo('app')"
+        aria-label="Apply changes to this app only"
+      >
+        This app
+      </button>
+      <button
+        type="button"
+        class="flex-1 btn btn-xs rounded-md transition-all"
         [class.btn-primary]="applyTo() === 'workspace'"
         [class.btn-ghost]="applyTo() !== 'workspace'"
         [disabled]="!canApplyToWorkspace()"
@@ -698,17 +715,17 @@
         This workspace
       </button>
     </div>
-    @if (hasWorkspaceOverride()) {
+    @if (activeScope() !== 'global') {
       <div class="label py-1">
         <button
           type="button"
           class="btn btn-ghost btn-xs gap-1 text-base-content/70"
           (click)="resetToGlobalDefault()"
           [disabled]="authState.isSaving()"
-          aria-label="Reset this workspace to the global default"
+          aria-label="Clear the current override and revert to the next layer"
         >
           <lucide-angular [img]="RotateCcwIcon" class="w-3 h-3" />
-          <span>Reset to global default</span>
+          <span>Clear override</span>
         </button>
       </div>
     }
