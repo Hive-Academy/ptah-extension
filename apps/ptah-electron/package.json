@@ -1,6 +1,6 @@
 {
   "name": "ptah-desktop",
-  "version": "0.1.55",
+  "version": "0.1.56",
   "description": "Ptah - AI Coding Orchestra. Standalone desktop app.",
   "main": "main.mjs",
   "author": {
