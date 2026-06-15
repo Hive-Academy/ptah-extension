@@ -29,6 +29,10 @@ import {
   type IAgentAdapter,
   type FlatStreamEventUnion,
 } from '@ptah-extension/shared';
+import {
+  SETTINGS_TOKENS,
+  type ModelSettings,
+} from '@ptah-extension/settings-core';
 import { ConversationQueue } from './conversation-queue';
 
 @injectable()
@@ -47,6 +51,8 @@ export class GatewayChatBridge {
     private readonly agentAdapter: IAgentAdapter,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
+    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
+    private readonly modelSettings: ModelSettings,
   ) {}
 
   start(): void {
@@ -148,18 +154,20 @@ export class GatewayChatBridge {
     const canResume =
       !!persistedId &&
       this.agentAdapter.isSessionActive(SessionId.from(persistedId));
+    const model = this.resolveModel();
     if (persistedId && canResume) {
       return this.agentAdapter.resumeSession(SessionId.from(persistedId), {
         prompt: body,
         tabId,
         projectPath: workspaceRoot,
+        model,
       });
     }
     if (persistedId) {
       try {
         return await this.agentAdapter.resumeSession(
           SessionId.from(persistedId),
-          { prompt: body, tabId, projectPath: workspaceRoot },
+          { prompt: body, tabId, projectPath: workspaceRoot, model },
         );
       } catch (error: unknown) {
         this.logger.warn(
@@ -184,9 +192,13 @@ export class GatewayChatBridge {
       prompt: body,
       projectPath: workspaceRoot,
       workspaceId: workspaceRoot,
-      model: 'default',
+      model: this.resolveModel(),
       includePartialMessages: true,
     });
+  }
+
+  private resolveModel(): string {
+    return this.modelSettings.selectedModel.get() || 'default';
   }
 
   private async pumpStream(

@@ -149,6 +149,8 @@ export const MESSAGE_TYPES = {
   AGENT_MONITOR_USER_INPUT_REQUEST: 'agent-monitor:user-input-request',
   AGENT_MONITOR_USER_INPUT_RESPONSE: 'agent-monitor:user-input-response',
   GATEWAY_STATUS_CHANGED: 'gateway:statusChanged',
+  /** Backend → Frontend: Whisper voice model download progress tick (Electron only). */
+  VOICE_MODEL_DOWNLOAD_PROGRESS: 'voice:modelDownloadProgress',
   /** Backend → Frontend: update lifecycle state changed (Electron only). */
   UPDATE_STATUS_CHANGED: 'update:statusChanged',
   /** Backend → Frontend: workspace indexing progress tick. */

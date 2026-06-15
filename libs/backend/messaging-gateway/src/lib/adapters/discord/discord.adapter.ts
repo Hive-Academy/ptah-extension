@@ -115,6 +115,7 @@ const PUBLIC_THREAD_TYPE_FALLBACK = 11;
 @injectable()
 export class DiscordAdapter implements IMessagingAdapter {
   readonly platform = 'discord' as const;
+  readonly maxMessageChars = 2000;
   private client: DiscordClientLike | null = null;
   private listener: InboundListener | null = null;
   private factory: DiscordClientFactory = defaultFactory;

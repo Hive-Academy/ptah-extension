@@ -78,7 +78,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
       } @else {
         <!-- Lock toggle: freezes the layout and disables drag/resize -->
         <button
-          class="absolute top-3 right-3 z-20 btn btn-circle btn-sm shadow-lg"
+          class="absolute bottom-20 right-4 z-20 btn btn-circle btn-sm shadow-lg"
           [class.btn-primary]="locked()"
           [class.btn-ghost]="!locked()"
           [title]="

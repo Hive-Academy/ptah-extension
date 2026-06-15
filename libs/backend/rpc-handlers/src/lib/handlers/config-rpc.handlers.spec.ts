@@ -317,6 +317,7 @@ describe('ConfigRpcHandlers', () => {
       expect(result.model).toBe('claude-opus-4-7');
       expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
         'claude-opus-4-7',
+        'global',
       );
     });
 
@@ -348,6 +349,22 @@ describe('ConfigRpcHandlers', () => {
       expect(result.model).toBe('claude-haiku-4-5');
       expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
         'claude-haiku-4-5',
+        'global',
+      );
+    });
+
+    it('threads applyTo:workspace into the workspace-scoped model write', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'config:model-switch', {
+        model: 'claude-opus-4-7',
+        applyTo: 'workspace',
+      });
+
+      expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
+        'claude-opus-4-7',
+        'workspace',
       );
     });
   });
@@ -757,7 +774,10 @@ describe('ConfigRpcHandlers', () => {
         { effort: 'high' },
       );
       expect(setResult.effort).toBe('high');
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('high');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
+        'high',
+        'global',
+      );
 
       // Simulate the effect of the set so get returns the updated value.
       h.reasoningSettings.effort.get.mockReturnValue('high');
@@ -771,7 +791,7 @@ describe('ConfigRpcHandlers', () => {
 
       await call(h, 'config:effort-set', { effort: '' });
 
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('', 'global');
 
       // Simulate the effect of clearing so get reflects the cleared state.
       h.reasoningSettings.effort.get.mockReturnValue('');
@@ -788,7 +808,10 @@ describe('ConfigRpcHandlers', () => {
         sessionId: 'sess-1',
       });
 
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('high');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
+        'high',
+        'global',
+      );
       expect(h.sdkAdapter.setSessionEffort).toHaveBeenCalledWith(
         'sess-1',
         'high',
@@ -815,7 +838,25 @@ describe('ConfigRpcHandlers', () => {
       });
 
       expect(result.effort).toBe('xhigh');
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('xhigh');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
+        'xhigh',
+        'global',
+      );
+    });
+
+    it('threads applyTo:workspace into the workspace-scoped effort write', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'config:effort-set', {
+        effort: 'high',
+        applyTo: 'workspace',
+      });
+
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
+        'high',
+        'workspace',
+      );
     });
   });
 });

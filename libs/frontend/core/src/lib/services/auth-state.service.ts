@@ -19,6 +19,9 @@ import type {
   AnthropicProviderInfo,
 } from '@ptah-extension/shared';
 
+type ApplyTo = 'global' | 'app' | 'workspace';
+type SettingScope = 'global' | 'app' | 'workspace';
+
 /**
  * Auth State Service - Signal-based authentication state
  *
@@ -121,6 +124,22 @@ export class AuthStateService {
    */
   private readonly _persistedProviderId = signal('openrouter');
 
+  /**
+   * Resolved scope level for the auth method: 'global' (inherited), 'app'
+   * (per-runtime override), or 'workspace' (per-folder override). Populated
+   * from auth:getScope on every status fetch.
+   */
+  private readonly _authScope = signal<SettingScope>('global');
+
+  /**
+   * Resolved scope level for the provider: 'global', 'app', or 'workspace'.
+   * Populated from auth:getScope on every status fetch.
+   */
+  private readonly _providerScope = signal<SettingScope>('global');
+
+  /** Absolute active folder path resolved by the backend (null when none). */
+  private readonly _activeScopePath = signal<string | null>(null);
+
   /** Guard to ensure loadAuthStatus only fetches once unless refreshed */
   private _isLoaded = false;
 
@@ -180,6 +199,32 @@ export class AuthStateService {
 
   /** Persisted provider ID (last loaded/saved from backend) */
   readonly persistedProviderId = this._persistedProviderId.asReadonly();
+
+  /** Resolved auth-method scope level ('global' | 'app' | 'workspace') */
+  readonly authScope = this._authScope.asReadonly();
+
+  /** Resolved provider scope level ('global' | 'app' | 'workspace') */
+  readonly providerScope = this._providerScope.asReadonly();
+
+  /** Absolute active folder path the scope applies to (null when none) */
+  readonly activeScopePath = this._activeScopePath.asReadonly();
+
+  /** Whether the active folder overrides either the auth method or the provider */
+  readonly hasWorkspaceOverride = computed(
+    () =>
+      this._authScope() === 'workspace' ||
+      this._providerScope() === 'workspace',
+  );
+
+  readonly hasAppOverride = computed(
+    () => this._authScope() === 'app' || this._providerScope() === 'app',
+  );
+
+  readonly activeScope = computed<SettingScope>(() => {
+    if (this.hasWorkspaceOverride()) return 'workspace';
+    if (this.hasAppOverride()) return 'app';
+    return 'global';
+  });
 
   /**
    * The tile ID of the currently active (persisted) provider.
@@ -391,8 +436,12 @@ export class AuthStateService {
    * 5. On success: refresh auth status and model list
    *
    * @param params - Auth settings to save
+   * @param applyTo - Write target: 'global' default, 'app' for the current runtime, or 'workspace' for the active folder
    */
-  async saveAndTest(params: AuthSaveSettingsParams): Promise<void> {
+  async saveAndTest(
+    params: AuthSaveSettingsParams,
+    applyTo: ApplyTo = 'global',
+  ): Promise<void> {
     if (this._isSaving()) {
       console.warn(
         '[AuthStateService] Save already in progress, ignoring duplicate call',
@@ -408,7 +457,10 @@ export class AuthStateService {
     this._successMessage.set('');
 
     try {
-      const saveResult = await this.rpc.call('auth:saveSettings', params);
+      const saveResult = await this.rpc.call('auth:saveSettings', {
+        ...params,
+        applyTo: params.applyTo ?? applyTo,
+      });
 
       if (!saveResult.isSuccess() || !saveResult.data?.success) {
         const errorMsg =
@@ -656,6 +708,34 @@ export class AuthStateService {
   }
 
   /**
+   * Clear the most-specific present override (workspace → app → global),
+   * reverting to the next-less-specific layer. Refreshes auth status afterward
+   * so the UI re-resolves.
+   */
+  async clearWorkspaceOverride(): Promise<void> {
+    try {
+      const result = await this.rpc.call(
+        'auth:clearWorkspaceOverride',
+        {} as Record<string, never>,
+      );
+      if (!result.isSuccess() || !result.data?.success) {
+        this._errorMessage.set(
+          result.error || 'Failed to reset to global default',
+        );
+        return;
+      }
+      await this.refreshAuthStatus();
+    } catch (error) {
+      console.error('[AuthStateService] clearWorkspaceOverride error:', error);
+      this._errorMessage.set(
+        error instanceof Error
+          ? error.message
+          : 'Failed to reset to global default',
+      );
+    }
+  }
+
+  /**
    * Fetch auth status from backend and populate all signals.
    * Called by both loadAuthStatus (once) and refreshAuthStatus (always).
    *
@@ -669,6 +749,7 @@ export class AuthStateService {
 
       if (result.isSuccess() && result.data) {
         this.populateFromResponse(result.data);
+        await this.fetchAndPopulateScope();
         return true;
       } else {
         console.error(
@@ -730,6 +811,22 @@ export class AuthStateService {
       !(response.codexTokenStale ?? false)
     ) {
       this._authRequiredBanner.set(null);
+    }
+  }
+
+  private async fetchAndPopulateScope(): Promise<void> {
+    try {
+      const result = await this.rpc.call(
+        'auth:getScope',
+        {} as Record<string, never>,
+      );
+      if (result.isSuccess() && result.data) {
+        this._authScope.set(result.data.authMethodScope);
+        this._providerScope.set(result.data.providerScope);
+        this._activeScopePath.set(result.data.activePath);
+      }
+    } catch (error) {
+      console.warn('[AuthStateService] fetchAndPopulateScope failed:', error);
     }
   }
 }

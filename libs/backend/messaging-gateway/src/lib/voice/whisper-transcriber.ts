@@ -2,9 +2,14 @@
  * WhisperTranscriber — wraps `nodejs-whisper` to transcribe a 16 kHz WAV
  * to text.
  *
- * The model is downloaded lazily to `~/.ptah/models/` on first use. Default
- * model is `base.en` to match `gateway.voice.whisperModel` settings default
- * (smaller footprint than `small.en-q5_0`, fast on CPU).
+ * Models live in the directory `nodejs-whisper` reads from
+ * (`<pkg>/cpp/whisper.cpp/models/ggml-<model>.bin`). They can be obtained two
+ * ways:
+ *   - lazily, at first transcribe, via nodejs-whisper's `autoDownloadModelName`
+ *   - eagerly, via {@link downloadModel}, which streams the `ggml-*.bin`
+ *     straight from Hugging Face (no cmake build) so the chat mic / gateway
+ *     voice notes don't stall on a first-use download.
+ * Default model is `base.en` to match the settings default.
  *
  * Emits download lifecycle events on the `EventEmitter` interface so the
  * `GatewayService` can bridge them to the renderer's voice-model-download
@@ -14,25 +19,85 @@
  *   - 'download:complete' { model }
  *   - 'download:error'    { model, error }
  *
- * The underlying `nodejs-whisper` library does not (today) expose a download
- * progress hook, so progress is emitted as a coarse two-step lifecycle: we
- * detect whether the `.bin` file exists in `~/.ptah/models/` *before* the
- * first transcribe call. If it doesn't, we emit `download:start` before the
- * call and `download:complete` (or `download:error`) after.
+ * For the lazy transcribe path, nodejs-whisper exposes no progress hook, so we
+ * emit a coarse start/complete pair around the call. The eager
+ * {@link downloadModel} path emits real byte-progress percentages.
  *
- * In tests, the module loader is injectable so the whole thing can be faked
- * without the heavy native binding.
+ * In tests, the module loader and downloader are injectable so the whole thing
+ * can be faked without the heavy native binding or any network.
  */
 import { EventEmitter } from 'node:events';
 import { inject, injectable } from 'tsyringe';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
+import { createWriteStream } from 'node:fs';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   VoiceAssetsUnavailableError,
   isModuleNotFound,
 } from './voice-assets-error';
+
+/**
+ * Maps a Whisper model name to its `ggml-*.bin` filename. Mirrors
+ * `nodejs-whisper`'s MODEL_OBJECT so manual downloads land in the exact file
+ * the transcribe path reads from.
+ */
+const GGML_FILENAMES: Readonly<Record<string, string>> = {
+  tiny: 'ggml-tiny.bin',
+  'tiny.en': 'ggml-tiny.en.bin',
+  base: 'ggml-base.bin',
+  'base.en': 'ggml-base.en.bin',
+  small: 'ggml-small.bin',
+  'small.en': 'ggml-small.en.bin',
+  medium: 'ggml-medium.bin',
+  'medium.en': 'ggml-medium.en.bin',
+  'large-v1': 'ggml-large-v1.bin',
+  large: 'ggml-large.bin',
+  'large-v3-turbo': 'ggml-large-v3-turbo.bin',
+};
+
+/** Canonical whisper.cpp ggml model host (same source nodejs-whisper pulls from). */
+const HUGGINGFACE_MODEL_BASE =
+  'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
+
+/**
+ * Streams a model file to `destPath`, reporting integer percent (0-99) as bytes
+ * arrive. Injectable so tests can stub the network.
+ */
+export type WhisperDownloader = (
+  url: string,
+  destPath: string,
+  onProgress: (percent: number) => void,
+) => Promise<void>;
+
+const defaultDownloader: WhisperDownloader = async (
+  url,
+  destPath,
+  onProgress,
+) => {
+  const response = await fetch(url, { redirect: 'follow' });
+  if (!response.ok || !response.body) {
+    throw new Error(`Model download failed: HTTP ${response.status}`);
+  }
+  const total = Number(response.headers.get('content-length') ?? 0);
+  let received = 0;
+  let lastPercent = -1;
+  const source = Readable.fromWeb(
+    response.body as Parameters<typeof Readable.fromWeb>[0],
+  );
+  source.on('data', (chunk: Buffer) => {
+    received += chunk.length;
+    if (total <= 0) return;
+    const percent = Math.min(99, Math.round((received / total) * 100));
+    if (percent !== lastPercent) {
+      lastPercent = percent;
+      onProgress(percent);
+    }
+  });
+  await pipeline(source, createWriteStream(destPath));
+};
 
 /** Loosely-typed shape we actually call from `nodejs-whisper`. */
 export interface NodejsWhisperApi {
@@ -77,38 +142,141 @@ const defaultLoader: NodejsWhisperLoader = async () => {
 export class WhisperTranscriber extends EventEmitter {
   /** Test seam: replace the dynamic loader. */
   private loader: NodejsWhisperLoader = defaultLoader;
+  /** Test seam: replace the network download. */
+  private downloader: WhisperDownloader = defaultDownloader;
+  /** Test seam: override the resolved models directory. */
+  private modelsDirOverride: string | null = null;
   private modelName = 'base.en';
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     super();
   }
 
-  configure(opts: { loader?: NodejsWhisperLoader; modelName?: string }): void {
+  configure(opts: {
+    loader?: NodejsWhisperLoader;
+    downloader?: WhisperDownloader;
+    modelsDir?: string;
+    modelName?: string;
+  }): void {
     if (opts.loader) this.loader = opts.loader;
+    if (opts.downloader) this.downloader = opts.downloader;
+    if (opts.modelsDir) this.modelsDirOverride = opts.modelsDir;
     if (opts.modelName && opts.modelName.length > 0) {
       this.modelName = opts.modelName;
     }
   }
 
-  /** Ensure `~/.ptah/models/` exists so nodejs-whisper can drop the bin there. */
-  private async ensureModelDir(): Promise<string> {
-    const dir = path.join(os.homedir(), '.ptah', 'models');
-    await fs.mkdir(dir, { recursive: true });
-    return dir;
+  /**
+   * Resolve the directory `nodejs-whisper` reads models from
+   * (`<pkg>/cpp/whisper.cpp/models`) so presence checks and manual downloads
+   * agree with the lazy transcribe-time download. Throws
+   * {@link VoiceAssetsUnavailableError} when `nodejs-whisper` is not installed.
+   */
+  private resolveModelsDir(): string {
+    if (this.modelsDirOverride) return this.modelsDirOverride;
+    try {
+      const pkgJson = require.resolve('nodejs-whisper/package.json');
+      return path.join(path.dirname(pkgJson), 'cpp', 'whisper.cpp', 'models');
+    } catch (error: unknown) {
+      if (isModuleNotFound(error)) {
+        throw new VoiceAssetsUnavailableError('nodejs-whisper', error);
+      }
+      throw error;
+    }
+  }
+
+  private ggmlFilename(modelName: string): string {
+    const filename = GGML_FILENAMES[modelName];
+    if (!filename) {
+      throw new Error(`Unknown Whisper model "${modelName}"`);
+    }
+    return filename;
   }
 
   /**
-   * Probe the canonical model bin path. nodejs-whisper names files
-   * `ggml-<modelName>.bin` (e.g. `ggml-base.en.bin`). Return true when the
-   * file is already present so we can suppress the download toast.
+   * Whether the given model (default: the configured one) is already present on
+   * disk. Returns false rather than throwing when the model dir can't be
+   * resolved (e.g. assets unavailable) so callers can render a status badge.
    */
-  private async modelFileExists(modelDir: string): Promise<boolean> {
-    const candidate = path.join(modelDir, `ggml-${this.modelName}.bin`);
+  async isModelDownloaded(model?: string): Promise<boolean> {
+    const modelName = (model ?? this.modelName).trim();
+    const filename = GGML_FILENAMES[modelName];
+    if (!filename) return false;
+    let dir: string;
     try {
-      await fs.access(candidate);
+      dir = this.resolveModelsDir();
+    } catch {
+      return false;
+    }
+    try {
+      await fs.access(path.join(dir, filename));
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Eagerly download a model so the chat mic / gateway voice notes don't stall
+   * on a first-use download. Streams the `ggml-*.bin` straight from Hugging
+   * Face into the directory `nodejs-whisper` reads from, emitting the same
+   * `download` lifecycle events as the lazy path. Returns whether the model was
+   * already on disk (no download performed).
+   */
+  async downloadModel(model?: string): Promise<{ alreadyPresent: boolean }> {
+    const modelName = (model ?? this.modelName).trim();
+    const filename = this.ggmlFilename(modelName);
+    const dir = this.resolveModelsDir();
+    await fs.mkdir(dir, { recursive: true });
+
+    const dest = path.join(dir, filename);
+    try {
+      await fs.access(dest);
+      return { alreadyPresent: true };
+    } catch {
+      // not present — download below
+    }
+
+    const startEvt: WhisperDownloadEvent = {
+      kind: 'download:start',
+      model: modelName,
+    };
+    this.emit('download', startEvt);
+
+    const tmp = `${dest}.download`;
+    try {
+      await this.downloader(
+        `${HUGGINGFACE_MODEL_BASE}/${filename}`,
+        tmp,
+        (percent) => {
+          const progressEvt: WhisperDownloadEvent = {
+            kind: 'download:progress',
+            model: modelName,
+            percent,
+          };
+          this.emit('download', progressEvt);
+        },
+      );
+      await fs.rename(tmp, dest);
+      const completeEvt: WhisperDownloadEvent = {
+        kind: 'download:complete',
+        model: modelName,
+      };
+      this.emit('download', completeEvt);
+      this.logger.info('[gateway] whisper model downloaded', {
+        model: modelName,
+        dest,
+      });
+      return { alreadyPresent: false };
+    } catch (err) {
+      await fs.rm(tmp, { force: true }).catch(() => undefined);
+      const errEvt: WhisperDownloadEvent = {
+        kind: 'download:error',
+        model: modelName,
+        error: err instanceof Error ? err.message : String(err),
+      };
+      this.emit('download', errEvt);
+      throw err;
     }
   }
 
@@ -117,8 +285,7 @@ export class WhisperTranscriber extends EventEmitter {
    * string when whisper produced nothing usable.
    */
   async transcribe(wavPath: string): Promise<string> {
-    const modelDir = await this.ensureModelDir();
-    const present = await this.modelFileExists(modelDir);
+    const present = await this.isModelDownloaded();
     if (!present) {
       const startEvt: WhisperDownloadEvent = {
         kind: 'download:start',

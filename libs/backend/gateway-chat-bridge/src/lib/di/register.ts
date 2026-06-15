@@ -3,7 +3,8 @@
  *
  * Mirrors the contract of `registerMessagingGatewayServices`: callers must
  * already have `TOKENS.LOGGER`, `PLATFORM_TOKENS.WORKSPACE_PROVIDER`,
- * `TOKENS.AGENT_ADAPTER`, and the `GATEWAY_TOKENS` services registered.
+ * `TOKENS.AGENT_ADAPTER`, `SETTINGS_TOKENS.MODEL_SETTINGS`, and the
+ * `GATEWAY_TOKENS` services registered.
  */
 import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
