@@ -126,6 +126,14 @@
         }
         <span class="text-xs">Pro Features</span>
       </button>
+      <button
+        class="tab tab-sm flex-1 gap-1.5"
+        [class.tab-active]="activeSettingsTab() === 'tools'"
+        (click)="setActiveTab('tools')"
+      >
+        <lucide-angular [img]="GlobeIcon" class="w-3 h-3" />
+        <span class="text-xs">Search &amp; Voice</span>
+      </button>
     </div>
 
     <!-- ============================================ -->
@@ -257,7 +265,12 @@
           </div>
         </div>
       }
+    }
 
+    <!-- ============================================ -->
+    <!-- Tab 4: Search & Voice (web search + voice transcription) -->
+    <!-- ============================================ -->
+    @if (activeSettingsTab() === 'tools') {
       <!-- Web Search Config (free for all users, not premium-gated) -->
       <ptah-web-search-config />
 

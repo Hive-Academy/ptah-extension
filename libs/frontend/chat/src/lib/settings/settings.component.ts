@@ -17,6 +17,7 @@ import {
   Download,
   Upload,
   ArrowLeftRight,
+  Globe,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth/auth-config.component';
 import { ProviderModelSelectorComponent } from './auth/provider-model-selector.component';
@@ -90,10 +91,11 @@ export class SettingsComponent implements OnInit {
   readonly DownloadIcon = Download;
   readonly UploadIcon = Upload;
   readonly ArrowLeftRightIcon = ArrowLeftRight;
+  readonly GlobeIcon = Globe;
   readonly isExporting = signal(false);
   readonly isImporting = signal(false);
   readonly activeSettingsTab = signal<
-    'claude-auth' | 'orchestration' | 'pro-features'
+    'claude-auth' | 'orchestration' | 'pro-features' | 'tools'
   >('claude-auth');
 
   readonly isElectron = this.vscodeService.isElectron;
@@ -139,7 +141,9 @@ export class SettingsComponent implements OnInit {
   /**
    * Switch active settings tab
    */
-  setActiveTab(tab: 'claude-auth' | 'orchestration' | 'pro-features'): void {
+  setActiveTab(
+    tab: 'claude-auth' | 'orchestration' | 'pro-features' | 'tools',
+  ): void {
     this.activeSettingsTab.set(tab);
   }
 

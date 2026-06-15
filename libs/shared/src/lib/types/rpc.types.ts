@@ -1520,6 +1520,10 @@ export interface RpcMethodRegistry {
     params: VoiceSetConfigParams;
     result: VoiceSetConfigResult;
   };
+  'voice:downloadModel': {
+    params: VoiceDownloadModelParams;
+    result: VoiceDownloadModelResult;
+  };
 
   'db:health': {
     params: { fullCheck?: boolean };
@@ -1915,6 +1919,8 @@ export type VoiceTranscribeResult =
 
 export interface VoiceConfigDto {
   whisperModel: string;
+  /** Whether the selected Whisper model is already downloaded on disk. */
+  downloaded: boolean;
 }
 
 export type VoiceGetConfigParams = Record<string, never>;
@@ -1928,6 +1934,15 @@ export interface VoiceSetConfigParams {
 }
 
 export type VoiceSetConfigResult = { ok: true } | { ok: false; error: string };
+
+export interface VoiceDownloadModelParams {
+  /** Model to download; defaults to the currently configured Whisper model. */
+  model?: string;
+}
+
+export type VoiceDownloadModelResult =
+  | { ok: true; alreadyPresent: boolean }
+  | { ok: false; error: string; code?: string; remediation?: string };
 
 export interface ScheduledJobDto {
   id: string;
@@ -2326,6 +2341,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'voice:transcribe': true,
   'voice:getConfig': true,
   'voice:setConfig': true,
+  'voice:downloadModel': true,
 
   'db:health': true,
   'db:reset': true,

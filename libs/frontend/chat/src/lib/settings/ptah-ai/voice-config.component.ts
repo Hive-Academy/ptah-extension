@@ -2,11 +2,18 @@ import {
   Component,
   inject,
   ChangeDetectionStrategy,
+  computed,
   signal,
   OnInit,
 } from '@angular/core';
-import { LucideAngularModule, Mic, CheckCircle } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Mic,
+  CheckCircle,
+  Download,
+} from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import { VoiceDownloadProgressService } from '../../services/voice-download-progress.service';
 
 interface WhisperModelOption {
   readonly value: string;
@@ -25,7 +32,7 @@ const MULTILINGUAL_MODELS: readonly WhisperModelOption[] = [
   { value: 'base', label: 'base (~140 MB)' },
   { value: 'small', label: 'small (~470 MB)' },
   { value: 'medium', label: 'medium (~1.5 GB)' },
-  { value: 'large-v3', label: 'large-v3 (~3 GB, most accurate)' },
+  { value: 'large-v3-turbo', label: 'large-v3-turbo (~1.5 GB, most accurate)' },
 ] as const;
 
 @Component({
@@ -107,22 +114,86 @@ const MULTILINGUAL_MODELS: readonly WhisperModelOption[] = [
             </optgroup>
           </select>
         </div>
+
+        <div class="mt-2">
+          @if (isDownloading()) {
+            <div
+              class="flex items-center gap-2"
+              data-testid="voice-config-download-status"
+            >
+              <progress
+                class="progress progress-primary flex-1 h-2"
+                [value]="downloadPercent() ?? 0"
+                max="100"
+                data-testid="voice-config-download-progress"
+              ></progress>
+              <span class="text-[10px] text-base-content/60 w-20 text-right">
+                @if (downloadPercent() !== null) {
+                  Downloading {{ downloadPercent() }}%
+                } @else {
+                  Starting…
+                }
+              </span>
+            </div>
+          } @else {
+            <div class="flex items-center justify-between gap-2">
+              @if (downloaded()) {
+                <span
+                  class="text-[10px] text-success flex items-center gap-1"
+                  data-testid="voice-config-download-status"
+                >
+                  <span class="text-success">●</span>
+                  Downloaded
+                </span>
+              } @else {
+                <span
+                  class="text-[10px] text-base-content/50 flex items-center gap-1"
+                  data-testid="voice-config-download-status"
+                >
+                  <span class="text-base-content/40">○</span>
+                  Not downloaded
+                </span>
+              }
+
+              <button
+                class="btn btn-outline btn-xs gap-1"
+                [disabled]="isSaving() || downloaded()"
+                (click)="downloadModel()"
+                data-testid="voice-config-download-btn"
+              >
+                <lucide-angular [img]="DownloadIcon" class="w-3 h-3" />
+                <span>{{ downloaded() ? 'Ready' : 'Download' }}</span>
+              </button>
+            </div>
+          }
+        </div>
       </div>
     </div>
   `,
 })
 export class VoiceConfigComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly downloadProgress = inject(VoiceDownloadProgressService);
 
   readonly MicIcon = Mic;
   readonly CheckCircleIcon = CheckCircle;
+  readonly DownloadIcon = Download;
 
   readonly englishModels = ENGLISH_MODELS;
   readonly multilingualModels = MULTILINGUAL_MODELS;
 
   readonly selectedModel = signal<string>('base.en');
+  readonly downloaded = signal(false);
+  readonly isDownloading = signal(false);
   readonly isSaving = signal(false);
   readonly savedRecently = signal(false);
+
+  /** Live download percent for the selected model, or `null` before the first tick. */
+  readonly downloadPercent = computed(() => {
+    const tick = this.downloadProgress.progress();
+    if (!tick || tick.model !== this.selectedModel()) return null;
+    return tick.percent;
+  });
   readonly errorMessage = signal<string | null>(null);
 
   async ngOnInit(): Promise<void> {
@@ -139,6 +210,7 @@ export class VoiceConfigComponent implements OnInit {
       );
       if (result.isSuccess() && result.data.ok) {
         this.selectedModel.set(result.data.config.whisperModel);
+        this.downloaded.set(result.data.config.downloaded ?? false);
       } else if (result.isSuccess() && !result.data.ok) {
         this.errorMessage.set(result.data.error);
       } else if (!result.isSuccess()) {
@@ -174,6 +246,7 @@ export class VoiceConfigComponent implements OnInit {
       });
       if (result.isSuccess() && result.data.ok) {
         this.savedRecently.set(true);
+        await this.refreshDownloadStatus();
       } else {
         this.selectedModel.set(previous);
         const message =
@@ -191,6 +264,52 @@ export class VoiceConfigComponent implements OnInit {
       );
     } finally {
       this.isSaving.set(false);
+    }
+  }
+
+  /** Re-query whether the currently-selected model is present on disk. */
+  private async refreshDownloadStatus(): Promise<void> {
+    try {
+      const result = await this.rpcService.call(
+        'voice:getConfig',
+        {} as Record<string, never>,
+      );
+      if (result.isSuccess() && result.data.ok) {
+        this.downloaded.set(result.data.config.downloaded ?? false);
+      }
+    } catch {
+      // Status is best-effort; leave the prior value on failure.
+    }
+  }
+
+  async downloadModel(): Promise<void> {
+    if (this.isDownloading()) return;
+    this.errorMessage.set(null);
+    this.downloadProgress.reset();
+    this.isDownloading.set(true);
+
+    try {
+      const result = await this.rpcService.call('voice:downloadModel', {
+        model: this.selectedModel(),
+      });
+      if (result.isSuccess() && result.data.ok) {
+        this.downloaded.set(true);
+      } else {
+        const message =
+          result.isSuccess() && !result.data.ok
+            ? result.data.error
+            : (result.error ?? 'Failed to download voice model');
+        this.errorMessage.set(message);
+      }
+    } catch (error: unknown) {
+      this.errorMessage.set(
+        error instanceof Error
+          ? error.message
+          : 'Failed to download voice model',
+      );
+    } finally {
+      this.isDownloading.set(false);
+      this.downloadProgress.reset();
     }
   }
 }

@@ -68,6 +68,8 @@ export { WhisperTranscriber } from './lib/voice/whisper-transcriber';
 export type {
   NodejsWhisperApi,
   NodejsWhisperLoader,
+  WhisperDownloadEvent,
+  WhisperDownloader,
 } from './lib/voice/whisper-transcriber';
 export {
   resolveWhisperModel,

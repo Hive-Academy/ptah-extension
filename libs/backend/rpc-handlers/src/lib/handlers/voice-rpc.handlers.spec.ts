@@ -30,6 +30,7 @@ interface Suite {
   rpc: MockRpcHandler;
   ffmpeg: jest.Mocked<FfmpegDecoder>;
   whisper: jest.Mocked<WhisperTranscriber>;
+  webviewManager: { broadcastMessage: jest.Mock };
   workspace: jest.Mocked<IWorkspaceProvider> & {
     setConfiguration: jest.Mock;
   };
@@ -56,7 +57,15 @@ function buildSuite(initial: StoredSettings = {}): Suite {
   const whisper = {
     configure: jest.fn(),
     transcribe: jest.fn().mockResolvedValue('hello world'),
+    isModelDownloaded: jest.fn().mockResolvedValue(false),
+    downloadModel: jest.fn().mockResolvedValue({ alreadyPresent: false }),
+    on: jest.fn(),
+    off: jest.fn(),
   } as unknown as jest.Mocked<WhisperTranscriber>;
+
+  const webviewManager = {
+    broadcastMessage: jest.fn().mockResolvedValue(undefined),
+  };
 
   const store: StoredSettings = { ...initial };
 
@@ -95,9 +104,10 @@ function buildSuite(initial: StoredSettings = {}): Suite {
     workspace,
     ffmpeg,
     whisper,
+    webviewManager,
   );
   handlers.register();
-  return { handlers, rpc, ffmpeg, whisper, workspace, store };
+  return { handlers, rpc, ffmpeg, whisper, webviewManager, workspace, store };
 }
 
 describe('VoiceRpcHandlers', () => {
@@ -248,8 +258,9 @@ describe('VoiceRpcHandlers', () => {
   });
 
   describe('voice:getConfig', () => {
-    it('returns the new voice.whisperModel value when set', async () => {
-      const { rpc } = buildSuite({ voiceModel: 'large-v3' });
+    it('returns the new voice.whisperModel value with download status when set', async () => {
+      const { rpc, whisper } = buildSuite({ voiceModel: 'small.en' });
+      (whisper.isModelDownloaded as jest.Mock).mockResolvedValue(true);
 
       const response = await rpc.handleMessage({
         method: 'voice:getConfig',
@@ -260,8 +271,9 @@ describe('VoiceRpcHandlers', () => {
       expect(response.success).toBe(true);
       expect(response.data).toEqual({
         ok: true,
-        config: { whisperModel: 'large-v3' },
+        config: { whisperModel: 'small.en', downloaded: true },
       });
+      expect(whisper.isModelDownloaded).toHaveBeenCalledWith('small.en');
     });
 
     it('falls back to the legacy gateway key when the new key is unset', async () => {
@@ -276,7 +288,7 @@ describe('VoiceRpcHandlers', () => {
       expect(response.success).toBe(true);
       expect(response.data).toEqual({
         ok: true,
-        config: { whisperModel: 'medium.en' },
+        config: { whisperModel: 'medium.en', downloaded: false },
       });
     });
 
@@ -292,8 +304,126 @@ describe('VoiceRpcHandlers', () => {
       expect(response.success).toBe(true);
       expect(response.data).toEqual({
         ok: true,
-        config: { whisperModel: 'base.en' },
+        config: { whisperModel: 'base.en', downloaded: false },
       });
+    });
+  });
+
+  describe('voice:downloadModel', () => {
+    it('downloads the configured model and reports it was fetched', async () => {
+      const { rpc, whisper } = buildSuite({ voiceModel: 'small.en' });
+
+      const response = await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: {},
+        correlationId: 'dl-1',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual({ ok: true, alreadyPresent: false });
+      expect(whisper.downloadModel).toHaveBeenCalledWith('small.en');
+    });
+
+    it('downloads an explicitly requested model', async () => {
+      const { rpc, whisper } = buildSuite();
+      (whisper.downloadModel as jest.Mock).mockResolvedValue({
+        alreadyPresent: true,
+      });
+
+      const response = await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: { model: 'medium.en' },
+        correlationId: 'dl-2',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual({ ok: true, alreadyPresent: true });
+      expect(whisper.downloadModel).toHaveBeenCalledWith('medium.en');
+    });
+
+    it('rejects an invalid model string without downloading', async () => {
+      const { rpc, whisper } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: { model: 'bad model!' },
+        correlationId: 'dl-3',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toMatchObject({ ok: false });
+      expect(whisper.downloadModel).not.toHaveBeenCalled();
+    });
+
+    it('broadcasts download progress ticks to the webview and detaches the listener', async () => {
+      const { rpc, whisper, webviewManager } = buildSuite({
+        voiceModel: 'small.en',
+      });
+      let captured: ((evt: unknown) => void) | undefined;
+      (whisper.on as jest.Mock).mockImplementation(
+        (event: string, listener: (evt: unknown) => void) => {
+          if (event === 'download') captured = listener;
+        },
+      );
+      (whisper.downloadModel as jest.Mock).mockImplementation(async () => {
+        captured?.({
+          kind: 'download:progress',
+          model: 'small.en',
+          percent: 42,
+        });
+        captured?.({ kind: 'download:progress', model: 'other', percent: 99 });
+        return { alreadyPresent: false };
+      });
+
+      await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: {},
+        correlationId: 'dl-progress',
+      });
+
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'voice:modelDownloadProgress',
+        { model: 'small.en', percent: 42 },
+      );
+      // The tick for a different model must be ignored.
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledTimes(1);
+      expect(whisper.off).toHaveBeenCalledWith('download', captured);
+    });
+
+    it('surfaces VOICE_ASSETS_UNAVAILABLE with remediation when assets are missing', async () => {
+      const { rpc, whisper } = buildSuite();
+      (whisper.downloadModel as jest.Mock).mockRejectedValue(
+        new VoiceAssetsUnavailableError('nodejs-whisper'),
+      );
+
+      const response = await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: {},
+        correlationId: 'dl-4',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toMatchObject({
+        ok: false,
+        code: VOICE_ASSETS_UNAVAILABLE,
+        remediation: VOICE_ASSETS_REMEDIATION,
+      });
+    });
+
+    it('returns { ok: false } when the download throws, without rejecting', async () => {
+      const { rpc, whisper } = buildSuite();
+      (whisper.downloadModel as jest.Mock).mockRejectedValue(
+        new Error('network-boom'),
+      );
+
+      const response = await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: {},
+        correlationId: 'dl-5',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual({ ok: false, error: 'network-boom' });
     });
   });
 

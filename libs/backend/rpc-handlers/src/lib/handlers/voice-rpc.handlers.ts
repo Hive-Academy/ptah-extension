@@ -16,6 +16,8 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   RpcMethodName,
+  VoiceDownloadModelParams,
+  VoiceDownloadModelResult,
   VoiceGetConfigParams,
   VoiceGetConfigResult,
   VoiceSetConfigParams,
@@ -23,6 +25,7 @@ import type {
   VoiceTranscribeParams,
   VoiceTranscribeResult,
 } from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import {
   GATEWAY_TOKENS,
   FfmpegDecoder,
@@ -33,7 +36,9 @@ import {
   VOICE_ASSETS_REMEDIATION,
   isVoiceAssetsUnavailable,
 } from '@ptah-extension/messaging-gateway';
+import type { WhisperDownloadEvent } from '@ptah-extension/messaging-gateway';
 import {
+  VoiceDownloadModelParamsSchema,
   VoiceSetConfigParamsSchema,
   VoiceTranscribeParamsSchema,
 } from './voice-rpc.schema';
@@ -59,6 +64,7 @@ export class VoiceRpcHandlers {
     'voice:transcribe',
     'voice:getConfig',
     'voice:setConfig',
+    'voice:downloadModel',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -70,6 +76,10 @@ export class VoiceRpcHandlers {
     private readonly ffmpeg: FfmpegDecoder,
     @inject(GATEWAY_TOKENS.GATEWAY_WHISPER_TRANSCRIBER)
     private readonly whisper: WhisperTranscriber,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: {
+      broadcastMessage(type: string, payload: unknown): Promise<void>;
+    },
   ) {}
 
   register(): void {
@@ -88,6 +98,11 @@ export class VoiceRpcHandlers {
       (params) => this.setConfig(params),
     );
 
+    this.rpcHandler.registerMethod<
+      VoiceDownloadModelParams,
+      VoiceDownloadModelResult
+    >('voice:downloadModel', (params) => this.downloadModel(params));
+
     this.logger.debug('Voice RPC handlers registered', {
       methods: VoiceRpcHandlers.METHODS,
     });
@@ -96,11 +111,66 @@ export class VoiceRpcHandlers {
   private async getConfig(): Promise<VoiceGetConfigResult> {
     try {
       const whisperModel = resolveWhisperModel(this.workspace);
-      return { ok: true, config: { whisperModel } };
+      const downloaded = await this.whisper.isModelDownloaded(whisperModel);
+      return { ok: true, config: { whisperModel, downloaded } };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error('[voice] getConfig failed', { error: message });
       return { ok: false, error: message };
+    }
+  }
+
+  private async downloadModel(
+    params: VoiceDownloadModelParams,
+  ): Promise<VoiceDownloadModelResult> {
+    const parsed = VoiceDownloadModelParamsSchema.safeParse(params ?? {});
+    if (!parsed.success) {
+      const message = parsed.error.issues[0]?.message ?? 'invalid params';
+      this.logger.warn('[voice] rejected invalid downloadModel params', {
+        error: message,
+      });
+      return { ok: false, error: message };
+    }
+
+    const model = parsed.data.model ?? resolveWhisperModel(this.workspace);
+    const onProgress = (evt: WhisperDownloadEvent): void => {
+      if (evt.model !== model) return;
+      if (evt.kind === 'download:start' || evt.kind === 'download:progress') {
+        const percent = evt.kind === 'download:progress' ? evt.percent : 0;
+        void this.webviewManager
+          .broadcastMessage(MESSAGE_TYPES.VOICE_MODEL_DOWNLOAD_PROGRESS, {
+            model,
+            percent,
+          })
+          .catch(() => undefined);
+      }
+    };
+    this.whisper.on('download', onProgress);
+    try {
+      const { alreadyPresent } = await this.whisper.downloadModel(model);
+      this.logger.info('[voice] model download complete', {
+        model,
+        alreadyPresent,
+      });
+      return { ok: true, alreadyPresent };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isVoiceAssetsUnavailable(error)) {
+        this.logger.warn('[voice] download assets unavailable', { model });
+        return {
+          ok: false,
+          error: message,
+          code: VOICE_ASSETS_UNAVAILABLE,
+          remediation: VOICE_ASSETS_REMEDIATION,
+        };
+      }
+      this.logger.error('[voice] model download failed', {
+        error: message,
+        model,
+      });
+      return { ok: false, error: message };
+    } finally {
+      this.whisper.off('download', onProgress);
     }
   }
 
