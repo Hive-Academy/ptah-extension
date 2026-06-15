@@ -10,9 +10,9 @@
  *   - sendOrQueueMessage: not streaming dispatches via MessageSender.send
  *   - sendOrQueueMessage: explicit-tabId override beats activeTab
  *   - sendQueuedMessage: clears queue + queuedOptions before dispatch
- *   - sendQueuedMessage: passes files from stored options
+ *   - sendQueuedMessage: forwards stored queuedOptions (files + images) to messageSender.send
  *   - sendQueuedMessage: on error, restores content to queue
- *   - sendQueuedMessage: calls conversation.continueConversation directly
+ *   - sendQueuedMessage: calls messageSender.send, not conversation.continueConversation
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -196,6 +196,7 @@ describe('MessageDispatchService', () => {
           queuedContent: 'queued',
           queuedOptions: {
             files: ['a.ts'],
+            images: [{ data: 'base64', mediaType: 'image/png' }],
           } as unknown as TabState['queuedOptions'],
         }),
       ];
@@ -206,24 +207,24 @@ describe('MessageDispatchService', () => {
       expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
     });
 
-    it('passes files from stored options to continueConversation', async () => {
+    it('forwards stored queuedOptions (files + images) to messageSender.send', async () => {
       await service.sendQueuedMessage('tab-1', 'queued');
-      expect(continueConversationMock).toHaveBeenCalledWith(
-        'queued',
-        ['a.ts'],
-        'tab-1',
-      );
+      expect(sendMock).toHaveBeenCalledWith('queued', {
+        files: ['a.ts'],
+        images: [{ data: 'base64', mediaType: 'image/png' }],
+        tabId: 'tab-1',
+      });
     });
 
-    it('calls conversation.continueConversation NOT messageSender.send', async () => {
+    it('calls messageSender.send NOT conversation.continueConversation', async () => {
       await service.sendQueuedMessage('tab-1', 'queued');
-      expect(continueConversationMock).toHaveBeenCalled();
-      expect(sendMock).not.toHaveBeenCalled();
+      expect(sendMock).toHaveBeenCalled();
+      expect(continueConversationMock).not.toHaveBeenCalled();
     });
 
     it('on error, restores content to queue', async () => {
       const err = new Error('boom');
-      continueConversationMock.mockRejectedValueOnce(err);
+      sendMock.mockRejectedValueOnce(err);
       const errorSpy = jest.spyOn(console, 'error').mockImplementation();
       await service.sendQueuedMessage('tab-1', 'queued');
       expect(setQueuedContentMock).toHaveBeenCalledWith('tab-1', 'queued');
