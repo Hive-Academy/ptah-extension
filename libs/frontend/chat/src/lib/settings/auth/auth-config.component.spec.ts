@@ -210,25 +210,42 @@ describe('AuthConfigComponent', () => {
       expect(component.applyTo()).toBe('global');
     });
 
-    it('applyTo defaults to "global" on construction', () => {
+    it('applyTo defaults to "app" when nothing is overridden (encapsulation default)', () => {
       const { component } = mount(rpc, authState);
-      expect(component.applyTo()).toBe('global');
+      expect(component.applyTo()).toBe('app');
+    });
+
+    it('applyTo seeds to "workspace" when a workspace override is already resolved', () => {
+      authState._activeScopePath.set('D:/projects/foo');
+      authState._activeScope.set('workspace');
+      const { component } = mount(rpc, authState);
+      expect(component.applyTo()).toBe('workspace');
+    });
+
+    it('applyTo seeds to "app" when an app override is already resolved', () => {
+      authState._activeScope.set('app');
+      const { component } = mount(rpc, authState);
+      expect(component.applyTo()).toBe('app');
     });
   });
 
   describe('resetToGlobalDefault()', () => {
-    it('delegates to authState.clearWorkspaceOverride and resets applyTo to global', async () => {
+    it('delegates to clearWorkspaceOverride and re-derives applyTo from the refreshed scope', async () => {
       authState._activeScopePath.set('D:/projects/foo');
+      authState._activeScope.set('workspace');
+      (authState.clearWorkspaceOverride as jest.Mock).mockImplementation(
+        async () => {
+          authState._activeScope.set('global');
+        },
+      );
       const { component, fixture } = mount(rpc, authState);
-
-      component.setApplyTo('workspace');
       expect(component.applyTo()).toBe('workspace');
 
       await component.resetToGlobalDefault();
       await settle(fixture);
 
       expect(authState.clearWorkspaceOverride).toHaveBeenCalledTimes(1);
-      expect(component.applyTo()).toBe('global');
+      expect(component.applyTo()).toBe('app');
     });
   });
 });

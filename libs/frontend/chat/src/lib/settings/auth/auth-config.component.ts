@@ -3,6 +3,7 @@ import {
   inject,
   signal,
   computed,
+  linkedSignal,
   output,
   ChangeDetectionStrategy,
   OnInit,
@@ -97,13 +98,14 @@ export class AuthConfigComponent implements OnInit {
   readonly isReplacingApiKey = signal(false);
   readonly isReplacingProviderKey = signal(false);
 
-  /** Write target for the next save: global default, this app (runtime), or the active workspace. */
-  readonly applyTo = signal<'global' | 'app' | 'workspace'>('global');
-
   /** Whether the active folder currently overrides auth/provider settings. */
   readonly hasWorkspaceOverride = this.authState.hasWorkspaceOverride;
 
   readonly activeScope = this.authState.activeScope;
+
+  readonly applyTo = linkedSignal<'global' | 'app' | 'workspace'>(() =>
+    this.activeScope() === 'global' ? 'app' : this.activeScope(),
+  );
 
   /** Active folder path the workspace scope applies to (null when none). */
   readonly activeScopePath = this.authState.activeScopePath;
@@ -374,7 +376,6 @@ export class AuthConfigComponent implements OnInit {
    */
   async resetToGlobalDefault(): Promise<void> {
     await this.authState.clearWorkspaceOverride();
-    this.applyTo.set('global');
     this.authStatusChanged.emit();
   }
 
