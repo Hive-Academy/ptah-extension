@@ -7,6 +7,7 @@ import {
 import { providerReasoningEffortDef } from '../schema/provider-schema';
 import { ComputedSettingHandle } from './computed-setting-handle';
 import { BaseSettingsRepository } from './base-repository';
+import type { WorkspaceScopeResolver } from '../scope/workspace-scope-resolver';
 
 /**
  * Typed accessor for reasoning effort settings.
@@ -24,25 +25,30 @@ export class ReasoningSettings extends BaseSettingsRepository {
   /** Reasoning effort level for the currently-active provider. */
   readonly effort: ComputedSettingHandle<string>;
 
-  constructor(store: ISettingsStore) {
+  constructor(store: ISettingsStore, resolver?: WorkspaceScopeResolver) {
     super(store);
 
     const resolveKey = () => {
       const authMethod =
-        store.readGlobal<string>(AUTH_METHOD_DEF.key) ??
+        (resolver
+          ? resolver.read<string>(AUTH_METHOD_DEF.key)
+          : store.readGlobal<string>(AUTH_METHOD_DEF.key)) ??
         AUTH_METHOD_DEF.default;
       const providerId =
-        store.readGlobal<string>(ANTHROPIC_PROVIDER_ID_DEF.key) ?? '';
+        (resolver
+          ? resolver.read<string>(ANTHROPIC_PROVIDER_ID_DEF.key)
+          : store.readGlobal<string>(ANTHROPIC_PROVIDER_ID_DEF.key)) ?? '';
       const authKey = resolveAuthProviderKey(authMethod, providerId);
       return `provider.${authKey}.reasoningEffort`;
     };
 
     this.effort = new ComputedSettingHandle(
       store,
-      providerReasoningEffortDef('apiKey'), // definition shape used for schema + default
+      providerReasoningEffortDef('apiKey'),
       resolveKey,
       AUTH_METHOD_DEF.key,
       ANTHROPIC_PROVIDER_ID_DEF.key,
+      resolver,
     );
   }
 }

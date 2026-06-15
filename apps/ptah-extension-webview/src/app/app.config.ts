@@ -28,6 +28,7 @@ import {
   ChatStore,
   UpdateBannerService,
   WorkspaceCoordinatorService,
+  VoiceDownloadProgressService,
   provideModelRefreshControl,
 } from '@ptah-extension/chat';
 import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
@@ -130,6 +131,11 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: GatewayStateService,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: VoiceDownloadProgressService,
       multi: true,
     },
     {

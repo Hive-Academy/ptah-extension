@@ -42,6 +42,7 @@ export {
   type ValidationResult,
 } from './message-validation.service';
 export { ChatMessageHandler } from './chat-message-handler.service';
+export { VoiceDownloadProgressService } from './voice-download-progress.service';
 /** @deprecated Import from `@ptah-extension/chat-streaming` instead. */
 export {
   AgentMonitorStore,

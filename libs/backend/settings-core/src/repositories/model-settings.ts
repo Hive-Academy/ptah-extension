@@ -7,6 +7,7 @@ import {
 import { providerSelectedModelDef } from '../schema/provider-schema';
 import { ComputedSettingHandle } from './computed-setting-handle';
 import { BaseSettingsRepository } from './base-repository';
+import type { WorkspaceScopeResolver } from '../scope/workspace-scope-resolver';
 
 /**
  * Typed accessor for model selection settings.
@@ -24,25 +25,30 @@ export class ModelSettings extends BaseSettingsRepository {
   /** Model identifier for the currently-active provider. Empty = use provider default. */
   readonly selectedModel: ComputedSettingHandle<string>;
 
-  constructor(store: ISettingsStore) {
+  constructor(store: ISettingsStore, resolver?: WorkspaceScopeResolver) {
     super(store);
 
     const resolveKey = () => {
       const authMethod =
-        store.readGlobal<string>(AUTH_METHOD_DEF.key) ??
+        (resolver
+          ? resolver.read<string>(AUTH_METHOD_DEF.key)
+          : store.readGlobal<string>(AUTH_METHOD_DEF.key)) ??
         AUTH_METHOD_DEF.default;
       const providerId =
-        store.readGlobal<string>(ANTHROPIC_PROVIDER_ID_DEF.key) ?? '';
+        (resolver
+          ? resolver.read<string>(ANTHROPIC_PROVIDER_ID_DEF.key)
+          : store.readGlobal<string>(ANTHROPIC_PROVIDER_ID_DEF.key)) ?? '';
       const authKey = resolveAuthProviderKey(authMethod, providerId);
       return `provider.${authKey}.selectedModel`;
     };
 
     this.selectedModel = new ComputedSettingHandle(
       store,
-      providerSelectedModelDef('apiKey'), // definition shape used for schema + default
+      providerSelectedModelDef('apiKey'),
       resolveKey,
       AUTH_METHOD_DEF.key,
       ANTHROPIC_PROVIDER_ID_DEF.key,
+      resolver,
     );
   }
 }

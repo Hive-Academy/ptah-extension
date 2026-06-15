@@ -18,8 +18,17 @@ import {
   ConfirmationDialogService,
   TabManagerService,
 } from '@ptah-extension/chat-state';
+import {
+  AuthStateService,
+  EffortStateService,
+  ModelStateService,
+} from '@ptah-extension/core';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import type { TabState } from '@ptah-extension/chat-types';
+
+type AuthStateSlice = Pick<AuthStateService, 'refreshAuthStatus'>;
+type ModelStateSlice = Pick<ModelStateService, 'refreshModels'>;
+type EffortStateSlice = Pick<EffortStateService, 'refreshEffort'>;
 
 type TabManagerSlice = Pick<
   TabManagerService,
@@ -50,6 +59,9 @@ describe('WorkspaceCoordinatorService', () => {
   let tabManager: jest.Mocked<TabManagerSlice>;
   let sessionLoader: jest.Mocked<SessionLoaderSlice>;
   let confirmDialog: jest.Mocked<ConfirmSlice>;
+  let authState: jest.Mocked<AuthStateSlice>;
+  let modelState: jest.Mocked<ModelStateSlice>;
+  let effortState: jest.Mocked<EffortStateSlice>;
   let consoleWarn: jest.SpyInstance;
   let consoleError: jest.SpyInstance;
 
@@ -69,6 +81,16 @@ describe('WorkspaceCoordinatorService', () => {
       confirm: jest.fn(),
     } as unknown as jest.Mocked<ConfirmSlice>;
 
+    authState = {
+      refreshAuthStatus: jest.fn(async () => undefined),
+    } as jest.Mocked<AuthStateSlice>;
+    modelState = {
+      refreshModels: jest.fn(async () => undefined),
+    } as jest.Mocked<ModelStateSlice>;
+    effortState = {
+      refreshEffort: jest.fn(async () => undefined),
+    } as jest.Mocked<EffortStateSlice>;
+
     consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
     consoleError = jest.spyOn(console, 'error').mockImplementation();
 
@@ -78,6 +100,9 @@ describe('WorkspaceCoordinatorService', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: SessionLoaderService, useValue: sessionLoader },
         { provide: ConfirmationDialogService, useValue: confirmDialog },
+        { provide: AuthStateService, useValue: authState },
+        { provide: ModelStateService, useValue: modelState },
+        { provide: EffortStateService, useValue: effortState },
       ],
     });
     service = TestBed.inject(WorkspaceCoordinatorService);
@@ -94,6 +119,20 @@ describe('WorkspaceCoordinatorService', () => {
       await service.switchWorkspace('D:/repo/foo');
       expect(tabManager.switchWorkspace).toHaveBeenCalledWith('D:/repo/foo');
       expect(sessionLoader.switchWorkspace).toHaveBeenCalledWith('D:/repo/foo');
+    });
+
+    it('re-resolves auth/model/effort after the fan-out', async () => {
+      await service.switchWorkspace('D:/repo/foo');
+      expect(authState.refreshAuthStatus).toHaveBeenCalledTimes(1);
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
+    });
+
+    it('still re-resolves auth/model/effort even when editor services fail', async () => {
+      await expect(service.switchWorkspace('D:/x')).resolves.toBeUndefined();
+      expect(authState.refreshAuthStatus).toHaveBeenCalledTimes(1);
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
     });
 
     it('resolves cleanly even when editor services are not yet loaded', async () => {

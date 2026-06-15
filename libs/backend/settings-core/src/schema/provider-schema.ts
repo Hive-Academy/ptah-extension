@@ -45,6 +45,7 @@ export function providerSelectedModelDef(
     schema: MODEL_SELECTED_SCHEMA,
     default: '',
     sinceVersion: 2,
+    appScopable: true,
   });
 }
 
@@ -64,5 +65,6 @@ export function providerReasoningEffortDef(
     schema: EFFORT_LEVEL_SCHEMA,
     default: '',
     sinceVersion: 2,
+    appScopable: true,
   });
 }

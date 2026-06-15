@@ -1,6 +1,9 @@
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { ITracer } from '@ptah-extension/platform-core';
+import type {
+  ITracer,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import type {
   ICompactionCallbackRegistry,
   ITranscriptReader,
@@ -433,7 +436,7 @@ describe('MemoryCuratorService — corpus auto-rebuild trigger (Batch C1)', () =
           return fallback;
         },
       ),
-    } as unknown as import('@ptah-extension/platform-core').IWorkspaceProvider;
+    } as unknown as IWorkspaceProvider;
     const svc = new MemoryCuratorService(
       makeLogger(),
       registry,

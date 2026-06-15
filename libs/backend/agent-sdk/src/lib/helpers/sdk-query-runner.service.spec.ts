@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import * as os from 'os';
 
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import type { AuthEnv } from '@ptah-extension/shared';
 import {
   createMockLogger,
@@ -128,7 +129,7 @@ function makeRunner(
     compactionHooks,
     authEnv,
     modelService,
-    platformInfo as unknown as import('@ptah-extension/platform-core').IPlatformInfo,
+    platformInfo as unknown as IPlatformInfo,
   );
 
   return {

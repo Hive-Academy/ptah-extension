@@ -17,6 +17,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { runMasterKeyProviderContract } from '@ptah-extension/platform-core/testing';
+import type { IUserInteraction } from '@ptah-extension/platform-core';
 import {
   ElectronMasterKeyProvider,
   type ElectronSafeStorageApi,
@@ -517,7 +518,7 @@ describe('MKP-DL — ElectronMasterKeyProvider: data-loss audit', () => {
     const storage = makeAvailableSafeStorage();
     const provider = new ElectronMasterKeyProvider(
       dir,
-      userInteraction as unknown as import('@ptah-extension/platform-core').IUserInteraction,
+      userInteraction as unknown as IUserInteraction,
     );
     (
       provider as unknown as {
