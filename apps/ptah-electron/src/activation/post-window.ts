@@ -155,27 +155,9 @@ export async function registerPostWindow(
     messagingGateway = container.resolve<GatewayService>(
       GATEWAY_TOKENS.GATEWAY_SERVICE,
     );
-    await messagingGateway.start();
-    console.log('[Ptah Electron] Messaging gateway started');
-
-    const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
-      broadcastMessage(type: string, payload: unknown): Promise<void>;
-    };
-    const status = messagingGateway.status();
-    void webviewManager.broadcastMessage(MESSAGE_TYPES.GATEWAY_STATUS_CHANGED, {
-      status: {
-        enabled: status.enabled,
-        adapters: status.adapters.map((a) => ({
-          platform: a.platform,
-          running: a.running,
-          ...(a.lastError ? { lastError: a.lastError } : {}),
-        })),
-      },
-      origin: null,
-    });
   } catch (error) {
     console.warn(
-      '[Ptah Electron] Messaging gateway start skipped (non-fatal):',
+      '[Ptah Electron] Messaging gateway resolve skipped (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
     messagingGateway = null;
@@ -185,15 +167,61 @@ export async function registerPostWindow(
       chatBridge = container.resolve<GatewayChatBridge>(
         GATEWAY_CHAT_BRIDGE_TOKENS.GATEWAY_CHAT_BRIDGE,
       );
-      chatBridge.start();
-      console.log('[Ptah Electron] Gateway chat bridge started');
     } catch (error) {
       console.warn(
-        '[Ptah Electron] Gateway chat bridge start skipped (non-fatal):',
+        '[Ptah Electron] Gateway chat bridge resolve skipped (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
       chatBridge = null;
     }
+  }
+  // Started non-blocking: gateway I/O must not delay the updater or window.
+  if (messagingGateway) {
+    const gateway = messagingGateway;
+    const bridge = chatBridge;
+    void (async () => {
+      try {
+        await gateway.start();
+        console.log('[Ptah Electron] Messaging gateway started');
+
+        const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
+          broadcastMessage(type: string, payload: unknown): Promise<void>;
+        };
+        const status = gateway.status();
+        void webviewManager.broadcastMessage(
+          MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+          {
+            status: {
+              enabled: status.enabled,
+              adapters: status.adapters.map((a) => ({
+                platform: a.platform,
+                running: a.running,
+                ...(a.lastError ? { lastError: a.lastError } : {}),
+              })),
+            },
+            origin: null,
+          },
+        );
+      } catch (error) {
+        console.warn(
+          '[Ptah Electron] Messaging gateway start skipped (non-fatal):',
+          error instanceof Error ? error.message : String(error),
+        );
+        return;
+      }
+
+      if (bridge) {
+        try {
+          bridge.start();
+          console.log('[Ptah Electron] Gateway chat bridge started');
+        } catch (error) {
+          console.warn(
+            '[Ptah Electron] Gateway chat bridge start skipped (non-fatal):',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+    })();
   }
   try {
     updateManager = container.resolve<UpdateManager>(UPDATE_MANAGER_TOKEN);
