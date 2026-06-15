@@ -30,3 +30,20 @@ export const VoiceSetConfigParamsSchema = z.object({
 export type VoiceSetConfigParamsParsed = z.infer<
   typeof VoiceSetConfigParamsSchema
 >;
+
+export const VoiceDownloadModelParamsSchema = z.object({
+  model: z
+    .string()
+    .trim()
+    .min(1, 'model must be a non-empty string')
+    .max(50, 'model must be at most 50 characters')
+    .regex(
+      /^[a-zA-Z0-9._-]+$/,
+      'model may only contain letters, numbers, dots, hyphens, and underscores',
+    )
+    .optional(),
+});
+
+export type VoiceDownloadModelParamsParsed = z.infer<
+  typeof VoiceDownloadModelParamsSchema
+>;

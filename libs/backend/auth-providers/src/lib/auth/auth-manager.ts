@@ -18,7 +18,11 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  SETTINGS_TOKENS,
+  WorkspaceScopeResolver,
+} from '@ptah-extension/settings-core';
 import type { AuthEnv, AuthStrategyType } from '@ptah-extension/shared';
 import { resolveStrategy, type LegacyAuthMethod } from '@ptah-extension/shared';
 import type { IAuthStrategy } from './auth-strategy.types';
@@ -67,7 +71,6 @@ export class AuthManager implements IAuthEnvProvider {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
@@ -82,6 +85,8 @@ export class AuthManager implements IAuthEnvProvider {
     localProxyStrategy: IAuthStrategy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CLI_STRATEGY)
     cliStrategy: IAuthStrategy,
+    @inject(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER)
+    private readonly scopeResolver: WorkspaceScopeResolver,
   ) {
     this.strategyRegistry = new Map<AuthStrategyType, IAuthStrategy>([
       ['api-key', apiKeyStrategy],
@@ -257,10 +262,9 @@ export class AuthManager implements IAuthEnvProvider {
         strategyType: resolveStrategy('apiKey'),
       };
     }
-    const providerId = this.config.getWithDefault<string>(
-      'anthropicProviderId',
-      DEFAULT_PROVIDER_ID,
-    );
+    const providerId =
+      this.scopeResolver.read<string>('anthropicProviderId') ??
+      DEFAULT_PROVIDER_ID;
 
     const provider = getAnthropicProvider(providerId);
     const strategyType = resolveStrategy('thirdParty', provider);

@@ -1,12 +1,23 @@
-import { Server, Sparkles, Blocks, Boxes } from 'lucide-angular';
+import { Server, Sparkles, Blocks, Boxes, Puzzle } from 'lucide-angular';
 import {
   McpDirectoryBrowserComponent,
   SkillShBrowserComponent,
 } from '@ptah-extension/chat-ui';
 import { MarketplaceProviderSpec } from './provider-spec';
 import { SmitherySurfaceComponent } from './smithery-surface.component';
+import { PluginsSurfaceComponent } from './plugins-surface.component';
 
 export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
+  {
+    id: 'plugins',
+    name: 'Plugins',
+    icon: Puzzle,
+    status: 'live',
+    kind: 'skills',
+    tagline: 'Bundled skill packs for orchestration, frontend & backend',
+    proGated: true,
+    surface: PluginsSurfaceComponent,
+  },
   {
     id: 'official-mcp',
     name: 'MCP Registry',

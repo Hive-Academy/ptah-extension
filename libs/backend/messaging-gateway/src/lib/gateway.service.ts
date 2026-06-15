@@ -107,6 +107,20 @@ const SETTINGS_KEYS = {
 const VOICE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const INBOUND_ABUSE_LIMIT_PER_MIN = 60;
 
+function paginate(body: string, limit?: number): string[] {
+  if (!limit || body.length <= limit) return [body];
+  const pages: string[] = [];
+  let rest = body;
+  while (rest.length > limit) {
+    let cut = rest.lastIndexOf('\n', limit);
+    if (cut <= 0) cut = limit;
+    pages.push(rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\n/, '');
+  }
+  if (rest.length) pages.push(rest);
+  return pages;
+}
+
 export interface GatewayInboundEvent {
   binding: GatewayBinding;
   conversation: GatewayConversation;
@@ -136,8 +150,8 @@ export class GatewayService extends EventEmitter {
   private lastErrors = new Map<GatewayPlatform, string>();
   private coalescer: StreamCoalescer | null = null;
   private inboundCounters = new Map<string, number[]>();
-  /** Map conversationKey → first outbound externalMsgId (for editMessage). */
-  private streamHandles = new Map<ConversationKey, { externalMsgId: string }>();
+  /** Map conversationKey → ordered outbound message ids (one per page). */
+  private streamHandles = new Map<ConversationKey, { pageMsgIds: string[] }>();
 
   /** Ciphertext-decrypt-failure flag — surfaced via gateway:status. */
   private decryptFailures = new Set<GatewayPlatform>();
@@ -791,7 +805,6 @@ export class GatewayService extends EventEmitter {
   }
 
   private async flushOutbound(payload: FlushPayload): Promise<void> {
-    const handle = this.streamHandles.get(payload.conversationKey);
     const adapter = this.adapters.get(payload.platform);
     if (!adapter) {
       this.logger.warn('[gateway] flushOutbound: no adapter for platform', {
@@ -799,36 +812,49 @@ export class GatewayService extends EventEmitter {
       });
       return;
     }
+    const handle = this.streamHandles.get(payload.conversationKey) ?? {
+      pageMsgIds: [],
+    };
+    this.streamHandles.set(payload.conversationKey, handle);
+    const pages = paginate(payload.body, adapter.maxMessageChars);
+    const sendOpts =
+      payload.conversationId !== undefined
+        ? { conversationId: payload.conversationId }
+        : undefined;
     try {
-      if (payload.isFirstFlush || !handle) {
+      for (
+        let i = Math.max(0, handle.pageMsgIds.length - 1);
+        i < pages.length;
+        i++
+      ) {
+        if (i < handle.pageMsgIds.length) {
+          await adapter.editMessage(
+            payload.externalChatId,
+            handle.pageMsgIds[i],
+            pages[i],
+          );
+          continue;
+        }
         const res = await adapter.sendMessage(
           payload.externalChatId,
-          payload.body,
-          payload.conversationId !== undefined
-            ? { conversationId: payload.conversationId }
-            : undefined,
+          pages[i],
+          sendOpts,
         );
-        this.streamHandles.set(payload.conversationKey, {
-          externalMsgId: res.externalMsgId,
-        });
-        const binding = this.bindings.findByExternal(
-          payload.platform,
-          payload.externalChatId,
-        );
-        if (binding) {
-          this.messages.insert({
-            bindingId: binding.id,
-            direction: 'outbound',
-            externalMsgId: res.externalMsgId,
-            body: payload.body,
-          });
+        handle.pageMsgIds.push(res.externalMsgId);
+        if (i === 0) {
+          const binding = this.bindings.findByExternal(
+            payload.platform,
+            payload.externalChatId,
+          );
+          if (binding) {
+            this.messages.insert({
+              bindingId: binding.id,
+              direction: 'outbound',
+              externalMsgId: res.externalMsgId,
+              body: pages[i],
+            });
+          }
         }
-      } else {
-        await adapter.editMessage(
-          payload.externalChatId,
-          handle.externalMsgId,
-          payload.body,
-        );
       }
     } catch (error: unknown) {
       this.logger.warn('[gateway] flushOutbound failed', {

@@ -40,6 +40,12 @@ export { ReactiveSettingsStore } from './reactive/reactive-settings-store';
 export type { SettingHandle } from './repositories/setting-handle';
 export type { SecretHandle } from './repositories/secret-handle';
 export { ComputedSettingHandle } from './repositories/computed-setting-handle';
+export type { IActiveWorkspaceSource } from './scope/active-workspace-source';
+export {
+  WorkspaceScopeResolver,
+  appScopePrefixFor,
+} from './scope/workspace-scope-resolver';
+export type { WorkspaceWriteTarget } from './scope/workspace-scope-resolver';
 export { BaseSettingsRepository } from './repositories/base-repository';
 export { AuthSettings } from './repositories/auth-settings';
 export { ReasoningSettings } from './repositories/reasoning-settings';
@@ -55,3 +61,4 @@ export type { MigrationFn } from './migrations/runner';
 export { runV1Migration } from './migrations/v1-migration';
 export { runV2Migration } from './migrations/v2-migration';
 export { runV3Migration } from './migrations/v3-migration';
+export { runV4Migration } from './migrations/v4-migration';

@@ -44,6 +44,17 @@ function createLogger(): FakeLogger {
   };
 }
 
+async function flushUntil(
+  predicate: () => boolean,
+  attempts = 50,
+): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    if (predicate()) return;
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+}
+
 interface SuiteCiphers {
   telegram?: string;
   discord?: string;
@@ -134,6 +145,7 @@ function createAdapter(
 ): jest.Mocked<IMessagingAdapter> {
   return {
     platform,
+    ...(platform === 'discord' ? { maxMessageChars: 2000 } : {}),
     start: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn().mockResolvedValue(undefined),
     isRunning: jest.fn().mockReturnValue(true),
@@ -594,6 +606,37 @@ describe('GatewayService.flushOutbound — structured routing (AC 1.5)', () => {
         body: 'streamed reply',
       }),
     );
+    await suite.service.stop();
+  });
+
+  it('paginates a reply longer than the discord maxMessageChars into multiple sends', async () => {
+    const suite = buildSuite();
+    suite.bindings.findByExternal.mockReturnValue(
+      makeBinding({ platform: 'discord', externalChatId: 'chan-1' }),
+    );
+    suite.discordAdapter.sendMessage
+      .mockResolvedValueOnce({ externalMsgId: 'p0' } as SendResult)
+      .mockResolvedValueOnce({ externalMsgId: 'p1' } as SendResult);
+    const route: OutboundRoute = {
+      conversationKey: ConversationKey.for('discord', 'chan-1', 'thread-9'),
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      conversationId: 'thread-9',
+    };
+    const body = 'x'.repeat(2500);
+
+    suite.service.appendOutboundChunk(route, body);
+    await suite.service.drainOutbound(route.conversationKey);
+    await flushUntil(
+      () => suite.discordAdapter.sendMessage.mock.calls.length >= 2,
+    );
+
+    const calls = suite.discordAdapter.sendMessage.mock.calls;
+    expect(calls.length).toBe(2);
+    expect(calls[0][1]).toHaveLength(2000);
+    expect(calls[1][1]).toHaveLength(500);
+    expect(calls[0][2]).toEqual({ conversationId: 'thread-9' });
+    expect(calls[1][2]).toEqual({ conversationId: 'thread-9' });
     await suite.service.stop();
   });
 

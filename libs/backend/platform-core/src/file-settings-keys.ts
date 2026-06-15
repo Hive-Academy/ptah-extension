@@ -331,6 +331,8 @@ const PROVIDER_BASE_URL_PATTERN = /^provider\.[a-z0-9-]+\.baseUrl$/;
 const PROVIDER_SCOPED_TIER_PATTERN =
   /^provider\.[a-z0-9-]+\.(mainAgent|cliAgent)\.modelTier\.(sonnet|opus|haiku)$/;
 
+const SCOPED_SETTING_PREFIX_PATTERN = /^(app|workspace)\./;
+
 /**
  * Returns true when the given settings key should be routed to file-based
  * storage (~/.ptah/settings.json). Prefer this over `FILE_BASED_SETTINGS_KEYS.has()`
@@ -341,5 +343,6 @@ export function isFileBasedSettingKey(key: string): boolean {
   if (FILE_BASED_SETTINGS_KEYS.has(key)) return true;
   if (PROVIDER_BASE_URL_PATTERN.test(key)) return true;
   if (PROVIDER_SCOPED_TIER_PATTERN.test(key)) return true;
+  if (SCOPED_SETTING_PREFIX_PATTERN.test(key)) return true;
   return false;
 }

@@ -91,6 +91,7 @@ import type {
 } from './system';
 import type { WorkspaceChangedPayload } from './workspace';
 import type { GatewayStatusChangedPayload } from './gateway';
+import type { VoiceModelDownloadProgressPayload } from './voice';
 import type { UpdateStatusChangedPayload } from './update';
 import type {
   SdkCompactionCompletePayload,
@@ -229,6 +230,7 @@ export interface MessagePayloadMap {
   switchView: ViewChangedPayload;
   workspaceChanged: WorkspaceChangedPayload;
   'gateway:statusChanged': GatewayStatusChangedPayload;
+  'voice:modelDownloadProgress': VoiceModelDownloadProgressPayload;
   'update:statusChanged': UpdateStatusChangedPayload;
   'session:compactionComplete': SdkCompactionCompletePayload;
   'session:turnEnded': SdkTurnEndedPayload;

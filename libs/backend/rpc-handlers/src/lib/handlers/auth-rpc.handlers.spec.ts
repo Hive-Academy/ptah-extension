@@ -83,8 +83,108 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
+import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
 
 import { AuthRpcHandlers } from './auth-rpc.handlers';
+
+// ---------------------------------------------------------------------------
+// WorkspaceScopeResolver mock — backed by an in-memory two-tier store so the
+// handler's resolver reads/writes behave like the real global/workspace
+// fallback without a file backend.
+// ---------------------------------------------------------------------------
+
+interface MockScopeResolver {
+  read: jest.Mock<unknown, [string, boolean?]>;
+  hasOverride: jest.Mock<boolean, [string, boolean?]>;
+  write: jest.Mock<
+    Promise<void>,
+    [string, unknown, 'global' | 'app' | 'workspace', boolean?]
+  >;
+  clearOverride: jest.Mock<Promise<void>, [string, boolean?]>;
+  effectiveKey: jest.Mock<string, [string, boolean?]>;
+  getActivePath: jest.Mock<string | undefined, []>;
+  globalStore: Map<string, unknown>;
+  workspaceStore: Map<string, unknown>;
+  appStore: Map<string, unknown>;
+}
+
+function createMockScopeResolver(opts: {
+  global?: Record<string, unknown>;
+  workspace?: Record<string, unknown>;
+  app?: Record<string, unknown>;
+  activePath?: string | undefined;
+  appScope?: string;
+}): MockScopeResolver {
+  const globalStore = new Map<string, unknown>(
+    Object.entries(opts.global ?? {}),
+  );
+  const workspaceStore = new Map<string, unknown>(
+    Object.entries(opts.workspace ?? {}),
+  );
+  const appStore = new Map<string, unknown>(Object.entries(opts.app ?? {}));
+  const activePath = 'activePath' in opts ? opts.activePath : '/ws/project-a';
+  const appScope = opts.appScope ?? 'app.vscode';
+
+  const read = jest.fn((key: string, appScopable = false) => {
+    if (appScopable && appStore.has(key)) return appStore.get(key);
+    if (activePath && workspaceStore.has(key)) return workspaceStore.get(key);
+    return globalStore.get(key);
+  });
+
+  const hasOverride = jest.fn((key: string, appScopable = false) => {
+    if (appScopable && appStore.has(key)) return true;
+    return !!activePath && workspaceStore.has(key);
+  });
+
+  const write = jest.fn(
+    async (
+      key: string,
+      value: unknown,
+      target: 'global' | 'app' | 'workspace',
+      _appScopable = false,
+    ) => {
+      if (target === 'app') {
+        appStore.set(key, value);
+      } else if (target === 'workspace' && activePath) {
+        workspaceStore.set(key, value);
+      } else {
+        globalStore.set(key, value);
+      }
+    },
+  );
+
+  const clearOverride = jest.fn(async (key: string, appScopable = false) => {
+    if (appScopable && appStore.has(key)) {
+      appStore.delete(key);
+    } else {
+      workspaceStore.delete(key);
+    }
+  });
+
+  const effectiveKey = jest.fn((key: string, appScopable = false): string => {
+    if (appScopable && appStore.has(key)) {
+      return `${appScope}.${key}`;
+    }
+    if (activePath && workspaceStore.has(key)) {
+      return `workspace.mock.${key}`;
+    }
+    return key;
+  });
+
+  const getActivePath = jest.fn(() => activePath);
+
+  return {
+    read,
+    hasOverride,
+    write,
+    clearOverride,
+    effectiveKey,
+    getActivePath,
+    globalStore,
+    workspaceStore,
+    appStore,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces — only what the handler touches
@@ -176,6 +276,7 @@ interface Harness {
   platformAuth: MockAuthProvider;
   cliDetector: MockCliDetector;
   sentry: MockSentryService;
+  scopeResolver: MockScopeResolver;
 }
 
 function makeHarness(
@@ -184,6 +285,10 @@ function makeHarness(
     configSeed?: Record<string, unknown>;
     credentialsSeed?: { apiKey?: string };
     providerKeysSeed?: Record<string, string>;
+    workspaceOverrides?: Record<string, unknown>;
+    appOverrides?: Record<string, unknown>;
+    activePath?: string | undefined;
+    appScope?: string;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -205,6 +310,13 @@ function makeHarness(
   const platformAuth = createMockAuthProvider();
   const cliDetector = createMockCliDetector();
   const sentry = createMockSentryService();
+  const scopeResolver = createMockScopeResolver({
+    global: opts.configSeed,
+    workspace: opts.workspaceOverrides,
+    app: opts.appOverrides,
+    ...('activePath' in opts ? { activePath: opts.activePath } : {}),
+    ...(opts.appScope !== undefined ? { appScope: opts.appScope } : {}),
+  });
 
   const handlers = new AuthRpcHandlers(
     logger as unknown as Logger,
@@ -219,6 +331,7 @@ function makeHarness(
     platformAuth as unknown as IPlatformAuthProvider,
     cliDetector as unknown as ClaudeCliDetector,
     sentry as unknown as SentryService,
+    scopeResolver as unknown as WorkspaceScopeResolver,
   );
 
   return {
@@ -235,6 +348,7 @@ function makeHarness(
     platformAuth,
     cliDetector,
     sentry,
+    scopeResolver,
   };
 }
 
@@ -504,6 +618,159 @@ describe('AuthRpcHandlers', () => {
 
       expect(h.providerModels.clearCache).toHaveBeenCalledWith('claude');
     });
+
+    it('defaults applyTo to global — writes authMethod/provider to the bare global key', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'auth:saveSettings', {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'openrouter',
+      });
+
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'authMethod',
+        'thirdParty',
+        'global',
+        true,
+      );
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        'openrouter',
+        'global',
+        true,
+      );
+      expect(h.scopeResolver.globalStore.get('authMethod')).toBe('thirdParty');
+      expect(h.scopeResolver.workspaceStore.has('authMethod')).toBe(false);
+    });
+
+    it('routes a workspace-targeted write to the prefixed workspace key', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'auth:saveSettings', {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'openrouter',
+        applyTo: 'workspace',
+      });
+
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'authMethod',
+        'thirdParty',
+        'workspace',
+        true,
+      );
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        'openrouter',
+        'workspace',
+        true,
+      );
+      expect(h.scopeResolver.workspaceStore.get('authMethod')).toBe(
+        'thirdParty',
+      );
+      expect(h.scopeResolver.globalStore.has('authMethod')).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // auth:getScope
+  // -------------------------------------------------------------------------
+
+  describe('auth:getScope', () => {
+    it('reports inherited (global) scope when no workspace override exists', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey', anthropicProviderId: 'anthropic' },
+        activePath: '/ws/project-a',
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        authMethodScope: string;
+        providerScope: string;
+        activePath: string | null;
+      }>(h, 'auth:getScope');
+
+      expect(result.authMethodScope).toBe('global');
+      expect(result.providerScope).toBe('global');
+      expect(result.activePath).toBe('/ws/project-a');
+    });
+
+    it('reports workspace scope for keys that the active folder overrides', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey' },
+        workspaceOverrides: { authMethod: 'thirdParty' },
+        activePath: '/ws/project-b',
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        authMethodScope: string;
+        providerScope: string;
+      }>(h, 'auth:getScope');
+
+      expect(result.authMethodScope).toBe('workspace');
+      expect(result.providerScope).toBe('global');
+    });
+
+    it('returns null activePath when no active folder is resolved', async () => {
+      const h = makeHarness({ activePath: undefined });
+      h.handlers.register();
+
+      const result = await call<{ activePath: string | null }>(
+        h,
+        'auth:getScope',
+      );
+
+      expect(result.activePath).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // auth:clearWorkspaceOverride
+  // -------------------------------------------------------------------------
+
+  describe('auth:clearWorkspaceOverride', () => {
+    it('clears auth/provider/model/effort overrides for the active folder and reverts to global', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey', anthropicProviderId: '' },
+        workspaceOverrides: {
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openrouter',
+        },
+        activePath: '/ws/project-c',
+      });
+      h.handlers.register();
+
+      // Pre-condition: the folder overrides authMethod.
+      expect(h.scopeResolver.workspaceStore.has('authMethod')).toBe(true);
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'auth:clearWorkspaceOverride',
+      );
+
+      expect(result.success).toBe(true);
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith(
+        'authMethod',
+        true,
+      );
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        true,
+      );
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith(
+        'provider.thirdParty.openrouter.selectedModel',
+        true,
+      );
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith(
+        'provider.thirdParty.openrouter.reasoningEffort',
+        true,
+      );
+      // Overrides gone → reads now fall through to the global tier.
+      expect(h.scopeResolver.workspaceStore.has('authMethod')).toBe(false);
+      expect(h.sdkAdapter.reset).toHaveBeenCalledTimes(1);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -747,6 +1014,99 @@ describe('AuthRpcHandlers', () => {
       );
       expect(otherEntries.every((p) => p.hasApiKey === false)).toBe(true);
       expect(otherEntries.every((p) => p.isDefault === false)).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // AC-7 — saveSettings(applyTo:'app') writes to app scope
+  // -------------------------------------------------------------------------
+
+  describe('AC-7 — auth:saveSettings with applyTo:app writes to app scope', () => {
+    it('writes authMethod to the app store when applyTo=app', async () => {
+      const h = makeHarness({ appScope: 'app.vscode' });
+      h.handlers.register();
+
+      await call(h, 'auth:saveSettings', {
+        authMethod: 'thirdParty',
+        applyTo: 'app',
+      });
+
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'authMethod',
+        'thirdParty',
+        'app',
+        true,
+      );
+      expect(h.scopeResolver.appStore.get('authMethod')).toBe('thirdParty');
+      expect(h.scopeResolver.globalStore.has('authMethod')).toBe(false);
+      expect(h.scopeResolver.workspaceStore.has('authMethod')).toBe(false);
+    });
+
+    it('writes anthropicProviderId to the app store when applyTo=app', async () => {
+      const h = makeHarness({ appScope: 'app.vscode' });
+      h.handlers.register();
+
+      await call(h, 'auth:saveSettings', {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'openrouter',
+        applyTo: 'app',
+      });
+
+      expect(h.scopeResolver.write).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        'openrouter',
+        'app',
+        true,
+      );
+      expect(h.scopeResolver.appStore.get('anthropicProviderId')).toBe(
+        'openrouter',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // AC-9 — auth:getScope reports 'app' + runtime when key at app level
+  // -------------------------------------------------------------------------
+
+  describe('AC-9 — auth:getScope reports app scope + runtime context', () => {
+    it('reports authMethodScope=app and includes runtime when app override exists', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey' },
+        appOverrides: { authMethod: 'thirdParty' },
+        activePath: '/ws/project-x',
+        appScope: 'app.vscode',
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        authMethodScope: string;
+        providerScope: string;
+        activePath: string | null;
+        runtime?: string;
+      }>(h, 'auth:getScope');
+
+      expect(result.authMethodScope).toBe('app');
+      expect(result.runtime).toBe('vscode');
+    });
+
+    it('getScope returns runtime from the app-level effective key', async () => {
+      const h = makeHarness({
+        configSeed: { authMethod: 'apiKey', anthropicProviderId: 'claude' },
+        appOverrides: { anthropicProviderId: 'openrouter' },
+        activePath: '/ws/proj',
+        appScope: 'app.vscode',
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        authMethodScope: string;
+        providerScope: string;
+        runtime?: string;
+      }>(h, 'auth:getScope');
+
+      expect(result.providerScope).toBe('app');
+      expect(result.runtime).toBe('vscode');
+      expect(result.authMethodScope).toBe('global');
     });
   });
 });

@@ -52,6 +52,13 @@ export interface SendResult {
 
 export interface IMessagingAdapter {
   readonly platform: GatewayPlatform;
+  /**
+   * Maximum characters the platform accepts in a single message body. When
+   * set, the gateway paginates longer cumulative replies across multiple
+   * messages instead of letting the platform reject the whole edit. Discord =
+   * 2000. Omit for platforms with no practical limit.
+   */
+  readonly maxMessageChars?: number;
   /** Open long-lived connection (long-polling / websocket / socket-mode). */
   start(token: string, opts?: { appToken?: string }): Promise<void>;
   /** Close all sockets, cancel timers. Idempotent. */
