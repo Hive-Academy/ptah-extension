@@ -18,7 +18,10 @@ describe('VoiceAssetsUnavailableError', () => {
 
   it('preserves the underlying cause when provided', () => {
     const cause = new Error('boom');
-    const err = new VoiceAssetsUnavailableError('nodejs-whisper', cause);
+    const err = new VoiceAssetsUnavailableError(
+      '@huggingface/transformers',
+      cause,
+    );
     expect((err as { cause?: unknown }).cause).toBe(cause);
   });
 

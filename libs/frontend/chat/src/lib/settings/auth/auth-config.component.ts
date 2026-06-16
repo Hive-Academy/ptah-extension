@@ -103,8 +103,8 @@ export class AuthConfigComponent implements OnInit {
 
   readonly activeScope = this.authState.activeScope;
 
-  readonly applyTo = linkedSignal<'global' | 'app' | 'workspace'>(() =>
-    this.activeScope() === 'global' ? 'app' : this.activeScope(),
+  readonly applyTo = linkedSignal<'app' | 'workspace'>(() =>
+    this.activeScope() === 'workspace' ? 'workspace' : 'app',
   );
 
   /** Active folder path the workspace scope applies to (null when none). */
@@ -115,7 +115,7 @@ export class AuthConfigComponent implements OnInit {
       case 'workspace':
         return 'Workspace override';
       case 'app':
-        return 'App override';
+        return 'Global default';
       default:
         return 'Inherited';
     }
@@ -359,11 +359,11 @@ export class AuthConfigComponent implements OnInit {
   }
 
   /**
-   * Set the write target for the next save. Targeting the active workspace is
-   * only honored when an active folder exists; 'app' and 'global' are always
-   * available.
+   * Set the write target for the next save. Each app gets its own global
+   * default ('app'); targeting the active workspace is only honored when an
+   * active folder exists.
    */
-  setApplyTo(target: 'global' | 'app' | 'workspace'): void {
+  setApplyTo(target: 'app' | 'workspace'): void {
     if (target === 'workspace' && !this.canApplyToWorkspace()) {
       return;
     }

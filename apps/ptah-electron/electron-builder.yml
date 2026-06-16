@@ -62,14 +62,15 @@ asarUnpack:
   # TASK_2026_HERMES — native binaries that cannot load from inside asar.
   # better-sqlite3: prebuilt .node binding
   # sqlite-vec: native extension (.so/.dylib/.dll)
-  # ffmpeg-static: prebuilt ffmpeg binary
-  # nodejs-whisper: native bindings + downloaded model cache
+  # ffmpeg-static: prebuilt ffmpeg binary (decodes voice notes to PCM); cannot
+  #   be spawned from inside app.asar, so it is unpacked + path-resolved in
+  #   phase-2-libraries. Voice transcription itself runs on @huggingface/
+  #   transformers (ASR) + onnxruntime-node, already unpacked below.
   - 'node_modules/better-sqlite3/**'
   - 'node_modules/sqlite-vec/**'
   # Glob covers every sqlite-vec platform binary package (avoids name drift).
   - 'node_modules/sqlite-vec-*/**'
   - 'node_modules/ffmpeg-static/**'
-  - 'node_modules/nodejs-whisper/**'
   # @huggingface/transformers: ONNX embedder/reranker. Its default model cache
   # is <pkg>/.cache — inside app.asar (a file) it fails with ENOTDIR. Unpack so
   # it resolves on the real FS; the worker also redirects the cache to

@@ -714,8 +714,8 @@ export class GatewayService extends EventEmitter {
     let body = msg.body;
     if (msg.voicePath && this.cfgBool(SETTINGS_KEYS.voiceEnabled, true)) {
       try {
-        const wav = await this.ffmpeg.decodeToPcm16Wav(msg.voicePath);
-        const transcript = await this.whisper.transcribe(wav);
+        const pcm = await this.ffmpeg.decodeToPcm16(msg.voicePath);
+        const transcript = await this.whisper.transcribe(pcm);
         if (transcript) body = body ? `${body}\n${transcript}` : transcript;
       } catch (err) {
         this.logger.warn('[gateway] voice transcription failed', {

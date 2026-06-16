@@ -49,6 +49,8 @@ import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
 import {
   registerMessagingGatewayServices,
   GATEWAY_TOKENS,
+  type FfmpegDecoder,
+  type WhisperTranscriber,
 } from '@ptah-extension/messaging-gateway';
 import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import { ElectronSafeStorageVault } from '../services/platform/electron-safe-storage-vault';
@@ -171,6 +173,7 @@ export function registerPhase2Libraries(
     });
     registerMessagingGatewayServices(container, logger);
     registerGatewayChatBridge(container, logger);
+    configureElectronVoiceAssets(container, logger);
     logger.info(
       '[Electron DI] Messaging gateway services registered (Track 4)',
     );
@@ -179,6 +182,74 @@ export function registerPhase2Libraries(
       '[Electron DI] Messaging gateway registration skipped (non-fatal)',
       { error: error instanceof Error ? error.message : String(error) },
     );
+  }
+}
+
+// Native ffmpeg cannot spawn from inside app.asar (the archive is a file).
+// Returns the unpacked node_modules dir when packaged, or null in
+// dev/unpacked builds where the library's own resolution already works.
+function resolveUnpackedNodeModulesDir(): string | null {
+  const candidates: string[] = [];
+  if (
+    typeof process.resourcesPath === 'string' &&
+    process.resourcesPath.length > 0
+  ) {
+    candidates.push(
+      path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules'),
+    );
+  }
+  try {
+    const appPath = app.getAppPath();
+    if (appPath.endsWith('app.asar')) {
+      candidates.push(path.join(appPath + '.unpacked', 'node_modules'));
+    }
+  } catch {
+    /* app.getAppPath() unavailable — fall through to resourcesPath candidate */
+  }
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      /* try next candidate */
+    }
+  }
+  return null;
+}
+
+function configureElectronVoiceAssets(
+  container: DependencyContainer,
+  logger: Logger,
+): void {
+  const unpackedNodeModules = resolveUnpackedNodeModulesDir();
+  if (!unpackedNodeModules) return;
+
+  const ffmpegBinary = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  const ffmpegPath = path.join(
+    unpackedNodeModules,
+    'ffmpeg-static',
+    ffmpegBinary,
+  );
+  const modelCacheDir = path.join(os.homedir(), '.ptah', 'models');
+
+  try {
+    const ffmpeg = container.resolve<FfmpegDecoder>(
+      GATEWAY_TOKENS.GATEWAY_FFMPEG_DECODER,
+    );
+    ffmpeg.configure({ resolver: () => ffmpegPath });
+
+    const whisper = container.resolve<WhisperTranscriber>(
+      GATEWAY_TOKENS.GATEWAY_WHISPER_TRANSCRIBER,
+    );
+    whisper.configure({ modelCacheDir });
+
+    logger.info('[Electron DI] Voice assets configured', {
+      ffmpegPath,
+      modelCacheDir,
+    });
+  } catch (error) {
+    logger.warn('[Electron DI] Failed to configure voice assets (non-fatal)', {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 

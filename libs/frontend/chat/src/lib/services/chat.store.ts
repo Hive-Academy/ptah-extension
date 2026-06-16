@@ -208,13 +208,6 @@ export class ChatStore {
     return this.messageDispatch.sendOrQueueMessage(content, options);
   }
 
-  async startNewConversation(content: string, files?: string[]): Promise<void> {
-    return this.conversation.startNewConversation(content, files);
-  }
-
-  async continueConversation(content: string, files?: string[]): Promise<void> {
-    return this.conversation.continueConversation(content, files);
-  }
   clearResumableSubagents(): void {
     this.sessionLoader.clearResumableSubagents();
   }

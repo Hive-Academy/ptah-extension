@@ -16,8 +16,8 @@ import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
  *   user's content as `deny_with_message` reason
  * - Blocks SDK-native slash commands (`/compact`, `/context`, `/cost`, `/review`) for
  *   non-Anthropic providers â€” those commands require Claude-specific model behaviour
- * - sendQueuedMessage: post-streaming queue flush via ConversationService.continueConversation
- *   (NOT MessageSender.send, which would refuse during streaming)
+ * - sendQueuedMessage: post-streaming queue flush via MessageSender.send, forwarding the
+ *   stored queuedOptions (files + images + effort) so queued attachments reach the backend
  */
 @Injectable({ providedIn: 'root' })
 export class MessageDispatchService {
@@ -96,11 +96,7 @@ export class MessageDispatchService {
       const tab = this.tabManager.tabs().find((t) => t.id === tabId);
       const queuedOptions = tab?.queuedOptions ?? undefined;
       this.tabManager.clearQueuedContentAndOptions(tabId);
-      await this.conversation.continueConversation(
-        content,
-        queuedOptions?.files,
-        tabId,
-      );
+      await this.messageSender.send(content, { ...queuedOptions, tabId });
     } catch (error) {
       console.error('[ChatStore] sendQueuedMessage failed:', error);
       this.tabManager.setQueuedContent(tabId, content);

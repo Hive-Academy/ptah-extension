@@ -666,17 +666,10 @@
         >
           <span>{{ scopeBadgeLabel() }}</span>
         </span>
-      } @else if (activeScope() === 'app') {
-        <span
-          class="badge badge-warning badge-xs gap-0.5"
-          aria-label="This app overrides the global default"
-        >
-          <span>{{ scopeBadgeLabel() }}</span>
-        </span>
       } @else {
         <span
           class="badge badge-ghost badge-xs gap-0.5"
-          aria-label="Inheriting the global default"
+          aria-label="The global default for this app"
         >
           <span>{{ scopeBadgeLabel() }}</span>
         </span>
@@ -686,22 +679,12 @@
       <button
         type="button"
         class="flex-1 btn btn-xs rounded-md transition-all"
-        [class.btn-primary]="applyTo() === 'global'"
-        [class.btn-ghost]="applyTo() !== 'global'"
-        (click)="setApplyTo('global')"
-        aria-label="Apply changes to the global default"
-      >
-        Global default
-      </button>
-      <button
-        type="button"
-        class="flex-1 btn btn-xs rounded-md transition-all"
         [class.btn-primary]="applyTo() === 'app'"
         [class.btn-ghost]="applyTo() !== 'app'"
         (click)="setApplyTo('app')"
-        aria-label="Apply changes to this app only"
+        aria-label="Apply changes to this app's global default"
       >
-        This app
+        Global default
       </button>
       <button
         type="button"
@@ -715,14 +698,14 @@
         This workspace
       </button>
     </div>
-    @if (activeScope() !== 'global') {
+    @if (activeScope() === 'workspace') {
       <div class="label py-1">
         <button
           type="button"
           class="btn btn-ghost btn-xs gap-1 text-base-content/70"
           (click)="resetToGlobalDefault()"
           [disabled]="authState.isSaving()"
-          aria-label="Clear the current override and revert to the next layer"
+          aria-label="Clear the workspace override and revert to the global default"
         >
           <lucide-angular [img]="RotateCcwIcon" class="w-3 h-3" />
           <span>Clear override</span>

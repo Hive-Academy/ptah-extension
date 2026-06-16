@@ -39,7 +39,6 @@
     "lru-cache": "^10.4.3",
     "minimatch": "10.2.4",
     "node-pty": "1.1.0",
-    "nodejs-whisper": "0.2.9",
     "picomatch": "4.0.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "7.8.2",
