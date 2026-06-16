@@ -41,6 +41,8 @@ function makeSettings(threshold = 0.8): SkillSynthesisSettings {
     maxPinnedSkills: 10,
     curatorEnabled: false,
     curatorIntervalHours: 24,
+    suggestionMinClusterSize: 2,
+    suggestionMaxCandidates: 200,
   };
 }
 

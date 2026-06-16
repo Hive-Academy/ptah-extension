@@ -37,6 +37,8 @@ describe('SkillSynthesisSettingsSchema', () => {
     maxPinnedSkills: 10,
     curatorEnabled: true,
     curatorIntervalHours: 24,
+    suggestionMinClusterSize: 2,
+    suggestionMaxCandidates: 200,
   };
 
   it('accepts a fully valid settings object', () => {

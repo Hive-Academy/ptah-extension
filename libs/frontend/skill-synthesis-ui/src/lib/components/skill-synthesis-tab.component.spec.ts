@@ -1,9 +1,10 @@
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { signal, computed } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   EligibilityHistogramDto,
+  SkillSuggestionSummary,
   SkillSynthesisCandidateSummary,
   SkillSynthesisEventWire,
   SkillSynthesisInvocationEntry,
@@ -130,7 +131,11 @@ interface StubState {
   >;
   readonly loading: ReturnType<typeof signal<boolean>>;
   readonly error: ReturnType<typeof signal<string | null>>;
+  readonly suggestions: ReturnType<typeof signal<SkillSuggestionSummary[]>>;
+  readonly suggestionsLoading: ReturnType<typeof signal<boolean>>;
+  readonly pendingSuggestionCount: ReturnType<typeof computed<number>>;
   readonly refreshCandidates: jest.Mock<Promise<void>, []>;
+  readonly refreshSuggestions: jest.Mock<Promise<void>, []>;
   readonly loadStats: jest.Mock<Promise<void>, []>;
   readonly setStatusFilter: jest.Mock<
     Promise<void>,
@@ -145,8 +150,15 @@ function makeStub(
   candidatesValue: SkillSynthesisCandidateSummary[] = [],
 ): StubState {
   const candidates = signal<SkillSynthesisCandidateSummary[]>(candidatesValue);
+  const suggestions = signal<SkillSuggestionSummary[]>([]);
   return {
     candidates,
+    suggestions,
+    suggestionsLoading: signal<boolean>(false),
+    pendingSuggestionCount: computed(
+      () => suggestions().filter((s) => s.status === 'pending').length,
+    ),
+    refreshSuggestions: jest.fn(async () => undefined),
     invocations: signal<SkillSynthesisInvocationEntry[]>([]),
     stats: signal<SkillSynthesisStatsResult | null>({
       totalCandidates: candidatesValue.length,
@@ -201,6 +213,7 @@ describe('SkillSynthesisTabComponent', () => {
     ) as NodeListOf<HTMLButtonElement>;
     expect(Array.from(subViewTabs).map((t) => t.textContent?.trim())).toEqual([
       'Candidates',
+      'Suggestions',
       'Activity',
       'Clones',
       'Settings',

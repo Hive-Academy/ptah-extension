@@ -110,4 +110,57 @@ describe('SkillSynthesizerService', () => {
     expect(out?.name).toBe('do-thing');
     expect(out?.body).toContain('## Trajectory (normalized)');
   });
+
+  describe('synthesizeFromCluster', () => {
+    const members = [
+      { description: 'session one', body: '[tool:Edit] one' },
+      { description: 'session two', body: '[tool:Edit] two' },
+    ];
+
+    it('returns null when internalQuery is null (no template fallback)', async () => {
+      const svc = new SkillSynthesizerService(
+        noopLogger,
+        workspaceProvider,
+        null,
+      );
+      expect(await svc.synthesizeFromCluster(members, SETTINGS)).toBeNull();
+    });
+
+    it('returns null for an empty cluster', async () => {
+      const iq = streamFrom('{}');
+      const svc = new SkillSynthesizerService(
+        noopLogger,
+        workspaceProvider,
+        iq as never,
+      );
+      expect(await svc.synthesizeFromCluster([], SETTINGS)).toBeNull();
+    });
+
+    it('parses a valid JSON object distilled from the cluster', async () => {
+      const json = JSON.stringify({
+        name: 'common-workflow',
+        description: 'shared pattern',
+        body: '## Description\nx\n## When to use\n- y\n## Steps\n1. z',
+      });
+      const iq = streamFrom(json);
+      const svc = new SkillSynthesizerService(
+        noopLogger,
+        workspaceProvider,
+        iq as never,
+      );
+      const out = await svc.synthesizeFromCluster(members, SETTINGS);
+      expect(out?.name).toBe('common-workflow');
+      expect(out?.body).toContain('## Steps');
+    });
+
+    it('returns null when the LLM output is not parseable', async () => {
+      const iq = streamFrom('no json');
+      const svc = new SkillSynthesizerService(
+        noopLogger,
+        workspaceProvider,
+        iq as never,
+      );
+      expect(await svc.synthesizeFromCluster(members, SETTINGS)).toBeNull();
+    });
+  });
 });

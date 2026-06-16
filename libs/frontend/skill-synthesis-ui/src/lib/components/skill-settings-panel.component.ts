@@ -211,6 +211,26 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
                 formControlName="curatorIntervalHours"
               />
             </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs text-base-content/60"
+                >Suggestion min cluster size</span
+              >
+              <input
+                type="number"
+                class="input input-bordered input-sm"
+                formControlName="suggestionMinClusterSize"
+              />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs text-base-content/60"
+                >Suggestion max candidates</span
+              >
+              <input
+                type="number"
+                class="input input-bordered input-sm"
+                formControlName="suggestionMaxCandidates"
+              />
+            </label>
           </div>
         </section>
 

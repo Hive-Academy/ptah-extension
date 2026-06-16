@@ -45,6 +45,8 @@ function makeSettings(
     maxPinnedSkills: 10,
     curatorEnabled: false,
     curatorIntervalHours: 24,
+    suggestionMinClusterSize: 2,
+    suggestionMaxCandidates: 200,
     ...overrides,
   };
 }

@@ -4,6 +4,7 @@ import type {
   CloneSummary,
   SkillCloneInvocationStats,
   SkillCloneKind,
+  SkillSuggestionSummary,
   SkillSynthesisCandidateDetail,
   SkillSynthesisCandidateSummary,
   SkillSynthesisEnhanceNowResult,
@@ -18,6 +19,11 @@ import type {
   SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
 } from '@ptah-extension/shared';
+
+export interface SkillAcceptSuggestionResult {
+  readonly accepted: boolean;
+  readonly filePath: string;
+}
 
 /**
  * Per-method RPC timeout budget for the skill-synthesis surface.
@@ -323,5 +329,49 @@ export class SkillSynthesisRpcService {
       return result.data.stats;
     }
     throw new Error(result.error || 'Failed to load invocation stats');
+  }
+
+  /** List cluster-derived skill suggestions awaiting human decision. */
+  public async listSuggestions(): Promise<SkillSuggestionSummary[]> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:listSuggestions',
+      {},
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.suggestions;
+    }
+    throw new Error(result.error || 'Failed to list skill suggestions');
+  }
+
+  /** Accept a suggestion, materializing a promoted SKILL.md on disk. */
+  public async acceptSuggestion(
+    id: string,
+  ): Promise<SkillAcceptSuggestionResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:acceptSuggestion',
+      { id },
+      { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to accept skill suggestion');
+  }
+
+  /** Dismiss a suggestion, optionally persisting a dismissal reason. */
+  public async dismissSuggestion(
+    id: string,
+    reason?: string,
+  ): Promise<boolean> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:dismissSuggestion',
+      reason ? { id, reason } : { id },
+      { timeout: SKILL_RPC_TIMEOUTS.SHORT_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.dismissed;
+    }
+    throw new Error(result.error || 'Failed to dismiss skill suggestion');
   }
 }

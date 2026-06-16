@@ -26,6 +26,12 @@ export interface SynthesizedSkill {
   body: string;
 }
 
+/** One cluster member's distilled signal fed into cluster synthesis. */
+export interface ClusterMemberInput {
+  description: string;
+  body: string;
+}
+
 @injectable()
 export class SkillSynthesizerService {
   constructor(
@@ -48,19 +54,65 @@ export class SkillSynthesizerService {
       return this.fallback(trajectory);
     }
 
+    const parsed = await this.runSynthesis(
+      this.buildSystemPrompt(),
+      this.buildPrompt(trajectory),
+      settings,
+    );
+    if (!parsed) {
+      this.logger.warn(
+        '[skill-synthesis] synthesizer: LLM failed/parse failed; using template fallback',
+        { slug: trajectory.slug },
+      );
+      return this.fallback(trajectory);
+    }
+    this.logger.debug('[skill-synthesis] synthesizer succeeded', {
+      slug: trajectory.slug,
+      name: parsed.name,
+    });
+    return parsed;
+  }
+
+  /**
+   * Distill ONE reusable skill from a cluster of similar member trajectories
+   * (Trace2Skill pooling). Soft-fails to null — the suggestion pass simply
+   * skips the cluster on failure (no template fallback for clusters).
+   */
+  async synthesizeFromCluster(
+    members: ClusterMemberInput[],
+    settings: SkillSynthesisSettings,
+  ): Promise<SynthesizedSkill | null> {
+    if (!this.internalQuery || members.length === 0) return null;
+    const parsed = await this.runSynthesis(
+      this.buildSystemPrompt(),
+      this.buildClusterPrompt(members),
+      settings,
+    );
+    if (!parsed) {
+      this.logger.info(
+        '[skill-synthesis] cluster synthesis failed/parse failed; skipping',
+        { clusterSize: members.length },
+      );
+      return null;
+    }
+    return parsed;
+  }
+
+  private async runSynthesis(
+    systemPromptAppend: string,
+    prompt: string,
+    settings: SkillSynthesisSettings,
+  ): Promise<SynthesizedSkill | null> {
+    if (!this.internalQuery) return null;
     const model = resolveJudgeModel(
       settings.judgeModel,
       this.workspaceProvider,
     );
-    const systemPromptAppend = this.buildSystemPrompt();
-    const prompt = this.buildPrompt(trajectory);
-
     const abortController = new AbortController();
     const timeoutHandle = setTimeout(
       () => abortController.abort(),
       SYNTHESIS_TIMEOUT_MS,
     );
-
     try {
       const handle = await this.internalQuery.execute({
         cwd: os.homedir(),
@@ -84,32 +136,30 @@ export class SkillSynthesizerService {
         }
         if (msg.type === 'result') break;
       }
-
-      const parsed = this.parse(collected);
-      if (!parsed) {
-        this.logger.warn(
-          '[skill-synthesis] synthesizer: parse failed; using template fallback',
-          { slug: trajectory.slug, length: collected.length },
-        );
-        return this.fallback(trajectory);
-      }
-      this.logger.debug('[skill-synthesis] synthesizer succeeded', {
-        slug: trajectory.slug,
-        name: parsed.name,
-      });
-      return parsed;
+      return this.parse(collected);
     } catch (error: unknown) {
-      this.logger.warn(
-        '[skill-synthesis] synthesizer: LLM call failed; using template fallback',
-        {
-          slug: trajectory.slug,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
-      return this.fallback(trajectory);
+      this.logger.warn('[skill-synthesis] synthesizer: LLM call failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
     } finally {
       clearTimeout(timeoutHandle);
     }
+  }
+
+  private buildClusterPrompt(members: ClusterMemberInput[]): string {
+    const sections = members.map((m, i) =>
+      [`### Session ${i + 1} — ${m.description}`, m.body.slice(0, 3000)].join(
+        '\n',
+      ),
+    );
+    return [
+      `These ${members.length} successful sessions are similar to each other.`,
+      `Find the SINGLE COMMON reusable workflow they share and distill it into one`,
+      `repo-agnostic skill. Ignore details specific to any one session.`,
+      ``,
+      ...sections,
+    ].join('\n\n');
   }
 
   private buildSystemPrompt(): string {

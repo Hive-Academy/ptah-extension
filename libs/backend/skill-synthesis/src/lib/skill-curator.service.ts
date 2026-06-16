@@ -20,14 +20,30 @@ import {
   SDK_TOKENS,
   type CuratorRateLimitService,
 } from '@ptah-extension/agent-sdk';
+import * as fsBody from 'node:fs';
 import { SkillCandidateStore } from './skill-candidate.store';
 import {
   SkillRegistryStore,
   type SkillRegistryKind,
 } from './skill-registry.store';
 import { SkillEnhancerService } from './skill-enhancer.service';
+import { SkillMdGenerator } from './skill-md-generator';
+import { SkillSuggestionStore } from './skill-suggestion.store';
+import {
+  SkillClusteringService,
+  type SkillCandidateCluster,
+} from './skill-clustering.service';
+import {
+  SkillSynthesizerService,
+  type ClusterMemberInput,
+} from './skill-synthesizer.service';
+import { SkillJudgeService } from './skill-judge.service';
 import type { IInternalQuery } from './internal-query.interface';
-import type { SkillSynthesisSettings } from './types';
+import type {
+  SkillCandidateRow,
+  SkillSuggestionRow,
+  SkillSynthesisSettings,
+} from './types';
 import {
   INTERNAL_QUERY_SERVICE_TOKEN,
   SKILL_SYNTHESIS_TOKENS,
@@ -44,6 +60,20 @@ const ENHANCE_MIN_INVOCATIONS = 5;
 const ENHANCE_RATE_LIMIT_KEY = 'skill.enhance';
 const ENHANCE_MAX_PER_HOUR = 3;
 const ENHANCE_MAX_SLUGS_PER_PASS = 3;
+
+/** Shared analyze rate-limit bucket — cluster synthesis is an LLM cost too. */
+const ANALYZE_RATE_LIMIT_KEY = 'skill.analyze';
+const ANALYZE_MAX_PER_HOUR = 6;
+const SUGGESTION_MAX_CLUSTERS_PER_PASS = 3;
+
+export interface AcceptSuggestionResult {
+  accepted: boolean;
+  filePath: string;
+}
+
+export interface DismissSuggestionResult {
+  dismissed: boolean;
+}
 
 export interface CuratorOverlap {
   skillIdA: string;
@@ -90,6 +120,20 @@ export class SkillCuratorService {
     private readonly registry: SkillRegistryStore | null,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_ENHANCER_SERVICE, { isOptional: true })
     private readonly enhancer: SkillEnhancerService | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_SUGGESTION_STORE, { isOptional: true })
+    private readonly suggestionStore: SkillSuggestionStore | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CLUSTERING_SERVICE, {
+      isOptional: true,
+    })
+    private readonly clustering: SkillClusteringService | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIZER_SERVICE, {
+      isOptional: true,
+    })
+    private readonly synthesizer: SkillSynthesizerService | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_JUDGE_SERVICE, { isOptional: true })
+    private readonly judge: SkillJudgeService | null,
+    @inject(SkillMdGenerator)
+    private readonly mdGenerator: SkillMdGenerator,
   ) {}
 
   start(
@@ -153,6 +197,7 @@ export class SkillCuratorService {
         '[skill-curator] no promoted skills to review; skipping overlap pass',
       );
       await this.runEnhancementPass(settings);
+      await this.runSuggestionPass(settings);
       try {
         this.onPassComplete?.(Date.now());
       } catch (err: unknown) {
@@ -266,6 +311,7 @@ export class SkillCuratorService {
     );
 
     await this.runEnhancementPass(settings);
+    await this.runSuggestionPass(settings);
 
     try {
       this.onPassComplete?.(Date.now());
@@ -276,6 +322,215 @@ export class SkillCuratorService {
     }
 
     return { reportPath, changesQueued, skippedPinned, overlaps };
+  }
+
+  /**
+   * Cluster recent candidates; for each cluster with no existing suggestion,
+   * synthesize ONE skill, judge it, and insert a pending suggestion. Bounded by
+   * the shared `skill.analyze` rate limiter so a busy candidate pool cannot
+   * flood the LLM. No-ops cleanly in runtimes without the optional deps.
+   */
+  private async runSuggestionPass(
+    settings: SkillSynthesisSettings,
+  ): Promise<void> {
+    if (
+      !this.clustering ||
+      !this.synthesizer ||
+      !this.suggestionStore ||
+      !this.judge
+    ) {
+      return;
+    }
+    let clusters: SkillCandidateCluster[];
+    try {
+      clusters = this.clustering.clusterCandidates(settings);
+    } catch (err: unknown) {
+      this.logger.warn('[skill-curator] clustering failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    if (clusters.length === 0) return;
+
+    let processed = 0;
+    for (const cluster of clusters) {
+      if (processed >= SUGGESTION_MAX_CLUSTERS_PER_PASS) break;
+      const candidateIds = cluster.members.map((m) => m.id as string);
+      const fingerprint = this.technologyFingerprint(cluster.members);
+      if (
+        this.suggestionStore.hasExistingForCluster(fingerprint, candidateIds)
+      ) {
+        continue;
+      }
+      const decision = this.rateLimiter.tryAcquire(
+        ANALYZE_RATE_LIMIT_KEY,
+        ANALYZE_MAX_PER_HOUR,
+      );
+      if (!decision.allowed) {
+        this.logger.info('[skill-curator] suggestion pass rate-limited', {
+          resetAt: decision.resetAt,
+        });
+        break;
+      }
+      processed += 1;
+      try {
+        const members: ClusterMemberInput[] = cluster.members.map((m) => ({
+          description: m.description,
+          body: this.readCandidateBody(m),
+        }));
+        const synthesized = await this.synthesizer.synthesizeFromCluster(
+          members,
+          settings,
+        );
+        if (!synthesized) continue;
+        const verdict = await this.judge.judge(
+          {
+            ...cluster.members[0],
+            name: synthesized.name,
+            description: synthesized.description,
+          },
+          synthesized.body,
+          settings,
+        );
+        if (!verdict.passed) {
+          this.logger.info('[skill-curator] suggestion judged below score', {
+            score: verdict.score,
+            minScore: settings.minJudgeScore,
+          });
+          continue;
+        }
+        const memberSessionIds = [
+          ...new Set(cluster.members.flatMap((m) => m.sourceSessionIds)),
+        ];
+        this.suggestionStore.insertPending({
+          name: synthesized.name,
+          description: synthesized.description,
+          body: synthesized.body,
+          memberSessionIds,
+          memberCandidateIds: candidateIds,
+          clusterSize: cluster.members.length,
+          technologyFingerprint: fingerprint,
+          judgeScore: verdict.score,
+        });
+        this.logger.info('[skill-curator] suggestion proposed', {
+          name: synthesized.name,
+          clusterSize: cluster.members.length,
+          judgeScore: verdict.score,
+        });
+      } catch (err: unknown) {
+        this.logger.warn('[skill-curator] suggestion synthesis threw', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  /**
+   * Accept a pending suggestion: materialize a promoted SKILL.md and register
+   * it as a synth-origin skill, then mark the suggestion accepted.
+   */
+  acceptSuggestion(
+    id: string,
+    settings: SkillSynthesisSettings,
+  ): AcceptSuggestionResult {
+    if (!this.suggestionStore) {
+      return { accepted: false, filePath: '' };
+    }
+    const suggestion = this.suggestionStore.findById(id);
+    if (!suggestion || suggestion.status !== 'pending') {
+      return { accepted: false, filePath: '' };
+    }
+    let filePath = '';
+    let slug = suggestion.name;
+    try {
+      const md = this.mdGenerator.promoteToActive({
+        slug: suggestion.name,
+        description: suggestion.description,
+        body: suggestion.body,
+      });
+      filePath = md.filePath;
+      slug = md.slug;
+    } catch (err: unknown) {
+      this.logger.warn('[skill-curator] failed to materialize accepted skill', {
+        id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { accepted: false, filePath: '' };
+    }
+    if (this.registry && filePath) {
+      try {
+        this.registry.upsert({
+          slug,
+          kind: 'skill',
+          userPath: filePath,
+          originPluginId: null,
+          originVersion: null,
+          sourceHash: null,
+          cloneStatus: 'synth',
+          diverged: false,
+          historyDir: null,
+          lastEnhancedAt: null,
+          candidateId: null,
+          pendingSourceHash: null,
+        });
+      } catch (err: unknown) {
+        this.logger.warn(
+          '[skill-curator] failed to register accepted skill (non-fatal)',
+          {
+            slug,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
+    }
+    this.suggestionStore.accept(id);
+    void settings;
+    return { accepted: true, filePath };
+  }
+
+  dismissSuggestion(id: string): DismissSuggestionResult {
+    if (!this.suggestionStore) return { dismissed: false };
+    const row = this.suggestionStore.dismiss(id);
+    return { dismissed: row?.status === 'dismissed' };
+  }
+
+  listSuggestions(
+    status: SkillSuggestionRow['status'] = 'pending',
+  ): SkillSuggestionRow[] {
+    if (!this.suggestionStore) return [];
+    return this.suggestionStore.listByStatus(status);
+  }
+
+  private technologyFingerprint(members: SkillCandidateRow[]): string {
+    const counts = new Map<string, number>();
+    for (const m of members) {
+      const body = this.readCandidateBody(m);
+      const tools = body.match(/\[tool:([A-Za-z][\w-]*)/g) ?? [];
+      for (const raw of tools) {
+        const token = raw.replace('[tool:', '').toLowerCase();
+        counts.set(token, (counts.get(token) ?? 0) + 1);
+      }
+    }
+    const top = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([token]) => token);
+    return top.length > 0 ? top.join(',') : 'general';
+  }
+
+  private readCandidateBody(candidate: SkillCandidateRow): string {
+    try {
+      if (candidate.bodyPath && fsBody.existsSync(candidate.bodyPath)) {
+        const raw = fsBody.readFileSync(candidate.bodyPath, 'utf8');
+        return raw.replace(/^---[\s\S]*?---\s*/, '').trim();
+      }
+    } catch (err: unknown) {
+      this.logger.debug('[skill-curator] could not read candidate body', {
+        candidateId: candidate.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return `${candidate.name}\n\n${candidate.description}`;
   }
 
   private async runEnhancementPass(

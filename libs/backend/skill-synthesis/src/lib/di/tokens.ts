@@ -60,6 +60,10 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_ENHANCER_SERVICE: Symbol.for('PtahSkillEnhancerService'),
   /** SkillSynthesizerService — LLM-driven candidate body synthesis. */
   SKILL_SYNTHESIZER_SERVICE: Symbol.for('PtahSkillSynthesizerService'),
+  /** SkillSuggestionStore — SQLite persistence for cluster-level suggestions. */
+  SKILL_SUGGESTION_STORE: Symbol.for('PtahSkillSuggestionStore'),
+  /** SkillClusteringService — groups candidates for cluster suggestions. */
+  SKILL_CLUSTERING_SERVICE: Symbol.for('PtahSkillClusteringService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

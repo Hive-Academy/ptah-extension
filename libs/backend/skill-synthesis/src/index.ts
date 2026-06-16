@@ -39,12 +39,20 @@ export {
 export {
   SkillSynthesizerService,
   type SynthesizedSkill,
+  type ClusterMemberInput,
 } from './lib/skill-synthesizer.service';
+export { SkillSuggestionStore } from './lib/skill-suggestion.store';
+export {
+  SkillClusteringService,
+  type SkillCandidateCluster,
+} from './lib/skill-clustering.service';
 export { SkillClusterDedupService } from './lib/skill-cluster-dedup.service';
 export { SkillJudgeService } from './lib/skill-judge.service';
 export {
   SkillCuratorService,
   type CuratorReport,
+  type AcceptSuggestionResult,
+  type DismissSuggestionResult,
 } from './lib/skill-curator.service';
 export { cosineSimilarity } from './lib/cosine-similarity';
 export { SkillTriggerService } from './lib/triggers/skill-trigger.service';
@@ -100,4 +108,7 @@ export type {
   SkillSynthesisSettings,
   NewCandidateInput,
   RegisterCandidateResult,
+  SkillSuggestionRow,
+  SkillSuggestionStatus,
+  NewSuggestionInput,
 } from './lib/types';

@@ -30,6 +30,25 @@ const noopRateLimiter = {
   snapshot: jest.fn(() => null),
 } as unknown as ConstructorParameters<typeof SkillCuratorService>[4];
 
+const noopMdGenerator = {
+  promoteToActive: jest.fn(() => ({
+    slug: 'x',
+    dir: '/d',
+    filePath: '/d/SKILL.md',
+  })),
+  candidatesRoot: jest.fn(() => '/c'),
+  activeRoot: jest.fn(() => '/a'),
+  writeCandidate: jest.fn(),
+} as unknown as ConstructorParameters<typeof SkillCuratorService>[11];
+
+const SUGGESTION_DEPS: [
+  ConstructorParameters<typeof SkillCuratorService>[7],
+  ConstructorParameters<typeof SkillCuratorService>[8],
+  ConstructorParameters<typeof SkillCuratorService>[9],
+  ConstructorParameters<typeof SkillCuratorService>[10],
+  ConstructorParameters<typeof SkillCuratorService>[11],
+] = [null, null, null, null, noopMdGenerator];
+
 function makeSettings(
   overrides: Partial<SkillSynthesisSettings> = {},
 ): SkillSynthesisSettings {
@@ -52,6 +71,8 @@ function makeSettings(
     maxPinnedSkills: 10,
     curatorEnabled: true,
     curatorIntervalHours: 1,
+    suggestionMinClusterSize: 2,
+    suggestionMaxCandidates: 200,
     ...overrides,
   };
 }
@@ -105,6 +126,7 @@ describe('SkillCuratorService', () => {
       noopRateLimiter,
       null,
       null,
+      ...SUGGESTION_DEPS,
     );
     // Should not throw; no interval should be set
     svc.start(makeSettings({ curatorEnabled: false }));
@@ -123,6 +145,7 @@ describe('SkillCuratorService', () => {
       noopRateLimiter,
       null,
       null,
+      ...SUGGESTION_DEPS,
     );
     expect(() => svc.stop()).not.toThrow();
   });
@@ -137,6 +160,7 @@ describe('SkillCuratorService', () => {
       noopRateLimiter,
       null,
       null,
+      ...SUGGESTION_DEPS,
     );
     svc.start(makeSettings());
     const report = await svc.runManual();
@@ -168,6 +192,7 @@ describe('SkillCuratorService', () => {
       noopRateLimiter,
       null,
       null,
+      ...SUGGESTION_DEPS,
     );
     svc.start(makeSettings(), { onPassComplete });
     await svc.runManual();
@@ -190,6 +215,7 @@ describe('SkillCuratorService', () => {
       noopRateLimiter,
       null,
       null,
+      ...SUGGESTION_DEPS,
     );
     svc.start(makeSettings(), { onPassComplete });
     await svc.runManual();
@@ -226,6 +252,7 @@ describe('SkillCuratorService', () => {
       noopRateLimiter,
       null,
       null,
+      ...SUGGESTION_DEPS,
     );
     svc.start(makeSettings());
     await svc.runManual();
@@ -283,6 +310,7 @@ describe('SkillCuratorService', () => {
       noopRateLimiter,
       registry,
       enhancer,
+      ...SUGGESTION_DEPS,
     );
     svc.start(makeSettings());
     await svc.runManual();
@@ -341,6 +369,7 @@ describe('SkillCuratorService', () => {
       noopRateLimiter,
       registry,
       enhancer,
+      ...SUGGESTION_DEPS,
     );
     svc.start(makeSettings());
     await svc.runManual();
@@ -389,6 +418,7 @@ describe('SkillCuratorService', () => {
       noopRateLimiter,
       null,
       null,
+      ...SUGGESTION_DEPS,
     );
     svc.start(makeSettings());
     const report = await svc.runManual();
@@ -427,6 +457,7 @@ describe('SkillCuratorService', () => {
       noopRateLimiter,
       registry,
       enhancer,
+      ...SUGGESTION_DEPS,
     );
     svc.start(makeSettings(), { onPassComplete });
     await svc.runManual();
@@ -447,6 +478,7 @@ describe('SkillCuratorService', () => {
       noopRateLimiter,
       null,
       null,
+      ...SUGGESTION_DEPS,
     );
     const stopSpy = jest.spyOn(svc, 'stop');
     const startSpy = jest.spyOn(svc, 'start');

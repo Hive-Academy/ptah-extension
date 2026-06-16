@@ -41,6 +41,8 @@ import {
   type SkillRegistryStore,
   type SkillRegistryRow,
   type SkillRegistryKind,
+  type SkillSuggestionStore,
+  type SkillSuggestionRow,
 } from '@ptah-extension/skill-synthesis';
 import type { UserLayerMirrorService } from '@ptah-extension/agent-generation';
 import type {
@@ -93,6 +95,13 @@ import type {
   SkillSynthesisKeepCloneResult,
   SkillSynthesisInvocationStatsParams,
   SkillSynthesisInvocationStatsResult,
+  SkillSynthesisListSuggestionsParams,
+  SkillSynthesisListSuggestionsResult,
+  SkillSynthesisAcceptSuggestionParams,
+  SkillSynthesisAcceptSuggestionResult,
+  SkillSynthesisDismissSuggestionParams,
+  SkillSynthesisDismissSuggestionResult,
+  SkillSuggestionSummary,
   CloneSummary,
   SkillCloneKind,
 } from '@ptah-extension/shared';
@@ -114,6 +123,9 @@ import {
   SkillRebaseCloneParamsSchema,
   SkillKeepCloneParamsSchema,
   SkillInvocationStatsParamsSchema,
+  SkillListSuggestionsParamsSchema,
+  SkillAcceptSuggestionParamsSchema,
+  SkillDismissSuggestionParamsSchema,
 } from './skills-synthesis-rpc.schema';
 
 interface ICuratorService {
@@ -124,6 +136,11 @@ interface ICuratorService {
   }>;
   start(settings: SkillSynthesisSettings): void;
   stop(): void;
+  acceptSuggestion(
+    id: string,
+    settings: SkillSynthesisSettings,
+  ): { accepted: boolean; filePath: string };
+  dismissSuggestion(id: string): { dismissed: boolean };
 }
 
 @injectable()
@@ -151,6 +168,9 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:rebaseClone',
     'skillSynthesis:keepClone',
     'skillSynthesis:invocationStats',
+    'skillSynthesis:listSuggestions',
+    'skillSynthesis:acceptSuggestion',
+    'skillSynthesis:dismissSuggestion',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -176,6 +196,8 @@ export class SkillsSynthesisRpcHandlers {
     private readonly mirror: UserLayerMirrorService | null,
     @inject(PLATFORM_TOKENS.CONTENT_DOWNLOAD, { isOptional: true })
     private readonly contentDownload: ContentDownloadService | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_SUGGESTION_STORE, { isOptional: true })
+    private readonly suggestionStore: SkillSuggestionStore | null,
   ) {}
 
   register(): void {
@@ -201,6 +223,9 @@ export class SkillsSynthesisRpcHandlers {
     this.registerRebaseClone();
     this.registerKeepClone();
     this.registerInvocationStats();
+    this.registerListSuggestions();
+    this.registerAcceptSuggestion();
+    this.registerDismissSuggestion();
 
     this.logger.debug('Skill Synthesis RPC handlers registered', {
       methods: SkillsSynthesisRpcHandlers.METHODS as unknown as string[],
@@ -894,6 +919,84 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
+  private registerListSuggestions(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisListSuggestionsParams,
+      SkillSynthesisListSuggestionsResult
+    >('skillSynthesis:listSuggestions', async (params) => {
+      const parsed = this.parseParams(
+        SkillListSuggestionsParamsSchema,
+        params,
+        'skillSynthesis:listSuggestions',
+      );
+      try {
+        const store = this.requireDesktop(this.suggestionStore);
+        const rows = store.listByStatus(parsed?.status ?? 'pending');
+        return { suggestions: rows.map(toSuggestionSummary) };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerListSuggestions',
+        );
+        throw this.toUserError('skillSynthesis:listSuggestions');
+      }
+    });
+  }
+
+  private registerAcceptSuggestion(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisAcceptSuggestionParams,
+      SkillSynthesisAcceptSuggestionResult
+    >('skillSynthesis:acceptSuggestion', async (params) => {
+      const parsed = this.parseParams(
+        SkillAcceptSuggestionParamsSchema,
+        params,
+        'skillSynthesis:acceptSuggestion',
+      );
+      try {
+        this.requireDesktop(this.suggestionStore);
+        const curator = this.requireDesktop(this.curator);
+        const settings = this.synthesis.readSettings();
+        const result = curator.acceptSuggestion(parsed.id, settings);
+        return { accepted: result.accepted, filePath: result.filePath };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerAcceptSuggestion',
+        );
+        throw this.toUserError('skillSynthesis:acceptSuggestion');
+      }
+    });
+  }
+
+  private registerDismissSuggestion(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisDismissSuggestionParams,
+      SkillSynthesisDismissSuggestionResult
+    >('skillSynthesis:dismissSuggestion', async (params) => {
+      const parsed = this.parseParams(
+        SkillDismissSuggestionParamsSchema,
+        params,
+        'skillSynthesis:dismissSuggestion',
+      );
+      try {
+        this.requireDesktop(this.suggestionStore);
+        const curator = this.requireDesktop(this.curator);
+        const result = curator.dismissSuggestion(parsed.id);
+        return { dismissed: result.dismissed };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerDismissSuggestion',
+        );
+        throw this.toUserError('skillSynthesis:dismissSuggestion');
+      }
+    });
+  }
+
   private parseParams<T>(
     schema: { parse: (input: unknown) => T },
     params: unknown,
@@ -1068,6 +1171,20 @@ function toDetail(row: SkillCandidateRow): SkillSynthesisCandidateDetail {
     body,
     trajectoryHash: row.trajectoryHash,
     sourceSessionIds: row.sourceSessionIds,
+  };
+}
+
+function toSuggestionSummary(row: SkillSuggestionRow): SkillSuggestionSummary {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    clusterSize: row.clusterSize,
+    technologyFingerprint: row.technologyFingerprint,
+    judgeScore: row.judgeScore,
+    memberSessionIds: row.memberSessionIds,
+    status: row.status,
+    createdAt: row.createdAt,
   };
 }
 

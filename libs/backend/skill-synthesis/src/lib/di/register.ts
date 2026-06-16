@@ -29,6 +29,8 @@ import { SkillRegistryStore } from '../skill-registry.store';
 import { SkillRegistryCatalogService } from '../skill-registry-catalog.service';
 import { SkillEnhancerService } from '../skill-enhancer.service';
 import { SkillSynthesizerService } from '../skill-synthesizer.service';
+import { SkillSuggestionStore } from '../skill-suggestion.store';
+import { SkillClusteringService } from '../skill-clustering.service';
 import {
   NoOpSkillRepropagation,
   SKILL_REPROPAGATION_TOKEN,
@@ -56,6 +58,8 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillRegistryCatalogService);
   container.registerSingleton(SkillEnhancerService);
   container.registerSingleton(SkillSynthesizerService);
+  container.registerSingleton(SkillSuggestionStore);
+  container.registerSingleton(SkillClusteringService);
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
   });
@@ -97,6 +101,12 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIZER_SERVICE, {
     useToken: SkillSynthesizerService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_SUGGESTION_STORE, {
+    useToken: SkillSuggestionStore,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CLUSTERING_SERVICE, {
+    useToken: SkillClusteringService,
   });
   container.register(SKILL_REPROPAGATION_TOKEN, {
     useClass: NoOpSkillRepropagation,

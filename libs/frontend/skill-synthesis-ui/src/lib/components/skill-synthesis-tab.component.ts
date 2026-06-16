@@ -29,6 +29,7 @@ import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.servic
 import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
 import { SkillDiagnosticsAccordionComponent } from './diagnostics/skill-diagnostics-accordion.component';
 import { SkillClonesViewComponent } from './clones/skill-clones-view.component';
+import { SkillSuggestionsViewComponent } from './suggestions/skill-suggestions-view.component';
 import { SkillStatsStripComponent } from './skill-stats-strip.component';
 import { SkillPipelineStatusComponent } from './skill-pipeline-status.component';
 import {
@@ -40,7 +41,12 @@ import { SkillSettingsPanelComponent } from './skill-settings-panel.component';
 
 type ActionKind = 'promote' | 'reject';
 
-type SkillSubView = 'candidates' | 'activity' | 'clones' | 'settings';
+type SkillSubView =
+  | 'candidates'
+  | 'suggestions'
+  | 'activity'
+  | 'clones'
+  | 'settings';
 
 interface ActionDialogState {
   readonly kind: ActionKind;
@@ -58,6 +64,7 @@ interface ActionDialogState {
     LucideAngularModule,
     SkillDiagnosticsAccordionComponent,
     SkillClonesViewComponent,
+    SkillSuggestionsViewComponent,
     SkillStatsStripComponent,
     SkillPipelineStatusComponent,
     SkillCandidatesTableComponent,
@@ -142,6 +149,13 @@ interface ActionDialogState {
               (click)="setSubView(v.id)"
             >
               {{ v.label }}
+              @if (v.id === 'suggestions' && pendingSuggestionCount() > 0) {
+                <span
+                  class="badge badge-secondary badge-xs ml-1.5"
+                  data-testid="suggestions-tab-count"
+                  >{{ pendingSuggestionCount() }}</span
+                >
+              }
             </button>
           }
         </div>
@@ -207,6 +221,11 @@ interface ActionDialogState {
                   <span>{{ t.message }}</span>
                 </div>
               }
+            </div>
+          }
+          @case ('suggestions') {
+            <div class="space-y-4">
+              <ptah-skill-suggestions-view />
             </div>
           }
           @case ('activity') {
@@ -370,6 +389,7 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly selectedCandidate = this.state.selectedCandidate;
   public readonly loading = this.state.loading;
   public readonly error = this.state.error;
+  public readonly pendingSuggestionCount = this.state.pendingSuggestionCount;
 
   public readonly lastAnalyzeRunAt = this.diagnostics.lastAnalyzeRunAt;
   public readonly eligibilityHistogram = this.diagnostics.eligibilityHistogram;
@@ -407,6 +427,8 @@ export class SkillSynthesisTabComponent implements OnInit {
     maxPinnedSkills: [10],
     curatorEnabled: [true],
     curatorIntervalHours: [24],
+    suggestionMinClusterSize: [2],
+    suggestionMaxCandidates: [200],
   });
 
   public readonly settingsLoaded = signal<boolean>(false);
@@ -437,6 +459,7 @@ export class SkillSynthesisTabComponent implements OnInit {
     readonly label: string;
   }> = [
     { id: 'candidates', label: 'Candidates' },
+    { id: 'suggestions', label: 'Suggestions' },
     { id: 'activity', label: 'Activity' },
     { id: 'clones', label: 'Clones' },
     { id: 'settings', label: 'Settings' },
@@ -452,6 +475,7 @@ export class SkillSynthesisTabComponent implements OnInit {
   public ngOnInit(): void {
     if (!this.isElectron()) return;
     void this.state.refreshCandidates();
+    void this.state.refreshSuggestions();
     void this.state.loadStats();
     void this.diagnostics.refresh();
     void this.loadSettings();

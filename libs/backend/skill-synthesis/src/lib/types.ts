@@ -80,6 +80,10 @@ export interface SkillSynthesisSettings {
   curatorEnabled: boolean;
   /** Interval in hours between automatic Curator passes. */
   curatorIntervalHours: number;
+  /** Minimum cluster size that triggers a cluster-based skill suggestion. */
+  suggestionMinClusterSize: number;
+  /** Maximum number of most-recent candidates fed into the clustering pass. */
+  suggestionMaxCandidates: number;
 }
 
 /** Options for storing a new candidate (pre-insert shape). */
@@ -98,4 +102,35 @@ export interface RegisterCandidateResult {
   candidate: SkillCandidateRow;
   /** True if this trajectory already existed and the row was reused. */
   reused: boolean;
+}
+
+/** Lifecycle states of a cluster-level skill suggestion. */
+export type SkillSuggestionStatus = 'pending' | 'accepted' | 'dismissed';
+
+/** Row shape for `skill_suggestions`. */
+export interface SkillSuggestionRow {
+  id: string;
+  name: string;
+  description: string;
+  body: string;
+  memberSessionIds: string[];
+  memberCandidateIds: string[];
+  clusterSize: number;
+  technologyFingerprint: string;
+  judgeScore: number;
+  status: SkillSuggestionStatus;
+  createdAt: number;
+  decidedAt: number | null;
+}
+
+/** Pre-insert shape for a new pending suggestion. */
+export interface NewSuggestionInput {
+  name: string;
+  description: string;
+  body: string;
+  memberSessionIds: string[];
+  memberCandidateIds: string[];
+  clusterSize: number;
+  technologyFingerprint: string;
+  judgeScore: number;
 }

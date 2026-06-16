@@ -39,6 +39,8 @@ const SETTINGS: SkillSynthesisSettings = {
   maxPinnedSkills: 10,
   curatorEnabled: false,
   curatorIntervalHours: 24,
+  suggestionMinClusterSize: 2,
+  suggestionMaxCandidates: 200,
 };
 
 function row(overrides: Partial<SkillCandidateRow> = {}): SkillCandidateRow {

@@ -26,6 +26,8 @@ export const SkillSynthesisSettingsSchema = z.object({
   maxPinnedSkills: z.coerce.number().int().min(0).max(1000),
   curatorEnabled: z.boolean(),
   curatorIntervalHours: z.coerce.number().int().min(1).max(8760),
+  suggestionMinClusterSize: z.coerce.number().int().min(2).max(100),
+  suggestionMaxCandidates: z.coerce.number().int().min(1).max(5000),
 });
 
 export type SkillSynthesisSettingsInput = z.infer<
@@ -153,4 +155,21 @@ export const SkillKeepCloneParamsSchema = z.object({
 
 export const SkillInvocationStatsParamsSchema = z.object({
   slug: SlugSchema,
+});
+
+const SuggestionStatusSchema = z.enum(['pending', 'accepted', 'dismissed']);
+
+export const SkillListSuggestionsParamsSchema = z
+  .object({
+    status: SuggestionStatusSchema.optional(),
+  })
+  .optional();
+
+export const SkillAcceptSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+});
+
+export const SkillDismissSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+  reason: z.string().max(500).optional(),
 });

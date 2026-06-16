@@ -83,6 +83,8 @@ const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
   maxPinnedSkills: 10,
   curatorEnabled: true,
   curatorIntervalHours: 24,
+  suggestionMinClusterSize: 2,
+  suggestionMaxCandidates: 200,
 };
 
 @injectable()
@@ -646,6 +648,14 @@ export class SkillSynthesisService {
       curatorIntervalHours: get(
         'skillSynthesis.curatorIntervalHours',
         SETTINGS_DEFAULTS.curatorIntervalHours,
+      ),
+      suggestionMinClusterSize: get(
+        'skillSynthesis.suggestionMinClusterSize',
+        SETTINGS_DEFAULTS.suggestionMinClusterSize,
+      ),
+      suggestionMaxCandidates: get(
+        'skillSynthesis.suggestionMaxCandidates',
+        SETTINGS_DEFAULTS.suggestionMaxCandidates,
       ),
     };
   }

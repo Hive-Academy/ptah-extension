@@ -614,6 +614,8 @@ describe('SkillSynthesisService', () => {
       maxPinnedSkills: 10,
       curatorEnabled: true,
       curatorIntervalHours: 24,
+      suggestionMinClusterSize: 2,
+      suggestionMaxCandidates: 200,
     });
   });
 });
