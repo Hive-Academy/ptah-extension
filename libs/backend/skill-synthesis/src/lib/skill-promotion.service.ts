@@ -19,6 +19,7 @@ import { SkillCandidateStore } from './skill-candidate.store';
 import { SkillMdGenerator } from './skill-md-generator';
 import { SkillClusterDedupService } from './skill-cluster-dedup.service';
 import { SkillJudgeService } from './skill-judge.service';
+import { SkillRegistryStore } from './skill-registry.store';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import type {
   CandidateId,
@@ -38,7 +39,7 @@ export interface PromotionDecision {
     | 'not-found'
     | 'below-judge-score';
   candidate: SkillCandidateRow | null;
-  /** Filled when promotion evicted another skill via decay-cap. */
+  /** Filled when promotion demoted another skill to dormant via the residency cap. */
   evictedSkillId?: CandidateId;
   /** Cosine similarity of the closest active match (if dedup ran). */
   closestMatchSimilarity?: number;
@@ -60,6 +61,8 @@ export class SkillPromotionService {
     private readonly clusterDedup: SkillClusterDedupService | null,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_JUDGE_SERVICE, { isOptional: true })
     private readonly judge: SkillJudgeService | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, { isOptional: true })
+    private readonly registry: SkillRegistryStore | null = null,
   ) {}
 
   /**
@@ -135,22 +138,34 @@ export class SkillPromotionService {
     }
 
     let evictedSkillId: CandidateId | undefined;
-    const activeUnpinned = this.store.listActiveOrderedByDecayScore(
+    const activeResident = this.store.listActiveOrderedByDecayScore(
       nowFn(),
       settings.evictionDecayRate,
     );
-    if (activeUnpinned.length >= settings.maxActiveSkills) {
-      const weakest = activeUnpinned[0];
-      this.store.updateStatus(weakest.id, 'rejected', {
-        reason: 'decay-cap-eviction',
-      });
-      evictedSkillId = weakest.id;
-      this.logger.info('[skill-synthesis] decay cap eviction', {
-        evicted: weakest.id,
-        evictedName: weakest.name,
-        activeCount: activeUnpinned.length,
-        cap: settings.maxActiveSkills,
-      });
+    if (activeResident.length >= settings.maxActiveSkills) {
+      const authoredSlugs = this.authoredSlugs();
+      const weakest = activeResident.find((r) => !authoredSlugs.has(r.name));
+      if (weakest) {
+        this.store.setResidency(weakest.id, 'dormant');
+        evictedSkillId = weakest.id;
+        this.logger.info(
+          '[skill-synthesis] residency-cap demotion to dormant',
+          {
+            demoted: weakest.id,
+            demotedName: weakest.name,
+            residentCount: activeResident.length,
+            cap: settings.maxActiveSkills,
+          },
+        );
+      } else {
+        this.logger.info(
+          '[skill-synthesis] residency cap reached but all residents are authored — none demoted',
+          {
+            residentCount: activeResident.length,
+            cap: settings.maxActiveSkills,
+          },
+        );
+      }
     }
     const body = this.readCandidateBody(candidate);
     let bodyPath = candidate.bodyPath;
@@ -188,6 +203,19 @@ export class SkillPromotionService {
       closestMatchSimilarity: dedupResult.similarity,
       filePath: bodyPath,
     };
+  }
+
+  private authoredSlugs(): Set<string> {
+    if (!this.registry) return new Set<string>();
+    try {
+      return this.registry.listAuthoredSlugs();
+    } catch (err) {
+      this.logger.warn(
+        '[skill-synthesis] failed to read authored slugs (continuing without exemption)',
+        { error: err instanceof Error ? err.message : String(err) },
+      );
+      return new Set<string>();
+    }
   }
 
   private checkDuplicate(

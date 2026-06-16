@@ -66,6 +66,7 @@ function fakePromotedRow(
     rejectedAt: null,
     rejectedReason: null,
     pinned: false,
+    residency: 'resident',
   };
 }
 

@@ -68,6 +68,7 @@ function fakeCandidate(): SkillCandidateRow {
     rejectedAt: null,
     rejectedReason: null,
     pinned: false,
+    residency: 'resident',
   };
 }
 

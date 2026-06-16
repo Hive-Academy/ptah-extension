@@ -94,6 +94,7 @@ function fakePromotedRow(id: string, pinned = false): SkillCandidateRow {
     rejectedAt: null,
     rejectedReason: null,
     pinned,
+    residency: 'resident',
   };
 }
 

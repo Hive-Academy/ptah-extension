@@ -352,6 +352,8 @@ export class SkillCuratorService {
     }
     if (clusters.length === 0) return;
 
+    const authoredSlugs = this.authoredSlugs();
+
     let processed = 0;
     for (const cluster of clusters) {
       if (processed >= SUGGESTION_MAX_CLUSTERS_PER_PASS) break;
@@ -361,6 +363,20 @@ export class SkillCuratorService {
         this.suggestionStore.hasExistingForCluster(fingerprint, candidateIds)
       ) {
         continue;
+      }
+      if (authoredSlugs.size > 0) {
+        const clusterSessionIds = [
+          ...new Set(cluster.members.flatMap((m) => m.sourceSessionIds)),
+        ];
+        const dominant =
+          this.store.getDominantSkillSlugForSessions(clusterSessionIds);
+        if (dominant && authoredSlugs.has(dominant)) {
+          this.logger.info(
+            '[skill-curator] skipping cluster — dominated by an authored skill',
+            { dominant },
+          );
+          continue;
+        }
       }
       const decision = this.rateLimiter.tryAcquire(
         ANALYZE_RATE_LIMIT_KEY,
@@ -499,6 +515,18 @@ export class SkillCuratorService {
   ): SkillSuggestionRow[] {
     if (!this.suggestionStore) return [];
     return this.suggestionStore.listByStatus(status);
+  }
+
+  private authoredSlugs(): Set<string> {
+    if (!this.registry) return new Set<string>();
+    try {
+      return this.registry.listAuthoredSlugs();
+    } catch (err: unknown) {
+      this.logger.warn('[skill-curator] failed to read authored slugs', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return new Set<string>();
+    }
   }
 
   private technologyFingerprint(members: SkillCandidateRow[]): string {

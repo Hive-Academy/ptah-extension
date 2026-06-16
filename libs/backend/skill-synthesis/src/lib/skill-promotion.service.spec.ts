@@ -60,6 +60,7 @@ function row(overrides: Partial<SkillCandidateRow> = {}): SkillCandidateRow {
     rejectedAt: null,
     rejectedReason: null,
     pinned: false,
+    residency: 'resident',
     ...overrides,
   };
 }
@@ -90,6 +91,11 @@ function makeStore(
     searchActiveByEmbedding: jest.fn(() => []),
     listByStatus: jest.fn(() => []),
     countDistinctContexts: jest.fn(() => 0),
+    setResidency: jest.fn((id: CandidateId, residency) => ({
+      ...current,
+      id,
+      residency,
+    })),
   } as unknown as jest.Mocked<SkillCandidateStore>;
 }
 
@@ -193,36 +199,79 @@ describe('SkillPromotionService', () => {
     expect(decision.closestMatchSimilarity).toBeCloseTo(0.84);
   });
 
-  it('LRU-evicts least-active when at cap', async () => {
+  it('demotes the weakest resident to dormant (not rejected) when at cap', async () => {
     const store = makeStore(row({ successCount: 3 }));
-    const lruVictim = row({ id: 'lru' as CandidateId, status: 'promoted' });
+    const weakest = row({ id: 'weak' as CandidateId, status: 'promoted' });
     const others: SkillCandidateRow[] = [];
-    for (let i = 0; i < 49; i++) {
+    for (let i = 0; i < 199; i++) {
       others.push(row({ id: `p${i}` as CandidateId, status: 'promoted' }));
     }
-    // listActiveOrderedByDecayScore is ascending (lowest score first = evict first).
     (store.listActiveOrderedByDecayScore as jest.Mock).mockReturnValue([
-      lruVictim,
+      weakest,
       ...others,
     ]);
     const md = makeMdGenerator();
     const svc = new SkillPromotionService(noopLogger, store, md, null, null);
-    const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
+    const decision = await svc.evaluate('cand_test' as CandidateId, {
+      ...SETTINGS,
+      maxActiveSkills: 200,
+    });
     expect(decision.promoted).toBe(true);
-    expect(decision.evictedSkillId).toBe('lru');
-    // First updateStatus call evicts lru, second promotes the candidate.
-    expect(store.updateStatus).toHaveBeenNthCalledWith(
-      1,
-      'lru',
+    expect(decision.evictedSkillId).toBe('weak');
+    expect(store.setResidency).toHaveBeenCalledWith('weak', 'dormant');
+    expect(store.updateStatus).not.toHaveBeenCalledWith(
+      'weak',
       'rejected',
-      expect.objectContaining({ reason: 'decay-cap-eviction' }),
+      expect.anything(),
     );
-    expect(store.updateStatus).toHaveBeenNthCalledWith(
-      2,
+    expect(store.updateStatus).toHaveBeenCalledWith(
       'cand_test',
       'promoted',
       expect.any(Object),
     );
+  });
+
+  it('exempts authored skills from dormancy demotion', async () => {
+    const store = makeStore(row({ successCount: 3 }));
+    const authored = row({ id: 'auth' as CandidateId, name: 'orchestrate' });
+    (store.listActiveOrderedByDecayScore as jest.Mock).mockReturnValue([
+      authored,
+    ]);
+    const registry = {
+      listAuthoredSlugs: jest.fn(() => new Set(['orchestrate'])),
+    } as unknown as ConstructorParameters<typeof SkillPromotionService>[5];
+    const md = makeMdGenerator();
+    const svc = new SkillPromotionService(
+      noopLogger,
+      store,
+      md,
+      null,
+      null,
+      registry,
+    );
+    const decision = await svc.evaluate('cand_test' as CandidateId, {
+      ...SETTINGS,
+      maxActiveSkills: 1,
+    });
+    expect(decision.promoted).toBe(true);
+    expect(decision.evictedSkillId).toBeUndefined();
+    expect(store.setResidency).not.toHaveBeenCalled();
+  });
+
+  it('exempts pinned skills from dormancy (filtered upstream)', async () => {
+    const store = makeStore(row({ successCount: 3 }));
+    // listActiveOrderedByDecayScore already excludes pinned + dormant rows, so
+    // an empty list at cap means nothing to demote.
+    (store.listActiveOrderedByDecayScore as jest.Mock).mockReturnValue([]);
+    const md = makeMdGenerator();
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
+    const decision = await svc.evaluate('cand_test' as CandidateId, {
+      ...SETTINGS,
+      maxActiveSkills: 1,
+    });
+    expect(decision.promoted).toBe(true);
+    expect(decision.evictedSkillId).toBeUndefined();
+    expect(store.setResidency).not.toHaveBeenCalled();
   });
 
   it('continues with original bodyPath when SKILL.md materialization fails', async () => {

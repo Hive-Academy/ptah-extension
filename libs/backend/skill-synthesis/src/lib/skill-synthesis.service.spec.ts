@@ -40,6 +40,7 @@ function fakeRow(
     rejectedAt: null,
     rejectedReason: null,
     pinned: false,
+    residency: 'resident',
     ...overrides,
   };
 }
@@ -50,6 +51,8 @@ describe('SkillSynthesisService', () => {
       enabled?: boolean;
       vecLoaded?: boolean;
       isOpen?: boolean;
+      authoredSlugs?: string[];
+      dominantSlug?: string | null;
     } = {},
   ) {
     const vecLoaded = opts.vecLoaded ?? false;
@@ -108,6 +111,7 @@ describe('SkillSynthesisService', () => {
         },
         candidate: fakeRow(),
       })),
+      getDominantSkillSlugForSessions: jest.fn(() => opts.dominantSlug ?? null),
     } as unknown as jest.Mocked<SkillCandidateStore>;
     const md = {
       candidatesRoot: jest.fn(() => '/tmp/cands'),
@@ -146,6 +150,14 @@ describe('SkillSynthesisService', () => {
     const synthesizer = {
       synthesize: jest.fn().mockResolvedValue(null),
     } as unknown as ConstructorParameters<typeof SkillSynthesisService>[10];
+    const registry =
+      opts.authoredSlugs === undefined
+        ? null
+        : ({
+            listAuthoredSlugs: jest.fn(() => new Set(opts.authoredSlugs)),
+          } as unknown as ConstructorParameters<
+            typeof SkillSynthesisService
+          >[11]);
     const svc = new SkillSynthesisService(
       noopLogger,
       connection,
@@ -158,6 +170,7 @@ describe('SkillSynthesisService', () => {
       curatorService,
       sessionEndRegistry,
       synthesizer,
+      registry,
     );
     return {
       svc,
@@ -168,6 +181,7 @@ describe('SkillSynthesisService', () => {
       promotion,
       extractor,
       synthesizer,
+      registry,
     };
   }
 
@@ -218,6 +232,28 @@ describe('SkillSynthesisService', () => {
     expect(md.writeCandidate).toHaveBeenCalledTimes(1);
     expect(store.registerCandidate).toHaveBeenCalledTimes(1);
     expect(result?.reused).toBe(false);
+  });
+
+  it('analyzeSession() skips synthesis when the session is dominated by an authored skill', async () => {
+    const { svc, store } = setup({
+      authoredSlugs: ['orchestrate'],
+      dominantSlug: 'orchestrate',
+    });
+    await svc.start();
+    const result = await svc.analyzeSession('s1', '/repo');
+    expect(result).toBeNull();
+    expect(store.registerCandidate).not.toHaveBeenCalled();
+  });
+
+  it('analyzeSession() proceeds when the dominant skill is not authored', async () => {
+    const { svc, store } = setup({
+      authoredSlugs: ['orchestrate'],
+      dominantSlug: 'some-synth-skill',
+    });
+    await svc.start();
+    const result = await svc.analyzeSession('s1', '/repo');
+    expect(result?.reused).toBe(false);
+    expect(store.registerCandidate).toHaveBeenCalledTimes(1);
   });
 
   it('analyzeSession() is idempotent for the same session within a process', async () => {
@@ -599,7 +635,7 @@ describe('SkillSynthesisService', () => {
       enabled: true,
       successesToPromote: 3,
       dedupCosineThreshold: 0.85,
-      maxActiveSkills: 50,
+      maxActiveSkills: 200,
       candidatesDir: '',
       eligibilityMinTurns: 5,
       evictionDecayRate: 0.95,

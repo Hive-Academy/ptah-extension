@@ -36,6 +36,7 @@ import {
   type ExtractedTrajectory,
 } from './trajectory-extractor';
 import { SkillSynthesizerService } from './skill-synthesizer.service';
+import { SkillRegistryStore } from './skill-registry.store';
 import { migrateSkillMdFiles } from './skill-md-migration';
 import type {
   CandidateId,
@@ -68,7 +69,7 @@ const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
   enabled: true,
   successesToPromote: 3,
   dedupCosineThreshold: 0.85,
-  maxActiveSkills: 50,
+  maxActiveSkills: 200,
   candidatesDir: '',
   eligibilityMinTurns: 5,
   evictionDecayRate: 0.95,
@@ -143,6 +144,8 @@ export class SkillSynthesisService {
       isOptional: true,
     })
     private readonly synthesizer: SkillSynthesizerService | null = null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, { isOptional: true })
+    private readonly registry: SkillRegistryStore | null = null,
   ) {}
 
   /**
@@ -364,6 +367,14 @@ export class SkillSynthesisService {
       });
       return null;
     }
+    if (this.isDominatedByAuthoredSkill([sessionId])) {
+      this.logger.info(
+        '[skill-synthesis] skipping synthesis — session dominated by an authored skill',
+        { sessionId },
+      );
+      return null;
+    }
+
     const existing = this.store.findByTrajectoryHash(trajectory.hash);
     if (existing) {
       return { candidate: existing, reused: true };
@@ -524,6 +535,26 @@ export class SkillSynthesisService {
         prefilterRejected: 0,
         accepted: 0,
       };
+    }
+  }
+
+  /**
+   * Whether the dominant skill across the given sessions is an authored skill.
+   * Authored skills are first-class and must never be re-synthesized. No-ops
+   * (returns false) when the registry is unavailable (non-Electron runtimes).
+   */
+  private isDominatedByAuthoredSkill(sessionIds: readonly string[]): boolean {
+    if (!this.registry) return false;
+    try {
+      const dominant = this.store.getDominantSkillSlugForSessions(sessionIds);
+      if (!dominant) return false;
+      return this.registry.listAuthoredSlugs().has(dominant);
+    } catch (err: unknown) {
+      this.logger.warn(
+        '[skill-synthesis] authored-dominance check failed (continuing)',
+        { error: err instanceof Error ? err.message : String(err) },
+      );
+      return false;
     }
   }
 

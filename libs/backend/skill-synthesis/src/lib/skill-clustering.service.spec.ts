@@ -59,6 +59,7 @@ function row(id: string, embeddingRowid: number | null): SkillCandidateRow {
     rejectedAt: null,
     rejectedReason: null,
     pinned: false,
+    residency: 'resident',
   };
 }
 

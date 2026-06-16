@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Track 2 of TASK_2026_HERMES. Records each successful AI session; when a stable trajectory repeats 3 times the workflow is promoted to a permanent `SKILL.md` under `~/.ptah/skills/<slug>/`. Cosine-similarity dedup against the active set and an LRU cap of 50 keeps the skill library focused.
+Track 2 of TASK_2026_HERMES. Records each successful AI session; when a stable trajectory repeats 3 times the workflow is promoted to a permanent `SKILL.md` under `~/.ptah/skills/<slug>/`. Cosine-similarity dedup against the active set keeps the library focused; over the residency budget (`maxActiveSkills`, default 200) the weakest skills are demoted to `dormant` residency (kept on disk + in the DB, skipped at the junction layer) rather than rejected. Authored skills (`clone_status='authored'`) are first-class: never re-synthesized and never demoted to dormant.
 
 ## Boundaries
 
@@ -48,7 +48,8 @@ Constants/types: `JUDGE_DEFAULT_MODEL_ID`, `MIN_TURNS_FOR_TRAJECTORY`, `SkillId`
 
 - Trajectory extraction requires ≥ `MIN_TURNS_FOR_TRAJECTORY` turns.
 - Judge calls go through `INTERNAL_QUERY_SERVICE_TOKEN` (injected) — do not invoke SDK directly.
-- Active skill cap = 50 (LRU) enforced by `SkillCuratorService`.
+- Residency budget = `maxActiveSkills` (default 200): the residency-cap demotion in `SkillPromotionService` flips the weakest resident to `dormant` (never rejects). The dormant set is fed to the junction layer's `disabledSkillIds` channel at the Electron activation seam (`apps/ptah-electron/src/activation/plugin-activation.ts`) — `agent-sdk`'s `SkillJunctionService` MUST NOT import `skill-synthesis` (hexagonal isolation).
+- Authored guard: `SkillRegistryStore.listAuthoredSlugs()` + `SkillCandidateStore.getDominantSkillSlugForSessions()` drive the never-re-synthesize guard in `analyzeSession` and `runSuggestionPass`, and the dormancy exemption in promotion. Registry injected `{isOptional:true}` so non-Electron runtimes no-op.
 - All boundary inputs validated via zod schemas in `rpc-handlers`; this lib enforces invariants in service constructors.
 
 ## Cross-Lib Rules

@@ -15,10 +15,6 @@ describe('migration 0025_skill_suggestions — registry entry', () => {
     expect(entry?.requiresVec).toBeUndefined();
     expect(entry?.run).toBeUndefined();
   });
-
-  it('is the highest bundled version', () => {
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(25);
-  });
 });
 
 function makeTempDbPath(): string {

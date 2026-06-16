@@ -60,6 +60,7 @@ function row(overrides: Partial<SkillCandidateRow> = {}): SkillCandidateRow {
     rejectedAt: null,
     rejectedReason: null,
     pinned: false,
+    residency: 'resident',
     ...overrides,
   };
 }

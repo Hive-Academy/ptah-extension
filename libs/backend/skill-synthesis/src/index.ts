@@ -4,7 +4,9 @@
  * Records each successful AI session, when a stable trajectory repeats
  * 3 times the corresponding workflow is promoted to a permanent SKILL.md
  * under `~/.ptah/skills/<slug>/`. Cosine-similarity dedup against the
- * active set and an LRU cap of 50 keeps the skill library focused.
+ * active set keeps the library focused; over the residency budget the
+ * weakest skills are demoted to dormant (kept on disk, skipped at the
+ * junction layer) rather than deleted.
  */
 export { SkillCandidateStore } from './lib/skill-candidate.store';
 export { SkillMdGenerator } from './lib/skill-md-generator';
@@ -103,6 +105,7 @@ export type {
   SkillId,
   CandidateId,
   SkillStatus,
+  SkillResidency,
   SkillCandidateRow,
   SkillInvocationRow,
   SkillSynthesisSettings,

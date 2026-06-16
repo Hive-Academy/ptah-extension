@@ -16,6 +16,14 @@ export type CandidateId = string & { readonly __brand: 'CandidateId' };
 /** Status values mirror the SQL CHECK constraint exactly. */
 export type SkillStatus = 'candidate' | 'promoted' | 'rejected';
 
+/**
+ * Residency values mirror the SQL CHECK constraint exactly. `resident` skills
+ * are fed to the junction layer; `dormant` skills are skipped there (kept in
+ * the DB + on disk for future re-promotion) so they no longer consume the
+ * prompt budget.
+ */
+export type SkillResidency = 'resident' | 'dormant';
+
 /** Row shape for `skill_candidates`. */
 export interface SkillCandidateRow {
   id: CandidateId;
@@ -33,6 +41,7 @@ export interface SkillCandidateRow {
   rejectedAt: number | null;
   rejectedReason: string | null;
   pinned: boolean;
+  residency: SkillResidency;
 }
 
 /** Row shape for `skill_invocations`. */

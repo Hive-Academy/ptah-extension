@@ -247,7 +247,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.enabled': true,
   'skillSynthesis.successesToPromote': 3,
   'skillSynthesis.dedupCosineThreshold': 0.85,
-  'skillSynthesis.maxActiveSkills': 50,
+  'skillSynthesis.maxActiveSkills': 200,
   'skillSynthesis.candidatesDir': '',
   'skillSynthesis.eligibilityMinTurns': 5,
   'skillSynthesis.evictionDecayRate': 0.95,
