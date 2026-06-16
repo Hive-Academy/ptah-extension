@@ -21,18 +21,18 @@ interface WhisperModelOption {
 }
 
 const ENGLISH_MODELS: readonly WhisperModelOption[] = [
-  { value: 'tiny.en', label: 'tiny.en (~75 MB, fastest)' },
-  { value: 'base.en', label: 'base.en (~140 MB, default)' },
-  { value: 'small.en', label: 'small.en (~470 MB, more accurate)' },
-  { value: 'medium.en', label: 'medium.en (~1.5 GB)' },
+  { value: 'tiny.en', label: 'tiny.en (~40 MB, fastest)' },
+  { value: 'base.en', label: 'base.en (~80 MB, default)' },
+  { value: 'small.en', label: 'small.en (~250 MB, more accurate)' },
+  { value: 'medium.en', label: 'medium.en (~780 MB)' },
 ] as const;
 
 const MULTILINGUAL_MODELS: readonly WhisperModelOption[] = [
-  { value: 'tiny', label: 'tiny (~75 MB, fastest)' },
-  { value: 'base', label: 'base (~140 MB)' },
-  { value: 'small', label: 'small (~470 MB)' },
-  { value: 'medium', label: 'medium (~1.5 GB)' },
-  { value: 'large-v3-turbo', label: 'large-v3-turbo (~1.5 GB, most accurate)' },
+  { value: 'tiny', label: 'tiny (~40 MB, fastest)' },
+  { value: 'base', label: 'base (~80 MB)' },
+  { value: 'small', label: 'small (~250 MB)' },
+  { value: 'medium', label: 'medium (~780 MB)' },
+  { value: 'large-v3-turbo', label: 'large-v3-turbo (~800 MB, most accurate)' },
 ] as const;
 
 @Component({
