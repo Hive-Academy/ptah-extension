@@ -95,7 +95,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
         </button>
 
         <!-- Gridstack drag-and-resize grid -->
-        <div class="flex-1 overflow-auto">
+        <div class="flex-1 overflow-auto w-[97%]">
           <gridstack [options]="gsOptions" (changeCB)="onGridChange($event)">
             @for (tile of canvasStore.tiles(); track tile.tabId) {
               <gridstack-item
