@@ -5,6 +5,7 @@
  * never-delete-pinned invariant, settings restart triggers stop+start.
  */
 import 'reflect-metadata';
+import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
 import { SkillCuratorService } from './skill-curator.service';
 import type { SkillCandidateStore } from './skill-candidate.store';
 import type {
@@ -491,5 +492,485 @@ describe('SkillCuratorService', () => {
 
     expect(stopSpy).toHaveBeenCalledTimes(1);
     expect(startSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('runSuggestionPass: skips a cluster dominated by an authored skill', async () => {
+    const store = makeStore([]);
+    const storeWithDominant = {
+      ...store,
+      listByStatus: store.listByStatus,
+      updateStatus: store.updateStatus,
+      getDominantSkillSlugForSessions: jest.fn(() => 'orchestrate'),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
+
+    const query = {
+      execute: jest.fn().mockResolvedValue({
+        stream: (async function* () {
+          yield {
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: '[]' }] },
+          };
+          yield { type: 'result' };
+        })(),
+      }),
+    };
+
+    const registry = {
+      listAuthoredSlugs: jest.fn(() => new Set(['orchestrate'])),
+      listAll: jest.fn(() => []),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[5];
+
+    const fakeMember = {
+      id: 'c1',
+      name: 'skill-a',
+      description: 'desc',
+      bodyPath: '',
+      sourceSessionIds: ['s1'],
+      trajectoryHash: 'h1',
+      embeddingRowid: null,
+      status: 'candidate',
+      successCount: 0,
+      failureCount: 0,
+      createdAt: 1,
+      promotedAt: null,
+      rejectedAt: null,
+      rejectedReason: null,
+      pinned: false,
+      residency: 'resident',
+    } as SkillCandidateRow;
+
+    const clustering = {
+      clusterCandidates: jest.fn(() => [{ members: [fakeMember] }]),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[8];
+
+    const synthesizer = {
+      synthesizeFromCluster: jest.fn(),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[9];
+
+    const judge = {
+      judge: jest.fn(),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[10];
+
+    const suggestionStore = {
+      hasExistingForCluster: jest.fn(() => false),
+      insertPending: jest.fn(),
+      listByStatus: jest.fn(() => []),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[7];
+
+    const svc = new SkillCuratorService(
+      noopLogger,
+      storeWithDominant,
+      query as never,
+      noopWorkspaceProvider,
+      noopRateLimiter,
+      registry,
+      null,
+      suggestionStore,
+      clustering,
+      synthesizer,
+      judge,
+      noopMdGenerator,
+    );
+    svc.start(makeSettings());
+    await svc.runManual();
+
+    expect(
+      (synthesizer as unknown as { synthesizeFromCluster: jest.Mock })
+        .synthesizeFromCluster,
+    ).not.toHaveBeenCalled();
+    expect(
+      (suggestionStore as unknown as { insertPending: jest.Mock })
+        .insertPending,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('runSuggestionPass: skips a cluster that already has an existing suggestion (hasExistingForCluster dedup)', async () => {
+    const store = makeStore([]);
+    const storeWithDominant = {
+      ...store,
+      listByStatus: store.listByStatus,
+      updateStatus: store.updateStatus,
+      getDominantSkillSlugForSessions: jest.fn(() => null),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
+
+    const query = {
+      execute: jest.fn().mockResolvedValue({
+        stream: (async function* () {
+          yield {
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: '[]' }] },
+          };
+          yield { type: 'result' };
+        })(),
+      }),
+    };
+
+    const registry = {
+      listAuthoredSlugs: jest.fn(() => new Set<string>()),
+      listAll: jest.fn(() => []),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[5];
+
+    const fakeMember = {
+      id: 'c1',
+      name: 'skill-b',
+      description: 'desc',
+      bodyPath: '',
+      sourceSessionIds: ['s1'],
+      trajectoryHash: 'h2',
+      embeddingRowid: null,
+      status: 'candidate',
+      successCount: 0,
+      failureCount: 0,
+      createdAt: 1,
+      promotedAt: null,
+      rejectedAt: null,
+      rejectedReason: null,
+      pinned: false,
+      residency: 'resident',
+    } as SkillCandidateRow;
+
+    const clustering = {
+      clusterCandidates: jest.fn(() => [{ members: [fakeMember] }]),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[8];
+
+    const synthesizer = {
+      synthesizeFromCluster: jest.fn(),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[9];
+
+    const judge = {
+      judge: jest.fn(),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[10];
+
+    const suggestionStore = {
+      hasExistingForCluster: jest.fn(() => true),
+      insertPending: jest.fn(),
+      listByStatus: jest.fn(() => []),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[7];
+
+    const svc = new SkillCuratorService(
+      noopLogger,
+      storeWithDominant,
+      query as never,
+      noopWorkspaceProvider,
+      noopRateLimiter,
+      registry,
+      null,
+      suggestionStore,
+      clustering,
+      synthesizer,
+      judge,
+      noopMdGenerator,
+    );
+    svc.start(makeSettings());
+    await svc.runManual();
+
+    expect(
+      (synthesizer as unknown as { synthesizeFromCluster: jest.Mock })
+        .synthesizeFromCluster,
+    ).not.toHaveBeenCalled();
+    expect(
+      (suggestionStore as unknown as { insertPending: jest.Mock })
+        .insertPending,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('runSuggestionPass: skips insertion when judge score is below threshold', async () => {
+    const store = makeStore([]);
+    const storeWithDominant = {
+      ...store,
+      listByStatus: store.listByStatus,
+      updateStatus: store.updateStatus,
+      getDominantSkillSlugForSessions: jest.fn(() => null),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
+
+    const query = {
+      execute: jest.fn().mockResolvedValue({
+        stream: (async function* () {
+          yield {
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: '[]' }] },
+          };
+          yield { type: 'result' };
+        })(),
+      }),
+    };
+
+    const registry = {
+      listAuthoredSlugs: jest.fn(() => new Set<string>()),
+      listAll: jest.fn(() => []),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[5];
+
+    const fakeMember = {
+      id: 'c1',
+      name: 'skill-c',
+      description: 'desc',
+      bodyPath: '',
+      sourceSessionIds: ['s1'],
+      trajectoryHash: 'h3',
+      embeddingRowid: null,
+      status: 'candidate',
+      successCount: 0,
+      failureCount: 0,
+      createdAt: 1,
+      promotedAt: null,
+      rejectedAt: null,
+      rejectedReason: null,
+      pinned: false,
+      residency: 'resident',
+    } as SkillCandidateRow;
+
+    const clustering = {
+      clusterCandidates: jest.fn(() => [{ members: [fakeMember] }]),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[8];
+
+    const synthesizer = {
+      synthesizeFromCluster: jest.fn().mockResolvedValue({
+        name: 'skill-c',
+        description: 'desc',
+        body: '## Description\nx\n## When to use\n- y\n## Steps\n1. z',
+      }),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[9];
+
+    const judge = {
+      judge: jest.fn().mockResolvedValue({ passed: false, score: 4.5 }),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[10];
+
+    const suggestionStore = {
+      hasExistingForCluster: jest.fn(() => false),
+      insertPending: jest.fn(),
+      listByStatus: jest.fn(() => []),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[7];
+
+    const svc = new SkillCuratorService(
+      noopLogger,
+      storeWithDominant,
+      query as never,
+      noopWorkspaceProvider,
+      noopRateLimiter,
+      registry,
+      null,
+      suggestionStore,
+      clustering,
+      synthesizer,
+      judge,
+      noopMdGenerator,
+    );
+    svc.start(makeSettings());
+    await svc.runManual();
+
+    expect(
+      (synthesizer as unknown as { synthesizeFromCluster: jest.Mock })
+        .synthesizeFromCluster,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      (suggestionStore as unknown as { insertPending: jest.Mock })
+        .insertPending,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('runSuggestionPass: inserts pending suggestion when synthesis + judge both pass', async () => {
+    const store = makeStore([]);
+    const storeWithDominant = {
+      ...store,
+      listByStatus: store.listByStatus,
+      updateStatus: store.updateStatus,
+      getDominantSkillSlugForSessions: jest.fn(() => null),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
+
+    const query = {
+      execute: jest.fn().mockResolvedValue({
+        stream: (async function* () {
+          yield {
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: '[]' }] },
+          };
+          yield { type: 'result' };
+        })(),
+      }),
+    };
+
+    const registry = {
+      listAuthoredSlugs: jest.fn(() => new Set<string>()),
+      listAll: jest.fn(() => []),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[5];
+
+    const fakeMember = {
+      id: 'c1',
+      name: 'skill-d',
+      description: 'desc',
+      bodyPath: '',
+      sourceSessionIds: ['s1'],
+      trajectoryHash: 'h4',
+      embeddingRowid: null,
+      status: 'candidate',
+      successCount: 0,
+      failureCount: 0,
+      createdAt: 1,
+      promotedAt: null,
+      rejectedAt: null,
+      rejectedReason: null,
+      pinned: false,
+      residency: 'resident',
+    } as SkillCandidateRow;
+
+    const clustering = {
+      clusterCandidates: jest.fn(() => [{ members: [fakeMember] }]),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[8];
+
+    const synthesizer = {
+      synthesizeFromCluster: jest.fn().mockResolvedValue({
+        name: 'skill-d',
+        description: 'a useful skill',
+        body: '## Description\nx\n## When to use\n- y\n## Steps\n1. z',
+      }),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[9];
+
+    const judge = {
+      judge: jest.fn().mockResolvedValue({ passed: true, score: 8.0 }),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[10];
+
+    const suggestionStore = {
+      hasExistingForCluster: jest.fn(() => false),
+      insertPending: jest.fn().mockReturnValue({ id: 'sug-1' }),
+      listByStatus: jest.fn(() => []),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[7];
+
+    const svc = new SkillCuratorService(
+      noopLogger,
+      storeWithDominant,
+      query as never,
+      noopWorkspaceProvider,
+      noopRateLimiter,
+      registry,
+      null,
+      suggestionStore,
+      clustering,
+      synthesizer,
+      judge,
+      noopMdGenerator,
+    );
+    svc.start(makeSettings());
+    await svc.runManual();
+
+    expect(
+      (suggestionStore as unknown as { insertPending: jest.Mock })
+        .insertPending,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      (suggestionStore as unknown as { insertPending: jest.Mock })
+        .insertPending,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'skill-d',
+        description: 'a useful skill',
+        judgeScore: 8.0,
+        memberCandidateIds: ['c1'],
+      }),
+    );
+  });
+
+  it('runSuggestionPass: rate-limit ceiling — stops acquiring after ANALYZE_MAX_PER_HOUR (6) and inserts no more than the cap', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-01T12:00:00Z'));
+
+    try {
+      const ANALYZE_MAX_PER_HOUR = 6;
+      const CLUSTER_COUNT = 10;
+
+      const store = makeStore([]);
+      const storeWithDominant = {
+        ...store,
+        listByStatus: store.listByStatus,
+        updateStatus: store.updateStatus,
+        getDominantSkillSlugForSessions: jest.fn(() => null),
+      } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
+
+      const registry = {
+        listAuthoredSlugs: jest.fn(() => new Set<string>()),
+        listAll: jest.fn(() => []),
+      } as unknown as ConstructorParameters<typeof SkillCuratorService>[5];
+
+      const fakeMembers = Array.from({ length: CLUSTER_COUNT }, (_, i) => ({
+        id: `c${i}`,
+        name: `skill-${i}`,
+        description: 'desc',
+        bodyPath: '',
+        sourceSessionIds: [`s${i}`],
+        trajectoryHash: `h${i}`,
+        embeddingRowid: null,
+        status: 'candidate',
+        successCount: 0,
+        failureCount: 0,
+        createdAt: 1,
+        promotedAt: null,
+        rejectedAt: null,
+        rejectedReason: null,
+        pinned: false,
+        residency: 'resident',
+      })) as SkillCandidateRow[];
+
+      const clustering = {
+        clusterCandidates: jest.fn(() =>
+          fakeMembers.map((m) => ({ members: [m] })),
+        ),
+      } as unknown as ConstructorParameters<typeof SkillCuratorService>[8];
+
+      const synthesizer = {
+        synthesizeFromCluster: jest.fn().mockResolvedValue({
+          name: 'synthesized-skill',
+          description: 'auto-synthesized',
+          body: '## Description\nx\n## When to use\n- y\n## Steps\n1. z',
+        }),
+      } as unknown as ConstructorParameters<typeof SkillCuratorService>[9];
+
+      const judge = {
+        judge: jest.fn().mockResolvedValue({ passed: true, score: 9.0 }),
+      } as unknown as ConstructorParameters<typeof SkillCuratorService>[10];
+
+      const insertPending = jest.fn().mockReturnValue({ id: 'sug-x' });
+      const suggestionStore = {
+        hasExistingForCluster: jest.fn(() => false),
+        insertPending,
+        listByStatus: jest.fn(() => []),
+      } as unknown as ConstructorParameters<typeof SkillCuratorService>[7];
+
+      const query = {
+        execute: jest.fn().mockResolvedValue({
+          stream: (async function* () {
+            yield {
+              type: 'assistant',
+              message: { content: [{ type: 'text', text: '[]' }] },
+            };
+            yield { type: 'result' };
+          })(),
+        }),
+      };
+
+      const realRateLimiter = new CuratorRateLimitService(noopLogger);
+
+      const svc = new SkillCuratorService(
+        noopLogger,
+        storeWithDominant,
+        query as never,
+        noopWorkspaceProvider,
+        realRateLimiter,
+        registry,
+        null,
+        suggestionStore,
+        clustering,
+        synthesizer,
+        judge,
+        noopMdGenerator,
+      );
+      svc.start(makeSettings());
+      await svc.runManual();
+
+      expect(insertPending.mock.calls.length).toBeLessThanOrEqual(
+        ANALYZE_MAX_PER_HOUR,
+      );
+      expect(insertPending.mock.calls.length).toBeGreaterThan(0);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

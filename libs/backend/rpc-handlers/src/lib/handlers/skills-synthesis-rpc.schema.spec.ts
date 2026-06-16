@@ -492,3 +492,135 @@ describe('SkillInvocationStatsParamsSchema', () => {
     ).toThrow();
   });
 });
+
+describe('SkillSynthesisSettingsSchema — suggestionMinClusterSize boundary', () => {
+  const validFull = {
+    enabled: true,
+    successesToPromote: 3,
+    dedupCosineThreshold: 0.85,
+    maxActiveSkills: 50,
+    candidatesDir: '',
+    eligibilityMinTurns: 5,
+    evictionDecayRate: 0.95,
+    generalizationContextThreshold: 3,
+    dedupClusterThreshold: 0.78,
+    prefilterMinEdits: 1,
+    prefilterMinChars: 800,
+    prefilterMinToolUses: 2,
+    judgeEnabled: true,
+    minJudgeScore: 6.0,
+    judgeModel: 'inherit',
+    maxPinnedSkills: 10,
+    curatorEnabled: true,
+    curatorIntervalHours: 24,
+    suggestionMinClusterSize: 2,
+    suggestionMaxCandidates: 200,
+  };
+
+  it('accepts suggestionMinClusterSize=2 (minimum)', () => {
+    expect(() =>
+      SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        suggestionMinClusterSize: 2,
+      }),
+    ).not.toThrow();
+  });
+
+  it('accepts suggestionMinClusterSize=100 (maximum)', () => {
+    expect(() =>
+      SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        suggestionMinClusterSize: 100,
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects suggestionMinClusterSize=1 (below min of 2)', () => {
+    expect(() =>
+      SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        suggestionMinClusterSize: 1,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects suggestionMinClusterSize=101 (above max of 100)', () => {
+    expect(() =>
+      SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        suggestionMinClusterSize: 101,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects missing suggestionMinClusterSize (required field)', () => {
+    const { suggestionMinClusterSize: _omit, ...rest } = validFull;
+    expect(() => SkillSynthesisSettingsSchema.parse(rest)).toThrow();
+  });
+});
+
+describe('SkillSynthesisSettingsSchema — suggestionMaxCandidates boundary', () => {
+  const validFull = {
+    enabled: true,
+    successesToPromote: 3,
+    dedupCosineThreshold: 0.85,
+    maxActiveSkills: 50,
+    candidatesDir: '',
+    eligibilityMinTurns: 5,
+    evictionDecayRate: 0.95,
+    generalizationContextThreshold: 3,
+    dedupClusterThreshold: 0.78,
+    prefilterMinEdits: 1,
+    prefilterMinChars: 800,
+    prefilterMinToolUses: 2,
+    judgeEnabled: true,
+    minJudgeScore: 6.0,
+    judgeModel: 'inherit',
+    maxPinnedSkills: 10,
+    curatorEnabled: true,
+    curatorIntervalHours: 24,
+    suggestionMinClusterSize: 2,
+    suggestionMaxCandidates: 200,
+  };
+
+  it('accepts suggestionMaxCandidates=1 (minimum)', () => {
+    expect(() =>
+      SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        suggestionMaxCandidates: 1,
+      }),
+    ).not.toThrow();
+  });
+
+  it('accepts suggestionMaxCandidates=5000 (maximum)', () => {
+    expect(() =>
+      SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        suggestionMaxCandidates: 5000,
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects suggestionMaxCandidates=0 (below min of 1)', () => {
+    expect(() =>
+      SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        suggestionMaxCandidates: 0,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects suggestionMaxCandidates=5001 (above max of 5000)', () => {
+    expect(() =>
+      SkillSynthesisSettingsSchema.parse({
+        ...validFull,
+        suggestionMaxCandidates: 5001,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects missing suggestionMaxCandidates (required field)', () => {
+    const { suggestionMaxCandidates: _omit, ...rest } = validFull;
+    expect(() => SkillSynthesisSettingsSchema.parse(rest)).toThrow();
+  });
+});
