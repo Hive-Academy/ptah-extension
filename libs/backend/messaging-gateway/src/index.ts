@@ -66,10 +66,10 @@ export {
 } from './lib/voice/voice-assets-error';
 export { WhisperTranscriber } from './lib/voice/whisper-transcriber';
 export type {
-  NodejsWhisperApi,
-  NodejsWhisperLoader,
+  AsrPipeline,
+  AsrPipelineFactory,
+  PipelineProgressInfo,
   WhisperDownloadEvent,
-  WhisperDownloader,
 } from './lib/voice/whisper-transcriber';
 export {
   resolveWhisperModel,

@@ -43,7 +43,7 @@ DI: `GATEWAY_TOKENS`, `GatewayDIToken`, `registerMessagingGatewayServices`.
 ## Dependencies
 
 **Internal**: `@ptah-extension/persistence-sqlite`, `@ptah-extension/platform-core`
-**External**: `grammy` (Telegram), `discord.js`, `@slack/bolt`, `nodejs-whisper`, FFmpeg binary resolver, `tsyringe`
+**External**: `grammy` (Telegram), `discord.js`, `@slack/bolt`, `@huggingface/transformers` (ASR, dynamic import — provided by the host runtime), FFmpeg binary resolver (`ffmpeg-static`), `tsyringe`
 
 ## Guidelines
 

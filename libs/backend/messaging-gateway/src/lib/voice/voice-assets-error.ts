@@ -1,7 +1,7 @@
 export const VOICE_ASSETS_UNAVAILABLE = 'VOICE_ASSETS_UNAVAILABLE' as const;
 
 export const VOICE_ASSETS_REMEDIATION =
-  'Voice transcription requires the Ptah desktop app, or install ffmpeg-static + nodejs-whisper alongside @hive-academy/ptah-cli.';
+  'Voice transcription requires the Ptah desktop app, or install ffmpeg-static + @huggingface/transformers alongside @hive-academy/ptah-cli.';
 
 export class VoiceAssetsUnavailableError extends Error {
   readonly code = VOICE_ASSETS_UNAVAILABLE;

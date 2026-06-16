@@ -48,10 +48,9 @@ function buildSuite(initial: StoredSettings = {}): Suite {
   } as unknown as Logger;
   const rpc = createMockRpcHandler();
 
+  const fakePcm = new Float32Array([0, 0.1, -0.1, 0.2]);
   const ffmpeg = {
-    decodeToPcm16Wav: jest
-      .fn()
-      .mockResolvedValue('/tmp/ptah-voice-x/audio.wav'),
+    decodeToPcm16: jest.fn().mockResolvedValue(fakePcm),
   } as unknown as jest.Mocked<FfmpegDecoder>;
 
   const whisper = {
@@ -137,10 +136,8 @@ describe('VoiceRpcHandlers', () => {
 
       expect(response.success).toBe(true);
       expect(response.data).toEqual({ ok: true, transcript: 'hello world' });
-      expect(ffmpeg.decodeToPcm16Wav).toHaveBeenCalledTimes(1);
-      expect(whisper.transcribe).toHaveBeenCalledWith(
-        '/tmp/ptah-voice-x/audio.wav',
-      );
+      expect(ffmpeg.decodeToPcm16).toHaveBeenCalledTimes(1);
+      expect(whisper.transcribe).toHaveBeenCalledWith(expect.any(Float32Array));
     });
 
     it('leaves no input temp file behind after a successful transcription', async () => {
@@ -198,13 +195,13 @@ describe('VoiceRpcHandlers', () => {
 
       expect(response.success).toBe(true);
       expect(response.data).toMatchObject({ ok: false });
-      expect(ffmpeg.decodeToPcm16Wav).not.toHaveBeenCalled();
+      expect(ffmpeg.decodeToPcm16).not.toHaveBeenCalled();
       expect(whisper.transcribe).not.toHaveBeenCalled();
     });
 
     it('returns { ok: false } when the decoder throws, without rejecting', async () => {
       const { rpc, ffmpeg, whisper } = buildSuite();
-      (ffmpeg.decodeToPcm16Wav as jest.Mock).mockRejectedValue(
+      (ffmpeg.decodeToPcm16 as jest.Mock).mockRejectedValue(
         new Error('ffmpeg-boom'),
       );
 
@@ -221,7 +218,7 @@ describe('VoiceRpcHandlers', () => {
 
     it('surfaces VOICE_ASSETS_UNAVAILABLE with remediation when assets are missing', async () => {
       const { rpc, ffmpeg, whisper } = buildSuite();
-      (ffmpeg.decodeToPcm16Wav as jest.Mock).mockRejectedValue(
+      (ffmpeg.decodeToPcm16 as jest.Mock).mockRejectedValue(
         new VoiceAssetsUnavailableError('ffmpeg-static'),
       );
 
@@ -393,7 +390,7 @@ describe('VoiceRpcHandlers', () => {
     it('surfaces VOICE_ASSETS_UNAVAILABLE with remediation when assets are missing', async () => {
       const { rpc, whisper } = buildSuite();
       (whisper.downloadModel as jest.Mock).mockRejectedValue(
-        new VoiceAssetsUnavailableError('nodejs-whisper'),
+        new VoiceAssetsUnavailableError('@huggingface/transformers'),
       );
 
       const response = await rpc.handleMessage({

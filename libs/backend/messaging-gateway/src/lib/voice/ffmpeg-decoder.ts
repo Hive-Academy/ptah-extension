@@ -55,8 +55,9 @@ export class FfmpegDecoder {
   }
 
   /**
-   * Decode `inputPath` (typically OGG/Opus) into a 16 kHz mono PCM WAV.
-   * Returns the absolute path of the output WAV. Caller owns the file.
+   * Decode `inputPath` (typically OGG/Opus/WebM) into 16 kHz mono 32-bit float
+   * PCM and return the samples as a `Float32Array` — the raw waveform the
+   * transformers.js automatic-speech-recognition pipeline consumes directly.
    *
    * SECURITY: `inputPath` MUST be an absolute path that does not start with
    * `-` (otherwise ffmpeg would interpret it as a flag — classic ffmpeg
@@ -64,7 +65,7 @@ export class FfmpegDecoder {
    * path so a crafted symlink cannot be swapped between validation and
    * spawn. The resolved file must exist and be a regular file.
    */
-  async decodeToPcm16Wav(inputPath: string): Promise<string> {
+  async decodeToPcm16(inputPath: string): Promise<Float32Array> {
     if (typeof inputPath !== 'string' || inputPath.length === 0) {
       throw new Error('FfmpegDecoder: inputPath must be a non-empty string');
     }
@@ -87,44 +88,61 @@ export class FfmpegDecoder {
     }
 
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ptah-voice-'));
-    const outPath = path.join(dir, 'audio.wav');
+    const outPath = path.join(dir, 'audio.f32le');
     const ffmpeg = this.resolver();
-    await new Promise<void>((resolve, reject) => {
-      const proc = this.spawnFn(
-        ffmpeg,
-        [
-          '-y',
-          '-nostdin',
-          '-loglevel',
-          'error',
-          '-i',
-          resolvedInput,
-          '-ac',
-          '1',
-          '-ar',
-          '16000',
-          '--',
-          outPath,
-        ],
-        { stdio: ['ignore', 'ignore', 'pipe'], shell: false },
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const proc = this.spawnFn(
+          ffmpeg,
+          [
+            '-y',
+            '-nostdin',
+            '-loglevel',
+            'error',
+            '-i',
+            resolvedInput,
+            '-ac',
+            '1',
+            '-ar',
+            '16000',
+            '-f',
+            'f32le',
+            '-acodec',
+            'pcm_f32le',
+            '--',
+            outPath,
+          ],
+          { stdio: ['ignore', 'ignore', 'pipe'], shell: false },
+        );
+        let stderr = '';
+        proc.stderr?.on('data', (d) => {
+          stderr += d.toString();
+        });
+        proc.on('error', reject);
+        proc.on('close', (code) => {
+          if (code === 0) resolve();
+          else
+            reject(
+              new Error(
+                `ffmpeg exited with code ${code}: ${stderr.slice(-500)}`,
+              ),
+            );
+        });
+      });
+
+      const raw = await fs.readFile(outPath);
+      const samples = new Float32Array(
+        raw.buffer,
+        raw.byteOffset,
+        Math.floor(raw.byteLength / Float32Array.BYTES_PER_ELEMENT),
       );
-      let stderr = '';
-      proc.stderr?.on('data', (d) => {
-        stderr += d.toString();
+      this.logger.debug('[gateway] ffmpeg decoded voice file', {
+        inputPath,
+        samples: samples.length,
       });
-      proc.on('error', reject);
-      proc.on('close', (code) => {
-        if (code === 0) resolve();
-        else
-          reject(
-            new Error(`ffmpeg exited with code ${code}: ${stderr.slice(-500)}`),
-          );
-      });
-    });
-    this.logger.debug('[gateway] ffmpeg decoded voice file', {
-      inputPath,
-      outPath,
-    });
-    return outPath;
+      return samples.slice();
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 }
