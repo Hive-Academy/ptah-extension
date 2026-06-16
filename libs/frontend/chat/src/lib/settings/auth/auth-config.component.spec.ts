@@ -133,10 +133,10 @@ describe('AuthConfigComponent', () => {
       expect(component.scopeBadgeLabel()).toBe('Workspace override');
     });
 
-    it('returns "App override" when activeScope is "app"', () => {
+    it('returns "Global default" when activeScope is "app"', () => {
       authState._activeScope.set('app');
       const { component } = mount(rpc, authState);
-      expect(component.scopeBadgeLabel()).toBe('App override');
+      expect(component.scopeBadgeLabel()).toBe('Global default');
     });
 
     it('returns "Inherited" when activeScope is "global"', () => {
@@ -152,7 +152,7 @@ describe('AuthConfigComponent', () => {
 
       authState._activeScope.set('app');
       fixture.detectChanges();
-      expect(component.scopeBadgeLabel()).toBe('App override');
+      expect(component.scopeBadgeLabel()).toBe('Global default');
 
       authState._activeScope.set('workspace');
       fixture.detectChanges();
@@ -175,12 +175,6 @@ describe('AuthConfigComponent', () => {
   });
 
   describe('setApplyTo()', () => {
-    it('sets applyTo to "global" unconditionally', () => {
-      const { component } = mount(rpc, authState);
-      component.setApplyTo('global');
-      expect(component.applyTo()).toBe('global');
-    });
-
     it('sets applyTo to "app" unconditionally even without an active folder', () => {
       authState._activeScopePath.set(null);
       const { component } = mount(rpc, authState);
@@ -205,9 +199,9 @@ describe('AuthConfigComponent', () => {
     it('ignores setApplyTo("workspace") when canApplyToWorkspace is false', () => {
       authState._activeScopePath.set(null);
       const { component } = mount(rpc, authState);
-      component.setApplyTo('global');
+      component.setApplyTo('app');
       component.setApplyTo('workspace');
-      expect(component.applyTo()).toBe('global');
+      expect(component.applyTo()).toBe('app');
     });
 
     it('applyTo defaults to "app" when nothing is overridden (encapsulation default)', () => {

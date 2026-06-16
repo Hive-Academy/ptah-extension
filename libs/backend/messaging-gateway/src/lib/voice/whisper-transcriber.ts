@@ -1,117 +1,85 @@
 /**
- * WhisperTranscriber — wraps `nodejs-whisper` to transcribe a 16 kHz WAV
- * to text.
+ * WhisperTranscriber — transcribes 16 kHz mono PCM audio to text using the
+ * `@huggingface/transformers` automatic-speech-recognition pipeline (ONNX via
+ * `onnxruntime-node`). This is the same runtime the memory embedder already
+ * ships and code-signs, so it works inside a packaged Electron app with no
+ * native compile, no CMake, and no `app.asar` path gymnastics.
  *
- * Models live in the directory `nodejs-whisper` reads from
- * (`<pkg>/cpp/whisper.cpp/models/ggml-<model>.bin`). They can be obtained two
- * ways:
- *   - lazily, at first transcribe, via nodejs-whisper's `autoDownloadModelName`
- *   - eagerly, via {@link downloadModel}, which streams the `ggml-*.bin`
- *     straight from Hugging Face (no cmake build) so the chat mic / gateway
- *     voice notes don't stall on a first-use download.
- * Default model is `base.en` to match the settings default.
+ * Models are the `Xenova/whisper-*` ONNX repos on Hugging Face, downloaded to a
+ * writable cache directory (`env.cacheDir`, injected via {@link configure} as
+ * `~/.ptah/models` by the Electron host). The transformers default cache
+ * (`<pkg>/.cache`) resolves inside `app.asar` and fails with ENOTDIR when
+ * packaged, so the cache dir MUST be injected in production.
  *
  * Emits download lifecycle events on the `EventEmitter` interface so the
- * `GatewayService` can bridge them to the renderer's voice-model-download
- * toast channel:
+ * `GatewayService` / voice RPC can bridge them to the renderer's
+ * voice-model-download toast channel:
  *   - 'download:start'    { model }
  *   - 'download:progress' { model, percent }
  *   - 'download:complete' { model }
  *   - 'download:error'    { model, error }
  *
- * For the lazy transcribe path, nodejs-whisper exposes no progress hook, so we
- * emit a coarse start/complete pair around the call. The eager
- * {@link downloadModel} path emits real byte-progress percentages.
- *
- * In tests, the module loader and downloader are injectable so the whole thing
- * can be faked without the heavy native binding or any network.
+ * In tests the pipeline factory is injectable so the whole thing can be faked
+ * without the heavy ONNX runtime or any network.
  */
 import { EventEmitter } from 'node:events';
 import { inject, injectable } from 'tsyringe';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   VoiceAssetsUnavailableError,
   isModuleNotFound,
 } from './voice-assets-error';
 
-/**
- * Maps a Whisper model name to its `ggml-*.bin` filename. Mirrors
- * `nodejs-whisper`'s MODEL_OBJECT so manual downloads land in the exact file
- * the transcribe path reads from.
- */
-const GGML_FILENAMES: Readonly<Record<string, string>> = {
-  tiny: 'ggml-tiny.bin',
-  'tiny.en': 'ggml-tiny.en.bin',
-  base: 'ggml-base.bin',
-  'base.en': 'ggml-base.en.bin',
-  small: 'ggml-small.bin',
-  'small.en': 'ggml-small.en.bin',
-  medium: 'ggml-medium.bin',
-  'medium.en': 'ggml-medium.en.bin',
-  'large-v1': 'ggml-large-v1.bin',
-  large: 'ggml-large.bin',
-  'large-v3-turbo': 'ggml-large-v3-turbo.bin',
-};
+/** Whisper model names accepted from settings, mapped to their `Xenova` repo. */
+const WHISPER_MODELS: ReadonlySet<string> = new Set([
+  'tiny',
+  'tiny.en',
+  'base',
+  'base.en',
+  'small',
+  'small.en',
+  'medium',
+  'medium.en',
+  'large-v1',
+  'large',
+  'large-v3-turbo',
+]);
 
-/** Canonical whisper.cpp ggml model host (same source nodejs-whisper pulls from). */
-const HUGGINGFACE_MODEL_BASE =
-  'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
-
-/**
- * Streams a model file to `destPath`, reporting integer percent (0-99) as bytes
- * arrive. Injectable so tests can stub the network.
- */
-export type WhisperDownloader = (
-  url: string,
-  destPath: string,
-  onProgress: (percent: number) => void,
-) => Promise<void>;
-
-const defaultDownloader: WhisperDownloader = async (
-  url,
-  destPath,
-  onProgress,
-) => {
-  const response = await fetch(url, { redirect: 'follow' });
-  if (!response.ok || !response.body) {
-    throw new Error(`Model download failed: HTTP ${response.status}`);
-  }
-  const total = Number(response.headers.get('content-length') ?? 0);
-  let received = 0;
-  let lastPercent = -1;
-  const source = Readable.fromWeb(
-    response.body as Parameters<typeof Readable.fromWeb>[0],
-  );
-  source.on('data', (chunk: Buffer) => {
-    received += chunk.length;
-    if (total <= 0) return;
-    const percent = Math.min(99, Math.round((received / total) * 100));
-    if (percent !== lastPercent) {
-      lastPercent = percent;
-      onProgress(percent);
-    }
-  });
-  await pipeline(source, createWriteStream(destPath));
-};
-
-/** Loosely-typed shape we actually call from `nodejs-whisper`. */
-export interface NodejsWhisperApi {
-  /**
-   * `nodejs-whisper` exports a single async function `nodewhisper(filePath, options)`
-   * that returns the transcript string (or an object containing it).
-   */
-  (
-    filePath: string,
-    options: Record<string, unknown>,
-  ): Promise<string | { text: string }>;
+function modelIdFor(modelName: string): string {
+  return `Xenova/whisper-${modelName}`;
 }
 
-export type NodejsWhisperLoader = () => Promise<NodejsWhisperApi>;
+export interface PipelineProgressInfo {
+  readonly status: 'initiate' | 'download' | 'progress' | 'done' | 'ready';
+  readonly name?: string;
+  readonly file?: string;
+  readonly progress?: number;
+  readonly loaded?: number;
+  readonly total?: number;
+}
+
+/** The callable returned by the transformers ASR pipeline. */
+export interface AsrPipeline {
+  (
+    audio: Float32Array,
+    options?: Record<string, unknown>,
+  ): Promise<{ text: string } | string>;
+}
+
+/**
+ * Builds an ASR pipeline for `modelId`. Injectable so tests can stub it without
+ * loading ONNX or hitting the network. `cacheDir` (when provided) is applied to
+ * the transformers env before the pipeline loads.
+ */
+export type AsrPipelineFactory = (
+  modelId: string,
+  opts: {
+    cacheDir: string | null;
+    progress_callback: (info: PipelineProgressInfo) => void;
+  },
+) => Promise<AsrPipeline>;
 
 export type WhisperDownloadEvent =
   | { kind: 'download:start'; model: string }
@@ -119,98 +87,98 @@ export type WhisperDownloadEvent =
   | { kind: 'download:complete'; model: string }
   | { kind: 'download:error'; model: string; error: string };
 
-const defaultLoader: NodejsWhisperLoader = async () => {
-  let mod: NodejsWhisperApi | { nodewhisper: NodejsWhisperApi };
+interface TransformersEnv {
+  cacheDir?: string;
+  allowLocalModels?: boolean;
+}
+
+// Kept opaque to the bundler so the native ESM package (and the
+// onnxruntime-node `.node` binary it loads) is resolved at runtime from
+// node_modules rather than pulled into the esbuild graph. The host runtime
+// (Electron) provides it; the CLI surfaces VoiceAssetsUnavailableError.
+function transformersModuleId(): string {
+  return ['@huggingface', 'transformers'].join('/');
+}
+
+const defaultPipelineFactory: AsrPipelineFactory = async (modelId, opts) => {
+  type TransformersModule = {
+    pipeline: (
+      task: string,
+      model: string,
+      options: Record<string, unknown>,
+    ) => Promise<AsrPipeline>;
+    env?: TransformersEnv;
+  };
+  let mod: TransformersModule;
   try {
-    mod = require('nodejs-whisper') as
-      | NodejsWhisperApi
-      | { nodewhisper: NodejsWhisperApi };
+    mod = (await import(
+      transformersModuleId()
+    )) as unknown as TransformersModule;
   } catch (error: unknown) {
     if (isModuleNotFound(error)) {
-      throw new VoiceAssetsUnavailableError('nodejs-whisper', error);
+      throw new VoiceAssetsUnavailableError('@huggingface/transformers', error);
     }
     throw error;
   }
-  if (typeof mod === 'function') return mod;
-  if (typeof (mod as { nodewhisper?: unknown }).nodewhisper === 'function') {
-    return (mod as { nodewhisper: NodejsWhisperApi }).nodewhisper;
+  if (opts.cacheDir && mod.env) {
+    mod.env.cacheDir = opts.cacheDir;
+    mod.env.allowLocalModels = false;
   }
-  throw new VoiceAssetsUnavailableError('nodejs-whisper');
+  return mod.pipeline('automatic-speech-recognition', modelId, {
+    quantized: true,
+    progress_callback: opts.progress_callback,
+  });
 };
 
 @injectable()
 export class WhisperTranscriber extends EventEmitter {
-  /** Test seam: replace the dynamic loader. */
-  private loader: NodejsWhisperLoader = defaultLoader;
-  /** Test seam: replace the network download. */
-  private downloader: WhisperDownloader = defaultDownloader;
-  /** Test seam: override the resolved models directory. */
-  private modelsDirOverride: string | null = null;
+  /** Test seam: replace the pipeline factory. */
+  private pipelineFactory: AsrPipelineFactory = defaultPipelineFactory;
+  /** Writable transformers model cache dir; injected by the Electron host. */
+  private modelCacheDir: string | null = null;
   private modelName = 'base.en';
+
+  private pipeline: AsrPipeline | null = null;
+  private loadedModelId: string | null = null;
+  private loading: Promise<AsrPipeline> | null = null;
+  /** Per-file byte progress for the in-flight load, aggregated into one percent. */
+  private readonly loadBytesByFile = new Map<
+    string,
+    { loaded: number; total: number }
+  >();
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     super();
   }
 
   configure(opts: {
-    loader?: NodejsWhisperLoader;
-    downloader?: WhisperDownloader;
-    modelsDir?: string;
+    pipelineFactory?: AsrPipelineFactory;
+    modelCacheDir?: string;
     modelName?: string;
   }): void {
-    if (opts.loader) this.loader = opts.loader;
-    if (opts.downloader) this.downloader = opts.downloader;
-    if (opts.modelsDir) this.modelsDirOverride = opts.modelsDir;
+    if (opts.pipelineFactory) this.pipelineFactory = opts.pipelineFactory;
+    if (opts.modelCacheDir) this.modelCacheDir = opts.modelCacheDir;
     if (opts.modelName && opts.modelName.length > 0) {
       this.modelName = opts.modelName;
     }
   }
 
   /**
-   * Resolve the directory `nodejs-whisper` reads models from
-   * (`<pkg>/cpp/whisper.cpp/models`) so presence checks and manual downloads
-   * agree with the lazy transcribe-time download. Throws
-   * {@link VoiceAssetsUnavailableError} when `nodejs-whisper` is not installed.
-   */
-  private resolveModelsDir(): string {
-    if (this.modelsDirOverride) return this.modelsDirOverride;
-    try {
-      const pkgJson = require.resolve('nodejs-whisper/package.json');
-      return path.join(path.dirname(pkgJson), 'cpp', 'whisper.cpp', 'models');
-    } catch (error: unknown) {
-      if (isModuleNotFound(error)) {
-        throw new VoiceAssetsUnavailableError('nodejs-whisper', error);
-      }
-      throw error;
-    }
-  }
-
-  private ggmlFilename(modelName: string): string {
-    const filename = GGML_FILENAMES[modelName];
-    if (!filename) {
-      throw new Error(`Unknown Whisper model "${modelName}"`);
-    }
-    return filename;
-  }
-
-  /**
-   * Whether the given model (default: the configured one) is already present on
-   * disk. Returns false rather than throwing when the model dir can't be
-   * resolved (e.g. assets unavailable) so callers can render a status badge.
+   * Whether the given model (default: the configured one) is already present in
+   * the transformers cache. Best-effort: returns false when the cache dir is
+   * unknown or the model directory is empty, so callers can render a badge.
    */
   async isModelDownloaded(model?: string): Promise<boolean> {
     const modelName = (model ?? this.modelName).trim();
-    const filename = GGML_FILENAMES[modelName];
-    if (!filename) return false;
-    let dir: string;
+    if (!WHISPER_MODELS.has(modelName)) return false;
+    if (!this.modelCacheDir) return false;
+    const modelDir = path.join(
+      this.modelCacheDir,
+      ...modelIdFor(modelName).split('/'),
+    );
     try {
-      dir = this.resolveModelsDir();
-    } catch {
-      return false;
-    }
-    try {
-      await fs.access(path.join(dir, filename));
-      return true;
+      const entries = await fs.readdir(modelDir, { recursive: true });
+      return entries.length > 0;
     } catch {
       return false;
     }
@@ -218,121 +186,137 @@ export class WhisperTranscriber extends EventEmitter {
 
   /**
    * Eagerly download a model so the chat mic / gateway voice notes don't stall
-   * on a first-use download. Streams the `ggml-*.bin` straight from Hugging
-   * Face into the directory `nodejs-whisper` reads from, emitting the same
-   * `download` lifecycle events as the lazy path. Returns whether the model was
-   * already on disk (no download performed).
+   * on a first-use download. Loading the pipeline pulls the ONNX weights into
+   * the cache; progress is bridged to the `download` lifecycle events. Returns
+   * whether the model was already cached (no download performed).
    */
   async downloadModel(model?: string): Promise<{ alreadyPresent: boolean }> {
     const modelName = (model ?? this.modelName).trim();
-    const filename = this.ggmlFilename(modelName);
-    const dir = this.resolveModelsDir();
-    await fs.mkdir(dir, { recursive: true });
-
-    const dest = path.join(dir, filename);
-    try {
-      await fs.access(dest);
+    if (!WHISPER_MODELS.has(modelName)) {
+      throw new Error(`Unknown Whisper model "${modelName}"`);
+    }
+    if (await this.isModelDownloaded(modelName)) {
       return { alreadyPresent: true };
-    } catch {
-      // not present — download below
     }
 
-    const startEvt: WhisperDownloadEvent = {
-      kind: 'download:start',
-      model: modelName,
-    };
-    this.emit('download', startEvt);
-
-    const tmp = `${dest}.download`;
+    this.emit('download', { kind: 'download:start', model: modelName });
     try {
-      await this.downloader(
-        `${HUGGINGFACE_MODEL_BASE}/${filename}`,
-        tmp,
-        (percent) => {
-          const progressEvt: WhisperDownloadEvent = {
-            kind: 'download:progress',
-            model: modelName,
-            percent,
-          };
-          this.emit('download', progressEvt);
-        },
-      );
-      await fs.rename(tmp, dest);
-      const completeEvt: WhisperDownloadEvent = {
-        kind: 'download:complete',
-        model: modelName,
-      };
-      this.emit('download', completeEvt);
+      await this.ensurePipeline(modelName);
+      this.emit('download', { kind: 'download:complete', model: modelName });
       this.logger.info('[gateway] whisper model downloaded', {
         model: modelName,
-        dest,
       });
       return { alreadyPresent: false };
     } catch (err) {
-      await fs.rm(tmp, { force: true }).catch(() => undefined);
-      const errEvt: WhisperDownloadEvent = {
+      this.emit('download', {
         kind: 'download:error',
         model: modelName,
         error: err instanceof Error ? err.message : String(err),
-      };
-      this.emit('download', errEvt);
+      });
       throw err;
     }
   }
 
   /**
-   * Transcribe a 16 kHz WAV. Returns the trimmed transcript text. Empty
-   * string when whisper produced nothing usable.
+   * Transcribe 16 kHz mono float PCM samples. Returns the trimmed transcript
+   * text, or an empty string when whisper produced nothing usable.
    */
-  async transcribe(wavPath: string): Promise<string> {
+  async transcribe(audio: Float32Array): Promise<string> {
     const present = await this.isModelDownloaded();
     if (!present) {
-      const startEvt: WhisperDownloadEvent = {
-        kind: 'download:start',
-        model: this.modelName,
-      };
-      this.emit('download', startEvt);
+      this.emit('download', { kind: 'download:start', model: this.modelName });
     }
-
-    const whisper = await this.loader();
     try {
-      const result = await whisper(wavPath, {
-        modelName: this.modelName,
-        autoDownloadModelName: this.modelName,
-        removeWavFileAfterTranscription: false,
-        withCuda: false,
-        logger: undefined,
-        whisperOptions: {
-          outputInText: true,
-          outputInJson: false,
-          outputInSrt: false,
-          outputInVtt: false,
-        },
+      const asr = await this.ensurePipeline(this.modelName);
+      const result = await asr(audio, {
+        chunk_length_s: 30,
+        stride_length_s: 5,
       });
       if (!present) {
-        const completeEvt: WhisperDownloadEvent = {
+        this.emit('download', {
           kind: 'download:complete',
           model: this.modelName,
-        };
-        this.emit('download', completeEvt);
+        });
       }
       const text = typeof result === 'string' ? result : (result?.text ?? '');
       const cleaned = text.replace(/\[[^\]]+\]/g, '').trim();
       this.logger.debug('[gateway] whisper transcription complete', {
-        wavPath,
         length: cleaned.length,
       });
       return cleaned;
     } catch (err) {
       if (!present) {
-        const errEvt: WhisperDownloadEvent = {
+        this.emit('download', {
           kind: 'download:error',
           model: this.modelName,
           error: err instanceof Error ? err.message : String(err),
-        };
-        this.emit('download', errEvt);
+        });
       }
       throw err;
     }
+  }
+
+  private ensurePipeline(modelName: string): Promise<AsrPipeline> {
+    const modelId = modelIdFor(modelName);
+    if (this.pipeline && this.loadedModelId === modelId) {
+      return Promise.resolve(this.pipeline);
+    }
+    if (this.loading && this.loadedModelId === modelId) return this.loading;
+
+    this.loadedModelId = modelId;
+    this.pipeline = null;
+    this.loadBytesByFile.clear();
+    this.loading = this.pipelineFactory(modelId, {
+      cacheDir: this.modelCacheDir,
+      progress_callback: (info) => this.handlePipelineProgress(modelName, info),
+    })
+      .then((fn) => {
+        this.pipeline = fn;
+        return fn;
+      })
+      .finally(() => {
+        this.loading = null;
+      });
+    return this.loading;
+  }
+
+  /**
+   * Bridge transformers' per-file progress to a single monotonic percent.
+   * The pipeline downloads several files (encoder, decoder, tokenizer, …) and
+   * reports each one separately; aggregating by summed bytes avoids a bar that
+   * resets to 0 on every file. Falls back to the raw `progress` field when byte
+   * counts aren't reported.
+   */
+  private handlePipelineProgress(
+    modelName: string,
+    info: PipelineProgressInfo,
+  ): void {
+    let percent: number | null = null;
+
+    if (info.file && typeof info.total === 'number' && info.total > 0) {
+      this.loadBytesByFile.set(info.file, {
+        loaded: typeof info.loaded === 'number' ? info.loaded : 0,
+        total: info.total,
+      });
+      let loaded = 0;
+      let total = 0;
+      for (const f of this.loadBytesByFile.values()) {
+        loaded += f.loaded;
+        total += f.total;
+      }
+      if (total > 0) percent = (loaded / total) * 100;
+    } else if (
+      info.status === 'progress' &&
+      typeof info.progress === 'number'
+    ) {
+      percent = info.progress;
+    }
+
+    if (percent === null) return;
+    this.emit('download', {
+      kind: 'download:progress',
+      model: modelName,
+      percent: Math.min(99, Math.max(0, Math.round(percent))),
+    });
   }
 }

@@ -238,7 +238,6 @@ export class VoiceRpcHandlers {
       os.tmpdir(),
       `ptah-voice-${randomUUID()}${extensionForMime(mimeType)}`,
     );
-    let wavPath: string | null = null;
 
     try {
       await fs.writeFile(inputPath, Buffer.from(audioBase64, 'base64'));
@@ -248,8 +247,8 @@ export class VoiceRpcHandlers {
         this.whisper.configure({ modelName });
       }
 
-      wavPath = await this.ffmpeg.decodeToPcm16Wav(inputPath);
-      const transcript = await this.whisper.transcribe(wavPath);
+      const pcm = await this.ffmpeg.decodeToPcm16(inputPath);
+      const transcript = await this.whisper.transcribe(pcm);
       return { ok: true, transcript };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -271,7 +270,6 @@ export class VoiceRpcHandlers {
       return { ok: false, error: message };
     } finally {
       await this.cleanup(inputPath);
-      if (wavPath) await this.cleanup(path.dirname(wavPath), true);
     }
   }
 
