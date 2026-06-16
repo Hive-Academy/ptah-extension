@@ -103,24 +103,32 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
             </label>
             <label class="flex flex-col gap-1">
               <span class="text-xs text-base-content/60"
-                >Min trajectory fidelity ratio (0-1)</span
+                >Prefilter min edits</span
               >
               <input
                 type="number"
-                step="0.01"
                 class="input input-bordered input-sm"
-                formControlName="minTrajectoryFidelityRatio"
+                formControlName="prefilterMinEdits"
               />
             </label>
             <label class="flex flex-col gap-1">
               <span class="text-xs text-base-content/60"
-                >Min abstraction edit distance (0-1)</span
+                >Prefilter min chars</span
               >
               <input
                 type="number"
-                step="0.01"
                 class="input input-bordered input-sm"
-                formControlName="minAbstractionEditDistance"
+                formControlName="prefilterMinChars"
+              />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs text-base-content/60"
+                >Prefilter min tool uses</span
+              >
+              <input
+                type="number"
+                class="input input-bordered input-sm"
+                formControlName="prefilterMinToolUses"
               />
             </label>
             <label class="flex flex-col gap-1">

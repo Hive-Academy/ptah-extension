@@ -139,9 +139,8 @@ function makeDiagnostics() {
       lastAnalyzeRunAt: null,
       lastCuratorPassAt: null,
       eligibilityHistogram: {
-        tooFewTurns: 0,
-        lowFidelity: 0,
-        insufficientAbstraction: 0,
+        prefilterTooThin: 0,
+        prefilterRejected: 0,
         accepted: 0,
       },
       byStatus: { candidate: 0, promoted: 0, rejected: 0, invocations: 0 },
@@ -225,9 +224,8 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
       lastAnalyzeRunAt: 1700000000000,
       lastCuratorPassAt: 1699000000000,
       eligibilityHistogram: {
-        tooFewTurns: 1,
-        lowFidelity: 2,
-        insufficientAbstraction: 3,
+        prefilterTooThin: 1,
+        prefilterRejected: 5,
         accepted: 4,
       },
       byStatus: { candidate: 10, promoted: 3, rejected: 2, invocations: 12 },

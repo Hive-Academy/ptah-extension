@@ -36,7 +36,10 @@ export {
   migrateSkillMdFiles,
   type MigrationResult,
 } from './lib/skill-md-migration';
-export { computeNormalizedLevenshtein } from './lib/skill-synthesis.service';
+export {
+  SkillSynthesizerService,
+  type SynthesizedSkill,
+} from './lib/skill-synthesizer.service';
 export { SkillClusterDedupService } from './lib/skill-cluster-dedup.service';
 export { SkillJudgeService } from './lib/skill-judge.service';
 export {

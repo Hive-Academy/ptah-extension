@@ -128,7 +128,12 @@ export class SkillCuratorService {
   }
 
   runManual(): Promise<CuratorReport> {
-    if (!this.currentSettings) return Promise.resolve(this.emptyReport());
+    if (!this.currentSettings) {
+      this.logger.warn(
+        '[skill-curator] runManual called before start (no settings); returning empty report',
+      );
+      return Promise.resolve(this.emptyReport());
+    }
     return this.runPass(this.currentSettings);
   }
 
@@ -144,6 +149,17 @@ export class SkillCuratorService {
 
     const promoted = this.store.listByStatus('promoted');
     if (promoted.length === 0) {
+      this.logger.info(
+        '[skill-curator] no promoted skills to review; skipping overlap pass',
+      );
+      await this.runEnhancementPass(settings);
+      try {
+        this.onPassComplete?.(Date.now());
+      } catch (err: unknown) {
+        this.logger.warn('[skill-curator] onPassComplete callback threw', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       return this.emptyReport();
     }
     const skillList = promoted
@@ -317,9 +333,7 @@ export class SkillCuratorService {
     }
   }
 
-  private selectEnhancementCandidates(
-    settings: SkillSynthesisSettings,
-  ): Array<{
+  private selectEnhancementCandidates(settings: SkillSynthesisSettings): Array<{
     slug: string;
     kind: SkillRegistryKind;
     failed: number;

@@ -12,10 +12,7 @@ export type SkillSynthesisEventKind =
   | 'rate-limited'
   | 'error';
 
-export type SkillIneligibleReason =
-  | 'tooFewTurns'
-  | 'lowFidelity'
-  | 'insufficientAbstraction';
+export type SkillIneligibleReason = 'prefilterTooThin' | 'prefilterRejected';
 
 export interface SkillSynthesisEvent {
   readonly kind: SkillSynthesisEventKind;
@@ -28,9 +25,8 @@ export interface SkillSynthesisEvent {
 }
 
 export interface EligibilityHistogram {
-  readonly tooFewTurns: number;
-  readonly lowFidelity: number;
-  readonly insufficientAbstraction: number;
+  readonly prefilterTooThin: number;
+  readonly prefilterRejected: number;
   readonly accepted: number;
 }
 

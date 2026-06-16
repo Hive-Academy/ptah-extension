@@ -1671,7 +1671,7 @@ export interface SkillSynthesisStatsResult {
 }
 
 /**
- * DTO mirroring all 17 SkillSynthesisSettings fields.
+ * DTO mirroring all SkillSynthesisSettings fields.
  * Shared between frontend and backend — no branded types.
  */
 export interface SkillSynthesisSettingsDto {
@@ -1683,9 +1683,10 @@ export interface SkillSynthesisSettingsDto {
   eligibilityMinTurns: number;
   evictionDecayRate: number;
   generalizationContextThreshold: number;
-  minTrajectoryFidelityRatio: number;
   dedupClusterThreshold: number;
-  minAbstractionEditDistance: number;
+  prefilterMinEdits: number;
+  prefilterMinChars: number;
+  prefilterMinToolUses: number;
   judgeEnabled: boolean;
   minJudgeScore: number;
   judgeModel: string;

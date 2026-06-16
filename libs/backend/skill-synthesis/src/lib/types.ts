@@ -60,12 +60,14 @@ export interface SkillSynthesisSettings {
   evictionDecayRate: number;
   /** Minimum distinct context count for accelerated promotion threshold. */
   generalizationContextThreshold: number;
-  /** Minimum ratio of trajectory turns to total session turns (0-1). */
-  minTrajectoryFidelityRatio: number;
   /** Cosine distance threshold for cluster-centroid deduplication (0-1). */
   dedupClusterThreshold: number;
-  /** Minimum normalized Levenshtein edit distance to accept a candidate (0-1). */
-  minAbstractionEditDistance: number;
+  /** Minimum edit count for the prefilter edit-only acceptance path. */
+  prefilterMinEdits: number;
+  /** Minimum canonical-text length for the prefilter tool-heavy acceptance path. */
+  prefilterMinChars: number;
+  /** Minimum tool_use count for the prefilter tool-heavy acceptance path. */
+  prefilterMinToolUses: number;
   /** Whether the LLM-as-judge gate is active during promotion. */
   judgeEnabled: boolean;
   /** Minimum composite judge score (0-10) required for promotion. */

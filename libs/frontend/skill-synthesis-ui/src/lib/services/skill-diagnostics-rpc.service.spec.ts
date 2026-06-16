@@ -41,9 +41,8 @@ describe('SkillDiagnosticsRpcService', () => {
       totalInvocations: 0,
       activeSkills: 0,
       eligibilityHistogram: {
-        tooFewTurns: 0,
-        lowFidelity: 0,
-        insufficientAbstraction: 0,
+        prefilterTooThin: 0,
+        prefilterRejected: 0,
         accepted: 0,
       },
       recentEvents: [],

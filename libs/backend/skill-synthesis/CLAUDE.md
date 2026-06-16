@@ -23,8 +23,8 @@ Track 2 of TASK_2026_HERMES. Records each successful AI session; when a stable t
 
 ## Public API
 
-Services: `SkillCandidateStore`, `SkillMdGenerator`, `SkillPromotionService`, `SkillInvocationTracker`, `SkillSynthesisService`, `TrajectoryExtractor`, `SkillClusterDedupService`, `SkillJudgeService`, `SkillCuratorService`.
-Helpers: `migrateSkillMdFiles`, `computeNormalizedLevenshtein`, `cosineSimilarity`.
+Services: `SkillCandidateStore`, `SkillMdGenerator`, `SkillPromotionService`, `SkillInvocationTracker`, `SkillSynthesisService`, `SkillSynthesizerService`, `TrajectoryExtractor`, `SkillClusterDedupService`, `SkillJudgeService`, `SkillCuratorService`.
+Helpers: `migrateSkillMdFiles`, `cosineSimilarity`.
 DI: `SKILL_SYNTHESIS_TOKENS`, `INTERNAL_QUERY_SERVICE_TOKEN`, `SkillSynthesisDIToken`, `registerSkillSynthesisServices`.
 Constants/types: `JUDGE_DEFAULT_MODEL_ID`, `MIN_TURNS_FOR_TRAJECTORY`, `SkillId`, `CandidateId`, `SkillStatus`, `SkillCandidateRow`, `SkillInvocationRow`, `SkillSynthesisSettings`, `NewCandidateInput`, `RegisterCandidateResult`, `PromotionDecision`, `SkillMdInput`, `MaterializedSkill`, `ExtractedTrajectory`, `RecordInvocationInput/Result`, `CuratorReport`.
 

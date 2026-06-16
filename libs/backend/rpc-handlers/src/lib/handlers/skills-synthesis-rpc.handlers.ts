@@ -498,10 +498,8 @@ export class SkillsSynthesisRpcHandlers {
           totalInvocations: stats.invocations,
           activeSkills: stats.promoted,
           eligibilityHistogram: {
-            tooFewTurns: snapshot.eligibilityHistogram.tooFewTurns,
-            lowFidelity: snapshot.eligibilityHistogram.lowFidelity,
-            insufficientAbstraction:
-              snapshot.eligibilityHistogram.insufficientAbstraction,
+            prefilterTooThin: snapshot.eligibilityHistogram.prefilterTooThin,
+            prefilterRejected: snapshot.eligibilityHistogram.prefilterRejected,
             accepted: snapshot.eligibilityHistogram.accepted,
           },
           recentEvents: snapshot.recentEvents.map((e) => ({

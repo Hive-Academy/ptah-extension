@@ -32,9 +32,8 @@ describe('SkillDiagnosticsStateService', () => {
     totalInvocations: 9,
     activeSkills: 3,
     eligibilityHistogram: {
-      tooFewTurns: 1,
-      lowFidelity: 2,
-      insufficientAbstraction: 3,
+      prefilterTooThin: 1,
+      prefilterRejected: 5,
       accepted: 4,
     },
     recentEvents: [{ kind: 'analyze-run', timestamp: 1, sessionId: 'a' }],

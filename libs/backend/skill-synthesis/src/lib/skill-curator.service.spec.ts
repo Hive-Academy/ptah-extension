@@ -42,9 +42,10 @@ function makeSettings(
     eligibilityMinTurns: 5,
     evictionDecayRate: 0.95,
     generalizationContextThreshold: 3,
-    minTrajectoryFidelityRatio: 0.4,
     dedupClusterThreshold: 0.78,
-    minAbstractionEditDistance: 0.3,
+    prefilterMinEdits: 1,
+    prefilterMinChars: 800,
+    prefilterMinToolUses: 2,
     judgeEnabled: false,
     minJudgeScore: 6.0,
     judgeModel: 'claude-haiku-4-5-20251001',
@@ -392,6 +393,48 @@ describe('SkillCuratorService', () => {
     svc.start(makeSettings());
     const report = await svc.runManual();
     expect(report.changesQueued).toBe(0);
+  });
+
+  it('runs the enhancement pass even when there are zero promoted skills', async () => {
+    const baseStore = makeStore([]);
+    const store = {
+      ...baseStore,
+      listByStatus: baseStore.listByStatus,
+      updateStatus: baseStore.updateStatus,
+      getInvocationStats: jest.fn(() => ({
+        total: 12,
+        succeeded: 4,
+        failed: 8,
+        distinctContexts: 3,
+      })),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
+    const query = {
+      execute: jest.fn(),
+    };
+    const registry = {
+      listAll: jest.fn(() => [{ kind: 'skill', slug: 'eligible' }]),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[5];
+    const enhancer = {
+      isEligible: jest.fn(() => true),
+      enhance: jest.fn().mockResolvedValue({ changed: true, slug: 'eligible' }),
+    } as unknown as ConstructorParameters<typeof SkillCuratorService>[6];
+    const onPassComplete = jest.fn();
+    const svc = new SkillCuratorService(
+      noopLogger,
+      store,
+      query as never,
+      noopWorkspaceProvider,
+      noopRateLimiter,
+      registry,
+      enhancer,
+    );
+    svc.start(makeSettings(), { onPassComplete });
+    await svc.runManual();
+    expect(
+      (enhancer as unknown as { enhance: jest.Mock }).enhance,
+    ).toHaveBeenCalledWith('eligible', expect.anything(), { kind: 'skill' });
+    expect(query.execute).not.toHaveBeenCalled();
+    expect(onPassComplete).toHaveBeenCalledTimes(1);
   });
 
   it('settings restart triggers stop+start (curatorEnabled change)', () => {

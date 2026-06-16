@@ -50,40 +50,30 @@ export class EligibilityHistogramComponent {
 
   protected readonly totalValue = computed<number>(() => {
     const h = this.histogram();
-    return (
-      h.tooFewTurns + h.lowFidelity + h.insufficientAbstraction + h.accepted
-    );
+    return h.prefilterTooThin + h.prefilterRejected + h.accepted;
   });
 
   protected readonly bars = computed<readonly HistogramBar[]>(() => {
     const h = this.histogram();
     const max = Math.max(
-      h.tooFewTurns,
-      h.lowFidelity,
-      h.insufficientAbstraction,
+      h.prefilterTooThin,
+      h.prefilterRejected,
       h.accepted,
       1,
     );
     return [
       {
-        id: 'tooFewTurns',
-        label: 'Too few turns',
-        value: h.tooFewTurns,
-        widthPercent: (h.tooFewTurns / max) * 100,
+        id: 'prefilterTooThin',
+        label: 'Prefilter too thin',
+        value: h.prefilterTooThin,
+        widthPercent: (h.prefilterTooThin / max) * 100,
         colorClass: 'bg-warning',
       },
       {
-        id: 'lowFidelity',
-        label: 'Low fidelity',
-        value: h.lowFidelity,
-        widthPercent: (h.lowFidelity / max) * 100,
-        colorClass: 'bg-warning',
-      },
-      {
-        id: 'insufficientAbstraction',
-        label: 'Insufficient abstraction',
-        value: h.insufficientAbstraction,
-        widthPercent: (h.insufficientAbstraction / max) * 100,
+        id: 'prefilterRejected',
+        label: 'Prefilter rejected',
+        value: h.prefilterRejected,
+        widthPercent: (h.prefilterRejected / max) * 100,
         colorClass: 'bg-warning',
       },
       {

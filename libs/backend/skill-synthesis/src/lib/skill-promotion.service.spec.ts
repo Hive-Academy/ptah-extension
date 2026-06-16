@@ -29,9 +29,10 @@ const SETTINGS: SkillSynthesisSettings = {
   eligibilityMinTurns: 5,
   evictionDecayRate: 0.95,
   generalizationContextThreshold: 3,
-  minTrajectoryFidelityRatio: 0.4,
   dedupClusterThreshold: 0.78,
-  minAbstractionEditDistance: 0.3,
+  prefilterMinEdits: 1,
+  prefilterMinChars: 800,
+  prefilterMinToolUses: 2,
   judgeEnabled: false,
   minJudgeScore: 6.0,
   judgeModel: 'inherit',
@@ -107,14 +108,7 @@ describe('SkillPromotionService', () => {
   it('rejects below threshold (successCount < 3)', async () => {
     const store = makeStore(row({ successCount: 2 }));
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(false);
     expect(decision.reason).toBe('below-threshold');
@@ -124,14 +118,7 @@ describe('SkillPromotionService', () => {
   it('promotes at exactly the threshold', async () => {
     const store = makeStore(row({ successCount: 3 }));
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(true);
     expect(decision.reason).toBe('promoted');
@@ -146,14 +133,7 @@ describe('SkillPromotionService', () => {
   it('rejects an already-promoted candidate (idempotent)', async () => {
     const store = makeStore(row({ successCount: 5, status: 'promoted' }));
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(false);
     expect(decision.reason).toBe('already-promoted');
@@ -162,14 +142,7 @@ describe('SkillPromotionService', () => {
   it('rejects an already-rejected candidate', async () => {
     const store = makeStore(row({ successCount: 5, status: 'rejected' }));
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.reason).toBe('already-rejected');
   });
@@ -178,14 +151,7 @@ describe('SkillPromotionService', () => {
     const store = makeStore(row({ successCount: 3 }));
     (store.findById as jest.Mock).mockReturnValueOnce(null);
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('missing' as CandidateId, SETTINGS);
     expect(decision.reason).toBe('not-found');
     expect(decision.candidate).toBeNull();
@@ -199,14 +165,7 @@ describe('SkillPromotionService', () => {
       { row: row({ id: 'other' as CandidateId }), similarity: 0.86 },
     ]);
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(false);
     expect(decision.reason).toBe('duplicate');
@@ -226,14 +185,7 @@ describe('SkillPromotionService', () => {
       { row: row({ id: 'other' as CandidateId }), similarity: 0.84 },
     ]);
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(true);
     expect(decision.closestMatchSimilarity).toBeCloseTo(0.84);
@@ -252,14 +204,7 @@ describe('SkillPromotionService', () => {
       ...others,
     ]);
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(true);
     expect(decision.evictedSkillId).toBe('lru');
@@ -286,14 +231,7 @@ describe('SkillPromotionService', () => {
     (md.promoteToActive as jest.Mock).mockImplementation(() => {
       throw new Error('disk full');
     });
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(true);
     expect(decision.filePath).toBe('/orig/SKILL.md');

@@ -56,9 +56,8 @@ function makeDiagnosticsStub(
     lastCuratorPassAt: signal<number | null>(null),
     eligibilityHistogram: signal<EligibilityHistogramDto>(
       overrides.eligibilityHistogram ?? {
-        tooFewTurns: 0,
-        lowFidelity: 0,
-        insufficientAbstraction: 0,
+        prefilterTooThin: 0,
+        prefilterRejected: 0,
         accepted: 0,
       },
     ),
@@ -246,9 +245,8 @@ describe('SkillSynthesisTabComponent', () => {
     const diag = makeDiagnosticsStub({
       lastAnalyzeRunAt: Date.now() - 2 * 60_000,
       eligibilityHistogram: {
-        tooFewTurns: 2,
-        lowFidelity: 1,
-        insufficientAbstraction: 1,
+        prefilterTooThin: 2,
+        prefilterRejected: 2,
         accepted: 3,
       },
       recentEvents: [

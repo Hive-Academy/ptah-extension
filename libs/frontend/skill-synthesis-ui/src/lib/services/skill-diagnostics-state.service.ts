@@ -20,9 +20,8 @@ const DEFAULT_TRIGGERS: SkillTriggersDto = {
 };
 
 const DEFAULT_HISTOGRAM: EligibilityHistogramDto = {
-  tooFewTurns: 0,
-  lowFidelity: 0,
-  insufficientAbstraction: 0,
+  prefilterTooThin: 0,
+  prefilterRejected: 0,
   accepted: 0,
 };
 
@@ -71,9 +70,7 @@ export class SkillDiagnosticsStateService {
 
   public readonly sessionsAnalyzedToday = computed<number>(() => {
     const h = this._eligibilityHistogram();
-    return (
-      h.tooFewTurns + h.lowFidelity + h.insufficientAbstraction + h.accepted
-    );
+    return h.prefilterTooThin + h.prefilterRejected + h.accepted;
   });
 
   public readonly hasActiveSession = computed<boolean>(() => {
