@@ -26,12 +26,18 @@ const skillStateStub = {
   selectedCandidate: signal(null),
   loading: signal(false),
   error: signal(null),
+  suggestions: signal([]),
+  suggestionsLoading: signal(false),
+  pendingSuggestionCount: signal(0),
   refreshCandidates: () => Promise.resolve(),
+  refreshSuggestions: () => Promise.resolve(),
   loadStats: () => Promise.resolve(),
   setStatusFilter: () => Promise.resolve(),
   selectCandidate: () => Promise.resolve(),
   promote: () => Promise.resolve(),
   reject: () => Promise.resolve(),
+  accept: () => Promise.resolve(),
+  dismiss: () => Promise.resolve(),
 } as unknown as SkillSynthesisStateService;
 
 /**
