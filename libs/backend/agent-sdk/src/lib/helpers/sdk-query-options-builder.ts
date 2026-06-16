@@ -72,7 +72,7 @@ import {
   OLLAMA_AUTH_TOKEN_PLACEHOLDER,
 } from '@ptah-extension/shared';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
-import { PTAH_MCP_PORT } from '../constants';
+import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 /**
  * Detect obvious upstream provider error signatures in a stderr chunk.
@@ -614,6 +614,7 @@ export class SdkQueryOptionsBuilder {
         resume: resumeSessionId,
         maxTurns: this.calculateMaxTurns(sessionConfig),
         systemPrompt,
+        settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,

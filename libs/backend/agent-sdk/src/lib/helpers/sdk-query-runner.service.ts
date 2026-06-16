@@ -60,7 +60,7 @@ import {
   QueryFunction,
 } from '../types/sdk-types/claude-sdk.types';
 import type { Query } from './session-lifecycle-manager';
-import { PTAH_MCP_PORT } from '../constants';
+import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 const SERVICE_TAG = '[SdkQueryRunner]';
 const DEFAULT_ONE_SHOT_MAX_TURNS = 25;
@@ -328,6 +328,7 @@ export class SdkQueryRunner {
       cwd: input.cwd,
       model: resolvedModel,
       systemPrompt,
+      settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
       tools: {
         type: 'preset',
         preset: 'claude_code',

@@ -7,6 +7,7 @@ import {
   type IPlatformInfo,
 } from '@ptah-extension/platform-core';
 import * as path from 'path';
+import { PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 export interface WarmQueryHandle {
   close: () => void;
@@ -90,7 +91,10 @@ export class SdkWarmQueryManager {
         return;
       }
 
-      const startupOptions: Record<string, unknown> = { cwd: resolvedCwd };
+      const startupOptions: Record<string, unknown> = {
+        cwd: resolvedCwd,
+        settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
+      };
       if (cliJsPath) {
         startupOptions['pathToClaudeCodeExecutable'] = cliJsPath;
       }

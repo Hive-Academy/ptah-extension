@@ -286,6 +286,14 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     expect(opts.extraArgs).toBeUndefined();
   });
 
+  it('disables the SDK built-in auto-memory subsystem (Ptah uses its own indexed memory)', async () => {
+    const opts = await buildWith();
+    expect(opts.settings).toEqual({
+      autoMemoryEnabled: false,
+      autoDreamEnabled: false,
+    });
+  });
+
   it('always sets agentProgressSummaries: true (subagent visibility via SDK task_* events)', async () => {
     const opts = await buildWith();
     expect(opts.agentProgressSummaries).toBe(true);
