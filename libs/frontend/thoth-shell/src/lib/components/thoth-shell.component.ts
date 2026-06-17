@@ -106,6 +106,8 @@ interface ThothTabSpec {
               [attr.aria-selected]="isActive"
               [attr.aria-controls]="'thoth-panel-' + tab.id"
               [id]="'thoth-tab-' + tab.id"
+              data-testid="dashboard-status-card"
+              [attr.data-pillar]="tab.id"
               (click)="selectTab(tab.id)"
             >
               <div class="flex items-center gap-2">
@@ -129,6 +131,7 @@ interface ThothTabSpec {
               @if (status.available) {
                 <div class="flex items-baseline gap-1 pl-6">
                   <span
+                    data-testid="dashboard-status-card-value"
                     class="text-xl font-semibold leading-none"
                     [class]="status.accent"
                     >{{ status.value }}</span
