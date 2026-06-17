@@ -39,6 +39,8 @@ import {
   COPILOT_PROVIDER_ENTRY,
   CODEX_PROVIDER_ENTRY,
   OllamaModelDiscoveryService,
+  CopilotAuthService,
+  CodexAuthService,
 } from '@ptah-extension/auth-providers';
 import { CliDetectionService } from '@ptah-extension/cli-agent-runtime';
 import {
@@ -88,6 +90,10 @@ export class ProviderRpcHandlers {
     private readonly authEnv: AuthEnv,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_OLLAMA_DISCOVERY)
     private readonly ollamaDiscovery: OllamaModelDiscoveryService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)
+    private readonly copilotAuthService: CopilotAuthService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
+    private readonly codexAuthService: CodexAuthService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {}
@@ -145,6 +151,21 @@ export class ProviderRpcHandlers {
       } catch (error) {
         this.logger.debug(
           `[ProviderRpc] Platform model discovery unavailable: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      try {
+        const authModels = await this.copilotAuthService.listModels();
+        if (authModels.length > 0) {
+          this.logger.info(
+            `[ProviderRpc] Fetched ${authModels.length} Copilot models from auth service API`,
+          );
+          return authModels;
+        }
+      } catch (error) {
+        this.logger.debug(
+          `[ProviderRpc] Copilot auth service model listing unavailable: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
@@ -217,6 +238,21 @@ export class ProviderRpcHandlers {
       } catch (error) {
         this.logger.debug(
           `[ProviderRpc] Platform model discovery unavailable for Codex: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      try {
+        const authModels = await this.codexAuthService.listModels();
+        if (authModels.length > 0) {
+          this.logger.info(
+            `[ProviderRpc] Fetched ${authModels.length} Codex models from auth service API`,
+          );
+          return authModels;
+        }
+      } catch (error) {
+        this.logger.debug(
+          `[ProviderRpc] Codex auth service model listing unavailable: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );

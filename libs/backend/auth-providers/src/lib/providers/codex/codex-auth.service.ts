@@ -30,6 +30,7 @@ import { z } from 'zod';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { ProviderModelInfo } from '@ptah-extension/shared';
 import {
   SdkError,
   SDK_TOKENS,
@@ -265,6 +266,38 @@ export class CodexAuthService implements ICodexAuthService {
       `[CodexAuth] Using default OAuth API endpoint: ${DEFAULT_API_ENDPOINT_OAUTH}`,
     );
     return DEFAULT_API_ENDPOINT_OAUTH;
+  }
+
+  /**
+   * List models available to the authenticated Codex account via the
+   * provider's /models endpoint, filtered to Codex/GPT-5 models. Returns an
+   * empty array when not authenticated or on any error.
+   */
+  async listModels(): Promise<ProviderModelInfo[]> {
+    try {
+      const token = await this.resolveAccessToken();
+      if (!token) return [];
+      const endpoint = `${this.getApiEndpoint()}/models`;
+      const response = await fetch(endpoint, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) return [];
+      const data = (await response.json()) as {
+        data?: Array<{ id: string; owned_by?: string }>;
+      };
+      const models = data.data ?? [];
+      return models
+        .filter((m) => /codex|gpt-5/i.test(m.id))
+        .map((m) => ({
+          id: m.id,
+          name: m.id,
+          description: '',
+          contextLength: 0,
+          supportsToolUse: true,
+        }));
+    } catch {
+      return [];
+    }
   }
 
   /**

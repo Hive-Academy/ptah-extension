@@ -79,6 +79,7 @@ import type {
   ICodexAuthService,
   ProviderModelsService,
 } from '@ptah-extension/auth-providers';
+import { ActiveProviderResolver } from '@ptah-extension/auth-providers';
 import {
   createMockLogger,
   type MockLogger,
@@ -318,6 +319,10 @@ function makeHarness(
     ...(opts.appScope !== undefined ? { appScope: opts.appScope } : {}),
   });
 
+  const activeProviderResolver = new ActiveProviderResolver(
+    scopeResolver as unknown as WorkspaceScopeResolver,
+  );
+
   const handlers = new AuthRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
@@ -325,6 +330,7 @@ function makeHarness(
     authSecrets as unknown as IAuthSecretsService,
     sdkAdapter as unknown as SdkAgentAdapter,
     providerModels as unknown as ProviderModelsService,
+    activeProviderResolver,
     copilot as unknown as CopilotAuthService,
     codex as unknown as ICodexAuthService,
     platformCommands as unknown as IPlatformCommands,

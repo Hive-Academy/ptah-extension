@@ -29,6 +29,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   ProviderModelsService,
+  ActiveProviderResolver,
   AUTH_PROVIDERS_TOKENS,
 } from '@ptah-extension/auth-providers';
 import type {
@@ -48,7 +49,7 @@ import type {
   AuthGetScopeResult,
   AuthClearWorkspaceOverrideResult,
 } from '@ptah-extension/shared';
-import { AuthSettingsSchema, parseAuthMethod } from './auth-rpc.schema';
+import { AuthSettingsSchema } from './auth-rpc.schema';
 import type { RpcMethodName } from '@ptah-extension/shared';
 
 function resolveScopeFromKey(
@@ -105,6 +106,8 @@ export class AuthRpcHandlers {
     private readonly sdkAdapter: SdkAgentAdapter,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER)
+    private readonly activeProviderResolver: ActiveProviderResolver,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)
     private readonly copilotAuth: CopilotAuthService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
@@ -197,11 +200,9 @@ export class AuthRpcHandlers {
         this.logger.debug('RPC: auth:getAuthStatus called');
         const safeParams: AuthGetAuthStatusParams = params ?? {};
         const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
-        const rawMethod = this.scopeResolver.read<string>('authMethod', true);
-        const authMethod = parseAuthMethod(rawMethod);
-        const anthropicProviderId =
-          this.scopeResolver.read<string>('anthropicProviderId', true) ||
-          DEFAULT_PROVIDER_ID;
+        const active = this.activeProviderResolver.resolveActiveAuth();
+        const authMethod = active.authMethod;
+        const anthropicProviderId = active.providerId;
         const checkProviderId = safeParams.providerId || anthropicProviderId;
         const hasOpenRouterKey =
           await this.authSecretsService.hasProviderKey(checkProviderId);

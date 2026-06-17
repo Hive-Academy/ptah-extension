@@ -107,7 +107,10 @@ function createMockSentry(): jest.Mocked<
 }
 
 function createMockIAuthEnvProvider(): jest.Mocked<
-  Pick<IAuthEnvProvider, 'configureAuthentication' | 'clearAuthentication'>
+  Pick<
+    IAuthEnvProvider,
+    'configureAuthentication' | 'clearAuthentication' | 'resolveActiveAuth'
+  >
 > {
   return {
     configureAuthentication: jest.fn().mockResolvedValue({
@@ -116,6 +119,9 @@ function createMockIAuthEnvProvider(): jest.Mocked<
       errorMessage: undefined,
     }),
     clearAuthentication: jest.fn(),
+    resolveActiveAuth: jest
+      .fn()
+      .mockReturnValue({ authMethod: 'apiKey', providerId: 'anthropic' }),
   };
 }
 

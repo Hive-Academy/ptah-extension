@@ -69,6 +69,8 @@ import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 import type {
   OllamaModelDiscoveryService,
   ProviderModelsService,
+  CopilotAuthService,
+  CodexAuthService,
 } from '@ptah-extension/auth-providers';
 import type { CliDetectionService } from '@ptah-extension/cli-agent-runtime';
 import type { AuthEnv } from '@ptah-extension/shared';
@@ -149,6 +151,20 @@ function createMockOllamaDiscovery(): MockOllamaDiscovery {
   };
 }
 
+type MockCopilotAuthService = jest.Mocked<
+  Pick<CopilotAuthService, 'listModels'>
+>;
+
+function createMockCopilotAuthService(): MockCopilotAuthService {
+  return { listModels: jest.fn().mockResolvedValue([]) };
+}
+
+type MockCodexAuthService = jest.Mocked<Pick<CodexAuthService, 'listModels'>>;
+
+function createMockCodexAuthService(): MockCodexAuthService {
+  return { listModels: jest.fn().mockResolvedValue([]) };
+}
+
 // ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
@@ -165,6 +181,8 @@ interface Harness {
   sdkAdapter: MockSdkAdapter;
   authEnv: AuthEnv;
   ollamaDiscovery: MockOllamaDiscovery;
+  copilotAuthService: MockCopilotAuthService;
+  codexAuthService: MockCodexAuthService;
   sentry: MockSentryService;
 }
 
@@ -187,6 +205,8 @@ function makeHarness(
   const sdkAdapter = createMockSdkAdapter();
   const authEnv: AuthEnv = { ...(opts.authEnv ?? {}) };
   const ollamaDiscovery = createMockOllamaDiscovery();
+  const copilotAuthService = createMockCopilotAuthService();
+  const codexAuthService = createMockCodexAuthService();
   const sentry = createMockSentryService();
 
   const handlers = new ProviderRpcHandlers(
@@ -200,6 +220,8 @@ function makeHarness(
     sdkAdapter as unknown as SdkAgentAdapter,
     authEnv,
     ollamaDiscovery as unknown as OllamaModelDiscoveryService,
+    copilotAuthService as unknown as CopilotAuthService,
+    codexAuthService as unknown as CodexAuthService,
     sentry as unknown as SentryService,
   );
 
@@ -215,6 +237,8 @@ function makeHarness(
     sdkAdapter,
     authEnv,
     ollamaDiscovery,
+    copilotAuthService,
+    codexAuthService,
     sentry,
   };
 }

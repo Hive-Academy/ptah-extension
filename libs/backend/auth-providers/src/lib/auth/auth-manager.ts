@@ -19,10 +19,6 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import {
-  SETTINGS_TOKENS,
-  WorkspaceScopeResolver,
-} from '@ptah-extension/settings-core';
 import type { AuthEnv, AuthStrategyType } from '@ptah-extension/shared';
 import { resolveStrategy, type LegacyAuthMethod } from '@ptah-extension/shared';
 import type { IAuthStrategy } from './auth-strategy.types';
@@ -31,10 +27,13 @@ import type { ProviderModelsService } from '../provider-models.service';
 import type { IAuthEnvProvider } from '@ptah-extension/agent-sdk';
 import {
   getAnthropicProvider,
-  DEFAULT_PROVIDER_ID,
   ANTHROPIC_DIRECT_PROVIDER_ID,
 } from '@ptah-extension/shared';
 import { normalizeAuthMethod } from './auth-method.utils';
+import {
+  ActiveProviderResolver,
+  type ActiveAuth,
+} from './active-provider-resolver';
 
 export interface AuthResult {
   configured: boolean;
@@ -85,8 +84,8 @@ export class AuthManager implements IAuthEnvProvider {
     localProxyStrategy: IAuthStrategy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CLI_STRATEGY)
     cliStrategy: IAuthStrategy,
-    @inject(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER)
-    private readonly scopeResolver: WorkspaceScopeResolver,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER)
+    private readonly activeProviderResolver: ActiveProviderResolver,
   ) {
     this.strategyRegistry = new Map<AuthStrategyType, IAuthStrategy>([
       ['api-key', apiKeyStrategy],
@@ -113,7 +112,7 @@ export class AuthManager implements IAuthEnvProvider {
    * 4. Delegate to strategy.configure()
    * 5. Log env summary (boolean presence, no secrets)
    */
-  async configureAuthentication(rawAuthMethod: string): Promise<AuthResult> {
+  async configureAuthentication(rawAuthMethod?: string): Promise<AuthResult> {
     if (this.configInProgress) {
       this.logger.debug(
         '[AuthManager] configureAuthentication already in progress, awaiting existing call',
@@ -129,15 +128,22 @@ export class AuthManager implements IAuthEnvProvider {
     }
   }
 
+  resolveActiveAuth(): ActiveAuth {
+    return this.activeProviderResolver.resolveActiveAuth();
+  }
+
   /**
    * Internal implementation of configureAuthentication (guarded by concurrency mutex above)
    */
   private async doConfigureAuthentication(
-    rawAuthMethod: string,
+    rawAuthMethod?: string,
   ): Promise<AuthResult> {
-    const authMethod = normalizeAuthMethod(rawAuthMethod);
+    const authMethod =
+      rawAuthMethod === undefined
+        ? this.activeProviderResolver.resolveActiveAuth().authMethod
+        : normalizeAuthMethod(rawAuthMethod);
 
-    if (rawAuthMethod !== authMethod) {
+    if (rawAuthMethod !== undefined && rawAuthMethod !== authMethod) {
       this.logger.warn(
         `[AuthManager] Normalized auth method '${rawAuthMethod}' → '${authMethod}'`,
       );
@@ -263,8 +269,7 @@ export class AuthManager implements IAuthEnvProvider {
       };
     }
     const providerId =
-      this.scopeResolver.read<string>('anthropicProviderId') ??
-      DEFAULT_PROVIDER_ID;
+      this.activeProviderResolver.resolveThirdPartyProviderId();
 
     const provider = getAnthropicProvider(providerId);
     const strategyType = resolveStrategy('thirdParty', provider);

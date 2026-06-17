@@ -146,11 +146,6 @@ export const ANTHROPIC_PROVIDERS = [
     keyPlaceholder: 'sk-or-v1-...',
     maskedKeyDisplay: 'sk-or-••••••••••••',
     modelsEndpoint: 'https://openrouter.ai/api/v1/models',
-    defaultTiers: {
-      sonnet: 'anthropic/claude-sonnet-4-7',
-      opus: 'anthropic/claude-opus-4-7',
-      haiku: 'anthropic/claude-haiku-4-5',
-    },
   },
   {
     id: 'moonshot',

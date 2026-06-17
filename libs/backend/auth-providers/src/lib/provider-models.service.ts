@@ -29,12 +29,10 @@ import { updatePricingMap } from '@ptah-extension/shared';
 import { SdkError, TIER_ENV_VAR_MAP } from '@ptah-extension/agent-sdk';
 import {
   getAnthropicProvider,
-  ANTHROPIC_DIRECT_PROVIDER_ID,
-  DEFAULT_PROVIDER_ID,
   type AnthropicProvider,
 } from '@ptah-extension/shared';
-import { normalizeAuthMethod } from './auth/auth-method.utils';
 import { AUTH_PROVIDERS_TOKENS } from './di/tokens';
+import { ActiveProviderResolver } from './auth/active-provider-resolver';
 
 /**
  * Raw model response from OpenRouter-style /v1/models API
@@ -84,6 +82,8 @@ export class ProviderModelsService {
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV) private authEnv: AuthEnv,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER)
+    private activeProviderResolver: ActiveProviderResolver,
   ) {}
 
   /**
@@ -315,6 +315,7 @@ export class ProviderModelsService {
       const models = this.transformApiModels(data.data);
       this.feedPricingMap(models);
       this.modelCache.set(providerId, { models, timestamp: now });
+      await this.autoResolveDefaultTiers(providerId, models);
 
       this.logger.info(
         `[ProviderModelsService] Fetched models from ${provider.name}`,
@@ -422,6 +423,49 @@ export class ProviderModelsService {
       scope,
       envVar: scope === 'mainAgent' ? envVar : '(not set â€” cliAgent scope)',
     });
+  }
+
+  /**
+   * Auto-resolve default tier mappings from a freshly-fetched model list.
+   *
+   * Only runs when the user has NO persisted tier values for this provider
+   * (sonnet, opus, haiku all null on the `mainAgent` scope). Pattern-matches
+   * the newest Claude model per tier from the model list and persists it.
+   */
+  private async autoResolveDefaultTiers(
+    providerId: string,
+    models: ProviderModelInfo[],
+  ): Promise<void> {
+    const existing = this.getModelTiers(providerId, 'mainAgent');
+    if (existing.sonnet || existing.opus || existing.haiku) {
+      return;
+    }
+
+    const resolved: Record<ProviderModelTier, string | undefined> = {
+      sonnet: models
+        .filter((m) => /claude.*(sonnet)/i.test(m.id || m.name))
+        .sort()
+        .at(-1)?.id,
+      opus: models
+        .filter((m) => /claude.*(opus)/i.test(m.id || m.name))
+        .sort()
+        .at(-1)?.id,
+      haiku: models
+        .filter((m) => /claude.*(haiku)/i.test(m.id || m.name))
+        .sort()
+        .at(-1)?.id,
+    };
+
+    for (const [tier, modelId] of Object.entries(resolved)) {
+      if (modelId) {
+        await this.setModelTier(
+          providerId,
+          tier as ProviderModelTier,
+          modelId,
+          'mainAgent',
+        );
+      }
+    }
   }
 
   /**
@@ -555,22 +599,7 @@ export class ProviderModelsService {
    *  - thirdParty             â†’ saved anthropicProviderId (OpenRouter, Moonshot, etc.)
    */
   resolveActiveProviderId(): string {
-    const rawMethod = this.config.getWithDefault<string>(
-      'authMethod',
-      'apiKey',
-    );
-    const authMethod = normalizeAuthMethod(rawMethod);
-
-    if (authMethod === 'apiKey' || authMethod === 'claudeCli') {
-      return ANTHROPIC_DIRECT_PROVIDER_ID;
-    }
-    if (authMethod === 'thirdParty') {
-      return this.config.getWithDefault<string>(
-        'anthropicProviderId',
-        DEFAULT_PROVIDER_ID,
-      );
-    }
-    return ANTHROPIC_DIRECT_PROVIDER_ID;
+    return this.activeProviderResolver.resolveActiveAuth().providerId;
   }
 
   /**
