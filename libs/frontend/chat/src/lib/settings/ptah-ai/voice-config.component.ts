@@ -35,6 +35,8 @@ const MULTILINGUAL_MODELS: readonly WhisperModelOption[] = [
   { value: 'large-v3-turbo', label: 'large-v3-turbo (~800 MB, most accurate)' },
 ] as const;
 
+const DOWNLOAD_MODEL_TIMEOUT_MS = 30 * 60 * 1000;
+
 @Component({
   selector: 'ptah-voice-config',
   standalone: true,
@@ -289,9 +291,11 @@ export class VoiceConfigComponent implements OnInit {
     this.isDownloading.set(true);
 
     try {
-      const result = await this.rpcService.call('voice:downloadModel', {
-        model: this.selectedModel(),
-      });
+      const result = await this.rpcService.call(
+        'voice:downloadModel',
+        { model: this.selectedModel() },
+        { timeout: DOWNLOAD_MODEL_TIMEOUT_MS },
+      );
       if (result.isSuccess() && result.data.ok) {
         this.downloaded.set(true);
       } else {
