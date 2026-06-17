@@ -164,8 +164,8 @@ export const ANTHROPIC_PROVIDERS = [
     maskedKeyDisplay: '••••••••••••',
     modelsEndpoint: 'https://api.moonshot.ai/v1/models',
     defaultTiers: {
-      sonnet: 'kimi-k2.5',
-      opus: 'kimi-k2.5',
+      sonnet: 'kimi-k2.6',
+      opus: 'kimi-k2.7-code',
       haiku: 'kimi-k2.5',
     },
     staticModels: [
@@ -224,6 +224,29 @@ export const ANTHROPIC_PROVIDERS = [
         cacheReadCostPerToken: 0.16e-6, // $0.16 per 1M tokens (cache hit)
         cacheCreationCostPerToken: 1.1875e-6, // 125% of input
       },
+      {
+        id: 'kimi-k2.7-code',
+        name: 'Kimi K2.7 Code',
+        description:
+          'Agentic coding model, 1T MoE / 32B active, forced thinking (256K context)',
+        contextLength: 256000,
+        supportsToolUse: true,
+        inputCostPerToken: 0.95e-6, // $0.95 per 1M tokens
+        outputCostPerToken: 4e-6, // $4.00 per 1M tokens
+        cacheReadCostPerToken: 0.16e-6, // $0.16 per 1M tokens (cache hit)
+        cacheCreationCostPerToken: 1.1875e-6, // 125% of input
+      },
+      {
+        id: 'kimi-k2.7-code-highspeed',
+        name: 'Kimi K2.7 Code (Highspeed)',
+        description: 'Low-latency variant of K2.7 Code (256K context)',
+        contextLength: 256000,
+        supportsToolUse: true,
+        inputCostPerToken: 0.95e-6, // $0.95 per 1M tokens (highspeed pricing TBD, mirrors K2.7 Code)
+        outputCostPerToken: 4e-6, // $4.00 per 1M tokens
+        cacheReadCostPerToken: 0.16e-6, // $0.16 per 1M tokens (cache hit)
+        cacheCreationCostPerToken: 1.1875e-6, // 125% of input
+      },
     ],
   },
   {
@@ -238,10 +261,22 @@ export const ANTHROPIC_PROVIDERS = [
     maskedKeyDisplay: '••••••••••••',
     defaultTiers: {
       sonnet: 'glm-5.1',
-      opus: 'glm-5-code',
+      opus: 'glm-5.2',
       haiku: 'glm-4.7-flashx',
     },
     staticModels: [
+      {
+        id: 'glm-5.2',
+        name: 'GLM-5.2',
+        description:
+          'Flagship coding model, 744B params, strongest open-source coding (1M context)',
+        contextLength: 1000000,
+        supportsToolUse: true,
+        inputCostPerToken: 1.4e-6, // $1.40 per 1M tokens
+        outputCostPerToken: 4.4e-6, // $4.40 per 1M tokens
+        cacheReadCostPerToken: 0.26e-6, // $0.26 per 1M tokens (cache hit)
+        cacheCreationCostPerToken: 1.75e-6, // 125% of input
+      },
       {
         id: 'glm-5.1',
         name: 'GLM-5.1',
