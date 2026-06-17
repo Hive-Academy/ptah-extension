@@ -80,6 +80,12 @@ const DEFAULT_API_ENDPOINT_APIKEY = 'https://api.openai.com/v1';
  */
 const DEFAULT_API_ENDPOINT_OAUTH = 'https://chatgpt.com/backend-api/codex';
 
+/**
+ * The Codex `/models` endpoint requires a `client_version` query param to be
+ * present (any value is accepted; it does not gate which models are returned).
+ */
+const CODEX_MODELS_CLIENT_VERSION = '0.0.0';
+
 @injectable()
 export class CodexAuthService implements ICodexAuthService {
   /** Cached auth file content to avoid repeated disk reads within short windows */
@@ -270,23 +276,47 @@ export class CodexAuthService implements ICodexAuthService {
 
   /**
    * List models available to the authenticated Codex account via the
-   * provider's /models endpoint, filtered to Codex/GPT-5 models. Returns an
-   * empty array when not authenticated or on any error.
+   * provider's /models endpoint. Returns an empty array when not authenticated
+   * or on any error.
+   *
+   * Handles both response shapes:
+   * - ChatGPT backend (OAuth): `{ models: [{ slug, display_name, ... }] }`,
+   *   already scoped to the account; only listed (non-hidden) models are kept.
+   * - OpenAI API (API key): `{ data: [{ id }] }`, filtered to Codex/GPT-5 ids.
    */
   async listModels(): Promise<ProviderModelInfo[]> {
     try {
       const token = await this.resolveAccessToken();
       if (!token) return [];
-      const endpoint = `${this.getApiEndpoint()}/models`;
+      const endpoint = `${this.getApiEndpoint()}/models?client_version=${CODEX_MODELS_CLIENT_VERSION}`;
       const response = await fetch(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) return [];
       const data = (await response.json()) as {
+        models?: Array<{
+          slug: string;
+          display_name?: string;
+          description?: string;
+          context_window?: number;
+          visibility?: string;
+        }>;
         data?: Array<{ id: string; owned_by?: string }>;
       };
-      const models = data.data ?? [];
-      return models
+
+      if (Array.isArray(data.models)) {
+        return data.models
+          .filter((m) => m.visibility === 'list')
+          .map((m) => ({
+            id: m.slug,
+            name: m.display_name ?? m.slug,
+            description: m.description ?? '',
+            contextLength: m.context_window ?? 0,
+            supportsToolUse: true,
+          }));
+      }
+
+      return (data.data ?? [])
         .filter((m) => /codex|gpt-5/i.test(m.id))
         .map((m) => ({
           id: m.id,
