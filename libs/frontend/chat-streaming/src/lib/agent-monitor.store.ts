@@ -83,6 +83,7 @@ export interface MonitoredAgent {
   readonly displayName?: string;
   /** Model identifier used by the CLI agent (e.g., 'gpt-5-codex', 'gpt-4o'). */
   readonly model?: string;
+  readonly supportsContinuation?: boolean;
 }
 
 /**
@@ -409,6 +410,23 @@ export class AgentMonitorStore implements OnDestroy {
     const hadAgents = this._agents().length > 0;
 
     this._agents.update((list) => {
+      const existingIndex = list.findIndex((a) => a.agentId === info.agentId);
+      if (existingIndex !== -1) {
+        const existing = list[existingIndex];
+        const reopened: MonitoredAgent = {
+          ...existing,
+          status: info.status,
+          completedAt: undefined,
+          exitCode: undefined,
+          cliSessionId: info.cliSessionId || existing.cliSessionId,
+          supportsContinuation:
+            info.supportsContinuation ?? existing.supportsContinuation,
+        };
+        const next = [...list];
+        next[existingIndex] = reopened;
+        return next;
+      }
+
       const oldCard = this.findReplacementCard(list, info);
 
       if (oldCard) {
@@ -437,6 +455,7 @@ export class AgentMonitorStore implements OnDestroy {
           permissionQueue: [],
           displayName: info.displayName || info.ptahCliName,
           model: info.model,
+          supportsContinuation: info.supportsContinuation,
         };
         return [
           ...list.filter((a) => a.agentId !== oldCard.agentId),
@@ -463,6 +482,7 @@ export class AgentMonitorStore implements OnDestroy {
         permissionQueue: [],
         displayName: info.displayName || info.ptahCliName,
         model: info.model,
+        supportsContinuation: info.supportsContinuation,
       };
       return this.enforceMaxExpanded([...list, fresh]);
     });
@@ -574,6 +594,8 @@ export class AgentMonitorStore implements OnDestroy {
         cliSessionId: info.cliSessionId || agent.cliSessionId,
         completedAt,
         permissionQueue: [],
+        supportsContinuation:
+          info.supportsContinuation ?? agent.supportsContinuation,
       };
       return this.evictOldCompletedAgents(next);
     });
@@ -1003,6 +1025,17 @@ export class AgentMonitorStore implements OnDestroy {
    * RPC call succeeded, `false` when an error was recorded. Callers use the
    * return value to conditionally show success / keep-draft UX.
    */
+  async continueAgent(
+    agentId: string,
+    message: string,
+  ): Promise<{ ok: boolean; code?: string }> {
+    const result = await this.rpc.call('agent:continue', {
+      agentId,
+      message,
+    });
+    return { ok: result.isSuccess(), code: result.data?.code };
+  }
+
   async sendMessageToAgent(
     parentToolUseId: string,
     text: string,

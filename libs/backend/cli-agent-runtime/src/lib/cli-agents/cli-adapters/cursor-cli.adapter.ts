@@ -25,6 +25,7 @@ import type {
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
+  ContinuationOutcome,
   SdkHandle,
 } from './cli-adapter.interface';
 import { stripAnsiCodes, buildTaskPrompt } from './cli-adapter.utils';
@@ -257,6 +258,7 @@ export class CursorCliAdapter implements CliAdapter {
     const abortController = new AbortController();
     let capturedAgentId: string | undefined;
     let activeRun: CursorRun | undefined;
+    let agent: CursorSdkAgent | undefined;
 
     const outputBuffer: string[] = [];
     const outputCallbacks: Array<(data: string) => void> = [];
@@ -310,10 +312,13 @@ export class CursorCliAdapter implements CliAdapter {
           /* non-fatal */
         });
       }
+      if (agent) {
+        agent.close();
+      }
     };
     abortController.signal.addEventListener('abort', onAbort);
 
-    const done = (async (): Promise<number> => {
+    const runTurn = async (prompt: string): Promise<number> => {
       const apiKey = resolveCursorApiKey();
       if (!apiKey) {
         const msg =
@@ -324,32 +329,33 @@ export class CursorCliAdapter implements CliAdapter {
       }
 
       try {
-        const sdk = await getCursorSdk();
-        const agentOptions: CursorAgentOptions = {
-          apiKey,
-          model: { id: options.model ?? DEFAULT_CURSOR_MODEL },
-          local: { cwd: options.workingDirectory },
-        };
-        if (options.mcpPort) {
-          agentOptions.mcpServers = {
-            ptah: {
-              type: 'http',
-              url: `http://localhost:${options.mcpPort}`,
-            },
+        if (!agent) {
+          const sdk = await getCursorSdk();
+          const agentOptions: CursorAgentOptions = {
+            apiKey,
+            model: { id: options.model ?? DEFAULT_CURSOR_MODEL },
+            local: { cwd: options.workingDirectory },
           };
+          if (options.mcpPort) {
+            agentOptions.mcpServers = {
+              ptah: {
+                type: 'http',
+                url: `http://localhost:${options.mcpPort}`,
+              },
+            };
+          }
+
+          agent = options.resumeSessionId
+            ? await sdk.Agent.resume(options.resumeSessionId, agentOptions)
+            : await sdk.Agent.create(agentOptions);
+          capturedAgentId = agent.agentId;
         }
 
-        const agent = options.resumeSessionId
-          ? await sdk.Agent.resume(options.resumeSessionId, agentOptions)
-          : await sdk.Agent.create(agentOptions);
-        capturedAgentId = agent.agentId;
-
         if (abortController.signal.aborted) {
-          agent.close();
           return 1;
         }
 
-        const run = await agent.send(taskPrompt);
+        const run = await agent.send(prompt);
         activeRun = run;
 
         const textTracker = { last: '' };
@@ -357,7 +363,6 @@ export class CursorCliAdapter implements CliAdapter {
 
         for await (const message of run.stream()) {
           if (abortController.signal.aborted) {
-            agent.close();
             return 1;
           }
           this.handleMessage(
@@ -369,7 +374,6 @@ export class CursorCliAdapter implements CliAdapter {
           );
         }
 
-        agent.close();
         return abortController.signal.aborted ? 1 : 0;
       } catch (error: unknown) {
         if (abortController.signal.aborted) {
@@ -383,10 +387,10 @@ export class CursorCliAdapter implements CliAdapter {
           content: `Cursor SDK Error: ${errorMessage}`,
         });
         return 1;
-      } finally {
-        abortController.signal.removeEventListener('abort', onAbort);
       }
-    })();
+    };
+
+    const done = runTurn(taskPrompt);
 
     return {
       abort: abortController,
@@ -395,6 +399,9 @@ export class CursorCliAdapter implements CliAdapter {
       onSegment,
       getSessionId: () => capturedAgentId,
       setAgentId: () => {},
+      supportsContinuation: () => true,
+      continue: (message: string): Promise<ContinuationOutcome> =>
+        Promise.resolve({ done: runTurn(message) }),
     };
   }
 

@@ -43,6 +43,7 @@ import {
 import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persistence.service';
 import type { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
 import { PtahCliStreamLoop } from './helpers/ptah-cli-stream-loop.service';
+import { createPromptMailbox } from './helpers/ptah-cli-prompt-mailbox';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import {
   PTAH_CLI_KEY_PREFIX,
@@ -523,9 +524,13 @@ export class PtahCliRegistry {
       : task;
     const queryFn = await this.moduleLoader.getQueryFunction();
     const abortController = new AbortController();
+    const mailbox = createPromptMailbox(effectivePrompt);
+    abortController.signal.addEventListener('abort', () => {
+      mailbox.close();
+    });
 
     const sdkQuery = queryFn({
-      prompt: effectivePrompt,
+      prompt: mailbox.prompt,
       options: {
         abortController,
         model,
@@ -569,6 +574,12 @@ export class PtahCliRegistry {
     });
     let resolvedSessionId: string | null = null;
     const sessionResolvedCallbacks: Array<(sessionId: string) => void> = [];
+    const pendingTurns: Array<(exitCode: number) => void> = [];
+    const enqueueTurn = (): Promise<number> =>
+      new Promise<number>((resolve) => {
+        pendingTurns.push(resolve);
+      });
+    const turn1Done = enqueueTurn();
     const streamLoop = new PtahCliStreamLoop({
       logger: this.logger,
       messageTransformer: this.messageTransformer,
@@ -582,16 +593,25 @@ export class PtahCliRegistry {
           cb(sessionId);
         }
       },
+      onTurnComplete: (exitCode: number) => {
+        const resolve = pendingTurns.shift();
+        if (resolve) {
+          resolve(exitCode);
+        }
+      },
     });
-    const done = streamLoop.run(sdkQuery).then((exitCode) => {
+    streamLoop.run(sdkQuery).then((exitCode) => {
       disposeCallbacks();
       sessionResolvedCallbacks.length = 0;
-      return exitCode;
+      while (pendingTurns.length > 0) {
+        const resolve = pendingTurns.shift();
+        resolve?.(exitCode);
+      }
     });
 
     const handle: SdkHandle = {
       abort: abortController,
-      done,
+      done: turn1Done,
       onOutput: (callback) => {
         outputCallbacks.push(callback);
       },
@@ -602,6 +622,12 @@ export class PtahCliRegistry {
         if (resolvedSessionId) {
           callback(resolvedSessionId);
         }
+      },
+      supportsContinuation: () => true,
+      continue: (message: string) => {
+        const done = enqueueTurn();
+        mailbox.push(message);
+        return Promise.resolve({ done });
       },
     };
 

@@ -53,6 +53,7 @@ export interface PtahCliStreamLoopConfig {
   readonly agentName: string;
   /** Called when the real SDK session ID is resolved from the system init message. */
   readonly onSessionResolved?: (sessionId: string) => void;
+  readonly onTurnComplete?: (exitCode: number) => void;
 }
 
 /**
@@ -316,6 +317,7 @@ export class PtahCliStreamLoop {
             continue;
           }
           if (isResultMessage(msg)) {
+            let turnExitCode = 0;
             if (isSuccessResult(msg)) {
               const parts: string[] = [];
               if (msg.usage) {
@@ -333,11 +335,13 @@ export class PtahCliStreamLoop {
               emitOutput(`\n[${usageStr}]\n`);
               emitSegment({ type: 'info', content: usageStr });
             } else if (isErrorResult(msg)) {
+              turnExitCode = 1;
               const errorMsg =
                 msg.errors?.join('; ') ?? `Error: ${msg.subtype}`;
               emitOutput(`\n[Error: ${errorMsg}]\n`);
               emitSegment({ type: 'error', content: errorMsg });
             }
+            this.config.onTurnComplete?.(turnExitCode);
             continue;
           }
           if (isToolProgress(msg)) {

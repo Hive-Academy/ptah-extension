@@ -178,6 +178,7 @@ import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
   AgentListCliModelsResult,
+  AgentContinueErrorCode,
   AgentPermissionDecision,
   SkillShEntry,
   SkillAgentTarget,
@@ -833,6 +834,10 @@ export interface RpcMethodRegistry {
   'agent:stop': {
     params: { agentId: string };
     result: { success: boolean; error?: string };
+  };
+  'agent:continue': {
+    params: { agentId: string; message: string };
+    result: { success: boolean; error?: string; code?: AgentContinueErrorCode };
   };
   /** Resume a CLI agent session by spawning a new process with resumeSessionId */
   'agent:resumeCliSession': {
@@ -2221,6 +2226,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'agent:listCliModels': true,
   'agent:permissionResponse': true, // Copilot SDK permission response
   'agent:stop': true,
+  'agent:continue': true,
   'agent:resumeCliSession': true, // CLI agent session resume
   'agent:backgroundList': true, // Background agent listing
   'ptahCli:list': true,

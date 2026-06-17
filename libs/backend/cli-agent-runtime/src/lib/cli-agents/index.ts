@@ -7,7 +7,11 @@
  */
 
 export { CliDetectionService } from './cli-detection.service';
-export { AgentProcessManager } from './agent-process-manager.service';
+export {
+  AgentProcessManager,
+  AgentContinueError,
+} from './agent-process-manager.service';
+export type { AgentContinueErrorCode } from './agent-process-manager.service';
 export * from './cli-adapters';
 export { CliPluginSyncService } from './cli-skill-sync';
 export type { ICliSkillInstaller } from './cli-skill-sync';

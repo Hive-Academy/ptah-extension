@@ -39,11 +39,17 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { AgentCardComponent } from '../molecules/agent-card/agent-card.component';
+import { AgentContinueInputComponent } from '../molecules/agent-continue-input/agent-continue-input.component';
 
 @Component({
   selector: 'ptah-agent-monitor-panel',
   standalone: true,
-  imports: [NgClass, LucideAngularModule, AgentCardComponent],
+  imports: [
+    NgClass,
+    LucideAngularModule,
+    AgentCardComponent,
+    AgentContinueInputComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .agent-panel-open {
@@ -217,6 +223,8 @@ import { AgentCardComponent } from '../molecules/agent-card/agent-card.component
               (toggleExpanded)="store.toggleAgentExpanded(agent.agentId)"
             />
           </div>
+
+          <ptah-agent-continue-input [agent]="agent" />
         } @else {
           <div
             class="flex flex-col items-center justify-center h-32 text-center"

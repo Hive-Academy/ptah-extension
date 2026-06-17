@@ -72,10 +72,27 @@ const execFileAsync = promisify(execFile);
  * code characters ($, (), {}, backticks, etc.).
  */
 
+export type AgentContinueErrorCode =
+  | 'not_found'
+  | 'unsupported'
+  | 'busy'
+  | 'unknown';
+
+export class AgentContinueError extends Error {
+  constructor(
+    readonly code: AgentContinueErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'AgentContinueError';
+  }
+}
+
 interface TrackedAgent {
   info: AgentProcessInfo;
   /** Child process for CLI-based agents, null for SDK-based agents */
   process: ChildProcess | null;
+  sdkHandle?: SdkHandle;
   /** Abort controller for SDK-based agents (null/undefined for CLI agents) */
   sdkAbortController?: AbortController;
   stdoutBuffer: string;
@@ -468,9 +485,14 @@ export class AgentProcessManager {
     const timeoutHandle = setTimeout(() => {
       this.handleTimeout(agentId);
     }, timeout);
+    const supportsContinuation = sdkHandle.supportsContinuation?.() === true;
+    const trackedInfo: AgentProcessInfo = supportsContinuation
+      ? { ...info, supportsContinuation: true }
+      : info;
     const tracked: TrackedAgent = {
-      info,
+      info: trackedInfo,
       process: null,
+      sdkHandle,
       sdkAbortController: sdkHandle.abort,
       stdoutBuffer: '',
       stderrBuffer: '',
@@ -666,6 +688,75 @@ export class AgentProcessManager {
     }
 
     tracked.process.stdin.write(instruction + '\n');
+  }
+
+  async continueConversation(agentId: string, message: string): Promise<void> {
+    const tracked = this.agents.get(agentId);
+    if (!tracked) {
+      throw new AgentContinueError('not_found', `Agent not found: ${agentId}`);
+    }
+
+    const sdkHandle = tracked.sdkHandle;
+    if (sdkHandle?.supportsContinuation?.() !== true || !sdkHandle.continue) {
+      throw new AgentContinueError(
+        'unsupported',
+        `Agent ${agentId} does not support continuation`,
+      );
+    }
+
+    if (tracked.info.status === 'running') {
+      throw new AgentContinueError(
+        'busy',
+        `Agent ${agentId} is busy (status: ${tracked.info.status})`,
+      );
+    }
+
+    tracked.hasExited = false;
+    if (tracked.cleanupHandle) {
+      clearTimeout(tracked.cleanupHandle);
+      tracked.cleanupHandle = undefined;
+    }
+    clearTimeout(tracked.timeoutHandle);
+    tracked.info = {
+      ...tracked.info,
+      status: 'running',
+      completedAt: undefined,
+      exitCode: undefined,
+    };
+    tracked.timeoutHandle = setTimeout(() => {
+      this.handleTimeout(agentId);
+    }, DEFAULT_TIMEOUT);
+
+    this.events.emit('agent:spawned', tracked.info);
+
+    let outcome: { done: Promise<number> };
+    try {
+      outcome = await sdkHandle.continue(message);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error('[AgentProcessManager] continue() failed to start', {
+        agentId,
+        error: errorMessage,
+      });
+      this.handleExit(agentId, 1, null);
+      throw new AgentContinueError('unknown', errorMessage);
+    }
+
+    outcome.done.then(
+      (exitCode) => {
+        this.handleExit(agentId, exitCode, null);
+      },
+      (error: unknown) => {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error('[AgentProcessManager] continued turn error', {
+          agentId,
+          error: errorMessage,
+        });
+        this.handleExit(agentId, 1, null);
+      },
+    );
   }
 
   /**
