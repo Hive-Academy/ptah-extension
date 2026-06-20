@@ -20,6 +20,7 @@ import type {
   GatewayApproveBindingParams,
   GatewayApproveBindingResult,
   GatewayBindingDto,
+  GatewayBindingsChangedPayload,
   GatewayBlockBindingParams,
   GatewayBlockBindingResult,
   GatewayListBindingsParams,
@@ -110,10 +111,38 @@ export class GatewayRpcHandlers {
     this.registerSetDiscordAppId();
     this.registerRegisterDiscordCommands();
     this.registerListDiscordGuilds();
+    this.subscribeBindingChanges();
 
     this.logger.debug('Gateway RPC handlers registered', {
       methods: GatewayRpcHandlers.METHODS,
     });
+  }
+
+  /**
+   * Push the bindings list to the renderer whenever it changes (new inbound
+   * pairing request, approve / reject / revoke). Without this, the gateway tab
+   * only hydrates bindings once at boot and a pending request stays invisible
+   * until the user manually reloads the tab.
+   */
+  private subscribeBindingChanges(): void {
+    this.gateway.on('bindings-changed', () => {
+      void this.broadcastBindings();
+    });
+  }
+
+  private async broadcastBindings(): Promise<void> {
+    try {
+      const bindings = this.gateway.listBindings().map(toBindingDtoPublic);
+      const payload: GatewayBindingsChangedPayload = { bindings };
+      await this.webviewManager.broadcastMessage(
+        MESSAGE_TYPES.GATEWAY_BINDINGS_CHANGED,
+        payload,
+      );
+    } catch (err: unknown) {
+      this.logger.warn('[gateway] broadcastBindings failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   private async broadcastStatus(origin: string | null): Promise<void> {

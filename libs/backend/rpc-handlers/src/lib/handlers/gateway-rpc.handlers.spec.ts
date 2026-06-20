@@ -54,6 +54,7 @@ function buildSuite(): Suite {
     approveBinding: jest.fn(),
     setBindingStatus: jest.fn(),
     sendTest: jest.fn(),
+    on: jest.fn(),
   } as unknown as jest.Mocked<GatewayService>;
 
   const webviewManager = {
@@ -125,6 +126,7 @@ describe('GatewayRpcHandlers', () => {
         approveBinding: jest.fn(),
         setBindingStatus: jest.fn(),
         sendTest: jest.fn(),
+        on: jest.fn(),
       } as unknown as jest.Mocked<GatewayService>;
 
       const webviewManager = {
@@ -220,6 +222,7 @@ describe('GatewayRpcHandlers', () => {
         approveBinding: jest.fn(),
         setBindingStatus: jest.fn(),
         sendTest: jest.fn(),
+        on: jest.fn(),
       } as unknown as jest.Mocked<GatewayService>;
 
       // broadcastMessage rejects — simulates IPC transport failure
@@ -321,6 +324,70 @@ describe('GatewayRpcHandlers', () => {
       expect(response.data).toMatchObject({ ok: false });
       expect((response.data as { error: string }).error).toMatch(
         /unknown platform/,
+      );
+    });
+  });
+
+  describe('GATEWAY_BINDINGS_CHANGED emission', () => {
+    it('broadcasts the bindings list when the gateway emits bindings-changed', async () => {
+      const logger = {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      } as unknown as Logger;
+      const rpc = createMockRpcHandler();
+      let bindingsChangedListener: (() => void) | undefined;
+      const gateway = {
+        status: jest.fn().mockReturnValue({ enabled: true, adapters: [] }),
+        start: jest.fn(),
+        stop: jest.fn(),
+        startPlatform: jest.fn(),
+        stopPlatform: jest.fn(),
+        setToken: jest.fn(),
+        listBindings: jest.fn().mockReturnValue([
+          {
+            id: 'b1',
+            platform: 'discord',
+            externalChatId: 'chan-1',
+            approvalStatus: 'pending',
+            pairingCode: '123456',
+            createdAt: 1,
+          },
+        ]),
+        listMessages: jest.fn().mockReturnValue([]),
+        approveBinding: jest.fn(),
+        setBindingStatus: jest.fn(),
+        sendTest: jest.fn(),
+        on: jest.fn((event: string, cb: () => void) => {
+          if (event === 'bindings-changed') bindingsChangedListener = cb;
+        }),
+      } as unknown as jest.Mocked<GatewayService>;
+
+      const webviewManager = {
+        broadcastMessage: jest.fn().mockResolvedValue(undefined),
+      };
+
+      const handlers = new GatewayRpcHandlers(
+        logger,
+        rpc as unknown as RpcHandler,
+        gateway,
+        webviewManager,
+      );
+      handlers.register();
+
+      expect(bindingsChangedListener).toBeDefined();
+      bindingsChangedListener?.();
+      await Promise.resolve();
+
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'gateway:bindingsChanged',
+        expect.objectContaining({
+          bindings: expect.arrayContaining([
+            // pairingCode must be stripped from the public list
+            expect.objectContaining({ id: 'b1', pairingCode: null }),
+          ]),
+        }),
       );
     });
   });
