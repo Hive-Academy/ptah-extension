@@ -151,9 +151,6 @@ export interface AvailableAgent {
   description: string;
   type: 'cli' | 'subagent';
   available: boolean;
-  family?: string;
-  provider?: string;
-  installed?: boolean;
 }
 
 export interface HarnessPreset {
