@@ -21,6 +21,7 @@ import {
   Pencil,
   Plus,
   RadioTower,
+  Scale,
   Search,
   Settings,
   Store,
@@ -211,6 +212,7 @@ export class AppShellComponent {
   readonly LayoutGridIcon = LayoutGrid;
   readonly RadioTowerIcon = RadioTower;
   readonly StoreIcon = Store;
+  readonly ScaleIcon = Scale;
   readonly thothFirstRunDismissed = this.appState.thothFirstRunDismissed;
   readonly editingSessionId = signal<string | null>(null);
   readonly editingSessionName = signal('');
@@ -369,6 +371,10 @@ export class AppShellComponent {
    */
   openMarketplace(): void {
     this.appState.setCurrentView('marketplace');
+  }
+
+  openTribunal(): void {
+    this.appState.setCurrentView('tribunal');
   }
 
   /**

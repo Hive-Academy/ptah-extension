@@ -458,6 +458,18 @@
           }
         </div>
 
+        <!-- Tribunal nav button (VS Code only — Electron has it in global navbar) -->
+        <button
+          class="btn btn-ghost btn-xs gap-1"
+          [class.btn-active]="currentView() === 'tribunal'"
+          aria-label="Tribunal"
+          title="Tribunal — multi-vendor panel"
+          (click)="openTribunal()"
+        >
+          <lucide-angular [img]="ScaleIcon" class="w-4 h-4" />
+          <span class="icon-btn-label text-xs">Tribunal</span>
+        </button>
+
         <!-- Marketplace nav button (VS Code only — Electron has it in global navbar).
              Pro-gated (TASK_2026_131): hidden for non-premium users so the
              view never mounts and no marketplace RPC is fired. -->
