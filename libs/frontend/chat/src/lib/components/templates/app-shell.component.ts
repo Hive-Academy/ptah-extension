@@ -59,6 +59,7 @@ import {
   HARNESS_BUILDER_COMPONENT,
   SETUP_HUB_COMPONENT,
   MARKETPLACE_COMPONENT,
+  TRIBUNAL_COMPONENT,
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import type { ViewType } from '@ptah-extension/core';
@@ -130,6 +131,7 @@ export class AppShellComponent {
     'setup-hub',
     'thoth',
     'marketplace',
+    'tribunal',
   ] as const;
 
   readonly chatStore = inject(ChatStore);
@@ -184,6 +186,14 @@ export class AppShellComponent {
    */
   readonly marketplaceComponent =
     inject(MARKETPLACE_COMPONENT, { optional: true }) ?? null;
+
+  /**
+   * TribunalPageComponent provided via DI token — breaks circular dependency
+   * between @ptah-extension/tribunal-panel and @ptah-extension/chat.
+   * Provided by the application bootstrapper (app.config.ts).
+   */
+  readonly tribunalComponent =
+    inject(TRIBUNAL_COMPONENT, { optional: true }) ?? null;
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
   readonly CalendarDaysIcon = CalendarDays;

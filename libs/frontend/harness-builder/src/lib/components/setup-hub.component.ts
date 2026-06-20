@@ -33,6 +33,7 @@ import {
   RefreshCw,
   ArrowLeft,
   Rocket,
+  Scale,
 } from 'lucide-angular';
 import {
   ClaudeRpcService,
@@ -616,6 +617,62 @@ import type {
                 </button>
               </div>
             </div>
+
+            <!-- ── Card 4: Tribunal ── -->
+            <div
+              class="group relative rounded-xl p-px cursor-pointer
+                     bg-gradient-to-br from-accent/20 via-base-300/50 to-accent/10
+                     hover:from-accent/40 hover:via-accent/15 hover:to-accent/30
+                     transition-all duration-300 ease-out
+                     card-enter card-enter-delay-4"
+              (click)="conveneTribunal()"
+              (keydown.enter)="conveneTribunal()"
+              role="button"
+              tabindex="0"
+              aria-label="Convene a Tribunal"
+            >
+              <div
+                class="rounded-[11px] bg-base-200 p-5 h-full flex flex-col gap-4
+                       transition-colors duration-300 ease-out group-hover:bg-base-200/80"
+              >
+                <div class="flex items-start justify-between">
+                  <div class="relative">
+                    <div
+                      class="relative w-11 h-11 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center"
+                    >
+                      <lucide-angular
+                        [img]="ScaleIcon"
+                        class="w-5 h-5 text-accent"
+                        aria-hidden="true"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h2 class="text-lg font-bold text-base-content">Tribunal</h2>
+                  <p class="text-sm text-base-content/50 mt-1">
+                    Put your AI vendors on one panel — run a Council, Forge, or
+                    Race and compare them side by side.
+                  </p>
+                </div>
+
+                <button
+                  class="btn btn-sm w-full mt-auto gap-1
+                         bg-gradient-to-r from-accent/10 to-accent/5
+                         border border-accent/20
+                         hover:border-accent/40 hover:from-accent/20 hover:to-accent/10
+                         text-accent font-medium transition-all duration-200"
+                >
+                  Convene a Tribunal
+                  <lucide-angular
+                    [img]="ChevronRightIcon"
+                    class="w-3.5 h-3.5"
+                    aria-hidden="true"
+                  />
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- ═══ Section: Configuration ═══ -->
@@ -791,6 +848,7 @@ export class SetupHubComponent implements OnInit {
   protected readonly RefreshIcon = RefreshCw;
   protected readonly ArrowLeftIcon = ArrowLeft;
   protected readonly RocketIcon = Rocket;
+  protected readonly ScaleIcon = Scale;
   private readonly _isLoading = signal(false);
   private readonly _hasLoadedOnce = signal(false);
   private readonly _loadError = signal<string | null>(null);
@@ -854,6 +912,10 @@ export class SetupHubComponent implements OnInit {
 
   openHarnessBuilder(): void {
     this.navigation.navigateToView('harness-builder');
+  }
+
+  conveneTribunal(): void {
+    this.navigation.navigateToView('tribunal');
   }
 
   async startNewProject(): Promise<void> {

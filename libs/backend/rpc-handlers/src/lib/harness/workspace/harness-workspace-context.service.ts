@@ -235,6 +235,9 @@ export class HarnessWorkspaceContextService {
         description: 'OpenAI Codex CLI agent for code completion and editing',
         type: 'cli',
         available: true,
+        family: 'codex',
+        provider: 'openai',
+        installed: true,
       },
       {
         id: 'copilot',
@@ -243,6 +246,9 @@ export class HarnessWorkspaceContextService {
           'GitHub Copilot CLI agent for code suggestions and pair programming',
         type: 'cli',
         available: true,
+        family: 'copilot',
+        provider: 'github',
+        installed: true,
       },
       {
         id: 'ptah-cli',
@@ -251,6 +257,9 @@ export class HarnessWorkspaceContextService {
           'Built-in Ptah headless agent for orchestrated multi-agent workflows',
         type: 'subagent',
         available: true,
+        family: 'ptah-cli',
+        provider: 'ptah-cli',
+        installed: true,
       },
     ];
   }

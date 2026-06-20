@@ -20,7 +20,8 @@ export type ViewType =
   | 'harness-builder'
   | 'setup-hub'
   | 'thoth'
-  | 'marketplace';
+  | 'marketplace'
+  | 'tribunal';
 
 /**
  * Active tab id within the Thoth hub. Mirrors the union exported from
@@ -107,6 +108,7 @@ export class AppStateManager implements MessageHandler {
       'setup-hub',
       'thoth',
       'marketplace',
+      'tribunal',
     ];
     if (view && validViews.includes(view as ViewType)) {
       this.handleViewSwitch(view as ViewType);

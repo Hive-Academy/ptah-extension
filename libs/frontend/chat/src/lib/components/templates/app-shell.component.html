@@ -95,6 +95,19 @@
       }
     </div>
   }
+
+  <!-- Tribunal: multi-vendor peer-panel view (injected via DI token to break circular dep) -->
+  @case ('tribunal') {
+    <div class="h-full w-full">
+      @if (tribunalComponent) {
+        <ng-container *ngComponentOutlet="tribunalComponent" />
+      } @else {
+        <div class="flex items-center justify-center h-full">
+          <span class="loading loading-spinner loading-md"></span>
+        </div>
+      }
+    </div>
+  }
 }
 
 <!-- 2. Shared chrome — ALWAYS rendered, hidden when standalone view is active -->
