@@ -317,7 +317,7 @@ describe('ConfigRpcHandlers', () => {
       expect(result.model).toBe('claude-opus-4-7');
       expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
         'claude-opus-4-7',
-        'global',
+        'app',
       );
     });
 
@@ -349,7 +349,7 @@ describe('ConfigRpcHandlers', () => {
       expect(result.model).toBe('claude-haiku-4-5');
       expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
         'claude-haiku-4-5',
-        'global',
+        'app',
       );
     });
 
@@ -776,7 +776,7 @@ describe('ConfigRpcHandlers', () => {
       expect(setResult.effort).toBe('high');
       expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
         'high',
-        'global',
+        'app',
       );
 
       // Simulate the effect of the set so get returns the updated value.
@@ -791,7 +791,7 @@ describe('ConfigRpcHandlers', () => {
 
       await call(h, 'config:effort-set', { effort: '' });
 
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('', 'global');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('', 'app');
 
       // Simulate the effect of clearing so get reflects the cleared state.
       h.reasoningSettings.effort.get.mockReturnValue('');
@@ -810,7 +810,7 @@ describe('ConfigRpcHandlers', () => {
 
       expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
         'high',
-        'global',
+        'app',
       );
       expect(h.sdkAdapter.setSessionEffort).toHaveBeenCalledWith(
         'sess-1',
@@ -840,7 +840,7 @@ describe('ConfigRpcHandlers', () => {
       expect(result.effort).toBe('xhigh');
       expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
         'xhigh',
-        'global',
+        'app',
       );
     });
 

@@ -102,6 +102,10 @@ interface MockScopeResolver {
     [string, unknown, 'global' | 'app' | 'workspace', boolean?]
   >;
   clearOverride: jest.Mock<Promise<void>, [string, boolean?]>;
+  clearMoreSpecific: jest.Mock<
+    Promise<void>,
+    [string, 'global' | 'app' | 'workspace', boolean?]
+  >;
   effectiveKey: jest.Mock<string, [string, boolean?]>;
   getActivePath: jest.Mock<string | undefined, []>;
   globalStore: Map<string, unknown>;
@@ -162,6 +166,18 @@ function createMockScopeResolver(opts: {
     }
   });
 
+  const clearMoreSpecific = jest.fn(
+    async (
+      key: string,
+      target: 'global' | 'app' | 'workspace',
+      _appScopable = false,
+    ) => {
+      if (target === 'workspace') return;
+      if (activePath) workspaceStore.delete(key);
+      if (target === 'global') appStore.delete(key);
+    },
+  );
+
   const effectiveKey = jest.fn((key: string, appScopable = false): string => {
     if (appScopable && appStore.has(key)) {
       return `${appScope}.${key}`;
@@ -179,6 +195,7 @@ function createMockScopeResolver(opts: {
     hasOverride,
     write,
     clearOverride,
+    clearMoreSpecific,
     effectiveKey,
     getActivePath,
     globalStore,

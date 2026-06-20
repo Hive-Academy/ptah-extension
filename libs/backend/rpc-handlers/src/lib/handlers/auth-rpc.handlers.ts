@@ -350,6 +350,7 @@ export class AuthRpcHandlers {
           applyTo,
           true,
         );
+        await this.scopeResolver.clearMoreSpecific('authMethod', applyTo, true);
         if (validated.anthropicApiKey !== undefined) {
           if (validated.anthropicApiKey.trim()) {
             await this.authSecretsService.setCredential(
@@ -380,6 +381,11 @@ export class AuthRpcHandlers {
           await this.scopeResolver.write(
             'anthropicProviderId',
             validated.anthropicProviderId,
+            applyTo,
+            true,
+          );
+          await this.scopeResolver.clearMoreSpecific(
+            'anthropicProviderId',
             applyTo,
             true,
           );

@@ -120,7 +120,12 @@ export class ApiKeyStrategy implements IAuthStrategy {
       this.logger.debug(
         `[${this.name}] No OpenRouter API key found in SecretStorage`,
       );
-      return { configured: false, details: [] };
+      return {
+        configured: false,
+        details: [],
+        errorMessage:
+          'No OpenRouter API key configured. Add one in Settings, or choose a different provider.',
+      };
     }
 
     const provider = getAnthropicProvider(providerId);
@@ -282,7 +287,12 @@ export class ApiKeyStrategy implements IAuthStrategy {
     this.logger.debug(
       `[${this.name}] No API key found in SecretStorage or environment`,
     );
-    return { configured: false, details: [] };
+    return {
+      configured: false,
+      details: [],
+      errorMessage:
+        'No Anthropic API key configured. Add an API key in Settings, or switch to Claude CLI.',
+    };
   }
 
   /**
@@ -337,7 +347,11 @@ export class ApiKeyStrategy implements IAuthStrategy {
       this.logger.debug(
         `[${this.name}] No provider key found in SecretStorage or environment for ${providerId}`,
       );
-      return { configured: false, details: [] };
+      return {
+        configured: false,
+        details: [],
+        errorMessage: `No API key configured for ${providerName}. Add one in Settings, or choose a different provider.`,
+      };
     }
 
     const keyLength = providerKey.length;
