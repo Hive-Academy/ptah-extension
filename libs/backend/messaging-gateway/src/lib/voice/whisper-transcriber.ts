@@ -125,7 +125,7 @@ const defaultPipelineFactory: AsrPipelineFactory = async (modelId, opts) => {
     mod.env.allowLocalModels = false;
   }
   return mod.pipeline('automatic-speech-recognition', modelId, {
-    quantized: true,
+    dtype: 'q8',
     progress_callback: opts.progress_callback,
   });
 };
