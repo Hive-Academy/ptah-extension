@@ -1821,6 +1821,7 @@ export class TabManagerService {
    */
   markTabStreaming(tabId: string): void {
     this._streamingTabIds.update((set) => new Set([...set, tabId]));
+    this.updateTabInternal(tabId, { lastTerminalReason: undefined });
   }
 
   /**
