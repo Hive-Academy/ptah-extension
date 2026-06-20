@@ -65,6 +65,7 @@ import {
   getModelContextWindow,
 } from '@ptah-extension/shared';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
+import { experimentalBetaEnv } from './build-safe-env';
 import {
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   CODEX_PROXY_TOKEN_PLACEHOLDER,
@@ -636,13 +637,7 @@ export class SdkQueryOptionsBuilder {
           ...buildTierEnvDefaults(effectiveAuthEnv),
           ...effectiveAuthEnv,
           NO_PROXY: '127.0.0.1,localhost',
-          ...(() => {
-            const baseUrl = effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim();
-            return baseUrl &&
-              !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
-              ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
-              : {};
-          })(),
+          ...experimentalBetaEnv(effectiveAuthEnv.ANTHROPIC_BASE_URL),
           ...this.resolveContextWindowOverride(
             model,
             effectiveAuthEnv.ANTHROPIC_BASE_URL,
@@ -677,7 +672,6 @@ export class SdkQueryOptionsBuilder {
         ...((enableFileCheckpointing ?? true)
           ? { extraArgs: { 'replay-user-messages': null } }
           : {}),
-        agentProgressSummaries: true,
         forkSession: resumeSessionId ? forkSession : undefined,
       },
     };
