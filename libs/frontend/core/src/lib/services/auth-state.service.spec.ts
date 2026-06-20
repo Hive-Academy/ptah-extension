@@ -1176,12 +1176,29 @@ describe('AuthStateService', () => {
     it('selectedProvider returns the matching provider info or null', async () => {
       const openrouter = makeProvider({ id: 'openrouter' });
       const service = await loadedWith(
-        makeAuthStatusResponse({ availableProviders: [openrouter] }),
+        makeAuthStatusResponse({
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openrouter',
+          availableProviders: [openrouter],
+        }),
       );
 
       expect(service.selectedProvider()?.id).toBe('openrouter');
 
       service.setSelectedProviderId('nonexistent');
+      expect(service.selectedProvider()).toBeNull();
+    });
+
+    it('selectedProvider returns null for anthropic-implicit auth methods', async () => {
+      const openrouter = makeProvider({ id: 'openrouter' });
+      const service = await loadedWith(
+        makeAuthStatusResponse({
+          authMethod: 'apiKey',
+          anthropicProviderId: 'openrouter',
+          availableProviders: [openrouter],
+        }),
+      );
+
       expect(service.selectedProvider()).toBeNull();
     });
 
