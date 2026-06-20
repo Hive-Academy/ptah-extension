@@ -7,7 +7,8 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { LucideAngularModule, RefreshCw } from 'lucide-angular';
+import { LucideAngularModule, RefreshCw, Settings } from 'lucide-angular';
+import { WebviewNavigationService } from '@ptah-extension/core';
 import {
   TribunalDiscoveryService,
   type DiscoveredVendor,
@@ -95,7 +96,7 @@ import type { VendorLane } from '../types/tribunal-ui.types';
               [class.border-primary]="isSelected(vendor.lane.laneId)"
               [class.bg-primary/5]="isSelected(vendor.lane.laneId)"
               [class.border-base-300]="!isSelected(vendor.lane.laneId)"
-              [class.opacity-50]="!vendor.installed"
+              [class.opacity-50]="vendor.needsSetup"
               [disabled]="!canToggle(vendor)"
               [attr.aria-pressed]="isSelected(vendor.lane.laneId)"
               [attr.aria-label]="vendor.lane.displayName"
@@ -104,8 +105,8 @@ import type { VendorLane } from '../types/tribunal-ui.types';
               <span
                 class="h-2.5 w-2.5 shrink-0 rounded-full"
                 [class.bg-success]="vendor.available"
-                [class.bg-base-content]="!vendor.available"
-                [class.opacity-40]="!vendor.available"
+                [class.bg-base-content]="vendor.needsSetup"
+                [class.opacity-40]="vendor.needsSetup"
                 aria-hidden="true"
               ></span>
               <span class="flex min-w-0 flex-1 flex-col">
@@ -113,19 +114,37 @@ import type { VendorLane } from '../types/tribunal-ui.types';
                   vendor.lane.displayName
                 }}</span>
                 <span class="text-[11px] text-base-content/50">
-                  {{ vendor.installed ? 'Installed' : 'Not installed' }} ·
-                  {{ vendor.available ? 'Available' : 'Unavailable' }}
+                  {{ statusText(vendor) }}
                 </span>
               </span>
-              <span
-                class="rounded border px-2 py-0.5 text-[11px]"
-                [class.border-primary]="isSelected(vendor.lane.laneId)"
-                [class.text-primary]="isSelected(vendor.lane.laneId)"
-                [class.border-base-300]="!isSelected(vendor.lane.laneId)"
-                [class.text-base-content/50]="!isSelected(vendor.lane.laneId)"
-              >
-                {{ isSelected(vendor.lane.laneId) ? 'On' : 'Off' }}
-              </span>
+              @if (vendor.needsSetup) {
+                <span
+                  role="link"
+                  tabindex="0"
+                  class="flex shrink-0 items-center gap-1 rounded border border-base-300 px-2 py-0.5 text-[11px] text-base-content/70 hover:border-primary hover:text-primary"
+                  [attr.aria-label]="'Configure ' + vendor.lane.displayName"
+                  (click)="configure($event)"
+                  (keydown.enter)="configure($event)"
+                  (keydown.space)="configure($event)"
+                >
+                  <lucide-angular
+                    [img]="SettingsIcon"
+                    class="h-3 w-3"
+                    aria-hidden="true"
+                  />
+                  Configure
+                </span>
+              } @else {
+                <span
+                  class="rounded border px-2 py-0.5 text-[11px]"
+                  [class.border-primary]="isSelected(vendor.lane.laneId)"
+                  [class.text-primary]="isSelected(vendor.lane.laneId)"
+                  [class.border-base-300]="!isSelected(vendor.lane.laneId)"
+                  [class.text-base-content/50]="!isSelected(vendor.lane.laneId)"
+                >
+                  {{ isSelected(vendor.lane.laneId) ? 'On' : 'Off' }}
+                </span>
+              }
             </button>
           }
         </div>
@@ -145,8 +164,10 @@ export class StepPanelPreviewComponent {
   readonly lanesChanged = output<readonly VendorLane[]>();
 
   private readonly discovery = inject(TribunalDiscoveryService);
+  private readonly navigation = inject(WebviewNavigationService);
 
   protected readonly RefreshIcon = RefreshCw;
+  protected readonly SettingsIcon = Settings;
   protected readonly maxVendors = this.discovery.maxVendors;
 
   private readonly _vendors = signal<readonly DiscoveredVendor[]>([]);
@@ -184,10 +205,21 @@ export class StepPanelPreviewComponent {
     return this.selectedIds().has(laneId);
   }
 
+  protected statusText(vendor: DiscoveredVendor): string {
+    if (vendor.available) return 'Available';
+    return vendor.lane.cli === 'ptah-cli' ? 'Needs API key' : 'Not installed';
+  }
+
   protected canToggle(vendor: DiscoveredVendor): boolean {
     if (this.isSelected(vendor.lane.laneId)) return true;
-    if (!vendor.installed) return false;
+    if (!vendor.available) return false;
     return this.selectedCount() < this.maxVendors;
+  }
+
+  protected configure(event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    void this.navigation.navigateToView('settings');
   }
 
   protected toggle(vendor: DiscoveredVendor): void {

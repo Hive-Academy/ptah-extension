@@ -7,6 +7,7 @@ import type {
   AgentOrchestrationConfig,
   CliDetectionResult,
 } from '@ptah-extension/shared';
+import type { DiscoveredVendor } from './tribunal-discovery.service';
 
 function makeCli(
   overrides: Partial<CliDetectionResult> = {},
@@ -39,6 +40,13 @@ function makeConfig(
     disabledMcpNamespaces: [],
     browserAllowLocalhost: false,
   };
+}
+
+function byLaneId(
+  vendors: DiscoveredVendor[],
+  laneId: string,
+): DiscoveredVendor | undefined {
+  return vendors.find((v) => v.lane.laneId === laneId);
 }
 
 describe('TribunalDiscoveryService', () => {
@@ -74,110 +82,116 @@ describe('TribunalDiscoveryService', () => {
       expect(rpc.call).toHaveBeenCalledWith('agent:getConfig', undefined);
     });
 
-    it('returns empty array when RPC fails', async () => {
+    it('lists the full catalog (all needsSetup) when RPC fails', async () => {
       rpc.call.mockResolvedValue(rpcError('Network error'));
 
       const result = await service.discover();
-      expect(result).toHaveLength(0);
+
+      expect(result.length).toBeGreaterThan(0);
+      expect(result.every((v) => v.needsSetup)).toBe(true);
+      expect(result.every((v) => !v.available)).toBe(true);
+      expect(byLaneId(result, 'codex')).toBeDefined();
+      expect(byLaneId(result, 'ptah-cli|moonshot')).toBeDefined();
     });
 
-    it('returns empty array when RPC succeeds with no data', async () => {
+    it('lists the full catalog when RPC succeeds with no data', async () => {
       rpc.call.mockResolvedValue({ isSuccess: () => true, data: null });
 
       const result = await service.discover();
-      expect(result).toHaveLength(0);
+      expect(result.length).toBeGreaterThan(0);
+      expect(result.every((v) => v.needsSetup)).toBe(true);
     });
   });
 
-  describe('discover — system CLI lanes', () => {
-    it('maps codex to a single lane with cli/installed/available', async () => {
-      rpc.call.mockResolvedValue(
-        rpcSuccess(makeConfig([makeCli({ cli: 'codex', installed: true })])),
-      );
+  describe('discover — catalog always present', () => {
+    it('lists catalog providers EVEN WHEN not configured (needsSetup, no ptahCliId)', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
 
       const result = await service.discover();
-      expect(result).toHaveLength(1);
+      const moonshot = byLaneId(result, 'ptah-cli|moonshot');
 
-      const [{ lane, available, installed }] = result;
-      expect(lane.cli).toBe('codex');
-      expect(lane.laneId).toBe('codex');
-      expect(lane.family).toBe('codex');
-      expect(lane.displayName).toBe('Codex');
-      expect(installed).toBe(true);
-      expect(available).toBe(true);
-      expect('model' in lane).toBe(false);
+      expect(moonshot).toBeDefined();
+      expect(moonshot?.available).toBe(false);
+      expect(moonshot?.needsSetup).toBe(true);
+      expect(moonshot?.lane.ptahCliId).toBeUndefined();
+      expect(moonshot?.lane.providerId).toBe('moonshot');
     });
 
-    it('maps copilot to a single lane with human display name', async () => {
-      rpc.call.mockResolvedValue(
-        rpcSuccess(makeConfig([makeCli({ cli: 'copilot', installed: true })])),
-      );
-
-      const [vendor] = await service.discover();
-      expect(vendor.lane.cli).toBe('copilot');
-      expect(vendor.lane.laneId).toBe('copilot');
-      expect(vendor.lane.displayName).toBe('Copilot');
-    });
-
-    it('marks a not-installed cursor as installed:false and available:false', async () => {
-      rpc.call.mockResolvedValue(
-        rpcSuccess(makeConfig([makeCli({ cli: 'cursor', installed: false })])),
-      );
-
-      const [vendor] = await service.discover();
-      expect(vendor.lane.cli).toBe('cursor');
-      expect(vendor.lane.displayName).toBe('Cursor');
-      expect(vendor.installed).toBe(false);
-      expect(vendor.available).toBe(false);
-    });
-  });
-
-  describe('discover — ptah-cli per-provider lanes', () => {
-    it('produces TWO distinct lanes for two ptah-cli providers (no collision)', async () => {
-      rpc.call.mockResolvedValue(
-        rpcSuccess(
-          makeConfig([
-            makeCli({
-              cli: 'ptah-cli',
-              installed: true,
-              ptahCliId: 'a',
-              ptahCliName: 'Moonshot Agent',
-              providerId: 'moonshot',
-              providerName: 'Moonshot',
-            }),
-            makeCli({
-              cli: 'ptah-cli',
-              installed: true,
-              ptahCliId: 'b',
-              ptahCliName: 'Z.AI Agent',
-              providerId: 'z-ai',
-              providerName: 'Z.AI',
-            }),
-          ]),
-        ),
-      );
+    it('includes Ollama Cloud, Z.AI and LM Studio provider lanes', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
 
       const result = await service.discover();
-      expect(result).toHaveLength(2);
 
+      expect(byLaneId(result, 'ptah-cli|z-ai')).toBeDefined();
+      expect(byLaneId(result, 'ptah-cli|ollama-cloud')).toBeDefined();
+      expect(byLaneId(result, 'ptah-cli|lm-studio')).toBeDefined();
+      expect(byLaneId(result, 'ptah-cli|ollama')).toBeDefined();
+      expect(byLaneId(result, 'ptah-cli|openrouter')).toBeDefined();
+    });
+
+    it('EXCLUDES the CLI-family provider entries (github-copilot/openai-codex) from ptah-cli lanes', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+
+      const result = await service.discover();
+
+      expect(byLaneId(result, 'ptah-cli|github-copilot')).toBeUndefined();
+      expect(byLaneId(result, 'ptah-cli|openai-codex')).toBeUndefined();
+    });
+
+    it('produces no laneId collisions across the full catalog', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+
+      const result = await service.discover();
       const ids = result.map((v) => v.lane.laneId);
-      expect(new Set(ids).size).toBe(2);
-      expect(ids).toContain('ptah-cli|a');
-      expect(ids).toContain('ptah-cli|b');
 
-      const families = result.map((v) => v.lane.family);
-      expect(families).toContain('moonshot');
-      expect(families).toContain('z-ai');
+      expect(new Set(ids).size).toBe(ids.length);
+    });
+  });
+
+  describe('discover — CLI family lanes', () => {
+    it('always emits codex/copilot/cursor lanes', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+
+      const result = await service.discover();
+
+      expect(byLaneId(result, 'codex')?.lane.displayName).toBe('Codex');
+      expect(byLaneId(result, 'copilot')?.lane.displayName).toBe('Copilot');
+      expect(byLaneId(result, 'cursor')?.lane.displayName).toBe('Cursor');
     });
 
-    it('uses ptahCliName as displayName and providerName as model', async () => {
+    it('reflects installed=true as available, installed=false as needsSetup', async () => {
+      rpc.call.mockResolvedValue(
+        rpcSuccess(
+          makeConfig([
+            makeCli({ cli: 'codex', installed: true }),
+            makeCli({ cli: 'cursor', installed: false }),
+          ]),
+        ),
+      );
+
+      const result = await service.discover();
+
+      const codex = byLaneId(result, 'codex');
+      expect(codex?.available).toBe(true);
+      expect(codex?.needsSetup).toBe(false);
+      expect(codex?.lane.providerId).toBeUndefined();
+      expect(codex?.lane.model).toBeUndefined();
+
+      const cursor = byLaneId(result, 'cursor');
+      expect(cursor?.available).toBe(false);
+      expect(cursor?.needsSetup).toBe(true);
+    });
+  });
+
+  describe('discover — configured ptah-cli providers', () => {
+    it('marks Moonshot available with ptahCliId when a configured agent exists', async () => {
       rpc.call.mockResolvedValue(
         rpcSuccess(
           makeConfig([
             makeCli({
               cli: 'ptah-cli',
               installed: true,
-              ptahCliId: 'a',
+              ptahCliId: 'x',
               ptahCliName: 'Moonshot Agent',
               providerId: 'moonshot',
               providerName: 'Moonshot',
@@ -186,51 +200,44 @@ describe('TribunalDiscoveryService', () => {
         ),
       );
 
-      const [vendor] = await service.discover();
-      expect(vendor.lane.displayName).toBe('Moonshot Agent');
-      expect(vendor.lane.model).toBe('Moonshot');
-      expect(vendor.installed).toBe(true);
-      expect(vendor.available).toBe(true);
+      const result = await service.discover();
+      const moonshot = byLaneId(result, 'ptah-cli|moonshot');
+
+      expect(moonshot?.available).toBe(true);
+      expect(moonshot?.needsSetup).toBe(false);
+      expect(moonshot?.lane.ptahCliId).toBe('x');
+      expect(moonshot?.lane.family).toBe('moonshot');
+      expect(moonshot?.lane.displayName).toBe('Moonshot (Kimi)');
     });
 
-    it('falls back displayName ptahCliName→providerName→default', async () => {
+    it('carries the provider default opus tier as model', async () => {
       rpc.call.mockResolvedValue(
         rpcSuccess(
           makeConfig([
             makeCli({
               cli: 'ptah-cli',
               installed: true,
-              ptahCliId: 'a',
+              ptahCliId: 'x',
               providerId: 'moonshot',
-              providerName: 'Moonshot',
-            }),
-            makeCli({
-              cli: 'ptah-cli',
-              installed: true,
-              ptahCliId: 'b',
             }),
           ]),
         ),
       );
 
-      const [withProvider, bare] = await service.discover();
-      expect(withProvider.lane.displayName).toBe('Moonshot');
-      expect(bare.lane.displayName).toBe('Ptah CLI');
-      expect('model' in bare.lane).toBe(false);
+      const result = await service.discover();
+      expect(byLaneId(result, 'ptah-cli|moonshot')?.lane.model).toBe(
+        'kimi-k2.7-code',
+      );
     });
 
-    it('builds a stable distinct laneId when ptahCliId is absent', async () => {
+    it('sorts available vendors ahead of needsSetup', async () => {
       rpc.call.mockResolvedValue(
         rpcSuccess(
           makeConfig([
             makeCli({
               cli: 'ptah-cli',
               installed: true,
-              providerId: 'moonshot',
-            }),
-            makeCli({
-              cli: 'ptah-cli',
-              installed: true,
+              ptahCliId: 'x',
               providerId: 'z-ai',
             }),
           ]),
@@ -238,45 +245,12 @@ describe('TribunalDiscoveryService', () => {
       );
 
       const result = await service.discover();
-      const ids = result.map((v) => v.lane.laneId);
-      expect(new Set(ids).size).toBe(2);
-      expect(ids).toContain('ptah-cli|moonshot');
-      expect(ids).toContain('ptah-cli|z-ai');
-    });
-  });
+      const firstNeedsSetupIdx = result.findIndex((v) => v.needsSetup);
+      const lastAvailableIdx =
+        result.length - 1 - [...result].reverse().findIndex((v) => v.available);
 
-  describe('discover — preferredRank ordering', () => {
-    it('sorts ranked vendors ahead of unranked, ascending', async () => {
-      rpc.call.mockResolvedValue(
-        rpcSuccess(
-          makeConfig([
-            makeCli({ cli: 'cursor', installed: true }),
-            makeCli({ cli: 'codex', installed: true, preferredRank: 1 }),
-            makeCli({ cli: 'copilot', installed: true, preferredRank: 2 }),
-          ]),
-        ),
-      );
-
-      const result = await service.discover();
-      expect(result.map((v) => v.lane.cli)).toEqual([
-        'codex',
-        'copilot',
-        'cursor',
-      ]);
-    });
-
-    it('treats rank 0 / absent as unranked (sorted last)', async () => {
-      rpc.call.mockResolvedValue(
-        rpcSuccess(
-          makeConfig([
-            makeCli({ cli: 'cursor', installed: true, preferredRank: 0 }),
-            makeCli({ cli: 'codex', installed: true, preferredRank: 3 }),
-          ]),
-        ),
-      );
-
-      const result = await service.discover();
-      expect(result.map((v) => v.lane.cli)).toEqual(['codex', 'cursor']);
+      expect(lastAvailableIdx).toBeLessThan(firstNeedsSetupIdx);
+      expect(byLaneId(result, 'ptah-cli|z-ai')?.available).toBe(true);
     });
   });
 });

@@ -10,6 +10,8 @@ export interface VendorLane {
   cli: CliType;
   model?: string;
   agentId?: string;
+  providerId?: string;
+  ptahCliId?: string;
 }
 
 export type TribunalTileKind = 'vendor' | 'verdict' | 'diff' | 'scorecard';
