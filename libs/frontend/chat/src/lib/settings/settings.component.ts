@@ -135,6 +135,10 @@ export class SettingsComponent implements OnInit {
    * ChatStore (already fetched at app init).
    */
   async ngOnInit(): Promise<void> {
+    const pending = this.appState.consumePendingSettingsTab();
+    if (pending) {
+      this.setActiveTab(pending.tab);
+    }
     await this.authState.loadAuthStatus();
   }
 

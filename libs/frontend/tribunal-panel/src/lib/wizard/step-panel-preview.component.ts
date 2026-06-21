@@ -123,9 +123,9 @@ import type { VendorLane } from '../types/tribunal-ui.types';
                   tabindex="0"
                   class="flex shrink-0 items-center gap-1 rounded border border-base-300 px-2 py-0.5 text-[11px] text-base-content/70 hover:border-primary hover:text-primary"
                   [attr.aria-label]="'Configure ' + vendor.lane.displayName"
-                  (click)="configure($event)"
-                  (keydown.enter)="configure($event)"
-                  (keydown.space)="configure($event)"
+                  (click)="configure($event, vendor)"
+                  (keydown.enter)="configure($event, vendor)"
+                  (keydown.space)="configure($event, vendor)"
                 >
                   <lucide-angular
                     [img]="SettingsIcon"
@@ -216,10 +216,13 @@ export class StepPanelPreviewComponent {
     return this.selectedCount() < this.maxVendors;
   }
 
-  protected configure(event: Event): void {
+  protected configure(event: Event, vendor: DiscoveredVendor): void {
     event.preventDefault();
     event.stopPropagation();
-    void this.navigation.navigateToView('settings');
+    void this.navigation.navigateToSettingsTab(
+      'orchestration',
+      vendor.lane.providerId,
+    );
   }
 
   protected toggle(vendor: DiscoveredVendor): void {
