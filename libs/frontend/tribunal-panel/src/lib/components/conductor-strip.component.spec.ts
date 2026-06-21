@@ -1,17 +1,15 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  Input,
+  input,
   signal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import {
-  ConversationRegistry,
   SessionLivenessRegistry,
   SurfaceId,
   TabManagerService,
-  TabSessionBinding,
   type ClaudeSessionId,
   type ClosedTabEvent,
 } from '@ptah-extension/chat-state';
@@ -39,8 +37,8 @@ import { ConductorStripComponent } from './conductor-strip.component';
   template: `<div data-testid="execution-node-stub"></div>`,
 })
 class ExecutionNodeStubComponent {
-  @Input() node!: unknown;
-  @Input() isStreaming = false;
+  readonly node = input<unknown>();
+  readonly isStreaming = input(false);
 }
 
 const SESSION = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ClaudeSessionId;
@@ -106,10 +104,9 @@ describe('ConductorStripComponent', () => {
   let liveness: SessionLivenessRegistry;
   let sessionSig: ReturnType<typeof signal<string | null>>;
 
-  function setup(surfaceId: SurfaceId): void {
+  beforeEach(() => {
     sessionSig = signal<string | null>(null);
 
-    TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       imports: [ConductorStripComponent],
       providers: [
@@ -143,6 +140,9 @@ describe('ConductorStripComponent', () => {
     surface = TestBed.inject(TribunalSurfaceService);
     router = TestBed.inject(StreamRouter);
     liveness = TestBed.inject(SessionLivenessRegistry);
+  });
+
+  function register(surfaceId: SurfaceId): void {
     surface.registerSurface(surfaceId);
   }
 
@@ -152,7 +152,7 @@ describe('ConductorStripComponent', () => {
 
   it('emits >0 execution nodes after a routed tool_start, without compaction', () => {
     const surfaceId = SurfaceId.create();
-    setup(surfaceId);
+    register(surfaceId);
 
     const fixture = TestBed.createComponent(ConductorStripComponent);
     fixture.detectChanges();
@@ -176,7 +176,7 @@ describe('ConductorStripComponent', () => {
 
   it('isStreaming reflects session liveness', () => {
     const surfaceId = SurfaceId.create();
-    setup(surfaceId);
+    register(surfaceId);
 
     const fixture = TestBed.createComponent(ConductorStripComponent);
     fixture.detectChanges();
@@ -190,5 +190,36 @@ describe('ConductorStripComponent', () => {
     liveness.markIdle(SESSION);
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Idle');
+  });
+
+  it('clears prior-run conductor nodes after teardown + re-register', () => {
+    const firstSurface = SurfaceId.create();
+    register(firstSurface);
+
+    const fixture = TestBed.createComponent(ConductorStripComponent);
+    fixture.detectChanges();
+
+    route(firstSurface, msgStart());
+    route(firstSurface, toolStart());
+    fixture.detectChanges();
+    expect(
+      fixture.debugElement.queryAll(
+        By.css('[data-testid="execution-node-stub"]'),
+      ).length,
+    ).toBeGreaterThan(0);
+
+    surface.teardown();
+    const secondSurface = SurfaceId.create();
+    register(secondSurface);
+    fixture.detectChanges();
+
+    expect(
+      fixture.debugElement.queryAll(
+        By.css('[data-testid="execution-node-stub"]'),
+      ).length,
+    ).toBe(0);
+    expect(fixture.nativeElement.textContent).toContain(
+      'Waiting for the conductor',
+    );
   });
 });

@@ -61,7 +61,7 @@ export class TribunalRunService {
 
     this.state.setMove(move);
     this.state.setLanes(lanes);
-    this.state.buildTilesForRun(move, lanes);
+    this.state.buildTilesForRun(lanes);
     this.state.setSurfaceId(surfaceId);
     this.state.setCorrelationId(correlationId as string);
 
@@ -85,7 +85,7 @@ export class TribunalRunService {
 
       const ok = result.isSuccess() && result.data?.success !== false;
       if (!ok) {
-        this.rollback();
+        this.rollback(correlationId as string);
         console.error(
           '[TribunalRunService] chat:start failed:',
           result.data?.error ?? result.error,
@@ -95,7 +95,7 @@ export class TribunalRunService {
       this.state.refreshSessionId();
       return true;
     } catch (error: unknown) {
-      this.rollback();
+      this.rollback(correlationId as string);
       console.error(
         '[TribunalRunService] chat:start threw:',
         error instanceof Error ? error.message : String(error),
@@ -104,7 +104,8 @@ export class TribunalRunService {
     }
   }
 
-  private rollback(): void {
+  private rollback(correlationId: string): void {
+    this.claims.release(correlationId);
     this.surface.teardown();
     this.state.reset();
   }
@@ -135,7 +136,6 @@ export class TribunalRunService {
       'Rules:',
       `- ${FULL_AUTO_DIRECTIVE}`,
       '- The [tribunal:<laneId>] tag MUST be the first line of each sub-agent task. Do not omit it and do not alter the laneId inside it.',
-      `- ${FULL_AUTO_DIRECTIVE}`,
     ].join('\n');
   }
 }

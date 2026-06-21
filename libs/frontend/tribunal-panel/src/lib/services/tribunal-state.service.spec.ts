@@ -118,7 +118,7 @@ describe('TribunalStateService', () => {
       const lanes = Array.from({ length: 10 }, (_, i) =>
         makeLane({ laneId: `lane-${i}`, displayName: `V${i}` }),
       );
-      service.buildTilesForRun('council', lanes);
+      service.buildTilesForRun(lanes);
       const vendorCount = service
         .tiles()
         .filter((t) => t.kind === 'vendor').length;
@@ -129,7 +129,7 @@ describe('TribunalStateService', () => {
       const lanes = Array.from({ length: 8 }, (_, i) =>
         makeLane({ laneId: `lane-${i}`, displayName: `V${i}` }),
       );
-      service.buildTilesForRun('council', lanes);
+      service.buildTilesForRun(lanes);
       const before = service.tiles().length;
 
       const added = service.addTile({
@@ -150,7 +150,7 @@ describe('TribunalStateService', () => {
         makeLane({ laneId: 'l1', displayName: 'A' }),
         makeLane({ laneId: 'l2', displayName: 'B' }),
       ];
-      service.buildTilesForRun('council', lanes);
+      service.buildTilesForRun(lanes);
 
       const tiles = service.tiles();
       expect(tiles).toHaveLength(2);
@@ -494,7 +494,7 @@ describe('TribunalStateService', () => {
 
   describe('reset', () => {
     it('clears all state back to defaults', () => {
-      service.buildTilesForRun('council', [makeLane()]);
+      service.buildTilesForRun([makeLane()]);
 
       service.reset();
 
@@ -531,7 +531,7 @@ describe('TribunalStateService', () => {
 
   describe('endRun — user-initiated teardown', () => {
     it('tears down the surface exactly once and resets state', () => {
-      service.buildTilesForRun('council', [makeLane()]);
+      service.buildTilesForRun([makeLane()]);
       service.setSurfaceId(SurfaceId.create());
 
       service.endRun();

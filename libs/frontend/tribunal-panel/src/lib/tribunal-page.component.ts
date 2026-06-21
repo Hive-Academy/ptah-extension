@@ -23,6 +23,7 @@ import {
   QuestionCardComponent,
 } from '@ptah-extension/chat';
 import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   PermissionResponse,
   AskUserQuestionResponse,
@@ -154,6 +155,7 @@ export class TribunalPageComponent {
   protected readonly tribunalState = inject(TribunalStateService);
   private readonly layoutService = inject(CanvasLayoutService);
   private readonly permissionHandler = inject(PermissionHandlerService);
+  private readonly tabManager = inject(TabManagerService);
 
   protected readonly convene = signal(false);
   protected readonly focusedTileId = signal<string | null>(null);
@@ -191,8 +193,15 @@ export class TribunalPageComponent {
   protected readonly surfaceQuestions = computed(() =>
     this.permissionHandler
       .questionRequests()
-      .filter((q) => this.permissionHandler.hasSurfaceTargets(q.id)),
+      .filter((q) => this.hasQuestionSurfaceTargets(q.id)),
   );
+
+  private hasQuestionSurfaceTargets(questionId: string): boolean {
+    const targets = this.permissionHandler.questionTargetTabsFor(questionId);
+    if (targets.length === 0) return false;
+    const tabs = this.tabManager.tabs();
+    return targets.every((id) => !tabs.some((t) => t.id === id));
+  }
 
   constructor() {
     afterNextRender(() => {

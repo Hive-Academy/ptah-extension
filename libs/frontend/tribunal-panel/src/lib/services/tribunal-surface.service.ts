@@ -55,5 +55,7 @@ export class TribunalSurfaceService {
     if (!surfaceId) return;
     this.streamRouter.onSurfaceClosed(surfaceId);
     this._surfaceId = null;
+    this._streamingState.set(createEmptyStreamingState());
+    this._nudge.update((n) => n + 1);
   }
 }

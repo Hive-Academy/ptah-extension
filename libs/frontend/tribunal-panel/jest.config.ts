@@ -13,6 +13,10 @@ export default {
     ],
   },
   transformIgnorePatterns: ['node_modules/(?!.*\\.mjs$|marked/)'],
+  moduleNameMapper: {
+    '^gridstack/dist/angular$': '<rootDir>/src/test-gridstack-stub.ts',
+    '^gridstack$': '<rootDir>/src/test-gridstack-stub.ts',
+  },
   snapshotSerializers: [
     'jest-preset-angular/build/serializers/no-ng-attributes',
     'jest-preset-angular/build/serializers/ng-snapshot',

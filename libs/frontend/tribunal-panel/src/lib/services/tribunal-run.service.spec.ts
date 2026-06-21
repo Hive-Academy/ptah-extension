@@ -295,6 +295,25 @@ describe('TribunalRunService', () => {
       expect(mockSurface.teardown).toHaveBeenCalledTimes(1);
     });
 
+    it('releases the workflow claim on a failed launch (no permanent leak)', async () => {
+      const claims = TestBed.inject(WorkflowSessionClaimService);
+      rpc.call.mockResolvedValue(rpcError('RPC failure'));
+
+      const result = await service.launch('council', [makeLane()], OBJECTIVE);
+
+      expect(result).toBe(false);
+      expect(claims.hasClaims()).toBe(false);
+    });
+
+    it('releases the workflow claim when chat:start throws', async () => {
+      const claims = TestBed.inject(WorkflowSessionClaimService);
+      rpc.call.mockRejectedValue(new Error('Network error'));
+
+      await service.launch('council', [makeLane()], OBJECTIVE);
+
+      expect(claims.hasClaims()).toBe(false);
+    });
+
     it('does NOT reset or teardown on a successful launch', async () => {
       const result = await service.launch('council', [makeLane()], OBJECTIVE);
       expect(result).toBe(true);

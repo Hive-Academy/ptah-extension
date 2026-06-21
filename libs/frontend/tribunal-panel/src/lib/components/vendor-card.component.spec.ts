@@ -1,7 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  Input,
+  input,
   signal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -17,13 +17,13 @@ import type { VendorLane } from '../types/tribunal-ui.types';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div data-testid="agent-monitor-stub">
-    {{ embeddedAgents?.length ?? 0 }}
+    {{ embeddedAgents()?.length ?? 0 }}
   </div>`,
 })
 class AgentMonitorPanelStubComponent {
-  @Input() embeddedAgents: MonitoredAgent[] | undefined;
-  @Input() embeddedOpen: boolean | undefined;
-  @Input() sessionId: string | null = null;
+  readonly embeddedAgents = input<MonitoredAgent[] | undefined>(undefined);
+  readonly embeddedOpen = input<boolean | undefined>(undefined);
+  readonly sessionId = input<string | null>(null);
 }
 
 @Component({

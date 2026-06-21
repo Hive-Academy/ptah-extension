@@ -66,7 +66,7 @@ export class TribunalStateService {
     },
   );
 
-  buildTilesForRun(_move: TribunalMove, lanes: readonly VendorLane[]): void {
+  buildTilesForRun(lanes: readonly VendorLane[]): void {
     const capped = lanes.slice(0, TRIBUNAL_MAX_VENDOR_TILES);
     const tiles: TribunalTile[] = capped.map((lane, index) => ({
       tileId: lane.laneId,
