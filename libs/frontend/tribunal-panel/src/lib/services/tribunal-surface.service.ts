@@ -21,6 +21,8 @@ export class TribunalSurfaceService {
   private readonly _nudge = signal(0);
   private _surfaceId: SurfaceId | null = null;
 
+  readonly streamingNudge = this._nudge.asReadonly();
+
   readonly streamingState = computed<StreamingState>(() => {
     this._nudge();
     return this._streamingState();
@@ -31,7 +33,10 @@ export class TribunalSurfaceService {
     this.streamRouter.onSurfaceCreated(surfaceId);
     this.surfaceRegistry.register(
       surfaceId,
-      () => this._streamingState(),
+      () => {
+        this._nudge.update((n) => n + 1);
+        return this._streamingState();
+      },
       (next) => {
         this._streamingState.set(next);
         this._nudge.update((n) => n + 1);

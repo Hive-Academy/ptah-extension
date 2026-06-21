@@ -57,7 +57,6 @@ export class TribunalRunService {
     this.state.setLanes(lanes);
     this.state.buildTilesForRun(move, lanes);
     this.state.setSurfaceId(surfaceId);
-    this.state.setPhase('fan');
 
     const workspacePath = this.vscode.config().workspaceRoot;
     const model = this.modelState.currentModel();

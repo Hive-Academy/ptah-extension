@@ -6,13 +6,30 @@ import {
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
-import { ExecutionNodeComponent } from '@ptah-extension/chat';
-import { TribunalSurfaceService } from '../services/tribunal-surface.service';
 import {
-  TribunalStateService,
-  type TribunalPhase,
-} from '../services/tribunal-state.service';
+  ConversationRegistry,
+  SessionLivenessRegistry,
+  SurfaceId,
+  TabManagerService,
+  TabSessionBinding,
+  type ClaudeSessionId,
+  type ClosedTabEvent,
+} from '@ptah-extension/chat-state';
+import {
+  PermissionHandlerService,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
+import { StreamRouter } from '@ptah-extension/chat-routing';
+import { ExecutionNodeComponent } from '@ptah-extension/chat';
+import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { createMockRpcService } from '@ptah-extension/core/testing';
+import type {
+  FlatStreamEventUnion,
+  MessageStartEvent,
+  ToolStartEvent,
+} from '@ptah-extension/shared';
+import { TribunalSurfaceService } from '../services/tribunal-surface.service';
+import { TribunalStateService } from '../services/tribunal-state.service';
 import { ConductorStripComponent } from './conductor-strip.component';
 
 @Component({
@@ -26,35 +43,95 @@ class ExecutionNodeStubComponent {
   @Input() isStreaming = false;
 }
 
-@Component({
-  standalone: true,
-  imports: [ConductorStripComponent],
-  template: '<ptah-conductor-strip />',
-})
-class TestHostComponent {}
+const SESSION = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ClaudeSessionId;
+const MSG_ID = 'msg-conductor-1';
+
+function msgStart(): MessageStartEvent {
+  return {
+    id: 'evt-msg-start',
+    eventType: 'message_start',
+    timestamp: 1,
+    sessionId: SESSION,
+    messageId: MSG_ID,
+    role: 'assistant',
+    source: 'stream',
+  } as MessageStartEvent;
+}
+
+function toolStart(): ToolStartEvent {
+  return {
+    id: 'evt-tool-start',
+    eventType: 'tool_start',
+    timestamp: 2,
+    sessionId: SESSION,
+    messageId: MSG_ID,
+    toolCallId: 'tool-conductor-1',
+    toolName: 'Bash',
+    isTaskTool: false,
+    source: 'stream',
+  } as ToolStartEvent;
+}
+
+function makeTabManagerMock() {
+  return {
+    tabs: signal<{ id: string; claudeSessionId: string | null }[]>(
+      [],
+    ).asReadonly(),
+    closedTab: signal<ClosedTabEvent | null>(null).asReadonly(),
+    activeTabId: signal<string | null>(null).asReadonly(),
+    visibleTabIds: signal<ReadonlySet<string>>(new Set()).asReadonly(),
+    setStreamingState: jest.fn(),
+  };
+}
+
+function makePermissionHandlerMock() {
+  return {
+    attachPromptTargets: jest.fn(),
+    targetTabsFor: jest.fn(() => [] as readonly string[]),
+    cancelPrompt: jest.fn(),
+    handlePermissionResponse: jest.fn(),
+    decisionPulse: signal(null).asReadonly(),
+    questionRequests: signal<unknown[]>([]).asReadonly(),
+    attachQuestionTargets: jest.fn(),
+    questionTargetTabsFor: jest.fn(() => [] as readonly string[]),
+    clearQuestionTargets: jest.fn(),
+    cancelQuestion: jest.fn(),
+    handleQuestionResponse: jest.fn(),
+  };
+}
 
 describe('ConductorStripComponent', () => {
-  let phaseSig: ReturnType<typeof signal<TribunalPhase>>;
-  let streamingStateSig: ReturnType<
-    typeof signal<{ events: Map<string, unknown> }>
-  >;
-  let mockTreeBuilder: jest.Mocked<
-    Pick<ExecutionTreeBuilderService, 'buildTree'>
-  >;
+  let surface: TribunalSurfaceService;
+  let router: StreamRouter;
+  let liveness: SessionLivenessRegistry;
+  let sessionSig: ReturnType<typeof signal<string | null>>;
 
-  function configure() {
+  function setup(surfaceId: SurfaceId): void {
+    sessionSig = signal<string | null>(null);
+
+    TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [TestHostComponent],
+      imports: [ConductorStripComponent],
       providers: [
+        TribunalSurfaceService,
+        { provide: TabManagerService, useValue: makeTabManagerMock() },
         {
-          provide: TribunalSurfaceService,
-          useValue: { streamingState: () => streamingStateSig() },
+          provide: PermissionHandlerService,
+          useValue: makePermissionHandlerMock(),
+        },
+        {
+          provide: StreamingHandlerService,
+          useValue: { cleanupSessionDeduplication: jest.fn() },
+        },
+        { provide: ClaudeRpcService, useValue: createMockRpcService() },
+        {
+          provide: VSCodeService,
+          useValue: { config: signal({ panelId: '' }), postMessage: jest.fn() },
         },
         {
           provide: TribunalStateService,
-          useValue: { phase: () => phaseSig() },
+          useValue: { tribunalSessionId: () => sessionSig() },
         },
-        { provide: ExecutionTreeBuilderService, useValue: mockTreeBuilder },
       ],
     });
 
@@ -62,88 +139,56 @@ describe('ConductorStripComponent', () => {
       remove: { imports: [ExecutionNodeComponent] },
       add: { imports: [ExecutionNodeStubComponent] },
     });
+
+    surface = TestBed.inject(TribunalSurfaceService);
+    router = TestBed.inject(StreamRouter);
+    liveness = TestBed.inject(SessionLivenessRegistry);
+    surface.registerSurface(surfaceId);
   }
 
-  beforeEach(() => {
-    phaseSig = signal<TribunalPhase>('fan');
-    streamingStateSig = signal({ events: new Map() });
-    mockTreeBuilder = { buildTree: jest.fn().mockReturnValue([]) };
-  });
+  function route(surfaceId: SurfaceId, event: FlatStreamEventUnion): void {
+    router.routeStreamEventForSurface(event, surfaceId);
+  }
 
-  it('renders all three phase steps without crashing', () => {
-    configure();
-    const fixture = TestBed.createComponent(TestHostComponent);
-    expect(() => fixture.detectChanges()).not.toThrow();
+  it('emits >0 execution nodes after a routed tool_start, without compaction', () => {
+    const surfaceId = SurfaceId.create();
+    setup(surfaceId);
 
-    const nav = fixture.debugElement.query(
-      By.css('nav[aria-label="Tribunal phase"]'),
-    );
-    expect(nav.nativeElement.textContent).toContain('Fan-out');
-    expect(nav.nativeElement.textContent).toContain('Critique');
-    expect(nav.nativeElement.textContent).toContain('Verdict');
-  });
-
-  it('shows the waiting placeholder when there are no events', () => {
-    configure();
-    const fixture = TestBed.createComponent(TestHostComponent);
+    const fixture = TestBed.createComponent(ConductorStripComponent);
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain(
       'Waiting for the conductor',
     );
-  });
 
-  it('renders execution nodes when the tree has content', () => {
-    configure();
-    streamingStateSig.set({ events: new Map([['e1', {}]]) });
-    mockTreeBuilder.buildTree.mockReturnValue([
-      {
-        id: 'n1',
-        type: 'text',
-        content: 'hi',
-        children: [],
-      } as unknown as ReturnType<
-        ExecutionTreeBuilderService['buildTree']
-      >[number],
-    ]);
+    route(surfaceId, msgStart());
+    route(surfaceId, toolStart());
 
-    const fixture = TestBed.createComponent(TestHostComponent);
-    fixture.detectChanges();
-    expect(
-      fixture.debugElement.query(By.css('[data-testid="execution-node-stub"]')),
-    ).toBeTruthy();
-  });
-
-  it('marks the active phase with the primary background when phase is fan', () => {
-    configure();
-    phaseSig.set('fan');
-    const fixture = TestBed.createComponent(TestHostComponent);
     fixture.detectChanges();
 
-    const steps = fixture.debugElement.queryAll(
-      By.css('nav[aria-label="Tribunal phase"] > span'),
+    const nodes = fixture.debugElement.queryAll(
+      By.css('[data-testid="execution-node-stub"]'),
     );
-    const fanStep = steps.find((s) =>
-      s.nativeElement.textContent.includes('Fan-out'),
+    expect(nodes.length).toBeGreaterThan(0);
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'Waiting for the conductor',
     );
-    expect(fanStep?.nativeElement.className).toContain('bg-primary');
   });
 
-  it('moves the active highlight to verdict when phase advances to verdict', () => {
-    configure();
-    phaseSig.set('verdict');
-    const fixture = TestBed.createComponent(TestHostComponent);
-    fixture.detectChanges();
+  it('isStreaming reflects session liveness', () => {
+    const surfaceId = SurfaceId.create();
+    setup(surfaceId);
 
-    const steps = fixture.debugElement.queryAll(
-      By.css('nav[aria-label="Tribunal phase"] > span'),
-    );
-    const verdictStep = steps.find((s) =>
-      s.nativeElement.textContent.includes('Verdict'),
-    );
-    const fanStep = steps.find((s) =>
-      s.nativeElement.textContent.includes('Fan-out'),
-    );
-    expect(verdictStep?.nativeElement.className).toContain('bg-primary');
-    expect(fanStep?.nativeElement.className).not.toContain('bg-primary');
+    const fixture = TestBed.createComponent(ConductorStripComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Idle');
+
+    sessionSig.set(SESSION);
+    liveness.markStreaming(SESSION);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Running');
+
+    liveness.markIdle(SESSION);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Idle');
   });
 });

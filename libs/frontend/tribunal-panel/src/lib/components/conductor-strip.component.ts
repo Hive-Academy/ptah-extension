@@ -7,16 +7,9 @@ import {
 import { LucideAngularModule, Gavel } from 'lucide-angular';
 import { ExecutionNodeComponent } from '@ptah-extension/chat';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
-import {
-  TribunalStateService,
-  type TribunalPhase,
-} from '../services/tribunal-state.service';
+import { SessionLivenessRegistry } from '@ptah-extension/chat-state';
+import { TribunalStateService } from '../services/tribunal-state.service';
 import { TribunalSurfaceService } from '../services/tribunal-surface.service';
-
-interface PhaseStep {
-  readonly key: Exclude<TribunalPhase, 'idle'>;
-  readonly label: string;
-}
 
 @Component({
   selector: 'ptah-conductor-strip',
@@ -36,33 +29,20 @@ interface PhaseStep {
           aria-hidden="true"
         />
         <span class="text-sm font-semibold text-base-content">Conductor</span>
-        <nav
-          class="ml-auto flex items-center gap-1"
-          aria-label="Tribunal phase"
+        <span
+          class="ml-auto flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide"
+          [class.bg-primary]="isStreaming()"
+          [class.text-primary-content]="isStreaming()"
+          [class.bg-base-300]="!isStreaming()"
+          [class.text-base-content]="!isStreaming()"
         >
-          @for (step of phaseSteps; track step.key) {
-            <span
-              class="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide"
-              [class.bg-primary]="phase() === step.key"
-              [class.text-primary-content]="phase() === step.key"
-              [class.bg-base-300]="phase() !== step.key"
-              [class.text-base-content]="phase() !== step.key"
-              [class.opacity-50]="
-                phase() !== step.key && !isPhaseDone(step.key)
-              "
-            >
-              <span
-                class="h-1.5 w-1.5 rounded-full"
-                [class.bg-current]="
-                  phase() === step.key || isPhaseDone(step.key)
-                "
-                [class.animate-pulse]="phase() === step.key"
-                aria-hidden="true"
-              ></span>
-              {{ step.label }}
-            </span>
-          }
-        </nav>
+          <span
+            class="h-1.5 w-1.5 rounded-full bg-current"
+            [class.animate-pulse]="isStreaming()"
+            aria-hidden="true"
+          ></span>
+          {{ isStreaming() ? 'Running' : 'Idle' }}
+        </span>
       </header>
 
       <div
@@ -100,35 +80,20 @@ export class ConductorStripComponent {
   private readonly surface = inject(TribunalSurfaceService);
   private readonly tribunalState = inject(TribunalStateService);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
+  private readonly liveness = inject(SessionLivenessRegistry);
 
   protected readonly GavelIcon = Gavel;
 
-  protected readonly phaseSteps: readonly PhaseStep[] = [
-    { key: 'fan', label: 'Fan-out' },
-    { key: 'critique', label: 'Critique' },
-    { key: 'verdict', label: 'Verdict' },
-  ];
-
-  protected readonly phase = this.tribunalState.phase;
-
   protected readonly executionNodes = computed(() => {
+    this.surface.streamingNudge();
     const state = this.surface.streamingState();
     if (state.events.size === 0) return [];
     return this.treeBuilder.buildTree(state, 'tribunal-conductor');
   });
 
-  protected readonly isStreaming = computed(
-    () => this.phase() !== 'idle' && this.phase() !== 'complete',
-  );
-
-  protected isPhaseDone(key: PhaseStep['key']): boolean {
-    const order: TribunalPhase[] = [
-      'idle',
-      'fan',
-      'critique',
-      'verdict',
-      'complete',
-    ];
-    return order.indexOf(this.phase()) > order.indexOf(key);
-  }
+  protected readonly isStreaming = computed(() => {
+    const sessionId = this.tribunalState.tribunalSessionId();
+    if (!sessionId) return false;
+    return this.liveness.statuses().get(sessionId) === 'streaming';
+  });
 }

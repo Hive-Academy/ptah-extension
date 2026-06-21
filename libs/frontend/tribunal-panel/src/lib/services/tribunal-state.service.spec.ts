@@ -1,8 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import {
-  AgentMonitorStore,
-  ExecutionTreeBuilderService,
-} from '@ptah-extension/chat-streaming';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import {
   ConversationRegistry,
@@ -48,20 +45,15 @@ function makeAgent(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
 describe('TribunalStateService', () => {
   let service: TribunalStateService;
   let mockAgentMonitor: jest.Mocked<
-    Pick<AgentMonitorStore, 'tick' | 'agentsForSession'>
+    Pick<AgentMonitorStore, 'agentsForSession'>
   >;
   let mockTabBinding: jest.Mocked<
     Pick<TabSessionBinding, 'conversationForSurface'>
   >;
   let mockRegistry: jest.Mocked<Pick<ConversationRegistry, 'getRecord'>>;
-  let mockSurface: jest.Mocked<Pick<TribunalSurfaceService, 'streamingState'>>;
-  let mockTreeBuilder: jest.Mocked<
-    Pick<ExecutionTreeBuilderService, 'buildTree'>
-  >;
 
   beforeEach(() => {
     mockAgentMonitor = {
-      tick: jest.fn(),
       agentsForSession: jest.fn().mockReturnValue([]),
     };
     mockTabBinding = {
@@ -70,12 +62,6 @@ describe('TribunalStateService', () => {
     mockRegistry = {
       getRecord: jest.fn().mockReturnValue(null),
     };
-    mockSurface = {
-      streamingState: jest.fn().mockReturnValue({ events: new Map() }),
-    };
-    mockTreeBuilder = {
-      buildTree: jest.fn().mockReturnValue([]),
-    };
 
     TestBed.configureTestingModule({
       providers: [
@@ -83,8 +69,7 @@ describe('TribunalStateService', () => {
         { provide: AgentMonitorStore, useValue: mockAgentMonitor },
         { provide: TabSessionBinding, useValue: mockTabBinding },
         { provide: ConversationRegistry, useValue: mockRegistry },
-        { provide: TribunalSurfaceService, useValue: mockSurface },
-        { provide: ExecutionTreeBuilderService, useValue: mockTreeBuilder },
+        { provide: TribunalSurfaceService, useValue: {} },
       ],
     });
 
@@ -92,9 +77,8 @@ describe('TribunalStateService', () => {
   });
 
   describe('initial state', () => {
-    it('starts with empty tiles and idle phase', () => {
+    it('starts with empty tiles', () => {
       expect(service.tiles()).toHaveLength(0);
-      expect(service.phase()).toBe('idle');
     });
 
     it('starts with empty lanes', () => {
@@ -148,25 +132,10 @@ describe('TribunalStateService', () => {
       expect(added).toBe(false);
       expect(service.tiles()).toHaveLength(before);
     });
-
-    it('addTile returns true for non-vendor tiles regardless of vendor count', () => {
-      const lanes = Array.from({ length: 8 }, (_, i) =>
-        makeLane({ laneId: `lane-${i}`, displayName: `V${i}` }),
-      );
-      service.buildTilesForRun('council', lanes);
-
-      const added = service.addTile({
-        tileId: 'extra-verdict',
-        kind: 'verdict',
-        position: { x: 0, y: 0, w: 4, h: 6 },
-      });
-
-      expect(added).toBe(true);
-    });
   });
 
   describe('buildTilesForRun', () => {
-    it('creates vendor tiles plus one verdict tile for council move', () => {
+    it('creates one vendor tile per lane and no other tile kinds', () => {
       const lanes = [
         makeLane({ laneId: 'l1', displayName: 'A' }),
         makeLane({ laneId: 'l2', displayName: 'B' }),
@@ -174,41 +143,8 @@ describe('TribunalStateService', () => {
       service.buildTilesForRun('council', lanes);
 
       const tiles = service.tiles();
-      expect(tiles.filter((t) => t.kind === 'vendor')).toHaveLength(2);
-      expect(tiles.find((t) => t.kind === 'verdict')).toBeDefined();
-    });
-
-    it('creates a scorecard reserved tile for race move', () => {
-      const lanes = [makeLane({ laneId: 'l1' })];
-      service.buildTilesForRun('race', lanes);
-      expect(service.tiles().find((t) => t.kind === 'scorecard')).toBeDefined();
-    });
-  });
-
-  describe('markLaneDiffReady', () => {
-    it('upgrades a vendor tile to diff kind for the given laneId', () => {
-      service.buildTilesForRun('forge', [makeLane({ laneId: 'lane-1' })]);
-      expect(service.tiles().find((t) => t.laneId === 'lane-1')?.kind).toBe(
-        'vendor',
-      );
-
-      service.markLaneDiffReady('lane-1');
-
-      expect(service.tiles().find((t) => t.laneId === 'lane-1')?.kind).toBe(
-        'diff',
-      );
-    });
-
-    it('does not affect tiles with a different laneId', () => {
-      service.buildTilesForRun('forge', [
-        makeLane({ laneId: 'lane-1' }),
-        makeLane({ laneId: 'lane-2', displayName: 'B' }),
-      ]);
-      service.markLaneDiffReady('lane-1');
-
-      expect(service.tiles().find((t) => t.laneId === 'lane-2')?.kind).toBe(
-        'vendor',
-      );
+      expect(tiles).toHaveLength(2);
+      expect(tiles.every((t) => t.kind === 'vendor')).toBe(true);
     });
   });
 
@@ -546,194 +482,14 @@ describe('TribunalStateService', () => {
     });
   });
 
-  describe('forgeDiffs parsing', () => {
-    it('returns empty map when conductor text is empty', () => {
-      mockSurface.streamingState.mockReturnValue({
-        events: new Map(),
-      } as ReturnType<TribunalSurfaceService['streamingState']>);
-      service.setLanes([makeLane({ laneId: 'l1', displayName: 'Codex' })]);
-      expect(
-        TestBed.runInInjectionContext(() => service.forgeDiffs()).size,
-      ).toBe(0);
-    });
-
-    it('parses a vendor section from conductor text into a ForgeDiff', () => {
-      const conductorText = `## Codex\nSummary text.\n\`\`\`diff\n+ added line\n\`\`\`\nReview notes here.`;
-      mockSurface.streamingState.mockReturnValue({
-        events: new Map([['e1', {}]]),
-      } as unknown as ReturnType<TribunalSurfaceService['streamingState']>);
-      mockTreeBuilder.buildTree.mockReturnValue([
-        {
-          type: 'text',
-          content: conductorText,
-          children: [],
-        } as unknown as ReturnType<
-          ExecutionTreeBuilderService['buildTree']
-        >[number],
-      ]);
-      service.setLanes([makeLane({ laneId: 'l1', displayName: 'Codex' })]);
-
-      const diffs = TestBed.runInInjectionContext(() => service.forgeDiffs());
-      expect(diffs.has('l1')).toBe(true);
-      expect(diffs.get('l1')?.summary).toBe('Summary text.');
-      expect(diffs.get('l1')?.diff).toBe('+ added line');
-    });
-  });
-
-  describe('raceScores parsing', () => {
-    it('returns empty array when conductor text is empty', () => {
-      mockSurface.streamingState.mockReturnValue({
-        events: new Map(),
-      } as ReturnType<TribunalSurfaceService['streamingState']>);
-      expect(
-        TestBed.runInInjectionContext(() => service.raceScores()),
-      ).toHaveLength(0);
-    });
-
-    it('parses a markdown table into RaceScore[]', () => {
-      const table = [
-        '| Vendor | Correctness | Verify | Rank |',
-        '|--------|-------------|--------|------|',
-        '| Codex  | Good        | ✅     | 1    |',
-        '| Copilot| Fair        | ❌     | 2    |',
-      ].join('\n');
-
-      mockSurface.streamingState.mockReturnValue({
-        events: new Map([['e1', {}]]),
-      } as unknown as ReturnType<TribunalSurfaceService['streamingState']>);
-      mockTreeBuilder.buildTree.mockReturnValue([
-        { type: 'text', content: table, children: [] } as unknown as ReturnType<
-          ExecutionTreeBuilderService['buildTree']
-        >[number],
-      ]);
-
-      const scores = TestBed.runInInjectionContext(() => service.raceScores());
-      expect(scores).toHaveLength(2);
-      expect(scores[0].vendor).toBe('Codex');
-      expect(scores[0].verifyPassed).toBe(true);
-      expect(scores[0].rank).toBe(1);
-      expect(scores[1].vendor).toBe('Copilot');
-      expect(scores[1].verifyPassed).toBe(false);
-      expect(scores[1].rank).toBe(2);
-    });
-
-    it('parses the LAST markdown table when multiple tables are emitted', () => {
-      const intermediate = [
-        '| Vendor | Rank |',
-        '|--------|------|',
-        '| Codex  | ?    |',
-      ].join('\n');
-      const final = [
-        '| Vendor | Verify | Rank |',
-        '|--------|--------|------|',
-        '| Codex  | ✅     | 2    |',
-        '| Copilot| ✅     | 1    |',
-      ].join('\n');
-      const combined = `${intermediate}\n\nProgress update.\n\n${final}`;
-
-      mockSurface.streamingState.mockReturnValue({
-        events: new Map([['e1', {}]]),
-      } as unknown as ReturnType<TribunalSurfaceService['streamingState']>);
-      mockTreeBuilder.buildTree.mockReturnValue([
-        {
-          type: 'text',
-          content: combined,
-          children: [],
-        } as unknown as ReturnType<
-          ExecutionTreeBuilderService['buildTree']
-        >[number],
-      ]);
-
-      const scores = TestBed.runInInjectionContext(() => service.raceScores());
-      expect(scores).toHaveLength(2);
-      expect(scores[0].vendor).toBe('Codex');
-      expect(scores[0].rank).toBe(2);
-      expect(scores[1].vendor).toBe('Copilot');
-      expect(scores[1].rank).toBe(1);
-    });
-
-    it('partial/absent score data produces loading row without crashing', () => {
-      const partial = '| Vendor | Rank |\n|--------|------|\n| Codex  |      |';
-      mockSurface.streamingState.mockReturnValue({
-        events: new Map([['e1', {}]]),
-      } as unknown as ReturnType<TribunalSurfaceService['streamingState']>);
-      mockTreeBuilder.buildTree.mockReturnValue([
-        {
-          type: 'text',
-          content: partial,
-          children: [],
-        } as unknown as ReturnType<
-          ExecutionTreeBuilderService['buildTree']
-        >[number],
-      ]);
-
-      let scores!: readonly ReturnType<typeof service.raceScores>[number][];
-      expect(() => {
-        scores = TestBed.runInInjectionContext(() => service.raceScores());
-      }).not.toThrow();
-      expect(scores[0].vendor).toBe('Codex');
-      expect(scores[0].rank).toBeNull();
-    });
-  });
-
-  describe('phase progression — derivedPhase / advancePhaseFromStream', () => {
-    function withConductorText(text: string): void {
-      mockSurface.streamingState.mockReturnValue({
-        events: new Map([['e1', {}]]),
-      } as unknown as ReturnType<TribunalSurfaceService['streamingState']>);
-      mockTreeBuilder.buildTree.mockReturnValue([
-        { type: 'text', content: text, children: [] } as unknown as ReturnType<
-          ExecutionTreeBuilderService['buildTree']
-        >[number],
-      ]);
-    }
-
-    it('stays idle when phase is idle regardless of stream content', () => {
-      withConductorText('## Verdict\nDone.');
-      expect(TestBed.runInInjectionContext(() => service.derivedPhase())).toBe(
-        'idle',
-      );
-    });
-
-    it('advances from fan to critique when a critique marker appears', () => {
-      service.setPhase('fan');
-      withConductorText('## Critique\nPeer review notes.');
-      service.advancePhaseFromStream();
-      expect(service.phase()).toBe('critique');
-    });
-
-    it('advances to verdict when a verdict marker appears', () => {
-      service.setPhase('fan');
-      withConductorText('## Verdict\nFinal recommendation: option A.');
-      service.advancePhaseFromStream();
-      expect(service.phase()).toBe('verdict');
-    });
-
-    it('never regresses to an earlier phase (verdict stays verdict for fan-only text)', () => {
-      service.setPhase('verdict');
-      withConductorText('Fan-out output with no critique or verdict markers.');
-      service.advancePhaseFromStream();
-      expect(service.phase()).toBe('verdict');
-    });
-
-    it('stays on the current phase for unrecognized content', () => {
-      service.setPhase('fan');
-      withConductorText('Some arbitrary streaming text.');
-      service.advancePhaseFromStream();
-      expect(service.phase()).toBe('fan');
-    });
-  });
-
   describe('reset', () => {
-    it('clears all state back to idle defaults', () => {
+    it('clears all state back to defaults', () => {
       service.buildTilesForRun('council', [makeLane()]);
-      service.setPhase('fan');
 
       service.reset();
 
       expect(service.tiles()).toHaveLength(0);
       expect(service.lanes()).toHaveLength(0);
-      expect(service.phase()).toBe('idle');
       expect(service.surfaceId()).toBeNull();
       expect(service.tribunalSessionId()).toBeNull();
     });

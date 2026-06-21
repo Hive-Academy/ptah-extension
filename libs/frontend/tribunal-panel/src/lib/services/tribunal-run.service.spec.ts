@@ -50,21 +50,15 @@ describe('TribunalRunService', () => {
       | 'setLanes'
       | 'buildTilesForRun'
       | 'setSurfaceId'
-      | 'setPhase'
       | 'refreshSessionId'
       | 'reset'
-      | 'streamingState'
       | 'tiles'
       | 'move'
       | 'lanes'
       | 'surfaceId'
       | 'tribunalSessionId'
-      | 'phase'
       | 'vendorTileCount'
       | 'laneBindings'
-      | 'conductorText'
-      | 'forgeDiffs'
-      | 'raceScores'
     >
   >;
   let mockStreamRouter: jest.Mocked<
@@ -85,21 +79,15 @@ describe('TribunalRunService', () => {
       setLanes: jest.fn(),
       buildTilesForRun: jest.fn(),
       setSurfaceId: jest.fn(),
-      setPhase: jest.fn(),
       refreshSessionId: jest.fn(),
       reset: jest.fn(),
-      streamingState: jest.fn().mockReturnValue({ events: new Map() }),
       tiles: jest.fn().mockReturnValue([]),
       move: jest.fn().mockReturnValue('council'),
       lanes: jest.fn().mockReturnValue([]),
       surfaceId: jest.fn().mockReturnValue(null),
       tribunalSessionId: jest.fn().mockReturnValue(null),
-      phase: jest.fn().mockReturnValue('idle'),
       vendorTileCount: jest.fn().mockReturnValue(0),
       laneBindings: jest.fn().mockReturnValue(new Map()),
-      conductorText: jest.fn().mockReturnValue(''),
-      forgeDiffs: jest.fn().mockReturnValue(new Map()),
-      raceScores: jest.fn().mockReturnValue([]),
     };
 
     mockStreamRouter = {
@@ -261,10 +249,10 @@ describe('TribunalRunService', () => {
       expect(args.name).toBe('Tribunal: council');
     });
 
-    it('sets phase to fan before calling chat:start', async () => {
+    it('builds tiles before calling chat:start', async () => {
       const callOrder: string[] = [];
-      (mockState.setPhase as jest.Mock).mockImplementation((p: string) =>
-        callOrder.push(`setPhase:${p}`),
+      (mockState.buildTilesForRun as jest.Mock).mockImplementation(() =>
+        callOrder.push('buildTilesForRun'),
       );
       rpc.call.mockImplementation(async () => {
         callOrder.push('chat:start');
@@ -273,7 +261,7 @@ describe('TribunalRunService', () => {
 
       await service.launch('council', [makeLane()], OBJECTIVE);
 
-      expect(callOrder.indexOf('setPhase:fan')).toBeLessThan(
+      expect(callOrder.indexOf('buildTilesForRun')).toBeLessThan(
         callOrder.indexOf('chat:start'),
       );
     });
@@ -408,6 +396,5 @@ describe('TribunalRunService — page-scoped DI shares one TribunalStateService'
     );
 
     expect(pageState.tiles().length).toBeGreaterThan(0);
-    expect(pageState.phase()).toBe('fan');
   });
 });

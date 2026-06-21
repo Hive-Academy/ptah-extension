@@ -19,6 +19,15 @@ import {
 } from 'gridstack/dist/angular';
 import { CanvasLayoutService } from '@ptah-extension/canvas';
 import type { TileLayout } from '@ptah-extension/canvas';
+import {
+  PermissionRequestCardComponent,
+  QuestionCardComponent,
+} from '@ptah-extension/chat';
+import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
+import type {
+  PermissionResponse,
+  AskUserQuestionResponse,
+} from '@ptah-extension/shared';
 import { TribunalStateService } from './services/tribunal-state.service';
 import { TribunalSurfaceService } from './services/tribunal-surface.service';
 import { TribunalRunService } from './services/tribunal-run.service';
@@ -29,9 +38,6 @@ import {
 import { TribunalEmptyStateComponent } from './components/tribunal-empty-state.component';
 import { ConductorStripComponent } from './components/conductor-strip.component';
 import { VendorCardComponent } from './components/vendor-card.component';
-import { VerdictTileComponent } from './components/verdict-tile.component';
-import { DiffTileComponent } from './components/diff-tile.component';
-import { ScorecardComponent } from './components/scorecard.component';
 import { TribunalWizardComponent } from './wizard/tribunal-wizard.component';
 import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
 
@@ -47,10 +53,9 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
     TribunalEmptyStateComponent,
     ConductorStripComponent,
     VendorCardComponent,
-    VerdictTileComponent,
-    DiffTileComponent,
-    ScorecardComponent,
     TribunalWizardComponent,
+    PermissionRequestCardComponent,
+    QuestionCardComponent,
   ],
   template: `
     <div
@@ -64,6 +69,27 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
         <ptah-tribunal-empty-state (convene)="convene.set(true)" />
       } @else {
         <ptah-conductor-strip />
+
+        @if (surfacePermissions().length > 0 || surfaceQuestions().length > 0) {
+          <div
+            class="flex flex-col gap-2 border-b border-base-300 bg-base-200/40 px-4 py-2"
+            data-testid="tribunal-conductor-prompts"
+          >
+            @for (perm of surfacePermissions(); track perm.id) {
+              <ptah-permission-request-card
+                [request]="perm"
+                (responded)="onPermissionResponse($event)"
+              />
+            }
+            @for (question of surfaceQuestions(); track question.id) {
+              <ptah-question-card
+                [request]="question"
+                (answered)="onQuestionResponse($event)"
+              />
+            }
+          </div>
+        }
+
         <div class="flex-1 overflow-auto w-[97%]">
           <gridstack [options]="gsOptions" (changeCB)="onGridChange($event)">
             @for (tile of tribunalState.tiles(); track tile.tileId) {
@@ -84,34 +110,15 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
                   [focused]="focusedTileId() === tile.tileId"
                   (focusRequested)="focusedTileId.set(tile.tileId)"
                 >
-                  @switch (tile.kind) {
-                    @case ('vendor') {
-                      @if (laneFor(tile); as lane) {
-                        <ptah-vendor-card
-                          [lane]="lane"
-                          [tribunalSessionId]="tribunalSessionId() ?? ''"
-                        />
-                      } @else {
-                        <div class="p-3 text-xs text-base-content/50">
-                          {{ tileLabel(tile) }}
-                        </div>
-                      }
-                    }
-                    @case ('verdict') {
-                      <ptah-verdict-tile />
-                    }
-                    @case ('diff') {
-                      @if (laneFor(tile); as lane) {
-                        <ptah-diff-tile [lane]="lane" />
-                      } @else {
-                        <div class="p-3 text-xs text-base-content/50">
-                          {{ tileLabel(tile) }}
-                        </div>
-                      }
-                    }
-                    @case ('scorecard') {
-                      <ptah-scorecard />
-                    }
+                  @if (laneFor(tile); as lane) {
+                    <ptah-vendor-card
+                      [lane]="lane"
+                      [tribunalSessionId]="tribunalSessionId() ?? ''"
+                    />
+                  } @else {
+                    <div class="p-3 text-xs text-base-content/50">
+                      {{ tileLabel(tile) }}
+                    </div>
                   }
                 </ptah-tribunal-tile-host>
               </gridstack-item>
@@ -138,6 +145,7 @@ export class TribunalPageComponent {
   protected readonly tribunalState = inject(TribunalStateService);
   private readonly tribunalSurface = inject(TribunalSurfaceService);
   private readonly layoutService = inject(CanvasLayoutService);
+  private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly convene = signal(false);
@@ -166,6 +174,18 @@ export class TribunalPageComponent {
     this.layoutService.containerHeight();
     return this.layoutService.computeLayout(this.tribunalState.tiles().length);
   });
+
+  protected readonly surfacePermissions = computed(() =>
+    this.permissionHandler
+      .permissionRequests()
+      .filter((p) => this.permissionHandler.hasSurfaceTargets(p.id)),
+  );
+
+  protected readonly surfaceQuestions = computed(() =>
+    this.permissionHandler
+      .questionRequests()
+      .filter((q) => this.permissionHandler.hasSurfaceTargets(q.id)),
+  );
 
   constructor() {
     afterNextRender(() => {
@@ -196,21 +216,6 @@ export class TribunalPageComponent {
       grid.batchUpdate(false);
     });
 
-    effect(() => {
-      if (this.tribunalState.move() !== 'forge') return;
-      const ready = this.tribunalState.forgeDiffs();
-      untracked(() => {
-        for (const laneId of ready.keys()) {
-          this.tribunalState.markLaneDiffReady(laneId);
-        }
-      });
-    });
-
-    effect(() => {
-      this.tribunalState.derivedPhase();
-      untracked(() => this.tribunalState.advancePhaseFromStream());
-    });
-
     this.destroyRef.onDestroy(() => {
       this.tribunalSurface.teardown();
     });
@@ -233,17 +238,7 @@ export class TribunalPageComponent {
     const lane = this.tribunalState
       .lanes()
       .find((l) => l.laneId === tile.laneId);
-    if (lane) return lane.displayName;
-    switch (tile.kind) {
-      case 'verdict':
-        return 'Verdict';
-      case 'scorecard':
-        return 'Scorecard';
-      case 'diff':
-        return 'Diff';
-      default:
-        return 'Vendor';
-    }
+    return lane ? lane.displayName : 'Vendor';
   }
 
   protected tileStatus(tile: TribunalTile): TribunalTileStatus {
@@ -260,6 +255,14 @@ export class TribunalPageComponent {
       default:
         return 'idle';
     }
+  }
+
+  protected onPermissionResponse(response: PermissionResponse): void {
+    this.permissionHandler.handlePermissionResponse(response);
+  }
+
+  protected onQuestionResponse(response: AskUserQuestionResponse): void {
+    this.permissionHandler.handleQuestionResponse(response);
   }
 
   onGridChange(data: nodesCB): void {
