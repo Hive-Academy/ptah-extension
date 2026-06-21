@@ -112,6 +112,12 @@ export class TribunalStateService {
     );
   }
 
+  updateTilePosition(tileId: string, position: TileLayout): void {
+    this._tiles.update((prev) =>
+      prev.map((t) => (t.tileId === tileId ? { ...t, position } : t)),
+    );
+  }
+
   removeTile(tileId: string): void {
     this._tiles.update((prev) => prev.filter((t) => t.tileId !== tileId));
   }

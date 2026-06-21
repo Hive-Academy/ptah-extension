@@ -6,6 +6,11 @@ import {
 } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { LucideAngularModule } from 'lucide-angular';
+import {
+  GridstackComponent,
+  GridstackItemComponent,
+} from 'gridstack/dist/angular';
 import { TribunalPageComponent } from './tribunal-page.component';
 import { TribunalStateService } from './services/tribunal-state.service';
 import { TribunalRunService } from './services/tribunal-run.service';
@@ -73,6 +78,9 @@ const STUBS = [
   VendorCardStub,
   EmptyStateStub,
   WizardStub,
+  GridstackComponent,
+  GridstackItemComponent,
+  LucideAngularModule,
 ];
 
 function makeLane(id: string, overrides: Partial<VendorLane> = {}): VendorLane {
@@ -146,10 +154,13 @@ describe('TribunalPageComponent — lifecycle', () => {
 });
 
 describe('TribunalPageComponent — board rendering', () => {
+  let updateTilePosition: jest.Mock;
+
   function configure(opts: {
     tiles: TribunalTile[];
     lanes: VendorLane[];
   }): ComponentFixture<TribunalPageComponent> {
+    updateTilePosition = jest.fn();
     TestBed.configureTestingModule({
       imports: [TribunalPageComponent],
       providers: [
@@ -161,6 +172,7 @@ describe('TribunalPageComponent — board rendering', () => {
             move: jest.fn().mockReturnValue('council'),
             laneBindings: jest.fn().mockReturnValue(new Map()),
             tribunalSessionId: jest.fn().mockReturnValue('session-1'),
+            updateTilePosition,
           },
         },
         {
@@ -191,7 +203,7 @@ describe('TribunalPageComponent — board rendering', () => {
     ).not.toBeNull();
   });
 
-  it('renders one tile per lane when there are 3 or fewer lanes (no switcher)', () => {
+  it('renders one gridstack tile per lane', () => {
     const fixture = configure({
       tiles: [makeTile('a'), makeTile('b'), makeTile('c')],
       lanes: [makeLane('a'), makeLane('b'), makeLane('c')],
@@ -201,51 +213,58 @@ describe('TribunalPageComponent — board rendering', () => {
       fixture.debugElement.queryAll(By.css('[data-testid="tribunal-tile"]'))
         .length,
     ).toBe(3);
-    expect(
-      fixture.debugElement.query(
-        By.css('[data-testid="tribunal-pill-switcher"]'),
-      ),
-    ).toBeNull();
   });
 
-  it('caps the visible board at 3 tiles and shows a pill switcher when there are more than 3 lanes', () => {
+  it('renders all tiles (no 3-tile cap) when there are more than 3 lanes', () => {
     const lanes = ['a', 'b', 'c', 'd', 'e'].map((id) => makeLane(id));
     const tiles = lanes.map((l) => makeTile(l.laneId));
     const fixture = configure({ tiles, lanes });
 
-    expect(
-      fixture.debugElement.query(
-        By.css('[data-testid="tribunal-pill-switcher"]'),
-      ),
-    ).not.toBeNull();
-    expect(
-      fixture.debugElement.queryAll(By.css('[data-testid="tribunal-pill"]'))
-        .length,
-    ).toBe(5);
     expect(
       fixture.debugElement.queryAll(By.css('[data-testid="tribunal-tile"]'))
         .length,
-    ).toBe(3);
+    ).toBe(5);
   });
 
-  it('toggling a 4th pill replaces the oldest, keeping the board at 3', () => {
-    const lanes = ['a', 'b', 'c', 'd', 'e'].map((id) => makeLane(id));
-    const tiles = lanes.map((l) => makeTile(l.laneId));
-    const fixture = configure({ tiles, lanes });
+  it('toggling the lock button flips its pressed state', () => {
+    const fixture = configure({
+      tiles: [makeTile('a')],
+      lanes: [makeLane('a')],
+    });
 
-    const pills = fixture.debugElement.queryAll(
-      By.css('[data-testid="tribunal-pill"]'),
+    const lock = fixture.debugElement.query(
+      By.css('[data-testid="tribunal-lock-toggle"]'),
     );
-    (pills[3].nativeElement as HTMLButtonElement).click();
+    expect(
+      (lock.nativeElement as HTMLElement).getAttribute('aria-pressed'),
+    ).toBe('false');
+
+    (lock.nativeElement as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    const labels = fixture.debugElement
-      .queryAll(By.css('[data-testid="tile-host-label"]'))
-      .map((d) => (d.nativeElement as HTMLElement).textContent?.trim());
+    expect(
+      (lock.nativeElement as HTMLElement).getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
 
-    expect(labels.length).toBe(3);
-    expect(labels).toContain('Vendor d');
-    expect(labels).not.toContain('Vendor a');
+  it('persists tile positions reported by gridstack onGridChange', () => {
+    const fixture = configure({
+      tiles: [makeTile('a')],
+      lanes: [makeLane('a')],
+    });
+
+    (
+      fixture.componentInstance as unknown as {
+        onGridChange(data: { nodes: unknown[] }): void;
+      }
+    ).onGridChange({ nodes: [{ id: 'a', x: 4, y: 6, w: 4, h: 6 }] });
+
+    expect(updateTilePosition).toHaveBeenCalledWith('a', {
+      x: 4,
+      y: 6,
+      w: 4,
+      h: 6,
+    });
   });
 
   it('renders the model under the provider name in each tile header', () => {

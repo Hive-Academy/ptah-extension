@@ -2,11 +2,17 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  effect,
   inject,
   signal,
-  untracked,
+  viewChild,
 } from '@angular/core';
+import { GridStackOptions } from 'gridstack';
+import {
+  GridstackComponent,
+  GridstackItemComponent,
+  nodesCB,
+} from 'gridstack/dist/angular';
+import { LucideAngularModule, Lock, Unlock } from 'lucide-angular';
 import { TribunalStateService } from './services/tribunal-state.service';
 import { TribunalRunService } from './services/tribunal-run.service';
 import {
@@ -19,13 +25,14 @@ import { VendorCardComponent } from './components/vendor-card.component';
 import { TribunalWizardComponent } from './wizard/tribunal-wizard.component';
 import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
 
-const MAX_VISIBLE_TILES = 3;
-
 @Component({
   selector: 'ptah-tribunal-page',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    GridstackComponent,
+    GridstackItemComponent,
+    LucideAngularModule,
     TribunalTileHostComponent,
     TribunalEmptyStateComponent,
     ConductorTileComponent,
@@ -69,7 +76,7 @@ const MAX_VISIBLE_TILES = 3;
 
           <div class="flex min-h-0 min-w-0 flex-1 flex-col">
             <div
-              class="flex shrink-0 flex-wrap items-center gap-2 border-b border-base-300 px-4 py-2"
+              class="flex shrink-0 items-center gap-2 border-b border-base-300 px-4 py-2"
               data-testid="tribunal-panelist-bar"
             >
               <span
@@ -77,71 +84,65 @@ const MAX_VISIBLE_TILES = 3;
               >
                 Panelists
               </span>
-              @if (showSwitcher()) {
-                <div
-                  class="flex flex-wrap items-center gap-1.5"
-                  role="group"
-                  aria-label="Panelist switcher"
-                  data-testid="tribunal-pill-switcher"
-                >
-                  @for (lane of tribunalState.lanes(); track lane.laneId) {
-                    <button
-                      type="button"
-                      class="btn btn-xs gap-1.5 normal-case"
-                      data-testid="tribunal-pill"
-                      [class.btn-primary]="isVisible(lane.laneId)"
-                      [class.btn-ghost]="!isVisible(lane.laneId)"
-                      [attr.aria-pressed]="isVisible(lane.laneId)"
-                      (click)="togglePill(lane.laneId)"
-                    >
-                      <span
-                        class="h-1.5 w-1.5 rounded-full"
-                        [class.bg-base-content]="laneStatus(lane) === 'idle'"
-                        [class.opacity-40]="laneStatus(lane) === 'idle'"
-                        [class.bg-info]="laneStatus(lane) === 'running'"
-                        [class.animate-pulse]="laneStatus(lane) === 'running'"
-                        [class.bg-success]="laneStatus(lane) === 'completed'"
-                        [class.bg-error]="laneStatus(lane) === 'failed'"
-                        aria-hidden="true"
-                      ></span>
-                      <span class="font-medium">{{ lane.displayName }}</span>
-                      @if (lane.model) {
-                        <span class="font-mono opacity-60">{{
-                          lane.model
-                        }}</span>
-                      }
-                    </button>
-                  }
-                </div>
-              }
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs btn-square ml-auto shrink-0 text-base-content/60"
+                [attr.aria-pressed]="locked()"
+                [title]="
+                  locked()
+                    ? 'Unlock tiles (enable drag & resize)'
+                    : 'Lock tiles (freeze layout)'
+                "
+                [attr.aria-label]="locked() ? 'Unlock tiles' : 'Lock tiles'"
+                data-testid="tribunal-lock-toggle"
+                (click)="toggleLock()"
+              >
+                <lucide-angular
+                  [img]="locked() ? LockIcon : UnlockIcon"
+                  class="h-3.5 w-3.5"
+                />
+              </button>
             </div>
 
-            <div class="min-h-0 flex-1 overflow-hidden p-3">
-              <div class="flex h-full gap-3">
-                @for (tile of visibleTiles(); track tile.tileId) {
-                  <ptah-tribunal-tile-host
-                    class="min-h-0 min-w-0 flex-1"
-                    data-testid="tribunal-tile"
-                    [tile]="tile"
-                    [label]="tileLabel(tile)"
-                    [model]="tileModel(tile)"
-                    [status]="tileStatus(tile)"
-                    [focused]="focusedTileId() === tile.tileId"
-                    (focusRequested)="focusedTileId.set(tile.tileId)"
+            <div class="min-h-0 flex-1 overflow-auto p-3">
+              <gridstack
+                [options]="gsOptions"
+                (changeCB)="onGridChange($event)"
+              >
+                @for (tile of tribunalState.tiles(); track tile.tileId) {
+                  <gridstack-item
+                    [options]="{
+                      x: tile.position.x,
+                      y: tile.position.y,
+                      w: tile.position.w,
+                      h: tile.position.h,
+                      id: tile.tileId,
+                    }"
                   >
-                    @if (laneFor(tile); as lane) {
-                      <ptah-vendor-card
-                        [lane]="lane"
-                        [tribunalSessionId]="tribunalSessionId() ?? ''"
-                      />
-                    } @else {
-                      <div class="p-3 text-xs text-base-content/50">
-                        {{ tileLabel(tile) }}
-                      </div>
-                    }
-                  </ptah-tribunal-tile-host>
+                    <ptah-tribunal-tile-host
+                      class="min-h-0 min-w-0"
+                      data-testid="tribunal-tile"
+                      [tile]="tile"
+                      [label]="tileLabel(tile)"
+                      [model]="tileModel(tile)"
+                      [status]="tileStatus(tile)"
+                      [focused]="focusedTileId() === tile.tileId"
+                      (focusRequested)="focusedTileId.set(tile.tileId)"
+                    >
+                      @if (laneFor(tile); as lane) {
+                        <ptah-vendor-card
+                          [lane]="lane"
+                          [tribunalSessionId]="tribunalSessionId() ?? ''"
+                        />
+                      } @else {
+                        <div class="p-3 text-xs text-base-content/50">
+                          {{ tileLabel(tile) }}
+                        </div>
+                      }
+                    </ptah-tribunal-tile-host>
+                  </gridstack-item>
                 }
-              </div>
+              </gridstack>
             </div>
           </div>
         </div>
@@ -154,6 +155,15 @@ const MAX_VISIBLE_TILES = 3;
         display: block;
         height: 100%;
       }
+
+      gridstack {
+        min-height: 200px;
+      }
+
+      gridstack-item ::ng-deep .grid-stack-item-content {
+        inset: 0;
+        overflow: hidden;
+      }
     `,
   ],
 })
@@ -163,58 +173,28 @@ export class TribunalPageComponent {
 
   protected readonly convene = signal(false);
   protected readonly focusedTileId = signal<string | null>(null);
-  private readonly visibleLaneIds = signal<readonly string[]>([]);
+  protected readonly locked = signal(false);
+
+  private readonly gridComp = viewChild(GridstackComponent);
+
+  protected readonly LockIcon = Lock;
+  protected readonly UnlockIcon = Unlock;
+
+  protected readonly gsOptions: GridStackOptions = {
+    column: 12,
+    cellHeight: 90,
+    float: true,
+    margin: 8,
+    draggable: { handle: '.tile-header' },
+    resizable: { handles: 'e, se, s, sw, w' },
+    animate: true,
+  };
 
   protected readonly showWizard = computed(
     () => this.convene() && this.tribunalState.tiles().length === 0,
   );
 
-  protected readonly showSwitcher = computed(
-    () => this.tribunalState.lanes().length > MAX_VISIBLE_TILES,
-  );
-
-  protected readonly visibleTiles = computed<readonly TribunalTile[]>(() => {
-    const tiles = this.tribunalState.tiles();
-    if (tiles.length <= MAX_VISIBLE_TILES) return tiles;
-    const visible = new Set(this.visibleLaneIds());
-    return tiles.filter((t) => t.laneId != null && visible.has(t.laneId));
-  });
-
-  constructor() {
-    effect(() => {
-      const lanes = this.tribunalState.lanes();
-      untracked(() => {
-        const current = this.visibleLaneIds().filter((id) =>
-          lanes.some((l) => l.laneId === id),
-        );
-        if (current.length > 0) {
-          this.visibleLaneIds.set(current.slice(0, MAX_VISIBLE_TILES));
-          return;
-        }
-        this.visibleLaneIds.set(
-          lanes.slice(0, MAX_VISIBLE_TILES).map((l) => l.laneId),
-        );
-      });
-    });
-  }
-
   protected readonly tribunalSessionId = this.tribunalState.tribunalSessionId;
-
-  protected isVisible(laneId: string): boolean {
-    return this.visibleLaneIds().includes(laneId);
-  }
-
-  protected togglePill(laneId: string): void {
-    this.visibleLaneIds.update((prev) => {
-      if (prev.includes(laneId)) {
-        return prev.filter((id) => id !== laneId);
-      }
-      if (prev.length >= MAX_VISIBLE_TILES) {
-        return [...prev.slice(1), laneId];
-      }
-      return [...prev, laneId];
-    });
-  }
 
   protected onLaunched(): void {
     this.convene.set(false);
@@ -225,6 +205,25 @@ export class TribunalPageComponent {
     if (!closed) return;
     this.convene.set(false);
     this.focusedTileId.set(null);
+    this.locked.set(false);
+  }
+
+  protected toggleLock(): void {
+    const next = !this.locked();
+    this.locked.set(next);
+    this.gridComp()?.grid?.setStatic(next);
+  }
+
+  protected onGridChange(data: nodesCB): void {
+    for (const node of data.nodes) {
+      if (typeof node.id !== 'string') continue;
+      this.tribunalState.updateTilePosition(node.id, {
+        x: node.x ?? 0,
+        y: node.y ?? 0,
+        w: node.w ?? 4,
+        h: node.h ?? 6,
+      });
+    }
   }
 
   protected laneFor(tile: TribunalTile): VendorLane | null {
@@ -246,10 +245,6 @@ export class TribunalPageComponent {
   protected tileStatus(tile: TribunalTile): TribunalTileStatus {
     if (!tile.laneId) return 'idle';
     return this.statusForLaneId(tile.laneId);
-  }
-
-  protected laneStatus(lane: VendorLane): TribunalTileStatus {
-    return this.statusForLaneId(lane.laneId);
   }
 
   private statusForLaneId(laneId: string): TribunalTileStatus {
