@@ -218,11 +218,7 @@ export class OllamaCloudMetadataService {
    *
    * @param apiKey - ollama.com API key (sent as `Authorization: Bearer <key>`)
    */
-  async fetchCloudTags(apiKey: string): Promise<OllamaCloudTag[]> {
-    if (!apiKey?.trim()) {
-      return [];
-    }
-
+  async fetchCloudTags(apiKey?: string | null): Promise<OllamaCloudTag[]> {
     if (this.tagsCache && this.isFresh(this.tagsCache)) {
       this.logger.debug(
         `[OllamaCloudMetadata] Returning ${this.tagsCache.value.length} cached cloud tags (cache age: ${
@@ -238,7 +234,10 @@ export class OllamaCloudMetadataService {
     );
 
     try {
-      const data = await this.httpJson<OllamaCloudTagsResponse>(url, apiKey);
+      const data = await this.httpJson<OllamaCloudTagsResponse>(
+        url,
+        apiKey ?? null,
+      );
 
       const models = Array.isArray(data?.models) ? data.models : null;
       if (!models) {

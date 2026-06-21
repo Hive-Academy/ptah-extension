@@ -48,7 +48,12 @@ export interface PtahCliSummary {
   readonly name: string;
   readonly providerName: string;
   readonly providerId: string;
+  /** True when the agent can run: stored key, OR a provider needing none
+   * (local Ollama/LM Studio, or ollama-cloud via `ollama signin`). Gates Test/run. */
   readonly hasApiKey: boolean;
+  /** True only when an actual API key is stored. Drives the "Key set" label so
+   * optional-key providers don't falsely claim a key when running via signin. */
+  readonly hasStoredKey: boolean;
   readonly status: PtahCliState['status'];
   readonly enabled: boolean;
   readonly modelCount: number;

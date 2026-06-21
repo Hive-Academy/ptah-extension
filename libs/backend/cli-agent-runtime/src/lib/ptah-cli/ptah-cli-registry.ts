@@ -92,6 +92,39 @@ export class PtahCliRegistry {
   }
 
   /**
+   * Truly-local providers (local Ollama, LM Studio) never need a key.
+   * `ollama-cloud` is authType:'none' but supports an OPTIONAL key, so it is
+   * NOT truly-local — a saved key must be honored at runtime.
+   */
+  private isTrulyLocal(provider: AnthropicProvider | undefined): boolean {
+    return (
+      provider?.authType === 'none' && provider?.supportsOptionalApiKey !== true
+    );
+  }
+
+  /**
+   * Resolve the API key for a run: truly-local → placeholder; optional-key
+   * (ollama-cloud) → saved key when present else placeholder (signin still
+   * works); key-required → saved key (undefined when unset).
+   */
+  private async resolveAgentApiKey(
+    id: string,
+    provider: AnthropicProvider | undefined,
+  ): Promise<string | undefined> {
+    if (this.isTrulyLocal(provider)) {
+      return OLLAMA_AUTH_TOKEN_PLACEHOLDER;
+    }
+    const saved = await this.authSecrets.getProviderKey(
+      `${PTAH_CLI_KEY_PREFIX}.${id}`,
+    );
+    if (saved && saved.trim().length > 0) return saved;
+    if (provider?.supportsOptionalApiKey === true) {
+      return OLLAMA_AUTH_TOKEN_PLACEHOLDER;
+    }
+    return saved ?? undefined;
+  }
+
+  /**
    * List all configured Ptah CLI agents with their status
    */
   async listAgents(): Promise<PtahCliSummary[]> {
@@ -101,12 +134,13 @@ export class PtahCliRegistry {
 
     for (const agentConfig of configs) {
       const provider = getAnthropicProvider(agentConfig.providerId);
-      const isLocalProvider = provider?.authType === 'none';
+      const trulyLocal = this.isTrulyLocal(provider);
+      const hasStoredKey = await this.authSecrets.hasProviderKey(
+        `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`,
+      );
+      // Runnable: truly-local, key stored, or signin-capable (authType none).
       const hasKey =
-        isLocalProvider ||
-        (await this.authSecrets.hasProviderKey(
-          `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`,
-        ));
+        trulyLocal || hasStoredKey || provider?.authType === 'none';
 
       const modelCount = provider?.staticModels?.length ?? 0;
 
@@ -121,6 +155,7 @@ export class PtahCliRegistry {
         providerName: provider?.name ?? 'Unknown',
         providerId: agentConfig.providerId,
         hasApiKey: hasKey,
+        hasStoredKey,
         status,
         enabled: agentConfig.enabled,
         modelCount,
@@ -187,6 +222,7 @@ export class PtahCliRegistry {
       providerName: provider.name,
       providerId,
       hasApiKey: true,
+      hasStoredKey: !this.isTrulyLocal(provider) && apiKey.trim().length > 0,
       status: 'available',
       enabled: true,
       modelCount,
@@ -273,10 +309,7 @@ export class PtahCliRegistry {
       return undefined;
     }
 
-    const isLocalProvider = provider.authType === 'none';
-    const apiKey = isLocalProvider
-      ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
-      : await this.authSecrets.getProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
+    const apiKey = await this.resolveAgentApiKey(id, provider);
     if (!apiKey) {
       this.logger.warn(`[PtahCliRegistry] getProfile: no API key for: ${id}`);
       return undefined;
@@ -330,11 +363,7 @@ export class PtahCliRegistry {
           error: `Unknown provider: ${agentConfig.providerId}`,
         };
       }
-      const isLocalProvider = testProvider.authType === 'none';
-
-      const apiKey = isLocalProvider
-        ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
-        : await this.authSecrets.getProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
+      const apiKey = await this.resolveAgentApiKey(id, testProvider);
       if (!apiKey) {
         return { success: false, error: 'API key not configured' };
       }
@@ -428,6 +457,9 @@ export class PtahCliRegistry {
       /** Model capability tier: 'opus' (most capable), 'sonnet' (balanced, default), 'haiku' (fastest).
        *  Resolves to the SDK model ID used for the query. When omitted, defaults to 'sonnet'. */
       modelTier?: 'opus' | 'sonnet' | 'haiku';
+      /** Raw provider model id override (spawn-scoped). Wins over selectedModel and tier.
+       *  Does NOT mutate the persisted agent config. */
+      model?: string;
     },
   ): Promise<
     | { handle: SdkHandle; agentName: string; setAgentId: (id: string) => void }
@@ -451,10 +483,7 @@ export class PtahCliRegistry {
       };
     }
     const provider = getAnthropicProvider(agentConfig.providerId);
-    const isLocalProvider = provider?.authType === 'none';
-    const apiKey = isLocalProvider
-      ? OLLAMA_AUTH_TOKEN_PLACEHOLDER
-      : await this.authSecrets.getProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
+    const apiKey = await this.resolveAgentApiKey(id, provider);
     if (!apiKey) {
       this.logger.warn(
         `[PtahCliRegistry] spawnAgent: no API key for agent: ${id}`,
@@ -479,7 +508,17 @@ export class PtahCliRegistry {
     const tier: ModelTier = options?.modelTier ?? 'sonnet';
     const spawnTiers = this.resolveEffectiveTiers(agentConfig, provider);
     const spawnFromTiers = spawnTiers?.[tier];
-    const model = agentConfig.selectedModel?.trim() || spawnFromTiers || '';
+    const modelOverride = options?.model?.trim();
+    const model =
+      modelOverride ||
+      agentConfig.selectedModel?.trim() ||
+      spawnFromTiers ||
+      '';
+    if (modelOverride) {
+      this.logger.info(
+        `[PtahCliRegistry] spawn: using raw model override '${modelOverride}' for agent '${id}' (selectedModel='${agentConfig.selectedModel ?? ''}', tier='${tier}')`,
+      );
+    }
     if (!model) {
       this.logger.warn(
         `[PtahCliRegistry] spawn: no model resolved for provider '${provider.id}' (tier '${tier}') — provider has no defaultTiers and no selectedModel configured`,
