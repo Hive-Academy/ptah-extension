@@ -6,6 +6,7 @@ import {
   signal,
 } from '@angular/core';
 import { LucideAngularModule, ChevronLeft, ChevronRight } from 'lucide-angular';
+import { StepObjectiveComponent } from './step-objective.component';
 import { StepPickMoveComponent } from './step-pick-move.component';
 import { StepPanelPreviewComponent } from './step-panel-preview.component';
 import { StepConfirmCostComponent } from './step-confirm-cost.component';
@@ -23,6 +24,7 @@ interface WizardStep {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     LucideAngularModule,
+    StepObjectiveComponent,
     StepPickMoveComponent,
     StepPanelPreviewComponent,
     StepConfirmCostComponent,
@@ -65,24 +67,31 @@ interface WizardStep {
       <div class="flex-1 overflow-auto">
         @switch (stepIndex()) {
           @case (0) {
+            <ptah-step-objective
+              [objective]="objective()"
+              (objectiveChanged)="onObjective($event)"
+            />
+          }
+          @case (1) {
             <ptah-step-pick-move
               [selected]="move()"
               (moveSelected)="onMove($event)"
             />
           }
-          @case (1) {
+          @case (2) {
             <ptah-step-panel-preview
               [selectedLanes]="lanes()"
               (lanesChanged)="onLanes($event)"
             />
           }
-          @case (2) {
+          @case (3) {
             <ptah-step-confirm-cost [move]="move()" [lanes]="lanes()" />
           }
-          @case (3) {
+          @case (4) {
             <ptah-step-run
               [move]="move()"
               [lanes]="lanes()"
+              [objective]="objective()"
               (launched)="launched.emit()"
             />
           }
@@ -132,17 +141,20 @@ export class TribunalWizardComponent {
   readonly launched = output<void>();
 
   protected readonly steps: readonly WizardStep[] = [
-    { index: 0, label: 'Move' },
-    { index: 1, label: 'Panel' },
-    { index: 2, label: 'Confirm' },
-    { index: 3, label: 'Run' },
+    { index: 0, label: 'Objective' },
+    { index: 1, label: 'Move' },
+    { index: 2, label: 'Panel' },
+    { index: 3, label: 'Confirm' },
+    { index: 4, label: 'Run' },
   ];
 
   private readonly _stepIndex = signal(0);
+  private readonly _objective = signal('');
   private readonly _move = signal<TribunalMove>('council');
   private readonly _lanes = signal<readonly VendorLane[]>([]);
 
   protected readonly stepIndex = this._stepIndex.asReadonly();
+  protected readonly objective = this._objective.asReadonly();
   protected readonly move = this._move.asReadonly();
   protected readonly lanes = this._lanes.asReadonly();
 
@@ -151,12 +163,18 @@ export class TribunalWizardComponent {
 
   protected readonly canAdvance = computed(() => {
     switch (this._stepIndex()) {
-      case 1:
+      case 0:
+        return this._objective().trim().length > 0;
+      case 2:
         return this._lanes().length > 0;
       default:
         return true;
     }
   });
+
+  protected onObjective(objective: string): void {
+    this._objective.set(objective);
+  }
 
   protected onMove(move: TribunalMove): void {
     this._move.set(move);

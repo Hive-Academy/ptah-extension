@@ -17,6 +17,17 @@ const MOVE_PHRASE: Record<TribunalMove, string> = {
   race: 'Convene a Tribunal Race',
 };
 
+const MOVE_FRAMING: Record<TribunalMove, string> = {
+  council:
+    'Council: each panelist weighs in independently, then synthesize a single cited verdict.',
+  forge:
+    'Forge: each panelist implements the objective in its own worktree, then cross-review the diffs.',
+  race: 'Race: panelists compete on the objective; score the results against a rubric and rank them.',
+};
+
+const FULL_AUTO_DIRECTIVE =
+  'Do NOT call AskUserQuestion. Run fully autonomously and make reasonable assumptions; state assumptions inline rather than asking.';
+
 @Injectable()
 export class TribunalRunService {
   private readonly rpc = inject(ClaudeRpcService);
@@ -30,7 +41,12 @@ export class TribunalRunService {
   async launch(
     move: TribunalMove,
     lanes: readonly VendorLane[],
+    objective: string,
   ): Promise<boolean> {
+    const trimmedObjective = objective.trim();
+    if (trimmedObjective.length === 0 || lanes.length === 0) {
+      return false;
+    }
     const correlationId = TabId.create();
     const surfaceId = SurfaceId.create();
 
@@ -46,7 +62,7 @@ export class TribunalRunService {
     const workspacePath = this.vscode.config().workspaceRoot;
     const model = this.modelState.currentModel();
     const effort = this.effortState.currentEffort();
-    const prompt = this.buildTribunalPrompt(move, lanes);
+    const prompt = this.buildTribunalPrompt(move, lanes, trimmedObjective);
 
     try {
       const result = await this.rpc.call('chat:start', {
@@ -90,14 +106,30 @@ export class TribunalRunService {
   private buildTribunalPrompt(
     move: TribunalMove,
     lanes: readonly VendorLane[],
+    objective: string,
   ): string {
-    const families = Array.from(
-      new Set(lanes.map((lane) => lane.family)),
-    ).filter((family) => family.length > 0);
-    const panel =
-      families.length > 0
-        ? `Use this vendor panel: ${families.join(', ')}.`
-        : 'Use the default vendor panel.';
-    return `${MOVE_PHRASE[move]}. ${panel}`;
+    const laneLines = lanes
+      .map((lane) => {
+        const model = lane.model ? ` (${lane.model})` : '';
+        return `  [tribunal:${lane.laneId}] Vendor: ${lane.displayName}${model}. ${objective}`;
+      })
+      .join('\n');
+
+    return [
+      `${MOVE_PHRASE[move]}. You are the Tribunal conductor running FULLY AUTONOMOUSLY.`,
+      '',
+      `Objective: ${objective}`,
+      '',
+      MOVE_FRAMING[move],
+      '',
+      'Spawn EXACTLY one Task sub-agent per panelist below. For EACH panelist, the FIRST line of the sub-agent task you pass to the Task tool MUST be the literal tag shown, with nothing before it:',
+      '',
+      laneLines,
+      '',
+      'Rules:',
+      `- ${FULL_AUTO_DIRECTIVE}`,
+      '- The [tribunal:<laneId>] tag MUST be the first line of each sub-agent task. Do not omit it and do not alter the laneId inside it.',
+      `- ${FULL_AUTO_DIRECTIVE}`,
+    ].join('\n');
   }
 }

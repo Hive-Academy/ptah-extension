@@ -138,9 +138,15 @@ describe('TribunalRunService', () => {
     service = TestBed.inject(TribunalRunService);
   });
 
+  const OBJECTIVE = 'Refactor the auth guard to enforce route protection.';
+
   describe('launch — structured prompt + surfaceMode:true', () => {
     it('calls chat:start with surfaceMode:true', async () => {
-      await service.launch('council', [makeLane({ family: 'codex' })]);
+      await service.launch(
+        'council',
+        [makeLane({ family: 'codex' })],
+        OBJECTIVE,
+      );
 
       expect(rpc.call).toHaveBeenCalledWith(
         'chat:start',
@@ -149,51 +155,106 @@ describe('TribunalRunService', () => {
     });
 
     it('includes the move phrase in the prompt for council', async () => {
-      await service.launch('council', [makeLane({ family: 'codex' })]);
+      await service.launch(
+        'council',
+        [makeLane({ family: 'codex' })],
+        OBJECTIVE,
+      );
 
       const args = rpc.call.mock.calls[0][1] as { prompt: string };
       expect(args.prompt).toContain('Convene a Tribunal Council');
     });
 
     it('includes the move phrase for forge', async () => {
-      await service.launch('forge', [makeLane({ family: 'codex' })]);
+      await service.launch('forge', [makeLane({ family: 'codex' })], OBJECTIVE);
 
       const args = rpc.call.mock.calls[0][1] as { prompt: string };
       expect(args.prompt).toContain('Convene a Tribunal Forge');
     });
 
     it('includes the move phrase for race', async () => {
-      await service.launch('race', [makeLane({ family: 'copilot' })]);
+      await service.launch(
+        'race',
+        [makeLane({ family: 'copilot' })],
+        OBJECTIVE,
+      );
 
       const args = rpc.call.mock.calls[0][1] as { prompt: string };
       expect(args.prompt).toContain('Convene a Tribunal Race');
     });
 
-    it('includes unique vendor families in the prompt', async () => {
-      const lanes = [
-        makeLane({ laneId: 'l1', family: 'codex' }),
-        makeLane({ laneId: 'l2', family: 'copilot' }),
-        makeLane({ laneId: 'l3', family: 'codex' }),
-      ];
-      await service.launch('council', lanes);
+    it('includes the objective verbatim in the prompt', async () => {
+      await service.launch(
+        'council',
+        [makeLane({ family: 'codex' })],
+        OBJECTIVE,
+      );
 
       const args = rpc.call.mock.calls[0][1] as { prompt: string };
-      expect(args.prompt).toContain('codex');
-      expect(args.prompt).toContain('copilot');
-      const codexOccurrences = (args.prompt.match(/codex/g) ?? []).length;
-      expect(codexOccurrences).toBe(1);
+      expect(args.prompt).toContain(`Objective: ${OBJECTIVE}`);
     });
 
-    it('falls back to "default vendor panel" when all families are empty strings', async () => {
-      const lanes = [makeLane({ family: '' })];
-      await service.launch('council', lanes);
+    it('includes the full-auto "do not call AskUserQuestion" directive', async () => {
+      await service.launch(
+        'council',
+        [makeLane({ family: 'codex' })],
+        OBJECTIVE,
+      );
 
       const args = rpc.call.mock.calls[0][1] as { prompt: string };
-      expect(args.prompt).toContain('default vendor panel');
+      expect(args.prompt).toContain('Do NOT call AskUserQuestion');
+      expect(args.prompt).toContain(
+        'state assumptions inline rather than asking',
+      );
+    });
+
+    it('emits exactly one [tribunal:<laneId>] line per lane in lane order', async () => {
+      const lanes = [
+        makeLane({ laneId: 'lane-a', displayName: 'Codex', model: 'gpt-5' }),
+        makeLane({
+          laneId: 'lane-b',
+          displayName: 'Ollama Cloud',
+          model: 'glm-5.2',
+          cli: 'ptah-cli',
+        }),
+        makeLane({ laneId: 'lane-c', displayName: 'Copilot', cli: 'copilot' }),
+      ];
+      await service.launch('council', lanes, OBJECTIVE);
+
+      const args = rpc.call.mock.calls[0][1] as { prompt: string };
+      const tagLines = args.prompt
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('[tribunal:'));
+
+      expect(tagLines).toHaveLength(3);
+      expect(tagLines[0]).toContain('[tribunal:lane-a]');
+      expect(tagLines[1]).toContain('[tribunal:lane-b]');
+      expect(tagLines[2]).toContain('[tribunal:lane-c]');
+      expect(tagLines[0]).toContain('Codex');
+      expect(tagLines[1]).toContain('Ollama Cloud');
+    });
+
+    it('returns false and does not call rpc when objective is empty', async () => {
+      const result = await service.launch(
+        'council',
+        [makeLane({ family: 'codex' })],
+        '   ',
+      );
+
+      expect(result).toBe(false);
+      expect(rpc.call).not.toHaveBeenCalled();
+    });
+
+    it('returns false and does not call rpc when no lanes are provided', async () => {
+      const result = await service.launch('council', [], OBJECTIVE);
+
+      expect(result).toBe(false);
+      expect(rpc.call).not.toHaveBeenCalled();
     });
 
     it('passes tabId and name to chat:start', async () => {
-      await service.launch('council', [makeLane()]);
+      await service.launch('council', [makeLane()], OBJECTIVE);
 
       const args = rpc.call.mock.calls[0][1] as Record<string, unknown>;
       expect(typeof args.tabId).toBe('string');
@@ -210,7 +271,7 @@ describe('TribunalRunService', () => {
         return rpcSuccess({ success: true });
       });
 
-      await service.launch('council', [makeLane()]);
+      await service.launch('council', [makeLane()], OBJECTIVE);
 
       expect(callOrder.indexOf('setPhase:fan')).toBeLessThan(
         callOrder.indexOf('chat:start'),
@@ -218,7 +279,7 @@ describe('TribunalRunService', () => {
     });
 
     it('returns true on success and calls state.refreshSessionId', async () => {
-      const result = await service.launch('council', [makeLane()]);
+      const result = await service.launch('council', [makeLane()], OBJECTIVE);
       expect(result).toBe(true);
       expect(mockState.refreshSessionId).toHaveBeenCalled();
     });
@@ -226,7 +287,7 @@ describe('TribunalRunService', () => {
     it('returns false and rolls back state when chat:start fails (no ghost tiles)', async () => {
       rpc.call.mockResolvedValue(rpcError('RPC failure'));
 
-      const result = await service.launch('council', [makeLane()]);
+      const result = await service.launch('council', [makeLane()], OBJECTIVE);
       expect(result).toBe(false);
       expect(mockState.reset).toHaveBeenCalledTimes(1);
       expect(mockSurface.teardown).toHaveBeenCalledTimes(1);
@@ -236,21 +297,21 @@ describe('TribunalRunService', () => {
     it('returns false and rolls back state when chat:start throws (no ghost tiles)', async () => {
       rpc.call.mockRejectedValue(new Error('Network error'));
 
-      const result = await service.launch('council', [makeLane()]);
+      const result = await service.launch('council', [makeLane()], OBJECTIVE);
       expect(result).toBe(false);
       expect(mockState.reset).toHaveBeenCalledTimes(1);
       expect(mockSurface.teardown).toHaveBeenCalledTimes(1);
     });
 
     it('does NOT reset or teardown on a successful launch', async () => {
-      const result = await service.launch('council', [makeLane()]);
+      const result = await service.launch('council', [makeLane()], OBJECTIVE);
       expect(result).toBe(true);
       expect(mockState.reset).not.toHaveBeenCalled();
       expect(mockSurface.teardown).not.toHaveBeenCalled();
     });
 
     it('includes workspacePath when vscode config provides it', async () => {
-      await service.launch('council', [makeLane()]);
+      await service.launch('council', [makeLane()], OBJECTIVE);
 
       const args = rpc.call.mock.calls[0][1] as Record<string, unknown>;
       expect(args.workspacePath).toBe('/workspace');
@@ -266,7 +327,7 @@ describe('TribunalRunService', () => {
         return rpcSuccess({ success: true });
       });
 
-      await service.launch('council', [makeLane()]);
+      await service.launch('council', [makeLane()], OBJECTIVE);
 
       expect(callOrder.indexOf('registerSurface')).toBeLessThan(
         callOrder.indexOf('rpc.call'),
@@ -340,9 +401,11 @@ describe('TribunalRunService — page-scoped DI shares one TribunalStateService'
   it('tiles built by launch are observable through the page-resolved TribunalStateService', async () => {
     expect(pageState.tiles()).toHaveLength(0);
 
-    await runService.launch('council', [
-      makeLane({ laneId: 'l1', displayName: 'Codex' }),
-    ]);
+    await runService.launch(
+      'council',
+      [makeLane({ laneId: 'l1', displayName: 'Codex' })],
+      'Refactor the auth guard to enforce route protection.',
+    );
 
     expect(pageState.tiles().length).toBeGreaterThan(0);
     expect(pageState.phase()).toBe('fan');

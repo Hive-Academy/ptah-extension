@@ -42,7 +42,9 @@ import type { TribunalMove, VendorLane } from '../types/tribunal-ui.types';
       <button
         type="button"
         class="btn btn-primary gap-2"
-        [disabled]="launching() || lanes().length === 0"
+        [disabled]="
+          launching() || lanes().length === 0 || objective().trim().length === 0
+        "
         aria-label="Convene the Tribunal"
         (click)="run()"
       >
@@ -75,6 +77,7 @@ import type { TribunalMove, VendorLane } from '../types/tribunal-ui.types';
 export class StepRunComponent {
   readonly move = input<TribunalMove>('council');
   readonly lanes = input<readonly VendorLane[]>([]);
+  readonly objective = input<string>('');
   readonly launched = output<void>();
 
   private readonly runService = inject(TribunalRunService);
@@ -90,10 +93,18 @@ export class StepRunComponent {
 
   protected async run(): Promise<void> {
     if (this._launching() || this.lanes().length === 0) return;
+    if (this.objective().trim().length === 0) {
+      this._error.set('An objective is required to convene the Tribunal.');
+      return;
+    }
     this._launching.set(true);
     this._error.set(null);
     try {
-      const ok = await this.runService.launch(this.move(), this.lanes());
+      const ok = await this.runService.launch(
+        this.move(),
+        this.lanes(),
+        this.objective(),
+      );
       if (ok) {
         this.launched.emit();
       } else {
