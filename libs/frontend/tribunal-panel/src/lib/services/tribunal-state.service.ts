@@ -225,14 +225,18 @@ export class TribunalStateService {
     agents: readonly MonitoredAgent[],
     claimed: ReadonlySet<string>,
   ): MonitoredAgent | null {
-    if (lane.agentId) {
-      const byId = agents.find((a) => a.agentId === lane.agentId);
-      if (byId) return byId;
-    }
     const byTag = agents.find(
       (a) => !claimed.has(a.agentId) && this.laneTagOf(a) === lane.laneId,
     );
     if (byTag) return byTag;
+
+    if (lane.agentId) {
+      const byId = agents.find(
+        (a) => !claimed.has(a.agentId) && a.agentId === lane.agentId,
+      );
+      if (byId) return byId;
+    }
+
     return (
       agents.find(
         (a) =>

@@ -369,6 +369,113 @@ describe('TribunalStateService', () => {
       expect(bindings.get('lane-2')).toBeNull();
     });
 
+    it('tag path binds when agent displayName/model differ from the lane', () => {
+      const lane = makeLane({
+        laneId: 'lane-x',
+        cli: 'ptah-cli',
+        displayName: 'Ollama Cloud',
+        model: 'glm-5.2',
+      });
+      const agent = makeAgent({
+        agentId: 'tagged-x',
+        cli: 'ptah-cli',
+        displayName: 'ollama-cloud (opus tier)',
+        model: 'opus[1m]',
+        task: '[tribunal:lane-x] Vendor: Ollama Cloud. Do the work.',
+      });
+      setup([agent], [lane]);
+
+      const bindings = TestBed.runInInjectionContext(() =>
+        service.laneBindings(),
+      );
+      expect(bindings.get('lane-x')?.agentId).toBe('tagged-x');
+    });
+
+    it('falls back to identity match when no agent carries a tag', () => {
+      const lane = makeLane({
+        laneId: 'lane-x',
+        cli: 'codex',
+        displayName: 'Codex',
+        model: 'gpt-4o',
+      });
+      const matching = makeAgent({
+        agentId: 'identity-hit',
+        cli: 'codex',
+        displayName: 'Codex',
+        model: 'gpt-4o',
+        task: 'no tag here',
+      });
+      setup([matching], [lane]);
+
+      const bindings = TestBed.runInInjectionContext(() =>
+        service.laneBindings(),
+      );
+      expect(bindings.get('lane-x')?.agentId).toBe('identity-hit');
+    });
+
+    it('returns null when there is neither a tag nor an identity match', () => {
+      const lane = makeLane({
+        laneId: 'lane-x',
+        cli: 'codex',
+        displayName: 'Codex',
+        model: 'gpt-4o',
+      });
+      const stranger = makeAgent({
+        agentId: 'stranger',
+        cli: 'copilot',
+        displayName: 'Copilot',
+        model: 'other',
+        task: 'no tag here',
+      });
+      setup([stranger], [lane]);
+
+      const bindings = TestBed.runInInjectionContext(() =>
+        service.laneBindings(),
+      );
+      expect(bindings.get('lane-x')).toBeNull();
+    });
+
+    it('two tagged agents each bind to their own lane with no double-binding', () => {
+      const laneA = makeLane({
+        laneId: 'lane-a',
+        cli: 'codex',
+        displayName: 'Codex',
+        model: 'gpt-4o',
+      });
+      const laneB = makeLane({
+        laneId: 'lane-b',
+        cli: 'codex',
+        displayName: 'Codex',
+        model: 'gpt-4o',
+      });
+      const agentA = makeAgent({
+        agentId: 'agent-a',
+        cli: 'codex',
+        displayName: 'Codex',
+        model: 'gpt-4o',
+        task: '[tribunal:lane-a] Vendor: Codex.',
+      });
+      const agentB = makeAgent({
+        agentId: 'agent-b',
+        cli: 'codex',
+        displayName: 'Codex',
+        model: 'gpt-4o',
+        task: '[tribunal:lane-b] Vendor: Codex.',
+      });
+      setup([agentB, agentA], [laneA, laneB]);
+
+      const bindings = TestBed.runInInjectionContext(() =>
+        service.laneBindings(),
+      );
+      expect(bindings.get('lane-a')?.agentId).toBe('agent-a');
+      expect(bindings.get('lane-b')?.agentId).toBe('agent-b');
+      const boundIds = [
+        bindings.get('lane-a')?.agentId,
+        bindings.get('lane-b')?.agentId,
+      ];
+      expect(new Set(boundIds).size).toBe(2);
+    });
+
     it('heuristic match by cli+displayName+model binds correctly', () => {
       const lane = makeLane({
         laneId: 'lane-1',
