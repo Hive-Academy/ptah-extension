@@ -99,7 +99,7 @@ interface ActionDialogState {
       </div>
     } @else {
       <div class="space-y-6">
-        <header class="flex flex-wrap items-start justify-between gap-3">
+        <header class="mb-2 flex flex-wrap items-start justify-between gap-3">
           <div class="flex items-start gap-3">
             <span
               class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-content/10 bg-base-200/60 text-secondary"

@@ -195,7 +195,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           aria-label="Gateway statistics"
         >
           <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+            class="stats rounded-2xl bg-base-200/40 border border-base-content/10 shadow-sm"
           >
             <div class="stat p-4">
               <div class="stat-figure text-success">
@@ -215,7 +215,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           </div>
 
           <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+            class="stats rounded-2xl bg-base-200/40 border border-base-content/10 shadow-sm"
           >
             <div class="stat p-4">
               <div class="stat-figure text-warning">
@@ -235,7 +235,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           </div>
 
           <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+            class="stats rounded-2xl bg-base-200/40 border border-base-content/10 shadow-sm"
           >
             <div class="stat p-4">
               <div class="stat-figure text-primary">
@@ -255,7 +255,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           </div>
 
           <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+            class="stats rounded-2xl bg-base-200/40 border border-base-content/10 shadow-sm"
           >
             <div class="stat p-4">
               <div class="stat-figure text-info">
@@ -273,50 +273,66 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           </div>
         </div>
 
-        <ptah-gateway-platform-tabs
-          [platforms]="platforms()"
-          [selected]="selectedPlatform()"
-          (selectedChange)="selectedPlatform.set($event)"
-        />
-
-        @for (cfg of platformCards; track cfg.id) {
+        <section
+          class="overflow-hidden rounded-2xl border border-base-content/10 bg-base-200/30"
+          aria-label="Platform configuration"
+        >
           <div
-            role="tabpanel"
-            [id]="'gateway-pane-' + cfg.id"
-            [attr.aria-labelledby]="'gateway-tab-' + cfg.id"
-            [hidden]="selectedPlatform() !== cfg.id"
+            class="flex flex-wrap items-center justify-between gap-3 border-b border-base-content/10 bg-base-200/50 px-3 py-2.5 sm:px-4"
           >
-            <ptah-gateway-platform-pane [config]="cfg" />
+            <ptah-gateway-platform-tabs
+              [platforms]="platforms()"
+              [selected]="selectedPlatform()"
+              (selectedChange)="selectedPlatform.set($event)"
+            />
           </div>
-        }
 
-        <section class="space-y-1" aria-label="Voice and rate-limit settings">
-          <h2 class="text-sm font-semibold">Voice & rate limits</h2>
-          <p class="text-xs text-base-content/60">
-            Read-only — configure these in
-            <span class="font-mono">~/.ptah/settings.json</span>.
-          </p>
+          <div class="px-5 py-5 sm:px-6 sm:py-6">
+            @for (cfg of platformCards; track cfg.id) {
+              <div
+                role="tabpanel"
+                [id]="'gateway-pane-' + cfg.id"
+                [attr.aria-labelledby]="'gateway-tab-' + cfg.id"
+                [hidden]="selectedPlatform() !== cfg.id"
+              >
+                <ptah-gateway-platform-pane [config]="cfg" />
+              </div>
+            }
+          </div>
+        </section>
+
+        <section
+          class="rounded-2xl border border-base-content/10 bg-base-200/30 p-5 sm:p-6"
+          aria-label="Voice and rate-limit settings"
+        >
+          <div class="space-y-1">
+            <h2 class="text-sm font-semibold">Voice & rate limits</h2>
+            <p class="text-xs text-base-content/55">
+              Read-only — configure these in
+              <span class="font-mono">~/.ptah/settings.json</span>.
+            </p>
+          </div>
           <div
-            class="mt-2 space-y-1 rounded-xl border border-base-300 bg-base-200/40 p-4"
+            class="mt-4 grid gap-x-8 gap-y-2 rounded-lg border border-base-content/10 bg-base-100/40 p-4 font-mono text-xs sm:grid-cols-2"
           >
-            <p class="font-mono text-xs">
+            <p>
               gateway.voice.enabled =
               <span class="text-base-content/70">{{ voiceEnabled() }}</span>
             </p>
-            <p class="font-mono text-xs">
+            <p>
               gateway.rateLimit.minTimeMs =
               <span class="text-base-content/70">{{
                 rateLimit().minTimeMs
               }}</span>
             </p>
-            <p class="font-mono text-xs">
+            <p>
               gateway.rateLimit.maxConcurrent =
               <span class="text-base-content/70">{{
                 rateLimit().maxConcurrent
               }}</span>
             </p>
             <p
-              class="pt-1 text-xs text-base-content/50"
+              class="pt-1 text-base-content/50 sm:col-span-2"
               data-testid="gateway-voice-model-hint"
             >
               The Whisper voice model is configured in Settings.
