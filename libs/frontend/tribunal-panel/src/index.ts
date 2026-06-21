@@ -1,7 +1,6 @@
 export { TribunalPageComponent } from './lib/tribunal-page.component';
 export { TribunalWizardComponent } from './lib/wizard/tribunal-wizard.component';
 export { TribunalStateService } from './lib/services/tribunal-state.service';
-export { TribunalSurfaceService } from './lib/services/tribunal-surface.service';
 export { TribunalRunService } from './lib/services/tribunal-run.service';
 export { TribunalDiscoveryService } from './lib/services/tribunal-discovery.service';
 export { TribunalTileHostComponent } from './lib/tribunal-tile-host.component';

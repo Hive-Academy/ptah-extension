@@ -2,12 +2,10 @@ import { Injectable, inject } from '@angular/core';
 import {
   ClaudeRpcService,
   VSCodeService,
-  ModelStateService,
   EffortStateService,
 } from '@ptah-extension/core';
-import { SurfaceId, TabId } from '@ptah-extension/chat-state';
+import { SurfaceId, TabManagerService } from '@ptah-extension/chat-state';
 import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
-import { TribunalSurfaceService } from './tribunal-surface.service';
 import { TribunalStateService } from './tribunal-state.service';
 import type { TribunalMove, VendorLane } from '../types/tribunal-ui.types';
 
@@ -32,10 +30,9 @@ const FULL_AUTO_DIRECTIVE =
 export class TribunalRunService {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly vscode = inject(VSCodeService);
-  private readonly modelState = inject(ModelStateService);
   private readonly effortState = inject(EffortStateService);
   private readonly claims = inject(WorkflowSessionClaimService);
-  private readonly surface = inject(TribunalSurfaceService);
+  private readonly tabManager = inject(TabManagerService);
   private readonly state = inject(TribunalStateService);
 
   async launch(
@@ -48,54 +45,49 @@ export class TribunalRunService {
       return false;
     }
 
-    if (this.state.surfaceId()) {
-      this.surface.teardown();
+    if (this.state.correlationId()) {
+      this.teardownTab(this.state.correlationId());
       this.state.reset();
     }
 
-    const correlationId = TabId.create();
+    const conductorTabId = this.tabManager.createTab(`Tribunal: ${move}`);
     const surfaceId = SurfaceId.create();
 
-    this.claims.claim(correlationId as string, surfaceId);
-    this.surface.registerSurface(surfaceId);
+    this.claims.claim(conductorTabId, surfaceId);
 
     this.state.setMove(move);
     this.state.setLanes(lanes);
     this.state.buildTilesForRun(lanes);
     this.state.setSurfaceId(surfaceId);
-    this.state.setCorrelationId(correlationId as string);
+    this.state.setCorrelationId(conductorTabId);
 
     const workspacePath = this.vscode.config().workspaceRoot;
-    const model = this.modelState.currentModel();
     const effort = this.effortState.currentEffort();
     const prompt = this.buildTribunalPrompt(move, lanes, trimmedObjective);
 
     try {
       const result = await this.rpc.call('chat:start', {
         prompt,
-        tabId: correlationId as string,
+        tabId: conductorTabId,
         name: `Tribunal: ${move}`,
-        surfaceMode: true,
         ...(workspacePath ? { workspacePath } : {}),
         options: {
-          ...(model ? { model } : {}),
           ...(effort ? { effort } : {}),
         },
       });
 
       const ok = result.isSuccess() && result.data?.success !== false;
       if (!ok) {
-        this.rollback(correlationId as string);
+        this.rollback(conductorTabId);
         console.error(
           '[TribunalRunService] chat:start failed:',
           result.data?.error ?? result.error,
         );
         return false;
       }
-      this.state.refreshSessionId();
       return true;
     } catch (error: unknown) {
-      this.rollback(correlationId as string);
+      this.rollback(conductorTabId);
       console.error(
         '[TribunalRunService] chat:start threw:',
         error instanceof Error ? error.message : String(error),
@@ -104,10 +96,33 @@ export class TribunalRunService {
     }
   }
 
-  private rollback(correlationId: string): void {
-    this.claims.release(correlationId);
-    this.surface.teardown();
+  async endRun(): Promise<boolean> {
+    const conductorTabId = this.state.correlationId();
+    if (!conductorTabId) {
+      this.state.reset();
+      return true;
+    }
+    await this.tabManager.closeTab(conductorTabId);
+    const stillOpen = this.tabManager
+      .tabs()
+      .some((t) => t.id === conductorTabId);
+    if (stillOpen) {
+      return false;
+    }
+    this.claims.release(conductorTabId);
     this.state.reset();
+    return true;
+  }
+
+  private rollback(conductorTabId: string): void {
+    this.claims.release(conductorTabId);
+    this.teardownTab(conductorTabId);
+    this.state.reset();
+  }
+
+  private teardownTab(conductorTabId: string | null): void {
+    if (!conductorTabId) return;
+    this.tabManager.forceCloseTab(conductorTabId);
   }
 
   private buildTribunalPrompt(
@@ -116,10 +131,12 @@ export class TribunalRunService {
     objective: string,
   ): string {
     const laneLines = lanes
-      .map((lane) => {
-        const model = lane.model ? ` (${lane.model})` : '';
-        return `  [tribunal:${lane.laneId}] Vendor: ${lane.displayName}${model}. ${objective}`;
-      })
+      .map(
+        (lane) =>
+          `  [tribunal:${lane.laneId}] ${lane.displayName} — ptah_agent_spawn({ ${this.spawnArgsFor(
+            lane,
+          )} }). ${objective}`,
+      )
       .join('\n');
 
     return [
@@ -129,7 +146,7 @@ export class TribunalRunService {
       '',
       MOVE_FRAMING[move],
       '',
-      'Spawn EXACTLY one Task sub-agent per panelist below. For EACH panelist, the FIRST line of the sub-agent task you pass to the Task tool MUST be the literal tag shown, with nothing before it:',
+      'This panel is EXPLICITLY defined by the user. Spawn EXACTLY these panelists with EXACTLY these spawn args via ptah_agent_spawn. Do NOT run your own vendor discovery or family-spread selection, do NOT collapse duplicate vendors, and do NOT substitute models. The [tribunal:<laneId>] tag MUST be the first line of each sub-agent task, verbatim.',
       '',
       laneLines,
       '',
@@ -137,5 +154,19 @@ export class TribunalRunService {
       `- ${FULL_AUTO_DIRECTIVE}`,
       '- The [tribunal:<laneId>] tag MUST be the first line of each sub-agent task. Do not omit it and do not alter the laneId inside it.',
     ].join('\n');
+  }
+
+  private spawnArgsFor(lane: VendorLane): string {
+    const modelArg = lane.model ? `, model: "${lane.model}"` : '';
+    switch (lane.cli) {
+      case 'codex':
+        return `cli: "codex"${modelArg}`;
+      case 'copilot':
+        return `cli: "copilot"${modelArg}`;
+      case 'cursor':
+        return 'cli: "cursor"';
+      case 'ptah-cli':
+        return `ptahCliId: "${lane.ptahCliId ?? ''}"${modelArg}`;
+    }
   }
 }

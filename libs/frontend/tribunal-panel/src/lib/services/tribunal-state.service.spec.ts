@@ -2,8 +2,9 @@ import { TestBed } from '@angular/core/testing';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import {
+  ClaudeSessionId,
   ConversationRegistry,
-  SurfaceId,
+  TabId,
   TabSessionBinding,
 } from '@ptah-extension/chat-state';
 import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
@@ -11,7 +12,6 @@ import {
   TribunalStateService,
   TRIBUNAL_MAX_VENDOR_TILES,
 } from './tribunal-state.service';
-import { TribunalSurfaceService } from './tribunal-surface.service';
 import type { VendorLane } from '../types/tribunal-ui.types';
 
 function makeLane(overrides: Partial<VendorLane> = {}): VendorLane {
@@ -48,11 +48,8 @@ describe('TribunalStateService', () => {
   let mockAgentMonitor: jest.Mocked<
     Pick<AgentMonitorStore, 'agentsForSession'>
   >;
-  let mockTabBinding: jest.Mocked<
-    Pick<TabSessionBinding, 'conversationForSurface'>
-  >;
+  let mockTabBinding: jest.Mocked<Pick<TabSessionBinding, 'conversationFor'>>;
   let mockRegistry: jest.Mocked<Pick<ConversationRegistry, 'getRecord'>>;
-  let mockSurface: jest.Mocked<Pick<TribunalSurfaceService, 'teardown'>>;
   let mockClaims: jest.Mocked<Pick<WorkflowSessionClaimService, 'release'>>;
 
   beforeEach(() => {
@@ -60,13 +57,10 @@ describe('TribunalStateService', () => {
       agentsForSession: jest.fn().mockReturnValue([]),
     };
     mockTabBinding = {
-      conversationForSurface: jest.fn().mockReturnValue(null),
+      conversationFor: jest.fn().mockReturnValue(null),
     };
     mockRegistry = {
       getRecord: jest.fn().mockReturnValue(null),
-    };
-    mockSurface = {
-      teardown: jest.fn(),
     };
     mockClaims = {
       release: jest.fn(),
@@ -78,7 +72,6 @@ describe('TribunalStateService', () => {
         { provide: AgentMonitorStore, useValue: mockAgentMonitor },
         { provide: TabSessionBinding, useValue: mockTabBinding },
         { provide: ConversationRegistry, useValue: mockRegistry },
-        { provide: TribunalSurfaceService, useValue: mockSurface },
         { provide: WorkflowSessionClaimService, useValue: mockClaims },
       ],
     });
@@ -161,18 +154,15 @@ describe('TribunalStateService', () => {
   describe('laneBindings — vendor→lane matching', () => {
     function setup(agents: MonitoredAgent[], lanes: VendorLane[]) {
       mockAgentMonitor.agentsForSession.mockReturnValue(agents);
-      mockTabBinding.conversationForSurface.mockReturnValue(
-        'conv-1' as unknown as ReturnType<
-          TabSessionBinding['conversationForSurface']
-        >,
+      mockTabBinding.conversationFor.mockReturnValue(
+        'conv-1' as unknown as ReturnType<TabSessionBinding['conversationFor']>,
       );
       mockRegistry.getRecord.mockReturnValue({
         sessions: ['session-1'],
       } as unknown as ReturnType<ConversationRegistry['getRecord']>);
 
       service.setLanes(lanes);
-      const surfaceId = SurfaceId.create();
-      service.setSurfaceId(surfaceId);
+      service.setCorrelationId(TabId.create());
     }
 
     it('no-match lane stays null (does not throw)', () => {
@@ -446,47 +436,41 @@ describe('TribunalStateService', () => {
   });
 
   describe('resolveTribunalSessionId', () => {
-    it('returns null when conversationForSurface returns null', () => {
-      mockTabBinding.conversationForSurface.mockReturnValue(null);
-      const surfaceId = SurfaceId.create();
-      expect(service.resolveTribunalSessionId(surfaceId)).toBeNull();
+    it('returns null when the tab id is not a valid TabId', () => {
+      expect(service.resolveTribunalSessionId('not-a-tab-id')).toBeNull();
+    });
+
+    it('returns null when conversationFor returns null', () => {
+      mockTabBinding.conversationFor.mockReturnValue(null);
+      expect(service.resolveTribunalSessionId(TabId.create())).toBeNull();
     });
 
     it('returns null when registry has no record', () => {
-      mockTabBinding.conversationForSurface.mockReturnValue(
-        'conv-1' as unknown as ReturnType<
-          TabSessionBinding['conversationForSurface']
-        >,
+      mockTabBinding.conversationFor.mockReturnValue(
+        'conv-1' as unknown as ReturnType<TabSessionBinding['conversationFor']>,
       );
       mockRegistry.getRecord.mockReturnValue(null);
-      const surfaceId = SurfaceId.create();
-      expect(service.resolveTribunalSessionId(surfaceId)).toBeNull();
+      expect(service.resolveTribunalSessionId(TabId.create())).toBeNull();
     });
 
     it('returns null when sessions array is empty', () => {
-      mockTabBinding.conversationForSurface.mockReturnValue(
-        'conv-1' as unknown as ReturnType<
-          TabSessionBinding['conversationForSurface']
-        >,
+      mockTabBinding.conversationFor.mockReturnValue(
+        'conv-1' as unknown as ReturnType<TabSessionBinding['conversationFor']>,
       );
       mockRegistry.getRecord.mockReturnValue({
         sessions: [],
       } as unknown as ReturnType<ConversationRegistry['getRecord']>);
-      const surfaceId = SurfaceId.create();
-      expect(service.resolveTribunalSessionId(surfaceId)).toBeNull();
+      expect(service.resolveTribunalSessionId(TabId.create())).toBeNull();
     });
 
     it('returns the last session id when sessions is non-empty', () => {
-      mockTabBinding.conversationForSurface.mockReturnValue(
-        'conv-1' as unknown as ReturnType<
-          TabSessionBinding['conversationForSurface']
-        >,
+      mockTabBinding.conversationFor.mockReturnValue(
+        'conv-1' as unknown as ReturnType<TabSessionBinding['conversationFor']>,
       );
       mockRegistry.getRecord.mockReturnValue({
         sessions: ['session-old', 'session-latest'],
       } as unknown as ReturnType<ConversationRegistry['getRecord']>);
-      const surfaceId = SurfaceId.create();
-      expect(service.resolveTribunalSessionId(surfaceId)).toBe(
+      expect(service.resolveTribunalSessionId(TabId.create())).toBe(
         'session-latest',
       );
     });
@@ -505,38 +489,50 @@ describe('TribunalStateService', () => {
     });
   });
 
-  describe('refreshSessionId — late-resolved session on re-entry', () => {
-    it('picks up a session id that resolves only after setSurfaceId', () => {
-      const surfaceId = SurfaceId.create();
-      mockTabBinding.conversationForSurface.mockReturnValue(null);
-      mockRegistry.getRecord.mockReturnValue(null);
+  describe('tribunalSessionId — reactive late-resolved session', () => {
+    it('auto-updates when the session resolves after setCorrelationId, with no manual refresh', () => {
+      TestBed.resetTestingModule();
+      const registry = new ConversationRegistry();
+      const binding = new TabSessionBinding();
+      TestBed.configureTestingModule({
+        providers: [
+          TribunalStateService,
+          {
+            provide: AgentMonitorStore,
+            useValue: { agentsForSession: jest.fn().mockReturnValue([]) },
+          },
+          { provide: TabSessionBinding, useValue: binding },
+          { provide: ConversationRegistry, useValue: registry },
+          {
+            provide: WorkflowSessionClaimService,
+            useValue: { release: jest.fn() },
+          },
+        ],
+      });
+      const svc = TestBed.inject(TribunalStateService);
 
-      service.setSurfaceId(surfaceId);
-      expect(service.tribunalSessionId()).toBeNull();
+      const tabId = TabId.create();
+      svc.setCorrelationId(tabId);
+      expect(svc.tribunalSessionId()).toBeNull();
 
-      mockTabBinding.conversationForSurface.mockReturnValue(
-        'conv-1' as unknown as ReturnType<
-          TabSessionBinding['conversationForSurface']
-        >,
+      const convId = registry.create();
+      binding.bind(tabId, convId);
+      registry.appendSession(
+        convId,
+        'session-late' as unknown as ClaudeSessionId,
       );
-      mockRegistry.getRecord.mockReturnValue({
-        sessions: ['session-late'],
-      } as unknown as ReturnType<ConversationRegistry['getRecord']>);
 
-      service.refreshSessionId();
-
-      expect(service.tribunalSessionId()).toBe('session-late');
+      expect(svc.tribunalSessionId()).toBe('session-late');
     });
   });
 
-  describe('endRun — user-initiated teardown', () => {
-    it('tears down the surface exactly once and resets state', () => {
+  describe('endRun — claim release + reset', () => {
+    it('resets all run state', () => {
       service.buildTilesForRun([makeLane()]);
-      service.setSurfaceId(SurfaceId.create());
+      service.setCorrelationId(TabId.create());
 
       service.endRun();
 
-      expect(mockSurface.teardown).toHaveBeenCalledTimes(1);
       expect(service.tiles()).toHaveLength(0);
       expect(service.lanes()).toHaveLength(0);
       expect(service.surfaceId()).toBeNull();

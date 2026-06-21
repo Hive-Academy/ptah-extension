@@ -17,13 +17,15 @@ export type TribunalTileStatus = 'idle' | 'running' | 'completed' | 'failed';
   imports: [LucideAngularModule],
   template: `
     <div
-      class="tribunal-tile flex h-full flex-col overflow-hidden rounded-lg border border-base-300 bg-base-100"
-      [class.ring-1]="focused()"
+      class="tribunal-tile flex h-full flex-col overflow-hidden rounded-lg border bg-base-100 transition-shadow"
+      [class.border-primary]="focused()"
+      [class.ring-2]="focused()"
       [class.ring-primary]="focused()"
+      [class.border-base-300]="!focused()"
     >
       <header
-        class="tile-header flex cursor-move items-center gap-2 border-b border-base-300 px-3 py-2"
-        (dblclick)="focusRequested.emit()"
+        class="tile-header flex cursor-pointer items-center gap-2 border-b border-base-300 bg-base-300 px-3 py-2"
+        (click)="focusRequested.emit()"
       >
         <span
           class="h-2 w-2 shrink-0 rounded-full"
@@ -35,8 +37,18 @@ export type TribunalTileStatus = 'idle' | 'running' | 'completed' | 'failed';
           [class.bg-error]="status() === 'failed'"
           [attr.aria-hidden]="true"
         ></span>
-        <span class="truncate text-xs font-medium text-base-content/80">
-          {{ label() }}
+        <span class="flex min-w-0 flex-col leading-tight">
+          <span class="truncate text-xs font-semibold text-base-content">
+            {{ label() }}
+          </span>
+          @if (model()) {
+            <span
+              class="truncate font-mono text-[10px] text-base-content/50"
+              data-testid="tribunal-tile-model"
+            >
+              {{ model() }}
+            </span>
+          }
         </span>
         <span
           class="ml-auto text-[10px] uppercase tracking-wide text-base-content/50"
@@ -72,6 +84,7 @@ export class TribunalTileHostComponent {
   readonly tile = input.required<TribunalTile>();
   readonly focused = input<boolean>(false);
   readonly label = input<string>('');
+  readonly model = input<string>('');
   readonly status = input<TribunalTileStatus>('idle');
   readonly closable = input<boolean>(false);
 

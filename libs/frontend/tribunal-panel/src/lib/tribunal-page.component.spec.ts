@@ -5,101 +5,122 @@ import {
   output,
 } from '@angular/core';
 import { By } from '@angular/platform-browser';
-
-type AskUserQuestionRequest = { id: string; sessionId: string };
-
-jest.mock('gridstack/dist/angular', () => {
-  @Component({
-    // eslint-disable-next-line @angular-eslint/component-selector
-    selector: 'gridstack',
-    standalone: true,
-    changeDetection: ChangeDetectionStrategy.OnPush,
-    template: '<ng-content />',
-  })
-  class GridstackStub {
-    grid: unknown = null;
-  }
-  @Component({
-    // eslint-disable-next-line @angular-eslint/component-selector
-    selector: 'gridstack-item',
-    standalone: true,
-    changeDetection: ChangeDetectionStrategy.OnPush,
-    template: '<ng-content />',
-  })
-  class GridstackItemStub {}
-  return {
-    GridstackComponent: GridstackStub,
-    GridstackItemComponent: GridstackItemStub,
-    nodesCB: undefined,
-  };
-});
-jest.mock('gridstack', () => ({ GridStack: class {} }));
-
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
-import { CanvasLayoutService } from '@ptah-extension/canvas';
-import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
-import { TabManagerService } from '@ptah-extension/chat-state';
 import { TribunalPageComponent } from './tribunal-page.component';
 import { TribunalStateService } from './services/tribunal-state.service';
-import { TribunalSurfaceService } from './services/tribunal-surface.service';
+import { TribunalRunService } from './services/tribunal-run.service';
+import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
 
-describe('TribunalPageComponent — resume / reattach lifecycle', () => {
+@Component({
+  selector: 'ptah-tribunal-tile-host',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div data-testid="tile-host-stub">
+      <span data-testid="tile-host-label">{{ label() }}</span>
+      <span data-testid="tile-host-model">{{ model() }}</span>
+    </div>
+    <ng-content />
+  `,
+})
+class TileHostStub {
+  readonly tile = input<unknown>();
+  readonly label = input('');
+  readonly model = input('');
+  readonly status = input<unknown>();
+  readonly focused = input(false);
+  readonly focusRequested = output<void>();
+}
+
+@Component({
+  selector: 'ptah-conductor-tile',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div data-testid="conductor-tile-stub"></div>`,
+})
+class ConductorTileStub {}
+
+@Component({
+  selector: 'ptah-vendor-card',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div data-testid="vendor-card-stub"></div>`,
+})
+class VendorCardStub {
+  readonly lane = input<unknown>();
+  readonly tribunalSessionId = input('');
+}
+
+@Component({
+  selector: 'ptah-tribunal-empty-state',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div></div>`,
+})
+class EmptyStateStub {}
+
+@Component({
+  selector: 'ptah-tribunal-wizard',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div></div>`,
+})
+class WizardStub {}
+
+const STUBS = [
+  TileHostStub,
+  ConductorTileStub,
+  VendorCardStub,
+  EmptyStateStub,
+  WizardStub,
+];
+
+function makeLane(id: string, overrides: Partial<VendorLane> = {}): VendorLane {
+  return {
+    laneId: id,
+    family: 'codex',
+    displayName: `Vendor ${id}`,
+    cli: 'codex',
+    model: `model-${id}`,
+    ...overrides,
+  };
+}
+
+function makeTile(laneId: string): TribunalTile {
+  return {
+    tileId: laneId,
+    kind: 'vendor',
+    laneId,
+    position: { x: 0, y: 0, w: 4, h: 6 },
+  };
+}
+
+describe('TribunalPageComponent — lifecycle', () => {
   let fixture: ComponentFixture<TribunalPageComponent>;
   let mockState: {
     tiles: jest.Mock;
     lanes: jest.Mock;
+    move: jest.Mock;
     laneBindings: jest.Mock;
-    refreshSessionId: jest.Mock;
-    endRun: jest.Mock;
     tribunalSessionId: jest.Mock;
   };
-  let mockSurface: jest.Mocked<Pick<TribunalSurfaceService, 'teardown'>>;
+  let mockRun: jest.Mocked<Pick<TribunalRunService, 'endRun'>>;
 
   beforeEach(() => {
     mockState = {
       tiles: jest.fn().mockReturnValue([]),
       lanes: jest.fn().mockReturnValue([]),
+      move: jest.fn().mockReturnValue('council'),
       laneBindings: jest.fn().mockReturnValue(new Map()),
-      refreshSessionId: jest.fn(),
-      endRun: jest.fn(),
       tribunalSessionId: jest.fn().mockReturnValue(null),
     };
-    mockSurface = {
-      teardown: jest.fn(),
-    };
+    mockRun = { endRun: jest.fn().mockResolvedValue(true) };
 
     TestBed.configureTestingModule({
       imports: [TribunalPageComponent],
       providers: [
         { provide: TribunalStateService, useValue: mockState },
-        { provide: TribunalSurfaceService, useValue: mockSurface },
-        {
-          provide: PermissionHandlerService,
-          useValue: {
-            permissionRequests: jest.fn().mockReturnValue([]),
-            questionRequests: jest.fn().mockReturnValue([]),
-            hasSurfaceTargets: jest.fn().mockReturnValue(false),
-            questionTargetTabsFor: jest.fn().mockReturnValue([]),
-            handlePermissionResponse: jest.fn(),
-            handleQuestionResponse: jest.fn(),
-          },
-        },
-        {
-          provide: TabManagerService,
-          useValue: { tabs: signal([]).asReadonly() },
-        },
-        {
-          provide: CanvasLayoutService,
-          useValue: {
-            containerWidth: jest.fn().mockReturnValue(0),
-            containerHeight: jest.fn().mockReturnValue(0),
-            computeLayout: jest
-              .fn()
-              .mockReturnValue({ cellHeight: 120, tiles: [] }),
-            observe: jest.fn(),
-          },
-        },
+        { provide: TribunalRunService, useValue: mockRun },
       ],
     }).overrideComponent(TribunalPageComponent, {
       set: { template: '<div></div>', imports: [], providers: [] },
@@ -109,187 +130,46 @@ describe('TribunalPageComponent — resume / reattach lifecycle', () => {
     fixture.detectChanges();
   });
 
-  it('refreshes the session id on first render (re-entry rehydrate)', () => {
-    expect(mockState.refreshSessionId).toHaveBeenCalled();
-  });
-
-  it('navigating away (component destroy) does NOT tear down the surface', () => {
+  it('navigating away (component destroy) does NOT tear down the run', () => {
     fixture.destroy();
 
-    expect(mockSurface.teardown).not.toHaveBeenCalled();
-    expect(mockState.endRun).not.toHaveBeenCalled();
+    expect(mockRun.endRun).not.toHaveBeenCalled();
   });
 
-  it('onCloseRun triggers state.endRun exactly once (user-initiated teardown)', () => {
-    (
-      fixture.componentInstance as unknown as { onCloseRun(): void }
+  it('onCloseRun delegates to runService.endRun (user-initiated teardown)', async () => {
+    await (
+      fixture.componentInstance as unknown as { onCloseRun(): Promise<void> }
     ).onCloseRun();
 
-    expect(mockState.endRun).toHaveBeenCalledTimes(1);
+    expect(mockRun.endRun).toHaveBeenCalledTimes(1);
   });
 });
 
-@Component({
-  selector: 'ptah-tribunal-tile-host',
-  standalone: true,
-  template: `<ng-content />`,
-})
-class TileHostStub {
-  readonly tile = input<unknown>();
-  readonly label = input<unknown>();
-  readonly status = input<unknown>();
-  readonly focused = input(false);
-}
-
-@Component({
-  selector: 'ptah-conductor-strip',
-  standalone: true,
-  template: `<div></div>`,
-})
-class ConductorStripStub {}
-
-@Component({
-  selector: 'ptah-vendor-card',
-  standalone: true,
-  template: `<div></div>`,
-})
-class VendorCardStub {
-  readonly lane = input<unknown>();
-  readonly tribunalSessionId = input('');
-}
-
-@Component({
-  selector: 'ptah-question-card',
-  standalone: true,
-  template: `<div data-testid="question-card-stub"></div>`,
-})
-class QuestionCardStub {
-  readonly request = input<AskUserQuestionRequest>();
-}
-
-@Component({
-  selector: 'ptah-permission-request-card',
-  standalone: true,
-  template: `<div></div>`,
-})
-class PermissionRequestCardStub {
-  readonly request = input<unknown>();
-}
-
-@Component({
-  selector: 'ptah-tribunal-empty-state',
-  standalone: true,
-  template: `<div></div>`,
-})
-class EmptyStateStub {}
-
-@Component({
-  selector: 'ptah-tribunal-wizard',
-  standalone: true,
-  template: `<div></div>`,
-})
-class WizardStub {}
-
-@Component({
-  // eslint-disable-next-line @angular-eslint/component-selector
-  selector: 'gridstack',
-  standalone: true,
-  template: `<ng-content />`,
-})
-class GridstackPageStub {
-  readonly options = input<unknown>();
-  readonly changeCB = output<unknown>();
-  grid: unknown = null;
-}
-
-@Component({
-  // eslint-disable-next-line @angular-eslint/component-selector
-  selector: 'gridstack-item',
-  standalone: true,
-  template: `<ng-content />`,
-})
-class GridstackItemPageStub {
-  readonly options = input<unknown>();
-}
-
-describe('TribunalPageComponent — surface question safety net', () => {
-  function makeQuestion(id: string): AskUserQuestionRequest {
-    return {
-      id,
-      sessionId: 'session-1',
-      questions: [],
-      timeoutAt: 0,
-    } as unknown as AskUserQuestionRequest;
-  }
-
+describe('TribunalPageComponent — board rendering', () => {
   function configure(opts: {
-    questions: AskUserQuestionRequest[];
-    questionTargetTabsFor: (id: string) => readonly string[];
-    tabs: { id: string }[];
-  }) {
-    const tile = {
-      tileId: 'lane-1',
-      kind: 'vendor' as const,
-      laneId: 'lane-1',
-      position: { x: 0, y: 0, w: 4, h: 6 },
-    };
-
+    tiles: TribunalTile[];
+    lanes: VendorLane[];
+  }): ComponentFixture<TribunalPageComponent> {
     TestBed.configureTestingModule({
       imports: [TribunalPageComponent],
       providers: [
         {
           provide: TribunalStateService,
           useValue: {
-            tiles: jest.fn().mockReturnValue([tile]),
-            lanes: jest.fn().mockReturnValue([]),
+            tiles: jest.fn().mockReturnValue(opts.tiles),
+            lanes: jest.fn().mockReturnValue(opts.lanes),
+            move: jest.fn().mockReturnValue('council'),
             laneBindings: jest.fn().mockReturnValue(new Map()),
-            refreshSessionId: jest.fn(),
-            endRun: jest.fn(),
             tribunalSessionId: jest.fn().mockReturnValue('session-1'),
           },
         },
-        { provide: TribunalSurfaceService, useValue: { teardown: jest.fn() } },
         {
-          provide: PermissionHandlerService,
-          useValue: {
-            permissionRequests: jest.fn().mockReturnValue([]),
-            questionRequests: jest.fn().mockReturnValue(opts.questions),
-            hasSurfaceTargets: jest.fn().mockReturnValue(false),
-            questionTargetTabsFor: jest.fn(opts.questionTargetTabsFor),
-            handlePermissionResponse: jest.fn(),
-            handleQuestionResponse: jest.fn(),
-          },
-        },
-        {
-          provide: TabManagerService,
-          useValue: { tabs: signal(opts.tabs).asReadonly() },
-        },
-        {
-          provide: CanvasLayoutService,
-          useValue: {
-            containerWidth: jest.fn().mockReturnValue(0),
-            containerHeight: jest.fn().mockReturnValue(0),
-            computeLayout: jest
-              .fn()
-              .mockReturnValue({ cellHeight: 120, tiles: [] }),
-            observe: jest.fn(),
-          },
+          provide: TribunalRunService,
+          useValue: { endRun: jest.fn().mockResolvedValue(true) },
         },
       ],
     }).overrideComponent(TribunalPageComponent, {
-      set: {
-        imports: [
-          GridstackPageStub,
-          GridstackItemPageStub,
-          TileHostStub,
-          ConductorStripStub,
-          VendorCardStub,
-          QuestionCardStub,
-          PermissionRequestCardStub,
-          EmptyStateStub,
-          WizardStub,
-        ],
-      },
+      set: { imports: STUBS },
     });
 
     const fixture = TestBed.createComponent(TribunalPageComponent);
@@ -297,29 +177,86 @@ describe('TribunalPageComponent — surface question safety net', () => {
     return fixture;
   }
 
-  it('renders a question card when the question targets only the tribunal surface', () => {
+  it('renders the conductor tile and the top bar', () => {
     const fixture = configure({
-      questions: [makeQuestion('q-1')],
-      questionTargetTabsFor: () => ['surface-xyz'],
-      tabs: [{ id: 'tab-a' }],
+      tiles: [makeTile('a')],
+      lanes: [makeLane('a')],
     });
 
-    const cards = fixture.debugElement.queryAll(
-      By.css('[data-testid="question-card-stub"]'),
-    );
-    expect(cards.length).toBe(1);
+    expect(
+      fixture.debugElement.query(By.css('[data-testid="conductor-tile-stub"]')),
+    ).not.toBeNull();
+    expect(
+      fixture.debugElement.query(By.css('[data-testid="tribunal-top-bar"]')),
+    ).not.toBeNull();
   });
 
-  it('does NOT render a question card when the target is a real tab', () => {
+  it('renders one tile per lane when there are 3 or fewer lanes (no switcher)', () => {
     const fixture = configure({
-      questions: [makeQuestion('q-2')],
-      questionTargetTabsFor: () => ['tab-a'],
-      tabs: [{ id: 'tab-a' }],
+      tiles: [makeTile('a'), makeTile('b'), makeTile('c')],
+      lanes: [makeLane('a'), makeLane('b'), makeLane('c')],
     });
 
-    const cards = fixture.debugElement.queryAll(
-      By.css('[data-testid="question-card-stub"]'),
+    expect(
+      fixture.debugElement.queryAll(By.css('[data-testid="tribunal-tile"]'))
+        .length,
+    ).toBe(3);
+    expect(
+      fixture.debugElement.query(
+        By.css('[data-testid="tribunal-pill-switcher"]'),
+      ),
+    ).toBeNull();
+  });
+
+  it('caps the visible board at 3 tiles and shows a pill switcher when there are more than 3 lanes', () => {
+    const lanes = ['a', 'b', 'c', 'd', 'e'].map((id) => makeLane(id));
+    const tiles = lanes.map((l) => makeTile(l.laneId));
+    const fixture = configure({ tiles, lanes });
+
+    expect(
+      fixture.debugElement.query(
+        By.css('[data-testid="tribunal-pill-switcher"]'),
+      ),
+    ).not.toBeNull();
+    expect(
+      fixture.debugElement.queryAll(By.css('[data-testid="tribunal-pill"]'))
+        .length,
+    ).toBe(5);
+    expect(
+      fixture.debugElement.queryAll(By.css('[data-testid="tribunal-tile"]'))
+        .length,
+    ).toBe(3);
+  });
+
+  it('toggling a 4th pill replaces the oldest, keeping the board at 3', () => {
+    const lanes = ['a', 'b', 'c', 'd', 'e'].map((id) => makeLane(id));
+    const tiles = lanes.map((l) => makeTile(l.laneId));
+    const fixture = configure({ tiles, lanes });
+
+    const pills = fixture.debugElement.queryAll(
+      By.css('[data-testid="tribunal-pill"]'),
     );
-    expect(cards.length).toBe(0);
+    (pills[3].nativeElement as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const labels = fixture.debugElement
+      .queryAll(By.css('[data-testid="tile-host-label"]'))
+      .map((d) => (d.nativeElement as HTMLElement).textContent?.trim());
+
+    expect(labels.length).toBe(3);
+    expect(labels).toContain('Vendor d');
+    expect(labels).not.toContain('Vendor a');
+  });
+
+  it('renders the model under the provider name in each tile header', () => {
+    const fixture = configure({
+      tiles: [makeTile('a')],
+      lanes: [makeLane('a', { displayName: 'Codex', model: 'gpt-5' })],
+    });
+
+    const model = fixture.debugElement.query(
+      By.css('[data-testid="tile-host-model"]'),
+    );
+    expect((model.nativeElement as HTMLElement).textContent).toContain('gpt-5');
   });
 });

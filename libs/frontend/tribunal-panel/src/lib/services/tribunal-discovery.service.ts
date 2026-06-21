@@ -5,19 +5,35 @@ import type {
   AnthropicProvider,
   CliDetectionResult,
   CliType,
+  ProviderModelInfo,
 } from '@ptah-extension/shared';
 import { TRIBUNAL_MAX_VENDOR_TILES } from './tribunal-state.service';
-import type { VendorLane } from '../types/tribunal-ui.types';
+import {
+  laneBaseKey,
+  makeLaneId,
+  type VendorLane,
+} from '../types/tribunal-ui.types';
 
 export interface DiscoveredVendor {
   readonly lane: VendorLane;
   readonly available: boolean;
   readonly needsSetup: boolean;
+  readonly baseKey: string;
+  readonly supportsModelList: boolean;
+  readonly modelProviderId?: string;
 }
 
-const CLI_FAMILIES: readonly { cli: CliType; displayName: string }[] = [
-  { cli: 'codex', displayName: 'Codex' },
-  { cli: 'copilot', displayName: 'Copilot' },
+const CLI_FAMILIES: readonly {
+  cli: CliType;
+  displayName: string;
+  modelProviderId?: string;
+}[] = [
+  { cli: 'codex', displayName: 'Codex', modelProviderId: 'openai-codex' },
+  {
+    cli: 'copilot',
+    displayName: 'Copilot',
+    modelProviderId: 'github-copilot',
+  },
   { cli: 'cursor', displayName: 'Cursor' },
 ];
 
@@ -39,6 +55,30 @@ export class TribunalDiscoveryService {
     return [...cliLanes, ...providerLanes].sort(this.compareVendors);
   }
 
+  async listModelsFor(
+    vendor: DiscoveredVendor,
+  ): Promise<readonly ProviderModelInfo[]> {
+    if (!vendor.supportsModelList || !vendor.modelProviderId) {
+      return [];
+    }
+    try {
+      const result = await this.rpc.call('provider:listModels', {
+        toolUseOnly: false,
+        providerId: vendor.modelProviderId,
+      });
+      if (result.isSuccess() && result.data) {
+        return result.data.models ?? [];
+      }
+      return [];
+    } catch (error: unknown) {
+      console.error(
+        '[TribunalDiscoveryService] provider:listModels failed:',
+        error instanceof Error ? error.message : String(error),
+      );
+      return [];
+    }
+  }
+
   private async loadDetectedClis(): Promise<readonly CliDetectionResult[]> {
     const result = await this.rpc.call('agent:getConfig', undefined);
     if (!result.isSuccess() || !result.data) {
@@ -50,13 +90,23 @@ export class TribunalDiscoveryService {
   private buildCliFamilyLanes(
     detectedClis: readonly CliDetectionResult[],
   ): DiscoveredVendor[] {
-    return CLI_FAMILIES.map(({ cli, displayName }) => {
+    return CLI_FAMILIES.map(({ cli, displayName, modelProviderId }) => {
       const detected = detectedClis.find((entry) => entry.cli === cli);
       const available = detected?.installed === true;
+      const baseKey = laneBaseKey({ cli });
+      const supportsModelList = modelProviderId !== undefined;
       return {
-        lane: { laneId: cli, family: cli, displayName, cli },
+        lane: {
+          laneId: makeLaneId(baseKey, 0),
+          family: cli,
+          displayName,
+          cli,
+        },
         available,
         needsSetup: !available,
+        baseKey,
+        supportsModelList,
+        ...(modelProviderId ? { modelProviderId } : {}),
       };
     });
   }
@@ -73,8 +123,12 @@ export class TribunalDiscoveryService {
             entry.cli === 'ptah-cli' && entry.providerId === provider.id,
         );
         const available = agent !== undefined;
+        const baseKey = laneBaseKey({
+          cli: 'ptah-cli',
+          providerId: provider.id,
+        });
         const lane: VendorLane = {
-          laneId: `ptah-cli|${provider.id}`,
+          laneId: makeLaneId(baseKey, 0),
           family: provider.id,
           displayName: provider.name,
           cli: 'ptah-cli',
@@ -84,7 +138,14 @@ export class TribunalDiscoveryService {
             ? { model: provider.defaultTiers.opus }
             : {}),
         };
-        return { lane, available, needsSetup: !available };
+        return {
+          lane,
+          available,
+          needsSetup: !available,
+          baseKey,
+          supportsModelList: true,
+          modelProviderId: provider.id,
+        };
       });
   }
 

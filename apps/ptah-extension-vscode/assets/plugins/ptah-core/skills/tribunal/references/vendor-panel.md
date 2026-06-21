@@ -10,6 +10,24 @@ This document is the single source for discovery, panelist construction, the spa
 
 ---
 
+## 0. Explicit panel (launched from the Tribunal UI) — honor it verbatim
+
+When the conductor prompt already contains explicit panelist lines of the form:
+
+```
+[tribunal:<laneId>] <displayName> — ptah_agent_spawn({ <spawnArgs> }). <objective>
+```
+
+the panel was **defined by the user in the Tribunal UI**. In that case:
+
+- **Skip §2 discovery/selection entirely.** Do NOT call `ptah_agent_list` to re-pick the panel, do NOT apply family-spread, and do NOT collapse duplicate vendors — the user may deliberately convene several lanes of the **same** vendor on **different models** (e.g. two `Ollama Cloud` lanes, one on `glm-5.2`, one on `kimi-k2.7-code`).
+- **Spawn exactly the lanes given, with exactly the `spawnArgs` shown.** Pass the `model` field through to `ptah_agent_spawn` unchanged — for `ptahCliId` lanes a raw `model` overrides the agent's tier mapping, so never substitute a tier or a different model id.
+- Keep the `[tribunal:<laneId>]` tag as the literal first line of each sub-agent task. Everything else on this page (the spawn/poll/read loop §3, anonymization §4, synthesis §5) still applies.
+
+Only fall back to the discovery/selection algorithm below when the prompt does **not** carry explicit panelist lines (i.e. Tribunal was triggered conversationally, not from the UI).
+
+---
+
 ## 1. The panelist model
 
 A **panelist** is a distinct `(transport, addressing, tier)` tuple, chosen for maximum vendor-family spread (one per family):
@@ -24,10 +42,11 @@ Panelist := {
      { cli: "copilot", model?: "claude-sonnet-4.6" }    # GitHub / Claude+GPT family
      { cli: "cursor" }                                  # Cursor CLI family (env-dependent install)
      { ptahCliId: "pc-...", modelTier: "opus" }         # a specific ptah-cli provider family
+     { ptahCliId: "pc-...", model: "glm-5.2" }          # an explicit raw model on that provider
 }
 ```
 
-> Panelists addressed by `ptahCliId` use `modelTier: 'opus'` and let the provider's tier mappings resolve the concrete model (e.g. Moonshot → `kimi-k2.7-code`, Z.AI → `glm-5.2`). Never hardcode a model id here — new models flow in through the registry.
+> For panels **you** assemble (conversational trigger, §2), panelists addressed by `ptahCliId` use `modelTier: 'opus'` and let the provider's tier mappings resolve the concrete model (e.g. Moonshot → `kimi-k2.7-code`, Z.AI → `glm-5.2`) — don't hardcode a model id, so new models flow in through the registry. For panels defined in the **Tribunal UI** (§0), spawn args may instead carry a raw `model` per lane; pass it through unchanged.
 
 ## 2. Selection algorithm (deterministic family spread)
 

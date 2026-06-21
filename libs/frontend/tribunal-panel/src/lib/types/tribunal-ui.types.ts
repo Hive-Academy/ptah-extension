@@ -14,6 +14,19 @@ export interface VendorLane {
   ptahCliId?: string;
 }
 
+export function laneBaseKey(lane: {
+  cli: CliType;
+  providerId?: string;
+}): string {
+  return lane.cli === 'ptah-cli'
+    ? `ptah-cli|${lane.providerId ?? ''}`
+    : lane.cli;
+}
+
+export function makeLaneId(base: string, instanceIndex: number): string {
+  return `${base}#${instanceIndex}`;
+}
+
 export type TribunalTileKind = 'vendor';
 
 export interface TribunalTile {

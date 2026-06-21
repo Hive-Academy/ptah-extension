@@ -4,11 +4,11 @@ import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import {
   ConversationRegistry,
   SurfaceId,
+  TabId,
   TabSessionBinding,
 } from '@ptah-extension/chat-state';
 import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
 import type { TileLayout } from '@ptah-extension/canvas';
-import { TribunalSurfaceService } from './tribunal-surface.service';
 import type {
   TribunalMove,
   TribunalTile,
@@ -22,21 +22,23 @@ export class TribunalStateService {
   private readonly agentMonitor = inject(AgentMonitorStore);
   private readonly tabSessionBinding = inject(TabSessionBinding);
   private readonly conversationRegistry = inject(ConversationRegistry);
-  private readonly surface = inject(TribunalSurfaceService);
   private readonly claims = inject(WorkflowSessionClaimService);
 
   private readonly _tiles = signal<readonly TribunalTile[]>([]);
   private readonly _move = signal<TribunalMove>('council');
   private readonly _lanes = signal<readonly VendorLane[]>([]);
   private readonly _surfaceId = signal<SurfaceId | null>(null);
-  private readonly _sessionId = signal<string | null>(null);
   private readonly _correlationId = signal<string | null>(null);
 
   readonly tiles = this._tiles.asReadonly();
   readonly move = this._move.asReadonly();
   readonly lanes = this._lanes.asReadonly();
   readonly surfaceId = this._surfaceId.asReadonly();
-  readonly tribunalSessionId = this._sessionId.asReadonly();
+  readonly correlationId = this._correlationId.asReadonly();
+  readonly tribunalSessionId = computed<string | null>(() => {
+    const tabId = this._correlationId();
+    return tabId ? this.resolveTribunalSessionId(tabId) : null;
+  });
 
   readonly vendorTileCount = computed(
     () => this._tiles().filter((t) => t.kind === 'vendor').length,
@@ -44,7 +46,7 @@ export class TribunalStateService {
 
   readonly laneBindings = computed<ReadonlyMap<string, MonitoredAgent | null>>(
     () => {
-      const sessionId = this._sessionId();
+      const sessionId = this.tribunalSessionId();
       const lanes = this._lanes();
       const result = new Map<string, MonitoredAgent | null>();
       if (!sessionId) {
@@ -87,20 +89,10 @@ export class TribunalStateService {
 
   setSurfaceId(surfaceId: SurfaceId | null): void {
     this._surfaceId.set(surfaceId);
-    this._sessionId.set(
-      surfaceId ? this.resolveTribunalSessionId(surfaceId) : null,
-    );
   }
 
   setCorrelationId(correlationId: string | null): void {
     this._correlationId.set(correlationId);
-  }
-
-  refreshSessionId(): void {
-    const surfaceId = this._surfaceId();
-    this._sessionId.set(
-      surfaceId ? this.resolveTribunalSessionId(surfaceId) : null,
-    );
   }
 
   addTile(tile: TribunalTile): boolean {
@@ -132,12 +124,10 @@ export class TribunalStateService {
     this._tiles.set([]);
     this._lanes.set([]);
     this._surfaceId.set(null);
-    this._sessionId.set(null);
     this._correlationId.set(null);
   }
 
   endRun(): void {
-    this.surface.teardown();
     const correlationId = this._correlationId();
     if (correlationId) {
       this.claims.release(correlationId);
@@ -145,8 +135,10 @@ export class TribunalStateService {
     this.reset();
   }
 
-  resolveTribunalSessionId(surfaceId: SurfaceId): string | null {
-    const convId = this.tabSessionBinding.conversationForSurface(surfaceId);
+  resolveTribunalSessionId(tabId: string): string | null {
+    const parsedTabId = TabId.safeParse(tabId);
+    if (!parsedTabId) return null;
+    const convId = this.tabSessionBinding.conversationFor(parsedTabId);
     if (!convId) return null;
     const record = this.conversationRegistry.getRecord(convId);
     if (!record || record.sessions.length === 0) return null;

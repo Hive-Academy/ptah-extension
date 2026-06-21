@@ -21,6 +21,8 @@ Convene a **panel of peer AI vendors**, make them deliberate or compete, and ren
 
 ## Preflight: discover the panel (ALWAYS run first)
 
+**First check for an explicit panel.** If the prompt already lists panelists as `[tribunal:<laneId>] … ptah_agent_spawn({ … })` lines, the user assembled the panel in the Tribunal UI — skip discovery and spawn those lanes verbatim (including duplicate vendors and per-lane `model` overrides) per [references/vendor-panel.md §0](references/vendor-panel.md). Otherwise build the panel by discovery:
+
 1. Call `ptah_agent_list`.
 2. Build the panel per [references/vendor-panel.md](references/vendor-panel.md) — one panelist per vendor **family** (`codex`, `copilot`, `cursor`, and each ptah-cli `providerName`: Moonshot, Z.AI, Ollama Cloud, OpenRouter, …), keeping only `installed: true` entries.
 3. **Announce the chosen panel to the user before spending any vendor calls** (each spawn is a real, paid call).

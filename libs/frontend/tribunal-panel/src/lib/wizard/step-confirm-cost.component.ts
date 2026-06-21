@@ -6,7 +6,7 @@ import {
   input,
 } from '@angular/core';
 import { LucideAngularModule, Info } from 'lucide-angular';
-import { ModelStateService, EffortStateService } from '@ptah-extension/core';
+import { EffortStateService } from '@ptah-extension/core';
 import type { EffortLevel } from '@ptah-extension/shared';
 import type { TribunalMove, VendorLane } from '../types/tribunal-ui.types';
 
@@ -34,7 +34,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
       <header class="flex flex-col gap-1">
         <h3 class="text-base font-semibold text-base-content">Confirm & run</h3>
         <p class="text-sm text-base-content/55">
-          Review the panel, pick a model and effort, then convene.
+          Review the panel and effort, then convene.
         </p>
       </header>
 
@@ -46,7 +46,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
             laneCount()
           }}</span>
           <span class="text-[10px] uppercase tracking-wide text-base-content/45"
-            >Vendors</span
+            >Lanes</span
           >
         </div>
         <div class="h-8 w-px bg-base-300"></div>
@@ -69,36 +69,38 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
         </div>
       </div>
 
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label class="flex flex-col gap-1">
-          <span class="text-xs font-medium text-base-content/70">Model</span>
-          <select
-            class="select select-bordered select-sm"
-            aria-label="Model"
-            [value]="currentModel()"
-            (change)="onModelChange($event)"
+      <div class="flex flex-col gap-2" data-testid="tribunal-lane-summary">
+        <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+          >Panelists</span
+        >
+        @for (lane of lanes(); track lane.laneId) {
+          <div
+            class="flex items-center justify-between gap-2 rounded-lg border border-base-300 bg-base-200/30 px-3 py-2"
           >
-            @for (model of models(); track model.id) {
-              <option [value]="model.id">{{ model.name }}</option>
-            }
-          </select>
-        </label>
-
-        <label class="flex flex-col gap-1">
-          <span class="text-xs font-medium text-base-content/70">Effort</span>
-          <select
-            class="select select-bordered select-sm"
-            aria-label="Effort"
-            [value]="currentEffort() ?? ''"
-            (change)="onEffortChange($event)"
-          >
-            <option value="">Default</option>
-            @for (level of effortLevels; track level) {
-              <option [value]="level">{{ level }}</option>
-            }
-          </select>
-        </label>
+            <span class="truncate text-sm font-medium text-base-content">{{
+              lane.displayName
+            }}</span>
+            <span class="badge badge-ghost badge-sm font-mono">{{
+              lane.model ?? 'default'
+            }}</span>
+          </div>
+        }
       </div>
+
+      <label class="flex flex-col gap-1">
+        <span class="text-xs font-medium text-base-content/70">Effort</span>
+        <select
+          class="select select-bordered select-sm"
+          aria-label="Effort"
+          [value]="currentEffort() ?? ''"
+          (change)="onEffortChange($event)"
+        >
+          <option value="">Default</option>
+          @for (level of effortLevels; track level) {
+            <option [value]="level">{{ level }}</option>
+          }
+        </select>
+      </label>
 
       <div
         class="flex items-start gap-2 rounded-lg border border-info/20 bg-info/5 px-3 py-2 text-xs text-base-content/60"
@@ -127,14 +129,11 @@ export class StepConfirmCostComponent {
   readonly move = input<TribunalMove>('council');
   readonly lanes = input<readonly VendorLane[]>([]);
 
-  private readonly modelState = inject(ModelStateService);
   private readonly effortState = inject(EffortStateService);
 
   protected readonly InfoIcon = Info;
   protected readonly effortLevels = EFFORT_LEVELS;
 
-  protected readonly models = this.modelState.availableModels;
-  protected readonly currentModel = this.modelState.currentModel;
   protected readonly currentEffort = this.effortState.currentEffort;
 
   protected readonly laneCount = computed(() => this.lanes().length);
@@ -143,11 +142,6 @@ export class StepConfirmCostComponent {
     const count = Math.max(1, this.lanes().length);
     return count * TURNS_PER_VENDOR[this.move()] + 1;
   });
-
-  protected onModelChange(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
-    if (value) void this.modelState.switchModel(value);
-  }
 
   protected onEffortChange(event: Event): void {
     const value = (event.target as HTMLSelectElement).value;

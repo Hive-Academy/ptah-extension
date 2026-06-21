@@ -49,6 +49,15 @@ function byLaneId(
   return vendors.find((v) => v.lane.laneId === laneId);
 }
 
+function requireLaneId(
+  vendors: DiscoveredVendor[],
+  laneId: string,
+): DiscoveredVendor {
+  const vendor = byLaneId(vendors, laneId);
+  if (!vendor) throw new Error(`Vendor not found: ${laneId}`);
+  return vendor;
+}
+
 describe('TribunalDiscoveryService', () => {
   let service: TribunalDiscoveryService;
   let rpc: { call: jest.Mock };
@@ -90,8 +99,8 @@ describe('TribunalDiscoveryService', () => {
       expect(result.length).toBeGreaterThan(0);
       expect(result.every((v) => v.needsSetup)).toBe(true);
       expect(result.every((v) => !v.available)).toBe(true);
-      expect(byLaneId(result, 'codex')).toBeDefined();
-      expect(byLaneId(result, 'ptah-cli|moonshot')).toBeDefined();
+      expect(byLaneId(result, 'codex#0')).toBeDefined();
+      expect(byLaneId(result, 'ptah-cli|moonshot#0')).toBeDefined();
     });
 
     it('lists the full catalog when RPC succeeds with no data', async () => {
@@ -108,7 +117,7 @@ describe('TribunalDiscoveryService', () => {
       rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
 
       const result = await service.discover();
-      const moonshot = byLaneId(result, 'ptah-cli|moonshot');
+      const moonshot = byLaneId(result, 'ptah-cli|moonshot#0');
 
       expect(moonshot).toBeDefined();
       expect(moonshot?.available).toBe(false);
@@ -122,11 +131,11 @@ describe('TribunalDiscoveryService', () => {
 
       const result = await service.discover();
 
-      expect(byLaneId(result, 'ptah-cli|z-ai')).toBeDefined();
-      expect(byLaneId(result, 'ptah-cli|ollama-cloud')).toBeDefined();
-      expect(byLaneId(result, 'ptah-cli|lm-studio')).toBeDefined();
-      expect(byLaneId(result, 'ptah-cli|ollama')).toBeDefined();
-      expect(byLaneId(result, 'ptah-cli|openrouter')).toBeDefined();
+      expect(byLaneId(result, 'ptah-cli|z-ai#0')).toBeDefined();
+      expect(byLaneId(result, 'ptah-cli|ollama-cloud#0')).toBeDefined();
+      expect(byLaneId(result, 'ptah-cli|lm-studio#0')).toBeDefined();
+      expect(byLaneId(result, 'ptah-cli|ollama#0')).toBeDefined();
+      expect(byLaneId(result, 'ptah-cli|openrouter#0')).toBeDefined();
     });
 
     it('EXCLUDES the CLI-family provider entries (github-copilot/openai-codex) from ptah-cli lanes', async () => {
@@ -134,8 +143,8 @@ describe('TribunalDiscoveryService', () => {
 
       const result = await service.discover();
 
-      expect(byLaneId(result, 'ptah-cli|github-copilot')).toBeUndefined();
-      expect(byLaneId(result, 'ptah-cli|openai-codex')).toBeUndefined();
+      expect(byLaneId(result, 'ptah-cli|github-copilot#0')).toBeUndefined();
+      expect(byLaneId(result, 'ptah-cli|openai-codex#0')).toBeUndefined();
     });
 
     it('produces no laneId collisions across the full catalog', async () => {
@@ -154,9 +163,9 @@ describe('TribunalDiscoveryService', () => {
 
       const result = await service.discover();
 
-      expect(byLaneId(result, 'codex')?.lane.displayName).toBe('Codex');
-      expect(byLaneId(result, 'copilot')?.lane.displayName).toBe('Copilot');
-      expect(byLaneId(result, 'cursor')?.lane.displayName).toBe('Cursor');
+      expect(byLaneId(result, 'codex#0')?.lane.displayName).toBe('Codex');
+      expect(byLaneId(result, 'copilot#0')?.lane.displayName).toBe('Copilot');
+      expect(byLaneId(result, 'cursor#0')?.lane.displayName).toBe('Cursor');
     });
 
     it('reflects installed=true as available, installed=false as needsSetup', async () => {
@@ -171,13 +180,13 @@ describe('TribunalDiscoveryService', () => {
 
       const result = await service.discover();
 
-      const codex = byLaneId(result, 'codex');
+      const codex = byLaneId(result, 'codex#0');
       expect(codex?.available).toBe(true);
       expect(codex?.needsSetup).toBe(false);
       expect(codex?.lane.providerId).toBeUndefined();
       expect(codex?.lane.model).toBeUndefined();
 
-      const cursor = byLaneId(result, 'cursor');
+      const cursor = byLaneId(result, 'cursor#0');
       expect(cursor?.available).toBe(false);
       expect(cursor?.needsSetup).toBe(true);
     });
@@ -201,7 +210,7 @@ describe('TribunalDiscoveryService', () => {
       );
 
       const result = await service.discover();
-      const moonshot = byLaneId(result, 'ptah-cli|moonshot');
+      const moonshot = byLaneId(result, 'ptah-cli|moonshot#0');
 
       expect(moonshot?.available).toBe(true);
       expect(moonshot?.needsSetup).toBe(false);
@@ -225,7 +234,7 @@ describe('TribunalDiscoveryService', () => {
       );
 
       const result = await service.discover();
-      expect(byLaneId(result, 'ptah-cli|moonshot')?.lane.model).toBe(
+      expect(byLaneId(result, 'ptah-cli|moonshot#0')?.lane.model).toBe(
         'kimi-k2.7-code',
       );
     });
@@ -250,7 +259,101 @@ describe('TribunalDiscoveryService', () => {
         result.length - 1 - [...result].reverse().findIndex((v) => v.available);
 
       expect(lastAvailableIdx).toBeLessThan(firstNeedsSetupIdx);
-      expect(byLaneId(result, 'ptah-cli|z-ai')?.available).toBe(true);
+      expect(byLaneId(result, 'ptah-cli|z-ai#0')?.available).toBe(true);
+    });
+  });
+
+  describe('per-lane model metadata', () => {
+    it('codex carries openai-codex as the model provider id and supports listing', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+
+      const result = await service.discover();
+      const codex = byLaneId(result, 'codex#0');
+
+      expect(codex?.supportsModelList).toBe(true);
+      expect(codex?.modelProviderId).toBe('openai-codex');
+      expect(codex?.baseKey).toBe('codex');
+    });
+
+    it('copilot carries github-copilot as the model provider id', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+
+      const result = await service.discover();
+      const copilot = byLaneId(result, 'copilot#0');
+
+      expect(copilot?.supportsModelList).toBe(true);
+      expect(copilot?.modelProviderId).toBe('github-copilot');
+    });
+
+    it('cursor does NOT support model listing', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+
+      const result = await service.discover();
+      const cursor = byLaneId(result, 'cursor#0');
+
+      expect(cursor?.supportsModelList).toBe(false);
+      expect(cursor?.modelProviderId).toBeUndefined();
+    });
+
+    it('ptah-cli lanes carry their providerId as the model provider id', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+
+      const result = await service.discover();
+      const moonshot = byLaneId(result, 'ptah-cli|moonshot#0');
+
+      expect(moonshot?.supportsModelList).toBe(true);
+      expect(moonshot?.modelProviderId).toBe('moonshot');
+      expect(moonshot?.baseKey).toBe('ptah-cli|moonshot');
+    });
+  });
+
+  describe('listModelsFor', () => {
+    it('calls provider:listModels with the lane model provider id', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+      const result = await service.discover();
+      const codex = requireLaneId(result, 'codex#0');
+
+      rpc.call.mockResolvedValue(
+        rpcSuccess({
+          models: [
+            { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max' },
+            { id: 'gpt-5.1-codex', name: 'GPT-5.1 Codex' },
+          ],
+          totalCount: 2,
+        }),
+      );
+
+      const models = await service.listModelsFor(codex);
+
+      expect(rpc.call).toHaveBeenLastCalledWith('provider:listModels', {
+        toolUseOnly: false,
+        providerId: 'openai-codex',
+      });
+      expect(models).toHaveLength(2);
+      expect(models[0].id).toBe('gpt-5.1-codex-max');
+    });
+
+    it('returns [] for a lane that does not support listing (cursor)', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+      const result = await service.discover();
+      const cursor = requireLaneId(result, 'cursor#0');
+
+      rpc.call.mockClear();
+      const models = await service.listModelsFor(cursor);
+
+      expect(models).toEqual([]);
+      expect(rpc.call).not.toHaveBeenCalled();
+    });
+
+    it('returns [] when provider:listModels fails', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
+      const result = await service.discover();
+      const moonshot = requireLaneId(result, 'ptah-cli|moonshot#0');
+
+      rpc.call.mockResolvedValue(rpcError('boom'));
+      const models = await service.listModelsFor(moonshot);
+
+      expect(models).toEqual([]);
     });
   });
 });

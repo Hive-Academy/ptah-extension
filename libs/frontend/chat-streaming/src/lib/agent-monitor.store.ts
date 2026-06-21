@@ -35,7 +35,7 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 const MAX_FRONTEND_BUFFER = 50 * 1024;
 
 /** Maximum number of simultaneously expanded agent cards */
-const MAX_EXPANDED_AGENTS = 2;
+const MAX_EXPANDED_AGENTS = 3;
 
 /** Maximum streamEvents buffer per agent (prevents unbounded memory growth) */
 const MAX_STREAM_EVENTS = 2000;
