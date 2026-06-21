@@ -6,6 +6,7 @@ import {
   SurfaceId,
   TabSessionBinding,
 } from '@ptah-extension/chat-state';
+import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
 import type { TileLayout } from '@ptah-extension/canvas';
 import { TribunalSurfaceService } from './tribunal-surface.service';
 import type {
@@ -16,18 +17,20 @@ import type {
 
 export const TRIBUNAL_MAX_VENDOR_TILES = 8;
 
-@Injectable()
+@Injectable({ providedIn: 'root' })
 export class TribunalStateService {
   private readonly agentMonitor = inject(AgentMonitorStore);
   private readonly tabSessionBinding = inject(TabSessionBinding);
   private readonly conversationRegistry = inject(ConversationRegistry);
   private readonly surface = inject(TribunalSurfaceService);
+  private readonly claims = inject(WorkflowSessionClaimService);
 
   private readonly _tiles = signal<readonly TribunalTile[]>([]);
   private readonly _move = signal<TribunalMove>('council');
   private readonly _lanes = signal<readonly VendorLane[]>([]);
   private readonly _surfaceId = signal<SurfaceId | null>(null);
   private readonly _sessionId = signal<string | null>(null);
+  private readonly _correlationId = signal<string | null>(null);
 
   readonly tiles = this._tiles.asReadonly();
   readonly move = this._move.asReadonly();
@@ -89,6 +92,10 @@ export class TribunalStateService {
     );
   }
 
+  setCorrelationId(correlationId: string | null): void {
+    this._correlationId.set(correlationId);
+  }
+
   refreshSessionId(): void {
     const surfaceId = this._surfaceId();
     this._sessionId.set(
@@ -126,6 +133,16 @@ export class TribunalStateService {
     this._lanes.set([]);
     this._surfaceId.set(null);
     this._sessionId.set(null);
+    this._correlationId.set(null);
+  }
+
+  endRun(): void {
+    this.surface.teardown();
+    const correlationId = this._correlationId();
+    if (correlationId) {
+      this.claims.release(correlationId);
+    }
+    this.reset();
   }
 
   resolveTribunalSessionId(surfaceId: SurfaceId): string | null {

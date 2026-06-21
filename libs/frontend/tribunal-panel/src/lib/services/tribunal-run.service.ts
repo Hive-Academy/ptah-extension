@@ -28,7 +28,7 @@ const MOVE_FRAMING: Record<TribunalMove, string> = {
 const FULL_AUTO_DIRECTIVE =
   'Do NOT call AskUserQuestion. Run fully autonomously and make reasonable assumptions; state assumptions inline rather than asking.';
 
-@Injectable()
+@Injectable({ providedIn: 'root' })
 export class TribunalRunService {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly vscode = inject(VSCodeService);
@@ -47,6 +47,12 @@ export class TribunalRunService {
     if (trimmedObjective.length === 0 || lanes.length === 0) {
       return false;
     }
+
+    if (this.state.surfaceId()) {
+      this.surface.teardown();
+      this.state.reset();
+    }
+
     const correlationId = TabId.create();
     const surfaceId = SurfaceId.create();
 
@@ -57,6 +63,7 @@ export class TribunalRunService {
     this.state.setLanes(lanes);
     this.state.buildTilesForRun(move, lanes);
     this.state.setSurfaceId(surfaceId);
+    this.state.setCorrelationId(correlationId as string);
 
     const workspacePath = this.vscode.config().workspaceRoot;
     const model = this.modelState.currentModel();

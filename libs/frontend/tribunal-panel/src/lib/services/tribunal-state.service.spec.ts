@@ -6,6 +6,7 @@ import {
   SurfaceId,
   TabSessionBinding,
 } from '@ptah-extension/chat-state';
+import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
 import {
   TribunalStateService,
   TRIBUNAL_MAX_VENDOR_TILES,
@@ -51,6 +52,8 @@ describe('TribunalStateService', () => {
     Pick<TabSessionBinding, 'conversationForSurface'>
   >;
   let mockRegistry: jest.Mocked<Pick<ConversationRegistry, 'getRecord'>>;
+  let mockSurface: jest.Mocked<Pick<TribunalSurfaceService, 'teardown'>>;
+  let mockClaims: jest.Mocked<Pick<WorkflowSessionClaimService, 'release'>>;
 
   beforeEach(() => {
     mockAgentMonitor = {
@@ -62,6 +65,12 @@ describe('TribunalStateService', () => {
     mockRegistry = {
       getRecord: jest.fn().mockReturnValue(null),
     };
+    mockSurface = {
+      teardown: jest.fn(),
+    };
+    mockClaims = {
+      release: jest.fn(),
+    };
 
     TestBed.configureTestingModule({
       providers: [
@@ -69,7 +78,8 @@ describe('TribunalStateService', () => {
         { provide: AgentMonitorStore, useValue: mockAgentMonitor },
         { provide: TabSessionBinding, useValue: mockTabBinding },
         { provide: ConversationRegistry, useValue: mockRegistry },
-        { provide: TribunalSurfaceService, useValue: {} },
+        { provide: TribunalSurfaceService, useValue: mockSurface },
+        { provide: WorkflowSessionClaimService, useValue: mockClaims },
       ],
     });
 
@@ -492,6 +502,60 @@ describe('TribunalStateService', () => {
       expect(service.lanes()).toHaveLength(0);
       expect(service.surfaceId()).toBeNull();
       expect(service.tribunalSessionId()).toBeNull();
+    });
+  });
+
+  describe('refreshSessionId — late-resolved session on re-entry', () => {
+    it('picks up a session id that resolves only after setSurfaceId', () => {
+      const surfaceId = SurfaceId.create();
+      mockTabBinding.conversationForSurface.mockReturnValue(null);
+      mockRegistry.getRecord.mockReturnValue(null);
+
+      service.setSurfaceId(surfaceId);
+      expect(service.tribunalSessionId()).toBeNull();
+
+      mockTabBinding.conversationForSurface.mockReturnValue(
+        'conv-1' as unknown as ReturnType<
+          TabSessionBinding['conversationForSurface']
+        >,
+      );
+      mockRegistry.getRecord.mockReturnValue({
+        sessions: ['session-late'],
+      } as unknown as ReturnType<ConversationRegistry['getRecord']>);
+
+      service.refreshSessionId();
+
+      expect(service.tribunalSessionId()).toBe('session-late');
+    });
+  });
+
+  describe('endRun — user-initiated teardown', () => {
+    it('tears down the surface exactly once and resets state', () => {
+      service.buildTilesForRun('council', [makeLane()]);
+      service.setSurfaceId(SurfaceId.create());
+
+      service.endRun();
+
+      expect(mockSurface.teardown).toHaveBeenCalledTimes(1);
+      expect(service.tiles()).toHaveLength(0);
+      expect(service.lanes()).toHaveLength(0);
+      expect(service.surfaceId()).toBeNull();
+      expect(service.tribunalSessionId()).toBeNull();
+    });
+
+    it('releases a held claim by correlationId', () => {
+      service.setCorrelationId('corr-123');
+
+      service.endRun();
+
+      expect(mockClaims.release).toHaveBeenCalledTimes(1);
+      expect(mockClaims.release).toHaveBeenCalledWith('corr-123');
+    });
+
+    it('does not release a claim when none was held', () => {
+      service.endRun();
+
+      expect(mockClaims.release).not.toHaveBeenCalled();
     });
   });
 });

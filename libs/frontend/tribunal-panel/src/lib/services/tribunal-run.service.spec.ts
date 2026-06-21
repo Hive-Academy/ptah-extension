@@ -50,8 +50,10 @@ describe('TribunalRunService', () => {
       | 'setLanes'
       | 'buildTilesForRun'
       | 'setSurfaceId'
+      | 'setCorrelationId'
       | 'refreshSessionId'
       | 'reset'
+      | 'endRun'
       | 'tiles'
       | 'move'
       | 'lanes'
@@ -79,8 +81,10 @@ describe('TribunalRunService', () => {
       setLanes: jest.fn(),
       buildTilesForRun: jest.fn(),
       setSurfaceId: jest.fn(),
+      setCorrelationId: jest.fn(),
       refreshSessionId: jest.fn(),
       reset: jest.fn(),
+      endRun: jest.fn(),
       tiles: jest.fn().mockReturnValue([]),
       move: jest.fn().mockReturnValue('council'),
       lanes: jest.fn().mockReturnValue([]),
@@ -303,6 +307,46 @@ describe('TribunalRunService', () => {
 
       const args = rpc.call.mock.calls[0][1] as Record<string, unknown>;
       expect(args.workspacePath).toBe('/workspace');
+    });
+
+    it('stores the correlationId on state for later claim release', async () => {
+      await service.launch('council', [makeLane()], OBJECTIVE);
+
+      expect(mockState.setCorrelationId).toHaveBeenCalledTimes(1);
+      expect(
+        (mockState.setCorrelationId as jest.Mock).mock.calls[0][0],
+      ).toEqual(expect.any(String));
+    });
+
+    it('does NOT tear down a prior surface when none is live (first run)', async () => {
+      (mockState.surfaceId as jest.Mock).mockReturnValue(null);
+
+      await service.launch('council', [makeLane()], OBJECTIVE);
+
+      expect(mockSurface.teardown).not.toHaveBeenCalled();
+      expect(mockState.reset).not.toHaveBeenCalled();
+    });
+
+    it('tears down the prior surface before claiming a new one when a run is already live (no leak)', async () => {
+      const callOrder: string[] = [];
+      (mockState.surfaceId as jest.Mock).mockReturnValue('prior-surface');
+      mockSurface.teardown.mockImplementation(() => callOrder.push('teardown'));
+      (mockState.reset as jest.Mock).mockImplementation(() =>
+        callOrder.push('reset'),
+      );
+      mockSurface.registerSurface.mockImplementation(() =>
+        callOrder.push('registerSurface'),
+      );
+
+      await service.launch('council', [makeLane()], OBJECTIVE);
+
+      expect(mockSurface.teardown).toHaveBeenCalledTimes(1);
+      expect(callOrder.indexOf('teardown')).toBeLessThan(
+        callOrder.indexOf('registerSurface'),
+      );
+      expect(callOrder.indexOf('reset')).toBeLessThan(
+        callOrder.indexOf('registerSurface'),
+      );
     });
 
     it('registers the surface via TribunalSurfaceService before calling RPC', async () => {

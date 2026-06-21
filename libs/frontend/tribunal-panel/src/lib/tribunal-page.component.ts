@@ -1,7 +1,6 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   ElementRef,
   afterNextRender,
   computed,
@@ -29,8 +28,6 @@ import type {
   AskUserQuestionResponse,
 } from '@ptah-extension/shared';
 import { TribunalStateService } from './services/tribunal-state.service';
-import { TribunalSurfaceService } from './services/tribunal-surface.service';
-import { TribunalRunService } from './services/tribunal-run.service';
 import {
   TribunalTileHostComponent,
   type TribunalTileStatus,
@@ -45,7 +42,7 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
   selector: 'ptah-tribunal-page',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [CanvasLayoutService, TribunalStateService, TribunalRunService],
+  providers: [CanvasLayoutService],
   imports: [
     GridstackComponent,
     GridstackItemComponent,
@@ -68,7 +65,19 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
       } @else if (tribunalState.tiles().length === 0) {
         <ptah-tribunal-empty-state (convene)="convene.set(true)" />
       } @else {
-        <ptah-conductor-strip />
+        <div
+          class="flex items-center justify-between border-b border-base-300 px-4 py-2"
+        >
+          <ptah-conductor-strip class="min-w-0 flex-1" />
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs ml-2 shrink-0"
+            data-testid="tribunal-close-run"
+            (click)="onCloseRun()"
+          >
+            Close Tribunal
+          </button>
+        </div>
 
         @if (surfacePermissions().length > 0 || surfaceQuestions().length > 0) {
           <div
@@ -143,10 +152,8 @@ import type { TribunalTile, VendorLane } from './types/tribunal-ui.types';
 })
 export class TribunalPageComponent {
   protected readonly tribunalState = inject(TribunalStateService);
-  private readonly tribunalSurface = inject(TribunalSurfaceService);
   private readonly layoutService = inject(CanvasLayoutService);
   private readonly permissionHandler = inject(PermissionHandlerService);
-  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly convene = signal(false);
   protected readonly focusedTileId = signal<string | null>(null);
@@ -193,6 +200,7 @@ export class TribunalPageComponent {
       if (el) {
         this.layoutService.observe(el);
       }
+      this.tribunalState.refreshSessionId();
     });
 
     effect(() => {
@@ -215,16 +223,18 @@ export class TribunalPageComponent {
 
       grid.batchUpdate(false);
     });
-
-    this.destroyRef.onDestroy(() => {
-      this.tribunalSurface.teardown();
-    });
   }
 
   protected readonly tribunalSessionId = this.tribunalState.tribunalSessionId;
 
   protected onLaunched(): void {
     this.convene.set(false);
+  }
+
+  protected onCloseRun(): void {
+    this.tribunalState.endRun();
+    this.convene.set(false);
+    this.focusedTileId.set(null);
   }
 
   protected laneFor(tile: TribunalTile): VendorLane | null {
