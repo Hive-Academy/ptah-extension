@@ -558,6 +558,98 @@ describe('SdkPermissionHandler - cleanupPendingPermissions keying', () => {
   });
 });
 
+describe('SdkPermissionHandler - per-session level resolver', () => {
+  afterEach(() => {
+    container.clearInstances();
+    jest.clearAllMocks();
+  });
+
+  it('auto-approves a dangerous tool when the session resolver returns yolo', async () => {
+    const { handler, sent } = makeHandler();
+
+    const callback = handler.createCallback(
+      asSessionId('11111111-2222-4333-8444-555555555555'),
+      undefined,
+      undefined,
+      () => 'yolo',
+    );
+
+    const result = await callback(
+      'Bash',
+      { command: 'rm -rf /' },
+      { signal: new AbortController().signal, toolUseID: 'tool-yolo' },
+    );
+
+    expect(result).toMatchObject({ behavior: 'allow' });
+    expect(
+      sent.find((m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST),
+    ).toBeUndefined();
+  });
+
+  it('isolates sessions: a yolo session auto-approves while an ask session still prompts', async () => {
+    const { handler, sent } = makeHandler();
+
+    // Same handler, two sessions with independent resolvers — the global
+    // _permissionLevel field is untouched (defaults to 'ask').
+    const yoloCallback = handler.createCallback(
+      asSessionId('aaaaaaaa-1111-4111-8111-111111111111'),
+      undefined,
+      undefined,
+      () => 'yolo',
+    );
+    const askCallback = handler.createCallback(
+      asSessionId('bbbbbbbb-2222-4222-8222-222222222222'),
+      undefined,
+      undefined,
+      () => 'ask',
+    );
+
+    const yoloResult = await yoloCallback(
+      'Bash',
+      { command: 'ls' },
+      { signal: new AbortController().signal, toolUseID: 'tool-iso-yolo' },
+    );
+    expect(yoloResult).toMatchObject({ behavior: 'allow' });
+
+    const ac = new AbortController();
+    const askPending = askCallback(
+      'Bash',
+      { command: 'ls' },
+      { signal: ac.signal, toolUseID: 'tool-iso-ask' },
+    );
+    await flushMicrotasks();
+
+    // The ask session was NOT auto-approved by the other session's yolo — it
+    // routed a permission prompt to the UI.
+    expect(
+      sent.filter((m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST),
+    ).toHaveLength(1);
+
+    ac.abort();
+    await askPending;
+  });
+
+  it('falls back to the global level when no resolver is supplied (CLI path)', async () => {
+    const { handler, sent } = makeHandler();
+    handler.setPermissionLevel('yolo');
+
+    const callback = handler.createCallback(
+      asSessionId('cccccccc-3333-4333-8333-333333333333'),
+    );
+
+    const result = await callback(
+      'Bash',
+      { command: 'ls' },
+      { signal: new AbortController().signal, toolUseID: 'tool-cli-global' },
+    );
+
+    expect(result).toMatchObject({ behavior: 'allow' });
+    expect(
+      sent.find((m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST),
+    ).toBeUndefined();
+  });
+});
+
 describe('PermissionRequestSchema - UUID validation', () => {
   const BASE_VALID = {
     id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',

@@ -845,6 +845,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return this.sessionLifecycle.setSessionPermissionLevel(sessionId, level);
   }
 
+  /**
+   * Active session IDs, most-recently-active first. Used by the autopilot
+   * toggle to target the session the user is interacting with when the
+   * frontend does not supply an explicit sessionId.
+   */
+  getActiveSessionIds(): SessionId[] {
+    return this.sessionLifecycle.getActiveSessionIds();
+  }
+
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
     return this.sessionLifecycle.setSessionModel(sessionId, model);
   }

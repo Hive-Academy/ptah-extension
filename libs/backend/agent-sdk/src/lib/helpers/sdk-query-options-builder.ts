@@ -23,6 +23,7 @@ import {
   SessionId,
   TabId,
   type McpHttpServerOverride,
+  type PermissionLevel,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
@@ -384,6 +385,14 @@ export interface QueryOptionsInput {
    * profile carries third-party provider auth.
    */
   authEnvOverride?: AuthEnv;
+  /**
+   * Resolves the CURRENT per-session permission level, read live by the
+   * canUseTool callback on every tool call. Supplied by SessionQueryExecutor
+   * bound to the session's SessionRecord so tool gating is scoped per
+   * session/workspace instead of read from the global handler field. Omitted
+   * by non-interactive callers, which fall back to the global default.
+   */
+  permissionLevelResolver?: () => PermissionLevel;
 }
 
 /**
@@ -504,6 +513,7 @@ export class SdkQueryOptionsBuilder {
       mcpServersOverride,
       initialUserQuery,
       authEnvOverride,
+      permissionLevelResolver,
     } = input;
 
     const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
@@ -576,6 +586,7 @@ export class SdkQueryOptionsBuilder {
         routingSessionId ?? undefined,
         undefined,
         routingTabId ?? undefined,
+        permissionLevelResolver,
       );
     const hooks = this.createHooks(
       cwd,

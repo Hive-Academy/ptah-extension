@@ -701,6 +701,7 @@ describe('SdkAgentAdapter', () => {
         messageQueue: [],
         resolveNext: null,
         currentModel: 'claude-sonnet-4-20250514',
+        permissionLevel: 'ask',
         lastActivityAt: 0,
       });
 

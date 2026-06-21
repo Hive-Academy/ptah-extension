@@ -1003,6 +1003,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       VALID_TAB_UUID,
       undefined,
       VALID_TAB_UUID,
+      undefined,
     );
   });
 
@@ -1021,6 +1022,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
 
     // Both routing args degrade to undefined when the id is malformed.
     expect(permissionHandler.createCallback).toHaveBeenCalledWith(
+      undefined,
       undefined,
       undefined,
       undefined,

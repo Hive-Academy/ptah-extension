@@ -96,6 +96,7 @@ type MockSdkAdapter = jest.Mocked<
     | 'setSessionModel'
     | 'setSessionEffort'
     | 'setSessionPermissionLevel'
+    | 'getActiveSessionIds'
     | 'getSupportedModels'
     | 'getApiModels'
   >
@@ -106,6 +107,7 @@ function createMockSdkAdapter(): MockSdkAdapter {
     setSessionModel: jest.fn().mockResolvedValue(undefined),
     setSessionEffort: jest.fn().mockResolvedValue(undefined),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
+    getActiveSessionIds: jest.fn().mockReturnValue([]),
     getSupportedModels: jest.fn().mockResolvedValue([]),
     getApiModels: jest.fn().mockResolvedValue([]),
   };
@@ -506,6 +508,38 @@ describe('ConfigRpcHandlers', () => {
         'sess-1',
         'acceptEdits',
       );
+    });
+
+    it('falls back to the most-recently-active session when no sessionId is supplied', async () => {
+      const h = makeHarness({ isPro: true });
+      h.sdkAdapter.getActiveSessionIds.mockReturnValue([
+        'active-sess',
+      ] as unknown as ReturnType<SdkAgentAdapter['getActiveSessionIds']>);
+      h.handlers.register();
+
+      // The autopilot popover omits sessionId — the toggle must still reach the
+      // running session so per-session gating takes effect.
+      await call(h, 'config:autopilot-toggle', {
+        enabled: true,
+        permissionLevel: 'yolo',
+      });
+
+      expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledWith(
+        'active-sess',
+        'bypassPermissions',
+      );
+    });
+
+    it('skips session sync when no sessionId and no active session', async () => {
+      const h = makeHarness({ isPro: true });
+      h.handlers.register();
+
+      await call(h, 'config:autopilot-toggle', {
+        enabled: true,
+        permissionLevel: 'yolo',
+      });
+
+      expect(h.sdkAdapter.setSessionPermissionLevel).not.toHaveBeenCalled();
     });
 
     it('maps plan → plan for the active SDK session', async () => {
