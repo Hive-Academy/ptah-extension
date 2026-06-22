@@ -38,27 +38,56 @@ import {
 const MAX_DEPTH = 10;
 
 /**
- * Memoization cache entry for the tree builder.
- * Keyed by event/segment count -- invalidates when new events arrive.
+ * Memoization cache entry for the segment tree builder.
+ * Keyed by segment count -- invalidates when new segments arrive.
  */
 interface TreeCache {
   count: number;
   tree: ExecutionNode[];
 }
 
+/**
+ * Per-agent accumulators folded from the event stream. Persisted across
+ * buildTree() calls so each delta only indexes the newly-arrived events
+ * instead of re-scanning the whole array — turning the per-delta cost from
+ * O(total events) into O(new events). The assembly step is unchanged, so the
+ * output is identical to a from-scratch build of the same events.
+ */
+interface TreeAccumulators {
+  textAccumulators: Map<string, string>;
+  thinkingAccumulators: Map<string, string>;
+  toolInputAccumulators: Map<string, string>;
+  toolResults: Map<string, ToolResultEvent>;
+  messageStarts: MessageStartEvent[];
+  toolStarts: ToolStartEvent[];
+  agentStarts: AgentStartEvent[];
+}
+
+interface AgentBuildState extends TreeAccumulators {
+  /** Number of events already folded into the accumulators. */
+  processedCount: number;
+  /** Last assembled tree — returned as-is when no new events have arrived. */
+  lastTree: ExecutionNode[] | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AgentMonitorTreeBuilderService {
   /**
-   * Per-agent cache maps. Keyed by a caller-provided agent ID to avoid
-   * cache collision when multiple agents share this singleton service.
+   * Per-agent incremental build state. Keyed by a caller-provided agent ID to
+   * avoid collision when multiple agents share this singleton service.
    */
-  private readonly eventCacheMap = new Map<string, TreeCache>();
+  private readonly eventStateMap = new Map<string, AgentBuildState>();
   private readonly segmentCacheMap = new Map<string, TreeCache>();
 
   /**
    * Build ExecutionNode tree from flat streaming events.
    *
-   * @param agentId - Unique agent identifier for per-agent cache isolation
+   * Incremental: only events past the last processed index are folded into the
+   * agent's persistent accumulators; the tree is then reassembled from them.
+   * When no new events have arrived the previously-assembled tree is returned
+   * by reference. A shrunken array (agent reset/replaced) restarts the state.
+   *
+   * @param agentId - Unique agent identifier for per-agent state isolation
    * @param events - Flat array of streaming events from MonitoredAgent.streamEvents
    * @returns Array of root-level ExecutionNode objects
    */
@@ -66,13 +95,20 @@ export class AgentMonitorTreeBuilderService {
     agentId: string,
     events: readonly FlatStreamEventUnion[],
   ): ExecutionNode[] {
-    const cached = this.eventCacheMap.get(agentId);
-    if (cached && cached.count === events.length) {
-      return cached.tree;
+    let state = this.eventStateMap.get(agentId);
+    if (!state || events.length < state.processedCount) {
+      state = this.createBuildState();
+      this.eventStateMap.set(agentId, state);
     }
-
-    const tree = this.buildTreeInternal(events);
-    this.eventCacheMap.set(agentId, { count: events.length, tree });
+    if (state.lastTree && events.length === state.processedCount) {
+      return state.lastTree;
+    }
+    for (let i = state.processedCount; i < events.length; i++) {
+      this.indexEvent(events[i], state);
+    }
+    state.processedCount = events.length;
+    const tree = this.assembleTree(state);
+    state.lastTree = tree;
     return tree;
   }
 
@@ -150,13 +186,13 @@ export class AgentMonitorTreeBuilderService {
 
   /** Clear caches for a specific agent (e.g., when agent is removed) */
   clearAgentCache(agentId: string): void {
-    this.eventCacheMap.delete(agentId);
+    this.eventStateMap.delete(agentId);
     this.segmentCacheMap.delete(agentId);
   }
 
   /** Clear all caches */
   clearCache(): void {
-    this.eventCacheMap.clear();
+    this.eventStateMap.clear();
     this.segmentCacheMap.clear();
   }
 
@@ -351,69 +387,83 @@ export class AgentMonitorTreeBuilderService {
     return normalized;
   }
 
-  private buildTreeInternal(
-    events: readonly FlatStreamEventUnion[],
-  ): ExecutionNode[] {
-    if (events.length === 0) return [];
-    const textAccumulators = new Map<string, string>();
-    const thinkingAccumulators = new Map<string, string>();
-    const toolInputAccumulators = new Map<string, string>();
-    const messageStarts: MessageStartEvent[] = [];
-    const toolStarts: ToolStartEvent[] = [];
-    const toolResults = new Map<string, ToolResultEvent>();
-    const agentStarts: AgentStartEvent[] = [];
+  private createBuildState(): AgentBuildState {
+    return {
+      textAccumulators: new Map<string, string>(),
+      thinkingAccumulators: new Map<string, string>(),
+      toolInputAccumulators: new Map<string, string>(),
+      toolResults: new Map<string, ToolResultEvent>(),
+      messageStarts: [],
+      toolStarts: [],
+      agentStarts: [],
+      processedCount: 0,
+      lastTree: null,
+    };
+  }
 
-    for (const event of events) {
-      switch (event.eventType) {
-        case 'message_start':
-          messageStarts.push(event as MessageStartEvent);
-          break;
+  /** Fold a single event into the accumulators (incremental indexing step). */
+  private indexEvent(event: FlatStreamEventUnion, acc: TreeAccumulators): void {
+    switch (event.eventType) {
+      case 'message_start':
+        acc.messageStarts.push(event as MessageStartEvent);
+        break;
 
-        case 'text_delta': {
-          const td = event as TextDeltaEvent;
-          const key = `${td.messageId}-block-${td.blockIndex ?? 0}`;
-          const existing = textAccumulators.get(key) ?? '';
-          textAccumulators.set(key, existing + td.delta);
-          break;
-        }
-
-        case 'thinking_delta': {
-          const thd = event as ThinkingDeltaEvent;
-          const key = `${thd.messageId}-thinking-${thd.blockIndex ?? 0}`;
-          const existing = thinkingAccumulators.get(key) ?? '';
-          thinkingAccumulators.set(key, existing + thd.delta);
-          break;
-        }
-
-        case 'tool_start':
-          toolStarts.push(event as ToolStartEvent);
-          break;
-
-        case 'tool_delta': {
-          const tld = event as ToolDeltaEvent;
-          const key = `${tld.toolCallId}-input`;
-          const existing = toolInputAccumulators.get(key) ?? '';
-          toolInputAccumulators.set(key, existing + tld.delta);
-          break;
-        }
-
-        case 'tool_result': {
-          const tr = event as ToolResultEvent;
-          toolResults.set(tr.toolCallId, tr);
-          break;
-        }
-
-        case 'agent_start':
-          agentStarts.push(event as AgentStartEvent);
-          break;
-        default:
-          break;
+      case 'text_delta': {
+        const td = event as TextDeltaEvent;
+        const key = `${td.messageId}-block-${td.blockIndex ?? 0}`;
+        acc.textAccumulators.set(
+          key,
+          (acc.textAccumulators.get(key) ?? '') + td.delta,
+        );
+        break;
       }
+
+      case 'thinking_delta': {
+        const thd = event as ThinkingDeltaEvent;
+        const key = `${thd.messageId}-thinking-${thd.blockIndex ?? 0}`;
+        acc.thinkingAccumulators.set(
+          key,
+          (acc.thinkingAccumulators.get(key) ?? '') + thd.delta,
+        );
+        break;
+      }
+
+      case 'tool_start':
+        acc.toolStarts.push(event as ToolStartEvent);
+        break;
+
+      case 'tool_delta': {
+        const tld = event as ToolDeltaEvent;
+        const key = `${tld.toolCallId}-input`;
+        acc.toolInputAccumulators.set(
+          key,
+          (acc.toolInputAccumulators.get(key) ?? '') + tld.delta,
+        );
+        break;
+      }
+
+      case 'tool_result': {
+        const tr = event as ToolResultEvent;
+        acc.toolResults.set(tr.toolCallId, tr);
+        break;
+      }
+
+      case 'agent_start':
+        acc.agentStarts.push(event as AgentStartEvent);
+        break;
+      default:
+        break;
     }
-    let rootMessageStarts = messageStarts.filter((ms) => !ms.parentToolUseId);
+  }
+
+  /** Assemble the root-level ExecutionNode tree from indexed accumulators. */
+  private assembleTree(acc: TreeAccumulators): ExecutionNode[] {
+    let rootMessageStarts = acc.messageStarts.filter(
+      (ms) => !ms.parentToolUseId,
+    );
 
     if (rootMessageStarts.length === 0) {
-      rootMessageStarts = messageStarts;
+      rootMessageStarts = acc.messageStarts;
     }
 
     if (rootMessageStarts.length === 0) {
@@ -426,13 +476,13 @@ export class AgentMonitorTreeBuilderService {
       const children = this.buildMessageChildren(
         msgStart.messageId,
         msgStart.timestamp,
-        textAccumulators,
-        thinkingAccumulators,
-        toolStarts,
-        toolInputAccumulators,
-        toolResults,
-        agentStarts,
-        messageStarts,
+        acc.textAccumulators,
+        acc.thinkingAccumulators,
+        acc.toolStarts,
+        acc.toolInputAccumulators,
+        acc.toolResults,
+        acc.agentStarts,
+        acc.messageStarts,
         0,
       );
       if (children.length === 0) continue;

@@ -37,8 +37,14 @@ const MAX_FRONTEND_BUFFER = 50 * 1024;
 /** Maximum number of simultaneously expanded agent cards */
 const MAX_EXPANDED_AGENTS = 3;
 
-/** Maximum streamEvents buffer per agent (prevents unbounded memory growth) */
-const MAX_STREAM_EVENTS = 4000;
+/** Runaway/memory guard on the per-agent streamEvents buffer. Now that the
+ * agent-monitor tree builder indexes incrementally (no per-delta re-scan of the
+ * whole array), the tree-build cost no longer scales with this bound, so it is
+ * set high enough to never trim a realistic agent run — it only protects the
+ * per-delta array copy + memory against pathological/runaway streams. The
+ * landmark + tail-reserve policy below keeps capping structure-lossless even if
+ * the bound is ever hit. */
+const MAX_STREAM_EVENTS = 50000;
 
 /** Recent events always retained regardless of type, so streaming text/thinking
  * near the tail (e.g. an agent's final verdict) is never evicted by capping. */

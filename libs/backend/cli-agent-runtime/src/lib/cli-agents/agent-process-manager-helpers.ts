@@ -45,7 +45,7 @@ export const MAX_ACCUMULATED_SEGMENTS = 500;
  * a single tool call may produce dozens of delta events.
  * Matches the frontend MAX_STREAM_EVENTS cap in agent-monitor.store.ts.
  */
-export const MAX_ACCUMULATED_STREAM_EVENTS = 4000;
+export const MAX_ACCUMULATED_STREAM_EVENTS = 50000;
 
 /** Recent events always retained regardless of type, so streaming text/thinking
  * near the tail (e.g. an agent's final verdict) survives capping. */
