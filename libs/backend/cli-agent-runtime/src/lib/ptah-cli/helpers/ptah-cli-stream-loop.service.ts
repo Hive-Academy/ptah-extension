@@ -65,6 +65,8 @@ export interface PtahCliStreamLoopConfig {
 export class PtahCliStreamLoop {
   private receivedTextDeltas = false;
   private receivedThinkingDeltas = false;
+  private turnIndex = 0;
+  private turnEventCount = 0;
   private effectiveSessionId: SessionId | null = null;
   private readonly streamTransformer: SdkMessageTransformer;
   private readonly pendingToolArgs = new Map<
@@ -108,6 +110,7 @@ export class PtahCliStreamLoop {
                     (event as { toolCallId?: string }).toolCallId ?? '',
                   );
                 }
+                this.turnEventCount++;
                 emitStreamEvent(event);
               }
             } catch (transformError) {
@@ -341,6 +344,12 @@ export class PtahCliStreamLoop {
               emitOutput(`\n[Error: ${errorMsg}]\n`);
               emitSegment({ type: 'error', content: errorMsg });
             }
+            logger.info(`[PtahCliStreamLoop] turn ${this.turnIndex} complete`, {
+              exitCode: turnExitCode,
+              streamEvents: this.turnEventCount,
+            });
+            this.turnIndex++;
+            this.turnEventCount = 0;
             this.config.onTurnComplete?.(turnExitCode);
             continue;
           }

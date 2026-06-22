@@ -105,6 +105,10 @@ interface TrackedAgent {
   hasExited: boolean;
   /** Cleanup timer handle for TTL-based removal from map */
   cleanupHandle?: NodeJS.Timeout;
+  /** Deferred `agent:exited` emit timer (GRACEFUL_EXIT_DELAY); cleared if the
+   * agent is re-opened via continueConversation so a stale exit from the prior
+   * turn can't clobber the running continuation. */
+  exitEmitHandle?: NodeJS.Timeout;
   /** Accumulated structured segments for persistence (capped at MAX_ACCUMULATED_SEGMENTS) */
   accumulatedSegments: CliOutputSegment[];
   /** Accumulated rich stream events for persistence (Ptah CLI only, capped at MAX_ACCUMULATED_STREAM_EVENTS) */
@@ -719,6 +723,10 @@ export class AgentProcessManager {
       clearTimeout(tracked.cleanupHandle);
       tracked.cleanupHandle = undefined;
     }
+    if (tracked.exitEmitHandle) {
+      clearTimeout(tracked.exitEmitHandle);
+      tracked.exitEmitHandle = undefined;
+    }
     clearTimeout(tracked.timeoutHandle);
     tracked.info = {
       ...tracked.info,
@@ -1064,7 +1072,11 @@ export class AgentProcessManager {
 
     this.scheduleCleanup(agentId);
     const exitInfo = tracked.info;
-    setTimeout(() => {
+    tracked.exitEmitHandle = setTimeout(() => {
+      const current = this.agents.get(agentId);
+      if (current && !current.hasExited) {
+        return;
+      }
       this.events.emit('agent:exited', exitInfo);
 
       this.logger.info('[AgentProcessManager] Agent exited', {

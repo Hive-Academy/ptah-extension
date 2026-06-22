@@ -665,7 +665,11 @@ export class PtahCliRegistry {
       supportsContinuation: () => true,
       continue: (message: string) => {
         const done = enqueueTurn();
-        mailbox.push(message);
+        this.logger.info(
+          `[PtahCliRegistry] continue() pushing follow-up turn for "${agentConfig.name}"`,
+          { sessionId: resolvedSessionId, messageLength: message.length },
+        );
+        mailbox.push(message, resolvedSessionId ?? undefined);
         return Promise.resolve({ done });
       },
     };
