@@ -132,6 +132,22 @@ describe('SdkWarmQueryManager', () => {
         }),
       );
     });
+
+    it('bakes bypassPermissions + allowDangerouslySkipPermissions into startup() so the warm subprocess can run MCP tools when consumed by a YOLO session', async () => {
+      const h = makeManager();
+      getMockedStartup().mockResolvedValueOnce({ close: jest.fn() });
+
+      await h.manager.prewarm(null, SAFE_CWD);
+
+      expect(getMockedStartup()).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({
+            permissionMode: 'bypassPermissions',
+            allowDangerouslySkipPermissions: true,
+          }),
+        }),
+      );
+    });
   });
 
   describe('consumeWarmQuery()', () => {

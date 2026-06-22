@@ -94,6 +94,8 @@ export class SdkWarmQueryManager {
       const startupOptions: Record<string, unknown> = {
         cwd: resolvedCwd,
         settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
       };
       if (cliJsPath) {
         startupOptions['pathToClaudeCodeExecutable'] = cliJsPath;

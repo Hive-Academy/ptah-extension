@@ -17,7 +17,10 @@
 
 import 'reflect-metadata';
 
-import { SdkQueryOptionsBuilder } from './sdk-query-options-builder';
+import {
+  SdkQueryOptionsBuilder,
+  type SdkQueryOptions,
+} from './sdk-query-options-builder';
 import { ModelNotAvailableError } from '../errors';
 import type {
   McpHttpServerConfig,
@@ -254,7 +257,10 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
   }
 
   async function buildWith(
-    overrides: { enableFileCheckpointing?: boolean } = {},
+    overrides: {
+      enableFileCheckpointing?: boolean;
+      permissionMode?: SdkQueryOptions['permissionMode'];
+    } = {},
   ) {
     const builder = makeFullBuilder();
     const sessionConfig: AISessionConfig = {
@@ -300,6 +306,20 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
 
     const optsOff = await buildWith({ enableFileCheckpointing: false });
     expect(optsOff.agentProgressSummaries).toBeUndefined();
+  });
+
+  it('pairs allowDangerouslySkipPermissions with bypassPermissions (YOLO) so MCP tool calls do not self-deny', async () => {
+    const opts = await buildWith({ permissionMode: 'bypassPermissions' });
+    expect(opts.permissionMode).toBe('bypassPermissions');
+    expect(opts.allowDangerouslySkipPermissions).toBe(true);
+  });
+
+  it('does NOT set allowDangerouslySkipPermissions outside bypassPermissions', async () => {
+    const optsDefault = await buildWith({ permissionMode: 'default' });
+    expect(optsDefault.allowDangerouslySkipPermissions).toBe(false);
+
+    const optsAcceptEdits = await buildWith({ permissionMode: 'acceptEdits' });
+    expect(optsAcceptEdits.allowDangerouslySkipPermissions).toBe(false);
   });
 });
 

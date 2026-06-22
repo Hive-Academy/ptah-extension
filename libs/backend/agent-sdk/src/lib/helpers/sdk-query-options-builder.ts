@@ -636,6 +636,7 @@ export class SdkQueryOptionsBuilder {
           mcpServersOverride,
         ),
         permissionMode,
+        allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
         canUseTool: canUseToolCallback,
         includePartialMessages: includePartialMessages ?? true,
         settingSources: /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(
