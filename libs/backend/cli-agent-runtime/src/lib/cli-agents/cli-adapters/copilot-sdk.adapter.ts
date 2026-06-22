@@ -53,6 +53,7 @@ import {
   buildTaskPrompt,
   probeCliVersion,
   resolveCliPath,
+  resolveDirectSpawn,
   spawnCli,
 } from './cli-adapter.utils';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';
@@ -279,6 +280,7 @@ export class CopilotSdkAdapter implements CliAdapter {
     }
 
     const resolvedBinaryPath = binaryPath;
+    const spawnDescriptor = await resolveDirectSpawn(resolvedBinaryPath);
     let capturedSessionId: string | undefined;
     let activeChild: ReturnType<typeof spawnCli> | undefined;
 
@@ -341,10 +343,14 @@ export class CopilotSdkAdapter implements CliAdapter {
         args.push('--additional-mcp-config', mcpConfig);
       }
 
-      const child = spawnCli(resolvedBinaryPath, args, {
-        cwd: options.workingDirectory,
-        needsConsole: true,
-      });
+      const child = spawnCli(
+        spawnDescriptor.command,
+        [...spawnDescriptor.prefixArgs, ...args],
+        {
+          cwd: options.workingDirectory,
+          needsConsole: true,
+        },
+      );
       activeChild = child;
 
       child.stdout?.setEncoding('utf8');

@@ -38,7 +38,11 @@ const MAX_FRONTEND_BUFFER = 50 * 1024;
 const MAX_EXPANDED_AGENTS = 3;
 
 /** Maximum streamEvents buffer per agent (prevents unbounded memory growth) */
-const MAX_STREAM_EVENTS = 2000;
+const MAX_STREAM_EVENTS = 4000;
+
+/** Recent events always retained regardless of type, so streaming text/thinking
+ * near the tail (e.g. an agent's final verdict) is never evicted by capping. */
+const STREAM_EVENTS_TAIL_RESERVE = 600;
 
 /** Maximum completed/failed agents retained in the store.
  * Only agents with status 'completed' or 'failed' are evicted; 'running' and
@@ -1163,34 +1167,26 @@ const LANDMARK_EVENT_TYPES = new Set([
 ]);
 
 /**
- * Cap stream events buffer by dropping oldest delta events while preserving
- * landmark events that establish the tree structure.
- * When the buffer exceeds `max`, landmarks are always kept. The remaining
- * budget is filled with the most recent non-landmark (delta) events.
- * Events are returned in their original order.
+ * Cap stream events buffer while keeping the live tail intact.
+ * The most recent `STREAM_EVENTS_TAIL_RESERVE` events are always kept regardless
+ * of type (so streaming text/thinking — e.g. a final verdict — never vanishes),
+ * and the remaining budget is filled with the most recent landmark events before
+ * the tail to preserve tree structure. Events are returned in original order.
  */
 function capStreamEvents(
   events: FlatStreamEventUnion[],
   max: number,
 ): FlatStreamEventUnion[] {
   if (events.length <= max) return events;
-  const landmarks: Array<{ event: FlatStreamEventUnion; index: number }> = [];
-  const deltas: Array<{ event: FlatStreamEventUnion; index: number }> = [];
-  for (let i = 0; i < events.length; i++) {
+  const reserve = Math.min(STREAM_EVENTS_TAIL_RESERVE, max);
+  const tailStart = events.length - reserve;
+  const headBudget = max - reserve;
+  const head: FlatStreamEventUnion[] = [];
+  for (let i = tailStart - 1; i >= 0 && head.length < headBudget; i--) {
     if (LANDMARK_EVENT_TYPES.has(events[i].eventType)) {
-      landmarks.push({ event: events[i], index: i });
-    } else {
-      deltas.push({ event: events[i], index: i });
+      head.push(events[i]);
     }
   }
-  const deltasBudget = max - landmarks.length;
-  if (deltasBudget <= 0) {
-    return landmarks.slice(-max).map((l) => l.event);
-  }
-
-  const keptDeltas = deltas.slice(-deltasBudget);
-  const merged = [...landmarks, ...keptDeltas].sort(
-    (a, b) => a.index - b.index,
-  );
-  return merged.map((m) => m.event);
+  head.reverse();
+  return [...head, ...events.slice(tailStart)];
 }

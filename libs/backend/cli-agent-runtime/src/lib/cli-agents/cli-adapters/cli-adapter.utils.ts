@@ -174,3 +174,39 @@ export async function resolveWindowsCmd(binaryPath: string): Promise<string> {
 
   return binaryPath;
 }
+
+/**
+ * Resolve a Windows `.cmd` npm wrapper to a direct `node <entrypoint>` spawn.
+ *
+ * `cross-spawn` runs `.cmd` wrappers through `cmd.exe /c`, which caps the whole
+ * command line at 8,191 chars and re-tokenizes it on whitespace. Adapters that
+ * pass the prompt via argv (Copilot's `-p <prompt>`) overflow that cap and fail
+ * with "The command line is too long." Spawning the wrapper's node entrypoint
+ * directly goes through CreateProcess instead (~32 KB limit) and preserves the
+ * prompt as a single argv element.
+ *
+ * Returns `{ command, prefixArgs }` — prepend `prefixArgs` to the CLI's own
+ * args. Falls back to the binary unchanged off-Windows, for non-`.cmd` paths,
+ * or when the wrapper cannot be parsed.
+ */
+export async function resolveDirectSpawn(
+  binaryPath: string,
+): Promise<{ command: string; prefixArgs: string[] }> {
+  if (
+    process.platform !== 'win32' ||
+    !binaryPath.toLowerCase().endsWith('.cmd')
+  ) {
+    return { command: binaryPath, prefixArgs: [] };
+  }
+
+  try {
+    const target = await resolveWindowsCmd(binaryPath);
+    if (target.toLowerCase().endsWith('.js')) {
+      const node = (await resolveCliPath('node')) ?? 'node';
+      return { command: node, prefixArgs: [target] };
+    }
+    return { command: target, prefixArgs: [] };
+  } catch {
+    return { command: binaryPath, prefixArgs: [] };
+  }
+}
