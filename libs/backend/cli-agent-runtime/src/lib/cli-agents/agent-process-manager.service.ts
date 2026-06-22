@@ -109,6 +109,8 @@ interface TrackedAgent {
   accumulatedSegments: CliOutputSegment[];
   /** Accumulated rich stream events for persistence (Ptah CLI only, capped at MAX_ACCUMULATED_STREAM_EVENTS) */
   accumulatedStreamEvents: FlatStreamEventUnion[];
+  /** True once the stream-events cap has been logged — suppresses per-event log spam for long-running agents. */
+  streamCapLogged: boolean;
 }
 
 @injectable()
@@ -503,6 +505,7 @@ export class AgentProcessManager {
       hasExited: false,
       accumulatedSegments: [],
       accumulatedStreamEvents: [],
+      streamCapLogged: false,
     };
 
     this.agents.set(agentId, tracked);
@@ -954,13 +957,20 @@ export class AgentProcessManager {
           tracked.accumulatedStreamEvents,
           MAX_ACCUMULATED_STREAM_EVENTS,
         );
-        this.logger.debug(
-          '[AgentProcessManager] Stream events cap reached, dropped oldest deltas',
-          {
-            agentId,
-            cap: MAX_ACCUMULATED_STREAM_EVENTS,
-          },
-        );
+        // Log only the FIRST time the cap is hit for this agent. A long-running
+        // agent crosses the cap on every subsequent event, so logging here
+        // unconditionally floods the console and adds synchronous logging load
+        // to the event loop per stream event.
+        if (!tracked.streamCapLogged) {
+          tracked.streamCapLogged = true;
+          this.logger.debug(
+            '[AgentProcessManager] Stream events cap reached, dropping oldest deltas (further drops for this agent are silent)',
+            {
+              agentId,
+              cap: MAX_ACCUMULATED_STREAM_EVENTS,
+            },
+          );
+        }
       }
     }
     if (!this.flushTimers.has(agentId)) {
