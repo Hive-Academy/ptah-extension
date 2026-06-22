@@ -37,19 +37,6 @@ const MAX_FRONTEND_BUFFER = 50 * 1024;
 /** Maximum number of simultaneously expanded agent cards */
 const MAX_EXPANDED_AGENTS = 3;
 
-/** Runaway/memory guard on the per-agent streamEvents buffer. Now that the
- * agent-monitor tree builder indexes incrementally (no per-delta re-scan of the
- * whole array), the tree-build cost no longer scales with this bound, so it is
- * set high enough to never trim a realistic agent run — it only protects the
- * per-delta array copy + memory against pathological/runaway streams. The
- * landmark + tail-reserve policy below keeps capping structure-lossless even if
- * the bound is ever hit. */
-const MAX_STREAM_EVENTS = 50000;
-
-/** Recent events always retained regardless of type, so streaming text/thinking
- * near the tail (e.g. an agent's final verdict) is never evicted by capping. */
-const STREAM_EVENTS_TAIL_RESERVE = 600;
-
 /** Maximum completed/failed agents retained in the store.
  * Only agents with status 'completed' or 'failed' are evicted; 'running' and
  * 'interrupted' agents are always preserved. */
@@ -71,8 +58,15 @@ export interface MonitoredAgent {
   expandedAt?: number;
   /** Structured output segments from SDK-based adapters (Codex, Copilot). */
   segments: CliOutputSegment[];
-  /** Rich streaming events from Ptah CLI adapter. Enables ExecutionNode rendering. */
+  /** Rich streaming events from Ptah CLI adapter. Enables ExecutionNode rendering.
+   *  Mutated in place (appended) across deltas — never reassigned — so retention
+   *  is unbounded without an O(n) copy per event. `streamRevision` is the change
+   *  signal; consumers must depend on it, not on this array's identity. */
   streamEvents: FlatStreamEventUnion[];
+  /** Incremented on every streamEvents append. Because streamEvents is mutated
+   *  in place its reference is stable, so this counter is what tells the agent
+   *  card to recompute its execution tree. */
+  streamRevision: number;
   /** Parent Ptah Claude SDK session that spawned this agent.
    * Mutable: initially set to tab ID, resolved to real SDK UUID
    * when SESSION_ID_RESOLVED fires. */
@@ -459,6 +453,7 @@ export class AgentMonitorStore implements OnDestroy {
           expandedAt: oldCard.expandedAt,
           segments: [],
           streamEvents: [],
+          streamRevision: 0,
           parentSessionId: info.parentSessionId,
           cliSessionId: info.cliSessionId,
           ptahCliId: info.ptahCliId,
@@ -486,6 +481,7 @@ export class AgentMonitorStore implements OnDestroy {
         expandedAt: order,
         segments: [],
         streamEvents: [],
+        streamRevision: 0,
         parentSessionId: info.parentSessionId,
         cliSessionId: info.cliSessionId,
         ptahCliId: info.ptahCliId,
@@ -566,12 +562,13 @@ export class AgentMonitorStore implements OnDestroy {
         }
       }
       if (delta.streamEvents && delta.streamEvents.length > 0) {
-        const combined = [...agent.streamEvents, ...delta.streamEvents];
-        if (combined.length > MAX_STREAM_EVENTS) {
-          updated.streamEvents = capStreamEvents(combined, MAX_STREAM_EVENTS);
-        } else {
-          updated.streamEvents = combined;
+        // Append in place — streamEvents shares its reference across deltas, so
+        // this is O(new events) with no whole-array copy. The bumped
+        // streamRevision is what drives the agent card to recompute.
+        for (const ev of delta.streamEvents) {
+          updated.streamEvents.push(ev);
         }
+        updated.streamRevision = agent.streamRevision + 1;
       }
 
       const next = [...list];
@@ -822,6 +819,7 @@ export class AgentMonitorStore implements OnDestroy {
             expanded: false,
             segments: ref.segments ? [...ref.segments] : [],
             streamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
+            streamRevision: 0,
             cliSessionId: ref.cliSessionId,
             parentSessionId,
             ptahCliId: ref.ptahCliId,
@@ -1161,39 +1159,4 @@ function capBuffer(str: string, max: number): string {
   const excess = str.length - max;
   const idx = str.indexOf('\n', excess);
   return idx > -1 ? str.substring(idx + 1) : str.substring(excess);
-}
-
-/** Landmark event types that establish tree structure and must be preserved */
-const LANDMARK_EVENT_TYPES = new Set([
-  'message_start',
-  'tool_start',
-  'tool_result',
-  'agent_start',
-  'thinking_start',
-  'message_complete',
-]);
-
-/**
- * Cap stream events buffer while keeping the live tail intact.
- * The most recent `STREAM_EVENTS_TAIL_RESERVE` events are always kept regardless
- * of type (so streaming text/thinking — e.g. a final verdict — never vanishes),
- * and the remaining budget is filled with the most recent landmark events before
- * the tail to preserve tree structure. Events are returned in original order.
- */
-function capStreamEvents(
-  events: FlatStreamEventUnion[],
-  max: number,
-): FlatStreamEventUnion[] {
-  if (events.length <= max) return events;
-  const reserve = Math.min(STREAM_EVENTS_TAIL_RESERVE, max);
-  const tailStart = events.length - reserve;
-  const headBudget = max - reserve;
-  const head: FlatStreamEventUnion[] = [];
-  for (let i = tailStart - 1; i >= 0 && head.length < headBudget; i--) {
-    if (LANDMARK_EVENT_TYPES.has(events[i].eventType)) {
-      head.push(events[i]);
-    }
-  }
-  head.reverse();
-  return [...head, ...events.slice(tailStart)];
 }

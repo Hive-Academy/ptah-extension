@@ -17,6 +17,7 @@ function makeAgent(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
     expanded: true,
     segments: [],
     streamEvents: [],
+    streamRevision: 0,
     permissionQueue: [],
     supportsContinuation: true,
     ...overrides,

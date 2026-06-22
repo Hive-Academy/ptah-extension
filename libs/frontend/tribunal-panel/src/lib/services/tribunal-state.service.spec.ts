@@ -36,6 +36,7 @@ function makeAgent(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
     expanded: false,
     segments: [],
     streamEvents: [],
+    streamRevision: 0,
     permissionQueue: [],
     displayName: 'Codex',
     model: 'gpt-4o',
