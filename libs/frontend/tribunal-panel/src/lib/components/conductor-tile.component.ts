@@ -18,7 +18,11 @@ import {
   Maximize2,
   Minimize2,
 } from 'lucide-angular';
-import { ChatViewComponent, SESSION_CONTEXT } from '@ptah-extension/chat';
+import {
+  ChatViewComponent,
+  SESSION_CONTEXT,
+  HIDE_AGENT_SIDEBAR,
+} from '@ptah-extension/chat';
 import {
   SessionLivenessRegistry,
   TabManagerService,
@@ -209,7 +213,12 @@ export class ConductorTileComponent implements OnInit, OnDestroy {
 
     this._childInjector.set(
       createEnvironmentInjector(
-        [{ provide: SESSION_CONTEXT, useValue: tabIdSignal }],
+        [
+          { provide: SESSION_CONTEXT, useValue: tabIdSignal },
+          // Panelists already render as their own tiles in the Tribunal — hide
+          // the conductor chat's per-session Agents right sidebar.
+          { provide: HIDE_AGENT_SIDEBAR, useValue: true },
+        ],
         this.parentEnvInjector,
       ),
     );
