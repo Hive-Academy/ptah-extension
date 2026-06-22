@@ -1161,6 +1161,7 @@ function capBuffer(str: string, max: number): string {
 const LANDMARK_EVENT_TYPES = new Set([
   'message_start',
   'tool_start',
+  'tool_result',
   'agent_start',
   'thinking_start',
   'message_complete',

@@ -58,6 +58,7 @@ export const MAX_STDOUT_PERSISTENCE_SIZE = 100 * 1024; // 100 KB
 export const LANDMARK_EVENT_TYPES = new Set<string>([
   'message_start',
   'tool_start',
+  'tool_result',
   'agent_start',
   'thinking_start',
   'message_complete',
