@@ -56,6 +56,7 @@ describe('MessageDispatchService', () => {
   let queueOrAppendMock: jest.Mock;
   let continueConversationMock: jest.Mock;
   let handlePermissionResponseMock: jest.Mock;
+  let isTabStreamingMock: jest.Mock;
 
   beforeEach(() => {
     tabs = [makeTab()];
@@ -81,6 +82,7 @@ describe('MessageDispatchService', () => {
     queueOrAppendMock = jest.fn();
     continueConversationMock = jest.fn().mockResolvedValue(undefined);
     handlePermissionResponseMock = jest.fn();
+    isTabStreamingMock = jest.fn(() => false);
 
     const tabManagerMock = {
       tabs: () => tabs,
@@ -89,6 +91,7 @@ describe('MessageDispatchService', () => {
       clearQueuedContentAndOptions: clearQueuedContentAndOptionsMock,
       activeTabStatus: () => activeTabStatus(),
       activeTabId: () => activeTabId(),
+      isTabStreaming: isTabStreamingMock,
     } as unknown as TabManagerService;
 
     const authStateMock = {
@@ -179,6 +182,32 @@ describe('MessageDispatchService', () => {
       activeTabStatus.set('loaded');
       await service.sendOrQueueMessage('hello');
       expect(sendMock).toHaveBeenCalledWith('hello', undefined);
+    });
+
+    it('queues (never sends/aborts) when the self-heal flag is set despite a non-streaming status', async () => {
+      // Self-heal case: SDK paused/resumed → status reverted to loaded while
+      // isTabStreaming stays true. A follow-up must queue, not send-and-abort.
+      activeTabStatus.set('loaded');
+      isTabStreamingMock.mockReturnValue(true);
+
+      await service.sendOrQueueMessage('follow up');
+
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(queueOrAppendMock).toHaveBeenCalledWith('follow up', undefined);
+    });
+
+    it('checks the explicit target tab id for the self-heal streaming flag', async () => {
+      activeTabStatus.set('loaded');
+      tabs = [makeTab({ id: 'tile-7', status: 'awaiting-background' })];
+      isTabStreamingMock.mockImplementation((id: string) => id === 'tile-7');
+
+      await service.sendOrQueueMessage('follow up', { tabId: 'tile-7' });
+
+      expect(isTabStreamingMock).toHaveBeenCalledWith('tile-7');
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(queueOrAppendMock).toHaveBeenCalledWith('follow up', {
+        tabId: 'tile-7',
+      });
     });
 
     it('explicit-tabId override beats activeTab status', async () => {
