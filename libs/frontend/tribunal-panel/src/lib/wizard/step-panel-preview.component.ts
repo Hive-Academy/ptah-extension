@@ -13,9 +13,13 @@ import {
   Settings,
   Plus,
   X,
+  Info,
 } from 'lucide-angular';
-import { WebviewNavigationService } from '@ptah-extension/core';
-import type { ProviderModelInfo } from '@ptah-extension/shared';
+import {
+  WebviewNavigationService,
+  EffortStateService,
+} from '@ptah-extension/core';
+import type { ProviderModelInfo, EffortLevel } from '@ptah-extension/shared';
 import {
   TribunalDiscoveryService,
   type DiscoveredVendor,
@@ -23,8 +27,23 @@ import {
 import {
   laneBaseKey,
   makeLaneId,
+  type TribunalMove,
   type VendorLane,
 } from '../types/tribunal-ui.types';
+
+const TURNS_PER_VENDOR: Record<TribunalMove, number> = {
+  council: 2,
+  forge: 3,
+  race: 3,
+};
+
+const EFFORT_LEVELS: readonly EffortLevel[] = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
 
 @Component({
   selector: 'ptah-step-panel-preview',
@@ -89,6 +108,46 @@ import {
             >Cap</span
           >
         </div>
+        <div class="h-8 w-px bg-base-300"></div>
+        <div class="flex flex-col">
+          <span class="text-lg font-semibold tabular-nums text-base-content"
+            >~{{ estimatedTurns() }}</span
+          >
+          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+            >Est. turns</span
+          >
+        </div>
+
+        <label class="ml-auto flex flex-col gap-1">
+          <span class="text-[10px] uppercase tracking-wide text-base-content/45"
+            >Effort</span
+          >
+          <select
+            class="select select-bordered select-xs"
+            aria-label="Effort"
+            [value]="currentEffort() ?? ''"
+            (change)="onEffortChange($event)"
+          >
+            <option value="">Default</option>
+            @for (level of effortLevels; track level) {
+              <option [value]="level">{{ level }}</option>
+            }
+          </select>
+        </label>
+      </div>
+
+      <div
+        class="flex items-start gap-2 rounded-lg border border-info/20 bg-info/5 px-3 py-2 text-xs text-base-content/60"
+      >
+        <lucide-angular
+          [img]="InfoIcon"
+          class="mt-0.5 h-3.5 w-3.5 shrink-0 text-info"
+          aria-hidden="true"
+        />
+        <span>
+          Turn counts are a rough estimate, not a guarantee. Actual cost depends
+          on each vendor's reasoning and tool use.
+        </span>
       </div>
 
       @if (selectedLanes().length > 0) {
@@ -235,16 +294,31 @@ import {
 })
 export class StepPanelPreviewComponent {
   readonly selectedLanes = input<readonly VendorLane[]>([]);
+  readonly move = input<TribunalMove>('council');
   readonly lanesChanged = output<readonly VendorLane[]>();
 
   private readonly discovery = inject(TribunalDiscoveryService);
   private readonly navigation = inject(WebviewNavigationService);
+  private readonly effortState = inject(EffortStateService);
 
   protected readonly RefreshIcon = RefreshCw;
   protected readonly SettingsIcon = Settings;
   protected readonly AddIcon = Plus;
   protected readonly RemoveIcon = X;
+  protected readonly InfoIcon = Info;
+  protected readonly effortLevels = EFFORT_LEVELS;
+  protected readonly currentEffort = this.effortState.currentEffort;
   protected readonly maxVendors = this.discovery.maxVendors;
+
+  protected readonly estimatedTurns = computed(() => {
+    const count = Math.max(1, this.selectedLanes().length);
+    return count * TURNS_PER_VENDOR[this.move()] + 1;
+  });
+
+  protected onEffortChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    void this.effortState.setEffort(value ? (value as EffortLevel) : undefined);
+  }
 
   private readonly _vendors = signal<readonly DiscoveredVendor[]>([]);
   private readonly _loading = signal(false);

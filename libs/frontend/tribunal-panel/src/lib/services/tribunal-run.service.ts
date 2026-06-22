@@ -1,9 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import {
-  ClaudeRpcService,
-  VSCodeService,
-  EffortStateService,
-} from '@ptah-extension/core';
+import { EffortStateService } from '@ptah-extension/core';
 import { SurfaceId, TabManagerService } from '@ptah-extension/chat-state';
 import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
 import { TribunalStateService } from './tribunal-state.service';
@@ -28,20 +24,22 @@ const FULL_AUTO_DIRECTIVE =
 
 @Injectable({ providedIn: 'root' })
 export class TribunalRunService {
-  private readonly rpc = inject(ClaudeRpcService);
-  private readonly vscode = inject(VSCodeService);
   private readonly effortState = inject(EffortStateService);
   private readonly claims = inject(WorkflowSessionClaimService);
   private readonly tabManager = inject(TabManagerService);
   private readonly state = inject(TribunalStateService);
 
-  async launch(
-    move: TribunalMove,
-    lanes: readonly VendorLane[],
-    objective: string,
-  ): Promise<boolean> {
-    const trimmedObjective = objective.trim();
-    if (trimmedObjective.length === 0 || lanes.length === 0) {
+  /**
+   * Prepare a Tribunal run WITHOUT starting a session. Creates the (hidden)
+   * conductor tab as a draft, builds the panelist tiles, and stamps the council
+   * framing as the conductor tab's first-message preamble. The user then drives
+   * the run from the conductor's normal chat input: their first message starts
+   * the session via the standard send path with the framing prepended to the
+   * backend prompt. No bespoke `chat:start` launch — the robust normal-chat
+   * machinery owns the streaming, turn-end, and spawn lifecycle.
+   */
+  prepare(move: TribunalMove, lanes: readonly VendorLane[]): boolean {
+    if (lanes.length === 0) {
       return false;
     }
 
@@ -61,39 +59,17 @@ export class TribunalRunService {
     this.state.setSurfaceId(surfaceId);
     this.state.setCorrelationId(conductorTabId);
 
-    const workspacePath = this.vscode.config().workspaceRoot;
+    this.tabManager.setFirstMessagePreamble(
+      conductorTabId,
+      this.buildTribunalFraming(move, lanes),
+    );
+
     const effort = this.effortState.currentEffort();
-    const prompt = this.buildTribunalPrompt(move, lanes, trimmedObjective);
-
-    try {
-      const result = await this.rpc.call('chat:start', {
-        prompt,
-        tabId: conductorTabId,
-        name: `Tribunal: ${move}`,
-        ...(workspacePath ? { workspacePath } : {}),
-        options: {
-          ...(effort ? { effort } : {}),
-        },
-      });
-
-      const ok = result.isSuccess() && result.data?.success !== false;
-      if (!ok) {
-        this.rollback(conductorTabId);
-        console.error(
-          '[TribunalRunService] chat:start failed:',
-          result.data?.error ?? result.error,
-        );
-        return false;
-      }
-      return true;
-    } catch (error: unknown) {
-      this.rollback(conductorTabId);
-      console.error(
-        '[TribunalRunService] chat:start threw:',
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
+    if (effort) {
+      this.tabManager.setOverrideEffort(conductorTabId, effort);
     }
+
+    return true;
   }
 
   async endRun(): Promise<boolean> {
@@ -125,34 +101,39 @@ export class TribunalRunService {
     this.tabManager.forceCloseTab(conductorTabId);
   }
 
-  private buildTribunalPrompt(
+  /**
+   * Council framing prepended (hidden) to the conductor's first message. The
+   * user's objective is appended after this block by the normal send path, so
+   * the panelist spawn lines reference "the objective below" rather than
+   * embedding it.
+   */
+  private buildTribunalFraming(
     move: TribunalMove,
     lanes: readonly VendorLane[],
-    objective: string,
   ): string {
     const laneLines = lanes
       .map(
         (lane) =>
           `  [tribunal:${lane.laneId}] ${lane.displayName} — ptah_agent_spawn({ ${this.spawnArgsFor(
             lane,
-          )} }). ${objective}`,
+          )} }) with the objective below as the task.`,
       )
       .join('\n');
 
     return [
       `${MOVE_PHRASE[move]}. You are the Tribunal conductor running FULLY AUTONOMOUSLY.`,
       '',
-      `Objective: ${objective}`,
-      '',
       MOVE_FRAMING[move],
       '',
-      'This panel is EXPLICITLY defined by the user. Spawn EXACTLY these panelists with EXACTLY these spawn args via ptah_agent_spawn. Do NOT run your own vendor discovery or family-spread selection, do NOT collapse duplicate vendors, and do NOT substitute models. The [tribunal:<laneId>] tag MUST be the first line of each sub-agent task, verbatim.',
+      'This panel is EXPLICITLY defined by the user. Spawn EXACTLY these panelists with EXACTLY these spawn args via ptah_agent_spawn, passing each the objective stated at the end of this message. Do NOT run your own vendor discovery or family-spread selection, do NOT collapse duplicate vendors, and do NOT substitute models. The [tribunal:<laneId>] tag MUST be the first line of each sub-agent task, verbatim.',
       '',
       laneLines,
       '',
       'Rules:',
       `- ${FULL_AUTO_DIRECTIVE}`,
       '- The [tribunal:<laneId>] tag MUST be the first line of each sub-agent task. Do not omit it and do not alter the laneId inside it.',
+      '',
+      'Objective:',
     ].join('\n');
   }
 

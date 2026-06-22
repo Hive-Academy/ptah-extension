@@ -1,10 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import {
-  ClaudeRpcService,
-  VSCodeService,
-  ModelStateService,
-  EffortStateService,
-} from '@ptah-extension/core';
+import { ModelStateService, EffortStateService } from '@ptah-extension/core';
 import {
   TabManagerService,
   TabSessionBinding,
@@ -22,7 +17,6 @@ import {
 import { TribunalRunService } from './tribunal-run.service';
 import { TribunalStateService } from './tribunal-state.service';
 import type { VendorLane } from '../types/tribunal-ui.types';
-import { rpcSuccess, rpcError } from '@ptah-extension/core/testing';
 
 function makeLane(overrides: Partial<VendorLane> = {}): VendorLane {
   return {
@@ -36,9 +30,16 @@ function makeLane(overrides: Partial<VendorLane> = {}): VendorLane {
 
 describe('TribunalRunService', () => {
   let service: TribunalRunService;
-  let rpc: { call: jest.Mock };
   let mockTabManager: jest.Mocked<
-    Pick<TabManagerService, 'createTab' | 'closeTab' | 'forceCloseTab' | 'tabs'>
+    Pick<
+      TabManagerService,
+      | 'createTab'
+      | 'closeTab'
+      | 'forceCloseTab'
+      | 'tabs'
+      | 'setFirstMessagePreamble'
+      | 'setOverrideEffort'
+    >
   >;
   let mockState: jest.Mocked<
     Pick<
@@ -61,13 +62,13 @@ describe('TribunalRunService', () => {
   >;
 
   beforeEach(() => {
-    rpc = { call: jest.fn().mockResolvedValue(rpcSuccess({ success: true })) };
-
     mockTabManager = {
       createTab: jest.fn().mockReturnValue('conductor-tab-1'),
       closeTab: jest.fn().mockResolvedValue(undefined),
       forceCloseTab: jest.fn(),
       tabs: jest.fn().mockReturnValue([]),
+      setFirstMessagePreamble: jest.fn(),
+      setOverrideEffort: jest.fn(),
     };
 
     mockState = {
@@ -90,11 +91,6 @@ describe('TribunalRunService', () => {
     TestBed.configureTestingModule({
       providers: [
         TribunalRunService,
-        { provide: ClaudeRpcService, useValue: rpc },
-        {
-          provide: VSCodeService,
-          useValue: { config: () => ({ workspaceRoot: '/workspace' }) },
-        },
         {
           provide: ModelStateService,
           useValue: { currentModel: () => 'claude-3-5-sonnet' },
@@ -118,105 +114,85 @@ describe('TribunalRunService', () => {
     service = TestBed.inject(TribunalRunService);
   });
 
-  const OBJECTIVE = 'Refactor the auth guard to enforce route protection.';
+  /** Read the framing preamble stamped onto the conductor tab. */
+  function preamble(): string {
+    return mockTabManager.setFirstMessagePreamble.mock.calls[0][1] as string;
+  }
 
-  describe('launch — conductor as a real chat tab', () => {
-    it('calls chat:start WITHOUT surfaceMode (normal tab streaming)', async () => {
-      await service.launch(
-        'council',
-        [makeLane({ family: 'codex' })],
-        OBJECTIVE,
+  describe('prepare — draft conductor + framing preamble (no chat:start)', () => {
+    it('does NOT start a session — the normal chat send path owns the run', () => {
+      service.prepare('council', [makeLane()]);
+      // No rpc/chat:start dependency exists on the service any more.
+      expect(mockTabManager.createTab).toHaveBeenCalledWith(
+        'Tribunal: council',
       );
-
-      const args = rpc.call.mock.calls[0][1] as Record<string, unknown>;
-      expect(rpc.call.mock.calls[0][0]).toBe('chat:start');
-      expect(args.surfaceMode).toBeUndefined();
     });
 
-    it('creates a conductor tab and uses its id as the chat:start tabId', async () => {
-      await service.launch(
-        'council',
-        [makeLane({ family: 'codex' })],
-        OBJECTIVE,
-      );
+    it('creates a conductor tab and uses its id as the correlation id', () => {
+      service.prepare('council', [makeLane()]);
 
       expect(mockTabManager.createTab).toHaveBeenCalledWith(
         'Tribunal: council',
       );
-      const args = rpc.call.mock.calls[0][1] as Record<string, unknown>;
-      expect(args.tabId).toBe('conductor-tab-1');
-    });
-
-    it('claims the conductor tab id so the tab bar can hide it', async () => {
-      const claims = TestBed.inject(WorkflowSessionClaimService);
-      await service.launch('council', [makeLane()], OBJECTIVE);
-
-      expect(claims.surfaceFor('conductor-tab-1')).not.toBeNull();
-    });
-
-    it('uses the conductor tab id as the SESSION_CONTEXT / correlation id', async () => {
-      await service.launch('council', [makeLane()], OBJECTIVE);
-
       expect(mockState.setCorrelationId).toHaveBeenCalledWith(
         'conductor-tab-1',
       );
     });
 
-    it('includes the move phrase in the prompt for council', async () => {
-      await service.launch(
-        'council',
-        [makeLane({ family: 'codex' })],
-        OBJECTIVE,
-      );
+    it('claims the conductor tab id so the tab bar can hide it', () => {
+      const claims = TestBed.inject(WorkflowSessionClaimService);
+      service.prepare('council', [makeLane()]);
 
-      const args = rpc.call.mock.calls[0][1] as { prompt: string };
-      expect(args.prompt).toContain('Convene a Tribunal Council');
+      expect(claims.surfaceFor('conductor-tab-1')).not.toBeNull();
     });
 
-    it('includes the move phrase for forge', async () => {
-      await service.launch('forge', [makeLane({ family: 'codex' })], OBJECTIVE);
+    it('stamps the framing as the conductor tab first-message preamble', () => {
+      service.prepare('council', [makeLane()]);
 
-      const args = rpc.call.mock.calls[0][1] as { prompt: string };
-      expect(args.prompt).toContain('Convene a Tribunal Forge');
+      expect(mockTabManager.setFirstMessagePreamble).toHaveBeenCalledWith(
+        'conductor-tab-1',
+        expect.any(String),
+      );
     });
 
-    it('includes the move phrase for race', async () => {
-      await service.launch(
-        'race',
-        [makeLane({ family: 'copilot' })],
-        OBJECTIVE,
-      );
+    it('freezes the wizard effort onto the conductor tab override', () => {
+      service.prepare('council', [makeLane()]);
 
-      const args = rpc.call.mock.calls[0][1] as { prompt: string };
-      expect(args.prompt).toContain('Convene a Tribunal Race');
+      expect(mockTabManager.setOverrideEffort).toHaveBeenCalledWith(
+        'conductor-tab-1',
+        'medium',
+      );
     });
 
-    it('includes the objective verbatim in the prompt', async () => {
-      await service.launch(
-        'council',
-        [makeLane({ family: 'codex' })],
-        OBJECTIVE,
-      );
-
-      const args = rpc.call.mock.calls[0][1] as { prompt: string };
-      expect(args.prompt).toContain(`Objective: ${OBJECTIVE}`);
+    it('includes the move phrase in the framing (council/forge/race)', () => {
+      service.prepare('council', [makeLane()]);
+      expect(preamble()).toContain('Convene a Tribunal Council');
     });
 
-    it('includes the full-auto "do not call AskUserQuestion" directive', async () => {
-      await service.launch(
-        'council',
-        [makeLane({ family: 'codex' })],
-        OBJECTIVE,
-      );
+    it('includes the move phrase for forge', () => {
+      service.prepare('forge', [makeLane()]);
+      expect(preamble()).toContain('Convene a Tribunal Forge');
+    });
 
-      const args = rpc.call.mock.calls[0][1] as { prompt: string };
-      expect(args.prompt).toContain('Do NOT call AskUserQuestion');
-      expect(args.prompt).toContain(
+    it('includes the move phrase for race', () => {
+      service.prepare('race', [makeLane({ cli: 'copilot' })]);
+      expect(preamble()).toContain('Convene a Tribunal Race');
+    });
+
+    it('ends with an "Objective:" trailer so the user message reads as the objective', () => {
+      service.prepare('council', [makeLane()]);
+      expect(preamble().trimEnd().endsWith('Objective:')).toBe(true);
+    });
+
+    it('includes the full-auto "do not call AskUserQuestion" directive', () => {
+      service.prepare('council', [makeLane()]);
+      expect(preamble()).toContain('Do NOT call AskUserQuestion');
+      expect(preamble()).toContain(
         'state assumptions inline rather than asking',
       );
     });
 
-    it('emits exactly one [tribunal:<laneId>] line per lane in lane order', async () => {
+    it('emits exactly one [tribunal:<laneId>] line per lane in lane order', () => {
       const lanes = [
         makeLane({ laneId: 'lane-a', displayName: 'Codex', model: 'gpt-5' }),
         makeLane({
@@ -227,10 +203,9 @@ describe('TribunalRunService', () => {
         }),
         makeLane({ laneId: 'lane-c', displayName: 'Copilot', cli: 'copilot' }),
       ];
-      await service.launch('council', lanes, OBJECTIVE);
+      service.prepare('council', lanes);
 
-      const args = rpc.call.mock.calls[0][1] as { prompt: string };
-      const tagLines = args.prompt
+      const tagLines = preamble()
         .split('\n')
         .map((line) => line.trim())
         .filter((line) => line.startsWith('[tribunal:'));
@@ -243,7 +218,7 @@ describe('TribunalRunService', () => {
       expect(tagLines[1]).toContain('Ollama Cloud');
     });
 
-    it('emits explicit ptah_agent_spawn directives with per-lane model and the no-discovery rule', async () => {
+    it('emits explicit ptah_agent_spawn directives with per-lane model and the no-discovery rule', () => {
       const lanes = [
         makeLane({
           laneId: 'codex#0',
@@ -259,159 +234,69 @@ describe('TribunalRunService', () => {
           ptahCliId: 'oc-1',
           model: 'glm-5.2',
         }),
-        makeLane({
-          laneId: 'ptah-cli|ollama-cloud#1',
-          displayName: 'Ollama Cloud',
-          cli: 'ptah-cli',
-          providerId: 'ollama-cloud',
-          ptahCliId: 'oc-1',
-          model: 'kimi-k2.7-code',
-        }),
       ];
-      await service.launch('council', lanes, OBJECTIVE);
+      service.prepare('council', lanes);
 
-      const args = rpc.call.mock.calls[0][1] as { prompt: string };
-
-      expect(args.prompt).toContain(
-        'This panel is EXPLICITLY defined by the user.',
+      const text = preamble();
+      expect(text).toContain('This panel is EXPLICITLY defined by the user.');
+      expect(text).toContain('do NOT substitute models');
+      expect(text).toContain(
+        '[tribunal:codex#0] Codex — ptah_agent_spawn({ cli: "codex", model: "gpt-5.1-codex-max" })',
       );
-      expect(args.prompt).toContain('do NOT substitute models');
-      expect(args.prompt).toContain(
-        '[tribunal:codex#0] Codex — ptah_agent_spawn({ cli: "codex", model: "gpt-5.1-codex-max" }).',
-      );
-      expect(args.prompt).toContain(
-        '[tribunal:ptah-cli|ollama-cloud#0] Ollama Cloud — ptah_agent_spawn({ ptahCliId: "oc-1", model: "glm-5.2" }).',
-      );
-      expect(args.prompt).toContain(
-        '[tribunal:ptah-cli|ollama-cloud#1] Ollama Cloud — ptah_agent_spawn({ ptahCliId: "oc-1", model: "kimi-k2.7-code" }).',
+      expect(text).toContain(
+        '[tribunal:ptah-cli|ollama-cloud#0] Ollama Cloud — ptah_agent_spawn({ ptahCliId: "oc-1", model: "glm-5.2" })',
       );
     });
 
-    it('omits the model key for a cursor lane (no model)', async () => {
-      const lanes = [
+    it('omits the model key for a cursor lane (no model)', () => {
+      service.prepare('council', [
         makeLane({ laneId: 'cursor#0', displayName: 'Cursor', cli: 'cursor' }),
-      ];
-      await service.launch('council', lanes, OBJECTIVE);
+      ]);
 
-      const args = rpc.call.mock.calls[0][1] as { prompt: string };
-      expect(args.prompt).toContain(
-        '[tribunal:cursor#0] Cursor — ptah_agent_spawn({ cli: "cursor" }).',
+      expect(preamble()).toContain(
+        '[tribunal:cursor#0] Cursor — ptah_agent_spawn({ cli: "cursor" })',
       );
-      expect(args.prompt).not.toContain('cursor", model:');
+      expect(preamble()).not.toContain('cursor", model:');
     });
 
-    it('returns false and does not call rpc when objective is empty', async () => {
-      const result = await service.launch(
-        'council',
-        [makeLane({ family: 'codex' })],
-        '   ',
-      );
+    it('returns false and creates nothing when no lanes are provided', () => {
+      const result = service.prepare('council', []);
 
       expect(result).toBe(false);
-      expect(rpc.call).not.toHaveBeenCalled();
       expect(mockTabManager.createTab).not.toHaveBeenCalled();
+      expect(mockTabManager.setFirstMessagePreamble).not.toHaveBeenCalled();
     });
 
-    it('returns false and does not call rpc when no lanes are provided', async () => {
-      const result = await service.launch('council', [], OBJECTIVE);
-
-      expect(result).toBe(false);
-      expect(rpc.call).not.toHaveBeenCalled();
+    it('returns true on success', () => {
+      expect(service.prepare('council', [makeLane()])).toBe(true);
     });
 
-    it('passes name to chat:start', async () => {
-      await service.launch('council', [makeLane()], OBJECTIVE);
-
-      const args = rpc.call.mock.calls[0][1] as Record<string, unknown>;
-      expect(args.name).toBe('Tribunal: council');
-    });
-
-    it('builds tiles before calling chat:start', async () => {
+    it('builds tiles before stamping the preamble', () => {
       const callOrder: string[] = [];
       (mockState.buildTilesForRun as jest.Mock).mockImplementation(() =>
         callOrder.push('buildTilesForRun'),
       );
-      rpc.call.mockImplementation(async () => {
-        callOrder.push('chat:start');
-        return rpcSuccess({ success: true });
-      });
+      mockTabManager.setFirstMessagePreamble.mockImplementation(() =>
+        callOrder.push('setFirstMessagePreamble'),
+      );
 
-      await service.launch('council', [makeLane()], OBJECTIVE);
+      service.prepare('council', [makeLane()]);
 
       expect(callOrder.indexOf('buildTilesForRun')).toBeLessThan(
-        callOrder.indexOf('chat:start'),
+        callOrder.indexOf('setFirstMessagePreamble'),
       );
     });
 
-    it('returns true on success', async () => {
-      const result = await service.launch('council', [makeLane()], OBJECTIVE);
-      expect(result).toBe(true);
-    });
-
-    it('returns false and rolls back (closes tab + resets) when chat:start fails', async () => {
-      rpc.call.mockResolvedValue(rpcError('RPC failure'));
-
-      const result = await service.launch('council', [makeLane()], OBJECTIVE);
-      expect(result).toBe(false);
-      expect(mockState.reset).toHaveBeenCalledTimes(1);
-      expect(mockTabManager.forceCloseTab).toHaveBeenCalledWith(
-        'conductor-tab-1',
-      );
-    });
-
-    it('returns false and rolls back when chat:start throws', async () => {
-      rpc.call.mockRejectedValue(new Error('Network error'));
-
-      const result = await service.launch('council', [makeLane()], OBJECTIVE);
-      expect(result).toBe(false);
-      expect(mockState.reset).toHaveBeenCalledTimes(1);
-      expect(mockTabManager.forceCloseTab).toHaveBeenCalledWith(
-        'conductor-tab-1',
-      );
-    });
-
-    it('releases the workflow claim on a failed launch (no permanent leak)', async () => {
-      const claims = TestBed.inject(WorkflowSessionClaimService);
-      rpc.call.mockResolvedValue(rpcError('RPC failure'));
-
-      const result = await service.launch('council', [makeLane()], OBJECTIVE);
-
-      expect(result).toBe(false);
-      expect(claims.hasClaims()).toBe(false);
-    });
-
-    it('releases the workflow claim when chat:start throws', async () => {
-      const claims = TestBed.inject(WorkflowSessionClaimService);
-      rpc.call.mockRejectedValue(new Error('Network error'));
-
-      await service.launch('council', [makeLane()], OBJECTIVE);
-
-      expect(claims.hasClaims()).toBe(false);
-    });
-
-    it('does NOT reset on a successful launch', async () => {
-      const result = await service.launch('council', [makeLane()], OBJECTIVE);
-      expect(result).toBe(true);
-      expect(mockState.reset).not.toHaveBeenCalled();
-    });
-
-    it('includes workspacePath when vscode config provides it', async () => {
-      await service.launch('council', [makeLane()], OBJECTIVE);
-
-      const args = rpc.call.mock.calls[0][1] as Record<string, unknown>;
-      expect(args.workspacePath).toBe('/workspace');
-    });
-
-    it('does NOT tear down a prior tab when none is live (first run)', async () => {
+    it('does NOT tear down a prior tab when none is live (first run)', () => {
       (mockState.correlationId as jest.Mock).mockReturnValue(null);
 
-      await service.launch('council', [makeLane()], OBJECTIVE);
+      service.prepare('council', [makeLane()]);
 
       expect(mockTabManager.forceCloseTab).not.toHaveBeenCalled();
       expect(mockState.reset).not.toHaveBeenCalled();
     });
 
-    it('tears down the prior tab before creating a new one when a run is already live', async () => {
+    it('tears down the prior tab before creating a new one when a run is already live', () => {
       const callOrder: string[] = [];
       (mockState.correlationId as jest.Mock).mockReturnValue('prior-tab');
       mockTabManager.forceCloseTab.mockImplementation(() =>
@@ -425,7 +310,7 @@ describe('TribunalRunService', () => {
         return 'conductor-tab-1';
       });
 
-      await service.launch('council', [makeLane()], OBJECTIVE);
+      service.prepare('council', [makeLane()]);
 
       expect(mockTabManager.forceCloseTab).toHaveBeenCalledWith('prior-tab');
       expect(callOrder.indexOf('forceCloseTab')).toBeLessThan(
@@ -484,16 +369,6 @@ describe('TribunalRunService — page-scoped DI shares one TribunalStateService'
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
-        {
-          provide: ClaudeRpcService,
-          useValue: {
-            call: jest.fn().mockResolvedValue(rpcSuccess({ success: true })),
-          },
-        },
-        {
-          provide: VSCodeService,
-          useValue: { config: () => ({ workspaceRoot: '/workspace' }) },
-        },
         { provide: ModelStateService, useValue: { currentModel: () => null } },
         {
           provide: EffortStateService,
@@ -506,6 +381,8 @@ describe('TribunalRunService — page-scoped DI shares one TribunalStateService'
             closeTab: jest.fn().mockResolvedValue(undefined),
             forceCloseTab: jest.fn(),
             tabs: jest.fn().mockReturnValue([]),
+            setFirstMessagePreamble: jest.fn(),
+            setOverrideEffort: jest.fn(),
           },
         },
         {
@@ -539,14 +416,12 @@ describe('TribunalRunService — page-scoped DI shares one TribunalStateService'
     pageState = TestBed.inject(TribunalStateService);
   });
 
-  it('tiles built by launch are observable through the page-resolved TribunalStateService', async () => {
+  it('tiles built by prepare are observable through the page-resolved TribunalStateService', () => {
     expect(pageState.tiles()).toHaveLength(0);
 
-    await runService.launch(
-      'council',
-      [makeLane({ laneId: 'l1', displayName: 'Codex' })],
-      'Refactor the auth guard to enforce route protection.',
-    );
+    runService.prepare('council', [
+      makeLane({ laneId: 'l1', displayName: 'Codex' }),
+    ]);
 
     expect(pageState.tiles().length).toBeGreaterThan(0);
   });

@@ -1,29 +1,33 @@
-import { Component } from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { LucideAngularModule } from 'lucide-angular';
 import { TribunalWizardComponent } from './tribunal-wizard.component';
-import { StepObjectiveComponent } from './step-objective.component';
+import type { TribunalMove, VendorLane } from '../types/tribunal-ui.types';
 
 @Component({ selector: 'ptah-step-pick-move', standalone: true, template: '' })
-class StepPickMoveStub {}
+class StepPickMoveStub {
+  readonly selected = input<TribunalMove>('council');
+  readonly moveSelected = output<TribunalMove>();
+}
 
 @Component({
   selector: 'ptah-step-panel-preview',
   standalone: true,
   template: '',
 })
-class StepPanelPreviewStub {}
-
-@Component({
-  selector: 'ptah-step-confirm-cost',
-  standalone: true,
-  template: '',
-})
-class StepConfirmCostStub {}
+class StepPanelPreviewStub {
+  readonly selectedLanes = input<readonly VendorLane[]>([]);
+  readonly move = input<TribunalMove>('council');
+  readonly lanesChanged = output<readonly VendorLane[]>();
+}
 
 @Component({ selector: 'ptah-step-run', standalone: true, template: '' })
-class StepRunStub {}
+class StepRunStub {
+  readonly move = input<TribunalMove>('council');
+  readonly lanes = input<readonly VendorLane[]>([]);
+  readonly launched = output<void>();
+}
 
 describe('TribunalWizardComponent', () => {
   let fixture: ComponentFixture<TribunalWizardComponent>;
@@ -36,10 +40,8 @@ describe('TribunalWizardComponent', () => {
       set: {
         imports: [
           LucideAngularModule,
-          StepObjectiveComponent,
           StepPickMoveStub,
           StepPanelPreviewStub,
-          StepConfirmCostStub,
           StepRunStub,
         ],
       },
@@ -49,9 +51,9 @@ describe('TribunalWizardComponent', () => {
   });
 
   function nextButton(): HTMLButtonElement | null {
-    const next = fixture.debugElement.queryAll(By.css('button'));
+    const buttons = fixture.debugElement.queryAll(By.css('button'));
     return (
-      (next.find(
+      (buttons.find(
         (b) =>
           (b.nativeElement as HTMLButtonElement).getAttribute('aria-label') ===
           'Next step',
@@ -59,35 +61,53 @@ describe('TribunalWizardComponent', () => {
     );
   }
 
-  it('starts on the Objective step', () => {
-    const host = fixture.debugElement.query(
-      By.css('[data-testid="tribunal-step-objective"]'),
-    );
-    expect(host).toBeTruthy();
+  function clickNext(): void {
+    nextButton()?.click();
+    fixture.detectChanges();
+  }
+
+  it('starts on the Move step', () => {
+    expect(
+      fixture.debugElement.query(By.css('ptah-step-pick-move')),
+    ).toBeTruthy();
   });
 
-  it('blocks advancing past the Objective step when objective is empty', () => {
-    const button = nextButton();
-    expect(button?.disabled).toBe(true);
+  it('allows advancing from the Move step (no gate)', () => {
+    expect(nextButton()?.disabled).toBe(false);
   });
 
-  it('allows advancing once a non-whitespace objective is entered', () => {
-    const textarea = fixture.debugElement.query(By.css('textarea'))
-      .nativeElement as HTMLTextAreaElement;
-    textarea.value = 'Refactor the auth guard.';
-    textarea.dispatchEvent(new Event('input'));
+  it('blocks advancing past the Panel step until a lane is selected', () => {
+    clickNext(); // → Panel step
+    expect(
+      fixture.debugElement.query(By.css('ptah-step-panel-preview')),
+    ).toBeTruthy();
+    expect(nextButton()?.disabled).toBe(true);
+  });
+
+  it('enables advancing once a lane is emitted from the Panel step', () => {
+    clickNext(); // → Panel step
+    const panel = fixture.debugElement.query(By.directive(StepPanelPreviewStub))
+      .componentInstance as StepPanelPreviewStub;
+    panel.lanesChanged.emit([
+      { laneId: 'l1', family: 'codex', displayName: 'Codex', cli: 'codex' },
+    ]);
     fixture.detectChanges();
 
     expect(nextButton()?.disabled).toBe(false);
   });
 
-  it('keeps advance blocked for whitespace-only objective', () => {
-    const textarea = fixture.debugElement.query(By.css('textarea'))
-      .nativeElement as HTMLTextAreaElement;
-    textarea.value = '   ';
-    textarea.dispatchEvent(new Event('input'));
+  it('reaches the Run step directly after Panel (no Confirm step)', () => {
+    clickNext(); // → Panel
+    const panel = fixture.debugElement.query(By.directive(StepPanelPreviewStub))
+      .componentInstance as StepPanelPreviewStub;
+    panel.lanesChanged.emit([
+      { laneId: 'l1', family: 'codex', displayName: 'Codex', cli: 'codex' },
+    ]);
     fixture.detectChanges();
+    clickNext(); // → Run
 
-    expect(nextButton()?.disabled).toBe(true);
+    expect(fixture.debugElement.query(By.css('ptah-step-run'))).toBeTruthy();
+    // Final step → no Next button.
+    expect(nextButton()).toBeNull();
   });
 });
