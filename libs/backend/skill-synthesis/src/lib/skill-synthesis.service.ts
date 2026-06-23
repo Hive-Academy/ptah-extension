@@ -31,7 +31,12 @@ import { SkillCandidateStore } from './skill-candidate.store';
 import { SkillMdGenerator } from './skill-md-generator';
 import { SkillPromotionService } from './skill-promotion.service';
 import { SkillCuratorService } from './skill-curator.service';
-import { TrajectoryExtractor } from './trajectory-extractor';
+import {
+  TrajectoryExtractor,
+  type ExtractedTrajectory,
+} from './trajectory-extractor';
+import { SkillSynthesizerService } from './skill-synthesizer.service';
+import { SkillRegistryStore } from './skill-registry.store';
 import { migrateSkillMdFiles } from './skill-md-migration';
 import type {
   CandidateId,
@@ -52,24 +57,35 @@ const SESSION_END_CALLBACK_REGISTRY = Symbol.for(
   'SdkSessionEndCallbackRegistry',
 );
 
+export type AnalyzeSource =
+  | 'idle'
+  | 'boot'
+  | 'subagent-stop'
+  | 'edit-then-test'
+  | 'turn-complete'
+  | 'session-end';
+
 const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
   enabled: true,
   successesToPromote: 3,
   dedupCosineThreshold: 0.85,
-  maxActiveSkills: 50,
+  maxActiveSkills: 200,
   candidatesDir: '',
   eligibilityMinTurns: 5,
   evictionDecayRate: 0.95,
   generalizationContextThreshold: 3,
-  minTrajectoryFidelityRatio: 0.4,
   dedupClusterThreshold: 0.78,
-  minAbstractionEditDistance: 0.3,
+  prefilterMinEdits: 1,
+  prefilterMinChars: 800,
+  prefilterMinToolUses: 2,
   judgeEnabled: true,
   minJudgeScore: 6.0,
   judgeModel: 'inherit',
   maxPinnedSkills: 10,
   curatorEnabled: true,
   curatorIntervalHours: 24,
+  suggestionMinClusterSize: 2,
+  suggestionMaxCandidates: 200,
 };
 
 @injectable()
@@ -88,14 +104,12 @@ export class SkillSynthesisService {
   private _sessionEndDisposer?: () => void;
   private readonly events: SkillSynthesisEvent[] = [];
   private eligibilityCounters: {
-    tooFewTurns: number;
-    lowFidelity: number;
-    insufficientAbstraction: number;
+    prefilterTooThin: number;
+    prefilterRejected: number;
     accepted: number;
   } = {
-    tooFewTurns: 0,
-    lowFidelity: 0,
-    insufficientAbstraction: 0,
+    prefilterTooThin: 0,
+    prefilterRejected: 0,
     accepted: 0,
   };
   private countersDate: string = SkillSynthesisService.todayKey();
@@ -126,6 +140,12 @@ export class SkillSynthesisService {
         cb: (data: { sessionId: string; workspaceRoot: string }) => void,
       ) => () => void;
     },
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIZER_SERVICE, {
+      isOptional: true,
+    })
+    private readonly synthesizer: SkillSynthesizerService | null = null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, { isOptional: true })
+    private readonly registry: SkillRegistryStore | null = null,
   ) {}
 
   /**
@@ -241,17 +261,20 @@ export class SkillSynthesisService {
           embeddingProvider?: IEmbedder | null;
           signal?: AbortSignal;
           transcriptPath?: string;
+          source?: AnalyzeSource;
         },
     maybeOptions?: {
       force?: boolean;
       signal?: AbortSignal;
       transcriptPath?: string;
+      source?: AnalyzeSource;
     },
   ): Promise<RegisterCandidateResult | null> {
     let embeddingProvider: IEmbedder | null | undefined;
     let force = false;
     let signal: AbortSignal | undefined;
     let transcriptPath: string | undefined;
+    let source: AnalyzeSource | undefined;
     if (
       embeddingProviderOrOptions &&
       typeof embeddingProviderOrOptions === 'object' &&
@@ -261,6 +284,7 @@ export class SkillSynthesisService {
       force = embeddingProviderOrOptions.force === true;
       signal = embeddingProviderOrOptions.signal;
       transcriptPath = embeddingProviderOrOptions.transcriptPath;
+      source = embeddingProviderOrOptions.source;
     } else {
       embeddingProvider = embeddingProviderOrOptions as
         | IEmbedder
@@ -269,6 +293,7 @@ export class SkillSynthesisService {
       force = maybeOptions?.force === true;
       signal = maybeOptions?.signal;
       transcriptPath = maybeOptions?.transcriptPath;
+      source = maybeOptions?.source;
     }
 
     if (signal?.aborted) return null;
@@ -307,40 +332,49 @@ export class SkillSynthesisService {
     }
     if (!trajectory) {
       this.logger.info(
-        '[skill-synthesis] session ineligible (trajectory null — <5 turns or no success marker)',
+        '[skill-synthesis] session ineligible (trajectory null — fewer than 2 role turns)',
         { sessionId },
       );
-      this.incrementEligibility('tooFewTurns');
+      this.incrementEligibility('prefilterTooThin');
       this.pushEvent({
         kind: 'ineligible',
         timestamp: Date.now(),
         sessionId,
-        reason: 'tooFewTurns',
+        reason: 'prefilterTooThin',
       });
       return null;
     }
-    const fidelityRatio =
-      trajectory.sessionTurnCount > 0
-        ? trajectory.turnCount / trajectory.sessionTurnCount
-        : 1;
-    if (fidelityRatio < settings.minTrajectoryFidelityRatio) {
+
+    const prefilter = this.passesPrefilter(trajectory, settings);
+    if (!prefilter.ok) {
+      this.logger.info('[skill-synthesis] candidate rejected by prefilter', {
+        sessionId,
+        reason: prefilter.reason,
+        editCount: trajectory.editCount,
+        toolUseCount: trajectory.toolUseCount,
+        charLength: trajectory.charLength,
+      });
+      const bucket =
+        prefilter.reason === 'tooThin'
+          ? 'prefilterTooThin'
+          : 'prefilterRejected';
+      this.incrementEligibility(bucket);
+      this.pushEvent({
+        kind: 'ineligible',
+        timestamp: Date.now(),
+        sessionId,
+        reason: bucket,
+      });
+      return null;
+    }
+    if (this.isDominatedByAuthoredSkill([sessionId])) {
       this.logger.info(
-        '[skill-synthesis] candidate rejected: low trajectory fidelity ratio',
-        {
-          sessionId,
-          fidelityRatio,
-          threshold: settings.minTrajectoryFidelityRatio,
-        },
+        '[skill-synthesis] skipping synthesis — session dominated by an authored skill',
+        { sessionId },
       );
-      this.incrementEligibility('lowFidelity');
-      this.pushEvent({
-        kind: 'ineligible',
-        timestamp: Date.now(),
-        sessionId,
-        reason: 'lowFidelity',
-      });
       return null;
     }
+
     const existing = this.store.findByTrajectoryHash(trajectory.hash);
     if (existing) {
       return { candidate: existing, reused: true };
@@ -361,39 +395,41 @@ export class SkillSynthesisService {
         );
       }
     }
-    const synthesizedBody = this.synthesizeBody(
+
+    let synthesizedBody = this.templateBody(
       trajectory.canonicalText,
       trajectory.shortDescription,
     );
-    const editDist = computeNormalizedLevenshtein(
-      trajectory.canonicalText.slice(0, 2000),
-      synthesizedBody.slice(0, 2000),
-    );
-    if (editDist < settings.minAbstractionEditDistance) {
+    let candidateName = trajectory.slug;
+    let candidateDescription = trajectory.shortDescription;
+    if (source === 'boot') {
       this.logger.info(
-        '[skill-synthesis] candidate rejected: insufficient abstraction',
-        { sessionId, editDist, threshold: settings.minAbstractionEditDistance },
+        '[skill-synthesis] boot-scan source — skipping LLM synthesis (template only)',
+        { sessionId },
       );
-      this.incrementEligibility('insufficientAbstraction');
-      this.pushEvent({
-        kind: 'ineligible',
-        timestamp: Date.now(),
-        sessionId,
-        reason: 'insufficientAbstraction',
-      });
-      return null;
+    } else if (this.synthesizer) {
+      const synthesized = await this.synthesizer.synthesize(
+        trajectory,
+        settings,
+      );
+      if (synthesized) {
+        synthesizedBody = synthesized.body;
+        candidateName = synthesized.name || trajectory.slug;
+        candidateDescription =
+          synthesized.description || trajectory.shortDescription;
+      }
     }
 
     const candidatesRoot = this.mdGenerator.candidatesRoot(
       settings.candidatesDir,
     );
-    let bodyPath = path.join(candidatesRoot, trajectory.slug, 'SKILL.md');
-    let chosenSlug = trajectory.slug;
+    let bodyPath = path.join(candidatesRoot, candidateName, 'SKILL.md');
+    let chosenSlug = candidateName;
     try {
       const md = this.mdGenerator.writeCandidate(
         {
-          slug: trajectory.slug,
-          description: trajectory.shortDescription,
+          slug: candidateName,
+          description: candidateDescription,
           body: synthesizedBody,
         },
         settings.candidatesDir,
@@ -403,7 +439,7 @@ export class SkillSynthesisService {
     } catch (err) {
       this.logger.warn('[skill-synthesis] could not write candidate SKILL.md', {
         sessionId,
-        slug: trajectory.slug,
+        slug: candidateName,
         error: err instanceof Error ? err.message : String(err),
       });
       return null;
@@ -418,7 +454,7 @@ export class SkillSynthesisService {
 
     const result = this.store.registerCandidate({
       name: chosenSlug,
-      description: trajectory.shortDescription,
+      description: candidateDescription,
       bodyPath,
       sourceSessionIds: [sessionId],
       trajectoryHash: trajectory.hash,
@@ -484,11 +520,7 @@ export class SkillSynthesisService {
   }
 
   private incrementEligibility(
-    bucket:
-      | 'tooFewTurns'
-      | 'lowFidelity'
-      | 'insufficientAbstraction'
-      | 'accepted',
+    bucket: 'prefilterTooThin' | 'prefilterRejected' | 'accepted',
   ): void {
     this.rolloverCountersIfNewDay();
     this.eligibilityCounters[bucket]++;
@@ -499,12 +531,49 @@ export class SkillSynthesisService {
     if (today !== this.countersDate) {
       this.countersDate = today;
       this.eligibilityCounters = {
-        tooFewTurns: 0,
-        lowFidelity: 0,
-        insufficientAbstraction: 0,
+        prefilterTooThin: 0,
+        prefilterRejected: 0,
         accepted: 0,
       };
     }
+  }
+
+  /**
+   * Whether the dominant skill across the given sessions is an authored skill.
+   * Authored skills are first-class and must never be re-synthesized. No-ops
+   * (returns false) when the registry is unavailable (non-Electron runtimes).
+   */
+  private isDominatedByAuthoredSkill(sessionIds: readonly string[]): boolean {
+    if (!this.registry) return false;
+    try {
+      const dominant = this.store.getDominantSkillSlugForSessions(sessionIds);
+      if (!dominant) return false;
+      return this.registry.listAuthoredSlugs().has(dominant);
+    } catch (err: unknown) {
+      this.logger.warn(
+        '[skill-synthesis] authored-dominance check failed (continuing)',
+        { error: err instanceof Error ? err.message : String(err) },
+      );
+      return false;
+    }
+  }
+
+  private passesPrefilter(
+    trajectory: ExtractedTrajectory,
+    settings: SkillSynthesisSettings,
+  ): { ok: boolean; reason?: 'tooThin' | 'noWork' } {
+    if (trajectory.turnCount < 2) {
+      return { ok: false, reason: 'tooThin' };
+    }
+    const editOk = trajectory.editCount >= settings.prefilterMinEdits;
+    const toolOk =
+      trajectory.toolUseCount >= settings.prefilterMinToolUses &&
+      trajectory.charLength >= settings.prefilterMinChars;
+    const testOk = trajectory.bashTestPassed === true;
+    if (editOk || toolOk || testOk) {
+      return { ok: true };
+    }
+    return { ok: false, reason: 'noWork' };
   }
 
   private static todayKey(): string {
@@ -571,17 +640,21 @@ export class SkillSynthesisService {
         'skillSynthesis.generalizationContextThreshold',
         SETTINGS_DEFAULTS.generalizationContextThreshold,
       ),
-      minTrajectoryFidelityRatio: get(
-        'skillSynthesis.minTrajectoryFidelityRatio',
-        SETTINGS_DEFAULTS.minTrajectoryFidelityRatio,
-      ),
       dedupClusterThreshold: get(
         'skillSynthesis.dedupClusterThreshold',
         SETTINGS_DEFAULTS.dedupClusterThreshold,
       ),
-      minAbstractionEditDistance: get(
-        'skillSynthesis.minAbstractionEditDistance',
-        SETTINGS_DEFAULTS.minAbstractionEditDistance,
+      prefilterMinEdits: get(
+        'skillSynthesis.prefilterMinEdits',
+        SETTINGS_DEFAULTS.prefilterMinEdits,
+      ),
+      prefilterMinChars: get(
+        'skillSynthesis.prefilterMinChars',
+        SETTINGS_DEFAULTS.prefilterMinChars,
+      ),
+      prefilterMinToolUses: get(
+        'skillSynthesis.prefilterMinToolUses',
+        SETTINGS_DEFAULTS.prefilterMinToolUses,
       ),
       judgeEnabled: get(
         'skillSynthesis.judgeEnabled',
@@ -607,11 +680,18 @@ export class SkillSynthesisService {
         'skillSynthesis.curatorIntervalHours',
         SETTINGS_DEFAULTS.curatorIntervalHours,
       ),
+      suggestionMinClusterSize: get(
+        'skillSynthesis.suggestionMinClusterSize',
+        SETTINGS_DEFAULTS.suggestionMinClusterSize,
+      ),
+      suggestionMaxCandidates: get(
+        'skillSynthesis.suggestionMaxCandidates',
+        SETTINGS_DEFAULTS.suggestionMaxCandidates,
+      ),
     };
   }
 
-  /** Compose a starter SKILL.md body from the canonical trajectory. */
-  private synthesizeBody(canonicalText: string, headline: string): string {
+  private templateBody(canonicalText: string, headline: string): string {
     return [
       `# ${headline}`,
       '',
@@ -628,38 +708,4 @@ export class SkillSynthesisService {
       '',
     ].join('\n');
   }
-}
-
-/**
- * Compute normalized Levenshtein edit distance between two strings.
- * Inputs are capped to 2000 chars to bound O(n^2) cost.
- * Returns 0.0 (identical) to 1.0 (completely different).
- */
-export function computeNormalizedLevenshtein(a: string, b: string): number {
-  const s1 = a.slice(0, 2000);
-  const s2 = b.slice(0, 2000);
-  const m = s1.length;
-  const n = s2.length;
-  if (m === 0 && n === 0) return 0;
-  if (m === 0) return 1;
-  if (n === 0) return 1;
-  let prev = new Array<number>(n + 1);
-  let curr = new Array<number>(n + 1);
-  for (let j = 0; j <= n; j++) prev[j] = j;
-
-  for (let i = 1; i <= m; i++) {
-    curr[0] = i;
-    for (let j = 1; j <= n; j++) {
-      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
-      curr[j] = Math.min(
-        prev[j] + 1, // deletion
-        curr[j - 1] + 1, // insertion
-        prev[j - 1] + cost, // substitution
-      );
-    }
-    [prev, curr] = [curr, prev];
-  }
-
-  const editDistance = prev[n];
-  return editDistance / Math.max(m, n);
 }

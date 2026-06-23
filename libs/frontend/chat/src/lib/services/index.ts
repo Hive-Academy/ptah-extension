@@ -74,5 +74,8 @@ export {
   type TabLookupResult,
 } from '@ptah-extension/chat-state';
 export { SessionDisplayUtils } from './session-display-utils.service';
-export { SESSION_CONTEXT } from '../tokens/session-context.token';
+export {
+  SESSION_CONTEXT,
+  HIDE_AGENT_SIDEBAR,
+} from '../tokens/session-context.token';
 export { provideModelRefreshControl } from './chat-store/model-refresh-control.provider';

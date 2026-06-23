@@ -14,8 +14,9 @@ export interface AuthResult {
  */
 export interface IAuthEnvProvider {
   getAuthEnv(): AuthEnv;
-  configureAuthentication(rawAuthMethod: string): Promise<AuthResult>;
+  configureAuthentication(rawAuthMethod?: string): Promise<AuthResult>;
   clearAuthentication(): void;
+  resolveActiveAuth(): { authMethod: string; providerId: string };
 }
 
 /**

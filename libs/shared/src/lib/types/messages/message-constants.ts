@@ -146,9 +146,9 @@ export const MESSAGE_TYPES = {
   AGENT_MONITOR_EXITED: 'agent-monitor:exited',
   AGENT_MONITOR_PERMISSION_REQUEST: 'agent-monitor:permission-request',
   AGENT_MONITOR_PERMISSION_RESPONSE: 'agent-monitor:permission-response',
-  AGENT_MONITOR_USER_INPUT_REQUEST: 'agent-monitor:user-input-request',
-  AGENT_MONITOR_USER_INPUT_RESPONSE: 'agent-monitor:user-input-response',
   GATEWAY_STATUS_CHANGED: 'gateway:statusChanged',
+  /** Backend → Frontend: bindings list changed (new pending request, approve/reject/revoke). */
+  GATEWAY_BINDINGS_CHANGED: 'gateway:bindingsChanged',
   /** Backend → Frontend: Whisper voice model download progress tick (Electron only). */
   VOICE_MODEL_DOWNLOAD_PROGRESS: 'voice:modelDownloadProgress',
   /** Backend → Frontend: update lifecycle state changed (Electron only). */

@@ -62,6 +62,7 @@ describe('ConversationService', () => {
     markLoaded: jest.Mock;
     markResuming: jest.Mock;
     setMessages: jest.Mock;
+    setLastTerminalReason: jest.Mock;
   };
   let validator: jest.Mocked<
     Pick<MessageValidationService, 'validate' | 'sanitize'>
@@ -137,6 +138,7 @@ describe('ConversationService', () => {
       setMessages: jest.fn((tabId: string, messages: ExecutionChatMessage[]) =>
         applyPatch(tabId, { messages }),
       ),
+      setLastTerminalReason: jest.fn(),
     };
 
     validator = {

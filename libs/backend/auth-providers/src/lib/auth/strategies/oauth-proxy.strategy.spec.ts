@@ -69,6 +69,7 @@ function createMockCopilotAuth(): jest.Mocked<ICopilotAuthService> {
     }),
     pollLogin: jest.fn().mockResolvedValue(false),
     cancelLogin: jest.fn(),
+    listModels: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -97,6 +98,7 @@ function createMockCodexAuth(): jest.Mocked<ICodexAuthService> {
       .mockResolvedValue({ authenticated: false, stale: false }),
     startWatchingAuthFile: jest.fn<void, []>(),
     stopWatchingAuthFile: jest.fn<void, []>(),
+    listModels: jest.fn().mockResolvedValue([]),
   };
 }
 

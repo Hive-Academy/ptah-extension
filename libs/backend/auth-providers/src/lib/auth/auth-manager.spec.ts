@@ -32,6 +32,7 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import { AuthManager } from './auth-manager';
+import { ActiveProviderResolver } from './active-provider-resolver';
 import type {
   IAuthStrategy,
   AuthConfigureContext,
@@ -125,6 +126,10 @@ function makeManager(
     cli: createMockStrategy('CliStrategy'),
   };
 
+  const activeProviderResolver = new ActiveProviderResolver(
+    asResolver(scopeResolver),
+  );
+
   const manager = new AuthManager(
     asLogger(logger),
     providerModels as unknown as ProviderModelsService,
@@ -134,7 +139,7 @@ function makeManager(
     strategies.localNative,
     strategies.localProxy,
     strategies.cli,
-    asResolver(scopeResolver),
+    activeProviderResolver,
   );
 
   return {
@@ -261,7 +266,10 @@ describe('AuthManager', () => {
         'openrouter',
       );
       // Lookup went through the workspace scope resolver, not ConfigManager.
-      expect(scopeResolver.read).toHaveBeenCalledWith('anthropicProviderId');
+      expect(scopeResolver.read).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        true,
+      );
     });
 
     it('resolves the folder-scoped provider id from the workspace scope resolver', async () => {
@@ -277,7 +285,10 @@ describe('AuthManager', () => {
 
       await manager.configureAuthentication('thirdParty');
 
-      expect(scopeResolver.read).toHaveBeenCalledWith('anthropicProviderId');
+      expect(scopeResolver.read).toHaveBeenCalledWith(
+        'anthropicProviderId',
+        true,
+      );
       expect(strategies.apiKey.configure.mock.calls[0][0].providerId).toBe(
         'openrouter',
       );
@@ -298,6 +309,39 @@ describe('AuthManager', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining("Normalized auth method 'openrouter'"),
       );
+    });
+
+    it('self-resolves the scoped authMethod when called with no argument', async () => {
+      const { manager, strategies } = makeManager({
+        config: { authMethod: 'thirdParty', anthropicProviderId: 'openrouter' },
+      });
+      strategies.apiKey.configure.mockResolvedValueOnce({
+        configured: true,
+        details: [],
+      });
+
+      await manager.configureAuthentication();
+
+      expect(strategies.apiKey.configure).toHaveBeenCalledTimes(1);
+      expect(strategies.apiKey.configure.mock.calls[0][0].providerId).toBe(
+        'openrouter',
+      );
+      expect(strategies.cli.configure).not.toHaveBeenCalled();
+    });
+
+    it('self-resolves a scoped claudeCli authMethod when called with no argument', async () => {
+      const { manager, strategies } = makeManager({
+        config: { authMethod: 'claudeCli' },
+      });
+      strategies.cli.configure.mockResolvedValueOnce({
+        configured: true,
+        details: [],
+      });
+
+      await manager.configureAuthentication();
+
+      expect(strategies.cli.configure).toHaveBeenCalledTimes(1);
+      expect(strategies.apiKey.configure).not.toHaveBeenCalled();
     });
 
     it('falls back to apiKey when the raw method is unknown', async () => {

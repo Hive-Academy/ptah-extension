@@ -111,6 +111,7 @@ describe('VoiceInputService', () => {
     expect(rpcCall).toHaveBeenCalledWith(
       'voice:transcribe',
       expect.objectContaining({ mimeType: 'audio/webm;codecs=opus' }),
+      expect.objectContaining({ timeout: 300_000 }),
     );
   });
 
@@ -168,6 +169,7 @@ describe('VoiceInputService', () => {
     expect(rpcCall).toHaveBeenCalledWith(
       'voice:transcribe',
       expect.objectContaining({ mimeType: 'audio/webm' }),
+      expect.objectContaining({ timeout: 300_000 }),
     );
   });
 

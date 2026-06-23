@@ -76,6 +76,8 @@ export interface AgentProcessInfo {
   /** When set, this agent is a resumed version of the given previous agent.
    *  Frontend uses this to replace the old card instead of creating a new one. */
   readonly resumedFromAgentId?: string;
+  /** Whether the agent's handle can continue the same conversation with a follow-up. */
+  readonly supportsContinuation?: boolean;
 }
 
 export interface SpawnAgentRequest {

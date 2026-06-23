@@ -178,6 +178,7 @@ import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
   AgentListCliModelsResult,
+  AgentContinueErrorCode,
   AgentPermissionDecision,
   SkillShEntry,
   SkillAgentTarget,
@@ -834,6 +835,10 @@ export interface RpcMethodRegistry {
     params: { agentId: string };
     result: { success: boolean; error?: string };
   };
+  'agent:continue': {
+    params: { agentId: string; message: string };
+    result: { success: boolean; error?: string; code?: AgentContinueErrorCode };
+  };
   /** Resume a CLI agent session by spawning a new process with resumeSessionId */
   'agent:resumeCliSession': {
     params: {
@@ -1438,6 +1443,18 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisInvocationStatsParams;
     result: SkillSynthesisInvocationStatsResult;
   };
+  'skillSynthesis:listSuggestions': {
+    params: SkillSynthesisListSuggestionsParams;
+    result: SkillSynthesisListSuggestionsResult;
+  };
+  'skillSynthesis:acceptSuggestion': {
+    params: SkillSynthesisAcceptSuggestionParams;
+    result: SkillSynthesisAcceptSuggestionResult;
+  };
+  'skillSynthesis:dismissSuggestion': {
+    params: SkillSynthesisDismissSuggestionParams;
+    result: SkillSynthesisDismissSuggestionResult;
+  };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -1671,7 +1688,7 @@ export interface SkillSynthesisStatsResult {
 }
 
 /**
- * DTO mirroring all 17 SkillSynthesisSettings fields.
+ * DTO mirroring all SkillSynthesisSettings fields.
  * Shared between frontend and backend — no branded types.
  */
 export interface SkillSynthesisSettingsDto {
@@ -1683,15 +1700,18 @@ export interface SkillSynthesisSettingsDto {
   eligibilityMinTurns: number;
   evictionDecayRate: number;
   generalizationContextThreshold: number;
-  minTrajectoryFidelityRatio: number;
   dedupClusterThreshold: number;
-  minAbstractionEditDistance: number;
+  prefilterMinEdits: number;
+  prefilterMinChars: number;
+  prefilterMinToolUses: number;
   judgeEnabled: boolean;
   minJudgeScore: number;
   judgeModel: string;
   maxPinnedSkills: number;
   curatorEnabled: boolean;
   curatorIntervalHours: number;
+  suggestionMinClusterSize: number;
+  suggestionMaxCandidates: number;
 }
 
 export type SkillSynthesisGetSettingsParams = Record<string, never>;
@@ -1733,6 +1753,47 @@ export interface SkillSynthesisRunCuratorResult {
   changesQueued: number;
   skippedPinned: number;
   overlaps?: SkillSynthesisCuratorOverlap[];
+}
+
+export type SkillSuggestionStatus = 'pending' | 'accepted' | 'dismissed';
+
+export interface SkillSuggestionSummary {
+  id: string;
+  name: string;
+  description: string;
+  clusterSize: number;
+  technologyFingerprint: string;
+  judgeScore: number;
+  memberSessionIds: string[];
+  status: SkillSuggestionStatus;
+  createdAt: number;
+}
+
+export interface SkillSuggestionDetail extends SkillSuggestionSummary {
+  body: string;
+}
+
+export interface SkillSynthesisListSuggestionsParams {
+  status?: SkillSuggestionStatus;
+}
+export interface SkillSynthesisListSuggestionsResult {
+  suggestions: SkillSuggestionSummary[];
+}
+
+export interface SkillSynthesisAcceptSuggestionParams {
+  id: string;
+}
+export interface SkillSynthesisAcceptSuggestionResult {
+  accepted: boolean;
+  filePath: string;
+}
+
+export interface SkillSynthesisDismissSuggestionParams {
+  id: string;
+  reason?: string;
+}
+export interface SkillSynthesisDismissSuggestionResult {
+  dismissed: boolean;
 }
 
 export type GatewayPlatformId = 'telegram' | 'discord' | 'slack';
@@ -2165,6 +2226,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'agent:listCliModels': true,
   'agent:permissionResponse': true, // Copilot SDK permission response
   'agent:stop': true,
+  'agent:continue': true,
   'agent:resumeCliSession': true, // CLI agent session resume
   'agent:backgroundList': true, // Background agent listing
   'ptahCli:list': true,
@@ -2311,6 +2373,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:rebaseClone': true,
   'skillSynthesis:keepClone': true,
   'skillSynthesis:invocationStats': true,
+  'skillSynthesis:listSuggestions': true,
+  'skillSynthesis:acceptSuggestion': true,
+  'skillSynthesis:dismissSuggestion': true,
 
   'cron:list': true,
   'cron:get': true,

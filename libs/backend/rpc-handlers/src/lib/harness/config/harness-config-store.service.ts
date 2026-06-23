@@ -18,6 +18,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { HarnessConfig, HarnessPreset } from '@ptah-extension/shared';
 import { HARNESS_TOKENS } from '../tokens';
 import { HarnessPromptBuilderService } from './harness-prompt-builder.service';
+import { BUILTIN_HARNESS_PRESETS } from './builtin-presets';
 
 /** Directory name under ~/.ptah/ for harness presets */
 const HARNESSES_DIR = 'harnesses';
@@ -234,7 +235,7 @@ export class HarnessConfigStore {
     try {
       entries = await fs.readdir(harnessesDir);
     } catch {
-      return [];
+      entries = [];
     }
 
     for (const entry of entries) {
@@ -259,6 +260,13 @@ export class HarnessConfigStore {
               ? parseError.message
               : String(parseError),
         });
+      }
+    }
+
+    const onDisk = new Set(presets.map((preset) => preset.id));
+    for (const builtin of BUILTIN_HARNESS_PRESETS) {
+      if (!onDisk.has(builtin.id)) {
+        presets.push(builtin);
       }
     }
 

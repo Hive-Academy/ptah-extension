@@ -395,6 +395,7 @@ export class GatewayService extends EventEmitter {
     }
     const binding = this.bindings.approve(id, ptahSessionId, workspaceRoot);
     this.pairingPromptSent.delete(id);
+    this.emit('bindings-changed');
     return { ok: true, binding };
   }
 
@@ -421,6 +422,7 @@ export class GatewayService extends EventEmitter {
       }
       this.conversations.deleteByBinding(id);
     }
+    this.emit('bindings-changed');
     return binding;
   }
 
@@ -750,6 +752,7 @@ export class GatewayService extends EventEmitter {
       });
 
       if (binding.approvalStatus === 'pending') {
+        this.emit('bindings-changed');
         if (!this.pairingPromptSent.has(binding.id)) {
           const code = binding.pairingCode ?? '------';
           const reply =

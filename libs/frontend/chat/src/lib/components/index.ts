@@ -54,6 +54,7 @@ export {
   ThinkingBlockComponent,
 } from '@ptah-extension/chat-ui';
 export * from './molecules/agent-card/agent-card.component';
+export * from './molecules/agent-continue-input/agent-continue-input.component';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.

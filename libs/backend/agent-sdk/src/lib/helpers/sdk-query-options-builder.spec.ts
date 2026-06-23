@@ -17,7 +17,10 @@
 
 import 'reflect-metadata';
 
-import { SdkQueryOptionsBuilder } from './sdk-query-options-builder';
+import {
+  SdkQueryOptionsBuilder,
+  type SdkQueryOptions,
+} from './sdk-query-options-builder';
 import { ModelNotAvailableError } from '../errors';
 import type {
   McpHttpServerConfig,
@@ -139,18 +142,18 @@ describe('SdkQueryOptionsBuilder.mergeMcpOverride', () => {
 // build() — file checkpointing + agentProgressSummaries wiring
 // ---------------------------------------------------------------------------
 //
-// Asserts the wiring contract for subagent visibility and file checkpointing:
+// Asserts the wiring contract for file checkpointing and subagent options:
 //   - When `enableFileCheckpointing` is on (default), the SDK CLI flag
 //     `--replay-user-messages` is forwarded via `extraArgs` so the SDK emits
 //     `checkpointUuid` on user-message stream events. Without that flag,
 //     `Query.rewindFiles()` silently no-ops because there is no UUID.
 //   - When the caller opts out (`enableFileCheckpointing: false`), `extraArgs`
 //     is absent (the conditional spread emits no key).
-//   - `agentProgressSummaries: true` is always set — subagent visibility now
-//     flows via this SDK Option + task_* system messages (task_started,
-//     task_progress, task_updated, task_notification) handled by
-//     SdkMessageTransformer. Replaces the phantom `forwardSubagentText` field
-//     that was silently ignored by the SDK.
+//   - `agentProgressSummaries` is NOT set (defaults false): it only adds the
+//     periodic ~30s forked summary blurbs on `task_progress.summary`, not the
+//     subagent execution tree. Tree visibility (task_started/SubagentStart +
+//     subagent-text forwarding) is gated by the CLI experimental betas, which
+//     `experimentalBetaEnv` keeps on for Anthropic-direct and local proxies.
 
 describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
   function makeFullBuilder(): SdkQueryOptionsBuilder {
@@ -254,7 +257,10 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
   }
 
   async function buildWith(
-    overrides: { enableFileCheckpointing?: boolean } = {},
+    overrides: {
+      enableFileCheckpointing?: boolean;
+      permissionMode?: SdkQueryOptions['permissionMode'];
+    } = {},
   ) {
     const builder = makeFullBuilder();
     const sessionConfig: AISessionConfig = {
@@ -286,12 +292,34 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     expect(opts.extraArgs).toBeUndefined();
   });
 
-  it('always sets agentProgressSummaries: true (subagent visibility via SDK task_* events)', async () => {
+  it('disables the SDK built-in auto-memory subsystem (Ptah uses its own indexed memory)', async () => {
     const opts = await buildWith();
-    expect(opts.agentProgressSummaries).toBe(true);
+    expect(opts.settings).toEqual({
+      autoMemoryEnabled: false,
+      autoDreamEnabled: false,
+    });
+  });
+
+  it('does not set agentProgressSummaries (defaults to false — no periodic forked summaries)', async () => {
+    const opts = await buildWith();
+    expect(opts.agentProgressSummaries).toBeUndefined();
 
     const optsOff = await buildWith({ enableFileCheckpointing: false });
-    expect(optsOff.agentProgressSummaries).toBe(true);
+    expect(optsOff.agentProgressSummaries).toBeUndefined();
+  });
+
+  it('pairs allowDangerouslySkipPermissions with bypassPermissions (YOLO) so MCP tool calls do not self-deny', async () => {
+    const opts = await buildWith({ permissionMode: 'bypassPermissions' });
+    expect(opts.permissionMode).toBe('bypassPermissions');
+    expect(opts.allowDangerouslySkipPermissions).toBe(true);
+  });
+
+  it('does NOT set allowDangerouslySkipPermissions outside bypassPermissions', async () => {
+    const optsDefault = await buildWith({ permissionMode: 'default' });
+    expect(optsDefault.allowDangerouslySkipPermissions).toBe(false);
+
+    const optsAcceptEdits = await buildWith({ permissionMode: 'acceptEdits' });
+    expect(optsAcceptEdits.allowDangerouslySkipPermissions).toBe(false);
   });
 });
 
@@ -995,6 +1023,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       VALID_TAB_UUID,
       undefined,
       VALID_TAB_UUID,
+      undefined,
     );
   });
 
@@ -1013,6 +1042,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
 
     // Both routing args degrade to undefined when the id is malformed.
     expect(permissionHandler.createCallback).toHaveBeenCalledWith(
+      undefined,
       undefined,
       undefined,
       undefined,

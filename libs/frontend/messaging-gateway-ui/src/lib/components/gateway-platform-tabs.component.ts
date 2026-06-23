@@ -32,7 +32,7 @@ const TILES: readonly PlatformTileSpec[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [LucideAngularModule],
   template: `
-    <div role="tablist" aria-label="Gateway platforms" class="flex gap-2">
+    <div role="tablist" aria-label="Gateway platforms" class="flex gap-1.5">
       @for (tile of tiles; track tile.id) {
         <button
           type="button"
@@ -44,12 +44,12 @@ const TILES: readonly PlatformTileSpec[] = [
           [tabindex]="selected() === tile.id ? 0 : -1"
           (click)="onSelect(tile.id)"
           (keydown)="onKeydown($event, tile.id)"
-          class="flex min-w-36 flex-1 items-center gap-2.5 rounded-xl border px-4 py-3 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-base-100 sm:flex-none"
-          [class.border-primary/50]="selected() === tile.id"
-          [class.bg-base-300/50]="selected() === tile.id"
-          [class.border-base-300]="selected() !== tile.id"
-          [class.bg-base-200/40]="selected() !== tile.id"
-          [class.hover:bg-base-300/30]="selected() !== tile.id"
+          class="flex min-w-[7rem] items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-base-200"
+          [class.border-base-content/10]="selected() === tile.id"
+          [class.bg-base-100]="selected() === tile.id"
+          [class.shadow-sm]="selected() === tile.id"
+          [class.border-transparent]="selected() !== tile.id"
+          [class.hover:bg-base-100/50]="selected() !== tile.id"
         >
           <lucide-angular
             [img]="tile.icon"

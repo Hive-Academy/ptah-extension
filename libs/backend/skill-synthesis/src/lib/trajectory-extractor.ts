@@ -1,15 +1,3 @@
-/**
- * TrajectoryExtractor — derives a stable, normalized trajectory representation
- * from a Claude session JSONL trace.
- *
- * Trigger contract (architecture §6.5):
- *  - Sessions with ≥5 user/assistant turns AND a success marker are eligible.
- *  - At most one candidate is produced per session.
- *
- * "Normalization" strips workspace-specific paths and timestamps so that two
- * structurally identical trajectories produce the same SHA-256 hash and the
- * same canonical text used for embedding.
- */
 import * as crypto from 'node:crypto';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -17,6 +5,13 @@ import { SDK_TOKENS, type JsonlReaderService } from '@ptah-extension/agent-sdk';
 
 /** Minimum number of user/assistant turns required to consider a session. */
 export const MIN_TURNS_FOR_TRAJECTORY = 5;
+
+/** Floor on role-bearing turns below which extraction never produces a trajectory. */
+const MIN_ROLE_TURNS_FLOOR = 2;
+
+const EDIT_TOOL_NAMES = new Set(['Edit', 'Write', 'MultiEdit']);
+const BASH_TEST_PATTERN =
+  /\b(npm|pnpm|yarn|jest|vitest|nx)\s+(test|run\s+test)\b/;
 
 /** Heuristic phrases interpreted as "task succeeded". */
 const SUCCESS_MARKERS = [
@@ -43,6 +38,16 @@ export interface ExtractedTrajectory {
   shortDescription: string;
   /** A slug-friendly name derived from the description. */
   slug: string;
+  /** Count of Edit/Write/MultiEdit tool_use blocks observed. */
+  editCount: number;
+  /** Count of all tool_use blocks observed. */
+  toolUseCount: number;
+  /** True when a test-runner Bash command completed in the session. */
+  bashTestPassed: boolean;
+  /** Length of the normalized canonical text. */
+  charLength: number;
+  /** Informational signal — whether a success marker was found near the tail. */
+  hasSuccessMarker: boolean;
 }
 
 @injectable()
@@ -98,23 +103,30 @@ export class TrajectoryExtractor {
       });
       return null;
     }
+    void minTurns;
     let sessionTurnCount = 0;
+    let editCount = 0;
+    let toolUseCount = 0;
+    let bashTestPassed = false;
     const turns: Array<{ role: 'user' | 'assistant'; text: string }> = [];
     for (const m of messages) {
       const role = this.roleOf(m);
       if (role) sessionTurnCount++;
       if (!role) continue;
+      const signals = this.collectToolSignals(m);
+      editCount += signals.editCount;
+      toolUseCount += signals.toolUseCount;
+      if (signals.bashTestPassed) bashTestPassed = true;
       const text = this.textOf(m);
       if (!text) continue;
       turns.push({ role, text });
     }
 
-    if (turns.length < minTurns) {
+    if (turns.length < MIN_ROLE_TURNS_FLOOR) {
       return null;
     }
-    if (!this.hasSuccessMarker(turns)) {
-      return null;
-    }
+
+    const hasSuccessMarker = this.hasSuccessMarker(turns);
 
     const normalized = turns
       .map((t) => `[${t.role}] ${this.normalize(t.text, workspaceRoot)}`)
@@ -132,6 +144,11 @@ export class TrajectoryExtractor {
       sessionTurnCount: sessionTurnCount > 0 ? sessionTurnCount : turns.length,
       shortDescription: shortDescription || 'Captured workflow',
       slug: slug || `skill-${hash.slice(0, 8)}`,
+      editCount,
+      toolUseCount,
+      bashTestPassed,
+      charLength: normalized.length,
+      hasSuccessMarker,
     };
   }
 
@@ -152,6 +169,51 @@ export class TrajectoryExtractor {
     if (Array.isArray(content)) {
       const parts: string[] = [];
       for (const c of content) {
+        if (!c || typeof c !== 'object') continue;
+        const block = c as {
+          type?: string;
+          text?: string;
+          name?: string;
+          input?: unknown;
+          content?: unknown;
+        };
+        if (block.type === 'text' && typeof block.text === 'string') {
+          parts.push(block.text);
+        } else if (block.type === 'tool_use') {
+          parts.push(this.toolUseMarker(block.name, block.input));
+        } else if (block.type === 'tool_result') {
+          const marker = this.toolResultMarker(block.content);
+          if (marker) parts.push(marker);
+        }
+      }
+      return parts.join('\n');
+    }
+    return '';
+  }
+
+  private toolUseMarker(name: unknown, input: unknown): string {
+    const toolName =
+      typeof name === 'string' && name.length > 0 ? name : 'tool';
+    if (toolName === 'Bash') {
+      const cmd = this.bashCommandOf(input);
+      if (cmd) return `[tool:Bash ${this.truncate(cmd, 80)}]`;
+    }
+    return `[tool:${toolName}]`;
+  }
+
+  private toolResultMarker(content: unknown): string {
+    const text = this.toolResultText(content);
+    if (!text) return '';
+    const compact = text.replace(/\s+/g, ' ').trim();
+    if (!compact) return '';
+    return `[tool_result: ${this.truncate(compact, 200)}]`;
+  }
+
+  private toolResultText(content: unknown): string {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      const parts: string[] = [];
+      for (const c of content) {
         if (c && typeof c === 'object') {
           const block = c as { type?: string; text?: string };
           if (block.type === 'text' && typeof block.text === 'string') {
@@ -159,9 +221,49 @@ export class TrajectoryExtractor {
           }
         }
       }
-      return parts.join('\n');
+      return parts.join(' ');
     }
     return '';
+  }
+
+  private bashCommandOf(input: unknown): string | null {
+    if (input && typeof input === 'object' && 'command' in input) {
+      const c = (input as { command?: unknown }).command;
+      if (typeof c === 'string') return c;
+    }
+    return null;
+  }
+
+  private collectToolSignals(msg: unknown): {
+    editCount: number;
+    toolUseCount: number;
+    bashTestPassed: boolean;
+  } {
+    let editCount = 0;
+    let toolUseCount = 0;
+    let bashTestPassed = false;
+    if (!msg || typeof msg !== 'object') {
+      return { editCount, toolUseCount, bashTestPassed };
+    }
+    const m = msg as { message?: { content?: unknown } };
+    const content = m.message?.content;
+    if (!Array.isArray(content)) {
+      return { editCount, toolUseCount, bashTestPassed };
+    }
+    for (const c of content) {
+      if (!c || typeof c !== 'object') continue;
+      const block = c as { type?: string; name?: string; input?: unknown };
+      if (block.type !== 'tool_use') continue;
+      toolUseCount++;
+      const toolName = typeof block.name === 'string' ? block.name : '';
+      if (EDIT_TOOL_NAMES.has(toolName)) {
+        editCount++;
+      } else if (toolName === 'Bash') {
+        const cmd = this.bashCommandOf(block.input);
+        if (cmd && BASH_TEST_PATTERN.test(cmd)) bashTestPassed = true;
+      }
+    }
+    return { editCount, toolUseCount, bashTestPassed };
   }
 
   private hasSuccessMarker(

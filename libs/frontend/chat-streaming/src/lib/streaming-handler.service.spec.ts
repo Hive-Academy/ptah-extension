@@ -499,6 +499,35 @@ describe('StreamingHandlerService', () => {
     });
   });
 
+  describe('queued-content flush gating on message_complete', () => {
+    beforeEach(() => {
+      tabsSignal.set([makeTab({ queuedContent: 'follow up question' })]);
+    });
+
+    it('does NOT flush queued content on an intermediate tool_use message_complete', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      const result = service.processStreamEvent(
+        messageComplete({ stopReason: 'tool_use' }),
+        TAB_ID,
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('flushes queued content on a terminal end_turn message_complete', () => {
+      service.processStreamEvent(msgStart(), TAB_ID);
+      const result = service.processStreamEvent(
+        messageComplete({ stopReason: 'end_turn' }),
+        TAB_ID,
+      );
+
+      expect(result).toEqual({
+        tabId: TAB_ID,
+        queuedContent: 'follow up question',
+      });
+    });
+  });
+
   describe('STREAMING_EVENT_CAP FIFO eviction (5000 entries)', () => {
     it('evicts the oldest event when more than the cap arrive', () => {
       // Sanity: cap is what we expect.

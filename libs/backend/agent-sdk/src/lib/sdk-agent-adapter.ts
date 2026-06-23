@@ -105,6 +105,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   private cliInstallation: ClaudeInstallation | null = null;
 
+  private lastConfiguredAuth: {
+    authMethod: string;
+    providerId: string;
+  } | null = null;
+
   private readonly callbacks: SdkAdapterCallbackRegistry;
 
   constructor(
@@ -241,21 +246,51 @@ export class SdkAgentAdapter implements IAgentAdapter {
     if (!this.initialized) {
       return;
     }
-    this.prewarm().catch((err) => {
-      this.logger.warn(
-        '[SdkAgentAdapter] Re-prewarm after workspace change failed',
-        err instanceof Error ? err : new Error(String(err)),
-      );
-    });
+    this.reconfigureAuthIfChanged()
+      .then(() => this.prewarm())
+      .catch((err) => {
+        this.logger.warn(
+          '[SdkAgentAdapter] Re-prewarm after workspace change failed',
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      });
+  }
+
+  private async reconfigureAuthIfChanged(): Promise<void> {
+    const active = this.authManager.resolveActiveAuth();
+    if (
+      this.lastConfiguredAuth &&
+      this.lastConfiguredAuth.authMethod === active.authMethod &&
+      this.lastConfiguredAuth.providerId === active.providerId
+    ) {
+      return;
+    }
+    this.logger.info(
+      `[SdkAgentAdapter] Active auth changed on workspace switch → ${active.authMethod}/${active.providerId}, reconfiguring`,
+    );
+    const result = await this.authManager.configureAuthentication(
+      active.authMethod,
+    );
+    if (result.configured) {
+      this.lastConfiguredAuth = {
+        authMethod: active.authMethod,
+        providerId: active.providerId,
+      };
+    }
   }
 
   async initialize(): Promise<boolean> {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
-      const authMethod = this.config.get<string>('authMethod') || 'apiKey';
-      const authResult =
-        await this.authManager.configureAuthentication(authMethod);
+      const active = this.authManager.resolveActiveAuth();
+      this.lastConfiguredAuth = {
+        authMethod: active.authMethod,
+        providerId: active.providerId,
+      };
+      const authResult = await this.authManager.configureAuthentication(
+        active.authMethod,
+      );
 
       if (!authResult.configured) {
         this.runtimeState.setHealth({
@@ -808,6 +843,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
       | 'bypassPermissions',
   ): Promise<void> {
     return this.sessionLifecycle.setSessionPermissionLevel(sessionId, level);
+  }
+
+  /**
+   * Active session IDs, most-recently-active first. Used by the autopilot
+   * toggle to target the session the user is interacting with when the
+   * frontend does not supply an explicit sessionId.
+   */
+  getActiveSessionIds(): SessionId[] {
+    return this.sessionLifecycle.getActiveSessionIds();
   }
 
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {

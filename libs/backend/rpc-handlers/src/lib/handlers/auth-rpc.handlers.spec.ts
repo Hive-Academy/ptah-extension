@@ -79,6 +79,7 @@ import type {
   ICodexAuthService,
   ProviderModelsService,
 } from '@ptah-extension/auth-providers';
+import { ActiveProviderResolver } from '@ptah-extension/auth-providers';
 import {
   createMockLogger,
   type MockLogger,
@@ -101,6 +102,10 @@ interface MockScopeResolver {
     [string, unknown, 'global' | 'app' | 'workspace', boolean?]
   >;
   clearOverride: jest.Mock<Promise<void>, [string, boolean?]>;
+  clearMoreSpecific: jest.Mock<
+    Promise<void>,
+    [string, 'global' | 'app' | 'workspace', boolean?]
+  >;
   effectiveKey: jest.Mock<string, [string, boolean?]>;
   getActivePath: jest.Mock<string | undefined, []>;
   globalStore: Map<string, unknown>;
@@ -161,6 +166,18 @@ function createMockScopeResolver(opts: {
     }
   });
 
+  const clearMoreSpecific = jest.fn(
+    async (
+      key: string,
+      target: 'global' | 'app' | 'workspace',
+      _appScopable = false,
+    ) => {
+      if (target === 'workspace') return;
+      if (activePath) workspaceStore.delete(key);
+      if (target === 'global') appStore.delete(key);
+    },
+  );
+
   const effectiveKey = jest.fn((key: string, appScopable = false): string => {
     if (appScopable && appStore.has(key)) {
       return `${appScope}.${key}`;
@@ -178,6 +195,7 @@ function createMockScopeResolver(opts: {
     hasOverride,
     write,
     clearOverride,
+    clearMoreSpecific,
     effectiveKey,
     getActivePath,
     globalStore,
@@ -318,6 +336,10 @@ function makeHarness(
     ...(opts.appScope !== undefined ? { appScope: opts.appScope } : {}),
   });
 
+  const activeProviderResolver = new ActiveProviderResolver(
+    scopeResolver as unknown as WorkspaceScopeResolver,
+  );
+
   const handlers = new AuthRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
@@ -325,6 +347,7 @@ function makeHarness(
     authSecrets as unknown as IAuthSecretsService,
     sdkAdapter as unknown as SdkAgentAdapter,
     providerModels as unknown as ProviderModelsService,
+    activeProviderResolver,
     copilot as unknown as CopilotAuthService,
     codex as unknown as ICodexAuthService,
     platformCommands as unknown as IPlatformCommands,

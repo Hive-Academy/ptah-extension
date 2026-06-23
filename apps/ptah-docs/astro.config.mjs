@@ -61,6 +61,15 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Tribunal',
+          items: [
+            { label: 'Overview', slug: 'tribunal' },
+            { label: 'Council', slug: 'tribunal/council' },
+            { label: 'Forge', slug: 'tribunal/forge' },
+            { label: 'Race', slug: 'tribunal/race' },
+          ],
+        },
+        {
           label: 'Skill Synthesis',
           items: [
             { label: 'Overview', slug: 'skill-synthesis' },

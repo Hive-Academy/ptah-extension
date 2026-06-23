@@ -373,64 +373,56 @@ export class OllamaModelDiscoveryService {
       supportsToolUse: meta.supportsToolUse,
     }));
     const apiKey = await this.getOllamaCloudApiKey();
-    if (apiKey) {
-      try {
-        const liveTags = await this.cloudMetadata.fetchCloudTags(apiKey);
-        if (liveTags.length > 0) {
-          const merged = new Map<string, ProviderModelInfo>();
-          for (const m of staticModels) merged.set(m.id, m);
-          for (const tag of liveTags) {
-            const existing = merged.get(tag.id);
-            const baseName = tag.id
-              .replace(/:cloud$/, '')
-              .replace(/-cloud$/, '');
-            const knownMeta = KNOWN_CLOUD_MODELS[baseName];
-            merged.set(tag.id, {
-              id: tag.id,
-              name: existing?.name ?? this.formatModelName(tag.id),
-              description:
-                existing?.description ??
-                (knownMeta
-                  ? (knownMeta.description ??
-                    this.buildCloudDescription(knownMeta))
-                  : 'Cloud model'),
-              contextLength: existing?.contextLength ?? 128000,
-              supportsToolUse: existing?.supportsToolUse ?? true,
-            });
-          }
-          const newIds = liveTags
-            .map((t) => t.id)
-            .filter((id) => !staticModels.some((s) => s.id === id));
-          this.logger.info(
-            `[OllamaModelDiscovery] listCloudModels: ${staticModels.length} static + ${liveTags.length} live (ollama.com/api/tags) = ${merged.size} total. ` +
-              `New from live: [${newIds.slice(0, 8).join(', ')}${newIds.length > 8 ? ', â€¦' : ''}]`,
-          );
-          return Array.from(merged.values());
-        } else {
-          this.logger.warn(
-            `[OllamaModelDiscovery] listCloudModels: live ollama.com/api/tags returned 0 cloud tags â€” ` +
-              `falling back to bundled static catalog (${staticModels.length} models). ` +
-              `This is expected if the user has not yet pulled any cloud models via 'ollama pull <model>:cloud'. ` +
-              `Check the output channel above for the full HTTP response shape.`,
-          );
+    try {
+      const liveTags = await this.cloudMetadata.fetchCloudTags(apiKey);
+      if (liveTags.length > 0) {
+        const merged = new Map<string, ProviderModelInfo>();
+        for (const m of staticModels) merged.set(m.id, m);
+        for (const tag of liveTags) {
+          const existing = merged.get(tag.id);
+          const baseName = tag.id.replace(/:cloud$/, '').replace(/-cloud$/, '');
+          const knownMeta = KNOWN_CLOUD_MODELS[baseName];
+          merged.set(tag.id, {
+            id: tag.id,
+            name: existing?.name ?? this.formatModelName(tag.id),
+            description:
+              existing?.description ??
+              (knownMeta
+                ? (knownMeta.description ??
+                  this.buildCloudDescription(knownMeta))
+                : 'Cloud model'),
+            contextLength: existing?.contextLength ?? 128000,
+            supportsToolUse: existing?.supportsToolUse ?? true,
+          });
         }
-      } catch (error) {
-        this.sentryService.captureException(
-          error instanceof Error ? error : new Error(String(error)),
-          {
-            errorSource: 'OllamaModelDiscoveryService.listCloudModels',
-            activeProvider: 'ollama-cloud',
-          },
+        const newIds = liveTags
+          .map((t) => t.id)
+          .filter((id) => !staticModels.some((s) => s.id === id));
+        this.logger.info(
+          `[OllamaModelDiscovery] listCloudModels: ${staticModels.length} static + ${liveTags.length} live (ollama.com/api/tags) = ${merged.size} total. ` +
+            `New from live: [${newIds.slice(0, 8).join(', ')}${newIds.length > 8 ? ', …' : ''}]`,
         );
+        return Array.from(merged.values());
+      } else {
         this.logger.warn(
-          `[OllamaModelDiscovery] Live cloud tag fetch failed unexpectedly: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+          `[OllamaModelDiscovery] listCloudModels: live ollama.com/api/tags returned 0 cloud tags — ` +
+            `falling back to bundled static catalog (${staticModels.length} models). ` +
+            `This is expected if the user has not yet pulled any cloud models via 'ollama pull <model>:cloud'. ` +
+            `Check the output channel above for the full HTTP response shape.`,
         );
       }
-    } else {
-      this.logger.debug(
-        `[OllamaModelDiscovery] listCloudModels: no ollama.com API key configured â€” using static catalog (${staticModels.length} models) plus any local /api/tags extras`,
+    } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          errorSource: 'OllamaModelDiscoveryService.listCloudModels',
+          activeProvider: 'ollama-cloud',
+        },
+      );
+      this.logger.warn(
+        `[OllamaModelDiscovery] Live cloud tag fetch failed unexpectedly: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
       );
     }
     try {

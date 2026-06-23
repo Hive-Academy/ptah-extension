@@ -1,7 +1,7 @@
 /**
  * Parity test for the CLI Agent RPC Handlers.
  *
- * Asserts that `CliAgentRpcHandlers` re-registers the same seven `agent:*`
+ * Asserts that `CliAgentRpcHandlers` re-registers the same `agent:*`
  * methods as the Electron `AgentRpcHandlers`, in the same registration order.
  * Drift between the two apps would silently regress orchestration parity, so
  * this spec is intentionally narrow but mandatory.
@@ -74,6 +74,7 @@ const buildAgentProcessManagerStub = () => ({
   stop: jest.fn().mockResolvedValue({ status: 'stopped' }),
   spawn: jest.fn().mockResolvedValue({ agentId: 'agent-1' }),
   spawnFromSdkHandle: jest.fn().mockResolvedValue({ agentId: 'agent-1' }),
+  continueConversation: jest.fn().mockResolvedValue(undefined),
 });
 
 const buildSessionMetadataStoreStub = () => ({
@@ -176,7 +177,7 @@ describe('CliAgentRpcHandlers — parity surface', () => {
     container.clearInstances();
   });
 
-  it('exposes the seven agent:* method names in registration order', () => {
+  it('exposes the agent:* method names in registration order', () => {
     expect([...CliAgentRpcHandlers.METHODS]).toEqual([
       'agent:getConfig',
       'agent:setConfig',
@@ -184,6 +185,7 @@ describe('CliAgentRpcHandlers — parity surface', () => {
       'agent:listCliModels',
       'agent:permissionResponse',
       'agent:stop',
+      'agent:continue',
       'agent:resumeCliSession',
     ]);
   });
@@ -366,6 +368,33 @@ describe('CliAgentRpcHandlers — per-method dispatch parity', () => {
     expect(cliResult).toEqual(eleResult);
     expect(cli.processManager.stop).toHaveBeenCalledWith('fake-agent');
     expect(ele.processManager.stop).toHaveBeenCalledWith('fake-agent');
+  });
+
+  it('agent:continue — both delegate to AgentProcessManager.continueConversation', async () => {
+    const cli = buildHandler(
+      CliAgentRpcHandlers as unknown as new (
+        ...args: never[]
+      ) => CliAgentRpcHandlers,
+    );
+    const ele = buildHandler(
+      AgentRpcHandlers as unknown as new (...args: never[]) => AgentRpcHandlers,
+    );
+    (cli.instance as unknown as { register(): void }).register();
+    (ele.instance as unknown as { register(): void }).register();
+
+    const params = { agentId: 'fake-agent', message: 'follow-up' };
+    const cliResult = await findHandler(cli.rpc, 'agent:continue')(params);
+    const eleResult = await findHandler(ele.rpc, 'agent:continue')(params);
+    expect(cliResult).toEqual(eleResult);
+    expect(cliResult).toEqual({ success: true });
+    expect(cli.processManager.continueConversation).toHaveBeenCalledWith(
+      'fake-agent',
+      'follow-up',
+    );
+    expect(ele.processManager.continueConversation).toHaveBeenCalledWith(
+      'fake-agent',
+      'follow-up',
+    );
   });
 
   it('agent:resumeCliSession — non-ptah-cli path produces matching errors', async () => {

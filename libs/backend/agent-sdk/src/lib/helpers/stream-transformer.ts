@@ -287,6 +287,55 @@ export class StreamTransformer {
                 clearTimeout(timeoutHandle);
               }
             }
+            const probe = sdkMessage as {
+              type?: string;
+              subtype?: string;
+              task_id?: string;
+              tool_use_id?: string;
+              parent_tool_use_id?: string | null;
+              event?: {
+                type?: string;
+                content_block?: { type?: string; name?: string; id?: string };
+              };
+              message?: { content?: unknown };
+            };
+            const probeRecord: Record<string, unknown> = {
+              n: sdkMessageCount,
+              type: probe.type,
+              parentToolUseId: probe.parent_tool_use_id ?? null,
+            };
+            if (probe.type === 'system') {
+              probeRecord['subtype'] = probe.subtype;
+              probeRecord['taskId'] = probe.task_id;
+              probeRecord['toolUseId'] = probe.tool_use_id;
+            } else if (probe.type === 'stream_event') {
+              probeRecord['eventType'] = probe.event?.type;
+              const cb = probe.event?.content_block;
+              if (cb?.type === 'tool_use') {
+                probeRecord['toolName'] = cb.name;
+                probeRecord['toolId'] = cb.id;
+              }
+            } else if (probe.type === 'assistant' || probe.type === 'user') {
+              const content = probe.message?.content;
+              if (Array.isArray(content)) {
+                probeRecord['blocks'] = content
+                  .map((b) => {
+                    const tb = b as {
+                      type?: string;
+                      name?: string;
+                      id?: string;
+                      tool_use_id?: string;
+                    };
+                    if (tb.type === 'tool_use')
+                      return `tool_use:${tb.name}:${tb.id}`;
+                    if (tb.type === 'tool_result')
+                      return `tool_result:${tb.tool_use_id}`;
+                    return tb.type;
+                  })
+                  .filter(Boolean);
+              }
+            }
+            logger.info('[NESTED-PROBE]', probeRecord);
             if (isStreamEvent(sdkMessage)) {
               const event = sdkMessage.event;
               if (isMessageStart(event)) {

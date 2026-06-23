@@ -140,7 +140,7 @@ export class ConfigRpcHandlers {
     >('config:model-switch', async (params) => {
       try {
         const { model, sessionId } = params;
-        const applyTo = parseApplyTo(params.applyTo);
+        const applyTo = parseApplyTo(params.applyTo, 'app');
         this.logger.info(
           '[ModelDiag] config:model-switch RECEIVED from frontend',
           {
@@ -210,7 +210,7 @@ export class ConfigRpcHandlers {
           if (params?.model !== undefined) {
             await this.modelSettings.selectedModel.set(
               params.model,
-              parseApplyTo(params.applyTo),
+              parseApplyTo(params.applyTo, 'app'),
             );
           }
           if (params?.autopilot !== undefined) {
@@ -319,14 +319,23 @@ export class ConfigRpcHandlers {
           ? (permissionLevel as PermissionLevel)
           : 'ask';
         this.permissionHandler.setPermissionLevel(effectiveLevel);
-        if (sessionId) {
+        // The autopilot popover does not pass a sessionId, so fall back to the
+        // most-recently-active session. Permission gating is now per-session
+        // (each session reads its own level), so the toggle must reach a
+        // concrete session to take effect on a running turn.
+        const targetSessionId =
+          sessionId ?? this.sdkAdapter.getActiveSessionIds()[0];
+        if (targetSessionId) {
           try {
             const sdkMode = enabled
               ? this.mapPermissionToSdkMode(permissionLevel)
               : 'default';
-            await this.sdkAdapter.setSessionPermissionLevel(sessionId, sdkMode);
+            await this.sdkAdapter.setSessionPermissionLevel(
+              targetSessionId,
+              sdkMode,
+            );
             this.logger.debug('Permission mode synced to active session', {
-              sessionId,
+              sessionId: targetSessionId,
               sdkMode,
               enabled,
             });
@@ -606,7 +615,7 @@ export class ConfigRpcHandlers {
       try {
         const effort = parseEffortLevel(params.effort);
         const sessionId = params.sessionId;
-        const applyTo = parseApplyTo(params.applyTo);
+        const applyTo = parseApplyTo(params.applyTo, 'app');
         this.logger.debug('RPC: config:effort-set called', {
           effort,
           sessionId: sessionId ?? null,

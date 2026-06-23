@@ -263,6 +263,30 @@ describe('TurnEndHandlerService', () => {
       expect(finalizeCurrentMessageMock).toHaveBeenCalledWith('tab-1', false);
     });
 
+    it('does NOT clobber a frontend-stamped abort reason when the Stop payload reason is null', () => {
+      tabs = [
+        makeTab({ id: 'tab-1', lastTerminalReason: 'aborted_streaming' }),
+      ];
+      service.handleTurnEnded(makeTurnEndedPayload({ terminalReason: null }));
+      expect(setTurnEndedFieldsMock).toHaveBeenCalledWith(
+        'tab-1',
+        expect.objectContaining({ lastTerminalReason: 'aborted_streaming' }),
+      );
+    });
+
+    it('lets a concrete Stop payload reason override a prior stamped reason', () => {
+      tabs = [
+        makeTab({ id: 'tab-1', lastTerminalReason: 'aborted_streaming' }),
+      ];
+      service.handleTurnEnded(
+        makeTurnEndedPayload({ terminalReason: 'completed' }),
+      );
+      expect(setTurnEndedFieldsMock).toHaveBeenCalledWith(
+        'tab-1',
+        expect.objectContaining({ lastTerminalReason: 'completed' }),
+      );
+    });
+
     it('fans out to every tab bound to the same sessionId', () => {
       tabs = [
         makeTab({ id: 'tab-1', claudeSessionId: SESS_SHARED }),

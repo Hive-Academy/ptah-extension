@@ -488,6 +488,7 @@ export class SkillTriggerService {
       await this.synthesis.analyzeSession(sessionId, workspaceRoot, {
         force: false,
         transcriptPath,
+        source,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -523,6 +524,7 @@ export class SkillTriggerService {
         run: (sessionId, workspaceRoot, runSignal) =>
           this.synthesis.analyzeSession(sessionId, workspaceRoot, {
             signal: runSignal,
+            source: 'boot',
           }),
       });
       this.synthesis.pushEvent({

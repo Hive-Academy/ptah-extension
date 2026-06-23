@@ -363,6 +363,63 @@ describe('WorkspaceScopeResolver', () => {
     });
   });
 
+  describe('clearMoreSpecific — broader-scope save un-shadows narrower overrides', () => {
+    it('saving at app target clears a leftover workspace override so the app value wins', async () => {
+      const store = makeMemoryStore({ authMethod: 'global' });
+      const resolver = new WorkspaceScopeResolver(
+        store,
+        makeSource(PATH_A),
+        'app.vscode',
+      );
+
+      // Pre-existing per-workspace override (the shadowing value).
+      await resolver.write('authMethod', 'thirdParty', 'workspace', true);
+      expect(resolver.read<string>('authMethod', true)).toBe('thirdParty');
+
+      // User picks "Global default" (app scope) → write + clear narrower.
+      await resolver.write('authMethod', 'claudeCli', 'app', true);
+      await resolver.clearMoreSpecific('authMethod', 'app', true);
+
+      expect(resolver.read<string>('authMethod', true)).toBe('claudeCli');
+      expect(resolver.effectiveKey('authMethod', true)).toBe(
+        'app.vscode.authMethod',
+      );
+    });
+
+    it('saving at global target clears both workspace and app overrides', async () => {
+      const store = makeMemoryStore({ authMethod: 'global' });
+      const resolver = new WorkspaceScopeResolver(
+        store,
+        makeSource(PATH_A),
+        'app.vscode',
+      );
+
+      await resolver.write('authMethod', 'app-stale', 'app', true);
+      await resolver.write('authMethod', 'ws-stale', 'workspace', true);
+      expect(resolver.read<string>('authMethod', true)).toBe('ws-stale');
+
+      await resolver.write('authMethod', 'claudeCli', 'global', true);
+      await resolver.clearMoreSpecific('authMethod', 'global', true);
+
+      expect(resolver.read<string>('authMethod', true)).toBe('claudeCli');
+      expect(resolver.effectiveKey('authMethod', true)).toBe('authMethod');
+    });
+
+    it('saving at workspace target leaves the workspace override in place', async () => {
+      const store = makeMemoryStore({ authMethod: 'global' });
+      const resolver = new WorkspaceScopeResolver(
+        store,
+        makeSource(PATH_A),
+        'app.vscode',
+      );
+
+      await resolver.write('authMethod', 'ws-value', 'workspace', true);
+      await resolver.clearMoreSpecific('authMethod', 'workspace', true);
+
+      expect(resolver.read<string>('authMethod', true)).toBe('ws-value');
+    });
+  });
+
   describe('AC-5 — folder pin in app.vscode is NOT seen by app.cli resolver', () => {
     it('workspace-level write in vscode not visible to cli resolver with same ws hash', async () => {
       const store = makeMemoryStore({ authMethod: 'global' });

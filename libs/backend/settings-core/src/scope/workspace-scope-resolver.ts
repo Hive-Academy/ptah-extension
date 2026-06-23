@@ -151,6 +151,50 @@ export class WorkspaceScopeResolver {
     }
   }
 
+  /**
+   * Clear every override that is MORE specific than `target` for `globalKey`,
+   * so a value written at `target` is no longer shadowed on read.
+   *
+   * Specificity: workspace (most specific) > app > global. Writing at a broader
+   * scope (e.g. "Global default") would otherwise be silently overridden by a
+   * leftover per-workspace value because {@link candidateKeys} resolves
+   * most-specific-first. Saving the broader value calls this to drop the
+   * narrower keys so the user's explicit choice actually takes effect.
+   *
+   * - target 'workspace' → clears nothing (already the most specific scope).
+   * - target 'app'       → clears the active workspace override(s).
+   * - target 'global'    → clears the active workspace AND app-level override(s).
+   */
+  async clearMoreSpecific(
+    globalKey: string,
+    target: WorkspaceWriteTarget,
+    appScopable = false,
+  ): Promise<void> {
+    if (target === 'workspace') return;
+
+    const norm = this.activeNormalizedPath();
+    const useApp = appScopable && this.appScope !== undefined;
+    const keysToClear: string[] = [];
+
+    if (norm) {
+      const workspaceKey = workspaceKeyFor(globalKey, norm);
+      if (useApp) {
+        keysToClear.push(`${this.appScope}.${workspaceKey}`);
+      }
+      keysToClear.push(workspaceKey);
+    }
+
+    if (target === 'global' && useApp) {
+      keysToClear.push(`${this.appScope}.${globalKey}`);
+    }
+
+    for (const key of keysToClear) {
+      if (this.store.readGlobal(key) !== undefined) {
+        await this.store.writeGlobal(key, undefined);
+      }
+    }
+  }
+
   effectiveKey(globalKey: string, appScopable = false): string {
     const candidates = this.candidateKeys(globalKey, appScopable);
     for (let i = 0; i < candidates.length - 1; i++) {

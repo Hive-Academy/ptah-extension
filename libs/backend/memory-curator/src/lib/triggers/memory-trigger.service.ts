@@ -235,11 +235,13 @@ export class MemoryTriggerService {
     }, idleMs);
   }
 
+  /**
+   * In-process session-end signal from `SessionControl.endSession`. Fires
+   * reliably even when the SDK `SessionEnd` hook cannot be delivered (the input
+   * stream closes on abort before the CLI dispatches it).
+   */
   private onSessionEnd(payload: SessionEndPayload): void {
-    const state = this.sessions.get(payload.sessionId);
-    if (!state) return;
-    if (state.idleTimer) clearTimeout(state.idleTimer);
-    this.sessions.delete(payload.sessionId);
+    this.flushSessionEnd(payload.sessionId, payload.workspaceRoot);
   }
 
   /** Real SDK `Stop` hook — the authoritative "assistant turn complete" signal. */
@@ -297,20 +299,29 @@ export class MemoryTriggerService {
 
   /** Real SDK `SessionEnd` hook — flush whatever the episode buffer holds. */
   private onSessionEndHook(payload: SessionEndHookPayload): void {
-    if (payload.sessionId && payload.sessionId.length > 0) {
-      if (this.readSessionEndEnabled()) {
-        this.tryEpisodeCurate(
-          payload.sessionId,
-          payload.workspaceRoot,
-          'session-end',
-          'session-end-trigger',
-        );
-      }
-      this.episodes.reset(payload.sessionId);
-      const state = this.sessions.get(payload.sessionId);
-      if (state?.idleTimer) clearTimeout(state.idleTimer);
-      this.sessions.delete(payload.sessionId);
+    this.flushSessionEnd(payload.sessionId, payload.workspaceRoot);
+  }
+
+  /**
+   * Curate the buffered episode (when enabled), reset the buffer, and tear down
+   * idle state. Reached from both the SDK `SessionEnd` hook and the in-process
+   * registry; idempotent because `tryEpisodeCurate` coalesces and no-ops on an
+   * already-flushed buffer, so a double-fire is harmless.
+   */
+  private flushSessionEnd(sessionId: string, workspaceRoot: string): void {
+    if (!sessionId || sessionId.length === 0) return;
+    if (this.readSessionEndEnabled()) {
+      this.tryEpisodeCurate(
+        sessionId,
+        workspaceRoot,
+        'session-end',
+        'session-end-trigger',
+      );
     }
+    this.episodes.reset(sessionId);
+    const state = this.sessions.get(sessionId);
+    if (state?.idleTimer) clearTimeout(state.idleTimer);
+    this.sessions.delete(sessionId);
   }
 
   private onUserPromptSubmit(payload: UserPromptSubmitPayload): void {

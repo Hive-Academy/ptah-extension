@@ -95,4 +95,64 @@ describe('SkillSynthesisRpcService', () => {
 
     await expect(service.promote('c-1')).rejects.toThrow('write-failed');
   });
+
+  it('listSuggestions() calls skillSynthesis:listSuggestions and returns the suggestions array', async () => {
+    rpcCall.mockResolvedValue(okResult({ suggestions: [{ id: 'sg-1' }] }));
+
+    const result = await service.listSuggestions();
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:listSuggestions',
+      {},
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(result).toEqual([{ id: 'sg-1' }]);
+  });
+
+  it('acceptSuggestion() calls skillSynthesis:acceptSuggestion with id and returns data', async () => {
+    const payload = { accepted: true, filePath: '/skills/sg-1/SKILL.md' };
+    rpcCall.mockResolvedValue(okResult(payload));
+
+    const result = await service.acceptSuggestion('sg-1');
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:acceptSuggestion',
+      { id: 'sg-1' },
+      expect.any(Object),
+    );
+    expect(result).toEqual(payload);
+  });
+
+  it('dismissSuggestion() with a reason forwards both id and reason', async () => {
+    rpcCall.mockResolvedValue(okResult({ dismissed: true }));
+
+    const result = await service.dismissSuggestion('sg-1', 'not-reusable');
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:dismissSuggestion',
+      { id: 'sg-1', reason: 'not-reusable' },
+      expect.any(Object),
+    );
+    expect(result).toBe(true);
+  });
+
+  it('dismissSuggestion() without a reason forwards id only', async () => {
+    rpcCall.mockResolvedValue(okResult({ dismissed: true }));
+
+    await service.dismissSuggestion('sg-1');
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:dismissSuggestion',
+      { id: 'sg-1' },
+      expect.any(Object),
+    );
+  });
+
+  it('throws with the RPC error string when listSuggestions fails', async () => {
+    rpcCall.mockResolvedValue(errResult('store-unavailable'));
+
+    await expect(service.listSuggestions()).rejects.toThrow(
+      'store-unavailable',
+    );
+  });
 });

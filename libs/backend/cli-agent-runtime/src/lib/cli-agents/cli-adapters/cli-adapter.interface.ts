@@ -70,6 +70,12 @@ export interface SdkHandle {
   /** Register a callback invoked when the real SDK session ID is resolved.
    *  Only Ptah CLI adapter implements this (session ID arrives via system init). */
   readonly onSessionResolved?: (callback: (sessionId: string) => void) => void;
+  readonly supportsContinuation?: () => boolean;
+  readonly continue?: (message: string) => Promise<ContinuationOutcome>;
+}
+
+export interface ContinuationOutcome {
+  readonly done: Promise<number>;
 }
 
 export interface CliAdapter {

@@ -5,6 +5,7 @@ import type {
   ConfigManager,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import { getAnthropicProvider } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -154,7 +155,9 @@ describe('CuratorAuthResolver.resolve', () => {
       'https://api.moonshot.ai/anthropic/',
     );
     expect(result?.env.ANTHROPIC_AUTH_TOKEN).toBe('moon-key');
-    expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('kimi-k2.5');
+    expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(
+      getAnthropicProvider('moonshot')?.defaultTiers?.sonnet,
+    );
     expect(result?.env.ANTHROPIC_API_KEY).toBeUndefined();
   });
 

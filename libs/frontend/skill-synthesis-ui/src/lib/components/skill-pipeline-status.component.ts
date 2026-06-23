@@ -69,7 +69,7 @@ export class SkillPipelineStatusComponent {
 
   protected readonly ineligibleToday = computed<number>(() => {
     const h = this.histogram();
-    return h.tooFewTurns + h.lowFidelity + h.insufficientAbstraction;
+    return h.prefilterTooThin + h.prefilterRejected;
   });
 
   protected readonly reasonChip = computed<{

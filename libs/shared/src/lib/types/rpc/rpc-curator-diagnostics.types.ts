@@ -110,9 +110,8 @@ export interface MemoryDbHealthDto {
 }
 
 export interface EligibilityHistogramDto {
-  readonly tooFewTurns: number;
-  readonly lowFidelity: number;
-  readonly insufficientAbstraction: number;
+  readonly prefilterTooThin: number;
+  readonly prefilterRejected: number;
   readonly accepted: number;
 }
 

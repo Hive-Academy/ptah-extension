@@ -240,9 +240,8 @@ function makeSynthesis(): SkillSynthesisService {
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     getEligibilityHistogram: jest.fn(() => ({
-      tooFewTurns: 0,
-      lowFidelity: 0,
-      insufficientAbstraction: 0,
+      prefilterTooThin: 0,
+      prefilterRejected: 0,
       accepted: 0,
     })),
     lastRunSummary: jest.fn(() => ({
@@ -396,6 +395,7 @@ describe('SkillTriggerService', () => {
     expect(synthesis.analyzeSession).toHaveBeenCalledWith('s1', '/ws', {
       force: false,
       transcriptPath: undefined,
+      source: 'idle',
     });
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'idle-trigger', sessionId: 's1' }),
@@ -568,6 +568,7 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
       {
         force: false,
         transcriptPath: '/tmp/agents/sub-aaaa-bbbb-cccc-dddd.jsonl',
+        source: 'subagent-stop',
       },
     );
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
@@ -645,6 +646,7 @@ describe('SkillTriggerService — turn-complete trigger', () => {
     expect(synthesis.analyzeSession).toHaveBeenCalledWith('s1', '/ws', {
       force: false,
       transcriptPath: undefined,
+      source: 'turn-complete',
     });
   });
 
@@ -758,6 +760,7 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
     expect(synthesis.analyzeSession).toHaveBeenCalledWith('s1', '/ws', {
       force: false,
       transcriptPath: undefined,
+      source: 'edit-then-test',
     });
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({

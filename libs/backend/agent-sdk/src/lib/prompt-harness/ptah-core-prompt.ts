@@ -132,6 +132,8 @@ Include in every sub-agent prompt: "You can delegate focused sub-tasks to CLI ag
 
 **Session Resume:** When a CLI agent times out, prefer resuming over re-spawning. Use \`ptah_agent_status\` to get the CLI Session ID, then \`ptah_agent_spawn { task: "Continue", resume_session_id: "..." }\`.
 
+**Subagent isolation:** spawn sub-agents in the current working branch (no \`isolation\` setting) by default. Only request \`isolation: 'worktree'\` when multiple sub-agents will edit files concurrently and would otherwise conflict — never for read-only or single-writer tasks.
+
 ### Built-in Tools (Priority 2)
 
 Use Read, Edit, Write, Bash, Grep, Glob, Task only when:

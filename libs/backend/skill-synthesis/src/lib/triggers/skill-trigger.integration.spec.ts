@@ -34,9 +34,8 @@ function makeSynthesis(): SkillSynthesisService {
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     getEligibilityHistogram: jest.fn(() => ({
-      tooFewTurns: 0,
-      lowFidelity: 0,
-      insufficientAbstraction: 0,
+      prefilterTooThin: 0,
+      prefilterRejected: 0,
       accepted: 0,
     })),
     lastRunSummary: jest.fn(() => ({
@@ -210,6 +209,7 @@ describe('SkillTriggerService integration — full event-loop', () => {
         force: false,
         transcriptPath:
           '/tmp/agents/12345678-1234-5678-1234-567812345678.jsonl',
+        source: 'subagent-stop',
       },
     );
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
@@ -236,6 +236,7 @@ describe('SkillTriggerService integration — full event-loop', () => {
     expect(synthesis.analyzeSession).toHaveBeenCalledWith('s1', '/ws', {
       force: false,
       transcriptPath: undefined,
+      source: 'edit-then-test',
     });
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({

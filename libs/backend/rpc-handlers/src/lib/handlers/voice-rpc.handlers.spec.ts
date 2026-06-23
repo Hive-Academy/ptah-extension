@@ -387,6 +387,33 @@ describe('VoiceRpcHandlers', () => {
       expect(whisper.off).toHaveBeenCalledWith('download', captured);
     });
 
+    it('broadcasts a terminal 100% tick on download:complete', async () => {
+      const { rpc, whisper, webviewManager } = buildSuite({
+        voiceModel: 'small.en',
+      });
+      let captured: ((evt: unknown) => void) | undefined;
+      (whisper.on as jest.Mock).mockImplementation(
+        (event: string, listener: (evt: unknown) => void) => {
+          if (event === 'download') captured = listener;
+        },
+      );
+      (whisper.downloadModel as jest.Mock).mockImplementation(async () => {
+        captured?.({ kind: 'download:complete', model: 'small.en' });
+        return { alreadyPresent: false };
+      });
+
+      await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: {},
+        correlationId: 'dl-complete',
+      });
+
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'voice:modelDownloadProgress',
+        { model: 'small.en', percent: 100 },
+      );
+    });
+
     it('surfaces VOICE_ASSETS_UNAVAILABLE with remediation when assets are missing', async () => {
       const { rpc, whisper } = buildSuite();
       (whisper.downloadModel as jest.Mock).mockRejectedValue(

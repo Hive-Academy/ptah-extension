@@ -344,6 +344,15 @@ export interface TabState {
   queuedOptions?: SendMessageOptions | null;
 
   /**
+   * Hidden preamble prepended to the BACKEND prompt of this tab's first
+   * message only — never shown in the user's chat bubble. Consumed (cleared)
+   * when that first message is sent. Lets a configured surface (e.g. the
+   * Tribunal conductor) inject framing/spawn instructions while the user just
+   * types a plain objective into the normal chat input.
+   */
+  firstMessagePreamble?: string | null;
+
+  /**
    * Preloaded stats from backend (for old sessions loaded from JSONL).
    * Used to display cost/tokens for historical sessions without recalculation.
    */

@@ -21,6 +21,7 @@ import {
   HARNESS_BUILDER_COMPONENT,
   SETUP_HUB_COMPONENT,
   MARKETPLACE_COMPONENT,
+  TRIBUNAL_COMPONENT,
 } from '@ptah-extension/core';
 import {
   ChatMessageHandler,
@@ -50,6 +51,7 @@ import {
   HarnessWorkflowMessageHandler,
 } from '@ptah-extension/harness-builder';
 import { MarketplaceHubComponent } from '@ptah-extension/marketplace';
+import { TribunalPageComponent } from '@ptah-extension/tribunal-panel';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
 class WebviewErrorHandler implements ErrorHandler {
@@ -114,6 +116,7 @@ export const appConfig: ApplicationConfig = {
     },
     { provide: SETUP_HUB_COMPONENT, useValue: SetupHubComponent },
     { provide: MARKETPLACE_COMPONENT, useValue: MarketplaceHubComponent },
+    { provide: TRIBUNAL_COMPONENT, useValue: TribunalPageComponent },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
     ...provideEditorInternalState(),

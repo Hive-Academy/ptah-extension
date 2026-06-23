@@ -102,6 +102,7 @@ import type { RenderSegment } from '@ptah-extension/chat-ui';
                   class="block flex-1 min-h-0 overflow-hidden"
                   [agentId]="agent().agentId"
                   [streamEvents]="agent().streamEvents"
+                  [streamRevision]="agent().streamRevision"
                   [isStreaming]="agent().status === 'running'"
                   [scrollTrigger]="scrollTrigger()"
                 />

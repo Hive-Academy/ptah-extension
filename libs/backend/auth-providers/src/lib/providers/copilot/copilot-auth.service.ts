@@ -22,6 +22,7 @@ import { injectable, inject } from 'tsyringe';
 import axios from 'axios';
 import { join } from 'node:path';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { ProviderModelInfo } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IPlatformInfo,
@@ -483,6 +484,42 @@ export class CopilotAuthService implements ICopilotAuthService {
       'Copilot-Integration-Id': 'vscode-chat',
       'x-initiator': 'user',
     };
+  }
+
+  /**
+   * List models available to the authenticated Copilot account via the
+   * provider's /models endpoint. Returns an empty array when not
+   * authenticated or on any error.
+   */
+  async listModels(): Promise<ProviderModelInfo[]> {
+    if (!this.authState) return [];
+    try {
+      const endpoint = `${this.authState.apiEndpoint}/models`;
+      const response = await fetch(endpoint, {
+        headers: { ...(await this.getHeaders()) },
+      });
+      if (!response.ok) return [];
+      const data = (await response.json()) as {
+        data?: Array<{
+          id: string;
+          name?: string;
+          capabilities?: { supports?: { tool_calls?: boolean } };
+          context_window?: number;
+        }>;
+      };
+      const models = data.data ?? [];
+      return models
+        .filter((m) => m.capabilities?.supports?.tool_calls !== false)
+        .map((m) => ({
+          id: m.id,
+          name: m.name ?? m.id,
+          description: '',
+          contextLength: m.context_window ?? 0,
+          supportsToolUse: true,
+        }));
+    } catch {
+      return [];
+    }
   }
 
   /**

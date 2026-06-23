@@ -31,12 +31,12 @@ export class ModelSettings extends BaseSettingsRepository {
     const resolveKey = () => {
       const authMethod =
         (resolver
-          ? resolver.read<string>(AUTH_METHOD_DEF.key)
+          ? resolver.read<string>(AUTH_METHOD_DEF.key, true)
           : store.readGlobal<string>(AUTH_METHOD_DEF.key)) ??
         AUTH_METHOD_DEF.default;
       const providerId =
         (resolver
-          ? resolver.read<string>(ANTHROPIC_PROVIDER_ID_DEF.key)
+          ? resolver.read<string>(ANTHROPIC_PROVIDER_ID_DEF.key, true)
           : store.readGlobal<string>(ANTHROPIC_PROVIDER_ID_DEF.key)) ?? '';
       const authKey = resolveAuthProviderKey(authMethod, providerId);
       return `provider.${authKey}.selectedModel`;
