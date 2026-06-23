@@ -1125,6 +1125,24 @@ export class ChatViewComponent {
     if (!dialogResult.confirmed) return;
     const deleteOriginal = dialogResult.checkboxes['deleteOriginal'] === true;
 
+    // Resolve the originating tab BEFORE any irreversible operation (file
+    // rollback + fork). The rewind does a transparent in-place swap of the
+    // tile's session, so if there is no tile to swap into we must abort *now* —
+    // before reverting files or creating a fork on disk. Aborting after the
+    // fork would leave an orphaned session the user can only see after a reload
+    // (the wrong-session-rewind bug). `sessionId` is stable across the dialog
+    // await, so this lookup is the same one the post-fork swap relies on.
+    const originTab = this._tabManager.findTabBySessionId(sessionId);
+    if (!originTab) {
+      this.showActionError(
+        'Rewind failed: originating tab could not be found (it may have been closed).',
+      );
+      return;
+    }
+    const originName = originTab.name ?? 'Session';
+    const replacementTitle = `${originName} (rewind)`;
+    const targetTabId = originTab.id;
+
     let rollbackSuffix: string | null = null;
     if (checkpointsLost) {
       rollbackSuffix = cannotRewind
@@ -1179,21 +1197,9 @@ export class ChatViewComponent {
     // keep the SAME tab/canvas tile and swap the session it points at, instead
     // of opening a second tab/tile and leaving the original behind. Then load
     // the truncated transcript and activate the forked session so it is live
-    // and ready for the next turn.
-    const originTab = this._tabManager.findTabBySessionId(sessionId);
-    if (!originTab) {
-      // No originating tab means we cannot do a transparent in-place swap.
-      // Abort rather than silently rewiring whatever tab happens to be active
-      // (which would orphan the original session's tab and bind the fork to
-      // the wrong session — the wrong-session-rewind bug).
-      this.showActionError(
-        'Rewind failed: originating tab could not be found (it may have been closed).',
-      );
-      return;
-    }
-    const originName = originTab.name ?? 'Session';
-    const replacementTitle = `${originName} (rewind)`;
-    const targetTabId = originTab.id;
+    // and ready for the next turn. (`originTab`/`targetTabId`/`replacementTitle`
+    // were resolved before the fork, so a missing tile already aborted without
+    // orphaning a fork.)
 
     // Optimistically surface the fork in the sidebar immediately. The backend
     // broadcasts `session:metadataChanged` (created) after the fork, but the

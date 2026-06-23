@@ -121,12 +121,26 @@ function makeHarness(
     sessionId?: string;
     sessionIsActive?: boolean;
     confirmResult?: boolean;
+    /**
+     * When true, wire the REAL `ActionBannerService` instead of the jest stub
+     * so the per-tile banner filtering computeds (`actionInfo`/`actionWarning`/
+     * `actionError`) are exercised end-to-end.
+     */
+    useRealBanner?: boolean;
+    /**
+     * Tile id for `SESSION_CONTEXT`. When provided, the component resolves its
+     * own tab id to this value (canvas/tile mode) instead of the global active
+     * tab — the scenario where a banner from another tile must NOT leak in.
+     */
+    sessionContextTabId?: string;
   } = {},
 ) {
   const {
     sessionId = 'session-uuid-123',
     sessionIsActive = true,
     confirmResult = true,
+    useRealBanner = false,
+    sessionContextTabId,
   } = opts;
 
   // Writable signals for reactive control from tests
@@ -229,6 +243,7 @@ function makeHarness(
 
   const showInfoMock = jest.fn();
   const showWarningMock = jest.fn();
+  const realActionBanner = new ActionBannerService();
   const actionBannerStub = {
     banner: signal<unknown>(null).asReadonly(),
     error: signal<string | null>(null).asReadonly(),
@@ -238,6 +253,9 @@ function makeHarness(
     showInfo: showInfoMock,
     showWarning: showWarningMock,
   } as unknown as ActionBannerService;
+  const actionBannerProvider: ActionBannerService = useRealBanner
+    ? realActionBanner
+    : actionBannerStub;
 
   const compactionLifecycleStub = {
     suppressAnimateOnce: suppressAnimateOnceSig.asReadonly(),
@@ -288,7 +306,7 @@ function makeHarness(
       { provide: VSCodeService, useValue: vscodeStub },
       { provide: ClaudeRpcService, useValue: rpcStub },
       { provide: ConfirmationDialogService, useValue: confirmDialogStub },
-      { provide: ActionBannerService, useValue: actionBannerStub },
+      { provide: ActionBannerService, useValue: actionBannerProvider },
       { provide: TabManagerService, useValue: tabManagerStub },
       {
         provide: CompactionLifecycleService,
@@ -301,7 +319,13 @@ function makeHarness(
       { provide: ConversationRegistry, useValue: conversationRegistryStub },
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
-      { provide: SESSION_CONTEXT, useValue: null },
+      {
+        provide: SESSION_CONTEXT,
+        useValue:
+          sessionContextTabId === undefined
+            ? null
+            : signal<string | null>(sessionContextTabId).asReadonly(),
+      },
     ],
   });
 
@@ -331,6 +355,7 @@ function makeHarness(
     showErrorMock,
     showInfoMock,
     showWarningMock,
+    realActionBanner,
     sessionIsActiveSig,
     sessionIdSig,
     activeTabIdSig,
@@ -867,10 +892,10 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     await h.component.onRewindRequested('msg-no-origin-tab');
 
-    // forkSession runs before the origin-tab check, so it was called; but the
-    // in-place swap is aborted — the active tab is NOT silently rewired to
-    // the fork (the wrong-session-rewind regression).
-    expect(h.forkSessionMock).toHaveBeenCalledTimes(1);
+    // The origin-tab check now runs BEFORE forkSession, so we abort without
+    // creating an orphaned fork on disk. The active tab is NOT silently
+    // rewired to the fork (the wrong-session-rewind regression).
+    expect(h.forkSessionMock).not.toHaveBeenCalled();
     expect(h.rebindTabSessionMock).not.toHaveBeenCalled();
     expect(h.switchSessionMock).not.toHaveBeenCalled();
     expect(h.upsertSessionSummaryMock).not.toHaveBeenCalled();
