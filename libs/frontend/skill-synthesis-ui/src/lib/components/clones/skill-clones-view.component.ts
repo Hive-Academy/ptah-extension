@@ -149,7 +149,17 @@ interface ClonesToast {
                   </td>
                   <td class="text-right tabular-nums">{{ c.historyCount }}</td>
                   <td>
-                    <div class="flex justify-end gap-1">
+                    <div class="flex items-center justify-end gap-2">
+                      @if (enhanceHint(c); as hint) {
+                        <span
+                          class="text-xs tabular-nums"
+                          [class.text-success]="hint === 'ready'"
+                          [class.text-base-content/50]="hint !== 'ready'"
+                          [title]="enhanceHintTitle(c)"
+                          data-testid="clones-enhance-hint"
+                          >{{ hint }}</span
+                        >
+                      }
                       <button
                         type="button"
                         class="btn btn-ghost btn-xs transition-colors duration-150"
@@ -410,6 +420,45 @@ export class SkillClonesViewComponent implements OnInit {
   protected formatSuccess(c: CloneSummary): string {
     if (c.invocationCount <= 0 || !Number.isFinite(c.successRate)) return '—';
     return `${Math.round(c.successRate * 100)}%`;
+  }
+
+  /**
+   * Short auto-enhancement eligibility tag: invocation progress toward the
+   * threshold, remaining cooldown, or 'ready'. The manual "Enhance now" button
+   * works regardless of this state.
+   */
+  protected enhanceHint(c: CloneSummary): string {
+    if (c.invocationCount < c.enhanceMinInvocations) {
+      return `${c.invocationCount}/${c.enhanceMinInvocations} runs`;
+    }
+    if (
+      c.enhanceCooldownUntil !== null &&
+      Date.now() < c.enhanceCooldownUntil
+    ) {
+      return `cooldown ${this.formatDuration(c.enhanceCooldownUntil - Date.now())}`;
+    }
+    return 'ready';
+  }
+
+  protected enhanceHintTitle(c: CloneSummary): string {
+    if (c.invocationCount < c.enhanceMinInvocations) {
+      return `Auto-enhances after ${c.enhanceMinInvocations} recorded runs (has ${c.invocationCount}). "Enhance now" runs it manually.`;
+    }
+    if (
+      c.enhanceCooldownUntil !== null &&
+      Date.now() < c.enhanceCooldownUntil
+    ) {
+      return 'Recently enhanced — auto-enhance is on cooldown. "Enhance now" still works.';
+    }
+    return 'Eligible for auto-enhancement on the next Curator pass.';
+  }
+
+  private formatDuration(ms: number): string {
+    const minutes = Math.max(1, Math.floor(ms / 60_000));
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    return `${Math.floor(hours / 24)}d`;
   }
 
   protected formatRelative(epochMs: number | null): string {

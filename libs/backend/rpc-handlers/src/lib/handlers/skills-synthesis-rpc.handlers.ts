@@ -27,6 +27,8 @@ import {
 import {
   SKILL_SYNTHESIS_TOKENS,
   USER_LAYER_MIRROR_SERVICE_TOKEN,
+  MIN_INVOCATIONS_TO_ENHANCE,
+  ENHANCE_COOLDOWN_MS,
   flattenSkillTriggers,
   readSkillTriggers,
   type SkillCandidateStore,
@@ -1121,6 +1123,11 @@ export class SkillsSynthesisRpcHandlers {
       lastEnhancedAt: row.lastEnhancedAt,
       historyCount,
       pendingSourceHash: row.pendingSourceHash,
+      enhanceMinInvocations: MIN_INVOCATIONS_TO_ENHANCE,
+      enhanceCooldownUntil:
+        row.lastEnhancedAt !== null
+          ? row.lastEnhancedAt + ENHANCE_COOLDOWN_MS
+          : null,
     };
   }
 

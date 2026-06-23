@@ -30,6 +30,8 @@ function clone(overrides: Partial<CloneSummary> = {}): CloneSummary {
     lastEnhancedAt: null,
     historyCount: 0,
     pendingSourceHash: null,
+    enhanceMinInvocations: 5,
+    enhanceCooldownUntil: null,
     ...overrides,
   };
 }

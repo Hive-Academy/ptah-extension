@@ -641,6 +641,8 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       successRate: 0.7,
       historyCount: 2,
       lastEnhancedAt: 1700000000000,
+      enhanceMinInvocations: 5,
+      enhanceCooldownUntil: 1700000000000 + 24 * 60 * 60 * 1000,
     });
   });
 

@@ -315,6 +315,23 @@ export class SkillTriggerService {
       return;
     }
 
+    if (payload.toolName === 'Task') {
+      if (this.readSkillInvocationTelemetryEnabled()) {
+        const slug = this.extractSubagentType(payload.toolInput);
+        if (slug) {
+          void this.recordInvocation({
+            slug,
+            sessionId: payload.sessionId,
+            workspaceRoot: payload.workspaceRoot,
+            succeeded: payload.success,
+            invokedAt: payload.timestamp,
+            source: 'subagent',
+          });
+        }
+      }
+      return;
+    }
+
     if (EDIT_TOOL_NAMES.has(payload.toolName)) {
       let state = this.editTestStates.get(payload.sessionId);
       if (!state || now - state.windowStartAt > EDIT_WINDOW_MS) {
@@ -398,7 +415,7 @@ export class SkillTriggerService {
     workspaceRoot: string;
     succeeded: boolean;
     invokedAt: number;
-    source: 'tool-use' | 'prompt-expansion';
+    source: 'tool-use' | 'prompt-expansion' | 'subagent';
   }): Promise<void> {
     try {
       let contextId: string | null = null;
@@ -445,6 +462,20 @@ export class SkillTriggerService {
     if (typeof command !== 'string') return null;
     const first = command.trim().split(/\s+/)[0] ?? '';
     const slug = first.startsWith('/') ? first.slice(1) : first;
+    return slug.length > 0 ? slug : null;
+  }
+
+  private extractSubagentType(toolInput: unknown): string | null {
+    if (
+      typeof toolInput !== 'object' ||
+      toolInput === null ||
+      !('subagent_type' in toolInput)
+    ) {
+      return null;
+    }
+    const raw = (toolInput as { subagent_type?: unknown }).subagent_type;
+    if (typeof raw !== 'string') return null;
+    const slug = raw.trim();
     return slug.length > 0 ? slug : null;
   }
 
