@@ -13,7 +13,7 @@ export interface RecordSkillEventInput {
   readonly contextId: string | null;
   readonly succeeded: boolean;
   readonly invokedAt: number;
-  readonly source: 'tool-use' | 'prompt-expansion';
+  readonly source: 'tool-use' | 'prompt-expansion' | 'subagent';
 }
 
 @injectable()

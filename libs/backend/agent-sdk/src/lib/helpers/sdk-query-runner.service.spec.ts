@@ -246,48 +246,8 @@ describe('SdkQueryRunner', () => {
     });
   });
 
-  describe('invokeWithLoadedQuery — warm-query branching', () => {
-    it('uses the warm queryFn and reports usedWarmQuery=true on happy path', () => {
-      const h = makeRunner();
-      const warmQuery = createFakeQuery('warm');
-      const warmFn = jest.fn().mockReturnValue(warmQuery);
-
-      const result = h.runner.invokeWithLoadedQuery(
-        h.queryFn as unknown as QueryFunction,
-        'prompt-x',
-        {} as SdkQueryOptions,
-        { close: jest.fn(), query: warmFn },
-      );
-
-      expect(result.usedWarmQuery).toBe(true);
-      expect(result.sdkQuery).toBe(warmQuery);
-      expect(warmFn).toHaveBeenCalledWith('prompt-x');
-      expect(h.queryFn).not.toHaveBeenCalled();
-    });
-
-    it('falls back to fresh queryFn when warm.query() throws and closes the warm handle', () => {
-      const h = makeRunner();
-      const freshQuery = createFakeQuery('fresh');
-      h.queryFn.mockReturnValueOnce(freshQuery);
-      const warmClose = jest.fn();
-      const warmFn = jest.fn(() => {
-        throw new Error('warm boom');
-      });
-
-      const result = h.runner.invokeWithLoadedQuery(
-        h.queryFn as unknown as QueryFunction,
-        'prompt-y',
-        {} as SdkQueryOptions,
-        { close: warmClose, query: warmFn },
-      );
-
-      expect(result.usedWarmQuery).toBe(false);
-      expect(result.sdkQuery).toBe(freshQuery);
-      expect(warmClose).toHaveBeenCalledTimes(1);
-      expect(h.queryFn).toHaveBeenCalledTimes(1);
-    });
-
-    it('uses fresh queryFn when no warm handle is supplied', () => {
+  describe('invokeWithLoadedQuery', () => {
+    it('invokes the loaded queryFn with the prompt + options and returns its query', () => {
       const h = makeRunner();
       const freshQuery = createFakeQuery('fresh');
       h.queryFn.mockReturnValueOnce(freshQuery);
@@ -296,30 +256,9 @@ describe('SdkQueryRunner', () => {
         h.queryFn as unknown as QueryFunction,
         'prompt-z',
         {} as SdkQueryOptions,
-        null,
       );
 
-      expect(result.usedWarmQuery).toBe(false);
       expect(result.sdkQuery).toBe(freshQuery);
-      expect(h.queryFn).toHaveBeenCalledTimes(1);
-    });
-
-    it('ignores a warm handle whose query field is not a function (treats as fresh)', () => {
-      const h = makeRunner();
-      const freshQuery = createFakeQuery('fresh');
-      h.queryFn.mockReturnValueOnce(freshQuery);
-      const warmClose = jest.fn();
-
-      const result = h.runner.invokeWithLoadedQuery(
-        h.queryFn as unknown as QueryFunction,
-        'prompt-w',
-        {} as SdkQueryOptions,
-        { close: warmClose, query: undefined },
-      );
-
-      expect(result.usedWarmQuery).toBe(false);
-      expect(result.sdkQuery).toBe(freshQuery);
-      expect(warmClose).not.toHaveBeenCalled();
       expect(h.queryFn).toHaveBeenCalledTimes(1);
     });
   });
@@ -364,7 +303,7 @@ describe('SdkQueryRunner', () => {
   });
 
   describe('runInteractive — delegates to invokeWithLoadedQuery', () => {
-    it('loads queryFn from moduleLoader then routes through warm-fallback logic', async () => {
+    it('loads queryFn from moduleLoader then invokes it', async () => {
       const h = makeRunner();
       const freshQuery = createFakeQuery('fresh');
       h.queryFn.mockReturnValueOnce(freshQuery);
@@ -373,11 +312,9 @@ describe('SdkQueryRunner', () => {
         mode: 'interactive',
         prompt: 'interactive-prompt',
         options: {} as SdkQueryOptions,
-        warmQuery: null,
       });
 
       expect(h.moduleLoader.getQueryFunction).toHaveBeenCalledTimes(1);
-      expect(result.usedWarmQuery).toBe(false);
       expect(result.sdkQuery).toBe(freshQuery);
     });
   });

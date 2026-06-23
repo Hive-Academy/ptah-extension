@@ -1185,6 +1185,100 @@ describe('SkillTriggerService — Skill invocation telemetry', () => {
     await flush();
     expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
   });
+
+  // Task branch (subagent invocation recording) — added for feature coverage
+  it('Task tool with subagent_type records slug with source=subagent', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Task',
+        toolInput: { subagent_type: 'senior-tester' },
+        success: true,
+        timestamp: 3000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).toHaveBeenCalledTimes(1);
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: 'senior-tester',
+        sessionId: 's1',
+        succeeded: true,
+        invokedAt: 3000,
+        source: 'subagent',
+      }),
+    );
+  });
+
+  it('Task tool with missing subagent_type does not record', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Task',
+        toolInput: { description: 'do something' },
+        timestamp: 3000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('Task tool with blank subagent_type does not record', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Task',
+        toolInput: { subagent_type: '   ' },
+        timestamp: 3000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('Task tool does not record when telemetry is disabled', async () => {
+    const { service, postToolUse, recorder } = buildService({
+      workspace: makeWorkspace({
+        'skillSynthesis.triggers.skillInvocationTelemetry.enabled': false,
+      }),
+    });
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Task',
+        toolInput: { subagent_type: 'senior-tester' },
+        timestamp: 3000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('Task tool does not proceed to edit-then-test FSM', async () => {
+    // After the Task branch returns early, an immediately following Bash test
+    // command should NOT trigger analyzeSession (edit state not accumulated).
+    const { service, postToolUse, synthesis } = buildService();
+    service.start();
+    for (let i = 0; i < 3; i++) {
+      postToolUse.fire(
+        postToolUsePayload({ toolName: 'Edit', timestamp: 1000 + i }),
+      );
+    }
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Task',
+        toolInput: { subagent_type: 'senior-tester' },
+        timestamp: 2000,
+      }),
+    );
+    // Task fires its recorder path and returns — edit state is preserved;
+    // no analyzeSession should fire here (Bash test not yet seen).
+    await flush();
+    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+  });
 });
 
 describe('SkillTriggerService — lifecycle and rate-limit windows', () => {

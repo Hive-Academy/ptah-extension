@@ -178,11 +178,6 @@ export {
   type SkillJunctionResult,
 } from './skill-junction.service';
 export {
-  SdkWarmQueryManager,
-  type WarmQueryHandle,
-  type WarmPrewarmFingerprint,
-} from './sdk-warm-query-manager';
-export {
   SessionForkService,
   type ForkSessionParams,
   type RewindFilesParams,

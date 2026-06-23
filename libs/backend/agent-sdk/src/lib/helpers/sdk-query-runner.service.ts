@@ -11,10 +11,9 @@
  *                   compaction hooks wired, identity prompt + PTAH_CORE
  *                   appended for premium. Used by `InternalQueryService`.
  *   - `interactive` â€” caller pre-builds `Options` via `SdkQueryOptionsBuilder`
- *                   and hands them in along with the iterable/string prompt
- *                   plus the optional `warmQuery` handle. The runner only owns
- *                   `moduleLoader.getQueryFunction()` + `queryFn(...)` +
- *                   warm-query short-circuit. Session-registry / streamInput /
+ *                   and hands them in along with the iterable/string prompt.
+ *                   The runner only owns `moduleLoader.getQueryFunction()` +
+ *                   `queryFn(...)`. Session-registry / streamInput /
  *                   slash-command orchestration stays on `SessionQueryExecutor`.
  *
  * "Enhanced prompts never resolve here" invariant preserved: `enhancedPromptsContent`
@@ -96,12 +95,10 @@ export interface InteractiveRunInput {
   mode: 'interactive';
   prompt: string | AsyncIterable<SDKUserMessage>;
   options: SdkQueryOptions;
-  warmQuery?: { close: () => void; query?: unknown } | null;
 }
 
 export interface InteractiveRunResult {
   sdkQuery: Query;
-  usedWarmQuery: boolean;
 }
 
 @injectable()
@@ -219,69 +216,16 @@ export class SdkQueryRunner {
     input: InteractiveRunInput,
   ): Promise<InteractiveRunResult> {
     const queryFn = await this.moduleLoader.getQueryFunction();
-    return this.invokeQueryWithWarmFallback(
-      queryFn,
-      input.prompt,
-      input.options,
-      input.warmQuery ?? null,
-    );
+    return this.invokeWithLoadedQuery(queryFn, input.prompt, input.options);
   }
 
   invokeWithLoadedQuery(
     queryFn: QueryFunction,
     prompt: string | AsyncIterable<SDKUserMessage>,
     options: SdkQueryOptions,
-    warmQuery: { close: () => void; query?: unknown } | null,
   ): InteractiveRunResult {
-    return this.invokeQueryWithWarmFallback(
-      queryFn,
-      prompt,
-      options,
-      warmQuery,
-    );
-  }
-
-  private invokeQueryWithWarmFallback(
-    queryFn: QueryFunction,
-    prompt: string | AsyncIterable<SDKUserMessage>,
-    options: SdkQueryOptions,
-    warmQuery: { close: () => void; query?: unknown } | null,
-  ): InteractiveRunResult {
-    let sdkQuery: Query;
-    let usedWarmQuery = false;
-
-    if (
-      warmQuery &&
-      typeof (warmQuery as { query?: unknown }).query === 'function'
-    ) {
-      try {
-        const warmQueryFn = (
-          warmQuery as unknown as {
-            query: (prompt: string | AsyncIterable<SDKUserMessage>) => Query;
-          }
-        ).query;
-        sdkQuery = warmQueryFn(prompt);
-        usedWarmQuery = true;
-      } catch (warmErr) {
-        this.logger.warn(
-          `${SERVICE_TAG} warmQuery.query() threw â€” falling back to fresh query`,
-          warmErr instanceof Error ? warmErr : new Error(String(warmErr)),
-        );
-
-        warmQuery.close();
-        sdkQuery = queryFn({
-          prompt,
-          options,
-        });
-      }
-    } else {
-      sdkQuery = queryFn({
-        prompt,
-        options,
-      });
-    }
-
-    return { sdkQuery, usedWarmQuery };
+    const sdkQuery = queryFn({ prompt, options });
+    return { sdkQuery };
   }
 
   private verifyHealth(): void {

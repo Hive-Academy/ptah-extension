@@ -92,6 +92,13 @@ export type {
   OpenRouterModel,
 } from './lib/providers/openrouter';
 export {
+  SakanaAuthService,
+  SakanaTranslationProxy,
+  createSakanaProxyForKey,
+  SAKANA_PROXY_TOKEN_PLACEHOLDER,
+} from './lib/providers/sakana';
+export type { ISakanaAuthService } from './lib/providers/sakana';
+export {
   LmStudioTranslationProxy,
   OllamaModelDiscoveryService,
   OLLAMA_PROVIDER_ENTRY,

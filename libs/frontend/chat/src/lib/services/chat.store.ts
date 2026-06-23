@@ -11,6 +11,7 @@ import {
 import type {
   AskUserQuestionRequest,
   AskUserQuestionResponse,
+  ChatSessionSummary,
   SdkCompactionCompletePayload,
   SdkSubagentEndedPayload,
   SdkTurnEndedPayload,
@@ -31,7 +32,6 @@ import { MessageDispatchService } from './chat-store/message-dispatch.service';
 import { SessionStatsAggregatorService } from './chat-store/session-stats-aggregator.service';
 import { ChatLifecycleService } from './chat-store/chat-lifecycle.service';
 import { TurnEndHandlerService } from './chat-store/turn-end-handler.service';
-import { MessageSenderService } from './message-sender.service';
 import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
 
 /**
@@ -62,7 +62,6 @@ export class ChatStore {
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly conversation = inject(ConversationService);
   private readonly permissionHandler = inject(PermissionHandlerService);
-  private readonly messageSender = inject(MessageSenderService);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
   private readonly compaction = inject(CompactionLifecycleService);
   private readonly messageDispatch = inject(MessageDispatchService);
@@ -194,11 +193,14 @@ export class ChatStore {
     return this.sessionLoader.updateSessionName(sessionId, name);
   }
 
-  async sendMessage(
-    content: string,
-    options?: SendMessageOptions,
-  ): Promise<void> {
-    return this.messageSender.send(content, options);
+  /**
+   * Insert or replace a session summary in the sidebar list without an RPC
+   * round-trip. Used by the rewind flow to surface the freshly-forked session
+   * immediately, winning the race against the debounced
+   * `session:metadataChanged` → `loadSessions()` broadcast.
+   */
+  upsertSessionSummary(summary: ChatSessionSummary): void {
+    return this.sessionLoader.upsertSessionSummary(summary);
   }
 
   async sendOrQueueMessage(
