@@ -1,3 +1,11 @@
+// VEC-OPTIONAL SPLIT (vec-hardening): `sql` holds the BASE relational + FTS5
+// schema (no sqlite-vec dependency); `vecSql` holds only the vec0 virtual
+// table. Healthy machines already RECORDED version 2 in schema_migrations and
+// will NOT re-run `sql` (zero drift) — they pick up `vecSql` via the runner's
+// vec catch-up pass. Vec-less machines now get the base tables they previously
+// missed. This is the sanctioned exception to the append-only rule: the
+// original whole-migration `requiresVec` coupling was a defect (Sentry
+// NODE-NESTJS-46/47). Static SQL only — no `${}` interpolation.
 export const sql = `
 -- 0002_memory.sql — Memory Curator (Letta tiered)
 -- Tier values: 'core' | 'recall' | 'archival'
@@ -52,13 +60,15 @@ CREATE TRIGGER memory_chunks_au AFTER UPDATE ON memory_chunks BEGIN
   INSERT INTO memory_chunks_fts(memory_chunks_fts, rowid, text) VALUES('delete', old.rowid, old.text);
   INSERT INTO memory_chunks_fts(rowid, text) VALUES (new.rowid, new.text);
 END;
+`;
 
--- Vector index (sqlite-vec). 384 dims = bge-small-en-v1.5.
+// Vector index (sqlite-vec). 384 dims = bge-small-en-v1.5.
+// No triggers - population is explicit by the indexer (it must run the
+// embedder before insert; firing an embed() inside a SQLite trigger is
+// impossible in the worker-thread architecture).
+export const vecSql = `
 CREATE VIRTUAL TABLE memory_chunks_vec USING vec0(
   rowid INTEGER PRIMARY KEY,
   embedding FLOAT[384]
 );
--- No triggers - population is explicit by the indexer (it must run the
--- embedder before insert; firing an embed() inside a SQLite trigger is
--- impossible in the worker-thread architecture).
 `;

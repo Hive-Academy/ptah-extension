@@ -34,6 +34,9 @@ import {
 } from '@ptah-extension/chat-state';
 import {
   AgentMonitorStore,
+  BackgroundAgentStore,
+  BatchedUpdateService,
+  ExecutionTreeBuilderService,
   PermissionHandlerService,
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
@@ -159,6 +162,33 @@ function makeTabManagerMock(
  * to `decisionPulse` via effect — so the mock exposes those methods plus
  * a writable signal for decision broadcasts.
  */
+function makeAgentMonitorStoreMock() {
+  return {
+    clearSessionAgents: jest.fn(),
+    forceClearSessionAgents: jest.fn(),
+  };
+}
+
+function makeBackgroundAgentStoreMock() {
+  return {
+    clearSession: jest.fn(),
+  };
+}
+
+function makeBatchedUpdateMock() {
+  return {
+    clearPendingUpdates: jest.fn(),
+  };
+}
+
+function makeTreeBuilderMock() {
+  return {
+    clearForTab: jest.fn(),
+    clearForSession: jest.fn(),
+    clearCache: jest.fn(),
+  };
+}
+
 function makePermissionHandlerMock() {
   const targets = new Map<string, readonly string[]>();
   const cancelled: { promptId: string; exceptTabId: string | null }[] = [];
@@ -304,9 +334,10 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
   let streamingHandler: jest.Mocked<
     Pick<StreamingHandlerService, 'cleanupSessionDeduplication'>
   >;
-  let agentMonitorStore: jest.Mocked<
-    Pick<AgentMonitorStore, 'clearSessionAgents'>
-  >;
+  let agentMonitorStore: ReturnType<typeof makeAgentMonitorStoreMock>;
+  let backgroundAgentStore: ReturnType<typeof makeBackgroundAgentStoreMock>;
+  let batchedUpdate: ReturnType<typeof makeBatchedUpdateMock>;
+  let treeBuilder: ReturnType<typeof makeTreeBuilderMock>;
   let permissionHandler: ReturnType<typeof makePermissionHandlerMock>;
 
   beforeEach(() => {
@@ -314,9 +345,10 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
     streamingHandler = {
       cleanupSessionDeduplication: jest.fn(),
     };
-    agentMonitorStore = {
-      clearSessionAgents: jest.fn(),
-    };
+    agentMonitorStore = makeAgentMonitorStoreMock();
+    backgroundAgentStore = makeBackgroundAgentStoreMock();
+    batchedUpdate = makeBatchedUpdateMock();
+    treeBuilder = makeTreeBuilderMock();
     permissionHandler = makePermissionHandlerMock();
 
     TestBed.configureTestingModule({
@@ -324,6 +356,9 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: StreamingHandlerService, useValue: streamingHandler },
         { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: BackgroundAgentStore, useValue: backgroundAgentStore },
+        { provide: BatchedUpdateService, useValue: batchedUpdate },
+        { provide: ExecutionTreeBuilderService, useValue: treeBuilder },
         { provide: PermissionHandlerService, useValue: permissionHandler },
       ],
     });
@@ -1004,16 +1039,20 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
   let streamingHandler: jest.Mocked<
     Pick<StreamingHandlerService, 'cleanupSessionDeduplication'>
   >;
-  let agentMonitorStore: jest.Mocked<
-    Pick<AgentMonitorStore, 'clearSessionAgents'>
-  >;
+  let agentMonitorStore: ReturnType<typeof makeAgentMonitorStoreMock>;
+  let backgroundAgentStore: ReturnType<typeof makeBackgroundAgentStoreMock>;
+  let batchedUpdate: ReturnType<typeof makeBatchedUpdateMock>;
+  let treeBuilder: ReturnType<typeof makeTreeBuilderMock>;
 
   function bootRouter(
     initialTabs: { id: string; claudeSessionId: string | null }[] = [],
   ) {
     tabManager = makeTabManagerMock(initialTabs);
     streamingHandler = { cleanupSessionDeduplication: jest.fn() };
-    agentMonitorStore = { clearSessionAgents: jest.fn() };
+    agentMonitorStore = makeAgentMonitorStoreMock();
+    backgroundAgentStore = makeBackgroundAgentStoreMock();
+    batchedUpdate = makeBatchedUpdateMock();
+    treeBuilder = makeTreeBuilderMock();
     const permissionHandler = makePermissionHandlerMock();
 
     TestBed.resetTestingModule();
@@ -1022,6 +1061,9 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: StreamingHandlerService, useValue: streamingHandler },
         { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: BackgroundAgentStore, useValue: backgroundAgentStore },
+        { provide: BatchedUpdateService, useValue: batchedUpdate },
+        { provide: ExecutionTreeBuilderService, useValue: treeBuilder },
         { provide: PermissionHandlerService, useValue: permissionHandler },
       ],
     });
@@ -1029,12 +1071,11 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
     const router = TestBed.inject(StreamRouter);
     registry = TestBed.inject(ConversationRegistry);
     binding = TestBed.inject(TabSessionBinding);
-    // Drain effects scheduled by the constructor.
     TestBed.tick();
     return router;
   }
 
-  it('close event with sessionId triggers cleanupSessionDeduplication AND clearSessionAgents', () => {
+  it('close event with sessionId triggers cleanupSessionDeduplication AND forceClearSessionAgents', () => {
     const router = bootRouter();
     const tab = newTabId();
     router.onTabCreated(tab, SESSION_A);
@@ -1049,8 +1090,16 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
     expect(streamingHandler.cleanupSessionDeduplication).toHaveBeenCalledWith(
       SESSION_A,
     );
-    expect(agentMonitorStore.clearSessionAgents).toHaveBeenCalledWith(
+    expect(agentMonitorStore.forceClearSessionAgents).toHaveBeenCalledWith(
       SESSION_A,
+    );
+    expect(backgroundAgentStore.clearSession).toHaveBeenCalledWith(SESSION_A);
+    expect(treeBuilder.clearForSession).toHaveBeenCalledWith(SESSION_A);
+    expect(treeBuilder.clearForTab).toHaveBeenCalledWith(
+      tab as unknown as string,
+    );
+    expect(batchedUpdate.clearPendingUpdates).toHaveBeenCalledWith(
+      tab as unknown as string,
     );
     expect(binding.conversationFor(tab)).toBeNull();
   });
@@ -1070,7 +1119,11 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
     expect(streamingHandler.cleanupSessionDeduplication).toHaveBeenCalledWith(
       SESSION_A,
     );
+    expect(agentMonitorStore.forceClearSessionAgents).not.toHaveBeenCalled();
     expect(agentMonitorStore.clearSessionAgents).not.toHaveBeenCalled();
+    expect(backgroundAgentStore.clearSession).not.toHaveBeenCalled();
+    expect(treeBuilder.clearForSession).not.toHaveBeenCalled();
+    expect(treeBuilder.clearForTab).not.toHaveBeenCalled();
     expect(binding.conversationFor(tab)).toBeNull();
   });
 
@@ -1087,7 +1140,12 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
     TestBed.tick();
 
     expect(streamingHandler.cleanupSessionDeduplication).not.toHaveBeenCalled();
-    expect(agentMonitorStore.clearSessionAgents).not.toHaveBeenCalled();
+    expect(agentMonitorStore.forceClearSessionAgents).not.toHaveBeenCalled();
+    expect(backgroundAgentStore.clearSession).not.toHaveBeenCalled();
+    expect(treeBuilder.clearForSession).not.toHaveBeenCalled();
+    expect(treeBuilder.clearForTab).toHaveBeenCalledWith(
+      tab as unknown as string,
+    );
     expect(binding.conversationFor(tab)).toBeNull();
   });
 
@@ -1145,7 +1203,10 @@ describe('StreamRouter (authoritative — bootstrap migration)', () => {
   ) {
     const tabManager = makeTabManagerMock(persisted);
     const streamingHandler = { cleanupSessionDeduplication: jest.fn() };
-    const agentMonitorStore = { clearSessionAgents: jest.fn() };
+    const agentMonitorStore = makeAgentMonitorStoreMock();
+    const backgroundAgentStore = makeBackgroundAgentStoreMock();
+    const batchedUpdate = makeBatchedUpdateMock();
+    const treeBuilder = makeTreeBuilderMock();
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -1153,6 +1214,9 @@ describe('StreamRouter (authoritative — bootstrap migration)', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: StreamingHandlerService, useValue: streamingHandler },
         { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: BackgroundAgentStore, useValue: backgroundAgentStore },
+        { provide: BatchedUpdateService, useValue: batchedUpdate },
+        { provide: ExecutionTreeBuilderService, useValue: treeBuilder },
       ],
     });
 
@@ -1234,15 +1298,19 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
   let streamingHandler: jest.Mocked<
     Pick<StreamingHandlerService, 'cleanupSessionDeduplication'>
   >;
-  let agentMonitorStore: jest.Mocked<
-    Pick<AgentMonitorStore, 'clearSessionAgents'>
-  >;
+  let agentMonitorStore: ReturnType<typeof makeAgentMonitorStoreMock>;
+  let backgroundAgentStore: ReturnType<typeof makeBackgroundAgentStoreMock>;
+  let batchedUpdate: ReturnType<typeof makeBatchedUpdateMock>;
+  let treeBuilder: ReturnType<typeof makeTreeBuilderMock>;
   let permissionHandler: ReturnType<typeof makePermissionHandlerMock>;
 
   beforeEach(() => {
     tabManager = makeTabManagerMock();
     streamingHandler = { cleanupSessionDeduplication: jest.fn() };
-    agentMonitorStore = { clearSessionAgents: jest.fn() };
+    agentMonitorStore = makeAgentMonitorStoreMock();
+    backgroundAgentStore = makeBackgroundAgentStoreMock();
+    batchedUpdate = makeBatchedUpdateMock();
+    treeBuilder = makeTreeBuilderMock();
     permissionHandler = makePermissionHandlerMock();
 
     TestBed.resetTestingModule();
@@ -1251,6 +1319,9 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: StreamingHandlerService, useValue: streamingHandler },
         { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: BackgroundAgentStore, useValue: backgroundAgentStore },
+        { provide: BatchedUpdateService, useValue: batchedUpdate },
+        { provide: ExecutionTreeBuilderService, useValue: treeBuilder },
         { provide: PermissionHandlerService, useValue: permissionHandler },
       ],
     });
@@ -1454,7 +1525,7 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
       expect(streamingHandler.cleanupSessionDeduplication).toHaveBeenCalledWith(
         SESSION_A,
       );
-      expect(agentMonitorStore.clearSessionAgents).toHaveBeenCalledWith(
+      expect(agentMonitorStore.forceClearSessionAgents).toHaveBeenCalledWith(
         SESSION_A,
       );
     });
@@ -1795,6 +1866,95 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
       expect(targets).toEqual([]);
       expect(warnSpy).not.toHaveBeenCalled();
       expect(permissionHandler.handlePermissionResponse).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+  });
+
+  // ---- interactive surface routing ---------------------------------------
+
+  describe('interactive surface routing (claimed workflow session)', () => {
+    function makeInteractiveSurfaceProbe(): {
+      surfaceId: SurfaceId;
+      state: StreamingState;
+      setState: jest.Mock;
+      getState: jest.Mock;
+    } {
+      const probe = {
+        surfaceId: SurfaceId.create(),
+        state: createEmptyStreamingState(),
+        getState: jest.fn<StreamingState, []>(),
+        setState: jest.fn<void, [StreamingState]>(),
+      };
+      probe.getState.mockImplementation(() => probe.state);
+      probe.setState.mockImplementation((next) => {
+        probe.state = next;
+      });
+      surfaceRegistry.register(
+        probe.surfaceId,
+        probe.getState,
+        probe.setState,
+        { interactive: true },
+      );
+      return probe;
+    }
+
+    it('attaches surface targets and SKIPS auto-deny when the bound surface is interactive', () => {
+      const probe = makeInteractiveSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const targets = router.routePermissionPrompt(
+        makePermissionRequest({ id: 'perm-interactive-1' }),
+      );
+
+      expect(targets).toEqual([]);
+      expect(permissionHandler.attachPromptTargets).toHaveBeenCalledWith(
+        'perm-interactive-1',
+        [probe.surfaceId],
+      );
+      expect(permissionHandler.handlePermissionResponse).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        'prompt.received.no-tab-surface-only',
+        expect.anything(),
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('attaches question surface targets and SKIPS auto-answer when interactive', () => {
+      const probe = makeInteractiveSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      router.routeQuestionPrompt(
+        makeQuestion({
+          id: 'q-interactive-1',
+          sessionId: SESSION_A as unknown as string,
+        }),
+      );
+
+      expect(permissionHandler.attachQuestionTargets).toHaveBeenCalledWith(
+        'q-interactive-1',
+        [probe.surfaceId],
+      );
+      expect(permissionHandler.handleQuestionResponse).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('non-interactive surface keeps auto-deny behavior unchanged', () => {
+      const probe = makeSurfaceProbe();
+      router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      router.routePermissionPrompt(
+        makePermissionRequest({ id: 'perm-noninteractive-1' }),
+      );
+
+      expect(permissionHandler.attachPromptTargets).not.toHaveBeenCalled();
+      expect(permissionHandler.handlePermissionResponse).toHaveBeenCalledWith({
+        id: 'perm-noninteractive-1',
+        decision: 'deny',
+        reason: expect.stringContaining('auto-deny'),
+      });
       warnSpy.mockRestore();
     });
   });

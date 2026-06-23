@@ -1,0 +1,27 @@
+{
+  "name": "@ptah-extension/marketplace",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/frontend/marketplace/src",
+  "prefix": "ptah",
+  "projectType": "library",
+  "tags": ["scope:webview", "type:feature"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/frontend/marketplace/jest.config.ts",
+        "tsConfig": "libs/frontend/marketplace/tsconfig.spec.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ngc --noEmit --project libs/frontend/marketplace/tsconfig.lib.json"
+      }
+    }
+  }
+}

@@ -12,7 +12,13 @@
  */
 
 import { Injectable, inject, APP_INITIALIZER } from '@angular/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { MESSAGE_HANDLERS, MessageHandler } from './message-router.types';
+
+interface BatchedStreamEvent {
+  readonly type: string;
+  readonly payload?: unknown;
+}
 
 @Injectable()
 export class MessageRouterService {
@@ -49,13 +55,34 @@ export class MessageRouterService {
       const message = event.data;
       if (!message || !message.type) return;
 
-      const handlers = this.handlerMap.get(message.type);
-      if (handlers) {
-        for (const handler of handlers) {
-          handler.handleMessage(message);
-        }
+      if (message.type === MESSAGE_TYPES.BATCH) {
+        this.dispatchBatch(message);
+        return;
       }
+
+      this.dispatch(message);
     });
+  }
+
+  private dispatch(message: { type: string }): void {
+    const handlers = this.handlerMap.get(message.type);
+    if (!handlers) return;
+    for (const handler of handlers) {
+      handler.handleMessage(message);
+    }
+  }
+
+  private dispatchBatch(message: { payload?: unknown }): void {
+    const payload = message.payload;
+    if (!payload || typeof payload !== 'object') return;
+    const events = (payload as { events?: unknown }).events;
+    if (!Array.isArray(events)) return;
+    for (const event of events) {
+      if (!event || typeof event !== 'object') continue;
+      const inner = event as BatchedStreamEvent;
+      if (typeof inner.type !== 'string') continue;
+      this.dispatch(inner);
+    }
   }
 }
 

@@ -10,4 +10,7 @@ export * from './schemas';
 export * from './helpers';
 export * from './workspace';
 export * from './gateway';
+export * from './voice';
 export * from './update';
+export * from './git-status';
+export * from './memory';

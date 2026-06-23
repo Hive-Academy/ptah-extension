@@ -39,6 +39,8 @@ import {
   COPILOT_PROVIDER_ENTRY,
   CODEX_PROVIDER_ENTRY,
   OllamaModelDiscoveryService,
+  CopilotAuthService,
+  CodexAuthService,
 } from '@ptah-extension/auth-providers';
 import { CliDetectionService } from '@ptah-extension/cli-agent-runtime';
 import {
@@ -88,6 +90,10 @@ export class ProviderRpcHandlers {
     private readonly authEnv: AuthEnv,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_OLLAMA_DISCOVERY)
     private readonly ollamaDiscovery: OllamaModelDiscoveryService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)
+    private readonly copilotAuthService: CopilotAuthService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
+    private readonly codexAuthService: CodexAuthService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {}
@@ -145,6 +151,21 @@ export class ProviderRpcHandlers {
       } catch (error) {
         this.logger.debug(
           `[ProviderRpc] Platform model discovery unavailable: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      try {
+        const authModels = await this.copilotAuthService.listModels();
+        if (authModels.length > 0) {
+          this.logger.info(
+            `[ProviderRpc] Fetched ${authModels.length} Copilot models from auth service API`,
+          );
+          return authModels;
+        }
+      } catch (error) {
+        this.logger.debug(
+          `[ProviderRpc] Copilot auth service model listing unavailable: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
@@ -221,6 +242,21 @@ export class ProviderRpcHandlers {
           }`,
         );
       }
+      try {
+        const authModels = await this.codexAuthService.listModels();
+        if (authModels.length > 0) {
+          this.logger.info(
+            `[ProviderRpc] Fetched ${authModels.length} Codex models from auth service API`,
+          );
+          return authModels;
+        }
+      } catch (error) {
+        this.logger.debug(
+          `[ProviderRpc] Codex auth service model listing unavailable: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
       this.logger.info('[ProviderRpc] Using static Codex model list');
       return (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => ({
         id: m.id,
@@ -247,56 +283,66 @@ export class ProviderRpcHandlers {
    * when all dynamic sources fail, so no hardcoded tier list is needed here.
    */
   private registerAnthropicDirectFetcher(): void {
+    const fetcher = async (): Promise<ProviderModelInfo[]> => {
+      const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
+
+      try {
+        if (hasApiKey) {
+          const apiModels = await this.sdkAdapter.getApiModels();
+          if (apiModels.length > 0) {
+            this.logger.info(
+              `[ProviderRpc] Fetched ${apiModels.length} models from /v1/models (API key)`,
+            );
+            return apiModels.map((m) => ({
+              id: m.value,
+              name: m.displayName,
+              description: getModelPricingDescription(m.value),
+              contextLength: getModelContextWindow(m.value),
+              supportsToolUse: true,
+            }));
+          }
+        }
+
+        const sdkModels = await this.sdkAdapter.getSupportedModels();
+        this.logger.info(
+          `[ProviderRpc] Fetched ${sdkModels.length} models from SDK supportedModels()`,
+        );
+        return sdkModels.map((m) => ({
+          id: m.value,
+          name: m.displayName,
+          description: m.description || getModelPricingDescription(m.value),
+          contextLength: getModelContextWindow(m.value),
+          supportsToolUse: true,
+        }));
+      } catch (error) {
+        this.logger.warn(
+          `[ProviderRpc] Failed to fetch Anthropic direct models, falling back to SDK: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        const fallbackModels = await this.sdkAdapter.getSupportedModels();
+        return fallbackModels.map((m) => ({
+          id: m.value,
+          name: m.displayName,
+          description: m.description || getModelPricingDescription(m.value),
+          contextLength: getModelContextWindow(m.value),
+          supportsToolUse: true,
+        }));
+      }
+    };
+
+    // The virtual 'anthropic' direct provider and the native 'claude-cli'
+    // ptah-cli provider share the same auth path — both resolve models from the
+    // host's Claude login via the SDK (no API key needed). Register the same
+    // live fetcher for both so the model dropdown shows subscription-appropriate
+    // models. Unlike 'anthropic' (not in the registry), 'claude-cli' also has
+    // CLAUDE_CLI_PROVIDER_ENTRY.staticModels as a registry fallback when the
+    // SDK lookup returns nothing.
     this.providerModels.registerDynamicFetcher(
       ANTHROPIC_DIRECT_PROVIDER_ID,
-      async (): Promise<ProviderModelInfo[]> => {
-        const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
-
-        try {
-          if (hasApiKey) {
-            const apiModels = await this.sdkAdapter.getApiModels();
-            if (apiModels.length > 0) {
-              this.logger.info(
-                `[ProviderRpc] Fetched ${apiModels.length} models from /v1/models (API key)`,
-              );
-              return apiModels.map((m) => ({
-                id: m.value,
-                name: m.displayName,
-                description: getModelPricingDescription(m.value),
-                contextLength: getModelContextWindow(m.value),
-                supportsToolUse: true,
-              }));
-            }
-          }
-
-          const sdkModels = await this.sdkAdapter.getSupportedModels();
-          this.logger.info(
-            `[ProviderRpc] Fetched ${sdkModels.length} models from SDK supportedModels()`,
-          );
-          return sdkModels.map((m) => ({
-            id: m.value,
-            name: m.displayName,
-            description: m.description || getModelPricingDescription(m.value),
-            contextLength: getModelContextWindow(m.value),
-            supportsToolUse: true,
-          }));
-        } catch (error) {
-          this.logger.warn(
-            `[ProviderRpc] Failed to fetch Anthropic direct models, falling back to SDK: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-          const fallbackModels = await this.sdkAdapter.getSupportedModels();
-          return fallbackModels.map((m) => ({
-            id: m.value,
-            name: m.displayName,
-            description: m.description || getModelPricingDescription(m.value),
-            contextLength: getModelContextWindow(m.value),
-            supportsToolUse: true,
-          }));
-        }
-      },
+      fetcher,
     );
+    this.providerModels.registerDynamicFetcher('claude-cli', fetcher);
   }
 
   /**

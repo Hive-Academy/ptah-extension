@@ -19,29 +19,13 @@ import { SkillCandidateStore } from './skill-candidate.store';
 import { SkillMdGenerator } from './skill-md-generator';
 import { SkillClusterDedupService } from './skill-cluster-dedup.service';
 import { SkillJudgeService } from './skill-judge.service';
-import {
-  SKILL_SYNTHESIS_TOKENS,
-  INTERNAL_QUERY_SERVICE_TOKEN,
-} from './di/tokens';
-import type { IInternalQuery } from './internal-query.interface';
+import { SkillRegistryStore } from './skill-registry.store';
+import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import type {
   CandidateId,
   SkillCandidateRow,
   SkillSynthesisSettings,
 } from './types';
-import { JUDGE_DEFAULT_MODEL_ID } from './types';
-
-/**
- * Default model for the SKILL.md polish LLM call — single source of truth
- * from types.ts; mirrors `TIER_TO_MODEL_ID.haiku` in agent-sdk.
- */
-const POLISH_MODEL_ID = JUDGE_DEFAULT_MODEL_ID;
-
-/** Hard cap on a single polish LLM call — protects the synchronous promote RPC from a hung provider. */
-const POLISH_TIMEOUT_MS = 30_000;
-
-/** Lower bound on accepted polish output length — under this we discard and keep the raw body. */
-const POLISH_MIN_LENGTH = 50;
 
 export interface PromotionDecision {
   promoted: boolean;
@@ -55,7 +39,7 @@ export interface PromotionDecision {
     | 'not-found'
     | 'below-judge-score';
   candidate: SkillCandidateRow | null;
-  /** Filled when promotion evicted another skill via decay-cap. */
+  /** Filled when promotion demoted another skill to dormant via the residency cap. */
   evictedSkillId?: CandidateId;
   /** Cosine similarity of the closest active match (if dedup ran). */
   closestMatchSimilarity?: number;
@@ -71,23 +55,19 @@ export class SkillPromotionService {
     private readonly store: SkillCandidateStore,
     @inject(SkillMdGenerator)
     private readonly mdGenerator: SkillMdGenerator,
-    @inject(INTERNAL_QUERY_SERVICE_TOKEN, { isOptional: true })
-    private readonly internalQuery: IInternalQuery | null,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CLUSTER_DEDUP_SERVICE, {
       isOptional: true,
     })
     private readonly clusterDedup: SkillClusterDedupService | null,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_JUDGE_SERVICE, { isOptional: true })
     private readonly judge: SkillJudgeService | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, { isOptional: true })
+    private readonly registry: SkillRegistryStore | null = null,
   ) {}
 
   /**
    * Evaluate a candidate and promote it if all rules pass. Idempotent:
    * already-promoted candidates short-circuit with reason='already-promoted'.
-   *
-   * When InternalQueryService is available, the candidate body is polished via
-   * a one-shot LLM query before materialization (skipped silently when
-   * InternalQueryService is not registered in the container).
    */
   async evaluate(
     candidateId: CandidateId,
@@ -158,27 +138,36 @@ export class SkillPromotionService {
     }
 
     let evictedSkillId: CandidateId | undefined;
-    const activeUnpinned = this.store.listActiveOrderedByDecayScore(
+    const activeResident = this.store.listActiveOrderedByDecayScore(
       nowFn(),
       settings.evictionDecayRate,
     );
-    if (activeUnpinned.length >= settings.maxActiveSkills) {
-      const weakest = activeUnpinned[0];
-      this.store.updateStatus(weakest.id, 'rejected', {
-        reason: 'decay-cap-eviction',
-      });
-      evictedSkillId = weakest.id;
-      this.logger.info('[skill-synthesis] decay cap eviction', {
-        evicted: weakest.id,
-        evictedName: weakest.name,
-        activeCount: activeUnpinned.length,
-        cap: settings.maxActiveSkills,
-      });
+    if (activeResident.length >= settings.maxActiveSkills) {
+      const authoredSlugs = this.authoredSlugs();
+      const weakest = activeResident.find((r) => !authoredSlugs.has(r.name));
+      if (weakest) {
+        this.store.setResidency(weakest.id, 'dormant');
+        evictedSkillId = weakest.id;
+        this.logger.info(
+          '[skill-synthesis] residency-cap demotion to dormant',
+          {
+            demoted: weakest.id,
+            demotedName: weakest.name,
+            residentCount: activeResident.length,
+            cap: settings.maxActiveSkills,
+          },
+        );
+      } else {
+        this.logger.info(
+          '[skill-synthesis] residency cap reached but all residents are authored — none demoted',
+          {
+            residentCount: activeResident.length,
+            cap: settings.maxActiveSkills,
+          },
+        );
+      }
     }
-    let body = this.readCandidateBody(candidate);
-    if (this.internalQuery) {
-      body = await this.polishBody(body, candidate.name, candidate.description);
-    }
+    const body = this.readCandidateBody(candidate);
     let bodyPath = candidate.bodyPath;
     try {
       const md = this.mdGenerator.promoteToActive(
@@ -216,6 +205,19 @@ export class SkillPromotionService {
     };
   }
 
+  private authoredSlugs(): Set<string> {
+    if (!this.registry) return new Set<string>();
+    try {
+      return this.registry.listAuthoredSlugs();
+    } catch (err) {
+      this.logger.warn(
+        '[skill-synthesis] failed to read authored slugs (continuing without exemption)',
+        { error: err instanceof Error ? err.message : String(err) },
+      );
+      return new Set<string>();
+    }
+  }
+
   private checkDuplicate(
     candidate: SkillCandidateRow,
     threshold: number,
@@ -232,103 +234,6 @@ export class SkillPromotionService {
       isDuplicate: top.similarity >= threshold,
       similarity: top.similarity,
     };
-  }
-
-  /**
-   * Use InternalQueryService to produce a polished SKILL.md body from a raw
-   * draft. Non-fatal: on LLM failure, timeout, or output that fails the
-   * structural sanity check, returns the input body unchanged.
-   */
-  private async polishBody(
-    body: string,
-    slug: string,
-    description: string,
-  ): Promise<string> {
-    if (!this.internalQuery) return body;
-
-    const systemPromptAppend = `You are a technical writer. Rewrite the SKILL.md body below as a clean, concise markdown document (no YAML frontmatter). Include exactly three sections:
-
-## Description
-(One paragraph describing what the skill does.)
-
-## When to use
-(2–4 bullet points listing situations where this skill applies.)
-
-## Steps
-(Numbered list of steps to apply the skill.)
-
-Keep the total under 400 words. Preserve technical accuracy. Output only the body markdown — no frontmatter, no preamble.
-
-Skill slug: ${slug}
-Skill description: ${description}`;
-
-    const abortController = new AbortController();
-    const timeoutHandle = setTimeout(
-      () => abortController.abort(),
-      POLISH_TIMEOUT_MS,
-    );
-
-    try {
-      const handle = await this.internalQuery.execute({
-        cwd: process.cwd(),
-        model: POLISH_MODEL_ID,
-        prompt: body,
-        systemPromptAppend,
-        isPremium: false,
-        mcpServerRunning: false,
-        maxTurns: 1,
-        abortController,
-      });
-
-      let collected = '';
-      for await (const msg of handle.stream) {
-        if (msg.type === 'assistant') {
-          for (const block of msg.message?.content ?? []) {
-            if (block.type === 'text' && typeof block.text === 'string') {
-              collected += block.text;
-            }
-          }
-        }
-        if (msg.type === 'result') break;
-      }
-
-      const polished = collected.trim();
-      if (!this.isValidPolishedBody(polished)) {
-        this.logger.warn(
-          '[skill-synthesis] polishBody: output failed structural check; using raw body',
-          { slug, length: polished.length },
-        );
-        return body;
-      }
-      this.logger.debug('[skill-synthesis] polishBody succeeded', { slug });
-      return polished;
-    } catch (err: unknown) {
-      this.logger.warn(
-        '[skill-synthesis] polishBody: LLM call failed; using raw body',
-        {
-          slug,
-          error: err instanceof Error ? err.message : String(err),
-        },
-      );
-      return body;
-    } finally {
-      clearTimeout(timeoutHandle);
-    }
-  }
-
-  /**
-   * Sanity-check the LLM polish output before accepting it. Rejects too-short
-   * content, leaked YAML frontmatter, and outputs that don't include at least
-   * one of the three required section headings.
-   */
-  private isValidPolishedBody(content: string): boolean {
-    if (content.length <= POLISH_MIN_LENGTH) return false;
-    if (content.startsWith('---')) return false; // leaked frontmatter
-    return (
-      content.includes('## Description') ||
-      content.includes('## When to use') ||
-      content.includes('## Steps')
-    );
   }
 
   private readCandidateBody(candidate: SkillCandidateRow): string {

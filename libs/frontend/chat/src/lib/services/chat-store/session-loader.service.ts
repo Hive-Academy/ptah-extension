@@ -308,6 +308,41 @@ export class SessionLoaderService {
   }
 
   /**
+   * Insert or replace a session summary in the local list (UI only), without
+   * an RPC round-trip. Used by the rewind flow to surface the freshly-forked
+   * session in the sidebar immediately — the debounced
+   * `session:metadataChanged` → `loadSessions()` broadcast can otherwise race
+   * and run before the fork is listable by `session:list`, leaving the sidebar
+   * empty until an app restart. The subsequent broadcast-driven `loadSessions()`
+   * reconciles with the persisted truth (same id, refreshed counts).
+   *
+   * Replaces an existing entry with the same id in place; otherwise prepends
+   * the new entry and increments the total. Mirrors `updateSessionName` /
+   * `removeSessionFromList`.
+   */
+  upsertSessionSummary(summary: ChatSessionSummary): void {
+    let inserted = false;
+    this._sessions.update((current) => {
+      const idx = current.findIndex((s) => s.id === summary.id);
+      if (idx === -1) {
+        inserted = true;
+        return [summary, ...current];
+      }
+      const next = current.slice();
+      next[idx] = summary;
+      return next;
+    });
+    if (inserted) {
+      this._totalSessions.update((count) => count + 1);
+    }
+    const workspacePath =
+      this.currentWorkspacePath || this.vscodeService.config().workspaceRoot;
+    if (workspacePath) {
+      this.updateCache(workspacePath);
+    }
+  }
+
+  /**
    * Switch the session list to a different workspace.
    *
    * Saves the current session state to the cache under the old workspace path,
@@ -437,7 +472,10 @@ export class SessionLoaderService {
    * The backend returns FlatStreamEventUnion[] which we process exactly
    * like live streaming events, building the same execution tree.
    */
-  async switchSession(sessionId: SessionId): Promise<void> {
+  async switchSession(
+    sessionId: SessionId,
+    opts?: { reason?: 'compaction'; activate?: boolean },
+  ): Promise<void> {
     if (this._inFlightSessions.has(sessionId)) {
       console.debug(
         '[SessionLoaderService] Skipping duplicate switchSession for:',
@@ -446,23 +484,44 @@ export class SessionLoaderService {
       return;
     }
 
+    const existingTab = this.tabManager.findTabBySessionId(sessionId);
+    if (opts?.reason !== 'compaction' && existingTab?.hasLiveSession) {
+      const inActiveWorkspace = this.tabManager
+        .tabs()
+        .some((t) => t.id === existingTab.id);
+      if (inActiveWorkspace) {
+        this.tabManager.switchTab(existingTab.id);
+        return;
+      }
+    }
+
+    this._inFlightSessions.add(sessionId);
     try {
-      this._inFlightSessions.add(sessionId);
       const workspacePath = this.vscodeService.config().workspaceRoot;
       if (!workspacePath) {
-        console.warn('[SessionLoaderService] No workspace path available');
-        return;
+        throw new Error(
+          '[SessionLoaderService] No workspace path available for switchSession',
+        );
       }
       const loadResult = await this.claudeRpcService.call('session:load', {
         sessionId,
       });
 
       if (!loadResult.success) {
-        console.error('[SessionLoaderService] Session not found:', sessionId);
-        return;
+        throw new Error(
+          `[SessionLoaderService] session:load failed for ${sessionId}: ${
+            loadResult.error ?? 'session not found'
+          }`,
+        );
       }
       const session = this._sessions().find((s) => s.id === sessionId);
-      const title = session?.name || sessionId.substring(0, 50);
+      // Prefer the session-list name, then the existing tab's name (set by the
+      // rewind rebind before this call), and only fall back to the raw session
+      // id as a last resort. The bare-id fallback was the source of the
+      // raw-UUID tab/tile title after a rewind fork (the forked session is not
+      // yet in `_sessions()`).
+      const title =
+        session?.name || existingTab?.name || sessionId.substring(0, 50);
       const activeTabId = this.tabManager.openSessionTab(sessionId, title);
       this.tabManager.applyResumingSession(activeTabId, {
         sessionId,
@@ -481,7 +540,11 @@ export class SessionLoaderService {
         sessionId,
         tabId: activeTabId,
         workspacePath,
+        ...(opts?.activate === true ? { activate: true } : {}),
       });
+      if (opts?.activate === true && resumeResult.data?.activated === true) {
+        this.tabManager.markSessionActive(activeTabId);
+      }
 
       const events = resumeResult.data?.events;
       const messages = resumeResult.data?.messages;
@@ -526,6 +589,10 @@ export class SessionLoaderService {
             })),
           );
         }
+      } else {
+        this.tabManager.setPreloadedStats(activeTabId, null);
+        this.tabManager.setLiveModelStats(activeTabId, null);
+        this.tabManager.setModelUsageList(activeTabId, []);
       }
       if (resumeResult.success && events && events.length > 0) {
         for (const event of events) {
@@ -533,6 +600,7 @@ export class SessionLoaderService {
             event as FlatStreamEventUnion,
             activeTabId,
             sessionId,
+            { isReplay: true },
           );
         }
         this.streamingHandler.finalizeSessionHistory(
@@ -551,7 +619,7 @@ export class SessionLoaderService {
           id: msg.id,
           role: msg.role as 'user' | 'assistant',
           timestamp: msg.timestamp,
-          streamingState: null, // No execution tree for simple messages
+          streamingState: null,
           rawContent: msg.content,
           sessionId,
         }));
@@ -563,19 +631,20 @@ export class SessionLoaderService {
           this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
         }
       } else {
-        console.error(
-          '[SessionLoaderService] Failed to resume session:',
-          resumeResult.error || 'No messages or events found',
-        );
         this.tabManager.applyResumeFailure(activeTabId);
         this.sessionManager.setStatus('loaded');
         this._resumableSubagents.set([]);
         this._resumableSubagentsSessionId = sessionId;
+        throw new Error(
+          `[SessionLoaderService] chat:resume failed for ${sessionId}: ${
+            resumeResult.error ?? 'No messages or events found'
+          }`,
+        );
       }
-    } catch (error) {
-      console.error('[SessionLoaderService] Failed to switch session:', error);
+    } catch (error: unknown) {
       this._resumableSubagents.set([]);
       this._resumableSubagentsSessionId = null;
+      throw error;
     } finally {
       this._inFlightSessions.delete(sessionId);
     }
@@ -621,6 +690,17 @@ export class SessionLoaderService {
    */
   clearResumableSubagents(): void {
     this._resumableSubagents.set([]);
+  }
+
+  /**
+   * Replace the resumable subagents signal for a session.
+   *
+   * Called after a live abort (chat:abort) returns the subagents it
+   * interrupted, so the resume banner appears without reloading the session.
+   */
+  setResumableSubagents(agents: SubagentRecord[], sessionId: string): void {
+    this._resumableSubagents.set(agents);
+    this._resumableSubagentsSessionId = sessionId;
   }
 
   /**
@@ -680,6 +760,5 @@ export class SessionLoaderService {
    * Create a new session
    * Delegates to SessionManager for session creation logic
    */
-  async createNewSession(): Promise<void> {
-  }
+  async createNewSession(): Promise<void> {}
 }

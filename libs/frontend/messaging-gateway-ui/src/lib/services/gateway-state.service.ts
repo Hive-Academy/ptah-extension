@@ -9,7 +9,10 @@ import { type MessageHandler } from '@ptah-extension/core';
 import {
   MESSAGE_TYPES,
   type GatewayBindingDto,
+  type GatewayBindingsChangedPayload,
+  type GatewayDiscordGuildDto,
   type GatewayPlatformId,
+  type GatewayRegisterDiscordCommandsResult,
   type GatewayStatusChangedPayload,
   type GatewayStatusResult,
   type GatewayTestPlatform,
@@ -90,6 +93,7 @@ export class GatewayStateService implements MessageHandler {
   /** Message types this service handles via MessageRouterService. */
   public readonly handledMessageTypes = [
     MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+    MESSAGE_TYPES.GATEWAY_BINDINGS_CHANGED,
   ] as const;
 
   /**
@@ -104,6 +108,7 @@ export class GatewayStateService implements MessageHandler {
    * renders it.
    */
   private readonly _pendingOrigins = new Set<string>();
+  public readonly globalError = signal<string | null>(null);
   public readonly enabled = signal<boolean>(false);
   public readonly platforms = signal<PlatformStatusMap>(emptyStatusMap());
   public readonly bindings = signal<readonly GatewayBindingDto[]>([]);
@@ -113,7 +118,16 @@ export class GatewayStateService implements MessageHandler {
     minTimeMs: 500,
     maxConcurrent: 2,
   });
-  public readonly whisperModel = signal<string>('base.en');
+  /** Persisted allow-list per platform (mirror of settings.json). */
+  public readonly allowLists = signal<Record<GatewayPlatformId, string[]>>({
+    telegram: [],
+    discord: [],
+    slack: [],
+  });
+  /** Persisted Discord application (client) id, or null if unset. */
+  public readonly discordAppId = signal<string | null>(null);
+  /** Servers the connected Discord bot is in (empty until started + refreshed). */
+  public readonly discordGuilds = signal<readonly GatewayDiscordGuildDto[]>([]);
   /**
    * Voice-model download progress signal — currently inert.
    *
@@ -150,7 +164,97 @@ export class GatewayStateService implements MessageHandler {
    * (GATEWAY_STATUS_CHANGED push events from the backend).
    */
   public async initialize(): Promise<void> {
-    await Promise.all([this.refreshStatus(), this.listBindings()]);
+    await Promise.all([
+      this.refreshStatus(),
+      this.listBindings(),
+      this.loadAllowLists(),
+      this.loadDiscordAppId(),
+      this.loadDiscordGuilds(),
+    ]);
+  }
+
+  /** Refresh the list of servers the Discord bot is in (no-op list if stopped). */
+  public async loadDiscordGuilds(): Promise<void> {
+    try {
+      const { guilds } = await this.rpc.listDiscordGuilds();
+      this.discordGuilds.set(guilds);
+    } catch (err) {
+      this.recordPlatformError('discord', err);
+    }
+  }
+
+  private async loadAllowLists(): Promise<void> {
+    await Promise.all(ALL_PLATFORMS.map((p) => this.loadAllowList(p)));
+  }
+
+  public async loadAllowList(platform: GatewayPlatformId): Promise<void> {
+    try {
+      const { entries } = await this.rpc.getAllowList(platform);
+      this.allowLists.update((current) => ({
+        ...current,
+        [platform]: entries,
+      }));
+    } catch (err) {
+      this.recordPlatformError(platform, err);
+    }
+  }
+
+  /**
+   * Persist a platform allow-list, then re-read it so the signal reflects the
+   * trimmed/de-duplicated server-side value.
+   */
+  public async saveAllowList(
+    platform: GatewayPlatformId,
+    entries: string[],
+  ): Promise<{ ok: boolean; error?: string }> {
+    this.clearError(platform);
+    try {
+      await this.rpc.setAllowList(platform, entries);
+      await this.loadAllowList(platform);
+      return { ok: true };
+    } catch (err) {
+      this.recordPlatformError(platform, err);
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  public async loadDiscordAppId(): Promise<void> {
+    try {
+      const { applicationId } = await this.rpc.getDiscordAppId();
+      this.discordAppId.set(applicationId);
+    } catch (err) {
+      this.recordPlatformError('discord', err);
+    }
+  }
+
+  public async saveDiscordAppId(
+    applicationId: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    try {
+      await this.rpc.setDiscordAppId(applicationId);
+      this.discordAppId.set(applicationId.trim() || null);
+      return { ok: true };
+    } catch (err) {
+      this.recordPlatformError('discord', err);
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  public async registerDiscordCommands(): Promise<GatewayRegisterDiscordCommandsResult> {
+    try {
+      return await this.rpc.registerDiscordCommands();
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   /**
@@ -163,6 +267,11 @@ export class GatewayStateService implements MessageHandler {
    * was triggered externally (boot, crash recovery) and must be applied.
    */
   public handleMessage(msg: { type: string; payload?: unknown }): void {
+    if (msg.type === MESSAGE_TYPES.GATEWAY_BINDINGS_CHANGED) {
+      const payload = msg.payload as GatewayBindingsChangedPayload | undefined;
+      if (payload?.bindings) this.bindings.set(payload.bindings);
+      return;
+    }
     const payload = msg.payload as GatewayStatusChangedPayload | undefined;
     if (!payload) return;
     if (payload.origin !== null && this._pendingOrigins.has(payload.origin)) {
@@ -263,6 +372,7 @@ export class GatewayStateService implements MessageHandler {
   public async approveBinding(
     bindingId: string,
     code: string,
+    platform: GatewayPlatformId,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
     try {
       const result = await this.rpc.approveBinding(bindingId, code);
@@ -272,27 +382,33 @@ export class GatewayStateService implements MessageHandler {
       await this.listBindings();
       return { ok: true };
     } catch (err) {
-      this.recordGlobalError(err);
+      this.recordPlatformError(platform, err);
       const message = err instanceof Error ? err.message : String(err);
       return { ok: false, error: message };
     }
   }
 
-  public async rejectBinding(bindingId: string): Promise<void> {
+  public async rejectBinding(
+    bindingId: string,
+    platform: GatewayPlatformId,
+  ): Promise<void> {
     try {
       await this.rpc.blockBinding(bindingId, 'rejected');
       await this.listBindings();
     } catch (err) {
-      this.recordGlobalError(err);
+      this.recordPlatformError(platform, err);
     }
   }
 
-  public async revokeBinding(bindingId: string): Promise<void> {
+  public async revokeBinding(
+    bindingId: string,
+    platform: GatewayPlatformId,
+  ): Promise<void> {
     try {
       await this.rpc.blockBinding(bindingId, 'revoked');
       await this.listBindings();
     } catch (err) {
-      this.recordGlobalError(err);
+      this.recordPlatformError(platform, err);
     }
   }
 
@@ -337,10 +453,6 @@ export class GatewayStateService implements MessageHandler {
 
   public setVoiceEnabled(enabled: boolean): void {
     this.voiceEnabled.set(enabled);
-  }
-
-  public setWhisperModel(name: string): void {
-    this.whisperModel.set(name);
   }
 
   public dismissVoiceToast(): void {
@@ -391,11 +503,10 @@ export class GatewayStateService implements MessageHandler {
   }
   private recordGlobalError(err: unknown): void {
     const message = err instanceof Error ? err.message : String(err);
-    this.lastError.update((current) => ({
-      ...current,
-      telegram: current.telegram ?? message,
-      discord: current.discord ?? message,
-      slack: current.slack ?? message,
-    }));
+    this.globalError.set(message);
+  }
+
+  public clearGlobalError(): void {
+    this.globalError.set(null);
   }
 }

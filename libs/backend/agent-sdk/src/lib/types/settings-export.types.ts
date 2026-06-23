@@ -63,7 +63,6 @@ export const KNOWN_CONFIG_KEYS = [
   'apiUrl',
   'agentOrchestration.preferredAgentOrder',
   'agentOrchestration.maxConcurrentAgents',
-  'agentOrchestration.geminiModel',
   'anthropicProviderId',
   'llm.defaultProvider',
   'llm.vscode.model',

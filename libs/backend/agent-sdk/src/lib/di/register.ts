@@ -35,6 +35,7 @@ import {
   SdkModuleLoader,
   SdkModelService,
   MemoryPromptInjector,
+  CodeSymbolPromptInjector,
   SdkInternalQueryCuratorLlm,
   HistoryEventFactory,
   JsonlReaderService,
@@ -48,10 +49,18 @@ import {
   SubagentStopCallbackRegistry,
   PostToolUseCallbackRegistry,
   PostToolUseHookHandler,
+  PreToolUseCallbackRegistry,
+  PreToolUseHookHandler,
+  SessionStartCallbackRegistry,
+  SessionStartHookHandler,
   UserPromptSubmitCallbackRegistry,
   UserPromptSubmitHookHandler,
+  UserPromptExpansionCallbackRegistry,
+  UserPromptExpansionHookHandler,
   StopCallbackRegistry,
   StopHookHandler,
+  StopFailureHookHandler,
+  SubagentStopHookHandler,
   SessionEndHookCallbackRegistry,
   SessionEndHookHandler,
   ToolFailureCallbackRegistry,
@@ -60,7 +69,6 @@ import {
   LiveUsageTracker,
   WorktreeHookHandler,
   SlashCommandInterceptor,
-  SdkWarmQueryManager,
   SessionForkService,
   SdkRuntimeStateService,
   SdkAdapterEvents,
@@ -195,6 +203,30 @@ export function registerSdkServices(
   );
 
   container.register(
+    SDK_TOKENS.SDK_PRE_TOOL_USE_CALLBACK_REGISTRY,
+    { useClass: PreToolUseCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_PRE_TOOL_USE_HOOK_HANDLER,
+    { useClass: PreToolUseHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SESSION_START_CALLBACK_REGISTRY,
+    { useClass: SessionStartCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SESSION_START_HOOK_HANDLER,
+    { useClass: SessionStartHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
     SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY,
     { useClass: UserPromptSubmitCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
@@ -207,6 +239,18 @@ export function registerSdkServices(
   );
 
   container.register(
+    SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_REGISTRY,
+    { useClass: UserPromptExpansionCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_HOOK_HANDLER,
+    { useClass: UserPromptExpansionHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
     SDK_TOKENS.SDK_STOP_CALLBACK_REGISTRY,
     { useClass: StopCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
@@ -215,6 +259,18 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_STOP_HOOK_HANDLER,
     { useClass: StopHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_STOP_FAILURE_HOOK_HANDLER,
+    { useClass: StopFailureHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SUBAGENT_STOP_HOOK_HANDLER,
+    { useClass: SubagentStopHookHandler },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -354,6 +410,11 @@ export function registerSdkServices(
     MemoryPromptInjector,
   );
 
+  container.registerSingleton(
+    SDK_TOKENS.SDK_CODE_SYMBOL_PROMPT_INJECTOR,
+    CodeSymbolPromptInjector,
+  );
+
   container.register(
     SDK_TOKENS.SDK_QUERY_OPTIONS_BUILDER,
     { useClass: SdkQueryOptionsBuilder },
@@ -393,12 +454,6 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR,
     { useClass: SlashCommandInterceptor },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_WARM_QUERY_MANAGER,
-    { useClass: SdkWarmQueryManager },
     { lifecycle: Lifecycle.Singleton },
   );
 

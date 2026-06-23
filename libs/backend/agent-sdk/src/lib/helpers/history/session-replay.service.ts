@@ -42,6 +42,7 @@ import type {
   ContentBlock,
   SessionHistoryMessage,
 } from './history.types';
+import { isInterruptSentinelText } from '../../types/sdk-types/claude-sdk.types';
 
 /**
  * Service for replaying session history as stream events.
@@ -136,6 +137,9 @@ export class SessionReplayService {
         }
         const rawText = this.eventFactory.extractTextContent(contentRaw);
         if (rawText && rawText.trimStart().startsWith('<task-notification>')) {
+          continue;
+        }
+        if (isInterruptSentinelText(rawText)) {
           continue;
         }
         if (currentMessageId) {
@@ -261,6 +265,9 @@ export class SessionReplayService {
         const content = msg.message.content;
         if (Array.isArray(content)) {
           for (const block of content as ContentBlock[]) {
+            if (block.type === 'text' && isInterruptSentinelText(block.text)) {
+              continue;
+            }
             if (block.type === 'text' && block.text) {
               events.push(
                 this.eventFactory.createTextDelta(

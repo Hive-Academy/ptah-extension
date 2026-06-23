@@ -39,11 +39,25 @@ export const GatewayMessageId = {
   },
 };
 
-/** `${platform}:${externalChatId}` — used as p-queue key. */
+/**
+ * `${platform}:${externalChatId}` — used as p-queue key. Threaded
+ * conversations append a third `:${conversationId}` segment; the `'default'`
+ * conversation never appears in the key, so non-threaded platforms produce
+ * byte-identical keys to the 2-arg form.
+ */
 export type ConversationKey = string & { readonly __brand: 'ConversationKey' };
 export const ConversationKey = {
-  for(platform: GatewayPlatform, externalChatId: string): ConversationKey {
-    return `${platform}:${externalChatId}` as ConversationKey;
+  for(
+    platform: GatewayPlatform,
+    externalChatId: string,
+    conversationId?: string,
+  ): ConversationKey {
+    const base = `${platform}:${externalChatId}`;
+    return (
+      conversationId !== undefined && conversationId !== 'default'
+        ? `${base}:${conversationId}`
+        : base
+    ) as ConversationKey;
   },
 };
 
@@ -54,6 +68,8 @@ export interface GatewayBinding {
   id: BindingId;
   platform: GatewayPlatform;
   externalChatId: string;
+  /** Allow-list id captured at inbound: Telegram user / Discord guild / Slack team. */
+  allowListId: string | null;
   displayName: string | null;
   approvalStatus: ApprovalStatus;
   ptahSessionId: string | null;
@@ -62,6 +78,20 @@ export interface GatewayBinding {
   pairingCode: string | null;
   createdAt: number;
   approvedAt: number | null;
+  lastActiveAt: number | null;
+}
+
+export type GatewayConversationId = string & {
+  readonly __brand: 'GatewayConversationId';
+};
+
+export interface GatewayConversation {
+  id: GatewayConversationId;
+  bindingId: BindingId;
+  /** Discord thread id, or `'default'` for non-threaded platforms. */
+  externalConversationId: string;
+  ptahSessionId: string | null;
+  createdAt: number;
   lastActiveAt: number | null;
 }
 

@@ -47,6 +47,12 @@ export interface ChatStartParams {
   workspacePath?: string;
   /** Ptah CLI agent instance ID (routes to Ptah CLI agent adapter) */
   ptahCliId?: string;
+  /**
+   * When `true`, this session drives an in-surface workflow (setup wizard /
+   * harness builder) rather than the standard chat surface. Threaded through
+   * streaming payloads so the consuming surface can route events to its own UI.
+   */
+  surfaceMode?: boolean;
   /** Additional options */
   options?: {
     model?: string;
@@ -128,6 +134,12 @@ export interface ChatContinueParams {
   thinking?: ThinkingConfig;
   /** Effort level for reasoning depth */
   effort?: EffortLevel;
+  /**
+   * When `true`, this session drives an in-surface workflow (setup wizard /
+   * harness builder) rather than the standard chat surface. Threaded through
+   * streaming payloads so the consuming surface can route events to its own UI.
+   */
+  surfaceMode?: boolean;
 }
 
 /** Response from chat:continue RPC method */
@@ -151,6 +163,12 @@ export interface ChatAbortParams {
 export interface ChatAbortResult {
   success: boolean;
   error?: string;
+  /**
+   * Subagents that were interrupted by this abort and can be resumed.
+   * Populated from SubagentRegistryService.getResumableBySession() so the
+   * frontend can surface the resume banner without reloading the session.
+   */
+  resumableSubagents?: import('../subagent-registry.types').SubagentRecord[];
 }
 
 /** Parameters for chat:running-agents RPC method */
@@ -186,21 +204,6 @@ export interface ChatResumeParams {
    * Required for the resume-and-retry rewind path.
    */
   activate?: boolean;
-  /**
-   * **User-message UUID** at which to truncate the replayed transcript.
-   *
-   * Despite the legacy name (`...At`), this is NOT an ISO-8601 timestamp — it
-   * is the UUID of the user message to rewind to. The SDK replays the
-   * transcript only up to (and including) this user-message UUID and
-   * truncates the on-disk JSONL accordingly. Used by the rewind flow to
-   * revert the conversation to an earlier point. Requires `activate: true`;
-   * if the session is already active the backend ends the current Query and
-   * restarts it with the truncation applied.
-   *
-   * The Zod boundary schema (`ChatResumeParamsSchema`) validates this as
-   * `z.string().optional()` — do not narrow to `.datetime()` again.
-   */
-  resumeSessionAt?: string;
 }
 
 /** Response from chat:resume RPC method */
@@ -229,7 +232,7 @@ export interface ChatResumeResult {
    * Extracted from JSONL message.usage fields for old session cost display
    */
   stats?: {
-    totalCost: number;
+    totalCost: number | null;
     tokens: {
       input: number;
       output: number;
@@ -245,7 +248,7 @@ export interface ChatResumeResult {
       model: string;
       inputTokens: number;
       outputTokens: number;
-      costUSD: number;
+      costUSD: number | null;
     }>;
   } | null;
   /**
@@ -256,7 +259,7 @@ export interface ChatResumeResult {
   resumableSubagents?: import('../subagent-registry.types').SubagentRecord[];
   /**
    * CLI agent sessions linked to this parent session.
-   * Enables displaying and resuming CLI sessions (e.g., Gemini) when loading saved sessions.
+   * Enables displaying and resuming CLI sessions when loading saved sessions.
    * Populated from SessionMetadataStore.cliSessions[].
    */
   cliSessions?: import('../agent-process.types').CliSessionReference[];
@@ -265,6 +268,20 @@ export interface ChatResumeResult {
    * Only populated when the request included `activate: true`.
    */
   activated?: boolean;
+  /**
+   * Human-readable activation failure message, populated when the request
+   * included `activate: true` AND the backend `autoResumeIfInactive` helper
+   * returned `{ error }`. The outer `success` field stays `true` because the
+   * history load succeeded; callers branch on `activated === false &&
+   * activationError` to surface the resume-and-retry failure without losing
+   * the loaded transcript.
+   */
+  activationError?: string;
+  /**
+   * Structured activation failure code mirroring `errorCode`, populated under
+   * the same conditions as `activationError`.
+   */
+  activationErrorCode?: RpcUserErrorCode;
   error?: string;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
   errorCode?: RpcUserErrorCode;

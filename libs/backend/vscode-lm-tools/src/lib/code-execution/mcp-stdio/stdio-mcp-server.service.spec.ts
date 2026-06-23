@@ -80,7 +80,7 @@ function makeAgentApi(
   return {
     spawn: jest.fn().mockResolvedValue({
       agentId: 'a-1',
-      cli: 'gemini',
+      cli: 'codex',
       status: 'running',
       startedAt: '2026-05-24T00:00:00Z',
     }),
@@ -95,7 +95,7 @@ function makeAgentApi(
     steer: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn().mockResolvedValue({
       agentId: 'a-1',
-      cli: 'gemini',
+      cli: 'codex',
       status: 'stopped',
       task: 'noop',
       startedAt: '2026-05-24T00:00:00Z',
@@ -271,7 +271,7 @@ describe('StdioMcpServerService', () => {
             name: 'agent_spawn',
             arguments: {
               task: 'echo hi',
-              cli: 'gemini',
+              cli: 'codex',
               workingDirectory: 'D:/test-workspace',
             },
           },
@@ -280,7 +280,7 @@ describe('StdioMcpServerService', () => {
       expect(api.spawn).toHaveBeenCalledTimes(1);
       const arg = (api.spawn as jest.Mock).mock.calls[0][0];
       expect(arg.task).toBe('echo hi');
-      expect(arg.cli).toBe('gemini');
+      expect(arg.cli).toBe('codex');
       expect(arg.workingDirectory).toBe('D:/test-workspace');
       const result = resp.result as {
         isError?: boolean;
@@ -288,14 +288,14 @@ describe('StdioMcpServerService', () => {
       };
       expect(result.isError).toBeUndefined();
       expect(result.structuredContent.agentId).toBe('a-1');
-      expect(result.structuredContent.cli).toBe('gemini');
+      expect(result.structuredContent.cli).toBe('codex');
     });
 
     it('routes agent_status to PtahAPI.agent.status', async () => {
       const statusResult = [
         {
           agentId: 'a-1',
-          cli: 'gemini',
+          cli: 'codex',
           status: 'running',
           task: 'noop',
           startedAt: '2026-05-24T00:00:00Z',
@@ -363,7 +363,7 @@ describe('StdioMcpServerService', () => {
 
     it('routes agent_list to PtahAPI.agent.list', async () => {
       const listResult = [
-        { cli: 'gemini', installed: true, supportsSteer: false },
+        { cli: 'codex', installed: true, supportsSteer: false },
       ];
       const { svc, api } = makeService({
         list: jest.fn().mockResolvedValue(listResult) as never,
@@ -384,14 +384,14 @@ describe('StdioMcpServerService', () => {
         spawn: jest
           .fn()
           .mockRejectedValue(
-            new Error('CLI agent unavailable: gemini'),
+            new Error('CLI agent unavailable: codex'),
           ) as never,
       });
       const resp = await svc.handleToolsCall(
         makeRequest({
           params: {
             name: 'agent_spawn',
-            arguments: { task: 'echo hi', cli: 'gemini' },
+            arguments: { task: 'echo hi', cli: 'codex' },
           },
         }),
       );
@@ -494,7 +494,7 @@ describe('StdioMcpServerService', () => {
         makeRequest({
           params: {
             name: 'agent_spawn',
-            arguments: { task: 'echo hi', cli: 'gemini' },
+            arguments: { task: 'echo hi', cli: 'codex' },
           },
         }),
       );
@@ -529,7 +529,7 @@ describe('StdioMcpServerService', () => {
         makeRequest({
           params: {
             name: 'agent_spawn',
-            arguments: { task: 'echo hi', cli: 'gemini' },
+            arguments: { task: 'echo hi', cli: 'codex' },
           },
         }),
       );
@@ -567,7 +567,7 @@ describe('StdioMcpServerService', () => {
           makeRequest({
             params: {
               name: 'agent_spawn',
-              arguments: { task: 't', cli: 'gemini' },
+              arguments: { task: 't', cli: 'codex' },
             },
           }),
         );
@@ -719,13 +719,13 @@ describe('StdioMcpServerService', () => {
         makeRequest({
           params: {
             name: 'agent_spawn',
-            arguments: { task: 'go', cli: 'gemini' },
+            arguments: { task: 'go', cli: 'codex' },
           },
         }),
       );
       expect(gate.evaluate).toHaveBeenCalledWith('agent_spawn', {
         task: 'go',
-        cli: 'gemini',
+        cli: 'codex',
       });
       expect(api.spawn).toHaveBeenCalled();
     });

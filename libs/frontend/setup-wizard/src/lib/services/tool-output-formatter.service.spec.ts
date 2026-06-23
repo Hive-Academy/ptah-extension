@@ -102,7 +102,7 @@ describe('ToolOutputFormatterService', () => {
 
     it('should return correct language for Dockerfile', () => {
       expect(service.getLanguageFromPath('build.dockerfile')).toBe(
-        'dockerfile'
+        'dockerfile',
       );
     });
 
@@ -120,7 +120,7 @@ describe('ToolOutputFormatterService', () => {
 
     it('should handle Windows-style backslash paths', () => {
       expect(service.getLanguageFromPath('D:\\projects\\src\\main.ts')).toBe(
-        'typescript'
+        'typescript',
       );
     });
   });
@@ -262,21 +262,20 @@ describe('ToolOutputFormatterService', () => {
       expect(result).not.toMatch(/^\s*1\u2192/);
     });
 
-    it.skip('should unescape string literals (\\n to newlines)', () => {
-      const content = 'Line 1\\\\nLine 2\\\\nLine 3';
+    it('should unescape string literals (\\n to newlines)', () => {
+      const content = 'Line 1\\nLine 2\\nLine 3';
       const result = service.formatToolResult(content);
       expect(result).toContain('Line 1\nLine 2\nLine 3');
       expect(result.includes('\\n')).toBe(false);
     });
 
-    it.skip('should unescape multiple escape sequences', () => {
-      const content = 'Tab\\\\there\\\\nNewline\\\\rReturn\\\\"Quote';
+    it('should unescape multiple escape sequences', () => {
+      const content = 'Tab\\there\\nNewline\\rReturn\\"Quote';
       const result = service.formatToolResult(content);
       expect(result).toContain('\t');
       expect(result).toContain('\n');
       expect(result).toContain('\r');
       expect(result).toContain('"');
-      // Should not contain literal backslash-n
       expect(result.includes('\\n')).toBe(false);
       expect(result.includes('\\t')).toBe(false);
     });
@@ -288,8 +287,8 @@ describe('ToolOutputFormatterService', () => {
       expect(result).toBe('');
     });
 
-    it.skip('should unescape string literals in text content', () => {
-      const content = 'Project Type\\\\nReact\\\\nCustom entry';
+    it('should unescape string literals in text content', () => {
+      const content = 'Project Type\\nReact\\nCustom entry';
       const result = service.formatTextContent(content);
       expect(result).toContain('Project Type\nReact\nCustom entry');
       expect(result.includes('\\n')).toBe(false);
@@ -301,8 +300,8 @@ describe('ToolOutputFormatterService', () => {
       expect(result).toBe('```typescript\nconst x = 1;\n```');
     });
 
-    it.skip('should unescape newlines and tabs', () => {
-      const content = 'Line 1\\\\nLine 2\\\\tTabbed';
+    it('should unescape newlines and tabs', () => {
+      const content = 'Line 1\\nLine 2\\tTabbed';
       const result = service.formatTextContent(content);
       expect(result).toBe('Line 1\nLine 2\tTabbed');
     });

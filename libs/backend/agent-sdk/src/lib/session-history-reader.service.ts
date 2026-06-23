@@ -21,19 +21,27 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
-import type { FlatStreamEventUnion } from '@ptah-extension/shared';
+import type {
+  FlatStreamEventUnion,
+  AuthEnv,
+  MessageAnchorHint,
+} from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
 import {
   calculateMessageCost,
   pickPrimaryModel,
+  isDirectAnthropic,
+  registerProviderPricing,
+  findModelPricing,
   type ModelUsageEntry,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from './di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { SdkError } from './errors';
 import type { IModelResolver } from './auth-env.port';
+import type { IPricingProvider } from './pricing.port';
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import type { HistoryEventFactory } from './helpers/history/history-event-factory';
@@ -70,6 +78,10 @@ export class SessionHistoryReaderService {
     private readonly eventFactory: HistoryEventFactory,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv,
+    @inject(SDK_TOKENS.PRICING_PROVIDER)
+    private readonly pricingProvider: IPricingProvider,
   ) {}
 
   /**
@@ -99,7 +111,7 @@ export class SessionHistoryReaderService {
   ): Promise<{
     events: FlatStreamEventUnion[];
     stats: {
-      totalCost: number;
+      totalCost: number | null;
       tokens: {
         input: number;
         output: number;
@@ -115,7 +127,7 @@ export class SessionHistoryReaderService {
         model: string;
         inputTokens: number;
         outputTokens: number;
-        costUSD: number;
+        costUSD: number | null;
       }>;
     } | null;
   }> {
@@ -146,6 +158,9 @@ export class SessionHistoryReaderService {
         mainMessages,
         agentSessions,
       );
+      if (isDirectAnthropic(this.authEnv)) {
+        await this.hydrateMissingPricing(mainMessages, agentSessions);
+      }
       const stats = this.aggregateUsageStats(mainMessages, agentSessions);
 
       this.logger.info('[SessionHistoryReader] Loaded session with stats', {
@@ -179,6 +194,55 @@ export class SessionHistoryReaderService {
   async readHistoryAsMessages(
     sessionId: string,
     workspacePath: string,
+  ): Promise<
+    {
+      id: string;
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp: number;
+    }[]
+  > {
+    return this.readHistoryMessages(sessionId, workspacePath, (content) =>
+      this.eventFactory.extractTextContent(content),
+    );
+  }
+
+  /**
+   * Like {@link readHistoryAsMessages} but includes `tool_use`/`tool_result`
+   * blocks (via {@link HistoryEventFactory.extractContentForCuration}). Used by
+   * the memory curator's transcript reader so curation — including the
+   * boot-scan over historical sessions, whose only data source is this JSONL —
+   * captures tool inputs/outputs, not just assistant text. NOT for UI use: the
+   * UI history view must stay text-only via {@link readHistoryAsMessages}.
+   */
+  async readHistoryForCuration(
+    sessionId: string,
+    workspacePath: string,
+  ): Promise<
+    {
+      id: string;
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp: number;
+    }[]
+  > {
+    return this.readHistoryMessages(sessionId, workspacePath, (content) =>
+      this.eventFactory.extractContentForCuration(content),
+    );
+  }
+
+  /**
+   * Shared implementation for {@link readHistoryAsMessages} and
+   * {@link readHistoryForCuration}: read the session JSONL, drop everything
+   * before the last compaction boundary, and map each user/assistant message
+   * to `{ id, role, content, timestamp }` using the supplied content extractor.
+   * The extractor is the ONLY behavioural difference between the two public
+   * variants (text-only vs tool-aware).
+   */
+  private async readHistoryMessages(
+    sessionId: string,
+    workspacePath: string,
+    extractContent: (content: unknown) => string,
   ): Promise<
     {
       id: string;
@@ -225,9 +289,7 @@ export class SessionHistoryReaderService {
 
         const role = msg.message.role;
         if (role !== 'user' && role !== 'assistant') continue;
-        const content = this.eventFactory.extractTextContent(
-          msg.message.content,
-        );
+        const content = extractContent(msg.message.content);
         if (!content) continue;
         if (content.trimStart().startsWith('<task-notification>')) continue;
 
@@ -254,61 +316,48 @@ export class SessionHistoryReaderService {
   }
 
   /**
-   * Regex that matches native Anthropic message UUIDs.
-   * Anthropic UUIDs: msg_01<base64url> (e.g. msg_01AbCdEfGhIjKlMnOpQrStUv)
-   *   or bedrock variants: msg_bdrk_01... (non-digit second char after msg_).
-   *
-   * Ptah-generated IDs: msg_<unix-timestamp>_<random>
-   *   e.g. msg_1778055502540_cegogbr â€” starts with 10+ consecutive digits after msg_.
-   *
-   * Negative lookahead `(?!\d{10,}_)` rejects Ptah-format IDs while accepting
-   * all known Anthropic UUID variants (always start with a non-digit char after msg_).
+   * Regex matching a Claude Agent SDK transcript line UUID — the value the
+   * SDK's `forkSession()` accepts as `upToMessageId`. The SDK matches it
+   * against each transcript line's `uuid` field and validates it with this
+   * exact shape (a standard UUID). It REJECTS Anthropic `msg_...` message ids
+   * and Ptah-generated `msg_<timestamp>_<random>` fallbacks.
    */
-  private readonly NATIVE_SDK_UUID_PATTERN =
-    /^msg_(?!\d{10,}_)[0-9A-Za-z][0-9A-Za-z_]{19,}$/;
+  private readonly LINE_UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   /**
-   * Resolve a message ID sent by the frontend to a native SDK message UUID
-   * that the Claude Agent SDK's `forkSession()` will accept.
+   * Resolve a message ID sent by the frontend to the transcript line UUID that
+   * the Claude Agent SDK's `forkSession()` will accept.
    *
-   * Background:
-   *   - Live streaming events carry `messageId = message.id || sdkMessage.uuid`
-   *     which are Anthropic-native UUIDs (msg_01...). These pass through
-   *     unchanged.
-   *   - History-loaded sessions replay JSONL lines. When a JSONL line has no
-   *     `uuid` field the replay assigns a Ptah-generated fallback ID
-   *     (`msg_<timestamp>_<random>`). The SDK rejects these.
-   *   - Some legacy JSONL files may also store non-standard UUID values.
-   *
-   * Resolution strategy:
-   *   1. If `upToMessageId` already looks native (matches NATIVE_SDK_UUID_PATTERN
-   *      with a base64url-only suffix), return it unchanged.
-   *   2. Read raw JSONL for the session. If a JSONL line's `uuid` field exactly
-   *      matches `upToMessageId` but isn't native, walk *backward* from that
-   *      position to find the nearest preceding line with a native `uuid` and
-   *      return that. This preserves the user's intent (fork "around here")
-   *      while giving the SDK a valid anchor point.
-   *   3. If no JSONL line matches `upToMessageId` at all, throw SdkError with
-   *      a descriptive message ("upToMessageId not found in session history").
+   * The SDK fork anchor is a transcript LINE uuid (standard UUID), matched via
+   * `entry.uuid === upToMessageId`. The frontend may send one of:
+   *   - A line UUID (history view sources `id = msg.uuid`, and live streaming
+   *     can carry the SDK message `uuid`). This is already valid → return as-is.
+   *   - An Anthropic message id (`msg_01...`, from a live assistant
+   *     `message.id`). Map it to the owning line's `uuid`.
+   *   - A Ptah-generated fallback (`msg_<timestamp>_<random>`, assigned during
+   *     replay when a JSONL line had no `uuid`). No valid anchor of its own →
+   *     walk backward to the nearest preceding line that has a real line UUID.
    *
    * @param sessionId - Session to search in
    * @param workspacePath - Workspace root for locating the JSONL file
-   * @param upToMessageId - ID provided by the frontend (may be native or Ptah-generated)
-   * @returns Resolved native SDK message UUID
+   * @param upToMessageId - ID provided by the frontend
+   * @returns Resolved transcript line UUID accepted by `forkSession()`
    * @throws SdkError if the ID cannot be resolved
    */
   async resolveNativeMessageId(
     sessionId: string,
     workspacePath: string,
     upToMessageId: string,
+    hint?: MessageAnchorHint,
   ): Promise<string> {
-    if (this.NATIVE_SDK_UUID_PATTERN.test(upToMessageId)) {
+    if (this.LINE_UUID_PATTERN.test(upToMessageId)) {
       return upToMessageId;
     }
 
     this.logger.info(
-      '[SessionHistoryReader] Non-native upToMessageId â€” resolving via JSONL scan',
-      { sessionId, upToMessageId },
+      '[SessionHistoryReader] Non-line-UUID upToMessageId - resolving via JSONL scan',
+      { sessionId, upToMessageId, hasTextHint: !!hint?.text },
     );
     this.validateSessionId(sessionId);
     const sessionsDir =
@@ -327,34 +376,161 @@ export class SessionHistoryReaderService {
         `upToMessageId '${upToMessageId}' cannot be resolved: session file not found for session '${sessionId}'`,
       );
     }
-    const matchIndex = messages.findIndex((m) => m.uuid === upToMessageId);
+
+    // Primary: the anchor is itself a known id in the transcript (an Anthropic
+    // `message.id` or a line `uuid`). Walk back to the nearest line UUID.
+    let matchIndex = messages.findIndex((m) => m.message?.id === upToMessageId);
     if (matchIndex === -1) {
-      throw new SdkError(
-        `upToMessageId '${upToMessageId}' ${MESSAGE_ID_NOT_FOUND_PHRASE} for session '${sessionId}'. ` +
-          'The message may belong to a different session or the history may have been compacted.',
-      );
+      matchIndex = messages.findIndex((m) => m.uuid === upToMessageId);
     }
-    for (let i = matchIndex; i >= 0; i--) {
-      const candidate = messages[i].uuid;
-      if (candidate && this.NATIVE_SDK_UUID_PATTERN.test(candidate)) {
+    if (matchIndex !== -1) {
+      for (let i = matchIndex; i >= 0; i--) {
+        const candidate = messages[i].uuid;
+        if (candidate && this.LINE_UUID_PATTERN.test(candidate)) {
+          this.logger.info(
+            '[SessionHistoryReader] Resolved upToMessageId to transcript line UUID',
+            {
+              sessionId,
+              upToMessageId,
+              resolvedId: candidate,
+              matchIndex,
+              resolvedIndex: i,
+            },
+          );
+          return candidate;
+        }
+      }
+    }
+
+    // Fallback: the anchor is a client-only optimistic id (`msg_<ts>_<rand>`)
+    // that was never persisted to the transcript — the common live-session
+    // case. Recover the real line UUID by matching the user prompt text the
+    // frontend supplied. Every user line in the transcript carries a UUID, so
+    // this resolves whenever the text is found.
+    if (hint?.text) {
+      const resolved = this.resolveAnchorByPromptText(messages, hint);
+      if (resolved) {
         this.logger.info(
-          '[SessionHistoryReader] Resolved non-native upToMessageId to nearest native UUID',
+          '[SessionHistoryReader] Resolved upToMessageId via prompt-text hint',
           {
             sessionId,
             upToMessageId,
-            resolvedId: candidate,
-            matchIndex,
-            resolvedIndex: i,
+            resolvedId: resolved,
+            occurrence: hint.occurrence ?? 0,
           },
         );
-        return candidate;
+        return resolved;
       }
     }
+
     throw new SdkError(
-      `upToMessageId '${upToMessageId}' found in session history at index ${matchIndex} ` +
-        `but no native SDK UUID exists at or before that position in session '${sessionId}'. ` +
-        'Fork is not supported at this checkpoint.',
+      `upToMessageId '${upToMessageId}' ${MESSAGE_ID_NOT_FOUND_PHRASE} for session '${sessionId}'. ` +
+        'The message may belong to a different session or the history may have been compacted.',
     );
+  }
+
+  /**
+   * Locate the transcript line UUID of the user prompt whose verbatim text
+   * matches {@link MessageAnchorHint.text}. Used to recover a fork/rewind
+   * anchor when the frontend supplied a client-only optimistic id that never
+   * reached the transcript. Sidechain (subagent) lines and tool_result-only
+   * user lines are excluded — the SDK fork matcher only accepts main-chain
+   * line UUIDs. Identical duplicate prompts are disambiguated by
+   * {@link MessageAnchorHint.occurrence}.
+   */
+  private resolveAnchorByPromptText(
+    messages: SessionHistoryMessage[],
+    hint: MessageAnchorHint,
+  ): string | null {
+    const target = hint.text.trim();
+    if (!target) return null;
+    const matches: string[] = [];
+    for (const msg of messages) {
+      if (msg.type !== 'user') continue;
+      if ((msg as { isSidechain?: boolean }).isSidechain) continue;
+      const uuid = msg.uuid;
+      if (!uuid || !this.LINE_UUID_PATTERN.test(uuid)) continue;
+      const content = msg.message?.content;
+      const isToolResultOnly =
+        Array.isArray(content) &&
+        content.every(
+          (block) => (block as { type?: string })?.type === 'tool_result',
+        );
+      if (isToolResultOnly) continue;
+      const text = this.eventFactory.extractTextContent(content).trim();
+      if (text && text === target) matches.push(uuid);
+    }
+    if (matches.length === 0) return null;
+    const occurrence = hint.occurrence ?? 0;
+    return matches[occurrence] ?? matches[matches.length - 1];
+  }
+
+  private async hydrateMissingPricing(
+    mainMessages: SessionHistoryMessage[],
+    agentSessions: AgentSessionData[],
+  ): Promise<void> {
+    const models = new Set<string>();
+    let detectedModel: string | undefined;
+    for (const msg of mainMessages) {
+      if (
+        !detectedModel &&
+        msg.type === 'system' &&
+        msg.subtype === 'init' &&
+        msg.model
+      ) {
+        detectedModel = String(msg.model);
+      }
+      if (msg.type === 'assistant' && msg.message?.model) {
+        models.add(String(msg.message.model));
+      }
+    }
+    for (const agent of agentSessions) {
+      for (const msg of agent.messages) {
+        if (msg.type === 'assistant' && msg.message?.model) {
+          models.add(String(msg.message.model));
+        }
+      }
+    }
+    if (detectedModel) {
+      models.add(detectedModel);
+    }
+    const missing: string[] = [];
+    for (const rawModel of models) {
+      const resolved = this.modelResolver.resolveForPricing(rawModel);
+      if (!findModelPricing(resolved)) {
+        missing.push(resolved);
+      }
+    }
+    if (missing.length === 0) {
+      return;
+    }
+    const results = await Promise.all(
+      missing.map(async (modelId) => {
+        try {
+          const pricing = await this.pricingProvider.getPricing(modelId);
+          return pricing ? ([modelId, pricing] as const) : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const hydrated: Record<string, ReturnType<typeof findModelPricing>> = {};
+    let hits = 0;
+    for (const entry of results) {
+      if (entry) {
+        hydrated[entry[0]] = entry[1];
+        hits++;
+      }
+    }
+    if (hits > 0) {
+      registerProviderPricing(
+        hydrated as Parameters<typeof registerProviderPricing>[0],
+      );
+      this.logger.info(
+        '[SessionHistoryReader] Hydrated historical pricing via IPricingProvider',
+        { hydratedCount: hits, missingCount: missing.length },
+      );
+    }
   }
 
   /**
@@ -369,7 +545,7 @@ export class SessionHistoryReaderService {
     mainMessages: SessionHistoryMessage[],
     agentSessions: AgentSessionData[],
   ): {
-    totalCost: number;
+    totalCost: number | null;
     tokens: {
       input: number;
       output: number;
@@ -383,7 +559,7 @@ export class SessionHistoryReaderService {
       model: string;
       inputTokens: number;
       outputTokens: number;
-      costUSD: number;
+      costUSD: number | null;
     }>;
   } | null {
     let totalInput = 0;
@@ -395,13 +571,14 @@ export class SessionHistoryReaderService {
     let detectedModel: string | undefined;
     const perModelUsage = new Map<
       string,
-      { input: number; output: number; cost: number }
+      {
+        input: number;
+        output: number;
+        cost: number;
+        hasCostContribution: boolean;
+      }
     >();
 
-    /**
-     * Accumulate token usage into the per-model map.
-     * Resolves model name for pricing before using as key.
-     */
     const accumulatePerModel = (
       rawModel: string,
       input: number,
@@ -415,19 +592,20 @@ export class SessionHistoryReaderService {
         input: 0,
         output: 0,
         cost: 0,
+        hasCostContribution: false,
       };
       existing.input += input;
       existing.output += output;
-      // null pricing → contribute 0 to the running total. Live OpenRouter
-      // hydration covers most models; only genuinely-unknown ones (or a
-      // pre-hydration cold start) hit this path.
-      existing.cost +=
-        calculateMessageCost(resolvedModel, {
-          input,
-          output,
-          cacheHit: cacheRead,
-          cacheCreation,
-        }) ?? 0;
+      const contribution = calculateMessageCost(resolvedModel, {
+        input,
+        output,
+        cacheHit: cacheRead,
+        cacheCreation,
+      });
+      if (contribution !== null) {
+        existing.cost += contribution;
+        existing.hasCostContribution = true;
+      }
       perModelUsage.set(modelKey, existing);
     };
     let statsStartIndex = 0;
@@ -512,32 +690,43 @@ export class SessionHistoryReaderService {
     if (!hasAnyUsage) {
       return null;
     }
-    const modelUsageList = Array.from(perModelUsage.entries())
+    const modelUsageList: Array<{
+      model: string;
+      inputTokens: number;
+      outputTokens: number;
+      costUSD: number | null;
+    }> = Array.from(perModelUsage.entries())
       .map(([model, usage]) => ({
         model,
         inputTokens: usage.input,
         outputTokens: usage.output,
-        costUSD: usage.cost,
+        costUSD: usage.hasCostContribution ? usage.cost : null,
       }))
-      .sort((a, b) => b.costUSD - a.costUSD);
+      .sort((a, b) => (b.costUSD ?? -1) - (a.costUSD ?? -1));
     const primaryModelEntries: ModelUsageEntry[] = modelUsageList.map((m) => ({
       model: m.model,
-      totalCost: m.costUSD,
+      totalCost: m.costUSD ?? 0,
       tokens: { input: m.inputTokens, output: m.outputTokens },
     }));
     const primaryModel = pickPrimaryModel(primaryModelEntries) ?? detectedModel;
-    const totalCost =
-      modelUsageList.length > 0
-        ? modelUsageList.reduce((sum, entry) => sum + entry.costUSD, 0)
-        : (calculateMessageCost(
-            this.modelResolver.resolveForPricing(detectedModel || ''),
-            {
-              input: totalInput,
-              output: totalOutput,
-              cacheHit: totalCacheRead,
-              cacheCreation: totalCacheCreation,
-            },
-          ) ?? 0);
+    let totalCost: number | null;
+    if (modelUsageList.length > 0) {
+      const contributors = modelUsageList.filter((m) => m.costUSD !== null);
+      totalCost =
+        contributors.length > 0
+          ? contributors.reduce((sum, entry) => sum + (entry.costUSD ?? 0), 0)
+          : null;
+    } else {
+      totalCost = calculateMessageCost(
+        this.modelResolver.resolveForPricing(detectedModel || ''),
+        {
+          input: totalInput,
+          output: totalOutput,
+          cacheHit: totalCacheRead,
+          cacheCreation: totalCacheCreation,
+        },
+      );
+    }
 
     return {
       totalCost,

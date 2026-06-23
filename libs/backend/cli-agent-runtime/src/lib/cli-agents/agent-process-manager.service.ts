@@ -2,7 +2,7 @@
  * Agent Process Manager
  *
  * Responsibilities:
- * - Spawn CLI agent processes (gemini, codex, copilot)
+ * - Spawn CLI agent processes (codex, copilot)
  * - Track process state, output buffers, timeouts
  * - Enforce concurrent agent limits
  * - Graceful shutdown on extension deactivation
@@ -72,10 +72,27 @@ const execFileAsync = promisify(execFile);
  * code characters ($, (), {}, backticks, etc.).
  */
 
+export type AgentContinueErrorCode =
+  | 'not_found'
+  | 'unsupported'
+  | 'busy'
+  | 'unknown';
+
+export class AgentContinueError extends Error {
+  constructor(
+    readonly code: AgentContinueErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'AgentContinueError';
+  }
+}
+
 interface TrackedAgent {
   info: AgentProcessInfo;
   /** Child process for CLI-based agents, null for SDK-based agents */
   process: ChildProcess | null;
+  sdkHandle?: SdkHandle;
   /** Abort controller for SDK-based agents (null/undefined for CLI agents) */
   sdkAbortController?: AbortController;
   stdoutBuffer: string;
@@ -88,10 +105,16 @@ interface TrackedAgent {
   hasExited: boolean;
   /** Cleanup timer handle for TTL-based removal from map */
   cleanupHandle?: NodeJS.Timeout;
+  /** Deferred `agent:exited` emit timer (GRACEFUL_EXIT_DELAY); cleared if the
+   * agent is re-opened via continueConversation so a stale exit from the prior
+   * turn can't clobber the running continuation. */
+  exitEmitHandle?: NodeJS.Timeout;
   /** Accumulated structured segments for persistence (capped at MAX_ACCUMULATED_SEGMENTS) */
   accumulatedSegments: CliOutputSegment[];
   /** Accumulated rich stream events for persistence (Ptah CLI only, capped at MAX_ACCUMULATED_STREAM_EVENTS) */
   accumulatedStreamEvents: FlatStreamEventUnion[];
+  /** True once the stream-events cap has been logged — suppresses per-event log spam for long-running agents. */
+  streamCapLogged: boolean;
 }
 
 @injectable()
@@ -154,7 +177,6 @@ export class AgentProcessManager {
 
   private static readonly MODEL_CONFIG_KEYS: Partial<Record<CliType, string>> =
     {
-      gemini: 'geminiModel',
       codex: 'codexModel',
       copilot: 'copilotModel',
       cursor: 'cursorModel',
@@ -242,8 +264,8 @@ export class AgentProcessManager {
     const cli = request.cli ?? (await this.getPreferredCli());
     if (!cli) {
       throw new Error(
-        'No CLI agent available. Install Gemini CLI (`npm install -g @google/gemini-cli`) ' +
-          'or Codex CLI and authenticate before using agent orchestration.',
+        'No CLI agent available. Install Codex CLI, Copilot, or Ptah CLI ' +
+          'and authenticate before using agent orchestration.',
       );
     }
 
@@ -335,11 +357,7 @@ export class AgentProcessManager {
       model: resolvedModel,
     });
 
-    if (
-      request.resumeSessionId &&
-      request.cli !== 'gemini' &&
-      request.cli !== 'copilot'
-    ) {
+    if (request.resumeSessionId && request.cli !== 'copilot') {
       this.logger.warn(
         `[AgentProcessManager] resume_session_id provided for ${request.cli} which does not support session resume`,
       );
@@ -460,7 +478,7 @@ export class AgentProcessManager {
    * @param info        - Agent process info (agentId, cli, task, etc.)
    * @param timeout     - Timeout in milliseconds
    * @param captureSessionId - Optional callback to capture CLI session ID
-   *   from async init events (e.g., Gemini's init JSONL segment). Called on
+   *   from async init events (e.g., the init JSONL segment). Called on
    *   each structured segment until a session ID is captured.
    */
   private trackSdkHandle(
@@ -473,9 +491,14 @@ export class AgentProcessManager {
     const timeoutHandle = setTimeout(() => {
       this.handleTimeout(agentId);
     }, timeout);
+    const supportsContinuation = sdkHandle.supportsContinuation?.() === true;
+    const trackedInfo: AgentProcessInfo = supportsContinuation
+      ? { ...info, supportsContinuation: true }
+      : info;
     const tracked: TrackedAgent = {
-      info,
+      info: trackedInfo,
       process: null,
+      sdkHandle,
       sdkAbortController: sdkHandle.abort,
       stdoutBuffer: '',
       stderrBuffer: '',
@@ -486,6 +509,7 @@ export class AgentProcessManager {
       hasExited: false,
       accumulatedSegments: [],
       accumulatedStreamEvents: [],
+      streamCapLogged: false,
     };
 
     this.agents.set(agentId, tracked);
@@ -671,6 +695,79 @@ export class AgentProcessManager {
     }
 
     tracked.process.stdin.write(instruction + '\n');
+  }
+
+  async continueConversation(agentId: string, message: string): Promise<void> {
+    const tracked = this.agents.get(agentId);
+    if (!tracked) {
+      throw new AgentContinueError('not_found', `Agent not found: ${agentId}`);
+    }
+
+    const sdkHandle = tracked.sdkHandle;
+    if (sdkHandle?.supportsContinuation?.() !== true || !sdkHandle.continue) {
+      throw new AgentContinueError(
+        'unsupported',
+        `Agent ${agentId} does not support continuation`,
+      );
+    }
+
+    if (tracked.info.status === 'running') {
+      throw new AgentContinueError(
+        'busy',
+        `Agent ${agentId} is busy (status: ${tracked.info.status})`,
+      );
+    }
+
+    tracked.hasExited = false;
+    if (tracked.cleanupHandle) {
+      clearTimeout(tracked.cleanupHandle);
+      tracked.cleanupHandle = undefined;
+    }
+    if (tracked.exitEmitHandle) {
+      clearTimeout(tracked.exitEmitHandle);
+      tracked.exitEmitHandle = undefined;
+    }
+    clearTimeout(tracked.timeoutHandle);
+    tracked.info = {
+      ...tracked.info,
+      status: 'running',
+      completedAt: undefined,
+      exitCode: undefined,
+    };
+    tracked.timeoutHandle = setTimeout(() => {
+      this.handleTimeout(agentId);
+    }, DEFAULT_TIMEOUT);
+
+    this.events.emit('agent:spawned', tracked.info);
+
+    let outcome: { done: Promise<number> };
+    try {
+      outcome = await sdkHandle.continue(message);
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error('[AgentProcessManager] continue() failed to start', {
+        agentId,
+        error: errorMessage,
+      });
+      this.handleExit(agentId, 1, null);
+      throw new AgentContinueError('unknown', errorMessage);
+    }
+
+    outcome.done.then(
+      (exitCode) => {
+        this.handleExit(agentId, exitCode, null);
+      },
+      (error: unknown) => {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error('[AgentProcessManager] continued turn error', {
+          agentId,
+          error: errorMessage,
+        });
+        this.handleExit(agentId, 1, null);
+      },
+    );
   }
 
   /**
@@ -868,13 +965,20 @@ export class AgentProcessManager {
           tracked.accumulatedStreamEvents,
           MAX_ACCUMULATED_STREAM_EVENTS,
         );
-        this.logger.debug(
-          '[AgentProcessManager] Stream events cap reached, dropped oldest deltas',
-          {
-            agentId,
-            cap: MAX_ACCUMULATED_STREAM_EVENTS,
-          },
-        );
+        // Log only the FIRST time the cap is hit for this agent. A long-running
+        // agent crosses the cap on every subsequent event, so logging here
+        // unconditionally floods the console and adds synchronous logging load
+        // to the event loop per stream event.
+        if (!tracked.streamCapLogged) {
+          tracked.streamCapLogged = true;
+          this.logger.debug(
+            '[AgentProcessManager] Stream events cap reached, dropping oldest deltas (further drops for this agent are silent)',
+            {
+              agentId,
+              cap: MAX_ACCUMULATED_STREAM_EVENTS,
+            },
+          );
+        }
       }
     }
     if (!this.flushTimers.has(agentId)) {
@@ -968,7 +1072,11 @@ export class AgentProcessManager {
 
     this.scheduleCleanup(agentId);
     const exitInfo = tracked.info;
-    setTimeout(() => {
+    tracked.exitEmitHandle = setTimeout(() => {
+      const current = this.agents.get(agentId);
+      if (current && !current.hasExited) {
+        return;
+      }
       this.events.emit('agent:exited', exitInfo);
 
       this.logger.info('[AgentProcessManager] Agent exited', {
@@ -1110,12 +1218,7 @@ export class AgentProcessManager {
   }
 
   private async getPreferredCli(): Promise<CliType | null> {
-    const systemCliTypes = new Set<string>([
-      'gemini',
-      'codex',
-      'copilot',
-      'cursor',
-    ]);
+    const systemCliTypes = new Set<string>(['codex', 'copilot', 'cursor']);
     const disabledClis = new Set(
       this.workspace.getConfiguration<string[]>(
         'ptah',

@@ -10,7 +10,6 @@ import { PatternMatcherService } from './pattern-matcher.service';
 import { IgnorePatternResolverService } from './ignore-pattern-resolver.service';
 import { FileTypeClassifierService } from '../context-analysis/file-type-classifier.service';
 import { FileType } from '../types/workspace.types';
-import * as vscode from 'vscode';
 
 // Mock VS Code API
 jest.mock('vscode', () => ({
@@ -48,6 +47,10 @@ describe('WorkspaceIndexerService', () => {
   let patternMatcher: jest.Mocked<PatternMatcherService>;
   let ignoreResolver: jest.Mocked<IgnorePatternResolverService>;
   let fileClassifier: jest.Mocked<FileTypeClassifierService>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let mockFsProvider: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let mockWorkspaceProvider: any;
 
   beforeEach(() => {
     // Create mock services
@@ -85,16 +88,16 @@ describe('WorkspaceIndexerService', () => {
       getStatistics: jest.fn(),
     } as unknown as jest.Mocked<FileTypeClassifierService>;
 
-    const mockFsProvider = {
+    mockFsProvider = {
       readFile: jest.fn(),
       readDirectory: jest.fn(),
       stat: jest.fn(),
       exists: jest.fn(),
-      findFiles: jest.fn(),
+      findFiles: jest.fn().mockResolvedValue([]),
       createFileWatcher: jest.fn(),
     } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-    const mockWorkspaceProvider = {
+    mockWorkspaceProvider = {
       getWorkspaceFolders: jest.fn().mockReturnValue(['/workspace']),
       getWorkspaceRoot: jest.fn().mockReturnValue('/workspace'),
       getConfiguration: jest.fn(),
@@ -117,36 +120,23 @@ describe('WorkspaceIndexerService', () => {
     jest.clearAllMocks();
   });
 
-  // Tests need adaptation for platform abstraction (findFiles now via IFileSystemProvider)
-  // Pre-existing test infrastructure mismatch - mocks still use vscode.workspace.findFiles
-  describe.skip('indexWorkspace', () => {
+  describe('indexWorkspace', () => {
     it('should index all files in workspace', async () => {
-      // Mock workspace files
-      const mockFiles = [
-        { fsPath: '/workspace/src/app.ts', scheme: 'file' },
-        { fsPath: '/workspace/src/utils.ts', scheme: 'file' },
-        { fsPath: '/workspace/README.md', scheme: 'file' },
-      ];
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/src/app.ts',
+        '/workspace/src/utils.ts',
+        '/workspace/README.md',
+      ]);
 
-      (vscode.workspace.findFiles as jest.Mock).mockResolvedValue(mockFiles);
-
-      // Mock file stats
       fileSystemService.stat.mockResolvedValue({
-        type: vscode.FileType.File,
+        type: FileType.Source as unknown as number,
         ctime: 0,
         mtime: 0,
         size: 1000,
       });
 
-      // Mock ignore resolver
       ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
-      (ignoreResolver.isIgnored as unknown as jest.Mock).mockReturnValue({
-        matched: false,
-        matchingPattern: null,
-        reason: 'No matching pattern',
-      });
 
-      // Mock file classifier
       fileClassifier.classifyFile.mockImplementation((path: string) => {
         if (path.endsWith('.ts')) {
           return {
@@ -169,22 +159,20 @@ describe('WorkspaceIndexerService', () => {
     });
 
     it('should respect ignore patterns', async () => {
-      const mockFiles = [
-        { fsPath: '/workspace/src/app.ts', scheme: 'file' },
-        { fsPath: '/workspace/node_modules/lib.js', scheme: 'file' },
-        { fsPath: '/workspace/README.md', scheme: 'file' },
-      ];
-
-      (vscode.workspace.findFiles as jest.Mock).mockResolvedValue(mockFiles);
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/src/app.ts',
+        '/workspace/node_modules/lib.js',
+        '/workspace/README.md',
+      ]);
 
       fileSystemService.stat.mockResolvedValue({
-        type: vscode.FileType.File,
+        type: FileType.Source as unknown as number,
         ctime: 0,
         mtime: 0,
         size: 1000,
       });
 
-      // Mock ignore patterns
+      // Non-empty ignore file set so isIgnored is consulted per file
       ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([
         {
           filePath: '/workspace/.gitignore',
@@ -202,26 +190,11 @@ describe('WorkspaceIndexerService', () => {
       ]);
 
       (ignoreResolver.isIgnored as unknown as jest.Mock).mockImplementation(
-        (path: string) => {
-          if (path.includes('node_modules')) {
-            return Promise.resolve({
-              filePath: path,
-              ignored: true,
-              matchedPattern: {
-                raw: 'node_modules',
-                pattern: 'node_modules',
-                isNegation: false,
-                isDirectoryOnly: false,
-                lineNumber: 1,
-              },
-              matchedFile: '/workspace/.gitignore',
-            });
-          }
-          return Promise.resolve({
-            filePath: path,
-            ignored: false,
-          });
-        },
+        (relativePath: string) =>
+          Promise.resolve({
+            filePath: relativePath,
+            ignored: relativePath.includes('node_modules'),
+          }),
       );
 
       fileClassifier.classifyFile.mockReturnValue({
@@ -233,36 +206,25 @@ describe('WorkspaceIndexerService', () => {
       const result = await service.indexWorkspace();
 
       expect(result.files).toHaveLength(2); // node_modules file excluded
-      expect(
-        result.files.some((f) => f.relativePath.includes('node_modules')),
-      ).toBe(false);
+      expect(result.files.some((f) => f.path.includes('node_modules'))).toBe(
+        false,
+      );
     });
 
     it('should skip files larger than maxFileSize', async () => {
-      const mockFiles = [
-        { fsPath: '/workspace/small.ts', scheme: 'file' },
-        { fsPath: '/workspace/large.ts', scheme: 'file' },
-      ];
-
-      (vscode.workspace.findFiles as jest.Mock).mockResolvedValue(mockFiles);
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/small.ts',
+        '/workspace/large.ts',
+      ]);
 
       ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
-      (ignoreResolver.isIgnored as unknown as jest.Mock).mockReturnValue({
-        matched: false,
-        matchingPattern: null,
-        reason: 'No matching pattern',
-      });
 
-      // Mock different file sizes
-      fileSystemService.stat.mockImplementation(async (filePath: string) => {
-        const isLarge = filePath.includes('large');
-        return {
-          type: vscode.FileType.File,
-          ctime: 0,
-          mtime: 0,
-          size: isLarge ? 2000000 : 1000, // 2MB vs 1KB
-        };
-      });
+      fileSystemService.stat.mockImplementation(async (filePath: string) => ({
+        type: FileType.Source as unknown as number,
+        ctime: 0,
+        mtime: 0,
+        size: filePath.includes('large') ? 2000000 : 1000, // 2MB vs 1KB
+      }));
 
       fileClassifier.classifyFile.mockReturnValue({
         type: FileType.Source,
@@ -275,16 +237,14 @@ describe('WorkspaceIndexerService', () => {
       });
 
       expect(result.files).toHaveLength(1);
-      expect(result.files[0].relativePath).toBe('small.ts');
+      expect(result.files[0].path).toBe('/workspace/small.ts');
     });
 
     it('should estimate token counts when requested', async () => {
-      const mockFiles = [{ fsPath: '/workspace/app.ts', scheme: 'file' }];
-
-      (vscode.workspace.findFiles as jest.Mock).mockResolvedValue(mockFiles);
+      mockFsProvider.findFiles.mockResolvedValue(['/workspace/app.ts']);
 
       fileSystemService.stat.mockResolvedValue({
-        type: vscode.FileType.File,
+        type: FileType.Source as unknown as number,
         ctime: 0,
         mtime: 0,
         size: 1000,
@@ -294,11 +254,6 @@ describe('WorkspaceIndexerService', () => {
       tokenCounter.countTokens.mockResolvedValue(42);
 
       ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
-      (ignoreResolver.isIgnored as unknown as jest.Mock).mockReturnValue({
-        matched: false,
-        matchingPattern: null,
-        reason: 'No matching pattern',
-      });
 
       fileClassifier.classifyFile.mockReturnValue({
         type: FileType.Source,
@@ -316,27 +271,20 @@ describe('WorkspaceIndexerService', () => {
     });
 
     it('should call progress callback during indexing', async () => {
-      const mockFiles = [
-        { fsPath: '/workspace/file1.ts', scheme: 'file' },
-        { fsPath: '/workspace/file2.ts', scheme: 'file' },
-        { fsPath: '/workspace/file3.ts', scheme: 'file' },
-      ];
-
-      (vscode.workspace.findFiles as jest.Mock).mockResolvedValue(mockFiles);
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/file1.ts',
+        '/workspace/file2.ts',
+        '/workspace/file3.ts',
+      ]);
 
       fileSystemService.stat.mockResolvedValue({
-        type: vscode.FileType.File,
+        type: FileType.Source as unknown as number,
         ctime: 0,
         mtime: 0,
         size: 1000,
       });
 
       ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
-      (ignoreResolver.isIgnored as unknown as jest.Mock).mockReturnValue({
-        matched: false,
-        matchingPattern: null,
-        reason: 'No matching pattern',
-      });
 
       fileClassifier.classifyFile.mockReturnValue({
         type: FileType.Source,
@@ -356,26 +304,21 @@ describe('WorkspaceIndexerService', () => {
     });
 
     it('should apply exclude patterns', async () => {
-      const mockFiles = [
-        { fsPath: '/workspace/src/app.ts', scheme: 'file' },
-        { fsPath: '/workspace/test/app.test.ts', scheme: 'file' },
-      ];
-
-      (vscode.workspace.findFiles as jest.Mock).mockResolvedValue(mockFiles);
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/src/app.ts',
+        '/workspace/test/app.test.ts',
+      ]);
 
       fileSystemService.stat.mockResolvedValue({
-        type: vscode.FileType.File,
+        type: FileType.Source as unknown as number,
         ctime: 0,
         mtime: 0,
         size: 1000,
       });
 
       ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
-      (ignoreResolver.isIgnored as unknown as jest.Mock).mockResolvedValue({
-        filePath: '',
-        ignored: false,
-      });
 
+      // Mock returns only the files that match the exclude pattern
       patternMatcher.matchFiles.mockImplementation((paths: string[]) => {
         return paths
           .map((path) => ({
@@ -397,48 +340,33 @@ describe('WorkspaceIndexerService', () => {
       });
 
       expect(result.files).toHaveLength(1);
-      expect(result.files[0].relativePath).toBe('src/app.ts');
+      expect(result.files[0].path).toBe('/workspace/src/app.ts');
     });
 
     it('should throw error if no workspace folder available', async () => {
-      // Temporarily remove workspace folders
-      const originalFolders = vscode.workspace.workspaceFolders;
-      (vscode.workspace as { workspaceFolders: unknown }).workspaceFolders =
-        undefined;
+      mockWorkspaceProvider.getWorkspaceRoot.mockReturnValue(undefined);
 
       await expect(service.indexWorkspace()).rejects.toThrow(
         'No workspace folder available for indexing',
       );
-
-      // Restore workspace folders
-      (vscode.workspace as { workspaceFolders: unknown }).workspaceFolders =
-        originalFolders;
     });
   });
 
-  // Tests need adaptation for platform abstraction (findFiles now via IFileSystemProvider)
-  describe.skip('indexWorkspaceStream', () => {
+  describe('indexWorkspaceStream', () => {
     it('should yield files one at a time', async () => {
-      const mockFiles = [
-        { fsPath: '/workspace/file1.ts', scheme: 'file' },
-        { fsPath: '/workspace/file2.ts', scheme: 'file' },
-      ];
-
-      (vscode.workspace.findFiles as jest.Mock).mockResolvedValue(mockFiles);
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/file1.ts',
+        '/workspace/file2.ts',
+      ]);
 
       fileSystemService.stat.mockResolvedValue({
-        type: vscode.FileType.File,
+        type: FileType.Source as unknown as number,
         ctime: 0,
         mtime: 0,
         size: 1000,
       });
 
       ignoreResolver.parseWorkspaceIgnoreFiles.mockResolvedValue([]);
-      (ignoreResolver.isIgnored as unknown as jest.Mock).mockReturnValue({
-        matched: false,
-        matchingPattern: null,
-        reason: 'No matching pattern',
-      });
 
       fileClassifier.classifyFile.mockReturnValue({
         type: FileType.Source,
@@ -452,20 +380,18 @@ describe('WorkspaceIndexerService', () => {
       }
 
       expect(files).toHaveLength(2);
-      expect(files[0].relativePath).toBe('file1.ts');
-      expect(files[1].relativePath).toBe('file2.ts');
+      expect(files[0].path).toBe('/workspace/file1.ts');
+      expect(files[1].path).toBe('/workspace/file2.ts');
     });
 
     it('should respect ignore patterns in stream mode', async () => {
-      const mockFiles = [
-        { fsPath: '/workspace/src/app.ts', scheme: 'file' },
-        { fsPath: '/workspace/node_modules/lib.js', scheme: 'file' },
-      ];
-
-      (vscode.workspace.findFiles as jest.Mock).mockResolvedValue(mockFiles);
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/src/app.ts',
+        '/workspace/node_modules/lib.js',
+      ]);
 
       fileSystemService.stat.mockResolvedValue({
-        type: vscode.FileType.File,
+        type: FileType.Source as unknown as number,
         ctime: 0,
         mtime: 0,
         size: 1000,
@@ -488,26 +414,11 @@ describe('WorkspaceIndexerService', () => {
       ]);
 
       (ignoreResolver.isIgnored as unknown as jest.Mock).mockImplementation(
-        (path: string) => {
-          if (path.includes('node_modules')) {
-            return Promise.resolve({
-              filePath: path,
-              ignored: true,
-              matchedPattern: {
-                raw: 'node_modules',
-                pattern: 'node_modules',
-                isNegation: false,
-                isDirectoryOnly: false,
-                lineNumber: 1,
-              },
-              matchedFile: '/workspace/.gitignore',
-            });
-          }
-          return Promise.resolve({
-            filePath: path,
-            ignored: false,
-          });
-        },
+        (relativePath: string) =>
+          Promise.resolve({
+            filePath: relativePath,
+            ignored: relativePath.includes('node_modules'),
+          }),
       );
 
       fileClassifier.classifyFile.mockReturnValue({
@@ -522,7 +433,7 @@ describe('WorkspaceIndexerService', () => {
       }
 
       expect(files).toHaveLength(1);
-      expect(files[0].relativePath).toBe('src/app.ts');
+      expect(files[0].path).toBe('/workspace/src/app.ts');
     });
   });
 
@@ -650,16 +561,13 @@ describe('WorkspaceIndexerService', () => {
     });
   });
 
-  // Tests need adaptation for platform abstraction (findFiles now via IFileSystemProvider)
-  describe.skip('getFileCount', () => {
+  describe('getFileCount', () => {
     it('should return total file count', async () => {
-      const mockFiles = [
-        { fsPath: '/workspace/file1.ts', scheme: 'file' },
-        { fsPath: '/workspace/file2.ts', scheme: 'file' },
-        { fsPath: '/workspace/file3.ts', scheme: 'file' },
-      ];
-
-      (vscode.workspace.findFiles as jest.Mock).mockResolvedValue(mockFiles);
+      mockFsProvider.findFiles.mockResolvedValue([
+        '/workspace/file1.ts',
+        '/workspace/file2.ts',
+        '/workspace/file3.ts',
+      ]);
 
       const count = await service.getFileCount();
 
@@ -667,16 +575,11 @@ describe('WorkspaceIndexerService', () => {
     });
 
     it('should return 0 if no workspace folder', async () => {
-      const originalFolders = vscode.workspace.workspaceFolders;
-      (vscode.workspace as { workspaceFolders: unknown }).workspaceFolders =
-        undefined;
+      mockWorkspaceProvider.getWorkspaceRoot.mockReturnValue(undefined);
 
       const count = await service.getFileCount();
 
       expect(count).toBe(0);
-
-      (vscode.workspace as { workspaceFolders: unknown }).workspaceFolders =
-        originalFolders;
     });
   });
 });

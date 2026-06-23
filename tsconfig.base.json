@@ -15,7 +15,6 @@
     "skipDefaultLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-
     "paths": {
       "@ptah-extension/agent-generation": [
         "./libs/backend/agent-generation/src/index.ts"
@@ -28,6 +27,9 @@
         "./libs/backend/auth-providers-tokens/src/index.ts"
       ],
       "@ptah-extension/canvas": ["./libs/frontend/canvas/src/index.ts"],
+      "@ptah-extension/tribunal-panel": [
+        "./libs/frontend/tribunal-panel/src/index.ts"
+      ],
       "@ptah-extension/chat": ["./libs/frontend/chat/src/index.ts"],
       "@ptah-extension/chat-types": ["./libs/frontend/chat-types/src/index.ts"],
       "@ptah-extension/chat-state": ["./libs/frontend/chat-state/src/index.ts"],
@@ -44,9 +46,13 @@
       "@ptah-extension/cli-agent-runtime": [
         "./libs/backend/cli-agent-runtime/src/index.ts"
       ],
+      "@ptah-extension/cli-engine": ["./libs/backend/cli-engine/src/index.ts"],
       "@ptah-extension/core": ["./libs/frontend/core/src/index.ts"],
       "@ptah-extension/cron-scheduler": [
         "./libs/backend/cron-scheduler/src/index.ts"
+      ],
+      "@ptah-extension/gateway-chat-bridge": [
+        "./libs/backend/gateway-chat-bridge/src/index.ts"
       ],
       "@ptah-extension/cron-scheduler-ui": [
         "./libs/frontend/cron-scheduler-ui/src/index.ts"
@@ -109,6 +115,9 @@
       ],
       "@ptah-extension/harness-builder": [
         "./libs/frontend/harness-builder/src/index.ts"
+      ],
+      "@ptah-extension/marketplace": [
+        "./libs/frontend/marketplace/src/index.ts"
       ],
       "@ptah-extension/markdown": ["./libs/frontend/markdown/src/index.ts"],
       "@ptah-extension/setup-wizard": [

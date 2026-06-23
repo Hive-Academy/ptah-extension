@@ -141,7 +141,11 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
 
         <!-- Step content -->
         <div class="wizard-content flex-1 overflow-y-auto p-3">
-          <div class="animate-fadeIn">
+          <div
+            class="animate-fadeIn"
+            data-testid="wizard-step"
+            [attr.data-step]="currentStep()"
+          >
             @switch (currentStep()) {
               @case ('welcome') {
                 <ptah-welcome />

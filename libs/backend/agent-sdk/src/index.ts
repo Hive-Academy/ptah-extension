@@ -33,6 +33,9 @@ export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
 export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 export type { IAuthEnvProvider } from './lib/auth-env.port';
+export type { ICuratorAuthResolver } from './lib/curator-llm-adapter';
+export type { OneShotAuthOverride } from './lib/helpers';
+export type { IPricingProvider } from './lib/pricing.port';
 export {
   SdkError,
   SessionNotActiveError,
@@ -50,6 +53,7 @@ export {
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
+export { SessionLifecycleManager } from './lib/helpers';
 export {
   CallbackRegistryBase,
   type CallbackRegistryCallback,
@@ -68,14 +72,32 @@ export {
   type PostToolUseCallback,
   type PostToolUsePayload,
   PostToolUseHookHandler,
+  PreToolUseCallbackRegistry,
+  type PreToolUseCallback,
+  type PreToolUsePayload,
+  PreToolUseHookHandler,
+  SessionStartCallbackRegistry,
+  type SessionStartCallback,
+  type SessionStartPayload,
+  type SessionStartSource,
+  SessionStartHookHandler,
   UserPromptSubmitCallbackRegistry,
   type UserPromptSubmitCallback,
   type UserPromptSubmitPayload,
   UserPromptSubmitHookHandler,
+  UserPromptExpansionCallbackRegistry,
+  type UserPromptExpansionCallback,
+  type UserPromptExpansionPayload,
+  UserPromptExpansionHookHandler,
   StopCallbackRegistry,
   type StopCallback,
   type StopPayload,
   StopHookHandler,
+  StopFailureHookHandler,
+  SubagentStopHookHandler,
+  isStopFailureHook,
+  isSubagentStopHook,
+  narrowTerminalReason,
   SessionEndHookCallbackRegistry,
   type SessionEndHookCallback,
   type SessionEndHookPayload,
@@ -91,6 +113,7 @@ export {
 export {
   CompactionHookHandler,
   type CompactionStartCallback,
+  isPostCompactHook,
 } from './lib/helpers';
 export { CompactionConfigProvider } from './lib/helpers';
 export { SdkModuleLoader, SubagentHookHandler } from './lib/helpers';
@@ -100,14 +123,20 @@ export {
   type SdkAdapterDisposedEvent,
   type SdkAdapterConfigChangedEvent,
   type SdkAdapterAuthFileChangedEvent,
+  type SdkAdapterCompactionCompleteEvent,
+  type SdkAdapterTurnEndedEvent,
+  type SdkAdapterTurnFailedEvent,
+  type SdkAdapterSubagentEndedEvent,
 } from './lib/helpers';
 export type { SdkQueryOptions } from './lib/helpers';
 export { buildSafeEnv } from './lib/helpers/build-safe-env';
+export { redactMcpUrl, redactMcpOverrideMap } from './lib/helpers';
 export {
-  TIER_TO_MODEL_ID,
   TIER_ENV_VAR_MAP,
-  DEFAULT_FALLBACK_MODEL_ID,
   buildTierEnvDefaults,
+  SdkModelService,
+  MemoryPromptInjector,
+  CodeSymbolPromptInjector,
 } from './lib/helpers';
 export type { ModelTier, EnvMappedTier } from './lib/helpers';
 export {

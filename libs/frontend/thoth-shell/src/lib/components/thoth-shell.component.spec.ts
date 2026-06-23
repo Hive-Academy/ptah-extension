@@ -26,12 +26,18 @@ const skillStateStub = {
   selectedCandidate: signal(null),
   loading: signal(false),
   error: signal(null),
+  suggestions: signal([]),
+  suggestionsLoading: signal(false),
+  pendingSuggestionCount: signal(0),
   refreshCandidates: () => Promise.resolve(),
+  refreshSuggestions: () => Promise.resolve(),
   loadStats: () => Promise.resolve(),
   setStatusFilter: () => Promise.resolve(),
   selectCandidate: () => Promise.resolve(),
   promote: () => Promise.resolve(),
   reject: () => Promise.resolve(),
+  accept: () => Promise.resolve(),
+  dismiss: () => Promise.resolve(),
 } as unknown as SkillSynthesisStateService;
 
 /**
@@ -123,13 +129,15 @@ describe('ThothShellComponent', () => {
       ':scope > [role="tab"]',
     ) as NodeListOf<HTMLButtonElement>;
     expect(tabs.length).toBe(4);
-    const labels = Array.from(tabs).map((t) => t.textContent?.trim());
+    const labelOf = (t: HTMLElement) =>
+      t.querySelector('[data-testid="thoth-tab-label"]')?.textContent?.trim();
+    const labels = Array.from(tabs).map(labelOf);
     expect(labels).toEqual(['Memory', 'Skills', 'Schedules', 'Messaging']);
 
-    const active = Array.from(tabs).find((t) =>
-      t.classList.contains('tab-active'),
+    const active = Array.from(tabs).find(
+      (t) => t.getAttribute('aria-selected') === 'true',
     );
-    expect(active?.textContent?.trim()).toBe('Memory');
+    expect(active ? labelOf(active) : undefined).toBe('Memory');
   });
 
   it('switches active tab via setThothActiveTab when a tab is clicked', () => {
@@ -174,7 +182,7 @@ describe('ThothShellComponent', () => {
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent ?? '';
-    expect(text).toContain('Ptah desktop app');
+    expect(text).toContain('Ptah desktop');
   });
 
   it('shows desktop-only placeholder for memory tab when not on Electron', () => {
@@ -203,7 +211,7 @@ describe('ThothShellComponent', () => {
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent ?? '';
-    expect(text).toContain('Ptah desktop app');
+    expect(text).toContain('Ptah desktop');
 
     // Confirm the live memory UI is not rendered.
     const search = (fixture.nativeElement as HTMLElement).querySelector(
@@ -231,6 +239,7 @@ describe('ThothShellComponent', () => {
           useValue: { config: signal({ isElectron: false }) },
         },
         { provide: SkillSynthesisStateService, useValue: skillStateStub },
+        { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshStub },
       ],
     });
 
@@ -238,7 +247,7 @@ describe('ThothShellComponent', () => {
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent ?? '';
-    expect(text).toContain('Ptah desktop app');
+    expect(text).toContain('Ptah desktop');
 
     // Filter chips for the live skills UI must not render in placeholder mode.
     const skillFilterTabs = (

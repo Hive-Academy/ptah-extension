@@ -19,7 +19,9 @@ export type ViewType =
   | 'orchestra-canvas'
   | 'harness-builder'
   | 'setup-hub'
-  | 'thoth';
+  | 'thoth'
+  | 'marketplace'
+  | 'tribunal';
 
 /**
  * Active tab id within the Thoth hub. Mirrors the union exported from
@@ -47,10 +49,40 @@ export const THOTH_FIRST_RUN_DISMISSED_KEY = 'ptah-thoth-first-run-dismissed';
 export const LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY =
   'ptah-hermes-first-run-dismissed';
 
+/**
+ * Request to open the harness-builder surface and run an agent-driven
+ * workflow. `new-project` auto-starts the workflow with the seed prompt;
+ * `configure-harness` opens the surface and waits for the first user turn.
+ */
+export interface HarnessWorkflowRequest {
+  mode: 'new-project' | 'configure-harness';
+  seedPrompt?: string;
+}
+
+export type SettingsTabId =
+  | 'claude-auth'
+  | 'orchestration'
+  | 'pro-features'
+  | 'tools';
+
+export interface PendingSettingsTab {
+  tab: SettingsTabId;
+  providerId?: string;
+}
+
 /** Request to open/focus a session in a canvas tile */
 export interface CanvasSessionRequest {
   sessionId: string;
   name?: string;
+  /**
+   * Internal: resolver wired up by {@link AppStateManager.requestCanvasSession}
+   * so the caller can `await` the canvas adoption outcome. The canvas effect
+   * in `OrchestraCanvasComponent` resolves this with `true` when a tile is
+   * (re-)bound to the requested session, or `false` when the tile cap is hit
+   * / the canvas is not mounted. Kept optional so legacy callers / tests that
+   * fabricate the request shape still type-check.
+   */
+  resolve?: (success: boolean) => void;
 }
 
 export interface AppState {
@@ -86,6 +118,8 @@ export class AppStateManager implements MessageHandler {
       'harness-builder',
       'setup-hub',
       'thoth',
+      'marketplace',
+      'tribunal',
     ];
     if (view && validViews.includes(view as ViewType)) {
       this.handleViewSwitch(view as ViewType);
@@ -111,12 +145,25 @@ export class AppStateManager implements MessageHandler {
   );
   /** Signal bridge: request to create a new session as a canvas tile (from "New Session" in grid mode) */
   private readonly _newCanvasSessionRequest = signal<string | null>(null);
+  /** Signal bridge: request to open the harness surface and run a workflow */
+  private readonly _harnessWorkflowRequest =
+    signal<HarnessWorkflowRequest | null>(null);
+  private readonly _pendingSettingsTab = signal<PendingSettingsTab | null>(
+    null,
+  );
 
   /**
    * Active tab inside the Thoth hub. Persisted via setter so re-entering
    * the `'thoth'` view restores the user's last tab.
    */
   private readonly _thothActiveTab = signal<ThothActiveTabId>('memory');
+  /**
+   * Currently selected marketplace provider id (e.g. 'official-mcp',
+   * 'skills-sh'), or null when no provider is selected. Persisted in-memory
+   * via setter so re-entering the `'marketplace'` view restores the user's
+   * last provider — mirrors {@link _thothActiveTab}.
+   */
+  private readonly _marketplaceActiveProvider = signal<string | null>(null);
   /**
    * Whether the user has dismissed the Thoth first-run hint.
    * Persisted to `localStorage` under {@link THOTH_FIRST_RUN_DISMISSED_KEY}
@@ -158,8 +205,14 @@ export class AppStateManager implements MessageHandler {
   readonly canvasSessionRequest = this._canvasSessionRequest.asReadonly();
   /** Pending request to create a new canvas tile (consumed by OrchestraCanvasComponent) */
   readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
+  /** Pending request to open the harness surface workflow (consumed by HarnessBuilderViewComponent) */
+  readonly harnessWorkflowRequest = this._harnessWorkflowRequest.asReadonly();
+  readonly pendingSettingsTab = this._pendingSettingsTab.asReadonly();
   /** Active tab id inside the Thoth hub (memory / skills / cron / gateway). */
   readonly thothActiveTab = this._thothActiveTab.asReadonly();
+  /** Selected marketplace provider id (null when none selected). */
+  readonly marketplaceActiveProvider =
+    this._marketplaceActiveProvider.asReadonly();
   /** Whether the Thoth first-run hint has been dismissed. */
   readonly thothFirstRunDismissed = this._thothFirstRunDismissed.asReadonly();
   readonly canSwitchViews = computed(() => {
@@ -353,6 +406,11 @@ export class AppStateManager implements MessageHandler {
     this._thothActiveTab.set(tab);
   }
 
+  /** Update the selected marketplace provider id (null to clear selection). */
+  setMarketplaceActiveProvider(id: string | null): void {
+    this._marketplaceActiveProvider.set(id);
+  }
+
   /**
    * Mark the Thoth first-run hint as dismissed and persist the flag to
    * `localStorage` so a reload preserves the dismissed state. Idempotent —
@@ -389,12 +447,45 @@ export class AppStateManager implements MessageHandler {
     this.setLayoutMode(next);
   }
 
-  /** Request that the canvas opens/focuses a tile for the given session */
-  requestCanvasSession(sessionId: string, name?: string): void {
-    this._canvasSessionRequest.set({ sessionId, name });
+  /**
+   * Request that the canvas opens/focuses a tile for the given session.
+   *
+   * Returns a Promise that resolves to `true` when the canvas effect adopts
+   * the request and a tile is bound, or `false` when the request is dropped
+   * (tile cap reached, canvas not mounted, etc.). Callers that need to gate
+   * downstream destructive actions on a successful swap (e.g. "delete the
+   * original session after switching to the new one") should `await` this.
+   * Legacy fire-and-forget callers can ignore the returned promise.
+   *
+   * If the canvas never resolves (it was unmounted before the effect ran),
+   * the promise still settles via a 5s safety timeout to `false` so awaiters
+   * are never wedged.
+   */
+  requestCanvasSession(sessionId: string, name?: string): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const settle = (success: boolean): void => {
+        if (settled) return;
+        settled = true;
+        resolve(success);
+      };
+      const timer = setTimeout(() => settle(false), 5000);
+      this._canvasSessionRequest.set({
+        sessionId,
+        name,
+        resolve: (success: boolean) => {
+          clearTimeout(timer);
+          settle(success);
+        },
+      });
+    });
   }
 
-  /** Clear the canvas session request after the canvas has processed it */
+  /**
+   * Clear the canvas session request after the canvas has processed it.
+   * Callers should invoke `request.resolve(success)` BEFORE calling this so
+   * any awaiter unblocks; clearing alone does not settle the promise.
+   */
   clearCanvasSessionRequest(): void {
     this._canvasSessionRequest.set(null);
   }
@@ -407,5 +498,36 @@ export class AppStateManager implements MessageHandler {
   /** Clear the new canvas session request after the canvas has processed it */
   clearNewCanvasSessionRequest(): void {
     this._newCanvasSessionRequest.set(null);
+  }
+
+  /** Request that the harness surface opens and runs the given workflow. */
+  requestHarnessWorkflow(req: HarnessWorkflowRequest): void {
+    this._harnessWorkflowRequest.set(req);
+  }
+
+  /**
+   * Consume the pending harness workflow request (read-and-clear). Returns
+   * the request or null. Mirrors the canvas request consume pattern — the
+   * harness view reads this once on init so re-entry doesn't replay a stale
+   * workflow.
+   */
+  consumeHarnessWorkflowRequest(): HarnessWorkflowRequest | null {
+    const req = this._harnessWorkflowRequest();
+    if (req) {
+      this._harnessWorkflowRequest.set(null);
+    }
+    return req;
+  }
+
+  requestSettingsTab(target: PendingSettingsTab): void {
+    this._pendingSettingsTab.set(target);
+  }
+
+  consumePendingSettingsTab(): PendingSettingsTab | null {
+    const target = this._pendingSettingsTab();
+    if (target) {
+      this._pendingSettingsTab.set(null);
+    }
+    return target;
   }
 }

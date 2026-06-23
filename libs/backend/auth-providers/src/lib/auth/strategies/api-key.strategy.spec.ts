@@ -46,6 +46,7 @@ import type { AuthConfigureContext } from '../auth-strategy.types';
 import type { ITranslationProxy } from '../../translation';
 import type { ProviderModelsService } from '../../provider-models.service';
 import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../../providers/openrouter';
+import { SAKANA_PROXY_TOKEN_PLACEHOLDER } from '../../providers/sakana';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -58,7 +59,7 @@ function asConfig(mock: MockConfigManager): ConfigManager {
   return mock as unknown as ConfigManager;
 }
 
-function createMockOpenRouterProxy(): jest.Mocked<ITranslationProxy> {
+function createMockProxy(): jest.Mocked<ITranslationProxy> {
   return {
     start: jest
       .fn<Promise<{ port: number; url: string }>, []>()
@@ -100,6 +101,7 @@ interface Harness {
   authSecrets: MockAuthSecretsService;
   providerModels: jest.Mocked<ProviderModelsSurface>;
   openRouterProxy: jest.Mocked<ITranslationProxy>;
+  sakanaProxy: jest.Mocked<ITranslationProxy>;
   authEnv: AuthEnv;
 }
 
@@ -117,7 +119,8 @@ function makeStrategy(
     providerKeys: options.providerKeys,
   });
   const providerModels = createMockProviderModels();
-  const openRouterProxy = createMockOpenRouterProxy();
+  const openRouterProxy = createMockProxy();
+  const sakanaProxy = createMockProxy();
   const sentry = createMockSentryService();
   const authEnv: AuthEnv = {};
 
@@ -128,6 +131,7 @@ function makeStrategy(
     providerModels as unknown as ProviderModelsService,
     authEnv,
     openRouterProxy,
+    sakanaProxy,
     sentry as unknown as SentryService,
   );
 
@@ -138,6 +142,7 @@ function makeStrategy(
     authSecrets,
     providerModels,
     openRouterProxy,
+    sakanaProxy,
     authEnv,
   };
 }
@@ -350,6 +355,66 @@ describe('ApiKeyStrategy', () => {
       expect(harness.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('sk-or-'),
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Sakana flow (apiKey + requiresProxy) — the generalized proxy path
+  // -------------------------------------------------------------------------
+
+  describe('Sakana flow (providerId = "sakana", apiKey + requiresProxy)', () => {
+    it('happy path: starts the Sakana proxy, points SDK at proxy URL, uses the Sakana placeholder', async () => {
+      const harness = makeStrategy({
+        providerKeys: { sakana: 'sakana-key-valid' },
+      });
+      harness.sakanaProxy.isRunning.mockReturnValue(false);
+      harness.sakanaProxy.start.mockResolvedValueOnce({
+        port: 9600,
+        url: 'http://127.0.0.1:9600',
+      });
+
+      const ctx = makeContext('sakana');
+      const result = await harness.strategy.configure(ctx);
+
+      expect(harness.sakanaProxy.start).toHaveBeenCalledTimes(1);
+      // The OpenRouter proxy must NOT be touched for a Sakana configure.
+      expect(harness.openRouterProxy.start).not.toHaveBeenCalled();
+      expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:9600');
+      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe(
+        SAKANA_PROXY_TOKEN_PLACEHOLDER,
+      );
+      expect(ctx.authEnv.ANTHROPIC_API_KEY).toBe('');
+      expect(process.env['ANTHROPIC_API_KEY']).toBeUndefined();
+      expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
+        'sakana',
+      );
+      expect(result.configured).toBe(true);
+      expect(result.details[0]).toContain('Sakana');
+    });
+
+    it('auth-required: no Sakana key in SecretStorage → configured=false, proxy not started', async () => {
+      const harness = makeStrategy({ providerKeys: {} });
+
+      const result = await harness.strategy.configure(makeContext('sakana'));
+
+      expect(result.configured).toBe(false);
+      expect(harness.sakanaProxy.start).not.toHaveBeenCalled();
+    });
+
+    it('stops the OpenRouter proxy when switching from OpenRouter to Sakana', async () => {
+      const harness = makeStrategy({
+        providerKeys: { sakana: 'sakana-key' },
+      });
+      harness.openRouterProxy.isRunning.mockReturnValue(true);
+      harness.sakanaProxy.isRunning.mockReturnValue(false);
+      harness.sakanaProxy.start.mockResolvedValueOnce({
+        port: 1,
+        url: 'http://127.0.0.1:1',
+      });
+
+      await harness.strategy.configure(makeContext('sakana'));
+
+      expect(harness.openRouterProxy.stop).toHaveBeenCalledTimes(1);
     });
   });
 

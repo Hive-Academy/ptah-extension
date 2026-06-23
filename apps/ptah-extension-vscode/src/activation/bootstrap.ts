@@ -3,14 +3,19 @@ import {
   type Logger,
   type LicenseService,
   type LicenseStatus,
+  type RpcVerificationResult,
   TOKENS,
   SentryService,
+  PREVIOUS_USER_CONTEXT_KEY,
 } from '@ptah-extension/vscode-core';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import { registerVscodeSettings } from '@ptah-extension/platform-vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   SETTINGS_TOKENS,
   type MigrationRunner,
+  type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
 import { DIContainer } from '../di/container';
 import { handleLicenseBlocking } from './license-gate';
@@ -21,6 +26,8 @@ export interface BootstrapResult {
   authInitialized: boolean;
   /** True if license was invalid and blocking path was taken — caller should return. */
   blocked: boolean;
+  /** RPC registration verification result — undefined when blocked. */
+  rpcVerification?: RpcVerificationResult;
 }
 
 /**
@@ -49,6 +56,24 @@ export async function bootstrapVscode(
       extensionVersion: context.extension.packageJSON['version'] as string,
     });
   }
+  // E2E-only license seed. VS Code runs extension-test instances with
+  // in-memory storage, so the e2e runner cannot seed state.vscdb from
+  // outside — the seed must happen here, before verifyLicense(). Gated on
+  // ExtensionMode.Test (only set when VS Code is launched with
+  // extensionTestsPath, which a regular install can never be) AND the
+  // PTAH_E2E env flag set by the e2e runner. Seeding previousUserContext
+  // makes verifyLicense() take the documented community path with zero
+  // network calls, unblocking the full activation chain under test.
+  if (
+    context.extensionMode === vscode.ExtensionMode.Test &&
+    process.env['PTAH_E2E'] === '1'
+  ) {
+    await context.globalState.update(PREVIOUS_USER_CONTEXT_KEY, {
+      reason: 'expired',
+      persistedAt: Date.now(),
+      user: { email: 'e2e@ptah.local', firstName: null, lastName: null },
+    });
+  }
   const licenseService = DIContainer.resolve<LicenseService>(
     TOKENS.LICENSE_SERVICE,
   );
@@ -65,6 +90,16 @@ export async function bootstrapVscode(
   DIContainer.setup(context);
   try {
     const diContainer = DIContainer.getContainer();
+    const wsProvider = diContainer.resolve<IWorkspaceProvider>(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+    );
+    const activeWorkspaceSource: IActiveWorkspaceSource = {
+      getActivePath: () => wsProvider.getWorkspaceRoot(),
+      onDidChange: (cb) => wsProvider.onDidChangeWorkspaceFolders(cb),
+    };
+    diContainer.register(SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE, {
+      useValue: activeWorkspaceSource,
+    });
     registerVscodeSettings(diContainer, vscode, context);
     const migrationRunner = DIContainer.resolve<MigrationRunner>(
       SETTINGS_TOKENS.MIGRATION_RUNNER,
@@ -86,8 +121,8 @@ export async function bootstrapVscode(
   });
   const rpcMethodRegistration = DIContainer.resolve(
     TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
-  ) as { registerAll: () => void };
-  rpcMethodRegistration.registerAll();
+  ) as { registerAll: () => RpcVerificationResult };
+  const rpcVerification = rpcMethodRegistration.registerAll();
   const agentDiscovery = DIContainer.resolve(
     TOKENS.AGENT_DISCOVERY_SERVICE,
   ) as { initializeWatchers: () => void };
@@ -100,7 +135,6 @@ export async function bootstrapVscode(
   const agentAdapter = DIContainer.resolve(TOKENS.AGENT_ADAPTER) as {
     initialize: () => Promise<boolean>;
     preloadSdk: () => Promise<void>;
-    prewarm: () => Promise<void>;
   };
   const authInitialized = await agentAdapter.initialize();
 
@@ -115,11 +149,6 @@ export async function bootstrapVscode(
         error: err instanceof Error ? err.message : String(err),
       });
     });
-    agentAdapter.prewarm().catch((err) => {
-      logger.warn('SDK prewarm failed (will resolve on first query)', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
   }
 
   return {
@@ -127,5 +156,6 @@ export async function bootstrapVscode(
     licenseStatus,
     authInitialized,
     blocked: false,
+    rpcVerification,
   };
 }

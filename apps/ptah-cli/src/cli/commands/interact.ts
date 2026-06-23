@@ -45,7 +45,7 @@ import { randomUUID as nodeRandomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { EventPipe } from '../output/event-pipe.js';
 import { JsonRpcServer } from '../jsonrpc/server.js';
@@ -68,8 +68,8 @@ import {
   type AnthropicProxyConfig,
   type ProxyNotifier,
 } from '../../services/proxy/anthropic-proxy.service.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
-import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
+import type { CliWebviewManagerAdapter } from '@ptah-extension/cli-engine';
 
 export interface InteractOptions {
   /** Optional resume target — currently only echoed in `session.ready`. */
@@ -276,10 +276,20 @@ export async function execute(
   const drainTimeoutMs = hooks.drainTimeoutMs ?? 5_000;
   const version = hooks.version ?? '0.1.0';
 
+  if (hooks.stdin === undefined && process.stdin.isTTY === true) {
+    process.stderr.write(
+      '[ptah] interact: waiting for newline-delimited JSON-RPC 2.0 requests on stdin.\n' +
+        '[ptah] each request is one JSON object per line, e.g. ' +
+        '{"jsonrpc":"2.0","id":1,"method":"task.submit","params":{"task":"..."}}\n' +
+        '[ptah] exit with Ctrl-D (EOF) or Ctrl-C. For a one-shot human run prefer ' +
+        '`ptah session start --task "..." --once --human`.\n',
+    );
+  }
+
   let resolvedExitCode: number | null = null;
 
   try {
-    await engine(globals, { mode: 'full' }, async (ctx) => {
+    await engine(globals, { mode: 'full', thoth: 'runtime' }, async (ctx) => {
       const priorInteractActiveSet = Object.prototype.hasOwnProperty.call(
         process.env,
         'PTAH_INTERACT_ACTIVE',
@@ -621,14 +631,18 @@ export async function execute(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
+    const ptahCode =
+      (err as { ptahCode?: string }).ptahCode ?? 'internal_failure';
 
     await formatter.writeNotification('task.error', {
-      ptah_code: 'internal_failure',
+      ptah_code: ptahCode,
       command: 'interact',
       message,
-      ...(stack ? { stack } : {}),
     });
+
+    if (globals.verbose === true && err instanceof Error && err.stack) {
+      process.stderr.write(`${err.stack}\n`);
+    }
     resolvedExitCode = ExitCode.InternalFailure;
   }
 

@@ -43,8 +43,8 @@ import type {
 } from '@ptah-extension/vscode-lm-tools';
 import type { MCPRequest, MCPResponse } from '@ptah-extension/vscode-lm-tools';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
-import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
+import type { CliWebviewManagerAdapter } from '@ptah-extension/cli-engine';
 import { buildTeamLeaderPrompt } from '../../cli/commands/team-leader-prompt.js';
 
 /**

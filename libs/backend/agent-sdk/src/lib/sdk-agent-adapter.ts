@@ -3,7 +3,10 @@ import * as os from 'os';
 import { existsSync } from 'fs';
 import { injectable, inject } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IPlatformInfo } from '@ptah-extension/platform-core';
+import type {
+  IPlatformInfo,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   IAgentAdapter,
   ProviderId,
@@ -18,6 +21,7 @@ import {
   FlatStreamEventUnion,
   type McpHttpServerOverride,
   type ProviderProfile,
+  type MessageAnchorHint,
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
 import type { SdkAdapterEvents } from './helpers/sdk-adapter-events.service';
@@ -40,7 +44,6 @@ import {
   StreamTransformer,
   SdkModuleLoader,
   SdkModelService,
-  SdkWarmQueryManager,
   SessionForkService,
   SdkAdapterCallbackRegistry,
   type SessionIdResolvedCallback,
@@ -49,8 +52,6 @@ import {
   type WorktreeCreatedCallback,
   type WorktreeRemovedCallback,
   type SlashCommandConfig,
-  type WarmPrewarmFingerprint,
-  type WarmQueryHandle,
 } from './helpers';
 import {
   ClaudeCliDetector,
@@ -64,8 +65,6 @@ export type {
   WorktreeCreatedCallback,
   WorktreeRemovedCallback,
 } from './helpers';
-
-export type { WarmQueryHandle, WarmPrewarmFingerprint } from './helpers';
 
 const SDK_CAPABILITIES: ProviderCapabilities = {
   streaming: true,
@@ -98,6 +97,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   private cliInstallation: ClaudeInstallation | null = null;
 
+  private lastConfiguredAuth: {
+    authMethod: string;
+    providerId: string;
+  } | null = null;
+
   private readonly callbacks: SdkAdapterCallbackRegistry;
 
   constructor(
@@ -121,8 +125,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly modelService: SdkModelService,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
-    @inject(SDK_TOKENS.SDK_WARM_QUERY_MANAGER)
-    private readonly warmQueryManager: SdkWarmQueryManager,
     @inject(SDK_TOKENS.SDK_SESSION_FORK_SERVICE)
     private readonly forkService: SessionForkService,
     @inject(TOKENS.SENTRY_SERVICE)
@@ -131,8 +133,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly events: SdkAdapterEvents,
     @inject(SDK_TOKENS.SDK_SESSION_ACTIVITY_REGISTRY)
     private readonly activityRegistry: SessionActivityRegistry,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
+    this.workspaceProvider.onDidChangeWorkspaceFolders(() => {
+      this.handleWorkspaceChanged();
+    });
     this.events.onConfigChanged(async () => {
       this.logger.info(
         '[SdkAgentAdapter] Config change detected, re-initializing...',
@@ -182,28 +189,57 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return this.moduleLoader.preload();
   }
 
-  public async prewarm(
-    activeMcpServers?: Record<string, unknown>,
-  ): Promise<void> {
-    return this.warmQueryManager.prewarm(
-      this.runtimeState.getCliJsPath(),
-      activeMcpServers,
-    );
+  /**
+   * On workspace switch, re-resolve authentication if the active provider /
+   * auth method changed so the next session uses the correct credentials.
+   */
+  private handleWorkspaceChanged(): void {
+    if (!this.initialized) {
+      return;
+    }
+    this.reconfigureAuthIfChanged().catch((err) => {
+      this.logger.warn(
+        '[SdkAgentAdapter] Auth reconfigure after workspace change failed',
+        err instanceof Error ? err : new Error(String(err)),
+      );
+    });
   }
 
-  public consumeWarmQuery(
-    requirements?: WarmPrewarmFingerprint,
-  ): WarmQueryHandle | null {
-    return this.warmQueryManager.consumeWarmQuery(requirements);
+  private async reconfigureAuthIfChanged(): Promise<void> {
+    const active = this.authManager.resolveActiveAuth();
+    if (
+      this.lastConfiguredAuth &&
+      this.lastConfiguredAuth.authMethod === active.authMethod &&
+      this.lastConfiguredAuth.providerId === active.providerId
+    ) {
+      return;
+    }
+    this.logger.info(
+      `[SdkAgentAdapter] Active auth changed on workspace switch → ${active.authMethod}/${active.providerId}, reconfiguring`,
+    );
+    const result = await this.authManager.configureAuthentication(
+      active.authMethod,
+    );
+    if (result.configured) {
+      this.lastConfiguredAuth = {
+        authMethod: active.authMethod,
+        providerId: active.providerId,
+      };
+    }
   }
 
   async initialize(): Promise<boolean> {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
-      const authMethod = this.config.get<string>('authMethod') || 'apiKey';
-      const authResult =
-        await this.authManager.configureAuthentication(authMethod);
+      const active = this.authManager.resolveActiveAuth();
+      this.lastConfiguredAuth = {
+        authMethod: active.authMethod,
+        providerId: active.providerId,
+      };
+      const authResult = await this.authManager.configureAuthentication(
+        active.authMethod,
+      );
 
       if (!authResult.configured) {
         this.runtimeState.setHealth({
@@ -323,15 +359,19 @@ export class SdkAgentAdapter implements IAgentAdapter {
   dispose(): void {
     this.logger.info('[SdkAgentAdapter] Disposing adapter...');
     this.events.emitDisposed({ timestamp: Date.now() });
-    this.sessionLifecycle.disposeAllSessions().catch((err) => {
-      this.logger.warn(
-        '[SdkAgentAdapter] Error during session disposal',
-        err instanceof Error ? err : new Error(String(err)),
-      );
-    });
+    this.sessionLifecycle
+      .disposeAllSessions()
+      .catch((err) => {
+        this.logger.warn(
+          '[SdkAgentAdapter] Error during session disposal',
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      })
+      .finally(() => {
+        this.sessionLifecycle.dispose();
+      });
     this.authManager.clearAuthentication();
     this.modelService.clearCache();
-    this.warmQueryManager.dispose();
     this.initialized = false;
     this.runtimeState.reset();
     this.logger.info('[SdkAgentAdapter] Disposed successfully');
@@ -414,16 +454,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       { isPremium, mcpServerRunning, providerId: providerProfile?.providerId },
     );
 
-    const warmHandle =
-      mcpServersOverride || providerProfile
-        ? null
-        : this.warmQueryManager.consumeWarmQuery({
-            pathToClaudeCodeExecutable: currentCliJsPath,
-            mcpServers: null,
-            baseUrl: null,
-            authEnvHash: null,
-          });
-
     const { sdkQuery, initialModel, abortController } =
       await this.sessionLifecycle.executeQuery({
         sessionId: trackingId,
@@ -448,7 +478,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
         includePartialMessages,
         mcpServersOverride,
         authEnvOverride: effectiveAuthEnv,
-        warmQuery: warmHandle ?? undefined,
       });
 
     const resolvedProjectPath = config?.projectPath || os.homedir();
@@ -494,7 +523,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       pluginPaths?: string[];
       tabId?: string;
       includePartialMessages?: boolean;
-      resumeSessionAt?: string;
       providerProfile?: ProviderProfile;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
@@ -504,28 +532,20 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
     const existingSession = this.sessionLifecycle.find(sessionId as string);
     if (existingSession && existingSession.query) {
-      if (config?.resumeSessionAt) {
-        this.logger.info(
-          `[SdkAgentAdapter] Ending active session ${sessionId} to restart with resumeSessionAt`,
-          { resumeSessionAt: config.resumeSessionAt },
-        );
-        await this.sessionLifecycle.endSession(sessionId);
-      } else {
-        this.logger.info(
-          `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
-        );
-        return this.streamTransformer.transform({
-          sdkQuery: existingSession.query,
+      this.logger.info(
+        `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
+      );
+      return this.streamTransformer.transform({
+        sdkQuery: existingSession.query,
+        sessionId,
+        initialModel: existingSession.currentModel,
+        onSessionIdResolved: this.callbacks.getSessionIdResolved(),
+        onResultStats: this.wrapResultStatsForActivity(
           sessionId,
-          initialModel: existingSession.currentModel,
-          onSessionIdResolved: this.callbacks.getSessionIdResolved(),
-          onResultStats: this.wrapResultStatsForActivity(
-            sessionId,
-            this.callbacks.getResultStats(),
-          ),
-          tabId: config?.tabId,
-        });
-      }
+          this.callbacks.getResultStats(),
+        ),
+        tabId: config?.tabId,
+      });
     }
 
     const isPremium = config?.isPremium ?? false;
@@ -552,7 +572,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         sessionConfig: sessionConfigWithProfileModel,
         resumeSessionId: sessionId as string,
-        resumeSessionAt: config?.resumeSessionAt,
         onCompactionStart: this.callbacks.getCompactionStart(),
         onWorktreeCreated: this.callbacks.getWorktreeCreated(),
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
@@ -713,22 +732,36 @@ export class SdkAgentAdapter implements IAgentAdapter {
     sessionId: SessionId,
     upToMessageId?: string,
     title?: string,
+    kind?: 'rewind' | 'branch',
+    anchorHint?: MessageAnchorHint,
   ): Promise<ForkSessionResult> {
     if (!this.initialized) {
       throw this.notInitializedError();
     }
-    return this.forkService.forkSession({ sessionId, upToMessageId, title });
+    return this.forkService.forkSession({
+      sessionId,
+      upToMessageId,
+      anchorHint,
+      title,
+      kind,
+    });
   }
 
   async rewindFiles(
     sessionId: SessionId,
     userMessageId: string,
     dryRun?: boolean,
+    anchorHint?: MessageAnchorHint,
   ): Promise<RewindFilesResult> {
     if (!this.initialized) {
       throw this.notInitializedError();
     }
-    return this.forkService.rewindFiles({ sessionId, userMessageId, dryRun });
+    return this.forkService.rewindFiles({
+      sessionId,
+      userMessageId,
+      anchorHint,
+      dryRun,
+    });
   }
 
   async setSessionPermissionLevel(
@@ -743,6 +776,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
       | 'bypassPermissions',
   ): Promise<void> {
     return this.sessionLifecycle.setSessionPermissionLevel(sessionId, level);
+  }
+
+  /**
+   * Active session IDs, most-recently-active first. Used by the autopilot
+   * toggle to target the session the user is interacting with when the
+   * frontend does not supply an explicit sessionId.
+   */
+  getActiveSessionIds(): SessionId[] {
+    return this.sessionLifecycle.getActiveSessionIds();
   }
 
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {

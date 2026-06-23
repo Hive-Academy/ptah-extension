@@ -14,15 +14,13 @@ import {
   Send,
   Zap,
   Square,
-  Clock,
   X,
   ImageIcon,
   Paperclip,
   ImagePlus,
-  Database,
-  Sparkles,
   File as FileIcon,
   Folder as FolderIcon,
+  Mic,
 } from 'lucide-angular';
 import {
   InlineImageAttachment,
@@ -39,7 +37,7 @@ import {
   ClaudeRpcService,
   VSCodeService,
 } from '@ptah-extension/core';
-import { SessionActionsService } from '../../../services/session-actions.service';
+import { VoiceInputService } from '../../../services/voice-input.service';
 import { ModelSelectorComponent } from './model-selector.component';
 import { AutopilotPopoverComponent } from '@ptah-extension/chat-ui';
 import {
@@ -109,6 +107,7 @@ interface PastedImage {
     AgentSelectorComponent,
     EffortSelectorComponent,
   ],
+  providers: [VoiceInputService],
   template: `
     <div
       class="flex flex-col gap-2 p-4 bg-base-100 relative"
@@ -204,26 +203,38 @@ interface PastedImage {
             >
               <lucide-angular [img]="ImagePlusIcon" class="w-3.5 h-3.5" />
             </button>
-            @if (isElectron()) {
+            @if (isElectron) {
+              @if (isRecording()) {
+                <span class="text-[10px] text-error tabular-nums px-0.5">{{
+                  voiceElapsedLabel()
+                }}</span>
+              }
               <button
-                class="btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content/80"
-                [disabled]="!canRunSessionAction()"
-                (click)="handleSaveToMemory()"
-                title="Save to memory"
+                [class]="
+                  'btn btn-ghost btn-xs btn-square ' +
+                  (isRecording()
+                    ? 'text-error animate-pulse'
+                    : 'text-base-content/50 hover:text-base-content/80')
+                "
+                [disabled]="isTranscribing()"
+                (click)="handleVoiceButton()"
+                [title]="
+                  isRecording()
+                    ? 'Stop recording'
+                    : isTranscribing()
+                      ? 'Transcribing...'
+                      : 'Record voice'
+                "
                 type="button"
-                data-test="chat-input-save-to-memory"
+                data-testid="chat-voice-btn"
               >
-                <lucide-angular [img]="DatabaseIcon" class="w-3.5 h-3.5" />
-              </button>
-              <button
-                class="btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content/80"
-                [disabled]="!canRunSessionAction()"
-                (click)="handleExtractSkill()"
-                title="Extract skill"
-                type="button"
-                data-test="chat-input-extract-skill"
-              >
-                <lucide-angular [img]="SparklesIcon" class="w-3.5 h-3.5" />
+                @if (isTranscribing()) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                } @else if (isRecording()) {
+                  <lucide-angular [img]="SquareIcon" class="w-3.5 h-3.5" />
+                } @else {
+                  <lucide-angular [img]="MicIcon" class="w-3.5 h-3.5" />
+                }
               </button>
             }
           </div>
@@ -289,6 +300,7 @@ interface PastedImage {
               (click)="handleStop()"
               title="Stop generating"
               type="button"
+              data-testid="chat-stop-btn"
             >
               <lucide-angular [img]="SquareIcon" class="w-4 h-4" />
             </button>
@@ -299,21 +311,12 @@ interface PastedImage {
             [disabled]="!canSend()"
             (click)="handleSend()"
             type="button"
+            data-testid="chat-send-btn"
           >
             <lucide-angular [img]="SendIcon" class="w-4 h-4" />
           </button>
         </div>
       </div>
-
-      <!-- Queued Message Indicator -->
-      @if (hasQueuedContent()) {
-        <div
-          class="flex items-center gap-2 px-2 py-1 bg-warning/10 rounded-lg text-warning text-xs"
-        >
-          <lucide-angular [img]="ClockIcon" class="w-3 h-3" />
-          <span>Message queued - will send when response completes</span>
-        </div>
-      }
 
       <!-- Bottom Controls Row -->
       <div class="flex items-center justify-between gap-1.5 min-w-0">
@@ -359,19 +362,21 @@ export class ChatInputComponent implements OnInit {
   });
   readonly autopilotState = inject(AutopilotStateService);
   private readonly rpcService = inject(ClaudeRpcService);
-  readonly filePicker = inject(FilePickerService);
-  readonly commandDiscovery = inject(CommandDiscoveryFacade);
   private readonly vscodeService = inject(VSCodeService);
-  readonly sessionActions = inject(SessionActionsService);
+  readonly voiceInput = inject(VoiceInputService);
+  readonly filePicker = inject(FilePickerService);
+
+  readonly isElectron = this.vscodeService.isElectron;
+  readonly isRecording = this.voiceInput.isRecording;
+  readonly isTranscribing = this.voiceInput.isTranscribing;
+  readonly voiceElapsedLabel = computed(() => {
+    const total = this.voiceInput.elapsedSeconds();
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  });
+  readonly commandDiscovery = inject(CommandDiscoveryFacade);
   readonly authMethodLabel = signal<string | null>(null);
-  readonly isElectron = computed<boolean>(
-    () => this.vscodeService.isElectron === true,
-  );
-  readonly canRunSessionAction = computed<boolean>(
-    () =>
-      this.sessionActions.hasActiveSession() &&
-      !this.sessionActions.actionInFlight(),
-  );
 
   /**
    * Use the same streaming indicator as tab spinner.
@@ -383,6 +388,35 @@ export class ChatInputComponent implements OnInit {
   readonly isActiveTabStreaming = computed(() => {
     const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
     return tabId ? this.tabManager.isTabStreaming(tabId) : false;
+  });
+
+  /**
+   * Per-`SessionStatus` direct-send enablement matrix.
+   *
+   * - `fresh` — enabled
+   * - `draft` — enabled
+   * - `loaded` — enabled
+   * - `awaiting-background` — enabled
+   * - `streaming` — disabled
+   * - `resuming` — disabled
+   * - `switching` — disabled
+   */
+  readonly inputEnabled = computed<boolean>(() => {
+    const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+    if (!tabId) return true;
+    const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+    if (!tab) return true;
+    switch (tab.status) {
+      case 'fresh':
+      case 'draft':
+      case 'loaded':
+      case 'awaiting-background':
+        return true;
+      case 'streaming':
+      case 'resuming':
+      case 'switching':
+        return false;
+    }
   });
 
   /**
@@ -420,13 +454,11 @@ export class ChatInputComponent implements OnInit {
   readonly SendIcon = Send;
   readonly ZapIcon = Zap;
   readonly SquareIcon = Square;
-  readonly ClockIcon = Clock;
   readonly XIcon = X;
   readonly ImageIconRef = ImageIcon;
   readonly PaperclipIcon = Paperclip;
   readonly ImagePlusIcon = ImagePlus;
-  readonly DatabaseIcon = Database;
-  readonly SparklesIcon = Sparkles;
+  readonly MicIcon = Mic;
   private _lastSessionId: string | null = null;
   private readonly _currentMessage = signal('');
   private readonly _showSuggestions = signal(false);
@@ -473,17 +505,6 @@ export class ChatInputComponent implements OnInit {
   ngOnInit(): void {
     this.fetchAuthMethodLabel();
   }
-  readonly hasQueuedContent = computed(() => {
-    const ctx = this._sessionContext;
-    if (ctx) {
-      const tabId = ctx();
-      if (!tabId) return false;
-      const tab = this.tabManager.tabs().find((t) => t.id === tabId);
-      return !!tab?.queuedContent?.trim();
-    }
-    const queued = this.tabManager.activeTabQueuedContent();
-    return !!queued?.trim();
-  });
 
   /**
    * Computed signal for filtered suggestions.
@@ -714,12 +735,58 @@ export class ChatInputComponent implements OnInit {
     }
   }
 
-  async handleSaveToMemory(): Promise<void> {
-    await this.sessionActions.saveToMemory();
+  async handleVoiceButton(): Promise<void> {
+    if (this.isTranscribing()) return;
+
+    if (this.isRecording()) {
+      const result = await this.voiceInput.stopRecording();
+      if (!result) return;
+      if (result.ok && result.transcript) {
+        this.insertTranscript(result.transcript);
+      } else if (!result.ok && result.error) {
+        this.showImageAttachmentError(result.error);
+      }
+      return;
+    }
+
+    await this.voiceInput.startRecording();
+    const error = this.voiceInput.error();
+    if (error) {
+      this.showImageAttachmentError(error);
+    }
   }
 
-  async handleExtractSkill(): Promise<void> {
-    await this.sessionActions.extractSkill();
+  private insertTranscript(transcript: string): void {
+    const text = transcript.trim();
+    if (!text) return;
+
+    const textarea = this.textareaRef()?.nativeElement;
+    const currentValue = this._currentMessage();
+
+    if (!textarea) {
+      const needsSpace =
+        currentValue.length > 0 && !currentValue.endsWith(' ') ? ' ' : '';
+      this._currentMessage.set(currentValue + needsSpace + text);
+      return;
+    }
+
+    const cursorStart = textarea.selectionStart ?? currentValue.length;
+    const cursorEnd = textarea.selectionEnd ?? currentValue.length;
+    const before = currentValue.substring(0, cursorStart);
+    const after = currentValue.substring(cursorEnd);
+    const atEndAfterText =
+      cursorStart === currentValue.length && before.length > 0;
+    const leadingSpace = atEndAfterText && !before.endsWith(' ') ? ' ' : '';
+    const insertion = leadingSpace + text;
+    const newValue = before + insertion + after;
+
+    this._currentMessage.set(newValue);
+    textarea.value = newValue;
+    const newCursorPos = cursorStart + insertion.length;
+    textarea.focus();
+    textarea.setSelectionRange(newCursorPos, newCursorPos);
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
   }
 
   /**

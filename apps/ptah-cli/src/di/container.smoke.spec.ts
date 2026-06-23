@@ -30,6 +30,7 @@ import {
   SetupRpcHandlers,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
 import { EXPECTED_RESOLVABLE } from './expected-resolvable';
 
@@ -58,6 +59,18 @@ function buildMinimalContainer(): DependencyContainer {
   });
   c.register(TOKENS.LICENSE_SERVICE, {
     useValue: { getStatus: jest.fn(), isPremium: jest.fn(() => false) },
+  });
+  c.register(TOKENS.AUTH_SECRETS_SERVICE, {
+    useValue: {
+      getCredential: jest.fn(async () => undefined),
+      setCredential: jest.fn(async () => undefined),
+      deleteCredential: jest.fn(async () => undefined),
+      hasCredential: jest.fn(async () => false),
+      getProviderKey: jest.fn(async () => undefined),
+      setProviderKey: jest.fn(async () => undefined),
+      deleteProviderKey: jest.fn(async () => undefined),
+      hasProviderKey: jest.fn(async () => false),
+    },
   });
   c.register(TOKENS.SAVE_DIALOG_PROVIDER, {
     useValue: { showSaveDialog: jest.fn() },
@@ -111,6 +124,13 @@ function buildMinimalContainer(): DependencyContainer {
     setSelectedModel: jest.fn(),
   };
   c.register(SETTINGS_TOKENS.MODEL_SETTINGS, { useValue: fakeModelSettings });
+
+  c.register(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER, {
+    useValue: {
+      resolveActiveAuth: jest.fn(() => ({ authMethod: 'claudeCli' })),
+      resolveThirdPartyProviderId: jest.fn(() => 'anthropic'),
+    },
+  });
 
   registerSharedRpcHandlers(c);
   return c;

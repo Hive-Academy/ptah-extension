@@ -42,6 +42,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   MEMORY_CONTRACT_TOKENS,
   type IMemoryReader,
+  type IMemoryLister,
   type ISymbolSink,
 } from '@ptah-extension/memory-contracts';
 
@@ -89,6 +90,13 @@ export function registerPhase2Libraries(
   };
   container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
     useValue: noopMemoryReader,
+  });
+
+  const noopMemoryLister: IMemoryLister = {
+    listAll: () => ({ memories: [], total: 0 }),
+  };
+  container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
+    useValue: noopMemoryLister,
   });
 
   const noopSymbolSink: ISymbolSink = {

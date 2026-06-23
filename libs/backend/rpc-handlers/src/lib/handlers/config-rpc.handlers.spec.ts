@@ -17,11 +17,9 @@
  *     optionally syncs it to an active SDK session. Sync failures are
  *     swallowed (warned, not thrown) so the config write still wins.
  *
- *   - `config:model-get`: Three migration branches — (a) legacy bare-tier
- *     values are resolved to full IDs and re-saved, (b) stale "latest"
- *     aliases (e.g. claude-opus-4-6) are migrated to the current
- *     `TIER_TO_MODEL_ID`, (c) specific dated IDs (-YYYYMMDD) are preserved
- *     as-is. `'default'` is a valid SDK tier and MUST NOT be migrated.
+ *   - `config:model-get`: legacy bare-tier values are resolved to full IDs
+ *     and re-saved; Claude IDs and `'default'` pass through unchanged
+ *     (SDK owns tier resolution).
  *
  *   - `config:autopilot-toggle`: YOLO requires a Pro subscription — non-Pro
  *     users hit a thrown error. Permission level persists to ConfigManager,
@@ -98,6 +96,7 @@ type MockSdkAdapter = jest.Mocked<
     | 'setSessionModel'
     | 'setSessionEffort'
     | 'setSessionPermissionLevel'
+    | 'getActiveSessionIds'
     | 'getSupportedModels'
     | 'getApiModels'
   >
@@ -108,6 +107,7 @@ function createMockSdkAdapter(): MockSdkAdapter {
     setSessionModel: jest.fn().mockResolvedValue(undefined),
     setSessionEffort: jest.fn().mockResolvedValue(undefined),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
+    getActiveSessionIds: jest.fn().mockReturnValue([]),
     getSupportedModels: jest.fn().mockResolvedValue([]),
     getApiModels: jest.fn().mockResolvedValue([]),
   };
@@ -319,6 +319,7 @@ describe('ConfigRpcHandlers', () => {
       expect(result.model).toBe('claude-opus-4-7');
       expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
         'claude-opus-4-7',
+        'app',
       );
     });
 
@@ -350,6 +351,22 @@ describe('ConfigRpcHandlers', () => {
       expect(result.model).toBe('claude-haiku-4-5');
       expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
         'claude-haiku-4-5',
+        'app',
+      );
+    });
+
+    it('threads applyTo:workspace into the workspace-scoped model write', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'config:model-switch', {
+        model: 'claude-opus-4-7',
+        applyTo: 'workspace',
+      });
+
+      expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
+        'claude-opus-4-7',
+        'workspace',
       );
     });
   });
@@ -359,14 +376,13 @@ describe('ConfigRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('config:model-get', () => {
-    it('returns DEFAULT_FALLBACK_MODEL_ID when nothing is stored', async () => {
+    it('returns "default" tier when nothing is stored', async () => {
       const h = makeHarness();
       h.handlers.register();
 
       const result = await call<{ model: string }>(h, 'config:model-get');
 
-      expect(typeof result.model).toBe('string');
-      expect(result.model.length).toBeGreaterThan(0);
+      expect(result.model).toBe('default');
     });
 
     it('preserves "default" as-is (valid SDK tier meaning "let SDK choose")', async () => {
@@ -376,7 +392,6 @@ describe('ConfigRpcHandlers', () => {
       const result = await call<{ model: string }>(h, 'config:model-get');
 
       expect(result.model).toBe('default');
-      // No migration write should occur for 'default'
       expect(h.modelResolver.resolve).not.toHaveBeenCalled();
     });
 
@@ -394,35 +409,14 @@ describe('ConfigRpcHandlers', () => {
       );
     });
 
-    it('preserves a dated specific-version ID unchanged', async () => {
+    it('preserves a Claude ID unchanged (SDK owns tier resolution)', async () => {
       const h = makeHarness({ modelSelected: 'claude-opus-4-7-20251101' });
-      // detectTier returns the tier even for dated IDs, but the /-\d{8}$/ guard
-      // in the handler must prevent migration.
-      h.modelResolver.detectTier.mockReturnValue('opus');
       h.handlers.register();
 
       const result = await call<{ model: string }>(h, 'config:model-get');
 
       expect(result.model).toBe('claude-opus-4-7-20251101');
       expect(h.modelSettings.selectedModel.set).not.toHaveBeenCalled();
-    });
-
-    it('migrates a stale "latest" alias to the current TIER_TO_MODEL_ID value', async () => {
-      // Handler compares `stored` to TIER_TO_MODEL_ID[tier]. The only way to
-      // guarantee mismatch is to feed a stored value that clearly isn't the
-      // current latest for its tier.
-      const h = makeHarness({ modelSelected: 'claude-opus-4-6' });
-      h.modelResolver.detectTier.mockReturnValue('opus');
-      h.handlers.register();
-
-      const result = await call<{ model: string }>(h, 'config:model-get');
-
-      // We don't hardcode the current ID (it changes over time) — we just
-      // assert the handler migrated away from the stale value.
-      expect(result.model).not.toBe('claude-opus-4-6');
-      expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
-        expect.any(String),
-      );
     });
   });
 
@@ -514,6 +508,38 @@ describe('ConfigRpcHandlers', () => {
         'sess-1',
         'acceptEdits',
       );
+    });
+
+    it('falls back to the most-recently-active session when no sessionId is supplied', async () => {
+      const h = makeHarness({ isPro: true });
+      h.sdkAdapter.getActiveSessionIds.mockReturnValue([
+        'active-sess',
+      ] as unknown as ReturnType<SdkAgentAdapter['getActiveSessionIds']>);
+      h.handlers.register();
+
+      // The autopilot popover omits sessionId — the toggle must still reach the
+      // running session so per-session gating takes effect.
+      await call(h, 'config:autopilot-toggle', {
+        enabled: true,
+        permissionLevel: 'yolo',
+      });
+
+      expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledWith(
+        'active-sess',
+        'bypassPermissions',
+      );
+    });
+
+    it('skips session sync when no sessionId and no active session', async () => {
+      const h = makeHarness({ isPro: true });
+      h.handlers.register();
+
+      await call(h, 'config:autopilot-toggle', {
+        enabled: true,
+        permissionLevel: 'yolo',
+      });
+
+      expect(h.sdkAdapter.setSessionPermissionLevel).not.toHaveBeenCalled();
     });
 
     it('maps plan → plan for the active SDK session', async () => {
@@ -782,7 +808,10 @@ describe('ConfigRpcHandlers', () => {
         { effort: 'high' },
       );
       expect(setResult.effort).toBe('high');
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('high');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
+        'high',
+        'app',
+      );
 
       // Simulate the effect of the set so get returns the updated value.
       h.reasoningSettings.effort.get.mockReturnValue('high');
@@ -796,7 +825,7 @@ describe('ConfigRpcHandlers', () => {
 
       await call(h, 'config:effort-set', { effort: '' });
 
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('', 'app');
 
       // Simulate the effect of clearing so get reflects the cleared state.
       h.reasoningSettings.effort.get.mockReturnValue('');
@@ -813,7 +842,10 @@ describe('ConfigRpcHandlers', () => {
         sessionId: 'sess-1',
       });
 
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('high');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
+        'high',
+        'app',
+      );
       expect(h.sdkAdapter.setSessionEffort).toHaveBeenCalledWith(
         'sess-1',
         'high',
@@ -840,7 +872,25 @@ describe('ConfigRpcHandlers', () => {
       });
 
       expect(result.effort).toBe('xhigh');
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('xhigh');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
+        'xhigh',
+        'app',
+      );
+    });
+
+    it('threads applyTo:workspace into the workspace-scoped effort write', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'config:effort-set', {
+        effort: 'high',
+        applyTo: 'workspace',
+      });
+
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
+        'high',
+        'workspace',
+      );
     });
   });
 });

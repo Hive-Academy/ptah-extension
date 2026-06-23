@@ -9,6 +9,10 @@
  * `libs/shared/src/lib/types/branded.types.ts`.
  */
 
+import type { MemoryType } from '@ptah-extension/memory-contracts';
+
+export type { MemoryType };
+
 declare const MEMORY_ID_BRAND: unique symbol;
 declare const CHUNK_ID_BRAND: unique symbol;
 
@@ -44,6 +48,22 @@ export interface Memory {
   readonly lastUsedAt: number;
   /** `null` = no auto-expiry. */
   readonly expiresAt: number | null;
+  /** claude-mem 5-field summary: what the user asked for. */
+  readonly request: string | null;
+  /** claude-mem 5-field summary: what was investigated/inspected. */
+  readonly investigated: string | null;
+  /** claude-mem 5-field summary: what was learned. */
+  readonly learned: string | null;
+  /** claude-mem 5-field summary: what was completed/changed. */
+  readonly completed: string | null;
+  /** claude-mem 5-field summary: suggested next steps. */
+  readonly nextSteps: string | null;
+  /** Classification taxonomy; defaults to 'discovery' on legacy rows. */
+  readonly type: MemoryType;
+  /** Short-form concept tags (claude-mem max 5); empty array when unknown. */
+  readonly concepts: readonly string[];
+  /** File paths touched by the episode; empty array when unknown. */
+  readonly files: readonly string[];
 }
 
 export interface MemoryChunk {
@@ -68,6 +88,14 @@ export interface MemoryInsert {
   readonly decayRate?: number;
   readonly pinned?: boolean;
   readonly expiresAt?: number | null;
+  readonly request?: string | null;
+  readonly investigated?: string | null;
+  readonly learned?: string | null;
+  readonly completed?: string | null;
+  readonly nextSteps?: string | null;
+  readonly type?: MemoryType;
+  readonly concepts?: readonly string[];
+  readonly files?: readonly string[];
 }
 
 /** Insert payload for a chunk; `id` and `createdAt` auto-filled. */

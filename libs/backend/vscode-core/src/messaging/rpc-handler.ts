@@ -75,12 +75,16 @@ export const ALLOWED_METHOD_PREFIXES = [
   'mcpDirectory:', // MCP Server Directory (search, getDetails, install, uninstall, listInstalled, getPopular)
   'cron:', // Scheduled cron jobs (list, get, create, update, delete, toggle, runNow, runs, nextFire)
   'gateway:', // MCP gateway status, bindings, and messages
+  'voice:', // Voice input transcription (chat input mic → Whisper)
   'memory:', // Memory curator (list, search, get, pin, unpin, forget, rebuildIndex, stats)
+  'mem:', // Progressive disclosure memory search (searchIndex, timeline, getObservations)
+  'corpus:', // Knowledge corpus (list, get, build, prime, query, reprime, rebuild, delete)
   'skillSynthesis:', // Skills synthesis pipeline (listCandidates, getCandidate, promote, reject, invocations, stats)
   'db:', // DB health + reset — maintenance commands
+  'embedder:', // Embedder status + retry (lazy ONNX download recovery)
   'subagent:', // Bidirectional subagent messaging (send-message, stop, interrupt)
   'indexing:', // Workspace indexing control
-  'update:', // Electron auto-update UX (check-now, install-now)
+  'update:', // Desktop update banner (get-state, check-now)
 ] as const;
 
 /**
@@ -109,6 +113,8 @@ const PRO_ONLY_METHOD_PREFIXES = [
   'wizard:', // setup_wizard feature (deep-analyze, recommend-agents)
   'enhancedPrompts:', // Enhanced Prompts (Pro-only intelligent prompt generation)
   'ptahCli:', // Ptah CLI agent management (Pro-only)
+  'mcpDirectory:', // MCP marketplace (official + Smithery) — Pro-only (TASK_2026_131)
+  'skillsSh:', // Skills marketplace — Pro-only (TASK_2026_131)
 ] as const;
 
 /**

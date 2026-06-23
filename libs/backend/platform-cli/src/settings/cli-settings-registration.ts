@@ -13,6 +13,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
   SETTINGS_TOKENS,
   ReactiveSettingsStore,
@@ -27,10 +28,14 @@ import {
   CronSettings,
   MigrationRunner,
   SecretsFileStore,
+  WorkspaceScopeResolver,
+  appScopePrefixFor,
   runV1Migration,
   runV2Migration,
   runV3Migration,
+  runV4Migration,
 } from '@ptah-extension/settings-core';
+import type { IActiveWorkspaceSource } from '@ptah-extension/settings-core';
 
 import { FileSettingsStore } from './file-settings-store';
 import { CliMasterKeyProvider } from './cli-master-key-provider';
@@ -49,9 +54,13 @@ import type { IUserInteraction } from '@ptah-extension/platform-core';
  * 6. MigrationRunner (v1 + v2 + v3, pointed at ~/.ptah/)
  *
  * @param container - tsyringe DI container (must already have WORKSPACE_PROVIDER registered)
+ * @param ptahDirOverride - optional override for the ~/.ptah directory
  */
-export function registerCliSettings(container: DependencyContainer): void {
-  const ptahDir = path.join(os.homedir(), '.ptah');
+export function registerCliSettings(
+  container: DependencyContainer,
+  ptahDirOverride?: string,
+): void {
+  const ptahDir = ptahDirOverride ?? path.join(os.homedir(), '.ptah');
   const workspaceProvider = container.resolve<CliWorkspaceProvider>(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
@@ -73,14 +82,31 @@ export function registerCliSettings(container: DependencyContainer): void {
   container.register(SETTINGS_TOKENS.SETTINGS_STORE, {
     useValue: reactiveStore,
   });
+  const appPrefix = resolveAppPrefix(container);
+  const scopeResolver = container.isRegistered(
+    SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE,
+  )
+    ? new WorkspaceScopeResolver(
+        reactiveStore,
+        container.resolve<IActiveWorkspaceSource>(
+          SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE,
+        ),
+        appPrefix,
+      )
+    : undefined;
+  if (scopeResolver) {
+    container.register(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER, {
+      useValue: scopeResolver,
+    });
+  }
   container.register(SETTINGS_TOKENS.AUTH_SETTINGS, {
     useValue: new AuthSettings(reactiveStore),
   });
   container.register(SETTINGS_TOKENS.REASONING_SETTINGS, {
-    useValue: new ReasoningSettings(reactiveStore),
+    useValue: new ReasoningSettings(reactiveStore, scopeResolver),
   });
   container.register(SETTINGS_TOKENS.MODEL_SETTINGS, {
-    useValue: new ModelSettings(reactiveStore),
+    useValue: new ModelSettings(reactiveStore, scopeResolver),
   });
   container.register(SETTINGS_TOKENS.CLI_SUBAGENT_SETTINGS, {
     useValue: new CliSubagentSettings(reactiveStore),
@@ -101,11 +127,25 @@ export function registerCliSettings(container: DependencyContainer): void {
     useValue: new CronSettings(reactiveStore),
   });
   const boundV3 = (dir: string) => runV3Migration(dir, masterKeyProvider);
+  const boundV4 = (dir: string) => runV4Migration(dir, appPrefix);
   container.register(SETTINGS_TOKENS.MIGRATION_RUNNER, {
     useValue: new MigrationRunner(ptahDir, [
       runV1Migration,
       runV2Migration,
       boundV3,
+      boundV4,
     ]),
   });
+}
+
+function resolveAppPrefix(container: DependencyContainer): string | undefined {
+  if (!container.isRegistered(PLATFORM_TOKENS.PLATFORM_INFO)) {
+    return undefined;
+  }
+  const info = container.resolve<IPlatformInfo>(PLATFORM_TOKENS.PLATFORM_INFO);
+  const type = info.type;
+  if (typeof type !== 'string' || type.trim() === '' || type === 'web') {
+    return undefined;
+  }
+  return appScopePrefixFor(type);
 }

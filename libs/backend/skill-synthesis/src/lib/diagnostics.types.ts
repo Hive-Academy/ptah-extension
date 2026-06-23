@@ -1,3 +1,5 @@
+import type { PopulatedSkillTriggers } from './triggers/skill-trigger-config';
+
 export type SkillSynthesisEventKind =
   | 'analyze-run'
   | 'curator-pass'
@@ -10,10 +12,7 @@ export type SkillSynthesisEventKind =
   | 'rate-limited'
   | 'error';
 
-export type SkillIneligibleReason =
-  | 'tooFewTurns'
-  | 'lowFidelity'
-  | 'insufficientAbstraction';
+export type SkillIneligibleReason = 'prefilterTooThin' | 'prefilterRejected';
 
 export interface SkillSynthesisEvent {
   readonly kind: SkillSynthesisEventKind;
@@ -26,9 +25,8 @@ export interface SkillSynthesisEvent {
 }
 
 export interface EligibilityHistogram {
-  readonly tooFewTurns: number;
-  readonly lowFidelity: number;
-  readonly insufficientAbstraction: number;
+  readonly prefilterTooThin: number;
+  readonly prefilterRejected: number;
   readonly accepted: number;
 }
 
@@ -45,17 +43,5 @@ export interface SkillSynthesisDiagnosticsSnapshot {
   readonly eligibilityHistogram: EligibilityHistogram;
   readonly byStatus: SkillCandidateStatusCounts;
   readonly recentEvents: readonly SkillSynthesisEvent[];
-  readonly triggers: {
-    readonly sessionEnd: boolean;
-    readonly idleMs: number;
-    readonly bootScan: boolean;
-    readonly subagentStop: {
-      readonly enabled: boolean;
-    };
-    readonly postToolUse: {
-      readonly enabled: boolean;
-      readonly minEditCount: number;
-    };
-    readonly maxAnalyzesPerHour: number;
-  };
+  readonly triggers: PopulatedSkillTriggers;
 }

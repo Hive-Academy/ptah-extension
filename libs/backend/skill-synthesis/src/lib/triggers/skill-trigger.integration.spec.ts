@@ -11,10 +11,13 @@ import {
   PostToolUseCallbackRegistry,
   SessionActivityRegistry,
   SessionEndCallbackRegistry,
+  StopCallbackRegistry,
   SubagentStopCallbackRegistry,
+  UserPromptExpansionCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { SkillTriggerService } from './skill-trigger.service';
 import type { SkillSynthesisService } from '../skill-synthesis.service';
+import type { SkillInvocationRecorder } from '../skill-invocation-recorder';
 
 function makeLogger(): Logger {
   return {
@@ -31,9 +34,8 @@ function makeSynthesis(): SkillSynthesisService {
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     getEligibilityHistogram: jest.fn(() => ({
-      tooFewTurns: 0,
-      lowFidelity: 0,
-      insufficientAbstraction: 0,
+      prefilterTooThin: 0,
+      prefilterRejected: 0,
       accepted: 0,
     })),
     lastRunSummary: jest.fn(() => ({
@@ -97,6 +99,7 @@ interface IntegrationHarness {
   postToolUseRegistry: PostToolUseCallbackRegistry;
   sessionEndRegistry: SessionEndCallbackRegistry;
   activityRegistry: SessionActivityRegistry;
+  stopRegistry: StopCallbackRegistry;
 }
 
 function buildHarness(opts?: {
@@ -113,6 +116,13 @@ function buildHarness(opts?: {
   const sessionEndRegistry = new SessionEndCallbackRegistry(makeLogger());
   const subagentStopRegistry = new SubagentStopCallbackRegistry(makeLogger());
   const postToolUseRegistry = new PostToolUseCallbackRegistry(makeLogger());
+  const userPromptExpansionRegistry = new UserPromptExpansionCallbackRegistry(
+    makeLogger(),
+  );
+  const stopRegistry = new StopCallbackRegistry(makeLogger());
+  const recorder = {
+    recordSkillEvent: jest.fn(),
+  } as unknown as SkillInvocationRecorder;
   const service = new SkillTriggerService(
     logger,
     synthesis,
@@ -125,6 +135,9 @@ function buildHarness(opts?: {
     subagentStopRegistry,
     postToolUseRegistry,
     rateLimiter,
+    userPromptExpansionRegistry,
+    recorder,
+    stopRegistry,
   );
   return {
     service,
@@ -134,6 +147,7 @@ function buildHarness(opts?: {
     postToolUseRegistry,
     sessionEndRegistry,
     activityRegistry,
+    stopRegistry,
   };
 }
 
@@ -191,7 +205,12 @@ describe('SkillTriggerService integration — full event-loop', () => {
     expect(synthesis.analyzeSession).toHaveBeenCalledWith(
       '12345678-1234-5678-1234-567812345678',
       '/ws',
-      { force: false },
+      {
+        force: false,
+        transcriptPath:
+          '/tmp/agents/12345678-1234-5678-1234-567812345678.jsonl',
+        source: 'subagent-stop',
+      },
     );
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -216,6 +235,8 @@ describe('SkillTriggerService integration — full event-loop', () => {
     expect(synthesis.analyzeSession).toHaveBeenCalledTimes(1);
     expect(synthesis.analyzeSession).toHaveBeenCalledWith('s1', '/ws', {
       force: false,
+      transcriptPath: undefined,
+      source: 'edit-then-test',
     });
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({

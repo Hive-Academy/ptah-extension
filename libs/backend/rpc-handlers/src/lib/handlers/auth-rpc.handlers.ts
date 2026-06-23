@@ -29,6 +29,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   ProviderModelsService,
+  ActiveProviderResolver,
   AUTH_PROVIDERS_TOKENS,
 } from '@ptah-extension/auth-providers';
 import type {
@@ -36,11 +37,42 @@ import type {
   ICodexAuthService,
 } from '@ptah-extension/auth-providers';
 import {
+  SETTINGS_TOKENS,
+  WorkspaceScopeResolver,
+} from '@ptah-extension/settings-core';
+import { resolveAuthProviderKey } from '@ptah-extension/platform-core';
+import {
   AuthGetAuthStatusParams,
   AuthGetAuthStatusResponse,
 } from '@ptah-extension/shared';
-import { AuthSettingsSchema, parseAuthMethod } from './auth-rpc.schema';
+import type {
+  AuthGetScopeResult,
+  AuthClearWorkspaceOverrideResult,
+} from '@ptah-extension/shared';
+import { AuthSettingsSchema } from './auth-rpc.schema';
 import type { RpcMethodName } from '@ptah-extension/shared';
+
+function resolveScopeFromKey(
+  effectiveKey: string,
+  globalKey: string,
+): { scope: 'global' | 'app' | 'workspace'; runtime?: string } {
+  if (effectiveKey === globalKey) {
+    return { scope: 'global' };
+  }
+  const appMatch = /^app\.([^.]+)\.(.*)$/.exec(effectiveKey);
+  if (appMatch) {
+    const runtime = appMatch[1];
+    const rest = appMatch[2];
+    if (rest.startsWith('workspace.')) {
+      return { scope: 'workspace', runtime };
+    }
+    return { scope: 'app', runtime };
+  }
+  if (effectiveKey.startsWith('workspace.')) {
+    return { scope: 'workspace' };
+  }
+  return { scope: 'global' };
+}
 
 /**
  * RPC handlers for authentication operations
@@ -59,6 +91,8 @@ export class AuthRpcHandlers {
     'auth:copilotStatus',
     'auth:codexLogin',
     'auth:getApiKeyStatus',
+    'auth:getScope',
+    'auth:clearWorkspaceOverride',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -72,6 +106,8 @@ export class AuthRpcHandlers {
     private readonly sdkAdapter: SdkAgentAdapter,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER)
+    private readonly activeProviderResolver: ActiveProviderResolver,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)
     private readonly copilotAuth: CopilotAuthService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
@@ -84,6 +120,8 @@ export class AuthRpcHandlers {
     private readonly cliDetector: ClaudeCliDetector,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER)
+    private readonly scopeResolver: WorkspaceScopeResolver,
   ) {}
 
   /**
@@ -101,6 +139,8 @@ export class AuthRpcHandlers {
     this.registerCopilotStatus();
     this.registerCodexLogin();
     this.registerGetApiKeyStatus();
+    this.registerGetScope();
+    this.registerClearWorkspaceOverride();
 
     this.logger.debug('Auth RPC handlers registered', {
       methods: [
@@ -115,6 +155,8 @@ export class AuthRpcHandlers {
         'auth:copilotStatus',
         'auth:codexLogin',
         'auth:getApiKeyStatus',
+        'auth:getScope',
+        'auth:clearWorkspaceOverride',
       ],
     });
   }
@@ -158,12 +200,9 @@ export class AuthRpcHandlers {
         this.logger.debug('RPC: auth:getAuthStatus called');
         const safeParams: AuthGetAuthStatusParams = params ?? {};
         const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
-        const rawMethod = this.configManager.get<string>('authMethod');
-        const authMethod = parseAuthMethod(rawMethod);
-        const anthropicProviderId = this.configManager.getWithDefault<string>(
-          'anthropicProviderId',
-          DEFAULT_PROVIDER_ID,
-        );
+        const active = this.activeProviderResolver.resolveActiveAuth();
+        const authMethod = active.authMethod;
+        const anthropicProviderId = active.providerId;
         const checkProviderId = safeParams.providerId || anthropicProviderId;
         const hasOpenRouterKey =
           await this.authSecretsService.hasProviderKey(checkProviderId);
@@ -303,7 +342,15 @@ export class AuthRpcHandlers {
           params: sanitizedParams,
         });
         const validated = AuthSettingsSchema.parse(params);
-        await this.configManager.set('authMethod', validated.authMethod);
+        const applyTo: 'global' | 'app' | 'workspace' =
+          validated.applyTo ?? 'global';
+        await this.scopeResolver.write(
+          'authMethod',
+          validated.authMethod,
+          applyTo,
+          true,
+        );
+        await this.scopeResolver.clearMoreSpecific('authMethod', applyTo, true);
         if (validated.anthropicApiKey !== undefined) {
           if (validated.anthropicApiKey.trim()) {
             await this.authSecretsService.setCredential(
@@ -317,10 +364,8 @@ export class AuthRpcHandlers {
         if (validated.providerApiKey !== undefined) {
           const targetProviderId =
             validated.anthropicProviderId ??
-            this.configManager.getWithDefault<string>(
-              'anthropicProviderId',
-              DEFAULT_PROVIDER_ID,
-            );
+            this.scopeResolver.read<string>('anthropicProviderId', true) ??
+            DEFAULT_PROVIDER_ID;
 
           if (validated.providerApiKey.trim()) {
             await this.authSecretsService.setProviderKey(
@@ -333,9 +378,16 @@ export class AuthRpcHandlers {
           this.providerModels.clearCache(targetProviderId);
         }
         if (validated.anthropicProviderId !== undefined) {
-          await this.configManager.set(
+          await this.scopeResolver.write(
             'anthropicProviderId',
             validated.anthropicProviderId,
+            applyTo,
+            true,
+          );
+          await this.scopeResolver.clearMoreSpecific(
+            'anthropicProviderId',
+            applyTo,
+            true,
           );
           await this.autoMapProviderTiers(validated.anthropicProviderId);
         }
@@ -698,6 +750,100 @@ export class AuthRpcHandlers {
         return { success: true };
       },
     );
+  }
+
+  /**
+   * auth:getScope - Report whether the active workspace overrides auth/provider
+   * settings or inherits the global defaults.
+   */
+  private registerGetScope(): void {
+    this.rpcHandler.registerMethod<Record<string, never>, AuthGetScopeResult>(
+      'auth:getScope',
+      async () => {
+        try {
+          const activePath = this.scopeResolver.getActivePath() ?? null;
+          const authMethodKey = this.scopeResolver.effectiveKey(
+            'authMethod',
+            true,
+          );
+          const providerKey = this.scopeResolver.effectiveKey(
+            'anthropicProviderId',
+            true,
+          );
+          const authMethodResolved = resolveScopeFromKey(
+            authMethodKey,
+            'authMethod',
+          );
+          const providerResolved = resolveScopeFromKey(
+            providerKey,
+            'anthropicProviderId',
+          );
+          const runtime =
+            authMethodResolved.runtime ?? providerResolved.runtime;
+          return {
+            authMethodScope: authMethodResolved.scope,
+            providerScope: providerResolved.scope,
+            activePath,
+            ...(runtime !== undefined ? { runtime } : {}),
+          };
+        } catch (error) {
+          this.logger.error(
+            'RPC: auth:getScope failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AuthRpcHandlers.registerGetScope' },
+          );
+          throw error;
+        }
+      },
+    );
+  }
+
+  /**
+   * auth:clearWorkspaceOverride - Drop the active workspace's overrides for
+   * authMethod, anthropicProviderId, and the active provider's model + effort
+   * keys, reverting them to the global defaults.
+   */
+  private registerClearWorkspaceOverride(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      AuthClearWorkspaceOverrideResult
+    >('auth:clearWorkspaceOverride', async () => {
+      try {
+        const authMethod =
+          this.scopeResolver.read<string>('authMethod', true) ?? 'apiKey';
+        const providerId =
+          this.scopeResolver.read<string>('anthropicProviderId', true) ?? '';
+        const authKey = resolveAuthProviderKey(authMethod, providerId);
+
+        await this.scopeResolver.clearOverride('authMethod', true);
+        await this.scopeResolver.clearOverride('anthropicProviderId', true);
+        await this.scopeResolver.clearOverride(
+          `provider.${authKey}.selectedModel`,
+          true,
+        );
+        await this.scopeResolver.clearOverride(
+          `provider.${authKey}.reasoningEffort`,
+          true,
+        );
+
+        await this.sdkAdapter.reset();
+
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: auth:clearWorkspaceOverride failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'AuthRpcHandlers.registerClearWorkspaceOverride' },
+        );
+        throw error;
+      }
+    });
   }
 
   /**

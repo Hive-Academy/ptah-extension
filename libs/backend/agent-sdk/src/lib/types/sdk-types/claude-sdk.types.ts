@@ -15,6 +15,7 @@ export type {
   AgentMcpServerSpec,
   ApiKeySource,
   AsyncHookJSONOutput,
+  BackgroundTaskSummary,
   BaseHookInput,
   CanUseTool,
   ConfigChangeHookInput,
@@ -105,10 +106,12 @@ export type {
   SDKUserMessageReplay,
   SdkBeta,
   SdkPluginConfig,
+  SessionCronSummary,
   SessionEndHookInput,
   SessionStartHookInput,
   SessionStartHookSpecificOutput,
   SettingSource,
+  Settings,
   SetupHookInput,
   SetupHookSpecificOutput,
   SlashCommand,
@@ -120,11 +123,14 @@ export type {
   SyncHookJSONOutput,
   TaskCompletedHookInput,
   TeammateIdleHookInput,
+  TerminalReason,
   ThinkingAdaptive,
   ThinkingConfig,
   ThinkingDisabled,
   ThinkingEnabled,
   ToolConfig,
+  UserPromptExpansionHookInput,
+  UserPromptExpansionHookSpecificOutput,
   UserPromptSubmitHookInput,
   UserPromptSubmitHookSpecificOutput,
   WorktreeCreateHookInput,
@@ -163,12 +169,15 @@ import type {
   PostToolUseHookInput,
   PostToolUseFailureHookInput,
   StopHookInput,
+  StopFailureHookInput,
   SessionStartHookInput,
   SessionEndHookInput,
   SetupHookInput,
+  UserPromptExpansionHookInput,
   UserPromptSubmitHookInput,
   WorktreeCreateHookInput,
   WorktreeRemoveHookInput,
+  TerminalReason,
   NonNullableUsage,
   ModelUsage,
   Options,
@@ -464,6 +473,14 @@ export function isTextBlock(
   return block.type === 'text';
 }
 
+export const SDK_INTERRUPT_SENTINEL = '[Request interrupted by user]';
+
+export function isInterruptSentinelText(
+  text: string | null | undefined,
+): boolean {
+  return typeof text === 'string' && text.trim() === SDK_INTERRUPT_SENTINEL;
+}
+
 export function isToolUseBlock(
   block: ContentBlock | { type: string },
 ): block is ToolUseBlock {
@@ -534,10 +551,22 @@ export function isStopHook(input: HookInput): input is StopHookInput {
   return input.hook_event_name === 'Stop';
 }
 
+export function isStopFailureHook(
+  input: HookInput,
+): input is StopFailureHookInput {
+  return input.hook_event_name === 'StopFailure';
+}
+
 export function isUserPromptSubmitHook(
   input: HookInput,
 ): input is UserPromptSubmitHookInput {
   return input.hook_event_name === 'UserPromptSubmit';
+}
+
+export function isUserPromptExpansionHook(
+  input: HookInput,
+): input is UserPromptExpansionHookInput {
+  return input.hook_event_name === 'UserPromptExpansion';
 }
 
 export function isSessionStartHook(
@@ -566,6 +595,20 @@ export function isWorktreeRemoveHook(
   input: HookInput,
 ): input is WorktreeRemoveHookInput {
   return input.hook_event_name === 'WorktreeRemove';
+}
+
+/**
+ * Extracts `terminal_reason` from a hook input via structural narrowing.
+ *
+ * SDK 0.3.150 does not expose `terminal_reason` on the typed hook input
+ * interfaces today; this helper extracts it via an intersection cast typed
+ * against `TerminalReason`. Drop the cast when the SDK exposes the field on
+ * `BaseHookInput` (forward-compat consolidation per code-style review §6).
+ */
+export function narrowTerminalReason(input: HookInput): TerminalReason | null {
+  const candidate = (input as { terminal_reason?: TerminalReason })
+    .terminal_reason;
+  return candidate ?? null;
 }
 
 export type FlatStreamEventType =

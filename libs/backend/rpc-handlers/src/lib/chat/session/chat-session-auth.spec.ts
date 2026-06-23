@@ -16,6 +16,39 @@
 
 import 'reflect-metadata';
 
+// `ChatSessionService` now imports `@ptah-extension/cli-agent-runtime` (for the
+// session-time Smithery override resolver), whose barrel transitively pulls
+// `@ptah-extension/workspace-intelligence`. That lib's TreeSitter module
+// evaluates `import.meta.url` at top level — a construct ts-jest's CJS
+// transform cannot parse. Stub it (mirrors `mcp-directory-rpc.handlers.spec`).
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  ProjectType: {},
+  Framework: {},
+  MonorepoType: {},
+  FileType: {},
+  TreeSitterParserService: class TreeSitterParserServiceStub {},
+  AstAnalysisService: class AstAnalysisServiceStub {},
+  DependencyGraphService: class DependencyGraphServiceStub {},
+  WorkspaceAnalyzerService: class WorkspaceAnalyzerServiceStub {},
+  ContextService: class ContextServiceStub {},
+  ContextOrchestrationService: class ContextOrchestrationServiceStub {},
+  WorkspaceService: class WorkspaceServiceStub {},
+  TokenCounterService: class TokenCounterServiceStub {},
+  FileSystemService: class FileSystemServiceStub {},
+  FileSystemError: class FileSystemErrorStub extends Error {},
+  ProjectDetectorService: class ProjectDetectorServiceStub {},
+  FrameworkDetectorService: class FrameworkDetectorServiceStub {},
+  DependencyAnalyzerService: class DependencyAnalyzerServiceStub {},
+  MonorepoDetectorService: class MonorepoDetectorServiceStub {},
+  PatternMatcherService: class PatternMatcherServiceStub {},
+  IgnorePatternResolverService: class IgnorePatternResolverServiceStub {},
+  WorkspaceIndexerService: class WorkspaceIndexerServiceStub {},
+  FileTypeClassifierService: class FileTypeClassifierServiceStub {},
+  FileRelevanceScorerService: class FileRelevanceScorerServiceStub {},
+  ContextSizeOptimizerService: class ContextSizeOptimizerServiceStub {},
+  ContextEnrichmentService: class ContextEnrichmentServiceStub {},
+}));
+
 import type {
   Logger,
   ConfigManager,
@@ -71,6 +104,12 @@ function makeService(
     } as never,
     stub as never,
     workspaceProvider,
+    {
+      type: 'cli',
+      extensionPath: '/tmp/ptah-app',
+      globalStoragePath: '/tmp/ptah-storage',
+      workspaceStoragePath: '/tmp/ptah-workspace-storage',
+    } as never,
     stub as never,
     {
       handleStart: jest.fn().mockResolvedValue({ result: { success: false } }),
@@ -79,6 +118,12 @@ function makeService(
     stub as never,
     stub as never,
     createMockModelSettings() as unknown as ModelSettings,
+    {
+      getProviderKey: jest.fn().mockResolvedValue(undefined),
+      setProviderKey: jest.fn().mockResolvedValue(undefined),
+      deleteProviderKey: jest.fn().mockResolvedValue(undefined),
+      hasProviderKey: jest.fn().mockResolvedValue(false),
+    } as never,
   );
 }
 

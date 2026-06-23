@@ -14,6 +14,7 @@ import {
   CliDetectionService,
   CopilotPermissionBridge,
   AgentProcessManager,
+  AgentContinueError,
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
 } from '@ptah-extension/cli-agent-runtime';
@@ -24,6 +25,7 @@ import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
   AgentListCliModelsResult,
+  AgentContinueErrorCode,
   CliModelOption,
   AgentPermissionDecision,
   ISdkPermissionHandler,
@@ -39,7 +41,7 @@ import * as os from 'os';
  * RPC handlers for agent orchestration operations.
  *
  * Exposes agent orchestration config to the frontend for:
- * - Displaying detected CLI agents (Gemini, Codex)
+ * - Displaying detected CLI agents (Codex, Copilot)
  * - Configuring default CLI, max concurrent agents, timeout
  * - Triggering re-detection of CLI agents
  */
@@ -74,6 +76,7 @@ export class AgentRpcHandlers {
     this.registerListCliModels();
     this.registerPermissionResponse();
     this.registerAgentStop();
+    this.registerAgentContinue();
     this.registerResumeCliSession();
     const copilotAutoApprove =
       this.workspaceProvider.getConfiguration<boolean>(
@@ -97,6 +100,7 @@ export class AgentRpcHandlers {
         'agent:listCliModels',
         'agent:permissionResponse',
         'agent:stop',
+        'agent:continue',
         'agent:resumeCliSession',
       ],
     });
@@ -129,7 +133,6 @@ export class AgentRpcHandlers {
             detectedClis,
             preferredAgentOrder: getCfg<string[]>('preferredAgentOrder', []),
             maxConcurrentAgents: getCfg<number>('maxConcurrentAgents', 5),
-            geminiModel: getCfg<string>('geminiModel', ''),
             codexModel: getCfg<string>('codexModel', ''),
             copilotModel: getCfg<string>('copilotModel', ''),
             cursorModel: getCfg<string>('cursorModel', ''),
@@ -306,9 +309,6 @@ export class AgentRpcHandlers {
       await setCfg('maxConcurrentAgents', clamped);
     }
 
-    if (params.geminiModel !== undefined) {
-      await setCfg('geminiModel', params.geminiModel || undefined);
-    }
     if (params.codexModel !== undefined) {
       await setCfg('codexModel', params.codexModel || undefined);
     }
@@ -432,8 +432,6 @@ export class AgentRpcHandlers {
    * (same models shown in the VS Code Language Model dropdown), strips the
    * `copilot/` prefix, and generates clean display names. Falls back to the
    * adapter's curated list if the LM API call fails.
-   *
-   * For Gemini: uses the adapter's curated list (no VS Code LM integration).
    */
   private registerListCliModels(): void {
     this.rpcHandler.registerMethod<void, AgentListCliModelsResult>(
@@ -443,7 +441,6 @@ export class AgentRpcHandlers {
           this.logger.debug('RPC: agent:listCliModels called');
 
           const modelMap = await this.cliDetection.listModelsForAll();
-          const gemini = (modelMap['gemini'] ?? []) as CliModelOption[];
           const codex = (modelMap['codex'] ?? []) as CliModelOption[];
           const cursor = (modelMap['cursor'] ?? []) as CliModelOption[];
           let copilot = await this.getCopilotModelsFromVsCodeLm();
@@ -452,14 +449,12 @@ export class AgentRpcHandlers {
           }
 
           const result: AgentListCliModelsResult = {
-            gemini,
             codex,
             copilot,
             cursor,
           };
 
           this.logger.debug('RPC: agent:listCliModels success', {
-            geminiCount: result.gemini.length,
             codexCount: result.codex.length,
             copilotCount: result.copilot.length,
             cursorCount: result.cursor.length,
@@ -676,10 +671,57 @@ export class AgentRpcHandlers {
     });
   }
 
+  private registerAgentContinue(): void {
+    this.rpcHandler.registerMethod<
+      { agentId: string; message: string },
+      { success: boolean; error?: string; code?: AgentContinueErrorCode }
+    >('agent:continue', async (params) => {
+      try {
+        this.logger.debug('RPC: agent:continue called', {
+          agentId: params.agentId,
+        });
+
+        await this.agentProcessManager.continueConversation(
+          params.agentId,
+          params.message,
+        );
+
+        this.logger.info('RPC: agent:continue success', {
+          agentId: params.agentId,
+        });
+
+        return { success: true };
+      } catch (error) {
+        if (error instanceof AgentContinueError) {
+          this.logger.warn('RPC: agent:continue rejected', {
+            agentId: params.agentId,
+            code: error.code,
+          });
+          return { success: false, code: error.code, error: error.message };
+        }
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'AgentRpcHandlers.registerAgentContinue' },
+        );
+        this.logger.error(
+          'RPC: agent:continue failed',
+          error instanceof Error ? error : new Error(errorMessage),
+        );
+        return {
+          success: false,
+          code: 'unknown',
+          error: 'Failed to continue agent conversation',
+        };
+      }
+    });
+  }
+
   /**
    * agent:resumeCliSession - Resume a CLI agent session.
    *
-   * For real CLIs (Gemini, Copilot, Codex): spawns a new CLI process with
+   * For real CLIs (Copilot, Codex): spawns a new CLI process with
    * resumeSessionId set (--resume flag, client.resumeSession(), etc.).
    *
    * For Ptah CLI: routes through PtahCliRegistry.spawnAgent() with

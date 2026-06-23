@@ -12,6 +12,7 @@ import {
   SessionLoadResult,
   SessionForkResult,
   SessionRewindResult,
+  MessageAnchorHint,
   FileOpenResult,
   MESSAGE_TYPES,
   SubagentQueryResult,
@@ -388,16 +389,20 @@ export class ClaudeRpcService implements MessageHandler {
    * @param sessionId - Source session UUID to fork from
    * @param upToMessageId - Optional message UUID to slice transcript at (inclusive)
    * @param title - Optional title for the fork (defaults to "<original> (fork)")
+   * @param kind - Optional semantic hint: `'rewind'` derives a `"(rewind)"`
+   *   title suffix instead of the default `"(fork)"`. Cosmetic only.
    * @returns RpcResult containing the new session's UUID
    */
   async forkSession(
     sessionId: SessionId,
     upToMessageId?: string,
     title?: string,
+    kind?: 'rewind' | 'branch',
+    anchorHint?: MessageAnchorHint,
   ): Promise<RpcResult<SessionForkResult>> {
     return this.call(
       'session:forkSession',
-      { sessionId, upToMessageId, title },
+      { sessionId, upToMessageId, title, kind, anchorHint },
       { timeout: 15000 },
     );
   }
@@ -405,8 +410,13 @@ export class ClaudeRpcService implements MessageHandler {
   /**
    * Rewind on-disk file state to the checkpoint captured at a given user
    * message. Pass `dryRun: true` to preview affected files without modifying
-   * anything. The 15s timeout matches forkSession — both touch disk and may
-   * involve git checkpoint resolution.
+   * anything.
+   *
+   * Differential timeouts:
+   *   - dryRun=true  → 15s (cheap read-only checkpoint scan)
+   *   - dryRun=false → 60s (commit can touch many files; a 15s ceiling on
+   *     100+ file sessions caused client-side timeouts that left the disk
+   *     half-rewound while the UI still showed "file rollback skipped").
    *
    * Surfacing tip: when the backend returns an error code beginning with
    * `'session-not-active:*'`, the session must be resumed before rewind can
@@ -415,17 +425,21 @@ export class ClaudeRpcService implements MessageHandler {
    * @param sessionId - Active session whose tracked files should be rewound
    * @param userMessageId - UUID of the user message to rewind file state to
    * @param dryRun - When true, returns planned changes without touching disk
+   * @param anchorHint - Fallback to resolve a client-only optimistic id to the
+   *   transcript line UUID (verbatim prompt text + duplicate occurrence index).
    * @returns RpcResult with rewind plan/outcome (filesChanged, insertions, deletions)
    */
   async rewindFiles(
     sessionId: SessionId,
     userMessageId: string,
     dryRun?: boolean,
+    anchorHint?: MessageAnchorHint,
   ): Promise<RpcResult<SessionRewindResult>> {
+    const timeout = dryRun === true ? 15000 : 60000;
     return this.call(
       'session:rewindFiles',
-      { sessionId, userMessageId, dryRun },
-      { timeout: 15000 },
+      { sessionId, userMessageId, dryRun, anchorHint },
+      { timeout },
     );
   }
 

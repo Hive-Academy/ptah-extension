@@ -1,5 +1,8 @@
 import { Injectable, inject, Injector } from '@angular/core';
 import {
+  AuthStateService,
+  EffortStateService,
+  ModelStateService,
   type IWorkspaceCoordinator,
   type ConfirmDialogOptions,
 } from '@ptah-extension/core';
@@ -37,6 +40,9 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
   private readonly confirmDialog = inject(ConfirmationDialogService);
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly injector = inject(Injector);
+  private readonly authState = inject(AuthStateService);
+  private readonly modelState = inject(ModelStateService);
+  private readonly effortState = inject(EffortStateService);
 
   /**
    * Cached references to editor services, resolved on first use.
@@ -59,6 +65,7 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
       this.editorServices = [
         this.injector.get(editorModule.EditorService),
         this.injector.get(editorModule.GitStatusService),
+        this.injector.get(editorModule.GitBranchesService),
         this.injector.get(editorModule.TerminalService),
       ];
       return this.editorServices;
@@ -86,8 +93,22 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
         error,
       );
     }
+
+    try {
+      await this.authState.refreshAuthStatus();
+      await Promise.all([
+        this.modelState.refreshModels(),
+        this.effortState.refreshEffort(),
+      ]);
+    } catch (error) {
+      console.warn(
+        '[WorkspaceCoordinator] Failed to re-resolve auth/model/effort after workspace switch:',
+        error,
+      );
+    }
   }
 
+  /** Removes workspace state; canvas listens via tabManager.removedWorkspace$. */
   async removeWorkspaceState(workspacePath: string): Promise<void> {
     this.tabManager.removeWorkspaceState(workspacePath);
     this.sessionLoader.removeWorkspaceCache(workspacePath);

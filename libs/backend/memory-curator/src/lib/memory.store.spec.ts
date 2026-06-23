@@ -8,11 +8,36 @@
  */
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
+import {
+  SqliteConnectionService,
+  VecStatusService,
+} from '@ptah-extension/persistence-sqlite';
 import type { IEmbedder } from '@ptah-extension/persistence-sqlite';
 import { MemoryStore } from './memory.store';
 import type { MemoryInsert } from './memory.types';
 import { memoryId } from './memory.types';
+
+function makeVecStatus(available = false): VecStatusService {
+  const diagnostic = {
+    ok: available,
+    reason: available ? ('ok' as const) : ('binary-missing' as const),
+    electronVersion: '40.0.0',
+    processArch: 'x64' as NodeJS.Architecture,
+    processPlatform: 'linux' as NodeJS.Platform,
+  };
+  return {
+    available,
+    reason: diagnostic.reason,
+    diagnostic,
+    getStatus: () => ({
+      available,
+      reason: diagnostic.reason,
+      diagnostic,
+    }),
+    on: () => ({ dispose: () => undefined }),
+    refresh: () => undefined,
+  } as unknown as VecStatusService;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,8 +106,17 @@ function makeDb(
 function makeStore(
   connection: SqliteConnectionService,
   embedder?: IEmbedder,
+  vecStatus?: VecStatusService,
 ): MemoryStore {
-  return new MemoryStore(makeLogger(), connection, embedder ?? makeEmbedder());
+  const available =
+    (connection as unknown as { vecExtensionLoaded?: boolean })
+      .vecExtensionLoaded ?? false;
+  return new MemoryStore(
+    makeLogger(),
+    connection,
+    embedder ?? makeEmbedder(),
+    vecStatus ?? makeVecStatus(available),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -463,6 +497,70 @@ describe('MemoryStore.purgeBySubjectPattern', () => {
 });
 
 // ---------------------------------------------------------------------------
+// B1.5 regression — vec-offline graceful insert (TASK_2026_132)
+// ---------------------------------------------------------------------------
+
+describe('MemoryStore B1.5 — vec-offline graceful insert (TASK_2026_132)', () => {
+  it('insertMemoryWithChunks succeeds with vec offline, prepares no vec INSERT, calls embedder zero times', async () => {
+    const preparedSqls: string[] = [];
+    const runMock = jest.fn(() => ({ changes: 1 }));
+    const getMock = jest.fn(() => ({ workspace_root: '/ws/A', rowid: 7 }));
+    const stub = {
+      vecExtensionLoaded: false,
+      db: {
+        prepare: jest.fn((sql: string) => {
+          preparedSqls.push(sql);
+          return {
+            run: runMock,
+            get: getMock,
+            all: jest.fn(() => []),
+          };
+        }),
+        exec: jest.fn(),
+        transaction: jest.fn(
+          (fn: (...args: unknown[]) => unknown) =>
+            (...args: unknown[]) =>
+              fn(...args),
+        ),
+      },
+    } as unknown as SqliteConnectionService;
+    const embedMock = jest.fn(async () => []);
+    const embedder = {
+      embed: embedMock,
+      dim: 384,
+    } as unknown as IEmbedder;
+    const vecStatus = makeVecStatus(false);
+    const store = new MemoryStore(makeLogger(), stub, embedder, vecStatus);
+
+    const insert: MemoryInsert = {
+      tier: 'core',
+      kind: 'fact',
+      content: 'vec-offline content',
+      workspaceRoot: '/ws/A',
+    };
+    const id = await store.insertMemoryWithChunks(insert, [
+      { ord: 0, text: 'chunk text', tokenCount: 2 },
+    ]);
+
+    expect(typeof id).toBe('string');
+    expect(embedMock).not.toHaveBeenCalled();
+    const vecInsertSql = preparedSqls.find((s) =>
+      s.includes('memory_chunks_vec'),
+    );
+    expect(vecInsertSql).toBeUndefined();
+    const baseMemoryInsert = preparedSqls.find((s) =>
+      s.startsWith('INSERT INTO memories'),
+    );
+    expect(baseMemoryInsert).toBeDefined();
+    const chunkInsert = preparedSqls.find((s) =>
+      s.startsWith('INSERT INTO memory_chunks'),
+    );
+    expect(chunkInsert).toBeDefined();
+    expect(store.getWriteCounter('/ws/A')).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // B5 regression — sqlite-vec rowid INTEGER affinity (native-gated)
 // ---------------------------------------------------------------------------
 
@@ -521,7 +619,8 @@ describe('MemoryStore B5 — sqlite-vec rowid INTEGER affinity (native-gated)', 
     await service.openAndMigrate();
     expect(service.vecExtensionLoaded).toBe(true);
     const embedder = makeDeterministicEmbedder();
-    const store = new MemoryStore(logger, service, embedder);
+    const vecStatus = new VecStatusService(logger, service);
+    const store = new MemoryStore(logger, service, embedder, vecStatus);
     return { service, store, embedder };
   }
 
@@ -710,7 +809,8 @@ describe('MemoryStore B7 — rebuildIndex FTS repopulation (native-gated)', () =
     await service.openAndMigrate();
     expect(service.vecExtensionLoaded).toBe(true);
     const embedder = makeDeterministicEmbedder();
-    const store = new MemoryStore(logger, service, embedder);
+    const vecStatus = new VecStatusService(logger, service);
+    const store = new MemoryStore(logger, service, embedder, vecStatus);
     return { service, store };
   }
 
@@ -828,6 +928,198 @@ describe('MemoryStore B7 — rebuildIndex FTS repopulation (native-gated)', () =
         expect(secondHits.map((h) => h.rowid).sort()).toEqual(
           firstHits.map((h) => h.rowid).sort(),
         );
+      } finally {
+        service.close();
+      }
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// A1 gating — claude-mem 5-field summary + concepts FTS round-trip
+// Critical Verification Point #1 (schema half).
+// ---------------------------------------------------------------------------
+
+describe('MemoryStore A1 — 5-field summary + concepts FTS round-trip (native-gated)', () => {
+  let nativeAvailable = false;
+  try {
+    require.resolve('better-sqlite3');
+    require.resolve('sqlite-vec');
+    const Database = require('better-sqlite3') as new (file: string) => {
+      close(): void;
+    };
+    const probe = new Database(':memory:');
+    probe.close();
+    nativeAvailable = true;
+  } catch {
+    nativeAvailable = false;
+  }
+
+  const maybe = nativeAvailable ? it : it.skip;
+
+  async function bootstrap(): Promise<{
+    service: SqliteConnectionService;
+    store: MemoryStore;
+  }> {
+    const dbPath = makeTempDbPath();
+    const logger = makeLogger();
+    const service = new SqliteConnectionService(dbPath, logger);
+    await service.openAndMigrate();
+    expect(service.vecExtensionLoaded).toBe(true);
+    const embedder = makeDeterministicEmbedder();
+    const store = new MemoryStore(
+      logger,
+      service,
+      embedder,
+      new VecStatusService(logger, service),
+    );
+    return { service, store };
+  }
+
+  maybe(
+    'persists request/investigated/learned/completed/nextSteps/type/concepts/files and round-trips through getById',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const draftInsert = {
+          tier: 'core' as const,
+          kind: 'fact' as const,
+          content: 'session learned how to wire OBSERVATION_QUEUE_STORE',
+          workspaceRoot: '/ws/A',
+          subject: 'memory:/ws/A#a1-fixture',
+          request: 'Implement Batch A1 — schema foundations',
+          investigated: 'inspected sql0016 + insertMemoryWithChunks',
+          learned: 'concepts FTS uses delete-all shadow command, never rebuild',
+          completed: 'migrations 15/16/17 + ObservationQueueStore + types',
+          nextSteps: 'wire MemoryTriggerService against the queue in A2b',
+          type: 'feature' as const,
+          concepts: ['curator-worker', 'fts5-shadow', 'observation-queue'],
+          files: [
+            'libs/backend/persistence-sqlite/src/lib/migrations/0016_memory_schema_v2.ts',
+            'libs/backend/memory-curator/src/lib/memory.store.ts',
+          ],
+        };
+        const id = await store.insertMemoryWithChunks(draftInsert, [
+          { ord: 0, text: 'fixture chunk one', tokenCount: 3 },
+          { ord: 1, text: 'fixture chunk two', tokenCount: 3 },
+        ]);
+
+        const fetched = store.getById(id);
+        expect(fetched).not.toBeNull();
+        if (!fetched) throw new Error('fetched memory must be defined');
+
+        expect(fetched.request).toBe(draftInsert.request);
+        expect(fetched.investigated).toBe(draftInsert.investigated);
+        expect(fetched.learned).toBe(draftInsert.learned);
+        expect(fetched.completed).toBe(draftInsert.completed);
+        expect(fetched.nextSteps).toBe(draftInsert.nextSteps);
+        expect(fetched.type).toBe('feature');
+        expect([...fetched.concepts].sort()).toEqual(
+          [...draftInsert.concepts].sort(),
+        );
+        expect([...fetched.files].sort()).toEqual(
+          [...draftInsert.files].sort(),
+        );
+
+        const ftsHits = service.db
+          .prepare(
+            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"observation-queue"'`,
+          )
+          .all() as Array<{ memory_id: string }>;
+        expect(ftsHits.map((h) => h.memory_id)).toEqual([id]);
+
+        const stemHits = service.db
+          .prepare(
+            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"curator-worker"'`,
+          )
+          .all() as Array<{ memory_id: string }>;
+        expect(stemHits.map((h) => h.memory_id)).toEqual([id]);
+
+        const typeRow = service.db
+          .prepare('SELECT type FROM memories WHERE id = ?')
+          .get(id) as { type: string } | undefined;
+        expect(typeRow?.type).toBe('feature');
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'defaults legacy-shape inserts to type=discovery + empty concepts/files',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const id = await store.insertMemoryWithChunks(
+          {
+            tier: 'recall',
+            kind: 'fact',
+            content: 'legacy-shape insert without new fields',
+            workspaceRoot: '/ws/A',
+            subject: 'memory:/ws/A#legacy',
+          },
+          [{ ord: 0, text: 'legacy chunk', tokenCount: 2 }],
+        );
+
+        const fetched = store.getById(id);
+        expect(fetched).not.toBeNull();
+        if (!fetched) throw new Error('fetched memory must be defined');
+        expect(fetched.type).toBe('discovery');
+        expect(fetched.concepts).toEqual([]);
+        expect(fetched.files).toEqual([]);
+        expect(fetched.request).toBeNull();
+        expect(fetched.investigated).toBeNull();
+        expect(fetched.learned).toBeNull();
+        expect(fetched.completed).toBeNull();
+        expect(fetched.nextSteps).toBeNull();
+
+        const count = service.db
+          .prepare('SELECT COUNT(*) AS n FROM memory_concepts_fts')
+          .get() as { n: number };
+        expect(count.n).toBe(0);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'rebuildConceptsIndex uses delete-all + INSERT FROM SELECT and stays idempotent (no rebuild command)',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        await store.insertMemoryWithChunks(
+          {
+            tier: 'core',
+            kind: 'fact',
+            content: 'mem with concepts',
+            workspaceRoot: '/ws/A',
+            subject: 'memory:/ws/A#rb',
+            type: 'decision',
+            concepts: ['rebuild-tag-one', 'rebuild-tag-two'],
+            files: [],
+          },
+          [{ ord: 0, text: 'rebuild chunk', tokenCount: 2 }],
+        );
+
+        const first = store.rebuildConceptsIndex();
+        expect(first.rebuilt).toBe(true);
+
+        const hits = service.db
+          .prepare(
+            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"rebuild-tag-one"'`,
+          )
+          .all() as Array<{ memory_id: string }>;
+        expect(hits.length).toBe(1);
+
+        const second = store.rebuildConceptsIndex();
+        expect(second.rebuilt).toBe(true);
+        const hitsAfter = service.db
+          .prepare(
+            `SELECT memory_id FROM memory_concepts_fts WHERE memory_concepts_fts MATCH '"rebuild-tag-two"'`,
+          )
+          .all() as Array<{ memory_id: string }>;
+        expect(hitsAfter.length).toBe(1);
       } finally {
         service.close();
       }

@@ -24,6 +24,80 @@ Authoritative sources (verify behavior here when in doubt):
 
 ---
 
+## 0. Agent-driven setup (read this first)
+
+If you are an AI coding agent asked to "set Ptah up" on a user's machine,
+follow this exact flow. A fresh install ships with **no default provider**
+(`llm.defaultProvider: ""`) and no credentials, so streaming commands exit
+`3` (`auth_required`) until you finish setup. Do not skip the verify step.
+
+1. **See what's missing.** Run the readiness oracle in machine mode and
+   parse the result:
+
+   ```bash
+   ptah doctor            # emits doctor.report
+   ```
+
+   Read `effective.ready` (the source of truth — it reflects the exact
+   slot the SDK reads), `effective.blockers[]`, and `hints[]` (the literal
+   commands to run). When `defaultProvider` is unset, `doctor` reports a
+   clear "no provider selected" blocker.
+
+2. **Or get an ordered plan.** Run `ptah init` in machine mode (the
+   default whenever stdout is not a TTY, or when `--json` / `--quiet` is
+   passed — it NEVER prompts in this mode):
+
+   ```bash
+   ptah init              # emits a single init.plan, then exits 0
+   ```
+
+   Parse `init.plan.params.steps[]` — an ordered array of
+   `{ id, description, command, satisfied }`. For every step where
+   `satisfied:false`, run its `command`. Also read `ready`, `route`,
+   `blockers`, `license`, and `auth` on the same payload.
+
+3. **Have the human supply secrets — never invent them.** You do not have
+   the user's API key or license key. Ask the user to run the credential
+   commands themselves (so raw secrets never pass through you):
+
+   ```bash
+   ptah provider set-key --provider anthropic --key sk-ant-...   # user runs this
+   ptah provider default set anthropic                           # then pick the provider
+   ptah license set --key ptah_lic_...                           # optional (Community works without)
+   ```
+
+   Alternatively the user can export `ANTHROPIC_API_KEY` in the shell that
+   spawns `ptah`. Do NOT fabricate, guess, or hard-code any key.
+
+   **Trust the exit code and `verified`, not a bare `success`.**
+   `provider set-key` format-validates the key: a malformed key is
+   rejected with exit `3` and `verified:false`; a good key returns exit
+   `0` with `verified:true`. `license set` rejects a server-rejected key
+   with exit `4` (`license_required`) instead of silently downgrading to
+   Community. A nonzero exit or `verified:false` means setup did not land.
+
+4. **Verify before proceeding.** Re-run `ptah doctor` and only continue
+   when `effective.ready:true`. `doctor` and `session start` now agree —
+   if `doctor` says ready, a turn will start.
+
+5. **Run the work.**
+   - One-shot (fire-and-forget): `ptah session start --task "..." --once`
+     — ALWAYS pass `--once` for one-shots so the process exits.
+   - Persistent / bridge: `ptah interact` — serialize `task.submit`
+     requests (one in flight at a time) and respond to every
+     `permission.request` / `question.ask` outbound request. For
+     unattended runs set `PTAH_AUTO_APPROVE=true`.
+
+The per-provider recipes in section 3 are the manual equivalent of what
+`ptah init` plans for you. The keystone fix behind this flow:
+`provider set-key` now writes the exact secret slot the SDK reads
+(`AuthSecretsService`) and persists `authMethod`, so a pure-CLI bootstrap
+(`set-key` → `default set` → `session start --once`) actually starts a
+session — the old `ANTHROPIC_API_KEY`-env-var-only workaround is no longer
+required (it still works as an alternative).
+
+---
+
 ## 1. CLI vs Extension vs Electron — when to use which
 
 | Need                                                     | Use                          |
@@ -83,16 +157,31 @@ is bound to one. Pre-seed credentials before invoking any streaming
 command — `session start`, `setup`, `analyze`, and `execute-spec` will
 exit `3` (`auth_required`) otherwise.
 
+A fresh install has `llm.defaultProvider: ""`, so you MUST pick a provider
+(`ptah provider default set <id>`, or let `ptah init` do it) in addition
+to supplying credentials. `ptah init` (section 0) plans all of this for
+you; the recipes below are the manual equivalent. After any recipe, run
+`ptah doctor` and proceed only when `effective.ready:true`.
+
 ### 3.1 Anthropic direct (API key)
 
 ```bash
 ptah provider set-key --provider anthropic --key sk-ant-api03-...
 ptah provider default set anthropic
-ptah auth status   # verify authenticated:true
+ptah doctor        # confirm effective.ready: true
 ```
 
-Or via env (read once on bootstrap, persisted only if you call
-`set-key`):
+`provider set-key` writes the exact secret slot the SDK reads
+(`AuthSecretsService` — `ptah.auth.anthropicApiKey`) and persists
+`authMethod`, so this three-command bootstrap actually starts a session.
+The call format-validates the key: a good key returns
+`{ success:true, verified:true }` and exit `0`; a malformed key is
+rejected with `verified:false` and exit `3` (`auth_required`). Trust the
+exit code + `verified`, not a bare `success`.
+
+The `ANTHROPIC_API_KEY` env var below is an **alternative**, not a
+requirement — it is read once on bootstrap and is no longer the only path
+that reaches the SDK:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-api03-...
@@ -310,7 +399,7 @@ Notes:
 | `ANTHROPIC_BASE_URL`   | Custom Anthropic-compatible endpoint              | Overrides the SDK's default base URL.                                                                               |
 
 Reminder: `PTAH_AGENT_CLI_OVERRIDE` is **not** consulted. The
-`agent-cli` allowlist (`glm`, `gemini` only) is hard-coded at command
+`agent-cli` allowlist (`glm` only) is hard-coded at command
 entry points — see
 `apps/ptah-cli/src/cli/commands/agent-cli.ts`.
 
@@ -527,7 +616,7 @@ Exit code `4`. Read-only commands (`license status`, `config list`,
   second returns `-32603 'turn already in flight'`. Serialize, or open a
   second `interact` process.
 - **Don't** rely on `PTAH_AGENT_CLI_OVERRIDE`. The `agent-cli` allowlist
-  (`glm`, `gemini`) is hard-coded; `copilot` and `cursor` are blocked
+  (`glm`) is hard-coded; `copilot` and `cursor` are blocked
   for Windows-spawn reasons.
 - **Don't** re-add `ptah run` calls. It's a deprecated alias for
   `session start --task` and emits a stderr deprecation notice.
@@ -543,7 +632,7 @@ hard-coded allowlist enforced inside the command handler — see
 and the per-subcommand validation in `validateCliAgent` at
 `agent-cli.ts:131-142`.
 
-**Allowlist**: only `glm` and `gemini` are accepted for `--cli`.
+**Allowlist**: only `glm` is accepted for `--cli`.
 `PTAH_AGENT_CLI_OVERRIDE` is **never** consulted (verified at
 `agent-cli.ts:22-23` and reinforced by the router comment at
 `router.ts:597-599`). Any other value emits `task.error` with
@@ -597,15 +686,15 @@ commas; everything else passes through as a string.
 
 Enumerate available models per CLI agent. With `--cli`, scopes the
 response to one allowlisted CLI; without, returns the full
-`AgentListCliModelsResult` shape (`gemini`, `codex`, `copilot` arrays).
+`AgentListCliModelsResult` shape (`codex`, `copilot` arrays).
 
-| Flag    | Required | Default | Notes                                         |
-| ------- | -------- | ------- | --------------------------------------------- |
-| `--cli` | no       | (all)   | One of `glm` \| `gemini`; rejection → exit 3. |
+| Flag    | Required | Default | Notes                           |
+| ------- | -------- | ------- | ------------------------------- |
+| `--cli` | no       | (all)   | Only `glm`; rejection → exit 3. |
 
 - **RPC**: `agent:listCliModels` (`agent-cli.ts:233-275`).
-- **Notification**: `agent_cli.models { gemini, codex, copilot }` (no
-  scope) or `agent_cli.models { cli, models }` (scoped to `gemini`); the
+- **Notification**: `agent_cli.models { codex, copilot }` (no
+  scope) or `agent_cli.models { cli, models }` (scoped to a CLI); the
   scoped `glm` path returns an empty array today.
 - **Exit codes**: `0`; `3` (`AuthRequired`) on `--cli` value outside the
   allowlist; `5` on RPC failure.
@@ -618,9 +707,9 @@ Terminate a running CLI-agent process by agent id.
 | ---------- | -------- | --------------------- |
 | `<id>`     | yes      | The agent id to stop. |
 
-| Flag    | Required | Default | Notes                                  |
-| ------- | -------- | ------- | -------------------------------------- |
-| `--cli` | yes      | —       | `glm` \| `gemini`; rejection → exit 3. |
+| Flag    | Required | Default | Notes                           |
+| ------- | -------- | ------- | ------------------------------- |
+| `--cli` | yes      | —       | Only `glm`; rejection → exit 3. |
 
 - **RPC**: `agent:stop` (`agent-cli.ts:277-308`).
 - **Notification**: `agent_cli.stopped { agentId, cli }`.
@@ -638,7 +727,7 @@ seeds a new prompt with `--task`.
 
 | Flag     | Required | Default | Notes                                  |
 | -------- | -------- | ------- | -------------------------------------- |
-| `--cli`  | yes      | —       | `glm` \| `gemini`; rejection → exit 3. |
+| `--cli`  | yes      | —       | Only `glm`; rejection → exit 3.        |
 | `--task` | no       | `""`    | Free-form prompt for the resumed turn. |
 
 - **RPC**: `agent:resumeCliSession` (`agent-cli.ts:310-346`).
@@ -1098,7 +1187,7 @@ agent_stop       (    "                                          )
 agent_steer      (    "                                          )
 ```
 
-`agent_list` is always free. `agent_spawn` with `cli=gemini` (or any
+`agent_list` is always free. `agent_spawn` with `cli=codex` (or any
 rival CLI that runs on the user's own binary) is always free. The
 gate fails CLOSED: license lookup throws, cache miss, or expired
 status all return `license_required`.

@@ -30,11 +30,11 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import type {
   AgentPackInfoDto,
   WizardInstallPackAgentsResult,

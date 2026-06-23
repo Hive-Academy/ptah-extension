@@ -21,8 +21,10 @@ import {
   Pencil,
   Plus,
   RadioTower,
+  Scale,
   Search,
   Settings,
+  Store,
   Trash2,
   X,
   BarChart3,
@@ -57,6 +59,8 @@ import {
   ORCHESTRA_CANVAS_COMPONENT,
   HARNESS_BUILDER_COMPONENT,
   SETUP_HUB_COMPONENT,
+  MARKETPLACE_COMPONENT,
+  TRIBUNAL_COMPONENT,
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import type { ViewType } from '@ptah-extension/core';
@@ -127,6 +131,8 @@ export class AppShellComponent {
     'harness-builder',
     'setup-hub',
     'thoth',
+    'marketplace',
+    'tribunal',
   ] as const;
 
   readonly chatStore = inject(ChatStore);
@@ -173,6 +179,22 @@ export class AppShellComponent {
    */
   readonly setupHubComponent =
     inject(SETUP_HUB_COMPONENT, { optional: true }) ?? null;
+
+  /**
+   * MarketplaceHubComponent provided via DI token — breaks circular dependency
+   * between @ptah-extension/marketplace and @ptah-extension/chat.
+   * Provided by the application bootstrapper (app.config.ts).
+   */
+  readonly marketplaceComponent =
+    inject(MARKETPLACE_COMPONENT, { optional: true }) ?? null;
+
+  /**
+   * TribunalPageComponent provided via DI token — breaks circular dependency
+   * between @ptah-extension/tribunal-panel and @ptah-extension/chat.
+   * Provided by the application bootstrapper (app.config.ts).
+   */
+  readonly tribunalComponent =
+    inject(TRIBUNAL_COMPONENT, { optional: true }) ?? null;
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
   readonly CalendarDaysIcon = CalendarDays;
@@ -189,6 +211,8 @@ export class AppShellComponent {
   readonly BarChart3Icon = BarChart3;
   readonly LayoutGridIcon = LayoutGrid;
   readonly RadioTowerIcon = RadioTower;
+  readonly StoreIcon = Store;
+  readonly ScaleIcon = Scale;
   readonly thothFirstRunDismissed = this.appState.thothFirstRunDismissed;
   readonly editingSessionId = signal<string | null>(null);
   readonly editingSessionName = signal('');
@@ -249,6 +273,10 @@ export class AppShellComponent {
   });
   readonly licenseReason = computed(
     () => this.chatStore.licenseStatus()?.reason,
+  );
+  /** Whether the user has Pro — gates the Marketplace nav entry (TASK_2026_131). */
+  readonly isPremium = computed(
+    () => this.chatStore.licenseStatus()?.isPremium ?? false,
   );
   readonly sessionNameInputRef = viewChild<ElementRef<HTMLInputElement>>(
     'sessionNameInputRef',
@@ -336,6 +364,17 @@ export class AppShellComponent {
       this.appState.dismissThothFirstRun();
     }
     this.appState.setCurrentView('thoth');
+  }
+
+  /**
+   * Navigate to the Marketplace hub view (skills + MCP providers).
+   */
+  openMarketplace(): void {
+    this.appState.setCurrentView('marketplace');
+  }
+
+  openTribunal(): void {
+    this.appState.setCurrentView('tribunal');
   }
 
   /**

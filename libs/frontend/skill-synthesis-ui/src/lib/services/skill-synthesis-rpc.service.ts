@@ -1,15 +1,31 @@
 import { Injectable, inject } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
+  CloneSummary,
+  SkillCloneInvocationStats,
+  SkillCloneKind,
+  SkillSuggestionDetail,
+  SkillSuggestionSummary,
   SkillSynthesisCandidateDetail,
   SkillSynthesisCandidateSummary,
+  SkillSynthesisEnhanceNowResult,
+  SkillSynthesisGetCloneResult,
   SkillSynthesisInvocationEntry,
+  SkillSynthesisKeepCloneResult,
   SkillSynthesisListCandidatesParams,
   SkillSynthesisPromoteResult,
+  SkillSynthesisRebaseCloneResult,
+  SkillSynthesisRevertEnhancementResult,
   SkillSynthesisRunCuratorResult,
   SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
+  SkillSynthesisUpdateSuggestionResult,
 } from '@ptah-extension/shared';
+
+export interface SkillAcceptSuggestionResult {
+  readonly accepted: boolean;
+  readonly filePath: string;
+}
 
 /**
  * Per-method RPC timeout budget for the skill-synthesis surface.
@@ -27,23 +43,17 @@ const SKILL_RPC_TIMEOUTS = {
   PROMOTE_MS: 20_000,
   SETTINGS_MS: 8_000,
   CURATOR_MS: 90_000,
+  ENHANCE_MS: 90_000,
 } as const;
 
 /**
  * SkillSynthesisRpcService
  *
- * Thin facade for the six skill-synthesis RPC methods. Delegates to
- * {@link ClaudeRpcService} for the underlying message-bus call and
- * normalises the result shape (throws on error, returns typed result
- * on success). Pattern matches `WizardRpcService`.
- *
- * Supported RPC methods:
- * - `skillSynthesis:listCandidates`
- * - `skillSynthesis:getCandidate`
- * - `skillSynthesis:promote`
- * - `skillSynthesis:reject`
- * - `skillSynthesis:invocations`
- * - `skillSynthesis:stats`
+ * Thin facade over the `skillSynthesis:*` RPC methods (candidates, suggestions,
+ * clones, settings, stats). Delegates to {@link ClaudeRpcService} for the
+ * underlying message-bus call and normalises the result shape (throws on error,
+ * returns typed result on success). Pattern matches `WizardRpcService`. Each
+ * public method maps 1:1 to one RPC method.
  */
 @Injectable({
   providedIn: 'root',
@@ -205,5 +215,192 @@ export class SkillSynthesisRpcService {
       return result.data;
     }
     throw new Error(result.error || 'Failed to run curator');
+  }
+
+  /** List clone-layer entries (clone / authored / synth / diverged). */
+  public async listClones(): Promise<CloneSummary[]> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:listClones',
+      {},
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.clones;
+    }
+    throw new Error(result.error || 'Failed to list clones');
+  }
+
+  /** Fetch a single clone's detail (body + history list). */
+  public async getClone(
+    slug: string,
+    kind: SkillCloneKind,
+  ): Promise<SkillSynthesisGetCloneResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:getClone',
+      { slug, kind },
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to get clone');
+  }
+
+  /** Manually trigger an enhancement pass for a clone (judge-gated). */
+  public async enhanceNow(
+    kind: SkillCloneKind,
+    slug: string,
+  ): Promise<SkillSynthesisEnhanceNowResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:enhanceNow',
+      { kind, slug },
+      { timeout: SKILL_RPC_TIMEOUTS.ENHANCE_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to enhance clone');
+  }
+
+  /** Revert an enhancement to a prior history snapshot. */
+  public async revertEnhancement(
+    kind: SkillCloneKind,
+    slug: string,
+    historyTs: string,
+  ): Promise<SkillSynthesisRevertEnhancementResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:revertEnhancement',
+      { kind, slug, historyTs },
+      { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to revert enhancement');
+  }
+
+  /** Rebase a diverged clone onto the immutable upstream source. */
+  public async rebaseClone(
+    kind: SkillCloneKind,
+    slug: string,
+  ): Promise<SkillSynthesisRebaseCloneResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:rebaseClone',
+      { kind, slug },
+      { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to rebase clone');
+  }
+
+  /** Keep the local clone for a diverged entry (adopt pending source hash). */
+  public async keepClone(
+    kind: SkillCloneKind,
+    slug: string,
+  ): Promise<SkillSynthesisKeepCloneResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:keepClone',
+      { kind, slug },
+      { timeout: SKILL_RPC_TIMEOUTS.SHORT_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to keep clone');
+  }
+
+  /** Fetch slug-keyed invocation stats from the events table. */
+  public async invocationStats(
+    slug: string,
+  ): Promise<SkillCloneInvocationStats> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:invocationStats',
+      { slug },
+      { timeout: SKILL_RPC_TIMEOUTS.SHORT_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.stats;
+    }
+    throw new Error(result.error || 'Failed to load invocation stats');
+  }
+
+  /** List cluster-derived skill suggestions awaiting human decision. */
+  public async listSuggestions(): Promise<SkillSuggestionSummary[]> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:listSuggestions',
+      {},
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.suggestions;
+    }
+    throw new Error(result.error || 'Failed to list skill suggestions');
+  }
+
+  /** Accept a suggestion, materializing a promoted SKILL.md on disk. */
+  public async acceptSuggestion(
+    id: string,
+  ): Promise<SkillAcceptSuggestionResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:acceptSuggestion',
+      { id },
+      { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to accept skill suggestion');
+  }
+
+  /** Fetch a single suggestion's full detail (includes the SKILL.md body). */
+  public async getSuggestion(
+    id: string,
+  ): Promise<SkillSuggestionDetail | null> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:getSuggestion',
+      { id },
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.suggestion;
+    }
+    throw new Error(result.error || 'Failed to get skill suggestion');
+  }
+
+  /**
+   * Edit a still-pending suggestion's name/description/body before accepting.
+   * Returns the updated detail (or null when the suggestion no longer exists).
+   */
+  public async updateSuggestion(
+    id: string,
+    fields: { name?: string; description?: string; body?: string },
+  ): Promise<SkillSynthesisUpdateSuggestionResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:updateSuggestion',
+      { id, ...fields },
+      { timeout: SKILL_RPC_TIMEOUTS.SHORT_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to update skill suggestion');
+  }
+
+  /** Dismiss a suggestion, optionally persisting a dismissal reason. */
+  public async dismissSuggestion(
+    id: string,
+    reason?: string,
+  ): Promise<boolean> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:dismissSuggestion',
+      reason ? { id, reason } : { id },
+      { timeout: SKILL_RPC_TIMEOUTS.SHORT_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.dismissed;
+    }
+    throw new Error(result.error || 'Failed to dismiss skill suggestion');
   }
 }

@@ -9,6 +9,16 @@ export interface CanvasTile {
 }
 
 /**
+ * Structural subset of TabState used for seeding tiles from active tabs.
+ * Kept minimal so callers don't need a full TabState shape.
+ */
+export interface CanvasSeedTab {
+  readonly id: string;
+  readonly claudeSessionId: string | null;
+  readonly name: string;
+}
+
+/**
  * CanvasStore — scoped per OrchestraCanvasComponent (not providedIn: 'root').
  *
  * Manages the set of tiles visible in the Orchestra Canvas panel. Each tile
@@ -33,6 +43,10 @@ export class CanvasStore {
 
   private readonly _tiles = signal<CanvasTile[]>([]);
   private readonly _focusedTabId = signal<string | null>(null);
+
+  private readonly _workspaceTiles = new Map<string, CanvasTile[]>();
+  private readonly _workspaceFocusedTabId = new Map<string, string | null>();
+  private _activeWorkspacePath: string | null = null;
 
   readonly tiles = this._tiles.asReadonly();
   readonly focusedTabId = this._focusedTabId.asReadonly();
@@ -142,6 +156,65 @@ export class CanvasStore {
   focusTile(tabId: string): void {
     this._focusedTabId.set(tabId);
     this.tabManager.switchTab(tabId);
+  }
+
+  /**
+   * Swap tile state for a workspace switch, saving the outgoing workspace and
+   * either restoring saved tiles for the target or seeding fresh tiles.
+   */
+  switchWorkspaceTiles(
+    newPath: string,
+    activeTabs: readonly CanvasSeedTab[],
+  ): void {
+    if (this._activeWorkspacePath === newPath) return;
+
+    if (this._activeWorkspacePath) {
+      this._workspaceTiles.set(this._activeWorkspacePath, this._tiles());
+      this._workspaceFocusedTabId.set(
+        this._activeWorkspacePath,
+        this._focusedTabId(),
+      );
+    }
+
+    this._activeWorkspacePath = newPath;
+
+    const saved = this._workspaceTiles.get(newPath);
+    if (saved) {
+      this._tiles.set(saved);
+      this._focusedTabId.set(this._workspaceFocusedTabId.get(newPath) ?? null);
+      return;
+    }
+
+    const seeded: CanvasTile[] = [];
+    for (const tab of activeTabs) {
+      if (seeded.length >= CanvasStore.MAX_TILES) break;
+      const layout = this.layoutService.computeLayout(seeded.length + 1);
+      const position = layout.tiles[seeded.length] ?? {
+        x: 0,
+        y: 0,
+        w: 4,
+        h: 6,
+      };
+      seeded.push({ tabId: tab.id, position });
+    }
+    this._tiles.set(seeded);
+    this._focusedTabId.set(null);
+    this._workspaceTiles.set(newPath, seeded);
+    this._workspaceFocusedTabId.set(newPath, null);
+  }
+
+  /**
+   * Drop saved tile state for a removed workspace; clears live signals when
+   * the removed workspace is the currently active one.
+   */
+  removeWorkspaceTileState(workspacePath: string): void {
+    this._workspaceTiles.delete(workspacePath);
+    this._workspaceFocusedTabId.delete(workspacePath);
+    if (this._activeWorkspacePath === workspacePath) {
+      this._activeWorkspacePath = null;
+      this._tiles.set([]);
+      this._focusedTabId.set(null);
+    }
   }
 
   /**

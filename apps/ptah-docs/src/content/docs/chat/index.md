@@ -13,7 +13,7 @@ The Chat view is where you talk to Ptah. It combines a streaming conversation UI
 
 ## What the chat gives you
 
-- **Streaming responses** from whichever provider you have selected (Claude, Copilot, Codex, Gemini, Ollama, OpenRouter, or a custom CLI agent).
+- **Streaming responses** from whichever provider you have selected (Claude, Copilot, Codex, Ollama, OpenRouter, or a custom CLI agent).
 - **`@` autocomplete** to attach files, folders, agents, and skills from your workspace as context.
 - **Effort levels** (Quick, Balanced, Thorough) that tune latency, cost, and depth in a single click.
 - **Autopilot** that watches the conversation and spawns specialist sub-agents when the work calls for it.

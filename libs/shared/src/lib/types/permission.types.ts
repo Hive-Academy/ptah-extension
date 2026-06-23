@@ -73,6 +73,13 @@ export interface PermissionRequest {
 
   /** Frontend tab ID for direct tab routing (authoritative over `sessionId`). */
   readonly tabId?: string;
+
+  /**
+   * When `true`, the originating session drives an in-surface workflow (setup
+   * wizard / harness builder); the consuming surface uses this to route the
+   * permission UI to its own chrome instead of the standard chat surface.
+   */
+  readonly surfaceMode?: boolean;
 }
 
 /**
@@ -181,6 +188,12 @@ export interface AskUserQuestionRequest {
   readonly sessionId?: string;
   /** Frontend tab ID for direct tab routing (authoritative over sessionId) */
   readonly tabId?: string;
+  /**
+   * When `true`, the originating session drives an in-surface workflow (setup
+   * wizard / harness builder); the consuming surface uses this to route the
+   * question UI to its own chrome instead of the standard chat surface.
+   */
+  readonly surfaceMode?: boolean;
 }
 
 /**
@@ -217,6 +230,7 @@ export const PermissionRequestSchema = z.object({
     .string()
     .refine((v) => UUID_REGEX.test(v), { message: 'tabId must be a UUID v4' })
     .optional(),
+  surfaceMode: z.boolean().optional(),
 });
 
 /**
@@ -267,4 +281,5 @@ export const AskUserQuestionRequestSchema = z.object({
     .string()
     .refine((v) => UUID_REGEX.test(v), { message: 'tabId must be a UUID v4' })
     .optional(),
+  surfaceMode: z.boolean().optional(),
 });

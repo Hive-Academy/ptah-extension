@@ -33,16 +33,16 @@ describe('PatternMatcherService', () => {
 
       it('should match globstar patterns', () => {
         expect(service.isMatch('src/app/component.ts', '**/component.ts')).toBe(
-          true
+          true,
         );
         expect(service.isMatch('src/app/service.ts', '**/component.ts')).toBe(
-          false
+          false,
         );
       });
 
       it('should match directory patterns', () => {
         expect(
-          service.isMatch('node_modules/pkg/index.js', 'node_modules/**')
+          service.isMatch('node_modules/pkg/index.js', 'node_modules/**'),
         ).toBe(true);
         expect(service.isMatch('src/app.ts', 'node_modules/**')).toBe(false);
       });
@@ -76,21 +76,21 @@ describe('PatternMatcherService', () => {
       it('should not match dot files by default', () => {
         expect(service.isMatch('.gitignore', '**')).toBe(false);
         expect(service.isMatch('.vscode/settings.json', '**/*.json')).toBe(
-          false
+          false,
         );
       });
 
       it('should match dot files when dot option is true', () => {
         expect(service.isMatch('.gitignore', '**', { dot: true })).toBe(true);
         expect(
-          service.isMatch('.vscode/settings.json', '**/*.json', { dot: true })
+          service.isMatch('.vscode/settings.json', '**/*.json', { dot: true }),
         ).toBe(true);
       });
 
       it('should match explicit dot file patterns', () => {
         expect(service.isMatch('.gitignore', '.*')).toBe(true);
         expect(service.isMatch('.vscode/settings.json', '.vscode/**')).toBe(
-          true
+          true,
         );
       });
     });
@@ -99,7 +99,7 @@ describe('PatternMatcherService', () => {
       it('should be case-insensitive when nocase option is true', () => {
         expect(service.isMatch('File.TS', '*.ts', { nocase: true })).toBe(true);
         expect(service.isMatch('APP.JS', 'app.js', { nocase: true })).toBe(
-          true
+          true,
         );
       });
 
@@ -111,11 +111,11 @@ describe('PatternMatcherService', () => {
       it('should respect caseSensitive option', () => {
         // Case-insensitive: uppercase extension should match lowercase pattern
         expect(
-          service.isMatch('File.TS', '*.ts', { caseSensitive: false })
+          service.isMatch('File.TS', '*.ts', { caseSensitive: false }),
         ).toBe(true);
         // Case-sensitive: uppercase extension should NOT match lowercase pattern
         expect(
-          service.isMatch('File.TS', '*.ts', { caseSensitive: true })
+          service.isMatch('File.TS', '*.ts', { caseSensitive: true }),
         ).toBe(false);
       });
     });
@@ -351,10 +351,9 @@ describe('PatternMatcherService', () => {
     });
   });
 
-  // Pre-existing: Performance tests are flaky due to CI/load variability
-  describe.skip('Performance', () => {
-    it('should handle large file lists efficiently', () => {
-      // Generate 1000 file paths
+  describe('Large input handling', () => {
+    it('should correctly match large file lists with inclusion and exclusion patterns', () => {
+      // Generate 3000 file paths across source, test, and dependency dirs
       const files: string[] = [];
       for (let i = 0; i < 1000; i++) {
         files.push(`src/file${i}.ts`);
@@ -362,35 +361,31 @@ describe('PatternMatcherService', () => {
         files.push(`node_modules/pkg${i}/index.js`);
       }
 
-      const start = performance.now();
       const results = service.matchFiles(files, [
         '**/*.ts',
         '!**.spec.ts',
         '!node_modules/**',
       ]);
-      const duration = performance.now() - start;
 
-      // Should complete in < 100ms for 3000 files
-      expect(duration).toBeLessThan(100);
-      expect(results.filter((r) => r.matched)).toHaveLength(1000);
+      // Only the 1000 src/*.ts files survive inclusion + exclusions
+      const matched = results.filter((r) => r.matched);
+      expect(matched).toHaveLength(1000);
+      expect(matched.every((r) => r.path.startsWith('src/'))).toBe(true);
     });
 
-    it('should benefit from caching on repeated patterns', () => {
+    it('should populate the pattern cache and return stable results on repeated patterns', () => {
       const files = ['app.ts', 'test.ts', 'util.ts'];
       const pattern = '**.ts';
 
-      // First run - compile pattern
-      const start1 = performance.now();
-      service.match(files, pattern);
-      const duration1 = performance.now() - start1;
+      const first = service.match(files, pattern);
+      const cachedStats = service.getCacheStats();
 
-      // Second run - use cache
-      const start2 = performance.now();
-      service.match(files, pattern);
-      const duration2 = performance.now() - start2;
+      const second = service.match(files, pattern);
 
-      // Cached version should be at least 2x faster
-      expect(duration2).toBeLessThan(duration1 / 2);
+      // Repeated runs are served from the populated cache and stay consistent
+      expect(cachedStats.patternCacheSize).toBeGreaterThan(0);
+      expect(second).toEqual(first);
+      expect(second).toEqual(files);
     });
   });
 
@@ -425,13 +420,13 @@ describe('PatternMatcherService', () => {
     it('should handle special characters in paths', () => {
       expect(service.isMatch('src/[test].ts', 'src/[test].ts')).toBe(true);
       expect(service.isMatch('src/(component).ts', 'src/(component).ts')).toBe(
-        true
+        true,
       );
     });
 
     it('should handle Windows-style paths', () => {
       expect(service.isMatch('src\\app\\component.ts', 'src/**/*.ts')).toBe(
-        true
+        true,
       );
       expect(service.isMatch('C:\\Users\\app.ts', '**/*.ts')).toBe(true);
     });

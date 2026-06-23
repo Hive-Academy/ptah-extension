@@ -44,6 +44,8 @@ import {
   SessionForkResult,
   SessionRewindParams,
   SessionRewindResult,
+  MessageAnchorHint,
+  UUID_REGEX,
 } from '@ptah-extension/shared';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -53,6 +55,11 @@ import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import { z } from 'zod';
 import { CHAT_TOKENS } from '../chat/tokens';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
+import type { ChatStreamBroadcaster } from '../chat/streaming/chat-stream-broadcaster.service';
+import type {
+  SessionStatusParams,
+  SessionStatusResponse,
+} from '@ptah-extension/shared';
 
 /**
  * Minimal schema for JSONL first-line entries in agent session files.
@@ -61,6 +68,15 @@ import type { ChatSessionService } from '../chat/session/chat-session.service';
  */
 export const AgentJsonlFirstLineSchema = z.object({
   sessionId: z.string(),
+});
+
+/**
+ * Boundary schema for `session:status` params. A cold-loaded webview asks
+ * the backend whether a restored session is still alive / mid-stream, so
+ * `sessionId` is the only required field.
+ */
+export const SessionStatusParamsSchema = z.object({
+  sessionId: z.string().min(1),
 });
 
 /**
@@ -83,6 +99,7 @@ export class SessionRpcHandlers {
     'session:stats-batch',
     'session:forkSession',
     'session:rewindFiles',
+    'session:status',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -100,6 +117,8 @@ export class SessionRpcHandlers {
     private readonly sdkAdapter: SdkAgentAdapter,
     @inject(CHAT_TOKENS.SESSION)
     private readonly chatSession: ChatSessionService,
+    @inject(CHAT_TOKENS.STREAM_BROADCASTER)
+    private readonly streamBroadcaster: ChatStreamBroadcaster,
   ) {}
 
   /**
@@ -137,7 +156,7 @@ export class SessionRpcHandlers {
    * branch on a stable code instead of message wording.
    */
   private validateSessionId(sessionId: unknown): string {
-    if (typeof sessionId !== 'string' || !/^[0-9a-f-]{36}$/i.test(sessionId)) {
+    if (typeof sessionId !== 'string' || !UUID_REGEX.test(sessionId)) {
       throw new Error('invalid-session-id: sessionId must be a 36-char UUID');
     }
     return sessionId;
@@ -177,6 +196,28 @@ export class SessionRpcHandlers {
   }
 
   /**
+   * Sanitize the optional fork/rewind anchor hint. The `text` is matched
+   * verbatim against a user prompt in the transcript to recover the real line
+   * UUID when the frontend supplied a client-only optimistic id. It is never
+   * used as a path or id, so the only guards are type + a generous length cap
+   * (prompts can be long). `occurrence` is coerced to a non-negative integer.
+   */
+  private sanitizeAnchorHint(hint: unknown): MessageAnchorHint | undefined {
+    if (hint === null || typeof hint !== 'object') return undefined;
+    const text = (hint as { text?: unknown }).text;
+    if (typeof text !== 'string' || text.trim().length === 0) return undefined;
+    const cappedText = text.length > 200_000 ? text.slice(0, 200_000) : text;
+    const rawOccurrence = (hint as { occurrence?: unknown }).occurrence;
+    const occurrence =
+      typeof rawOccurrence === 'number' &&
+      Number.isInteger(rawOccurrence) &&
+      rawOccurrence >= 0
+        ? rawOccurrence
+        : 0;
+    return { text: cappedText, occurrence };
+  }
+
+  /**
    * Resolve session metadata + verify the workspace it belongs to is one of
    * the currently open workspace folders. Throws stable error codes that the
    * frontend (and tests) can branch on:
@@ -211,6 +252,7 @@ export class SessionRpcHandlers {
     this.registerSessionStatsBatch();
     this.registerForkSession();
     this.registerRewindFiles();
+    this.registerSessionStatus();
 
     this.logger.debug('Session RPC handlers registered', {
       methods: [
@@ -223,6 +265,7 @@ export class SessionRpcHandlers {
         'session:stats-batch',
         'session:forkSession',
         'session:rewindFiles',
+        'session:status',
       ],
     });
   }
@@ -236,11 +279,12 @@ export class SessionRpcHandlers {
       'session:list',
       async (params: SessionListParams) => {
         try {
-          const { workspacePath, limit = 10, offset = 0 } = params;
+          const { workspacePath, limit = 10, offset = 0, since } = params;
           this.logger.debug('RPC: session:list called', {
             workspacePath,
             limit,
             offset,
+            since,
           });
 
           if (!this.isAuthorizedWorkspace(workspacePath)) {
@@ -250,8 +294,12 @@ export class SessionRpcHandlers {
             );
             throw new Error('workspace-not-authorized');
           }
-          const allSessions =
+          const workspaceSessions =
             await this.metadataStore.getForWorkspace(workspacePath);
+          const allSessions =
+            since === undefined
+              ? workspaceSessions
+              : workspaceSessions.filter((s) => s.lastActiveAt >= since);
           const total = allSessions.length;
           const paginated = allSessions.slice(offset, offset + limit);
           const hasMore = offset + limit < total;
@@ -323,7 +371,8 @@ export class SessionRpcHandlers {
       'session:load',
       async (params: SessionLoadParams) => {
         try {
-          const { sessionId } = params;
+          const sessionId = this.validateSessionId(params.sessionId);
+          await this.authorizeSessionAccess(sessionId);
 
           this.logger.debug('RPC: session:load called (metadata validation)', {
             sessionId,
@@ -388,7 +437,8 @@ export class SessionRpcHandlers {
       { success: boolean; error?: string }
     >('session:delete', async (params: { sessionId: SessionId }) => {
       try {
-        const { sessionId } = params;
+        const sessionId = this.validateSessionId(params.sessionId);
+        await this.authorizeSessionAccess(sessionId);
 
         this.logger.info('RPC: session:delete called', { sessionId });
         const metadata = await this.metadataStore.get(sessionId);
@@ -431,7 +481,9 @@ export class SessionRpcHandlers {
       'session:rename',
       async (params: SessionRenameParams) => {
         try {
-          const { sessionId, name } = params;
+          const sessionId = this.validateSessionId(params.sessionId);
+          await this.authorizeSessionAccess(sessionId);
+          const { name } = params;
           const trimmedName = name.trim();
 
           if (!trimmedName || trimmedName.length > 200) {
@@ -445,10 +497,6 @@ export class SessionRpcHandlers {
             sessionId,
             name: trimmedName,
           });
-          const metadata = await this.metadataStore.get(sessionId);
-          if (!metadata) {
-            return { success: false, error: 'Session not found' };
-          }
 
           await this.metadataStore.rename(sessionId, trimmedName);
 
@@ -500,6 +548,16 @@ export class SessionRpcHandlers {
     }
 
     const sessionsDir = path.dirname(sessionFilePath);
+    const resolvedSessionFile = path.resolve(sessionFilePath);
+    const resolvedSessionsDir = path.resolve(sessionsDir);
+    if (
+      !resolvedSessionFile.startsWith(resolvedSessionsDir + path.sep) &&
+      resolvedSessionFile !== resolvedSessionsDir
+    ) {
+      throw new Error(
+        `unauthorized-path-rewrite: deleteSessionFiles refused to operate on ${sessionFilePath} (outside ${sessionsDir})`,
+      );
+    }
     try {
       await fs.unlink(sessionFilePath);
       this.logger.info('RPC: session:delete - deleted JSONL file', {
@@ -516,17 +574,30 @@ export class SessionRpcHandlers {
     let deletedSubagents = 0;
     const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
 
-    const subagentFiles = await fs.readdir(subagentsDir);
-    for (const file of subagentFiles) {
-      if (file.startsWith('agent-') && file.endsWith('.jsonl')) {
-        await fs.unlink(path.join(subagentsDir, file));
-        deletedSubagents++;
+    try {
+      const subagentFiles = await fs.readdir(subagentsDir);
+      for (const file of subagentFiles) {
+        if (file.startsWith('agent-') && file.endsWith('.jsonl')) {
+          await fs.unlink(path.join(subagentsDir, file));
+          deletedSubagents++;
+        }
+      }
+
+      await fs.rmdir(subagentsDir);
+      await fs.rmdir(path.join(sessionsDir, sessionId));
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        this.logger.warn(
+          'RPC: session:delete - failed to clean nested subagents dir',
+          {
+            sessionId,
+            subagentsDir,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
       }
     }
-
-    await fs.rmdir(subagentsDir);
-
-    await fs.rmdir(path.join(sessionsDir, sessionId));
     if (deletedSubagents === 0) {
       const allFiles = await fs.readdir(sessionsDir);
       const agentFiles = allFiles.filter(
@@ -648,7 +719,8 @@ export class SessionRpcHandlers {
       { cliSessions: CliSessionReference[] }
     >('session:cli-sessions', async (params: { sessionId: string }) => {
       try {
-        const { sessionId } = params;
+        const sessionId = this.validateSessionId(params.sessionId);
+        await this.authorizeSessionAccess(sessionId);
         const metadata = await this.metadataStore.get(sessionId);
         const raw = metadata?.cliSessions ?? [];
         const cliSessions = raw.filter(
@@ -688,6 +760,13 @@ export class SessionRpcHandlers {
         sessionCount: sessionIds.length,
         workspacePath,
       });
+      if (!this.isAuthorizedWorkspace(workspacePath)) {
+        this.logger.warn(
+          'RPC: session:stats-batch rejected — workspacePath outside active workspace',
+          { workspacePath },
+        );
+        throw new Error('workspace-not-authorized');
+      }
       const CONCURRENCY_LIMIT = 5;
       const sessionStats: SessionStatsEntry[] = [];
 
@@ -709,7 +788,7 @@ export class SessionRpcHandlers {
                 return {
                   sessionId,
                   model: null,
-                  totalCost: 0,
+                  totalCost: null,
                   tokens: {
                     input: 0,
                     output: 0,
@@ -736,7 +815,7 @@ export class SessionRpcHandlers {
                       model: string;
                       inputTokens: number;
                       outputTokens: number;
-                      costUSD: number;
+                      costUSD: number | null;
                     }>
                   | undefined,
                 cliAgents,
@@ -750,7 +829,7 @@ export class SessionRpcHandlers {
               return {
                 sessionId,
                 model: null,
-                totalCost: 0,
+                totalCost: null,
                 tokens: {
                   input: 0,
                   output: 0,
@@ -772,7 +851,7 @@ export class SessionRpcHandlers {
               : {
                   sessionId: batch[j],
                   model: null,
-                  totalCost: 0,
+                  totalCost: null,
                   tokens: {
                     input: 0,
                     output: 0,
@@ -819,18 +898,27 @@ export class SessionRpcHandlers {
               ? this.validateUserMessageId(params.upToMessageId)
               : undefined;
           const title = this.sanitizeForkTitle(params.title);
+          const kind =
+            params.kind === 'rewind' || params.kind === 'branch'
+              ? params.kind
+              : undefined;
+          const anchorHint = this.sanitizeAnchorHint(params.anchorHint);
           await this.authorizeSessionAccess(sessionId);
 
           this.logger.debug('RPC: session:forkSession called', {
             sessionId,
             upToMessageId,
             title,
+            kind,
+            hasAnchorHint: !!anchorHint,
           });
 
           const result = await this.sdkAdapter.forkSession(
             sessionId as SessionId,
             upToMessageId,
             title,
+            kind,
+            anchorHint,
           );
           return { newSessionId: result.sessionId as SessionId };
         } catch (error) {
@@ -882,6 +970,7 @@ export class SessionRpcHandlers {
           const userMessageId = this.validateUserMessageId(
             params.userMessageId,
           );
+          const anchorHint = this.sanitizeAnchorHint(params.anchorHint);
           const dryRun = params.dryRun;
           await this.authorizeSessionAccess(sessionId);
 
@@ -889,6 +978,7 @@ export class SessionRpcHandlers {
             sessionId,
             userMessageId,
             dryRun: dryRun ?? false,
+            hasAnchorHint: !!anchorHint,
           });
 
           if (!this.sdkAdapter.isSessionActive(sessionId as SessionId)) {
@@ -917,15 +1007,20 @@ export class SessionRpcHandlers {
             sessionId as SessionId,
             userMessageId,
             dryRun,
+            anchorHint,
           );
           if (
-            dryRun === false &&
+            dryRun !== true &&
             Array.isArray(result.filesChanged) &&
             result.filesChanged.length > 0
           ) {
             const roots = this.getAuthorizedWorkspaceRoots();
             const escapingPaths: string[] = [];
             for (const p of result.filesChanged) {
+              if (!path.isAbsolute(p)) {
+                escapingPaths.push(p);
+                continue;
+              }
               const resolved = path
                 .resolve(p)
                 .replace(/\\/g, '/')
@@ -966,9 +1061,6 @@ export class SessionRpcHandlers {
           const errorObj =
             error instanceof Error ? error : new Error(String(error));
           this.logger.error('RPC: session:rewindFiles failed', errorObj);
-          this.sentryService.captureException(errorObj, {
-            errorSource: 'SessionRpcHandlers.registerRewindFiles',
-          });
           if (error instanceof SessionNotActiveError) {
             throw new Error(`session-not-active: ${errorObj.message}`);
           }
@@ -978,12 +1070,54 @@ export class SessionRpcHandlers {
             throw new Error(`session-not-active: ${errorObj.message}`);
           }
           if (errorObj.message.startsWith('session-not-active:')) {
-            // Already-tagged error from the auto-resume preflight — surface
-            // unchanged so the frontend's `session-not-active` branch (and
-            // any callers grepping by prefix) still match.
             throw errorObj;
           }
+          if (errorObj.message.startsWith('unauthorized-path-rewrite:')) {
+            throw errorObj;
+          }
+          this.sentryService.captureException(errorObj, {
+            errorSource: 'SessionRpcHandlers.registerRewindFiles',
+          });
           throw new Error(`Failed to rewind files: ${errorObj.message}`);
+        }
+      },
+    );
+  }
+
+  /**
+   * session:status - Read-only liveness probe for a restored session.
+   *
+   * A freshly cold-loaded webview (VS Code recreates the webview when its
+   * panel is hidden→reshown; HMR/devtools reload) cannot observe in-flight
+   * streaming state. This returns both whether the session process is alive
+   * (`isActive`, from the SDK lifecycle registry) and whether a turn is
+   * actively streaming right now (`isStreaming`, from the broadcaster's
+   * in-flight set). Unexpected errors degrade to `{ false, false }` rather
+   * than leaking raw error text to the client.
+   */
+  private registerSessionStatus(): void {
+    this.rpcHandler.registerMethod<SessionStatusParams, SessionStatusResponse>(
+      'session:status',
+      async (params: SessionStatusParams) => {
+        try {
+          const { sessionId } = SessionStatusParamsSchema.parse(params);
+
+          return {
+            isActive: this.sdkAdapter.isSessionActive(
+              SessionId.from(sessionId),
+            ),
+            isStreaming: this.streamBroadcaster.isStreaming(sessionId),
+          };
+        } catch (error) {
+          this.logger.error(
+            'RPC: session:status failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'SessionRpcHandlers.registerSessionStatus' },
+          );
+          return { isActive: false, isStreaming: false };
         }
       },
     );

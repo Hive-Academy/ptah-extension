@@ -40,20 +40,20 @@ Drop PNG files into `apps/ptah-docs/public/screenshots/` (served at `/screenshot
 
 ## Agents (10)
 
-| Filename                    | Shows                                                          | Page                            |
-| --------------------------- | -------------------------------------------------------------- | ------------------------------- |
-| `agents-overview.png`       | Agents panel listing installed agents                          | `agents/index.md`               |
-| `agents-setup-wizard.png`   | Setup wizard landing step                                      | `agents/setup-wizard.md`        |
-| `agents-wizard-step1.png`   | Wizard step 1 — project analysis                               | `agents/setup-wizard.md`        |
-| `agents-wizard-step2.png`   | Wizard step 2 — stack detection & review                       | `agents/setup-wizard.md`        |
-| `agents-catalog.png`        | Built-in agents catalog grid (13 agents)                       | `agents/built-in-agents.md`     |
-| `agents-custom-editor.png`  | Custom agent editor (system prompt + tools)                    | `agents/custom-agents.md`       |
-| `agents-cli-panel.png`      | CLI agents panel (Gemini / Codex / Copilot / ptah-cli status)  | `agents/cli-agents.md`          |
-| `agents-orchestration.png`  | 3-tier orchestration hierarchy diagram or live view            | `agents/agent-orchestration.md` |
-| `agents-sync-targets.png`   | CLI sync targets selection (Cursor / Gemini / Codex / Copilot) | `agents/syncing-to-cli.md`      |
-| `agents-sync-diff.png`      | Diff view showing what will be written to each CLI             | `agents/syncing-to-cli.md`      |
-| `agents-import.png`         | Auto-import of Claude CLI history — progress                   | `agents/importing-history.md`   |
-| `agents-import-filters.png` | Import filter controls (date / project / agent)                | `agents/importing-history.md`   |
+| Filename                    | Shows                                                 | Page                            |
+| --------------------------- | ----------------------------------------------------- | ------------------------------- |
+| `agents-overview.png`       | Agents panel listing installed agents                 | `agents/index.md`               |
+| `agents-setup-wizard.png`   | Setup wizard landing step                             | `agents/setup-wizard.md`        |
+| `agents-wizard-step1.png`   | Wizard step 1 — project analysis                      | `agents/setup-wizard.md`        |
+| `agents-wizard-step2.png`   | Wizard step 2 — stack detection & review              | `agents/setup-wizard.md`        |
+| `agents-catalog.png`        | Built-in agents catalog grid (13 agents)              | `agents/built-in-agents.md`     |
+| `agents-custom-editor.png`  | Custom agent editor (system prompt + tools)           | `agents/custom-agents.md`       |
+| `agents-cli-panel.png`      | CLI agents panel (Codex / Copilot / ptah-cli status)  | `agents/cli-agents.md`          |
+| `agents-orchestration.png`  | 3-tier orchestration hierarchy diagram or live view   | `agents/agent-orchestration.md` |
+| `agents-sync-targets.png`   | CLI sync targets selection (Cursor / Codex / Copilot) | `agents/syncing-to-cli.md`      |
+| `agents-sync-diff.png`      | Diff view showing what will be written to each CLI    | `agents/syncing-to-cli.md`      |
+| `agents-import.png`         | Auto-import of Claude CLI history — progress          | `agents/importing-history.md`   |
+| `agents-import-filters.png` | Import filter controls (date / project / agent)       | `agents/importing-history.md`   |
 
 ## Sessions (7)
 

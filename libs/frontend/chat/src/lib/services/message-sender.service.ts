@@ -259,35 +259,6 @@ export class MessageSenderService {
   }
 
   /**
-   * Send message or queue if streaming
-   *
-   * Smart routing that checks streaming state:
-   * - If streaming: Queue for later (delegated to ConversationService)
-   * - If not streaming: Send immediately
-   *
-   * @param content - Message content
-   * @param options - Optional send options (files, images, effort)
-   */
-  async sendOrQueue(
-    content: string,
-    options?: SendMessageOptions,
-  ): Promise<void> {
-    const targetTabId = options?.tabId;
-    const targetTab = targetTabId
-      ? (this.tabManager.tabs().find((t) => t.id === targetTabId) ??
-        this.tabManager.activeTab())
-      : this.tabManager.activeTab();
-    const isStreaming =
-      targetTab?.status === 'streaming' || targetTab?.status === 'resuming';
-
-    if (isStreaming) {
-      return;
-    } else {
-      await this.send(content, options);
-    }
-  }
-
-  /**
    * Start a brand new conversation with Claude
    *
    * Extracted from ConversationService.startNewConversation()
@@ -339,6 +310,13 @@ export class MessageSenderService {
       this.tabManager.markTabStreaming(activeTabId);
       this.sessionManager.setSessionId(sessionId); // Default to 'draft' state
       this.sessionManager.setStatus('streaming'); // Start streaming status so UI shows content
+      // Hidden preamble (e.g. Tribunal council framing) is prepended to the
+      // BACKEND prompt only; the visible bubble stays the user's plain text.
+      const firstMessagePreamble =
+        this.tabManager.consumeFirstMessagePreamble(activeTabId);
+      const backendPrompt = firstMessagePreamble
+        ? `${firstMessagePreamble}\n\n${content}`
+        : content;
       const userMessage = createExecutionChatMessage({
         id: this.generateId(),
         role: 'user',
@@ -361,7 +339,7 @@ export class MessageSenderService {
       const result = await this.claudeRpcService.call(
         'chat:start',
         {
-          prompt: content,
+          prompt: backendPrompt,
           tabId: activeTabId, // Frontend correlation ID
           name: autoName, // Send message-derived name to backend (not stale activeTab reference)
           ...(workspacePath ? { workspacePath } : {}),
@@ -413,6 +391,68 @@ export class MessageSenderService {
     content: string,
     sessionId: SessionId,
     options?: SendMessageOptions,
+  ): Promise<void> {
+    const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
+    const abortSignal = activeTabId
+      ? this.wireAbortDispatch(activeTabId)
+      : undefined;
+    return this.runContinueConversation(
+      content,
+      sessionId,
+      options,
+      abortSignal,
+    );
+  }
+
+  /**
+   * Continue an existing conversation for the post-stream queue flush.
+   *
+   * Same semantics as `continueConversation` but does NOT install a fresh
+   * `AbortController` for the tab. The queue flush (`MessageDispatchService.
+   * sendQueuedMessage`) fires on turn-end while the previous stream's
+   * controller may still be tracked by `TabManagerService`. Calling
+   * `createAbortController` there would abort that controller, firing the
+   * previous `wireAbortDispatch` abort listener → a stray `chat:abort` RPC →
+   * the session is killed and the queued message degrades to a full resume.
+   *
+   * Instead, reuses the existing `AbortSignal` (still tracked by
+   * `TabManagerService`, so stop-button / tab-close keep working) or sends
+   * with no signal when the controller was already cleared by finalization.
+   *
+   * @param content - Message content
+   * @param sessionId - Existing session ID
+   * @param options - Optional send options (files, images, effort, tabId)
+   */
+  async continueExistingSessionForQueueFlush(
+    content: string,
+    sessionId: SessionId,
+    options?: SendMessageOptions,
+  ): Promise<void> {
+    const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
+    const abortSignal = activeTabId
+      ? this.tabManager.getAbortSignal(activeTabId)
+      : undefined;
+    return this.runContinueConversation(
+      content,
+      sessionId,
+      options,
+      abortSignal,
+    );
+  }
+
+  /**
+   * Shared body for `continueConversation` and the queue-flush variant.
+   *
+   * The caller resolves the `AbortSignal` (or `undefined`) and passes it in,
+   * keeping the abort-wiring policy out of the continue-conversation logic so
+   * the user-initiated send and the post-stream queue flush can differ without
+   * branching inside this method.
+   */
+  private async runContinueConversation(
+    content: string,
+    sessionId: SessionId,
+    options: SendMessageOptions | undefined,
+    abortSignal: AbortSignal | undefined,
   ): Promise<void> {
     const files = options?.files;
     const images = options?.images;
@@ -506,7 +546,6 @@ export class MessageSenderService {
         effort,
         activeTab?.overrideEffort,
       );
-      const abortSignal = this.wireAbortDispatch(activeTabId);
       const result = await this.claudeRpcService.call(
         'chat:continue',
         {

@@ -8,6 +8,10 @@ import type {
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import {
+  MEMORY_CONTRACT_TOKENS,
+  type ITranscriptReader,
+} from '@ptah-extension/memory-contracts';
+import {
   SDK_TOKENS,
   type SessionActivityPayload,
   type SessionActivityRegistry,
@@ -16,6 +20,10 @@ import {
   type JsonlReaderService,
   type PostToolUseCallbackRegistry,
   type PostToolUsePayload,
+  type PreToolUseCallbackRegistry,
+  type PreToolUsePayload,
+  type SessionStartCallbackRegistry,
+  type SessionStartPayload,
   type UserPromptSubmitCallbackRegistry,
   type UserPromptSubmitPayload,
   type StopCallbackRegistry,
@@ -28,6 +36,10 @@ import {
 } from '@ptah-extension/agent-sdk';
 import { MEMORY_TOKENS } from '../di/tokens';
 import { MemoryCuratorService } from '../memory-curator.service';
+import {
+  ObservationQueueStore,
+  type ObservationQueueRow,
+} from '../observation-queue.store';
 import { deriveWorkspaceFingerprint } from '../workspace-fingerprint';
 import { BootScanRunner } from './boot-scan-runner';
 import { EpisodeTracker } from './episode-tracker';
@@ -40,6 +52,8 @@ import {
 const COMMIT_PATTERN = /^\s*git\s+commit(?:\s|$)/;
 const RATE_LIMIT_KEY = 'memory.curate';
 const MAX_CUE_PATTERN_LENGTH = 200;
+const COALESCE_WINDOW_MS = 5000;
+const TOOL_FAILURE_SNIPPET = 140;
 
 type CurateSource =
   | 'idle'
@@ -67,8 +81,12 @@ export class MemoryTriggerService {
   private stopDisposer: (() => void) | null = null;
   private toolFailureDisposer: (() => void) | null = null;
   private sessionEndHookDisposer: (() => void) | null = null;
+  private preToolUseDisposer: (() => void) | null = null;
+  private sessionStartDisposer: (() => void) | null = null;
   private readonly sessions = new Map<string, SessionState>();
   private readonly episodes = new EpisodeTracker();
+  private readonly inFlightCurates = new Set<string>();
+  private readonly lastCurateAt = new Map<string, number>();
   private bootScanController: AbortController | null = null;
   private cueCache: {
     source: readonly string[];
@@ -103,6 +121,14 @@ export class MemoryTriggerService {
     private readonly sessionEndHookRegistry: SessionEndHookCallbackRegistry,
     @inject(SDK_TOKENS.SDK_CURATOR_RATE_LIMIT)
     private readonly rateLimiter: CuratorRateLimitService,
+    @inject(MEMORY_TOKENS.OBSERVATION_QUEUE_STORE)
+    private readonly observationQueue: ObservationQueueStore,
+    @inject(SDK_TOKENS.SDK_PRE_TOOL_USE_CALLBACK_REGISTRY)
+    private readonly preToolUseRegistry: PreToolUseCallbackRegistry,
+    @inject(SDK_TOKENS.SDK_SESSION_START_CALLBACK_REGISTRY)
+    private readonly sessionStartRegistry: SessionStartCallbackRegistry,
+    @inject(MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER)
+    private readonly transcriptReader: ITranscriptReader,
   ) {}
 
   start(): void {
@@ -134,6 +160,14 @@ export class MemoryTriggerService {
         this.onSessionEndHook(payload);
       },
     );
+    this.preToolUseDisposer = this.preToolUseRegistry.register((payload) => {
+      this.onPreToolUseRead(payload);
+    });
+    this.sessionStartDisposer = this.sessionStartRegistry.register(
+      (payload) => {
+        this.onSessionStart(payload);
+      },
+    );
 
     if (this.readBootScanFlag()) {
       this.bootScanController = new AbortController();
@@ -152,6 +186,8 @@ export class MemoryTriggerService {
     this.stopDisposer?.();
     this.toolFailureDisposer?.();
     this.sessionEndHookDisposer?.();
+    this.preToolUseDisposer?.();
+    this.sessionStartDisposer?.();
     this.activityDisposer = null;
     this.sessionEndDisposer = null;
     this.userPromptSubmitDisposer = null;
@@ -159,11 +195,15 @@ export class MemoryTriggerService {
     this.stopDisposer = null;
     this.toolFailureDisposer = null;
     this.sessionEndHookDisposer = null;
+    this.preToolUseDisposer = null;
+    this.sessionStartDisposer = null;
     for (const state of this.sessions.values()) {
       if (state.idleTimer) clearTimeout(state.idleTimer);
     }
     this.sessions.clear();
     this.episodes.clear();
+    this.inFlightCurates.clear();
+    this.lastCurateAt.clear();
     this.bootScanController?.abort();
     this.bootScanController = null;
     this.started = false;
@@ -195,16 +235,24 @@ export class MemoryTriggerService {
     }, idleMs);
   }
 
+  /**
+   * In-process session-end signal from `SessionControl.endSession`. Fires
+   * reliably even when the SDK `SessionEnd` hook cannot be delivered (the input
+   * stream closes on abort before the CLI dispatches it).
+   */
   private onSessionEnd(payload: SessionEndPayload): void {
-    const state = this.sessions.get(payload.sessionId);
-    if (!state) return;
-    if (state.idleTimer) clearTimeout(state.idleTimer);
-    this.sessions.delete(payload.sessionId);
+    this.flushSessionEnd(payload.sessionId, payload.workspaceRoot);
   }
 
   /** Real SDK `Stop` hook — the authoritative "assistant turn complete" signal. */
   private onStop(payload: StopPayload): void {
     if (!payload.sessionId || payload.sessionId.length === 0) return;
+    this.observationQueue.insert({
+      sessionId: payload.sessionId,
+      workspaceRoot: payload.workspaceRoot,
+      kind: 'assistant-turn',
+      assistantMessage: payload.lastAssistantMessage ?? null,
+    });
     const turnCount = this.episodes.recordTurn(
       payload.sessionId,
       payload.lastAssistantMessage,
@@ -226,6 +274,13 @@ export class MemoryTriggerService {
   private onToolFailure(payload: ToolFailurePayload): void {
     if (!payload.sessionId || payload.sessionId.length === 0) return;
     if (payload.isInterrupt) return;
+    this.observationQueue.insert({
+      sessionId: payload.sessionId,
+      workspaceRoot: payload.workspaceRoot,
+      kind: 'tool-failure',
+      toolName: payload.toolName,
+      toolResponseText: payload.error,
+    });
     this.episodes.recordFailure(
       payload.sessionId,
       payload.toolName,
@@ -235,29 +290,49 @@ export class MemoryTriggerService {
       kind: 'tool-failure',
       timestamp: payload.timestamp,
       sessionId: payload.sessionId,
-      stats: { tool: payload.toolName },
+      stats: {
+        tool: payload.toolName,
+        error: snippetOneLine(payload.error, TOOL_FAILURE_SNIPPET),
+      },
     });
   }
 
   /** Real SDK `SessionEnd` hook — flush whatever the episode buffer holds. */
   private onSessionEndHook(payload: SessionEndHookPayload): void {
-    if (payload.sessionId && payload.sessionId.length > 0) {
-      if (this.readSessionEndEnabled()) {
-        this.tryEpisodeCurate(
-          payload.sessionId,
-          payload.workspaceRoot,
-          'session-end',
-          'session-end-trigger',
-        );
-      }
-      this.episodes.reset(payload.sessionId);
-      const state = this.sessions.get(payload.sessionId);
-      if (state?.idleTimer) clearTimeout(state.idleTimer);
-      this.sessions.delete(payload.sessionId);
+    this.flushSessionEnd(payload.sessionId, payload.workspaceRoot);
+  }
+
+  /**
+   * Curate the buffered episode (when enabled), reset the buffer, and tear down
+   * idle state. Reached from both the SDK `SessionEnd` hook and the in-process
+   * registry; idempotent because `tryEpisodeCurate` coalesces and no-ops on an
+   * already-flushed buffer, so a double-fire is harmless.
+   */
+  private flushSessionEnd(sessionId: string, workspaceRoot: string): void {
+    if (!sessionId || sessionId.length === 0) return;
+    if (this.readSessionEndEnabled()) {
+      this.tryEpisodeCurate(
+        sessionId,
+        workspaceRoot,
+        'session-end',
+        'session-end-trigger',
+      );
     }
+    this.episodes.reset(sessionId);
+    const state = this.sessions.get(sessionId);
+    if (state?.idleTimer) clearTimeout(state.idleTimer);
+    this.sessions.delete(sessionId);
   }
 
   private onUserPromptSubmit(payload: UserPromptSubmitPayload): void {
+    if (payload.sessionId && payload.sessionId.length > 0) {
+      this.observationQueue.insert({
+        sessionId: payload.sessionId,
+        workspaceRoot: payload.workspaceRoot,
+        kind: 'user-prompt',
+        userPrompt: payload.prompt,
+      });
+    }
     if (!this.readUserPromptSubmitEnabled()) return;
     if (!payload.sessionId || payload.sessionId.length === 0) {
       this.logger.warn(
@@ -309,27 +384,38 @@ export class MemoryTriggerService {
       payload.sessionId,
       payload.workspaceRoot,
       'user-cue',
-      payload.prompt,
     );
   }
 
   private onPostToolUse(payload: PostToolUsePayload): void {
     if (!payload.sessionId || payload.sessionId.length === 0) return;
+    this.observationQueue.insert({
+      sessionId: payload.sessionId,
+      workspaceRoot: payload.workspaceRoot,
+      kind: 'tool-use',
+      toolName: payload.toolName,
+      toolInputJson: safeStringify(payload.toolInput),
+      toolResponseText:
+        typeof payload.toolOutput === 'string'
+          ? payload.toolOutput
+          : safeStringify(payload.toolOutput),
+    });
 
-    // Error→recovery detection: a previously-failed tool now succeeds. This is
-    // the highest-value "critical learning" episode boundary.
     if (payload.success) {
       const recovered = this.episodes.recordToolSuccess(
         payload.sessionId,
         payload.toolName,
       );
       if (recovered && this.readEpisodeEnabled()) {
-        this.tryEpisodeCurate(
-          payload.sessionId,
-          payload.workspaceRoot,
-          'episode',
-          'episode-trigger',
-        );
+        const snap = this.episodes.snapshot(payload.sessionId);
+        if (snap.hasCriticalLearning && snap.turnCount > 0) {
+          this.tryEpisodeCurate(
+            payload.sessionId,
+            payload.workspaceRoot,
+            'episode',
+            'episode-trigger',
+          );
+        }
         return;
       }
     }
@@ -341,6 +427,11 @@ export class MemoryTriggerService {
     if (!command || !COMMIT_PATTERN.test(command)) return;
     if (!this.readPostToolUseEnabled()) return;
 
+    this.observationQueue.insert({
+      sessionId: payload.sessionId,
+      workspaceRoot: payload.workspaceRoot,
+      kind: 'commit',
+    });
     this.episodes.recordCommit(payload.sessionId);
     this.tryEpisodeCurate(
       payload.sessionId,
@@ -348,6 +439,22 @@ export class MemoryTriggerService {
       'commit-detect',
       'commit-detect',
     );
+  }
+
+  private onPreToolUseRead(payload: PreToolUsePayload): void {
+    if (!payload.sessionId || payload.sessionId.length === 0) return;
+    if (payload.toolName !== 'Read') return;
+    const filePath = extractFilePath(payload.toolInput);
+    this.observationQueue.insert({
+      sessionId: payload.sessionId,
+      workspaceRoot: payload.workspaceRoot,
+      kind: 'file-read',
+      filePath,
+    });
+  }
+
+  private onSessionStart(_payload: SessionStartPayload): void {
+    return;
   }
 
   private extractBashCommand(toolInput: unknown): string | null {
@@ -420,6 +527,14 @@ export class MemoryTriggerService {
       | 'commit-detect'
       | 'session-end-trigger',
   ): void {
+    if (this.shouldCoalesce(sessionId)) {
+      this.logger.debug(
+        '[memory-curator] curate trigger coalesced (in-flight or recent)',
+        { sessionId, source },
+      );
+      return;
+    }
+
     const snap = this.episodes.snapshot(sessionId);
     if (snap.isEmpty) {
       this.episodes.reset(sessionId);
@@ -445,7 +560,6 @@ export class MemoryTriggerService {
       return;
     }
 
-    const transcript = this.episodes.buildTranscript(sessionId);
     const salienceBoost = this.episodes.salienceBoost(sessionId);
     this.curator.pushEvent({
       kind: eventKind,
@@ -459,23 +573,54 @@ export class MemoryTriggerService {
         critical: snap.hasCriticalLearning,
       },
     });
+    const episodeSnap: EpisodeSummaryInput = {
+      turnCount: snap.turnCount,
+      failures: snap.failures.length,
+      recovered: snap.recoveredTools.length,
+      commits: snap.commits,
+      hasCriticalLearning: snap.hasCriticalLearning,
+    };
     this.episodes.reset(sessionId);
+    this.inFlightCurates.add(sessionId);
+    this.lastCurateAt.set(sessionId, Date.now());
     void this.invokeCurate(
       sessionId,
       workspaceRoot,
       source,
-      transcript,
       salienceBoost,
+      episodeSnap,
     );
+  }
+
+  private shouldCoalesce(sessionId: string): boolean {
+    if (this.inFlightCurates.has(sessionId)) return true;
+    const last = this.lastCurateAt.get(sessionId);
+    if (last === undefined) return false;
+    return Date.now() - last < COALESCE_WINDOW_MS;
   }
 
   private async invokeCurate(
     sessionId: string,
     workspaceRoot: string,
     source: CurateSource,
-    transcript?: string,
     salienceBoost?: number,
+    episodeSnap?: EpisodeSummaryInput,
   ): Promise<void> {
+    const limit = this.readMaxObservationsPerCurate();
+    let jsonlText = '';
+    try {
+      jsonlText = await this.transcriptReader.read(sessionId, workspaceRoot);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn('[memory-curator] transcript read failed', {
+        sessionId,
+        source,
+        error: message,
+      });
+      jsonlText = '';
+    }
+    const drainedRows = this.observationQueue.drainForSession(sessionId, limit);
+    const transcript = composeTranscript(jsonlText, drainedRows, episodeSnap);
     try {
       await this.curator.curate({
         sessionId,
@@ -483,6 +628,8 @@ export class MemoryTriggerService {
         transcript,
         salienceBoost,
       });
+      const ids = drainedRows.map((r) => r.id);
+      if (ids.length > 0) this.observationQueue.markProcessed(ids);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.curator.pushEvent({
@@ -496,6 +643,8 @@ export class MemoryTriggerService {
         sessionId,
         error: message,
       });
+    } finally {
+      this.inFlightCurates.delete(sessionId);
     }
   }
 
@@ -514,8 +663,29 @@ export class MemoryTriggerService {
         sqlite: this.sqlite,
         logger: this.logger,
         signal,
-        run: (sessionId, workspaceRoot, runSignal) =>
-          this.curator.curate({ sessionId, workspaceRoot, signal: runSignal }),
+        run: async (scanSessionId, scanWorkspaceRoot, runSignal) => {
+          let transcript = '';
+          try {
+            transcript = await this.transcriptReader.read(
+              scanSessionId,
+              scanWorkspaceRoot,
+            );
+          } catch (err: unknown) {
+            this.logger.warn(
+              '[memory-curator] boot-scan transcript read failed',
+              {
+                sessionId: scanSessionId,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            );
+          }
+          return this.curator.curate({
+            sessionId: scanSessionId,
+            workspaceRoot: scanWorkspaceRoot,
+            transcript,
+            signal: runSignal,
+          });
+        },
       });
       this.curator.pushEvent({
         kind: 'boot-scan',
@@ -649,4 +819,111 @@ export class MemoryTriggerService {
       ? v
       : MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour;
   }
+
+  private readMaxObservationsPerCurate(): number {
+    const v = this.workspace.getConfiguration<number>(
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.maxObservationsPerCurate,
+      MEMORY_TRIGGER_DEFAULTS.maxObservationsPerCurate,
+    );
+    return typeof v === 'number' && Number.isFinite(v) && v > 0
+      ? Math.floor(v)
+      : MEMORY_TRIGGER_DEFAULTS.maxObservationsPerCurate;
+  }
+}
+
+const MAX_JSONL_BYTES = 32 * 1024;
+const TOOL_INPUT_PREVIEW = 1000;
+const TOOL_RESPONSE_PREVIEW = 2500;
+const ASSISTANT_PREVIEW = 2000;
+const USER_PROMPT_PREVIEW = 1000;
+
+function truncate(text: string | null | undefined, max: number): string {
+  if (!text) return '';
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function snippetOneLine(text: string | null | undefined, max: number): string {
+  if (!text) return '';
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  return collapsed.length > max ? `${collapsed.slice(0, max)}…` : collapsed;
+}
+
+function safeStringify(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
+function extractFilePath(toolInput: unknown): string | null {
+  if (typeof toolInput !== 'object' || toolInput === null) return null;
+  const input = toolInput as { file_path?: unknown; path?: unknown };
+  if (typeof input.file_path === 'string' && input.file_path.length > 0) {
+    return input.file_path;
+  }
+  if (typeof input.path === 'string' && input.path.length > 0) {
+    return input.path;
+  }
+  return null;
+}
+
+function formatObservationRow(row: ObservationQueueRow): string {
+  switch (row.kind) {
+    case 'tool-use':
+      return `- [tool] ${row.toolName ?? '?'} input=${truncate(
+        row.toolInputJson,
+        TOOL_INPUT_PREVIEW,
+      )} response=${truncate(row.toolResponseText, TOOL_RESPONSE_PREVIEW)}`;
+    case 'tool-failure':
+      return `- [failure] ${row.toolName ?? '?'}: ${truncate(
+        row.toolResponseText,
+        TOOL_RESPONSE_PREVIEW,
+      )}`;
+    case 'assistant-turn':
+      return `- [assistant] ${truncate(row.assistantMessage, ASSISTANT_PREVIEW)}`;
+    case 'user-prompt':
+      return `- [user] ${truncate(row.userPrompt, USER_PROMPT_PREVIEW)}`;
+    case 'file-read':
+      return `- [read] ${row.filePath ?? '?'}`;
+    case 'commit':
+      return '- [commit]';
+    default:
+      return `- [${row.kind as string}]`;
+  }
+}
+
+interface EpisodeSummaryInput {
+  readonly turnCount: number;
+  readonly failures: number;
+  readonly recovered: number;
+  readonly commits: number;
+  readonly hasCriticalLearning: boolean;
+}
+
+function composeTranscript(
+  jsonlText: string,
+  rows: readonly ObservationQueueRow[],
+  snap: EpisodeSummaryInput | undefined,
+): string {
+  const sections: string[] = [];
+  if (jsonlText && jsonlText.length > 0) {
+    const trimmed =
+      jsonlText.length > MAX_JSONL_BYTES
+        ? jsonlText.slice(jsonlText.length - MAX_JSONL_BYTES)
+        : jsonlText;
+    sections.push(`# Session JSONL excerpt\n\n${trimmed}`);
+  }
+  if (rows.length > 0) {
+    const bullets = rows.map(formatObservationRow).join('\n');
+    sections.push(`# Structured observations from hooks\n\n${bullets}`);
+  }
+  if (snap && (snap.turnCount > 0 || snap.commits > 0 || snap.failures > 0)) {
+    sections.push(
+      `# Episode summary\n\nturns=${snap.turnCount} failures=${snap.failures} recovered=${snap.recovered} commits=${snap.commits} critical=${snap.hasCriticalLearning}`,
+    );
+  }
+  return sections.join('\n\n');
 }

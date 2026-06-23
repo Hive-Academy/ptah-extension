@@ -14,10 +14,10 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PERSISTENCE_TOKENS,
-  type SqliteConnectionService,
+  VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
 import { SkillCandidateStore } from './skill-candidate.store';
-import { cosineSimilarity } from './cosine-similarity';
+import { agglomerate, cosineSimilarity } from './cosine-similarity';
 import type { SkillSynthesisSettings } from './types';
 
 @injectable()
@@ -26,8 +26,8 @@ export class SkillClusterDedupService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
-    private readonly connection: SqliteConnectionService,
+    @inject(PERSISTENCE_TOKENS.VEC_STATUS)
+    private readonly vecStatus: VecStatusService,
     @inject(SkillCandidateStore)
     private readonly store: SkillCandidateStore,
   ) {}
@@ -44,7 +44,7 @@ export class SkillClusterDedupService {
     embedding: Float32Array,
     settings: SkillSynthesisSettings,
   ): boolean {
-    if (!this.connection.vecExtensionLoaded) return false;
+    if (!this.vecStatus.available) return false;
     if (this.clusters === null) {
       this.buildClusters(settings);
     }
@@ -73,7 +73,7 @@ export class SkillClusterDedupService {
    * @param settings Used to read `dedupClusterThreshold` for the merge criterion.
    */
   buildClusters(settings: SkillSynthesisSettings): void {
-    if (!this.connection.vecExtensionLoaded) return;
+    if (!this.vecStatus.available) return;
 
     const promoted = this.store.listByStatus('promoted');
     if (promoted.length === 0) {
@@ -90,38 +90,7 @@ export class SkillClusterDedupService {
       this.clusters = [];
       return;
     }
-    const clusterOf: number[] = embeddings.map((_, i) => i);
-    let merged = true;
-    while (merged) {
-      merged = false;
-      const clusterIds = [...new Set(clusterOf)];
-      outer: for (let ci = 0; ci < clusterIds.length; ci++) {
-        for (let cj = ci + 1; cj < clusterIds.length; cj++) {
-          const membersI = clusterOf
-            .map((c, idx) => (c === clusterIds[ci] ? idx : -1))
-            .filter((idx) => idx >= 0);
-          const membersJ = clusterOf
-            .map((c, idx) => (c === clusterIds[cj] ? idx : -1))
-            .filter((idx) => idx >= 0);
-          let maxSim = -Infinity;
-          for (const i of membersI) {
-            for (const j of membersJ) {
-              const sim = cosineSimilarity(embeddings[i], embeddings[j]);
-              if (sim > maxSim) maxSim = sim;
-            }
-          }
-          if (maxSim > settings.dedupClusterThreshold) {
-            const targetId = clusterIds[ci];
-            const sourceId = clusterIds[cj];
-            for (let k = 0; k < clusterOf.length; k++) {
-              if (clusterOf[k] === sourceId) clusterOf[k] = targetId;
-            }
-            merged = true;
-            break outer;
-          }
-        }
-      }
-    }
+    const clusterOf = agglomerate(embeddings, settings.dedupClusterThreshold);
     const finalClusterIds = [...new Set(clusterOf)];
     this.clusters = [];
     for (const cid of finalClusterIds) {

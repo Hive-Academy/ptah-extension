@@ -1,6 +1,15 @@
 export { AUTH_PROVIDERS_TOKENS } from './lib/di/tokens';
 export type { AuthProvidersDIToken } from './lib/di/tokens';
-export { registerAuthProvidersServices } from './lib/di/register';
+export {
+  registerAuthProvidersServices,
+  registerCuratorAuthServices,
+} from './lib/di/register';
+export { CuratorAuthResolver } from './lib/auth/curator-auth-resolver';
+export {
+  CuratorProxyManager,
+  type CuratorProxyHandle,
+} from './lib/auth/curator-proxy-manager';
+export { CuratorAuthError } from './lib/auth/curator-auth.error';
 export {
   AuthManager,
   type AuthResult,
@@ -11,6 +20,10 @@ export {
   type LegacyAuthMethod,
 } from './lib/auth/auth-method.utils';
 export { ModelResolver } from './lib/auth/model-resolver';
+export {
+  ActiveProviderResolver,
+  type ActiveAuth,
+} from './lib/auth/active-provider-resolver';
 export type {
   IAuthStrategy,
   AuthConfigureResult,
@@ -71,9 +84,20 @@ export type { ICodexAuthService, CodexAuthFile } from './lib/providers/codex';
 export {
   OpenRouterAuthService,
   OpenRouterTranslationProxy,
+  OpenRouterPricingService,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
 } from './lib/providers/openrouter';
-export type { IOpenRouterAuthService } from './lib/providers/openrouter';
+export type {
+  IOpenRouterAuthService,
+  OpenRouterModel,
+} from './lib/providers/openrouter';
+export {
+  SakanaAuthService,
+  SakanaTranslationProxy,
+  createSakanaProxyForKey,
+  SAKANA_PROXY_TOKEN_PLACEHOLDER,
+} from './lib/providers/sakana';
+export type { ISakanaAuthService } from './lib/providers/sakana';
 export {
   LmStudioTranslationProxy,
   OllamaModelDiscoveryService,

@@ -23,7 +23,6 @@ The selector lives next to the Send button. It applies to the **next message onl
 
 - **Claude (Anthropic API & OpenRouter)** — adjusts `thinking.budget_tokens` and `max_tokens`.
 - **GPT-5 / Codex** — sets `reasoning.effort` (`low`, `medium`, `high`).
-- **Gemini** — adjusts thinking budget on 2.5-series models.
 - **Ollama / local models** — adjusts context size and sampling where supported.
 - **Copilot** — maps to the underlying upstream model's effort controls when the selected Copilot model exposes them.
 

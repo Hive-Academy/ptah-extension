@@ -128,6 +128,16 @@ function createMockChatSession(): MockChatSession {
   };
 }
 
+type MockStreamBroadcaster = {
+  isStreaming: jest.Mock<boolean, [string]>;
+};
+
+function createMockStreamBroadcaster(): MockStreamBroadcaster {
+  return {
+    isStreaming: jest.fn<boolean, [string]>().mockReturnValue(false),
+  };
+}
+
 /** Factory for minimal metadata fixtures — only fields the handler reads. */
 interface MetadataFixture {
   sessionId: string;
@@ -187,6 +197,7 @@ interface Harness {
   sentry: MockSentryService;
   sdkAdapter: MockSdkAdapter;
   chatSession: MockChatSession;
+  streamBroadcaster: MockStreamBroadcaster;
 }
 
 function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
@@ -200,6 +211,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   const sentry = createMockSentryService();
   const sdkAdapter = createMockSdkAdapter();
   const chatSession = createMockChatSession();
+  const streamBroadcaster = createMockStreamBroadcaster();
 
   const handlers = new SessionRpcHandlers(
     logger as unknown as Logger,
@@ -210,6 +222,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     workspace as unknown as IWorkspaceProvider,
     sdkAdapter as unknown as SdkAgentAdapter,
     chatSession as never,
+    streamBroadcaster as never,
   );
 
   return {
@@ -222,6 +235,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     sentry,
     sdkAdapter,
     chatSession,
+    streamBroadcaster,
   };
 }
 
@@ -278,6 +292,7 @@ describe('SessionRpcHandlers', () => {
           'session:rename',
           'session:rewindFiles',
           'session:stats-batch',
+          'session:status',
           'session:validate',
         ].sort(),
       );
@@ -523,33 +538,69 @@ describe('SessionRpcHandlers', () => {
       expect(result.agentSessions).toEqual([]);
     });
 
-    it('fails with "Session not found" when metadata is absent', async () => {
+    it('fails with "session-not-found" when metadata is absent', async () => {
       const h = makeHarness();
       h.metadataStore.get.mockResolvedValue(null);
       h.handlers.register();
 
       const response = await callRaw(h, 'session:load', {
-        sessionId: 'sess-missing',
+        sessionId: VALID_SESSION_ID,
       });
 
       expect(response.success).toBe(false);
-      expect(response.error).toMatch(/Session not found/);
-      expect(response.error).toMatch(/sess-missing/);
+      expect(response.error).toMatch(/session-not-found/);
       expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+
+    it('rejects load with non-UUID sessionId before touching metadata', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:load', {
+        sessionId: 'tab_legacy_format',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/invalid-session-id/);
+      expect(h.metadataStore.get).not.toHaveBeenCalled();
+    });
+
+    it('rejects load when the session workspace is not in the active folders', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: '/some/other/workspace',
+        }) as never,
+      );
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:load', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/unauthorized-workspace/);
     });
 
     it('fails cleanly when metadata row carries a corrupted (non-UUID) sessionId', async () => {
       // Regression for the identity-audit §4 Priority 3 hardening: corrupt
       // metadata must throw a clean error at the RPC boundary instead of
       // leaking a non-UUID into the frontend's branded surfaces.
+      // After SEC-001 fix, the inbound sessionId is validated first, so to
+      // exercise the "corrupt metadata row" path we pass a valid UUID at the
+      // boundary but stub a metadata row whose stored sessionId is non-UUID.
       const h = makeHarness();
       h.metadataStore.get.mockResolvedValue(
-        makeMetadata({ sessionId: 'tab_legacy_format' }) as never,
+        makeMetadata({
+          sessionId: 'tab_legacy_format',
+          workspaceId: WORKSPACE,
+        }) as never,
       );
       h.handlers.register();
 
       const response = await callRaw(h, 'session:load', {
-        sessionId: 'tab_legacy_format',
+        sessionId: VALID_SESSION_ID,
       });
 
       expect(response.success).toBe(false);
@@ -572,35 +623,83 @@ describe('SessionRpcHandlers', () => {
   describe('session:rename', () => {
     it('rejects an empty / whitespace-only name before touching the store', async () => {
       const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
       h.handlers.register();
 
       const result = await call<{ success: boolean; error?: string }>(
         h,
         'session:rename',
-        { sessionId: 'sess-1', name: '   ' },
+        { sessionId: VALID_SESSION_ID, name: '   ' },
       );
 
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/between 1 and 200/);
-      expect(h.metadataStore.get).not.toHaveBeenCalled();
       expect(h.metadataStore.rename).not.toHaveBeenCalled();
     });
 
     it('rejects names longer than 200 characters', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'session:rename',
+        { sessionId: VALID_SESSION_ID, name: 'a'.repeat(201) },
+      );
+
+      expect(result.success).toBe(false);
+      expect(h.metadataStore.rename).not.toHaveBeenCalled();
+    });
+
+    it('rejects rename with non-UUID sessionId (invalid-session-id code)', async () => {
       const h = makeHarness();
       h.handlers.register();
 
       const result = await call<{ success: boolean; error?: string }>(
         h,
         'session:rename',
-        { sessionId: 'sess-1', name: 'a'.repeat(201) },
+        { sessionId: 'not-a-uuid', name: 'New Name' },
       );
 
       expect(result.success).toBe(false);
+      expect(result.error).toMatch(/invalid-session-id/);
+      expect(h.metadataStore.get).not.toHaveBeenCalled();
       expect(h.metadataStore.rename).not.toHaveBeenCalled();
     });
 
-    it('returns "Session not found" when metadata lookup is null', async () => {
+    it('rejects rename when the session workspace is not in the active folders', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: '/some/other/workspace',
+        }) as never,
+      );
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'session:rename',
+        { sessionId: VALID_SESSION_ID, name: 'New Name' },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/unauthorized-workspace/);
+      expect(h.metadataStore.rename).not.toHaveBeenCalled();
+    });
+
+    it('returns "session-not-found" when metadata lookup is null', async () => {
       const h = makeHarness();
       h.metadataStore.get.mockResolvedValue(null);
       h.handlers.register();
@@ -608,29 +707,32 @@ describe('SessionRpcHandlers', () => {
       const result = await call<{ success: boolean; error?: string }>(
         h,
         'session:rename',
-        { sessionId: 'sess-missing', name: 'New Name' },
+        { sessionId: VALID_SESSION_ID, name: 'New Name' },
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Session not found');
+      expect(result.error).toMatch(/session-not-found/);
       expect(h.metadataStore.rename).not.toHaveBeenCalled();
     });
 
     it('trims the name and delegates to metadataStore.rename on success', async () => {
       const h = makeHarness();
       h.metadataStore.get.mockResolvedValue(
-        makeMetadata({ sessionId: 'sess-1' }) as never,
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
       );
       h.handlers.register();
 
       const result = await call<{ success: boolean }>(h, 'session:rename', {
-        sessionId: 'sess-1',
+        sessionId: VALID_SESSION_ID,
         name: '  Shiny New Name  ',
       });
 
       expect(result.success).toBe(true);
       expect(h.metadataStore.rename).toHaveBeenCalledWith(
-        'sess-1',
+        VALID_SESSION_ID,
         'Shiny New Name',
       );
     });
@@ -638,7 +740,10 @@ describe('SessionRpcHandlers', () => {
     it('returns structured failure (not throw) when the store throws', async () => {
       const h = makeHarness();
       h.metadataStore.get.mockResolvedValue(
-        makeMetadata({ sessionId: 'sess-1' }) as never,
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
       );
       h.metadataStore.rename.mockRejectedValue(new Error('storage locked'));
       h.handlers.register();
@@ -646,7 +751,7 @@ describe('SessionRpcHandlers', () => {
       const result = await call<{ success: boolean; error?: string }>(
         h,
         'session:rename',
-        { sessionId: 'sess-1', name: 'New' },
+        { sessionId: VALID_SESSION_ID, name: 'New' },
       );
 
       expect(result.success).toBe(false);
@@ -662,21 +767,76 @@ describe('SessionRpcHandlers', () => {
   describe('session:delete', () => {
     it('returns success=true after deleting metadata (file deletion is best-effort)', async () => {
       const h = makeHarness();
-      // No workspacePath in metadata → skips the filesystem branch entirely.
+      // Workspace-authorized metadata: delete proceeds; the file branch is
+      // exercised via findSessionFile() which best-effort no-ops when the
+      // ~/.claude/projects directory is absent in the test environment.
       h.metadataStore.get.mockResolvedValue(
         makeMetadata({
-          sessionId: 'sess-del',
-          workspaceId: '',
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
         }) as never,
       );
       h.handlers.register();
 
       const result = await call<{ success: boolean }>(h, 'session:delete', {
-        sessionId: 'sess-del',
+        sessionId: VALID_SESSION_ID,
       });
 
       expect(result.success).toBe(true);
-      expect(h.metadataStore.delete).toHaveBeenCalledWith('sess-del');
+      expect(h.metadataStore.delete).toHaveBeenCalledWith(VALID_SESSION_ID);
+    });
+
+    it('rejects delete with non-UUID sessionId (invalid-session-id code) — SEC-001 guard', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'session:delete',
+        { sessionId: 'sess-del' },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/invalid-session-id/);
+      expect(h.metadataStore.get).not.toHaveBeenCalled();
+      expect(h.metadataStore.delete).not.toHaveBeenCalled();
+    });
+
+    it('rejects delete when the session workspace is not in the active folders — SEC-001 cross-workspace guard', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: '/some/other/workspace',
+        }) as never,
+      );
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'session:delete',
+        { sessionId: VALID_SESSION_ID },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/unauthorized-workspace/);
+      expect(h.metadataStore.delete).not.toHaveBeenCalled();
+    });
+
+    it('rejects delete when metadata is missing — SEC-001 session-not-found guard', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(null);
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'session:delete',
+        { sessionId: VALID_SESSION_ID },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/session-not-found/);
+      expect(h.metadataStore.delete).not.toHaveBeenCalled();
     });
 
     it('returns structured failure (not throw) when metadataStore.get explodes', async () => {
@@ -687,7 +847,7 @@ describe('SessionRpcHandlers', () => {
       const result = await call<{ success: boolean; error?: string }>(
         h,
         'session:delete',
-        { sessionId: 'sess-any' },
+        { sessionId: VALID_SESSION_ID },
       );
 
       expect(result.success).toBe(false);
@@ -734,9 +894,25 @@ describe('SessionRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('session:cli-sessions', () => {
-    it('returns [] when metadata is missing', async () => {
+    it('returns [] (and reports Sentry) when metadata is missing — session-not-found path', async () => {
       const h = makeHarness();
       h.metadataStore.get.mockResolvedValue(null);
+      h.handlers.register();
+
+      const result = await call<{ cliSessions: CliSessionReference[] }>(
+        h,
+        'session:cli-sessions',
+        { sessionId: VALID_SESSION_ID },
+      );
+
+      // SEC-005: authorizeSessionAccess throws session-not-found which is
+      // caught by the handler and degraded to {cliSessions: []}.
+      expect(result.cliSessions).toEqual([]);
+      expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+
+    it('rejects cli-sessions with non-UUID sessionId — SEC-005 guard', async () => {
+      const h = makeHarness();
       h.handlers.register();
 
       const result = await call<{ cliSessions: CliSessionReference[] }>(
@@ -745,20 +921,44 @@ describe('SessionRpcHandlers', () => {
         { sessionId: 'sess-missing' },
       );
 
+      // Invalid id is treated as a soft failure (handler never bubbles).
       expect(result.cliSessions).toEqual([]);
+      expect(h.metadataStore.get).not.toHaveBeenCalled();
     });
 
-    it('returns [] when metadata has no cliSessions', async () => {
-      const h = makeHarness();
+    it('rejects cli-sessions when the session workspace is not in the active folders — SEC-005', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
       h.metadataStore.get.mockResolvedValue(
-        makeMetadata({ sessionId: 'sess-empty' }) as never,
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: '/some/other/workspace',
+        }) as never,
       );
       h.handlers.register();
 
       const result = await call<{ cliSessions: CliSessionReference[] }>(
         h,
         'session:cli-sessions',
-        { sessionId: 'sess-empty' },
+        { sessionId: VALID_SESSION_ID },
+      );
+
+      expect(result.cliSessions).toEqual([]);
+    });
+
+    it('returns [] when metadata has no cliSessions', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.handlers.register();
+
+      const result = await call<{ cliSessions: CliSessionReference[] }>(
+        h,
+        'session:cli-sessions',
+        { sessionId: VALID_SESSION_ID },
       );
 
       expect(result.cliSessions).toEqual([]);
@@ -774,12 +974,13 @@ describe('SessionRpcHandlers', () => {
         cli: 'ptah-cli',
         // no ptahCliId — synthesized by the removed recoverMissingCliSessions()
       } as CliSessionReference;
-      const gemini = { cli: 'gemini' } as CliSessionReference;
+      const codex = { cli: 'codex' } as CliSessionReference;
 
       h.metadataStore.get.mockResolvedValue(
         makeMetadata({
-          sessionId: 'sess-cli',
-          cliSessions: [realCli, ghostCli, gemini],
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+          cliSessions: [realCli, ghostCli, codex],
         }) as never,
       );
       h.handlers.register();
@@ -787,11 +988,11 @@ describe('SessionRpcHandlers', () => {
       const result = await call<{ cliSessions: CliSessionReference[] }>(
         h,
         'session:cli-sessions',
-        { sessionId: 'sess-cli' },
+        { sessionId: VALID_SESSION_ID },
       );
 
       // Real ptah-cli stays; ghost is filtered; non-ptah-cli passes through.
-      expect(result.cliSessions).toEqual([realCli, gemini]);
+      expect(result.cliSessions).toEqual([realCli, codex]);
     });
 
     it('returns [] and captures to Sentry when the store throws (never bubbles)', async () => {
@@ -802,7 +1003,7 @@ describe('SessionRpcHandlers', () => {
       const result = await call<{ cliSessions: CliSessionReference[] }>(
         h,
         'session:cli-sessions',
-        { sessionId: 'sess-any' },
+        { sessionId: VALID_SESSION_ID },
       );
 
       expect(result.cliSessions).toEqual([]);
@@ -834,7 +1035,7 @@ describe('SessionRpcHandlers', () => {
         makeMetadata({
           sessionId: 'sess-ok',
           cliSessions: [
-            { cli: 'gemini' } as CliSessionReference,
+            { cli: 'copilot' } as CliSessionReference,
             { cli: 'codex' } as CliSessionReference,
           ],
         }) as never,
@@ -845,7 +1046,7 @@ describe('SessionRpcHandlers', () => {
         sessionStats: Array<{
           sessionId: string;
           status: 'ok' | 'empty' | 'error';
-          totalCost: number;
+          totalCost: number | null;
           messageCount: number;
           cliAgents?: string[];
         }>;
@@ -862,7 +1063,7 @@ describe('SessionRpcHandlers', () => {
       // Deduped CLI agent list from metadata.
       expect(result.sessionStats[0].cliAgents?.sort()).toEqual([
         'codex',
-        'gemini',
+        'copilot',
       ]);
     });
 
@@ -879,7 +1080,7 @@ describe('SessionRpcHandlers', () => {
         sessionStats: Array<{
           sessionId: string;
           status: 'ok' | 'empty' | 'error';
-          totalCost: number;
+          totalCost: number | null;
           messageCount: number;
           cliAgents?: string[];
         }>;
@@ -889,7 +1090,7 @@ describe('SessionRpcHandlers', () => {
       });
 
       expect(result.sessionStats[0].status).toBe('empty');
-      expect(result.sessionStats[0].totalCost).toBe(0);
+      expect(result.sessionStats[0].totalCost).toBeNull();
       expect(result.sessionStats[0].messageCount).toBe(0);
       expect(result.sessionStats[0].cliAgents).toEqual([]);
     });
@@ -981,6 +1182,8 @@ describe('SessionRpcHandlers', () => {
         VALID_SESSION_ID,
         VALID_USER_MESSAGE_ID,
         'Branch A',
+        undefined,
+        undefined,
       );
       expect(result.newSessionId).toBe('forked-uuid');
     });
@@ -1002,6 +1205,8 @@ describe('SessionRpcHandlers', () => {
 
       expect(h.sdkAdapter.forkSession).toHaveBeenCalledWith(
         VALID_SESSION_ID,
+        undefined,
+        undefined,
         undefined,
         undefined,
       );
@@ -1089,6 +1294,36 @@ describe('SessionRpcHandlers', () => {
         VALID_SESSION_ID,
         undefined,
         'badnamewithillegalchars',
+        undefined,
+        undefined,
+      );
+    });
+
+    it('forwards kind: "rewind" as 4th positional arg to adapter', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.forkSession.mockResolvedValue({
+        sessionId: 'forked-uuid',
+      } as never);
+      h.handlers.register();
+
+      await call(h, 'session:forkSession', {
+        sessionId: VALID_SESSION_ID,
+        upToMessageId: VALID_USER_MESSAGE_ID,
+        kind: 'rewind',
+      });
+
+      expect(h.sdkAdapter.forkSession).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        VALID_USER_MESSAGE_ID,
+        undefined,
+        'rewind',
+        undefined,
       );
     });
 
@@ -1194,6 +1429,7 @@ describe('SessionRpcHandlers', () => {
         VALID_SESSION_ID,
         VALID_USER_MESSAGE_ID,
         true,
+        undefined,
       );
       expect(result.canRewind).toBe(true);
       expect(result.filesChanged).toEqual(['/a.ts', '/b.ts']);
@@ -1225,7 +1461,7 @@ describe('SessionRpcHandlers', () => {
       expect(result.error).toMatch(/checkpointing is disabled/);
     });
 
-    it('translates the SDK\'s "not active" constraint into a stable session-not-active code', async () => {
+    it('translates the SDK\'s "not active" constraint into a stable session-not-active code (no Sentry — EH-011)', async () => {
       const h = makeHarness();
       h.metadataStore.get.mockResolvedValue(
         makeMetadata({
@@ -1247,12 +1483,8 @@ describe('SessionRpcHandlers', () => {
 
       expect(response.success).toBe(false);
       expect(response.error).toMatch(/^session-not-active:/);
-      expect(h.sentry.captureException).toHaveBeenCalledWith(
-        expect.any(Error),
-        expect.objectContaining({
-          errorSource: 'SessionRpcHandlers.registerRewindFiles',
-        }),
-      );
+      // EH-011: routine auto-resume failures must NOT page Sentry.
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
     });
 
     it('wraps generic adapter errors with "Failed to rewind files:"', async () => {
@@ -1405,20 +1637,169 @@ describe('SessionRpcHandlers', () => {
         }),
       );
 
-      // Assert: Sentry is notified — first from the path-containment guard
-      // (errorSource ends in .pathContainment) then from the outer catch block.
+      // Assert: only the inner path-containment Sentry capture fires.
+      // EH-003: outer catch must NOT double-capture expected-error throws.
       expect(h.sentry.captureException).toHaveBeenCalledWith(
         expect.any(Error),
         expect.objectContaining({
           errorSource: 'SessionRpcHandlers.registerRewindFiles.pathContainment',
         }),
       );
-      expect(h.sentry.captureException).toHaveBeenCalledWith(
+      expect(h.sentry.captureException).not.toHaveBeenCalledWith(
         expect.any(Error),
         expect.objectContaining({
           errorSource: 'SessionRpcHandlers.registerRewindFiles',
         }),
       );
+      // Exactly one Sentry event per user action.
+      expect(h.sentry.captureException).toHaveBeenCalledTimes(1);
+    });
+
+    it('TS-01: runs path-containment guard when dryRun is undefined (commit semantics)', async () => {
+      // Regression for TS-01. SessionRewindParams.dryRun is optional and the
+      // prior guard `dryRun === false` silently skipped the unauthorized-
+      // path-rewrite check when dryRun was omitted (e.g., webview default).
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.rewindFiles.mockResolvedValue({
+        canRewind: true,
+        filesChanged: ['/outside/workspace/secret.env'],
+        insertions: 1,
+        deletions: 0,
+      } as never);
+      h.handlers.register();
+
+      // dryRun omitted: per SDK semantics this is a commit, NOT a dry-run.
+      const response = await callRaw(h, 'session:rewindFiles', {
+        sessionId: VALID_SESSION_ID,
+        userMessageId: VALID_USER_MESSAGE_ID,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/unauthorized-path-rewrite/);
+    });
+
+    it('TS-01 + SEC-002: rejects non-absolute paths from SDK as escaping (commit semantics)', async () => {
+      // SEC-002 + TS-01 combined regression: relative paths must not be
+      // resolved against process.cwd() and pass containment by accident.
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.sdkAdapter.rewindFiles.mockResolvedValue({
+        canRewind: true,
+        filesChanged: ['relative/path/that/should/be/rejected.ts'],
+        insertions: 1,
+        deletions: 0,
+      } as never);
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:rewindFiles', {
+        sessionId: VALID_SESSION_ID,
+        userMessageId: VALID_USER_MESSAGE_ID,
+        dryRun: false,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/unauthorized-path-rewrite/);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // session:status
+  // -------------------------------------------------------------------------
+
+  describe('session:status', () => {
+    it('reports active + streaming when both sources are true', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.streamBroadcaster.isStreaming.mockReturnValue(true);
+      h.handlers.register();
+
+      const result = await call<{ isActive: boolean; isStreaming: boolean }>(
+        h,
+        'session:status',
+        { sessionId: VALID_SESSION_ID },
+      );
+
+      expect(result).toEqual({ isActive: true, isStreaming: true });
+      expect(h.sdkAdapter.isSessionActive).toHaveBeenCalled();
+      expect(h.streamBroadcaster.isStreaming).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+      );
+    });
+
+    it('reports active + idle when the session is alive but not streaming', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.isSessionActive.mockReturnValue(true);
+      h.streamBroadcaster.isStreaming.mockReturnValue(false);
+      h.handlers.register();
+
+      const result = await call<{ isActive: boolean; isStreaming: boolean }>(
+        h,
+        'session:status',
+        { sessionId: VALID_SESSION_ID },
+      );
+
+      expect(result).toEqual({ isActive: true, isStreaming: false });
+    });
+
+    it('reports inactive when the session is not in the lifecycle registry', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.isSessionActive.mockReturnValue(false);
+      h.streamBroadcaster.isStreaming.mockReturnValue(false);
+      h.handlers.register();
+
+      const result = await call<{ isActive: boolean; isStreaming: boolean }>(
+        h,
+        'session:status',
+        { sessionId: VALID_SESSION_ID },
+      );
+
+      expect(result).toEqual({ isActive: false, isStreaming: false });
+    });
+
+    it('rejects a missing sessionId at the Zod boundary (degrades to false/false)', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ isActive: boolean; isStreaming: boolean }>(
+        h,
+        'session:status',
+        {},
+      );
+
+      expect(result).toEqual({ isActive: false, isStreaming: false });
+      expect(h.sdkAdapter.isSessionActive).not.toHaveBeenCalled();
+      expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // session:stats-batch workspace authorization (SEC-005)
+  // -------------------------------------------------------------------------
+
+  describe('session:stats-batch workspace authorization', () => {
+    it('rejects stats-batch when workspacePath is outside the active workspace folders', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.handlers.register();
+
+      const response = await callRaw(h, 'session:stats-batch', {
+        sessionIds: [VALID_SESSION_ID],
+        workspacePath: '/not/authorized',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/workspace-not-authorized/);
+      expect(h.historyReader.readSessionHistory).not.toHaveBeenCalled();
     });
   });
 });

@@ -643,6 +643,126 @@ describe('CodexCliAdapter', () => {
     });
   });
 
+  describe('continue() — multi-turn continuation', () => {
+    const defaultOptions = {
+      task: 'Implement feature X',
+      workingDirectory: '/project/root',
+    };
+
+    function setupMockEvents(events: FakeCodexEvent[]): void {
+      mockRunStreamed.mockResolvedValue({
+        events: createFakeEventGenerator(events),
+      });
+    }
+
+    it('reports supportsContinuation() true', async () => {
+      setupMockEvents([]);
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await handle.done;
+
+      expect(handle.supportsContinuation?.()).toBe(true);
+    });
+
+    it('runs the next turn on the SAME thread via runStreamed', async () => {
+      setupMockEvents([]);
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await handle.done;
+
+      expect(mockRunStreamed).toHaveBeenCalledTimes(1);
+      expect(mockStartThread).toHaveBeenCalledTimes(1);
+
+      expect(handle.continue).toBeDefined();
+      const outcome = await handle.continue?.('Follow-up message');
+      const code = await outcome?.done;
+
+      expect(code).toBe(0);
+      expect(mockStartThread).toHaveBeenCalledTimes(1);
+      expect(mockRunStreamed).toHaveBeenCalledTimes(2);
+      expect(mockRunStreamed.mock.calls[1][0]).toBe('Follow-up message');
+    });
+
+    it('streams the continued turn through the same onOutput callbacks', async () => {
+      mockRunStreamed
+        .mockResolvedValueOnce({ events: createFakeEventGenerator([]) })
+        .mockResolvedValueOnce({
+          events: createFakeEventGenerator([
+            {
+              type: 'item.completed',
+              item: { type: 'agent_message', id: 'm2', text: 'Second turn' },
+            },
+          ]),
+        });
+
+      const handle = await adapter.runSdk(defaultOptions);
+      const output: string[] = [];
+      handle.onOutput((data: string) => output.push(data));
+      await handle.done;
+
+      const outcome = await handle.continue?.('again');
+      await outcome?.done;
+
+      expect(output).toContain('Second turn\n');
+    });
+
+    it('abort still cancels the in-flight turn', async () => {
+      let abortResolve: (() => void) | undefined;
+      const waitForAbort = new Promise<void>((resolve) => {
+        abortResolve = resolve;
+      });
+
+      mockRunStreamed.mockImplementation(
+        (
+          _task: string,
+          opts: { signal?: AbortSignal },
+        ): Promise<{ events: AsyncGenerator<FakeCodexEvent> }> => {
+          const gen: AsyncGenerator<FakeCodexEvent> = {
+            [Symbol.asyncIterator]() {
+              return gen;
+            },
+            async next(): Promise<IteratorResult<FakeCodexEvent>> {
+              await waitForAbort;
+              if (opts.signal?.aborted) {
+                throw Object.assign(new Error('Aborted'), {
+                  name: 'AbortError',
+                });
+              }
+              return { done: true, value: undefined as never };
+            },
+            async return(): Promise<IteratorResult<FakeCodexEvent>> {
+              return { done: true, value: undefined as never };
+            },
+            async throw(err: Error): Promise<IteratorResult<FakeCodexEvent>> {
+              throw err;
+            },
+            [Symbol.asyncDispose](): PromiseLike<void> {
+              return Promise.resolve();
+            },
+          };
+          return Promise.resolve({ events: gen });
+        },
+      );
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {
+        /* drain */
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+      handle.abort.abort();
+      abortResolve?.();
+
+      const code = await handle.done;
+      expect(code).toBe(1);
+      expect(handle.abort.signal.aborted).toBe(true);
+    });
+  });
+
   describe('dynamic import caching', () => {
     it('should cache the dynamic import across multiple runSdk calls', async () => {
       // We need a fresh adapter module for this test since afterEach resets modules.

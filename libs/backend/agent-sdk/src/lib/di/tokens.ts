@@ -70,11 +70,14 @@ export const SDK_TOKENS = {
 
   SDK_MEMORY_PROMPT_INJECTOR: Symbol.for('SdkMemoryPromptInjector'),
 
+  SDK_CODE_SYMBOL_PROMPT_INJECTOR: Symbol.for('SdkCodeSymbolPromptInjector'),
+
   SDK_CURATOR_LLM_ADAPTER: Symbol.for('PtahCuratorLlm'),
+
+  SDK_CURATOR_AUTH_RESOLVER: Symbol.for('SdkCuratorAuthResolver'),
 
   SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
 
-  SDK_WARM_QUERY_MANAGER: Symbol.for('SdkWarmQueryManager'),
   SDK_SESSION_FORK_SERVICE: Symbol.for('SdkSessionForkService'),
   SDK_RUNTIME_STATE: Symbol.for('SdkRuntimeState'),
   SDK_ADAPTER_EVENTS: Symbol.for('SdkAdapterEvents'),
@@ -88,12 +91,20 @@ export const SDK_TOKENS = {
   SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY: Symbol.for(
     'SdkUserPromptSubmitCallbackRegistry',
   ),
+  SDK_USER_PROMPT_EXPANSION_REGISTRY: Symbol.for(
+    'SdkUserPromptExpansionRegistry',
+  ),
   SDK_POST_TOOL_USE_HOOK_HANDLER: Symbol.for('SdkPostToolUseHookHandler'),
   SDK_USER_PROMPT_SUBMIT_HOOK_HANDLER: Symbol.for(
     'SdkUserPromptSubmitHookHandler',
   ),
+  SDK_USER_PROMPT_EXPANSION_HOOK_HANDLER: Symbol.for(
+    'SdkUserPromptExpansionHookHandler',
+  ),
   SDK_STOP_CALLBACK_REGISTRY: Symbol.for('SdkStopCallbackRegistry'),
   SDK_STOP_HOOK_HANDLER: Symbol.for('SdkStopHookHandler'),
+  SDK_STOP_FAILURE_HOOK_HANDLER: Symbol.for('SdkStopFailureHookHandler'),
+  SDK_SUBAGENT_STOP_HOOK_HANDLER: Symbol.for('SdkSubagentStopHookHandler'),
   SDK_SESSION_END_HOOK_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionEndHookCallbackRegistry',
   ),
@@ -103,6 +114,15 @@ export const SDK_TOKENS = {
   ),
   SDK_TOOL_FAILURE_HOOK_HANDLER: Symbol.for('SdkToolFailureHookHandler'),
   SDK_CURATOR_RATE_LIMIT: Symbol.for('SdkCuratorRateLimit'),
+  PRICING_PROVIDER: Symbol.for('SDK_PRICING_PROVIDER'),
+  SDK_PRE_TOOL_USE_CALLBACK_REGISTRY: Symbol.for(
+    'SdkPreToolUseCallbackRegistry',
+  ),
+  SDK_PRE_TOOL_USE_HOOK_HANDLER: Symbol.for('SdkPreToolUseHookHandler'),
+  SDK_SESSION_START_CALLBACK_REGISTRY: Symbol.for(
+    'SdkSessionStartCallbackRegistry',
+  ),
+  SDK_SESSION_START_HOOK_HANDLER: Symbol.for('SdkSessionStartHookHandler'),
 } as const;
 
 /**

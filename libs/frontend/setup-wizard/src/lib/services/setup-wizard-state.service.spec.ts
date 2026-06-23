@@ -29,6 +29,7 @@ describe('SetupWizardStateService', () => {
   let mockSurfaceRegistry: jest.Mocked<
     Pick<StreamingSurfaceRegistry, 'register' | 'unregister' | 'getAdapter'>
   >;
+  let messageBridge: (event: MessageEvent) => void;
 
   beforeEach(() => {
     mockVSCodeService = {
@@ -71,6 +72,14 @@ describe('SetupWizardStateService', () => {
     });
 
     service = TestBed.inject(SetupWizardStateService);
+
+    messageBridge = (event: MessageEvent): void =>
+      service.handleMessage(event.data);
+    window.addEventListener('message', messageBridge);
+  });
+
+  afterEach(() => {
+    window.removeEventListener('message', messageBridge);
   });
 
   it('should be created', () => {

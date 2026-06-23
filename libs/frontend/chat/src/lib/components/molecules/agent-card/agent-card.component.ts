@@ -24,7 +24,6 @@ import { AgentCardHeaderComponent } from './agent-card-header.component';
 import { AgentCardOutputComponent } from '@ptah-extension/chat-ui';
 import { PtahCliOutputComponent } from './ptah-cli-output.component';
 import { CopilotOutputComponent } from './copilot-output.component';
-import { GeminiOutputComponent } from './gemini-output.component';
 import { CodexOutputComponent } from './codex-output.component';
 import {
   formatElapsed,
@@ -43,7 +42,6 @@ import type { RenderSegment } from '@ptah-extension/chat-ui';
     AgentCardOutputComponent,
     PtahCliOutputComponent,
     CopilotOutputComponent,
-    GeminiOutputComponent,
     CodexOutputComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -104,6 +102,7 @@ import type { RenderSegment } from '@ptah-extension/chat-ui';
                   class="block flex-1 min-h-0 overflow-hidden"
                   [agentId]="agent().agentId"
                   [streamEvents]="agent().streamEvents"
+                  [streamRevision]="agent().streamRevision"
                   [isStreaming]="agent().status === 'running'"
                   [scrollTrigger]="scrollTrigger()"
                 />
@@ -118,15 +117,6 @@ import type { RenderSegment } from '@ptah-extension/chat-ui';
             }
             @case ('copilot') {
               <ptah-copilot-output
-                class="block flex-1 min-h-0 overflow-hidden"
-                [agentId]="agent().agentId"
-                [segments]="agent().segments"
-                [isStreaming]="agent().status === 'running'"
-                [scrollTrigger]="scrollTrigger()"
-              />
-            }
-            @case ('gemini') {
-              <ptah-gemini-output
                 class="block flex-1 min-h-0 overflow-hidden"
                 [agentId]="agent().agentId"
                 [segments]="agent().segments"

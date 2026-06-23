@@ -1,0 +1,110 @@
+# VS Code Extension E2E
+#
+# Activation + RPC registration contract gate for ptah-extension-vscode.
+# Launches a real VS Code (via @vscode/test-electron) with the built
+# extension, seeds a community license state, and asserts:
+#   - activation completes past the license gate
+#   - every RPC registry method has a handler (no missing handlers)
+#   - no orphan handlers (registered but wrongly excluded / drifted names)
+#
+# Exists because broken RPC handlers shipped to the Marketplace while this
+# suite only ran manually. publish-extension.yml runs the same suite as a
+# blocking step before vsce publish.
+
+name: VS Code E2E
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.vscode/**'
+      - '.claude/**'
+      - 'LICENSE.md'
+      - '.do/**'
+  workflow_dispatch:
+
+concurrency:
+  group: vscode-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  NODE_VERSION: 22
+  NX_TUI: false
+
+jobs:
+  vscode-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # head_commit is null on pull_request events, so the commit-message check
+    # never skipped bump PRs — guard on the chore/bump-* head branch too.
+    if: |
+      (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') &&
+      !startsWith(github.head_ref, 'chore/bump-') &&
+      !contains(github.event.head_commit.message, 'chore(release)')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          filter: tree:0
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-v2-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        # Fall back to `npm install` if lockfile drift (npm/cli#4828).
+        run: npm ci || npm install --no-audit --no-fund
+
+      # Always run — cached node_modules may be missing Linux platform
+      # binaries (npm/cli#4828: package-lock.json generated on Windows omits
+      # them).
+      - name: Install Linux platform binaries
+        run: npm install @rollup/rollup-linux-x64-gnu @unrs/resolver-binding-linux-x64-gnu --no-save --force
+
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # `--with-deps` installs the system libs VS Code (Electron) needs
+      # (libnss3, libgbm, libasound2, ...). Same approach as electron-e2e.
+      - name: Install Playwright system deps
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install xvfb (headless VS Code needs an X server)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Cache VS Code download
+        uses: actions/cache@v4
+        with:
+          path: apps/ptah-extension-vscode-e2e/.vscode-test
+          key: vscode-test-${{ runner.os }}-stable
+
+      - name: Set NX SHAs
+        uses: nrwl/nx-set-shas@v4
+        with:
+          main-branch-name: main
+
+      - name: Build VS Code extension
+        run: npx nx run ptah-extension-vscode:build
+
+      - name: Run VS Code E2E suite under xvfb
+        run: xvfb-run --auto-servernum npx nx run ptah-extension-vscode-e2e:e2e --skip-nx-cache

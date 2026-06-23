@@ -31,13 +31,13 @@ import {
   FILE_BASED_SETTINGS_DEFAULTS,
 } from '@ptah-extension/platform-core';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { redact } from '../output/redactor.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
-import type { EngineContext } from '../bootstrap/with-engine.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
+import type { EngineContext } from '@ptah-extension/cli-engine';
 
 /** Sub-commands accepted by `ptah config ...`. */
 export type ConfigSubcommand =

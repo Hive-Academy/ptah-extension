@@ -2,10 +2,14 @@
  * Copilot CLI Adapter (formerly Copilot SDK Adapter)
  *
  * The CLI-agent spawn path uses the official `@github/copilot` CLI binary
- * because @github/copilot-sdk's transitive `vscode-jsonrpc/node` import fails
- * in headless contexts (where vscode-jsonrpc is not hoisted by VS Code's
- * extension host). The official CLI v1.0.26+ bundles its dependencies
- * correctly and supports headless mode via `-p / --output-format json`.
+ * instead of `@github/copilot-sdk`. The SDK ships as ESM (`"type":"module"`)
+ * yet its dist imports `from "vscode-jsonrpc/node"` (extensionless), and
+ * vscode-jsonrpc is a CommonJS package with no `exports` map — so Node's ESM
+ * loader cannot resolve the extensionless subpath. `await import('@github/copilot-sdk')`
+ * therefore throws ERR_MODULE_NOT_FOUND in ANY Node/Electron context (verified
+ * in plain headless node, not just the VS Code extension host). The official
+ * CLI v1.0.26+ supports headless mode via `-p / --output-format json` and is
+ * the same binary the SDK would have spawned, so nothing is lost by skipping it.
  *
  * IMPORTANT: This adapter is used ONLY for the CLI-agent spawn path
  * (`ptah_agent_spawn { cli: 'copilot' }`). The "main agent" Copilot integration
@@ -41,6 +45,7 @@ import type {
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
+  ContinuationOutcome,
   SdkHandle,
 } from './cli-adapter.interface';
 import {
@@ -48,6 +53,7 @@ import {
   buildTaskPrompt,
   probeCliVersion,
   resolveCliPath,
+  resolveDirectSpawn,
   spawnCli,
 } from './cli-adapter.utils';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';
@@ -202,7 +208,7 @@ export class CopilotSdkAdapter implements CliAdapter {
    * Spawns: copilot -p <prompt> --output-format json --allow-all-tools --no-color
    * Resume: copilot --resume=<id> -p <prompt> ...
    *
-   * Mirrors the GeminiCliAdapter pattern (binary detection via resolveCliPath,
+   * Follows the CLI adapter pattern (binary detection via resolveCliPath,
    * spawn via spawnCli, line-buffered JSONL parsing).
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
@@ -269,90 +275,14 @@ export class CopilotSdkAdapter implements CliAdapter {
         onOutput,
         onSegment,
         getSessionId: () => undefined,
+        supportsContinuation: () => false,
       };
     }
-    const taskPrompt = buildTaskPrompt(options);
 
-    const args: string[] = [
-      '-p',
-      taskPrompt,
-      '--output-format',
-      'json',
-      '--allow-all-tools',
-      '--no-color',
-      '-s',
-    ];
-    if (options.resumeSessionId) {
-      args.push(`--resume=${options.resumeSessionId}`);
-    }
-
-    if (options.model) {
-      args.push('--model', options.model);
-    }
-
-    if (options.reasoningEffort) {
-      args.push('--effort', options.reasoningEffort);
-    }
-    if (options.mcpPort) {
-      const mcpConfig = JSON.stringify({
-        mcpServers: {
-          ptah: {
-            type: 'http',
-            url: `http://localhost:${options.mcpPort}`,
-          },
-        },
-      });
-      args.push('--additional-mcp-config', mcpConfig);
-    }
-    const child = spawnCli(binaryPath, args, {
-      cwd: options.workingDirectory,
-      needsConsole: true,
-    });
-
-    child.stdout?.setEncoding('utf8');
-    child.stderr?.setEncoding('utf8');
-    const onAbort = (): void => {
-      if (!child.killed) {
-        child.kill('SIGTERM');
-      }
-    };
-    abortController.signal.addEventListener('abort', onAbort);
-    let receivedDeltas = false;
-    let receivedReasoningDeltas = false;
-    const toolCallIdToName = new Map<string, string>();
+    const resolvedBinaryPath = binaryPath;
+    const spawnDescriptor = await resolveDirectSpawn(resolvedBinaryPath);
     let capturedSessionId: string | undefined;
-    let lineBuf = '';
-
-    child.stdout?.on('data', (data: string) => {
-      lineBuf += data;
-      const lines = lineBuf.split(/\r?\n/);
-      lineBuf = lines.pop() ?? '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        const sessionId = this.handleJsonLine(
-          trimmed,
-          emitOutput,
-          emitSegment,
-          {
-            getReceivedDeltas: () => receivedDeltas,
-            setReceivedDeltas: () => {
-              receivedDeltas = true;
-            },
-            getReceivedReasoningDeltas: () => receivedReasoningDeltas,
-            setReceivedReasoningDeltas: () => {
-              receivedReasoningDeltas = true;
-            },
-            toolCallIdToName,
-          },
-        );
-        if (sessionId) {
-          capturedSessionId = sessionId;
-        }
-      }
-    });
-    let stderrBuf = '';
+    let activeChild: ReturnType<typeof spawnCli> | undefined;
 
     const isStackFrame = (line: string): boolean =>
       /^\s*at\s+/.test(line) ||
@@ -370,30 +300,78 @@ export class CopilotSdkAdapter implements CliAdapter {
       line.includes('AttachConsole failed') ||
       line.includes('node-pty');
 
-    child.stderr?.on('data', (data: string) => {
-      stderrBuf += stripAnsiCodes(data);
-      const lines = stderrBuf.split(/\r?\n/);
-      stderrBuf = lines.pop() ?? '';
-
-      for (const raw of lines) {
-        const line = raw.trim();
-        if (!line) continue;
-        if (isStackFrame(line) || isStatsFooter(line) || isPtyNoise(line)) {
-          continue;
-        }
-        const isError =
-          /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
-            line,
-          );
-        emitSegment({ type: isError ? 'error' : 'info', content: line });
+    const onAbort = (): void => {
+      if (activeChild && !activeChild.killed) {
+        activeChild.kill('SIGTERM');
       }
-    });
-    const done = new Promise<number>((resolve) => {
-      child.on('close', (code, signal) => {
-        abortController.signal.removeEventListener('abort', onAbort);
-        if (lineBuf.trim()) {
+    };
+    abortController.signal.addEventListener('abort', onAbort);
+
+    const runTurn = (
+      prompt: string,
+      resumeSessionId?: string,
+    ): Promise<number> => {
+      const args: string[] = [
+        '-p',
+        prompt,
+        '--output-format',
+        'json',
+        '--allow-all-tools',
+        '--no-color',
+        '-s',
+      ];
+      if (resumeSessionId) {
+        args.push(`--resume=${resumeSessionId}`);
+      }
+
+      if (options.model) {
+        args.push('--model', options.model);
+      }
+
+      if (options.reasoningEffort) {
+        args.push('--effort', options.reasoningEffort);
+      }
+      if (options.mcpPort) {
+        const mcpConfig = JSON.stringify({
+          mcpServers: {
+            ptah: {
+              type: 'http',
+              url: `http://localhost:${options.mcpPort}`,
+            },
+          },
+        });
+        args.push('--additional-mcp-config', mcpConfig);
+      }
+
+      const child = spawnCli(
+        spawnDescriptor.command,
+        [...spawnDescriptor.prefixArgs, ...args],
+        {
+          cwd: options.workingDirectory,
+          needsConsole: true,
+        },
+      );
+      activeChild = child;
+
+      child.stdout?.setEncoding('utf8');
+      child.stderr?.setEncoding('utf8');
+
+      let receivedDeltas = false;
+      let receivedReasoningDeltas = false;
+      const toolCallIdToName = new Map<string, string>();
+      let lineBuf = '';
+      let stderrBuf = '';
+
+      child.stdout?.on('data', (data: string) => {
+        lineBuf += data;
+        const lines = lineBuf.split(/\r?\n/);
+        lineBuf = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
           const sessionId = this.handleJsonLine(
-            lineBuf.trim(),
+            trimmed,
             emitOutput,
             emitSegment,
             {
@@ -411,21 +389,67 @@ export class CopilotSdkAdapter implements CliAdapter {
           if (sessionId) {
             capturedSessionId = sessionId;
           }
-          lineBuf = '';
         }
-        resolve(code ?? (signal ? 1 : 0));
       });
 
-      child.on('error', (err) => {
-        abortController.signal.removeEventListener('abort', onAbort);
-        emitOutput(`\n[Copilot CLI Error] ${err.message}\n`);
-        emitSegment({
-          type: 'error',
-          content: `Copilot CLI Error: ${err.message}`,
-        });
-        resolve(1);
+      child.stderr?.on('data', (data: string) => {
+        stderrBuf += stripAnsiCodes(data);
+        const lines = stderrBuf.split(/\r?\n/);
+        stderrBuf = lines.pop() ?? '';
+
+        for (const raw of lines) {
+          const line = raw.trim();
+          if (!line) continue;
+          if (isStackFrame(line) || isStatsFooter(line) || isPtyNoise(line)) {
+            continue;
+          }
+          const isError =
+            /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
+              line,
+            );
+          emitSegment({ type: isError ? 'error' : 'info', content: line });
+        }
       });
-    });
+
+      return new Promise<number>((resolve) => {
+        child.on('close', (code, signal) => {
+          if (lineBuf.trim()) {
+            const sessionId = this.handleJsonLine(
+              lineBuf.trim(),
+              emitOutput,
+              emitSegment,
+              {
+                getReceivedDeltas: () => receivedDeltas,
+                setReceivedDeltas: () => {
+                  receivedDeltas = true;
+                },
+                getReceivedReasoningDeltas: () => receivedReasoningDeltas,
+                setReceivedReasoningDeltas: () => {
+                  receivedReasoningDeltas = true;
+                },
+                toolCallIdToName,
+              },
+            );
+            if (sessionId) {
+              capturedSessionId = sessionId;
+            }
+            lineBuf = '';
+          }
+          resolve(code ?? (signal ? 1 : 0));
+        });
+
+        child.on('error', (err) => {
+          emitOutput(`\n[Copilot CLI Error] ${err.message}\n`);
+          emitSegment({
+            type: 'error',
+            content: `Copilot CLI Error: ${err.message}`,
+          });
+          resolve(1);
+        });
+      });
+    };
+
+    const done = runTurn(buildTaskPrompt(options), options.resumeSessionId);
 
     return {
       abort: abortController,
@@ -433,6 +457,9 @@ export class CopilotSdkAdapter implements CliAdapter {
       onOutput,
       onSegment,
       getSessionId: () => capturedSessionId,
+      supportsContinuation: () => capturedSessionId != null,
+      continue: (message: string): Promise<ContinuationOutcome> =>
+        Promise.resolve({ done: runTurn(message, capturedSessionId) }),
     };
   }
 

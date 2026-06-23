@@ -144,6 +144,12 @@ describe('chat-rpc.schema', () => {
         ChatResumeParamsSchema.parse({ sessionId: VALID_SESSION_UUID }),
       ).toThrow(ZodError);
     });
+
+    it('no longer declares resumeSessionAt in its known-keys shape (TASK_2026_135 fork-and-switch pivot)', () => {
+      const known = Object.keys(ChatResumeParamsSchema.shape);
+      expect(known).not.toContain('resumeSessionAt');
+      expect(known).toEqual(expect.arrayContaining(['tabId', 'sessionId']));
+    });
   });
 
   describe('ChatAbortParamsSchema', () => {

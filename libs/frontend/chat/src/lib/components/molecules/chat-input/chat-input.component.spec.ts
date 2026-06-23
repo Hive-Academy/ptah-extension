@@ -64,7 +64,7 @@ import {
   ClaudeRpcService,
   VSCodeService,
 } from '@ptah-extension/core';
-import { SessionActionsService } from '../../../services/session-actions.service';
+import { VoiceInputService } from '../../../services/voice-input.service';
 import type { AtTriggerEvent } from '../../../directives/at-trigger.directive';
 
 describe('ChatInputComponent', () => {
@@ -81,8 +81,13 @@ describe('ChatInputComponent', () => {
     abortWithConfirmation: jest.fn().mockResolvedValue(true),
   };
 
+  const tabsSignal = signal<Array<{ id: string; status: string }>>([]);
+  const activeTabIdSignal = signal<string | null>(null);
   const mockTabManager = {
     isTabStreaming: jest.fn().mockReturnValue(false),
+    tabs: tabsSignal,
+    activeTabId: activeTabIdSignal,
+    activeTabQueuedContent: signal<string | null>(null),
   };
 
   const mockAutopilotState = {
@@ -112,22 +117,34 @@ describe('ChatInputComponent', () => {
     call: jest.fn().mockResolvedValue({ isSuccess: () => false, data: null }),
   };
 
-  let mockVSCodeService: { isElectron: boolean };
-  let mockSessionActions: {
-    actionInFlight: ReturnType<typeof signal<boolean>>;
-    hasActiveSession: ReturnType<typeof signal<boolean>>;
-    saveToMemory: jest.Mock;
-    extractSkill: jest.Mock;
+  let mockIsElectron = false;
+  const mockVSCodeService = {
+    get isElectron(): boolean {
+      return mockIsElectron;
+    },
   };
 
-  beforeEach(() => {
-    mockVSCodeService = { isElectron: true };
-    mockSessionActions = {
-      actionInFlight: signal(false),
-      hasActiveSession: signal(true),
-      saveToMemory: jest.fn().mockResolvedValue(null),
-      extractSkill: jest.fn().mockResolvedValue(null),
-    };
+  const voiceStateSignal = signal<'idle' | 'recording' | 'transcribing'>(
+    'idle',
+  );
+  const voiceErrorSignal = signal<string | null>(null);
+  const mockVoiceInput = {
+    state: voiceStateSignal,
+    elapsedSeconds: signal(0),
+    error: voiceErrorSignal,
+    isRecording: signal(false),
+    isTranscribing: signal(false),
+    isBusy: signal(false),
+    startRecording: jest.fn().mockResolvedValue(undefined),
+    stopRecording: jest.fn().mockResolvedValue(null),
+    cancelRecording: jest.fn(),
+  };
+
+  function createComponent(opts: { isElectron?: boolean } = {}): void {
+    mockIsElectron = opts.isElectron ?? false;
+    tabsSignal.set([]);
+    activeTabIdSignal.set(null);
+    TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
         { provide: ChatStore, useValue: mockChatStore },
@@ -137,15 +154,22 @@ describe('ChatInputComponent', () => {
         { provide: CommandDiscoveryFacade, useValue: mockCommandDiscovery },
         { provide: ClaudeRpcService, useValue: mockRpcService },
         { provide: VSCodeService, useValue: mockVSCodeService },
-        { provide: SessionActionsService, useValue: mockSessionActions },
+        { provide: VoiceInputService, useValue: mockVoiceInput },
       ],
     });
 
-    // Create component instance directly (skip template rendering)
     component = TestBed.runInInjectionContext(() => {
       return new ChatInputComponent();
     });
+  }
 
+  beforeEach(() => {
+    mockVoiceInput.isRecording.set(false);
+    mockVoiceInput.isTranscribing.set(false);
+    voiceErrorSignal.set(null);
+    mockVoiceInput.startRecording.mockResolvedValue(undefined);
+    mockVoiceInput.stopRecording.mockResolvedValue(null);
+    createComponent();
     jest.clearAllMocks();
   });
 
@@ -604,39 +628,117 @@ describe('ChatInputComponent', () => {
   });
 
   // ============================================================================
+  // VOICE INPUT (Electron-only mic button)
+  // ============================================================================
+
+  describe('voice input', () => {
+    it('hides the mic button (isElectron false) when not in Electron', () => {
+      createComponent({ isElectron: false });
+      expect(component.isElectron).toBe(false);
+    });
+
+    it('shows the mic button (isElectron true) when in Electron', () => {
+      createComponent({ isElectron: true });
+      expect(component.isElectron).toBe(true);
+    });
+
+    it('starts recording when idle and the button is pressed', async () => {
+      createComponent({ isElectron: true });
+      mockVoiceInput.isRecording.set(false);
+      mockVoiceInput.isTranscribing.set(false);
+
+      await component.handleVoiceButton();
+
+      expect(mockVoiceInput.startRecording).toHaveBeenCalled();
+    });
+
+    it('surfaces a permission error when start fails', async () => {
+      createComponent({ isElectron: true });
+      mockVoiceInput.isRecording.set(false);
+      mockVoiceInput.startRecording.mockResolvedValue(undefined);
+      voiceErrorSignal.set('Microphone access denied');
+
+      await component.handleVoiceButton();
+
+      expect(component.imageAttachmentError()).toBe('Microphone access denied');
+    });
+
+    it('stops and inserts the transcript into the input on success', async () => {
+      createComponent({ isElectron: true });
+      mockVoiceInput.isRecording.set(true);
+      mockVoiceInput.stopRecording.mockResolvedValue({
+        ok: true,
+        transcript: 'transcribed text',
+      });
+
+      await component.handleVoiceButton();
+
+      expect(mockVoiceInput.stopRecording).toHaveBeenCalled();
+      expect(component.currentMessage()).toContain('transcribed text');
+    });
+
+    it('appends transcript with a leading space after existing text', async () => {
+      createComponent({ isElectron: true });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (component as any)._currentMessage.set('existing');
+      mockVoiceInput.isRecording.set(true);
+      mockVoiceInput.stopRecording.mockResolvedValue({
+        ok: true,
+        transcript: 'spoken',
+      });
+
+      await component.handleVoiceButton();
+
+      expect(component.currentMessage()).toBe('existing spoken');
+    });
+
+    it('shows an error when transcription fails', async () => {
+      createComponent({ isElectron: true });
+      mockVoiceInput.isRecording.set(true);
+      mockVoiceInput.stopRecording.mockResolvedValue({
+        ok: false,
+        error: 'whisper unavailable',
+      });
+
+      await component.handleVoiceButton();
+
+      expect(component.imageAttachmentError()).toBe('whisper unavailable');
+      expect(component.currentMessage()).toBe('');
+    });
+  });
+
+  // ============================================================================
   // SESSION ACTION BUTTONS (Save to memory, Extract skill)
   // ============================================================================
 
-  describe('Session action buttons (Electron-only)', () => {
-    it('isElectron() reflects VSCodeService.isElectron', () => {
-      expect(component.isElectron()).toBe(true);
+  describe('inputEnabled per-status matrix', () => {
+    const matrix: Array<[string, boolean]> = [
+      ['fresh', true],
+      ['draft', true],
+      ['loaded', true],
+      ['awaiting-background', true],
+      ['streaming', false],
+      ['resuming', false],
+      ['switching', false],
+    ];
 
-      mockVSCodeService.isElectron = false;
-      const offlineComponent = TestBed.runInInjectionContext(
-        () => new ChatInputComponent(),
-      );
-      expect(offlineComponent.isElectron()).toBe(false);
+    for (const [status, expected] of matrix) {
+      it(`returns ${expected} for status '${status}'`, () => {
+        tabsSignal.set([{ id: 'tab-x', status }]);
+        activeTabIdSignal.set('tab-x');
+        expect(component.inputEnabled()).toBe(expected);
+      });
+    }
+
+    it('returns true when no active tab is set', () => {
+      activeTabIdSignal.set(null);
+      expect(component.inputEnabled()).toBe(true);
     });
 
-    it('canRunSessionAction() is false when no active session', () => {
-      mockSessionActions.hasActiveSession.set(false);
-      expect(component.canRunSessionAction()).toBe(false);
-    });
-
-    it('canRunSessionAction() is false when an action is in flight', () => {
-      mockSessionActions.hasActiveSession.set(true);
-      mockSessionActions.actionInFlight.set(true);
-      expect(component.canRunSessionAction()).toBe(false);
-    });
-
-    it('handleSaveToMemory() dispatches through SessionActionsService', async () => {
-      await component.handleSaveToMemory();
-      expect(mockSessionActions.saveToMemory).toHaveBeenCalledTimes(1);
-    });
-
-    it('handleExtractSkill() dispatches through SessionActionsService', async () => {
-      await component.handleExtractSkill();
-      expect(mockSessionActions.extractSkill).toHaveBeenCalledTimes(1);
+    it('returns true when active tab id has no matching tab', () => {
+      tabsSignal.set([]);
+      activeTabIdSignal.set('missing');
+      expect(component.inputEnabled()).toBe(true);
     });
   });
 });

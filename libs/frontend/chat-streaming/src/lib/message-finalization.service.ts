@@ -327,10 +327,12 @@ export class MessageFinalizationService {
   }
 
   /**
-   * Safety net: Mark any agent nodes still in 'streaming' status as 'interrupted'.
-   * Historical sessions can never have actively streaming agents â€” if a node is
-   * still 'streaming' after history finalization, it means correlation failed to
-   * properly resolve it. This prevents agents from being stuck as "Streaming" forever.
+   * Safety net for historical session replay. Marks any agent nodes still in
+   * 'streaming' status as 'interrupted' on history finalization. Required for
+   * JSONL replay where no live Stop or SubagentStop event fires — orphaned
+   * streaming agent nodes from prior sessions would otherwise render stuck
+   * forever. Idempotent for live sessions where SubagentStop already marked
+   * nodes complete.
    */
   private markStreamingAgentsAsInterrupted(node: ExecutionNode): ExecutionNode {
     const updatedChildren = node.children.map((child) =>
@@ -480,7 +482,8 @@ export class MessageFinalizationService {
     });
     if (
       node.type === 'agent' &&
-      node.status === 'complete' &&
+      node.status !== 'interrupted' &&
+      node.status !== 'resumed' &&
       node.toolCallId &&
       toolCallIds.has(node.toolCallId)
     ) {

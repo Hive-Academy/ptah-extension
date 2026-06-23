@@ -7,7 +7,7 @@ import type { WebsearchExecuteHooks, WebsearchOptions } from './websearch.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { Formatter } from '../output/formatter.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 
 const baseGlobals: GlobalOptions = {
   json: true,

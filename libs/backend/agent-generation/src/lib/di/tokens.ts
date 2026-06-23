@@ -102,7 +102,7 @@ export const AGENT_FILE_WRITER_SERVICE = Symbol.for('AgentFileWriterService');
 
 /**
  * MultiCliAgentWriterService - Transform and write agents for non-Claude CLIs
- * Responsibilities: Transform Claude agents to Copilot/Gemini format, write to user-level directories
+ * Responsibilities: Transform Claude agents to Copilot/Cursor format, write to user-level directories
  */
 export const MULTI_CLI_AGENT_WRITER_SERVICE = Symbol.for(
   'MultiCliAgentWriterService',
@@ -171,6 +171,15 @@ export const PROMPT_CACHE_SERVICE = Symbol.for('SdkPromptCacheService');
 export const ENHANCED_PROMPTS_SERVICE = Symbol.for('SdkEnhancedPromptsService');
 
 /**
+ * UserLayerMirrorService - Mirrors installed skills/agents/commands into the
+ * user-owned writable layer (~/.ptah/user/). SQLite-free; runs in VS Code + Electron.
+ * Responsibilities: create-if-absent recursive clone, origin sidecar write, slug-collision tracking.
+ */
+export const USER_LAYER_MIRROR_SERVICE = Symbol.for(
+  'PtahUserLayerMirrorService',
+);
+
+/**
  * AGENT_GENERATION_TOKENS - Centralized token registry
  * Provides a single source of truth for all agent-generation DI tokens
  */
@@ -195,6 +204,7 @@ export const AGENT_GENERATION_TOKENS = {
   PROMPT_DESIGNER_AGENT,
   PROMPT_CACHE_SERVICE,
   ENHANCED_PROMPTS_SERVICE,
+  USER_LAYER_MIRROR_SERVICE,
 } as const;
 
 /**

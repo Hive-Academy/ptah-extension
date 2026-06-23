@@ -58,6 +58,27 @@ describe('EventFeedComponent', () => {
     expect(text).toContain('curator failed');
   });
 
+  it('renders curator-error events with the error tone (red badge)', () => {
+    const fixture = TestBed.createComponent(EventFeedComponent);
+    fixture.componentRef.setInput('events', [
+      {
+        kind: 'curator-error',
+        timestamp: 1,
+        error: 'curator llm query failed',
+      } satisfies MemoryCuratorEventWire,
+    ]);
+    fixture.componentRef.setInput('now', 1_000);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const badge = root.querySelector('.badge');
+    expect(badge).not.toBeNull();
+    expect(badge?.classList.contains('badge-error')).toBe(true);
+    expect(badge?.classList.contains('badge-warning')).toBe(false);
+    expect(badge?.textContent ?? '').toContain('curator-error');
+    expect(root.textContent ?? '').toContain('curator llm query failed');
+  });
+
   it('emits stats summary when stats present', () => {
     const fixture = TestBed.createComponent(EventFeedComponent);
     fixture.componentRef.setInput('events', [
@@ -108,6 +129,25 @@ describe('EventFeedComponent', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('commit-detect');
     expect(text).toContain('commit abc1234');
+  });
+
+  it('renders tool-failure with tool name and error snippet', () => {
+    const fixture = TestBed.createComponent(EventFeedComponent);
+    fixture.componentRef.setInput('events', [
+      {
+        kind: 'tool-failure',
+        timestamp: 0,
+        sessionId: 'sess-1',
+        stats: { tool: 'Bash', error: 'command exited with code 1' },
+      } satisfies MemoryCuratorEventWire,
+    ]);
+    fixture.componentRef.setInput('now', 1_000);
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain(
+      'observed Bash failure during session — command exited with code 1',
+    );
   });
 
   it('renders rate-limited event with reset time', () => {

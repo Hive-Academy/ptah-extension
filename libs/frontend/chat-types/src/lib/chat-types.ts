@@ -6,6 +6,9 @@ import {
   EffortLevel,
   TabId,
   SessionId,
+  SdkBackgroundTaskSummary,
+  SdkSessionCronSummary,
+  SdkTerminalReason,
 } from '@ptah-extension/shared';
 
 /**
@@ -150,11 +153,11 @@ let __streamingCapWarned = false;
  *   key in the Map's insertion order) is deleted before insert.
  * - First eviction emits a one-shot console.warn so we know the cap was hit
  *   in production; subsequent evictions are silent to avoid log spam.
- *
- * Note: This intentionally does NOT cascade-clean dependent collections
- * (eventsByMessage, toolCallMap, textAccumulators). Those are bounded by
- * the cap transitively (their entries reference event ids that get evicted)
- * and finalize/compaction flows already reset them.
+ * - On eviction, dependent collections are cascade-cleaned so the evicted
+ *   eventId never lingers in `eventsByMessage`, `toolCallMap`,
+ *   `textAccumulators`, or `agentContentBlocksMap`. Empty parent keys are
+ *   dropped. O(1) amortized: every cleanup operation indexes into a Map by
+ *   the known relation key, no full scans.
  */
 export function setStreamingEventCapped(
   state: StreamingState,
@@ -167,7 +170,11 @@ export function setStreamingEventCapped(
   if (state.events.size >= STREAMING_EVENT_CAP) {
     const oldestKey = state.events.keys().next().value;
     if (oldestKey !== undefined) {
+      const evicted = state.events.get(oldestKey);
       state.events.delete(oldestKey);
+      if (evicted) {
+        cascadeCleanForEvictedEvent(state, evicted);
+      }
       if (!__streamingCapWarned) {
         __streamingCapWarned = true;
         console.warn(
@@ -177,6 +184,53 @@ export function setStreamingEventCapped(
     }
   }
   state.events.set(event.id, event);
+}
+
+function cascadeCleanForEvictedEvent(
+  state: StreamingState,
+  evicted: FlatStreamEventUnion,
+): void {
+  const messageId = evicted.messageId;
+  if (messageId) {
+    const bucket = state.eventsByMessage.get(messageId);
+    if (bucket) {
+      const filtered = bucket.filter((e) => e.id !== evicted.id);
+      if (filtered.length === 0) {
+        state.eventsByMessage.delete(messageId);
+        const blockPrefix = `${messageId}-block-`;
+        const thinkPrefix = `${messageId}-thinking-`;
+        for (const key of state.textAccumulators.keys()) {
+          if (key.startsWith(blockPrefix) || key.startsWith(thinkPrefix)) {
+            state.textAccumulators.delete(key);
+          }
+        }
+      } else {
+        state.eventsByMessage.set(messageId, filtered);
+      }
+    }
+  }
+
+  const toolCallId = (evicted as { toolCallId?: string }).toolCallId;
+  if (toolCallId) {
+    const ids = state.toolCallMap.get(toolCallId);
+    if (ids) {
+      const remaining = ids.filter((id) => id !== evicted.id);
+      if (remaining.length === 0) {
+        state.toolCallMap.delete(toolCallId);
+        state.toolInputAccumulators.delete(`${toolCallId}-input`);
+      } else {
+        state.toolCallMap.set(toolCallId, remaining);
+      }
+    }
+  }
+
+  if (evicted.eventType === 'agent_start') {
+    const agentId = (evicted as { agentId?: string }).agentId;
+    if (agentId) {
+      state.agentContentBlocksMap.delete(agentId);
+      state.agentSummaryAccumulators.delete(agentId);
+    }
+  }
 }
 
 /**
@@ -189,6 +243,17 @@ export type TabViewMode = 'full' | 'compact';
 /**
  * Session lifecycle status values.
  * Tracks the current state of session operations.
+ *
+ * Variants:
+ * - `fresh` — newly created tab, no input yet
+ * - `draft` — tab has input but no SDK session bound
+ * - `loaded` — agent is idle, no pending work
+ * - `streaming` — agent is actively producing tokens
+ * - `resuming` — session-resume RPC in flight, fresh SDK Query attaching
+ * - `switching` — tab is being switched away from
+ * - `awaiting-background` — agent stopped but background tasks
+ *   (subagents / shells / monitors / workflows) are still in flight; user
+ *   input remains enabled, agent itself is idle.
  */
 export type SessionStatus =
   | 'fresh'
@@ -196,7 +261,8 @@ export type SessionStatus =
   | 'loaded'
   | 'streaming'
   | 'resuming'
-  | 'switching';
+  | 'switching'
+  | 'awaiting-background';
 
 /**
  * Session state information.
@@ -278,11 +344,20 @@ export interface TabState {
   queuedOptions?: SendMessageOptions | null;
 
   /**
+   * Hidden preamble prepended to the BACKEND prompt of this tab's first
+   * message only — never shown in the user's chat bubble. Consumed (cleared)
+   * when that first message is sent. Lets a configured surface (e.g. the
+   * Tribunal conductor) inject framing/spawn instructions while the user just
+   * types a plain objective into the normal chat input.
+   */
+  firstMessagePreamble?: string | null;
+
+  /**
    * Preloaded stats from backend (for old sessions loaded from JSONL).
    * Used to display cost/tokens for historical sessions without recalculation.
    */
   preloadedStats?: {
-    totalCost: number;
+    totalCost: number | null;
     tokens: {
       input: number;
       output: number;
@@ -365,6 +440,38 @@ export interface TabState {
   lastCompactionAt?: number | null;
 
   /**
+   * Snapshot of SDK in-flight background tasks captured from the most recent
+   * `Stop` hook payload (`session:turnEnded` push). Cleared/overwritten on
+   * the next turn-end event. Phase 2 stores this for Phase 3 UI surfacing.
+   */
+  pendingBackgroundTasks?: readonly SdkBackgroundTaskSummary[];
+
+  /**
+   * Snapshot of SDK session-scoped cron entries captured from the most recent
+   * `Stop` hook payload (`session:turnEnded` push). Cleared/overwritten on
+   * the next turn-end event.
+   */
+  pendingSessionCrons?: readonly SdkSessionCronSummary[];
+
+  /**
+   * Terminal reason emitted by the SDK with the most recent `Stop` /
+   * `StopFailure` hook (`session:turnEnded` / `session:turnFailed`).
+   *
+   * Tristate semantics:
+   * - `undefined` — Stop hook not yet observed for this turn. The SESSION_STATS
+   *   safety-net path runs (legacy finalize behavior preserved for resume /
+   *   headless flows where no Stop fires).
+   * - `null` — Stop hook observed but the SDK omitted `terminal_reason`
+   *   (current SDK 0.3.150 behavior — the field is not yet populated on
+   *   `StopHookInput`). The safety-net is SKIPPED because Stop already
+   *   pivoted the turn.
+   * - string literal (`SdkTerminalReason`) — Stop hook observed with an
+   *   explicit terminal reason (forward-compat for future SDK versions).
+   *   The safety-net is SKIPPED.
+   */
+  lastTerminalReason?: SdkTerminalReason | null;
+
+  /**
    * Full per-model usage breakdown for collapsible display.
    * Contains all models used in the session with their individual stats.
    */
@@ -372,7 +479,7 @@ export interface TabState {
     model: string;
     inputTokens: number;
     outputTokens: number;
-    costUSD: number;
+    costUSD: number | null;
     contextWindow: number;
     cacheReadInputTokens?: number;
   }> | null;

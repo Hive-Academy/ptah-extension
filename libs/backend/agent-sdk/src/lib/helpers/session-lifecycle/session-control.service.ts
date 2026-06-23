@@ -25,7 +25,10 @@ import type {
 import { SdkError } from '../../errors';
 import type { IModelResolver } from '../../auth-env.port';
 import type { SessionRegistry } from './session-registry.service';
-import { PERMISSION_MODE_MAP } from './permission-mode-map';
+import {
+  PERMISSION_MODE_MAP,
+  LEVEL_FROM_SDK_MODE,
+} from './permission-mode-map';
 import type { SessionEndCallbackRegistry } from '../session-end-callback-registry';
 
 export class SessionControl {
@@ -116,38 +119,44 @@ export class SessionControl {
     this.logger.info(`[SessionLifecycle] Ending session: ${sessionId}`);
     this.permissionHandler.cleanupPendingPermissions(rec.tabId);
     const registrySessionId = rec.realSessionId ?? rec.tabId;
-    this.subagentRegistry.markAllInterrupted(registrySessionId);
     const workspaceRoot = rec.config.projectPath ?? '';
 
-    this.logger.info(
-      `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`,
-    );
-    if (rec.query) {
-      try {
-        let timedOut = false;
-        await Promise.race([
-          rec.query.interrupt(),
-          new Promise<void>((resolve) =>
-            setTimeout(() => {
-              timedOut = true;
-              resolve();
-            }, 5000),
-          ),
-        ]);
-        this.logger.info(
-          `[SessionLifecycle] Interrupt ${
-            timedOut ? 'timed out (5s)' : 'completed'
-          } for session: ${sessionId}`,
-        );
-      } catch (err) {
-        this.logger.warn(
-          `[SessionLifecycle] Interrupt failed for session ${sessionId}`,
-          err instanceof Error ? err : new Error(String(err)),
-        );
+    this.subagentRegistry.beginSessionTeardown(registrySessionId);
+    try {
+      this.subagentRegistry.markAllInterrupted(registrySessionId);
+
+      this.logger.info(
+        `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`,
+      );
+      if (rec.query) {
+        try {
+          let timedOut = false;
+          await Promise.race([
+            rec.query.interrupt(),
+            new Promise<void>((resolve) =>
+              setTimeout(() => {
+                timedOut = true;
+                resolve();
+              }, 5000),
+            ),
+          ]);
+          this.logger.info(
+            `[SessionLifecycle] Interrupt ${
+              timedOut ? 'timed out (5s)' : 'completed'
+            } for session: ${sessionId}`,
+          );
+        } catch (err) {
+          this.logger.warn(
+            `[SessionLifecycle] Interrupt failed for session ${sessionId}`,
+            err instanceof Error ? err : new Error(String(err)),
+          );
+        }
       }
+      rec.abortController.abort();
+      this.registry.remove(rec);
+    } finally {
+      this.subagentRegistry.endSessionTeardown(registrySessionId);
     }
-    rec.abortController.abort();
-    this.registry.remove(rec);
 
     this.logger.info(`[SessionLifecycle] Session ended: ${sessionId}`);
     if (workspaceRoot) {
@@ -174,34 +183,43 @@ export class SessionControl {
       [];
 
     const interruptPromises: Promise<void>[] = [];
+    const teardownIds: string[] = [];
 
-    for (const rec of records) {
-      this.logger.debug(`[SessionLifecycle] Ending session: ${rec.tabId}`);
+    try {
+      for (const rec of records) {
+        this.logger.debug(`[SessionLifecycle] Ending session: ${rec.tabId}`);
 
-      const registryId = rec.realSessionId ?? rec.tabId;
-      this.subagentRegistry.markAllInterrupted(registryId);
-      const root = rec.config.projectPath ?? '';
-      if (root) {
-        endedSessions.push({ sessionId: registryId, workspaceRoot: root });
+        const registryId = rec.realSessionId ?? rec.tabId;
+        this.subagentRegistry.beginSessionTeardown(registryId);
+        teardownIds.push(registryId);
+        this.subagentRegistry.markAllInterrupted(registryId);
+        const root = rec.config.projectPath ?? '';
+        if (root) {
+          endedSessions.push({ sessionId: registryId, workspaceRoot: root });
+        }
+
+        if (rec.query) {
+          interruptPromises.push(
+            Promise.race([
+              rec.query.interrupt(),
+              new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+            ]).catch((err) => {
+              this.logger.warn(
+                `[SessionLifecycle] Failed to interrupt session ${rec.tabId}`,
+                err instanceof Error ? err : new Error(String(err)),
+              );
+            }),
+          );
+        }
       }
-
-      if (rec.query) {
-        interruptPromises.push(
-          Promise.race([
-            rec.query.interrupt(),
-            new Promise<void>((resolve) => setTimeout(resolve, 5000)),
-          ]).catch((err) => {
-            this.logger.warn(
-              `[SessionLifecycle] Failed to interrupt session ${rec.tabId}`,
-              err instanceof Error ? err : new Error(String(err)),
-            );
-          }),
-        );
+      await Promise.allSettled(interruptPromises);
+      for (const rec of records) {
+        rec.abortController.abort();
       }
-    }
-    await Promise.allSettled(interruptPromises);
-    for (const rec of records) {
-      rec.abortController.abort();
+    } finally {
+      for (const registryId of teardownIds) {
+        this.subagentRegistry.endSessionTeardown(registryId);
+      }
     }
 
     this.registry.clearAll();
@@ -242,6 +260,9 @@ export class SessionControl {
       `[SessionLifecycle] Setting permission level for ${sessionId}: ${level}`,
     );
     const sdkMode = PERMISSION_MODE_MAP[level] || level;
+    // Update the per-session level the canUseTool callback reads (normalized
+    // to the frontend naming) so a live toggle re-gates THIS session only.
+    session.permissionLevel = LEVEL_FROM_SDK_MODE[level] ?? 'ask';
 
     try {
       await session.query.setPermissionMode(sdkMode);

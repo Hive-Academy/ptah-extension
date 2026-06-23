@@ -1,4 +1,3 @@
-
 import {
   app,
   BrowserWindow,
@@ -13,12 +12,18 @@ import type { DependencyContainer } from 'tsyringe';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
 import { registerElectronSettings } from '@ptah-extension/platform-electron';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IWorkspaceLifecycleProvider,
+} from '@ptah-extension/platform-core';
 import { TOKENS, SentryService } from '@ptah-extension/vscode-core';
 import {
   SETTINGS_TOKENS,
   type MigrationRunner,
+  type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
+import { activateSessionLifecycleNotifier } from '@ptah-extension/rpc-handlers';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
 import { IpcBridge } from '../ipc/ipc-bridge';
@@ -104,6 +109,20 @@ export async function bootstrapElectron(
 
   const container = ElectronDIContainer.setup(platformOptions);
   try {
+    const wsProvider = container.resolve<IWorkspaceProvider>(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+    );
+    const lifecycle = container.resolve<IWorkspaceLifecycleProvider>(
+      PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER,
+    );
+    const activeWorkspaceSource: IActiveWorkspaceSource = {
+      getActivePath: () =>
+        lifecycle.getActiveFolder() ?? wsProvider.getWorkspaceRoot(),
+      onDidChange: (cb) => wsProvider.onDidChangeWorkspaceFolders(cb),
+    };
+    container.register(SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE, {
+      useValue: activeWorkspaceSource,
+    });
     registerElectronSettings(container);
     const migrationRunner = container.resolve<MigrationRunner>(
       SETTINGS_TOKENS.MIGRATION_RUNNER,
@@ -123,9 +142,11 @@ export async function bootstrapElectron(
     const sentryService = container.resolve<SentryService>(
       TOKENS.SENTRY_SERVICE,
     );
+    const environment =
+      process.env['NODE_ENV'] === 'development' ? 'development' : 'production';
     sentryService.initialize({
       dsn: sentryDsn,
-      environment: 'production',
+      environment,
       release: app.getVersion(),
       platform: 'electron',
       extensionVersion: app.getVersion(),
@@ -260,10 +281,18 @@ export async function bootstrapElectron(
     throw error;
   }
   try {
+    activateSessionLifecycleNotifier(container);
+  } catch (error: unknown) {
+    console.error(
+      '[Ptah Electron] Failed to activate SessionLifecycleNotifier:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+  try {
     const agentAdapter = container.resolve(TOKENS.AGENT_ADAPTER) as {
       initialize: () => Promise<boolean>;
       preloadSdk: () => Promise<void>;
-      prewarm: () => Promise<void>;
     };
     const authInitialized = await agentAdapter.initialize();
 
@@ -272,12 +301,6 @@ export async function bootstrapElectron(
       agentAdapter.preloadSdk().catch((err) => {
         console.warn(
           '[Ptah Electron] SDK preload failed (will retry on first use):',
-          err instanceof Error ? err.message : String(err),
-        );
-      });
-      agentAdapter.prewarm().catch((err) => {
-        console.warn(
-          '[Ptah Electron] SDK prewarm failed (will resolve on first query):',
           err instanceof Error ? err.message : String(err),
         );
       });

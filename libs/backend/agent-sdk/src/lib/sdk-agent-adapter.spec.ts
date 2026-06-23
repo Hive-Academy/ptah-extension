@@ -6,12 +6,9 @@
  *   - initialize / dispose / reset / preloadSdk
  *   - startChatSession / resumeSession / executeSlashCommand dispatch
  *   - Callback wiring from adapter setters into executeQuery() options
- *   - Warm-query handle threading into executeQuery() (consumeWarmQuery is
- *     called THROUGH the SdkWarmQueryManager port)
  *   - includePartialMessages passthrough
  *
  * The pushed-down behavior lives in:
- *   - helpers/sdk-warm-query-manager.spec.ts (prewarm/consume/fingerprint)
  *   - helpers/session-fork.service.spec.ts  (forkSession + rewindFiles)
  *   - helpers/sdk-adapter-callback-registry.spec.ts (registry semantics)
  */
@@ -49,6 +46,7 @@ import {
 import {
   PlatformType,
   type IPlatformInfo,
+  type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 
 import { SdkAgentAdapter } from './sdk-agent-adapter';
@@ -62,11 +60,9 @@ import type {
   StreamTransformer,
   SdkModuleLoader,
   SdkModelService,
-  SdkWarmQueryManager,
   SessionForkService,
   ExecuteQueryResult,
   Query,
-  WarmQueryHandle,
   ResultStatsCallback,
 } from './helpers';
 import type { IAuthEnvProvider } from './auth-env.port';
@@ -106,7 +102,10 @@ function createMockSentry(): jest.Mocked<
 }
 
 function createMockIAuthEnvProvider(): jest.Mocked<
-  Pick<IAuthEnvProvider, 'configureAuthentication' | 'clearAuthentication'>
+  Pick<
+    IAuthEnvProvider,
+    'configureAuthentication' | 'clearAuthentication' | 'resolveActiveAuth'
+  >
 > {
   return {
     configureAuthentication: jest.fn().mockResolvedValue({
@@ -115,6 +114,9 @@ function createMockIAuthEnvProvider(): jest.Mocked<
       errorMessage: undefined,
     }),
     clearAuthentication: jest.fn(),
+    resolveActiveAuth: jest
+      .fn()
+      .mockReturnValue({ authMethod: 'apiKey', providerId: 'anthropic' }),
   };
 }
 
@@ -173,6 +175,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'executeQuery'
     | 'executeSlashCommandQuery'
     | 'disposeAllSessions'
+    | 'dispose'
     | 'endSession'
     | 'find'
     | 'bindRealSessionId'
@@ -186,6 +189,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     executeQuery: jest.fn(),
     executeSlashCommandQuery: jest.fn(),
     disposeAllSessions: jest.fn().mockResolvedValue(undefined),
+    dispose: jest.fn(),
     endSession: jest.fn().mockResolvedValue(undefined),
     find: jest.fn().mockReturnValue(undefined),
     bindRealSessionId: jest.fn(),
@@ -212,16 +216,6 @@ function createMockStreamTransformer(): jest.Mocked<
   return { transform };
 }
 
-function createMockWarmQueryManager(): jest.Mocked<
-  Pick<SdkWarmQueryManager, 'prewarm' | 'consumeWarmQuery' | 'dispose'>
-> {
-  return {
-    prewarm: jest.fn().mockResolvedValue(undefined),
-    consumeWarmQuery: jest.fn().mockReturnValue(null),
-    dispose: jest.fn(),
-  };
-}
-
 function createMockForkService(): jest.Mocked<
   Pick<SessionForkService, 'forkSession' | 'rewindFiles'>
 > {
@@ -241,6 +235,19 @@ function createMockPlatformInfo(
     workspaceStoragePath: '/fake/workspace',
     ...overrides,
   };
+}
+
+function createMockWorkspaceProvider(
+  root: string | null = '/fake/workspace-root',
+): jest.Mocked<IWorkspaceProvider> {
+  return {
+    getWorkspaceRoot: jest.fn(() => root),
+    getWorkspaceFolders: jest.fn(() => (root ? [root] : [])),
+    getConfiguration: jest.fn(<T>(_: string, __: string, def?: T) => def),
+    setConfiguration: jest.fn().mockResolvedValue(undefined),
+    onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
+    onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
+  } as unknown as jest.Mocked<IWorkspaceProvider>;
 }
 
 function createFakeQuery(): Query {
@@ -272,7 +279,7 @@ interface AdapterHarness {
   moduleLoader: ReturnType<typeof createMockModuleLoader>;
   modelService: ReturnType<typeof createMockModelService>;
   platformInfo: IPlatformInfo;
-  warmQueryManager: ReturnType<typeof createMockWarmQueryManager>;
+  workspaceProvider: jest.Mocked<IWorkspaceProvider>;
   forkService: ReturnType<typeof createMockForkService>;
   events: SdkAdapterEvents;
 }
@@ -281,6 +288,7 @@ function makeAdapter(
   options: {
     config?: Record<string, unknown>;
     platformInfo?: Partial<IPlatformInfo>;
+    workspaceRoot?: string | null;
   } = {},
 ): AdapterHarness {
   const logger = createMockLogger();
@@ -294,7 +302,11 @@ function makeAdapter(
   const moduleLoader = createMockModuleLoader();
   const modelService = createMockModelService();
   const platformInfo = createMockPlatformInfo(options.platformInfo);
-  const warmQueryManager = createMockWarmQueryManager();
+  const workspaceProvider = createMockWorkspaceProvider(
+    options.workspaceRoot === undefined
+      ? '/fake/workspace-root'
+      : options.workspaceRoot,
+  );
   const forkService = createMockForkService();
 
   const runtimeState = new SdkRuntimeStateService(asLogger(logger));
@@ -313,11 +325,11 @@ function makeAdapter(
     moduleLoader as unknown as SdkModuleLoader,
     modelService as unknown as SdkModelService,
     platformInfo,
-    warmQueryManager as unknown as SdkWarmQueryManager,
     forkService as unknown as SessionForkService,
     sentry as unknown as SentryService,
     events,
     activityRegistry,
+    workspaceProvider,
   );
 
   return {
@@ -333,7 +345,7 @@ function makeAdapter(
     moduleLoader,
     modelService,
     platformInfo,
-    warmQueryManager,
+    workspaceProvider,
     forkService,
     events,
   };
@@ -670,6 +682,8 @@ describe('SdkAgentAdapter', () => {
         messageQueue: [],
         resolveNext: null,
         currentModel: 'claude-sonnet-4-20250514',
+        permissionLevel: 'ask',
+        lastActivityAt: 0,
       });
 
       await h.adapter.resumeSession(
@@ -802,7 +816,7 @@ describe('SdkAgentAdapter', () => {
   });
 
   describe('dispose()', () => {
-    it('emits disposed on the events bus, clears auth, clears the model cache, and disposes the warm-query manager', async () => {
+    it('emits disposed on the events bus, clears auth, and clears the model cache', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
@@ -815,7 +829,6 @@ describe('SdkAgentAdapter', () => {
       expect(h.sessionLifecycle.disposeAllSessions).toHaveBeenCalled();
       expect(h.authManager.clearAuthentication).toHaveBeenCalled();
       expect(h.modelService.clearCache).toHaveBeenCalled();
-      expect(h.warmQueryManager.dispose).toHaveBeenCalled();
       expect(h.adapter.getCliJsPath()).toBeNull();
     });
   });
@@ -825,103 +838,6 @@ describe('SdkAgentAdapter', () => {
       const h = makeAdapter();
       await h.adapter.preloadSdk();
       expect(h.moduleLoader.preload).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('prewarm() facade', () => {
-    it('delegates to SdkWarmQueryManager.prewarm with the current cliJsPath and active mcp servers', async () => {
-      const h = makeAdapter();
-      h.cliDetector.findExecutable.mockResolvedValueOnce({
-        path: '/bin/claude',
-        source: 'path',
-        cliJsPath: '/bin/cli.js',
-        useDirectExecution: false,
-      } as ClaudeInstallation);
-      await h.adapter.initialize();
-
-      const mcp = { x: { type: 'http', url: 'http://x' } };
-      await h.adapter.prewarm(mcp);
-
-      expect(h.warmQueryManager.prewarm).toHaveBeenCalledTimes(1);
-      expect(h.warmQueryManager.prewarm).toHaveBeenCalledWith(
-        '/bin/cli.js',
-        mcp,
-      );
-    });
-
-    it('delegates consumeWarmQuery() to the warm-query manager', () => {
-      const h = makeAdapter();
-      const handle: WarmQueryHandle = { close: jest.fn() };
-      h.warmQueryManager.consumeWarmQuery.mockReturnValueOnce(handle);
-      expect(h.adapter.consumeWarmQuery()).toBe(handle);
-    });
-  });
-
-  describe('startChatSession warm-query wiring', () => {
-    it('forwards a consumed warm handle to executeQuery on the first send (default settings)', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      const close = jest.fn();
-      const warmQueryFn = jest.fn();
-      const handle: WarmQueryHandle = { close, query: warmQueryFn };
-      h.warmQueryManager.consumeWarmQuery.mockReturnValueOnce(handle);
-
-      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
-        sdkQuery: createFakeQuery(),
-        initialModel: 'claude-sonnet-4-20250514',
-        abortController: new AbortController(),
-      } as ExecuteQueryResult);
-
-      await h.adapter.startChatSession(makeSessionConfig());
-
-      const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
-      expect(callArg.warmQuery).toBe(handle);
-    });
-
-    it('does NOT call consumeWarmQuery (or forward a handle) when the session has an mcpServersOverride', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
-        sdkQuery: createFakeQuery(),
-        initialModel: 'claude-sonnet-4-20250514',
-        abortController: new AbortController(),
-      } as ExecuteQueryResult);
-
-      const cfg = makeSessionConfig() as AISessionConfig & {
-        tabId: string;
-        mcpServersOverride: Record<string, unknown>;
-      };
-      cfg.mcpServersOverride = {
-        proxy: { type: 'http', url: 'http://proxy' },
-      } as Record<string, unknown>;
-
-      await h.adapter.startChatSession(
-        cfg as Parameters<typeof h.adapter.startChatSession>[0],
-      );
-
-      // Adapter short-circuited to `null` before touching the warm-query manager.
-      expect(h.warmQueryManager.consumeWarmQuery).not.toHaveBeenCalled();
-      const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
-      expect(callArg.warmQuery).toBeUndefined();
-    });
-
-    it('passes warmQuery=undefined when the manager has nothing to consume', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-
-      h.warmQueryManager.consumeWarmQuery.mockReturnValueOnce(null);
-      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
-        sdkQuery: createFakeQuery(),
-        initialModel: 'claude-sonnet-4-20250514',
-        abortController: new AbortController(),
-      } as ExecuteQueryResult);
-
-      await h.adapter.startChatSession(makeSessionConfig());
-
-      const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
-      expect(callArg.warmQuery).toBeUndefined();
     });
   });
 

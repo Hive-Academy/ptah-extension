@@ -55,10 +55,11 @@ import {
   isJsonRpcErrorResponse,
   isJsonRpcNotification,
   isJsonRpcSuccessResponse,
+  JSONRPC_SCHEMA_VERSION,
   type JsonRpcMessage,
 } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import {
   PLATFORM_TOKENS,
   type IHttpServerProvider,
@@ -333,7 +334,7 @@ describe('ptah interact', () => {
         throw new Error('expected session.ready notification');
       }
       const params = decoded.message.params as Record<string, unknown>;
-      expect(params['schema_version']).toBe('0.1');
+      expect(params['schema_version']).toBe(JSONRPC_SCHEMA_VERSION);
       // Pre-existing fields remain untouched.
       expect(params['session_id']).toBeDefined();
       expect(params['protocol_version']).toBe('2.0');
@@ -341,6 +342,76 @@ describe('ptah interact', () => {
 
       h.stdin.end();
       await promise;
+    });
+  });
+
+  describe('top-level failure', () => {
+    it('emits task.error with ptah_code and no embedded stack', async () => {
+      const notifications: Array<{ method: string; params?: unknown }> = [];
+      const formatter = {
+        writeNotification: jest.fn(async (method: string, params?: unknown) => {
+          notifications.push({ method, params });
+        }),
+        writeRequest: jest.fn(async () => undefined),
+        writeResponse: jest.fn(async () => undefined),
+        writeError: jest.fn(async () => undefined),
+        close: jest.fn(async () => undefined),
+      };
+      const boom = new Error('engine exploded') as Error & {
+        ptahCode?: string;
+      };
+      boom.ptahCode = 'sdk_init_failed';
+      const exitCalls: number[] = [];
+      const hooks: InteractExecuteHooks = {
+        formatter,
+        withEngine: (async () => {
+          throw boom;
+        }) as unknown as InteractExecuteHooks['withEngine'],
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        exit: (code: number) => {
+          exitCalls.push(code);
+        },
+      };
+
+      const code = await execute({}, baseGlobals, hooks);
+
+      expect(code).toBe(ExitCode.InternalFailure);
+      const err = notifications.find((n) => n.method === 'task.error');
+      expect(err).toBeDefined();
+      const params = err?.params as Record<string, unknown>;
+      expect(params['ptah_code']).toBe('sdk_init_failed');
+      expect(params['command']).toBe('interact');
+      expect(params['message']).toBe('engine exploded');
+      expect(params['stack']).toBeUndefined();
+    });
+
+    it('falls back to internal_failure when the error carries no ptahCode', async () => {
+      const notifications: Array<{ method: string; params?: unknown }> = [];
+      const formatter = {
+        writeNotification: jest.fn(async (method: string, params?: unknown) => {
+          notifications.push({ method, params });
+        }),
+        writeRequest: jest.fn(async () => undefined),
+        writeResponse: jest.fn(async () => undefined),
+        writeError: jest.fn(async () => undefined),
+        close: jest.fn(async () => undefined),
+      };
+      const hooks: InteractExecuteHooks = {
+        formatter,
+        withEngine: (async () => {
+          throw new Error('plain failure');
+        }) as unknown as InteractExecuteHooks['withEngine'],
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        exit: () => undefined,
+      };
+
+      await execute({}, baseGlobals, hooks);
+      const err = notifications.find((n) => n.method === 'task.error');
+      const params = err?.params as Record<string, unknown>;
+      expect(params['ptah_code']).toBe('internal_failure');
+      expect(params['stack']).toBeUndefined();
     });
   });
 
@@ -370,7 +441,7 @@ describe('ptah interact', () => {
 
       expect(result.serverName).toBe('ptah');
       expect(result.mode).toBe('interact');
-      expect(result.schemaVersion).toBe('0.1');
+      expect(result.schemaVersion).toBe(JSONRPC_SCHEMA_VERSION);
       expect(result.version).toBeDefined();
       expect(result.catalog.tools).toEqual([]);
       expect(result.catalog.methods).toEqual(

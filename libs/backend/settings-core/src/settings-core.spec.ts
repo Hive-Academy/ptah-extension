@@ -48,7 +48,10 @@ import { BaseSettingsRepository } from './repositories/base-repository';
 import { ComputedSettingHandle } from './repositories/computed-setting-handle';
 import { MigrationRunner } from './migrations/runner';
 import { runV2Migration } from './migrations/v2-migration';
-import { resolveAuthProviderKey } from '@ptah-extension/platform-core';
+import {
+  resolveAuthProviderKey,
+  FILE_BASED_SETTINGS_KEYS,
+} from '@ptah-extension/platform-core';
 import type { ISettingsStore } from './ports/settings-store.interface';
 import type { IDisposable } from '@ptah-extension/platform-core';
 import { providerSelectedModelDef } from './schema/provider-schema';
@@ -798,8 +801,14 @@ describe('TC-18: Isolation guarantee — zero unauthorized consumers', () => {
       /libs[\\/]backend[\\/]rpc-handlers[\\/]/,
       // messaging-gateway uses GatewaySettings for secret token storage.
       /libs[\\/]backend[\\/]messaging-gateway[\\/]/,
+      // gateway-chat-bridge consumes settings (provider/model) for bridged sessions.
+      /libs[\\/]backend[\\/]gateway-chat-bridge[\\/]/,
       // cli-agent-runtime consumes ReasoningSettings to map UI effort to CLI flags.
       /libs[\\/]backend[\\/]cli-agent-runtime[\\/]/,
+      // cli-engine hosts the migrated CLI bootstrap (runs SETTINGS_TOKENS migrations).
+      /libs[\\/]backend[\\/]cli-engine[\\/]/,
+      // auth-providers consumes WorkspaceScopeResolver for per-workspace provider resolution.
+      /libs[\\/]backend[\\/]auth-providers[\\/]/,
       // tsconfig files declare path aliases — not runtime consumers.
       /tsconfig(\.\w+)?\.json$/,
       // Documentation mentions the package name in prose — not a runtime import.
@@ -839,14 +848,6 @@ describe('TC-19 (WP-3T): KNOWN_PROVIDER_AUTH_KEYS ↔ FILE_BASED_SETTINGS_KEYS d
       require('./schema/provider-schema') as {
         KNOWN_PROVIDER_AUTH_KEYS: readonly string[];
       };
-    // FILE_BASED_SETTINGS_KEYS lives in platform-core (one level up from settings-core).
-    // We require the compiled output via the tsconfig path alias.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { FILE_BASED_SETTINGS_KEYS } =
-      require('@ptah-extension/platform-core') as {
-        FILE_BASED_SETTINGS_KEYS: Set<string>;
-      };
-
     const missing: string[] = [];
     for (const authKey of KNOWN_PROVIDER_AUTH_KEYS) {
       const modelKey = `provider.${authKey}.selectedModel`;

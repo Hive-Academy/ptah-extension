@@ -11,8 +11,9 @@
  *     real interact handshake.
  *   - `globalSetup` aborts with a clear error if the dist bundle is
  *     missing, instead of every spec failing with an opaque ENOENT.
- *   - No `setupFilesAfterEach` — the harness owns child-process cleanup
- *     in each spec's `afterEach`.
+ *   - `setupFilesAfterEnv` wires ONLY a CI-gated jest-circus retry net
+ *     (`_harness/e2e-setup.ts`); child-process cleanup still lives in each
+ *     spec's `afterEach`, owned by the harness.
  *   - No `moduleNameMapper` for `vscode` / `wasm-bundle-dir` — e2e tests
  *     never import production source, so transitive resolution is moot.
  */
@@ -34,6 +35,7 @@ module.exports = {
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs'],
   globalSetup: '<rootDir>/tests/e2e/_harness/global-setup.cjs',
+  setupFilesAfterEnv: ['<rootDir>/tests/e2e/_harness/e2e-setup.ts'],
   testTimeout: 60_000,
   maxWorkers: 1,
   // Bail on the first failure — keeps the wall-clock budget under 3

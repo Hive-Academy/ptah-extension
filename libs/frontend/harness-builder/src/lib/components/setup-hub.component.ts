@@ -2,13 +2,13 @@
  * SetupHubComponent
  *
  * Premium configuration dashboard that surfaces both the Setup Wizard
- * (workspace analysis) and the Harness Builder (multi-agent orchestration)
+ * (workspace analysis) and the AI Team Builder (multi-agent orchestration)
  * from a single entry point. Shown as a standalone view in both VS Code
  * and Electron apps.
  *
  * Layout:
  *   - Hero section with gradient background and decorative elements
- *   - Two prominent primary action cards (Workspace Analysis, Harness Builder)
+ *   - Primary action cards (Workspace Analysis, AI Team Builder, New Project)
  *   - Two secondary info cards (Saved Presets, Active Configuration)
  */
 
@@ -32,6 +32,8 @@ import {
   CheckCircle2,
   RefreshCw,
   ArrowLeft,
+  Rocket,
+  Scale,
 } from 'lucide-angular';
 import {
   ClaudeRpcService,
@@ -269,9 +271,9 @@ import type {
                     Configure Your Workspace
                   </h2>
                   <p class="text-sm text-base-content/50 mt-2 leading-relaxed">
-                    Set up workspace analysis and build multi-agent
-                    orchestration harnesses. Get AI-powered recommendations
-                    tailored to your project.
+                    Analyze your workspace, assemble your AI team, or start a
+                    brand-new project. Get AI-powered recommendations tailored
+                    to your project.
                   </p>
                 </div>
                 <div
@@ -291,7 +293,9 @@ import type {
           </div>
 
           <!-- Primary cards grid -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-2">
+          <div
+            class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-2"
+          >
             <!-- ── Card 1: Workspace Analysis ── -->
             <div
               class="group relative rounded-xl p-px cursor-pointer
@@ -460,7 +464,7 @@ import type {
               (keydown.enter)="openHarnessBuilder()"
               role="button"
               tabindex="0"
-              aria-label="Open Harness Builder wizard"
+              aria-label="Open AI Team Builder"
             >
               <div
                 class="rounded-[11px] bg-base-200 p-5 h-full flex flex-col gap-4
@@ -500,7 +504,7 @@ import type {
                         class="w-2 h-2 rounded-full bg-base-content/20"
                       ></span>
                       <span class="text-xs font-medium text-base-content/40"
-                        >No harness</span
+                        >No team yet</span
                       >
                     }
                   </div>
@@ -509,11 +513,11 @@ import type {
                 <!-- Title + description -->
                 <div>
                   <h2 class="text-lg font-bold text-base-content">
-                    Harness Builder
+                    AI Team Builder
                   </h2>
                   <p class="text-sm text-base-content/50 mt-1">
-                    Build multi-agent orchestration workflows with personas,
-                    skills, and MCP servers.
+                    Design your AI team — agents, skills, and MCP tools — and
+                    apply it to your workspace as CLAUDE.md, agents, and skills.
                   </p>
                 </div>
 
@@ -522,7 +526,7 @@ import type {
                   <div
                     class="flex items-center justify-between text-[10px] text-base-content/40 mb-1.5"
                   >
-                    <span>Harness status</span>
+                    <span>Team status</span>
                     <span>{{ hasClaudeMd() ? 'Active' : 'Not created' }}</span>
                   </div>
                   <div
@@ -546,7 +550,121 @@ import type {
                          hover:border-primary/40 hover:from-primary/20 hover:to-primary/10
                          text-primary font-medium transition-all duration-200"
                 >
-                  {{ hasClaudeMd() ? 'Edit Harness' : 'Create Harness' }}
+                  {{ hasClaudeMd() ? 'Edit AI Team' : 'Create AI Team' }}
+                  <lucide-angular
+                    [img]="ChevronRightIcon"
+                    class="w-3.5 h-3.5"
+                    aria-hidden="true"
+                  />
+                </button>
+              </div>
+            </div>
+
+            <!-- ── Card 3: New Project ── -->
+            <div
+              class="group relative rounded-xl p-px cursor-pointer
+                     bg-gradient-to-br from-secondary/20 via-base-300/50 to-secondary/10
+                     hover:from-secondary/40 hover:via-secondary/15 hover:to-secondary/30
+                     transition-all duration-300 ease-out
+                     card-enter card-enter-delay-3"
+              (click)="startNewProject()"
+              (keydown.enter)="startNewProject()"
+              role="button"
+              tabindex="0"
+              aria-label="Start a new project with guided setup"
+            >
+              <div
+                class="rounded-[11px] bg-base-200 p-5 h-full flex flex-col gap-4
+                       transition-colors duration-300 ease-out group-hover:bg-base-200/80"
+              >
+                <div class="flex items-start justify-between">
+                  <div class="relative">
+                    <div
+                      class="relative w-11 h-11 rounded-xl bg-secondary/10 border border-secondary/20 flex items-center justify-center"
+                    >
+                      <lucide-angular
+                        [img]="RocketIcon"
+                        class="w-5 h-5 text-secondary"
+                        aria-hidden="true"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h2 class="text-lg font-bold text-base-content">
+                    New Project
+                  </h2>
+                  <p class="text-sm text-base-content/50 mt-1">
+                    Plan and scaffold a brand-new SaaS workspace (Nx + Angular /
+                    NestJS) with a generated roadmap and its own AI team.
+                  </p>
+                </div>
+
+                <button
+                  class="btn btn-sm w-full mt-auto gap-1
+                         bg-gradient-to-r from-secondary/10 to-secondary/5
+                         border border-secondary/20
+                         hover:border-secondary/40 hover:from-secondary/20 hover:to-secondary/10
+                         text-secondary font-medium transition-all duration-200"
+                >
+                  Start New Project
+                  <lucide-angular
+                    [img]="ChevronRightIcon"
+                    class="w-3.5 h-3.5"
+                    aria-hidden="true"
+                  />
+                </button>
+              </div>
+            </div>
+
+            <!-- ── Card 4: Tribunal ── -->
+            <div
+              class="group relative rounded-xl p-px cursor-pointer
+                     bg-gradient-to-br from-accent/20 via-base-300/50 to-accent/10
+                     hover:from-accent/40 hover:via-accent/15 hover:to-accent/30
+                     transition-all duration-300 ease-out
+                     card-enter card-enter-delay-4"
+              (click)="conveneTribunal()"
+              (keydown.enter)="conveneTribunal()"
+              role="button"
+              tabindex="0"
+              aria-label="Convene a Tribunal"
+            >
+              <div
+                class="rounded-[11px] bg-base-200 p-5 h-full flex flex-col gap-4
+                       transition-colors duration-300 ease-out group-hover:bg-base-200/80"
+              >
+                <div class="flex items-start justify-between">
+                  <div class="relative">
+                    <div
+                      class="relative w-11 h-11 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center"
+                    >
+                      <lucide-angular
+                        [img]="ScaleIcon"
+                        class="w-5 h-5 text-accent"
+                        aria-hidden="true"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h2 class="text-lg font-bold text-base-content">Tribunal</h2>
+                  <p class="text-sm text-base-content/50 mt-1">
+                    Put your AI vendors on one panel — run a Council, Forge, or
+                    Race and compare them side by side.
+                  </p>
+                </div>
+
+                <button
+                  class="btn btn-sm w-full mt-auto gap-1
+                         bg-gradient-to-r from-accent/10 to-accent/5
+                         border border-accent/20
+                         hover:border-accent/40 hover:from-accent/20 hover:to-accent/10
+                         text-accent font-medium transition-all duration-200"
+                >
+                  Convene a Tribunal
                   <lucide-angular
                     [img]="ChevronRightIcon"
                     class="w-3.5 h-3.5"
@@ -596,7 +714,7 @@ import type {
                 Saved Presets
               </h3>
               <p class="text-xs text-base-content/40 mt-1">
-                Reusable harness configurations for different workflows.
+                Reusable AI team configurations for different workflows.
               </p>
 
               @if (presets().length > 0) {
@@ -624,7 +742,7 @@ import type {
                 </div>
               } @else {
                 <p class="text-xs text-base-content/30 italic mt-3">
-                  No presets yet. Save a harness configuration to create one.
+                  No presets yet. Save an AI team configuration to create one.
                 </p>
               }
             </div>
@@ -729,6 +847,8 @@ export class SetupHubComponent implements OnInit {
   protected readonly CheckCircleIcon = CheckCircle2;
   protected readonly RefreshIcon = RefreshCw;
   protected readonly ArrowLeftIcon = ArrowLeft;
+  protected readonly RocketIcon = Rocket;
+  protected readonly ScaleIcon = Scale;
   private readonly _isLoading = signal(false);
   private readonly _hasLoadedOnce = signal(false);
   private readonly _loadError = signal<string | null>(null);
@@ -792,6 +912,25 @@ export class SetupHubComponent implements OnInit {
 
   openHarnessBuilder(): void {
     this.navigation.navigateToView('harness-builder');
+  }
+
+  conveneTribunal(): void {
+    this.navigation.navigateToView('tribunal');
+  }
+
+  async startNewProject(): Promise<void> {
+    try {
+      const result = await this.rpc.call('harness:start-new-project', {});
+      if (!result.isSuccess() || result.data?.success === false) {
+        this._loadError.set(
+          result.data?.error ?? result.error ?? 'Failed to start new project',
+        );
+      }
+    } catch (err) {
+      this._loadError.set(
+        err instanceof Error ? err.message : 'Failed to start new project',
+      );
+    }
   }
 
   goBack(): void {

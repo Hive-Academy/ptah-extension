@@ -63,6 +63,22 @@ export class SubagentStateStore {
   private readonly pendingBackgroundToolCallIds = new Set<string>();
 
   /**
+   * Parent session IDs currently inside endSession()/disposeAllSessions()
+   * teardown. While a session is in this set, 'completed' transitions for its
+   * already-interrupted records are ignored — the SDK's graceful interrupt
+   * fires SubagentStop for agents we just marked interrupted, and honoring
+   * that stop would delete the record and lose resumability.
+   */
+  private readonly teardownSessionIds = new Set<string>();
+
+  /**
+   * Number of times each toolCallId's interrupted-agent context has been
+   * injected into a chat:continue prompt. Bounds repeated injection so an
+   * agent the model never resumes doesn't nag forever.
+   */
+  private readonly injectionAttempts = new Map<string, number>();
+
+  /**
    * Timestamp of last cleanup run.
    */
   private lastCleanupAt = 0;
@@ -86,6 +102,7 @@ export class SubagentStateStore {
 
   /** Delete a record; returns true if something was removed. */
   delete(toolCallId: string): boolean {
+    this.injectionAttempts.delete(toolCallId);
     return this.registry.delete(toolCallId);
   }
 
@@ -111,6 +128,40 @@ export class SubagentStateStore {
     this.registry.clear();
     this.clearedToolCallIds.clear();
     this.pendingBackgroundToolCallIds.clear();
+    this.teardownSessionIds.clear();
+    this.injectionAttempts.clear();
+  }
+
+  /** Mark a parent session as being torn down. */
+  beginTeardown(parentSessionId: string): void {
+    this.teardownSessionIds.add(parentSessionId);
+  }
+
+  /** Clear the teardown marker for a parent session. */
+  endTeardown(parentSessionId: string): void {
+    this.teardownSessionIds.delete(parentSessionId);
+  }
+
+  /** Whether a parent session is currently being torn down. */
+  isInTeardown(parentSessionId: string): boolean {
+    return this.teardownSessionIds.has(parentSessionId);
+  }
+
+  /** Increment and return the injection-attempt count for a toolCallId. */
+  recordInjectionAttempt(toolCallId: string): number {
+    const next = (this.injectionAttempts.get(toolCallId) ?? 0) + 1;
+    this.injectionAttempts.set(toolCallId, next);
+    return next;
+  }
+
+  /** Current injection-attempt count for a toolCallId. */
+  getInjectionAttempts(toolCallId: string): number {
+    return this.injectionAttempts.get(toolCallId) ?? 0;
+  }
+
+  /** Drop injection-attempt tracking for a toolCallId. */
+  clearInjectionAttempts(toolCallId: string): void {
+    this.injectionAttempts.delete(toolCallId);
   }
 
   /** Record a toolCallId as pre-marked background. */

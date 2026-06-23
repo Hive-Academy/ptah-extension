@@ -26,7 +26,7 @@ export type SessionIdResolvedCallback = (
 
 export interface ResultStatsPayload {
   readonly sessionId: SessionId;
-  readonly cost: number;
+  readonly cost: number | null;
   readonly tokens: {
     readonly input: number;
     readonly output: number;
@@ -39,7 +39,7 @@ export interface ResultStatsPayload {
     readonly inputTokens: number;
     readonly outputTokens: number;
     readonly contextWindow: number;
-    readonly costUSD: number;
+    readonly costUSD: number | null;
     readonly cacheReadInputTokens: number;
     readonly lastTurnContextTokens?: number;
   }>;
@@ -131,7 +131,6 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
   prompt?: string;
   /** See {@link AgentSessionStartConfig.includePartialMessages}. */
   includePartialMessages?: boolean;
-  resumeSessionAt?: string;
 }
 
 /**

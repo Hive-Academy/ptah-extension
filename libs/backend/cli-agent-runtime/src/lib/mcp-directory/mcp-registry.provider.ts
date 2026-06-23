@@ -10,6 +10,7 @@ import type {
   McpRegistryEntry,
   McpRegistryListResponse,
 } from '@ptah-extension/shared';
+import type { IMcpRegistrySource } from './mcp-registry-source.interface';
 
 const REGISTRY_BASE_URL = 'https://registry.modelcontextprotocol.io/v0.1';
 
@@ -94,7 +95,13 @@ function unwrapRegistryEntry(
   return parsed.data as unknown as McpRegistryEntry;
 }
 
-export class McpRegistryProvider {
+export class McpRegistryProvider implements IMcpRegistrySource {
+  /** Source id for the registry-source registry. */
+  readonly id = 'official' as const;
+
+  /** The Official MCP Registry needs no authentication. */
+  readonly requiresApiKey = false;
+
   private popularCache: CachedResponse<McpRegistryEntry[]> | null = null;
 
   /**

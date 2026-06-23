@@ -33,7 +33,7 @@ import type { ProviderExecuteHooks, ProviderOptions } from './provider.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { Formatter } from '../output/formatter.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 
 // ---------------------------------------------------------------------------
 // Test doubles
@@ -207,10 +207,8 @@ describe('ptah provider status', () => {
       unknown
     >;
     const providers = params?.['providers'] as Array<Record<string, unknown>>;
-    // Both `apiKey` and `hasApiKey` match the redactor's substring pattern
-    // (/apikey/i) — the redactor masks every key matching the pattern.
     expect(providers?.[0]?.['apiKey']).toBe('<redacted>');
-    expect(providers?.[0]?.['hasApiKey']).toBe('<redacted>');
+    expect(providers?.[0]?.['hasApiKey']).toBe(true);
     // Non-sensitive fields pass through.
     expect(providers?.[0]?.['name']).toBe('anthropic');
     expect(providers?.[0]?.['displayName']).toBe('Anthropic (Claude)');
@@ -267,7 +265,7 @@ describe('ptah provider set-key', () => {
     const { formatterTrace, engine, hooks } = buildHooks();
     engine.scripted.set('llm:setApiKey', {
       success: true,
-      data: { success: true },
+      data: { success: true, verified: true },
     });
 
     const exit = await execute(
@@ -292,8 +290,32 @@ describe('ptah provider set-key', () => {
     const params = last?.params as Record<string, unknown>;
     expect(params?.['provider']).toBe('anthropic');
     expect(params?.['success']).toBe(true);
+    expect(params?.['verified']).toBe(true);
     // SECURITY: api key MUST never appear in the emitted notification.
     expect(JSON.stringify(params)).not.toContain('sk-ant-secret-12345');
+  });
+
+  it('stored-but-not-verified key emits provider.key.set with verified=false and exits AuthRequired', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('llm:setApiKey', {
+      success: true,
+      data: { success: true, verified: false },
+    });
+
+    const exit = await execute(
+      {
+        subcommand: 'set-key',
+        provider: 'anthropic',
+        key: 'sk-ant-secret-12345',
+      },
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.AuthRequired);
+    const last = formatterTrace.notifications.at(-1);
+    expect(last?.method).toBe('provider.key.set');
+    expect((last?.params as Record<string, unknown>)?.['verified']).toBe(false);
   });
 
   it('rejects missing --provider with usage error', async () => {
@@ -318,7 +340,7 @@ describe('ptah provider set-key', () => {
     expect(stderrTrace.buffer).toContain('--key is required');
   });
 
-  it('on RPC success=false emits task.error and exits InternalFailure', async () => {
+  it('on RPC success=false (rejected key) emits task.error and exits AuthRequired', async () => {
     const { formatterTrace, engine, hooks } = buildHooks();
     engine.scripted.set('llm:setApiKey', {
       success: true,
@@ -331,12 +353,13 @@ describe('ptah provider set-key', () => {
       hooks,
     );
 
-    expect(exit).toBe(ExitCode.InternalFailure);
+    expect(exit).toBe(ExitCode.AuthRequired);
     const last = formatterTrace.notifications.at(-1);
     expect(last?.method).toBe('task.error');
-    expect((last?.params as Record<string, unknown>)?.['message']).toBe(
-      'invalid key prefix',
-    );
+    const params = last?.params as Record<string, unknown>;
+    expect(params?.['message']).toBe('invalid key prefix');
+    expect(params?.['ptah_code']).toBe('auth_required');
+    expect(params?.['verified']).toBe(false);
   });
 });
 

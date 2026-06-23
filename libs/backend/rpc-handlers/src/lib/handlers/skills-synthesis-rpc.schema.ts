@@ -16,15 +16,18 @@ export const SkillSynthesisSettingsSchema = z.object({
   eligibilityMinTurns: z.coerce.number().int().min(1).max(100),
   evictionDecayRate: z.coerce.number().min(0).max(1),
   generalizationContextThreshold: z.coerce.number().int().min(1).max(100),
-  minTrajectoryFidelityRatio: z.coerce.number().min(0).max(1),
   dedupClusterThreshold: z.coerce.number().min(0).max(1),
-  minAbstractionEditDistance: z.coerce.number().min(0).max(1),
+  prefilterMinEdits: z.coerce.number().int().min(0).max(100),
+  prefilterMinChars: z.coerce.number().int().min(0).max(100000),
+  prefilterMinToolUses: z.coerce.number().int().min(0).max(100),
   judgeEnabled: z.boolean(),
   minJudgeScore: z.coerce.number().min(0).max(10),
   judgeModel: z.string(),
   maxPinnedSkills: z.coerce.number().int().min(0).max(1000),
   curatorEnabled: z.boolean(),
   curatorIntervalHours: z.coerce.number().int().min(1).max(8760),
+  suggestionMinClusterSize: z.coerce.number().int().min(2).max(100),
+  suggestionMaxCandidates: z.coerce.number().int().min(1).max(5000),
 });
 
 export type SkillSynthesisSettingsInput = z.infer<
@@ -92,6 +95,11 @@ export const SkillTriggersSchema = z.object({
       minEditCount: z.number().int().min(1).max(20),
     })
     .optional(),
+  turnComplete: z
+    .object({
+      enabled: z.boolean(),
+    })
+    .optional(),
   maxAnalyzesPerHour: z.number().int().min(0).max(1000).optional(),
 });
 
@@ -100,3 +108,85 @@ export const SkillSetTriggersParamsSchema = z.object({
 });
 
 export const SkillGetTriggersParamsSchema = z.object({}).strict().optional();
+
+const SkillCloneKindSchema = z.enum(['skill', 'agent', 'command']);
+
+const SlugSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/i, 'invalid slug')
+  .refine(
+    (s) => !s.includes('..') && !s.includes('/') && !s.includes('\\'),
+    'invalid slug',
+  );
+
+const HistoryTsSchema = z
+  .string()
+  .regex(/^\d+(-\d+)?$/, 'invalid history timestamp');
+
+export const SkillListClonesParamsSchema = z.object({}).strict().optional();
+
+export const SkillGetCloneParamsSchema = z.object({
+  slug: SlugSchema,
+  kind: SkillCloneKindSchema,
+});
+
+export const SkillEnhanceNowParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
+  slug: SlugSchema,
+});
+
+export const SkillRevertEnhancementParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
+  slug: SlugSchema,
+  historyTs: HistoryTsSchema,
+});
+
+export const SkillRebaseCloneParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
+  slug: SlugSchema,
+});
+
+export const SkillKeepCloneParamsSchema = z.object({
+  kind: SkillCloneKindSchema,
+  slug: SlugSchema,
+});
+
+export const SkillInvocationStatsParamsSchema = z.object({
+  slug: SlugSchema,
+});
+
+const SuggestionStatusSchema = z.enum(['pending', 'accepted', 'dismissed']);
+
+export const SkillListSuggestionsParamsSchema = z
+  .object({
+    status: SuggestionStatusSchema.optional(),
+  })
+  .optional();
+
+export const SkillAcceptSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+});
+
+export const SkillDismissSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+  reason: z.string().max(500).optional(),
+});
+
+export const SkillGetSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+});
+
+export const SkillUpdateSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+  // No newlines: the name becomes the SKILL.md frontmatter `name:` line.
+  name: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(/^[^\r\n]+$/, 'name must be a single line')
+    .optional(),
+  description: z.string().min(1).max(4000).optional(),
+  body: z.string().min(1).max(100000).optional(),
+});

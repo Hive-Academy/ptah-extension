@@ -21,6 +21,7 @@ import {
   ChangeDetectionStrategy,
   inject,
   signal,
+  computed,
   effect,
   untracked,
   Type,
@@ -37,6 +38,9 @@ import {
   MessageSquare,
   LayoutGrid,
   Wrench,
+  Store,
+  RadioTower,
+  Scale,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
@@ -238,6 +242,28 @@ import {
             <button
               role="tab"
               class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'thoth'"
+              [attr.aria-selected]="appState.currentView() === 'thoth'"
+              title="Thoth — agentic platform"
+              (click)="openThoth()"
+            >
+              <lucide-angular [img]="RadioTowerIcon" class="w-3.5 h-3.5" />
+              Thoth
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'tribunal'"
+              [attr.aria-selected]="appState.currentView() === 'tribunal'"
+              title="Tribunal — multi-vendor panel"
+              (click)="openTribunal()"
+            >
+              <lucide-angular [img]="ScaleIcon" class="w-3.5 h-3.5" />
+              Tribunal
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
               [class.tab-active]="appState.currentView() === 'setup-hub'"
               [attr.aria-selected]="appState.currentView() === 'setup-hub'"
               title="Setup Hub"
@@ -246,6 +272,19 @@ import {
               <lucide-angular [img]="WrenchIcon" class="w-3.5 h-3.5" />
               Setup
             </button>
+            @if (isPremium()) {
+              <button
+                role="tab"
+                class="tab gap-1.5 no-drag"
+                [class.tab-active]="appState.currentView() === 'marketplace'"
+                [attr.aria-selected]="appState.currentView() === 'marketplace'"
+                title="Marketplace"
+                (click)="openMarketplace()"
+              >
+                <lucide-angular [img]="StoreIcon" class="w-3.5 h-3.5" />
+                Marketplace
+              </button>
+            }
             <button
               role="tab"
               class="tab gap-1.5 no-drag"
@@ -519,6 +558,11 @@ export class ElectronShellComponent {
   private readonly vscodeService = inject(VSCodeService);
   protected readonly appState = inject(AppStateManager);
 
+  /** Whether the user has Pro — gates the Marketplace navbar tab (TASK_2026_131). */
+  protected readonly isPremium = computed(
+    () => this.chatStore.licenseStatus()?.isPremium ?? false,
+  );
+
   /** Lazily loaded EditorPanelComponent — keeps xterm/monaco out of the initial bundle. */
   readonly editorComponent = signal<Type<unknown> | null>(null);
 
@@ -543,6 +587,9 @@ export class ElectronShellComponent {
   readonly MessageSquareIcon = MessageSquare;
   readonly LayoutGridIcon = LayoutGrid;
   readonly WrenchIcon = Wrench;
+  readonly StoreIcon = Store;
+  readonly RadioTowerIcon = RadioTower;
+  readonly ScaleIcon = Scale;
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
@@ -564,7 +611,22 @@ export class ElectronShellComponent {
     this.appState.setCurrentView('analytics');
   }
 
+  openThoth(): void {
+    if (!this.appState.thothFirstRunDismissed()) {
+      this.appState.dismissThothFirstRun();
+    }
+    this.appState.setCurrentView('thoth');
+  }
+
   openSetupHub(): void {
     this.appState.setCurrentView('setup-hub');
+  }
+
+  openMarketplace(): void {
+    this.appState.setCurrentView('marketplace');
+  }
+
+  openTribunal(): void {
+    this.appState.setCurrentView('tribunal');
   }
 }

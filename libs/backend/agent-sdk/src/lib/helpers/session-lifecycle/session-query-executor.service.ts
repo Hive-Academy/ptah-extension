@@ -87,13 +87,11 @@ export class SessionQueryExecutor {
       pluginPaths,
       pathToClaudeCodeExecutable,
       forkSession,
-      resumeSessionAt,
       enableFileCheckpointing,
       includePartialMessages,
       mcpServersOverride,
       initialUserQuery,
       authEnvOverride,
-      warmQuery,
     } = config;
 
     this.logger.info(
@@ -141,13 +139,22 @@ export class SessionQueryExecutor {
         abortController,
       );
       const currentLevel = this.permissionHandler.getPermissionLevel();
+      // Seed this session's level on its record and bind the canUseTool
+      // resolver to it. Reading `rec.permissionLevel` live keeps mid-session
+      // toggles working while scoping the level per session — a tool call here
+      // never sees the level of a session running in another workspace.
+      rec.permissionLevel = currentLevel;
+      const permissionLevelResolver = () => rec.permissionLevel;
+      // YOLO maps to 'default' (not 'bypassPermissions') so the canUseTool
+      // callback always runs — it auto-approves every tool for yolo while still
+      // routing AskUserQuestion/ExitPlanMode to the UI. The only SDK modes the
+      // interactive path can produce are 'default' | 'acceptEdits' | 'plan'.
       const initialPermissionMode =
         currentLevel === 'ask'
           ? 'default'
           : (PERMISSION_MODE_MAP[currentLevel] as
               | 'default'
               | 'acceptEdits'
-              | 'bypassPermissions'
               | 'plan');
       let providerErrorAborted = false;
       const queryOptions = await this.queryOptionsBuilder.build({
@@ -164,9 +171,9 @@ export class SessionQueryExecutor {
         enhancedPromptsContent,
         pluginPaths,
         permissionMode: initialPermissionMode,
+        permissionLevelResolver,
         pathToClaudeCodeExecutable,
         forkSession,
-        resumeSessionAt,
         enableFileCheckpointing: enableFileCheckpointing ?? true,
         includePartialMessages,
         mcpServersOverride,
@@ -228,41 +235,12 @@ export class SessionQueryExecutor {
         isSlashCommand,
         promptMode,
       });
-      const canUseWarmQuery =
-        !!warmQuery &&
-        typeof (warmQuery as { query?: unknown }).query === 'function' &&
-        !isResume &&
-        !forkSession &&
-        !isSlashCommand;
-      if (warmQuery && !canUseWarmQuery) {
-        try {
-          warmQuery.close();
-          this.logger.info(
-            `[SessionLifecycle] Discarding warm handle for session ${sessionId} — ` +
-              `session shape ineligible (isResume=${isResume}, ` +
-              `forkSession=${!!forkSession}, isSlashCommand=${isSlashCommand})`,
-          );
-        } catch (closeErr) {
-          this.logger.warn(
-            '[SessionLifecycle] WarmQuery.close() threw during fall-through',
-            closeErr instanceof Error ? closeErr : new Error(String(closeErr)),
-          );
-        }
-      }
-
       const runResult = this.queryRunner.invokeWithLoadedQuery(
         queryFn,
         effectivePrompt,
         queryOptions.options as Options,
-        canUseWarmQuery && warmQuery ? warmQuery : null,
       );
       const sdkQuery: Query = runResult.sdkQuery;
-      if (runResult.usedWarmQuery) {
-        this.logger.info(
-          `[SessionLifecycle] Used warm subprocess for session ${sessionId} ` +
-            `(skipped spawn+handshake)`,
-        );
-      }
       const initialModel = queryOptions.options.model ?? '';
       if (isResume && !isSlashCommand) {
         sdkQuery.streamInput(userMessageStream).catch((err) => {

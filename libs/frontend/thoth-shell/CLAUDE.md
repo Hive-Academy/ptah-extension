@@ -4,7 +4,7 @@
 
 ## Purpose
 
-The four-tab "Thoth" hub component composing the agentic-platform features (Memory · Skills · Schedules · Messaging). Hosts the tab strip, persists the active tab via `AppStateManager`, and slots in the per-feature tab components.
+The four-tab "Thoth" hub component composing the agentic-platform features (Memory · Skills · Schedules · Messaging). Hosts the sidebar tab rail, persists the active tab via `AppStateManager`, and slots in the per-feature tab components. Each sidebar item is a clickable **status tile** that shows that pillar's live metric (facts / pending candidates / jobs / running adapters) sourced from `ThothStatusService.pillars` (`@ptah-extension/dashboard`) — there is no separate status row above the content.
 
 ## Difference from `webview-shell`
 
@@ -25,18 +25,19 @@ From `src/index.ts`: `ThothShellComponent`, `ThothActiveTabId` (`'memory' | 'ski
 
 ## Key Files
 
-- `src/lib/components/thoth-shell.component.ts:35` — single composite component; OnPush; standalone; imports the four tab components from their feature libs; `electronOnly: true` flag filters cron/gateway when `!vscode.isElectron`; persists `activeTab` through `AppStateManager.thothActiveTab`.
+- `src/lib/components/thoth-shell.component.ts:35` — single composite component; OnPush; standalone; imports the four tab components from their feature libs; `electronOnly: true` flag filters cron/gateway when `!vscode.isElectron`; persists `activeTab` through `AppStateManager.thothActiveTab`; sidebar tiles read `ThothStatusService.pillars` and a one-shot `refreshIfNeeded()` fires on init.
 
 ## State Management
 
 - Signals + `computed`.
 - Tab visibility is computed from `ThothTabSpec[]` filtered by `electronOnly` vs current platform.
 - Active tab read/written via `AppStateManager`.
+- Live per-tile metrics come from `ThothStatusService.pillars` (keyed by tab id); the shell triggers the lazy refresh on init.
 
 ## Dependencies
 
-**Internal**: `@ptah-extension/core` (`AppStateManager`, `VSCodeService`), `@ptah-extension/memory-curator-ui`, `@ptah-extension/skill-synthesis-ui`, `@ptah-extension/cron-scheduler-ui`, `@ptah-extension/messaging-gateway-ui`.
-**External**: `lucide-angular` (`RadioTower`), `@angular/common`.
+**Internal**: `@ptah-extension/core` (`AppStateManager`, `VSCodeService`), `@ptah-extension/dashboard` (`ThothStatusService`, `ThothGatewayBadge`), `@ptah-extension/memory-curator-ui`, `@ptah-extension/skill-synthesis-ui`, `@ptah-extension/cron-scheduler-ui`, `@ptah-extension/messaging-gateway-ui`.
+**External**: `lucide-angular`, `@angular/common`.
 
 ## Angular Conventions Observed
 

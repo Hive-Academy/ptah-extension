@@ -14,11 +14,10 @@ import {
   Lock,
   Key,
   Cpu,
-  Puzzle,
-  ScanSearch,
   Download,
   Upload,
   ArrowLeftRight,
+  Globe,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth/auth-config.component';
 import { ProviderModelSelectorComponent } from './auth/provider-model-selector.component';
@@ -29,18 +28,11 @@ import { McpPortConfigComponent } from './pro-features/mcp-port-config.component
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
-import {
-  PluginStatusWidgetComponent,
-  PluginBrowserModalComponent,
-  SetupStatusWidgetComponent,
-  SkillShBrowserComponent,
-  McpDirectoryBrowserComponent,
-} from '@ptah-extension/chat-ui';
+import { VoiceConfigComponent } from './ptah-ai/voice-config.component';
 import {
   AppStateManager,
   ClaudeRpcService,
   AuthStateService,
-  CommandDiscoveryFacade,
   VSCodeService,
 } from '@ptah-extension/core';
 import { ChatStore } from '../services/chat.store';
@@ -76,11 +68,7 @@ import { ChatStore } from '../services/chat.store';
     AgentOrchestrationConfigComponent,
     PtahCliConfigComponent,
     WebSearchConfigComponent,
-    PluginStatusWidgetComponent,
-    PluginBrowserModalComponent,
-    SetupStatusWidgetComponent,
-    SkillShBrowserComponent,
-    McpDirectoryBrowserComponent,
+    VoiceConfigComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',
@@ -89,7 +77,6 @@ import { ChatStore } from '../services/chat.store';
 export class SettingsComponent implements OnInit {
   private readonly appState = inject(AppStateManager);
   private readonly rpcService = inject(ClaudeRpcService);
-  private readonly commandDiscovery = inject(CommandDiscoveryFacade);
   private readonly vscodeService = inject(VSCodeService);
   readonly authState = inject(AuthStateService);
   private readonly chatStore = inject(ChatStore);
@@ -101,25 +88,25 @@ export class SettingsComponent implements OnInit {
   readonly LockIcon = Lock;
   readonly KeyIcon = Key;
   readonly CpuIcon = Cpu;
-  readonly PuzzleIcon = Puzzle;
-  readonly ScanSearchIcon = ScanSearch;
   readonly DownloadIcon = Download;
   readonly UploadIcon = Upload;
   readonly ArrowLeftRightIcon = ArrowLeftRight;
+  readonly GlobeIcon = Globe;
   readonly isExporting = signal(false);
   readonly isImporting = signal(false);
   readonly activeSettingsTab = signal<
-    'claude-auth' | 'ptah-ai' | 'ptah-skills' | 'project-setup'
+    'claude-auth' | 'orchestration' | 'pro-features' | 'tools'
   >('claude-auth');
-  readonly activePtahAiSubTab = signal<'orchestration' | 'pro-features'>(
-    'orchestration',
-  );
 
-  /** Whether the plugin browser modal is open */
-  readonly isPluginBrowserOpen = signal(false);
+  /**
+   * Provider id carried by a deep-link into the settings page (e.g. the
+   * tribunal panel's "Configure" action). Forwarded to PtahCliConfigComponent
+   * so it auto-opens the add form pre-selected to that provider.
+   */
+  readonly requestedProviderId = signal<string | undefined>(undefined);
 
-  /** Counter incremented on plugin config save to trigger skill-sh-browser refresh */
-  readonly skillRefreshTrigger = signal(0);
+  readonly isElectron = this.vscodeService.isElectron;
+
   readonly isPremium = computed(
     () => this.chatStore.licenseStatus()?.isPremium ?? false,
   );
@@ -155,6 +142,11 @@ export class SettingsComponent implements OnInit {
    * ChatStore (already fetched at app init).
    */
   async ngOnInit(): Promise<void> {
+    const pending = this.appState.consumePendingSettingsTab();
+    if (pending) {
+      this.setActiveTab(pending.tab);
+      this.requestedProviderId.set(pending.providerId);
+    }
     await this.authState.loadAuthStatus();
   }
 
@@ -162,33 +154,9 @@ export class SettingsComponent implements OnInit {
    * Switch active settings tab
    */
   setActiveTab(
-    tab: 'claude-auth' | 'ptah-ai' | 'ptah-skills' | 'project-setup',
+    tab: 'claude-auth' | 'orchestration' | 'pro-features' | 'tools',
   ): void {
     this.activeSettingsTab.set(tab);
-  }
-
-  /**
-   * Switch active Ptah AI sub-tab
-   */
-  setPtahAiSubTab(subTab: 'orchestration' | 'pro-features'): void {
-    this.activePtahAiSubTab.set(subTab);
-  }
-
-  /** Open the plugin browser modal */
-  openPluginBrowser(): void {
-    this.isPluginBrowserOpen.set(true);
-  }
-
-  /** Close the plugin browser modal */
-  closePluginBrowser(): void {
-    this.isPluginBrowserOpen.set(false);
-  }
-
-  /** Handle plugins saved event from modal */
-  onPluginsSaved(_enabledIds: string[]): void {
-    this.isPluginBrowserOpen.set(false);
-    this.commandDiscovery.clearCache();
-    this.skillRefreshTrigger.update((n) => n + 1);
   }
 
   /**

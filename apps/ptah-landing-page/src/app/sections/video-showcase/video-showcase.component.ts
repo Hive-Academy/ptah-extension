@@ -33,7 +33,7 @@ import { YouTubePlayer } from '@angular/youtube-player';
               class="w-4 h-4"
               aria-hidden="true"
             />
-            WHAT PTAH OFFERS
+            FULL PLATFORM WALKTHROUGH
           </span>
         </div>
 
@@ -43,11 +43,11 @@ import { YouTubePlayer } from '@angular/youtube-player';
           [viewportConfig]="headlineConfig"
           class="text-center text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-white mb-6 leading-tight"
         >
-          Everything You Need to
+          One Orchestra. Every Model.
           <span
             class="bg-gradient-to-r from-[#d4af37] via-[#f4d47c] to-[#8a6d10] bg-clip-text text-transparent"
           >
-            Ship Faster
+            Three Runtimes.
           </span>
         </h2>
 
@@ -57,7 +57,8 @@ import { YouTubePlayer } from '@angular/youtube-player';
           [viewportConfig]="subtitleConfig"
           class="text-center text-lg sm:text-xl md:text-2xl text-gray-400 max-w-2xl mx-auto mb-14"
         >
-          See Ptah in action — one harness, every model, total control
+          Watch Ptah orchestrate agents, switch providers live, and deploy
+          headless — 8 minutes.
         </p>
 
         <!-- Video Card -->
@@ -83,7 +84,7 @@ import { YouTubePlayer } from '@angular/youtube-player';
                   Ptah — AI Coding Orchestra
                 </h3>
                 <p class="text-gray-500 text-sm mt-0.5">
-                  Full showcase walkthrough
+                  VS Code + Electron + CLI — full platform demo
                 </p>
               </div>
               <span
@@ -104,9 +105,11 @@ import { YouTubePlayer } from '@angular/youtube-player';
       }
 
       .video-card {
-        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05),
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.05),
           0 25px 60px -12px rgba(0, 0, 0, 0.6),
-          0 0 40px rgba(212, 175, 55, 0.08), 0 0 80px rgba(212, 175, 55, 0.04);
+          0 0 40px rgba(212, 175, 55, 0.08),
+          0 0 80px rgba(212, 175, 55, 0.04);
       }
 
       .video-wrapper {

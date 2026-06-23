@@ -77,6 +77,7 @@ export type {
   LicenseEvents,
   LicenseTierValue,
 } from './services/license.service';
+export { PREVIOUS_USER_CONTEXT_KEY } from './services/license/license-cache';
 export { FeatureGateService } from './services/feature-gate.service';
 export type { Feature, ProOnlyFeature } from './services/feature-gate.service';
 export { SentryService } from './services/sentry.service';
@@ -84,7 +85,15 @@ export type {
   SentryInitOptions,
   SentryErrorContext,
 } from './services/sentry.service';
+export { SentryTracerAdapter } from './services/sentry-tracer.adapter';
+export { NoopTracer } from './services/noop-tracer';
 export { GitInfoService } from './services/git-info.service';
+export {
+  execGit,
+  DEFAULT_GIT_TIMEOUT_MS,
+  WORKTREE_GIT_TIMEOUT_MS,
+} from './utils/exec-git';
+export type { ExecGitOptions, ExecGitResult } from './utils/exec-git';
 export { WorkspaceContextManager } from './services/workspace-context-manager';
 export { WorkspaceAwareStateStorage } from './services/workspace-aware-state-storage';
 export type { StateStorageFactory } from './services/workspace-aware-state-storage';

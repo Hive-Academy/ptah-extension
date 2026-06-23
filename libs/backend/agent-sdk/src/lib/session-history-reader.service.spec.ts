@@ -28,6 +28,8 @@ import type { SessionReplayService } from './helpers/history/session-replay.serv
 import { HistoryEventFactory } from './helpers/history/history-event-factory';
 import type { SessionHistoryMessage } from './helpers/history/history.types';
 import type { IModelResolver } from './auth-env.port';
+import type { IPricingProvider } from './pricing.port';
+import type { AuthEnv, ModelPricing } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -53,6 +55,8 @@ interface Stubs {
     Pick<SessionReplayService, 'replayToStreamEvents'>
   >;
   modelResolver: jest.Mocked<Pick<IModelResolver, 'resolveForPricing'>>;
+  pricingProvider: jest.Mocked<IPricingProvider>;
+  authEnv: AuthEnv;
   logger: MockLogger;
 }
 
@@ -69,6 +73,10 @@ function makeStubs(): Stubs {
     modelResolver: {
       resolveForPricing: jest.fn((m: string) => m || 'unknown'),
     },
+    pricingProvider: {
+      getPricing: jest.fn().mockResolvedValue(null),
+    },
+    authEnv: {} as AuthEnv,
     logger: createMockLogger(),
   };
 }
@@ -81,6 +89,8 @@ function makeService(stubs: Stubs): SessionHistoryReaderService {
     stubs.replayService as unknown as SessionReplayService,
     factory,
     stubs.modelResolver as unknown as IModelResolver,
+    stubs.authEnv,
+    stubs.pricingProvider,
   );
 }
 
@@ -427,26 +437,52 @@ describe('SessionHistoryReaderService', () => {
   // -------------------------------------------------------------------------
 
   describe('resolveNativeMessageId', () => {
-    const NATIVE_ID = 'msg_01AbCdEfGhIjKlMnOpQrStUvWxYz';
+    const LINE_UUID = '7bca7123-f9f4-4981-ad04-3b982ee225e1';
+    const LINE_UUID_2 = '72a17af6-3e28-450a-90c3-f5082b343d6b';
+    const ANTHROPIC_ID = 'msg_01AbCdEfGhIjKlMnOpQrStUvWxYz';
     const PTAH_ID = 'msg_1778055502540_cegogbr';
 
-    it('returns a native Anthropic UUID unchanged without reading JSONL (fast path)', async () => {
+    it('returns a transcript line UUID unchanged without reading JSONL (fast path)', async () => {
       const stubs = makeStubs();
       const service = makeService(stubs);
 
       const result = await service.resolveNativeMessageId(
         'valid-session',
         '/workspace',
-        NATIVE_ID,
+        LINE_UUID,
       );
 
-      expect(result).toBe(NATIVE_ID);
+      expect(result).toBe(LINE_UUID);
       // Fast path â€” no I/O
       expect(stubs.jsonlReader.findSessionsDirectory).not.toHaveBeenCalled();
       expect(stubs.jsonlReader.readJsonlMessages).not.toHaveBeenCalled();
     });
 
-    it('throws SdkError when Ptah ID is at index 0 and no preceding native UUID exists', async () => {
+    it('maps an Anthropic message id (msg_01...) to its owning line UUID', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/home/user/.claude/projects/workspace',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'assistant',
+          uuid: LINE_UUID,
+          timestamp: '2026-01-01T00:00:00Z',
+          message: { role: 'assistant', id: ANTHROPIC_ID },
+        } as SessionHistoryMessage,
+      ]);
+
+      const service = makeService(stubs);
+      const result = await service.resolveNativeMessageId(
+        'valid-session',
+        '/workspace',
+        ANTHROPIC_ID,
+      );
+
+      expect(result).toBe(LINE_UUID);
+    });
+
+    it('throws the unresolvable-anchor SdkError when a Ptah ID is at index 0 and no preceding line UUID exists', async () => {
       const stubs = makeStubs();
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
         '/home/user/.claude/projects/workspace',
@@ -460,16 +496,17 @@ describe('SessionHistoryReaderService', () => {
       ]);
 
       const service = makeService(stubs);
+      // No line UUID to anchor on and no text hint → the unified
+      // "not found in session history" error, which carries the phrase the
+      // fork/rewind callers treat as an expected (non-Sentry) user condition.
       await expect(
         service.resolveNativeMessageId('valid-session', '/workspace', PTAH_ID),
       ).rejects.toMatchObject({
-        message: expect.stringContaining(
-          'no native SDK UUID exists at or before that position',
-        ),
+        message: expect.stringContaining('not found in session history'),
       });
     });
 
-    it('walks backward and returns nearest preceding native UUID for Ptah ID', async () => {
+    it('resolves a client-only optimistic id to the real line UUID via the prompt-text hint', async () => {
       const stubs = makeStubs();
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
         '/home/user/.claude/projects/workspace',
@@ -477,7 +514,46 @@ describe('SessionHistoryReaderService', () => {
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'user',
-          uuid: NATIVE_ID,
+          uuid: LINE_UUID,
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'commit' }],
+          },
+          timestamp: '2026-01-01T00:00:00Z',
+        } as SessionHistoryMessage,
+        {
+          type: 'user',
+          uuid: LINE_UUID_2,
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'commit' }],
+          },
+          timestamp: '2026-01-01T00:00:02Z',
+        } as SessionHistoryMessage,
+      ]);
+
+      const service = makeService(stubs);
+
+      // The optimistic id is absent from the transcript; the hint recovers the
+      // real UUID. occurrence:1 selects the SECOND identical "commit" prompt.
+      const result = await service.resolveNativeMessageId(
+        'valid-session',
+        '/workspace',
+        'msg_1780940558448_oekdvwh',
+        { text: 'commit', occurrence: 1 },
+      );
+      expect(result).toBe(LINE_UUID_2);
+    });
+
+    it('walks backward and returns nearest preceding line UUID for a Ptah ID', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/home/user/.claude/projects/workspace',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'user',
+          uuid: LINE_UUID_2,
           timestamp: '2026-01-01T00:00:00Z',
         } as SessionHistoryMessage,
         {
@@ -494,8 +570,8 @@ describe('SessionHistoryReaderService', () => {
         PTAH_ID,
       );
 
-      // PTAH_ID is at index 1; walking backward hits NATIVE_ID at index 0.
-      expect(result).toBe(NATIVE_ID);
+      // PTAH_ID is at index 1; walking backward hits LINE_UUID_2 at index 0.
+      expect(result).toBe(LINE_UUID_2);
     });
 
     it('throws SdkError when the ID is not found in JSONL at all', async () => {
@@ -506,7 +582,7 @@ describe('SessionHistoryReaderService', () => {
       stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
         {
           type: 'user',
-          uuid: 'msg_01OtherNative',
+          uuid: LINE_UUID,
           timestamp: '2026-01-01T00:00:00Z',
         } as SessionHistoryMessage,
       ]);
@@ -550,6 +626,134 @@ describe('SessionHistoryReaderService', () => {
       ).rejects.toMatchObject({
         message: expect.stringContaining('session file not found'),
       });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // hydrateMissingPricing (CP 1.5c) — historical JSONL cost backfill
+  // -------------------------------------------------------------------------
+
+  describe('hydrateMissingPricing (CP 1.5c)', () => {
+    function buildAssistantMessage(
+      uuid: string,
+      model: string,
+      input: number,
+      output: number,
+    ): SessionHistoryMessage {
+      return {
+        type: 'assistant',
+        uuid,
+        message: {
+          role: 'assistant',
+          model,
+          content: [{ type: 'text', text: 'reply' }],
+          usage: {
+            input_tokens: input,
+            output_tokens: output,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+        },
+        usage: {
+          input_tokens: input,
+          output_tokens: output,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      } as SessionHistoryMessage;
+    }
+
+    beforeEach(() => {
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('hydrates missing pricing for direct Anthropic when session JSONL has unknown model IDs', async () => {
+      const unknownModel = 'claude-opus-4-91-hydrate-direct';
+      const stubs = makeStubs();
+      stubs.authEnv = { ANTHROPIC_BASE_URL: '' } as AuthEnv;
+      const hydrated: ModelPricing = {
+        inputCostPerToken: 10e-6,
+        outputCostPerToken: 50e-6,
+        provider: 'anthropic',
+      };
+      stubs.pricingProvider.getPricing = jest.fn(async (modelId: string) =>
+        modelId === unknownModel ? hydrated : null,
+      );
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        buildAssistantMessage('a1', unknownModel, 1000, 500),
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stubs.pricingProvider.getPricing).toHaveBeenCalledWith(
+        unknownModel,
+      );
+      expect(stats).not.toBeNull();
+      // 1000 * 10e-6 + 500 * 50e-6 = 0.01 + 0.025 = 0.035
+      expect(stats?.totalCost).toBeCloseTo(0.035, 6);
+    });
+
+    it('skips backfill for third-party (OpenRouter) historical sessions', async () => {
+      const unknownModel = 'claude-opus-4-92-skip-thirdparty';
+      const stubs = makeStubs();
+      stubs.authEnv = {
+        ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
+      } as AuthEnv;
+      stubs.pricingProvider.getPricing = jest.fn();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        buildAssistantMessage('a1', unknownModel, 1000, 500),
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stubs.pricingProvider.getPricing).not.toHaveBeenCalled();
+      expect(stats).not.toBeNull();
+      expect(stats?.totalCost).toBeNull();
+    });
+
+    it('does not call pricing provider for already-known models', async () => {
+      const stubs = makeStubs();
+      stubs.authEnv = { ANTHROPIC_BASE_URL: '' } as AuthEnv;
+      stubs.pricingProvider.getPricing = jest.fn();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(
+        '/sessions/dir',
+      );
+      // gpt-4o is a known entry in DEFAULT_MODEL_PRICING — no hydration needed.
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        buildAssistantMessage('a1', 'gpt-4o', 1000, 500),
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+
+      const service = makeService(stubs);
+      const { stats } = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
+
+      expect(stubs.pricingProvider.getPricing).not.toHaveBeenCalled();
+      expect(stats).not.toBeNull();
+      // 1000 * 2.5e-6 + 500 * 10e-6 = 0.0025 + 0.005 = 0.0075
+      expect(stats?.totalCost).toBeCloseTo(0.0075, 6);
     });
   });
 });

@@ -12,7 +12,6 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
-import { DEFAULT_FALLBACK_MODEL_ID } from '@ptah-extension/agent-sdk';
 import type {
   HarnessDesignAgentsParams,
   HarnessDesignAgentsResponse,
@@ -147,8 +146,7 @@ Return ONLY the JSON object matching the schema.`;
         timeoutMs: 45_000,
         execute: {
           cwd: workspaceRoot,
-          model:
-            this.modelSettings.selectedModel.get() || DEFAULT_FALLBACK_MODEL_ID,
+          model: this.modelSettings.selectedModel.get() || 'default',
           prompt,
           systemPromptAppend:
             "You are a subagent fleet architect. Design creative, practical subagents that automate the user's most valuable workflows. Be specific about tools and triggers. Use the available ptah.harness tools to enhance your recommendations: searchSkills(query?) to find existing skills relevant to the user's needs, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed in the workspace. Actively search for and recommend additional skills and MCP servers beyond what the user explicitly asked for. After using tools, return your structured JSON response.",

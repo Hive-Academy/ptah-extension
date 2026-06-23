@@ -31,10 +31,12 @@ import type {
   GitInfoService,
   Logger,
   RpcHandler,
+  WebviewManager,
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
+  GitInfoParams,
   GitInfoResult,
   GitWorktreesResult,
   GitAddWorktreeParams,
@@ -97,6 +99,8 @@ export class GitRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject(TOKENS.GIT_INFO_SERVICE)
     private readonly gitInfo: GitInfoService,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: WebviewManager,
   ) {}
 
   register(): void {
@@ -118,16 +122,17 @@ export class GitRpcHandlers {
   }
 
   /**
-   * git:info - Returns branch info and changed file list for the active workspace.
-   * If no workspace is open or it's not a git repo, returns a non-git default.
+   * git:info - Returns branch info and changed file list for the workspace
+   * folder named in `params.workspaceRoot`, falling back to the active
+   * workspace when omitted. An unregistered folder, or no workspace at all,
+   * returns a non-git default.
    */
   private registerGitInfo(): void {
-    this.rpcHandler.registerMethod<Record<string, never>, GitInfoResult>(
+    this.rpcHandler.registerMethod<GitInfoParams, GitInfoResult>(
       'git:info',
-      async () => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+      async (params) => {
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:info');
         if (!wsRoot) {
-          this.logger.debug('[GitRpc] git:info called with no workspace open');
           return {
             isGitRepo: false,
             branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
@@ -138,6 +143,41 @@ export class GitRpcHandlers {
         return this.gitInfo.getGitInfo(wsRoot);
       },
     );
+  }
+
+  /**
+   * Resolve the workspace folder a git operation should run in.
+   *
+   * When the caller names a folder, it must be one of the registered
+   * workspace folders — an unregistered folder resolves to undefined rather
+   * than falling back to the active folder, so a stale or malicious request
+   * can never read from (or worse, mutate) a different repository. With no
+   * folder named, the active workspace folder is used.
+   */
+  private resolveRoot(
+    requested: string | undefined,
+    method: string,
+  ): string | undefined {
+    if (requested) {
+      if (this.isRegisteredFolder(requested)) {
+        return requested;
+      }
+      this.logger.warn(
+        `[GitRpc] ${method} called with unregistered workspaceRoot`,
+        { workspaceRoot: requested } as unknown as Error,
+      );
+      return undefined;
+    }
+    return this.workspace.getWorkspaceRoot();
+  }
+
+  private isRegisteredFolder(requested: string): boolean {
+    const normalize = (p: string): string =>
+      p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    const target = normalize(requested);
+    return this.workspace
+      .getWorkspaceFolders()
+      .some((folder) => normalize(folder) === target);
   }
 
   /**
@@ -161,7 +201,14 @@ export class GitRpcHandlers {
 
   /**
    * git:addWorktree - Creates a new git worktree at the specified path/branch.
-   * Delegates to GitInfoService.addWorktree() for the actual git CLI call.
+   *
+   * When `operationId` is supplied the handler returns immediately with
+   * `{ success: true, pending: true, operationId }` and runs the git
+   * subprocess in the background. The terminal result is delivered via a
+   * `git:worktreeChanged` push with the same `operationId`.
+   *
+   * Falls back to the synchronous path when no `operationId` is supplied so
+   * legacy callers continue to work.
    */
   private registerAddWorktree(): void {
     this.rpcHandler.registerMethod<GitAddWorktreeParams, GitAddWorktreeResult>(
@@ -169,37 +216,62 @@ export class GitRpcHandlers {
       async (params) => {
         const wsRoot = this.workspace.getWorkspaceRoot();
         if (!wsRoot) {
-          return {
-            success: false,
-            error: 'No workspace folder open',
-          };
+          return { success: false, error: 'No workspace folder open' };
         }
-
         if (!params?.branch) {
-          return {
-            success: false,
-            error: 'branch is required',
-          };
+          return { success: false, error: 'branch is required' };
         }
 
         this.logger.info('[GitRpc] Adding worktree', {
           branch: params.branch,
           path: params.path,
           createBranch: params.createBranch,
+          operationId: params.operationId,
         } as unknown as Error);
 
-        return this.gitInfo.addWorktree(wsRoot, {
+        const work = this.gitInfo.addWorktree(wsRoot, {
           branch: params.branch,
           path: params.path,
           createBranch: params.createBranch,
         });
+
+        if (!params.operationId) {
+          return work;
+        }
+
+        const operationId = params.operationId;
+        void work
+          .then((result) =>
+            this.broadcastWorktreeChange({
+              action: 'created',
+              operationId,
+              success: result.success,
+              error: result.error,
+              path: result.worktreePath,
+              name: params.branch,
+            }),
+          )
+          .catch((error: unknown) => {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            void this.broadcastWorktreeChange({
+              action: 'created',
+              operationId,
+              success: false,
+              error: message,
+              name: params.branch,
+            });
+          });
+
+        return { success: true, pending: true, operationId };
       },
     );
   }
 
   /**
    * git:removeWorktree - Removes an existing git worktree.
-   * Delegates to GitInfoService.removeWorktree() for the actual git CLI call.
+   *
+   * Async-pending semantics mirror git:addWorktree above.
    */
   private registerRemoveWorktree(): void {
     this.rpcHandler.registerMethod<
@@ -208,26 +280,72 @@ export class GitRpcHandlers {
     >('git:removeWorktree', async (params) => {
       const wsRoot = this.workspace.getWorkspaceRoot();
       if (!wsRoot) {
-        return {
-          success: false,
-          error: 'No workspace folder open',
-        };
+        return { success: false, error: 'No workspace folder open' };
       }
-
       if (!params?.path) {
-        return {
-          success: false,
-          error: 'path is required',
-        };
+        return { success: false, error: 'path is required' };
       }
 
       this.logger.info('[GitRpc] Removing worktree', {
         worktreePath: params.path,
         force: params.force,
+        operationId: params.operationId,
       } as unknown as Error);
 
-      return this.gitInfo.removeWorktree(wsRoot, params.path, params.force);
+      const work = this.gitInfo.removeWorktree(
+        wsRoot,
+        params.path,
+        params.force,
+      );
+
+      if (!params.operationId) {
+        return work;
+      }
+
+      const operationId = params.operationId;
+      const removedPath = params.path;
+      void work
+        .then((result) =>
+          this.broadcastWorktreeChange({
+            action: 'removed',
+            operationId,
+            success: result.success,
+            error: result.error,
+            path: removedPath,
+          }),
+        )
+        .catch((error: unknown) => {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          void this.broadcastWorktreeChange({
+            action: 'removed',
+            operationId,
+            success: false,
+            error: message,
+            path: removedPath,
+          });
+        });
+
+      return { success: true, pending: true, operationId };
     });
+  }
+
+  private broadcastWorktreeChange(payload: {
+    action: 'created' | 'removed';
+    operationId: string;
+    success: boolean;
+    error?: string;
+    name?: string;
+    path?: string;
+  }): Promise<void> {
+    return this.webviewManager
+      .broadcastMessage('git:worktreeChanged', payload)
+      .catch((error: unknown) => {
+        this.logger.error(
+          '[GitRpc] Failed to broadcast git:worktreeChanged',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      });
   }
 
   /**
@@ -237,7 +355,7 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitStageParams, GitStageResult>(
       'git:stage',
       async (params) => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:stage');
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -258,7 +376,7 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitUnstageParams, GitUnstageResult>(
       'git:unstage',
       async (params) => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:unstage');
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -279,7 +397,7 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitDiscardParams, GitDiscardResult>(
       'git:discard',
       async (params) => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:discard');
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -305,7 +423,7 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitCommitParams, GitCommitResult>(
       'git:commit',
       async (params) => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:commit');
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -326,7 +444,7 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitShowFileParams, GitShowFileResult>(
       'git:showFile',
       async (params) => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:showFile');
         if (!wsRoot) {
           return { content: '' };
         }
@@ -348,7 +466,7 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitBranchesParams, GitBranchesResult>(
       'git:branches',
       async (params) => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:branches');
         if (!wsRoot) {
           this.logger.debug(
             '[GitRpc] git:branches called with no workspace open',
@@ -370,7 +488,7 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitCheckoutParams, GitCheckoutResult>(
       'git:checkout',
       async (params) => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:checkout');
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -401,8 +519,8 @@ export class GitRpcHandlers {
   private registerGitStashList(): void {
     this.rpcHandler.registerMethod<GitStashListParams, GitStashListResult>(
       'git:stashList',
-      async () => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+      async (params) => {
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:stashList');
         if (!wsRoot) {
           return { count: 0, entries: [] };
         }
@@ -419,7 +537,7 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitTagsParams, GitTagsResult>(
       'git:tags',
       async (params) => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:tags');
         if (!wsRoot) {
           return { tags: [] };
         }
@@ -435,8 +553,8 @@ export class GitRpcHandlers {
   private registerGitRemotes(): void {
     this.rpcHandler.registerMethod<GitRemotesParams, GitRemotesResult>(
       'git:remotes',
-      async () => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+      async (params) => {
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:remotes');
         if (!wsRoot) {
           return { remotes: [] };
         }
@@ -453,7 +571,10 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitLastCommitParams, GitLastCommitResult>(
       'git:lastCommit',
       async (params) => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+        const wsRoot = this.resolveRoot(
+          params?.workspaceRoot,
+          'git:lastCommit',
+        );
         if (!wsRoot) {
           return {
             hash: '',

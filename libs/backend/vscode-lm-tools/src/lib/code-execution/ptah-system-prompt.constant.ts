@@ -36,6 +36,37 @@ Search the web for current information. Returns structured results (title, URL, 
 ### ptah_json_validate { file, schema? }
 Validate and repair a JSON file. Extracts JSON from agent output (strips markdown fences, prose), repairs common issues (trailing commas, single quotes, unquoted keys, comments, unbalanced brackets), validates against optional schema, and overwrites with clean formatted JSON. Call after writing any JSON file.
 
+## Code Understanding — Prefer These Over Reading Whole Files / Grep
+
+These are first-class tools (call them directly — no execute_code needed).
+
+### ptah_ast_analyze { file }
+Tree-sitter structural analysis of a JS/TS file — functions, classes, imports, exports with line ranges — WITHOUT reading the full file (40-60% fewer tokens). Use BEFORE reading a file to understand its shape and decide what to read. Works on all runtimes.
+
+### ptah_context_enrich_file { file, language? }
+.d.ts-style structural summary (imports + signatures, no bodies). Use when you need a file's API surface, not its implementation. Works on all runtimes.
+
+### ptah_get_dependents { file }
+Files that import this file (reverse edges). Check blast radius BEFORE changing or renaming a module. Builds the workspace import graph on first use. Works on all runtimes.
+
+### ptah_get_dependencies { file, depth? }
+Files this file imports (forward edges). Understand what a module depends on. Works on all runtimes.
+
+### ptah_code_search_symbols { query, maxResults?, filePath? }
+Hybrid BM25 + vector search over indexed workspace symbols. Prefer over Grep to find a function/class by what it does across files. Returns an "index unavailable" result where the symbol index is absent (e.g. VS Code) — fall back to ptah_search_files / Grep there.
+
+### ptah_memory_search { query, maxResults?, global? }
+Search persistent cross-session memory (facts, preferences, prior decisions). Call when the user references past work ("last time", "previously", "the X we set up") or when prior context would help. Workspace-scoped by default. Returns "not available" where the memory store is absent (e.g. VS Code).
+
+### ptah_relevance_rank_files { query, limit? }
+Rank workspace files by relevance to a query, each with a 0-100 score and reasons. Use to triage which files to open first instead of guessing. Works on all runtimes.
+
+### ptah_get_symbol_index (no parameters)
+Map of file → exported symbol names across the workspace import graph. Use to find where a symbol is exported from. Builds the import graph on first use. Works on all runtimes.
+
+### ptah_project_detect_monorepo (no parameters)
+Detect monorepo tooling (nx/lerna/turbo/pnpm/yarn workspaces) and package count. Use to understand workspace layout before navigating a multi-package repo. Works on all runtimes.
+
 ## Stay Current — Search the Web Before Assumptions
 
 Your training data may be outdated — packages change, APIs evolve, and bugs get fixed. Before acting on assumed knowledge, do a quick web search using whatever search tool is available to you (\`ptah_web_search\`, built-in web search, or any other tool that can fetch current information). A quick search beats a long debugging session caused by stale knowledge.
@@ -169,7 +200,7 @@ Understand file relationships via import-based dependency graph:
 
 ## Multi-Agent Delegation — Fire-and-Check Pattern
 
-You have access to **agent orchestration tools** that let you spawn background workers using Gemini CLI, Codex SDK, or VS Code's built-in language model. Use these to delegate independent subtasks while you continue working.
+You have access to **agent orchestration tools** that let you spawn background workers using Codex SDK, Copilot SDK, or VS Code's built-in language model. Use these to delegate independent subtasks while you continue working.
 
 ### When to Delegate
 
@@ -185,7 +216,7 @@ You have access to **agent orchestration tools** that let you spawn background w
 | \`ptah_agent_spawn\` | Launch an agent with a task |
 | \`ptah_agent_status\` | Check agent progress (all or by ID) |
 | \`ptah_agent_read\` | Read agent output so far |
-| \`ptah_agent_steer\` | Send instruction to running CLI agent (Gemini only) |
+| \`ptah_agent_steer\` | Send instruction to running CLI agent (if supported) |
 | \`ptah_agent_stop\` | Stop a running agent |
 | \`ptah_agent_list\` | List all available agents and their status |
 
@@ -193,7 +224,6 @@ You have access to **agent orchestration tools** that let you spawn background w
 
 | Agent | Type | Requirements |
 |-------|------|--------------|
-| \`gemini\` | CLI process | Gemini CLI installed (\`gemini\` on PATH) |
 | \`codex\` | SDK (in-process) | \`@openai/codex-sdk\` npm package + OpenAI API key |
 | \`copilot\` | SDK (in-process) | \`@github/copilot-sdk\` + VS Code GitHub auth |
 | \`ptah-cli\` | SDK (in-process) | User-configured Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.) |
@@ -214,7 +244,7 @@ To discover available Ptah CLI agents:
 ### Workflow Example
 
 1. **Spawn 3 parallel agents**:
-   - \`ptah_agent_spawn { task: "Review src/auth.ts for security issues", cli: "gemini" }\`
+   - \`ptah_agent_spawn { task: "Review src/auth.ts for security issues", cli: "codex" }\`
    - \`ptah_agent_spawn { task: "Write unit tests for src/utils.ts", cli: "codex" }\`
    - \`ptah_agent_spawn { task: "Document the API endpoints in src/routes/", ptahCliId: "ca-..." }\`
 2. **Continue**: Work on your main task
@@ -238,11 +268,13 @@ Example: const info = await ptah.skill.describe('my-skill');
 
 ## Code Symbol Search
 
+For symbol search, prefer the first-class **\`ptah_code_search_symbols\`** tool (documented above) — no execute_code needed. The \`ptah.code\` namespace below is still available via execute_code, and is the only way to trigger \`reindex\`.
+
 The \`ptah.code\` namespace provides semantic search over indexed code symbols (functions, classes, methods) using hybrid BM25+vector search. Symbols are indexed from the workspace at boot and re-indexed on file save.
 
 ### ptah.code — Code Symbol Search
 
-**Use \`ptah.code.searchSymbols\` instead of \`ptah.ast.analyze\` for cross-file symbol discovery.**
+**Use \`ptah_code_search_symbols\` (first-class tool) or \`ptah.code.searchSymbols\` instead of \`ptah.ast.analyze\` for cross-file symbol discovery.**
 
 | Tool | Purpose | When to Use |
 |------|---------|-------------|
@@ -252,8 +284,8 @@ The \`ptah.code\` namespace provides semantic search over indexed code symbols (
 **\`ptah.code.searchSymbols(query, { maxResults? })\`**
 - Returns \`{ hits: SymbolHit[], bm25Only: false }\` on success
 - Returns \`{ hits: [], error: "index unavailable" }\` when SQLite is not running
-- Each \`SymbolHit\`: \`{ subject: "code:<kind>:<absoluteFilePath>:<symbolName>", filePath, score, snippet }\`
-- Post-filtered to code symbols only — no conversational memory contamination
+- Each \`SymbolHit\`: \`{ subject, filePath, symbolName, kind, text, score }\` (\`text\` is the symbol body/signature)
+- Hybrid ranked over the dedicated code symbol index; \`bm25Only: true\` when the vector index is unavailable
 
 Example:
 \`\`\`javascript
@@ -277,7 +309,7 @@ if ('error' in result) {
   console.log('Search unavailable:', result.error);
 } else {
   for (const hit of result.hits) {
-    console.log(hit.subject, hit.chunkText, hit.score);
+    console.log(hit.symbolName, hit.filePath, hit.score);
   }
 }
 \`\`\`

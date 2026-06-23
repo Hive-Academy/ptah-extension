@@ -12,14 +12,14 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, TOKENS, ConfigManager } from '@ptah-extension/vscode-core';
-import { AuthEnv } from '@ptah-extension/shared';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { AuthEnv, isDirectAnthropic } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { ModelInfo } from '../types/sdk-types/claude-sdk.types';
+import { PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 import { SdkModuleLoader } from './sdk-module-loader';
-import type { IModelResolver } from '../auth-env.port';
-import { normalizeAuthMethod } from '@ptah-extension/shared';
+import type { IModelResolver, IAuthEnvProvider } from '../auth-env.port';
 
 /**
  * Model entry from the Anthropic /v1/models API
@@ -36,61 +36,6 @@ export type ModelTier = 'opus' | 'sonnet' | 'haiku' | 'default';
 
 /** Tier names that have corresponding ANTHROPIC_DEFAULT_*_MODEL env vars */
 export type EnvMappedTier = Exclude<ModelTier, 'default'>;
-
-/**
- * Canonical mapping from bare tier names to full model IDs.
- * Exported as the single source of truth â€” all consumers must import this
- * rather than maintaining their own copies.
- *
- * The SDK's query() requires full model IDs (e.g., 'claude-opus-4-6').
- * Bare tier names like 'opus' cause "can't access model named opus" errors.
- *
- * 'default' maps to Opus â€” the CLI SDK's recommended default tier is Opus 4.7.
- * Storing 'default' (the tier name the CLI SDK returns from supportedModels())
- * must resolve to the actual model the CLI uses, not an arbitrary cost-based fallback.
- *
- * MAINTENANCE: Update these when new Claude model versions are released.
- */
-export const TIER_TO_MODEL_ID: Record<ModelTier, string> = {
-  opus: 'claude-opus-4-7',
-  sonnet: 'claude-sonnet-4-6',
-  haiku: 'claude-haiku-4-5-20251001',
-  default: 'claude-opus-4-7',
-};
-
-/** Default fallback model ID â€” Opus as the CLI's recommended default */
-export const DEFAULT_FALLBACK_MODEL_ID = TIER_TO_MODEL_ID['default'];
-
-/**
- * Static fallback model list shown when both SDK supportedModels() and
- * /v1/models API are unavailable (e.g., CLI auth with no network, or
- * first-boot before the SDK bridge initializes).
- *
- * These are never cached â€” every call to getSupportedModels() retries
- * the dynamic sources. The fallback just keeps the dropdown populated.
- */
-const STATIC_FALLBACK_MODELS: ModelInfo[] = [
-  {
-    value: 'default',
-    displayName: 'Default (recommended)',
-    description: 'Uses the best available model for your account',
-  },
-  {
-    value: 'opus',
-    displayName: 'Claude Opus 4.7',
-    description: 'Most capable model for complex tasks',
-  },
-  {
-    value: 'sonnet',
-    displayName: 'Claude Sonnet 4.6',
-    description: 'Best balance of speed and intelligence',
-  },
-  {
-    value: 'haiku',
-    displayName: 'Claude Haiku 4.5',
-    description: 'Fastest and most compact model',
-  },
-];
 
 /**
  * Canonical mapping from tier names to their ANTHROPIC_DEFAULT_*_MODEL env var keys.
@@ -124,21 +69,15 @@ export const TIER_ENV_VAR_MAP: Record<EnvMappedTier, keyof AuthEnv> = {
  * @returns Record of ANTHROPIC_DEFAULT_*_MODEL values (empty for direct Anthropic)
  */
 export function buildTierEnvDefaults(authEnv: AuthEnv): Record<string, string> {
-  const baseUrl = authEnv.ANTHROPIC_BASE_URL?.trim();
-  const isDirectAnthropic =
-    !baseUrl || /^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
-
-  if (isDirectAnthropic) {
+  if (isDirectAnthropic(authEnv)) {
     return {};
   }
 
   const defaults: Record<string, string> = {};
-  for (const [tier, envKey] of Object.entries(TIER_ENV_VAR_MAP)) {
+  for (const [, envKey] of Object.entries(TIER_ENV_VAR_MAP)) {
     const value = authEnv[envKey];
     if (value) {
       defaults[envKey] = value;
-    } else {
-      defaults[envKey] = TIER_TO_MODEL_ID[tier as EnvMappedTier];
     }
   }
   return defaults;
@@ -189,7 +128,8 @@ export class SdkModelService {
     private readonly authEnv: AuthEnv,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
-    @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER)
+    private readonly authProvider: IAuthEnvProvider,
   ) {}
 
   /**
@@ -224,8 +164,7 @@ export class SdkModelService {
   }
 
   private async fetchSupportedModelsInternal(): Promise<ModelInfo[]> {
-    const rawAuthMethod = this.config.get<string>('authMethod') || 'apiKey';
-    const authMethod = normalizeAuthMethod(rawAuthMethod);
+    const { authMethod } = this.authProvider.resolveActiveAuth();
 
     this.logger.info('[SdkModelService] Fetching models', {
       authMethod,
@@ -263,10 +202,10 @@ export class SdkModelService {
     }
 
     this.logger.warn(
-      '[SdkModelService] All model sources failed â€” using static fallback list',
+      '[SdkModelService] All model sources failed — returning empty list',
       { authMethod },
     );
-    return STATIC_FALLBACK_MODELS;
+    return [];
   }
 
   /**
@@ -413,6 +352,7 @@ export class SdkModelService {
           cwd: require('os').homedir(),
           pathToClaudeCodeExecutable: cliJsPath,
           settingSources,
+          settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
           env,
           stderr: (data: string) => {
             stderrLines.push(data);
@@ -618,7 +558,7 @@ export class SdkModelService {
    */
   async getDefaultModel(): Promise<string> {
     const models = await this.getSupportedModels();
-    return models[0]?.value ?? DEFAULT_FALLBACK_MODEL_ID;
+    return models[0]?.value ?? '';
   }
 
   /**

@@ -30,6 +30,24 @@ import {
 } from '@ptah-extension/shared';
 import type { PtyManagerService } from '../services/pty-manager.service';
 
+const STREAM_FLUSH_INTERVAL_MS = 16;
+
+const BATCHABLE_STREAM_TYPES: ReadonlySet<string> = new Set<string>([
+  MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
+  MESSAGE_TYPES.CHAT_CHUNK,
+  MESSAGE_TYPES.CHAT_THINKING,
+  MESSAGE_TYPES.CHAT_TOOL_PROGRESS,
+  MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
+  MESSAGE_TYPES.SETUP_WIZARD_ANALYSIS_STREAM,
+  MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
+  MESSAGE_TYPES.INDEXING_PROGRESS,
+]);
+
+interface QueuedStreamEvent {
+  readonly type: string;
+  readonly payload?: unknown;
+}
+
 /**
  * Callback type for obtaining the BrowserWindow's webContents.send method.
  * Uses a thin interface instead of importing BrowserWindow directly to
@@ -57,6 +75,8 @@ type GetWindowFn = () => ElectronWindowHandle | null;
 export class IpcBridge {
   private readonly rpcHandler: RpcHandler;
   private readonly stateStorage: IStateStorage;
+  private readonly streamQueue: QueuedStreamEvent[] = [];
+  private streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly container: DependencyContainer,
@@ -90,12 +110,62 @@ export class IpcBridge {
    *   matching MESSAGE_TYPES constants so MessageRouterService can dispatch it.
    */
   sendToRenderer(message: unknown): void {
+    const streamEvent = this.extractStreamEvent(message);
+    if (streamEvent) {
+      this.enqueueStreamEvent(streamEvent);
+      return;
+    }
+    this.flushStreamQueue();
     const win = this.getWindow();
     if (!win) {
       console.warn('[IpcBridge] Cannot send to renderer: no window available');
       return;
     }
     win.webContents.send('to-renderer', message);
+  }
+
+  private extractStreamEvent(message: unknown): QueuedStreamEvent | null {
+    if (!message || typeof message !== 'object') return null;
+    const obj = message as Record<string, unknown>;
+    const type = obj['type'];
+    if (typeof type !== 'string') return null;
+    if (!BATCHABLE_STREAM_TYPES.has(type)) return null;
+    return { type, payload: obj['payload'] };
+  }
+
+  private enqueueStreamEvent(event: QueuedStreamEvent): void {
+    this.streamQueue.push(event);
+    if (this.streamFlushTimer !== null) return;
+    this.streamFlushTimer = setTimeout(() => {
+      this.flushStreamQueue();
+    }, STREAM_FLUSH_INTERVAL_MS);
+  }
+
+  private flushStreamQueue(): void {
+    if (this.streamFlushTimer !== null) {
+      clearTimeout(this.streamFlushTimer);
+      this.streamFlushTimer = null;
+    }
+    if (this.streamQueue.length === 0) return;
+    const events = this.streamQueue.splice(0, this.streamQueue.length);
+    const win = this.getWindow();
+    if (!win) {
+      console.warn(
+        '[IpcBridge] Cannot flush stream queue: no window available',
+      );
+      return;
+    }
+    if (events.length === 1) {
+      win.webContents.send('to-renderer', {
+        type: events[0].type,
+        payload: events[0].payload,
+      });
+      return;
+    }
+    win.webContents.send('to-renderer', {
+      type: MESSAGE_TYPES.BATCH,
+      payload: { events },
+    });
   }
 
   /**
@@ -139,6 +209,7 @@ export class IpcBridge {
           params,
           correlationId,
         });
+        this.flushStreamQueue();
         event.sender.send('to-renderer', {
           type: MESSAGE_TYPES.RPC_RESPONSE,
           correlationId,
@@ -383,6 +454,7 @@ export class IpcBridge {
    * Cleanup IPC listeners. Call on app shutdown.
    */
   dispose(): void {
+    this.flushStreamQueue();
     ipcMain.removeAllListeners('rpc');
     ipcMain.removeAllListeners('get-state');
     ipcMain.removeAllListeners('set-state');

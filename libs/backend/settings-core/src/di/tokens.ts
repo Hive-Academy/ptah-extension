@@ -40,4 +40,10 @@ export const SETTINGS_TOKENS = {
 
   /** IMasterKeyProvider — platform-specific secure key retrieval. */
   MASTER_KEY_PROVIDER: Symbol.for('MasterKeyProvider'),
+
+  /** IActiveWorkspaceSource — active-folder path + change notifications (bound per app). */
+  ACTIVE_WORKSPACE_SOURCE: Symbol.for('ActiveWorkspaceSource'),
+
+  /** WorkspaceScopeResolver — workspace-prefixed key override/fallback helper. */
+  WORKSPACE_SCOPE_RESOLVER: Symbol.for('WorkspaceScopeResolver'),
 } as const;

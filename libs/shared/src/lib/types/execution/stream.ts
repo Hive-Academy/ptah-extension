@@ -243,4 +243,8 @@ export interface CompactionCompleteEvent extends FlatStreamEvent {
   readonly trigger: 'manual' | 'auto';
   /** Token count before compaction (from SDK compact_metadata) */
   readonly preTokens?: number;
+  /** Token count after compaction (from SDK compact_metadata) */
+  readonly postTokens?: number;
+  /** Compaction duration in milliseconds (from SDK compact_metadata) */
+  readonly durationMs?: number;
 }

@@ -28,11 +28,11 @@
  * `config set` — these don't take `--cli`.
  */
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
@@ -45,7 +45,7 @@ import type {
  * Locked allowlist — only these CLI agent ids are permitted. NEVER bypassable
  * via env vars. Adding a new entry requires a separate, audited change.
  */
-export const CLI_AGENT_ALLOWLIST = ['glm', 'gemini'] as const;
+export const CLI_AGENT_ALLOWLIST = ['glm'] as const;
 export type AllowlistedCli = (typeof CLI_AGENT_ALLOWLIST)[number];
 
 export type AgentCliSubcommand =
@@ -134,7 +134,6 @@ export function validateCliAgent(
   if (!cli) return null;
   switch (cli) {
     case 'glm':
-    case 'gemini':
       return cli;
     default:
       return null;
@@ -151,7 +150,7 @@ async function emitCliAgentUnavailable(
 ): Promise<number> {
   await formatter.writeNotification('task.error', {
     ptah_code: 'cli_agent_unavailable',
-    message: `CLI agent '${requestedCli}' is not in the allowlist. Only 'glm' and 'gemini' are supported.`,
+    message: `CLI agent '${requestedCli}' is not in the allowlist. Only 'glm' is supported.`,
     data: {
       requested_cli: requestedCli,
       allowed: [...CLI_AGENT_ALLOWLIST],
@@ -253,23 +252,15 @@ async function runModelsList(
 
     if (scoped === null) {
       await formatter.writeNotification('agent_cli.models', {
-        gemini: result?.gemini ?? [],
         codex: result?.codex ?? [],
         copilot: result?.copilot ?? [],
       });
       return ExitCode.Success;
     }
-    if (scoped === 'gemini') {
-      await formatter.writeNotification('agent_cli.models', {
-        cli: 'gemini',
-        models: result?.gemini ?? [],
-      });
-    } else {
-      await formatter.writeNotification('agent_cli.models', {
-        cli: 'glm',
-        models: [],
-      });
-    }
+    await formatter.writeNotification('agent_cli.models', {
+      cli: 'glm',
+      models: [],
+    });
     return ExitCode.Success;
   });
 }

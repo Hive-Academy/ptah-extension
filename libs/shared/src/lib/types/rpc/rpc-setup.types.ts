@@ -335,12 +335,3 @@ export interface WizardInstallPackAgentsResult {
   fromCache: boolean;
   error?: string;
 }
-
-/** Parameters for wizard:start-new-project-chat RPC method */
-export type WizardStartNewProjectChatParams = Record<string, never>;
-
-/** Response from wizard:start-new-project-chat RPC method */
-export interface WizardStartNewProjectChatResult {
-  success: boolean;
-  error?: string;
-}

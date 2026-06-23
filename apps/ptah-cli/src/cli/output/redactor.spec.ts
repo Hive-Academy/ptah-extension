@@ -39,13 +39,13 @@ describe('redact', () => {
     const out = redact({
       providers: {
         anthropic: { apiKey: 'sk-anthropic', endpoint: 'https://api.x' },
-        gemini: { token: 'g-token', model: 'gemini-pro' },
+        copilot: { token: 'c-token', model: 'copilot-pro' },
       },
     });
     expect(out).toEqual({
       providers: {
         anthropic: { apiKey: DEFAULT_REDACTION, endpoint: 'https://api.x' },
-        gemini: { token: DEFAULT_REDACTION, model: 'gemini-pro' },
+        copilot: { token: DEFAULT_REDACTION, model: 'copilot-pro' },
       },
     });
   });
@@ -81,9 +81,36 @@ describe('redact', () => {
     expect(input.nested.token).toBe('t');
   });
 
-  it('redacts even when sensitive value is null or empty', () => {
-    expect(redact({ apiKey: null })).toEqual({ apiKey: DEFAULT_REDACTION });
+  it('redacts empty string secrets but leaves non-string secret values intact', () => {
     expect(redact({ token: '' })).toEqual({ token: DEFAULT_REDACTION });
+    expect(redact({ apiKey: null })).toEqual({ apiKey: null });
+    expect(redact({ apiKey: 42 })).toEqual({ apiKey: 42 });
+  });
+
+  it('does not mask capability-predicate booleans while masking real credentials', () => {
+    const out = redact({ hasApiKey: true, apiKey: 'sk-xxx' }) as Record<
+      string,
+      unknown
+    >;
+    expect(out['hasApiKey']).toBe(true);
+    expect(out['apiKey']).toBe(DEFAULT_REDACTION);
+  });
+
+  it('leaves boolean / number sensitive-substring values alone', () => {
+    const out = redact({
+      hasApiKey: false,
+      hasAnyProviderKey: false,
+      isLocal: true,
+      tokenCount: 128,
+      requiresToken: true,
+      supportsTokenAuth: false,
+    }) as Record<string, unknown>;
+    expect(out['hasApiKey']).toBe(false);
+    expect(out['hasAnyProviderKey']).toBe(false);
+    expect(out['isLocal']).toBe(true);
+    expect(out['tokenCount']).toBe(128);
+    expect(out['requiresToken']).toBe(true);
+    expect(out['supportsTokenAuth']).toBe(false);
   });
 
   it('handles cycles without infinite-looping', () => {

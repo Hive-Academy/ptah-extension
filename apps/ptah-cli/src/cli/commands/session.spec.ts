@@ -75,7 +75,7 @@ import type {
 import { ExitCode } from '../jsonrpc/types.js';
 import type { Formatter } from '../output/formatter.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import {
   PLATFORM_TOKENS,
   type IStateStorage,
@@ -146,6 +146,7 @@ function makeStderr(): { stderr: { write: jest.Mock }; buffer: string } {
 
 interface MockEngine {
   withEngine: SessionExecuteHooks['withEngine'];
+  engineOptions: Array<{ mode?: string; thoth?: string }>;
   rpcCalls: Array<{ method: string; params: unknown }>;
   scripted: Map<
     string,
@@ -222,21 +223,24 @@ function makeEngine(opts?: {
   };
 
   const pushAdapter = new EventEmitter();
+  const engineOptions: MockEngine['engineOptions'] = [];
 
   const withEngine = (async (
     _globals: unknown,
-    _opts: unknown,
+    options: { mode?: string; thoth?: string },
     fn: (ctx: {
       container: typeof container;
       transport: CliMessageTransport;
       pushAdapter: EventEmitter;
     }) => Promise<unknown>,
   ): Promise<unknown> => {
+    engineOptions.push(options);
     return fn({ container, transport, pushAdapter });
   }) as unknown as SessionExecuteHooks['withEngine'];
 
   return {
     withEngine,
+    engineOptions,
     rpcCalls,
     scripted,
     pushAdapter,
@@ -280,6 +284,56 @@ describe('ptah session start', () => {
     });
   });
 
+  it('activates Thoth at tier runtime for a task-less interactive start', async () => {
+    const f = makeFormatter();
+    const e = makeEngine();
+    await execute({ subcommand: 'start' }, baseGlobals, {
+      formatter: f.formatter,
+      withEngine: e.withEngine,
+      randomUUID: () => 'tab-runtime',
+      installSigint: () => () => undefined,
+    });
+    expect(e.engineOptions[0]?.thoth).toBe('runtime');
+  });
+
+  it('activates Thoth at tier oneshot for a --once start', async () => {
+    const f = makeFormatter();
+    const e = makeEngine();
+    await execute({ subcommand: 'start', once: true }, baseGlobals, {
+      formatter: f.formatter,
+      withEngine: e.withEngine,
+      randomUUID: () => 'tab-once',
+      installSigint: () => () => undefined,
+      exit: () => undefined,
+    });
+    expect(e.engineOptions[0]?.thoth).toBe('oneshot');
+  });
+
+  it('honors an explicit thoth override (init smoke-turn stays off)', async () => {
+    const f = makeFormatter();
+    const e = makeEngine();
+    e.scripted.set('chat:start', { success: true });
+    const promise = executeSessionStart(
+      { task: 'Reply with the single word: ready', once: true, thoth: 'off' },
+      baseGlobals,
+      {
+        formatter: f.formatter,
+        withEngine: e.withEngine,
+        randomUUID: () => 'tab-init-smoke',
+        installSigint: () => () => undefined,
+        exit: () => undefined,
+      },
+    );
+    await flushAsync();
+    e.pushAdapter.emit('chat:complete', {
+      tabId: 'tab-init-smoke',
+      sessionId: 'tab-init-smoke',
+      turnId: 't1',
+    });
+    await promise;
+    expect(e.engineOptions[0]?.thoth).toBe('off');
+  });
+
   it('runs ChatBridge when --task given and resolves on chat:complete', async () => {
     const f = makeFormatter();
     const e = makeEngine();
@@ -294,6 +348,7 @@ describe('ptah session start', () => {
         withEngine: e.withEngine,
         randomUUID: () => 'tab-A',
         installSigint: () => () => undefined,
+        exit: () => undefined,
       },
     );
     // Drain microtasks + a macrotask so listeners are attached and rpcCall
@@ -319,6 +374,53 @@ describe('ptah session start', () => {
     expect(e.pushAdapter.listenerCount('chat:error')).toBe(0);
   });
 
+  it('auto-exits via the exit hook when --task is given without --once', async () => {
+    const f = makeFormatter();
+    const e = makeEngine();
+    e.scripted.set('chat:start', { success: true });
+    const exitCalls: number[] = [];
+
+    const promise = execute(
+      { subcommand: 'start', task: 'do the thing' },
+      baseGlobals,
+      {
+        formatter: f.formatter,
+        withEngine: e.withEngine,
+        randomUUID: () => 'tab-AX',
+        installSigint: () => () => undefined,
+        exit: (code: number) => {
+          exitCalls.push(code);
+        },
+        drainTimeoutMs: 50,
+      },
+    );
+    await flushAsync();
+    e.pushAdapter.emit('chat:complete', {
+      tabId: 'tab-AX',
+      sessionId: 'sdk-ax',
+    });
+    const exit = await promise;
+    expect(exit).toBe(ExitCode.Success);
+    expect(exitCalls).toEqual([ExitCode.Success]);
+  });
+
+  it('does NOT auto-exit when start has no task (persistent session)', async () => {
+    const f = makeFormatter();
+    const e = makeEngine();
+    const exitCalls: number[] = [];
+    const exit = await execute({ subcommand: 'start' }, baseGlobals, {
+      formatter: f.formatter,
+      withEngine: e.withEngine,
+      randomUUID: () => 'tab-PERSIST',
+      installSigint: () => () => undefined,
+      exit: (code: number) => {
+        exitCalls.push(code);
+      },
+    });
+    expect(exit).toBe(ExitCode.Success);
+    expect(exitCalls).toEqual([]);
+  });
+
   it('emits task.error and exits 1 when chat:error fires', async () => {
     const f = makeFormatter();
     const e = makeEngine();
@@ -327,6 +429,7 @@ describe('ptah session start', () => {
       withEngine: e.withEngine,
       randomUUID: () => 'tab-B',
       installSigint: () => () => undefined,
+      exit: () => undefined,
     });
     await flushAsync();
     e.pushAdapter.emit('chat:error', {
@@ -354,6 +457,7 @@ describe('ptah session start', () => {
         sigintHandler = handler;
         return () => undefined;
       },
+      exit: () => undefined,
     });
     await flushAsync();
     expect(sigintHandler).toBeDefined();
@@ -380,6 +484,7 @@ describe('ptah session start', () => {
       withEngine: e.withEngine,
       randomUUID: () => 'tab-NA',
       installSigint: () => () => undefined,
+      exit: () => undefined,
     });
     await flushAsync();
     e.pushAdapter.emit('chat:complete', {
@@ -473,6 +578,34 @@ describe('ptah session resume', () => {
     const exit = await promise;
     expect(exit).toBe(ExitCode.Success);
     expect(e.rpcCalls.find((c) => c.method === 'chat:continue')).toBeDefined();
+  });
+
+  it('resumes at tier off when no --task is provided', async () => {
+    const f = makeFormatter();
+    const e = makeEngine();
+    await execute({ subcommand: 'resume', id: 'sdk-y' }, baseGlobals, {
+      formatter: f.formatter,
+      withEngine: e.withEngine,
+    });
+    expect(e.engineOptions[0]?.thoth).toBe('off');
+  });
+
+  it('resumes at tier oneshot when --task is provided', async () => {
+    const f = makeFormatter();
+    const e = makeEngine();
+    const promise = execute(
+      { subcommand: 'resume', id: 'sdk-z', task: 'continue' },
+      baseGlobals,
+      {
+        formatter: f.formatter,
+        withEngine: e.withEngine,
+        installSigint: () => () => undefined,
+      },
+    );
+    await flushAsync();
+    e.pushAdapter.emit('chat:complete', { tabId: 'sdk-z', sessionId: 'sdk-z' });
+    await promise;
+    expect(e.engineOptions[0]?.thoth).toBe('oneshot');
   });
 });
 

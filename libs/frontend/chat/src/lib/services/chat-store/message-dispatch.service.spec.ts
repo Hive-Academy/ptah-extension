@@ -2,16 +2,18 @@
  * MessageDispatchService specs â€” send-vs-queue routing + slash-command guard.
  *
  * Coverage:
- *   - sendOrQueueMessage: slash-command guard blocks /compact for non-Anthropic
+ *   - sendOrQueueMessage: slash-command guard blocks /context for non-Anthropic
+ *   - sendOrQueueMessage: guard does NOT block /compact or /review (all providers)
  *   - sendOrQueueMessage: guard does NOT block when authState.isLoading()
  *   - sendOrQueueMessage: guard does NOT block for apiKey provider
  *   - sendOrQueueMessage: streaming auto-denies permissions with deny_with_message
  *   - sendOrQueueMessage: not streaming dispatches via MessageSender.send
  *   - sendOrQueueMessage: explicit-tabId override beats activeTab
  *   - sendQueuedMessage: clears queue + queuedOptions before dispatch
- *   - sendQueuedMessage: passes files from stored options
+ *   - sendQueuedMessage: forwards stored queuedOptions (files + images) to the dedicated queue-flush method
  *   - sendQueuedMessage: on error, restores content to queue
- *   - sendQueuedMessage: calls conversation.continueConversation directly
+ *   - sendQueuedMessage: calls continueExistingSessionForQueueFlush (not send / continueConversation)
+ *   - sendQueuedMessage: warns and re-queues (no new conversation) when the tab has no claudeSessionId
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -54,7 +56,9 @@ describe('MessageDispatchService', () => {
   let sendMock: jest.Mock;
   let queueOrAppendMock: jest.Mock;
   let continueConversationMock: jest.Mock;
+  let continueExistingSessionForQueueFlushMock: jest.Mock;
   let handlePermissionResponseMock: jest.Mock;
+  let isTabStreamingMock: jest.Mock;
 
   beforeEach(() => {
     tabs = [makeTab()];
@@ -79,7 +83,11 @@ describe('MessageDispatchService', () => {
     sendMock = jest.fn().mockResolvedValue(undefined);
     queueOrAppendMock = jest.fn();
     continueConversationMock = jest.fn().mockResolvedValue(undefined);
+    continueExistingSessionForQueueFlushMock = jest
+      .fn()
+      .mockResolvedValue(undefined);
     handlePermissionResponseMock = jest.fn();
+    isTabStreamingMock = jest.fn(() => false);
 
     const tabManagerMock = {
       tabs: () => tabs,
@@ -88,6 +96,7 @@ describe('MessageDispatchService', () => {
       clearQueuedContentAndOptions: clearQueuedContentAndOptionsMock,
       activeTabStatus: () => activeTabStatus(),
       activeTabId: () => activeTabId(),
+      isTabStreaming: isTabStreamingMock,
     } as unknown as TabManagerService;
 
     const authStateMock = {
@@ -97,6 +106,8 @@ describe('MessageDispatchService', () => {
 
     const messageSenderMock = {
       send: sendMock,
+      continueExistingSessionForQueueFlush:
+        continueExistingSessionForQueueFlushMock,
     } as unknown as MessageSenderService;
     const conversationMock = {
       queueOrAppendMessage: queueOrAppendMock,
@@ -125,32 +136,41 @@ describe('MessageDispatchService', () => {
   });
 
   describe('sendOrQueueMessage', () => {
-    it('blocks /compact slash command for non-Anthropic providers', async () => {
+    it('blocks /context slash command for non-Anthropic providers', async () => {
       persistedAuthMethod.set('copilot');
-      await service.sendOrQueueMessage('/compact');
+      await service.sendOrQueueMessage('/context');
       expect(sendMock).not.toHaveBeenCalled();
       expect(queueOrAppendMock).not.toHaveBeenCalled();
       // Warning message added via setMessages
       expect(setMessagesMock).toHaveBeenCalled();
     });
 
+    it('does NOT block /compact or /review for non-Anthropic providers', async () => {
+      persistedAuthMethod.set('copilot');
+      await service.sendOrQueueMessage('/compact');
+      expect(sendMock).toHaveBeenCalledWith('/compact', undefined);
+      sendMock.mockClear();
+      await service.sendOrQueueMessage('/review');
+      expect(sendMock).toHaveBeenCalledWith('/review', undefined);
+    });
+
     it('does NOT block when authState.isLoading() is true', async () => {
       persistedAuthMethod.set('copilot');
       isLoadingAuth.set(true);
-      await service.sendOrQueueMessage('/compact');
-      expect(sendMock).toHaveBeenCalledWith('/compact', undefined);
+      await service.sendOrQueueMessage('/context');
+      expect(sendMock).toHaveBeenCalledWith('/context', undefined);
     });
 
     it('does NOT block for apiKey provider', async () => {
       persistedAuthMethod.set('apiKey');
-      await service.sendOrQueueMessage('/compact');
-      expect(sendMock).toHaveBeenCalledWith('/compact', undefined);
+      await service.sendOrQueueMessage('/context');
+      expect(sendMock).toHaveBeenCalledWith('/context', undefined);
     });
 
     it('does NOT block for claudeCli provider', async () => {
       persistedAuthMethod.set('claudeCli');
-      await service.sendOrQueueMessage('/compact');
-      expect(sendMock).toHaveBeenCalledWith('/compact', undefined);
+      await service.sendOrQueueMessage('/context');
+      expect(sendMock).toHaveBeenCalledWith('/context', undefined);
     });
 
     it('when streaming, auto-denies active permissions with deny_with_message', async () => {
@@ -171,6 +191,32 @@ describe('MessageDispatchService', () => {
       expect(sendMock).toHaveBeenCalledWith('hello', undefined);
     });
 
+    it('queues (never sends/aborts) when the self-heal flag is set despite a non-streaming status', async () => {
+      // Self-heal case: SDK paused/resumed → status reverted to loaded while
+      // isTabStreaming stays true. A follow-up must queue, not send-and-abort.
+      activeTabStatus.set('loaded');
+      isTabStreamingMock.mockReturnValue(true);
+
+      await service.sendOrQueueMessage('follow up');
+
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(queueOrAppendMock).toHaveBeenCalledWith('follow up', undefined);
+    });
+
+    it('checks the explicit target tab id for the self-heal streaming flag', async () => {
+      activeTabStatus.set('loaded');
+      tabs = [makeTab({ id: 'tile-7', status: 'awaiting-background' })];
+      isTabStreamingMock.mockImplementation((id: string) => id === 'tile-7');
+
+      await service.sendOrQueueMessage('follow up', { tabId: 'tile-7' });
+
+      expect(isTabStreamingMock).toHaveBeenCalledWith('tile-7');
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(queueOrAppendMock).toHaveBeenCalledWith('follow up', {
+        tabId: 'tile-7',
+      });
+    });
+
     it('explicit-tabId override beats activeTab status', async () => {
       activeTabStatus.set('streaming');
       tabs = [makeTab({ id: 'tab-2', status: 'loaded' })];
@@ -186,6 +232,7 @@ describe('MessageDispatchService', () => {
           queuedContent: 'queued',
           queuedOptions: {
             files: ['a.ts'],
+            images: [{ data: 'base64', mediaType: 'image/png' }],
           } as unknown as TabState['queuedOptions'],
         }),
       ];
@@ -196,24 +243,49 @@ describe('MessageDispatchService', () => {
       expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
     });
 
-    it('passes files from stored options to continueConversation', async () => {
+    it('forwards stored queuedOptions (files + images) to the dedicated queue-flush method', async () => {
       await service.sendQueuedMessage('tab-1', 'queued');
-      expect(continueConversationMock).toHaveBeenCalledWith(
+      expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalledWith(
         'queued',
-        ['a.ts'],
-        'tab-1',
+        'sess-1',
+        {
+          files: ['a.ts'],
+          images: [{ data: 'base64', mediaType: 'image/png' }],
+          tabId: 'tab-1',
+        },
       );
     });
 
-    it('calls conversation.continueConversation NOT messageSender.send', async () => {
+    it('calls the dedicated queue-flush method, NOT messageSender.send or conversation.continueConversation', async () => {
       await service.sendQueuedMessage('tab-1', 'queued');
-      expect(continueConversationMock).toHaveBeenCalled();
+      expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalled();
       expect(sendMock).not.toHaveBeenCalled();
+      expect(continueConversationMock).not.toHaveBeenCalled();
+    });
+
+    it('warns and re-queues (does not start a new conversation) when the tab has no claudeSessionId', async () => {
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: null,
+          queuedContent: 'queued',
+          queuedOptions: {
+            files: ['a.ts'],
+          } as unknown as TabState['queuedOptions'],
+        }),
+      ];
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      await service.sendQueuedMessage('tab-1', 'queued');
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(continueExistingSessionForQueueFlushMock).not.toHaveBeenCalled();
+      expect(setQueuedContentMock).toHaveBeenCalledWith('tab-1', 'queued');
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
     });
 
     it('on error, restores content to queue', async () => {
       const err = new Error('boom');
-      continueConversationMock.mockRejectedValueOnce(err);
+      continueExistingSessionForQueueFlushMock.mockRejectedValueOnce(err);
       const errorSpy = jest.spyOn(console, 'error').mockImplementation();
       await service.sendQueuedMessage('tab-1', 'queued');
       expect(setQueuedContentMock).toHaveBeenCalledWith('tab-1', 'queued');

@@ -156,12 +156,6 @@ export interface ExecuteQueryConfig {
    */
   forkSession?: boolean;
   /**
-   * When resuming, only replay messages up to (and including) the message
-   * with this UUID. Maps directly to SDK Options.resumeSessionAt. Forwarded
-   * to `SdkQueryOptionsBuilder.build()`.
-   */
-  resumeSessionAt?: string;
-  /**
    * Toggle SDK file checkpointing for this session. Defaults to ON when
    * unspecified â€” file checkpointing is required by `Query.rewindFiles()`,
    * which is the underlying mechanism for the rewind feature. Pass `false`
@@ -195,26 +189,6 @@ export interface ExecuteQueryConfig {
    * auth env instead of the DI-singleton AuthEnv.
    */
   authEnvOverride?: AuthEnv;
-  /**
-   * Pre-warmed `WarmQuery` handle from `SdkAgentAdapter.prewarm()`. When
-   * provided, the executor uses `warm.query(prompt)` for the very first
-   * query of this session instead of the standard `queryFn(...)` call â€”
-   * skipping the spawn + initialize handshake.
-   *
-   * **Caller contract**: the caller MUST have already validated (via
-   * `consumeWarmQuery(requirements)`) that this warm handle's option
-   * fingerprint matches the options about to be built for this session.
-   * The executor does NOT re-validate â€” `WarmQuery.query` accepts only a
-   * prompt and silently inherits every other Option from the original
-   * `startup()` call, so any mismatch produces a session running with the
-   * wrong options. Callers that aren't sure must pass `undefined` here.
-   *
-   * Only meaningful for NEW (non-resume, non-fork) sessions with a string
-   * or iterable prompt. The executor falls back to the normal `queryFn`
-   * path if this is `undefined`, if the session is a resume/fork, or if
-   * `warm.query` is missing on the handle.
-   */
-  warmQuery?: { close: () => void; query?: unknown };
 }
 
 /**
@@ -238,11 +212,6 @@ export interface SlashCommandConfig {
    * they resume the existing session). Forwarded to the options builder.
    */
   forkSession?: boolean;
-  /**
-   * Mirrors `ExecuteQueryConfig.resumeSessionAt`. When set, the resumed
-   * transcript replay stops at this message UUID.
-   */
-  resumeSessionAt?: string;
   /**
    * Mirrors `ExecuteQueryConfig.enableFileCheckpointing`. Defaults to ON in
    * the builder when unspecified.
@@ -329,6 +298,11 @@ export class SessionLifecycleManager {
       this.modelResolver,
       this.sessionEndRegistry,
     );
+    this._registry.startEvictionSweep();
+  }
+
+  dispose(): void {
+    this._registry.stopEvictionSweep();
   }
 
   /**
@@ -504,7 +478,6 @@ export class SessionLifecycleManager {
       pluginPaths: config.pluginPaths,
       pathToClaudeCodeExecutable: config.pathToClaudeCodeExecutable,
       forkSession: config.forkSession,
-      resumeSessionAt: config.resumeSessionAt,
       enableFileCheckpointing: config.enableFileCheckpointing,
       includePartialMessages: config.includePartialMessages,
     });

@@ -40,13 +40,19 @@ import {
 import { GATEWAY_TOKENS } from './di/tokens';
 import type { ITokenVault } from './token-vault.interface';
 import { BindingStore } from './binding.store';
+import { ConversationStore } from './conversation.store';
 import { MessageStore } from './message.store';
-import { StreamCoalescer, type FlushPayload } from './stream-coalescer';
+import {
+  StreamCoalescer,
+  type FlushPayload,
+  type OutboundRoute,
+} from './stream-coalescer';
 import { FfmpegDecoder } from './voice/ffmpeg-decoder';
 import {
   WhisperTranscriber,
   type WhisperDownloadEvent,
 } from './voice/whisper-transcriber';
+import { resolveWhisperModel } from './voice/resolve-whisper-model';
 import {
   GrammyTelegramAdapter,
   type TelegramBotFactory,
@@ -55,6 +61,7 @@ import {
   DiscordAdapter,
   type DiscordClientFactory,
 } from './adapters/discord/discord.adapter';
+import { registerDiscordSlashCommands } from './adapters/discord/discord-command-registration';
 import {
   BoltSlackAdapter,
   type SlackAppFactory,
@@ -68,6 +75,7 @@ import {
   BindingId,
   ConversationKey,
   GatewayBinding,
+  GatewayConversation,
   GatewayPlatform,
 } from './types';
 
@@ -75,7 +83,6 @@ const SETTINGS_KEYS = {
   enabled: 'gateway.enabled',
   coalesceMs: 'gateway.coalesceMs',
   voiceEnabled: 'gateway.voice.enabled',
-  whisperModel: 'gateway.voice.whisperModel',
   rateLimitMinTimeMs: 'gateway.rateLimit.minTimeMs',
   rateLimitMaxConcurrent: 'gateway.rateLimit.maxConcurrent',
   telegram: {
@@ -87,6 +94,7 @@ const SETTINGS_KEYS = {
     enabled: 'gateway.discord.enabled',
     token: 'gateway.discord.tokenCipher',
     allowed: 'gateway.discord.allowedGuildIds',
+    applicationId: 'gateway.discord.applicationId',
   },
   slack: {
     enabled: 'gateway.slack.enabled',
@@ -99,8 +107,23 @@ const SETTINGS_KEYS = {
 const VOICE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const INBOUND_ABUSE_LIMIT_PER_MIN = 60;
 
+function paginate(body: string, limit?: number): string[] {
+  if (!limit || body.length <= limit) return [body];
+  const pages: string[] = [];
+  let rest = body;
+  while (rest.length > limit) {
+    let cut = rest.lastIndexOf('\n', limit);
+    if (cut <= 0) cut = limit;
+    pages.push(rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\n/, '');
+  }
+  if (rest.length) pages.push(rest);
+  return pages;
+}
+
 export interface GatewayInboundEvent {
   binding: GatewayBinding;
+  conversation: GatewayConversation;
   message: InboundMessage;
 }
 
@@ -127,15 +150,8 @@ export class GatewayService extends EventEmitter {
   private lastErrors = new Map<GatewayPlatform, string>();
   private coalescer: StreamCoalescer | null = null;
   private inboundCounters = new Map<string, number[]>();
-  /** Map conversationKey → first outbound externalMsgId (for editMessage). */
-  private streamHandles = new Map<
-    ConversationKey,
-    {
-      platform: GatewayPlatform;
-      externalChatId: string;
-      externalMsgId: string;
-    }
-  >();
+  /** Map conversationKey → ordered outbound message ids (one per page). */
+  private streamHandles = new Map<ConversationKey, { pageMsgIds: string[] }>();
 
   /** Ciphertext-decrypt-failure flag — surfaced via gateway:status. */
   private decryptFailures = new Set<GatewayPlatform>();
@@ -156,6 +172,8 @@ export class GatewayService extends EventEmitter {
     private readonly vault: ITokenVault,
     @inject(GATEWAY_TOKENS.GATEWAY_BINDING_STORE)
     private readonly bindings: BindingStore,
+    @inject(GATEWAY_TOKENS.GATEWAY_CONVERSATION_STORE)
+    private readonly conversations: ConversationStore,
     @inject(GATEWAY_TOKENS.GATEWAY_MESSAGE_STORE)
     private readonly messages: MessageStore,
     @inject(GrammyTelegramAdapter)
@@ -253,17 +271,49 @@ export class GatewayService extends EventEmitter {
     if (platform === 'telegram') await this.maybeStartTelegram(true);
     else if (platform === 'discord') await this.maybeStartDiscord(true);
     else await this.maybeStartSlack(true);
+
+    if (this.adapters.get(platform)?.isRunning() === true) {
+      await this.workspace.setConfiguration(
+        'ptah',
+        this.enabledKeyFor(platform),
+        true,
+      );
+      await this.workspace.setConfiguration(
+        'ptah',
+        SETTINGS_KEYS.enabled,
+        true,
+      );
+    }
   }
 
   async stopPlatform(platform: GatewayPlatform): Promise<void> {
     const adapter = this.adapters.get(platform);
-    if (!adapter) return;
-    try {
-      await adapter.stop();
-    } catch (err) {
-      this.lastErrors.set(
-        platform,
-        err instanceof Error ? err.message : String(err),
+    if (adapter) {
+      try {
+        await adapter.stop();
+      } catch (error: unknown) {
+        this.lastErrors.set(
+          platform,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+    await this.workspace.setConfiguration(
+      'ptah',
+      this.enabledKeyFor(platform),
+      false,
+    );
+    const siblings = (
+      ['telegram', 'discord', 'slack'] as GatewayPlatform[]
+    ).filter((p) => p !== platform);
+    const anyEnabled = siblings.some((p) =>
+      this.cfgBool(this.enabledKeyFor(p), false),
+    );
+    if (!anyEnabled) {
+      await this.workspace.setConfiguration(
+        'ptah',
+        SETTINGS_KEYS.enabled,
+        false,
       );
     }
   }
@@ -345,6 +395,7 @@ export class GatewayService extends EventEmitter {
     }
     const binding = this.bindings.approve(id, ptahSessionId, workspaceRoot);
     this.pairingPromptSent.delete(id);
+    this.emit('bindings-changed');
     return { ok: true, binding };
   }
 
@@ -352,11 +403,26 @@ export class GatewayService extends EventEmitter {
     const binding = this.bindings.setStatus(id, status);
     this.pairingPromptSent.delete(id);
     if (status === 'revoked' || status === 'rejected') {
-      const handleKey =
-        `${binding.platform}:${binding.externalChatId}` as ConversationKey;
-      this.streamHandles.delete(handleKey);
-      this.coalescer?.discard(handleKey);
+      const conversations = this.conversations.listByBinding(id);
+      const keys = new Set<ConversationKey>([
+        ConversationKey.for(binding.platform, binding.externalChatId),
+      ]);
+      for (const conversation of conversations) {
+        keys.add(
+          ConversationKey.for(
+            binding.platform,
+            binding.externalChatId,
+            conversation.externalConversationId,
+          ),
+        );
+      }
+      for (const key of keys) {
+        this.streamHandles.delete(key);
+        this.coalescer?.discard(key);
+      }
+      this.conversations.deleteByBinding(id);
     }
+    this.emit('bindings-changed');
     return binding;
   }
 
@@ -435,17 +501,123 @@ export class GatewayService extends EventEmitter {
     }
   }
 
+  /** Read the current allow-list for a platform from settings. */
+  getAllowList(platform: GatewayPlatform): string[] {
+    return this.cfgArray(this.allowedKeyFor(platform));
+  }
+
+  /**
+   * Persist a platform allow-list to settings and re-apply it to the live
+   * adapter so the change takes effect without a restart. Entries are trimmed,
+   * de-duplicated, and emptied of blanks.
+   */
+  async setAllowList(
+    platform: GatewayPlatform,
+    entries: ReadonlyArray<string>,
+  ): Promise<void> {
+    const cleaned = Array.from(
+      new Set(entries.map((e) => e.trim()).filter((e) => e.length > 0)),
+    );
+    await this.workspace.setConfiguration(
+      'ptah',
+      this.allowedKeyFor(platform),
+      cleaned,
+    );
+    if (platform === 'telegram') {
+      this.telegram.configure({ allowedUserIds: cleaned });
+    } else if (platform === 'discord') {
+      this.discord.configure({ allowedGuildIds: cleaned });
+    } else {
+      this.slack.configure({ allowedTeamIds: cleaned });
+    }
+  }
+
+  /** Servers the Discord bot is currently in — empty until connected. */
+  listDiscordGuilds(): Array<{ id: string; name: string }> {
+    return this.discord.listGuilds();
+  }
+
+  /** Read the persisted Discord application (client) id, or null if unset. */
+  getDiscordAppId(): string | null {
+    const value = this.workspace.getConfiguration<string>(
+      'ptah',
+      SETTINGS_KEYS.discord.applicationId,
+      '',
+    );
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  }
+
+  /** Persist the Discord application (client) id used for invite + registration. */
+  async setDiscordAppId(applicationId: string): Promise<void> {
+    await this.workspace.setConfiguration(
+      'ptah',
+      SETTINGS_KEYS.discord.applicationId,
+      applicationId.trim(),
+    );
+  }
+
+  /**
+   * Register the `/ptah` slash command with Discord using the stored bot token
+   * and application id. Registers per allow-listed guild (instant) or globally
+   * when the allow-list is empty. Returns a structured result so the UI can
+   * surface a precise reason without throwing.
+   */
+  async registerDiscordCommands(): Promise<
+    | { ok: true; registered: number; scope: 'guild' | 'global' }
+    | { ok: false; error: string }
+  > {
+    const applicationId = this.getDiscordAppId();
+    if (!applicationId) {
+      return { ok: false, error: 'missing-application-id' };
+    }
+    const token = await this.decryptToken('discord');
+    if (!token) {
+      return { ok: false, error: 'missing-token' };
+    }
+    const guildIds = this.cfgArray(SETTINGS_KEYS.discord.allowed);
+    try {
+      const result = await registerDiscordSlashCommands({
+        token,
+        applicationId,
+        guildIds,
+      });
+      this.logger.info('[gateway] discord slash commands registered', {
+        registered: result.registered,
+        scope: result.scope,
+      });
+      return { ok: true, registered: result.registered, scope: result.scope };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn('[gateway] discord command registration failed', {
+        error: message,
+      });
+      return { ok: false, error: message };
+    }
+  }
+
+  private allowedKeyFor(platform: GatewayPlatform): string {
+    if (platform === 'telegram') return SETTINGS_KEYS.telegram.allowed;
+    if (platform === 'discord') return SETTINGS_KEYS.discord.allowed;
+    return SETTINGS_KEYS.slack.allowed;
+  }
+
+  private enabledKeyFor(platform: GatewayPlatform): string {
+    if (platform === 'telegram') return SETTINGS_KEYS.telegram.enabled;
+    if (platform === 'discord') return SETTINGS_KEYS.discord.enabled;
+    return SETTINGS_KEYS.slack.enabled;
+  }
+
   /**
    * Append assistant text for a given conversation. The coalescer will
    * flush via {@link flushOutbound} which sends/edits via the adapter.
    */
-  appendOutboundChunk(conversationKey: ConversationKey, chunk: string): void {
+  appendOutboundChunk(route: OutboundRoute, chunk: string): void {
     if (!this.coalescer) {
       this.coalescer = new StreamCoalescer((payload) =>
         this.flushOutbound(payload),
       );
     }
-    this.coalescer.append(conversationKey, chunk);
+    this.coalescer.append(route, chunk);
   }
 
   async drainOutbound(conversationKey: ConversationKey): Promise<void> {
@@ -544,8 +716,8 @@ export class GatewayService extends EventEmitter {
     let body = msg.body;
     if (msg.voicePath && this.cfgBool(SETTINGS_KEYS.voiceEnabled, true)) {
       try {
-        const wav = await this.ffmpeg.decodeToPcm16Wav(msg.voicePath);
-        const transcript = await this.whisper.transcribe(wav);
+        const pcm = await this.ffmpeg.decodeToPcm16(msg.voicePath);
+        const transcript = await this.whisper.transcribe(pcm);
         if (transcript) body = body ? `${body}\n${transcript}` : transcript;
       } catch (err) {
         this.logger.warn('[gateway] voice transcription failed', {
@@ -553,40 +725,63 @@ export class GatewayService extends EventEmitter {
         });
       }
     }
-    const binding = this.bindings.upsertPending({
-      platform: msg.platform,
-      externalChatId: msg.externalChatId,
-      displayName: msg.displayName,
-    });
-
-    if (binding.approvalStatus === 'pending') {
-      if (!this.pairingPromptSent.has(binding.id)) {
-        const code = binding.pairingCode ?? '------';
-        const reply =
-          `Ptah pairing required. Approve this binding in Ptah using code: ${code}\n` +
-          `(I will not respond to messages until approved.)`;
-        try {
-          const adapter = this.adapters.get(msg.platform);
-          if (adapter) {
-            await adapter.sendMessage(msg.externalChatId, reply);
-          }
-          this.pairingPromptSent.add(binding.id);
-        } catch (err) {
-          this.logger.warn('[gateway] failed to send pairing prompt', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+    let binding: GatewayBinding;
+    if (msg.conversationMode === 'attach') {
+      const existing = this.bindings.findByExternal(
+        msg.platform,
+        msg.externalChatId,
+      );
+      if (!existing || existing.approvalStatus !== 'approved') {
+        this.logger.debug(
+          '[gateway] dropping attach inbound — no approved binding',
+          {
+            platform: msg.platform,
+            externalChatId: msg.externalChatId,
+            status: existing?.approvalStatus ?? 'none',
+          },
+        );
+        return;
       }
-      return;
+      binding = existing;
+    } else {
+      binding = this.bindings.upsertPending({
+        platform: msg.platform,
+        externalChatId: msg.externalChatId,
+        displayName: msg.displayName,
+        ...(msg.allowListId ? { allowListId: msg.allowListId } : {}),
+      });
+
+      if (binding.approvalStatus === 'pending') {
+        this.emit('bindings-changed');
+        if (!this.pairingPromptSent.has(binding.id)) {
+          const code = binding.pairingCode ?? '------';
+          const reply =
+            `Ptah pairing required. Approve this binding in Ptah using code: ${code}\n` +
+            `(I will not respond to messages until approved.)`;
+          try {
+            const adapter = this.adapters.get(msg.platform);
+            if (adapter) {
+              await adapter.sendMessage(msg.externalChatId, reply);
+            }
+            this.pairingPromptSent.add(binding.id);
+          } catch (error: unknown) {
+            this.logger.warn('[gateway] failed to send pairing prompt', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        return;
+      }
+
+      if (binding.approvalStatus !== 'approved') {
+        this.logger.debug('[gateway] dropping inbound — binding not approved', {
+          bindingId: binding.id,
+          status: binding.approvalStatus,
+        });
+        return;
+      }
     }
 
-    if (binding.approvalStatus !== 'approved') {
-      this.logger.debug('[gateway] dropping inbound — binding not approved', {
-        bindingId: binding.id,
-        status: binding.approvalStatus,
-      });
-      return;
-    }
     const persisted = this.messages.insert({
       bindingId: binding.id,
       direction: 'inbound',
@@ -596,55 +791,78 @@ export class GatewayService extends EventEmitter {
     });
     if (!persisted) return; // duplicate
 
+    const conversationId = msg.conversationId ? msg.conversationId : 'default';
+    const conversation =
+      msg.conversationMode === 'attach' && msg.platform === 'discord'
+        ? this.conversations.resolveOrAdopt(binding.id, conversationId)
+        : this.conversations.resolveOrCreate(binding.id, conversationId);
+    this.conversations.touch(conversation.id);
+
     this.bindings.touch(binding.id);
     const event: GatewayInboundEvent = {
       binding,
+      conversation,
       message: { ...msg, body },
     };
     this.emit('inbound', event);
   }
 
   private async flushOutbound(payload: FlushPayload): Promise<void> {
-    const handle = this.streamHandles.get(payload.conversationKey);
-    const [platform, externalChatId] = payload.conversationKey.split(':') as [
-      GatewayPlatform,
-      string,
-    ];
-    const adapter = this.adapters.get(platform);
+    const adapter = this.adapters.get(payload.platform);
     if (!adapter) {
       this.logger.warn('[gateway] flushOutbound: no adapter for platform', {
-        platform,
+        platform: payload.platform,
       });
       return;
     }
+    const handle = this.streamHandles.get(payload.conversationKey) ?? {
+      pageMsgIds: [],
+    };
+    this.streamHandles.set(payload.conversationKey, handle);
+    const pages = paginate(payload.body, adapter.maxMessageChars);
+    const sendOpts =
+      payload.conversationId !== undefined
+        ? { conversationId: payload.conversationId }
+        : undefined;
     try {
-      if (payload.isFirstFlush || !handle) {
-        const res = await adapter.sendMessage(externalChatId, payload.body);
-        this.streamHandles.set(payload.conversationKey, {
-          platform,
-          externalChatId,
-          externalMsgId: res.externalMsgId,
-        });
-        const binding = this.bindings.findByExternal(platform, externalChatId);
-        if (binding) {
-          this.messages.insert({
-            bindingId: binding.id,
-            direction: 'outbound',
-            externalMsgId: res.externalMsgId,
-            body: payload.body,
-          });
+      for (
+        let i = Math.max(0, handle.pageMsgIds.length - 1);
+        i < pages.length;
+        i++
+      ) {
+        if (i < handle.pageMsgIds.length) {
+          await adapter.editMessage(
+            payload.externalChatId,
+            handle.pageMsgIds[i],
+            pages[i],
+          );
+          continue;
         }
-      } else {
-        await adapter.editMessage(
-          externalChatId,
-          handle.externalMsgId,
-          payload.body,
+        const res = await adapter.sendMessage(
+          payload.externalChatId,
+          pages[i],
+          sendOpts,
         );
+        handle.pageMsgIds.push(res.externalMsgId);
+        if (i === 0) {
+          const binding = this.bindings.findByExternal(
+            payload.platform,
+            payload.externalChatId,
+          );
+          if (binding) {
+            this.messages.insert({
+              bindingId: binding.id,
+              direction: 'outbound',
+              externalMsgId: res.externalMsgId,
+              body: pages[i],
+            });
+          }
+        }
       }
-    } catch (err) {
+    } catch (error: unknown) {
       this.logger.warn('[gateway] flushOutbound failed', {
-        platform,
-        error: err instanceof Error ? err.message : String(err),
+        platform: payload.platform,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -752,12 +970,8 @@ export class GatewayService extends EventEmitter {
   bridgeWhisperEvents(): void {
     if (this.whisperEventsBridged) return;
     this.whisperEventsBridged = true;
-    const modelName = this.workspace.getConfiguration<string>(
-      'ptah',
-      SETTINGS_KEYS.whisperModel,
-      'base.en',
-    );
-    if (typeof modelName === 'string' && modelName.length > 0) {
+    const modelName = resolveWhisperModel(this.workspace);
+    if (modelName.length > 0) {
       this.whisper.configure({ modelName });
     }
     this.whisper.on('download', (evt: WhisperDownloadEvent) => {

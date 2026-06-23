@@ -4,17 +4,8 @@
  * Transforms Claude-format agent content to Copilot CLI format.
  * Pure transformation with no I/O or DI dependencies.
  * Uses shared transform-rules.ts for common rewrite logic.
- *
- * Target: ~/.copilot/agents/ptah-{agent-id}.md
- * Copilot CLI auto-discovers agents from ~/.copilot/agents/ directory.
- * Invoked via `copilot --agent ptah-backend-developer`.
- *
- * Agent files are prefixed with `ptah-` for:
- * 1. Namespace separation from user-created agents
- * 2. Deterministic cleanup on premium expiry
  */
 
-import { homedir } from 'os';
 import { join } from 'path';
 import type { CliAgentTransformResult } from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../../types/core.types';
@@ -35,7 +26,10 @@ import { transformAgentContent, extractAgentId } from './transform-rules';
 export class CopilotAgentTransformer implements ICliAgentTransformer {
   readonly target = 'copilot' as const;
 
-  transform(agent: GeneratedAgent): CliAgentTransformResult {
+  transform(
+    agent: GeneratedAgent,
+    workspaceRoot: string,
+  ): CliAgentTransformResult {
     const agentId = extractAgentId(agent.filePath);
     const description = agent.variables['description'] || `${agentId} agent`;
     const content = transformAgentContent(
@@ -45,10 +39,10 @@ export class CopilotAgentTransformer implements ICliAgentTransformer {
       description,
     );
     const filePath = join(
-      homedir(),
-      '.copilot',
+      workspaceRoot,
+      '.github',
       'agents',
-      `ptah-${agentId}.md`,
+      `${agentId}.agent.md`,
     );
 
     return {

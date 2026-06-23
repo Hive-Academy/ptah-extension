@@ -73,7 +73,7 @@ import { EditorService } from '../services/editor.service';
             }
           </div>
         </div>
-        <div class="flex-1 min-h-0">
+        <div class="flex-1 min-h-0" data-testid="editor-monaco">
           @if (showPreview() && isMarkdownFile()) {
             <div
               class="h-full overflow-y-auto bg-base-100 p-6 prose prose-invert max-w-none"
@@ -137,6 +137,7 @@ export class CodeEditorComponent implements OnInit {
   readonly fileSaved = output<{ filePath: string; content: string }>();
 
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
+  private keydownTarget: HTMLElement | null = null;
   private readonly destroyRef = inject(DestroyRef);
   protected readonly vimModeService = inject(VimModeService);
   private readonly editorService = inject(EditorService);
@@ -233,13 +234,36 @@ export class CodeEditorComponent implements OnInit {
         }
       }
     };
-    document.addEventListener('keydown', this.keydownHandler);
 
     this.destroyRef.onDestroy(() => {
-      if (this.keydownHandler) {
-        document.removeEventListener('keydown', this.keydownHandler);
-      }
+      this.detachKeydownHandler();
+      this.disposeMonacoEditor();
     });
+  }
+
+  private attachKeydownHandler(target: HTMLElement): void {
+    if (!this.keydownHandler || this.keydownTarget === target) return;
+    this.detachKeydownHandler();
+    target.addEventListener('keydown', this.keydownHandler);
+    this.keydownTarget = target;
+  }
+
+  private detachKeydownHandler(): void {
+    if (this.keydownHandler && this.keydownTarget) {
+      this.keydownTarget.removeEventListener('keydown', this.keydownHandler);
+    }
+    this.keydownTarget = null;
+  }
+
+  private disposeMonacoEditor(): void {
+    if (!this.monacoEditor) return;
+    const editor = this.monacoEditor as { dispose?: () => void };
+    try {
+      editor.dispose?.();
+    } catch {
+      void 0;
+    }
+    this.monacoEditor = null;
   }
 
   protected togglePreview(): void {
@@ -248,6 +272,11 @@ export class CodeEditorComponent implements OnInit {
 
   protected onEditorInit(editor: unknown): void {
     this.monacoEditor = editor;
+    const editorWithDom = editor as { getDomNode?: () => HTMLElement | null };
+    const domNode = editorWithDom.getDomNode?.() ?? null;
+    if (domNode) {
+      this.attachKeydownHandler(domNode);
+    }
     if (this.vimModeService.enabled() && this.isFocused()) {
       Promise.resolve().then(() => {
         if (this.vimStatusBarRef?.nativeElement && this.monacoEditor) {

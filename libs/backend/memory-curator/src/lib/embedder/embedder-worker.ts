@@ -15,13 +15,36 @@
  *           | { id, ok: true,  ranked: [{id, score}] }
  *           | { id, ok: false, error: string }
  */
-import { parentPort } from 'node:worker_threads';
+import { parentPort, workerData } from 'node:worker_threads';
 
 if (!parentPort) {
   throw new Error('embedder-worker.ts must be run as a worker_thread');
 }
 
 const port = parentPort;
+
+/**
+ * Writable model-cache directory injected by the main thread. Required when
+ * packaged: `@huggingface/transformers` defaults to `<pkg>/.cache`, which lives
+ * inside `app.asar` (a file) and fails with `ENOTDIR`. When absent (tests /
+ * unpackaged dev) the library default is used.
+ */
+const modelCacheDir: string | null =
+  (workerData as { modelCacheDir?: string } | null)?.modelCacheDir ?? null;
+
+interface TransformersEnv {
+  cacheDir?: string;
+  allowLocalModels?: boolean;
+}
+
+let envConfigured = false;
+
+function configureTransformersEnv(env: TransformersEnv | undefined): void {
+  if (envConfigured || !env || !modelCacheDir) return;
+  env.cacheDir = modelCacheDir;
+  env.allowLocalModels = false;
+  envConfigured = true;
+}
 
 interface PipelineFn {
   (
@@ -32,6 +55,30 @@ interface PipelineFn {
 
 let pipelineSingleton: PipelineFn | null = null;
 let pipelineLoading: Promise<PipelineFn> | null = null;
+
+interface PipelineProgressInfo {
+  readonly status: 'initiate' | 'download' | 'progress' | 'done' | 'ready';
+  readonly name?: string;
+  readonly file?: string;
+  readonly progress?: number;
+  readonly loaded?: number;
+  readonly total?: number;
+}
+
+const PROGRESS_EMIT_THROTTLE_MS = 500;
+let lastProgressEmitAt = 0;
+
+function emitPipelineProgress(info: PipelineProgressInfo): void {
+  if (info.status === 'progress') {
+    const now = Date.now();
+    if (now - lastProgressEmitAt < PROGRESS_EMIT_THROTTLE_MS) return;
+    lastProgressEmitAt = now;
+  }
+  port.postMessage({
+    type: 'pipeline-progress',
+    info,
+  });
+}
 
 async function loadPipeline(): Promise<PipelineFn> {
   if (pipelineSingleton) return pipelineSingleton;
@@ -45,15 +92,27 @@ async function loadPipeline(): Promise<PipelineFn> {
         model: string,
         options: Record<string, unknown>,
       ) => Promise<PipelineFn>;
+      env?: TransformersEnv;
     };
+    configureTransformersEnv(mod.env);
     const { pipeline } = mod;
+    lastProgressEmitAt = 0;
+    emitPipelineProgress({
+      status: 'initiate',
+      name: 'Xenova/bge-small-en-v1.5',
+    });
     const fn: PipelineFn = await pipeline(
       'feature-extraction',
       'Xenova/bge-small-en-v1.5',
       {
         quantized: true,
+        progress_callback: emitPipelineProgress,
       },
     );
+    emitPipelineProgress({
+      status: 'ready',
+      name: 'Xenova/bge-small-en-v1.5',
+    });
     pipelineSingleton = fn;
     return fn;
   })();
@@ -113,7 +172,9 @@ async function loadCrossEncoder(): Promise<CrossEncoderFn> {
         model: string,
         options: Record<string, unknown>,
       ) => Promise<CrossEncoderFn>;
+      env?: TransformersEnv;
     };
+    configureTransformersEnv(mod.env);
 
     const fn = await Promise.race([
       mod.pipeline('text-classification', 'Xenova/ms-marco-MiniLM-L-6-v2', {

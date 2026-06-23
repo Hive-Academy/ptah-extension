@@ -5,6 +5,7 @@ import {
   MEMORY_TRIGGER_KEYS,
   flattenMemoryTriggers,
   readMemoryTriggers,
+  readSessionStartConfig,
 } from './memory-trigger-config';
 
 describe('memory-trigger-config', () => {
@@ -29,6 +30,10 @@ describe('memory-trigger-config', () => {
       expect(out.maxCuratesPerHour).toBe(
         MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour,
       );
+      expect(MEMORY_TRIGGER_DEFAULTS.maxCuratesPerHour).toBe(20);
+      expect(out.sessionStart).toEqual(MEMORY_TRIGGER_DEFAULTS.sessionStart);
+      expect(out.curatorProvider).toBe('');
+      expect(out.curatorModel).toBe('');
     });
 
     it('reads seeded values across all keys', () => {
@@ -48,6 +53,12 @@ describe('memory-trigger-config', () => {
           [`ptah.${MEMORY_TRIGGER_KEYS.episode.enabled}`]: false,
           [`ptah.${MEMORY_TRIGGER_KEYS.sessionEnd.enabled}`]: false,
           [`ptah.${MEMORY_TRIGGER_KEYS.maxCuratesPerHour}`]: 24,
+          [`ptah.${MEMORY_TRIGGER_KEYS.sessionStart.injectionEnabled}`]: false,
+          [`ptah.${MEMORY_TRIGGER_KEYS.sessionStart.observationCount}`]: 3,
+          [`ptah.${MEMORY_TRIGGER_KEYS.sessionStart.corpusCount}`]: 2,
+          [`ptah.${MEMORY_TRIGGER_KEYS.curatorProvider}`]: 'anthropic',
+          [`ptah.${MEMORY_TRIGGER_KEYS.curatorModel}`]:
+            'claude-haiku-4-5-20251001',
         },
       });
       const out = readMemoryTriggers(ws);
@@ -66,6 +77,13 @@ describe('memory-trigger-config', () => {
         episode: { enabled: false },
         sessionEnd: { enabled: false },
         maxCuratesPerHour: 24,
+        sessionStart: {
+          injectionEnabled: false,
+          observationCount: 3,
+          corpusCount: 2,
+        },
+        curatorProvider: 'anthropic',
+        curatorModel: 'claude-haiku-4-5-20251001',
       });
     });
 
@@ -115,6 +133,21 @@ describe('memory-trigger-config', () => {
       ]);
     });
 
+    it('flattens curatorProvider/curatorModel to flat memory.* keys', () => {
+      const out = flattenMemoryTriggers({
+        curatorProvider: 'anthropic',
+        curatorModel: 'claude-haiku-4-5-20251001',
+      });
+      expect(out).toEqual([
+        [MEMORY_TRIGGER_KEYS.curatorProvider, 'anthropic'],
+        [MEMORY_TRIGGER_KEYS.curatorModel, 'claude-haiku-4-5-20251001'],
+      ]);
+      expect(MEMORY_TRIGGER_KEYS.curatorProvider).toBe(
+        'memory.curatorProvider',
+      );
+      expect(MEMORY_TRIGGER_KEYS.curatorModel).toBe('memory.curatorModel');
+    });
+
     it('skips undefined entries', () => {
       const out = flattenMemoryTriggers({
         preCompact: undefined,
@@ -135,6 +168,42 @@ describe('memory-trigger-config', () => {
         ([k]) => k === MEMORY_TRIGGER_KEYS.userPromptSubmit.cueList,
       );
       expect(cueEntry?.[1]).toEqual(['x', 'y']);
+    });
+  });
+
+  describe('readSessionStartConfig', () => {
+    it('returns DEFAULTS when nothing seeded', () => {
+      const ws = createMockWorkspaceProvider();
+      const out = readSessionStartConfig(ws);
+      expect(out).toEqual(MEMORY_TRIGGER_DEFAULTS.sessionStart);
+    });
+
+    it('reads seeded sessionStart values', () => {
+      const ws = createMockWorkspaceProvider({
+        config: {
+          [`ptah.${MEMORY_TRIGGER_KEYS.sessionStart.injectionEnabled}`]: false,
+          [`ptah.${MEMORY_TRIGGER_KEYS.sessionStart.observationCount}`]: 25,
+          [`ptah.${MEMORY_TRIGGER_KEYS.sessionStart.corpusCount}`]: 8,
+        },
+      });
+      const out = readSessionStartConfig(ws);
+      expect(out).toEqual({
+        injectionEnabled: false,
+        observationCount: 25,
+        corpusCount: 8,
+      });
+    });
+
+    it('falls back to defaults for negative observationCount', () => {
+      const ws = createMockWorkspaceProvider({
+        config: {
+          [`ptah.${MEMORY_TRIGGER_KEYS.sessionStart.observationCount}`]: -1,
+        },
+      });
+      const out = readSessionStartConfig(ws);
+      expect(out.observationCount).toBe(
+        MEMORY_TRIGGER_DEFAULTS.sessionStart.observationCount,
+      );
     });
   });
 });

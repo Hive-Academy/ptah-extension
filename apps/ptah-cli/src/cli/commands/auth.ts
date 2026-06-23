@@ -47,20 +47,20 @@ import { spawnCli } from '@ptah-extension/cli-agent-runtime';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ClaudeCliHealth } from '@ptah-extension/shared';
 
-import { withEngine } from '../bootstrap/with-engine.js';
+import { withEngine } from '@ptah-extension/cli-engine';
 import { suggestClosest } from './_string-distance.js';
 import {
   runHeadlessLogin,
   type HeadlessProcessLike,
 } from '../oauth/headless-flow.js';
 import { JsonRpcOAuthUrlOpener } from '../oauth/jsonrpc-oauth-url-opener.js';
-import { StderrOAuthUrlOpener } from '../oauth/stderr-oauth-url-opener.js';
+import { BrowserLaunchingOAuthUrlOpener } from '../oauth/browser-launching-oauth-url-opener.js';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { redact } from '../output/redactor.js';
 import { JsonRpcServer } from '../jsonrpc/server.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 
 /** Sub-commands accepted by `ptah auth ...`. */
 export type AuthSubcommand =
@@ -591,7 +591,7 @@ async function runCopilotLogin(
       : ctx.container.resolve<ICopilotAuthService>(
           AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
         ));
-    const opener = new StderrOAuthUrlOpener();
+    const opener = new BrowserLaunchingOAuthUrlOpener();
 
     const result = await headless({
       provider: 'copilot',

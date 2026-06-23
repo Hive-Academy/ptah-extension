@@ -16,12 +16,14 @@ export type {
 } from './lib/gateway.service';
 
 export { BindingStore } from './lib/binding.store';
+export { ConversationStore } from './lib/conversation.store';
 export { MessageStore } from './lib/message.store';
 export { StreamCoalescer } from './lib/stream-coalescer';
 export type {
   CoalescerOptions,
   FlushPayload,
   FlushCallback,
+  OutboundRoute,
 } from './lib/stream-coalescer';
 
 export type { ITokenVault } from './lib/token-vault.interface';
@@ -56,17 +58,34 @@ export type {
 
 export { FfmpegDecoder } from './lib/voice/ffmpeg-decoder';
 export type { FfmpegBinaryResolver } from './lib/voice/ffmpeg-decoder';
+export {
+  VoiceAssetsUnavailableError,
+  VOICE_ASSETS_UNAVAILABLE,
+  VOICE_ASSETS_REMEDIATION,
+  isVoiceAssetsUnavailable,
+} from './lib/voice/voice-assets-error';
 export { WhisperTranscriber } from './lib/voice/whisper-transcriber';
 export type {
-  NodejsWhisperApi,
-  NodejsWhisperLoader,
+  AsrPipeline,
+  AsrPipelineFactory,
+  PipelineProgressInfo,
+  WhisperDownloadEvent,
 } from './lib/voice/whisper-transcriber';
+export {
+  resolveWhisperModel,
+  VOICE_WHISPER_MODEL_KEY,
+  LEGACY_GATEWAY_WHISPER_MODEL_KEY,
+  DEFAULT_WHISPER_MODEL,
+} from './lib/voice/resolve-whisper-model';
+export type { WhisperModelConfigReader } from './lib/voice/resolve-whisper-model';
 
 export { BindingId, ConversationKey, GatewayMessageId } from './lib/types';
 export type {
   ApprovalStatus,
   Direction,
   GatewayBinding,
+  GatewayConversation,
+  GatewayConversationId,
   GatewayMessage,
   GatewayPlatform,
 } from './lib/types';

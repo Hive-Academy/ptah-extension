@@ -152,14 +152,14 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
 
     const req: SpawnAgentRequest = {
       task: 'do thing',
-      cli: 'gemini',
+      cli: 'codex',
     } as SpawnAgentRequest;
     const out = await buildAgentNamespace(deps).spawn(req);
 
     expect(out).toEqual({ agentId: 'a1' });
     const enriched = mocks.processManager.spawn.mock.calls[0][0];
     expect(enriched.task).toBe('do thing');
-    expect(enriched.cli).toBe('gemini');
+    expect(enriched.cli).toBe('codex');
     expect(enriched.parentSessionId).toBe('session-uuid-1');
     expect(enriched.projectGuidance).toBe('project rules');
     expect(enriched.systemPrompt).toBeUndefined();
@@ -186,11 +186,11 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
   });
 
   it('throws when request.cli is listed in getDisabledClis', async () => {
-    const { deps } = makeDeps({ getDisabledClis: () => ['gemini'] });
+    const { deps } = makeDeps({ getDisabledClis: () => ['codex'] });
     await expect(
       buildAgentNamespace(deps).spawn({
         task: 't',
-        cli: 'gemini',
+        cli: 'codex',
       } as SpawnAgentRequest),
     ).rejects.toThrow(/disabled/i);
   });
@@ -255,6 +255,36 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
       expect.objectContaining({ workingDirectory: 'D:/ws' }),
     );
     expect(setAgentId).toHaveBeenCalledWith('spawned-1');
+  });
+
+  it('forwards the raw model override and modelTier into registry.spawnAgent', async () => {
+    const { deps, mocks } = makeDeps();
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    mocks.registry!.spawnAgent.mockResolvedValue({
+      handle: { id: 'h' } as unknown as SdkHandle,
+      agentName: 'MyAgent',
+      setAgentId: jest.fn(),
+    });
+    mocks.processManager.spawnFromSdkHandle.mockResolvedValue({
+      agentId: 'spawned-2',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 'task body',
+      ptahCliId: 'agent-a',
+      model: 'raw-override-model',
+      modelTier: 'opus',
+    } as SpawnAgentRequest);
+
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    expect(mocks.registry!.spawnAgent).toHaveBeenCalledWith(
+      'agent-a',
+      'task body',
+      expect.objectContaining({
+        model: 'raw-override-model',
+        modelTier: 'opus',
+      }),
+    );
   });
 
   it('throws with helpful message when registry returns a failure status', async () => {
@@ -328,13 +358,13 @@ describe('buildAgentNamespace — list', () => {
   it('returns raw CLI results annotated with preferredRank: 0 when no registry', async () => {
     const { deps, mocks } = makeDeps({ registry: undefined });
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'gemini', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, supportsSteer: false },
     ] as CliDetectionResult[]);
 
     const list = await buildAgentNamespace(deps).list();
     expect(list).toEqual([
       {
-        cli: 'gemini',
+        cli: 'codex',
         installed: true,
         supportsSteer: false,
         preferredRank: 0,
@@ -345,23 +375,23 @@ describe('buildAgentNamespace — list', () => {
   it('filters out disabled CLIs before merging', async () => {
     const { deps, mocks } = makeDeps({
       registry: undefined,
-      getDisabledClis: () => ['codex'],
+      getDisabledClis: () => ['copilot'],
     });
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'gemini', installed: true, supportsSteer: false },
       { cli: 'codex', installed: true, supportsSteer: false },
+      { cli: 'copilot', installed: true, supportsSteer: false },
     ] as CliDetectionResult[]);
 
     const list = await buildAgentNamespace(deps).list();
-    expect(list.map((r) => r.cli)).toEqual(['gemini']);
+    expect(list.map((r) => r.cli)).toEqual(['codex']);
   });
 
   it('merges ptah-cli agents that are enabled+hasApiKey and honors preferred order', async () => {
     const { deps, mocks } = makeDeps({
-      getPreferredAgentOrder: () => ['ptah-alice', 'gemini'],
+      getPreferredAgentOrder: () => ['ptah-alice', 'codex'],
     });
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'gemini', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, supportsSteer: false },
     ] as CliDetectionResult[]);
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     mocks.registry!.listAgents.mockResolvedValue([
@@ -384,7 +414,7 @@ describe('buildAgentNamespace — list', () => {
     const list = await buildAgentNamespace(deps).list();
     expect(
       list.map((r) => (r.cli === 'ptah-cli' ? r.ptahCliId : r.cli)),
-    ).toEqual(['ptah-alice', 'gemini']);
+    ).toEqual(['ptah-alice', 'codex']);
     expect(list[0].preferredRank).toBe(1);
     expect(list[1].preferredRank).toBe(2);
   });
@@ -392,14 +422,14 @@ describe('buildAgentNamespace — list', () => {
   it('falls back to cli results when registry.listAgents throws', async () => {
     const { deps, mocks } = makeDeps();
     mocks.detection.detectAll.mockResolvedValue([
-      { cli: 'gemini', installed: true, supportsSteer: false },
+      { cli: 'codex', installed: true, supportsSteer: false },
     ] as CliDetectionResult[]);
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     mocks.registry!.listAgents.mockRejectedValue(new Error('registry down'));
 
     const list = await buildAgentNamespace(deps).list();
     expect(list).toHaveLength(1);
-    expect(list[0].cli).toBe('gemini');
+    expect(list[0].cli).toBe('codex');
   });
 });
 

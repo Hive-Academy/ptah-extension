@@ -46,7 +46,7 @@ export type AgentStatus =
   | 'timeout'
   | 'stopped';
 
-export type CliType = 'gemini' | 'codex' | 'copilot' | 'cursor' | 'ptah-cli';
+export type CliType = 'codex' | 'copilot' | 'cursor' | 'ptah-cli';
 
 export interface AgentProcessInfo {
   readonly agentId: AgentId;
@@ -60,14 +60,14 @@ export interface AgentProcessInfo {
   completedAt?: string;
   exitCode?: number;
   readonly pid?: number;
-  /** CLI-native session ID (e.g., Gemini's UUID from init event). Enables session resume. */
+  /** CLI-native session ID from the init event. Enables session resume. */
   readonly cliSessionId?: string;
   /** Parent Ptah Claude SDK session that spawned this CLI agent via ptah_agent_spawn.
    *  Mutable: initially set to tab ID, then resolved to real SDK UUID. */
   parentSessionId?: string;
-  /** Human-readable display name for the CLI agent (e.g., 'Gemini CLI', 'Codex', 'Copilot SDK'). */
+  /** Human-readable display name for the CLI agent (e.g., 'Codex', 'Copilot SDK'). */
   readonly displayName?: string;
-  /** Model identifier used by the CLI agent (e.g., 'gemini-2.5-pro', 'gpt-4o'). */
+  /** Model identifier used by the CLI agent (e.g., 'gpt-4o'). */
   readonly model?: string;
   /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
   readonly ptahCliName?: string;
@@ -76,6 +76,8 @@ export interface AgentProcessInfo {
   /** When set, this agent is a resumed version of the given previous agent.
    *  Frontend uses this to replace the old card instead of creating a new one. */
   readonly resumedFromAgentId?: string;
+  /** Whether the agent's handle can continue the same conversation with a follow-up. */
+  readonly supportsContinuation?: boolean;
 }
 
 export interface SpawnAgentRequest {
@@ -91,9 +93,9 @@ export interface SpawnAgentRequest {
   readonly files?: string[];
   /** Task-tracking folder for shared workspace */
   readonly taskFolder?: string;
-  /** Model identifier for CLI agents (e.g., 'gemini-2.5-pro', 'claude-sonnet-4.6'). Passed as --model flag. */
+  /** Model identifier for CLI agents (e.g., 'claude-sonnet-4.6'). Passed as --model flag. */
   readonly model?: string;
-  /** Resume a previous CLI session by its CLI-native session ID (e.g., Gemini --resume <id>) */
+  /** Resume a previous CLI session by its CLI-native session ID */
   readonly resumeSessionId?: string;
   /** Parent Ptah Claude SDK session ID. Injected by MCP server, NOT set by callers. */
   readonly parentSessionId?: string;
@@ -132,7 +134,7 @@ export interface SpawnAgentResult {
   readonly cli: CliType;
   readonly status: AgentStatus;
   readonly startedAt: string;
-  /** CLI-native session ID captured from init event (e.g., Gemini UUID). Null if not yet available. */
+  /** CLI-native session ID captured from init event. Null if not yet available. */
   readonly cliSessionId?: string;
   /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
   readonly ptahCliName?: string;
@@ -160,7 +162,7 @@ export interface CliDetectionResult {
 
 /**
  * Discriminator for structured CLI output segments.
- * Emitted by SDK-based adapters (Gemini, Codex) that have access
+ * Emitted by SDK-based adapters (Codex) that have access
  * to structured event data. Copilot (raw text) falls back to regex parsing.
  */
 export type CliOutputSegmentType =
@@ -211,7 +213,7 @@ export interface AgentOutputDelta {
  * Stored in SessionMetadata.cliSessions[] for resume capability.
  */
 export interface CliSessionReference {
-  /** CLI-native session ID (e.g., Gemini's UUID) */
+  /** CLI-native session ID */
   readonly cliSessionId: string;
   /** Which CLI produced this session */
   readonly cli: CliType;

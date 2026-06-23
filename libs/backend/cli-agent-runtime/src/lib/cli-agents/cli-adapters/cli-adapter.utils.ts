@@ -42,7 +42,7 @@ export async function resolveCliPath(binary: string): Promise<string | null> {
  *
  * @param options.needsConsole - When true, ensures the child process gets its own
  *   console window (hidden). Required for CLIs that use node-pty/ConPTY internally
- *   (e.g., Gemini CLI's run_shell_command). Without a console, ConPTY's
+ *   for shell command execution. Without a console, ConPTY's
  *   AttachConsole() fails on Windows, breaking shell command execution.
  */
 export function spawnCli(
@@ -118,8 +118,8 @@ export function probeCliVersion(
  * Prefers systemPrompt (full prompt harness) over projectGuidance when available.
  * Appends file context and task folder instructions to the base task.
  *
- * Adapters with native system prompt support (Gemini via GEMINI_SYSTEM_MD,
- * Copilot via systemMessage) should strip both systemPrompt and projectGuidance
+ * Adapters with native system prompt support (Copilot via systemMessage)
+ * should strip both systemPrompt and projectGuidance
  * before calling this function to avoid duplication.
  */
 export function buildTaskPrompt(options: CliCommandOptions): string {
@@ -173,4 +173,40 @@ export async function resolveWindowsCmd(binaryPath: string): Promise<string> {
   }
 
   return binaryPath;
+}
+
+/**
+ * Resolve a Windows `.cmd` npm wrapper to a direct `node <entrypoint>` spawn.
+ *
+ * `cross-spawn` runs `.cmd` wrappers through `cmd.exe /c`, which caps the whole
+ * command line at 8,191 chars and re-tokenizes it on whitespace. Adapters that
+ * pass the prompt via argv (Copilot's `-p <prompt>`) overflow that cap and fail
+ * with "The command line is too long." Spawning the wrapper's node entrypoint
+ * directly goes through CreateProcess instead (~32 KB limit) and preserves the
+ * prompt as a single argv element.
+ *
+ * Returns `{ command, prefixArgs }` — prepend `prefixArgs` to the CLI's own
+ * args. Falls back to the binary unchanged off-Windows, for non-`.cmd` paths,
+ * or when the wrapper cannot be parsed.
+ */
+export async function resolveDirectSpawn(
+  binaryPath: string,
+): Promise<{ command: string; prefixArgs: string[] }> {
+  if (
+    process.platform !== 'win32' ||
+    !binaryPath.toLowerCase().endsWith('.cmd')
+  ) {
+    return { command: binaryPath, prefixArgs: [] };
+  }
+
+  try {
+    const target = await resolveWindowsCmd(binaryPath);
+    if (target.toLowerCase().endsWith('.js')) {
+      const node = (await resolveCliPath('node')) ?? 'node';
+      return { command: node, prefixArgs: [target] };
+    }
+    return { command: target, prefixArgs: [] };
+  } catch {
+    return { command: binaryPath, prefixArgs: [] };
+  }
 }

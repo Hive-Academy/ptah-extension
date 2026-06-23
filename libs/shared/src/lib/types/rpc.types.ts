@@ -20,10 +20,14 @@ export * from './rpc/rpc-git.types';
 export * from './rpc/rpc-terminal.types';
 export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
+export * from './rpc/rpc-mem.types';
+export * from './rpc/rpc-corpus.types';
 
 export * from './rpc/rpc-indexing.types';
 
 export * from './rpc/rpc-update.types';
+
+export * from './rpc/rpc-skill-clone.types';
 
 import type {
   SubagentQueryParams,
@@ -66,6 +70,8 @@ import type {
   SessionForkResult,
   SessionRewindParams,
   SessionRewindResult,
+  SessionStatusParams,
+  SessionStatusResponse,
 } from './rpc/rpc-session.types';
 
 import type {
@@ -98,6 +104,8 @@ import type {
   AuthCopilotStatusResponse,
   AuthCodexLoginParams,
   AuthCodexLoginResponse,
+  AuthGetScopeResult,
+  AuthClearWorkspaceOverrideResult,
 } from './rpc/rpc-auth.types';
 
 import type {
@@ -164,14 +172,13 @@ import type {
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
   WizardInstallPackAgentsResult,
-  WizardStartNewProjectChatParams,
-  WizardStartNewProjectChatResult,
 } from './rpc/rpc-setup.types';
 
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
   AgentListCliModelsResult,
+  AgentContinueErrorCode,
   AgentPermissionDecision,
   SkillShEntry,
   SkillAgentTarget,
@@ -204,6 +211,18 @@ import type {
   McpDirectoryListInstalledResult,
   McpDirectoryGetPopularParams,
   McpDirectoryGetPopularResult,
+  McpDirectorySetSmitheryApiKeyParams,
+  McpDirectorySetSmitheryApiKeyResult,
+  McpDirectoryGetSmitheryKeyStatusParams,
+  McpDirectoryGetSmitheryKeyStatusResult,
+  McpDirectoryResolveSmitheryParams,
+  McpDirectoryResolveSmitheryResult,
+  McpDirectoryInstallSmitheryParams,
+  McpDirectoryInstallSmitheryResult,
+  McpDirectoryUninstallSmitheryParams,
+  McpDirectoryUninstallSmitheryResult,
+  McpDirectoryListSmitheryInstalledParams,
+  McpDirectoryListSmitheryInstalledResult,
 } from './mcp-directory.types';
 
 import type {
@@ -275,6 +294,34 @@ import type {
 } from './rpc/rpc-memory.types';
 
 import type {
+  MemSearchIndexParams,
+  MemSearchIndexResult,
+  MemTimelineParams,
+  MemTimelineResult,
+  MemGetObservationsParams,
+  MemGetObservationsResult,
+} from './rpc/rpc-mem.types';
+
+import type {
+  CorpusListParams,
+  CorpusListResult,
+  CorpusGetParams,
+  CorpusGetResult,
+  CorpusBuildParams,
+  CorpusBuildResult,
+  CorpusPrimeParams,
+  CorpusPrimeResult,
+  CorpusQueryParams,
+  CorpusQueryResult,
+  CorpusReprimeParams,
+  CorpusReprimeResult,
+  CorpusRebuildParams,
+  CorpusRebuildResult,
+  CorpusDeleteParams,
+  CorpusDeleteResult,
+} from './rpc/rpc-corpus.types';
+
+import type {
   IndexingGetStatusParams,
   IndexingGetStatusResult,
   IndexingStartParams,
@@ -292,6 +339,23 @@ import type {
   IndexingAcknowledgeDisclosureParams,
   IndexingAcknowledgeDisclosureResult,
 } from './rpc/rpc-indexing.types';
+
+import type {
+  SkillSynthesisListClonesParams,
+  SkillSynthesisListClonesResult,
+  SkillSynthesisGetCloneParams,
+  SkillSynthesisGetCloneResult,
+  SkillSynthesisEnhanceNowParams,
+  SkillSynthesisEnhanceNowResult,
+  SkillSynthesisRevertEnhancementParams,
+  SkillSynthesisRevertEnhancementResult,
+  SkillSynthesisRebaseCloneParams,
+  SkillSynthesisRebaseCloneResult,
+  SkillSynthesisKeepCloneParams,
+  SkillSynthesisKeepCloneResult,
+  SkillSynthesisInvocationStatsParams,
+  SkillSynthesisInvocationStatsResult,
+} from './rpc/rpc-skill-clone.types';
 
 import type {
   HarnessInitializeParams,
@@ -314,8 +378,6 @@ import type {
   HarnessSavePresetResponse,
   HarnessLoadPresetsParams,
   HarnessLoadPresetsResponse,
-  HarnessChatParams,
-  HarnessChatResponse,
   HarnessDesignAgentsParams,
   HarnessDesignAgentsResponse,
   HarnessGenerateSkillsParams,
@@ -324,8 +386,10 @@ import type {
   HarnessGenerateDocumentResponse,
   HarnessAnalyzeIntentParams,
   HarnessAnalyzeIntentResponse,
-  HarnessConverseParams,
-  HarnessConverseResponse,
+  HarnessStartNewProjectParams,
+  HarnessStartNewProjectResult,
+  HarnessWorkflowPromptParams,
+  HarnessWorkflowPromptResponse,
 } from './rpc/rpc-harness.types';
 
 import type {
@@ -360,13 +424,19 @@ import type {
 import type {
   DbHealthResult,
   DbResetResult,
+  DbReloadVecResult,
+  DbOpenBindingFolderResult,
+  EmbedderStatusParams,
+  EmbedderStatusResult,
+  EmbedderRetryParams,
+  EmbedderRetryResult,
 } from './rpc/rpc-persistence.types';
 
 import type {
+  UpdateGetStateParams,
+  UpdateGetStateResult,
   UpdateCheckNowParams,
   UpdateCheckNowResult,
-  UpdateInstallNowParams,
-  UpdateInstallNowResult,
 } from './rpc/rpc-update.types';
 
 import type {
@@ -442,6 +512,10 @@ export interface RpcMethodRegistry {
   'session:rewindFiles': {
     params: SessionRewindParams;
     result: SessionRewindResult;
+  };
+  'session:status': {
+    params: SessionStatusParams;
+    result: SessionStatusResponse;
   };
   'context:getAllFiles': {
     params: ContextGetAllFilesParams;
@@ -534,6 +608,14 @@ export interface RpcMethodRegistry {
     params: AuthCodexLoginParams;
     result: AuthCodexLoginResponse;
   };
+  'auth:getScope': {
+    params: Record<string, never>;
+    result: AuthGetScopeResult;
+  };
+  'auth:clearWorkspaceOverride': {
+    params: Record<string, never>;
+    result: AuthClearWorkspaceOverrideResult;
+  };
   'setup-status:get-status': {
     params: SetupStatusGetParams;
     result: SetupStatusGetResponse;
@@ -581,10 +663,6 @@ export interface RpcMethodRegistry {
   'wizard:install-pack-agents': {
     params: WizardInstallPackAgentsParams;
     result: WizardInstallPackAgentsResult;
-  };
-  'wizard:start-new-project-chat': {
-    params: WizardStartNewProjectChatParams;
-    result: WizardStartNewProjectChatResult;
   };
   'license:getStatus': {
     params: LicenseGetStatusParams;
@@ -757,6 +835,10 @@ export interface RpcMethodRegistry {
     params: { agentId: string };
     result: { success: boolean; error?: string };
   };
+  'agent:continue': {
+    params: { agentId: string; message: string };
+    result: { success: boolean; error?: string; code?: AgentContinueErrorCode };
+  };
   /** Resume a CLI agent session by spawning a new process with resumeSessionId */
   'agent:resumeCliSession': {
     params: {
@@ -864,6 +946,30 @@ export interface RpcMethodRegistry {
   'mcpDirectory:getPopular': {
     params: McpDirectoryGetPopularParams;
     result: McpDirectoryGetPopularResult;
+  };
+  'mcpDirectory:setSmitheryApiKey': {
+    params: McpDirectorySetSmitheryApiKeyParams;
+    result: McpDirectorySetSmitheryApiKeyResult;
+  };
+  'mcpDirectory:getSmitheryKeyStatus': {
+    params: McpDirectoryGetSmitheryKeyStatusParams;
+    result: McpDirectoryGetSmitheryKeyStatusResult;
+  };
+  'mcpDirectory:resolveSmithery': {
+    params: McpDirectoryResolveSmitheryParams;
+    result: McpDirectoryResolveSmitheryResult;
+  };
+  'mcpDirectory:installSmithery': {
+    params: McpDirectoryInstallSmitheryParams;
+    result: McpDirectoryInstallSmitheryResult;
+  };
+  'mcpDirectory:uninstallSmithery': {
+    params: McpDirectoryUninstallSmitheryParams;
+    result: McpDirectoryUninstallSmitheryResult;
+  };
+  'mcpDirectory:listSmitheryInstalled': {
+    params: McpDirectoryListSmitheryInstalledParams;
+    result: McpDirectoryListSmitheryInstalledResult;
   };
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -1005,7 +1111,11 @@ export interface RpcMethodRegistry {
     result: { saved: boolean; filePath?: string; error?: string };
   };
   'config:model-set': {
-    params: { model?: string; autopilot?: boolean };
+    params: {
+      model?: string;
+      autopilot?: boolean;
+      applyTo?: 'global' | 'workspace';
+    };
     result: { success: boolean };
   };
   'auth:setApiKey': {
@@ -1138,10 +1248,6 @@ export interface RpcMethodRegistry {
     params: HarnessLoadPresetsParams;
     result: HarnessLoadPresetsResponse;
   };
-  'harness:chat': {
-    params: HarnessChatParams;
-    result: HarnessChatResponse;
-  };
   'harness:design-agents': {
     params: HarnessDesignAgentsParams;
     result: HarnessDesignAgentsResponse;
@@ -1158,9 +1264,13 @@ export interface RpcMethodRegistry {
     params: HarnessAnalyzeIntentParams;
     result: HarnessAnalyzeIntentResponse;
   };
-  'harness:converse': {
-    params: HarnessConverseParams;
-    result: HarnessConverseResponse;
+  'harness:start-new-project': {
+    params: HarnessStartNewProjectParams;
+    result: HarnessStartNewProjectResult;
+  };
+  'harness:workflow-prompt': {
+    params: HarnessWorkflowPromptParams;
+    result: HarnessWorkflowPromptResponse;
   };
   'memory:list': { params: MemoryListParams; result: MemoryListResult };
   'memory:search': { params: MemorySearchParams; result: MemorySearchResult };
@@ -1200,6 +1310,50 @@ export interface RpcMethodRegistry {
   'memory:getTriggers': {
     params: MemoryGetTriggersParams;
     result: MemoryGetTriggersResult;
+  };
+  'mem:searchIndex': {
+    params: MemSearchIndexParams;
+    result: MemSearchIndexResult;
+  };
+  'mem:timeline': {
+    params: MemTimelineParams;
+    result: MemTimelineResult;
+  };
+  'mem:getObservations': {
+    params: MemGetObservationsParams;
+    result: MemGetObservationsResult;
+  };
+  'corpus:list': {
+    params: CorpusListParams;
+    result: CorpusListResult;
+  };
+  'corpus:get': {
+    params: CorpusGetParams;
+    result: CorpusGetResult;
+  };
+  'corpus:build': {
+    params: CorpusBuildParams;
+    result: CorpusBuildResult;
+  };
+  'corpus:prime': {
+    params: CorpusPrimeParams;
+    result: CorpusPrimeResult;
+  };
+  'corpus:query': {
+    params: CorpusQueryParams;
+    result: CorpusQueryResult;
+  };
+  'corpus:reprime': {
+    params: CorpusReprimeParams;
+    result: CorpusReprimeResult;
+  };
+  'corpus:rebuild': {
+    params: CorpusRebuildParams;
+    result: CorpusRebuildResult;
+  };
+  'corpus:delete': {
+    params: CorpusDeleteParams;
+    result: CorpusDeleteResult;
   };
   'skillSynthesis:listCandidates': {
     params: SkillSynthesisListCandidatesParams;
@@ -1261,6 +1415,54 @@ export interface RpcMethodRegistry {
     params: SkillGetTriggersParams;
     result: SkillGetTriggersResult;
   };
+  'skillSynthesis:listClones': {
+    params: SkillSynthesisListClonesParams;
+    result: SkillSynthesisListClonesResult;
+  };
+  'skillSynthesis:getClone': {
+    params: SkillSynthesisGetCloneParams;
+    result: SkillSynthesisGetCloneResult;
+  };
+  'skillSynthesis:enhanceNow': {
+    params: SkillSynthesisEnhanceNowParams;
+    result: SkillSynthesisEnhanceNowResult;
+  };
+  'skillSynthesis:revertEnhancement': {
+    params: SkillSynthesisRevertEnhancementParams;
+    result: SkillSynthesisRevertEnhancementResult;
+  };
+  'skillSynthesis:rebaseClone': {
+    params: SkillSynthesisRebaseCloneParams;
+    result: SkillSynthesisRebaseCloneResult;
+  };
+  'skillSynthesis:keepClone': {
+    params: SkillSynthesisKeepCloneParams;
+    result: SkillSynthesisKeepCloneResult;
+  };
+  'skillSynthesis:invocationStats': {
+    params: SkillSynthesisInvocationStatsParams;
+    result: SkillSynthesisInvocationStatsResult;
+  };
+  'skillSynthesis:listSuggestions': {
+    params: SkillSynthesisListSuggestionsParams;
+    result: SkillSynthesisListSuggestionsResult;
+  };
+  'skillSynthesis:acceptSuggestion': {
+    params: SkillSynthesisAcceptSuggestionParams;
+    result: SkillSynthesisAcceptSuggestionResult;
+  };
+  'skillSynthesis:dismissSuggestion': {
+    params: SkillSynthesisDismissSuggestionParams;
+    result: SkillSynthesisDismissSuggestionResult;
+  };
+  'skillSynthesis:getSuggestion': {
+    params: SkillSynthesisGetSuggestionParams;
+    result: SkillSynthesisGetSuggestionResult;
+  };
+  'skillSynthesis:updateSuggestion': {
+    params: SkillSynthesisUpdateSuggestionParams;
+    result: SkillSynthesisUpdateSuggestionResult;
+  };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -1306,6 +1508,47 @@ export interface RpcMethodRegistry {
     params: GatewayTestParams;
     result: GatewayTestResult;
   };
+  'gateway:getAllowList': {
+    params: GatewayGetAllowListParams;
+    result: GatewayGetAllowListResult;
+  };
+  'gateway:setAllowList': {
+    params: GatewaySetAllowListParams;
+    result: GatewaySetAllowListResult;
+  };
+  'gateway:getDiscordAppId': {
+    params: GatewayGetDiscordAppIdParams;
+    result: GatewayGetDiscordAppIdResult;
+  };
+  'gateway:setDiscordAppId': {
+    params: GatewaySetDiscordAppIdParams;
+    result: GatewaySetDiscordAppIdResult;
+  };
+  'gateway:registerDiscordCommands': {
+    params: GatewayRegisterDiscordCommandsParams;
+    result: GatewayRegisterDiscordCommandsResult;
+  };
+  'gateway:listDiscordGuilds': {
+    params: GatewayListDiscordGuildsParams;
+    result: GatewayListDiscordGuildsResult;
+  };
+
+  'voice:transcribe': {
+    params: VoiceTranscribeParams;
+    result: VoiceTranscribeResult;
+  };
+  'voice:getConfig': {
+    params: VoiceGetConfigParams;
+    result: VoiceGetConfigResult;
+  };
+  'voice:setConfig': {
+    params: VoiceSetConfigParams;
+    result: VoiceSetConfigResult;
+  };
+  'voice:downloadModel': {
+    params: VoiceDownloadModelParams;
+    result: VoiceDownloadModelResult;
+  };
 
   'db:health': {
     params: { fullCheck?: boolean };
@@ -1314,6 +1557,22 @@ export interface RpcMethodRegistry {
   'db:reset': {
     params: { confirm: string };
     result: DbResetResult;
+  };
+  'db:reloadVec': {
+    params: Record<string, never>;
+    result: DbReloadVecResult;
+  };
+  'db:openBindingFolder': {
+    params: Record<string, never>;
+    result: DbOpenBindingFolderResult;
+  };
+  'embedder:status': {
+    params: EmbedderStatusParams;
+    result: EmbedderStatusResult;
+  };
+  'embedder:retry': {
+    params: EmbedderRetryParams;
+    result: EmbedderRetryResult;
   };
   'indexing:getStatus': {
     params: IndexingGetStatusParams;
@@ -1347,13 +1606,13 @@ export interface RpcMethodRegistry {
     params: IndexingAcknowledgeDisclosureParams;
     result: IndexingAcknowledgeDisclosureResult;
   };
+  'update:get-state': {
+    params: UpdateGetStateParams;
+    result: UpdateGetStateResult;
+  };
   'update:check-now': {
     params: UpdateCheckNowParams;
     result: UpdateCheckNowResult;
-  };
-  'update:install-now': {
-    params: UpdateInstallNowParams;
-    result: UpdateInstallNowResult;
   };
 }
 
@@ -1437,7 +1696,7 @@ export interface SkillSynthesisStatsResult {
 }
 
 /**
- * DTO mirroring all 17 SkillSynthesisSettings fields.
+ * DTO mirroring all SkillSynthesisSettings fields.
  * Shared between frontend and backend — no branded types.
  */
 export interface SkillSynthesisSettingsDto {
@@ -1449,15 +1708,18 @@ export interface SkillSynthesisSettingsDto {
   eligibilityMinTurns: number;
   evictionDecayRate: number;
   generalizationContextThreshold: number;
-  minTrajectoryFidelityRatio: number;
   dedupClusterThreshold: number;
-  minAbstractionEditDistance: number;
+  prefilterMinEdits: number;
+  prefilterMinChars: number;
+  prefilterMinToolUses: number;
   judgeEnabled: boolean;
   minJudgeScore: number;
   judgeModel: string;
   maxPinnedSkills: number;
   curatorEnabled: boolean;
   curatorIntervalHours: number;
+  suggestionMinClusterSize: number;
+  suggestionMaxCandidates: number;
 }
 
 export type SkillSynthesisGetSettingsParams = Record<string, never>;
@@ -1501,6 +1763,65 @@ export interface SkillSynthesisRunCuratorResult {
   overlaps?: SkillSynthesisCuratorOverlap[];
 }
 
+export type SkillSuggestionStatus = 'pending' | 'accepted' | 'dismissed';
+
+export interface SkillSuggestionSummary {
+  id: string;
+  name: string;
+  description: string;
+  clusterSize: number;
+  technologyFingerprint: string;
+  judgeScore: number;
+  memberSessionIds: string[];
+  status: SkillSuggestionStatus;
+  createdAt: number;
+}
+
+export interface SkillSuggestionDetail extends SkillSuggestionSummary {
+  body: string;
+}
+
+export interface SkillSynthesisListSuggestionsParams {
+  status?: SkillSuggestionStatus;
+}
+export interface SkillSynthesisListSuggestionsResult {
+  suggestions: SkillSuggestionSummary[];
+}
+
+export interface SkillSynthesisAcceptSuggestionParams {
+  id: string;
+}
+export interface SkillSynthesisAcceptSuggestionResult {
+  accepted: boolean;
+  filePath: string;
+}
+
+export interface SkillSynthesisDismissSuggestionParams {
+  id: string;
+  reason?: string;
+}
+export interface SkillSynthesisDismissSuggestionResult {
+  dismissed: boolean;
+}
+
+export interface SkillSynthesisGetSuggestionParams {
+  id: string;
+}
+export interface SkillSynthesisGetSuggestionResult {
+  suggestion: SkillSuggestionDetail | null;
+}
+
+export interface SkillSynthesisUpdateSuggestionParams {
+  id: string;
+  name?: string;
+  description?: string;
+  body?: string;
+}
+export interface SkillSynthesisUpdateSuggestionResult {
+  updated: boolean;
+  suggestion: SkillSuggestionDetail | null;
+}
+
 export type GatewayPlatformId = 'telegram' | 'discord' | 'slack';
 export type GatewayApprovalStatus =
   | 'pending'
@@ -1513,6 +1834,8 @@ export interface GatewayBindingDto {
   id: string;
   platform: GatewayPlatformId;
   externalChatId: string;
+  /** Allow-list id (Telegram user / Discord guild / Slack team), or null for pre-0020 rows. */
+  allowListId: string | null;
   displayName: string | null;
   approvalStatus: GatewayApprovalStatus;
   ptahSessionId: string | null;
@@ -1628,6 +1951,85 @@ export interface GatewayTestParams {
 export type GatewayTestResult =
   | { ok: true; bindingId: string; externalMsgId: string | null }
   | { ok: false; error: string };
+
+export interface GatewayGetAllowListParams {
+  platform: GatewayPlatformId;
+}
+export interface GatewayGetAllowListResult {
+  entries: string[];
+}
+
+export interface GatewaySetAllowListParams {
+  platform: GatewayPlatformId;
+  entries: string[];
+}
+export interface GatewaySetAllowListResult {
+  ok: true;
+}
+
+export type GatewayGetDiscordAppIdParams = Record<string, never>;
+export interface GatewayGetDiscordAppIdResult {
+  applicationId: string | null;
+}
+
+export interface GatewaySetDiscordAppIdParams {
+  applicationId: string;
+}
+export interface GatewaySetDiscordAppIdResult {
+  ok: true;
+}
+
+export type GatewayRegisterDiscordCommandsParams = Record<string, never>;
+export type GatewayRegisterDiscordCommandsResult =
+  | { ok: true; registered: number; scope: 'guild' | 'global' }
+  | { ok: false; error: string };
+
+export interface GatewayDiscordGuildDto {
+  id: string;
+  name: string;
+}
+export type GatewayListDiscordGuildsParams = Record<string, never>;
+export interface GatewayListDiscordGuildsResult {
+  guilds: GatewayDiscordGuildDto[];
+}
+
+export interface VoiceTranscribeParams {
+  /** Base64-encoded audio recording from the renderer (MediaRecorder output). */
+  audioBase64: string;
+  /** MIME type of the recording, e.g. 'audio/webm' or 'audio/webm;codecs=opus'. */
+  mimeType: string;
+}
+
+export type VoiceTranscribeResult =
+  | { ok: true; transcript: string }
+  | { ok: false; error: string; code?: string; remediation?: string };
+
+export interface VoiceConfigDto {
+  whisperModel: string;
+  /** Whether the selected Whisper model is already downloaded on disk. */
+  downloaded: boolean;
+}
+
+export type VoiceGetConfigParams = Record<string, never>;
+
+export type VoiceGetConfigResult =
+  | { ok: true; config: VoiceConfigDto }
+  | { ok: false; error: string };
+
+export interface VoiceSetConfigParams {
+  whisperModel: string;
+}
+
+export type VoiceSetConfigResult = { ok: true } | { ok: false; error: string };
+
+export interface VoiceDownloadModelParams {
+  /** Model to download; defaults to the currently configured Whisper model. */
+  model?: string;
+}
+
+export type VoiceDownloadModelResult =
+  | { ok: true; alreadyPresent: boolean }
+  | { ok: false; error: string; code?: string; remediation?: string };
 
 export interface ScheduledJobDto {
   id: string;
@@ -1770,6 +2172,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:stats-batch': true,
   'session:forkSession': true,
   'session:rewindFiles': true,
+  'session:status': true,
   'context:getAllFiles': true,
   'context:getFileSuggestions': true,
   'autocomplete:agents': true,
@@ -1792,6 +2195,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:copilotLogout': true,
   'auth:copilotStatus': true,
   'auth:codexLogin': true,
+  'auth:getScope': true,
+  'auth:clearWorkspaceOverride': true,
   'setup-status:get-status': true,
   'setup-wizard:launch': true,
   'wizard:deep-analyze': true,
@@ -1804,7 +2209,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'wizard:load-analysis': true,
   'wizard:list-agent-packs': true,
   'wizard:install-pack-agents': true,
-  'wizard:start-new-project-chat': true,
   'license:getStatus': true,
   'license:setKey': true,
   'license:clearKey': true,
@@ -1848,6 +2252,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'agent:listCliModels': true,
   'agent:permissionResponse': true, // Copilot SDK permission response
   'agent:stop': true,
+  'agent:continue': true,
   'agent:resumeCliSession': true, // CLI agent session resume
   'agent:backgroundList': true, // Background agent listing
   'ptahCli:list': true,
@@ -1868,6 +2273,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:uninstall': true,
   'mcpDirectory:listInstalled': true,
   'mcpDirectory:getPopular': true,
+  'mcpDirectory:setSmitheryApiKey': true,
+  'mcpDirectory:getSmitheryKeyStatus': true,
+  'mcpDirectory:resolveSmithery': true,
+  'mcpDirectory:installSmithery': true,
+  'mcpDirectory:uninstallSmithery': true,
+  'mcpDirectory:listSmitheryInstalled': true,
   'workspace:getInfo': true,
   'workspace:addFolder': true,
   'workspace:removeFolder': true,
@@ -1930,12 +2341,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:apply': true,
   'harness:save-preset': true,
   'harness:load-presets': true,
-  'harness:chat': true,
   'harness:design-agents': true,
   'harness:generate-skills': true,
   'harness:generate-document': true,
   'harness:analyze-intent': true,
-  'harness:converse': true,
+  'harness:start-new-project': true,
+  'harness:workflow-prompt': true,
 
   'memory:list': true,
   'memory:search': true,
@@ -1953,6 +2364,19 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'memory:setTriggers': true,
   'memory:getTriggers': true,
 
+  'mem:searchIndex': true,
+  'mem:timeline': true,
+  'mem:getObservations': true,
+
+  'corpus:list': true,
+  'corpus:get': true,
+  'corpus:build': true,
+  'corpus:prime': true,
+  'corpus:query': true,
+  'corpus:reprime': true,
+  'corpus:rebuild': true,
+  'corpus:delete': true,
+
   'skillSynthesis:listCandidates': true,
   'skillSynthesis:getCandidate': true,
   'skillSynthesis:promote': true,
@@ -1968,6 +2392,18 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:analyzeNow': true,
   'skillSynthesis:setTriggers': true,
   'skillSynthesis:getTriggers': true,
+  'skillSynthesis:listClones': true,
+  'skillSynthesis:getClone': true,
+  'skillSynthesis:enhanceNow': true,
+  'skillSynthesis:revertEnhancement': true,
+  'skillSynthesis:rebaseClone': true,
+  'skillSynthesis:keepClone': true,
+  'skillSynthesis:invocationStats': true,
+  'skillSynthesis:listSuggestions': true,
+  'skillSynthesis:acceptSuggestion': true,
+  'skillSynthesis:dismissSuggestion': true,
+  'skillSynthesis:getSuggestion': true,
+  'skillSynthesis:updateSuggestion': true,
 
   'cron:list': true,
   'cron:get': true,
@@ -1988,9 +2424,25 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'gateway:blockBinding': true,
   'gateway:listMessages': true,
   'gateway:test': true,
+  'gateway:getAllowList': true,
+  'gateway:setAllowList': true,
+  'gateway:getDiscordAppId': true,
+  'gateway:setDiscordAppId': true,
+  'gateway:registerDiscordCommands': true,
+  'gateway:listDiscordGuilds': true,
+
+  'voice:transcribe': true,
+  'voice:getConfig': true,
+  'voice:setConfig': true,
+  'voice:downloadModel': true,
 
   'db:health': true,
   'db:reset': true,
+  'db:reloadVec': true,
+  'db:openBindingFolder': true,
+
+  'embedder:status': true,
+  'embedder:retry': true,
 
   'indexing:getStatus': true,
   'indexing:start': true,
@@ -2001,8 +2453,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'indexing:dismissStale': true,
   'indexing:acknowledgeDisclosure': true,
 
+  'update:get-state': true,
   'update:check-now': true,
-  'update:install-now': true,
 };
 
 /**

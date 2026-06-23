@@ -1,116 +1,116 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-
 import { RouterLink } from '@angular/router';
-import { LucideAngularModule, Check } from 'lucide-angular';
+import { LucideAngularModule, Check, ArrowRight } from 'lucide-angular';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
 } from '@hive-academy/angular-gsap';
+import {
+  FloatingGlyph,
+  FloatingGlyphsComponent,
+} from '../../components/floating-glyphs.component';
 
-/**
- * CTA Section Component
- *
- * Purpose: Final call-to-action section with enhanced typography and golden divider
- *
- * Batch 5 Enhancements (Task 5.1):
- * - Golden gradient headline "Start Your Free Trial" with scaleIn animation
- * - Primary CTA with pulse animation (CSS keyframes)
- * - Secondary CTAs with fadeIn animation
- * - Trust signals with staggered fadeIn animations
- * - All animations via @hive-academy/angular-gsap ViewportAnimationDirective
- *
- * Complexity Level: 2 (Medium)
- * - ViewportAnimationDirective for scroll-triggered entrance animations
- * - Composition of CTA elements and footer
- * - Accessibility: Reduced motion support via library defaults
- *
- * Patterns Applied:
- * - Standalone component with OnPush (performance)
- * - Declarative animations via ViewportAnimationDirective
- * - No raw GSAP code - all via @hive-academy library
- */
 @Component({
   selector: 'ptah-cta-section',
-  imports: [RouterLink, ViewportAnimationDirective, LucideAngularModule],
+  imports: [
+    RouterLink,
+    ViewportAnimationDirective,
+    LucideAngularModule,
+    FloatingGlyphsComponent,
+  ],
   template: `
-    <section id="cta" class="py-16 sm:py-24 md:py-32 bg-base-100">
-      <div class="container mx-auto px-4 sm:px-6 text-center">
-        <!-- Headline with gold gradient and scaleIn animation -->
+    <section
+      id="cta"
+      aria-label="Get Started"
+      class="relative py-32 sm:py-44 bg-slate-950 overflow-hidden"
+    >
+      <div
+        class="absolute inset-x-0 bottom-0 h-[60%] bg-[radial-gradient(ellipse_at_bottom,rgba(212,175,55,0.08),transparent_70%)] pointer-events-none"
+        aria-hidden="true"
+      ></div>
+      <ptah-floating-glyphs [glyphs]="glyphs" />
+
+      <div
+        class="relative z-10 max-w-3xl mx-auto px-6 sm:px-10 lg:px-16 text-center"
+      >
         <h2
           viewportAnimation
           [viewportConfig]="headlineConfig"
-          class="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-display font-bold mb-6 gradient-text-gold"
+          class="font-display text-3xl sm:text-4xl lg:text-5xl font-semibold text-[#f4d47c] mb-8"
         >
-          Start Your Free Trial
+          Start Building.
         </h2>
 
-        <!-- Subheadline with fadeIn animation -->
         <p
           viewportAnimation
           [viewportConfig]="subheadlineConfig"
-          class="text-base sm:text-lg md:text-xl text-base-content/70 mb-8 sm:mb-10 md:mb-12 max-w-2xl mx-auto"
+          class="text-base sm:text-lg text-gray-400 mb-14 max-w-xl mx-auto leading-relaxed"
         >
-          100 days free. No credit card required. Works with OpenAI, Claude,
-          GitHub Copilot, and more.
+          100 days free. No credit card required. VS Code, Desktop, or headless
+          CLI.
         </p>
 
-        <!-- Primary CTA Button with pulse animation via CSS keyframes -->
-        <div viewportAnimation [viewportConfig]="primaryCtaConfig">
-          <a
-            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="cta-button inline-block px-8 py-4 text-base sm:px-10 sm:py-5 sm:text-lg md:px-12 md:py-6 md:text-xl font-bold rounded-xl
-                    bg-gradient-to-r from-secondary to-accent
-                    text-base-100 shadow-glow-gold
-                    hover:scale-105 hover:shadow-glow-gold-lg
-                    transition-all duration-300 animate-pulse-ring"
-            aria-label="Install Ptah Extension from VS Code Marketplace"
-          >
-            Install from VS Code Marketplace
-          </a>
+        <div
+          class="flex flex-col sm:flex-row justify-center items-center gap-5"
+        >
+          <div viewportAnimation [viewportConfig]="primaryCtaConfig">
+            <a
+              href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-block px-8 py-3.5 text-base font-semibold rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 text-slate-900 hover:from-amber-400 hover:to-amber-500 transition-all duration-200 shadow-lg shadow-amber-500/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+              aria-label="Install Ptah Extension from VS Code Marketplace"
+            >
+              Install VS Code Extension
+            </a>
+          </div>
+          <div viewportAnimation [viewportConfig]="secondaryCtaConfig">
+            <a
+              routerLink="/download"
+              class="inline-block px-8 py-3.5 text-base font-semibold rounded-lg border border-[#d4af37]/40 text-[#f4d47c] hover:border-[#d4af37]/70 hover:bg-[#d4af37]/5 transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+              aria-label="Download the Ptah desktop app"
+            >
+              Download Desktop App
+            </a>
+          </div>
         </div>
 
-        <!-- Secondary CTAs with fadeIn animation -->
         <div
           viewportAnimation
-          [viewportConfig]="secondaryCtasConfig"
-          class="mt-8 flex flex-wrap justify-center gap-6"
+          [viewportConfig]="tertiaryCtaConfig"
+          class="mt-8"
         >
           <a
-            href="https://docs.ptah.live"
+            href="https://docs.ptah.live/providers/ptah-cli/"
             target="_blank"
             rel="noopener noreferrer"
-            class="text-secondary hover:text-accent transition-colors font-medium"
-            aria-label="Read the documentation"
+            class="inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-[#f4d47c] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
+            aria-label="Read the CLI documentation"
           >
-            Read the Docs
-          </a>
-          <a
-            href="#demo"
-            class="text-secondary hover:text-accent transition-colors font-medium"
-            aria-label="Watch product demo"
-          >
-            Watch Demo
+            or try the CLI
+            <lucide-angular
+              [img]="ArrowRightIcon"
+              class="w-3.5 h-3.5"
+              aria-hidden="true"
+            />
           </a>
         </div>
 
-        <!-- Trust Signals with staggered fadeIn -->
         <div
-          class="mt-8 sm:mt-10 md:mt-12 flex flex-wrap justify-center gap-4 sm:gap-6 md:gap-8"
+          class="mt-16 pt-10 border-t border-white/5 flex flex-wrap justify-center gap-x-10 gap-y-4"
         >
           @for (signal of trustSignals; track signal; let i = $index) {
             <div
               viewportAnimation
               [viewportConfig]="getTrustSignalConfig(i)"
-              class="flex items-center gap-2 text-base-content/60"
+              class="flex items-center gap-2.5 text-gray-500"
             >
               <lucide-angular
                 [img]="CheckIcon"
-                class="w-5 h-5 text-success"
+                class="w-4 h-4 text-[#d4af37]"
                 aria-hidden="true"
               />
-              <span class="text-sm font-medium">{{ signal }}</span>
+              <span class="text-sm">{{ signal }}</span>
             </div>
           }
         </div>
@@ -120,30 +120,40 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CTASectionComponent {
-  /** Lucide icon reference */
   public readonly CheckIcon = Check;
+  public readonly ArrowRightIcon = ArrowRight;
 
-  /**
-   * Trust signals displayed with staggered fadeIn animations
-   */
   public readonly trustSignals = [
     '100-Day Free Trial',
     'No Credit Card Required',
-    'Cancel Anytime',
+    'All Three Runtimes Included',
   ];
 
-  /**
-   * Headline animation config - scaleIn for dramatic entrance
-   */
+  public readonly glyphs: FloatingGlyph[] = [
+    {
+      src: '/assets/icons/glyphs/ankh.png',
+      size: 95,
+      top: '16%',
+      left: '8%',
+      delay: 0,
+      duration: 10,
+    },
+    {
+      src: '/assets/icons/glyphs/eye-of-horus.png',
+      size: 110,
+      top: '22%',
+      right: '7%',
+      delay: 2.4,
+      duration: 12,
+    },
+  ];
+
   public readonly headlineConfig: ViewportAnimationConfig = {
-    animation: 'scaleIn',
+    animation: 'slideUp',
     duration: 0.8,
     threshold: 0.2,
   };
 
-  /**
-   * Subheadline animation config - fadeIn with slight delay
-   */
   public readonly subheadlineConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
     duration: 0.8,
@@ -151,37 +161,32 @@ export class CTASectionComponent {
     threshold: 0.2,
   };
 
-  /**
-   * Primary CTA animation config - slideUp with bounce
-   */
   public readonly primaryCtaConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.6,
     delay: 0.2,
-    ease: 'back.out(1.7)',
     threshold: 0.2,
   };
 
-  /**
-   * Secondary CTAs animation config - fadeIn
-   */
-  public readonly secondaryCtasConfig: ViewportAnimationConfig = {
-    animation: 'fadeIn',
+  public readonly secondaryCtaConfig: ViewportAnimationConfig = {
+    animation: 'slideUp',
     duration: 0.6,
     delay: 0.3,
     threshold: 0.2,
   };
 
-  /**
-   * Get trust signal animation config with staggered delay
-   * @param index Position in the trust signals array
-   * @returns ViewportAnimationConfig with calculated delay
-   */
+  public readonly tertiaryCtaConfig: ViewportAnimationConfig = {
+    animation: 'fadeIn',
+    duration: 0.6,
+    delay: 0.4,
+    threshold: 0.2,
+  };
+
   public getTrustSignalConfig(index: number): ViewportAnimationConfig {
     return {
       animation: 'fadeIn',
       duration: 0.5,
-      delay: 0.35 + index * 0.1,
+      delay: 0.45 + index * 0.1,
       threshold: 0.2,
     };
   }

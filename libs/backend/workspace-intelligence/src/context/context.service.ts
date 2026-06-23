@@ -17,6 +17,11 @@ import type {
 } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import {
+  IgnorePatternResolverService,
+  type ParsedIgnoreFile,
+} from '../file-indexing/ignore-pattern-resolver.service';
+import { DEFAULT_WORKSPACE_EXCLUDES } from '../file-indexing/workspace-default-excludes';
 const LOGGER = Symbol.for('Logger');
 const CONFIG_MANAGER = Symbol.for('ConfigManager');
 
@@ -74,12 +79,13 @@ interface FileCacheEntry {
 }
 
 /**
- * Debounced search state
+ * Per-query debounced search state. Keyed by cacheKey so distinct concurrent
+ * queries each flush with their own options and resolve their own callers.
  */
-interface DebounceState {
-  timerId?: NodeJS.Timeout;
-  lastQuery: string;
-  pendingResolvers: Array<{
+interface PendingSearch {
+  timerId: NodeJS.Timeout;
+  options: FileSearchOptions;
+  resolvers: Array<{
     resolve: (results: FileSearchResult[]) => void;
     reject: (error: Error) => void;
   }>;
@@ -105,15 +111,17 @@ export class ContextService {
   private fileCache = new Map<string, FileCacheEntry>();
   private allFilesCache: FileSearchResult[] = [];
   private allFilesCacheTimestamp = 0;
-  private debounceState: DebounceState = {
-    lastQuery: '',
-    pendingResolvers: [],
-  };
+  private pendingSearches = new Map<string, PendingSearch>();
   private readonly DEBOUNCE_MS = 300;
   private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
   private readonly ALL_FILES_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
   private readonly MAX_CACHE_ENTRIES = 100;
   private readonly MAX_SEARCH_RESULTS = 1000;
+  private readonly IGNORE_CACHE_TTL_MS = 60 * 1000;
+  private ignoreFilesCache = new Map<
+    string,
+    { ignoreFiles: ParsedIgnoreFile[]; expiresAt: number }
+  >();
 
   constructor(
     @inject(LOGGER) private readonly logger: ILogger,
@@ -128,6 +136,8 @@ export class ContextService {
     private readonly commandRegistry: ICommandRegistry,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE)
+    private readonly ignoreResolver: IgnorePatternResolverService,
   ) {
     this.loadFromWorkspaceState();
   }
@@ -374,14 +384,19 @@ export class ContextService {
     if (!workspaceRoot) {
       return;
     }
+    const templateExcludes = await this.getEffectiveExcludes(
+      workspaceRoot,
+      template.exclude,
+    );
     for (const pattern of template.include) {
-      const files = await this.fsProvider.findFiles(
+      const rawIncluded = await this.fsProvider.findFiles(
         pattern,
-        undefined,
+        templateExcludes,
         undefined,
         workspaceRoot,
       );
-      for (const file of files) {
+      const included = await this.filterIgnored(rawIncluded, workspaceRoot);
+      for (const file of included) {
         this.includedFiles.add(file);
       }
     }
@@ -394,7 +409,7 @@ export class ContextService {
       );
       for (const file of files) {
         this.excludedFiles.add(file);
-        this.includedFiles.delete(file); // Remove from included if it was there
+        this.includedFiles.delete(file);
       }
     }
 
@@ -422,35 +437,46 @@ export class ContextService {
       return cached;
     }
     return new Promise<FileSearchResult[]>((resolve, reject) => {
-      this.addToDebounceQueue(resolve, reject);
-      if (this.debounceState.timerId) {
-        clearTimeout(this.debounceState.timerId);
+      const existing = this.pendingSearches.get(cacheKey);
+      if (existing) {
+        clearTimeout(existing.timerId);
+        existing.resolvers.push({ resolve, reject });
+        existing.options = options;
+        existing.timerId = this.scheduleFlush(cacheKey);
+        return;
       }
 
-      this.debounceState.lastQuery = options.query;
-      this.debounceState.timerId = setTimeout(async () => {
-        try {
-          const results = await this.performFileSearch(options);
-          this.cacheResults(cacheKey, results);
-          this.debounceState.pendingResolvers.forEach(({ resolve }) => {
-            resolve(results);
-          });
-          this.debounceState.pendingResolvers = [];
-
-          this.logger.debug(
-            `File search completed: ${results.length} results for "${options.query}"`,
-          );
-        } catch (error) {
-          this.logger.error('File search failed', error);
-          const errorToReject =
-            error instanceof Error ? error : new Error('File search failed');
-          this.debounceState.pendingResolvers.forEach(({ reject }) => {
-            reject(errorToReject);
-          });
-          this.debounceState.pendingResolvers = [];
-        }
-      }, this.DEBOUNCE_MS);
+      this.pendingSearches.set(cacheKey, {
+        timerId: this.scheduleFlush(cacheKey),
+        options,
+        resolvers: [{ resolve, reject }],
+      });
     });
+  }
+
+  private scheduleFlush(cacheKey: string): NodeJS.Timeout {
+    return setTimeout(async () => {
+      const pending = this.pendingSearches.get(cacheKey);
+      if (!pending) {
+        return;
+      }
+      this.pendingSearches.delete(cacheKey);
+      const { options, resolvers } = pending;
+      try {
+        const results = await this.performFileSearch(options);
+        this.cacheResults(cacheKey, results);
+        resolvers.forEach(({ resolve }) => resolve(results));
+
+        this.logger.debug(
+          `File search completed: ${results.length} results for "${options.query}"`,
+        );
+      } catch (error) {
+        this.logger.error('File search failed', error);
+        const errorToReject =
+          error instanceof Error ? error : new Error('File search failed');
+        resolvers.forEach(({ reject }) => reject(errorToReject));
+      }
+    }, this.DEBOUNCE_MS);
   }
 
   /**
@@ -482,25 +508,17 @@ export class ContextService {
       if (workspaceFolders.length === 0) {
         return [];
       }
-      const excludePatterns = [
-        '**/node_modules/**',
-        '**/.git/**',
-        '**/.svn/**',
-        '**/.hg/**',
-        '**/dist/**',
-        '**/build/**',
-        '**/out/**',
-        '**/*.log',
-        '**/.DS_Store',
-        '**/coverage/**',
-        '**/.nyc_output/**',
-      ];
-      const filePaths = await this.fsProvider.findFiles(
+      const excludePatterns = await this.getEffectiveExcludes(
+        workspaceFolders[0],
+        ['**/*.log'],
+      );
+      const rawPaths = await this.fsProvider.findFiles(
         '**/*',
         excludePatterns,
         this.MAX_SEARCH_RESULTS * 2,
         workspaceFolders[0],
       );
+      const filePaths = await this.filterIgnored(rawPaths, workspaceFolders[0]);
 
       const results: FileSearchResult[] = [];
       const primaryWorkspacePath = workspaceFolders[0];
@@ -575,9 +593,21 @@ export class ContextService {
       'dist',
       'build',
       'out',
+      'target',
       'coverage',
       '.nyc_output',
+      '.nx',
+      '.angular',
+      '.cache',
+      '.vite',
+      '.next',
+      '.nuxt',
+      '.turbo',
+      '.output',
+      '.vscode-test',
+      'tmp',
     ]);
+    const ignoreFiles = await this.getCachedIgnoreFiles(workspacePath);
 
     const processDirectory = async (
       dirPath: string,
@@ -603,6 +633,14 @@ export class ContextService {
           if (result.status !== 'fulfilled') continue;
           const { entry, subPath, stat } = result.value;
           const relativePath = path.relative(workspacePath, subPath);
+          if (ignoreFiles.length > 0) {
+            const ignoreResult = await this.ignoreResolver.isIgnored(
+              relativePath,
+              ignoreFiles,
+              workspacePath,
+            );
+            if (ignoreResult.ignored) continue;
+          }
 
           directories.push({
             path: subPath,
@@ -766,9 +804,10 @@ export class ContextService {
    */
   dispose(): void {
     this.logger.info('Disposing Context Service...');
-    if (this.debounceState.timerId) {
-      clearTimeout(this.debounceState.timerId);
+    for (const pending of this.pendingSearches.values()) {
+      clearTimeout(pending.timerId);
     }
+    this.pendingSearches.clear();
     this.clearFileCache();
   }
 
@@ -900,14 +939,18 @@ export class ContextService {
       maxResults = 100,
       fileTypes = [],
     } = options;
-    let searchPattern = `**/*${query}*`;
-    if (fileTypes.length > 0) {
+    let searchPattern: string;
+    if (this.isGlobPattern(query)) {
+      searchPattern = query;
+    } else if (fileTypes.length > 0) {
       const extensions = fileTypes.map((ext) =>
         ext.startsWith('.') ? ext.slice(1) : ext,
       );
       searchPattern = `**/*${query}*.{${extensions.join(',')}}`;
+    } else {
+      searchPattern = `**/*${query}*`;
     }
-    const excludePatternList: string[] = ['**/node_modules/**'];
+    const extraExcludes: string[] = [];
     if (!includeImages && fileTypes.length === 0) {
       const imageExts = [
         'png',
@@ -919,15 +962,20 @@ export class ContextService {
         'webp',
         'ico',
       ];
-      excludePatternList.push(`**/*.{${imageExts.join(',')}}`);
+      extraExcludes.push(`**/*.{${imageExts.join(',')}}`);
     }
+    const excludePatternList = await this.getEffectiveExcludes(
+      workspaceRoot,
+      extraExcludes,
+    );
 
-    const filePaths = await this.fsProvider.findFiles(
+    const rawPaths = await this.fsProvider.findFiles(
       searchPattern,
       excludePatternList,
       maxResults,
       workspaceRoot,
     );
+    const filePaths = await this.filterIgnored(rawPaths, workspaceRoot);
 
     const results: FileSearchResult[] = [];
 
@@ -965,6 +1013,10 @@ export class ContextService {
     });
 
     return results;
+  }
+
+  private isGlobPattern(query: string): boolean {
+    return /[*?{}[\]/]/.test(query);
   }
 
   private detectFileType(fileName: string): FileSearchResult['fileType'] {
@@ -1070,13 +1122,6 @@ export class ContextService {
     });
   }
 
-  private addToDebounceQueue(
-    resolve: (results: FileSearchResult[]) => void,
-    reject: (error: Error) => void,
-  ): void {
-    this.debounceState.pendingResolvers.push({ resolve, reject });
-  }
-
   private paginateResults(
     results: FileSearchResult[],
     offset: number,
@@ -1090,5 +1135,71 @@ export class ContextService {
     }
 
     return filteredResults.slice(offset, offset + limit);
+  }
+
+  private async getCachedIgnoreFiles(
+    workspaceRoot: string,
+  ): Promise<ParsedIgnoreFile[]> {
+    const entry = this.ignoreFilesCache.get(workspaceRoot);
+    const now = Date.now();
+    if (entry && entry.expiresAt > now) {
+      return entry.ignoreFiles;
+    }
+    try {
+      const ignoreFiles =
+        await this.ignoreResolver.parseWorkspaceIgnoreFiles(workspaceRoot);
+      this.ignoreFilesCache.set(workspaceRoot, {
+        ignoreFiles,
+        expiresAt: now + this.IGNORE_CACHE_TTL_MS,
+      });
+      return ignoreFiles;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to parse workspace ignore files for ${workspaceRoot}`,
+        error,
+      );
+      return [];
+    }
+  }
+
+  private async getEffectiveExcludes(
+    workspaceRoot: string,
+    extra: string[] = [],
+  ): Promise<string[]> {
+    const ignoreFiles = await this.getCachedIgnoreFiles(workspaceRoot);
+    const ignoreGlobs: string[] = [];
+    for (const file of ignoreFiles) {
+      for (const pattern of file.patterns) {
+        if (pattern.isNegation) continue;
+        ignoreGlobs.push(pattern.pattern);
+      }
+    }
+    const merged = new Set<string>([
+      ...DEFAULT_WORKSPACE_EXCLUDES,
+      ...ignoreGlobs,
+      ...extra,
+    ]);
+    return Array.from(merged);
+  }
+
+  private async filterIgnored(
+    paths: string[],
+    workspaceRoot: string,
+  ): Promise<string[]> {
+    const ignoreFiles = await this.getCachedIgnoreFiles(workspaceRoot);
+    if (ignoreFiles.length === 0) return paths;
+    const relativePaths = paths.map((p) => path.relative(workspaceRoot, p));
+    const survivors: string[] = [];
+    for (let i = 0; i < paths.length; i++) {
+      const result = await this.ignoreResolver.isIgnored(
+        relativePaths[i],
+        ignoreFiles,
+        workspaceRoot,
+      );
+      if (!result.ignored) {
+        survivors.push(paths[i]);
+      }
+    }
+    return survivors;
   }
 }

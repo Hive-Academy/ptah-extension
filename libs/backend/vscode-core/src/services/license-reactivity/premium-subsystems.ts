@@ -15,6 +15,10 @@
  */
 
 import type { DependencyContainer } from 'tsyringe';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import type { Logger } from '../../logging';
 import { TOKENS } from '../../di/tokens';
 import type { LicenseService } from '../license.service';
@@ -41,6 +45,29 @@ export interface PremiumSubsystemsDeps {
    * If omitted, CLI agent sync is skipped.
    */
   syncCliAgents?: () => void;
+}
+
+function resolveWorkspaceRoot(
+  container: DependencyContainer,
+  logger: Logger,
+): string | undefined {
+  try {
+    if (!container.isRegistered(PLATFORM_TOKENS.WORKSPACE_PROVIDER)) {
+      return undefined;
+    }
+    const workspaceProvider = container.resolve<IWorkspaceProvider>(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+    );
+    return workspaceProvider.getWorkspaceRoot();
+  } catch (error: unknown) {
+    logger.warn(
+      '[PremiumSubsystems] Failed to resolve workspace root for cleanup',
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+    return undefined;
+  }
 }
 
 /**
@@ -217,10 +244,13 @@ export async function tearDownPremiumSubsystems(
       const cliPluginSync = container.resolve(
         TOKENS.CLI_PLUGIN_SYNC_SERVICE,
       ) as {
-        cleanupAll: () => Promise<void>;
+        cleanupAll: (workspaceRoot?: string) => Promise<void>;
       };
-      await cliPluginSync.cleanupAll();
-      logger.info('[PremiumSubsystems] CLI plugin cleanup complete');
+      const workspaceRoot = resolveWorkspaceRoot(container, logger);
+      await cliPluginSync.cleanupAll(workspaceRoot);
+      logger.info('[PremiumSubsystems] CLI plugin cleanup complete', {
+        workspaceRoot: workspaceRoot ?? '<none>',
+      });
     }
   } catch (cleanupError: unknown) {
     logger.warn('[PremiumSubsystems] CLI plugin cleanup failed (non-fatal)', {

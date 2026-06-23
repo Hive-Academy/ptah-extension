@@ -463,6 +463,8 @@ export class MemoryRpcHandlers {
               sessionId: e.sessionId,
               stats: e.stats,
               error: e.error,
+              phase: e.phase,
+              progress: e.progress,
             })),
             dbHealth: {
               memories: snapshot.dbHealth.memories,
@@ -473,6 +475,7 @@ export class MemoryRpcHandlers {
               code_symbols_vec: snapshot.dbHealth.code_symbols_vec,
               coherent: snapshot.dbHealth.coherent,
               mismatches: snapshot.dbHealth.mismatches,
+              countErrors: snapshot.dbHealth.countErrors,
             },
             triggers: {
               preCompact: snapshot.triggers.preCompact,

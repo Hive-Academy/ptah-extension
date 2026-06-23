@@ -371,7 +371,6 @@ export class WizardGenerationRpcHandlers {
               .filter(
                 (c) =>
                   (c.cli === 'copilot' ||
-                    c.cli === 'gemini' ||
                     c.cli === 'codex' ||
                     c.cli === 'cursor') &&
                   c.installed,

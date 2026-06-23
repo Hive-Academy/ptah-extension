@@ -21,7 +21,18 @@ jest.mock('cross-spawn', () => ({
   default: (...args: unknown[]) => mockCrossSpawn(...args),
 }));
 
-import { probeCliVersion } from './cli-adapter.utils';
+const mockReadFile = jest.fn();
+jest.mock('fs/promises', () => ({
+  readFile: (...args: unknown[]) => mockReadFile(...args),
+}));
+
+const mockWhich = jest.fn();
+jest.mock('which', () => ({
+  __esModule: true,
+  default: (...args: unknown[]) => mockWhich(...args),
+}));
+
+import { probeCliVersion, resolveDirectSpawn } from './cli-adapter.utils';
 
 interface FakeChild {
   stdout: EventEmitter & { setEncoding: jest.Mock };
@@ -49,15 +60,15 @@ describe('probeCliVersion', () => {
     const child = createFakeChild();
     mockCrossSpawn.mockReturnValueOnce(child);
 
-    const probe = probeCliVersion('/usr/local/bin/gemini');
+    const probe = probeCliVersion('/usr/local/bin/codex');
     // Drive the child to completion.
-    child.stdout.emit('data', 'gemini-cli 1.4.2\n');
+    child.stdout.emit('data', 'codex-cli 1.4.2\n');
     child.emit('close', 0);
 
-    await expect(probe).resolves.toBe('gemini-cli 1.4.2');
+    await expect(probe).resolves.toBe('codex-cli 1.4.2');
     expect(mockCrossSpawn).toHaveBeenCalledTimes(1);
     const [binary, args] = mockCrossSpawn.mock.calls[0] as [string, string[]];
-    expect(binary).toBe('/usr/local/bin/gemini');
+    expect(binary).toBe('/usr/local/bin/codex');
     expect(args).toEqual(['--version']);
   });
 
@@ -138,5 +149,86 @@ describe('probeCliVersion', () => {
     await probe;
     const [, args] = mockCrossSpawn.mock.calls[0] as [string, string[]];
     expect(args).toEqual(['version', '--json']);
+  });
+});
+
+describe('resolveDirectSpawn', () => {
+  const realPlatform = process.platform;
+
+  function setPlatform(platform: NodeJS.Platform): void {
+    Object.defineProperty(process, 'platform', {
+      value: platform,
+      configurable: true,
+    });
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    setPlatform(realPlatform);
+  });
+
+  it('returns the binary unchanged on non-Windows even for a .cmd path', async () => {
+    setPlatform('linux');
+
+    const result = await resolveDirectSpawn('/usr/local/bin/copilot.cmd');
+
+    expect(result).toEqual({
+      command: '/usr/local/bin/copilot.cmd',
+      prefixArgs: [],
+    });
+    expect(mockReadFile).not.toHaveBeenCalled();
+  });
+
+  it('returns the binary unchanged on Windows for a non-.cmd path', async () => {
+    setPlatform('win32');
+
+    const result = await resolveDirectSpawn('C:\\bin\\copilot.exe');
+
+    expect(result).toEqual({ command: 'C:\\bin\\copilot.exe', prefixArgs: [] });
+    expect(mockReadFile).not.toHaveBeenCalled();
+  });
+
+  it('rewrites a Windows .cmd wrapper to a direct node + entrypoint spawn', async () => {
+    setPlatform('win32');
+    mockReadFile.mockResolvedValue(
+      'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & ' +
+        '"%_prog%"  "%dp0%\\node_modules\\@github\\copilot\\npm-loader.js" %*',
+    );
+    mockWhich.mockResolvedValue('C:\\Program Files\\nodejs\\node.exe');
+
+    const result = await resolveDirectSpawn(
+      'C:\\Users\\dev\\AppData\\Roaming\\npm\\copilot.cmd',
+    );
+
+    expect(result.command).toBe('C:\\Program Files\\nodejs\\node.exe');
+    expect(result.prefixArgs).toHaveLength(1);
+    expect(result.prefixArgs[0]).toMatch(/npm-loader\.js$/);
+  });
+
+  it('falls back to bare "node" when the node binary cannot be resolved', async () => {
+    setPlatform('win32');
+    mockReadFile.mockResolvedValue(
+      '"%dp0%\\node_modules\\@github\\copilot\\npm-loader.js" %*',
+    );
+    mockWhich.mockRejectedValue(new Error('not found'));
+
+    const result = await resolveDirectSpawn('C:\\npm\\copilot.cmd');
+
+    expect(result.command).toBe('node');
+    expect(result.prefixArgs[0]).toMatch(/npm-loader\.js$/);
+  });
+
+  it('falls back to the original .cmd when the wrapper cannot be read', async () => {
+    setPlatform('win32');
+    mockReadFile.mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    );
+
+    const result = await resolveDirectSpawn('C:\\npm\\copilot.cmd');
+
+    expect(result).toEqual({ command: 'C:\\npm\\copilot.cmd', prefixArgs: [] });
   });
 });

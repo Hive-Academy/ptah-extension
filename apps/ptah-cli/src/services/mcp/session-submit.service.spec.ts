@@ -36,8 +36,8 @@ import {
 } from './session-submit.service.js';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { MCPRequest } from '@ptah-extension/vscode-lm-tools';
-import type { CliMessageTransport } from '../../transport/cli-message-transport.js';
-import type { CliWebviewManagerAdapter } from '../../transport/cli-webview-manager-adapter.js';
+import type { CliMessageTransport } from '@ptah-extension/cli-engine';
+import type { CliWebviewManagerAdapter } from '@ptah-extension/cli-engine';
 
 function makeLogger(): Logger {
   return {

@@ -19,6 +19,7 @@ import {
   calculateMessageCost,
   getModelContextWindow,
   AuthEnv,
+  isDirectAnthropic,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
@@ -34,6 +35,7 @@ import {
   isLocalCommandOutput,
 } from '../types/sdk-types/claude-sdk.types';
 import type { IModelResolver } from '../auth-env.port';
+import type { IPricingProvider } from '../pricing.port';
 
 /**
  * Callback type for notifying when real session ID is received from SDK.
@@ -59,7 +61,7 @@ export interface ResultModelUsage {
   /** Total context window size for this model */
   contextWindow: number;
   /** Per-model cost in USD from SDK */
-  costUSD: number;
+  costUSD: number | null;
   /** Cache read input tokens for this model (cumulative across all turns) */
   cacheReadInputTokens: number;
   /**
@@ -77,7 +79,7 @@ export interface ResultModelUsage {
  */
 export type ResultStatsCallback = (stats: {
   sessionId: SessionId;
-  cost: number;
+  cost: number | null;
   tokens: MessageTokenUsage;
   duration: number;
   /** Per-model usage data including context window size */
@@ -123,7 +125,7 @@ const FIRST_MESSAGE_TIMEOUT_MS = 90_000;
  */
 interface ValidatedStats {
   sessionId: SessionId;
-  cost: number;
+  cost: number | null;
   tokens: MessageTokenUsage;
   duration: number;
   /** Per-model usage data including context window size */
@@ -141,7 +143,7 @@ interface ValidatedStats {
 function validateStats(
   stats: {
     sessionId: SessionId;
-    cost: number;
+    cost: number | null;
     tokens: { input: number; output: number };
     duration: number;
     modelUsage?: ResultModelUsage[];
@@ -149,10 +151,11 @@ function validateStats(
   logger: Logger,
 ): ValidatedStats | null {
   if (
-    stats.cost < 0 ||
-    stats.cost > 100 ||
-    isNaN(stats.cost) ||
-    !isFinite(stats.cost)
+    stats.cost !== null &&
+    (stats.cost < 0 ||
+      stats.cost > 100 ||
+      isNaN(stats.cost) ||
+      !isFinite(stats.cost))
   ) {
     logger.warn('[StreamTransformer] Invalid cost value from SDK:', {
       cost: stats.cost,
@@ -213,6 +216,8 @@ export class StreamTransformer {
     private readonly authEnv: AuthEnv,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
+    @inject(SDK_TOKENS.PRICING_PROVIDER)
+    private readonly pricingProvider: IPricingProvider,
   ) {}
 
   /**
@@ -234,6 +239,7 @@ export class StreamTransformer {
     const messageTransformer = this.messageTransformer;
     const authEnv = this.authEnv;
     const modelResolver = this.modelResolver;
+    const pricingProvider = this.pricingProvider;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -242,6 +248,7 @@ export class StreamTransformer {
         let effectiveSessionId = sessionId;
         const lastTurnContextByModel = new Map<string, number>();
         let firstMessageReceived = false;
+        let loggedEagerMcpTools = false;
         const baseUrlForError = authEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
         const timeoutHandle: NodeJS.Timeout | null = abortController
           ? setTimeout(() => {
@@ -280,6 +287,55 @@ export class StreamTransformer {
                 clearTimeout(timeoutHandle);
               }
             }
+            const probe = sdkMessage as {
+              type?: string;
+              subtype?: string;
+              task_id?: string;
+              tool_use_id?: string;
+              parent_tool_use_id?: string | null;
+              event?: {
+                type?: string;
+                content_block?: { type?: string; name?: string; id?: string };
+              };
+              message?: { content?: unknown };
+            };
+            const probeRecord: Record<string, unknown> = {
+              n: sdkMessageCount,
+              type: probe.type,
+              parentToolUseId: probe.parent_tool_use_id ?? null,
+            };
+            if (probe.type === 'system') {
+              probeRecord['subtype'] = probe.subtype;
+              probeRecord['taskId'] = probe.task_id;
+              probeRecord['toolUseId'] = probe.tool_use_id;
+            } else if (probe.type === 'stream_event') {
+              probeRecord['eventType'] = probe.event?.type;
+              const cb = probe.event?.content_block;
+              if (cb?.type === 'tool_use') {
+                probeRecord['toolName'] = cb.name;
+                probeRecord['toolId'] = cb.id;
+              }
+            } else if (probe.type === 'assistant' || probe.type === 'user') {
+              const content = probe.message?.content;
+              if (Array.isArray(content)) {
+                probeRecord['blocks'] = content
+                  .map((b) => {
+                    const tb = b as {
+                      type?: string;
+                      name?: string;
+                      id?: string;
+                      tool_use_id?: string;
+                    };
+                    if (tb.type === 'tool_use')
+                      return `tool_use:${tb.name}:${tb.id}`;
+                    if (tb.type === 'tool_result')
+                      return `tool_result:${tb.tool_use_id}`;
+                    return tb.type;
+                  })
+                  .filter(Boolean);
+              }
+            }
+            logger.info('[NESTED-PROBE]', probeRecord);
             if (isStreamEvent(sdkMessage)) {
               const event = sdkMessage.event;
               if (isMessageStart(event)) {
@@ -317,6 +373,21 @@ export class StreamTransformer {
               if (onSessionIdResolved) {
                 onSessionIdResolved(tabId, realSessionId);
               }
+              if (!loggedEagerMcpTools) {
+                loggedEagerMcpTools = true;
+                const eagerPtahTools = sdkMessage.tools.filter((name) =>
+                  name.startsWith('mcp__ptah'),
+                );
+                logger.info(
+                  `[StreamTransformer] Eager-loaded ptah MCP tools (${eagerPtahTools.length})`,
+                  {
+                    sessionId: realSessionId,
+                    eagerPtahTools,
+                    eagerPtahToolCount: eagerPtahTools.length,
+                    mcpServers: sdkMessage.mcp_servers,
+                  },
+                );
+              }
             }
             if (isResultMessage(sdkMessage)) {
               if (!onResultStats) {
@@ -325,8 +396,8 @@ export class StreamTransformer {
                   { sessionId: effectiveSessionId },
                 );
               } else {
+                const isDirect = isDirectAnthropic(authEnv);
                 const modelUsageList: ResultModelUsage[] = [];
-                let recalculatedTotalCost = 0;
                 if (sdkMessage.modelUsage) {
                   for (const [model, usage] of Object.entries(
                     sdkMessage.modelUsage,
@@ -338,14 +409,26 @@ export class StreamTransformer {
                       model,
                       authEnv,
                     );
-                    const recalculatedCost =
-                      calculateMessageCost(resolvedModel, {
-                        input: usage.inputTokens,
-                        output: usage.outputTokens,
-                        cacheHit: usage.cacheReadInputTokens ?? 0,
-                        cacheCreation: usage.cacheCreationInputTokens ?? 0,
-                      }) ?? 0;
-                    recalculatedTotalCost += recalculatedCost;
+                    let costUSD: number | null;
+                    if (isDirect) {
+                      costUSD = usage.costUSD;
+                    } else {
+                      const pricing =
+                        await pricingProvider.getPricing(resolvedModel);
+                      costUSD = pricing
+                        ? calculateMessageCost(
+                            resolvedModel,
+                            {
+                              input: usage.inputTokens,
+                              output: usage.outputTokens,
+                              cacheHit: usage.cacheReadInputTokens ?? 0,
+                              cacheCreation:
+                                usage.cacheCreationInputTokens ?? 0,
+                            },
+                            pricing,
+                          )
+                        : null;
+                    }
                     const knownContextWindow =
                       getModelContextWindow(resolvedModel);
                     modelUsageList.push({
@@ -353,10 +436,10 @@ export class StreamTransformer {
                       inputTokens: usage.inputTokens,
                       outputTokens: usage.outputTokens,
                       contextWindow:
-                        knownContextWindow > 0
-                          ? knownContextWindow
-                          : usage.contextWindow,
-                      costUSD: recalculatedCost,
+                        usage.contextWindow > 0
+                          ? usage.contextWindow
+                          : knownContextWindow,
+                      costUSD,
                       cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
                       lastTurnContextTokens:
                         lastTurnContextByModel.get(model) ?? undefined,
@@ -384,20 +467,17 @@ export class StreamTransformer {
                     });
                   }
                 }
-                const totalCost =
-                  recalculatedTotalCost > 0
-                    ? recalculatedTotalCost
-                    : (calculateMessageCost(
-                        modelResolver.resolveForPricing(initialModel, authEnv),
-                        {
-                          input: sdkMessage.usage.input_tokens,
-                          output: sdkMessage.usage.output_tokens,
-                          cacheHit:
-                            sdkMessage.usage.cache_read_input_tokens ?? 0,
-                          cacheCreation:
-                            sdkMessage.usage.cache_creation_input_tokens ?? 0,
-                        },
-                      ) ?? 0);
+                let totalCost: number | null;
+                if (isDirect) {
+                  totalCost = sdkMessage.total_cost_usd;
+                } else if (modelUsageList.some((m) => m.costUSD !== null)) {
+                  totalCost = modelUsageList.reduce(
+                    (sum, m) => sum + (m.costUSD ?? 0),
+                    0,
+                  );
+                } else {
+                  totalCost = null;
+                }
 
                 const rawStats = {
                   sessionId: effectiveSessionId,

@@ -1,5 +1,6 @@
 export type MemoryCuratorEventKind =
   | 'curator-run'
+  | 'curator-skipped-no-data'
   | 'decay-run'
   | 'idle-trigger'
   | 'turn-trigger'
@@ -12,7 +13,15 @@ export type MemoryCuratorEventKind =
   | 'session-end-trigger'
   | 'tool-failure'
   | 'rate-limited'
-  | 'error';
+  | 'error'
+  | 'curator-error'
+  | 'embedder-download';
+
+export type EmbedderDownloadPhaseWire =
+  | 'starting'
+  | 'downloading'
+  | 'ready'
+  | 'failed';
 
 export interface MemoryCuratorEventWire {
   readonly kind: MemoryCuratorEventKind;
@@ -20,6 +29,8 @@ export interface MemoryCuratorEventWire {
   readonly sessionId?: string;
   readonly stats?: Readonly<Record<string, number | string | boolean | null>>;
   readonly error?: string;
+  readonly phase?: EmbedderDownloadPhaseWire;
+  readonly progress?: number;
 }
 
 export type SkillSynthesisEventKind =
@@ -65,6 +76,8 @@ export interface MemoryTriggersDto {
     readonly enabled: boolean;
   };
   readonly maxCuratesPerHour?: number;
+  readonly curatorProvider?: string;
+  readonly curatorModel?: string;
 }
 
 export interface SkillTriggersDto {
@@ -72,6 +85,9 @@ export interface SkillTriggersDto {
   readonly idleMs: number;
   readonly bootScan: boolean;
   readonly subagentStop?: {
+    readonly enabled: boolean;
+  };
+  readonly turnComplete?: {
     readonly enabled: boolean;
   };
   readonly postToolUse?: {
@@ -90,12 +106,12 @@ export interface MemoryDbHealthDto {
   readonly code_symbols_vec: number;
   readonly coherent: boolean;
   readonly mismatches: readonly string[];
+  readonly countErrors?: readonly string[];
 }
 
 export interface EligibilityHistogramDto {
-  readonly tooFewTurns: number;
-  readonly lowFidelity: number;
-  readonly insufficientAbstraction: number;
+  readonly prefilterTooThin: number;
+  readonly prefilterRejected: number;
   readonly accepted: number;
 }
 

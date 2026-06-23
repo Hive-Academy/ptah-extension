@@ -112,6 +112,8 @@ export class SubagentHookHandler {
                   toolUseId,
                   sessionId: input.session_id,
                   parentSessionId: capturedParentSessionId,
+                  agentId: (input as { agent_id?: string }).agent_id,
+                  agentType: (input as { agent_type?: string }).agent_type,
                 },
               );
               if (!isSubagentStartHook(input)) {
@@ -148,6 +150,8 @@ export class SubagentHookHandler {
                   hookEventName: input.hook_event_name,
                   toolUseId,
                   sessionId: input.session_id,
+                  agentId: (input as { agent_id?: string }).agent_id,
+                  agentType: (input as { agent_type?: string }).agent_type,
                 },
               );
               if (!isSubagentStopHook(input)) {
@@ -378,8 +382,10 @@ export class SubagentHookHandler {
   }
 
   private deriveSubagentSessionId(agentTranscriptPath: string): string | null {
-    const match = /([0-9a-f-]{36})\.jsonl$/i.exec(agentTranscriptPath);
-    return match ? match[1] : null;
+    const agentMatch = /agent-([0-9a-f]+)\.jsonl$/i.exec(agentTranscriptPath);
+    if (agentMatch) return `agent-${agentMatch[1]}`;
+    const uuidMatch = /([0-9a-f-]{36})\.jsonl$/i.exec(agentTranscriptPath);
+    return uuidMatch ? uuidMatch[1] : null;
   }
 
   /**

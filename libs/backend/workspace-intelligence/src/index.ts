@@ -46,6 +46,7 @@ export { DependencyAnalyzerService } from './project-analysis/dependency-analyze
 export { MonorepoDetectorService } from './project-analysis/monorepo-detector.service';
 export { PatternMatcherService } from './file-indexing/pattern-matcher.service';
 export { IgnorePatternResolverService } from './file-indexing/ignore-pattern-resolver.service';
+export { DEFAULT_WORKSPACE_EXCLUDES } from './file-indexing/workspace-default-excludes';
 export {
   WorkspaceIndexerService,
   type WorkspaceIndexOptions,

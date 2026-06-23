@@ -69,6 +69,8 @@ import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 import type {
   OllamaModelDiscoveryService,
   ProviderModelsService,
+  CopilotAuthService,
+  CodexAuthService,
 } from '@ptah-extension/auth-providers';
 import type { CliDetectionService } from '@ptah-extension/cli-agent-runtime';
 import type { AuthEnv } from '@ptah-extension/shared';
@@ -149,6 +151,20 @@ function createMockOllamaDiscovery(): MockOllamaDiscovery {
   };
 }
 
+type MockCopilotAuthService = jest.Mocked<
+  Pick<CopilotAuthService, 'listModels'>
+>;
+
+function createMockCopilotAuthService(): MockCopilotAuthService {
+  return { listModels: jest.fn().mockResolvedValue([]) };
+}
+
+type MockCodexAuthService = jest.Mocked<Pick<CodexAuthService, 'listModels'>>;
+
+function createMockCodexAuthService(): MockCodexAuthService {
+  return { listModels: jest.fn().mockResolvedValue([]) };
+}
+
 // ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
@@ -165,6 +181,8 @@ interface Harness {
   sdkAdapter: MockSdkAdapter;
   authEnv: AuthEnv;
   ollamaDiscovery: MockOllamaDiscovery;
+  copilotAuthService: MockCopilotAuthService;
+  codexAuthService: MockCodexAuthService;
   sentry: MockSentryService;
 }
 
@@ -187,6 +205,8 @@ function makeHarness(
   const sdkAdapter = createMockSdkAdapter();
   const authEnv: AuthEnv = { ...(opts.authEnv ?? {}) };
   const ollamaDiscovery = createMockOllamaDiscovery();
+  const copilotAuthService = createMockCopilotAuthService();
+  const codexAuthService = createMockCodexAuthService();
   const sentry = createMockSentryService();
 
   const handlers = new ProviderRpcHandlers(
@@ -200,6 +220,8 @@ function makeHarness(
     sdkAdapter as unknown as SdkAgentAdapter,
     authEnv,
     ollamaDiscovery as unknown as OllamaModelDiscoveryService,
+    copilotAuthService as unknown as CopilotAuthService,
+    codexAuthService as unknown as CodexAuthService,
     sentry as unknown as SentryService,
   );
 
@@ -215,6 +237,8 @@ function makeHarness(
     sdkAdapter,
     authEnv,
     ollamaDiscovery,
+    copilotAuthService,
+    codexAuthService,
     sentry,
   };
 }
@@ -357,6 +381,93 @@ describe('ProviderRpcHandlers', () => {
 
       expect(result).toEqual({ models: [], totalCount: 0, isStatic: false });
       expect(h.providerModels.fetchModels).not.toHaveBeenCalled();
+    });
+
+    it('Sakana with a bare key → reaches the dynamic fetch path (fetchModels invoked with the key)', async () => {
+      // Sakana has modelsEndpoint set, so a present key unlocks the dynamic
+      // /v1/models list (incl. dated aliases like fugu-ultra-20260615).
+      const h = makeHarness({ providerKeysSeed: { sakana: 'sakana-key' } });
+      h.providerModels.fetchModels.mockResolvedValue({
+        models: [
+          {
+            id: 'fugu',
+            name: 'Fugu',
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+          },
+          {
+            id: 'fugu-ultra',
+            name: 'Fugu Ultra',
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+          },
+          {
+            id: 'fugu-ultra-20260615',
+            name: 'fugu-ultra-20260615',
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+          },
+        ],
+        totalCount: 3,
+        isStatic: false,
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        models: { id: string }[];
+        isStatic: boolean;
+      }>(h, 'provider:listModels', { providerId: 'sakana' });
+
+      expect(h.providerModels.fetchModels).toHaveBeenCalledWith(
+        'sakana',
+        'sakana-key',
+        false,
+      );
+      expect(result.isStatic).toBe(false);
+      expect(result.models.map((m) => m.id)).toContain('fugu-ultra-20260615');
+    });
+
+    it('Sakana without a key → does NOT short-circuit (has staticModels) and returns the static fallback', async () => {
+      // isPurelyDynamic is false for Sakana (staticModels present), so the
+      // handler must fall through to fetchModels(null) and serve fugu/fugu-ultra.
+      const h = makeHarness();
+      h.providerModels.fetchModels.mockResolvedValue({
+        models: [
+          {
+            id: 'fugu',
+            name: 'Fugu',
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+          },
+          {
+            id: 'fugu-ultra',
+            name: 'Fugu Ultra',
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+          },
+        ],
+        totalCount: 2,
+        isStatic: true,
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        models: { id: string }[];
+        isStatic: boolean;
+      }>(h, 'provider:listModels', { providerId: 'sakana' });
+
+      expect(h.providerModels.fetchModels).toHaveBeenCalledWith(
+        'sakana',
+        null,
+        false,
+      );
+      expect(result.models.map((m) => m.id)).toEqual(['fugu', 'fugu-ultra']);
+      expect(result.models.length).toBeGreaterThan(0);
     });
 
     it('maps 401-ish errors to a friendly "invalid key" response (no throw)', async () => {

@@ -20,7 +20,7 @@ import {
   TabManagerService,
   SESSION_CONTEXT,
 } from '@ptah-extension/chat';
-import { EffortStateService } from '@ptah-extension/core';
+import { EffortStateService, ModelStateService } from '@ptah-extension/core';
 import { LucideAngularModule, Minimize2, Maximize2 } from 'lucide-angular';
 import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
 import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
@@ -52,6 +52,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
   template: `
     <div
       class="canvas-tile flex flex-col border rounded-lg h-full overflow-hidden transition-shadow"
+      [attr.data-focused]="focused()"
       [class.border-primary]="focused()"
       [class.ring-2]="focused()"
       [class.ring-primary]="focused()"
@@ -135,6 +136,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
 
   private readonly tabManager = inject(TabManagerService);
   private readonly effortState = inject(EffortStateService);
+  private readonly modelState = inject(ModelStateService);
   private readonly parentEnvInjector = inject(EnvironmentInjector);
 
   private readonly _freezeEffort = effect(() => {
@@ -147,6 +149,20 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
           id,
           this.effortState.currentEffort() ?? null,
         );
+      }
+    });
+  });
+
+  private readonly _freezeModel = effect(() => {
+    if (!this.modelState.isLoaded()) return;
+    untracked(() => {
+      const id = this.tabId();
+      const tab = this.tabManager.tabs().find((t) => t.id === id);
+      if (tab && tab.overrideModel === undefined) {
+        const current = this.modelState.currentModel();
+        if (current) {
+          this.tabManager.setOverrideModel(id, current);
+        }
       }
     });
   });
@@ -193,9 +209,12 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
         this.parentEnvInjector,
       ),
     );
+
+    this.tabManager.registerVisibleTab(this.tabId());
   }
 
   ngOnDestroy(): void {
+    this.tabManager.unregisterVisibleTab(this.tabId());
     this.childInjector()?.destroy();
   }
 

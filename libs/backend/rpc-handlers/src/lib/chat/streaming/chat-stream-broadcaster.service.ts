@@ -61,6 +61,12 @@ export class ChatStreamBroadcaster {
     private readonly ptahCli: ChatPtahCliService,
   ) {}
 
+  private readonly streamingSessionIds = new Set<string>();
+
+  isStreaming(sessionId: string): boolean {
+    return this.streamingSessionIds.has(sessionId);
+  }
+
   /**
    * Stream flat events to webview
    * Handles SDK AsyncIterable<FlatStreamEventUnion> → webview messages.
@@ -76,6 +82,7 @@ export class ChatStreamBroadcaster {
     sessionId: SessionId,
     stream: AsyncIterable<FlatStreamEventUnion>,
     tabId: string,
+    surfaceMode?: boolean,
   ): Promise<void> {
     this.logger.info(
       `[RPC] streamExecutionNodesToWebview STARTED for session ${sessionId}, tabId ${tabId}`,
@@ -86,6 +93,7 @@ export class ChatStreamBroadcaster {
     const isPtahCliSession = this.ptahCli.hasSession(tabId);
     let streamExitedNormally = false;
 
+    this.streamingSessionIds.add(sessionId as string);
     try {
       for await (const event of stream) {
         eventCount++;
@@ -120,10 +128,6 @@ export class ChatStreamBroadcaster {
             if (ptahCliAgentId) {
               this.ptahCli.setSdkSessionId(ptahCliAgentId, event.sessionId);
             }
-            this.logger.info(
-              '[RPC] Child session metadata saved for Ptah CLI session',
-              { sessionId: event.sessionId, tabId, agentId: ptahCliAgentId },
-            );
           } catch (err: unknown) {
             this.logger.warn(
               '[RPC] Failed to save child session metadata — session may appear in sidebar',
@@ -135,6 +139,7 @@ export class ChatStreamBroadcaster {
           tabId, // For frontend tab routing
           sessionId: event.sessionId, // Real SDK UUID from the event
           event,
+          ...(surfaceMode ? { surfaceMode: true } : {}),
         });
         if (event.eventType === 'message_start') {
           turnCompleteSent = false;
@@ -148,28 +153,18 @@ export class ChatStreamBroadcaster {
               outputFilePath: bgEvent.outputFilePath,
               backgroundStartedAt: Date.now(),
             });
-            this.logger.info(
-              '[RPC] Background agent registered from stream event',
-              {
-                toolCallId: bgEvent.toolCallId,
-                agentId: bgEvent.agentId,
-              },
-            );
           }
         }
 
         if (event.eventType === 'message_complete' && !turnCompleteSent) {
           turnCompleteSent = true;
-          this.logger.info(
-            `[RPC] Turn complete - sending chat:complete for session ${sessionId}, tabId ${tabId}`,
-            { eventCount },
-          );
           await this.webviewManager.broadcastMessage(
             MESSAGE_TYPES.CHAT_COMPLETE,
             {
               tabId,
               sessionId,
               code: 0,
+              ...(surfaceMode ? { surfaceMode: true } : {}),
             },
           );
         }
@@ -182,6 +177,7 @@ export class ChatStreamBroadcaster {
             tabId,
             sessionId,
             code: 0,
+            ...(surfaceMode ? { surfaceMode: true } : {}),
           },
         );
       }
@@ -233,9 +229,11 @@ export class ChatStreamBroadcaster {
           error: isCorruptedResume
             ? 'Session could not be resumed. The conversation data may be corrupted. Please start a new session.'
             : errorMessage,
+          ...(surfaceMode ? { surfaceMode: true } : {}),
         });
       }
     } finally {
+      this.streamingSessionIds.delete(sessionId as string);
       this.ptahCli.deleteSession(sessionId as string);
       this.ptahCli.deleteSession(tabId);
       if (streamExitedNormally && this.sdkAdapter.isSessionActive(sessionId)) {

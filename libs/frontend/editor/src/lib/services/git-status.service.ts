@@ -10,6 +10,7 @@ import type {
   GitInfoResult,
   GitBranchInfo,
   GitFileStatus,
+  GitStatusUpdatePayload,
 } from '@ptah-extension/shared';
 
 /**
@@ -179,7 +180,8 @@ export class GitStatusService {
     this._messageHandler = (event: MessageEvent) => {
       const data = event.data;
       if (data?.type === 'git:status-update' && data.payload) {
-        this.applyGitInfo(data.payload as GitInfoResult);
+        const payload = data.payload as GitStatusUpdatePayload;
+        this.applyGitInfo(payload, payload.workspaceRoot ?? null);
       }
     };
     window.addEventListener('message', this._messageHandler);
@@ -200,14 +202,38 @@ export class GitStatusService {
   }
 
   /**
-   * Apply a git info result to the current signals and cache.
+   * Apply a git info result to the workspace it belongs to.
    * Used by both push events and on-demand RPC responses.
+   *
+   * `workspaceRoot` identifies the workspace folder the result was computed
+   * for. When it matches the active workspace (or is null — payloads from
+   * older backends), the live signals update; otherwise only that
+   * workspace's cache entry is written. This is what keeps two open
+   * workspace folders from contaminating each other: backend pushes for a
+   * newly-activated folder can arrive while this service still displays the
+   * previous one.
    */
-  private applyGitInfo(data: GitInfoResult): void {
-    this._branch.set(data.branch);
-    this._files.set(data.files);
-    this._isGitRepo.set(data.isGitRepo);
-    this.saveCurrentState();
+  private applyGitInfo(
+    data: GitInfoResult,
+    workspaceRoot: string | null,
+  ): void {
+    const active = this._activeWorkspacePath();
+    const target = workspaceRoot ?? active;
+    if (!target) return;
+
+    if (target === active) {
+      this._branch.set(data.branch);
+      this._files.set(data.files);
+      this._isGitRepo.set(data.isGitRepo);
+      this.saveCurrentState();
+    } else {
+      this._workspaceGitState.set(target, {
+        branch: data.branch,
+        files: data.files,
+        isGitRepo: data.isGitRepo,
+        lastUpdated: Date.now(),
+      });
+    }
   }
 
   /**
@@ -215,24 +241,23 @@ export class GitStatusService {
    * Used for initial load and workspace switches only — not periodic polling.
    */
   private async fetchGitInfo(): Promise<void> {
-    if (!this._activeWorkspacePath()) return;
-
     const workspaceAtFetchTime = this._activeWorkspacePath();
+    if (!workspaceAtFetchTime) return;
 
     this._isLoading.set(true);
 
     const result = await rpcCall<GitInfoResult>(
       this.vscodeService,
       'git:info',
-      {},
+      { workspaceRoot: workspaceAtFetchTime },
     );
 
     if (this._activeWorkspacePath() !== workspaceAtFetchTime) {
       return;
     }
 
-    if (result.success && result.data) {
-      this.applyGitInfo(result.data);
+    if (result.success && result.data?.branch && result.data.files) {
+      this.applyGitInfo(result.data, workspaceAtFetchTime);
     }
 
     this._isLoading.set(false);

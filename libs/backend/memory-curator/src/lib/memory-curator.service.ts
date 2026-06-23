@@ -12,18 +12,33 @@
  * logged and swallowed.
  */
 import { inject, injectable } from 'tsyringe';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, NoopTracer, type Logger } from '@ptah-extension/vscode-core';
 import {
   MEMORY_CONTRACT_TOKENS,
   type ICompactionCallbackRegistry,
   type ITranscriptReader,
 } from '@ptah-extension/memory-contracts';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+  type ITracer,
+} from '@ptah-extension/platform-core';
 import { MEMORY_TOKENS } from './di/tokens';
 import { MemoryStore } from './memory.store';
 import { SalienceScorer } from './salience-scorer';
-import type { ICuratorLLM } from './curator-llm/curator-llm.interface';
+import type {
+  ICuratorLLM,
+  ExtractedMemoryDraft,
+  ResolvedMemoryDraft,
+} from './curator-llm/curator-llm.interface';
 import { memoryId, type MemoryTier } from './memory.types';
 import type { MemoryCuratorEvent } from './diagnostics.types';
+import type { CorpusStore } from './knowledge-agents/corpus.store';
+import type { KnowledgeAgentService } from './knowledge-agents/knowledge-agent.service';
+
+const AUTO_REBUILD_SECTION = 'ptah';
+const AUTO_REBUILD_KEY = 'memory.corpus.autoRebuildOnExtraction';
+const AUTO_REBUILD_THROTTLE_MS = 30_000;
 
 const TRANSCRIPT_PLACEHOLDER =
   '[Compaction transcript window unavailable; curator running on session metadata only.]';
@@ -35,6 +50,8 @@ export interface CuratorRunStats {
   readonly skipped: number;
 }
 
+export type MemoryCuratorEventListener = (event: MemoryCuratorEvent) => void;
+
 @injectable()
 export class MemoryCuratorService {
   private static readonly RING_CAPACITY = 200;
@@ -44,6 +61,11 @@ export class MemoryCuratorService {
   private lastRunAtMs: number | null = null;
   private lastRunStatsCache: CuratorRunStats | null = null;
   private readonly inFlight = new Map<string, Promise<CuratorRunStats>>();
+  private readonly eventListeners = new Set<MemoryCuratorEventListener>();
+  private readonly autoRebuildState = new Map<
+    string,
+    { lastRebuildAt: number }
+  >();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -55,6 +77,14 @@ export class MemoryCuratorService {
     @inject(MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER)
     private readonly transcriptReader: ITranscriptReader,
     @inject(MEMORY_TOKENS.CURATOR_LLM) private readonly llm: ICuratorLLM,
+    @inject(MEMORY_TOKENS.CORPUS_STORE, { isOptional: true })
+    private readonly corpusStore: CorpusStore | null = null,
+    @inject(MEMORY_TOKENS.KNOWLEDGE_AGENT_SERVICE, { isOptional: true })
+    private readonly knowledgeAgent: KnowledgeAgentService | null = null,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
+    private readonly workspace: IWorkspaceProvider | null = null,
+    @inject(PLATFORM_TOKENS.TRACER)
+    private readonly tracer: ITracer = new NoopTracer(),
   ) {}
 
   /** Begin listening for PreCompact events. Idempotent. */
@@ -109,6 +139,25 @@ export class MemoryCuratorService {
     if (this.events.length > MemoryCuratorService.RING_CAPACITY) {
       this.events.shift();
     }
+    for (const listener of this.eventListeners) {
+      try {
+        listener(ev);
+      } catch (err: unknown) {
+        this.logger.warn('[memory-curator] event listener threw', {
+          kind: ev.kind,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  onEvent(listener: MemoryCuratorEventListener): { dispose: () => void } {
+    this.eventListeners.add(listener);
+    return {
+      dispose: () => {
+        this.eventListeners.delete(listener);
+      },
+    };
   }
 
   recentEvents(limit = 10): readonly MemoryCuratorEvent[] {
@@ -160,9 +209,15 @@ export class MemoryCuratorService {
     const key = `${input.workspaceRoot ?? ''}::${input.sessionId ?? ''}`;
     const existing = this.inFlight.get(key);
     if (existing) return existing;
-    const work = this.doCurate(input).finally(() => {
-      this.inFlight.delete(key);
-    });
+    const work = this.tracer
+      .startSpan(
+        'memory.curate',
+        { op: 'ai.curate', trigger: input.tier ?? 'recall' },
+        () => this.doCurate(input),
+      )
+      .finally(() => {
+        this.inFlight.delete(key);
+      });
     this.inFlight.set(key, work);
     return work;
   }
@@ -179,7 +234,30 @@ export class MemoryCuratorService {
     const transcript =
       (input.transcript ?? '').trim() || TRANSCRIPT_PLACEHOLDER;
     const tier: MemoryTier = input.tier ?? 'recall';
-    const drafts = await this.llm.extract(transcript, input.signal);
+
+    if (transcript === TRANSCRIPT_PLACEHOLDER) {
+      const emptyStats: CuratorRunStats = {
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+      };
+      this.lastRunAtMs = Date.now();
+      this.lastRunStatsCache = emptyStats;
+      this.pushEvent({
+        kind: 'curator-skipped-no-data',
+        timestamp: this.lastRunAtMs,
+        sessionId: input.sessionId,
+      });
+      return emptyStats;
+    }
+
+    let drafts: readonly ExtractedMemoryDraft[];
+    try {
+      drafts = await this.llm.extract(transcript, input.signal);
+    } catch (error: unknown) {
+      return this.recordCuratorError(input.sessionId, error, 'extract');
+    }
     if (drafts.length === 0) {
       const emptyStats: CuratorRunStats = {
         extracted: 0,
@@ -208,7 +286,17 @@ export class MemoryCuratorService {
             .map((m) => ({ id: m.id, subject: m.subject, content: m.content }))
         : [];
 
-    const resolved = await this.llm.resolve(drafts, related, input.signal);
+    let resolved: readonly ResolvedMemoryDraft[];
+    try {
+      resolved = await this.llm.resolve(drafts, related, input.signal);
+    } catch (error: unknown) {
+      return this.recordCuratorError(
+        input.sessionId,
+        error,
+        'resolve',
+        drafts.length,
+      );
+    }
 
     let merged = 0;
     let created = 0;
@@ -261,6 +349,14 @@ export class MemoryCuratorService {
             subject: r.subject,
             content: r.content,
             salience: memorySalience,
+            request: r.request ?? null,
+            investigated: r.investigated ?? null,
+            learned: r.learned ?? null,
+            completed: r.completed ?? null,
+            nextSteps: r.nextSteps ?? null,
+            type: r.type,
+            concepts: r.concepts,
+            files: r.files,
           },
           [
             {
@@ -299,7 +395,88 @@ export class MemoryCuratorService {
         skipped: stats.skipped,
       },
     });
+    this.triggerCorpusAutoRebuild(stats.created, input.workspaceRoot ?? null);
     return stats;
+  }
+
+  private recordCuratorError(
+    sessionId: string,
+    error: unknown,
+    stage: 'extract' | 'resolve',
+    extractedCount = 0,
+  ): CuratorRunStats {
+    const detail = error instanceof Error ? error.message : String(error);
+    const message =
+      stage === 'extract'
+        ? `memory extraction failed: ${detail}`
+        : `memory resolution failed (${extractedCount} extracted): ${detail}`;
+    const zeroedStats: CuratorRunStats = {
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    };
+    this.lastRunAtMs = Date.now();
+    this.lastRunStatsCache = zeroedStats;
+    this.pushEvent({
+      kind: 'curator-error',
+      timestamp: this.lastRunAtMs,
+      sessionId,
+      error: message,
+    });
+    this.logger.warn('[memory-curator] curator LLM run failed', {
+      sessionId,
+      stage,
+      extracted: extractedCount,
+      error: detail,
+    });
+    return zeroedStats;
+  }
+
+  /**
+   * Fire-and-forget post-curate hook: rebuilds every workspace-scoped corpus
+   * so they re-include the freshly-created memories.
+   *
+   * Must NOT block `running` — failures are logged and swallowed.
+   */
+  private triggerCorpusAutoRebuild(
+    created: number,
+    workspaceRoot: string | null,
+  ): void {
+    if (created <= 0) return;
+    if (!workspaceRoot) return;
+    if (!this.knowledgeAgent || !this.corpusStore) return;
+    const enabled =
+      this.workspace?.getConfiguration<boolean>(
+        AUTO_REBUILD_SECTION,
+        AUTO_REBUILD_KEY,
+        true,
+      ) ?? true;
+    if (!enabled) return;
+    let corpora: readonly { readonly name: string }[];
+    try {
+      corpora = this.corpusStore.list({ workspaceRoot });
+    } catch (err: unknown) {
+      this.logger.warn('[memory-curator] auto-rebuild corpus listing failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    const now = Date.now();
+    for (const c of corpora) {
+      const key = `${workspaceRoot}::${c.name}`;
+      const state = this.autoRebuildState.get(key);
+      if (state && now - state.lastRebuildAt < AUTO_REBUILD_THROTTLE_MS) {
+        continue;
+      }
+      this.autoRebuildState.set(key, { lastRebuildAt: now });
+      this.knowledgeAgent.rebuildCorpus(c.name).catch((err: unknown) => {
+        this.logger.warn('[memory-curator] auto-rebuild failed for corpus', {
+          name: c.name,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
   }
 
   /**

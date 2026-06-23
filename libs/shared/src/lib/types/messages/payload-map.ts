@@ -90,12 +90,56 @@ import type {
   ViewRouteChangedPayload,
 } from './system';
 import type { WorkspaceChangedPayload } from './workspace';
-import type { GatewayStatusChangedPayload } from './gateway';
+import type {
+  GatewayBindingsChangedPayload,
+  GatewayStatusChangedPayload,
+} from './gateway';
+import type { VoiceModelDownloadProgressPayload } from './voice';
 import type { UpdateStatusChangedPayload } from './update';
+import type {
+  SdkCompactionCompletePayload,
+  SdkSubagentEndedPayload,
+  SdkTurnEndedPayload,
+  SdkTurnFailedPayload,
+} from '../sdk-hook.types';
 import type {
   IndexingProgressEvent,
   IndexingCompleteEvent,
 } from '../rpc/rpc-indexing.types';
+import type {
+  MemoryObservationCapturedPayload,
+  MemoryCorpusChangedPayload,
+  MemoryExtractedPayload,
+  MemorySessionStartInjectedPayload,
+} from './memory';
+import type {
+  VecLoadDiagnosticWire,
+  EmbedderStatusWire,
+} from '../rpc/rpc-persistence.types';
+import type { HarnessConfig } from '../rpc/rpc-harness.types';
+
+/** Payload for MESSAGE_TYPES.VEC_STATUS_CHANGED ('db:vecStatusChanged'). */
+export interface VecStatusChangedPayload {
+  readonly ok: boolean;
+  readonly diagnostic: VecLoadDiagnosticWire;
+}
+
+/** Payload for MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED ('embedder:statusChanged'). */
+export interface EmbedderStatusChangedPayload {
+  readonly status: EmbedderStatusWire;
+}
+
+/** Payload for MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW ('harness:open-workflow'). */
+export interface HarnessOpenWorkflowPayload {
+  readonly mode: 'new-project' | 'configure-harness';
+  readonly seedPrompt?: string;
+}
+
+/** Payload for MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED ('harness:config-proposed'). */
+export interface HarnessConfigProposedPayload {
+  readonly configUpdates: Partial<HarnessConfig>;
+  readonly isConfigComplete?: boolean;
+}
 
 /**
  * Type mapping for message payloads - eliminates 'any' types
@@ -189,9 +233,23 @@ export interface MessagePayloadMap {
   switchView: ViewChangedPayload;
   workspaceChanged: WorkspaceChangedPayload;
   'gateway:statusChanged': GatewayStatusChangedPayload;
+  'gateway:bindingsChanged': GatewayBindingsChangedPayload;
+  'voice:modelDownloadProgress': VoiceModelDownloadProgressPayload;
   'update:statusChanged': UpdateStatusChangedPayload;
+  'session:compactionComplete': SdkCompactionCompletePayload;
+  'session:turnEnded': SdkTurnEndedPayload;
+  'session:turnFailed': SdkTurnFailedPayload;
+  'session:subagentEnded': SdkSubagentEndedPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
+  'memory:observationCaptured': MemoryObservationCapturedPayload;
+  'memory:corpusChanged': MemoryCorpusChangedPayload;
+  'memory:extracted': MemoryExtractedPayload;
+  'memory:sessionStartInjected': MemorySessionStartInjectedPayload;
+  'db:vecStatusChanged': VecStatusChangedPayload;
+  'embedder:statusChanged': EmbedderStatusChangedPayload;
+  'harness:open-workflow': HarnessOpenWorkflowPayload;
+  'harness:config-proposed': HarnessConfigProposedPayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

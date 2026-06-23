@@ -116,6 +116,336 @@ describe('SdkAdapterEvents', () => {
       ).not.toThrow();
       expect(logger.warn).toHaveBeenCalled();
     });
+
+    it('swallows compactionComplete listener throws and logs', () => {
+      const { events, logger } = make();
+      const throwing = jest.fn(() => {
+        throw new Error('listener boom');
+      });
+      events.onCompactionComplete(throwing);
+
+      expect(() =>
+        events.emitCompactionComplete({
+          sessionId: 'sess-1',
+          cwd: '/repo',
+          trigger: 'auto',
+          compactSummary: 'summary',
+          timestamp: 1,
+        }),
+      ).not.toThrow();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+  });
+
+  describe('compactionComplete', () => {
+    it('delivers payload to subscribers', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      events.onCompactionComplete(listener);
+
+      const payload = {
+        sessionId: 'sess-7',
+        cwd: '/repo',
+        trigger: 'manual' as const,
+        compactSummary: 'summary text',
+        timestamp: 1700,
+      };
+      events.emitCompactionComplete(payload);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith(payload);
+    });
+
+    it('supports auto trigger and multiple subscribers', () => {
+      const { events } = make();
+      const a = jest.fn();
+      const b = jest.fn();
+      events.onCompactionComplete(a);
+      events.onCompactionComplete(b);
+
+      events.emitCompactionComplete({
+        sessionId: 'sess-9',
+        cwd: '/repo',
+        trigger: 'auto',
+        compactSummary: 's',
+        timestamp: 2,
+      });
+
+      expect(a).toHaveBeenCalledTimes(1);
+      expect(b).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns an unsubscribe function that stops further delivery', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      const off = events.onCompactionComplete(listener);
+
+      events.emitCompactionComplete({
+        sessionId: 'sess-1',
+        cwd: '/repo',
+        trigger: 'manual',
+        compactSummary: 's',
+        timestamp: 1,
+      });
+      off();
+      events.emitCompactionComplete({
+        sessionId: 'sess-1',
+        cwd: '/repo',
+        trigger: 'manual',
+        compactSummary: 's',
+        timestamp: 2,
+      });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cross-deliver between compactionComplete and other channels', () => {
+      const { events } = make();
+      const compactionListener = jest.fn();
+      const initListener = jest.fn();
+      events.onCompactionComplete(compactionListener);
+      events.onInitialized(initListener);
+
+      events.emitCompactionComplete({
+        sessionId: 'sess-1',
+        cwd: '/repo',
+        trigger: 'manual',
+        compactSummary: 's',
+        timestamp: 1,
+      });
+
+      expect(compactionListener).toHaveBeenCalledTimes(1);
+      expect(initListener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('root-barrel reachability smoke', () => {
+    it('exposes SdkAdapterCompactionCompleteEvent type via root barrel', async () => {
+      const rootBarrel = await import('../../index');
+      const helpersBarrel = await import('./index');
+      expect(rootBarrel.SdkAdapterEvents).toBeDefined();
+      expect(helpersBarrel.SdkAdapterEvents).toBeDefined();
+      expect(helpersBarrel.isPostCompactHook).toBeDefined();
+    });
+
+    it('exposes StopFailureHookHandler + isStopFailureHook via both barrels', async () => {
+      const rootBarrel = await import('../../index');
+      const helpersBarrel = await import('./index');
+      expect(rootBarrel.StopFailureHookHandler).toBeDefined();
+      expect(helpersBarrel.StopFailureHookHandler).toBeDefined();
+      expect(rootBarrel.isStopFailureHook).toBeDefined();
+      expect(helpersBarrel.isStopFailureHook).toBeDefined();
+    });
+
+    it('exposes SubagentStopHookHandler + isSubagentStopHook + narrowTerminalReason via both barrels', async () => {
+      const rootBarrel = await import('../../index');
+      const helpersBarrel = await import('./index');
+      expect(rootBarrel.SubagentStopHookHandler).toBeDefined();
+      expect(helpersBarrel.SubagentStopHookHandler).toBeDefined();
+      expect(rootBarrel.isSubagentStopHook).toBeDefined();
+      expect(helpersBarrel.isSubagentStopHook).toBeDefined();
+      expect(rootBarrel.narrowTerminalReason).toBeDefined();
+      expect(helpersBarrel.narrowTerminalReason).toBeDefined();
+    });
+  });
+
+  describe('turnEnded', () => {
+    const baseEvent = {
+      sessionId: 'sess-1',
+      cwd: '/repo',
+      lastAssistantMessage: 'done',
+      backgroundTasks: [] as ReadonlyArray<never>,
+      sessionCrons: [] as ReadonlyArray<never>,
+      terminalReason: null,
+      timestamp: 100,
+    } as const;
+
+    it('delivers payload to subscribers', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      events.onTurnEnded(listener);
+
+      events.emitTurnEnded(baseEvent);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith(baseEvent);
+    });
+
+    it('returns an unsubscribe function that stops further delivery', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      const off = events.onTurnEnded(listener);
+
+      events.emitTurnEnded(baseEvent);
+      off();
+      events.emitTurnEnded({ ...baseEvent, timestamp: 200 });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cross-deliver to other channels', () => {
+      const { events } = make();
+      const turnListener = jest.fn();
+      const turnFailedListener = jest.fn();
+      const compactionListener = jest.fn();
+      events.onTurnEnded(turnListener);
+      events.onTurnFailed(turnFailedListener);
+      events.onCompactionComplete(compactionListener);
+
+      events.emitTurnEnded(baseEvent);
+
+      expect(turnListener).toHaveBeenCalledTimes(1);
+      expect(turnFailedListener).not.toHaveBeenCalled();
+      expect(compactionListener).not.toHaveBeenCalled();
+    });
+
+    it('swallows listener throws and logs (safeEmit)', () => {
+      const { events, logger } = make();
+      events.onTurnEnded(() => {
+        throw new Error('boom turn');
+      });
+
+      expect(() => events.emitTurnEnded(baseEvent)).not.toThrow();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+  });
+
+  describe('turnFailed', () => {
+    const baseEvent = {
+      sessionId: 'sess-1',
+      cwd: '/repo',
+      lastAssistantMessage: null,
+      error: 'rate_limit' as const,
+      errorDetails: 'too many',
+      terminalReason: null,
+      timestamp: 100,
+    } as const;
+
+    it('delivers payload to subscribers', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      events.onTurnFailed(listener);
+
+      events.emitTurnFailed(baseEvent);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith(baseEvent);
+    });
+
+    it('returns an unsubscribe function that stops further delivery', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      const off = events.onTurnFailed(listener);
+
+      events.emitTurnFailed(baseEvent);
+      off();
+      events.emitTurnFailed({ ...baseEvent, timestamp: 200 });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cross-deliver to turnEnded', () => {
+      const { events } = make();
+      const turnListener = jest.fn();
+      const turnFailedListener = jest.fn();
+      events.onTurnEnded(turnListener);
+      events.onTurnFailed(turnFailedListener);
+
+      events.emitTurnFailed(baseEvent);
+
+      expect(turnFailedListener).toHaveBeenCalledTimes(1);
+      expect(turnListener).not.toHaveBeenCalled();
+    });
+
+    it('swallows listener throws and logs (safeEmit)', () => {
+      const { events, logger } = make();
+      events.onTurnFailed(() => {
+        throw new Error('boom failed');
+      });
+
+      expect(() => events.emitTurnFailed(baseEvent)).not.toThrow();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+  });
+
+  describe('subagentEnded', () => {
+    const baseEvent = {
+      sessionId: 'sess-1',
+      cwd: '/repo',
+      agentId: 'agent-abc',
+      agentType: 'subagent',
+      lastAssistantMessage: 'done',
+      backgroundTasks: [] as ReadonlyArray<never>,
+      timestamp: 100,
+    } as const;
+
+    it('delivers payload to subscribers', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      events.onSubagentEnded(listener);
+
+      events.emitSubagentEnded(baseEvent);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith(baseEvent);
+    });
+
+    it('returns an unsubscribe function that stops further delivery', () => {
+      const { events } = make();
+      const listener = jest.fn();
+      const off = events.onSubagentEnded(listener);
+
+      events.emitSubagentEnded(baseEvent);
+      off();
+      events.emitSubagentEnded({ ...baseEvent, timestamp: 200 });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cross-deliver to turnEnded / turnFailed / compactionComplete', () => {
+      const { events } = make();
+      const subagentListener = jest.fn();
+      const turnEndedListener = jest.fn();
+      const turnFailedListener = jest.fn();
+      const compactionListener = jest.fn();
+      events.onSubagentEnded(subagentListener);
+      events.onTurnEnded(turnEndedListener);
+      events.onTurnFailed(turnFailedListener);
+      events.onCompactionComplete(compactionListener);
+
+      events.emitSubagentEnded(baseEvent);
+
+      expect(subagentListener).toHaveBeenCalledTimes(1);
+      expect(turnEndedListener).not.toHaveBeenCalled();
+      expect(turnFailedListener).not.toHaveBeenCalled();
+      expect(compactionListener).not.toHaveBeenCalled();
+    });
+
+    it('swallows listener throws and logs (safeEmit)', () => {
+      const { events, logger } = make();
+      events.onSubagentEnded(() => {
+        throw new Error('boom subagent');
+      });
+
+      expect(() => events.emitSubagentEnded(baseEvent)).not.toThrow();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
+    it('back-to-back emits deliver distinct payloads', () => {
+      const { events } = make();
+      const captured: Array<{ agentId: string; timestamp: number }> = [];
+      events.onSubagentEnded((event) => {
+        captured.push({ agentId: event.agentId, timestamp: event.timestamp });
+      });
+
+      events.emitSubagentEnded({ ...baseEvent, agentId: 'a1', timestamp: 1 });
+      events.emitSubagentEnded({ ...baseEvent, agentId: 'a2', timestamp: 2 });
+
+      expect(captured).toEqual([
+        { agentId: 'a1', timestamp: 1 },
+        { agentId: 'a2', timestamp: 2 },
+      ]);
+    });
   });
 
   describe('removeAllListeners', () => {

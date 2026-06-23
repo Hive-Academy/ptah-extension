@@ -50,7 +50,7 @@ jest.mock('fs', () => {
 // Stub axios so resolveMcpPort()'s health check never performs a real HTTP
 // request. A rejection causes MCP to be disabled for the CLI agent, which
 // is the behavior we want in these unit tests (MCP wiring is out of scope
-// here — covered by the Copilot/Gemini MCP installer specs).
+// here — covered by the Copilot MCP installer specs).
 jest.mock('axios', () => ({
   __esModule: true,
   default: {
@@ -91,12 +91,26 @@ jest.mock('@ptah-extension/platform-core', () => ({
   },
 }));
 
-// We need uuid to generate valid AgentIds, but shared uses it internally
+// We need uuid to generate valid AgentIds, but shared uses it internally.
+// Produce unique-but-valid v4-shaped ids so multiple agents can coexist in
+// the manager's map (a constant id would make every spawn overwrite the
+// previous tracked agent under the same key).
+let uuidCounter = 0;
 jest.mock('uuid', () => ({
-  v4: () => 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+  v4: () => {
+    const seq = (uuidCounter++).toString(16).padStart(12, '0');
+    return `aaaaaaaa-bbbb-4ccc-8ddd-${seq}`;
+  },
 }));
 
-import { AgentProcessManager } from './agent-process-manager.service';
+import {
+  AgentProcessManager,
+  AgentContinueError,
+} from './agent-process-manager.service';
+import {
+  COMPLETED_AGENT_TTL,
+  DEFAULT_TIMEOUT,
+} from './agent-process-manager-helpers';
 import { CliDetectionService } from './cli-detection.service';
 import type {
   CliAdapter,
@@ -128,9 +142,17 @@ interface MockSdkHandleControls {
   emitOutput: (data: string) => void;
   /** The abort controller */
   abortController: AbortController;
+  /** Messages passed to continue() */
+  continueMessages: string[];
+  /** Resolve the most recently created continue() turn done promise */
+  resolveContinue: (code: number) => void;
+  /** Number of times continue() was invoked */
+  continueCallCount: () => number;
 }
 
-function createMockSdkHandle(): MockSdkHandleControls {
+function createMockSdkHandle(
+  options: { supportsContinuation?: boolean } = {},
+): MockSdkHandleControls {
   const abortController = new AbortController();
   const outputCallbacks: Array<(data: string) => void> = [];
 
@@ -142,12 +164,29 @@ function createMockSdkHandle(): MockSdkHandleControls {
     rejectPromise = reject;
   });
 
+  const continueMessages: string[] = [];
+  let continueResolve: ((code: number) => void) | null = null;
+  let continueCalls = 0;
+
   const handle: SdkHandle = {
     abort: abortController,
     done,
     onOutput: (cb: (data: string) => void) => {
       outputCallbacks.push(cb);
     },
+    ...(options.supportsContinuation
+      ? {
+          supportsContinuation: () => true,
+          continue: (message: string) => {
+            continueCalls += 1;
+            continueMessages.push(message);
+            const turnDone = new Promise<number>((resolve) => {
+              continueResolve = resolve;
+            });
+            return Promise.resolve({ done: turnDone });
+          },
+        }
+      : {}),
   };
 
   return {
@@ -161,6 +200,11 @@ function createMockSdkHandle(): MockSdkHandleControls {
       }
     },
     abortController,
+    continueMessages,
+    resolveContinue: (code: number) => {
+      continueResolve?.(code);
+    },
+    continueCallCount: () => continueCalls,
   };
 }
 
@@ -709,6 +753,225 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       // Since our mock detection returns codex as installed, it should be chosen
       expect(result.cli).toBe('codex');
+    });
+  });
+
+  describe('continueConversation()', () => {
+    let continuableControls: MockSdkHandleControls;
+
+    const spawnContinuable = async (): Promise<string> => {
+      continuableControls = createMockSdkHandle({ supportsContinuation: true });
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(
+        continuableControls.handle,
+      );
+      const result = await manager.spawn({
+        task: 'Initial task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      return result.agentId;
+    };
+
+    const completeTurn1 = async (): Promise<void> => {
+      continuableControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.advanceTimersByTime(3100);
+      await Promise.resolve();
+    };
+
+    it('throws not_found for an unknown agent', async () => {
+      await expect(
+        manager.continueConversation('missing-agent', 'hello'),
+      ).rejects.toMatchObject({ code: 'not_found' });
+    });
+
+    it('throws unsupported when the handle does not support continuation', async () => {
+      const result = await manager.spawn({
+        task: 'No continuation',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      await expect(
+        manager.continueConversation(result.agentId, 'hello'),
+      ).rejects.toMatchObject({ code: 'unsupported' });
+
+      sdkControls.resolve(0);
+    });
+
+    it('throws busy when the agent is still running', async () => {
+      const agentId = await spawnContinuable();
+
+      await expect(
+        manager.continueConversation(agentId, 'hello'),
+      ).rejects.toMatchObject({ code: 'busy' });
+
+      continuableControls.resolve(0);
+    });
+
+    it('emits agent:spawned with supportsContinuation in the info payload', async () => {
+      const spawnedInfos: Array<{ supportsContinuation?: boolean }> = [];
+      manager.events.on('agent:spawned', (info) => spawnedInfos.push(info));
+
+      await spawnContinuable();
+
+      expect(spawnedInfos[0]).toMatchObject({ supportsContinuation: true });
+
+      continuableControls.resolve(0);
+    });
+
+    it('stores the sdkHandle and reaches the continued turn via the same handle', async () => {
+      const agentId = await spawnContinuable();
+      await completeTurn1();
+
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'completed');
+
+      await manager.continueConversation(agentId, 'follow-up message');
+
+      expect(continuableControls.continueCallCount()).toBe(1);
+      expect(continuableControls.continueMessages).toEqual([
+        'follow-up message',
+      ]);
+    });
+
+    it('re-opens the agent to running and re-emits agent:spawned with the same id', async () => {
+      const agentId = await spawnContinuable();
+      await completeTurn1();
+
+      const spawnedIds: string[] = [];
+      manager.events.on('agent:spawned', (info: { agentId: string }) =>
+        spawnedIds.push(info.agentId),
+      );
+
+      await manager.continueConversation(agentId, 'continue please');
+
+      expect(spawnedIds).toEqual([agentId]);
+      const status = manager.getStatus(agentId) as { status: string };
+      expect(status.status).toBe('running');
+    });
+
+    it('does not double-fire handleExit across turn1 -> continue -> turn2', async () => {
+      const agentId = await spawnContinuable();
+
+      const exitInfos: Array<{ agentId: string; status: string }> = [];
+      manager.events.on('agent:exited', (info) => exitInfos.push(info));
+
+      await completeTurn1();
+      expect(exitInfos).toHaveLength(1);
+
+      await manager.continueConversation(agentId, 'second turn');
+      continuableControls.resolveContinue(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.advanceTimersByTime(3100);
+      await Promise.resolve();
+
+      expect(exitInfos).toHaveLength(2);
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'completed');
+    });
+
+    it('re-attaches a fresh exit handler so a failing continued turn marks failed', async () => {
+      const agentId = await spawnContinuable();
+      await completeTurn1();
+
+      await manager.continueConversation(agentId, 'turn that fails');
+      continuableControls.resolveContinue(1);
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.advanceTimersByTime(3100);
+      await Promise.resolve();
+
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'failed');
+    });
+
+    it('exposes a typed AgentContinueError', async () => {
+      await manager
+        .continueConversation('missing-agent', 'hello')
+        .catch((error: unknown) => {
+          expect(error).toBeInstanceOf(AgentContinueError);
+        });
+    });
+
+    it('arms a cleanup timer on turn1 completion that removes the agent after TTL', async () => {
+      const agentId = await spawnContinuable();
+      await completeTurn1();
+
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'completed');
+
+      jest.advanceTimersByTime(COMPLETED_AGENT_TTL);
+
+      expect(() => manager.getStatus(agentId)).toThrow(/not found/i);
+    });
+
+    it('clears the cleanup timer on continue so TTL no longer removes the agent', async () => {
+      const agentId = await spawnContinuable();
+      await completeTurn1();
+
+      await manager.continueConversation(agentId, 'keep me alive');
+
+      jest.advanceTimersByTime(COMPLETED_AGENT_TTL);
+
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'running');
+    });
+
+    it('reinstalls the running timeout on continue so the continued turn can time out', async () => {
+      const agentId = await spawnContinuable();
+      await completeTurn1();
+
+      await manager.continueConversation(agentId, 'long-running follow-up');
+
+      jest.advanceTimersByTime(DEFAULT_TIMEOUT);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'timeout');
+    });
+
+    it('fires the abort path when stopping a continued (re-running) agent', async () => {
+      const agentId = await spawnContinuable();
+      await completeTurn1();
+
+      const abortSpy = jest.spyOn(continuableControls.abortController, 'abort');
+
+      await manager.continueConversation(agentId, 'second turn');
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'running');
+
+      const stopPromise = manager.stop(agentId);
+      continuableControls.resolveContinue(1);
+      jest.advanceTimersByTime(600);
+      const info = await stopPromise;
+
+      expect(abortSpy).toHaveBeenCalled();
+      expect(info.status).toBe('stopped');
+    });
+
+    it('succeeds even when the concurrent limit is occupied (accepted v1 edge case)', async () => {
+      setupVscodeConfig({ maxConcurrentAgents: 1 });
+
+      const agentId = await spawnContinuable();
+      await completeTurn1();
+
+      const blockerControls = createMockSdkHandle();
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(
+        blockerControls.handle,
+      );
+      const blocker = await manager.spawn({
+        task: 'Occupies the only concurrent slot',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      expect(manager.getStatus(blocker.agentId)).toHaveProperty(
+        'status',
+        'running',
+      );
+
+      await expect(
+        manager.continueConversation(agentId, 'continue past the limit'),
+      ).resolves.toBeUndefined();
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'running');
+
+      blockerControls.resolve(0);
     });
   });
 });

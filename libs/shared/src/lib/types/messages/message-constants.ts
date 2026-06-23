@@ -115,6 +115,14 @@ export const MESSAGE_TYPES = {
   SESSION_STATS: 'session:stats',
   /** Push notification: session metadata changed (created/updated/deleted/forked). */
   SESSION_METADATA_CHANGED: 'session:metadataChanged',
+  /** Backend → Frontend: SDK PostCompact hook fired (edge-triggered stamp). */
+  SESSION_COMPACTION_COMPLETE: 'session:compactionComplete',
+  /** Backend → Frontend: SDK Stop hook fired — turn ended, status pivot. */
+  SESSION_TURN_ENDED: 'session:turnEnded',
+  /** Backend → Frontend: SDK StopFailure hook fired — turn failed with error. */
+  SESSION_TURN_FAILED: 'session:turnFailed',
+  /** Backend → Frontend: SDK SubagentStop hook fired — a backgrounded subagent finished. */
+  SESSION_SUBAGENT_ENDED: 'session:subagentEnded',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
   /** Backend → Frontend: reload Monaco tab content after a git rewind (Electron only). */
@@ -123,8 +131,10 @@ export const MESSAGE_TYPES = {
   SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',
   SETUP_WIZARD_SCAN_PROGRESS: 'setup-wizard:scan-progress',
   SETUP_WIZARD_ANALYSIS_STREAM: 'setup-wizard:analysis-stream',
-  /** Backend → Frontend: seed a new chat session with a pre-populated user turn (new-project handoff). */
-  SETUP_WIZARD_START_NEW_PROJECT_CHAT: 'setup-wizard:start-new-project-chat',
+  /** Backend → Frontend: open an agent-driven harness workflow surface (new-project / configure-harness). */
+  HARNESS_OPEN_WORKFLOW: 'harness:open-workflow',
+  /** Backend → Frontend: agent proposed harness config updates via the proposeConfig MCP tool. */
+  HARNESS_CONFIG_PROPOSED: 'harness:config-proposed',
   ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
   ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',
   ASK_USER_QUESTION_AUTO_RESOLVED: 'ask-user-question:auto-resolved',
@@ -136,15 +146,30 @@ export const MESSAGE_TYPES = {
   AGENT_MONITOR_EXITED: 'agent-monitor:exited',
   AGENT_MONITOR_PERMISSION_REQUEST: 'agent-monitor:permission-request',
   AGENT_MONITOR_PERMISSION_RESPONSE: 'agent-monitor:permission-response',
-  AGENT_MONITOR_USER_INPUT_REQUEST: 'agent-monitor:user-input-request',
-  AGENT_MONITOR_USER_INPUT_RESPONSE: 'agent-monitor:user-input-response',
   GATEWAY_STATUS_CHANGED: 'gateway:statusChanged',
+  /** Backend → Frontend: bindings list changed (new pending request, approve/reject/revoke). */
+  GATEWAY_BINDINGS_CHANGED: 'gateway:bindingsChanged',
+  /** Backend → Frontend: Whisper voice model download progress tick (Electron only). */
+  VOICE_MODEL_DOWNLOAD_PROGRESS: 'voice:modelDownloadProgress',
   /** Backend → Frontend: update lifecycle state changed (Electron only). */
   UPDATE_STATUS_CHANGED: 'update:statusChanged',
   /** Backend → Frontend: workspace indexing progress tick. */
   INDEXING_PROGRESS: 'indexing:progress',
   /** Backend → Frontend: workspace indexing run finished successfully. */
   INDEXING_COMPLETE: 'indexing:complete',
+  BATCH: 'batch',
+  /** Backend → Frontend: observation queue row captured by a hook. */
+  MEMORY_OBSERVATION_CAPTURED: 'memory:observationCaptured',
+  /** Backend → Frontend: corpus built / rebuilt / primed / deleted. */
+  MEMORY_CORPUS_CHANGED: 'memory:corpusChanged',
+  /** Backend → Frontend: a curator run produced extracted memories. */
+  MEMORY_EXTRACTED: 'memory:extracted',
+  /** Backend → Frontend: session-start injection block emitted (for UI badge). */
+  MEMORY_SESSION_START_INJECTED: 'memory:sessionStartInjected',
+  /** Backend → Frontend: sqlite-vec load state transitioned (Electron only). */
+  VEC_STATUS_CHANGED: 'db:vecStatusChanged',
+  /** Backend → Frontend: embedder readiness/progress/error changed (Electron only). */
+  EMBEDDER_STATUS_CHANGED: 'embedder:statusChanged',
 } as const;
 
 /**

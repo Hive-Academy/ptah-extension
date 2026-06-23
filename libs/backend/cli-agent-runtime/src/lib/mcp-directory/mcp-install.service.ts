@@ -21,7 +21,6 @@ import { McpInstallManifestTracker } from './mcp-install-manifest';
 import { VscodeMcpInstaller } from './installers/vscode-mcp.installer';
 import { ClaudeMcpInstaller } from './installers/claude-mcp.installer';
 import { CursorMcpInstaller } from './installers/cursor-mcp.installer';
-import { GeminiMcpInstaller } from './installers/gemini-mcp.installer';
 import { CopilotMcpInstaller } from './installers/copilot-mcp.installer';
 
 export class McpInstallService {
@@ -33,7 +32,6 @@ export class McpInstallService {
       ['vscode', new VscodeMcpInstaller()],
       ['claude', new ClaudeMcpInstaller()],
       ['cursor', new CursorMcpInstaller()],
-      ['gemini', new GeminiMcpInstaller()],
       ['copilot', new CopilotMcpInstaller()],
     ]);
     this.manifestTracker = new McpInstallManifestTracker();

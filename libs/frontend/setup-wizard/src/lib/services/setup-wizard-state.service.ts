@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
+import type { MessageHandler } from '@ptah-extension/core';
 import {
   createEmptyStreamingState,
   type StreamingState,
@@ -112,13 +113,11 @@ export type {
 @Injectable({
   providedIn: 'root',
 })
-export class SetupWizardStateService {
+export class SetupWizardStateService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
   private readonly streamRouter = inject(StreamRouter);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
 
-  /** Per-coordinator-instance gate preventing duplicate listener registration. */
-  private isMessageListenerRegistered = false;
   private readonly _phaseSurfaces = new Map<string, SurfaceId>();
   private readonly _phaseStateRefs = new Map<string, StreamingState>();
   private readonly currentStepSignal = signal<WizardStep>('welcome');
@@ -361,8 +360,16 @@ export class SetupWizardStateService {
       this.computeds.generationCompletionPercentage;
     this.isGenerationComplete = this.computeds.isGenerationComplete;
     this.failedGenerationItems = this.computeds.failedGenerationItems;
+  }
 
-    this.ensureMessageListenerRegistered();
+  public get handledMessageTypes(): readonly string[] {
+    return this.messageDispatcher.handledMessageTypes;
+  }
+
+  public handleMessage(message: { type: string; payload?: unknown }): void {
+    if (WizardMessageDispatcher.isWizardMessage(message)) {
+      this.messageDispatcher.dispatch(message);
+    }
   }
 
   /**
@@ -372,16 +379,6 @@ export class SetupWizardStateService {
    */
   public getInternalState(): WizardInternalState {
     return this.internalState;
-  }
-
-  /**
-   * Ensure message listener is registered exactly once.
-   * Safe to call multiple times. Delegates to the message dispatcher.
-   */
-  private ensureMessageListenerRegistered(): void {
-    if (this.isMessageListenerRegistered) return;
-    this.messageDispatcher.ensureRegistered();
-    this.isMessageListenerRegistered = true;
   }
 
   /**
@@ -678,8 +675,6 @@ export class SetupWizardStateService {
    * teardown scenarios, and memory-leak debugging.
    */
   public dispose(): void {
-    this.messageDispatcher.dispose();
-    this.isMessageListenerRegistered = false;
     this.resetPhaseSurfaces();
   }
 }

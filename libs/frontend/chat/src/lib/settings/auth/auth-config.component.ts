@@ -3,6 +3,7 @@ import {
   inject,
   signal,
   computed,
+  linkedSignal,
   output,
   ChangeDetectionStrategy,
   OnInit,
@@ -25,6 +26,7 @@ import {
   Terminal,
   AlertTriangle,
   Server,
+  RotateCcw,
 } from 'lucide-angular';
 import { AuthStateService, ClaudeRpcService } from '@ptah-extension/core';
 import type {
@@ -85,6 +87,7 @@ export class AuthConfigComponent implements OnInit {
   readonly TerminalIcon = Terminal;
   readonly AlertTriangleIcon = AlertTriangle;
   readonly ServerIcon = Server;
+  readonly RotateCcwIcon = RotateCcw;
 
   /** API key text input value */
   readonly apiKey = signal('');
@@ -94,6 +97,37 @@ export class AuthConfigComponent implements OnInit {
 
   readonly isReplacingApiKey = signal(false);
   readonly isReplacingProviderKey = signal(false);
+
+  /** Whether the active folder currently overrides auth/provider settings. */
+  readonly hasWorkspaceOverride = this.authState.hasWorkspaceOverride;
+
+  readonly activeScope = this.authState.activeScope;
+
+  readonly applyTo = linkedSignal<'app' | 'workspace'>(() =>
+    this.activeScope() === 'workspace' ? 'workspace' : 'app',
+  );
+
+  /** Active folder path the workspace scope applies to (null when none). */
+  readonly activeScopePath = this.authState.activeScopePath;
+
+  readonly scopeBadgeLabel = computed(() => {
+    switch (this.activeScope()) {
+      case 'workspace':
+        return 'Workspace override';
+      case 'app':
+        return 'Global default';
+      default:
+        return 'Inherited';
+    }
+  });
+
+  /**
+   * Whether targeting the active workspace is available. Without an active
+   * folder the toggle stays disabled and writes go to the global default.
+   */
+  readonly canApplyToWorkspace = computed(
+    () => this.authState.activeScopePath() !== null,
+  );
 
   /**
    * Event emitted when auth status changes (after successful save/delete)
@@ -314,7 +348,7 @@ export class AuthConfigComponent implements OnInit {
           : undefined,
     };
 
-    await this.authState.saveAndTest(params);
+    await this.authState.saveAndTest(params, this.applyTo());
     if (this.authState.connectionStatus() === 'success') {
       this.isReplacingApiKey.set(false);
       this.isReplacingProviderKey.set(false);
@@ -322,6 +356,27 @@ export class AuthConfigComponent implements OnInit {
       this.providerKey.set('');
       this.authStatusChanged.emit();
     }
+  }
+
+  /**
+   * Set the write target for the next save. Each app gets its own global
+   * default ('app'); targeting the active workspace is only honored when an
+   * active folder exists.
+   */
+  setApplyTo(target: 'app' | 'workspace'): void {
+    if (target === 'workspace' && !this.canApplyToWorkspace()) {
+      return;
+    }
+    this.applyTo.set(target);
+  }
+
+  /**
+   * Clear the most-specific present override (workspace → app → global),
+   * reverting to the next-less-specific layer, and re-resolve auth.
+   */
+  async resetToGlobalDefault(): Promise<void> {
+    await this.authState.clearWorkspaceOverride();
+    this.authStatusChanged.emit();
   }
 
   /**

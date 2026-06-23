@@ -14,15 +14,9 @@
  *  - vscode:  .vscode/mcp.json           (workspace, root key: "servers")
  *  - claude:  .mcp.json                   (workspace, root key: "mcpServers") — shared with codex/ptah-cli
  *  - cursor:  .cursor/mcp.json            (workspace, root key: "mcpServers")
- *  - gemini:  ~/.gemini/settings.json     (user-global, root key: "mcpServers")
  *  - copilot: ~/.copilot/mcp-config.json  (user-global, root key: "mcpServers")
  */
-export type McpInstallTarget =
-  | 'vscode'
-  | 'claude'
-  | 'cursor'
-  | 'gemini'
-  | 'copilot';
+export type McpInstallTarget = 'vscode' | 'claude' | 'cursor' | 'copilot';
 
 /** Base fields shared by all transport types */
 interface McpServerConfigBase {
@@ -125,8 +119,25 @@ export interface McpRegistryArgument {
 }
 
 /**
- * A single MCP server entry from the Official MCP Registry.
- * Maps to GET /v0.1/servers response items.
+ * A single connection option carried on a registry entry detail.
+ * Smithery-specific: carries a per-connection `configSchema` (JSON Schema)
+ * describing the config that must be collected before a URL can be built.
+ * The official registry has no equivalent and omits this field.
+ */
+export interface McpRegistryConnection {
+  /** Transport type: "http" (Streamable HTTP) | "stdio". */
+  type?: string;
+  /** JSON Schema describing required per-server config (Smithery). */
+  configSchema?: Record<string, unknown>;
+  /** Hosted deployment URL template (Smithery), if present. */
+  deploymentUrl?: string;
+  /** Passthrough for any additional connection fields. */
+  [key: string]: unknown;
+}
+
+/**
+ * A single MCP server entry from an MCP registry source.
+ * Maps to GET /v0.1/servers response items (official) and Smithery /servers.
  */
 export interface McpRegistryEntry {
   /** Fully qualified server name (e.g., "io.github.user/server-name") */
@@ -143,7 +154,18 @@ export interface McpRegistryEntry {
   created_at?: string;
   /** Last update timestamp */
   updated_at?: string;
+  /** Provenance of this entry (drives the UI source badge). */
+  source?: McpRegistrySourceKind;
+  /** Trust signal (Smithery `verified`). */
+  verified?: boolean;
+  /** Security scan signal (Smithery `security.scanPassed`). */
+  scanPassed?: boolean;
+  /** Connection options carried on detail fetch (Smithery configSchema). */
+  connections?: McpRegistryConnection[];
 }
+
+/** Provenance discriminator for an MCP registry entry / query. */
+export type McpRegistrySourceKind = 'official' | 'smithery';
 
 /** Paginated list response from the registry */
 export interface McpRegistryListResponse {
@@ -204,6 +226,94 @@ export interface McpInstallManifest {
   >;
 }
 
+/**
+ * A Smithery server installed by Ptah, persisted to
+ * `~/.ptah/smithery-installed.json`.
+ *
+ * SECURITY: this record holds ONLY non-secret metadata. The per-server `config`
+ * (which may contain credentials) is NEVER stored here — it lives in the
+ * encrypted secret store and is rebuilt into a session-time URL at query time.
+ * No secret-bearing connection URL is ever persisted to disk.
+ */
+export interface SmitheryInstalledRecord {
+  /** Always 'smithery' — discriminates from official disk installs. */
+  source: 'smithery';
+  /** Fully qualified Smithery server name (e.g., "@owner/server"). */
+  qualifiedName: string;
+  /** Stable key used in the session `mcpServersOverride` map. */
+  serverKey: string;
+  /** Optional saved Smithery profile id (non-secret). */
+  profile?: string;
+  /**
+   * Whether an encrypted per-server config blob exists in the secret store for
+   * this record. The config values themselves are NOT in this manifest.
+   */
+  hasEncryptedConfig: boolean;
+  /** ISO timestamp of installation. */
+  installedAt: string;
+}
+
+/**
+ * On-disk manifest of Smithery-installed servers
+ * (`~/.ptah/smithery-installed.json`). Contains no secrets.
+ */
+export interface SmitheryInstalledManifest {
+  /** Schema version for forward compat. */
+  version: 1;
+  /** Map of serverKey → install record. */
+  servers: Record<string, SmitheryInstalledRecord>;
+}
+
+/**
+ * Params for mcpDirectory:installSmithery.
+ *
+ * Records a Smithery install WITHOUT writing a secret-bearing URL to disk. The
+ * `config` is routed to the encrypted secret store; only non-secret metadata is
+ * persisted to the manifest.
+ */
+export interface McpDirectoryInstallSmitheryParams {
+  /** Fully qualified Smithery server name (e.g., "@owner/server"). */
+  qualifiedName: string;
+  /** Stable key for the session override map (defaults to a slug of the name). */
+  serverKey?: string;
+  /** Per-server config collected from the connection configSchema form. */
+  config: Record<string, unknown>;
+  /** Optional saved Smithery profile id. */
+  profile?: string;
+}
+
+/** Result for mcpDirectory:installSmithery. */
+export interface McpDirectoryInstallSmitheryResult {
+  success: boolean;
+  /** The serverKey the record was stored under (echoed for the caller). */
+  serverKey?: string;
+  error?: string;
+}
+
+/** Params for mcpDirectory:uninstallSmithery. */
+export interface McpDirectoryUninstallSmitheryParams {
+  /** The serverKey of the record to remove. */
+  serverKey: string;
+}
+
+/** Result for mcpDirectory:uninstallSmithery. */
+export interface McpDirectoryUninstallSmitheryResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Params for mcpDirectory:listSmitheryInstalled (no params needed). */
+export type McpDirectoryListSmitheryInstalledParams = Record<string, never>;
+
+/**
+ * Result for mcpDirectory:listSmitheryInstalled.
+ *
+ * SECURITY: returns non-secret metadata only (never the config or URL).
+ */
+export interface McpDirectoryListSmitheryInstalledResult {
+  servers: SmitheryInstalledRecord[];
+}
+
 /** Params for mcpDirectory:search */
 export interface McpDirectorySearchParams {
   /** Search query string */
@@ -212,6 +322,8 @@ export interface McpDirectorySearchParams {
   limit?: number;
   /** Pagination cursor from previous response */
   cursor?: string;
+  /** Registry source to query (default: 'official'). */
+  source?: McpRegistrySourceKind;
 }
 
 /** Result for mcpDirectory:search */
@@ -224,6 +336,8 @@ export interface McpDirectorySearchResult {
 export interface McpDirectoryGetDetailsParams {
   /** Fully qualified server name */
   name: string;
+  /** Registry source to query (default: 'official'). */
+  source?: McpRegistrySourceKind;
 }
 
 /** Result for mcpDirectory:getDetails */
@@ -267,10 +381,69 @@ export interface McpDirectoryListInstalledResult {
   servers: InstalledMcpServer[];
 }
 
-/** Params for mcpDirectory:getPopular (no params needed) */
-export type McpDirectoryGetPopularParams = Record<string, never>;
+/** Params for mcpDirectory:getPopular */
+export interface McpDirectoryGetPopularParams {
+  /** Registry source to query (default: 'official'). */
+  source?: McpRegistrySourceKind;
+}
 
 /** Result for mcpDirectory:getPopular */
 export interface McpDirectoryGetPopularResult {
   servers: McpRegistryEntry[];
+}
+
+/**
+ * Params for mcpDirectory:setSmitheryApiKey.
+ *
+ * SECURITY: the key travels webview → backend on write only. It is stored in
+ * encrypted secret storage and is NEVER returned to the renderer. An empty /
+ * whitespace-only value clears the stored key.
+ */
+export interface McpDirectorySetSmitheryApiKeyParams {
+  /** The Smithery API key to store, or '' to clear it. */
+  apiKey: string;
+}
+
+/** Result for mcpDirectory:setSmitheryApiKey */
+export interface McpDirectorySetSmitheryApiKeyResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Params for mcpDirectory:getSmitheryKeyStatus (no params needed) */
+export type McpDirectoryGetSmitheryKeyStatusParams = Record<string, never>;
+
+/**
+ * Result for mcpDirectory:getSmitheryKeyStatus.
+ *
+ * SECURITY: boolean presence only — the key value never crosses this boundary.
+ */
+export interface McpDirectoryGetSmitheryKeyStatusResult {
+  configured: boolean;
+}
+
+/**
+ * Params for mcpDirectory:resolveSmithery.
+ *
+ * Resolves a Smithery server + config into a session-time `McpHttpConfig`.
+ * SECURITY: the API key is read backend-side; it is NOT part of these params.
+ */
+export interface McpDirectoryResolveSmitheryParams {
+  /** Fully qualified Smithery server name (e.g., "@owner/server"). */
+  qualifiedName: string;
+  /** Per-server config collected from the connection configSchema form. */
+  config: Record<string, unknown>;
+  /** Optional saved Smithery profile id. */
+  profile?: string;
+}
+
+/**
+ * Result for mcpDirectory:resolveSmithery.
+ *
+ * SECURITY: `config.url` carries the secret-bearing query string. The renderer
+ * must treat it as sensitive and never persist it to plaintext config files.
+ */
+export interface McpDirectoryResolveSmitheryResult {
+  config?: McpHttpConfig;
+  error?: string;
 }

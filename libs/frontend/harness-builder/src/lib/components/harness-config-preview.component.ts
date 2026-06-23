@@ -180,7 +180,7 @@ import { HarnessBuilderStateService } from '../services/harness-builder-state.se
       <!-- Empty state -->
       @if (!hasAnyConfig()) {
         <div class="text-center py-6 text-base-content/40 text-xs">
-          No configuration yet. Start chatting to build your harness.
+          No configuration yet. Start chatting to build your AI team.
         </div>
       }
     </div>

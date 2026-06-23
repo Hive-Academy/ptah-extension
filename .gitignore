@@ -121,7 +121,7 @@ ptah-settings-export.json
 # ============================================
 .ptah/**
 .agent-legacy/**
-
+.github/agents/**
 # ============================================
 # Claude Code configuration (local/developer-specific)
 # ============================================
@@ -160,6 +160,8 @@ ptah-settings-export.json
 .zencoder/
 skills/
 !apps/ptah-extension-vscode/assets/plugins/**/skills/
+!apps/ptah-cli/src/skills/
+!apps/ptah-cli/src/skills/**
 skills-lock.json
 
 

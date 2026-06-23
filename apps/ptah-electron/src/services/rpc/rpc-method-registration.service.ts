@@ -36,10 +36,8 @@ import { ChatRpcHandlers } from '@ptah-extension/rpc-handlers';
 import {
   EditorRpcHandlers,
   FileRpcHandlers,
-  ConfigExtendedRpcHandlers,
   CommandRpcHandlers,
   AgentRpcHandlers,
-  SkillsShRpcHandlers,
   LayoutRpcHandlers,
   TerminalRpcHandlers,
   UpdateRpcHandlers,
@@ -66,14 +64,10 @@ export class ElectronRpcMethodRegistrationService {
     private readonly editorHandlers: EditorRpcHandlers,
     @inject(FileRpcHandlers)
     private readonly fileHandlers: FileRpcHandlers,
-    @inject(ConfigExtendedRpcHandlers)
-    private readonly configExtendedHandlers: ConfigExtendedRpcHandlers,
     @inject(CommandRpcHandlers)
     private readonly commandHandlers: CommandRpcHandlers,
     @inject(AgentRpcHandlers)
     private readonly agentHandlers: AgentRpcHandlers,
-    @inject(SkillsShRpcHandlers)
-    private readonly skillsShHandlers: SkillsShRpcHandlers,
     @inject(LayoutRpcHandlers)
     private readonly layoutHandlers: LayoutRpcHandlers,
     @inject(TerminalRpcHandlers)
@@ -161,13 +155,8 @@ export class ElectronRpcMethodRegistrationService {
     }> = [
       { name: 'EditorRpcHandlers', handler: this.editorHandlers },
       { name: 'FileRpcHandlers', handler: this.fileHandlers },
-      {
-        name: 'ConfigExtendedRpcHandlers',
-        handler: this.configExtendedHandlers,
-      },
       { name: 'CommandRpcHandlers', handler: this.commandHandlers },
       { name: 'AgentRpcHandlers', handler: this.agentHandlers },
-      { name: 'SkillsShRpcHandlers', handler: this.skillsShHandlers },
       { name: 'LayoutRpcHandlers', handler: this.layoutHandlers },
       { name: 'TerminalRpcHandlers', handler: this.terminalHandlers },
       { name: 'UpdateRpcHandlers', handler: this.updateHandlers },

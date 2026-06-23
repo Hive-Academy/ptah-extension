@@ -7,10 +7,6 @@ import {
   bindLicenseReactivity,
 } from '@ptah-extension/vscode-core';
 import { setPtahMcpPort } from '@ptah-extension/agent-sdk';
-import {
-  PLATFORM_TOKENS,
-  ContentDownloadService,
-} from '@ptah-extension/platform-core';
 import { DIContainer } from '../di/container';
 import { PtahExtension } from '../core/ptah-extension';
 import { syncCliSkillsOnActivation } from './cli-skill-sync';
@@ -37,18 +33,6 @@ export async function registerPostInit(
   await ptahExtension.registerAll();
   try {
     const container = DIContainer.getContainer();
-    let pluginsPathForSync: string;
-    try {
-      const contentDownload = DIContainer.resolve<ContentDownloadService>(
-        PLATFORM_TOKENS.CONTENT_DOWNLOAD,
-      );
-      pluginsPathForSync = contentDownload.getPluginsPath();
-    } catch {
-      const os = await import('os');
-      const path = await import('path');
-      pluginsPathForSync = path.join(os.homedir(), '.ptah', 'plugins');
-    }
-
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     const binderDisposable = bindLicenseReactivity({
@@ -69,7 +53,7 @@ export async function registerPostInit(
         }
       },
       syncCliSkills: () => {
-        syncCliSkillsOnActivation(pluginsPathForSync, logger);
+        syncCliSkillsOnActivation(workspaceRoot, logger);
       },
       syncCliAgents: () => {
         if (workspaceRoot) {
@@ -113,7 +97,7 @@ export async function registerPostInit(
   }
   const isFirstTime = context.globalState.get('ptah.firstActivation', true);
   if (isFirstTime) {
-    await ptahExtension.showWelcome();
+    void ptahExtension.showWelcome();
     await context.globalState.update('ptah.firstActivation', false);
   }
   void licenseStatus;

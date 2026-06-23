@@ -5,12 +5,14 @@ import {
   computed,
   signal,
   output,
+  inject,
 } from '@angular/core';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
 import {
   calculateSessionCostSummary,
-  formatModelDisplayName,
+  resolveModelDisplayName,
 } from '@ptah-extension/shared';
+import { ModelStateService } from '@ptah-extension/core';
 
 /**
  * Live model stats from current session
@@ -34,7 +36,7 @@ export interface ModelUsageEntry {
   model: string;
   inputTokens: number;
   outputTokens: number;
-  costUSD: number;
+  costUSD: number | null;
   contextWindow: number;
   cacheReadInputTokens?: number;
 }
@@ -70,19 +72,20 @@ export interface ModelUsageEntry {
             <div
               class="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto text-xs"
             >
-              @if (liveModelStats()) {
-                @if (!hasMultipleModels()) {
-                  <span
-                    class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
+              @if (!hasMultipleModels() && primaryModelName(); as modelName) {
+                <span
+                  class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
+                  [title]="modelName"
+                >
+                  <span class="text-[10px] uppercase text-base-content/50"
+                    >Model</span
                   >
-                    <span class="text-[10px] uppercase text-base-content/50"
-                      >Model</span
-                    >
-                    <span class="text-purple-400 font-semibold">{{
-                      formatModelName(liveModelStats()!.model)
-                    }}</span>
-                  </span>
-                }
+                  <span class="text-purple-400 font-semibold">{{
+                    formatModelName(modelName)
+                  }}</span>
+                </span>
+              }
+              @if (liveModelStats()) {
                 <span
                   class="inline-flex items-center gap-1 bg-cyan-600/15 border border-cyan-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
                   [title]="contextTooltip()"
@@ -273,10 +276,10 @@ export interface ModelUsageEntry {
           <!-- Expanded: full card grid with inline collapse button -->
           <div class="grid grid-cols-2 gap-1.5">
             <!-- Model Card -->
-            @if (liveModelStats()) {
+            @if (!hasMultipleModels() && primaryModelName(); as modelName) {
               <div
                 class="bg-base-200/50 rounded px-2 py-1.5 border border-purple-600/20"
-                [title]="liveModelStats()!.model"
+                [title]="modelName"
               >
                 <div
                   class="text-[10px] uppercase tracking-wider text-base-content/50 leading-tight"
@@ -286,7 +289,7 @@ export interface ModelUsageEntry {
                 <div
                   class="text-sm font-semibold text-purple-400 truncate leading-tight mt-0.5"
                 >
-                  {{ formatModelName(liveModelStats()!.model) }}
+                  {{ formatModelName(modelName) }}
                 </div>
               </div>
             }
@@ -640,6 +643,8 @@ export interface ModelUsageEntry {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SessionStatsSummaryComponent {
+  private readonly modelState = inject(ModelStateService);
+
   /** All messages in the session */
   readonly messages = input.required<readonly ExecutionChatMessage[]>();
 
@@ -648,7 +653,7 @@ export class SessionStatsSummaryComponent {
    * When provided, these are used instead of calculating from messages.
    */
   readonly preloadedStats = input<{
-    totalCost: number;
+    totalCost: number | null;
     tokens: {
       input: number;
       output: number;
@@ -723,6 +728,18 @@ export class SessionStatsSummaryComponent {
     () => (this.modelUsageList()?.length ?? 0) >= 2,
   );
 
+  /**
+   * Model name to surface in the single-model badge/card. Prefers the live
+   * session model; falls back to the sole entry in the usage breakdown so the
+   * model still shows when live stats are absent (e.g. loaded sessions).
+   */
+  readonly primaryModelName = computed(() => {
+    const live = this.liveModelStats()?.model;
+    if (live) return live;
+    const list = this.modelUsageList();
+    return list && list.length > 0 ? list[0].model : null;
+  });
+
   /** Total input tokens across all models in the breakdown */
   readonly totalModelInputTokens = computed(() => {
     const list = this.modelUsageList();
@@ -741,7 +758,7 @@ export class SessionStatsSummaryComponent {
   readonly totalModelCost = computed(() => {
     const list = this.modelUsageList();
     if (!list) return 0;
-    return list.reduce((sum, m) => sum + m.costUSD, 0);
+    return list.reduce((sum, m) => sum + (m.costUSD ?? 0), 0);
   });
 
   /** Computed session summary using utility functions or preloaded stats */
@@ -762,7 +779,7 @@ export class SessionStatsSummaryComponent {
   readonly hasStats = computed(() => {
     const s = this.summary();
     return (
-      s.totalCost > 0 ||
+      (s.totalCost !== null && s.totalCost > 0) ||
       s.totalDuration > 0 ||
       this.totalTokenCount() > 0 ||
       this.liveModelStats() !== null
@@ -807,7 +824,10 @@ export class SessionStatsSummaryComponent {
   });
 
   /** Format cost for display */
-  protected formatCost(cost: number): string {
+  protected formatCost(cost: number | null): string {
+    if (cost === null) {
+      return '—';
+    }
     if (cost < 0.01) {
       return `$${cost.toFixed(4)}`;
     }
@@ -839,12 +859,7 @@ export class SessionStatsSummaryComponent {
     return `${minutes}m ${remainingSeconds}s`;
   }
 
-  /**
-   * Format model name for display
-   * Delegates to shared utility for consistent model name formatting across the application.
-   * Extracts readable name from full model ID (e.g., "claude-sonnet-4-20250514" -> "Sonnet 4")
-   */
   protected formatModelName(modelId: string): string {
-    return formatModelDisplayName(modelId);
+    return resolveModelDisplayName(modelId, this.modelState.availableModels());
   }
 }

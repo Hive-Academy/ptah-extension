@@ -32,7 +32,6 @@ Global settings live in a single JSON file at `~/.ptah/settings.json`. This file
     "claude": { "apiKey": "sk-ant-..." },
     "copilot": { "apiKey": "..." },
     "codex": { "apiKey": "..." },
-    "gemini": { "apiKey": "..." },
     "ollama": { "baseUrl": "http://localhost:11434" },
     "openrouter": { "apiKey": "sk-or-..." },
   },

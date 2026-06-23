@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   inject,
   signal,
+  computed,
   effect,
   viewChild,
   ElementRef,
@@ -12,8 +13,15 @@ import {
   NgZone,
 } from '@angular/core';
 import { LucideAngularModule, ChevronLeft, ChevronRight } from 'lucide-angular';
-import { TabItemComponent } from '@ptah-extension/chat-ui';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  AwaitingBackgroundIndicatorComponent,
+  TabItemComponent,
+} from '@ptah-extension/chat-ui';
+import {
+  SessionLivenessRegistry,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
+import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
 
 /**
  * TabBarComponent - Chrome-style scrollable tab bar
@@ -26,7 +34,11 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 @Component({
   selector: 'ptah-tab-bar',
   standalone: true,
-  imports: [TabItemComponent, LucideAngularModule],
+  imports: [
+    AwaitingBackgroundIndicatorComponent,
+    TabItemComponent,
+    LucideAngularModule,
+  ],
   host: { class: 'block min-w-0 overflow-hidden h-full' },
   template: `
     <div class="relative flex items-center h-full">
@@ -52,6 +64,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
             [tab]="tab"
             [isActive]="tab.id === activeTabId()"
             [isStreaming]="tabManager.isTabStreaming(tab.id)"
+            [livenessStatus]="livenessFor(tab.claudeSessionId)"
             (tabSelect)="onSelectTab($event)"
             (tabClose)="onCloseTab($event)"
             (viewModeToggle)="onToggleViewMode($event)"
@@ -69,18 +82,40 @@ import { TabManagerService } from '@ptah-extension/chat-state';
           <lucide-angular [img]="ChevronRightIcon" class="w-3.5 h-3.5" />
         </button>
       }
+
+      @if (awaitingBackgroundTab(); as awaitingTab) {
+        <div
+          class="flex items-center pl-2 pr-1 flex-shrink-0"
+          [attr.data-test]="'tab-bar-awaiting-background-slot'"
+        >
+          <ptah-awaiting-background-indicator
+            [taskCount]="awaitingTab.pendingBackgroundTasks?.length ?? 0"
+            [tasks]="awaitingTab.pendingBackgroundTasks ?? []"
+          />
+        </div>
+      }
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TabBarComponent {
   protected readonly tabManager = inject(TabManagerService);
+  private readonly liveness = inject(SessionLivenessRegistry);
+  private readonly claims = inject(WorkflowSessionClaimService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly ngZone = inject(NgZone);
 
-  readonly tabs = this.tabManager.tabs;
+  readonly tabs = computed(() =>
+    this.tabManager.tabs().filter((t) => this.claims.surfaceFor(t.id) === null),
+  );
   readonly activeTabId = this.tabManager.activeTabId;
+  readonly awaitingBackgroundTab = computed(() => {
+    const activeId = this.activeTabId();
+    if (!activeId) return null;
+    const tab = this.tabs().find((t) => t.id === activeId);
+    return tab?.status === 'awaiting-background' ? tab : null;
+  });
 
   protected readonly ChevronLeftIcon = ChevronLeft;
   protected readonly ChevronRightIcon = ChevronRight;
@@ -120,6 +155,13 @@ export class TabBarComponent {
     );
 
     this.destroyRef.onDestroy(() => this.cleanup());
+  }
+
+  protected livenessFor(
+    sessionId: string | null,
+  ): import('@ptah-extension/chat-state').LivenessStatus | undefined {
+    if (!sessionId) return undefined;
+    return this.liveness.statuses().get(sessionId);
   }
 
   protected onScroll(): void {
