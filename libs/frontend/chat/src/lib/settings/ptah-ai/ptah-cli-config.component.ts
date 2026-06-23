@@ -4,6 +4,7 @@ import {
   ChangeDetectionStrategy,
   computed,
   signal,
+  input,
   output,
   OnInit,
   OnDestroy,
@@ -50,8 +51,12 @@ const COPILOT_OAUTH_SENTINEL = 'copilot-oauth';
 /** Sentinel for local providers that don't need an API key */
 const LOCAL_PROVIDER_SENTINEL = 'ollama';
 
-/** Providers that truly need no key at all (local inference). */
-const LOCAL_PROVIDER_IDS = new Set(['ollama', 'lm-studio']);
+/**
+ * Providers that truly need no key at all: local inference (Ollama, LM Studio)
+ * and native Claude (`claude-cli`), which inherits the host's local Claude
+ * login / subscription. None collect an API key in the form.
+ */
+const LOCAL_PROVIDER_IDS = new Set(['ollama', 'lm-studio', 'claude-cli']);
 
 /** Providers with authType:'none' but an OPTIONAL key (e.g. ollama-cloud). */
 const OPTIONAL_KEY_PROVIDER_IDS = new Set(['ollama-cloud']);
@@ -76,6 +81,11 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
     id: 'github-copilot',
     name: 'GitHub Copilot',
     description: 'Claude models via GitHub Copilot subscription',
+  },
+  {
+    id: 'claude-cli',
+    name: 'Claude (Subscription)',
+    description: 'Use your local Claude login — no API key needed',
   },
   {
     id: 'ollama',
@@ -252,10 +262,14 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
             </div>
           }
 
-          <!-- Local provider hint (Ollama, LM Studio) -->
+          <!-- Keyless provider hint (Claude subscription, Ollama, LM Studio) -->
           @if (isLocalProvider(newAgentProvider())) {
             <div class="text-xs text-base-content/60 mt-2 px-1">
-              No API key needed — make sure Ollama is running locally.
+              @if (newAgentProvider() === 'claude-cli') {
+                No API key needed — uses your local Claude login / subscription.
+              } @else {
+                No API key needed — make sure Ollama is running locally.
+              }
             </div>
           }
           @if (isOptionalKeyProvider(newAgentProvider())) {
@@ -643,6 +657,15 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
   private readonly confirmDialog = inject(ConfirmationDialogService);
   private readonly ptahCliState = inject(PtahCliStateService);
 
+  /**
+   * Provider id to auto-open the "New Ptah CLI Agent" form for, pre-selected.
+   * Set when the user deep-links here from elsewhere (e.g. the tribunal
+   * panel's "Configure" action) so they land on the add form for that exact
+   * provider instead of an empty list. Ignored if the id isn't a known
+   * provider option.
+   */
+  readonly autoOpenProviderId = input<string | undefined>(undefined);
+
   /** Emitted after successful create/update/delete so siblings can refresh */
   readonly ptahCliChanged = output<void>();
   readonly BotIcon = Bot;
@@ -716,6 +739,20 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
   async ngOnInit(): Promise<void> {
     await this.loadAgents();
     await this.loadTierMappings();
+    this.maybeAutoOpenAddForm();
+  }
+
+  /**
+   * When deep-linked with a provider id (e.g. from the tribunal "Configure"
+   * action), open the add form pre-selected to that provider so the user can
+   * create the agent in one step. No-op if the id isn't a known provider.
+   */
+  private maybeAutoOpenAddForm(): void {
+    const requested = this.autoOpenProviderId();
+    if (!requested) return;
+    if (!AVAILABLE_PROVIDERS.some((p) => p.id === requested)) return;
+    this.showAddForm.set(true);
+    this.onProviderChange(requested);
   }
 
   ngOnDestroy(): void {

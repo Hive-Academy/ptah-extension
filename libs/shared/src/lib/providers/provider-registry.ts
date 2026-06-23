@@ -25,6 +25,7 @@ import {
   OLLAMA_CLOUD_PROVIDER_ENTRY,
   LM_STUDIO_PROVIDER_ENTRY,
 } from './entries/local-provider-entry';
+import { CLAUDE_CLI_PROVIDER_ENTRY } from './entries/claude-cli-provider-entry';
 
 /**
  * Static model definition for providers without a dynamic models API
@@ -125,6 +126,20 @@ export interface AnthropicProvider {
    * ollama.com/api/tags and pricing from ollama.com/api/usage.
    */
   supportsOptionalApiKey?: boolean;
+  /**
+   * Native Claude auth — inherit the host's local Claude CLI login /
+   * subscription instead of any base-url override or auth token.
+   *
+   * When true, the spawn path produces an EMPTY auth env (no
+   * `ANTHROPIC_BASE_URL`, no `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`,
+   * no tier-model overrides) so the official `@anthropic-ai/claude-agent-sdk`
+   * resolves the ambient `~/.claude` credentials exactly like Ptah's default
+   * conductor. Setting any auth env for such a provider would override that
+   * login and break authentication. Distinct from `authType: 'none'` local
+   * providers (Ollama/LM Studio), which DO set a localhost base url + a
+   * placeholder token. Mutually exclusive with `baseUrl`.
+   */
+  nativeAuth?: boolean;
 }
 
 /**
@@ -423,6 +438,7 @@ export const ANTHROPIC_PROVIDERS = [
   OLLAMA_PROVIDER_ENTRY,
   OLLAMA_CLOUD_PROVIDER_ENTRY,
   LM_STUDIO_PROVIDER_ENTRY,
+  CLAUDE_CLI_PROVIDER_ENTRY,
 ] as const satisfies readonly AnthropicProvider[];
 
 /**
@@ -437,7 +453,8 @@ export type AnthropicProviderId =
   | 'openai-codex'
   | 'ollama'
   | 'ollama-cloud'
-  | 'lm-studio';
+  | 'lm-studio'
+  | 'claude-cli';
 
 /** Default provider when none is configured */
 export const DEFAULT_PROVIDER_ID: AnthropicProviderId = 'openrouter';

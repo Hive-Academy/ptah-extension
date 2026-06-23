@@ -761,6 +761,17 @@ export class PtahCliRegistry {
     apiKey: string,
   ): AuthEnv {
     const authEnv = createEmptyAuthEnv();
+
+    // Native Claude provider: inherit the host's local Claude CLI login /
+    // subscription. Return an EMPTY auth env — no base url, no auth token, no
+    // tier overrides — so the SDK resolves the ambient `~/.claude` credentials
+    // (buildSafeEnv forwards HOME/USERPROFILE/XDG_CONFIG_HOME). Setting
+    // ANTHROPIC_BASE_URL or an auth token here would override that login and
+    // break authentication.
+    if (provider.nativeAuth) {
+      return authEnv;
+    }
+
     authEnv.ANTHROPIC_BASE_URL = provider.baseUrl;
     const authEnvVar = getProviderAuthEnvVar(agentConfig.providerId);
     authEnv[authEnvVar] = apiKey;
