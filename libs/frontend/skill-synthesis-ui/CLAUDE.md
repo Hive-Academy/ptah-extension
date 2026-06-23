@@ -4,7 +4,7 @@
 
 ## Purpose
 
-"Skills" tab inside the Thoth shell. Displays AI-generated skill candidates with filter by status (`pending | promoted | rejected | all`), per-row promote/reject actions (each with optional reason modal), invocation history drill-down, aggregate stats, and a read-only settings panel.
+"Skills" tab inside the Thoth shell. Primary surface is **Recommended** (cluster-distilled, judge-gated suggestions) — each opens a detail panel that renders the SKILL.md body via `@ptah-extension/markdown` and supports inline edit of title/description/body before Accept. Secondary sub-views: **Sessions** (raw per-session candidate log with status filter + promote/reject), **Library** (the clone registry: active skills/agents/commands, status legend, enhance/revert/rebase), **Activity** (diagnostics), **Settings** (read-only). Default sub-view is Recommended.
 
 ## Boundaries
 
@@ -28,7 +28,9 @@ From `src/index.ts`: `SkillSynthesisTabComponent`, `SkillSynthesisRpcService`, `
 
 - `src/lib/components/skill-synthesis-tab.component.ts:52` — tab UI; OnPush; candidate table, promote/reject modals (DaisyUI), invocation history drill-down, stats card, settings panel listing `skillSynthesis.*` keys.
 - `src/lib/services/skill-synthesis-state.service.ts` — signal state for candidates, invocations, filter, settings.
-- `src/lib/services/skill-synthesis-rpc.service.ts` — typed wrappers around skill synthesis RPC methods.
+- `src/lib/services/skill-synthesis-rpc.service.ts` — typed wrappers around skill synthesis RPC methods, including `getSuggestion` (fetch body) and `updateSuggestion` (edit a pending suggestion's name/description/body before accept).
+- Jest: `ngx-markdown` is ESM — mocked via `src/__mocks__/ngx-markdown.ts` + `moduleNameMapper` in `jest.config.ts` (same pattern as `setup-wizard`).
+- Library (clones) tab shows a per-row auto-enhance eligibility tag (`enhanceHint`): `N/M runs`, `cooldown Xh`, or `ready` — computed from `CloneSummary.invocationCount / enhanceMinInvocations / enhanceCooldownUntil`. The manual "Enhance now" button works regardless of eligibility.
 
 ## State Management
 

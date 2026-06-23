@@ -26,7 +26,10 @@ import {
   SkillRegistryStore,
   type SkillRegistryKind,
 } from './skill-registry.store';
-import { SkillEnhancerService } from './skill-enhancer.service';
+import {
+  SkillEnhancerService,
+  MIN_INVOCATIONS_TO_ENHANCE,
+} from './skill-enhancer.service';
 import { SkillMdGenerator } from './skill-md-generator';
 import { SkillSuggestionStore } from './skill-suggestion.store';
 import {
@@ -52,9 +55,6 @@ import { resolveJudgeModel } from './model-resolver';
 
 /** Timeout for a single Curator LLM pass (60s — lists all promoted skills). */
 const CURATOR_TIMEOUT_MS = 60_000;
-
-/** Minimum total invocations before a clone becomes enhancement-eligible. */
-const ENHANCE_MIN_INVOCATIONS = 5;
 
 /** Rate-limit bucket key + cap for auto-enhancement passes. */
 const ENHANCE_RATE_LIMIT_KEY = 'skill.enhance';
@@ -632,7 +632,7 @@ export class SkillCuratorService {
     }> = [];
     for (const row of rows) {
       const stats = this.store.getInvocationStats(row.slug);
-      if (stats.total < ENHANCE_MIN_INVOCATIONS) continue;
+      if (stats.total < MIN_INVOCATIONS_TO_ENHANCE) continue;
       if (!this.enhancer.isEligible(row.slug, settings, row.kind)) continue;
       selected.push({
         slug: row.slug,

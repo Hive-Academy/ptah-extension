@@ -283,56 +283,66 @@ export class ProviderRpcHandlers {
    * when all dynamic sources fail, so no hardcoded tier list is needed here.
    */
   private registerAnthropicDirectFetcher(): void {
+    const fetcher = async (): Promise<ProviderModelInfo[]> => {
+      const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
+
+      try {
+        if (hasApiKey) {
+          const apiModels = await this.sdkAdapter.getApiModels();
+          if (apiModels.length > 0) {
+            this.logger.info(
+              `[ProviderRpc] Fetched ${apiModels.length} models from /v1/models (API key)`,
+            );
+            return apiModels.map((m) => ({
+              id: m.value,
+              name: m.displayName,
+              description: getModelPricingDescription(m.value),
+              contextLength: getModelContextWindow(m.value),
+              supportsToolUse: true,
+            }));
+          }
+        }
+
+        const sdkModels = await this.sdkAdapter.getSupportedModels();
+        this.logger.info(
+          `[ProviderRpc] Fetched ${sdkModels.length} models from SDK supportedModels()`,
+        );
+        return sdkModels.map((m) => ({
+          id: m.value,
+          name: m.displayName,
+          description: m.description || getModelPricingDescription(m.value),
+          contextLength: getModelContextWindow(m.value),
+          supportsToolUse: true,
+        }));
+      } catch (error) {
+        this.logger.warn(
+          `[ProviderRpc] Failed to fetch Anthropic direct models, falling back to SDK: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        const fallbackModels = await this.sdkAdapter.getSupportedModels();
+        return fallbackModels.map((m) => ({
+          id: m.value,
+          name: m.displayName,
+          description: m.description || getModelPricingDescription(m.value),
+          contextLength: getModelContextWindow(m.value),
+          supportsToolUse: true,
+        }));
+      }
+    };
+
+    // The virtual 'anthropic' direct provider and the native 'claude-cli'
+    // ptah-cli provider share the same auth path — both resolve models from the
+    // host's Claude login via the SDK (no API key needed). Register the same
+    // live fetcher for both so the model dropdown shows subscription-appropriate
+    // models. Unlike 'anthropic' (not in the registry), 'claude-cli' also has
+    // CLAUDE_CLI_PROVIDER_ENTRY.staticModels as a registry fallback when the
+    // SDK lookup returns nothing.
     this.providerModels.registerDynamicFetcher(
       ANTHROPIC_DIRECT_PROVIDER_ID,
-      async (): Promise<ProviderModelInfo[]> => {
-        const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
-
-        try {
-          if (hasApiKey) {
-            const apiModels = await this.sdkAdapter.getApiModels();
-            if (apiModels.length > 0) {
-              this.logger.info(
-                `[ProviderRpc] Fetched ${apiModels.length} models from /v1/models (API key)`,
-              );
-              return apiModels.map((m) => ({
-                id: m.value,
-                name: m.displayName,
-                description: getModelPricingDescription(m.value),
-                contextLength: getModelContextWindow(m.value),
-                supportsToolUse: true,
-              }));
-            }
-          }
-
-          const sdkModels = await this.sdkAdapter.getSupportedModels();
-          this.logger.info(
-            `[ProviderRpc] Fetched ${sdkModels.length} models from SDK supportedModels()`,
-          );
-          return sdkModels.map((m) => ({
-            id: m.value,
-            name: m.displayName,
-            description: m.description || getModelPricingDescription(m.value),
-            contextLength: getModelContextWindow(m.value),
-            supportsToolUse: true,
-          }));
-        } catch (error) {
-          this.logger.warn(
-            `[ProviderRpc] Failed to fetch Anthropic direct models, falling back to SDK: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-          const fallbackModels = await this.sdkAdapter.getSupportedModels();
-          return fallbackModels.map((m) => ({
-            id: m.value,
-            name: m.displayName,
-            description: m.description || getModelPricingDescription(m.value),
-            contextLength: getModelContextWindow(m.value),
-            supportsToolUse: true,
-          }));
-        }
-      },
+      fetcher,
     );
+    this.providerModels.registerDynamicFetcher('claude-cli', fetcher);
   }
 
   /**

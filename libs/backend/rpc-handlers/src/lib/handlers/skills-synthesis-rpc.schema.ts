@@ -173,3 +173,20 @@ export const SkillDismissSuggestionParamsSchema = z.object({
   id: z.string().min(1).max(64),
   reason: z.string().max(500).optional(),
 });
+
+export const SkillGetSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+});
+
+export const SkillUpdateSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+  // No newlines: the name becomes the SKILL.md frontmatter `name:` line.
+  name: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(/^[^\r\n]+$/, 'name must be a single line')
+    .optional(),
+  description: z.string().min(1).max(4000).optional(),
+  body: z.string().min(1).max(100000).optional(),
+});

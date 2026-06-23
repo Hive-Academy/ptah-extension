@@ -5,8 +5,6 @@
  * Coverage focuses on:
  *   - send(): validates & sanitizes, routes to startNewConversation when
  *     there is no session, to continueConversation when one exists
- *   - sendOrQueue(): returns early (queues handled elsewhere) while streaming,
- *     otherwise forwards to send
  *   - startNewConversation (happy path): auto-name, chat:start RPC payload
  *     including effective model/effort, user message appended
  *   - startNewConversation (RPC failure): marks loaded + failSession()
@@ -66,6 +64,7 @@ describe('MessageSenderService', () => {
     markTabIdle: jest.Mock;
     // AbortController plumbing for tab-close → stream-cancel.
     createAbortController: jest.Mock;
+    getAbortSignal: jest.Mock;
     applyNewConversationStreaming: jest.Mock;
     appendUserMessageAndResetStreaming: jest.Mock;
     markLoaded: jest.Mock;
@@ -116,6 +115,9 @@ describe('MessageSenderService', () => {
       // Stub returns a real AbortSignal so the wireAbortDispatch listener
       // can attach without throwing.
       createAbortController: jest.fn(() => new AbortController().signal),
+      // No existing controller tracked by default; individual tests override
+      // this to simulate an in-flight (still-tracked) AbortController.
+      getAbortSignal: jest.fn(() => undefined),
       applyNewConversationStreaming: jest.fn((tabId: string, name: string) =>
         applyPatch(tabId, {
           name,
@@ -274,25 +276,6 @@ describe('MessageSenderService', () => {
       // Should route to continue (tile-7 has a session), not start.
       expect(rpcCall.mock.calls.some((c) => c[0] === 'chat:continue')).toBe(
         true,
-      );
-    });
-  });
-
-  describe('sendOrQueue', () => {
-    it('returns early while streaming (queue handled by caller)', async () => {
-      tabsSignal.set([makeTab({ id: 'tab-1', status: 'streaming' })]);
-      await service.sendOrQueue('x');
-      expect(rpcCall).not.toHaveBeenCalled();
-    });
-
-    it('forwards to send() when not streaming', async () => {
-      rpcCall.mockResolvedValue({ success: true });
-      await service.sendOrQueue('x');
-      expect(rpcCall).toHaveBeenCalledWith(
-        'chat:start',
-        expect.objectContaining({ prompt: 'x' }),
-        // Third arg is RpcCallOptions with abort signal.
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
   });
@@ -585,6 +568,124 @@ describe('MessageSenderService', () => {
       expect(validateCall?.[1]).toEqual(
         expect.objectContaining({ workspacePath: 'D:/repo' }),
       );
+    });
+  });
+
+  describe('continueExistingSessionForQueueFlush', () => {
+    // The post-stream queue flush (`MessageDispatchService.sendQueuedMessage`)
+    // fires on turn-end while the previous stream's AbortController may still
+    // be tracked. The dedicated flush method must NOT call
+    // `createAbortController` (which aborts the existing controller → fires
+    // the previous `wireAbortDispatch` abort listener → stray `chat:abort`
+    // RPC → session killed). Instead it reuses the existing signal when one
+    // is tracked, or sends with no signal when the controller was already
+    // cleared by finalization. Stop-button / tab-close still work because the
+    // reused controller remains tracked by TabManagerService.
+    beforeEach(() => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      rpcCall.mockImplementation(
+        (method: string): Promise<{ success: boolean; data?: unknown }> => {
+          if (method === 'session:validate') {
+            return Promise.resolve({ success: true, data: { exists: true } });
+          }
+          return Promise.resolve({ success: true });
+        },
+      );
+    });
+
+    it('reuses the existing AbortSignal and does NOT call createAbortController', async () => {
+      const existing = new AbortController();
+      tabManager.getAbortSignal.mockReturnValue(existing.signal);
+
+      await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+        tabId: 'tab-1',
+      });
+
+      expect(tabManager.createAbortController).not.toHaveBeenCalled();
+      // The chat:continue RPC must carry the reused signal so stop/close still
+      // cancels the in-flight request.
+      const continueCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:continue',
+      );
+      expect(continueCall?.[2]).toEqual(
+        expect.objectContaining({ signal: existing.signal }),
+      );
+    });
+
+    it('sends with no signal when no existing controller is tracked (already finalized)', async () => {
+      tabManager.getAbortSignal.mockReturnValue(undefined);
+
+      await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+        tabId: 'tab-1',
+      });
+
+      // Clean tab — must NOT install a fresh controller (that would be the
+      // old band-aid behavior that risks aborting a still-tracked controller
+      // in the race window).
+      expect(tabManager.createAbortController).not.toHaveBeenCalled();
+      const continueCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:continue',
+      );
+      // signal is undefined — the RPC layer treats an absent signal as
+      // non-cancellable, which is fine here because finalization already
+      // cleared the controller.
+      expect(continueCall?.[2]).toEqual(
+        expect.objectContaining({ signal: undefined }),
+      );
+    });
+
+    it('forwards files, images, and effort to the chat:continue payload', async () => {
+      tabManager.getAbortSignal.mockReturnValue(undefined);
+
+      await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+        tabId: 'tab-1',
+        files: ['a.ts', 'b.ts'],
+        images: [{ data: 'base64', mediaType: 'image/png' }],
+        effort: 'high',
+      });
+
+      const continueCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:continue',
+      );
+      expect(continueCall?.[1]).toEqual(
+        expect.objectContaining({
+          prompt: 'queued',
+          sessionId: 'sess-X',
+          tabId: 'tab-1',
+          files: ['a.ts', 'b.ts'],
+          images: [{ data: 'base64', mediaType: 'image/png' }],
+          effort: 'high',
+        }),
+      );
+    });
+
+    it('reused signal is not pre-aborted (clean handoff, stop button still works)', async () => {
+      const existing = new AbortController();
+      tabManager.getAbortSignal.mockReturnValue(existing.signal);
+
+      await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+        tabId: 'tab-1',
+      });
+
+      // The previous stream ended cleanly — the reused controller must NOT be
+      // aborted, otherwise chat:abort would fire spuriously. The stop button
+      // (TabManagerService.abortStreamingForTab) can still abort it later.
+      expect(existing.signal.aborted).toBe(false);
+      const continueCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:continue',
+      );
+      expect(continueCall?.[2]).toEqual(
+        expect.objectContaining({ signal: existing.signal }),
+      );
+    });
+
+    it('default user-initiated send path still calls createAbortController for the stop button', async () => {
+      // Guard: the queue-flush specialization must NOT regress the regular
+      // continueConversation path, which still wires a fresh AbortController
+      // so the stop button / tab-close can cancel the new stream.
+      await service.send('follow up', { tabId: 'tab-1' });
+
+      expect(tabManager.createAbortController).toHaveBeenCalledWith('tab-1');
     });
   });
 });

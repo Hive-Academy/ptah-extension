@@ -13,6 +13,12 @@ export type {
   PtahAPI,
   BrowserRecordStartResult,
   BrowserRecordStopResult,
+  Location,
+  HoverInfo,
+  SignatureHelp,
+  ActiveEditorInfo,
+  CodeAction,
+  VisibleRange,
 } from './lib/code-execution/types';
 export type { IIDECapabilities } from './lib/code-execution/namespace-builders/ide-namespace.builder';
 export type {

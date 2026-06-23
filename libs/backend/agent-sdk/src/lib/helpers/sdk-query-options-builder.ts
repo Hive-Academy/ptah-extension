@@ -316,8 +316,11 @@ export interface QueryOptionsInput {
   pluginPaths?: string[];
   /**
    * Initial SDK permission mode based on current autopilot config.
-   * When autopilot is enabled, this should be the mapped SDK mode
-   * (e.g. 'bypassPermissions', 'acceptEdits', 'plan').
+   * Mapped from the per-session level: 'auto-edit' → 'acceptEdits',
+   * 'plan' → 'plan', and both 'ask' and 'yolo' → 'default'. YOLO uses
+   * 'default' (NOT 'bypassPermissions') on purpose so the canUseTool callback
+   * always runs — it auto-approves every tool for yolo while still routing
+   * interactive tools (AskUserQuestion/ExitPlanMode) to the UI.
    * Defaults to 'default' (canUseTool callback handles everything).
    */
   permissionMode?: SdkQueryOptions['permissionMode'];

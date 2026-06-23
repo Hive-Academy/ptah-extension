@@ -72,7 +72,11 @@ import {
   ExecutionChatMessage,
   SessionId,
 } from '@ptah-extension/shared';
-import type { SubagentRecord, MessageAnchorHint } from '@ptah-extension/shared';
+import type {
+  ChatSessionSummary,
+  SubagentRecord,
+  MessageAnchorHint,
+} from '@ptah-extension/shared';
 
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 
@@ -206,25 +210,48 @@ export class ChatViewComponent {
 
   /**
    * Inline banner for branch/rewind actions. Sourced from the shared
-   * `ActionBannerService` (S3) so canvas/tile mode renders the banner on the
-   * surface the user is looking at, not on the originating tile. The service
-   * owns its own auto-clear timer.
+   * `ActionBannerService` (S3); each banner carries a `tabId` and this view
+   * only surfaces banners scoped to its own tab (or global `tabId: null`
+   * ones), so a rewind fired on session A no longer toasts on session B's
+   * surface when both are mounted in canvas/tile mode. The service owns its
+   * own auto-clear timer.
    */
   private readonly actionBanner = inject(ActionBannerService);
-  readonly actionError = this.actionBanner.error;
-  readonly actionInfo = this.actionBanner.info;
-  readonly actionWarning = this.actionBanner.warning;
+  readonly actionError = computed(() => {
+    const b = this.actionBanner.banner();
+    if (!b || b.kind !== 'error') return null;
+    return b.tabId === null || b.tabId === this.resolvedTabId()
+      ? b.message
+      : null;
+  });
+  readonly actionInfo = computed(() => {
+    const b = this.actionBanner.banner();
+    if (!b || b.kind !== 'info') return null;
+    return b.tabId === null || b.tabId === this.resolvedTabId()
+      ? b.message
+      : null;
+  });
+  readonly actionWarning = computed(() => {
+    const b = this.actionBanner.banner();
+    if (!b || b.kind !== 'warning') return null;
+    return b.tabId === null || b.tabId === this.resolvedTabId()
+      ? b.message
+      : null;
+  });
 
-  private showActionError(message: string): void {
-    this.actionBanner.showError(message);
+  private showActionError(message: string, tabId: string | null = null): void {
+    this.actionBanner.showError(message, tabId);
   }
 
-  private showActionInfo(message: string): void {
-    this.actionBanner.showInfo(message);
+  private showActionInfo(message: string, tabId: string | null = null): void {
+    this.actionBanner.showInfo(message, tabId);
   }
 
-  private showActionWarning(message: string): void {
-    this.actionBanner.showWarning(message);
+  private showActionWarning(
+    message: string,
+    tabId: string | null = null,
+  ): void {
+    this.actionBanner.showWarning(message, tabId);
   }
 
   /**
@@ -1103,6 +1130,24 @@ export class ChatViewComponent {
     if (!dialogResult.confirmed) return;
     const deleteOriginal = dialogResult.checkboxes['deleteOriginal'] === true;
 
+    // Resolve the originating tab BEFORE any irreversible operation (file
+    // rollback + fork). The rewind does a transparent in-place swap of the
+    // tile's session, so if there is no tile to swap into we must abort *now* —
+    // before reverting files or creating a fork on disk. Aborting after the
+    // fork would leave an orphaned session the user can only see after a reload
+    // (the wrong-session-rewind bug). `sessionId` is stable across the dialog
+    // await, so this lookup is the same one the post-fork swap relies on.
+    const originTab = this._tabManager.findTabBySessionId(sessionId);
+    if (!originTab) {
+      this.showActionError(
+        'Rewind failed: originating tab could not be found (it may have been closed).',
+      );
+      return;
+    }
+    const originName = originTab.name ?? 'Session';
+    const replacementTitle = `${originName} (rewind)`;
+    const targetTabId = originTab.id;
+
     let rollbackSuffix: string | null = null;
     if (checkpointsLost) {
       rollbackSuffix = cannotRewind
@@ -1157,21 +1202,31 @@ export class ChatViewComponent {
     // keep the SAME tab/canvas tile and swap the session it points at, instead
     // of opening a second tab/tile and leaving the original behind. Then load
     // the truncated transcript and activate the forked session so it is live
-    // and ready for the next turn.
-    const originTab = this._tabManager.findTabBySessionId(sessionId);
-    const originName =
-      originTab?.name ?? this._tabManager.activeTab()?.name ?? 'Session';
-    const replacementTitle = `${originName} (rewind)`;
-    const targetTabId = originTab?.id ?? this._tabManager.activeTabId();
+    // and ready for the next turn. (`originTab`/`targetTabId`/`replacementTitle`
+    // were resolved before the fork, so a missing tile already aborted without
+    // orphaning a fork.)
+
+    // Optimistically surface the fork in the sidebar immediately. The backend
+    // broadcasts `session:metadataChanged` (created) after the fork, but the
+    // debounced `loadSessions()` it triggers can race and run before the fork
+    // is listable by `session:list`, leaving the sidebar empty until a restart.
+    // The subsequent broadcast reconciles counts with the persisted truth.
+    const now = Date.now();
+    this.chatStore.upsertSessionSummary({
+      id: newSessionId,
+      name: replacementTitle,
+      messageCount: 0,
+      createdAt: now,
+      lastActivityAt: now,
+      isActive: true,
+    } as ChatSessionSummary);
 
     let swapFailed = false;
-    if (targetTabId) {
-      this._tabManager.rebindTabSession(
-        targetTabId,
-        newSessionId,
-        replacementTitle,
-      );
-    }
+    this._tabManager.rebindTabSession(
+      targetTabId,
+      newSessionId,
+      replacementTitle,
+    );
     try {
       await this.chatStore.switchSession(newSessionId, { activate: true });
     } catch (err: unknown) {
@@ -1180,6 +1235,7 @@ export class ChatViewComponent {
         `Rewind loaded the forked session, but activating it failed: ${
           err instanceof Error ? err.message : String(err)
         }`,
+        targetTabId,
       );
     }
 
@@ -1193,6 +1249,10 @@ export class ChatViewComponent {
         deleteSuffix = `original session delete failed: ${
           result.deleteError ?? 'unknown error'
         }`;
+      } else {
+        // Drop the original from the sidebar immediately rather than waiting
+        // for the debounced `session:metadataChanged` (deleted) broadcast.
+        this.chatStore.removeSessionFromList(sessionId);
       }
     }
 
@@ -1204,9 +1264,12 @@ export class ChatViewComponent {
     );
 
     if (suffixes.length > 0) {
-      this.showActionWarning(`${baseMsg} (${suffixes.join('; ')})`);
+      this.showActionWarning(
+        `${baseMsg} (${suffixes.join('; ')})`,
+        targetTabId,
+      );
     } else {
-      this.showActionInfo(baseMsg);
+      this.showActionInfo(baseMsg, targetTabId);
     }
   }
 

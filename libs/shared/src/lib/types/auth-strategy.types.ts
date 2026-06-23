@@ -64,7 +64,10 @@ export function resolveStrategy(
   if (provider.authType === 'none' && provider.requiresProxy)
     return 'local-proxy';
 
-  return 'api-key'; // default for API-key providers (OpenRouter, Moonshot, Z.AI)
+  // Default for API-key providers (OpenRouter, Moonshot, Z.AI, Sakana).
+  // apiKey providers with requiresProxy:true (Sakana) also land here — the
+  // ApiKeyStrategy starts the translation proxy internally; no separate route.
+  return 'api-key';
 }
 
 /**

@@ -234,7 +234,8 @@ describe('AuthManager', () => {
 
     it("routes 'thirdParty' with configured openrouter provider to api-key strategy", async () => {
       // OpenRouter is registered in ANTHROPIC_PROVIDERS; resolveStrategy
-      // returns 'api-key' for it (authType=apiKey, requiresProxy=false).
+      // returns 'api-key' for it (authType=apiKey + requiresProxy:true falls
+      // through to the api-key route; ApiKeyStrategy runs the proxy internally).
       const { manager, strategies } = makeManager({
         config: { anthropicProviderId: 'openrouter' },
       });
@@ -249,6 +250,29 @@ describe('AuthManager', () => {
       expect(strategies.apiKey.configure.mock.calls[0][0].providerId).toBe(
         'openrouter',
       );
+    });
+
+    it("routes 'thirdParty' with configured sakana provider to api-key strategy", async () => {
+      // Sakana is apiKey + requiresProxy:true; resolveStrategy still returns
+      // 'api-key' (the fallback covers apiKey+proxy) — the ApiKeyStrategy
+      // starts the translation proxy internally, no separate route needed.
+      const { manager, strategies } = makeManager({
+        config: { anthropicProviderId: 'sakana' },
+      });
+      strategies.apiKey.configure.mockResolvedValueOnce({
+        configured: true,
+        details: ['Sakana (Fugu) API key'],
+      });
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(strategies.apiKey.configure).toHaveBeenCalledTimes(1);
+      expect(strategies.apiKey.configure.mock.calls[0][0].providerId).toBe(
+        'sakana',
+      );
+      // Proxy strategies must NOT be engaged for Sakana — it routes api-key.
+      expect(strategies.oauthProxy.configure).not.toHaveBeenCalled();
+      expect(strategies.localProxy.configure).not.toHaveBeenCalled();
     });
 
     it("defaults to the registry default provider when 'thirdParty' has no configured id", async () => {

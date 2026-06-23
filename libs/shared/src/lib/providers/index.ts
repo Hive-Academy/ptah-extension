@@ -23,3 +23,7 @@ export {
   OLLAMA_CLOUD_PROVIDER_ENTRY,
   LM_STUDIO_PROVIDER_ENTRY,
 } from './entries/local-provider-entry';
+export {
+  SAKANA_PROVIDER_ENTRY,
+  SAKANA_DEFAULT_TIERS,
+} from './entries/sakana-provider-entry';

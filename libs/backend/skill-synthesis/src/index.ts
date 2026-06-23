@@ -80,6 +80,8 @@ export {
 } from './lib/skill-registry-catalog.service';
 export {
   SkillEnhancerService,
+  MIN_INVOCATIONS_TO_ENHANCE,
+  ENHANCE_COOLDOWN_MS,
   type EnhanceResult,
   type EnhanceOptions,
   type EnhanceSkipReason,

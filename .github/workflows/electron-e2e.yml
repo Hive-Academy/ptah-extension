@@ -29,8 +29,11 @@ jobs:
   electron-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # head_commit is null on pull_request events, so the commit-message check
+    # never skipped bump PRs — guard on the chore/bump-* head branch too.
     if: |
       (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') &&
+      !startsWith(github.head_ref, 'chore/bump-') &&
       !contains(github.event.head_commit.message, 'chore(release)')
     steps:
       - uses: actions/checkout@v4

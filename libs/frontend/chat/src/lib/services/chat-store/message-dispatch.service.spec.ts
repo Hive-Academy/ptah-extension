@@ -10,9 +10,10 @@
  *   - sendOrQueueMessage: not streaming dispatches via MessageSender.send
  *   - sendOrQueueMessage: explicit-tabId override beats activeTab
  *   - sendQueuedMessage: clears queue + queuedOptions before dispatch
- *   - sendQueuedMessage: forwards stored queuedOptions (files + images) to messageSender.send
+ *   - sendQueuedMessage: forwards stored queuedOptions (files + images) to the dedicated queue-flush method
  *   - sendQueuedMessage: on error, restores content to queue
- *   - sendQueuedMessage: calls messageSender.send, not conversation.continueConversation
+ *   - sendQueuedMessage: calls continueExistingSessionForQueueFlush (not send / continueConversation)
+ *   - sendQueuedMessage: warns and re-queues (no new conversation) when the tab has no claudeSessionId
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -55,6 +56,7 @@ describe('MessageDispatchService', () => {
   let sendMock: jest.Mock;
   let queueOrAppendMock: jest.Mock;
   let continueConversationMock: jest.Mock;
+  let continueExistingSessionForQueueFlushMock: jest.Mock;
   let handlePermissionResponseMock: jest.Mock;
   let isTabStreamingMock: jest.Mock;
 
@@ -81,6 +83,9 @@ describe('MessageDispatchService', () => {
     sendMock = jest.fn().mockResolvedValue(undefined);
     queueOrAppendMock = jest.fn();
     continueConversationMock = jest.fn().mockResolvedValue(undefined);
+    continueExistingSessionForQueueFlushMock = jest
+      .fn()
+      .mockResolvedValue(undefined);
     handlePermissionResponseMock = jest.fn();
     isTabStreamingMock = jest.fn(() => false);
 
@@ -101,6 +106,8 @@ describe('MessageDispatchService', () => {
 
     const messageSenderMock = {
       send: sendMock,
+      continueExistingSessionForQueueFlush:
+        continueExistingSessionForQueueFlushMock,
     } as unknown as MessageSenderService;
     const conversationMock = {
       queueOrAppendMessage: queueOrAppendMock,
@@ -236,24 +243,49 @@ describe('MessageDispatchService', () => {
       expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
     });
 
-    it('forwards stored queuedOptions (files + images) to messageSender.send', async () => {
+    it('forwards stored queuedOptions (files + images) to the dedicated queue-flush method', async () => {
       await service.sendQueuedMessage('tab-1', 'queued');
-      expect(sendMock).toHaveBeenCalledWith('queued', {
-        files: ['a.ts'],
-        images: [{ data: 'base64', mediaType: 'image/png' }],
-        tabId: 'tab-1',
-      });
+      expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalledWith(
+        'queued',
+        'sess-1',
+        {
+          files: ['a.ts'],
+          images: [{ data: 'base64', mediaType: 'image/png' }],
+          tabId: 'tab-1',
+        },
+      );
     });
 
-    it('calls messageSender.send NOT conversation.continueConversation', async () => {
+    it('calls the dedicated queue-flush method, NOT messageSender.send or conversation.continueConversation', async () => {
       await service.sendQueuedMessage('tab-1', 'queued');
-      expect(sendMock).toHaveBeenCalled();
+      expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalled();
+      expect(sendMock).not.toHaveBeenCalled();
       expect(continueConversationMock).not.toHaveBeenCalled();
+    });
+
+    it('warns and re-queues (does not start a new conversation) when the tab has no claudeSessionId', async () => {
+      tabs = [
+        makeTab({
+          id: 'tab-1',
+          claudeSessionId: null,
+          queuedContent: 'queued',
+          queuedOptions: {
+            files: ['a.ts'],
+          } as unknown as TabState['queuedOptions'],
+        }),
+      ];
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      await service.sendQueuedMessage('tab-1', 'queued');
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(continueExistingSessionForQueueFlushMock).not.toHaveBeenCalled();
+      expect(setQueuedContentMock).toHaveBeenCalledWith('tab-1', 'queued');
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
     });
 
     it('on error, restores content to queue', async () => {
       const err = new Error('boom');
-      sendMock.mockRejectedValueOnce(err);
+      continueExistingSessionForQueueFlushMock.mockRejectedValueOnce(err);
       const errorSpy = jest.spyOn(console, 'error').mockImplementation();
       await service.sendQueuedMessage('tab-1', 'queued');
       expect(setQueuedContentMock).toHaveBeenCalledWith('tab-1', 'queued');

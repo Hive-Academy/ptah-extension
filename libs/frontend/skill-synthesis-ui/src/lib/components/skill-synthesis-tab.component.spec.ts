@@ -104,6 +104,21 @@ function openActivity(
   fixture.detectChanges();
 }
 
+function openSessions(
+  fixture: ReturnType<typeof TestBed.createComponent>,
+): void {
+  const root = fixture.nativeElement as HTMLElement;
+  const subViewNav = root.querySelector('[aria-label="Skills views"]');
+  const tabs = subViewNav?.querySelectorAll(
+    '[role="tab"]',
+  ) as NodeListOf<HTMLButtonElement>;
+  const sessions = Array.from(tabs).find(
+    (t) => t.textContent?.trim() === 'Sessions',
+  );
+  sessions?.click();
+  fixture.detectChanges();
+}
+
 const tabManagerStub: Pick<TabManagerService, 'activeTab'> = {
   activeTab: signal(null) as unknown as TabManagerService['activeTab'],
 };
@@ -200,24 +215,26 @@ describe('SkillSynthesisTabComponent', () => {
     fixture.detectChanges();
 
     const root = fixture.nativeElement as HTMLElement;
-    const filterNav = root.querySelector('nav[aria-label="Status filter"]');
-    const filterTabs = filterNav?.querySelectorAll(
-      '[role="tab"]',
-    ) as NodeListOf<HTMLButtonElement>;
-    const labels = Array.from(filterTabs).map((t) => t.textContent?.trim());
-    expect(labels).toEqual(['Pending', 'Promoted', 'Rejected', 'All']);
 
     const subViewNav = root.querySelector('[aria-label="Skills views"]');
     const subViewTabs = subViewNav?.querySelectorAll(
       '[role="tab"]',
     ) as NodeListOf<HTMLButtonElement>;
     expect(Array.from(subViewTabs).map((t) => t.textContent?.trim())).toEqual([
-      'Candidates',
-      'Suggestions',
+      'Recommended',
+      'Sessions',
+      'Library',
       'Activity',
-      'Clones',
       'Settings',
     ]);
+
+    openSessions(fixture);
+    const filterNav = root.querySelector('nav[aria-label="Status filter"]');
+    const filterTabs = filterNav?.querySelectorAll(
+      '[role="tab"]',
+    ) as NodeListOf<HTMLButtonElement>;
+    const labels = Array.from(filterTabs).map((t) => t.textContent?.trim());
+    expect(labels).toEqual(['Pending', 'Promoted', 'Rejected', 'All']);
 
     expect(stub.refreshCandidates).toHaveBeenCalledTimes(1);
     expect(stub.loadStats).toHaveBeenCalledTimes(1);
@@ -338,6 +355,7 @@ describe('SkillSynthesisTabComponent', () => {
 
     const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
     fixture.detectChanges();
+    openSessions(fixture);
 
     const empty = (fixture.nativeElement as HTMLElement).querySelector(
       '[data-testid="skills-empty-state"]',
@@ -378,6 +396,7 @@ describe('SkillSynthesisTabComponent', () => {
 
     const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
     fixture.detectChanges();
+    openSessions(fixture);
 
     const text = fixture.nativeElement.textContent ?? '';
     expect(text).toContain('refactor-tests');
