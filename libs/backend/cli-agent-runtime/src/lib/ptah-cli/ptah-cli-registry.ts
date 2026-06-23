@@ -39,6 +39,9 @@ import {
   ProviderModelsService,
   ModelResolver,
   OLLAMA_AUTH_TOKEN_PLACEHOLDER,
+  SAKANA_PROXY_TOKEN_PLACEHOLDER,
+  createSakanaProxyForKey,
+  type ITranslationProxy,
 } from '@ptah-extension/auth-providers';
 import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persistence.service';
 import type { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
@@ -90,6 +93,15 @@ export class PtahCliRegistry {
   ) {
     this.logger.info('[PtahCliRegistry] Registry initialized');
   }
+
+  /**
+   * Long-lived per-agent translation proxies owned by interactive chat
+   * sessions started via `getProfile()`. The ProviderProfile value type carries
+   * no teardown hook, so the proxy must outlive the call. We keep at most ONE
+   * proxy per agent: a fresh `getProfile()` for the same agent stops the prior
+   * instance first. All are stopped on `disposeAll()`.
+   */
+  private readonly profileProxies = new Map<string, () => Promise<void>>();
 
   /**
    * Truly-local providers (local Ollama, LM Studio) never need a key.
@@ -317,7 +329,17 @@ export class PtahCliRegistry {
 
     seedStaticModelPricing(agentConfig.providerId);
 
-    const authEnv = this.buildAuthEnv(agentConfig, provider, apiKey);
+    // Stop a previously-started proxy for this agent before starting a fresh
+    // one (the prior chat session, if any, is being replaced).
+    await this.stopProfileProxy(id);
+    const { authEnv, stopProxy } = await this.buildProxyAuthEnv(
+      agentConfig,
+      provider,
+      apiKey,
+    );
+    if (provider.requiresProxy === true && provider.authType !== 'none') {
+      this.profileProxies.set(id, stopProxy);
+    }
     const tier: ModelTier = 'sonnet';
     const effectiveTiers = this.resolveEffectiveTiers(agentConfig, provider);
     const resolvedFromTiers = effectiveTiers?.[tier];
@@ -369,7 +391,11 @@ export class PtahCliRegistry {
       }
 
       seedStaticModelPricing(agentConfig.providerId);
-      const testAuthEnv = this.buildAuthEnv(agentConfig, testProvider, apiKey);
+      const { authEnv: testAuthEnv, stopProxy } = await this.buildProxyAuthEnv(
+        agentConfig,
+        testProvider,
+        apiKey,
+      );
 
       const abortController = new AbortController();
       const timeout = setTimeout(() => abortController.abort(), 30000);
@@ -416,6 +442,7 @@ export class PtahCliRegistry {
         }
       } finally {
         clearTimeout(timeout);
+        await stopProxy();
       }
     } catch (error) {
       const latencyMs = Date.now() - startTime;
@@ -503,7 +530,11 @@ export class PtahCliRegistry {
       };
     }
     const agentIdHolder: { value?: string } = {};
-    const authEnv = this.buildAuthEnv(agentConfig, provider, apiKey);
+    const { authEnv, stopProxy } = await this.buildProxyAuthEnv(
+      agentConfig,
+      provider,
+      apiKey,
+    );
     seedStaticModelPricing(agentConfig.providerId);
     const tier: ModelTier = options?.modelTier ?? 'sonnet';
     const spawnTiers = this.resolveEffectiveTiers(agentConfig, provider);
@@ -641,6 +672,7 @@ export class PtahCliRegistry {
     });
     streamLoop.run(sdkQuery).then((exitCode) => {
       disposeCallbacks();
+      void stopProxy();
       sessionResolvedCallbacks.length = 0;
       while (pendingTurns.length > 0) {
         const resolve = pendingTurns.shift();
@@ -694,10 +726,27 @@ export class PtahCliRegistry {
   }
 
   /**
-   * Dispose all active adapters (no-op — chat sessions are owned by SdkAgentAdapter).
+   * Dispose all active adapters. Chat sessions are owned by SdkAgentAdapter,
+   * but any long-lived per-agent translation proxies started by `getProfile()`
+   * are owned here and must be torn down.
    */
   disposeAll(): void {
-    this.logger.info('[PtahCliRegistry] disposeAll() — no-op');
+    this.logger.info('[PtahCliRegistry] disposeAll()');
+    for (const id of [...this.profileProxies.keys()]) {
+      void this.stopProfileProxy(id);
+    }
+  }
+
+  /**
+   * Stop and forget a long-lived per-agent profile proxy, if one exists.
+   */
+  private async stopProfileProxy(id: string): Promise<void> {
+    const stop = this.profileProxies.get(id);
+    if (!stop) {
+      return;
+    }
+    this.profileProxies.delete(id);
+    await stop();
   }
 
   /**
@@ -753,6 +802,117 @@ export class PtahCliRegistry {
   }
 
   /**
+   * Resolve the agent's AuthEnv plus a teardown handle.
+   *
+   * For apiKey providers that require a local translation proxy (Sakana), a
+   * FRESH per-agent proxy is started here — bound to THIS agent's stored Bearer
+   * key — and the auth env points at the proxy URL with the placeholder token.
+   * Per-agent (not singleton) because concurrent ptah-cli agents each carry a
+   * distinct key. Callers MUST invoke the returned `stopProxy()` when the work
+   * that uses this auth env completes (stream loop resolves / test finally).
+   *
+   * For every other provider this falls back to the direct-baseUrl
+   * `buildAuthEnv` path (unchanged) and returns a no-op `stopProxy`.
+   */
+  private async buildProxyAuthEnv(
+    agentConfig: PtahCliConfig,
+    provider: AnthropicProvider,
+    apiKey: string,
+  ): Promise<{ authEnv: AuthEnv; stopProxy: () => Promise<void> }> {
+    const noopStop = async (): Promise<void> => {
+      /* nothing to tear down for the direct-baseUrl path */
+    };
+
+    // Only remote apiKey providers needing a proxy take the proxy path. Local
+    // providers (authType 'none', e.g. LM Studio) are intentionally untouched.
+    if (!(provider.requiresProxy === true && provider.authType !== 'none')) {
+      return {
+        authEnv: this.buildAuthEnv(agentConfig, provider, apiKey),
+        stopProxy: noopStop,
+      };
+    }
+
+    const proxy = this.createProxyForProvider(provider, apiKey);
+    if (!proxy) {
+      this.logger.warn(
+        `[PtahCliRegistry] No proxy factory for proxy-requiring provider '${provider.id}'; falling back to direct base URL`,
+      );
+      return {
+        authEnv: this.buildAuthEnv(agentConfig, provider, apiKey),
+        stopProxy: noopStop,
+      };
+    }
+
+    const { url: proxyUrl } = await proxy.start();
+    this.logger.info(
+      `[PtahCliRegistry] Started ${provider.name} translation proxy at ${proxyUrl} for agent "${agentConfig.name}"`,
+    );
+
+    const authEnv = createEmptyAuthEnv();
+    authEnv.ANTHROPIC_BASE_URL = proxyUrl;
+    authEnv.ANTHROPIC_AUTH_TOKEN = SAKANA_PROXY_TOKEN_PLACEHOLDER;
+    this.applyTierEnv(authEnv, agentConfig, provider);
+
+    const stopProxy = async (): Promise<void> => {
+      if (!proxy.isRunning()) {
+        return;
+      }
+      try {
+        await proxy.stop();
+        this.logger.info(
+          `[PtahCliRegistry] Stopped ${provider.name} translation proxy for agent "${agentConfig.name}"`,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `[PtahCliRegistry] Failed to stop ${provider.name} proxy: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    };
+
+    return { authEnv, stopProxy };
+  }
+
+  /**
+   * Create a fresh, per-agent translation proxy bound to the supplied key for a
+   * proxy-requiring apiKey provider. Returns undefined for providers without a
+   * known proxy factory.
+   */
+  private createProxyForProvider(
+    provider: AnthropicProvider,
+    apiKey: string,
+  ): ITranslationProxy | undefined {
+    if (provider.id === 'sakana') {
+      return createSakanaProxyForKey(apiKey, this.logger);
+    }
+    return undefined;
+  }
+
+  /**
+   * Apply per-agent tier env vars to an AuthEnv (shared by the direct and proxy
+   * auth-env paths).
+   */
+  private applyTierEnv(
+    authEnv: AuthEnv,
+    agentConfig: PtahCliConfig,
+    provider: AnthropicProvider,
+  ): void {
+    const effectiveTiers = this.resolveEffectiveTiers(agentConfig, provider);
+    if (effectiveTiers) {
+      if (effectiveTiers.sonnet) {
+        authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL = effectiveTiers.sonnet;
+      }
+      if (effectiveTiers.opus) {
+        authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL = effectiveTiers.opus;
+      }
+      if (effectiveTiers.haiku) {
+        authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = effectiveTiers.haiku;
+      }
+    }
+  }
+
+  /**
    * Build isolated AuthEnv for a Ptah CLI agent with tier mappings applied.
    */
   private buildAuthEnv(
@@ -776,18 +936,7 @@ export class PtahCliRegistry {
     const authEnvVar = getProviderAuthEnvVar(agentConfig.providerId);
     authEnv[authEnvVar] = apiKey;
 
-    const effectiveTiers = this.resolveEffectiveTiers(agentConfig, provider);
-    if (effectiveTiers) {
-      if (effectiveTiers.sonnet) {
-        authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL = effectiveTiers.sonnet;
-      }
-      if (effectiveTiers.opus) {
-        authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL = effectiveTiers.opus;
-      }
-      if (effectiveTiers.haiku) {
-        authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = effectiveTiers.haiku;
-      }
-    }
+    this.applyTierEnv(authEnv, agentConfig, provider);
 
     return authEnv;
   }

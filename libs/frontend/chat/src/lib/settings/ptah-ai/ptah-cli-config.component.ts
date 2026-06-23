@@ -78,6 +78,11 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
     description: 'Z.AI GLM models via Zhipu AI',
   },
   {
+    id: 'sakana',
+    name: 'Sakana (Fugu)',
+    description: 'Fugu models via Sakana AI',
+  },
+  {
     id: 'github-copilot',
     name: 'GitHub Copilot',
     description: 'Claude models via GitHub Copilot subscription',

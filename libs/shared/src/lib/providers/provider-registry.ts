@@ -26,6 +26,7 @@ import {
   LM_STUDIO_PROVIDER_ENTRY,
 } from './entries/local-provider-entry';
 import { CLAUDE_CLI_PROVIDER_ENTRY } from './entries/claude-cli-provider-entry';
+import { SAKANA_PROVIDER_ENTRY } from './entries/sakana-provider-entry';
 
 /**
  * Static model definition for providers without a dynamic models API
@@ -155,6 +156,8 @@ export const ANTHROPIC_PROVIDERS = [
     name: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api',
     authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
+    authType: 'apiKey',
+    requiresProxy: true,
     keyPrefix: 'sk-or-',
     helpUrl: 'https://openrouter.ai/keys',
     description: 'Access 200+ models via unified API',
@@ -439,6 +442,7 @@ export const ANTHROPIC_PROVIDERS = [
   OLLAMA_CLOUD_PROVIDER_ENTRY,
   LM_STUDIO_PROVIDER_ENTRY,
   CLAUDE_CLI_PROVIDER_ENTRY,
+  SAKANA_PROVIDER_ENTRY,
 ] as const satisfies readonly AnthropicProvider[];
 
 /**
@@ -454,7 +458,8 @@ export type AnthropicProviderId =
   | 'ollama'
   | 'ollama-cloud'
   | 'lm-studio'
-  | 'claude-cli';
+  | 'claude-cli'
+  | 'sakana';
 
 /** Default provider when none is configured */
 export const DEFAULT_PROVIDER_ID: AnthropicProviderId = 'openrouter';
