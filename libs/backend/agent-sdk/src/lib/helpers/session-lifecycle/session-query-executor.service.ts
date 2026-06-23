@@ -145,13 +145,16 @@ export class SessionQueryExecutor {
       // never sees the level of a session running in another workspace.
       rec.permissionLevel = currentLevel;
       const permissionLevelResolver = () => rec.permissionLevel;
+      // YOLO maps to 'default' (not 'bypassPermissions') so the canUseTool
+      // callback always runs — it auto-approves every tool for yolo while still
+      // routing AskUserQuestion/ExitPlanMode to the UI. The only SDK modes the
+      // interactive path can produce are 'default' | 'acceptEdits' | 'plan'.
       const initialPermissionMode =
         currentLevel === 'ask'
           ? 'default'
           : (PERMISSION_MODE_MAP[currentLevel] as
               | 'default'
               | 'acceptEdits'
-              | 'bypassPermissions'
               | 'plan');
       let providerErrorAborted = false;
       const queryOptions = await this.queryOptionsBuilder.build({
