@@ -15,6 +15,7 @@ import {
 } from '@ptah-extension/agent-generation';
 import {
   SKILL_SYNTHESIS_TOKENS,
+  type SkillCandidateStore,
   type SkillRegistryCatalogService,
   type SkillRegistryStore,
 } from '@ptah-extension/skill-synthesis';
@@ -205,6 +206,31 @@ export async function reconcileUserLayer(
 }
 
 /**
+ * Slugs of promoted skills currently marked dormant by the residency budget.
+ * Folded into the junction layer's disabledSkillIds channel so dormant skills
+ * are not junctioned into .claude/skills/ and therefore no longer occupy the
+ * model's prompt budget. The candidate store is Electron-only (Thoth) and
+ * resolved optionally so this no-ops cleanly when skill-synthesis is absent.
+ */
+function readDormantSkillSlugs(container: DependencyContainer): string[] {
+  try {
+    if (!container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)) {
+      return [];
+    }
+    const store = container.resolve<SkillCandidateStore>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE,
+    );
+    return store.listDormantPromotedSlugs();
+  } catch (error) {
+    console.warn(
+      '[Ptah Electron] Failed to read dormant skill slugs (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+    return [];
+  }
+}
+
+/**
  * Phase 4.56: activate skill junctions and return the service handle so the
  * caller can deactivate it during will-quit. Non-fatal on failure.
  *
@@ -234,9 +260,15 @@ export function activateSkillJunctions(
 
     const junctionResult = skillJunction.activate({
       pluginPaths: paths,
-      disabledSkillIds: config.disabledSkillIds,
+      disabledSkillIds: [
+        ...config.disabledSkillIds,
+        ...readDormantSkillSlugs(container),
+      ],
       getPluginPaths: () => pluginLoader.resolveCurrentPluginPaths(),
-      getDisabledSkillIds: () => pluginLoader.getDisabledSkillIds(),
+      getDisabledSkillIds: () => [
+        ...pluginLoader.getDisabledSkillIds(),
+        ...readDormantSkillSlugs(container),
+      ],
     });
 
     if (junctionResult.created > 0 || junctionResult.errors.length > 0) {

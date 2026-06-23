@@ -33,11 +33,13 @@ import { ChatStore } from './chat.store';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import {
   SessionLivenessRegistry,
+  SurfaceId,
   TabId,
   TabManagerService,
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
 import {
+  StreamingSurfaceRegistry,
   StreamRouter,
   WorkflowSessionClaimService,
 } from '@ptah-extension/chat-routing';
@@ -49,6 +51,7 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly tabManager = inject(TabManagerService);
   private readonly liveness = inject(SessionLivenessRegistry);
   private readonly workflowClaims = inject(WorkflowSessionClaimService);
+  private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
   /**
    * Authoritative StreamRouter.
    *
@@ -150,6 +153,13 @@ export class ChatMessageHandler implements MessageHandler {
    * with `command: 'clear'`. It wipes the target tab to a fresh, empty
    * conversation; every other CHAT_COMPLETE is ignored.
    */
+  private renderedSurfaceFor(tabId: string | undefined): SurfaceId | null {
+    if (!tabId) return null;
+    const surfaceId = this.workflowClaims.surfaceFor(tabId);
+    if (!surfaceId) return null;
+    return this.surfaceRegistry.getAdapter(surfaceId) ? surfaceId : null;
+  }
+
   private handleChatComplete(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
     const data = payload as {
@@ -157,10 +167,7 @@ export class ChatMessageHandler implements MessageHandler {
       tabId?: unknown;
       surfaceMode?: unknown;
     };
-    if (
-      typeof data.tabId === 'string' &&
-      this.workflowClaims.surfaceFor(data.tabId)
-    ) {
+    if (typeof data.tabId === 'string' && this.renderedSurfaceFor(data.tabId)) {
       return;
     }
     if (data.surfaceMode === true) return;
@@ -304,7 +311,7 @@ export class ChatMessageHandler implements MessageHandler {
       surfaceMode?: boolean;
     };
 
-    const claimedSurface = tabId ? this.workflowClaims.surfaceFor(tabId) : null;
+    const claimedSurface = this.renderedSurfaceFor(tabId);
     if (claimedSurface) {
       if (event?.sessionId) {
         this.liveness.markStreaming(
@@ -339,7 +346,7 @@ export class ChatMessageHandler implements MessageHandler {
         surfaceMode?: boolean;
       }) ?? {};
 
-    const claimedSurface = tabId ? this.workflowClaims.surfaceFor(tabId) : null;
+    const claimedSurface = this.renderedSurfaceFor(tabId);
     if (claimedSurface) {
       console.error('[ChatMessageHandler] Workflow chat error:', {
         tabId,
@@ -419,9 +426,7 @@ export class ChatMessageHandler implements MessageHandler {
       }) ?? {};
 
     if (realSessionId) {
-      const claimedSurface = tabId
-        ? this.workflowClaims.surfaceFor(tabId)
-        : null;
+      const claimedSurface = this.renderedSurfaceFor(tabId);
       if (claimedSurface) {
         this.streamRouter.refreshQuestionTargetsForSession(
           realSessionId as ClaudeSessionId,

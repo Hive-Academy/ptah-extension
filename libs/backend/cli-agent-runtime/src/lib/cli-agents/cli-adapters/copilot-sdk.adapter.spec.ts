@@ -705,6 +705,144 @@ describe('CopilotSdkAdapter', () => {
     });
   });
 
+  describe('runSdk() — continuation via resume-by-session-id', () => {
+    const defaultOptions = {
+      task: 'Implement feature X',
+      workingDirectory: '/proj',
+    };
+
+    beforeEach(() => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/copilot');
+    });
+
+    it('reports supportsContinuation false until a session id is resolved, true after', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {});
+
+      expect(handle.supportsContinuation?.()).toBe(false);
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'result',
+          sessionId: 'copilot-sess-xyz',
+          exitCode: 0,
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(handle.supportsContinuation?.()).toBe(true);
+    });
+
+    it('returns supportsContinuation=false handle when the binary cannot be resolved', async () => {
+      mockResolveCliPath.mockResolvedValue(null);
+
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {});
+      await handle.done;
+
+      expect(handle.supportsContinuation?.()).toBe(false);
+      expect(handle.continue).toBeUndefined();
+    });
+
+    it('continue() spawns a NEW child with --resume=<capturedSessionId> and the message as the task', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {});
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'result',
+          sessionId: 'copilot-sess-cont',
+          exitCode: 0,
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+
+      const outcome = await handle.continue?.('follow-up question');
+      expect(outcome).toBeDefined();
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(2);
+      const [binaryArg, argsArg] = mockSpawnCli.mock.calls[1] as [
+        string,
+        string[],
+      ];
+      expect(binaryArg).toBe('/usr/local/bin/copilot');
+      expect(argsArg).toContain('--resume=copilot-sess-cont');
+      const promptIdx = argsArg.indexOf('-p');
+      expect(promptIdx).toBeGreaterThanOrEqual(0);
+      expect(argsArg[promptIdx + 1]).toContain('follow-up question');
+
+      currentChild?.emitClose(0);
+      const code = await outcome!.done;
+      expect(code).toBe(0);
+    });
+
+    it('routes the continued child output to the SAME onOutput callback', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+
+      const output: string[] = [];
+      handle.onOutput((d) => output.push(d));
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'assistant.message_delta',
+          data: { deltaContent: 'turn one' },
+        }) + '\n',
+      );
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'result',
+          sessionId: 'copilot-sess-same',
+          exitCode: 0,
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const outcome = await handle.continue?.('next turn');
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'assistant.message_delta',
+          data: { deltaContent: 'turn two' },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await outcome!.done;
+
+      const joined = output.join('');
+      expect(joined).toContain('turn one');
+      expect(joined).toContain('turn two');
+    });
+
+    it('abort cancels the continued child', async () => {
+      const handle = await adapter.runSdk(defaultOptions);
+      handle.onOutput(() => {});
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'result',
+          sessionId: 'copilot-sess-abort',
+          exitCode: 0,
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const outcome = await handle.continue?.('keep going');
+      const continuedChild = currentChild;
+
+      handle.abort.abort();
+      expect(continuedChild?.kill).toHaveBeenCalledWith('SIGTERM');
+
+      continuedChild?.emitClose(null, 'SIGTERM');
+      const code = await outcome!.done;
+      expect(code).toBe(1);
+    });
+  });
+
   describe('dispose()', () => {
     it('calls permissionBridge.cleanup()', async () => {
       const cleanupSpy = jest.spyOn(bridge, 'cleanup');

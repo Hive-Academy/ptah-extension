@@ -15,5 +15,35 @@
     <h2 class="text-xl font-bold">Dashboard</h2>
   </header>
 
+  <button
+    type="button"
+    class="group flex w-full items-center gap-4 rounded-xl border border-base-300 bg-base-200/60 p-4 text-left transition-colors hover:border-primary/40 hover:bg-base-200"
+    (click)="conveneTribunal()"
+    aria-label="Convene a Tribunal"
+  >
+    <span
+      class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
+    >
+      <lucide-angular
+        [img]="ScaleIcon"
+        class="w-5 h-5"
+        aria-hidden="true"
+      ></lucide-angular>
+    </span>
+    <span class="flex flex-col">
+      <span class="text-sm font-semibold text-base-content"
+        >Convene a Tribunal</span
+      >
+      <span class="text-xs text-base-content/55"
+        >Put your AI vendors on one panel — Council, Forge, or Race.</span
+      >
+    </span>
+    <lucide-angular
+      [img]="ChevronRightIcon"
+      class="ml-auto w-4 h-4 text-base-content/40 transition-transform group-hover:translate-x-0.5"
+      aria-hidden="true"
+    ></lucide-angular>
+  </button>
+
   <ptah-analytics-card />
 </div>

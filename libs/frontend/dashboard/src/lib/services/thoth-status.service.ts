@@ -1,5 +1,10 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { VSCodeService, type MessageHandler } from '@ptah-extension/core';
+import {
+  VSCodeService,
+  type MessageHandler,
+  type ThothActiveTabId,
+} from '@ptah-extension/core';
+import { formatCompact } from '../utils/format.utils';
 import { MemoryRpcService } from '@ptah-extension/memory-curator-ui';
 import { SkillSynthesisRpcService } from '@ptah-extension/skill-synthesis-ui';
 import { CronRpcService } from '@ptah-extension/cron-scheduler-ui';
@@ -78,6 +83,33 @@ export interface ThothStatusSummary {
   >;
 }
 
+/**
+ * A single Thoth pillar reduced to display-ready fields. Derived from
+ * {@link ThothStatusSummary} by {@link ThothStatusService.pillars} and consumed
+ * by the Thoth shell sidebar tiles (memory / skills / cron / gateway).
+ */
+export interface ThothPillarStatus {
+  readonly id: ThothActiveTabId;
+  /** Tailwind text-colour class for the headline value (e.g. `text-primary`). */
+  readonly accent: string;
+  /** Headline metric, already compacted (e.g. `6.5K`, `0`, `—`). */
+  readonly value: string;
+  /** Short unit label rendered next to the value (e.g. `facts`, `pending`). */
+  readonly unit: string;
+  /** Secondary detail line (e.g. `no upcoming runs`, `Desktop only`). */
+  readonly desc: string;
+  readonly available: boolean;
+  readonly platforms: readonly ThothGatewayPlatformSummary[];
+  readonly error: string | null;
+}
+
+const PILLAR_ACCENTS: Readonly<Record<ThothActiveTabId, string>> = {
+  memory: 'text-primary',
+  skills: 'text-secondary',
+  cron: 'text-info',
+  gateway: 'text-accent',
+};
+
 const PLATFORMS: readonly GatewayPlatformId[] = [
   'telegram',
   'discord',
@@ -85,10 +117,11 @@ const PLATFORMS: readonly GatewayPlatformId[] = [
 ];
 
 /**
- * Aggregates the four Thoth pillars into a single computed signal that
- * powers the dashboard's `ThothStatusCardComponent`.
+ * Aggregates the four Thoth pillars into a single computed `summary` signal,
+ * plus a `pillars` computed of display-ready tiles consumed by the Thoth shell
+ * sidebar.
  *
- * Refresh strategy: lazy. The card component calls {@link refresh} on first
+ * Refresh strategy: lazy. The Thoth shell calls {@link refreshIfNeeded} on first
  * render. Cron and gateway calls are gated by `vscodeService.config().isElectron`
  * — VS Code surfaces `'desktop-only'` placeholders for those rows.
  *
@@ -147,6 +180,15 @@ export class ThothStatusService implements MessageHandler {
       errors: this._errors(),
     };
   });
+
+  /**
+   * The summary reduced to per-pillar display tiles, keyed by pillar id.
+   * Single source of truth for both the dashboard status surface and the
+   * Thoth shell sidebar tiles — keep all value/unit/desc derivation here.
+   */
+  readonly pillars = computed<Record<ThothActiveTabId, ThothPillarStatus>>(() =>
+    deriveThothPillars(this.summary()),
+  );
 
   readonly hasLoadedOnce = this._hasLoadedOnce.asReadonly();
 
@@ -328,4 +370,143 @@ export class ThothStatusService implements MessageHandler {
   private clearError(pillar: 'memory' | 'skills' | 'cron' | 'gateway'): void {
     this._errors.update((current) => ({ ...current, [pillar]: null }));
   }
+}
+
+/**
+ * Reduce a {@link ThothStatusSummary} to display-ready pillar tiles keyed by
+ * pillar id. Pure and side-effect free — the single source of truth for the
+ * Thoth shell sidebar tiles and any future status surface.
+ */
+export function deriveThothPillars(
+  s: ThothStatusSummary,
+): Record<ThothActiveTabId, ThothPillarStatus> {
+  return {
+    memory: deriveMemory(s),
+    skills: deriveSkills(s),
+    cron: deriveCron(s),
+    gateway: deriveGateway(s),
+  };
+}
+
+function pillarBase(
+  id: ThothActiveTabId,
+  s: ThothStatusSummary,
+): Pick<ThothPillarStatus, 'id' | 'accent' | 'platforms' | 'error'> {
+  return {
+    id,
+    accent: PILLAR_ACCENTS[id],
+    platforms: [],
+    error: s.errors[id],
+  };
+}
+
+function deriveMemory(s: ThothStatusSummary): ThothPillarStatus {
+  const base = pillarBase('memory', s);
+  const m = s.memory;
+  if (!m.available) {
+    return {
+      ...base,
+      value: '—',
+      unit: '',
+      desc: 'Unavailable',
+      available: false,
+    };
+  }
+  return {
+    ...base,
+    value: formatCompact(m.totalFacts),
+    unit: m.totalFacts === 1 ? 'fact' : 'facts',
+    desc:
+      m.queueLength > 0
+        ? `${formatCompact(m.queueLength)} queued for curation`
+        : 'All curated',
+    available: true,
+  };
+}
+
+function deriveSkills(s: ThothStatusSummary): ThothPillarStatus {
+  const base = pillarBase('skills', s);
+  const sk = s.skills;
+  if (!sk.available) {
+    return {
+      ...base,
+      value: '—',
+      unit: '',
+      desc: 'Unavailable',
+      available: false,
+    };
+  }
+  return {
+    ...base,
+    value: formatCompact(sk.pendingCandidates),
+    unit: 'pending',
+    desc:
+      sk.pendingCandidates > 0
+        ? `candidate${sk.pendingCandidates === 1 ? '' : 's'} to review`
+        : 'No skills awaiting review',
+    available: true,
+  };
+}
+
+function deriveCron(s: ThothStatusSummary): ThothPillarStatus {
+  const base = pillarBase('cron', s);
+  const c = s.cron;
+  if (!c.available) {
+    return {
+      ...base,
+      value: '—',
+      unit: '',
+      desc: c.reason === 'desktop-only' ? 'Desktop only' : 'Unavailable',
+      available: false,
+    };
+  }
+  return {
+    ...base,
+    value: formatCompact(c.totalJobs),
+    unit: c.totalJobs === 1 ? 'job' : 'jobs',
+    desc:
+      c.nextRunAt !== null
+        ? `next run ${formatRelativeFuture(c.nextRunAt)}`
+        : 'no upcoming runs',
+    available: true,
+  };
+}
+
+function deriveGateway(s: ThothStatusSummary): ThothPillarStatus {
+  const base = pillarBase('gateway', s);
+  const g = s.gateway;
+  if (!g.available) {
+    return {
+      ...base,
+      value: '—',
+      unit: '',
+      desc: g.reason === 'desktop-only' ? 'Desktop only' : 'Unavailable',
+      available: false,
+    };
+  }
+  const runningCount = g.platforms.filter((p) => p.state === 'running').length;
+  return {
+    ...base,
+    value: formatCompact(runningCount),
+    unit: 'running',
+    desc:
+      g.pendingBindings > 0
+        ? `${formatCompact(g.pendingBindings)} pending approval`
+        : 'no pending approvals',
+    available: true,
+    platforms: g.platforms,
+  };
+}
+
+function formatRelativeFuture(timestamp: number): string {
+  const diffMs = timestamp - Date.now();
+  if (diffMs <= 0) return 'now';
+  const seconds = Math.round(diffMs / 1000);
+  if (seconds < 60) return `in ${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `in ${hours}h`;
+  const days = Math.round(hours / 24);
+  return `in ${days}d`;
 }

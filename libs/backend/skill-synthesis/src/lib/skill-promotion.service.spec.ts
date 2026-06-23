@@ -29,15 +29,18 @@ const SETTINGS: SkillSynthesisSettings = {
   eligibilityMinTurns: 5,
   evictionDecayRate: 0.95,
   generalizationContextThreshold: 3,
-  minTrajectoryFidelityRatio: 0.4,
   dedupClusterThreshold: 0.78,
-  minAbstractionEditDistance: 0.3,
+  prefilterMinEdits: 1,
+  prefilterMinChars: 800,
+  prefilterMinToolUses: 2,
   judgeEnabled: false,
   minJudgeScore: 6.0,
   judgeModel: 'inherit',
   maxPinnedSkills: 10,
   curatorEnabled: false,
   curatorIntervalHours: 24,
+  suggestionMinClusterSize: 2,
+  suggestionMaxCandidates: 200,
 };
 
 function row(overrides: Partial<SkillCandidateRow> = {}): SkillCandidateRow {
@@ -57,6 +60,7 @@ function row(overrides: Partial<SkillCandidateRow> = {}): SkillCandidateRow {
     rejectedAt: null,
     rejectedReason: null,
     pinned: false,
+    residency: 'resident',
     ...overrides,
   };
 }
@@ -87,6 +91,11 @@ function makeStore(
     searchActiveByEmbedding: jest.fn(() => []),
     listByStatus: jest.fn(() => []),
     countDistinctContexts: jest.fn(() => 0),
+    setResidency: jest.fn((id: CandidateId, residency) => ({
+      ...current,
+      id,
+      residency,
+    })),
   } as unknown as jest.Mocked<SkillCandidateStore>;
 }
 
@@ -107,14 +116,7 @@ describe('SkillPromotionService', () => {
   it('rejects below threshold (successCount < 3)', async () => {
     const store = makeStore(row({ successCount: 2 }));
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(false);
     expect(decision.reason).toBe('below-threshold');
@@ -124,14 +126,7 @@ describe('SkillPromotionService', () => {
   it('promotes at exactly the threshold', async () => {
     const store = makeStore(row({ successCount: 3 }));
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(true);
     expect(decision.reason).toBe('promoted');
@@ -146,14 +141,7 @@ describe('SkillPromotionService', () => {
   it('rejects an already-promoted candidate (idempotent)', async () => {
     const store = makeStore(row({ successCount: 5, status: 'promoted' }));
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(false);
     expect(decision.reason).toBe('already-promoted');
@@ -162,14 +150,7 @@ describe('SkillPromotionService', () => {
   it('rejects an already-rejected candidate', async () => {
     const store = makeStore(row({ successCount: 5, status: 'rejected' }));
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.reason).toBe('already-rejected');
   });
@@ -178,14 +159,7 @@ describe('SkillPromotionService', () => {
     const store = makeStore(row({ successCount: 3 }));
     (store.findById as jest.Mock).mockReturnValueOnce(null);
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('missing' as CandidateId, SETTINGS);
     expect(decision.reason).toBe('not-found');
     expect(decision.candidate).toBeNull();
@@ -199,14 +173,7 @@ describe('SkillPromotionService', () => {
       { row: row({ id: 'other' as CandidateId }), similarity: 0.86 },
     ]);
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(false);
     expect(decision.reason).toBe('duplicate');
@@ -226,31 +193,53 @@ describe('SkillPromotionService', () => {
       { row: row({ id: 'other' as CandidateId }), similarity: 0.84 },
     ]);
     const md = makeMdGenerator();
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(true);
     expect(decision.closestMatchSimilarity).toBeCloseTo(0.84);
   });
 
-  it('LRU-evicts least-active when at cap', async () => {
+  it('demotes the weakest resident to dormant (not rejected) when at cap', async () => {
     const store = makeStore(row({ successCount: 3 }));
-    const lruVictim = row({ id: 'lru' as CandidateId, status: 'promoted' });
+    const weakest = row({ id: 'weak' as CandidateId, status: 'promoted' });
     const others: SkillCandidateRow[] = [];
-    for (let i = 0; i < 49; i++) {
+    for (let i = 0; i < 199; i++) {
       others.push(row({ id: `p${i}` as CandidateId, status: 'promoted' }));
     }
-    // listActiveOrderedByDecayScore is ascending (lowest score first = evict first).
     (store.listActiveOrderedByDecayScore as jest.Mock).mockReturnValue([
-      lruVictim,
+      weakest,
       ...others,
     ]);
+    const md = makeMdGenerator();
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
+    const decision = await svc.evaluate('cand_test' as CandidateId, {
+      ...SETTINGS,
+      maxActiveSkills: 200,
+    });
+    expect(decision.promoted).toBe(true);
+    expect(decision.evictedSkillId).toBe('weak');
+    expect(store.setResidency).toHaveBeenCalledWith('weak', 'dormant');
+    expect(store.updateStatus).not.toHaveBeenCalledWith(
+      'weak',
+      'rejected',
+      expect.anything(),
+    );
+    expect(store.updateStatus).toHaveBeenCalledWith(
+      'cand_test',
+      'promoted',
+      expect.any(Object),
+    );
+  });
+
+  it('exempts authored skills from dormancy demotion', async () => {
+    const store = makeStore(row({ successCount: 3 }));
+    const authored = row({ id: 'auth' as CandidateId, name: 'orchestrate' });
+    (store.listActiveOrderedByDecayScore as jest.Mock).mockReturnValue([
+      authored,
+    ]);
+    const registry = {
+      listAuthoredSlugs: jest.fn(() => new Set(['orchestrate'])),
+    } as unknown as ConstructorParameters<typeof SkillPromotionService>[5];
     const md = makeMdGenerator();
     const svc = new SkillPromotionService(
       noopLogger,
@@ -258,24 +247,31 @@ describe('SkillPromotionService', () => {
       md,
       null,
       null,
-      null,
+      registry,
     );
-    const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
+    const decision = await svc.evaluate('cand_test' as CandidateId, {
+      ...SETTINGS,
+      maxActiveSkills: 1,
+    });
     expect(decision.promoted).toBe(true);
-    expect(decision.evictedSkillId).toBe('lru');
-    // First updateStatus call evicts lru, second promotes the candidate.
-    expect(store.updateStatus).toHaveBeenNthCalledWith(
-      1,
-      'lru',
-      'rejected',
-      expect.objectContaining({ reason: 'decay-cap-eviction' }),
-    );
-    expect(store.updateStatus).toHaveBeenNthCalledWith(
-      2,
-      'cand_test',
-      'promoted',
-      expect.any(Object),
-    );
+    expect(decision.evictedSkillId).toBeUndefined();
+    expect(store.setResidency).not.toHaveBeenCalled();
+  });
+
+  it('exempts pinned skills from dormancy (filtered upstream)', async () => {
+    const store = makeStore(row({ successCount: 3 }));
+    // listActiveOrderedByDecayScore already excludes pinned + dormant rows, so
+    // an empty list at cap means nothing to demote.
+    (store.listActiveOrderedByDecayScore as jest.Mock).mockReturnValue([]);
+    const md = makeMdGenerator();
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
+    const decision = await svc.evaluate('cand_test' as CandidateId, {
+      ...SETTINGS,
+      maxActiveSkills: 1,
+    });
+    expect(decision.promoted).toBe(true);
+    expect(decision.evictedSkillId).toBeUndefined();
+    expect(store.setResidency).not.toHaveBeenCalled();
   });
 
   it('continues with original bodyPath when SKILL.md materialization fails', async () => {
@@ -286,14 +282,7 @@ describe('SkillPromotionService', () => {
     (md.promoteToActive as jest.Mock).mockImplementation(() => {
       throw new Error('disk full');
     });
-    const svc = new SkillPromotionService(
-      noopLogger,
-      store,
-      md,
-      null,
-      null,
-      null,
-    );
+    const svc = new SkillPromotionService(noopLogger, store, md, null, null);
     const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
     expect(decision.promoted).toBe(true);
     expect(decision.filePath).toBe('/orig/SKILL.md');

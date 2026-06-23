@@ -40,6 +40,7 @@ import {
   Wrench,
   Store,
   RadioTower,
+  Scale,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
@@ -248,6 +249,17 @@ import {
             >
               <lucide-angular [img]="RadioTowerIcon" class="w-3.5 h-3.5" />
               Thoth
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'tribunal'"
+              [attr.aria-selected]="appState.currentView() === 'tribunal'"
+              title="Tribunal — multi-vendor panel"
+              (click)="openTribunal()"
+            >
+              <lucide-angular [img]="ScaleIcon" class="w-3.5 h-3.5" />
+              Tribunal
             </button>
             <button
               role="tab"
@@ -577,6 +589,7 @@ export class ElectronShellComponent {
   readonly WrenchIcon = Wrench;
   readonly StoreIcon = Store;
   readonly RadioTowerIcon = RadioTower;
+  readonly ScaleIcon = Scale;
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
@@ -611,5 +624,9 @@ export class ElectronShellComponent {
 
   openMarketplace(): void {
     this.appState.setCurrentView('marketplace');
+  }
+
+  openTribunal(): void {
+    this.appState.setCurrentView('tribunal');
   }
 }

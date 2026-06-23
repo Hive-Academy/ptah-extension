@@ -23,7 +23,8 @@
           "discord.js",
           "@slack/bolt",
           "ffmpeg-static",
-          "nodejs-whisper"
+          "@huggingface/transformers",
+          "onnxruntime-node"
         ]
       }
     },

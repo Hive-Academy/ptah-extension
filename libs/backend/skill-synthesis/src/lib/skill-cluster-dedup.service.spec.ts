@@ -31,15 +31,18 @@ function makeSettings(threshold = 0.8): SkillSynthesisSettings {
     eligibilityMinTurns: 5,
     evictionDecayRate: 0.95,
     generalizationContextThreshold: 3,
-    minTrajectoryFidelityRatio: 0.4,
     dedupClusterThreshold: threshold,
-    minAbstractionEditDistance: 0.3,
+    prefilterMinEdits: 1,
+    prefilterMinChars: 800,
+    prefilterMinToolUses: 2,
     judgeEnabled: false,
     minJudgeScore: 6.0,
     judgeModel: 'inherit',
     maxPinnedSkills: 10,
     curatorEnabled: false,
     curatorIntervalHours: 24,
+    suggestionMinClusterSize: 2,
+    suggestionMaxCandidates: 200,
   };
 }
 
@@ -63,6 +66,7 @@ function fakePromotedRow(
     rejectedAt: null,
     rejectedReason: null,
     pinned: false,
+    residency: 'resident',
   };
 }
 

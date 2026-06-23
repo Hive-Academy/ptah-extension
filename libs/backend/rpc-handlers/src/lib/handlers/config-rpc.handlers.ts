@@ -45,7 +45,11 @@ import {
   type EffortLevel,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
-import { parsePermissionLevel, parseEffortLevel } from './config-rpc.schema';
+import {
+  parsePermissionLevel,
+  parseEffortLevel,
+  parseApplyTo,
+} from './config-rpc.schema';
 
 /**
  * RPC handlers for configuration operations
@@ -136,6 +140,7 @@ export class ConfigRpcHandlers {
     >('config:model-switch', async (params) => {
       try {
         const { model, sessionId } = params;
+        const applyTo = parseApplyTo(params.applyTo, 'app');
         this.logger.info(
           '[ModelDiag] config:model-switch RECEIVED from frontend',
           {
@@ -144,7 +149,7 @@ export class ConfigRpcHandlers {
             startsWithClaude: model.startsWith('claude-'),
           },
         );
-        await this.modelSettings.selectedModel.set(model);
+        await this.modelSettings.selectedModel.set(model, applyTo);
         if (sessionId) {
           try {
             await this.sdkAdapter.setSessionModel(sessionId, model);
@@ -192,10 +197,21 @@ export class ConfigRpcHandlers {
   private registerModelSet(): void {
     this.rpcHandler.registerMethod(
       'config:model-set',
-      async (params: { model?: string; autopilot?: boolean } | undefined) => {
+      async (
+        params:
+          | {
+              model?: string;
+              autopilot?: boolean;
+              applyTo?: 'global' | 'workspace';
+            }
+          | undefined,
+      ) => {
         try {
           if (params?.model !== undefined) {
-            await this.modelSettings.selectedModel.set(params.model);
+            await this.modelSettings.selectedModel.set(
+              params.model,
+              parseApplyTo(params.applyTo, 'app'),
+            );
           }
           if (params?.autopilot !== undefined) {
             await this.configManager.set('autopilot.enabled', params.autopilot);
@@ -303,14 +319,23 @@ export class ConfigRpcHandlers {
           ? (permissionLevel as PermissionLevel)
           : 'ask';
         this.permissionHandler.setPermissionLevel(effectiveLevel);
-        if (sessionId) {
+        // The autopilot popover does not pass a sessionId, so fall back to the
+        // most-recently-active session. Permission gating is now per-session
+        // (each session reads its own level), so the toggle must reach a
+        // concrete session to take effect on a running turn.
+        const targetSessionId =
+          sessionId ?? this.sdkAdapter.getActiveSessionIds()[0];
+        if (targetSessionId) {
           try {
             const sdkMode = enabled
               ? this.mapPermissionToSdkMode(permissionLevel)
               : 'default';
-            await this.sdkAdapter.setSessionPermissionLevel(sessionId, sdkMode);
+            await this.sdkAdapter.setSessionPermissionLevel(
+              targetSessionId,
+              sdkMode,
+            );
             this.logger.debug('Permission mode synced to active session', {
-              sessionId,
+              sessionId: targetSessionId,
               sdkMode,
               enabled,
             });
@@ -590,12 +615,13 @@ export class ConfigRpcHandlers {
       try {
         const effort = parseEffortLevel(params.effort);
         const sessionId = params.sessionId;
+        const applyTo = parseApplyTo(params.applyTo, 'app');
         this.logger.debug('RPC: config:effort-set called', {
           effort,
           sessionId: sessionId ?? null,
         });
 
-        await this.reasoningSettings.effort.set(effort || '');
+        await this.reasoningSettings.effort.set(effort || '', applyTo);
 
         if (sessionId) {
           try {

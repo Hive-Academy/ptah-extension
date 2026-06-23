@@ -45,7 +45,11 @@ export const MAX_ACCUMULATED_SEGMENTS = 500;
  * a single tool call may produce dozens of delta events.
  * Matches the frontend MAX_STREAM_EVENTS cap in agent-monitor.store.ts.
  */
-export const MAX_ACCUMULATED_STREAM_EVENTS = 2000;
+export const MAX_ACCUMULATED_STREAM_EVENTS = 50000;
+
+/** Recent events always retained regardless of type, so streaming text/thinking
+ * near the tail (e.g. an agent's final verdict) survives capping. */
+export const STREAM_EVENTS_TAIL_RESERVE = 600;
 
 /** Maximum stdout size (bytes) returned for persistence */
 export const MAX_STDOUT_PERSISTENCE_SIZE = 100 * 1024; // 100 KB
@@ -54,6 +58,7 @@ export const MAX_STDOUT_PERSISTENCE_SIZE = 100 * 1024; // 100 KB
 export const LANDMARK_EVENT_TYPES = new Set<string>([
   'message_start',
   'tool_start',
+  'tool_result',
   'agent_start',
   'thinking_start',
   'message_complete',
@@ -81,11 +86,11 @@ export function tailLines(str: string, n: number): string {
 }
 
 /**
- * Cap stream events buffer by dropping oldest delta events while preserving
- * landmark events that establish the execution tree structure.
- * Landmarks (message_start, tool_start, etc.) are always kept.
- * The remaining budget is filled with the most recent non-landmark (delta) events.
- * Events are returned in their original order.
+ * Cap stream events buffer while keeping the live tail intact.
+ * The most recent `STREAM_EVENTS_TAIL_RESERVE` events are always kept regardless
+ * of type (so streaming text/thinking — e.g. a final verdict — never vanishes),
+ * and the remaining budget is filled with the most recent landmark events before
+ * the tail to preserve tree structure. Events are returned in original order.
  *
  * Mirrors the frontend capStreamEvents() in agent-monitor.store.ts.
  */
@@ -95,26 +100,17 @@ export function capStreamEvents(
 ): FlatStreamEventUnion[] {
   if (events.length <= max) return events;
 
-  const landmarks: Array<{ event: FlatStreamEventUnion; index: number }> = [];
-  const deltas: Array<{ event: FlatStreamEventUnion; index: number }> = [];
-  for (let i = 0; i < events.length; i++) {
+  const reserve = Math.min(STREAM_EVENTS_TAIL_RESERVE, max);
+  const tailStart = events.length - reserve;
+  const headBudget = max - reserve;
+  const head: FlatStreamEventUnion[] = [];
+  for (let i = tailStart - 1; i >= 0 && head.length < headBudget; i--) {
     if (LANDMARK_EVENT_TYPES.has(events[i].eventType)) {
-      landmarks.push({ event: events[i], index: i });
-    } else {
-      deltas.push({ event: events[i], index: i });
+      head.push(events[i]);
     }
   }
-
-  const deltasBudget = max - landmarks.length;
-  if (deltasBudget <= 0) {
-    return landmarks.slice(-max).map((l) => l.event);
-  }
-
-  const keptDeltas = deltas.slice(-deltasBudget);
-  const merged = [...landmarks, ...keptDeltas].sort(
-    (a, b) => a.index - b.index,
-  );
-  return merged.map((m) => m.event);
+  head.reverse();
+  return [...head, ...events.slice(tailStart)];
 }
 
 /**

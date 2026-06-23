@@ -20,7 +20,8 @@ export type ViewType =
   | 'harness-builder'
   | 'setup-hub'
   | 'thoth'
-  | 'marketplace';
+  | 'marketplace'
+  | 'tribunal';
 
 /**
  * Active tab id within the Thoth hub. Mirrors the union exported from
@@ -56,6 +57,17 @@ export const LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY =
 export interface HarnessWorkflowRequest {
   mode: 'new-project' | 'configure-harness';
   seedPrompt?: string;
+}
+
+export type SettingsTabId =
+  | 'claude-auth'
+  | 'orchestration'
+  | 'pro-features'
+  | 'tools';
+
+export interface PendingSettingsTab {
+  tab: SettingsTabId;
+  providerId?: string;
 }
 
 /** Request to open/focus a session in a canvas tile */
@@ -107,6 +119,7 @@ export class AppStateManager implements MessageHandler {
       'setup-hub',
       'thoth',
       'marketplace',
+      'tribunal',
     ];
     if (view && validViews.includes(view as ViewType)) {
       this.handleViewSwitch(view as ViewType);
@@ -135,6 +148,9 @@ export class AppStateManager implements MessageHandler {
   /** Signal bridge: request to open the harness surface and run a workflow */
   private readonly _harnessWorkflowRequest =
     signal<HarnessWorkflowRequest | null>(null);
+  private readonly _pendingSettingsTab = signal<PendingSettingsTab | null>(
+    null,
+  );
 
   /**
    * Active tab inside the Thoth hub. Persisted via setter so re-entering
@@ -191,6 +207,7 @@ export class AppStateManager implements MessageHandler {
   readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
   /** Pending request to open the harness surface workflow (consumed by HarnessBuilderViewComponent) */
   readonly harnessWorkflowRequest = this._harnessWorkflowRequest.asReadonly();
+  readonly pendingSettingsTab = this._pendingSettingsTab.asReadonly();
   /** Active tab id inside the Thoth hub (memory / skills / cron / gateway). */
   readonly thothActiveTab = this._thothActiveTab.asReadonly();
   /** Selected marketplace provider id (null when none selected). */
@@ -500,5 +517,17 @@ export class AppStateManager implements MessageHandler {
       this._harnessWorkflowRequest.set(null);
     }
     return req;
+  }
+
+  requestSettingsTab(target: PendingSettingsTab): void {
+    this._pendingSettingsTab.set(target);
+  }
+
+  consumePendingSettingsTab(): PendingSettingsTab | null {
+    const target = this._pendingSettingsTab();
+    if (target) {
+      this._pendingSettingsTab.set(null);
+    }
+    return target;
   }
 }

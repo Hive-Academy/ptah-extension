@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:cb94751eb77608b576fdf73b03aa5e7d53f82d010e401880581e0ba0b9d899a8",
-  "generatedAt": "2026-05-08T14:32:34.547Z",
+  "contentHash": "sha256:2e17a998bbe8da16cdf354899a5a73a9a1f7996c1057f5689af1199b0dc81c38",
+  "generatedAt": "2026-06-17T12:39:07.253Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -83,6 +83,11 @@
       "ptah-core/skills/technical-content-writer/LANDING-PAGES.md",
       "ptah-core/skills/technical-content-writer/SKILL.md",
       "ptah-core/skills/technical-content-writer/VIDEO-SCRIPTS.md",
+      "ptah-core/skills/tribunal/SKILL.md",
+      "ptah-core/skills/tribunal/references/council.md",
+      "ptah-core/skills/tribunal/references/forge.md",
+      "ptah-core/skills/tribunal/references/race.md",
+      "ptah-core/skills/tribunal/references/vendor-panel.md",
       "ptah-core/skills/ui-ux-designer/ASSET-GENERATION.md",
       "ptah-core/skills/ui-ux-designer/DESIGN-SYSTEM-BUILDER.md",
       "ptah-core/skills/ui-ux-designer/DEVELOPER-HANDOFF.md",

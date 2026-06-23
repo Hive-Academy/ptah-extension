@@ -10,9 +10,12 @@ import {
 } from '@ptah-extension/vscode-core';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import { registerVscodeSettings } from '@ptah-extension/platform-vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   SETTINGS_TOKENS,
   type MigrationRunner,
+  type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
 import { DIContainer } from '../di/container';
 import { handleLicenseBlocking } from './license-gate';
@@ -87,6 +90,16 @@ export async function bootstrapVscode(
   DIContainer.setup(context);
   try {
     const diContainer = DIContainer.getContainer();
+    const wsProvider = diContainer.resolve<IWorkspaceProvider>(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+    );
+    const activeWorkspaceSource: IActiveWorkspaceSource = {
+      getActivePath: () => wsProvider.getWorkspaceRoot(),
+      onDidChange: (cb) => wsProvider.onDidChangeWorkspaceFolders(cb),
+    };
+    diContainer.register(SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE, {
+      useValue: activeWorkspaceSource,
+    });
     registerVscodeSettings(diContainer, vscode, context);
     const migrationRunner = DIContainer.resolve<MigrationRunner>(
       SETTINGS_TOKENS.MIGRATION_RUNNER,

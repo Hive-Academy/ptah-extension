@@ -35,6 +35,25 @@ export function parsePermissionLevel(
   return result.success ? result.data : fallback;
 }
 
+export const ApplyToSchema = z.enum(['global', 'app', 'workspace'] as const);
+
+/**
+ * Parse an `applyTo` write-target from RPC params.
+ * Returns `fallback` (default `'global'`) for any missing / unrecognized value.
+ *
+ * Model/effort call sites pass `'app'` so a picker change is scoped to the
+ * current runtime (Electron / VS Code / CLI) rather than the cross-app bare
+ * key — matching how auth settings already scope per app. `'app'` degrades to
+ * the bare key on runtimes without an app prefix (e.g. web).
+ */
+export function parseApplyTo(
+  raw: unknown,
+  fallback: 'global' | 'app' | 'workspace' = 'global',
+): 'global' | 'app' | 'workspace' {
+  const result = ApplyToSchema.safeParse(raw);
+  return result.success ? result.data : fallback;
+}
+
 export const EffortLevelSchema = z.enum([
   'low',
   'medium',

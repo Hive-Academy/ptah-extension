@@ -466,6 +466,7 @@ export class SkillEnhancerService {
       rejectedAt: null,
       rejectedReason: null,
       pinned: false,
+      residency: 'resident',
     };
   }
 

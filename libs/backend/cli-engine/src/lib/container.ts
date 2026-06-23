@@ -44,7 +44,11 @@ import type {
   IOutputChannel,
   IStateStorage,
   ISecretStorage,
+  IWorkspaceProvider,
+  IWorkspaceLifecycleProvider,
 } from '@ptah-extension/platform-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { IActiveWorkspaceSource } from '@ptah-extension/settings-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { registerVsCodeCorePlatformAgnostic } from '@ptah-extension/vscode-core';
@@ -520,6 +524,20 @@ export class CliDIContainer {
     logger.info('[CLI DI] Platform abstraction implementations registered');
 
     phaseEnd('3.5', phase3_5Start);
+    const cliWsProvider = container.resolve<IWorkspaceProvider>(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+    );
+    const cliLifecycle = container.resolve<IWorkspaceLifecycleProvider>(
+      PLATFORM_TOKENS.WORKSPACE_LIFECYCLE_PROVIDER,
+    );
+    const cliActiveWorkspaceSource: IActiveWorkspaceSource = {
+      getActivePath: () =>
+        cliLifecycle.getActiveFolder() ?? cliWsProvider.getWorkspaceRoot(),
+      onDidChange: (cb) => cliWsProvider.onDidChangeWorkspaceFolders(cb),
+    };
+    container.register(SETTINGS_TOKENS.ACTIVE_WORKSPACE_SOURCE, {
+      useValue: cliActiveWorkspaceSource,
+    });
     try {
       registerCliSettings(container, userDataPath);
       logger.info(

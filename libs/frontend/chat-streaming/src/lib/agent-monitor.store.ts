@@ -35,10 +35,7 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 const MAX_FRONTEND_BUFFER = 50 * 1024;
 
 /** Maximum number of simultaneously expanded agent cards */
-const MAX_EXPANDED_AGENTS = 2;
-
-/** Maximum streamEvents buffer per agent (prevents unbounded memory growth) */
-const MAX_STREAM_EVENTS = 2000;
+const MAX_EXPANDED_AGENTS = 3;
 
 /** Maximum completed/failed agents retained in the store.
  * Only agents with status 'completed' or 'failed' are evicted; 'running' and
@@ -61,8 +58,15 @@ export interface MonitoredAgent {
   expandedAt?: number;
   /** Structured output segments from SDK-based adapters (Codex, Copilot). */
   segments: CliOutputSegment[];
-  /** Rich streaming events from Ptah CLI adapter. Enables ExecutionNode rendering. */
+  /** Rich streaming events from Ptah CLI adapter. Enables ExecutionNode rendering.
+   *  Mutated in place (appended) across deltas — never reassigned — so retention
+   *  is unbounded without an O(n) copy per event. `streamRevision` is the change
+   *  signal; consumers must depend on it, not on this array's identity. */
   streamEvents: FlatStreamEventUnion[];
+  /** Incremented on every streamEvents append. Because streamEvents is mutated
+   *  in place its reference is stable, so this counter is what tells the agent
+   *  card to recompute its execution tree. */
+  streamRevision: number;
   /** Parent Ptah Claude SDK session that spawned this agent.
    * Mutable: initially set to tab ID, resolved to real SDK UUID
    * when SESSION_ID_RESOLVED fires. */
@@ -83,6 +87,7 @@ export interface MonitoredAgent {
   readonly displayName?: string;
   /** Model identifier used by the CLI agent (e.g., 'gpt-5-codex', 'gpt-4o'). */
   readonly model?: string;
+  readonly supportsContinuation?: boolean;
 }
 
 /**
@@ -409,6 +414,23 @@ export class AgentMonitorStore implements OnDestroy {
     const hadAgents = this._agents().length > 0;
 
     this._agents.update((list) => {
+      const existingIndex = list.findIndex((a) => a.agentId === info.agentId);
+      if (existingIndex !== -1) {
+        const existing = list[existingIndex];
+        const reopened: MonitoredAgent = {
+          ...existing,
+          status: info.status,
+          completedAt: undefined,
+          exitCode: undefined,
+          cliSessionId: info.cliSessionId || existing.cliSessionId,
+          supportsContinuation:
+            info.supportsContinuation ?? existing.supportsContinuation,
+        };
+        const next = [...list];
+        next[existingIndex] = reopened;
+        return next;
+      }
+
       const oldCard = this.findReplacementCard(list, info);
 
       if (oldCard) {
@@ -431,12 +453,14 @@ export class AgentMonitorStore implements OnDestroy {
           expandedAt: oldCard.expandedAt,
           segments: [],
           streamEvents: [],
+          streamRevision: 0,
           parentSessionId: info.parentSessionId,
           cliSessionId: info.cliSessionId,
           ptahCliId: info.ptahCliId,
           permissionQueue: [],
           displayName: info.displayName || info.ptahCliName,
           model: info.model,
+          supportsContinuation: info.supportsContinuation,
         };
         return [
           ...list.filter((a) => a.agentId !== oldCard.agentId),
@@ -457,12 +481,14 @@ export class AgentMonitorStore implements OnDestroy {
         expandedAt: order,
         segments: [],
         streamEvents: [],
+        streamRevision: 0,
         parentSessionId: info.parentSessionId,
         cliSessionId: info.cliSessionId,
         ptahCliId: info.ptahCliId,
         permissionQueue: [],
         displayName: info.displayName || info.ptahCliName,
         model: info.model,
+        supportsContinuation: info.supportsContinuation,
       };
       return this.enforceMaxExpanded([...list, fresh]);
     });
@@ -536,12 +562,13 @@ export class AgentMonitorStore implements OnDestroy {
         }
       }
       if (delta.streamEvents && delta.streamEvents.length > 0) {
-        const combined = [...agent.streamEvents, ...delta.streamEvents];
-        if (combined.length > MAX_STREAM_EVENTS) {
-          updated.streamEvents = capStreamEvents(combined, MAX_STREAM_EVENTS);
-        } else {
-          updated.streamEvents = combined;
+        // Append in place — streamEvents shares its reference across deltas, so
+        // this is O(new events) with no whole-array copy. The bumped
+        // streamRevision is what drives the agent card to recompute.
+        for (const ev of delta.streamEvents) {
+          updated.streamEvents.push(ev);
         }
+        updated.streamRevision = agent.streamRevision + 1;
       }
 
       const next = [...list];
@@ -574,6 +601,8 @@ export class AgentMonitorStore implements OnDestroy {
         cliSessionId: info.cliSessionId || agent.cliSessionId,
         completedAt,
         permissionQueue: [],
+        supportsContinuation:
+          info.supportsContinuation ?? agent.supportsContinuation,
       };
       return this.evictOldCompletedAgents(next);
     });
@@ -790,6 +819,7 @@ export class AgentMonitorStore implements OnDestroy {
             expanded: false,
             segments: ref.segments ? [...ref.segments] : [],
             streamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
+            streamRevision: 0,
             cliSessionId: ref.cliSessionId,
             parentSessionId,
             ptahCliId: ref.ptahCliId,
@@ -1003,6 +1033,17 @@ export class AgentMonitorStore implements OnDestroy {
    * RPC call succeeded, `false` when an error was recorded. Callers use the
    * return value to conditionally show success / keep-draft UX.
    */
+  async continueAgent(
+    agentId: string,
+    message: string,
+  ): Promise<{ ok: boolean; code?: string }> {
+    const result = await this.rpc.call('agent:continue', {
+      agentId,
+      message,
+    });
+    return { ok: result.isSuccess(), code: result.data?.code };
+  }
+
   async sendMessageToAgent(
     parentToolUseId: string,
     text: string,
@@ -1118,46 +1159,4 @@ function capBuffer(str: string, max: number): string {
   const excess = str.length - max;
   const idx = str.indexOf('\n', excess);
   return idx > -1 ? str.substring(idx + 1) : str.substring(excess);
-}
-
-/** Landmark event types that establish tree structure and must be preserved */
-const LANDMARK_EVENT_TYPES = new Set([
-  'message_start',
-  'tool_start',
-  'agent_start',
-  'thinking_start',
-  'message_complete',
-]);
-
-/**
- * Cap stream events buffer by dropping oldest delta events while preserving
- * landmark events that establish the tree structure.
- * When the buffer exceeds `max`, landmarks are always kept. The remaining
- * budget is filled with the most recent non-landmark (delta) events.
- * Events are returned in their original order.
- */
-function capStreamEvents(
-  events: FlatStreamEventUnion[],
-  max: number,
-): FlatStreamEventUnion[] {
-  if (events.length <= max) return events;
-  const landmarks: Array<{ event: FlatStreamEventUnion; index: number }> = [];
-  const deltas: Array<{ event: FlatStreamEventUnion; index: number }> = [];
-  for (let i = 0; i < events.length; i++) {
-    if (LANDMARK_EVENT_TYPES.has(events[i].eventType)) {
-      landmarks.push({ event: events[i], index: i });
-    } else {
-      deltas.push({ event: events[i], index: i });
-    }
-  }
-  const deltasBudget = max - landmarks.length;
-  if (deltasBudget <= 0) {
-    return landmarks.slice(-max).map((l) => l.event);
-  }
-
-  const keptDeltas = deltas.slice(-deltasBudget);
-  const merged = [...landmarks, ...keptDeltas].sort(
-    (a, b) => a.index - b.index,
-  );
-  return merged.map((m) => m.event);
 }

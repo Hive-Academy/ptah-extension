@@ -148,6 +148,12 @@ export interface AgentSetConfigParams {
   browserAllowLocalhost?: boolean;
 }
 
+export type AgentContinueErrorCode =
+  | 'not_found'
+  | 'unsupported'
+  | 'busy'
+  | 'unknown';
+
 /** Parameters for ptahCli:list RPC method */
 export type PtahCliListParams = Record<string, never>;
 

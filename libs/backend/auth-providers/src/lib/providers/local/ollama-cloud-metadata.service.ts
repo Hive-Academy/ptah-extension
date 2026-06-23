@@ -8,11 +8,12 @@
  *
  *   1. Fetches `https://ollama.com/api/tags` with `Authorization: Bearer <key>`.
  *      This endpoint mirrors the local /api/tags shape and is the ONLY public
- *      list-models endpoint exposed by ollama.com. It returns the models the
- *      authenticated user has access to / has pulled — NOT the full public
- *      cloud catalog. The OllamaModelDiscoveryService uses this to add any
- *      cloud tags the user has touched on top of the static KNOWN_CLOUD_MODELS
- *      catalog.
+ *      list-models endpoint exposed by ollama.com. It returns the cloud models
+ *      available to the authenticated account, reported as BASE names with no
+ *      routing suffix (`glm-5.2`, not `glm-5.2:cloud`); `toCloudId()` normalizes
+ *      each into the `:cloud`/`-cloud` id Ollama routes on. The
+ *      OllamaModelDiscoveryService merges these over the static
+ *      KNOWN_CLOUD_MODELS catalog.
  *
  *   2. Pricing fetch: sourced from OpenRouter's public model catalog
  *      (`https://openrouter.ai/api/v1/models`, no auth required). Ollama does
@@ -134,6 +135,20 @@ export function isCloudTag(name: string): boolean {
 }
 
 /**
+ * Normalize a model name from the ollama.com cloud `/api/tags` endpoint into a
+ * canonical cloud id. Every entry that host returns IS a cloud model, but it
+ * reports BASE names without the routing suffix Ollama expects at inference
+ * time. Append the suffix matching each tag convention:
+ *   `glm-5.2`          -> `glm-5.2:cloud`
+ *   `qwen3-coder:480b` -> `qwen3-coder:480b-cloud`
+ *   `kimi-k2.6:cloud`  -> unchanged
+ */
+export function toCloudId(name: string): string {
+  if (isCloudTag(name)) return name;
+  return name.includes(':') ? `${name}-cloud` : `${name}:cloud`;
+}
+
+/**
  * Strip `:cloud`/`-cloud` suffixes, lowercase, and remove dots so we can
  * match against OpenRouter's slug tails. Examples:
  *   `kimi-k2.5:cloud`       -> `kimi-k25`
@@ -203,11 +218,7 @@ export class OllamaCloudMetadataService {
    *
    * @param apiKey - ollama.com API key (sent as `Authorization: Bearer <key>`)
    */
-  async fetchCloudTags(apiKey: string): Promise<OllamaCloudTag[]> {
-    if (!apiKey?.trim()) {
-      return [];
-    }
-
+  async fetchCloudTags(apiKey?: string | null): Promise<OllamaCloudTag[]> {
     if (this.tagsCache && this.isFresh(this.tagsCache)) {
       this.logger.debug(
         `[OllamaCloudMetadata] Returning ${this.tagsCache.value.length} cached cloud tags (cache age: ${
@@ -223,7 +234,10 @@ export class OllamaCloudMetadataService {
     );
 
     try {
-      const data = await this.httpJson<OllamaCloudTagsResponse>(url, apiKey);
+      const data = await this.httpJson<OllamaCloudTagsResponse>(
+        url,
+        apiKey ?? null,
+      );
 
       const models = Array.isArray(data?.models) ? data.models : null;
       if (!models) {
@@ -236,7 +250,7 @@ export class OllamaCloudMetadataService {
       }
 
       const tags: OllamaCloudTag[] = [];
-      let skippedNonCloud = 0;
+      const seen = new Set<string>();
       const allNames: string[] = [];
 
       for (const m of models) {
@@ -248,11 +262,10 @@ export class OllamaCloudMetadataService {
               : null;
         if (!name) continue;
         allNames.push(name);
-        if (!isCloudTag(name)) {
-          skippedNonCloud++;
-          continue;
-        }
-        tags.push({ id: name });
+        const cloudId = toCloudId(name);
+        if (seen.has(cloudId)) continue;
+        seen.add(cloudId);
+        tags.push({ id: cloudId });
       }
 
       this.tagsCache = { value: tags, fetchedAt: Date.now() };
@@ -263,18 +276,13 @@ export class OllamaCloudMetadataService {
 
       if (tags.length === 0) {
         this.logger.warn(
-          `[OllamaCloudMetadata] ${url} returned ${models.length} model(s) but ` +
-            `0 matched the cloud-tag pattern (':cloud' or '-cloud' suffix). ` +
-            `Skipped ${skippedNonCloud} non-cloud entries. ` +
-            `The model picker will fall back to the bundled static catalog. ` +
-            `Note: ollama.com/api/tags returns only models the signed-in user has pulled — ` +
-            `it is NOT the full public cloud catalog.`,
+          `[OllamaCloudMetadata] ${url} returned ${models.length} entries but none ` +
+            `yielded a usable model name. Falling back to the bundled static catalog.`,
         );
       } else {
         this.logger.info(
-          `[OllamaCloudMetadata] Discovered ${tags.length} live cloud model tag(s) from ollama.com ` +
-            `(${models.length} total returned, ${skippedNonCloud} non-cloud skipped). ` +
-            `Cloud tags: [${tags.map((t) => t.id).join(', ')}]`,
+          `[OllamaCloudMetadata] Discovered ${tags.length} live cloud model(s) from ollama.com. ` +
+            `Cloud ids: [${tags.map((t) => t.id).join(', ')}]`,
         );
       }
 

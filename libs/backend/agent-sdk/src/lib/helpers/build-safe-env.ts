@@ -15,6 +15,34 @@
 import type { AuthEnv } from '@ptah-extension/shared';
 import { buildTierEnvDefaults } from './sdk-model-service';
 
+function isLocalProxyUrl(url: string): boolean {
+  return /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:\/|$)/i.test(
+    url,
+  );
+}
+
+/**
+ * Disable experimental CLI betas only for remote third-party endpoints (they
+ * may reject the beta headers). Anthropic-direct and the local Codex/Copilot
+ * translation proxies keep them on so subagent telemetry still streams.
+ * Force on for any provider with `PTAH_ENABLE_EXPERIMENTAL_BETAS=1`.
+ */
+export function experimentalBetaEnv(
+  baseUrl: string | undefined,
+): Record<string, string> {
+  if (process.env['PTAH_ENABLE_EXPERIMENTAL_BETAS'] === '1') {
+    return {};
+  }
+  const url = baseUrl?.trim();
+  if (!url || /^https?:\/\/api\.anthropic\.com\/?$/i.test(url)) {
+    return {};
+  }
+  if (isLocalProxyUrl(url)) {
+    return {};
+  }
+  return { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' };
+}
+
 export function buildSafeEnv(
   authEnv: AuthEnv,
 ): Record<string, string | undefined> {
@@ -53,11 +81,6 @@ export function buildSafeEnv(
     SHELL: process.env['SHELL'],
     ...buildTierEnvDefaults(authEnv),
     ...authEnv,
-    ...(() => {
-      const baseUrl = authEnv.ANTHROPIC_BASE_URL?.trim();
-      return baseUrl && !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
-        ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
-        : {};
-    })(),
+    ...experimentalBetaEnv(authEnv.ANTHROPIC_BASE_URL),
   };
 }

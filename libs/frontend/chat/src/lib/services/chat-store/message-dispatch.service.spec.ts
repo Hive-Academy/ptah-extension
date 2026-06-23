@@ -10,9 +10,9 @@
  *   - sendOrQueueMessage: not streaming dispatches via MessageSender.send
  *   - sendOrQueueMessage: explicit-tabId override beats activeTab
  *   - sendQueuedMessage: clears queue + queuedOptions before dispatch
- *   - sendQueuedMessage: passes files from stored options
+ *   - sendQueuedMessage: forwards stored queuedOptions (files + images) to messageSender.send
  *   - sendQueuedMessage: on error, restores content to queue
- *   - sendQueuedMessage: calls conversation.continueConversation directly
+ *   - sendQueuedMessage: calls messageSender.send, not conversation.continueConversation
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -56,6 +56,7 @@ describe('MessageDispatchService', () => {
   let queueOrAppendMock: jest.Mock;
   let continueConversationMock: jest.Mock;
   let handlePermissionResponseMock: jest.Mock;
+  let isTabStreamingMock: jest.Mock;
 
   beforeEach(() => {
     tabs = [makeTab()];
@@ -81,6 +82,7 @@ describe('MessageDispatchService', () => {
     queueOrAppendMock = jest.fn();
     continueConversationMock = jest.fn().mockResolvedValue(undefined);
     handlePermissionResponseMock = jest.fn();
+    isTabStreamingMock = jest.fn(() => false);
 
     const tabManagerMock = {
       tabs: () => tabs,
@@ -89,6 +91,7 @@ describe('MessageDispatchService', () => {
       clearQueuedContentAndOptions: clearQueuedContentAndOptionsMock,
       activeTabStatus: () => activeTabStatus(),
       activeTabId: () => activeTabId(),
+      isTabStreaming: isTabStreamingMock,
     } as unknown as TabManagerService;
 
     const authStateMock = {
@@ -181,6 +184,32 @@ describe('MessageDispatchService', () => {
       expect(sendMock).toHaveBeenCalledWith('hello', undefined);
     });
 
+    it('queues (never sends/aborts) when the self-heal flag is set despite a non-streaming status', async () => {
+      // Self-heal case: SDK paused/resumed → status reverted to loaded while
+      // isTabStreaming stays true. A follow-up must queue, not send-and-abort.
+      activeTabStatus.set('loaded');
+      isTabStreamingMock.mockReturnValue(true);
+
+      await service.sendOrQueueMessage('follow up');
+
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(queueOrAppendMock).toHaveBeenCalledWith('follow up', undefined);
+    });
+
+    it('checks the explicit target tab id for the self-heal streaming flag', async () => {
+      activeTabStatus.set('loaded');
+      tabs = [makeTab({ id: 'tile-7', status: 'awaiting-background' })];
+      isTabStreamingMock.mockImplementation((id: string) => id === 'tile-7');
+
+      await service.sendOrQueueMessage('follow up', { tabId: 'tile-7' });
+
+      expect(isTabStreamingMock).toHaveBeenCalledWith('tile-7');
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(queueOrAppendMock).toHaveBeenCalledWith('follow up', {
+        tabId: 'tile-7',
+      });
+    });
+
     it('explicit-tabId override beats activeTab status', async () => {
       activeTabStatus.set('streaming');
       tabs = [makeTab({ id: 'tab-2', status: 'loaded' })];
@@ -196,6 +225,7 @@ describe('MessageDispatchService', () => {
           queuedContent: 'queued',
           queuedOptions: {
             files: ['a.ts'],
+            images: [{ data: 'base64', mediaType: 'image/png' }],
           } as unknown as TabState['queuedOptions'],
         }),
       ];
@@ -206,24 +236,24 @@ describe('MessageDispatchService', () => {
       expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
     });
 
-    it('passes files from stored options to continueConversation', async () => {
+    it('forwards stored queuedOptions (files + images) to messageSender.send', async () => {
       await service.sendQueuedMessage('tab-1', 'queued');
-      expect(continueConversationMock).toHaveBeenCalledWith(
-        'queued',
-        ['a.ts'],
-        'tab-1',
-      );
+      expect(sendMock).toHaveBeenCalledWith('queued', {
+        files: ['a.ts'],
+        images: [{ data: 'base64', mediaType: 'image/png' }],
+        tabId: 'tab-1',
+      });
     });
 
-    it('calls conversation.continueConversation NOT messageSender.send', async () => {
+    it('calls messageSender.send NOT conversation.continueConversation', async () => {
       await service.sendQueuedMessage('tab-1', 'queued');
-      expect(continueConversationMock).toHaveBeenCalled();
-      expect(sendMock).not.toHaveBeenCalled();
+      expect(sendMock).toHaveBeenCalled();
+      expect(continueConversationMock).not.toHaveBeenCalled();
     });
 
     it('on error, restores content to queue', async () => {
       const err = new Error('boom');
-      continueConversationMock.mockRejectedValueOnce(err);
+      sendMock.mockRejectedValueOnce(err);
       const errorSpy = jest.spyOn(console, 'error').mockImplementation();
       await service.sendQueuedMessage('tab-1', 'queued');
       expect(setQueuedContentMock).toHaveBeenCalledWith('tab-1', 'queued');

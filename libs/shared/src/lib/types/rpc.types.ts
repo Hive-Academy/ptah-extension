@@ -104,6 +104,8 @@ import type {
   AuthCopilotStatusResponse,
   AuthCodexLoginParams,
   AuthCodexLoginResponse,
+  AuthGetScopeResult,
+  AuthClearWorkspaceOverrideResult,
 } from './rpc/rpc-auth.types';
 
 import type {
@@ -176,6 +178,7 @@ import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
   AgentListCliModelsResult,
+  AgentContinueErrorCode,
   AgentPermissionDecision,
   SkillShEntry,
   SkillAgentTarget,
@@ -605,6 +608,14 @@ export interface RpcMethodRegistry {
     params: AuthCodexLoginParams;
     result: AuthCodexLoginResponse;
   };
+  'auth:getScope': {
+    params: Record<string, never>;
+    result: AuthGetScopeResult;
+  };
+  'auth:clearWorkspaceOverride': {
+    params: Record<string, never>;
+    result: AuthClearWorkspaceOverrideResult;
+  };
   'setup-status:get-status': {
     params: SetupStatusGetParams;
     result: SetupStatusGetResponse;
@@ -823,6 +834,10 @@ export interface RpcMethodRegistry {
   'agent:stop': {
     params: { agentId: string };
     result: { success: boolean; error?: string };
+  };
+  'agent:continue': {
+    params: { agentId: string; message: string };
+    result: { success: boolean; error?: string; code?: AgentContinueErrorCode };
   };
   /** Resume a CLI agent session by spawning a new process with resumeSessionId */
   'agent:resumeCliSession': {
@@ -1096,7 +1111,11 @@ export interface RpcMethodRegistry {
     result: { saved: boolean; filePath?: string; error?: string };
   };
   'config:model-set': {
-    params: { model?: string; autopilot?: boolean };
+    params: {
+      model?: string;
+      autopilot?: boolean;
+      applyTo?: 'global' | 'workspace';
+    };
     result: { success: boolean };
   };
   'auth:setApiKey': {
@@ -1424,6 +1443,18 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisInvocationStatsParams;
     result: SkillSynthesisInvocationStatsResult;
   };
+  'skillSynthesis:listSuggestions': {
+    params: SkillSynthesisListSuggestionsParams;
+    result: SkillSynthesisListSuggestionsResult;
+  };
+  'skillSynthesis:acceptSuggestion': {
+    params: SkillSynthesisAcceptSuggestionParams;
+    result: SkillSynthesisAcceptSuggestionResult;
+  };
+  'skillSynthesis:dismissSuggestion': {
+    params: SkillSynthesisDismissSuggestionParams;
+    result: SkillSynthesisDismissSuggestionResult;
+  };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -1505,6 +1536,10 @@ export interface RpcMethodRegistry {
   'voice:setConfig': {
     params: VoiceSetConfigParams;
     result: VoiceSetConfigResult;
+  };
+  'voice:downloadModel': {
+    params: VoiceDownloadModelParams;
+    result: VoiceDownloadModelResult;
   };
 
   'db:health': {
@@ -1653,7 +1688,7 @@ export interface SkillSynthesisStatsResult {
 }
 
 /**
- * DTO mirroring all 17 SkillSynthesisSettings fields.
+ * DTO mirroring all SkillSynthesisSettings fields.
  * Shared between frontend and backend — no branded types.
  */
 export interface SkillSynthesisSettingsDto {
@@ -1665,15 +1700,18 @@ export interface SkillSynthesisSettingsDto {
   eligibilityMinTurns: number;
   evictionDecayRate: number;
   generalizationContextThreshold: number;
-  minTrajectoryFidelityRatio: number;
   dedupClusterThreshold: number;
-  minAbstractionEditDistance: number;
+  prefilterMinEdits: number;
+  prefilterMinChars: number;
+  prefilterMinToolUses: number;
   judgeEnabled: boolean;
   minJudgeScore: number;
   judgeModel: string;
   maxPinnedSkills: number;
   curatorEnabled: boolean;
   curatorIntervalHours: number;
+  suggestionMinClusterSize: number;
+  suggestionMaxCandidates: number;
 }
 
 export type SkillSynthesisGetSettingsParams = Record<string, never>;
@@ -1715,6 +1753,47 @@ export interface SkillSynthesisRunCuratorResult {
   changesQueued: number;
   skippedPinned: number;
   overlaps?: SkillSynthesisCuratorOverlap[];
+}
+
+export type SkillSuggestionStatus = 'pending' | 'accepted' | 'dismissed';
+
+export interface SkillSuggestionSummary {
+  id: string;
+  name: string;
+  description: string;
+  clusterSize: number;
+  technologyFingerprint: string;
+  judgeScore: number;
+  memberSessionIds: string[];
+  status: SkillSuggestionStatus;
+  createdAt: number;
+}
+
+export interface SkillSuggestionDetail extends SkillSuggestionSummary {
+  body: string;
+}
+
+export interface SkillSynthesisListSuggestionsParams {
+  status?: SkillSuggestionStatus;
+}
+export interface SkillSynthesisListSuggestionsResult {
+  suggestions: SkillSuggestionSummary[];
+}
+
+export interface SkillSynthesisAcceptSuggestionParams {
+  id: string;
+}
+export interface SkillSynthesisAcceptSuggestionResult {
+  accepted: boolean;
+  filePath: string;
+}
+
+export interface SkillSynthesisDismissSuggestionParams {
+  id: string;
+  reason?: string;
+}
+export interface SkillSynthesisDismissSuggestionResult {
+  dismissed: boolean;
 }
 
 export type GatewayPlatformId = 'telegram' | 'discord' | 'slack';
@@ -1901,6 +1980,8 @@ export type VoiceTranscribeResult =
 
 export interface VoiceConfigDto {
   whisperModel: string;
+  /** Whether the selected Whisper model is already downloaded on disk. */
+  downloaded: boolean;
 }
 
 export type VoiceGetConfigParams = Record<string, never>;
@@ -1914,6 +1995,15 @@ export interface VoiceSetConfigParams {
 }
 
 export type VoiceSetConfigResult = { ok: true } | { ok: false; error: string };
+
+export interface VoiceDownloadModelParams {
+  /** Model to download; defaults to the currently configured Whisper model. */
+  model?: string;
+}
+
+export type VoiceDownloadModelResult =
+  | { ok: true; alreadyPresent: boolean }
+  | { ok: false; error: string; code?: string; remediation?: string };
 
 export interface ScheduledJobDto {
   id: string;
@@ -2079,6 +2169,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:copilotLogout': true,
   'auth:copilotStatus': true,
   'auth:codexLogin': true,
+  'auth:getScope': true,
+  'auth:clearWorkspaceOverride': true,
   'setup-status:get-status': true,
   'setup-wizard:launch': true,
   'wizard:deep-analyze': true,
@@ -2134,6 +2226,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'agent:listCliModels': true,
   'agent:permissionResponse': true, // Copilot SDK permission response
   'agent:stop': true,
+  'agent:continue': true,
   'agent:resumeCliSession': true, // CLI agent session resume
   'agent:backgroundList': true, // Background agent listing
   'ptahCli:list': true,
@@ -2280,6 +2373,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:rebaseClone': true,
   'skillSynthesis:keepClone': true,
   'skillSynthesis:invocationStats': true,
+  'skillSynthesis:listSuggestions': true,
+  'skillSynthesis:acceptSuggestion': true,
+  'skillSynthesis:dismissSuggestion': true,
 
   'cron:list': true,
   'cron:get': true,
@@ -2310,6 +2406,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'voice:transcribe': true,
   'voice:getConfig': true,
   'voice:setConfig': true,
+  'voice:downloadModel': true,
 
   'db:health': true,
   'db:reset': true,

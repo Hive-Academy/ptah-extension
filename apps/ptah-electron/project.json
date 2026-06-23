@@ -73,7 +73,6 @@
           "discord.js",
           "@slack/bolt",
           "ffmpeg-static",
-          "nodejs-whisper",
           "bottleneck"
         ],
         "assets": [

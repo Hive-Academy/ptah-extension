@@ -32,7 +32,7 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 - `@ptah-extension/vscode-core` — shared infrastructure (DI, logger, RPC, license)
 - `@ptah-extension/agent-sdk` (`SDK_TOKENS`), `@ptah-extension/rpc-handlers`
 - `@ptah-extension/workspace-intelligence`, `@ptah-extension/agent-generation`, `@ptah-extension/llm-abstraction`, `@ptah-extension/vscode-lm-tools`, `@ptah-extension/memory-curator`, `@ptah-extension/persistence-sqlite`
-- Native + heavy externals (not bundled, listed in `project.json` externals): `electron`, `node-pty`, `better-sqlite3`, `sqlite-vec`, `@huggingface/transformers`, `chrome-launcher`, `chrome-remote-interface`, `grammy`, `discord.js`, `@slack/bolt`, `ffmpeg-static`, `nodejs-whisper`, `web-tree-sitter`, and all three AI provider SDKs.
+- Native + heavy externals (not bundled, listed in `project.json` externals): `electron`, `node-pty`, `better-sqlite3`, `sqlite-vec`, `@huggingface/transformers`, `chrome-launcher`, `chrome-remote-interface`, `grammy`, `discord.js`, `@slack/bolt`, `ffmpeg-static`, `web-tree-sitter`, and all three AI provider SDKs. Voice transcription runs on `@huggingface/transformers` (ASR) + `onnxruntime-node` — the same runtime as the memory embedder; there is no whisper.cpp / nodejs-whisper native build.
 
 ## Build & Run
 

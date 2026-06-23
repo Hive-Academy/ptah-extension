@@ -14,6 +14,7 @@ import {
   CliDetectionService,
   CopilotPermissionBridge,
   AgentProcessManager,
+  AgentContinueError,
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
 } from '@ptah-extension/cli-agent-runtime';
@@ -24,6 +25,7 @@ import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
   AgentListCliModelsResult,
+  AgentContinueErrorCode,
   CliModelOption,
   AgentPermissionDecision,
   ISdkPermissionHandler,
@@ -74,6 +76,7 @@ export class AgentRpcHandlers {
     this.registerListCliModels();
     this.registerPermissionResponse();
     this.registerAgentStop();
+    this.registerAgentContinue();
     this.registerResumeCliSession();
     const copilotAutoApprove =
       this.workspaceProvider.getConfiguration<boolean>(
@@ -97,6 +100,7 @@ export class AgentRpcHandlers {
         'agent:listCliModels',
         'agent:permissionResponse',
         'agent:stop',
+        'agent:continue',
         'agent:resumeCliSession',
       ],
     });
@@ -663,6 +667,53 @@ export class AgentRpcHandlers {
           error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
+      }
+    });
+  }
+
+  private registerAgentContinue(): void {
+    this.rpcHandler.registerMethod<
+      { agentId: string; message: string },
+      { success: boolean; error?: string; code?: AgentContinueErrorCode }
+    >('agent:continue', async (params) => {
+      try {
+        this.logger.debug('RPC: agent:continue called', {
+          agentId: params.agentId,
+        });
+
+        await this.agentProcessManager.continueConversation(
+          params.agentId,
+          params.message,
+        );
+
+        this.logger.info('RPC: agent:continue success', {
+          agentId: params.agentId,
+        });
+
+        return { success: true };
+      } catch (error) {
+        if (error instanceof AgentContinueError) {
+          this.logger.warn('RPC: agent:continue rejected', {
+            agentId: params.agentId,
+            code: error.code,
+          });
+          return { success: false, code: error.code, error: error.message };
+        }
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(errorMessage),
+          { errorSource: 'AgentRpcHandlers.registerAgentContinue' },
+        );
+        this.logger.error(
+          'RPC: agent:continue failed',
+          error instanceof Error ? error : new Error(errorMessage),
+        );
+        return {
+          success: false,
+          code: 'unknown',
+          error: 'Failed to continue agent conversation',
+        };
       }
     });
   }

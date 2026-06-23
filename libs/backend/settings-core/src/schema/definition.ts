@@ -50,6 +50,8 @@ export interface SettingDefinition<T> {
    * this key instead of `key` (which may contain trademarked terms).
    */
   readonly marketplaceSafeKey?: string;
+
+  readonly appScopable?: boolean;
 }
 
 /**

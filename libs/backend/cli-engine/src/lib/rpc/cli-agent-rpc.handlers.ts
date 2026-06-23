@@ -1,7 +1,7 @@
 /**
  * CLI parity copy of Electron AgentRpcHandlers.
  *
- * Handles the seven `agent:*` RPC methods locally inside the CLI app. The
+ * Handles the `agent:*` RPC methods locally inside the CLI app. The
  * Electron implementation lives at
  * `apps/ptah-electron/src/services/rpc/handlers/agent-rpc.handlers.ts` —
  * each method body in this file is a near-byte-for-byte copy of the
@@ -35,6 +35,7 @@ import {
   CliDetectionService,
   CopilotPermissionBridge,
   AgentProcessManager,
+  AgentContinueError,
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
 } from '@ptah-extension/cli-agent-runtime';
@@ -45,6 +46,7 @@ import type {
   AgentListCliModelsResult,
   CliModelOption,
   AgentPermissionDecision,
+  AgentContinueErrorCode,
   CliDetectionResult,
   CliType,
   SpawnAgentResult,
@@ -66,6 +68,7 @@ export class CliAgentRpcHandlers {
     'agent:listCliModels',
     'agent:permissionResponse',
     'agent:stop',
+    'agent:continue',
     'agent:resumeCliSession',
   ] as const;
 
@@ -97,6 +100,7 @@ export class CliAgentRpcHandlers {
     this.registerListCliModels();
     this.registerPermissionResponse();
     this.registerAgentStop();
+    this.registerAgentContinue();
     this.registerResumeCliSession();
     const copilotAutoApprove = this.getAgentCfg<boolean>(
       'copilotAutoApprove',
@@ -118,6 +122,7 @@ export class CliAgentRpcHandlers {
         'agent:listCliModels',
         'agent:permissionResponse',
         'agent:stop',
+        'agent:continue',
         'agent:resumeCliSession',
       ],
     });
@@ -453,6 +458,49 @@ export class CliAgentRpcHandlers {
           error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
+      }
+    });
+  }
+
+  private registerAgentContinue(): void {
+    this.rpcHandler.registerMethod<
+      { agentId: string; message: string },
+      { success: boolean; error?: string; code?: AgentContinueErrorCode }
+    >('agent:continue', async (params) => {
+      try {
+        this.logger.debug('RPC: agent:continue called', {
+          agentId: params.agentId,
+        });
+
+        await this.agentProcessManager.continueConversation(
+          params.agentId,
+          params.message,
+        );
+
+        this.logger.info('RPC: agent:continue success', {
+          agentId: params.agentId,
+        });
+
+        return { success: true };
+      } catch (error) {
+        if (error instanceof AgentContinueError) {
+          this.logger.warn('RPC: agent:continue rejected', {
+            agentId: params.agentId,
+            code: error.code,
+          });
+          return { success: false, code: error.code, error: error.message };
+        }
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          'RPC: agent:continue failed',
+          error instanceof Error ? error : new Error(errorMessage),
+        );
+        return {
+          success: false,
+          code: 'unknown',
+          error: 'Failed to continue agent conversation',
+        };
       }
     });
   }

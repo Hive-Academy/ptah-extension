@@ -257,6 +257,36 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
     expect(setAgentId).toHaveBeenCalledWith('spawned-1');
   });
 
+  it('forwards the raw model override and modelTier into registry.spawnAgent', async () => {
+    const { deps, mocks } = makeDeps();
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    mocks.registry!.spawnAgent.mockResolvedValue({
+      handle: { id: 'h' } as unknown as SdkHandle,
+      agentName: 'MyAgent',
+      setAgentId: jest.fn(),
+    });
+    mocks.processManager.spawnFromSdkHandle.mockResolvedValue({
+      agentId: 'spawned-2',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 'task body',
+      ptahCliId: 'agent-a',
+      model: 'raw-override-model',
+      modelTier: 'opus',
+    } as SpawnAgentRequest);
+
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    expect(mocks.registry!.spawnAgent).toHaveBeenCalledWith(
+      'agent-a',
+      'task body',
+      expect.objectContaining({
+        model: 'raw-override-model',
+        modelTier: 'opus',
+      }),
+    );
+  });
+
   it('throws with helpful message when registry returns a failure status', async () => {
     const { deps, mocks } = makeDeps();
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion

@@ -59,3 +59,7 @@ export const SETUP_HUB_COMPONENT = new InjectionToken<Type<unknown>>(
 export const MARKETPLACE_COMPONENT = new InjectionToken<Type<unknown>>(
   'MARKETPLACE_COMPONENT',
 );
+
+export const TRIBUNAL_COMPONENT = new InjectionToken<Type<unknown>>(
+  'TRIBUNAL_COMPONENT',
+);

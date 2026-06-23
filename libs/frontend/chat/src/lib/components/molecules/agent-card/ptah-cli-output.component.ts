@@ -41,7 +41,7 @@ import { AgentMonitorTreeBuilderService } from '../../../services/agent-monitor-
     >
       <div class="p-2 space-y-1">
         @for (node of executionNodes(); track node.id) {
-        <ptah-execution-node [node]="node" [isStreaming]="isStreaming()" />
+          <ptah-execution-node [node]="node" [isStreaming]="isStreaming()" />
         }
       </div>
     </div>
@@ -51,8 +51,13 @@ export class PtahCliOutputComponent {
   /** Agent ID for per-agent cache isolation in the tree builder */
   readonly agentId = input.required<string>();
 
-  /** Flat streaming events from MonitoredAgent.streamEvents */
+  /** Flat streaming events from MonitoredAgent.streamEvents. Mutated in place by
+   *  the store, so its reference is stable — `streamRevision` is what changes. */
   readonly streamEvents = input.required<FlatStreamEventUnion[]>();
+
+  /** Bumped by the store on every streamEvents append. The executionNodes
+   *  computed depends on this (not the array identity) to recompute the tree. */
+  readonly streamRevision = input<number>(0);
 
   /** Whether the agent is still running (passed through to ExecutionNodeComponent) */
   readonly isStreaming = input<boolean>(false);
@@ -66,9 +71,12 @@ export class PtahCliOutputComponent {
    *  When the agent is no longer streaming, finalize any orphaned tools
    *  (tools that never received a result before the session ended). */
   readonly executionNodes = computed(() => {
+    // streamEvents is mutated in place (stable reference); depend on
+    // streamRevision so the tree recomputes when new events are appended.
+    this.streamRevision();
     const tree = this.treeBuilder.buildTree(
       this.agentId(),
-      this.streamEvents()
+      this.streamEvents(),
     );
     if (!this.isStreaming()) {
       return this.treeBuilder.finalizeOrphanedTools(tree);
