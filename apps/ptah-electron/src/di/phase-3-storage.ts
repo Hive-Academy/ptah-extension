@@ -14,13 +14,18 @@ import {
   PLATFORM_TOKENS,
   type IStateStorage,
   type IWorkspaceProvider,
+  type IFileSystemProvider,
+  type IEditorProvider,
 } from '@ptah-extension/platform-core';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   registerVsCodeLmToolsServices,
   BROWSER_CAPABILITIES_TOKEN,
   ChromeLauncherBrowserCapabilities,
+  IDE_CAPABILITIES_TOKEN,
 } from '@ptah-extension/vscode-lm-tools';
+import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
+import type { WorkspaceIndexerService } from '@ptah-extension/workspace-intelligence';
 
 import {
   ElectronPlatformCommands,
@@ -29,7 +34,11 @@ import {
   ElectronModelDiscovery,
   ElectronPowerMonitor,
 } from '../services/platform';
+import { ElectronIDECapabilities } from '../services/electron-ide-capabilities';
 import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
+
+/** Global symbol the symbol-index reader is registered under (memory-curator). */
+const CODE_SYMBOL_READER_TOKEN = Symbol.for('PtahCodeSymbolReader');
 
 /**
  * Phase 3: Register storage adapters, platform abstractions, and vscode-lm-tools.
@@ -131,19 +140,56 @@ export function registerPhase3Storage(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
   container.register(BROWSER_CAPABILITIES_TOKEN, {
-    useValue: new ChromeLauncherBrowserCapabilities(
-      () => {
-        const configured =
-          workspaceProvider.getConfiguration<string>(
-            'ptah',
-            'browser.recordingDir',
-            '',
-          ) ?? '';
-        if (configured) return configured;
-        const wsRoot = workspaceProvider.getWorkspaceRoot();
-        if (wsRoot) return `${wsRoot}/.ptah/recordings`;
-        return '';
-      },
-    ),
+    useValue: new ChromeLauncherBrowserCapabilities(() => {
+      const configured =
+        workspaceProvider.getConfiguration<string>(
+          'ptah',
+          'browser.recordingDir',
+          '',
+        ) ?? '';
+      if (configured) return configured;
+      const wsRoot = workspaceProvider.getWorkspaceRoot();
+      if (wsRoot) return `${wsRoot}/.ptah/recordings`;
+      return '';
+    }),
   });
+
+  // IDE capabilities backed by the Tree-sitter symbol index. Registering this
+  // unlocks the ptah_lsp_references / ptah_lsp_definitions / ptah_get_dirty_files
+  // MCP tools (gated on hasIDECapabilities). The symbol reader is registered by
+  // memory-curator in phase 2 and may be absent if that registration was skipped
+  // — ElectronIDECapabilities degrades to empty definitions in that case.
+  try {
+    const symbolReader = container.isRegistered(CODE_SYMBOL_READER_TOKEN)
+      ? container.resolve<ICodeSymbolReader>(CODE_SYMBOL_READER_TOKEN)
+      : undefined;
+    const indexerService = container.resolve<WorkspaceIndexerService>(
+      TOKENS.WORKSPACE_INDEXER_SERVICE,
+    );
+    const fileSystemProvider = container.resolve<IFileSystemProvider>(
+      PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER,
+    );
+    const editorProvider = container.resolve<IEditorProvider>(
+      PLATFORM_TOKENS.EDITOR_PROVIDER,
+    );
+    container.register(IDE_CAPABILITIES_TOKEN, {
+      useValue: new ElectronIDECapabilities(
+        symbolReader,
+        indexerService,
+        fileSystemProvider,
+        workspaceProvider,
+        editorProvider,
+        logger,
+      ),
+    });
+    logger.info(
+      '[Electron DI] ElectronIDECapabilities registered (LSP references/definitions via symbol index)',
+      { symbolReader: symbolReader !== undefined },
+    );
+  } catch (error) {
+    logger.warn(
+      '[Electron DI] ElectronIDECapabilities registration skipped (non-fatal)',
+      { error: error instanceof Error ? error.message : String(error) },
+    );
+  }
 }

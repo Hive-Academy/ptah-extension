@@ -4,6 +4,7 @@ import type {
   CloneSummary,
   SkillCloneInvocationStats,
   SkillCloneKind,
+  SkillSuggestionDetail,
   SkillSuggestionSummary,
   SkillSynthesisCandidateDetail,
   SkillSynthesisCandidateSummary,
@@ -357,6 +358,40 @@ export class SkillSynthesisRpcService {
       return result.data;
     }
     throw new Error(result.error || 'Failed to accept skill suggestion');
+  }
+
+  /** Fetch a single suggestion's full detail (includes the SKILL.md body). */
+  public async getSuggestion(
+    id: string,
+  ): Promise<SkillSuggestionDetail | null> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:getSuggestion',
+      { id },
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.suggestion;
+    }
+    throw new Error(result.error || 'Failed to get skill suggestion');
+  }
+
+  /**
+   * Edit a still-pending suggestion's name/description/body before accepting.
+   * Returns the updated detail (or null when the suggestion no longer exists).
+   */
+  public async updateSuggestion(
+    id: string,
+    fields: { name?: string; description?: string; body?: string },
+  ): Promise<SkillSuggestionDetail | null> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:updateSuggestion',
+      { id, ...fields },
+      { timeout: SKILL_RPC_TIMEOUTS.SHORT_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.suggestion;
+    }
+    throw new Error(result.error || 'Failed to update skill suggestion');
   }
 
   /** Dismiss a suggestion, optionally persisting a dismissal reason. */

@@ -178,6 +178,44 @@ describe('SessionLoaderService', () => {
     });
   });
 
+  describe('upsertSessionSummary', () => {
+    it('inserts a new summary at the head and increments total count', async () => {
+      rpcCall.mockResolvedValueOnce({
+        success: true,
+        data: {
+          sessions: [makeSummary({ id: 'old' })],
+          total: 1,
+          hasMore: false,
+        },
+      });
+      await service.loadSessions();
+
+      service.upsertSessionSummary(makeSummary({ id: 'fork', name: 'forked' }));
+      expect(service.sessions().map((s) => s.id)).toEqual(['fork', 'old']);
+      expect(service.totalSessions()).toBe(2);
+    });
+
+    it('replaces an existing summary with the same id in place (no count bump)', async () => {
+      rpcCall.mockResolvedValueOnce({
+        success: true,
+        data: {
+          sessions: [
+            makeSummary({ id: 'fork', name: 'before' }),
+            makeSummary({ id: 'other' }),
+          ],
+          total: 2,
+          hasMore: false,
+        },
+      });
+      await service.loadSessions();
+
+      service.upsertSessionSummary(makeSummary({ id: 'fork', name: 'after' }));
+      expect(service.sessions().map((s) => s.id)).toEqual(['fork', 'other']);
+      expect(service.sessions()[0].name).toBe('after');
+      expect(service.totalSessions()).toBe(2);
+    });
+  });
+
   describe('resumable subagent management', () => {
     it('clearResumableSubagents empties the signal', () => {
       // _resumableSubagents starts empty but we test the clear API is safe.

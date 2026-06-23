@@ -136,6 +136,8 @@ function makeHarness(
   const suppressAnimateOnceSig = signal<boolean>(false);
 
   const switchSessionMock = jest.fn().mockResolvedValue(undefined);
+  const upsertSessionSummaryMock = jest.fn();
+  const removeSessionFromListMock = jest.fn();
   const chatStoreStub = {
     currentSessionId: sessionIdSig.asReadonly(),
     sessionIsActive: sessionIsActiveSig.asReadonly(),
@@ -148,6 +150,8 @@ function makeHarness(
     queueRestoreContent: signal(null),
     agentPanelOpen: signal(false),
     switchSession: switchSessionMock,
+    upsertSessionSummary: upsertSessionSummaryMock,
+    removeSessionFromList: removeSessionFromListMock,
   } as unknown as ChatStore;
 
   // TabManagerService: resolvedTabId and resolvedSessionId depend on it
@@ -226,6 +230,7 @@ function makeHarness(
   const showInfoMock = jest.fn();
   const showWarningMock = jest.fn();
   const actionBannerStub = {
+    banner: signal<unknown>(null).asReadonly(),
     error: signal<string | null>(null).asReadonly(),
     info: signal<string | null>(null).asReadonly(),
     warning: signal<string | null>(null).asReadonly(),
@@ -319,6 +324,8 @@ function makeHarness(
     findTabsBySessionIdMock,
     rebindTabSessionMock,
     closeTabMock,
+    upsertSessionSummaryMock,
+    removeSessionFromListMock,
     requestCanvasSessionMock,
     layoutModeSig,
     showErrorMock,
@@ -384,6 +391,7 @@ describe('ChatViewComponent — rewind flow (backend auto-resume)', () => {
     expect(h.showErrorMock).toHaveBeenCalledTimes(1);
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.rewindFilesMock).toHaveBeenCalledTimes(1);
     expect(h.confirmMock).not.toHaveBeenCalled();
@@ -462,16 +470,27 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
       activate: true,
     });
 
+    // Forked session optimistically surfaced in the sidebar before rebind.
+    expect(h.upsertSessionSummaryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'new-session-uuid-999',
+        name: 'Original Session (rewind)',
+        isActive: true,
+      }),
+    );
+
     // Success message — no rollback suffix
     expect(h.showInfoMock).toHaveBeenCalledTimes(1);
     expect(h.showInfoMock).toHaveBeenCalledWith(
       'Rewind complete — conversation rewound to this message',
+      'tab-abc',
     );
 
     // Original NOT deleted
     expect(h.findTabsBySessionIdMock).not.toHaveBeenCalled();
     expect(h.deleteSessionMock).not.toHaveBeenCalled();
     expect(h.closeTabMock).not.toHaveBeenCalled();
+    expect(h.removeSessionFromListMock).not.toHaveBeenCalled();
   });
 
   it('delete-original path: checkbox checked + all tabs closed → findTabsBySessionId + closeTab + claudeRpc.deleteSession called in order', async () => {
@@ -496,11 +515,17 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     const firstDelete = h.deleteSessionMock.mock.invocationCallOrder[0];
     expect(firstClose).toBeLessThan(firstDelete);
 
+    // Original dropped from the sidebar immediately after a successful delete.
+    expect(h.removeSessionFromListMock).toHaveBeenCalledWith(
+      'session-uuid-123',
+    );
+
     expect(h.switchSessionMock).toHaveBeenCalledWith('new-session-uuid-999', {
       activate: true,
     });
     expect(h.showInfoMock).toHaveBeenCalledWith(
       'Rewind complete — conversation rewound to this message',
+      'tab-abc',
     );
   });
 
@@ -521,6 +546,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.deleteSessionMock).not.toHaveBeenCalled();
     expect(h.showWarningMock).toHaveBeenCalledWith(
       expect.stringContaining('original session left in place'),
+      'tab-abc',
     );
   });
 
@@ -541,6 +567,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.deleteSessionMock).toHaveBeenCalledWith('session-uuid-123');
     expect(h.showWarningMock).toHaveBeenCalledWith(
       expect.stringContaining('original session delete failed'),
+      'tab-abc',
     );
   });
 
@@ -552,6 +579,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.forkSessionMock).not.toHaveBeenCalled();
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
@@ -586,6 +614,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.showWarningMock).toHaveBeenCalledTimes(1);
     expect(h.showWarningMock).toHaveBeenCalledWith(
       expect.stringContaining('file rollback skipped'),
+      'tab-abc',
     );
   });
 
@@ -611,6 +640,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.forkSessionMock).not.toHaveBeenCalled();
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
@@ -637,6 +667,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.forkSessionMock).not.toHaveBeenCalled();
   });
@@ -661,6 +692,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.forkSessionMock).toHaveBeenCalled();
     expect(h.showInfoMock).toHaveBeenCalledWith(
       'Rewind complete — conversation rewound to this message',
+      'tab-abc',
     );
   });
 
@@ -688,6 +720,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     );
     expect(h.showWarningMock).toHaveBeenCalledWith(
       expect.stringContaining('file rollback skipped'),
+      'tab-abc',
     );
   });
 
@@ -720,6 +753,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
     expect(h.switchSessionMock).not.toHaveBeenCalled();
@@ -757,6 +791,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       'Cannot rewind to this point — no assistant reply exists yet.',
+      null,
     );
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
     expect(h.switchSessionMock).not.toHaveBeenCalled();
@@ -798,6 +833,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     });
     expect(h.showInfoMock).toHaveBeenCalledWith(
       'Rewind complete — conversation rewound to this message',
+      'tab-abc',
     );
   });
 
@@ -816,8 +852,32 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.rebindTabSessionMock).toHaveBeenCalled();
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('activating it failed'),
+      'tab-abc',
     );
     expect(h.deleteSessionMock).not.toHaveBeenCalled();
+    expect(h.showInfoMock).not.toHaveBeenCalled();
+  });
+
+  it('aborts when the originating tab cannot be found — does NOT rewire the active tab', async () => {
+    const h = makeHarness();
+    primeHappyPath(h);
+    // Simulate the originating tab having been closed mid-dialog (or a
+    // workspace-partition mismatch): the singular lookup returns null.
+    h.findTabBySessionIdMock.mockReturnValue(null);
+
+    await h.component.onRewindRequested('msg-no-origin-tab');
+
+    // forkSession runs before the origin-tab check, so it was called; but the
+    // in-place swap is aborted — the active tab is NOT silently rewired to
+    // the fork (the wrong-session-rewind regression).
+    expect(h.forkSessionMock).toHaveBeenCalledTimes(1);
+    expect(h.rebindTabSessionMock).not.toHaveBeenCalled();
+    expect(h.switchSessionMock).not.toHaveBeenCalled();
+    expect(h.upsertSessionSummaryMock).not.toHaveBeenCalled();
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining('originating tab could not be found'),
+      null,
+    );
     expect(h.showInfoMock).not.toHaveBeenCalled();
   });
 });

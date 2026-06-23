@@ -101,7 +101,12 @@ import type {
   SkillSynthesisAcceptSuggestionResult,
   SkillSynthesisDismissSuggestionParams,
   SkillSynthesisDismissSuggestionResult,
+  SkillSynthesisGetSuggestionParams,
+  SkillSynthesisGetSuggestionResult,
+  SkillSynthesisUpdateSuggestionParams,
+  SkillSynthesisUpdateSuggestionResult,
   SkillSuggestionSummary,
+  SkillSuggestionDetail,
   CloneSummary,
   SkillCloneKind,
 } from '@ptah-extension/shared';
@@ -126,6 +131,8 @@ import {
   SkillListSuggestionsParamsSchema,
   SkillAcceptSuggestionParamsSchema,
   SkillDismissSuggestionParamsSchema,
+  SkillGetSuggestionParamsSchema,
+  SkillUpdateSuggestionParamsSchema,
 } from './skills-synthesis-rpc.schema';
 
 interface ICuratorService {
@@ -171,6 +178,8 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:listSuggestions',
     'skillSynthesis:acceptSuggestion',
     'skillSynthesis:dismissSuggestion',
+    'skillSynthesis:getSuggestion',
+    'skillSynthesis:updateSuggestion',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -226,6 +235,8 @@ export class SkillsSynthesisRpcHandlers {
     this.registerListSuggestions();
     this.registerAcceptSuggestion();
     this.registerDismissSuggestion();
+    this.registerGetSuggestion();
+    this.registerUpdateSuggestion();
 
     this.logger.debug('Skill Synthesis RPC handlers registered', {
       methods: SkillsSynthesisRpcHandlers.METHODS as unknown as string[],
@@ -997,6 +1008,61 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
+  private registerGetSuggestion(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisGetSuggestionParams,
+      SkillSynthesisGetSuggestionResult
+    >('skillSynthesis:getSuggestion', async (params) => {
+      const parsed = this.parseParams(
+        SkillGetSuggestionParamsSchema,
+        params,
+        'skillSynthesis:getSuggestion',
+      );
+      try {
+        const store = this.requireDesktop(this.suggestionStore);
+        const row = store.findById(parsed.id);
+        return { suggestion: row ? toSuggestionDetail(row) : null };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerGetSuggestion');
+        throw this.toUserError('skillSynthesis:getSuggestion');
+      }
+    });
+  }
+
+  private registerUpdateSuggestion(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisUpdateSuggestionParams,
+      SkillSynthesisUpdateSuggestionResult
+    >('skillSynthesis:updateSuggestion', async (params) => {
+      const parsed = this.parseParams(
+        SkillUpdateSuggestionParamsSchema,
+        params,
+        'skillSynthesis:updateSuggestion',
+      );
+      try {
+        const store = this.requireDesktop(this.suggestionStore);
+        const row = store.updatePending(parsed.id, {
+          name: parsed.name,
+          description: parsed.description,
+          body: parsed.body,
+        });
+        const updated = row !== null && row.status === 'pending';
+        return {
+          updated,
+          suggestion: row ? toSuggestionDetail(row) : null,
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerUpdateSuggestion',
+        );
+        throw this.toUserError('skillSynthesis:updateSuggestion');
+      }
+    });
+  }
+
   private parseParams<T>(
     schema: { parse: (input: unknown) => T },
     params: unknown,
@@ -1185,6 +1251,13 @@ function toSuggestionSummary(row: SkillSuggestionRow): SkillSuggestionSummary {
     memberSessionIds: row.memberSessionIds,
     status: row.status,
     createdAt: row.createdAt,
+  };
+}
+
+function toSuggestionDetail(row: SkillSuggestionRow): SkillSuggestionDetail {
+  return {
+    ...toSuggestionSummary(row),
+    body: row.body,
   };
 }
 

@@ -99,6 +99,39 @@ export class SkillSuggestionStore {
     return rows.map((r) => this.toRow(r));
   }
 
+  /**
+   * Edit the human-facing fields of a still-pending suggestion before it is
+   * accepted. Only `name`, `description`, and `body` are editable, and only
+   * while the suggestion is `pending` (an accepted/dismissed row is immutable).
+   * Returns the updated row, or the unchanged row when no fields were supplied.
+   */
+  updatePending(
+    id: string,
+    fields: { name?: string; description?: string; body?: string },
+  ): SkillSuggestionRow | null {
+    const current = this.findById(id);
+    if (!current) {
+      this.logger.warn('[skill-synthesis] updatePending: not found', { id });
+      return null;
+    }
+    if (current.status !== 'pending') {
+      return current;
+    }
+    const next = {
+      name: fields.name ?? current.name,
+      description: fields.description ?? current.description,
+      body: fields.body ?? current.body,
+    };
+    this.db
+      .prepare(
+        `UPDATE skill_suggestions
+           SET name = ?, description = ?, body = ?
+         WHERE id = ?`,
+      )
+      .run(next.name, next.description, next.body, id);
+    return this.findById(id);
+  }
+
   accept(id: string): SkillSuggestionRow | null {
     return this.transition(id, 'accepted');
   }

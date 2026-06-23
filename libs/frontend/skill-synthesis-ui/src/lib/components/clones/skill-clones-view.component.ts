@@ -38,7 +38,9 @@ interface ClonesToast {
       <div class="space-y-4" data-testid="clones-view">
         <div class="flex items-center justify-between">
           <p class="text-sm text-base-content/60">
-            Local copies of skills, enhanced from your usage.
+            Your active skills, agents, and commands. Thoth auto-improves them
+            from usage; Success and Last enhanced stay blank until they're
+            actually invoked.
           </p>
           <button
             type="button"
@@ -50,6 +52,37 @@ interface ClonesToast {
             {{ loading() ? 'Refreshing…' : 'Refresh' }}
           </button>
         </div>
+
+        <dl
+          class="flex flex-wrap gap-x-5 gap-y-1 text-xs text-base-content/60"
+          aria-label="Status legend"
+          data-testid="clones-legend"
+        >
+          <div class="inline-flex items-center gap-1.5">
+            <span class="inline-block size-1.5 rounded-full bg-info"></span>
+            <dt class="font-medium">authored</dt>
+            <dd>built-in / yours</dd>
+          </div>
+          <div class="inline-flex items-center gap-1.5">
+            <span
+              class="inline-block size-1.5 rounded-full bg-base-content/40"
+            ></span>
+            <dt class="font-medium">clone</dt>
+            <dd>copied from a plugin</dd>
+          </div>
+          <div class="inline-flex items-center gap-1.5">
+            <span
+              class="inline-block size-1.5 rounded-full bg-secondary"
+            ></span>
+            <dt class="font-medium">synth</dt>
+            <dd>from an accepted recommendation</dd>
+          </div>
+          <div class="inline-flex items-center gap-1.5">
+            <span class="inline-block size-1.5 rounded-full bg-warning"></span>
+            <dt class="font-medium">diverged</dt>
+            <dd>upstream changed — rebase or keep</dd>
+          </div>
+        </dl>
 
         @if (error(); as msg) {
           <div role="alert" class="alert alert-error py-2 text-sm">
@@ -109,7 +142,7 @@ interface ClonesToast {
                     {{ c.invocationCount }}
                   </td>
                   <td class="text-right tabular-nums">
-                    {{ formatSuccessRate(c.successRate) }}
+                    {{ formatSuccess(c) }}
                   </td>
                   <td class="text-xs">
                     {{ formatRelative(c.lastEnhancedAt) }}
@@ -374,9 +407,9 @@ export class SkillClonesViewComponent implements OnInit {
     }
   }
 
-  protected formatSuccessRate(rate: number): string {
-    if (!Number.isFinite(rate)) return '—';
-    return `${Math.round(rate * 100)}%`;
+  protected formatSuccess(c: CloneSummary): string {
+    if (c.invocationCount <= 0 || !Number.isFinite(c.successRate)) return '—';
+    return `${Math.round(c.successRate * 100)}%`;
   }
 
   protected formatRelative(epochMs: number | null): string {

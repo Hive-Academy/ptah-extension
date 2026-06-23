@@ -1,12 +1,14 @@
 /**
  * SkillJudgeService — LLM-as-judge gate during skill promotion (Signal 5).
  *
- * Evaluates a candidate's body against three criteria (novelty, actionability,
- * scope), each scored 1-10 by the LLM. A composite average is compared against
- * `settings.minJudgeScore`. Fails open on LLM errors (returns score=10, passed=true)
- * so promotion is never blocked by an unavailable judge.
+ * Evaluates a candidate's body against five skill-authoring criteria (novelty,
+ * actionability, scope, generalization, triggerClarity), each scored 1-10 by the
+ * LLM. A composite average is compared against `settings.minJudgeScore`. Fails
+ * open on LLM errors (returns score=10, passed=true) so promotion is never
+ * blocked by an unavailable judge.
  *
- * Only runs at the promotion gate — NOT at candidate creation time.
+ * Runs at the promotion gate and at the suggestion-pass gate — NOT at candidate
+ * creation time.
  */
 import * as os from 'node:os';
 import { inject, injectable } from 'tsyringe';
@@ -56,7 +58,7 @@ export class SkillJudgeService {
     const model = this.resolveModel(settings.judgeModel);
 
     const prompt = [
-      `Evaluate this skill for promotion based on three criteria. Reply with ONLY valid JSON.`,
+      `Evaluate this synthesized skill against skill-authoring best practices. A good skill is a REUSABLE, repo-agnostic workflow with a trigger-oriented description and concise, actionable steps. Reply with ONLY valid JSON.`,
       ``,
       `Skill name: ${candidate.name}`,
       `Skill description: ${candidate.description}`,
@@ -66,12 +68,14 @@ export class SkillJudgeService {
       body.slice(0, 3000),
       `---`,
       ``,
-      `Score each criterion 1-10:`,
-      `- novelty: How novel/non-obvious is this skill compared to common knowledge?`,
-      `- actionability: How directly actionable are the steps?`,
-      `- scope: Is the scope well-defined (not too broad, not too trivial)?`,
+      `Score each criterion 1-10 (be strict — score low when in doubt):`,
+      `- novelty: How novel/non-obvious is this versus common knowledge an agent already has?`,
+      `- actionability: How directly executable are the steps (imperative, concrete, ordered)?`,
+      `- scope: Is the scope a single well-defined workflow (not too broad, not a trivial one-off)?`,
+      `- generalization: Is it repo-agnostic and transferable, with NO leftover workspace paths, file names, or session-specific details? Score 1-3 if it merely echoes one session or restates the user's request.`,
+      `- triggerClarity: Does the description clearly state WHEN to use the skill, so another agent could decide to trigger it? Score low if vague or it just names the task.`,
       ``,
-      `Reply with ONLY: {"novelty": <number>, "actionability": <number>, "scope": <number>}`,
+      `Reply with ONLY: {"novelty": <number>, "actionability": <number>, "scope": <number>, "generalization": <number>, "triggerClarity": <number>}`,
     ].join('\n');
 
     const abortController = new AbortController();
@@ -115,13 +119,23 @@ export class SkillJudgeService {
         novelty?: unknown;
         actionability?: unknown;
         scope?: unknown;
+        generalization?: unknown;
+        triggerClarity?: unknown;
       };
 
       const novelty = toScore(parsed.novelty);
       const actionability = toScore(parsed.actionability);
       const scope = toScore(parsed.scope);
+      const generalization = toScore(parsed.generalization);
+      const triggerClarity = toScore(parsed.triggerClarity);
 
-      if (novelty === null || actionability === null || scope === null) {
+      if (
+        novelty === null ||
+        actionability === null ||
+        scope === null ||
+        generalization === null ||
+        triggerClarity === null
+      ) {
         this.logger.warn('[skill-judge] invalid score values in response', {
           candidateId: candidate.id,
           parsed,
@@ -129,7 +143,8 @@ export class SkillJudgeService {
         return { passed: true, score: 10, reason: 'judge-error-passthrough' };
       }
 
-      const composite = (novelty + actionability + scope) / 3;
+      const composite =
+        (novelty + actionability + scope + generalization + triggerClarity) / 5;
       const passed = composite >= settings.minJudgeScore;
 
       this.logger.info('[skill-judge] verdict', {
@@ -139,6 +154,8 @@ export class SkillJudgeService {
         novelty,
         actionability,
         scope,
+        generalization,
+        triggerClarity,
       });
 
       return { passed, score: composite, reason: 'judge-verdict' };

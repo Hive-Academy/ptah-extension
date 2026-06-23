@@ -163,6 +163,11 @@ interface ActionDialogState {
         @switch (subView()) {
           @case ('candidates') {
             <div class="space-y-4">
+              <p class="text-xs text-base-content/60">
+                Raw per-session captures. These feed the clustering that
+                produces Recommended skills — promote here only for one-off
+                power use.
+              </p>
               <nav
                 role="tablist"
                 aria-label="Status filter"
@@ -458,14 +463,14 @@ export class SkillSynthesisTabComponent implements OnInit {
     readonly id: SkillSubView;
     readonly label: string;
   }> = [
-    { id: 'candidates', label: 'Candidates' },
-    { id: 'suggestions', label: 'Suggestions' },
+    { id: 'suggestions', label: 'Recommended' },
+    { id: 'candidates', label: 'Sessions' },
+    { id: 'clones', label: 'Library' },
     { id: 'activity', label: 'Activity' },
-    { id: 'clones', label: 'Clones' },
     { id: 'settings', label: 'Settings' },
   ];
 
-  private readonly _subView = signal<SkillSubView>('candidates');
+  private readonly _subView = signal<SkillSubView>('suggestions');
   protected readonly subView = this._subView.asReadonly();
 
   public readonly actionDialog = signal<ActionDialogState | null>(null);

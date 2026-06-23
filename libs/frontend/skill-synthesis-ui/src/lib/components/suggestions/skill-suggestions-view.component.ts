@@ -9,7 +9,15 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { VSCodeService } from '@ptah-extension/core';
-import { LucideAngularModule, Check, Eye, Layers, X } from 'lucide-angular';
+import { MarkdownBlockComponent } from '@ptah-extension/markdown';
+import {
+  LucideAngularModule,
+  Check,
+  Eye,
+  Layers,
+  Pencil,
+  X,
+} from 'lucide-angular';
 import type { SkillSuggestionSummary } from '@ptah-extension/shared';
 
 import { SkillSynthesisStateService } from '../../services/skill-synthesis-state.service';
@@ -23,7 +31,12 @@ interface SuggestionsToast {
   selector: 'ptah-skill-suggestions-view',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [
+    CommonModule,
+    FormsModule,
+    LucideAngularModule,
+    MarkdownBlockComponent,
+  ],
   template: `
     @if (!isElectron()) {
       <div
@@ -39,7 +52,8 @@ interface SuggestionsToast {
       <div class="space-y-4" data-testid="suggestions-view">
         <div class="flex items-center justify-between">
           <p class="text-sm text-base-content/60">
-            Skills proposed from clusters of similar successful sessions.
+            Skills Thoth distilled from clusters of similar successful sessions
+            — review and refine each before adding it to your library.
           </p>
           <button
             type="button"
@@ -81,10 +95,10 @@ interface SuggestionsToast {
               class="mx-auto mb-2 size-8 text-base-content/30"
               aria-hidden="true"
             />
-            <p class="text-sm font-medium">No pending suggestions.</p>
+            <p class="text-sm font-medium">No recommended skills yet.</p>
             <p class="mt-1 text-xs text-base-content/60">
-              Thoth proposes a skill once enough similar sessions cluster
-              together.
+              Thoth recommends a skill once enough similar sessions cluster
+              together and clear the quality judge. Run the Curator to scan now.
             </p>
           </div>
         } @else {
@@ -138,14 +152,14 @@ interface SuggestionsToast {
                       class="btn btn-ghost btn-xs transition-colors duration-150"
                       data-testid="suggestions-view-btn"
                       [disabled]="busyId() === s.id"
-                      (click)="onView(s)"
+                      (click)="onReview(s)"
                     >
                       <lucide-angular
                         [img]="EyeIcon"
                         class="size-3.5"
                         aria-hidden="true"
                       />
-                      View
+                      Review
                     </button>
                     <button
                       type="button"
@@ -182,49 +196,154 @@ interface SuggestionsToast {
           </ul>
         }
 
-        @if (viewTarget(); as target) {
+        @if (reviewId(); as id) {
           <dialog
             class="modal modal-open"
             role="dialog"
             aria-modal="true"
-            aria-label="Suggestion detail"
+            aria-label="Review recommended skill"
             data-testid="suggestions-view-modal"
           >
-            <div class="modal-box max-w-2xl">
-              <h3 class="text-base font-semibold">{{ target.name }}</h3>
-              <p
-                class="mt-3 whitespace-pre-wrap text-sm text-base-content/80"
-                data-testid="suggestions-view-body"
-              >
-                {{ target.description }}
-              </p>
-              <dl
-                class="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-base-content/60"
-              >
-                <dt>Cluster size</dt>
-                <dd class="tabular-nums">{{ target.clusterSize }}</dd>
-                <dt>Technology</dt>
-                <dd class="font-mono">
-                  {{ target.technologyFingerprint || '—' }}
-                </dd>
-                <dt>Judge score</dt>
-                <dd class="tabular-nums">
-                  {{ formatScore(target.judgeScore) }}
-                </dd>
-                <dt>Member sessions</dt>
-                <dd class="tabular-nums">
-                  {{ target.memberSessionIds.length }}
-                </dd>
-              </dl>
-              <div class="modal-action">
-                <button
-                  type="button"
-                  class="btn btn-sm"
-                  (click)="onCloseView()"
-                >
-                  Close
-                </button>
-              </div>
+            <div class="modal-box max-w-3xl">
+              @if (detailLoading() && !detail()) {
+                <p class="py-6 text-center text-sm text-base-content/60">
+                  Loading skill…
+                </p>
+              } @else if (detail(); as d) {
+                @if (editing()) {
+                  <h3 class="text-base font-semibold">Edit skill</h3>
+                  <div class="mt-3 space-y-3">
+                    <label class="flex flex-col gap-1">
+                      <span class="text-xs text-base-content/60">Title</span>
+                      <input
+                        type="text"
+                        class="input input-bordered input-sm w-full font-mono"
+                        data-testid="suggestions-edit-name"
+                        [ngModel]="editName()"
+                        (ngModelChange)="editName.set($event)"
+                      />
+                    </label>
+                    <label class="flex flex-col gap-1">
+                      <span class="text-xs text-base-content/60"
+                        >Description (the trigger — when to use it)</span
+                      >
+                      <textarea
+                        class="textarea textarea-bordered textarea-sm w-full"
+                        rows="3"
+                        data-testid="suggestions-edit-description"
+                        [ngModel]="editDescription()"
+                        (ngModelChange)="editDescription.set($event)"
+                      ></textarea>
+                    </label>
+                    <label class="flex flex-col gap-1">
+                      <span class="text-xs text-base-content/60"
+                        >Body (SKILL.md instructions)</span
+                      >
+                      <textarea
+                        class="textarea textarea-bordered textarea-sm w-full font-mono text-xs"
+                        rows="16"
+                        data-testid="suggestions-edit-body"
+                        [ngModel]="editBody()"
+                        (ngModelChange)="editBody.set($event)"
+                      ></textarea>
+                    </label>
+                  </div>
+                  <div class="modal-action">
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      [disabled]="detailLoading()"
+                      (click)="onCancelEdit()"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      data-testid="suggestions-save-btn"
+                      [disabled]="detailLoading() || !canSave()"
+                      (click)="onSaveEdit(d.id)"
+                    >
+                      Save
+                    </button>
+                  </div>
+                } @else {
+                  <div class="flex items-start justify-between gap-3">
+                    <h3 class="text-base font-semibold">{{ d.name }}</h3>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      data-testid="suggestions-edit-btn"
+                      (click)="onStartEdit(d.name, d.description, d.body)"
+                    >
+                      <lucide-angular
+                        [img]="PencilIcon"
+                        class="size-3.5"
+                        aria-hidden="true"
+                      />
+                      Edit
+                    </button>
+                  </div>
+                  <p class="mt-1 text-sm text-base-content/80">
+                    {{ d.description }}
+                  </p>
+                  <dl
+                    class="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-base-content/60"
+                  >
+                    <dt>Cluster size</dt>
+                    <dd class="tabular-nums">{{ d.clusterSize }}</dd>
+                    <dt>Technology</dt>
+                    <dd class="font-mono">
+                      {{ d.technologyFingerprint || '—' }}
+                    </dd>
+                    <dt>Judge score</dt>
+                    <dd class="tabular-nums">
+                      {{ formatScore(d.judgeScore) }}
+                    </dd>
+                    <dt>Member sessions</dt>
+                    <dd class="tabular-nums">
+                      {{ d.memberSessionIds.length }}
+                    </dd>
+                  </dl>
+                  <div
+                    class="mt-4 max-h-96 overflow-y-auto rounded-lg border border-base-300 bg-base-100/40 p-3"
+                    data-testid="suggestions-view-body"
+                  >
+                    <ptah-markdown-block [content]="d.body" />
+                  </div>
+                  <div class="modal-action">
+                    <button
+                      type="button"
+                      class="btn btn-sm"
+                      (click)="onCloseReview()"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-success btn-sm"
+                      data-testid="suggestions-modal-accept-btn"
+                      [disabled]="busyId() === d.id"
+                      (click)="onAcceptFromModal(d.id, d.name)"
+                    >
+                      Accept
+                    </button>
+                  </div>
+                }
+              } @else {
+                <p class="py-6 text-center text-sm text-base-content/60">
+                  Could not load this skill.
+                </p>
+                <div class="modal-action">
+                  <button
+                    type="button"
+                    class="btn btn-sm"
+                    (click)="onCloseReview()"
+                  >
+                    Close
+                  </button>
+                </div>
+              }
             </div>
           </dialog>
         }
@@ -286,6 +405,7 @@ export class SkillSuggestionsViewComponent implements OnInit {
   protected readonly EyeIcon = Eye;
   protected readonly CheckIcon = Check;
   protected readonly XIcon = X;
+  protected readonly PencilIcon = Pencil;
 
   public readonly isElectron = computed(
     () => this.vscodeService.config()?.isElectron === true,
@@ -293,15 +413,28 @@ export class SkillSuggestionsViewComponent implements OnInit {
 
   public readonly loading = this.state.suggestionsLoading;
   public readonly error = this.state.error;
+  public readonly detail = this.state.suggestionDetail;
+  public readonly detailLoading = this.state.suggestionDetailLoading;
 
   public readonly pending = computed(() =>
     this.state.suggestions().filter((s) => s.status === 'pending'),
   );
 
-  public readonly viewTarget = signal<SkillSuggestionSummary | null>(null);
+  public readonly reviewId = signal<string | null>(null);
+  public readonly editing = signal<boolean>(false);
+  public readonly editName = signal<string>('');
+  public readonly editDescription = signal<string>('');
+  public readonly editBody = signal<string>('');
   public readonly dismissTarget = signal<SkillSuggestionSummary | null>(null);
   public readonly busyId = signal<string | null>(null);
   public readonly toast = signal<SuggestionsToast | null>(null);
+
+  public readonly canSave = computed(
+    () =>
+      this.editName().trim().length > 0 &&
+      this.editDescription().trim().length > 0 &&
+      this.editBody().trim().length > 0,
+  );
 
   public dismissReason = '';
 
@@ -324,12 +457,49 @@ export class SkillSuggestionsViewComponent implements OnInit {
     }
   }
 
-  protected onView(s: SkillSuggestionSummary): void {
-    this.viewTarget.set(s);
+  protected onReview(s: SkillSuggestionSummary): void {
+    this.editing.set(false);
+    this.reviewId.set(s.id);
+    void this.state.loadSuggestionDetail(s.id);
   }
 
-  protected onCloseView(): void {
-    this.viewTarget.set(null);
+  protected onCloseReview(): void {
+    this.reviewId.set(null);
+    this.editing.set(false);
+    this.state.clearSuggestionDetail();
+  }
+
+  protected onStartEdit(name: string, description: string, body: string): void {
+    this.editName.set(name);
+    this.editDescription.set(description);
+    this.editBody.set(body);
+    this.editing.set(true);
+  }
+
+  protected onCancelEdit(): void {
+    this.editing.set(false);
+  }
+
+  protected async onSaveEdit(id: string): Promise<void> {
+    if (!this.canSave()) return;
+    await this.state.updateSuggestion(id, {
+      name: this.editName().trim(),
+      description: this.editDescription().trim(),
+      body: this.editBody(),
+    });
+    this.editing.set(false);
+    this.showToast('Saved changes.', 'success');
+  }
+
+  protected async onAcceptFromModal(id: string, name: string): Promise<void> {
+    this.busyId.set(id);
+    try {
+      await this.state.accept(id);
+      this.showToast(`Accepted "${name}".`, 'success');
+      this.onCloseReview();
+    } finally {
+      this.busyId.set(null);
+    }
   }
 
   protected onOpenDismiss(s: SkillSuggestionSummary): void {

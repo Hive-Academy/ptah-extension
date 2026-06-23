@@ -173,3 +173,14 @@ export const SkillDismissSuggestionParamsSchema = z.object({
   id: z.string().min(1).max(64),
   reason: z.string().max(500).optional(),
 });
+
+export const SkillGetSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+});
+
+export const SkillUpdateSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().min(1).max(4000).optional(),
+  body: z.string().min(1).max(100000).optional(),
+});

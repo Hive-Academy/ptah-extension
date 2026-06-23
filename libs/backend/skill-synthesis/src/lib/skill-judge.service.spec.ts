@@ -141,9 +141,9 @@ describe('SkillJudgeService', () => {
   });
 
   it('returns passed=false when composite score < minJudgeScore', async () => {
-    // novelty=3, actionability=4, scope=5 → avg=4.0 < 6.0
+    // novelty=3, actionability=4, scope=5, generalization=4, triggerClarity=4 → avg=4.0 < 6.0
     const query = makeInternalQuery(
-      '{"novelty":3,"actionability":4,"scope":5}',
+      '{"novelty":3,"actionability":4,"scope":5,"generalization":4,"triggerClarity":4}',
     );
     const svc = new SkillJudgeService(
       noopLogger,
@@ -161,9 +161,9 @@ describe('SkillJudgeService', () => {
   });
 
   it('returns passed=true when composite score >= minJudgeScore', async () => {
-    // novelty=7, actionability=7, scope=7 → avg=7.0 >= 6.0
+    // all five criteria = 7 → avg=7.0 >= 6.0
     const query = makeInternalQuery(
-      '{"novelty":7,"actionability":7,"scope":7}',
+      '{"novelty":7,"actionability":7,"scope":7,"generalization":7,"triggerClarity":7}',
     );
     const svc = new SkillJudgeService(
       noopLogger,

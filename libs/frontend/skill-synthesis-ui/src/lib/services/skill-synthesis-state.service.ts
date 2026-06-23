@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type {
+  SkillSuggestionDetail,
   SkillSuggestionSummary,
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
@@ -71,6 +72,8 @@ export class SkillSynthesisStateService {
 
   public readonly suggestions = signal<SkillSuggestionSummary[]>([]);
   public readonly suggestionsLoading = signal<boolean>(false);
+  public readonly suggestionDetail = signal<SkillSuggestionDetail | null>(null);
+  public readonly suggestionDetailLoading = signal<boolean>(false);
 
   public readonly selectedCandidate = computed(() => {
     const id = this.selectedCandidateId();
@@ -192,6 +195,53 @@ export class SkillSynthesisStateService {
       this.error.set(this.toMessage(err));
     } finally {
       this.suggestionsLoading.set(false);
+    }
+  }
+
+  /**
+   * Load a single suggestion's full detail (including the SKILL.md body) into
+   * `suggestionDetail`. Pass `null` to clear the current detail.
+   */
+  public async loadSuggestionDetail(id: string | null): Promise<void> {
+    if (!id) {
+      this.suggestionDetail.set(null);
+      return;
+    }
+    this.suggestionDetailLoading.set(true);
+    this.error.set(null);
+    try {
+      const detail = await this.rpc.getSuggestion(id);
+      this.suggestionDetail.set(detail);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.suggestionDetailLoading.set(false);
+    }
+  }
+
+  /** Clear the currently loaded suggestion detail. */
+  public clearSuggestionDetail(): void {
+    this.suggestionDetail.set(null);
+  }
+
+  /**
+   * Persist edits to a pending suggestion's name/description/body, update the
+   * loaded detail, and refresh the list so the card reflects the new title.
+   */
+  public async updateSuggestion(
+    id: string,
+    fields: { name?: string; description?: string; body?: string },
+  ): Promise<void> {
+    this.suggestionDetailLoading.set(true);
+    this.error.set(null);
+    try {
+      const detail = await this.rpc.updateSuggestion(id, fields);
+      if (detail) this.suggestionDetail.set(detail);
+      await this.refreshSuggestions();
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.suggestionDetailLoading.set(false);
     }
   }
 
