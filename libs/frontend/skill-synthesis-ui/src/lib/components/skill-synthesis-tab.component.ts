@@ -144,6 +144,7 @@ interface ActionDialogState {
               type="button"
               role="tab"
               class="tab transition-colors duration-150"
+              [attr.data-testid]="'skills-subview-' + v.id"
               [class.tab-active]="subView() === v.id"
               [attr.aria-selected]="subView() === v.id"
               (click)="setSubView(v.id)"
