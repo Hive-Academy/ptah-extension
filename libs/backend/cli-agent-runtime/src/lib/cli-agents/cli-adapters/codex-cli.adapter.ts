@@ -17,6 +17,7 @@ import type {
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
+  ContinuationOutcome,
   SdkHandle,
 } from './cli-adapter.interface';
 import {
@@ -547,10 +548,10 @@ export class CodexCliAdapter implements CliAdapter {
       }
     };
     const STARTUP_TIMEOUT_MS = 30_000;
-    const done = (async (): Promise<number> => {
+    const runTurn = async (prompt: string): Promise<number> => {
       try {
         const streamedTurn = await Promise.race([
-          thread.runStreamed(taskPrompt, {
+          thread.runStreamed(prompt, {
             signal: abortController.signal,
           }),
           new Promise<never>((_, reject) =>
@@ -596,7 +597,9 @@ export class CodexCliAdapter implements CliAdapter {
         });
         return 1;
       }
-    })();
+    };
+
+    const done = runTurn(taskPrompt);
 
     return {
       abort: abortController,
@@ -605,6 +608,9 @@ export class CodexCliAdapter implements CliAdapter {
       onSegment,
       getSessionId: () => capturedThreadId,
       setAgentId: () => {},
+      supportsContinuation: () => true,
+      continue: (message: string): Promise<ContinuationOutcome> =>
+        Promise.resolve({ done: runTurn(message) }),
     };
   }
 

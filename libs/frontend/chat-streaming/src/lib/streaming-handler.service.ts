@@ -284,7 +284,9 @@ export class StreamingHandlerService {
     if (
       result.eventType === 'message_complete' &&
       !(event as FlatStreamEventUnion & { eventType: 'message_complete' })
-        .parentToolUseId
+        .parentToolUseId &&
+      (event as FlatStreamEventUnion & { eventType: 'message_complete' })
+        .stopReason !== 'tool_use'
     ) {
       const queuedContent = targetTab.queuedContent;
       if (queuedContent && queuedContent.trim()) {

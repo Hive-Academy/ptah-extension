@@ -107,6 +107,7 @@ interface PastedImage {
     AgentSelectorComponent,
     EffortSelectorComponent,
   ],
+  providers: [VoiceInputService],
   template: `
     <div
       class="flex flex-col gap-2 p-4 bg-base-100 relative"

@@ -60,8 +60,19 @@ export class MessageDispatchService {
     const targetTab = targetTabId
       ? this.tabManager.tabs().find((t) => t.id === targetTabId)
       : null;
+    const resolvedTabId = targetTabId ?? this.tabManager.activeTabId();
     const status = targetTab?.status ?? this.tabManager.activeTabStatus();
-    const isStreaming = status === 'streaming' || status === 'resuming';
+    // Treat a tab as busy when it is actively generating — including the
+    // self-heal case where the SDK paused/resumed and `status` reverted to
+    // `loaded`/`awaiting-background` while `_streamingTabIds` (isTabStreaming)
+    // stays set. Routing a follow-up to `send()` in that window would spin up a
+    // fresh AbortController and KILL the in-flight stream. Queue instead — the
+    // queue drains on the real turn-end (when the controller is already
+    // cleared, so no abort).
+    const isStreaming =
+      status === 'streaming' ||
+      status === 'resuming' ||
+      (resolvedTabId != null && this.tabManager.isTabStreaming(resolvedTabId));
 
     if (isStreaming) {
       const activePermissions = this.permissionHandler.permissionRequests();

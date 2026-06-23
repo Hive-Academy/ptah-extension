@@ -6,6 +6,7 @@ export type { SkillCandidateAction } from './lib/components/skill-candidates-tab
 export { SkillInvocationsPanelComponent } from './lib/components/skill-invocations-panel.component';
 export { SkillSettingsPanelComponent } from './lib/components/skill-settings-panel.component';
 export { SkillClonesViewComponent } from './lib/components/clones/skill-clones-view.component';
+export { SkillSuggestionsViewComponent } from './lib/components/suggestions/skill-suggestions-view.component';
 export { SkillSynthesisRpcService } from './lib/services/skill-synthesis-rpc.service';
 export { SkillSynthesisStateService } from './lib/services/skill-synthesis-state.service';
 export { SkillClonesStateService } from './lib/services/skill-clones-state.service';

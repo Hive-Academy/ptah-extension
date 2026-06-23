@@ -32,6 +32,20 @@ const assistantTurn = (text: string) => ({
   type: 'assistant',
   message: { role: 'assistant', content: text },
 });
+const assistantToolUse = (name: string, input: unknown) => ({
+  type: 'assistant',
+  message: {
+    role: 'assistant',
+    content: [{ type: 'tool_use', name, input }],
+  },
+});
+const userToolResult = (content: string) => ({
+  type: 'user',
+  message: {
+    role: 'user',
+    content: [{ type: 'tool_result', content }],
+  },
+});
 
 describe('TrajectoryExtractor', () => {
   let reader: FakeReader;
@@ -42,26 +56,43 @@ describe('TrajectoryExtractor', () => {
     extractor = new TrajectoryExtractor(makeLogger() as never, reader as never);
   });
 
-  it('returns null for sessions with fewer than 5 turns', async () => {
-    reader.readJsonlMessages.mockResolvedValue([
-      userTurn('hi'),
-      assistantTurn('hello'),
-    ]);
+  it('returns null for sessions with fewer than 2 role turns', async () => {
+    reader.readJsonlMessages.mockResolvedValue([userTurn('hi')]);
     const out = await extractor.extract('s1', '/ws');
     expect(out).toBeNull();
   });
 
-  it('returns null when no success marker is present', async () => {
+  it('extracts a 2+ turn session even with no success marker', async () => {
     reader.readJsonlMessages.mockResolvedValue([
       userTurn('please refactor'),
       assistantTurn('working on it'),
       userTurn('continue'),
       assistantTurn('still working'),
-      userTurn('any progress?'),
-      assistantTurn('almost there'),
     ]);
     const out = await extractor.extract('s1', '/ws');
-    expect(out).toBeNull();
+    expect(out).not.toBeNull();
+    expect(out?.hasSuccessMarker).toBe(false);
+  });
+
+  it('counts tool_use/tool_result so a tool-bearing session reaches 2+ turns with tool-aware canonical text', async () => {
+    reader.readJsonlMessages.mockResolvedValue([
+      userTurn('add a feature'),
+      assistantToolUse('Edit', { file_path: '/ws/src/a.ts' }),
+      userToolResult('file updated'),
+      assistantToolUse('Bash', { command: 'npm test' }),
+      userToolResult('all tests pass'),
+    ]);
+    const out = await extractor.extract('s1', '/ws');
+    expect(out).not.toBeNull();
+    if (!out) return;
+    expect(out.turnCount).toBeGreaterThanOrEqual(2);
+    expect(out.editCount).toBe(1);
+    expect(out.toolUseCount).toBe(2);
+    expect(out.bashTestPassed).toBe(true);
+    expect(out.canonicalText).toContain('[tool:Edit]');
+    expect(out.canonicalText).toContain('[tool:Bash npm test]');
+    expect(out.canonicalText.length).toBeGreaterThan(0);
+    expect(out.charLength).toBe(out.canonicalText.length);
   });
 
   it('extracts and hashes a 5+ turn session ending with a success marker', async () => {
@@ -104,7 +135,7 @@ describe('TrajectoryExtractor', () => {
     'typecheck green',
     'lint passing',
     'All checks passed',
-  ])('treats "%s" as a success marker', async (marker) => {
+  ])('flags "%s" as a success marker signal', async (marker) => {
     reader.readJsonlMessages.mockResolvedValue([
       userTurn('do the work'),
       assistantTurn('starting'),
@@ -115,9 +146,10 @@ describe('TrajectoryExtractor', () => {
     ]);
     const out = await extractor.extract('s1', '/ws');
     expect(out).not.toBeNull();
+    expect(out?.hasSuccessMarker).toBe(true);
   });
 
-  it('does not treat bare "fixed" or "successfully" as a success marker', async () => {
+  it('does not flag bare "fixed" or "successfully" as a success marker', async () => {
     reader.readJsonlMessages.mockResolvedValue([
       userTurn('do the work'),
       assistantTurn('starting'),
@@ -127,7 +159,8 @@ describe('TrajectoryExtractor', () => {
       assistantTurn('I successfully read the file and fixed a typo earlier'),
     ]);
     const out = await extractor.extract('s1', '/ws');
-    expect(out).toBeNull();
+    expect(out).not.toBeNull();
+    expect(out?.hasSuccessMarker).toBe(false);
   });
 
   it('reads the explicit transcriptPath instead of resolving by session id', async () => {

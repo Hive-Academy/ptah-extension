@@ -111,6 +111,7 @@ export type {
   SessionStartHookInput,
   SessionStartHookSpecificOutput,
   SettingSource,
+  Settings,
   SetupHookInput,
   SetupHookSpecificOutput,
   SlashCommand,

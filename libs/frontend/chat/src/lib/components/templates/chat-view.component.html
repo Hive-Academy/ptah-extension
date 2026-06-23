@@ -263,33 +263,35 @@
     }
   </div>
 
-  <!-- Agents vertical toggle tab (per-session) -->
-  <ptah-sidebar-tab
-    label="Agents"
-    side="right"
-    [isOpen]="agentPanelOpen()"
-    [badgeType]="agentBadgeType()"
-    size="sm"
-    (toggled)="toggleAgentPanel()"
-  />
+  @if (!hideAgentSidebar) {
+    <!-- Agents vertical toggle tab (per-session) -->
+    <ptah-sidebar-tab
+      label="Agents"
+      side="right"
+      [isOpen]="agentPanelOpen()"
+      [badgeType]="agentBadgeType()"
+      size="sm"
+      (toggled)="toggleAgentPanel()"
+    />
 
-  <!-- Resize handle between chat and agent panel -->
-  @if (agentPanelOpen()) {
-    <div
-      class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group"
-      (mousedown)="onResizeStart($event)"
-    >
+    <!-- Resize handle between chat and agent panel -->
+    @if (agentPanelOpen()) {
       <div
-        class="w-0.5 h-full rounded-full bg-base-content/20 group-hover:bg-primary/60 group-active:bg-primary transition-colors"
-      ></div>
-    </div>
-  }
+        class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group"
+        (mousedown)="onResizeStart($event)"
+      >
+        <div
+          class="w-0.5 h-full rounded-full bg-base-content/20 group-hover:bg-primary/60 group-active:bg-primary transition-colors"
+        ></div>
+      </div>
+    }
 
-  <!-- Agent monitor panel (session-scoped) -->
-  <ptah-agent-monitor-panel
-    [embeddedAgents]="sessionAgents()"
-    [embeddedOpen]="agentPanelOpen()"
-    [sessionId]="resolvedSessionId()"
-    (closed)="agentPanelOpen.set(false)"
-  />
+    <!-- Agent monitor panel (session-scoped) -->
+    <ptah-agent-monitor-panel
+      [embeddedAgents]="sessionAgents()"
+      [embeddedOpen]="agentPanelOpen()"
+      [sessionId]="resolvedSessionId()"
+      (closed)="agentPanelOpen.set(false)"
+    />
+  }
 </div>

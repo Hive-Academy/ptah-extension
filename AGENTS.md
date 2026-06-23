@@ -1,200 +1,181 @@
-# 📜 PTAH PROJECT SPECIFICS
+# Ptah
 
-## **IMPORTANT**: There's a file modification bug in Claude Code tool. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
+## Overview
 
-## 🎯 ORCHESTRATION & WORKFLOW
+Ptah is an "AI coding orchestra" delivered as a VS Code extension, Electron desktop app, and headless CLI — all sharing a hexagonal Nx monorepo core powered by `@anthropic-ai/claude-agent-sdk` with adapter SDKs for Copilot and Codex.
 
-**For complete orchestration workflow, task management, and git commit standards, see:**
+## Architecture
 
-- **[orchestration.md](orchestration.md)** - Complete orchestration rules including agent delegation, workflow protocol, task management, and commit standards
+**Pattern**: Nx monorepo + hexagonal (ports & adapters) + feature-sliced Angular libs.
 
-## Project Overview
+```
+ptah-extension/
+├── apps/                              # 10 runtime targets
+│   ├── ptah-extension-vscode/         # VS Code extension host (esbuild → main.mjs)
+│   ├── ptah-extension-webview/        # Angular 21 webview shell (Zone-based)
+│   ├── ptah-electron/                 # Electron 40 desktop app
+│   ├── ptah-electron-e2e/             # Playwright _electron.launch
+│   ├── ptah-cli/                      # @hive-academy/ptah-cli (JSON-RPC stdio)
+│   ├── ptah-license-server/           # NestJS 11 + Prisma + Paddle + WorkOS + Resend
+│   ├── ptah-license-server-e2e/       # Jest e2e
+│   ├── ptah-landing-page/             # Angular marketing site
+│   ├── ptah-docs/                     # Astro Starlight (docs.ptah.live)
+│
+├── libs/backend/                      # 16 runtime-agnostic libs (DI: tsyringe)
+│   ├── platform-core/                 # ★ Port interfaces + 16 PLATFORM_TOKENS
+│   ├── platform-{cli,electron,vscode} #   Adapter trio (mutually exclusive)
+│   ├── agent-sdk/                     # Claude/Codex SDK wrapper, compaction
+│   ├── agent-generation/              # Setup-wizard generation pipeline
+│   ├── workspace-intelligence/        # AST + symbol indexer + analysis
+│   ├── rpc-handlers/                  # 30+ handlers (dual-registration rule)
+│   ├── vscode-core/                   # Logger, RpcHandler, License, FeatureGate
+│   ├── vscode-lm-tools/               # Code-exec MCP + browser/web capabilities
+│   ├── persistence-sqlite/            # ~/.ptah/ptah.db + migrations + IEmbedder
+│   ├── memory-contracts/              # Zero-dep memory port interfaces
+│   ├── memory-curator/                # Letta-style memory + IndexingControl
+│   ├── messaging-gateway/             # Telegram/Discord/Slack + voice
+│   ├── cron-scheduler/                # SQLite-backed slot-claim cron
+│   └── skill-synthesis/               # Trajectory extraction + judge
+│
+├── libs/frontend/                     # 21 Angular 21 libs (signals, OnPush)
+│   ├── core/                          # VSCodeService, MESSAGE_HANDLERS, RPC client
+│   ├── ui/                            # Floating-UI primitives (Native*) + legacy CDK
+│   ├── markdown/                      # ★ Single XSS chokepoint (DOMPurify + marked)
+│   ├── editor/                        # Monaco + xterm + node-pty bridge
+│   ├── chat/                          # Orchestrator + ChatStore facade
+│   ├── chat-{state,streaming,routing,ui,types,execution-tree}/
+│   ├── canvas/                        # Multi-tile orchestra (gridstack, 9-tile cap)
+│   ├── dashboard/                     # Card-driven home
+│   ├── setup-wizard/                  # 7-step premium-gated onboarding
+│   ├── harness-builder/               # Streamed harness builder
+│   ├── thoth-shell/                   # 4-tab inner chrome (Memory/Skills/Cron/Gateway)
+│   ├── memory-curator-ui/             # Electron-only Memory tab
+│   ├── cron-scheduler-ui/             # Electron-only Schedules tab
+│   ├── messaging-gateway-ui/          # Electron-only Gateway tab
+│   ├── skill-synthesis-ui/            # Skills tab (VS Code + Electron)
+│   └── webview-e2e-harness/           # Playwright harness w/ postmessage bridge
+│
+└── libs/shared/                       # Cross-side types, RPC contracts, messages
+```
 
-**Ptah** is an AI coding orchestra for VS Code, powered by Claude Agent SDK. Built with TypeScript and Angular webviews, it provides intelligent workspace analysis, project-adaptive AI agents, and a built-in MCP server — all natively integrated into VS Code.
+**Hexagonal rule**: backend libs depend on `platform-core` interfaces. Concrete adapters live in `platform-{vscode,electron,cli}`. Add a new runtime by adding a fourth adapter family — never by branching inside an existing one.
+
+**Frontend ↔ backend isolation**: frontend libs MUST NOT import backend libs and vice versa. `libs/shared` is the one bridge.
+
+## Tech Stack
+
+- **Language**: TypeScript 5.9 (strict, `catch (error: unknown)`)
+- **Frameworks**: Angular 21 (signals, zoneless in libs / Zone in webview shell, OnPush mandatory), NestJS 11, Electron 40
+- **AI**: `@anthropic-ai/claude-agent-sdk`, `@github/copilot-sdk`, `@openai/codex-sdk`, Tavily, Exa
+- **Persistence**: better-sqlite3, sqlite-vec, Prisma 7 + PostgreSQL (license server only)
+- **DI**: tsyringe (`Symbol.for(...)` tokens, `register.ts` per lib)
+- **UI**: Tailwind 3, daisyui 4, lucide-angular, gsap / @hive-academy/angular-gsap, Monaco, xterm.js, gridstack
+- **Validation**: Zod 4 at all external boundaries
+- **Build**: Nx 22.6, esbuild, ng-packagr, electron-builder, Astro 6
+
+## Setup
+
+```bash
+npm install                          # Triggers postinstall (electron native rebuild)
+npm run docker:db:start              # Postgres for license server
+npm run prisma:migrate:dev           # Prisma migrations
+```
 
 ## Development Commands
 
-### Core Extension Development
-
 ```bash
-# Install dependencies
-npm install
-
-# Compile TypeScript (main extension)
-npm run compile
-
-# Watch mode for development
-npm run watch
-
-# Lint TypeScript code
-npm run lint
-
-# Run tests
-npm run test
-
-# Build everything (extension + webview)
-npm run build:all
-
-# Quality gates (linting & typechecking)
+npm run dev                          # Watch extension + webview
+npm run build:all                    # Build everything
 npm run lint:all
-npm run typecheck:all
+npm run typecheck:all                # nx affected -t typecheck
+npm run test                         # Jest across extension/webview/shared
+npm run electron:serve               # Electron dev
+npm run cli:dev                      # Headless CLI
+nx serve ptah-license-server         # NestJS API
+nx graph                             # Visualize dep graph
 ```
 
----
+## Coding Standards
 
-## 📦 WORKSPACE ARCHITECTURE & LIBRARY MAP
+- **Type safety**: `catch (error: unknown)`, narrow with `instanceof Error` before `.message`. No `@ts-ignore` without `@ts-expect-error + reason`.
+- **Validation**: Zod schemas at every external boundary (HTTP, IPC, file I/O, AI tool args). Trust internal types past that.
+- **SOLID**: New libs own one concern (do NOT replicate the agent-sdk monolith). Backend depends on `platform-core` ports, never adapters.
+- **Naming**: `kebab-case.ts` files; `I`-prefix for platform ports; DI tokens `UPPER_SNAKE` as `Symbol.for(...)`; adapters `{platform}-{capability}.ts`.
+- **Angular**: signals + `inject()`, `ChangeDetectionStrategy.OnPush` mandatory, no `[innerHTML]` on AI markdown (route through `libs/frontend/markdown`).
+- **NestJS**: read env via `ConfigService`, never `process.env[...]` directly. Global `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })`. Never expose raw `error.message` to clients.
+- **RPC dual-registration**: new RPC namespace requires BOTH `libs/shared/.../rpc.types.ts` (compile-time) AND `libs/backend/vscode-core/src/messaging/rpc-handler.ts:46` `ALLOWED_METHOD_PREFIXES` (runtime guard).
+- **Windows paths**: always use complete absolute Windows paths for Read/Write — there's a Claude Code bug with relative paths in this workspace.
 
-### Overview
+## VS Code Marketplace (BLOCKING)
 
-The Ptah workspace is organized as an Nx monorepo with **14 projects** (2 apps + 12 libraries) following a strict layered architecture pattern.
+Scanner rejects extensions containing trademarked AI product names (`copilot`, `codex`, `claude`, `openai`, `anthropic`) in **non-JS files**. Rules:
 
-### Architecture Layers
+- JS bundles (`main.mjs`, webview chunks, WASM) pass — these names are safe there.
+- `LICENSE.md`, plugin/template markdown, and verbose READMEs are flagged. `.vscodeignore` excludes them.
+- Plugins + templates download at runtime via `ContentDownloadService` from GitHub — **never** re-add them as VSIX assets.
+- Provider settings with trademarked keys moved to `~/.ptah/settings.json` (transparent via `IWorkspaceProvider.getConfiguration()`). Never re-add to `package.json contributes.configuration`.
+- **Once an extension ID fails marketplace validation, that ID is permanently burned.** Test throwaway IDs first.
 
-```
-┌─────────────────────────────────────────────────────┐
-│  Applications Layer                                  │
-│  - ptah-extension-vscode (VS Code extension)        │
-│  - ptah-extension-webview (Angular SPA)             │
-├─────────────────────────────────────────────────────┤
-│  Frontend Feature Libraries                          │
-│  - chat, providers, analytics, dashboard            │
-├─────────────────────────────────────────────────────┤
-│  Frontend Core Services                              │
-│  - core (state, services, VS Code integration)      │
-├─────────────────────────────────────────────────────┤
-│  Backend Domain Libraries                            │
-│  - claude-domain (business logic)                    │
-│  - ai-providers-core (multi-provider abstraction)    │
-│  - workspace-intelligence (workspace analysis)       │
-├─────────────────────────────────────────────────────┤
-│  Infrastructure Layer                                │
-│  - vscode-core (DI container, API wrappers)         │
-├─────────────────────────────────────────────────────┤
-│  Foundation Layer                                    │
-│  - shared (type system & contracts)                  │
-└─────────────────────────────────────────────────────┘
-```
+## Module Index
 
-### Library Documentation Index
+### Apps
 
-Each library has a dedicated `CLAUDE.md` file with architecture details, usage patterns, and integration examples:
+- [ptah-extension-vscode](./apps/ptah-extension-vscode/CLAUDE.md) — VS Code extension host
+- [ptah-extension-webview](./apps/ptah-extension-webview/CLAUDE.md) — Angular webview shell (Zone-based)
+- [ptah-electron](./apps/ptah-electron/CLAUDE.md) — Electron desktop app
+- [ptah-electron-e2e](./apps/ptah-electron-e2e/CLAUDE.md) — Playwright electron tests
+- [ptah-cli](./apps/ptah-cli/CLAUDE.md) — Headless JSON-RPC CLI
+- [ptah-license-server](./apps/ptah-license-server/CLAUDE.md) — NestJS license API
+- [ptah-license-server-e2e](./apps/ptah-license-server-e2e/CLAUDE.md) — License e2e
+- [ptah-landing-page](./apps/ptah-landing-page/CLAUDE.md) — Angular marketing
+- [ptah-docs](./apps/ptah-docs/CLAUDE.md) — Astro Starlight docs
 
-#### **Applications** (2)
+### Backend Libs
 
-- **[ptah-extension-vscode](apps/ptah-extension-vscode/CLAUDE.md)** - Main VS Code extension with command handlers, webview providers, and DI orchestration
-- **[ptah-extension-webview](apps/ptah-extension-webview/CLAUDE.md)** - Angular 20+ SPA with signal-based navigation and zoneless change detection
+- [platform-core](./libs/backend/platform-core/CLAUDE.md) — ★ Ports + PLATFORM_TOKENS
+- [platform-cli](./libs/backend/platform-cli/CLAUDE.md) — CLI adapters
+- [platform-electron](./libs/backend/platform-electron/CLAUDE.md) — Electron adapters
+- [platform-vscode](./libs/backend/platform-vscode/CLAUDE.md) — VS Code adapters
+- [agent-sdk](./libs/backend/agent-sdk/CLAUDE.md) — Claude/Codex SDK wrapper
+- [agent-generation](./libs/backend/agent-generation/CLAUDE.md) — Generation pipeline
+- [workspace-intelligence](./libs/backend/workspace-intelligence/CLAUDE.md) — AST + symbols
+- [rpc-handlers](./libs/backend/rpc-handlers/CLAUDE.md) — RPC handler classes
+- [vscode-core](./libs/backend/vscode-core/CLAUDE.md) — Logger, License, RPC infra
+- [vscode-lm-tools](./libs/backend/vscode-lm-tools/CLAUDE.md) — Code-exec MCP + browser
+- [persistence-sqlite](./libs/backend/persistence-sqlite/CLAUDE.md) — SQLite + migrations
+- [memory-contracts](./libs/backend/memory-contracts/CLAUDE.md) — Memory port interfaces
+- [memory-curator](./libs/backend/memory-curator/CLAUDE.md) — Letta-style memory
+- [messaging-gateway](./libs/backend/messaging-gateway/CLAUDE.md) — Telegram/Discord/Slack
+- [cron-scheduler](./libs/backend/cron-scheduler/CLAUDE.md) — SQLite cron loop
+- [skill-synthesis](./libs/backend/skill-synthesis/CLAUDE.md) — Trajectory extraction
 
-#### **Backend Libraries** (7)
+### Frontend Libs
 
-- **[shared](libs/shared/CLAUDE.md)** - Type system foundation: Branded types (SessionId, MessageId), message protocol (94 types), AI provider abstractions
-- **[vscode-core](libs/backend/vscode-core/CLAUDE.md)** - Infrastructure layer: DI tokens (60+), API wrappers, logging, error handling, RPC infrastructure, agent session watching
-- **[agent-sdk](libs/backend/agent-sdk/CLAUDE.md)** - Official Claude Agent SDK integration (10x faster than CLI): IAIProvider implementation, session storage, message transformation, streaming
-- **[agent-generation](libs/backend/agent-generation/CLAUDE.md)** - Intelligent agent generation: Template storage, content generation, validation, agent selection, setup status tracking
-- **[llm-abstraction](libs/backend/llm-abstraction/CLAUDE.md)** - Multi-provider LLM abstraction (Langchain): Anthropic, OpenAI, OpenRouter, VS Code LM, streaming support
-- **[template-generation](libs/backend/template-generation/CLAUDE.md)** - Template processing: Variable interpolation, Zod validation, LLM-powered expansion, caching, frontmatter parsing
-- **[vscode-lm-tools](libs/backend/vscode-lm-tools/CLAUDE.md)** - VS Code LM Tools & MCP server: Code Execution MCP, Ptah API namespaces (workspace, search, symbols, diagnostics, git, ai, files, commands)
-- **[workspace-intelligence](libs/backend/workspace-intelligence/CLAUDE.md)** - Workspace analysis: Project detection (13+ types), file indexing, context orchestration, token optimization
+- [core](./libs/frontend/core/CLAUDE.md) — VSCodeService, MESSAGE_HANDLERS, RPC
+- [ui](./libs/frontend/ui/CLAUDE.md) — Floating-UI Native\* primitives
+- [markdown](./libs/frontend/markdown/CLAUDE.md) — ★ DOMPurify XSS chokepoint
+- [editor](./libs/frontend/editor/CLAUDE.md) — Monaco + xterm + git
+- [chat](./libs/frontend/chat/CLAUDE.md) — Chat orchestrator + ChatStore
+- [chat-state](./libs/frontend/chat-state/CLAUDE.md) — TabManager + ConversationRegistry
+- [chat-streaming](./libs/frontend/chat-streaming/CLAUDE.md) — Streaming write path
+- [chat-routing](./libs/frontend/chat-routing/CLAUDE.md) — StreamRouter + SurfaceRegistry
+- [chat-ui](./libs/frontend/chat-ui/CLAUDE.md) — Presentational atoms + molecules
+- [chat-types](./libs/frontend/chat-types/CLAUDE.md) — Framework-agnostic types
+- [chat-execution-tree](./libs/frontend/chat-execution-tree/CLAUDE.md) — Execution tree builder
+- [canvas](./libs/frontend/canvas/CLAUDE.md) — Multi-tile orchestra (gridstack)
+- [dashboard](./libs/frontend/dashboard/CLAUDE.md) — Card-driven home
+- [setup-wizard](./libs/frontend/setup-wizard/CLAUDE.md) — 7-step onboarding
+- [harness-builder](./libs/frontend/harness-builder/CLAUDE.md) — Streamed harness builder
+- [thoth-shell](./libs/frontend/thoth-shell/CLAUDE.md) — 4-tab inner chrome (Electron)
+- [memory-curator-ui](./libs/frontend/memory-curator-ui/CLAUDE.md) — Memory tab (Electron)
+- [cron-scheduler-ui](./libs/frontend/cron-scheduler-ui/CLAUDE.md) — Schedules tab (Electron)
+- [messaging-gateway-ui](./libs/frontend/messaging-gateway-ui/CLAUDE.md) — Gateway tab (Electron)
+- [skill-synthesis-ui](./libs/frontend/skill-synthesis-ui/CLAUDE.md) — Skills tab
+- [webview-e2e-harness](./libs/frontend/webview-e2e-harness/CLAUDE.md) — Playwright harness
 
-#### **Frontend Libraries** (5)
+### Shared
 
-- **[core](libs/frontend/core/CLAUDE.md)** - Service layer: AppStateManager, VSCodeService, WebviewNavigationService, ClaudeRpcService, signal-based state management, discovery facades
-- **[chat](libs/frontend/chat/CLAUDE.md)** - Chat UI: 48+ components (Atomic Design), ExecutionNode architecture, ChatStore, streaming text reveal, autocomplete
-- **[dashboard](libs/frontend/dashboard/CLAUDE.md)** - Performance dashboard: Real-time metrics, cost/token charts, agent performance tracking, activity feed
-- **[setup-wizard](libs/frontend/setup-wizard/CLAUDE.md)** - Agent setup wizard: 6-step codebase scanning, project analysis, agent selection, rule generation
-- **[ui](libs/frontend/ui/CLAUDE.md)** - Shared UI components: CDK Overlay-based dropdowns, popovers, autocomplete with keyboard navigation
-
-### Dependency Rules
-
-**Strict Layering Enforcement**:
-
-- Libraries can only depend on layers below them
-- No circular dependencies allowed
-- Frontend/backend separation strictly enforced
-- Type contracts defined in `shared` library only
-
-**Dependency Flow**:
-
-```
-Apps → Feature Libs → Core Services → Domain Libs → Infrastructure → Shared (foundation)
-```
-
-### Key Design Decisions
-
-1. **Signal-Based Reactivity**: All frontend state uses Angular signals (not RxJS BehaviorSubject)
-2. **No Cross-Library Pollution**: Libraries never re-export types from other libraries
-3. **Branded Types**: SessionId, MessageId prevent ID type mixing at compile time
-4. **Event-Driven**: All state changes published via EventBus for reactive updates
-5. **Multi-Provider**: Abstract AI provider interface enables Claude CLI + VS Code LM API
-6. **Zoneless Angular**: 30% performance improvement via zoneless change detection
-7. **No Angular Router**: Signal-based navigation for VS Code webview constraints
-
-### Import Path Aliases
-
-```typescript
-'@ptah-extension/shared'; // Foundation types
-'@ptah-extension/vscode-core'; // Infrastructure
-'@ptah-extension/claude-domain'; // Business logic
-'@ptah-extension/ai-providers-core'; // Provider abstraction
-'@ptah-extension/workspace-intelligence'; // Workspace analysis
-'@ptah-extension/core'; // Frontend services
-'@ptah-extension/chat'; // Chat UI
-'@ptah-extension/providers'; // Provider UI
-'@ptah-extension/analytics'; // Analytics UI
-'@ptah-extension/dashboard'; // Dashboard UI
-```
-
-### Testing Strategy
-
-Each library has isolated test configuration:
-
-```bash
-# Run tests for specific library
-nx test shared
-nx test vscode-core
-nx test claude-domain
-nx test chat
-
-# Run all tests
-nx run-many --target=test
-
-# Run tests with coverage
-nx test <library> --coverage
-```
-
-### Build System
-
-**Nx Workspace** with:
-
-- esbuild for backend libraries (CommonJS)
-- Angular CLI for frontend libraries
-- Parallel execution for maximum performance
-- Incremental builds with computation caching
-
-### Quick Navigation
-
-For detailed information about any library:
-
-1. Navigate to `libs/<category>/<library>/CLAUDE.md`
-2. Or `apps/<app>/CLAUDE.md` for applications
-3. All files follow consistent structure:
-   - Purpose & Responsibility
-   - Key Components
-   - Quick Start Examples
-   - Dependencies
-   - Testing Approach
-   - File Locations
-
-### Workspace Stats
-
-- **Total Projects**: 12 (2 apps + 10 libraries)
-- **Total Components**: 48+ Angular components
-- **Total Services**: 40+ backend/frontend services
-- **TypeScript Files**: 280+ source files
-- **Test Coverage Target**: 80% minimum
-- **Dependency Tokens**: 60+ DI tokens
-- **Message Types**: 94 distinct message types
-
-For workspace-wide operations, consult the [Nx CLI documentation](#general-guidelines-for-working-with-nx) above.
+- [shared](./libs/shared/CLAUDE.md) — Cross-side types, RPC contracts, messages
 
 <!-- PTAH:AGENTS:BEGIN -->
 
@@ -6688,7 +6669,7 @@ Use Write tool to create `.ptah/specs/TASK_[ID]/tasks.md`:
 
 ## Batch 1: [Name] ⏸️ PENDING
 
-**Recommended Executor**: [backend-developer | frontend-developer | codex CLI x N | copilot CLI | ptah-cli]
+**Recommended Executor**: [backend-developer | frontend-developer | gemini CLI x N | codex CLI | ptah-cli]
 **Fallback Executor**: [sub-agent type to use if primary fails]
 **Execution Mode**: [sequential | parallel]
 **Rationale**: [1-2 sentences explaining why this executor and mode fit the batch shape]
@@ -6871,16 +6852,16 @@ You are NOT a delegator. You do NOT spawn CLI agents or sub-agents. You produce 
 
 Apply these heuristics when filling `Recommended Executor` + `Execution Mode` on each batch:
 
-| Batch Shape                             | Recommended Executor      | Mode       |
-| --------------------------------------- | ------------------------- | ---------- |
-| 3+ independent tasks, boilerplate       | CLI (codex preferred) x N | parallel   |
-| 3+ independent tasks, standard logic    | CLI x N                   | parallel   |
-| Tightly coupled tasks in same file      | Sub-agent developer       | sequential |
-| Cross-file refactoring                  | Sub-agent developer       | sequential |
-| Architecture decisions required         | Sub-agent developer       | sequential |
-| Migration/scaffolding across many files | CLI x N                   | parallel   |
+| Batch Shape                             | Recommended Executor       | Mode       |
+| --------------------------------------- | -------------------------- | ---------- |
+| 3+ independent tasks, boilerplate       | CLI (gemini preferred) x N | parallel   |
+| 3+ independent tasks, standard logic    | CLI x N                    | parallel   |
+| Tightly coupled tasks in same file      | Sub-agent developer        | sequential |
+| Cross-file refactoring                  | Sub-agent developer        | sequential |
+| Architecture decisions required         | Sub-agent developer        | sequential |
+| Migration/scaffolding across many files | CLI x N                    | parallel   |
 
-CLI selection priority (when recommending CLI): `ptah-cli > codex > copilot`.
+CLI selection priority (when recommending CLI): `ptah-cli > gemini > codex > copilot`.
 
 #### Parallel-Eligible Checklist
 

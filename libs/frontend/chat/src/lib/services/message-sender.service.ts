@@ -339,6 +339,13 @@ export class MessageSenderService {
       this.tabManager.markTabStreaming(activeTabId);
       this.sessionManager.setSessionId(sessionId); // Default to 'draft' state
       this.sessionManager.setStatus('streaming'); // Start streaming status so UI shows content
+      // Hidden preamble (e.g. Tribunal council framing) is prepended to the
+      // BACKEND prompt only; the visible bubble stays the user's plain text.
+      const firstMessagePreamble =
+        this.tabManager.consumeFirstMessagePreamble(activeTabId);
+      const backendPrompt = firstMessagePreamble
+        ? `${firstMessagePreamble}\n\n${content}`
+        : content;
       const userMessage = createExecutionChatMessage({
         id: this.generateId(),
         role: 'user',
@@ -361,7 +368,7 @@ export class MessageSenderService {
       const result = await this.claudeRpcService.call(
         'chat:start',
         {
-          prompt: content,
+          prompt: backendPrompt,
           tabId: activeTabId, // Frontend correlation ID
           name: autoName, // Send message-derived name to backend (not stale activeTab reference)
           ...(workspacePath ? { workspacePath } : {}),

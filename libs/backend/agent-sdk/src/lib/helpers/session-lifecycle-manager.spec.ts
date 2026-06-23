@@ -797,7 +797,10 @@ describe('SessionLifecycleManager', () => {
   // -------------------------------------------------------------------------
 
   describe('warmQuery handoff (executeQuery)', () => {
-    it('uses warmQuery.query(prompt) instead of queryFn() for an eligible new chat', async () => {
+    it('uses warmQuery.query(prompt) and flips it to bypass for an eligible yolo new chat', async () => {
+      // Warm subprocess has no canUseTool callback, so it is only consumed for
+      // bypassPermissions ('yolo') sessions.
+      harness.permissionHandler.getPermissionLevel.mockReturnValue('yolo');
       const warmedQuery = createFakeQuery().query;
       const warmQueryFn = jest.fn().mockReturnValue(warmedQuery);
       const close = jest.fn();
@@ -812,6 +815,11 @@ describe('SessionLifecycleManager', () => {
       // warmQuery.query was used; queryFn was NOT.
       expect(warmQueryFn).toHaveBeenCalledTimes(1);
       expect(harness.queryFn).not.toHaveBeenCalled();
+      // The consumed warm query is flipped to bypass (it was spawned in the
+      // SDK default mode with no permission callback).
+      expect(warmedQuery.setPermissionMode).toHaveBeenCalledWith(
+        'bypassPermissions',
+      );
       // The handle was NOT closed â€” its lifecycle is now owned by the
       // returned Query object. (Once the Query terminates the SDK closes
       // the underlying subprocess on its own.)
@@ -819,6 +827,24 @@ describe('SessionLifecycleManager', () => {
       // The SDK Query the executor returned is the one warmQuery.query
       // produced (load-bearing reference for stream transformation).
       expect(result.sdkQuery).toBe(warmedQuery);
+    });
+
+    it('falls back to queryFn (and closes the warm handle) when the permission level needs the UI callback', async () => {
+      // Default level is 'ask' → tools must prompt via canUseTool, which the
+      // warm subprocess cannot route. Must fall through to a fresh query.
+      const warmQueryFn = jest.fn();
+      const close = jest.fn();
+      const warmQuery = { close, query: warmQueryFn };
+
+      await harness.manager.executeQuery({
+        sessionId: 'tab_ask' as SessionId,
+        sessionConfig: createSessionConfig({ projectPath: '/ws/ask' }),
+        warmQuery,
+      });
+
+      expect(warmQueryFn).not.toHaveBeenCalled();
+      expect(harness.queryFn).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledTimes(1);
     });
 
     it('falls back to queryFn (and closes the warm handle) when the session is a resume', async () => {
@@ -878,6 +904,7 @@ describe('SessionLifecycleManager', () => {
     });
 
     it('falls back to queryFn when warmQuery.query() throws, and closes the handle', async () => {
+      harness.permissionHandler.getPermissionLevel.mockReturnValue('yolo');
       const close = jest.fn();
       const warmQueryFn = jest.fn().mockImplementation(() => {
         throw new Error('warm subprocess died');

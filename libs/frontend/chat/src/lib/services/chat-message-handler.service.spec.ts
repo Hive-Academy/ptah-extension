@@ -10,6 +10,7 @@
 import { TestBed } from '@angular/core/testing';
 import { MESSAGE_TYPES, SessionId } from '@ptah-extension/shared';
 import {
+  StreamingSurfaceRegistry,
   StreamRouter,
   WorkflowSessionClaimService,
 } from '@ptah-extension/chat-routing';
@@ -74,7 +75,16 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     findTabBySessionIdAcrossWorkspaces: jest.Mock;
   };
   let claims: WorkflowSessionClaimService;
+  let surfaceRegistry: StreamingSurfaceRegistry;
   let consoleWarnSpy: jest.SpyInstance;
+
+  function registerSurfaceAdapter(surfaceId: SurfaceId): void {
+    surfaceRegistry.register(
+      surfaceId,
+      () => ({}) as never,
+      () => undefined,
+    );
+  }
 
   beforeEach(() => {
     chatStore = {
@@ -114,6 +124,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
 
     handler = TestBed.inject(ChatMessageHandler);
     claims = TestBed.inject(WorkflowSessionClaimService);
+    surfaceRegistry = TestBed.inject(StreamingSurfaceRegistry);
     TestBed.inject(SessionLivenessRegistry);
     consoleWarnSpy = jest
       .spyOn(console, 'warn')
@@ -396,6 +407,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       const correlationId = VALID_UUID;
       const surfaceId = SurfaceId.create();
       claims.claim(correlationId, surfaceId);
+      registerSurfaceAdapter(surfaceId);
 
       handler.handleMessage({
         type: MESSAGE_TYPES.CHAT_CHUNK,
@@ -409,6 +421,20 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       );
       expect(chatStore.processStreamEvent).not.toHaveBeenCalled();
       expect(streamRouter.routeStreamEvent).not.toHaveBeenCalled();
+    });
+
+    it('routes a hide-only claimed chunk (no registered surface adapter) through the tab path', () => {
+      const correlationId = VALID_UUID;
+      claims.claim(correlationId, SurfaceId.create());
+
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_CHUNK,
+        payload: makeChunkPayload(correlationId),
+      });
+
+      expect(streamRouter.routeStreamEventForSurface).not.toHaveBeenCalled();
+      expect(chatStore.processStreamEvent).toHaveBeenCalledTimes(1);
+      expect(streamRouter.routeStreamEvent).toHaveBeenCalledTimes(1);
     });
 
     it('drops an unclaimed surfaceMode chunk silently', () => {
@@ -433,7 +459,24 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       expect(streamRouter.routeStreamEventForSurface).not.toHaveBeenCalled();
     });
 
-    it('skips tab adoption on session:id-resolved for a claimed correlation', () => {
+    it('skips tab adoption on session:id-resolved for a claimed surface', () => {
+      const correlationId = VALID_UUID;
+      const surfaceId = SurfaceId.create();
+      claims.claim(correlationId, surfaceId);
+      registerSurfaceAdapter(surfaceId);
+
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_ID_RESOLVED,
+        payload: { tabId: correlationId, realSessionId: CHUNK_SESSION },
+      });
+
+      expect(chatStore.handleSessionIdResolved).not.toHaveBeenCalled();
+      expect(
+        streamRouter.refreshQuestionTargetsForSession,
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it('adopts the tab on session:id-resolved for a hide-only claim (no surface adapter)', () => {
       const correlationId = VALID_UUID;
       claims.claim(correlationId, SurfaceId.create());
 
@@ -442,7 +485,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
         payload: { tabId: correlationId, realSessionId: CHUNK_SESSION },
       });
 
-      expect(chatStore.handleSessionIdResolved).not.toHaveBeenCalled();
+      expect(chatStore.handleSessionIdResolved).toHaveBeenCalledTimes(1);
       expect(
         streamRouter.refreshQuestionTargetsForSession,
       ).toHaveBeenCalledTimes(1);

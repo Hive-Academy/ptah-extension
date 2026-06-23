@@ -73,6 +73,7 @@ describe('MessageSenderService', () => {
     markResuming: jest.Mock;
     detachSessionAndMarkLoaded: jest.Mock;
     setMessages: jest.Mock;
+    consumeFirstMessagePreamble: jest.Mock;
   };
   let sessionManager: jest.Mocked<
     Pick<
@@ -111,6 +112,7 @@ describe('MessageSenderService', () => {
       switchTab: jest.fn(),
       markTabStreaming: jest.fn(),
       markTabIdle: jest.fn(),
+      consumeFirstMessagePreamble: jest.fn(() => null),
       // Stub returns a real AbortSignal so the wireAbortDispatch listener
       // can attach without throwing.
       createAbortController: jest.fn(() => new AbortController().signal),
@@ -352,6 +354,39 @@ describe('MessageSenderService', () => {
       await service.send('hello');
       expect(sessionManager.failSession).toHaveBeenCalled();
       expect(tabManager.markLoaded).toHaveBeenCalledWith('tab-1');
+    });
+
+    it('prepends a hidden first-message preamble to the backend prompt only', async () => {
+      rpcCall.mockResolvedValue({ success: true });
+      tabManager.consumeFirstMessagePreamble.mockReturnValueOnce(
+        'COUNCIL FRAMING\nObjective:',
+      );
+
+      await service.send('compare the two designs');
+
+      // Backend prompt carries the framing + the user's objective.
+      const [, payload] = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:start',
+      ) as [string, { prompt: string }];
+      expect(payload.prompt).toBe(
+        'COUNCIL FRAMING\nObjective:\n\ncompare the two designs',
+      );
+
+      // The visible bubble stays the user's plain text — no framing leak.
+      const [, msgs] = tabManager.appendUserMessageAndResetStreaming.mock
+        .calls[0] as [string, ExecutionChatMessage[]];
+      expect(msgs[0].rawContent).toBe('compare the two designs');
+    });
+
+    it('sends the raw content as prompt when no preamble is set', async () => {
+      rpcCall.mockResolvedValue({ success: true });
+      // default mock returns null (no preamble)
+      await service.send('plain question');
+
+      const [, payload] = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:start',
+      ) as [string, { prompt: string }];
+      expect(payload.prompt).toBe('plain question');
     });
 
     it('flags a re-auth banner when chat:start returns AUTH_REQUIRED', async () => {

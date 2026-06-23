@@ -25,7 +25,10 @@ import type {
 import { SdkError } from '../../errors';
 import type { IModelResolver } from '../../auth-env.port';
 import type { SessionRegistry } from './session-registry.service';
-import { PERMISSION_MODE_MAP } from './permission-mode-map';
+import {
+  PERMISSION_MODE_MAP,
+  LEVEL_FROM_SDK_MODE,
+} from './permission-mode-map';
 import type { SessionEndCallbackRegistry } from '../session-end-callback-registry';
 
 export class SessionControl {
@@ -257,6 +260,9 @@ export class SessionControl {
       `[SessionLifecycle] Setting permission level for ${sessionId}: ${level}`,
     );
     const sdkMode = PERMISSION_MODE_MAP[level] || level;
+    // Update the per-session level the canUseTool callback reads (normalized
+    // to the frontend naming) so a live toggle re-gates THIS session only.
+    session.permissionLevel = LEVEL_FROM_SDK_MODE[level] ?? 'ask';
 
     try {
       await session.query.setPermissionMode(sdkMode);

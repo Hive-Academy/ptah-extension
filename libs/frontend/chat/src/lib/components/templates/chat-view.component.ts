@@ -51,7 +51,10 @@ import {
   TabId,
   ConfirmationDialogService,
 } from '@ptah-extension/chat-state';
-import { SESSION_CONTEXT } from '../../tokens/session-context.token';
+import {
+  SESSION_CONTEXT,
+  HIDE_AGENT_SIDEBAR,
+} from '../../tokens/session-context.token';
 import {
   VSCodeService,
   ClaudeRpcService,
@@ -149,6 +152,10 @@ export class ChatViewComponent {
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
+  /** When true, the per-session Agents right sidebar is hidden (e.g. Tribunal
+   * conductor — panelists render as their own tiles). */
+  protected readonly hideAgentSidebar =
+    inject(HIDE_AGENT_SIDEBAR, { optional: true }) ?? false;
   private readonly _tabManager = inject(TabManagerService);
   private readonly _appState = inject(AppStateManager);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);

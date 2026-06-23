@@ -157,6 +157,13 @@ export class ConversationService {
       const activeTab = this.tabManager.activeTab();
       const queuedContent = activeTab?.queuedContent;
 
+      if (activeTab) {
+        this.tabManager.setLastTerminalReason(
+          activeTab.id,
+          'aborted_streaming',
+        );
+      }
+
       if (queuedContent && queuedContent.trim()) {
         this._queueRestoreSignal.set({
           tabId: activeTab.id,

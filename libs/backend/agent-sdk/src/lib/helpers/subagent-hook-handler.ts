@@ -112,6 +112,8 @@ export class SubagentHookHandler {
                   toolUseId,
                   sessionId: input.session_id,
                   parentSessionId: capturedParentSessionId,
+                  agentId: (input as { agent_id?: string }).agent_id,
+                  agentType: (input as { agent_type?: string }).agent_type,
                 },
               );
               if (!isSubagentStartHook(input)) {
@@ -148,6 +150,8 @@ export class SubagentHookHandler {
                   hookEventName: input.hook_event_name,
                   toolUseId,
                   sessionId: input.session_id,
+                  agentId: (input as { agent_id?: string }).agent_id,
+                  agentType: (input as { agent_type?: string }).agent_type,
                 },
               );
               if (!isSubagentStopHook(input)) {

@@ -113,6 +113,20 @@ export class SkillRegistryStore {
     return rows.map((r) => this.toRow(r));
   }
 
+  /**
+   * Slugs of authored skills (kind='skill', clone_status='authored'). These are
+   * first-class: never re-synthesized and never demoted to dormant.
+   */
+  listAuthoredSlugs(): Set<string> {
+    const rows = this.db
+      .prepare(
+        `SELECT slug FROM skill_registry
+         WHERE kind = 'skill' AND clone_status = 'authored'`,
+      )
+      .all() as Array<{ slug: string }>;
+    return new Set(rows.map((r) => r.slug).filter((s) => s.length > 0));
+  }
+
   setDiverged(kind: SkillRegistryKind, slug: string, diverged: boolean): void {
     const stmt = this.db.prepare(
       `UPDATE skill_registry

@@ -135,15 +135,17 @@ export class VoiceRpcHandlers {
     const model = parsed.data.model ?? resolveWhisperModel(this.workspace);
     const onProgress = (evt: WhisperDownloadEvent): void => {
       if (evt.model !== model) return;
-      if (evt.kind === 'download:start' || evt.kind === 'download:progress') {
-        const percent = evt.kind === 'download:progress' ? evt.percent : 0;
-        void this.webviewManager
-          .broadcastMessage(MESSAGE_TYPES.VOICE_MODEL_DOWNLOAD_PROGRESS, {
-            model,
-            percent,
-          })
-          .catch(() => undefined);
-      }
+      let percent: number | null = null;
+      if (evt.kind === 'download:start') percent = 0;
+      else if (evt.kind === 'download:progress') percent = evt.percent;
+      else if (evt.kind === 'download:complete') percent = 100;
+      if (percent === null) return;
+      void this.webviewManager
+        .broadcastMessage(MESSAGE_TYPES.VOICE_MODEL_DOWNLOAD_PROGRESS, {
+          model,
+          percent,
+        })
+        .catch(() => undefined);
     };
     this.whisper.on('download', onProgress);
     try {
@@ -164,10 +166,10 @@ export class VoiceRpcHandlers {
           remediation: VOICE_ASSETS_REMEDIATION,
         };
       }
-      this.logger.error('[voice] model download failed', {
-        error: message,
-        model,
-      });
+      this.logger.error(
+        `[voice] model download failed (${model}): ${message}`,
+        error instanceof Error ? error : undefined,
+      );
       return { ok: false, error: message };
     } finally {
       this.whisper.off('download', onProgress);
@@ -263,10 +265,10 @@ export class VoiceRpcHandlers {
           remediation: VOICE_ASSETS_REMEDIATION,
         };
       }
-      this.logger.error('[voice] transcription failed', {
-        error: message,
-        mimeType,
-      });
+      this.logger.error(
+        `[voice] transcription failed (${mimeType}): ${message}`,
+        error instanceof Error ? error : undefined,
+      );
       return { ok: false, error: message };
     } finally {
       await this.cleanup(inputPath);

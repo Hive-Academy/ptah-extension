@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type {
+  SkillSuggestionSummary,
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
   SkillSynthesisSettingsDto,
@@ -7,6 +8,27 @@ import type {
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
+
+/**
+ * Coalesce a raw suggestion summary to safe defaults so a missing field
+ * from a stale or partial RPC payload can never throw inside a computed
+ * (a thrown computed poisons the entire Skills tab).
+ */
+function normalizeSuggestion(
+  raw: Partial<SkillSuggestionSummary> | null | undefined,
+): SkillSuggestionSummary {
+  return {
+    id: raw?.id ?? '',
+    name: raw?.name ?? '(unnamed skill)',
+    description: raw?.description ?? '',
+    clusterSize: raw?.clusterSize ?? 0,
+    technologyFingerprint: raw?.technologyFingerprint ?? '',
+    judgeScore: raw?.judgeScore ?? 0,
+    memberSessionIds: raw?.memberSessionIds ?? [],
+    status: raw?.status ?? 'pending',
+    createdAt: raw?.createdAt ?? 0,
+  };
+}
 
 /** Status filter values for the candidates table. */
 export type SkillStatusFilter = 'all' | 'pending' | 'promoted' | 'rejected';
@@ -47,11 +69,18 @@ export class SkillSynthesisStateService {
   public readonly loading = signal<boolean>(false);
   public readonly error = signal<string | null>(null);
 
+  public readonly suggestions = signal<SkillSuggestionSummary[]>([]);
+  public readonly suggestionsLoading = signal<boolean>(false);
+
   public readonly selectedCandidate = computed(() => {
     const id = this.selectedCandidateId();
     if (!id) return null;
     return this.candidates().find((c) => c.id === id) ?? null;
   });
+
+  public readonly pendingSuggestionCount = computed(
+    () => this.suggestions().filter((s) => s.status === 'pending').length,
+  );
 
   /** Refresh the candidate list using the current `statusFilter()`. */
   public async refreshCandidates(): Promise<void> {
@@ -150,6 +179,48 @@ export class SkillSynthesisStateService {
   public async setStatusFilter(filter: SkillStatusFilter): Promise<void> {
     this.statusFilter.set(filter);
     await this.refreshCandidates();
+  }
+
+  /** Refresh the cluster-derived suggestion list. */
+  public async refreshSuggestions(): Promise<void> {
+    this.suggestionsLoading.set(true);
+    this.error.set(null);
+    try {
+      const list = await this.rpc.listSuggestions();
+      this.suggestions.set(list.map(normalizeSuggestion));
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.suggestionsLoading.set(false);
+    }
+  }
+
+  /** Accept a suggestion (materializes a skill), then refresh the list. */
+  public async accept(id: string): Promise<void> {
+    this.suggestionsLoading.set(true);
+    this.error.set(null);
+    try {
+      await this.rpc.acceptSuggestion(id);
+      await this.refreshSuggestions();
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.suggestionsLoading.set(false);
+    }
+  }
+
+  /** Dismiss a suggestion (optionally with a reason), then refresh. */
+  public async dismiss(id: string, reason?: string): Promise<void> {
+    this.suggestionsLoading.set(true);
+    this.error.set(null);
+    try {
+      await this.rpc.dismissSuggestion(id, reason);
+      await this.refreshSuggestions();
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.suggestionsLoading.set(false);
+    }
   }
 
   private toMessage(err: unknown): string {

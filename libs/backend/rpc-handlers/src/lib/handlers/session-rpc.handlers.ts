@@ -574,17 +574,30 @@ export class SessionRpcHandlers {
     let deletedSubagents = 0;
     const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
 
-    const subagentFiles = await fs.readdir(subagentsDir);
-    for (const file of subagentFiles) {
-      if (file.startsWith('agent-') && file.endsWith('.jsonl')) {
-        await fs.unlink(path.join(subagentsDir, file));
-        deletedSubagents++;
+    try {
+      const subagentFiles = await fs.readdir(subagentsDir);
+      for (const file of subagentFiles) {
+        if (file.startsWith('agent-') && file.endsWith('.jsonl')) {
+          await fs.unlink(path.join(subagentsDir, file));
+          deletedSubagents++;
+        }
+      }
+
+      await fs.rmdir(subagentsDir);
+      await fs.rmdir(path.join(sessionsDir, sessionId));
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        this.logger.warn(
+          'RPC: session:delete - failed to clean nested subagents dir',
+          {
+            sessionId,
+            subagentsDir,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
       }
     }
-
-    await fs.rmdir(subagentsDir);
-
-    await fs.rmdir(path.join(sessionsDir, sessionId));
     if (deletedSubagents === 0) {
       const allFiles = await fs.readdir(sessionsDir);
       const agentFiles = allFiles.filter(

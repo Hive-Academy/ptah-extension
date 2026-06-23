@@ -37,6 +37,10 @@ import {
   ANTHROPIC_DIRECT_PROVIDER_ID,
   type AnthropicProvider,
 } from '@ptah-extension/agent-sdk';
+import {
+  ActiveProviderResolver,
+  AUTH_PROVIDERS_TOKENS,
+} from '@ptah-extension/auth-providers';
 
 /** Secret storage key prefix for provider API keys */
 const API_KEY_PREFIX = 'ptah.apiKey';
@@ -199,6 +203,8 @@ export class LlmRpcHandlers {
     },
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
     private readonly authSecrets: IAuthSecretsService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER)
+    private readonly activeProviderResolver: ActiveProviderResolver,
   ) {}
 
   /**
@@ -269,9 +275,9 @@ export class LlmRpcHandlers {
           const configManager = this.getConfigManager();
           const defaultProvider =
             configManager.get<string>('llm.defaultProvider') ?? 'anthropic';
-          const rawAuthMethod = configManager.get<string>('authMethod');
           const isClaudeCli =
-            rawAuthMethod === 'claudeCli' || rawAuthMethod === 'claude-cli';
+            this.activeProviderResolver.resolveActiveAuth().authMethod ===
+            'claudeCli';
 
           const catalogue = buildStatusProviderList();
 

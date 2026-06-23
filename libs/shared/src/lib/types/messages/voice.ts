@@ -4,8 +4,9 @@
  *
  * Emitted by the backend while a Whisper model is being fetched via
  * `voice:downloadModel`, so the settings UI can render a live progress bar.
- * `percent` is the integer download progress (0-99 during transfer); the
- * `voice:downloadModel` RPC result signals final completion/failure.
+ * `percent` is the integer download progress: 0-99 during transfer and a
+ * final 100 on completion. Failures are signalled by the `voice:downloadModel`
+ * RPC result, not this channel.
  */
 export interface VoiceModelDownloadProgressPayload {
   model: string;

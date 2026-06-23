@@ -171,6 +171,7 @@ interface Harness {
       | 'resumeSession'
       | 'isSessionActive'
       | 'setSessionPermissionLevel'
+      | 'endSession'
     >
   >;
   workspace: jest.Mocked<Pick<IWorkspaceProvider, 'getWorkspaceRoot'>>;
@@ -190,6 +191,7 @@ function setup(options?: {
     resumeSession: jest.fn(),
     isSessionActive: jest.fn().mockReturnValue(false),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
+    endSession: jest.fn(),
   } as unknown as Harness['adapter'];
   const workspace = {
     getWorkspaceRoot: jest
@@ -350,6 +352,25 @@ describe('GatewayChatBridge', () => {
       conversation.id,
       SDK_UUID,
     );
+  });
+
+  it('ends the SDK session after the turn drains so the next message resumes cleanly', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.isSessionActive.mockReturnValue(true);
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'x'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(() => h.adapter.endSession.mock.calls.length > 0);
+
+    expect(h.adapter.endSession).toHaveBeenCalledWith(SDK_UUID);
   });
 
   it('auto-approves by setting bypass permission for the resolved session', async () => {

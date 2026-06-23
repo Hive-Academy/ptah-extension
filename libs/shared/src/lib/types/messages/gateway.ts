@@ -1,4 +1,4 @@
-import type { GatewayStatusResult } from '../rpc.types';
+import type { GatewayBindingDto, GatewayStatusResult } from '../rpc.types';
 
 /**
  * Payload for MESSAGE_TYPES.GATEWAY_STATUS_CHANGED ('gateway:statusChanged').
@@ -14,4 +14,17 @@ import type { GatewayStatusResult } from '../rpc.types';
 export interface GatewayStatusChangedPayload {
   status: GatewayStatusResult;
   origin: string | null;
+}
+
+/**
+ * Payload for MESSAGE_TYPES.GATEWAY_BINDINGS_CHANGED ('gateway:bindingsChanged').
+ *
+ * Emitted by the backend whenever the bindings list changes — most importantly
+ * when an inbound message creates a new pending binding (pairing request), but
+ * also on approve / reject / revoke. Carries the full public binding list
+ * (pairing codes stripped) so the renderer can replace its signal without an
+ * extra round-trip.
+ */
+export interface GatewayBindingsChangedPayload {
+  bindings: GatewayBindingDto[];
 }

@@ -50,8 +50,11 @@ const COPILOT_OAUTH_SENTINEL = 'copilot-oauth';
 /** Sentinel for local providers that don't need an API key */
 const LOCAL_PROVIDER_SENTINEL = 'ollama';
 
-/** Provider IDs that use authType: 'none' — no API key required */
-const LOCAL_PROVIDER_IDS = new Set(['ollama', 'ollama-cloud', 'lm-studio']);
+/** Providers that truly need no key at all (local inference). */
+const LOCAL_PROVIDER_IDS = new Set(['ollama', 'lm-studio']);
+
+/** Providers with authType:'none' but an OPTIONAL key (e.g. ollama-cloud). */
+const OPTIONAL_KEY_PROVIDER_IDS = new Set(['ollama-cloud']);
 
 const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
   {
@@ -205,18 +208,29 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
           <!-- API Key (hidden for github-copilot and local providers) -->
           @if (
             newAgentProvider() !== 'github-copilot' &&
-            !isLocalProvider(newAgentProvider())
+            (!isLocalProvider(newAgentProvider()) ||
+              isOptionalKeyProvider(newAgentProvider()))
           ) {
             <div class="form-control">
               <label for="new-agent-apikey" class="label py-0.5">
-                <span class="label-text text-xs">API Key</span>
+                <span class="label-text text-xs"
+                  >API Key{{
+                    isOptionalKeyProvider(newAgentProvider())
+                      ? ' (optional)'
+                      : ''
+                  }}</span
+                >
               </label>
               <div class="relative">
                 <input
                   id="new-agent-apikey"
                   [type]="showNewApiKey() ? 'text' : 'password'"
                   class="input input-bordered input-xs w-full pr-8"
-                  placeholder="sk-..."
+                  [placeholder]="
+                    isOptionalKeyProvider(newAgentProvider())
+                      ? 'Optional — ollama.com API key for live models & pricing'
+                      : 'sk-...'
+                  "
                   [ngModel]="newAgentApiKey()"
                   (ngModelChange)="newAgentApiKey.set($event)"
                 />
@@ -241,13 +255,14 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
           <!-- Local provider hint (Ollama, LM Studio) -->
           @if (isLocalProvider(newAgentProvider())) {
             <div class="text-xs text-base-content/60 mt-2 px-1">
-              @if (newAgentProvider() === 'ollama-cloud') {
-                No API key needed â€” run
-                <code class="text-xs">ollama signin</code> to authenticate with
-                Ollama Cloud.
-              } @else {
-                No API key needed â€” make sure Ollama is running locally.
-              }
+              No API key needed — make sure Ollama is running locally.
+            </div>
+          }
+          @if (isOptionalKeyProvider(newAgentProvider())) {
+            <div class="text-xs text-base-content/60 mt-2 px-1">
+              Optional — run <code class="text-xs">ollama signin</code> to use
+              Ollama Cloud, or paste an ollama.com API key above to enable live
+              model discovery and pricing.
             </div>
           }
 
@@ -385,19 +400,59 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
                 </div>
               </div>
 
+              @if (
+                editingAgentId() === agent.id &&
+                agent.providerId !== 'github-copilot' &&
+                !isLocalProvider(agent.providerId)
+              ) {
+                <div class="relative mt-1.5">
+                  <input
+                    [type]="showEditApiKey() ? 'text' : 'password'"
+                    class="input input-bordered input-xs w-full pr-8"
+                    [placeholder]="
+                      isOptionalKeyProvider(agent.providerId)
+                        ? 'Optional — new ollama.com API key (blank keeps current)'
+                        : 'New API key (blank keeps current)'
+                    "
+                    [ngModel]="editApiKey()"
+                    (ngModelChange)="editApiKey.set($event)"
+                    (keydown.enter)="saveEdit(agent.id)"
+                    (keydown.escape)="cancelEdit()"
+                  />
+                  <button
+                    type="button"
+                    class="absolute right-1 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-square"
+                    (click)="showEditApiKey.set(!showEditApiKey())"
+                    [attr.aria-label]="
+                      showEditApiKey() ? 'Hide API key' : 'Show API key'
+                    "
+                  >
+                    @if (showEditApiKey()) {
+                      <lucide-angular [img]="EyeOffIcon" class="w-3 h-3" />
+                    } @else {
+                      <lucide-angular [img]="EyeIcon" class="w-3 h-3" />
+                    }
+                  </button>
+                </div>
+              }
+
               <!-- Agent Actions Row -->
               <div
                 class="flex items-center justify-between mt-1.5 pt-1.5 border-t border-base-300/50"
               >
                 <div class="flex items-center gap-1">
                   <!-- API Key status -->
-                  @if (agent.hasApiKey) {
+                  @if (agent.hasStoredKey) {
                     <span
                       class="text-[10px] text-success/70 flex items-center gap-0.5"
                     >
                       <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
                       Key set
                     </span>
+                  } @else if (isOptionalKeyProvider(agent.providerId)) {
+                    <span class="text-[10px] text-base-content/50"
+                      >Cloud (signin)</span
+                    >
                   } @else {
                     <span class="text-[10px] text-warning/70">No API key</span>
                   }
@@ -615,6 +670,8 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
   readonly isCreating = signal(false);
   readonly editingAgentId = signal<string | null>(null);
   readonly editName = signal('');
+  readonly editApiKey = signal('');
+  readonly showEditApiKey = signal(false);
   readonly testingAgentId = signal<string | null>(null);
   readonly testResultAgentId = signal<string | null>(null);
   readonly testResult = signal<{
@@ -646,7 +703,10 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
         hasName && hasProvider && this.copilotLoginStatus() === 'connected'
       );
     }
-    if (LOCAL_PROVIDER_IDS.has(this.newAgentProvider())) {
+    if (
+      LOCAL_PROVIDER_IDS.has(this.newAgentProvider()) ||
+      OPTIONAL_KEY_PROVIDER_IDS.has(this.newAgentProvider())
+    ) {
       return hasName && hasProvider;
     }
 
@@ -703,6 +763,11 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
     return LOCAL_PROVIDER_IDS.has(providerId);
   }
 
+  /** Check if a provider has authType:'none' but accepts an optional API key. */
+  isOptionalKeyProvider(providerId: string): boolean {
+    return OPTIONAL_KEY_PROVIDER_IDS.has(providerId);
+  }
+
   /**
    * Handle provider dropdown change. Resets copilot state and checks
    * copilot auth status when github-copilot is selected.
@@ -724,16 +789,22 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
     this.isCreating.set(true);
     this.error.set(null);
     try {
-      const isCopilot = this.newAgentProvider() === 'github-copilot';
-      const isLocal = LOCAL_PROVIDER_IDS.has(this.newAgentProvider());
+      const providerId = this.newAgentProvider();
+      const isCopilot = providerId === 'github-copilot';
+      const isLocal = LOCAL_PROVIDER_IDS.has(providerId);
+      const isOptionalKey = OPTIONAL_KEY_PROVIDER_IDS.has(providerId);
+      const typedKey = this.newAgentApiKey().trim();
+      const apiKey = isCopilot
+        ? COPILOT_OAUTH_SENTINEL
+        : isLocal
+          ? LOCAL_PROVIDER_SENTINEL
+          : isOptionalKey && typedKey.length === 0
+            ? LOCAL_PROVIDER_SENTINEL
+            : typedKey;
       const result = await this.rpcService.call('ptahCli:create', {
         name: this.newAgentName().trim(),
-        providerId: this.newAgentProvider(),
-        apiKey: isCopilot
-          ? COPILOT_OAUTH_SENTINEL
-          : isLocal
-            ? LOCAL_PROVIDER_SENTINEL
-            : this.newAgentApiKey().trim(),
+        providerId,
+        apiKey,
       });
 
       if (result.isSuccess() && result.data.success) {
@@ -830,11 +901,15 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
   startEdit(agent: PtahCliSummary): void {
     this.editingAgentId.set(agent.id);
     this.editName.set(agent.name);
+    this.editApiKey.set('');
+    this.showEditApiKey.set(false);
   }
 
   cancelEdit(): void {
     this.editingAgentId.set(null);
     this.editName.set('');
+    this.editApiKey.set('');
+    this.showEditApiKey.set(false);
   }
 
   async saveEdit(agentId: string): Promise<void> {
@@ -843,9 +918,11 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
 
     this.error.set(null);
     try {
+      const newKey = this.editApiKey().trim();
       const result = await this.rpcService.call('ptahCli:update', {
         id: agentId,
         name,
+        ...(newKey.length > 0 ? { apiKey: newKey } : {}),
       });
 
       if (result.isSuccess() && result.data.success) {

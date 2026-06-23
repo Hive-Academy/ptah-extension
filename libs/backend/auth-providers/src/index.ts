@@ -20,6 +20,10 @@ export {
   type LegacyAuthMethod,
 } from './lib/auth/auth-method.utils';
 export { ModelResolver } from './lib/auth/model-resolver';
+export {
+  ActiveProviderResolver,
+  type ActiveAuth,
+} from './lib/auth/active-provider-resolver';
 export type {
   IAuthStrategy,
   AuthConfigureResult,

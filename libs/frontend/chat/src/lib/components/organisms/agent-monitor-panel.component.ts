@@ -26,6 +26,10 @@ import {
   signal,
   effect,
   untracked,
+  viewChild,
+  ElementRef,
+  afterNextRender,
+  DestroyRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { NgClass } from '@angular/common';
@@ -39,11 +43,17 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { AgentCardComponent } from '../molecules/agent-card/agent-card.component';
+import { AgentContinueInputComponent } from '../molecules/agent-continue-input/agent-continue-input.component';
 
 @Component({
   selector: 'ptah-agent-monitor-panel',
   standalone: true,
-  imports: [NgClass, LucideAngularModule, AgentCardComponent],
+  imports: [
+    NgClass,
+    LucideAngularModule,
+    AgentCardComponent,
+    AgentContinueInputComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .agent-panel-open {
@@ -157,76 +167,87 @@ import { AgentCardComponent } from '../molecules/agent-card/agent-card.component
       }
 
       <!-- Selected Agent Detail -->
-      <div class="flex-1 overflow-y-auto min-h-0" style="min-width: 300px">
-        @if (effectiveSelectedAgent(); as agent) {
-          <!-- Permission requests for selected agent -->
-          @if (agent.permissionQueue.length > 0) {
-            <div class="border-b border-warning/30">
-              @for (perm of agent.permissionQueue; track perm.requestId) {
-                <div
-                  class="bg-warning/10 px-2.5 py-1.5 flex flex-col gap-1 border-b border-warning/10 last:border-b-0"
-                >
-                  <div class="flex items-center gap-2">
-                    <lucide-angular
-                      [img]="ShieldAlertIcon"
-                      class="w-3.5 h-3.5 text-warning flex-shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span class="badge badge-xs badge-warning">Permission</span>
-                  </div>
-                  <div class="flex items-center gap-1.5">
-                    <code
-                      class="text-[10px] font-mono text-accent bg-base-200/60 px-1.5 py-0.5 rounded"
-                    >
-                      {{ perm.toolName }}
-                    </code>
-                    @if (perm.toolArgs) {
-                      <span
-                        class="text-[10px] text-base-content/40 font-mono truncate"
+      <div
+        #agentScroll
+        class="flex-1 overflow-y-auto min-h-0"
+        style="min-width: 300px"
+        (scroll)="onScroll()"
+      >
+        <div #agentScrollContent>
+          @if (effectiveSelectedAgent(); as agent) {
+            <!-- Permission requests for selected agent -->
+            @if (agent.permissionQueue.length > 0) {
+              <div class="border-b border-warning/30">
+                @for (perm of agent.permissionQueue; track perm.requestId) {
+                  <div
+                    class="bg-warning/10 px-2.5 py-1.5 flex flex-col gap-1 border-b border-warning/10 last:border-b-0"
+                  >
+                    <div class="flex items-center gap-2">
+                      <lucide-angular
+                        [img]="ShieldAlertIcon"
+                        class="w-3.5 h-3.5 text-warning flex-shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span class="badge badge-xs badge-warning"
+                        >Permission</span
                       >
-                        {{ perm.toolArgs }}
-                      </span>
-                    }
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <code
+                        class="text-[10px] font-mono text-accent bg-base-200/60 px-1.5 py-0.5 rounded"
+                      >
+                        {{ perm.toolName }}
+                      </code>
+                      @if (perm.toolArgs) {
+                        <span
+                          class="text-[10px] text-base-content/40 font-mono truncate"
+                        >
+                          {{ perm.toolArgs }}
+                        </span>
+                      }
+                    </div>
+                    <div class="flex gap-2">
+                      <button
+                        type="button"
+                        class="btn btn-xs btn-success"
+                        (click)="allowPermission(agent.agentId, perm)"
+                      >
+                        Allow
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-xs btn-error btn-outline"
+                        (click)="denyPermission(agent.agentId, perm)"
+                      >
+                        Deny
+                      </button>
+                    </div>
                   </div>
-                  <div class="flex gap-2">
-                    <button
-                      type="button"
-                      class="btn btn-xs btn-success"
-                      (click)="allowPermission(agent.agentId, perm)"
-                    >
-                      Allow
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-xs btn-error btn-outline"
-                      (click)="denyPermission(agent.agentId, perm)"
-                    >
-                      Deny
-                    </button>
-                  </div>
-                </div>
-              }
+                }
+              </div>
+            }
+
+            <!-- Agent card (auto-expanded on selection) -->
+            <div class="p-1.5">
+              <ptah-agent-card
+                class="block h-full"
+                [agent]="agent"
+                (toggleExpanded)="store.toggleAgentExpanded(agent.agentId)"
+              />
+            </div>
+
+            <ptah-agent-continue-input [agent]="agent" />
+          } @else {
+            <div
+              class="flex flex-col items-center justify-center h-32 text-center"
+            >
+              <span class="text-sm text-base-content/40">No agents</span>
+              <span class="text-xs text-base-content/25 mt-1"
+                >Agents will appear here when spawned</span
+              >
             </div>
           }
-
-          <!-- Agent card (auto-expanded on selection) -->
-          <div class="p-1.5">
-            <ptah-agent-card
-              class="block h-full"
-              [agent]="agent"
-              (toggleExpanded)="store.toggleAgentExpanded(agent.agentId)"
-            />
-          </div>
-        } @else {
-          <div
-            class="flex flex-col items-center justify-center h-32 text-center"
-          >
-            <span class="text-sm text-base-content/40">No agents</span>
-            <span class="text-xs text-base-content/25 mt-1"
-              >Agents will appear here when spawned</span
-            >
-          </div>
-        }
+        </div>
       </div>
     </aside>
   `,
@@ -254,6 +275,15 @@ export class AgentMonitorPanelComponent {
 
   readonly selectedAgentId = signal<string | null>(null);
   private prevAgentIds = new Set<string>();
+
+  private readonly _scroll = viewChild<ElementRef<HTMLElement>>('agentScroll');
+  private readonly _scrollContent =
+    viewChild<ElementRef<HTMLElement>>('agentScrollContent');
+  private readonly destroyRef = inject(DestroyRef);
+  /** Auto-follow the streaming agent output unless the user scrolled up. */
+  private pinnedToBottom = true;
+  private resizeObserver: ResizeObserver | null = null;
+  private static readonly NEAR_BOTTOM_PX = 80;
 
   readonly effectiveAgents = computed(
     () => this.embeddedAgents() ?? this.store.activeTabAgents(),
@@ -315,10 +345,37 @@ export class AgentMonitorPanelComponent {
         this.selectAgent(perms[0].agentId);
       }
     });
+
+    // Sticky-to-bottom: follow streaming agent output as it grows, the same
+    // way the conductor chat tile does. The content wrapper is always present
+    // (it brackets both the agent detail and the empty state), so the observer
+    // attaches once and fires on every height change.
+    afterNextRender(() => {
+      const container = this._scroll()?.nativeElement;
+      const content = this._scrollContent()?.nativeElement;
+      if (!container || !content) return;
+      this.resizeObserver = new ResizeObserver(() => {
+        if (this.pinnedToBottom) {
+          container.scrollTop = container.scrollHeight;
+        }
+      });
+      this.resizeObserver.observe(content);
+      this.destroyRef.onDestroy(() => this.resizeObserver?.disconnect());
+    });
+  }
+
+  /** Track whether the user is pinned to the bottom (auto-follow) or scrolled up. */
+  onScroll(): void {
+    const el = this._scroll()?.nativeElement;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    this.pinnedToBottom = distance < AgentMonitorPanelComponent.NEAR_BOTTOM_PX;
   }
 
   selectAgent(agentId: string): void {
     this.selectedAgentId.set(agentId);
+    // Switching/auto-selecting an agent re-follows its latest output.
+    this.pinnedToBottom = true;
     const agent = this.effectiveAgents().find((a) => a.agentId === agentId);
     if (agent && !agent.expanded) {
       this.store.toggleAgentExpanded(agentId);

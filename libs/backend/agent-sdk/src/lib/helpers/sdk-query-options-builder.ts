@@ -23,6 +23,7 @@ import {
   SessionId,
   TabId,
   type McpHttpServerOverride,
+  type PermissionLevel,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
@@ -65,6 +66,7 @@ import {
   getModelContextWindow,
 } from '@ptah-extension/shared';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
+import { experimentalBetaEnv } from './build-safe-env';
 import {
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   CODEX_PROXY_TOKEN_PLACEHOLDER,
@@ -72,7 +74,7 @@ import {
   OLLAMA_AUTH_TOKEN_PLACEHOLDER,
 } from '@ptah-extension/shared';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
-import { PTAH_MCP_PORT } from '../constants';
+import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 /**
  * Detect obvious upstream provider error signatures in a stderr chunk.
@@ -383,6 +385,14 @@ export interface QueryOptionsInput {
    * profile carries third-party provider auth.
    */
   authEnvOverride?: AuthEnv;
+  /**
+   * Resolves the CURRENT per-session permission level, read live by the
+   * canUseTool callback on every tool call. Supplied by SessionQueryExecutor
+   * bound to the session's SessionRecord so tool gating is scoped per
+   * session/workspace instead of read from the global handler field. Omitted
+   * by non-interactive callers, which fall back to the global default.
+   */
+  permissionLevelResolver?: () => PermissionLevel;
 }
 
 /**
@@ -503,6 +513,7 @@ export class SdkQueryOptionsBuilder {
       mcpServersOverride,
       initialUserQuery,
       authEnvOverride,
+      permissionLevelResolver,
     } = input;
 
     const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
@@ -575,6 +586,7 @@ export class SdkQueryOptionsBuilder {
         routingSessionId ?? undefined,
         undefined,
         routingTabId ?? undefined,
+        permissionLevelResolver,
       );
     const hooks = this.createHooks(
       cwd,
@@ -614,6 +626,7 @@ export class SdkQueryOptionsBuilder {
         resume: resumeSessionId,
         maxTurns: this.calculateMaxTurns(sessionConfig),
         systemPrompt,
+        settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
@@ -623,6 +636,7 @@ export class SdkQueryOptionsBuilder {
           mcpServersOverride,
         ),
         permissionMode,
+        allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
         canUseTool: canUseToolCallback,
         includePartialMessages: includePartialMessages ?? true,
         settingSources: /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(
@@ -635,13 +649,7 @@ export class SdkQueryOptionsBuilder {
           ...buildTierEnvDefaults(effectiveAuthEnv),
           ...effectiveAuthEnv,
           NO_PROXY: '127.0.0.1,localhost',
-          ...(() => {
-            const baseUrl = effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim();
-            return baseUrl &&
-              !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
-              ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
-              : {};
-          })(),
+          ...experimentalBetaEnv(effectiveAuthEnv.ANTHROPIC_BASE_URL),
           ...this.resolveContextWindowOverride(
             model,
             effectiveAuthEnv.ANTHROPIC_BASE_URL,
@@ -676,7 +684,6 @@ export class SdkQueryOptionsBuilder {
         ...((enableFileCheckpointing ?? true)
           ? { extraArgs: { 'replay-user-messages': null } }
           : {}),
-        agentProgressSummaries: true,
         forkSession: resumeSessionId ? forkSession : undefined,
       },
     };

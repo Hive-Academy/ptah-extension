@@ -1222,6 +1222,23 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
     expect(curator.curate).toHaveBeenCalledTimes(1);
   });
 
+  it('in-process session-end registry flushes the buffered episode when the SDK hook cannot deliver', async () => {
+    const { service, stop, sessionEnd, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload());
+    sessionEnd.endActive.current?.({ sessionId: 's1', workspaceRoot: '/ws' });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(curator.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'session-end-trigger' }),
+    );
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+  });
+
   it('SessionEnd hook with empty episode does not curate', async () => {
     const { service, sessionEndHook, curator } = buildService();
     service.start();

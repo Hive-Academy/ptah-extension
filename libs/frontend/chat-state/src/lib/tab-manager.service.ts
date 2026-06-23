@@ -401,10 +401,23 @@ export class TabManagerService {
     }
 
     const tabIds = this.tabSessionBinding.tabsFor(convRecord.id);
-    if (tabIds.length === 0) return [];
+    if (tabIds.length > 0) {
+      const boundTabIds = new Set<TabId>(tabIds);
+      const matched = this._tabs().filter((t) => boundTabIds.has(t.id));
+      if (matched.length > 0) return matched;
+    }
 
-    const boundTabIds = new Set<TabId>(tabIds);
-    return this._tabs().filter((t) => boundTabIds.has(t.id));
+    // The conversation is known but resolved to no active-workspace tab. This
+    // happens when the binding was seeded with a placeholder session id (the
+    // tab id) while the real SDK uuid was attached to `claudeSessionId` later —
+    // the Tribunal conductor (a hidden tab streamed under its tabId) is the
+    // canonical case. Turn-end and session-stats arrive under the real uuid, so
+    // fall back to a direct `claudeSessionId` match rather than returning empty,
+    // which would strand `markTabIdle`/finalize and freeze the streaming
+    // indicators on a finished turn. Active-workspace tabs only — background
+    // tabs must keep flowing through the `updateBackgroundTab` partition path.
+    const direct = this._tabs().find((t) => t.claudeSessionId === sessionId);
+    return direct ? [direct] : [];
   }
 
   /**
@@ -1028,6 +1041,29 @@ export class TabManagerService {
     this.updateTabInternal(tabId, {
       claudeSessionId: SessionId.from(sessionId),
     });
+  }
+
+  /**
+   * Stamp a hidden preamble onto a tab. It is prepended to the BACKEND prompt
+   * of the tab's first message only (not the visible bubble) and cleared on
+   * consume. Used by surfaces like the Tribunal conductor to inject framing
+   * while the user types a plain objective into the normal chat input.
+   */
+  setFirstMessagePreamble(tabId: string, preamble: string): void {
+    this.updateTabInternal(tabId, { firstMessagePreamble: preamble });
+  }
+
+  /**
+   * Read and clear a tab's first-message preamble. Returns null when none is
+   * set. Idempotent — a second call after consume returns null.
+   */
+  consumeFirstMessagePreamble(tabId: string): string | null {
+    const tab = this._tabs().find((t) => t.id === tabId);
+    const preamble = tab?.firstMessagePreamble ?? null;
+    if (preamble !== null) {
+      this.updateTabInternal(tabId, { firstMessagePreamble: null });
+    }
+    return preamble;
   }
 
   // The StreamRouter owns the "first event for a fresh tab seeds the
@@ -1821,6 +1857,7 @@ export class TabManagerService {
    */
   markTabStreaming(tabId: string): void {
     this._streamingTabIds.update((set) => new Set([...set, tabId]));
+    this.updateTabInternal(tabId, { lastTerminalReason: undefined });
   }
 
   /**

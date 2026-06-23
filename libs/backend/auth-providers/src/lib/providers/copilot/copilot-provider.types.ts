@@ -7,6 +7,8 @@
  * Backward-compatible re-exports ensure existing consumers continue to work.
  */
 
+import type { ProviderModelInfo } from '@ptah-extension/shared';
+
 export type {
   ITranslationProxy as ICopilotTranslationProxy,
   OpenAIChatMessage,
@@ -122,6 +124,8 @@ export interface ICopilotAuthService {
   getAuthState(): Promise<CopilotAuthState | null>;
   /** Get HTTP headers required for Copilot API requests */
   getHeaders(): Promise<Record<string, string>>;
+  /** List models available to the authenticated Copilot account */
+  listModels(): Promise<ProviderModelInfo[]>;
   /** Clear cached auth state (logout) */
   logout(): Promise<void>;
 

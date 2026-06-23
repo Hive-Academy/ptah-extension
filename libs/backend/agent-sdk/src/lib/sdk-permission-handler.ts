@@ -257,6 +257,13 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     sessionId?: SessionId,
     cliAgentResolver?: () => string | undefined,
     tabId?: TabId,
+    /**
+     * Resolves the CURRENT permission level for THIS session, read live on
+     * every tool call. Interactive sessions pass a resolver bound to their
+     * SessionRecord so a tool call never sees another workspace's level; the
+     * CLI-agent path omits it and falls back to the global default.
+     */
+    levelResolver?: () => PermissionLevel,
   ): CanUseTool {
     return async (
       toolName: string,
@@ -334,7 +341,14 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         );
       }
 
-      if (this._permissionLevel === 'yolo') {
+      // Per-session level (interactive) or global default (CLI agents). Read
+      // live so a mid-session toggle takes effect, but scoped to THIS session
+      // so it never reflects another workspace's level.
+      const effectiveLevel = levelResolver
+        ? levelResolver()
+        : this._permissionLevel;
+
+      if (effectiveLevel === 'yolo') {
         this.logger.info(
           `[SdkPermissionHandler] YOLO mode: auto-approved tool: ${toolName}`,
         );
@@ -344,7 +358,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         };
       }
 
-      if (this._permissionLevel === 'auto-edit') {
+      if (effectiveLevel === 'auto-edit') {
         if (AUTO_EDIT_TOOLS.includes(toolName)) {
           this.logger.info(
             `[SdkPermissionHandler] Auto-edit mode: auto-approved file tool: ${toolName}`,

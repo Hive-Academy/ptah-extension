@@ -318,6 +318,10 @@ export class AuthStateService {
    * Returns null if the selected provider ID doesn't match any available provider.
    */
   readonly selectedProvider = computed(() => {
+    const method = this._authMethod();
+    if (method === 'apiKey' || method === 'claudeCli') {
+      return null;
+    }
     const id = this._selectedProviderId();
     return this._availableProviders().find((p) => p.id === id) ?? null;
   });
@@ -405,6 +409,9 @@ export class AuthStateService {
    */
   setAuthMethod(method: AuthMethod): void {
     this._authMethod.set(method);
+    if (method === 'apiKey' || method === 'claudeCli') {
+      this._selectedProviderId.set('anthropic');
+    }
     this._connectionStatus.set('idle');
     this._errorMessage.set('');
     this._successMessage.set('');

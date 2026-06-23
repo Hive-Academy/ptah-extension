@@ -16,6 +16,14 @@ export type CandidateId = string & { readonly __brand: 'CandidateId' };
 /** Status values mirror the SQL CHECK constraint exactly. */
 export type SkillStatus = 'candidate' | 'promoted' | 'rejected';
 
+/**
+ * Residency values mirror the SQL CHECK constraint exactly. `resident` skills
+ * are fed to the junction layer; `dormant` skills are skipped there (kept in
+ * the DB + on disk for future re-promotion) so they no longer consume the
+ * prompt budget.
+ */
+export type SkillResidency = 'resident' | 'dormant';
+
 /** Row shape for `skill_candidates`. */
 export interface SkillCandidateRow {
   id: CandidateId;
@@ -33,6 +41,7 @@ export interface SkillCandidateRow {
   rejectedAt: number | null;
   rejectedReason: string | null;
   pinned: boolean;
+  residency: SkillResidency;
 }
 
 /** Row shape for `skill_invocations`. */
@@ -60,12 +69,14 @@ export interface SkillSynthesisSettings {
   evictionDecayRate: number;
   /** Minimum distinct context count for accelerated promotion threshold. */
   generalizationContextThreshold: number;
-  /** Minimum ratio of trajectory turns to total session turns (0-1). */
-  minTrajectoryFidelityRatio: number;
   /** Cosine distance threshold for cluster-centroid deduplication (0-1). */
   dedupClusterThreshold: number;
-  /** Minimum normalized Levenshtein edit distance to accept a candidate (0-1). */
-  minAbstractionEditDistance: number;
+  /** Minimum edit count for the prefilter edit-only acceptance path. */
+  prefilterMinEdits: number;
+  /** Minimum canonical-text length for the prefilter tool-heavy acceptance path. */
+  prefilterMinChars: number;
+  /** Minimum tool_use count for the prefilter tool-heavy acceptance path. */
+  prefilterMinToolUses: number;
   /** Whether the LLM-as-judge gate is active during promotion. */
   judgeEnabled: boolean;
   /** Minimum composite judge score (0-10) required for promotion. */
@@ -78,6 +89,10 @@ export interface SkillSynthesisSettings {
   curatorEnabled: boolean;
   /** Interval in hours between automatic Curator passes. */
   curatorIntervalHours: number;
+  /** Minimum cluster size that triggers a cluster-based skill suggestion. */
+  suggestionMinClusterSize: number;
+  /** Maximum number of most-recent candidates fed into the clustering pass. */
+  suggestionMaxCandidates: number;
 }
 
 /** Options for storing a new candidate (pre-insert shape). */
@@ -96,4 +111,35 @@ export interface RegisterCandidateResult {
   candidate: SkillCandidateRow;
   /** True if this trajectory already existed and the row was reused. */
   reused: boolean;
+}
+
+/** Lifecycle states of a cluster-level skill suggestion. */
+export type SkillSuggestionStatus = 'pending' | 'accepted' | 'dismissed';
+
+/** Row shape for `skill_suggestions`. */
+export interface SkillSuggestionRow {
+  id: string;
+  name: string;
+  description: string;
+  body: string;
+  memberSessionIds: string[];
+  memberCandidateIds: string[];
+  clusterSize: number;
+  technologyFingerprint: string;
+  judgeScore: number;
+  status: SkillSuggestionStatus;
+  createdAt: number;
+  decidedAt: number | null;
+}
+
+/** Pre-insert shape for a new pending suggestion. */
+export interface NewSuggestionInput {
+  name: string;
+  description: string;
+  body: string;
+  memberSessionIds: string[];
+  memberCandidateIds: string[];
+  clusterSize: number;
+  technologyFingerprint: string;
+  judgeScore: number;
 }

@@ -1,9 +1,9 @@
 export { DashboardGridComponent } from './lib/components/dashboard-grid/dashboard-grid.component';
 export { AnalyticsCardComponent } from './lib/components/analytics-card/analytics-card.component';
-export { ThothStatusCardComponent } from './lib/components/thoth-status-card/thoth-status-card.component';
 
 export {
   ThothStatusService,
+  deriveThothPillars,
   type ThothStatusSummary,
   type ThothMemorySummary,
   type ThothSkillsSummary,
@@ -11,6 +11,7 @@ export {
   type ThothGatewaySummary,
   type ThothGatewayPlatformSummary,
   type ThothGatewayBadge,
+  type ThothPillarStatus,
 } from './lib/services/thoth-status.service';
 
 export {

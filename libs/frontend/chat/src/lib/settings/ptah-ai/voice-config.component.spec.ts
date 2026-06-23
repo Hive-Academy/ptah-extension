@@ -191,9 +191,11 @@ describe('VoiceConfigComponent', () => {
     btn.click();
     await settle(fixture);
 
-    expect(rpc.call).toHaveBeenLastCalledWith('voice:downloadModel', {
-      model: 'small.en',
-    });
+    expect(rpc.call).toHaveBeenLastCalledWith(
+      'voice:downloadModel',
+      { model: 'small.en' },
+      { timeout: expect.any(Number) },
+    );
     expect(component.downloaded()).toBe(true);
   });
 
