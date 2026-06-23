@@ -449,6 +449,7 @@ export class SkillSuggestionsViewComponent implements OnInit {
 
   protected async onAccept(s: SkillSuggestionSummary): Promise<void> {
     this.busyId.set(s.id);
+    this.state.clearSuggestionDetail();
     try {
       await this.state.accept(s.id);
       this.showToast(`Accepted "${s.name}".`, 'success');
@@ -482,13 +483,17 @@ export class SkillSuggestionsViewComponent implements OnInit {
 
   protected async onSaveEdit(id: string): Promise<void> {
     if (!this.canSave()) return;
-    await this.state.updateSuggestion(id, {
+    const ok = await this.state.updateSuggestion(id, {
       name: this.editName().trim(),
       description: this.editDescription().trim(),
       body: this.editBody(),
     });
-    this.editing.set(false);
-    this.showToast('Saved changes.', 'success');
+    if (ok) {
+      this.editing.set(false);
+      this.showToast('Saved changes.', 'success');
+    } else {
+      this.showToast(this.error() ?? 'Could not save changes.', 'error');
+    }
   }
 
   protected async onAcceptFromModal(id: string, name: string): Promise<void> {

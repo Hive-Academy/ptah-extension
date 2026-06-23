@@ -180,7 +180,13 @@ export const SkillGetSuggestionParamsSchema = z.object({
 
 export const SkillUpdateSuggestionParamsSchema = z.object({
   id: z.string().min(1).max(64),
-  name: z.string().min(1).max(200).optional(),
+  // No newlines: the name becomes the SKILL.md frontmatter `name:` line.
+  name: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(/^[^\r\n]+$/, 'name must be a single line')
+    .optional(),
   description: z.string().min(1).max(4000).optional(),
   body: z.string().min(1).max(100000).optional(),
 });

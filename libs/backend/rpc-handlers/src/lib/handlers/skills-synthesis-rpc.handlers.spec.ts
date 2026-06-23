@@ -1029,11 +1029,28 @@ describe('SkillsSynthesisRpcHandlers — dual-registration smoke', () => {
   });
 });
 
+const fakeSuggestionRow = {
+  id: 'sug-1',
+  name: 'My Skill',
+  description: 'does things',
+  body: '## Body\nStep 1.',
+  memberSessionIds: ['s-1'],
+  memberCandidateIds: ['c-1'],
+  clusterSize: 3,
+  technologyFingerprint: 'fp-abc',
+  judgeScore: 7.5,
+  status: 'pending' as const,
+  createdAt: 1700000000000,
+  decidedAt: null,
+};
+
 function makeSuggestionStore() {
   return {
     listByStatus: jest.fn().mockReturnValue([]),
     hasExistingForCluster: jest.fn().mockReturnValue(false),
     insertPending: jest.fn(),
+    findById: jest.fn().mockReturnValue(fakeSuggestionRow),
+    updatePending: jest.fn().mockReturnValue(fakeSuggestionRow),
   };
 }
 
@@ -1320,6 +1337,156 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:dismissSuggestion', () =
       rpcHandler.call('skillSynthesis:dismissSuggestion', {
         id: 'sug-1',
         reason: 'x'.repeat(501),
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:getSuggestion', () => {
+  it('happy path: calls suggestionStore.findById and returns suggestion with body', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    suggestionStore.findById.mockReturnValue(fakeSuggestionRow);
+
+    const result = await rpcHandler.call('skillSynthesis:getSuggestion', {
+      id: 'sug-1',
+    });
+
+    expect(suggestionStore.findById).toHaveBeenCalledWith('sug-1');
+    expect(result).toMatchObject({
+      suggestion: {
+        id: 'sug-1',
+        name: 'My Skill',
+        description: 'does things',
+        body: '## Body\nStep 1.',
+        status: 'pending',
+      },
+    });
+  });
+
+  it('returns suggestion:null when findById returns null (not found)', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    suggestionStore.findById.mockReturnValue(null);
+
+    const result = (await rpcHandler.call('skillSynthesis:getSuggestion', {
+      id: 'missing',
+    })) as { suggestion: null };
+
+    expect(result.suggestion).toBeNull();
+  });
+
+  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when suggestionStore is absent (VS Code)', async () => {
+    const { rpcHandler } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:getSuggestion', { id: 'sug-1' }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:getSuggestion', {}),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:getSuggestion', { id: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:updateSuggestion', () => {
+  it('happy path: calls updatePending with fields and returns updated=true when still pending', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    const updatedRow = {
+      ...fakeSuggestionRow,
+      name: 'New Name',
+      status: 'pending' as const,
+    };
+    suggestionStore.updatePending.mockReturnValue(updatedRow);
+
+    const result = await rpcHandler.call('skillSynthesis:updateSuggestion', {
+      id: 'sug-1',
+      name: 'New Name',
+    });
+
+    expect(suggestionStore.updatePending).toHaveBeenCalledWith('sug-1', {
+      name: 'New Name',
+      description: undefined,
+      body: undefined,
+    });
+    expect(result).toMatchObject({
+      updated: true,
+      suggestion: expect.objectContaining({ name: 'New Name' }),
+    });
+  });
+
+  it('returns updated=false when the row is accepted (immutable)', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    // Store returns the accepted row unchanged (it was already accepted)
+    const acceptedRow = { ...fakeSuggestionRow, status: 'accepted' as const };
+    suggestionStore.updatePending.mockReturnValue(acceptedRow);
+
+    const result = (await rpcHandler.call('skillSynthesis:updateSuggestion', {
+      id: 'sug-1',
+      name: 'ignored',
+    })) as { updated: boolean; suggestion: unknown };
+
+    expect(result.updated).toBe(false);
+    expect(result.suggestion).not.toBeNull();
+  });
+
+  it('returns updated=false and suggestion=null when id not found', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    suggestionStore.updatePending.mockReturnValue(null);
+
+    const result = (await rpcHandler.call('skillSynthesis:updateSuggestion', {
+      id: 'missing',
+      name: 'x',
+    })) as { updated: boolean; suggestion: null };
+
+    expect(result.updated).toBe(false);
+    expect(result.suggestion).toBeNull();
+  });
+
+  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when suggestionStore is absent (VS Code)', async () => {
+    const { rpcHandler } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:updateSuggestion', {
+        id: 'sug-1',
+        name: 'x',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:updateSuggestion', { name: 'x' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:updateSuggestion', { id: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: name longer than 200 chars rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:updateSuggestion', {
+        id: 'sug-1',
+        name: 'x'.repeat(201),
       }),
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
   });

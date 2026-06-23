@@ -19,6 +19,7 @@ import type {
   SkillSynthesisRunCuratorResult,
   SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
+  SkillSynthesisUpdateSuggestionResult,
 } from '@ptah-extension/shared';
 
 export interface SkillAcceptSuggestionResult {
@@ -48,18 +49,11 @@ const SKILL_RPC_TIMEOUTS = {
 /**
  * SkillSynthesisRpcService
  *
- * Thin facade for the six skill-synthesis RPC methods. Delegates to
- * {@link ClaudeRpcService} for the underlying message-bus call and
- * normalises the result shape (throws on error, returns typed result
- * on success). Pattern matches `WizardRpcService`.
- *
- * Supported RPC methods:
- * - `skillSynthesis:listCandidates`
- * - `skillSynthesis:getCandidate`
- * - `skillSynthesis:promote`
- * - `skillSynthesis:reject`
- * - `skillSynthesis:invocations`
- * - `skillSynthesis:stats`
+ * Thin facade over the `skillSynthesis:*` RPC methods (candidates, suggestions,
+ * clones, settings, stats). Delegates to {@link ClaudeRpcService} for the
+ * underlying message-bus call and normalises the result shape (throws on error,
+ * returns typed result on success). Pattern matches `WizardRpcService`. Each
+ * public method maps 1:1 to one RPC method.
  */
 @Injectable({
   providedIn: 'root',
@@ -382,14 +376,14 @@ export class SkillSynthesisRpcService {
   public async updateSuggestion(
     id: string,
     fields: { name?: string; description?: string; body?: string },
-  ): Promise<SkillSuggestionDetail | null> {
+  ): Promise<SkillSynthesisUpdateSuggestionResult> {
     const result = await this.rpcService.call(
       'skillSynthesis:updateSuggestion',
       { id, ...fields },
       { timeout: SKILL_RPC_TIMEOUTS.SHORT_MS },
     );
     if (result.isSuccess() && result.data) {
-      return result.data.suggestion;
+      return result.data;
     }
     throw new Error(result.error || 'Failed to update skill suggestion');
   }

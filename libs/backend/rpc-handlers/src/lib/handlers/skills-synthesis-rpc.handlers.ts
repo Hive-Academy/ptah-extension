@@ -1,14 +1,10 @@
 /**
  * Skill Synthesis RPC Handlers.
  *
- * Bridges the frontend Skill Synthesis UI to the backend SkillCandidateStore +
- * SkillSynthesisService. Six methods:
- *   - skillSynthesis:listCandidates  → list candidates filtered by status
- *   - skillSynthesis:getCandidate    → fetch one candidate (incl. body text)
- *   - skillSynthesis:promote         → manual promotion (runs full eval)
- *   - skillSynthesis:reject          → manual reject with reason
- *   - skillSynthesis:invocations     → list invocations for a candidate
- *   - skillSynthesis:stats           → aggregate counts for dashboard
+ * Bridges the frontend Skill Synthesis UI to the backend stores/services
+ * (candidates, suggestions, clones/registry, diagnostics, settings). The full
+ * method set is the `static METHODS` tuple below, compile-asserted to equal the
+ * `skillSynthesis:*` slice of `RpcMethodName`.
  *
  * Class is named `SkillsSynthesisRpcHandlers` (plural) to avoid colliding
  * with the existing `SkillsShRpcHandlers` (shell skills).
@@ -1086,7 +1082,7 @@ export class SkillsSynthesisRpcHandlers {
   private requireDesktop<T>(value: T | null): T {
     if (value === null || value === undefined) {
       throw new RpcUserError(
-        'Skill clones are available on the desktop app only.',
+        'This feature is available in the Ptah desktop app only.',
         'PERSISTENCE_UNAVAILABLE',
       );
     }

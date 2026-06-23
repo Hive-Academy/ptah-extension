@@ -231,15 +231,23 @@ export class SkillSynthesisStateService {
   public async updateSuggestion(
     id: string,
     fields: { name?: string; description?: string; body?: string },
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.suggestionDetailLoading.set(true);
     this.error.set(null);
     try {
-      const detail = await this.rpc.updateSuggestion(id, fields);
-      if (detail) this.suggestionDetail.set(detail);
+      const res = await this.rpc.updateSuggestion(id, fields);
+      if (res.suggestion) this.suggestionDetail.set(res.suggestion);
+      if (!res.updated) {
+        this.error.set(
+          'This suggestion is no longer pending — your edits were not saved.',
+        );
+        return false;
+      }
       await this.refreshSuggestions();
+      return true;
     } catch (err) {
       this.error.set(this.toMessage(err));
+      return false;
     } finally {
       this.suggestionDetailLoading.set(false);
     }

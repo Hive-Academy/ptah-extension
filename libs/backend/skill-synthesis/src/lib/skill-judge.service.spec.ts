@@ -128,6 +128,22 @@ describe('SkillJudgeService', () => {
     expect(result.reason).toBe('judge-error-passthrough');
   });
 
+  it('fails open when LLM returns only the old 3-criteria JSON (missing generalization + triggerClarity) — passes through', async () => {
+    // LLM replies with the old 3-field schema — generalization and triggerClarity
+    // will be null from toScore, triggering the null-guard and the fail-open path.
+    const query = makeInternalQuery(
+      '{"novelty":8,"actionability":8,"scope":8}',
+    );
+    const svc = new SkillJudgeService(
+      noopLogger,
+      noopWorkspaceProvider,
+      query as never,
+    );
+    const result = await svc.judge(fakeCandidate(), 'body', makeSettings());
+    expect(result.passed).toBe(true);
+    expect(result.reason).toBe('judge-error-passthrough');
+  });
+
   it('fails open when LLM returns malformed JSON — passed=true with judge-error-passthrough', async () => {
     const query = makeInternalQuery('this is not json at all');
     const svc = new SkillJudgeService(
