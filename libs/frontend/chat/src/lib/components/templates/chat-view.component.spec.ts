@@ -906,3 +906,64 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.showInfoMock).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Per-tile banner scoping — the wrong-session-toast regression.
+//
+// Two sessions are mounted side by side in canvas/tile mode. A rewind fired on
+// session A surfaces its success/warning toast scoped to A's tab id. Before the
+// fix the banner signals were global, so B's `ChatViewComponent` rendered A's
+// toast too ("the success message showed in the other tab"). These tests wire
+// the REAL `ActionBannerService` and a tile `SESSION_CONTEXT` so the filtering
+// computeds are exercised end-to-end: a banner scoped to another tile must NOT
+// leak into this tile, a global (`null`) banner must, and the kind must match.
+// ---------------------------------------------------------------------------
+describe('ChatViewComponent — per-tile banner scoping', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('surfaces a banner scoped to THIS tile', () => {
+    const h = makeHarness({
+      useRealBanner: true,
+      sessionContextTabId: 'tile-A',
+    });
+    h.realActionBanner.showInfo('rewind complete', 'tile-A');
+    expect(h.component.actionInfo()).toBe('rewind complete');
+    h.realActionBanner.clear();
+  });
+
+  it('does NOT surface a banner scoped to ANOTHER tile (the wrong-session-toast bug)', () => {
+    const h = makeHarness({
+      useRealBanner: true,
+      sessionContextTabId: 'tile-A',
+    });
+    // Banner fired by session B's rewind, scoped to tile-B.
+    h.realActionBanner.showInfo('rewind complete', 'tile-B');
+    expect(h.component.actionInfo()).toBeNull();
+    h.realActionBanner.clear();
+  });
+
+  it('surfaces a global (tabId: null) banner on every tile', () => {
+    const h = makeHarness({
+      useRealBanner: true,
+      sessionContextTabId: 'tile-A',
+    });
+    h.realActionBanner.showError('No active session to rewind.', null);
+    expect(h.component.actionError()).toBe('No active session to rewind.');
+    h.realActionBanner.clear();
+  });
+
+  it('discriminates by kind — a warning does not leak into the info/error slots', () => {
+    const h = makeHarness({
+      useRealBanner: true,
+      sessionContextTabId: 'tile-A',
+    });
+    h.realActionBanner.showWarning('rollback skipped', 'tile-A');
+    expect(h.component.actionWarning()).toBe('rollback skipped');
+    expect(h.component.actionInfo()).toBeNull();
+    expect(h.component.actionError()).toBeNull();
+    h.realActionBanner.clear();
+  });
+});

@@ -25,7 +25,12 @@ import {
   IDE_CAPABILITIES_TOKEN,
 } from '@ptah-extension/vscode-lm-tools';
 import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
-import type { WorkspaceIndexerService } from '@ptah-extension/workspace-intelligence';
+import type {
+  WorkspaceIndexerService,
+  DependencyGraphService,
+  AstAnalysisService,
+  TreeSitterParserService,
+} from '@ptah-extension/workspace-intelligence';
 
 import {
   ElectronPlatformCommands,
@@ -172,6 +177,15 @@ export function registerPhase3Storage(
     const editorProvider = container.resolve<IEditorProvider>(
       PLATFORM_TOKENS.EDITOR_PROVIDER,
     );
+    const dependencyGraph = container.resolve<DependencyGraphService>(
+      TOKENS.DEPENDENCY_GRAPH_SERVICE,
+    );
+    const astAnalysis = container.resolve<AstAnalysisService>(
+      TOKENS.AST_ANALYSIS_SERVICE,
+    );
+    const treeSitter = container.resolve<TreeSitterParserService>(
+      TOKENS.TREE_SITTER_PARSER_SERVICE,
+    );
     container.register(IDE_CAPABILITIES_TOKEN, {
       useValue: new ElectronIDECapabilities(
         symbolReader,
@@ -179,6 +193,9 @@ export function registerPhase3Storage(
         fileSystemProvider,
         workspaceProvider,
         editorProvider,
+        dependencyGraph,
+        astAnalysis,
+        treeSitter,
         logger,
       ),
     });
