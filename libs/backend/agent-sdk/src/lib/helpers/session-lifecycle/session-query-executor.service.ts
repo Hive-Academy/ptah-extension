@@ -92,7 +92,6 @@ export class SessionQueryExecutor {
       mcpServersOverride,
       initialUserQuery,
       authEnvOverride,
-      warmQuery,
     } = config;
 
     this.logger.info(
@@ -233,67 +232,12 @@ export class SessionQueryExecutor {
         isSlashCommand,
         promptMode,
       });
-      // The warm subprocess was started WITHOUT a canUseTool callback
-      // (sdk-warm-query-manager bakes only cwd/settings/cliPath/mcpServers), so
-      // it cannot route permission prompts to the UI. It is therefore only safe
-      // for sessions that never prompt — i.e. bypassPermissions ('yolo'). Every
-      // other mode must fall through to a fresh query() that carries the
-      // canUseTool gate, otherwise the session would silently run with the SDK
-      // default permission behaviour instead of the user-selected level.
-      const warmPermissionEligible =
-        initialPermissionMode === 'bypassPermissions';
-      const canUseWarmQuery =
-        !!warmQuery &&
-        typeof (warmQuery as { query?: unknown }).query === 'function' &&
-        !isResume &&
-        !forkSession &&
-        !isSlashCommand &&
-        warmPermissionEligible;
-      if (warmQuery && !canUseWarmQuery) {
-        try {
-          warmQuery.close();
-          this.logger.info(
-            `[SessionLifecycle] Discarding warm handle for session ${sessionId} — ` +
-              `session shape ineligible (isResume=${isResume}, ` +
-              `forkSession=${!!forkSession}, isSlashCommand=${isSlashCommand}, ` +
-              `permissionMode=${initialPermissionMode})`,
-          );
-        } catch (closeErr) {
-          this.logger.warn(
-            '[SessionLifecycle] WarmQuery.close() threw during fall-through',
-            closeErr instanceof Error ? closeErr : new Error(String(closeErr)),
-          );
-        }
-      }
-
       const runResult = this.queryRunner.invokeWithLoadedQuery(
         queryFn,
         effectivePrompt,
         queryOptions.options as Options,
-        canUseWarmQuery && warmQuery ? warmQuery : null,
       );
       const sdkQuery: Query = runResult.sdkQuery;
-      if (runResult.usedWarmQuery) {
-        // The warm subprocess was spawned in the SDK's default permissionMode.
-        // We only reach here for bypassPermissions-eligible sessions, so flip
-        // the live query to bypass now — without this the first tool call would
-        // hit default-mode gating with no canUseTool callback and hang/deny.
-        // This is the same runtime control the live autopilot toggle uses
-        // (SessionControl.setSessionPermissionLevel) and resolves well before
-        // the first tool call (which requires a model round-trip).
-        try {
-          await sdkQuery.setPermissionMode('bypassPermissions');
-        } catch (modeErr) {
-          this.logger.warn(
-            `[SessionLifecycle] Failed to apply bypassPermissions to warm session ${sessionId}`,
-            modeErr instanceof Error ? modeErr : new Error(String(modeErr)),
-          );
-        }
-        this.logger.info(
-          `[SessionLifecycle] Used warm subprocess for session ${sessionId} ` +
-            `(skipped spawn+handshake; applied bypassPermissions)`,
-        );
-      }
       const initialModel = queryOptions.options.model ?? '';
       if (isResume && !isSlashCommand) {
         sdkQuery.streamInput(userMessageStream).catch((err) => {

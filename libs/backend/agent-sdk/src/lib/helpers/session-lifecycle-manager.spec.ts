@@ -264,45 +264,18 @@ function makeHarness(
   // tests that care about session-end notifications can assert on this mock.
   const sessionEndRegistryStub = { notifyAll: jest.fn() };
 
-  // Minimal SdkQueryRunner stub â€” the executor delegates the warm-query +
-  // queryFn invocation through `invokeWithLoadedQuery`. The stub forwards the
-  // call to the captured `queryFn` jest.fn so the existing assertions on its
+  // Minimal SdkQueryRunner stub â€” the executor delegates the queryFn
+  // invocation through `invokeWithLoadedQuery`. The stub forwards the call to
+  // the captured `queryFn` jest.fn so the existing assertions on its
   // invocations continue to hold.
   const queryRunnerStub = {
     invokeWithLoadedQuery: (
       fn: QueryFunction,
       prompt: string | AsyncIterable<SDKUserMessage>,
       options: SdkQueryOptions,
-      warmQuery: { close: () => void; query?: unknown } | null,
-    ) => {
-      if (
-        warmQuery &&
-        typeof (warmQuery as { query?: unknown }).query === 'function'
-      ) {
-        const warmFn = (
-          warmQuery as unknown as {
-            query: (prompt: string | AsyncIterable<SDKUserMessage>) => Query;
-          }
-        ).query;
-        try {
-          return { sdkQuery: warmFn(prompt), usedWarmQuery: true };
-        } catch {
-          try {
-            warmQuery.close();
-          } catch {
-            // ignore
-          }
-          return {
-            sdkQuery: fn({ prompt, options }),
-            usedWarmQuery: false,
-          };
-        }
-      }
-      return {
-        sdkQuery: fn({ prompt, options }),
-        usedWarmQuery: false,
-      };
-    },
+    ) => ({
+      sdkQuery: fn({ prompt, options }),
+    }),
   };
 
   const manager = new SessionLifecycleManager(
@@ -792,109 +765,6 @@ describe('SessionLifecycleManager', () => {
   // END NEW COVERAGE
   // =========================================================================
 
-  // -------------------------------------------------------------------------
-  // warmQuery wiring
-  // -------------------------------------------------------------------------
-
-  describe('warmQuery handoff (executeQuery)', () => {
-    it('falls back to queryFn for a yolo new chat because YOLO now routes through canUseTool (so AskUserQuestion / ExitPlanMode still reach the UI)', async () => {
-      // The warm subprocess is spawned WITHOUT a canUseTool callback. YOLO no
-      // longer maps to the SDK 'bypassPermissions' mode — it auto-approves
-      // inside the canUseTool callback instead, which keeps interactive tools
-      // (AskUserQuestion, ExitPlanMode) routing to the UI. A yolo session must
-      // therefore fall through to a fresh query() that carries the callback,
-      // and the warm handle is closed to avoid leaking the subprocess.
-      harness.permissionHandler.getPermissionLevel.mockReturnValue('yolo');
-      const warmQueryFn = jest.fn();
-      const close = jest.fn();
-      const warmQuery = { close, query: warmQueryFn };
-
-      await harness.manager.executeQuery({
-        sessionId: 'tab_warm' as SessionId,
-        sessionConfig: createSessionConfig({ projectPath: '/ws/warm' }),
-        warmQuery,
-      });
-
-      expect(warmQueryFn).not.toHaveBeenCalled();
-      expect(harness.queryFn).toHaveBeenCalledTimes(1);
-      expect(close).toHaveBeenCalledTimes(1);
-    });
-
-    it('falls back to queryFn (and closes the warm handle) when the permission level needs the UI callback', async () => {
-      // Default level is 'ask' → tools must prompt via canUseTool, which the
-      // warm subprocess cannot route. Must fall through to a fresh query.
-      const warmQueryFn = jest.fn();
-      const close = jest.fn();
-      const warmQuery = { close, query: warmQueryFn };
-
-      await harness.manager.executeQuery({
-        sessionId: 'tab_ask' as SessionId,
-        sessionConfig: createSessionConfig({ projectPath: '/ws/ask' }),
-        warmQuery,
-      });
-
-      expect(warmQueryFn).not.toHaveBeenCalled();
-      expect(harness.queryFn).toHaveBeenCalledTimes(1);
-      expect(close).toHaveBeenCalledTimes(1);
-    });
-
-    it('falls back to queryFn (and closes the warm handle) when the session is a resume', async () => {
-      const warmQueryFn = jest.fn();
-      const close = jest.fn();
-      const warmQuery = { close, query: warmQueryFn };
-
-      await harness.manager.executeQuery({
-        sessionId: 'sess_resume' as SessionId,
-        sessionConfig: createSessionConfig(),
-        resumeSessionId: 'sess_resume',
-        warmQuery,
-      });
-
-      // resume sessions can NOT use the warm handle â€” fall through to
-      // queryFn AND close the handle to avoid leaking the subprocess.
-      expect(warmQueryFn).not.toHaveBeenCalled();
-      expect(harness.queryFn).toHaveBeenCalledTimes(1);
-      expect(close).toHaveBeenCalledTimes(1);
-    });
-
-    it('falls back to queryFn (and closes the warm handle) when the session is a slash command', async () => {
-      const warmQueryFn = jest.fn();
-      const close = jest.fn();
-      const warmQuery = { close, query: warmQueryFn };
-
-      await harness.manager.executeQuery({
-        sessionId: 'tab_slash' as SessionId,
-        sessionConfig: createSessionConfig(),
-        initialPrompt: { content: '/compact', files: [], images: [] },
-        warmQuery,
-      });
-
-      expect(warmQueryFn).not.toHaveBeenCalled();
-      expect(harness.queryFn).toHaveBeenCalledTimes(1);
-      expect(close).toHaveBeenCalledTimes(1);
-    });
-
-    it('falls back to queryFn when warmQuery.query is missing on the handle', async () => {
-      // Defensive guard: handle without a .query function (e.g. SDK
-      // bundled an older WarmQuery shape) must NOT crash â€” fall through.
-      const close = jest.fn();
-      const warmQuery = { close } as unknown as {
-        close: () => void;
-        query?: unknown;
-      };
-
-      await harness.manager.executeQuery({
-        sessionId: 'tab_noquery' as SessionId,
-        sessionConfig: createSessionConfig(),
-        warmQuery,
-      });
-
-      expect(harness.queryFn).toHaveBeenCalledTimes(1);
-      // The malformed handle is still closed in the fall-through path.
-      expect(close).toHaveBeenCalledTimes(1);
-    });
-  });
-
   // =========================================================================
   // NEW COVERAGE: real-registry integration tests
   // closing audit gaps 8 / 9 / 10 / 13.
@@ -981,24 +851,9 @@ describe('SessionLifecycleManager', () => {
         fn: QueryFunction,
         prompt: string | AsyncIterable<SDKUserMessage>,
         options: SdkQueryOptions,
-        warmQuery: { close: () => void; query?: unknown } | null,
-      ) => {
-        if (
-          warmQuery &&
-          typeof (warmQuery as { query?: unknown }).query === 'function'
-        ) {
-          const warmFn = (
-            warmQuery as unknown as {
-              query: (prompt: string | AsyncIterable<SDKUserMessage>) => Query;
-            }
-          ).query;
-          return { sdkQuery: warmFn(prompt), usedWarmQuery: true };
-        }
-        return {
-          sdkQuery: fn({ prompt, options }),
-          usedWarmQuery: false,
-        };
-      },
+      ) => ({
+        sdkQuery: fn({ prompt, options }),
+      }),
     };
 
     const manager = new SessionLifecycleManager(

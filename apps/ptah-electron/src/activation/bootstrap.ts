@@ -293,7 +293,6 @@ export async function bootstrapElectron(
     const agentAdapter = container.resolve(TOKENS.AGENT_ADAPTER) as {
       initialize: () => Promise<boolean>;
       preloadSdk: () => Promise<void>;
-      prewarm: () => Promise<void>;
     };
     const authInitialized = await agentAdapter.initialize();
 
@@ -302,12 +301,6 @@ export async function bootstrapElectron(
       agentAdapter.preloadSdk().catch((err) => {
         console.warn(
           '[Ptah Electron] SDK preload failed (will retry on first use):',
-          err instanceof Error ? err.message : String(err),
-        );
-      });
-      agentAdapter.prewarm().catch((err) => {
-        console.warn(
-          '[Ptah Electron] SDK prewarm failed (will resolve on first query):',
           err instanceof Error ? err.message : String(err),
         );
       });

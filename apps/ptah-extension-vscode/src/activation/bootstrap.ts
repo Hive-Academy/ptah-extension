@@ -135,7 +135,6 @@ export async function bootstrapVscode(
   const agentAdapter = DIContainer.resolve(TOKENS.AGENT_ADAPTER) as {
     initialize: () => Promise<boolean>;
     preloadSdk: () => Promise<void>;
-    prewarm: () => Promise<void>;
   };
   const authInitialized = await agentAdapter.initialize();
 
@@ -147,11 +146,6 @@ export async function bootstrapVscode(
     logger.info('Agent adapters initialized successfully');
     agentAdapter.preloadSdk().catch((err) => {
       logger.warn('SDK preload failed (will retry on first use)', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-    agentAdapter.prewarm().catch((err) => {
-      logger.warn('SDK prewarm failed (will resolve on first query)', {
         error: err instanceof Error ? err.message : String(err),
       });
     });
