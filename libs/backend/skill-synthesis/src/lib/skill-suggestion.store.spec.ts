@@ -118,4 +118,61 @@ maybe('SkillSuggestionStore', () => {
     store.dismiss(row.id);
     expect(store.hasExistingForCluster('z', ['new'])).toBe(true);
   });
+
+  // updatePending — added for feature coverage
+  it('updatePending: updates all three editable fields on a pending row', () => {
+    const store = makeStore();
+    const row = store.insertPending(newInput());
+    const updated = store.updatePending(row.id, {
+      name: 'new-name',
+      description: 'new description',
+      body: '## New body',
+    });
+    expect(updated?.name).toBe('new-name');
+    expect(updated?.description).toBe('new description');
+    expect(updated?.body).toBe('## New body');
+    expect(updated?.status).toBe('pending');
+  });
+
+  it('updatePending: partial update preserves unspecified fields', () => {
+    const store = makeStore();
+    const row = store.insertPending(
+      newInput({ name: 'orig', description: 'orig desc', body: 'orig body' }),
+    );
+    const updated = store.updatePending(row.id, { name: 'changed' });
+    expect(updated?.name).toBe('changed');
+    expect(updated?.description).toBe('orig desc');
+    expect(updated?.body).toBe('orig body');
+  });
+
+  it('updatePending: returns null and does not throw for unknown id', () => {
+    const store = makeStore();
+    const result = store.updatePending('does-not-exist', { name: 'x' });
+    expect(result).toBeNull();
+  });
+
+  it('updatePending: returns row unchanged (no mutation) when already accepted', () => {
+    const store = makeStore();
+    const row = store.insertPending(newInput({ name: 'original' }));
+    store.accept(row.id);
+    const result = store.updatePending(row.id, { name: 'changed' });
+    expect(result?.name).toBe('original');
+    expect(result?.status).toBe('accepted');
+  });
+
+  it('updatePending: returns row unchanged (no mutation) when already dismissed', () => {
+    const store = makeStore();
+    const row = store.insertPending(newInput({ name: 'original' }));
+    store.dismiss(row.id);
+    const result = store.updatePending(row.id, { name: 'changed' });
+    expect(result?.name).toBe('original');
+    expect(result?.status).toBe('dismissed');
+  });
+
+  it('updatePending: empty fields object leaves row unchanged', () => {
+    const store = makeStore();
+    const row = store.insertPending(newInput({ name: 'keep-me' }));
+    const updated = store.updatePending(row.id, {});
+    expect(updated?.name).toBe('keep-me');
+  });
 });

@@ -1,7 +1,10 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
-import type { SkillSuggestionSummary } from '@ptah-extension/shared';
+import type {
+  SkillSuggestionDetail,
+  SkillSuggestionSummary,
+} from '@ptah-extension/shared';
 
 import { SkillSuggestionsViewComponent } from './skill-suggestions-view.component';
 import { SkillSynthesisStateService } from '../../services/skill-synthesis-state.service';
@@ -33,9 +36,19 @@ interface StateStub {
   readonly suggestions: ReturnType<typeof signal<SkillSuggestionSummary[]>>;
   readonly suggestionsLoading: ReturnType<typeof signal<boolean>>;
   readonly error: ReturnType<typeof signal<string | null>>;
+  readonly suggestionDetail: ReturnType<
+    typeof signal<SkillSuggestionDetail | null>
+  >;
+  readonly suggestionDetailLoading: ReturnType<typeof signal<boolean>>;
   readonly refreshSuggestions: jest.Mock<Promise<void>, []>;
   readonly accept: jest.Mock<Promise<void>, [string]>;
   readonly dismiss: jest.Mock<Promise<void>, [string, string | undefined]>;
+  readonly loadSuggestionDetail: jest.Mock<Promise<void>, [string | null]>;
+  readonly clearSuggestionDetail: jest.Mock<void, []>;
+  readonly updateSuggestion: jest.Mock<
+    Promise<boolean>,
+    [string, { name?: string; description?: string; body?: string }]
+  >;
 }
 
 function makeStateStub(initial: SkillSuggestionSummary[] = []): StateStub {
@@ -43,9 +56,14 @@ function makeStateStub(initial: SkillSuggestionSummary[] = []): StateStub {
     suggestions: signal<SkillSuggestionSummary[]>(initial),
     suggestionsLoading: signal<boolean>(false),
     error: signal<string | null>(null),
+    suggestionDetail: signal<SkillSuggestionDetail | null>(null),
+    suggestionDetailLoading: signal<boolean>(false),
     refreshSuggestions: jest.fn(async () => undefined),
     accept: jest.fn(async () => undefined),
     dismiss: jest.fn(async () => undefined),
+    loadSuggestionDetail: jest.fn(async () => undefined),
+    clearSuggestionDetail: jest.fn(() => undefined),
+    updateSuggestion: jest.fn(async () => true),
   };
 }
 
@@ -150,5 +168,49 @@ describe('SkillSuggestionsViewComponent', () => {
     const { fixture } = setup({ isElectron: true, state });
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('store-unavailable');
+  });
+
+  it('exits edit mode with a success toast when the save persists', async () => {
+    const state = makeStateStub([suggestion()]);
+    state.updateSuggestion.mockResolvedValue(true);
+    const { fixture } = setup({ isElectron: true, state });
+    const comp = fixture.componentInstance;
+    comp.editing.set(true);
+    comp.editName.set('renamed-skill');
+    comp.editDescription.set('Use when X');
+    comp.editBody.set('## Steps\n1. do');
+
+    await (
+      comp as unknown as { onSaveEdit(id: string): Promise<void> }
+    ).onSaveEdit('sg-1');
+
+    expect(state.updateSuggestion).toHaveBeenCalledWith('sg-1', {
+      name: 'renamed-skill',
+      description: 'Use when X',
+      body: '## Steps\n1. do',
+    });
+    expect(comp.editing()).toBe(false);
+    expect(comp.toast()?.kind).toBe('success');
+  });
+
+  it('keeps edit mode open with an error toast when the save does not persist', async () => {
+    const state = makeStateStub([suggestion()]);
+    state.updateSuggestion.mockResolvedValue(false);
+    state.error.set(
+      'This suggestion is no longer pending — your edits were not saved.',
+    );
+    const { fixture } = setup({ isElectron: true, state });
+    const comp = fixture.componentInstance;
+    comp.editing.set(true);
+    comp.editName.set('renamed-skill');
+    comp.editDescription.set('Use when X');
+    comp.editBody.set('## Steps\n1. do');
+
+    await (
+      comp as unknown as { onSaveEdit(id: string): Promise<void> }
+    ).onSaveEdit('sg-1');
+
+    expect(comp.editing()).toBe(true);
+    expect(comp.toast()?.kind).toBe('error');
   });
 });

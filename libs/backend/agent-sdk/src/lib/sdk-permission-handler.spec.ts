@@ -629,6 +629,84 @@ describe('SdkPermissionHandler - per-session level resolver', () => {
     await askPending;
   });
 
+  it('AskUserQuestion bypasses yolo auto-approval: a yolo session still routes the question to the UI', async () => {
+    const { handler, sent } = makeHandler();
+
+    // YOLO auto-approves ordinary tools, but AskUserQuestion is an interactive
+    // tool that MUST still reach the UI — the handler intercepts it BEFORE the
+    // yolo auto-approve branch. Regression guard for the YOLO→'default'
+    // permission-mode fix (which keeps canUseTool in the loop).
+    const callback = handler.createCallback(
+      asSessionId('dddddddd-4444-4444-8444-444444444444'),
+      undefined,
+      undefined,
+      () => 'yolo',
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'AskUserQuestion',
+      {
+        questions: [
+          {
+            question: 'Continue?',
+            header: 'Confirm',
+            options: [{ label: 'Yes' }, { label: 'No' }],
+          },
+        ],
+      },
+      { signal: ac.signal, toolUseID: 'tool-yolo-ask' },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) => m.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
+    );
+    expect(broadcast).toBeDefined();
+    expect(
+      (broadcast!.payload as unknown as AskUserQuestionPayload).toolName,
+    ).toBe('AskUserQuestion');
+    // It was NOT silently auto-approved like an ordinary yolo tool call.
+    expect(
+      sent.find((m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST),
+    ).toBeUndefined();
+
+    ac.abort();
+    await pending;
+  });
+
+  it('ExitPlanMode bypasses yolo auto-approval: a yolo session still routes the plan prompt to the UI', async () => {
+    const { handler, sent } = makeHandler();
+
+    const callback = handler.createCallback(
+      asSessionId('eeeeeeee-5555-4555-8555-555555555555'),
+      undefined,
+      undefined,
+      () => 'yolo',
+    );
+
+    const ac = new AbortController();
+    const pending = callback(
+      'ExitPlanMode',
+      { plan: 'go' },
+      { signal: ac.signal, toolUseID: 'tool-yolo-exit-plan' },
+    );
+
+    await flushMicrotasks();
+
+    const broadcast = sent.find(
+      (m) =>
+        m.type === MESSAGE_TYPES.PERMISSION_REQUEST &&
+        (m.payload as unknown as PermissionRequestPayload).toolName ===
+          'ExitPlanMode',
+    );
+    expect(broadcast).toBeDefined();
+
+    ac.abort();
+    await pending;
+  });
+
   it('falls back to the global level when no resolver is supplied (CLI path)', async () => {
     const { handler, sent } = makeHandler();
     handler.setPermissionLevel('yolo');

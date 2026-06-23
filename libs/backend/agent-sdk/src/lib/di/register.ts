@@ -69,7 +69,6 @@ import {
   LiveUsageTracker,
   WorktreeHookHandler,
   SlashCommandInterceptor,
-  SdkWarmQueryManager,
   SessionForkService,
   SdkRuntimeStateService,
   SdkAdapterEvents,
@@ -455,12 +454,6 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR,
     { useClass: SlashCommandInterceptor },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    SDK_TOKENS.SDK_WARM_QUERY_MANAGER,
-    { useClass: SdkWarmQueryManager },
     { lifecycle: Lifecycle.Singleton },
   );
 

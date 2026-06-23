@@ -98,6 +98,13 @@ export class SettingsComponent implements OnInit {
     'claude-auth' | 'orchestration' | 'pro-features' | 'tools'
   >('claude-auth');
 
+  /**
+   * Provider id carried by a deep-link into the settings page (e.g. the
+   * tribunal panel's "Configure" action). Forwarded to PtahCliConfigComponent
+   * so it auto-opens the add form pre-selected to that provider.
+   */
+  readonly requestedProviderId = signal<string | undefined>(undefined);
+
   readonly isElectron = this.vscodeService.isElectron;
 
   readonly isPremium = computed(
@@ -138,6 +145,7 @@ export class SettingsComponent implements OnInit {
     const pending = this.appState.consumePendingSettingsTab();
     if (pending) {
       this.setActiveTab(pending.tab);
+      this.requestedProviderId.set(pending.providerId);
     }
     await this.authState.loadAuthStatus();
   }

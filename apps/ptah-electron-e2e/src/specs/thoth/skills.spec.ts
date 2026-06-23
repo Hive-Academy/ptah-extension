@@ -77,6 +77,8 @@ test.describe('Thoth — Skills tab', () => {
 
     const page = ui.page;
 
+    await page.locator('[data-testid="skills-subview-candidates"]').click();
+
     await expect(
       page.locator('[data-testid="skills-candidate-row"]'),
     ).toHaveCount(2);
@@ -120,6 +122,8 @@ test.describe('Thoth — Skills tab', () => {
     await ui.openTab('skills');
 
     const page = ui.page;
+
+    await page.locator('[data-testid="skills-subview-candidates"]').click();
 
     await expect(
       page.locator('[data-testid="skills-candidate-row"]'),
@@ -166,6 +170,8 @@ test.describe('Thoth — Skills tab', () => {
     await ui.openTab('skills');
 
     const page = ui.page;
+
+    await page.locator('[data-testid="skills-subview-candidates"]').click();
 
     await expect(
       page.locator('[data-testid="skills-candidate-row"]'),

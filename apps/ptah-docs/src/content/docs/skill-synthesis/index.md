@@ -9,7 +9,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 The third time you do the same thing, Ptah notices.
 
-Skill Synthesis watches your sessions for **trajectories** — sequences of (turn count, tool calls, outcome) that look like reusable workflows. When the same trajectory succeeds **3 times** without matching an existing skill (cosine ≥ `0.85` on the embedding), Ptah materialises it as a permanent skill at:
+Skill Synthesis watches your sessions for **trajectories** — sequences of (turn count, tool calls, outcome) that look like reusable workflows. When several similar sessions cluster together (or the same trajectory succeeds **3 times**), Ptah distills them into one generalized skill, runs it past a quality judge, and — once you accept it — materialises it as a permanent skill at:
 
 ```text
 ~/.ptah/skills/<slug>/SKILL.md
@@ -20,6 +20,9 @@ From that point on, any agent can invoke it like a hand-authored skill — same 
 ## What's in this section
 
 <CardGrid>
+  <Card title="The Skills tab" icon="open-book">
+    Recommended, Sessions & Library — and what to delete. [Learn more →](/skill-synthesis/the-skills-tab/)
+  </Card>
   <Card title="How it works" icon="setting">
     Trajectory extraction, dedup, promotion. [Learn more →](/skill-synthesis/how-it-works/)
   </Card>
@@ -40,4 +43,4 @@ Hand-authored skills are great when you know up-front what's worth abstracting. 
 
 ## Limits
 
-Active skills are capped at **50** by default (LRU eviction — the least-recently-used skill is archived when the cap is hit). Cosine dedup against the active set prevents near-duplicates from polluting the directory.
+Active skills are capped at **200** by default (`skillSynthesis.maxActiveSkills`). When the cap is exceeded, the weakest resident is demoted to **`dormant`** — kept on disk and in the database but skipped when skills load. Dormant skills are never deleted, and authored skills are exempt. Cosine dedup against the active set prevents near-duplicates from polluting the directory.

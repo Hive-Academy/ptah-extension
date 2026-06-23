@@ -163,16 +163,26 @@ export class SkillSynthesizerService {
   }
 
   private buildSystemPrompt(): string {
-    return `You are distilling a successful AI coding session into a REUSABLE, repo-agnostic skill.
-Strip workspace-specific paths, file names, and identifiers. Generalize the workflow so it applies to any project.
-Output ONLY a single JSON object: {"name": string, "description": string, "body": string}.
-- name: a short kebab-case slug for the skill.
-- description: one sentence describing when this skill applies.
-- body: a SKILL.md body in markdown with exactly these sections, in order:
-## Description
-## When to use
-## Steps
-Do not include YAML frontmatter. Output only the JSON object — no preamble, no code fences.`;
+    return `You are distilling a SUCCESSFUL AI coding session into ONE reusable, repo-agnostic skill that another AI agent will later load and follow. Apply skill-authoring best practices.
+
+Output ONLY a single JSON object: {"name": string, "description": string, "body": string}. No preamble, no code fences.
+
+name:
+- short kebab-case slug naming the REUSABLE WORKFLOW in verb-first/imperative form (e.g. "add-zod-validated-rpc-method").
+- NEVER echo the user's literal request or paste their opening sentence.
+
+description: the MOST important field — it is the only text used to decide when this skill triggers.
+- One or two sentences stating BOTH what the skill does AND the concrete trigger ("Use when ...").
+- Put ALL "when to use" information here, NEVER in the body.
+
+body: imperative/infinitive procedural instructions for another agent.
+- Generalize: strip workspace-specific paths, file names, identifiers, and one-off details. Capture the transferable routine, not this session's specifics.
+- Be concise — assume the agent is already capable; include only non-obvious, reusable procedural knowledge. Every line must justify its token cost.
+- Match degrees of freedom to the task: exact steps where the operation is fragile or order-dependent, heuristics where multiple approaches are valid.
+- Do NOT include: YAML frontmatter, a "When to use" section, README/changelog/auxiliary prose, or a replay of the session log.
+- Prefer a short "## Steps" list, and add "## Gotchas" only when there are non-obvious pitfalls.
+
+If the session has no transferable, reusable routine (pure one-off Q&A, a trivial single edit, or no coherent workflow), still produce the best generalization possible — the reviewer judges its value.`;
   }
 
   private buildPrompt(trajectory: ExtractedTrajectory): string {

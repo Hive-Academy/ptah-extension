@@ -1455,6 +1455,14 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisDismissSuggestionParams;
     result: SkillSynthesisDismissSuggestionResult;
   };
+  'skillSynthesis:getSuggestion': {
+    params: SkillSynthesisGetSuggestionParams;
+    result: SkillSynthesisGetSuggestionResult;
+  };
+  'skillSynthesis:updateSuggestion': {
+    params: SkillSynthesisUpdateSuggestionParams;
+    result: SkillSynthesisUpdateSuggestionResult;
+  };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -1794,6 +1802,24 @@ export interface SkillSynthesisDismissSuggestionParams {
 }
 export interface SkillSynthesisDismissSuggestionResult {
   dismissed: boolean;
+}
+
+export interface SkillSynthesisGetSuggestionParams {
+  id: string;
+}
+export interface SkillSynthesisGetSuggestionResult {
+  suggestion: SkillSuggestionDetail | null;
+}
+
+export interface SkillSynthesisUpdateSuggestionParams {
+  id: string;
+  name?: string;
+  description?: string;
+  body?: string;
+}
+export interface SkillSynthesisUpdateSuggestionResult {
+  updated: boolean;
+  suggestion: SkillSuggestionDetail | null;
 }
 
 export type GatewayPlatformId = 'telegram' | 'discord' | 'slack';
@@ -2376,6 +2402,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:listSuggestions': true,
   'skillSynthesis:acceptSuggestion': true,
   'skillSynthesis:dismissSuggestion': true,
+  'skillSynthesis:getSuggestion': true,
+  'skillSynthesis:updateSuggestion': true,
 
   'cron:list': true,
   'cron:get': true,

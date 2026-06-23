@@ -383,6 +383,93 @@ describe('ProviderRpcHandlers', () => {
       expect(h.providerModels.fetchModels).not.toHaveBeenCalled();
     });
 
+    it('Sakana with a bare key → reaches the dynamic fetch path (fetchModels invoked with the key)', async () => {
+      // Sakana has modelsEndpoint set, so a present key unlocks the dynamic
+      // /v1/models list (incl. dated aliases like fugu-ultra-20260615).
+      const h = makeHarness({ providerKeysSeed: { sakana: 'sakana-key' } });
+      h.providerModels.fetchModels.mockResolvedValue({
+        models: [
+          {
+            id: 'fugu',
+            name: 'Fugu',
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+          },
+          {
+            id: 'fugu-ultra',
+            name: 'Fugu Ultra',
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+          },
+          {
+            id: 'fugu-ultra-20260615',
+            name: 'fugu-ultra-20260615',
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+          },
+        ],
+        totalCount: 3,
+        isStatic: false,
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        models: { id: string }[];
+        isStatic: boolean;
+      }>(h, 'provider:listModels', { providerId: 'sakana' });
+
+      expect(h.providerModels.fetchModels).toHaveBeenCalledWith(
+        'sakana',
+        'sakana-key',
+        false,
+      );
+      expect(result.isStatic).toBe(false);
+      expect(result.models.map((m) => m.id)).toContain('fugu-ultra-20260615');
+    });
+
+    it('Sakana without a key → does NOT short-circuit (has staticModels) and returns the static fallback', async () => {
+      // isPurelyDynamic is false for Sakana (staticModels present), so the
+      // handler must fall through to fetchModels(null) and serve fugu/fugu-ultra.
+      const h = makeHarness();
+      h.providerModels.fetchModels.mockResolvedValue({
+        models: [
+          {
+            id: 'fugu',
+            name: 'Fugu',
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+          },
+          {
+            id: 'fugu-ultra',
+            name: 'Fugu Ultra',
+            description: '',
+            contextLength: 200000,
+            supportsToolUse: true,
+          },
+        ],
+        totalCount: 2,
+        isStatic: true,
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        models: { id: string }[];
+        isStatic: boolean;
+      }>(h, 'provider:listModels', { providerId: 'sakana' });
+
+      expect(h.providerModels.fetchModels).toHaveBeenCalledWith(
+        'sakana',
+        null,
+        false,
+      );
+      expect(result.models.map((m) => m.id)).toEqual(['fugu', 'fugu-ultra']);
+      expect(result.models.length).toBeGreaterThan(0);
+    });
+
     it('maps 401-ish errors to a friendly "invalid key" response (no throw)', async () => {
       const h = makeHarness({
         providerKeysSeed: { openrouter: 'stale-key' },

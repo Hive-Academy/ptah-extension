@@ -191,7 +191,10 @@
     @if (activeSettingsTab() === 'orchestration') {
       @if (isPremium()) {
         <ptah-agent-orchestration-config>
-          <ptah-cli-config (ptahCliChanged)="onPtahCliChanged()" />
+          <ptah-cli-config
+            [autoOpenProviderId]="requestedProviderId()"
+            (ptahCliChanged)="onPtahCliChanged()"
+          />
         </ptah-agent-orchestration-config>
       } @else {
         <!-- Upsell for non-premium users -->
