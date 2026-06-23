@@ -1,17 +1,15 @@
 /**
- * PtahCliRegistry — Sakana per-agent translation-proxy lifecycle spec.
+ * PtahCliRegistry — LM Studio per-agent translation-proxy lifecycle spec.
  *
- * Sakana is the first apiKey + requiresProxy provider reachable via ptah-cli.
- * `buildAuthEnv` (direct base URL) is NOT correct for it — the Anthropic-speaking
- * SDK must talk to a LOCAL proxy that translates to Sakana's OpenAI endpoint.
- * This spec proves the registry:
- *   (a) starts a FRESH per-agent SakanaTranslationProxy bound to the stored key
- *   (b) sets ANTHROPIC_BASE_URL to the proxy URL (NOT api.sakana.ai) +
- *       ANTHROPIC_AUTH_TOKEN to the proxy placeholder
+ * LM Studio is a local, keyless (authType:'none') provider that speaks the
+ * OpenAI protocol and so requires a translation proxy (requiresProxy:true). The
+ * old `buildAuthEnv` path pointed the Anthropic-speaking SDK straight at LM
+ * Studio's raw OpenAI `/v1` endpoint with NO proxy — the bug fixed here. This
+ * spec proves the registry now:
+ *   (a) constructs a FRESH per-agent LmStudioTranslationProxy (keyless)
+ *   (b) sets ANTHROPIC_BASE_URL to the proxy URL (NOT localhost:1234/v1) +
+ *       ANTHROPIC_AUTH_TOKEN to the local-proxy placeholder
  *   (c) stops the proxy when the spawn stream loop resolves
- *
- * Drives the REAL spawnAgent() up to the SDK queryFn() call, capturing the
- * `options.env` production code hands to the SDK.
  *
  * Source-under-test:
  *   libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry.ts
@@ -31,34 +29,39 @@ import type {
 import type { ProviderModelsService } from '@ptah-extension/auth-providers';
 import type { PtahCliConfig, AuthEnv } from '@ptah-extension/shared';
 
-const SAKANA_PROXY_URL = 'http://127.0.0.1:9876';
+const LM_STUDIO_PROXY_URL = 'http://127.0.0.1:9912';
 
 // Per-agent proxy double — start()/stop()/isRunning() tracked for assertions.
-const proxyStart = jest.fn(async () => ({ port: 9876, url: SAKANA_PROXY_URL }));
+const proxyStart = jest.fn(async () => ({
+  port: 9912,
+  url: LM_STUDIO_PROXY_URL,
+}));
 const proxyStop = jest.fn(async () => undefined);
 let proxyRunning = false;
-const createSakanaProxyForKey = jest.fn((_apiKey: string, _logger: Logger) => {
-  proxyRunning = false;
-  return {
-    start: jest.fn(async () => {
-      proxyRunning = true;
-      return proxyStart();
-    }),
-    stop: jest.fn(async () => {
-      proxyRunning = false;
-      return proxyStop();
-    }),
-    isRunning: jest.fn(() => proxyRunning),
-    getUrl: jest.fn(() => (proxyRunning ? SAKANA_PROXY_URL : undefined)),
-  };
-});
+const lmStudioCtor = jest.fn();
+
+class MockLmStudioTranslationProxy {
+  constructor(...args: unknown[]) {
+    proxyRunning = false;
+    lmStudioCtor(...args);
+  }
+  start = jest.fn(async () => {
+    proxyRunning = true;
+    return proxyStart();
+  });
+  stop = jest.fn(async () => {
+    proxyRunning = false;
+    return proxyStop();
+  });
+  isRunning = jest.fn(() => proxyRunning);
+  getUrl = jest.fn(() => (proxyRunning ? LM_STUDIO_PROXY_URL : undefined));
+}
 
 jest.mock('@ptah-extension/auth-providers', () => {
   const actual = jest.requireActual('@ptah-extension/auth-providers');
   return {
     ...actual,
-    createSakanaProxyForKey: (apiKey: string, logger: Logger) =>
-      createSakanaProxyForKey(apiKey, logger),
+    LmStudioTranslationProxy: MockLmStudioTranslationProxy,
   };
 });
 
@@ -67,20 +70,18 @@ jest.mock('@ptah-extension/agent-sdk', () => {
   return {
     ...actual,
     getAnthropicProvider: jest.fn(() => ({
-      id: 'sakana',
-      name: 'Sakana (Fugu)',
-      baseUrl: 'https://api.sakana.ai/v1',
+      id: 'lm-studio',
+      name: 'LM Studio',
+      baseUrl: 'http://localhost:1234/v1',
       authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
-      authType: 'apiKey',
+      authType: 'none',
       requiresProxy: true,
-      isLocal: false,
+      isLocal: true,
       keyPrefix: '',
       helpUrl: '',
       description: '',
       keyPlaceholder: '',
       maskedKeyDisplay: '',
-      staticModels: [{ id: 'fugu', name: 'Fugu' }],
-      defaultTiers: { sonnet: 'fugu', opus: 'fugu-ultra', haiku: 'fugu' },
     })),
     getProviderAuthEnvVar: jest.fn(() => 'ANTHROPIC_AUTH_TOKEN'),
     seedStaticModelPricing: jest.fn(),
@@ -125,8 +126,9 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
     createCallback: jest.fn(),
   } as unknown as SdkPermissionHandler;
 
+  // Local providers never read a stored key — placeholder is used instead.
   const authSecrets = {
-    getProviderKey: jest.fn().mockResolvedValue('sakana-stored-key'),
+    getProviderKey: jest.fn().mockResolvedValue(undefined),
   } as unknown as IAuthSecretsService;
 
   const providerModels = {
@@ -176,53 +178,52 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
   return { registry, getCapturedEnv: () => capturedEnv };
 }
 
-const SAKANA_CONFIG: PtahCliConfig = {
-  id: 'pc-sakana-001',
-  name: 'Sakana Agent',
-  providerId: 'sakana',
+const LM_STUDIO_CONFIG: PtahCliConfig = {
+  id: 'pc-lmstudio-001',
+  name: 'LM Studio Agent',
+  providerId: 'lm-studio',
   enabled: true,
   tierMappings: undefined,
   updatedAt: 0,
 };
 
-describe('PtahCliRegistry.spawnAgent — Sakana proxy lifecycle', () => {
+describe('PtahCliRegistry.spawnAgent — LM Studio proxy lifecycle', () => {
   beforeEach(() => {
     proxyStart.mockClear();
     proxyStop.mockClear();
-    createSakanaProxyForKey.mockClear();
+    lmStudioCtor.mockClear();
     proxyRunning = false;
   });
 
-  it('starts a fresh per-agent Sakana proxy bound to the stored key', async () => {
-    const harness = buildHarness(SAKANA_CONFIG);
+  it('constructs a fresh per-agent LM Studio translation proxy', async () => {
+    const harness = buildHarness(LM_STUDIO_CONFIG);
 
     const result = await harness.registry.spawnAgent(
-      SAKANA_CONFIG.id,
+      LM_STUDIO_CONFIG.id,
       'do work',
     );
 
     expect('status' in result).toBe(false);
-    expect(createSakanaProxyForKey).toHaveBeenCalledTimes(1);
-    expect(createSakanaProxyForKey.mock.calls[0][0]).toBe('sakana-stored-key');
+    expect(lmStudioCtor).toHaveBeenCalledTimes(1);
     expect(proxyStart).toHaveBeenCalledTimes(1);
   });
 
-  it('points ANTHROPIC_BASE_URL at the proxy URL (NOT api.sakana.ai) with the placeholder token', async () => {
-    const harness = buildHarness(SAKANA_CONFIG);
+  it('points ANTHROPIC_BASE_URL at the proxy URL (NOT localhost:1234) with the local-proxy placeholder', async () => {
+    const harness = buildHarness(LM_STUDIO_CONFIG);
 
-    await harness.registry.spawnAgent(SAKANA_CONFIG.id, 'do work');
+    await harness.registry.spawnAgent(LM_STUDIO_CONFIG.id, 'do work');
 
     const env = harness.getCapturedEnv();
-    expect(env?.ANTHROPIC_BASE_URL).toBe(SAKANA_PROXY_URL);
-    expect(env?.ANTHROPIC_BASE_URL).not.toContain('api.sakana.ai');
-    expect(env?.ANTHROPIC_AUTH_TOKEN).toBe('sakana-proxy-token');
+    expect(env?.ANTHROPIC_BASE_URL).toBe(LM_STUDIO_PROXY_URL);
+    expect(env?.ANTHROPIC_BASE_URL).not.toContain('localhost:1234');
+    expect(env?.ANTHROPIC_AUTH_TOKEN).toBe('local-proxy-managed');
   });
 
   it('stops the proxy when the spawn stream loop resolves', async () => {
-    const harness = buildHarness(SAKANA_CONFIG);
+    const harness = buildHarness(LM_STUDIO_CONFIG);
 
     const result = await harness.registry.spawnAgent(
-      SAKANA_CONFIG.id,
+      LM_STUDIO_CONFIG.id,
       'do work',
     );
     expect('status' in result).toBe(false);

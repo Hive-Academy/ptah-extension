@@ -13,6 +13,7 @@ import {
 import {
   Logger,
   TOKENS,
+  ConfigManager,
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { SdkHandle } from '../cli-agents/cli-adapters';
@@ -40,7 +41,9 @@ import {
   ModelResolver,
   OLLAMA_AUTH_TOKEN_PLACEHOLDER,
   SAKANA_PROXY_TOKEN_PLACEHOLDER,
+  LOCAL_PROXY_TOKEN_PLACEHOLDER,
   createSakanaProxyForKey,
+  LmStudioTranslationProxy,
   type ITranslationProxy,
 } from '@ptah-extension/auth-providers';
 import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persistence.service';
@@ -90,6 +93,8 @@ export class PtahCliRegistry {
     private readonly spawnOptionsService: PtahCliSpawnOptions,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: ModelResolver,
+    @inject(TOKENS.CONFIG_MANAGER)
+    private readonly configManager: ConfigManager,
   ) {
     this.logger.info('[PtahCliRegistry] Registry initialized');
   }
@@ -804,12 +809,14 @@ export class PtahCliRegistry {
   /**
    * Resolve the agent's AuthEnv plus a teardown handle.
    *
-   * For apiKey providers that require a local translation proxy (Sakana), a
-   * FRESH per-agent proxy is started here — bound to THIS agent's stored Bearer
-   * key — and the auth env points at the proxy URL with the placeholder token.
-   * Per-agent (not singleton) because concurrent ptah-cli agents each carry a
-   * distinct key. Callers MUST invoke the returned `stopProxy()` when the work
-   * that uses this auth env completes (stream loop resolves / test finally).
+   * For providers that require a local translation proxy (Sakana, LM Studio), a
+   * FRESH per-agent proxy is started here and the auth env points at the proxy
+   * URL with the placeholder token. Remote apiKey providers (Sakana) bind the
+   * proxy to THIS agent's stored Bearer key; local providers (LM Studio,
+   * authType 'none') need no key. Per-agent (not singleton) because concurrent
+   * ptah-cli agents carry distinct keys/endpoints. Callers MUST invoke the
+   * returned `stopProxy()` when the work that uses this auth env completes
+   * (stream loop resolves / test finally).
    *
    * For every other provider this falls back to the direct-baseUrl
    * `buildAuthEnv` path (unchanged) and returns a no-op `stopProxy`.
@@ -823,17 +830,18 @@ export class PtahCliRegistry {
       /* nothing to tear down for the direct-baseUrl path */
     };
 
-    // Only remote apiKey providers needing a proxy take the proxy path. Local
-    // providers (authType 'none', e.g. LM Studio) are intentionally untouched.
-    if (!(provider.requiresProxy === true && provider.authType !== 'none')) {
+    // Every provider that speaks OpenAI and needs a translation proxy takes the
+    // proxy path — remote apiKey (Sakana) AND local (LM Studio). Anthropic-native
+    // providers (Ollama, requiresProxy:false) keep the direct base-URL path.
+    if (provider.requiresProxy !== true) {
       return {
         authEnv: this.buildAuthEnv(agentConfig, provider, apiKey),
         stopProxy: noopStop,
       };
     }
 
-    const proxy = this.createProxyForProvider(provider, apiKey);
-    if (!proxy) {
+    const created = this.createProxyForProvider(provider, apiKey);
+    if (!created) {
       this.logger.warn(
         `[PtahCliRegistry] No proxy factory for proxy-requiring provider '${provider.id}'; falling back to direct base URL`,
       );
@@ -843,6 +851,7 @@ export class PtahCliRegistry {
       };
     }
 
+    const { proxy, placeholder } = created;
     const { url: proxyUrl } = await proxy.start();
     this.logger.info(
       `[PtahCliRegistry] Started ${provider.name} translation proxy at ${proxyUrl} for agent "${agentConfig.name}"`,
@@ -850,7 +859,7 @@ export class PtahCliRegistry {
 
     const authEnv = createEmptyAuthEnv();
     authEnv.ANTHROPIC_BASE_URL = proxyUrl;
-    authEnv.ANTHROPIC_AUTH_TOKEN = SAKANA_PROXY_TOKEN_PLACEHOLDER;
+    authEnv.ANTHROPIC_AUTH_TOKEN = placeholder;
     this.applyTierEnv(authEnv, agentConfig, provider);
 
     const stopProxy = async (): Promise<void> => {
@@ -875,16 +884,26 @@ export class PtahCliRegistry {
   }
 
   /**
-   * Create a fresh, per-agent translation proxy bound to the supplied key for a
-   * proxy-requiring apiKey provider. Returns undefined for providers without a
-   * known proxy factory.
+   * Create a fresh, per-agent translation proxy (plus its SDK-facing placeholder
+   * token) for a proxy-requiring provider. Sakana binds the proxy to the agent's
+   * Bearer key; LM Studio is keyless and resolves its endpoint from config /
+   * registry default. Returns undefined for providers without a known proxy.
    */
   private createProxyForProvider(
     provider: AnthropicProvider,
     apiKey: string,
-  ): ITranslationProxy | undefined {
+  ): { proxy: ITranslationProxy; placeholder: string } | undefined {
     if (provider.id === 'sakana') {
-      return createSakanaProxyForKey(apiKey, this.logger);
+      return {
+        proxy: createSakanaProxyForKey(apiKey, this.logger),
+        placeholder: SAKANA_PROXY_TOKEN_PLACEHOLDER,
+      };
+    }
+    if (provider.id === 'lm-studio') {
+      return {
+        proxy: new LmStudioTranslationProxy(this.logger, this.configManager),
+        placeholder: LOCAL_PROXY_TOKEN_PLACEHOLDER,
+      };
     }
     return undefined;
   }

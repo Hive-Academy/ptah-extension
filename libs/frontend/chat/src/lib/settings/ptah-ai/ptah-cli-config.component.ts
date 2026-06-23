@@ -98,6 +98,11 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
     description: 'Run local models via Ollama (no API key needed)',
   },
   {
+    id: 'lm-studio',
+    name: 'LM Studio',
+    description: 'Run local models via LM Studio (no API key needed)',
+  },
+  {
     id: 'ollama-cloud',
     name: 'Ollama Cloud',
     description: 'Cloud GPU models via Ollama Cloud (free tier)',
