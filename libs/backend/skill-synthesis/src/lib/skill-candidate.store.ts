@@ -573,6 +573,20 @@ export class SkillCandidateStore {
     return { candidates, promoted, rejected, invocations };
   }
 
+  /**
+   * Attach an embedding to an existing candidate row (backfill path). No-ops
+   * when sqlite-vec is unavailable. Inserts the vector into the vec0 table and
+   * links its rowid onto the candidate.
+   */
+  setEmbedding(id: CandidateId, vec: Float32Array): void {
+    if (!this.vecStatus.available) return;
+    const rowid = this.insertEmbedding(vec);
+    const stmt = this.db.prepare(
+      `UPDATE skill_candidates SET embedding_rowid = ? WHERE id = ?`,
+    );
+    stmt.run(rowid, id);
+  }
+
   private insertEmbedding(vec: Float32Array): number {
     const stmt = this.db.prepare(
       `INSERT INTO skill_candidates_vec (embedding) VALUES (?)`,

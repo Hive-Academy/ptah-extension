@@ -1463,6 +1463,18 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisUpdateSuggestionParams;
     result: SkillSynthesisUpdateSuggestionResult;
   };
+  'skillSynthesis:rejectBulk': {
+    params: SkillSynthesisRejectBulkParams;
+    result: SkillSynthesisRejectBulkResult;
+  };
+  'skillSynthesis:promoteBulk': {
+    params: SkillSynthesisPromoteBulkParams;
+    result: SkillSynthesisPromoteBulkResult;
+  };
+  'skillSynthesis:rejectByPattern': {
+    params: SkillSynthesisRejectByPatternParams;
+    result: SkillSynthesisRejectByPatternResult;
+  };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -1678,6 +1690,35 @@ export interface SkillSynthesisRejectResult {
   rejected: boolean;
 }
 
+export interface SkillSynthesisRejectBulkParams {
+  ids: string[];
+  reason?: string;
+}
+export interface SkillSynthesisRejectBulkResult {
+  rejected: number;
+}
+export interface SkillSynthesisPromoteBulkParams {
+  ids: string[];
+}
+export interface SkillSynthesisPromoteBulkDecision {
+  id: string;
+  promoted: boolean;
+  reason: string | null;
+  filePath: string | null;
+}
+export interface SkillSynthesisPromoteBulkResult {
+  decisions: SkillSynthesisPromoteBulkDecision[];
+  promoted: number;
+}
+export interface SkillSynthesisRejectByPatternParams {
+  pattern: string;
+  reason?: string;
+}
+export interface SkillSynthesisRejectByPatternResult {
+  rejected: number;
+  matched: number;
+}
+
 export interface SkillSynthesisInvocationsParams {
   skillId: string;
   limit?: number;
@@ -1761,6 +1802,7 @@ export interface SkillSynthesisRunCuratorResult {
   changesQueued: number;
   skippedPinned: number;
   overlaps?: SkillSynthesisCuratorOverlap[];
+  suggestionsCreated: number;
 }
 
 export type SkillSuggestionStatus = 'pending' | 'accepted' | 'dismissed';
@@ -2404,6 +2446,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:dismissSuggestion': true,
   'skillSynthesis:getSuggestion': true,
   'skillSynthesis:updateSuggestion': true,
+  'skillSynthesis:rejectBulk': true,
+  'skillSynthesis:promoteBulk': true,
+  'skillSynthesis:rejectByPattern': true,
 
   'cron:list': true,
   'cron:get': true,

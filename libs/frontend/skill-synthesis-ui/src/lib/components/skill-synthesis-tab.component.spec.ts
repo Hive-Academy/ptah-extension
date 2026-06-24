@@ -8,6 +8,9 @@ import type {
   SkillSynthesisCandidateSummary,
   SkillSynthesisEventWire,
   SkillSynthesisInvocationEntry,
+  SkillSynthesisPromoteBulkResult,
+  SkillSynthesisPromoteResult,
+  SkillSynthesisRejectByPatternResult,
   SkillSynthesisStatsResult,
 } from '@ptah-extension/shared';
 
@@ -157,8 +160,23 @@ interface StubState {
     ['all' | 'pending' | 'promoted' | 'rejected']
   >;
   readonly selectCandidate: jest.Mock<Promise<void>, [string | null]>;
-  readonly promote: jest.Mock<Promise<void>, [string, string | undefined]>;
+  readonly promote: jest.Mock<
+    Promise<SkillSynthesisPromoteResult | null>,
+    [string, string | undefined]
+  >;
   readonly reject: jest.Mock<Promise<void>, [string, string | undefined]>;
+  readonly rejectBulk: jest.Mock<
+    Promise<number>,
+    [string[], string | undefined]
+  >;
+  readonly promoteBulk: jest.Mock<
+    Promise<SkillSynthesisPromoteBulkResult | null>,
+    [string[]]
+  >;
+  readonly rejectByPattern: jest.Mock<
+    Promise<SkillSynthesisRejectByPatternResult | null>,
+    [string, string | undefined]
+  >;
 }
 
 function makeStub(
@@ -191,8 +209,11 @@ function makeStub(
     loadStats: jest.fn(async () => undefined),
     setStatusFilter: jest.fn(async () => undefined),
     selectCandidate: jest.fn(async () => undefined),
-    promote: jest.fn(async () => undefined),
+    promote: jest.fn(async () => null),
     reject: jest.fn(async () => undefined),
+    rejectBulk: jest.fn(async () => 0),
+    promoteBulk: jest.fn(async () => null),
+    rejectByPattern: jest.fn(async () => null),
   };
 }
 

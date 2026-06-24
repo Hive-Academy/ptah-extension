@@ -36,6 +36,9 @@ export interface MemoryCuratorEventWire {
 export type SkillSynthesisEventKind =
   | 'analyze-run'
   | 'curator-pass'
+  | 'curator-pass-start'
+  | 'backfill-progress'
+  | 'backfill-complete'
   | 'idle-trigger'
   | 'boot-scan'
   | 'manual-run'

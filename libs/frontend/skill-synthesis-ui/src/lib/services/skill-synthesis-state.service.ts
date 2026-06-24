@@ -4,6 +4,9 @@ import type {
   SkillSuggestionSummary,
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
+  SkillSynthesisPromoteBulkResult,
+  SkillSynthesisPromoteResult,
+  SkillSynthesisRejectByPatternResult,
   SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
 } from '@ptah-extension/shared';
@@ -129,16 +132,24 @@ export class SkillSynthesisStateService {
    * the backend `skillSynthesis:promote` shape stores its own reason on
    * the result, but we accept one here to keep the modal UX symmetric
    * with reject. Refreshes the list on success.
+   *
+   * Returns the backend decision so the caller can surface why a candidate
+   * was NOT promoted (e.g. below-threshold), or `null` on error.
    */
-  public async promote(id: string, reason?: string): Promise<void> {
+  public async promote(
+    id: string,
+    reason?: string,
+  ): Promise<SkillSynthesisPromoteResult | null> {
     this.loading.set(true);
     this.error.set(null);
     try {
-      await this.rpc.promote(id);
+      const result = await this.rpc.promote(id);
       void reason;
       await this.refreshCandidates();
+      return result;
     } catch (err) {
       this.error.set(this.toMessage(err));
+      return null;
     } finally {
       this.loading.set(false);
     }
@@ -153,6 +164,69 @@ export class SkillSynthesisStateService {
       await this.refreshCandidates();
     } catch (err) {
       this.error.set(this.toMessage(err));
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  /**
+   * Reject many candidates by id in one pass. Returns the number actually
+   * rejected (0 on error). Refreshes the list on success.
+   */
+  public async rejectBulk(ids: string[], reason?: string): Promise<number> {
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const rejected = await this.rpc.rejectBulk(ids, reason);
+      await this.refreshCandidates();
+      return rejected;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return 0;
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  /**
+   * Promote many candidates by id. Returns the per-id decision result, or
+   * `null` on error. Refreshes the list on success.
+   */
+  public async promoteBulk(
+    ids: string[],
+  ): Promise<SkillSynthesisPromoteBulkResult | null> {
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.rpc.promoteBulk(ids);
+      await this.refreshCandidates();
+      return result;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return null;
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  /**
+   * Reject every pending candidate whose name matches the given pattern
+   * (supports `*`). Returns the match/reject counts, or `null` on error.
+   * Refreshes the list on success.
+   */
+  public async rejectByPattern(
+    pattern: string,
+    reason?: string,
+  ): Promise<SkillSynthesisRejectByPatternResult | null> {
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.rpc.rejectByPattern(pattern, reason);
+      await this.refreshCandidates();
+      return result;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return null;
     } finally {
       this.loading.set(false);
     }
