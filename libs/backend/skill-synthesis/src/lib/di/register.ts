@@ -35,6 +35,8 @@ import {
   NoOpSkillRepropagation,
   SKILL_REPROPAGATION_TOKEN,
 } from '../skill-repropagation.port';
+import { SpecHarvesterService } from '../spec-harvester.service';
+import { SPEC_FINDINGS_TOKEN } from '../spec-findings.port';
 import { SKILL_SYNTHESIS_TOKENS } from './tokens';
 
 export function registerSkillSynthesisServices(
@@ -60,6 +62,7 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillSynthesizerService);
   container.registerSingleton(SkillSuggestionStore);
   container.registerSingleton(SkillClusteringService);
+  container.registerSingleton(SpecHarvesterService);
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
   });
@@ -108,8 +111,15 @@ export function registerSkillSynthesisServices(
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CLUSTERING_SERVICE, {
     useToken: SkillClusteringService,
   });
+  container.register(SKILL_SYNTHESIS_TOKENS.SPEC_HARVESTER_SERVICE, {
+    useToken: SpecHarvesterService,
+  });
   container.register(SKILL_REPROPAGATION_TOKEN, {
     useClass: NoOpSkillRepropagation,
+  });
+  // The harvester is the live SpecFindingsPort impl for the enhancer.
+  container.register(SPEC_FINDINGS_TOKEN, {
+    useToken: SpecHarvesterService,
   });
 
   logger.info('[skill-synthesis] services registered', {

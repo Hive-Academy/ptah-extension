@@ -92,6 +92,28 @@ export {
   type SkillRepropagationPort,
   type SkillRepropagationKind,
 } from './lib/skill-repropagation.port';
+export {
+  SPEC_FINDINGS_TOKEN,
+  NoOpSpecFindings,
+  type SpecFindingsPort,
+} from './lib/spec-findings.port';
+export {
+  SpecHarvesterService,
+  type SpecStatus,
+  type SpecSummary,
+  type HarvestResult,
+  type ClearStaleResult,
+} from './lib/spec-harvester.service';
+export {
+  extractSpec,
+  parseBatchVerdicts,
+  detectStatus,
+  normalizeExecutor,
+  HARVEST_MARKER_FILE,
+  type HarvestedSpec,
+  type SpecBatchVerdict,
+  type SpecBatchStatus,
+} from './lib/spec-extractor';
 export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
 export type {
   SkillSynthesisEvent,

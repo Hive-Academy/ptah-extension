@@ -430,6 +430,56 @@ export class SkillCandidateStore {
     );
   }
 
+  /**
+   * Reconcile the most-recent un-reconciled subagent invocation event for a
+   * slug against a graded verdict harvested from `.ptah/specs`. Updates the
+   * single newest matching `source='subagent'` row whose `invoked_at` falls in
+   * [windowStart, windowEnd] and that has not yet been reconciled.
+   *
+   * Idempotent: the `reconciled_at IS NULL` guard means re-running a harvest
+   * never double-flips a row. Returns true when a row was updated, false when
+   * no eligible event existed (e.g. telemetry never recorded the run).
+   */
+  reconcileSubagentEvent(input: {
+    slug: string;
+    succeeded: boolean;
+    isError: boolean;
+    windowStart: number;
+    windowEnd: number;
+    verdictSource: string;
+    reconciledAt: number;
+  }): boolean {
+    const target = this.db
+      .prepare(
+        `SELECT id FROM skill_invocation_events
+         WHERE skill_slug = ?
+           AND source = 'subagent'
+           AND reconciled_at IS NULL
+           AND invoked_at BETWEEN ? AND ?
+         ORDER BY invoked_at DESC
+         LIMIT 1`,
+      )
+      .get(input.slug, input.windowStart, input.windowEnd) as
+      | { id: string }
+      | undefined;
+    if (!target) return false;
+
+    this.db
+      .prepare(
+        `UPDATE skill_invocation_events
+         SET succeeded = ?, is_error = ?, reconciled_at = ?, verdict_source = ?
+         WHERE id = ?`,
+      )
+      .run(
+        input.succeeded ? 1 : 0,
+        input.isError ? 1 : 0,
+        input.reconciledAt,
+        input.verdictSource,
+        target.id,
+      );
+    return true;
+  }
+
   getInvocationStats(slug: string): {
     total: number;
     succeeded: number;

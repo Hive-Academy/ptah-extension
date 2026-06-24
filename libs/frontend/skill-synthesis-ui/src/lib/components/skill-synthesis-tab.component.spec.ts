@@ -177,6 +177,12 @@ interface StubState {
     Promise<SkillSynthesisRejectByPatternResult | null>,
     [string, string | undefined]
   >;
+  readonly specs: ReturnType<typeof signal<unknown[]>>;
+  readonly specsLoading: ReturnType<typeof signal<boolean>>;
+  readonly staleSpecCount: ReturnType<typeof computed<number>>;
+  readonly refreshSpecs: jest.Mock<Promise<void>, []>;
+  readonly harvestSpecs: jest.Mock<Promise<void>, []>;
+  readonly clearStaleSpecs: jest.Mock<Promise<number>, [unknown]>;
 }
 
 function makeStub(
@@ -214,6 +220,12 @@ function makeStub(
     rejectBulk: jest.fn(async () => 0),
     promoteBulk: jest.fn(async () => null),
     rejectByPattern: jest.fn(async () => null),
+    specs: signal<unknown[]>([]),
+    specsLoading: signal<boolean>(false),
+    staleSpecCount: computed(() => 0),
+    refreshSpecs: jest.fn(async () => undefined),
+    harvestSpecs: jest.fn(async () => undefined),
+    clearStaleSpecs: jest.fn(async () => 0),
   };
 }
 

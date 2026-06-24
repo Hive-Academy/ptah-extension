@@ -210,3 +210,14 @@ export const RejectByPatternParamsSchema = z.object({
 });
 
 export type RejectByPatternParams = z.infer<typeof RejectByPatternParamsSchema>;
+
+export const ListSpecsParamsSchema = z.object({}).strict().optional();
+
+export const HarvestSpecsParamsSchema = z.object({}).strict().optional();
+
+export const ClearStaleSpecsParamsSchema = z.object({
+  retentionDays: z.coerce.number().int().min(0).max(3650).optional(),
+  mode: z.enum(['archive', 'delete']).optional(),
+});
+
+export type ClearStaleSpecsParams = z.infer<typeof ClearStaleSpecsParamsSchema>;

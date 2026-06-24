@@ -331,6 +331,92 @@ interface ActionDialogState {
                 [recentEvents]="recentEvents()"
               />
               <ptah-skill-diagnostics-accordion />
+
+              <div class="card border border-base-300 bg-base-200/40">
+                <div class="card-body gap-3 p-4">
+                  <div class="flex items-center justify-between gap-2">
+                    <div>
+                      <h3 class="text-sm font-semibold">Orchestration specs</h3>
+                      <p class="text-xs opacity-70">
+                        Reconciles agent Success from
+                        <code>.ptah/specs</code> review verdicts and feeds them
+                        into Enhance. Clear archives harvested specs older than
+                        7 days.
+                      </p>
+                    </div>
+                    <div class="flex shrink-0 gap-2">
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        [disabled]="specsLoading()"
+                        (click)="onRefreshSpecs()"
+                      >
+                        Refresh
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-xs"
+                        [disabled]="specsLoading()"
+                        (click)="onHarvestSpecs()"
+                      >
+                        Harvest now
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-outline btn-xs"
+                        [disabled]="specsLoading() || staleSpecCount() === 0"
+                        (click)="onClearStaleSpecs()"
+                      >
+                        Clear stale ({{ staleSpecCount() }})
+                      </button>
+                    </div>
+                  </div>
+
+                  @if (specs().length === 0) {
+                    <p class="text-xs opacity-60">
+                      No specs found under <code>.ptah/specs</code>.
+                    </p>
+                  } @else {
+                    <div class="overflow-x-auto">
+                      <table class="table table-xs">
+                        <thead>
+                          <tr>
+                            <th>Task</th>
+                            <th>Status</th>
+                            <th class="text-right">Batches</th>
+                            <th class="text-right">Age (d)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (spec of specs(); track spec.taskId) {
+                            <tr>
+                              <td class="font-mono">{{ spec.taskId }}</td>
+                              <td>
+                                <span
+                                  class="badge badge-xs"
+                                  [class.badge-info]="spec.status === 'active'"
+                                  [class.badge-warning]="
+                                    spec.status === 'complete-unharvested'
+                                  "
+                                  [class.badge-ghost]="
+                                    spec.status === 'harvested'
+                                  "
+                                >
+                                  {{ spec.status }}
+                                </span>
+                              </td>
+                              <td class="text-right">{{ spec.batchCount }}</td>
+                              <td class="text-right">
+                                {{ spec.ageDays ?? '—' }}
+                              </td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  }
+                </div>
+              </div>
             </div>
           }
           @case ('clones') {
@@ -498,6 +584,10 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly eligibilityHistogram = this.diagnostics.eligibilityHistogram;
   public readonly recentEvents = this.diagnostics.recentEvents;
 
+  public readonly specs = this.state.specs;
+  public readonly specsLoading = this.state.specsLoading;
+  public readonly staleSpecCount = this.state.staleSpecCount;
+
   public readonly ineligibleHint = computed<string | null>(() => {
     const events = this.recentEvents();
     if (events.length === 0) return null;
@@ -589,11 +679,31 @@ export class SkillSynthesisTabComponent implements OnInit {
     void this.state.refreshSuggestions();
     void this.state.loadStats();
     void this.diagnostics.refresh();
+    void this.state.refreshSpecs();
     void this.loadSettings();
   }
 
   protected setSubView(view: SkillSubView): void {
     this._subView.set(view);
+  }
+
+  protected async onHarvestSpecs(): Promise<void> {
+    await this.state.harvestSpecs();
+  }
+
+  protected async onRefreshSpecs(): Promise<void> {
+    await this.state.refreshSpecs();
+  }
+
+  protected async onClearStaleSpecs(): Promise<void> {
+    const cleared = await this.state.clearStaleSpecs({ mode: 'archive' });
+    this.toast.set({
+      message:
+        cleared > 0
+          ? `Archived ${cleared} stale spec${cleared === 1 ? '' : 's'}.`
+          : 'No stale specs to clear.',
+      kind: 'success',
+    });
   }
 
   private async loadSettings(): Promise<void> {

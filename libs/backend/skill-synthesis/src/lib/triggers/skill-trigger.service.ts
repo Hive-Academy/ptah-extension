@@ -31,6 +31,7 @@ import {
 import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
 import { SkillSynthesisService } from '../skill-synthesis.service';
 import { SkillInvocationRecorder } from '../skill-invocation-recorder';
+import { SpecHarvesterService } from '../spec-harvester.service';
 import {
   SKILL_TRIGGER_DEFAULTS,
   SKILL_TRIGGER_KEYS,
@@ -102,6 +103,8 @@ export class SkillTriggerService {
     private readonly recorder: SkillInvocationRecorder,
     @inject(SDK_TOKENS.SDK_STOP_CALLBACK_REGISTRY)
     private readonly stopRegistry: StopCallbackRegistry,
+    @inject(SKILL_SYNTHESIS_TOKENS.SPEC_HARVESTER_SERVICE)
+    private readonly harvester: SpecHarvesterService,
   ) {}
 
   start(): void {
@@ -242,6 +245,17 @@ export class SkillTriggerService {
     }
 
     void this.invokeAnalyze(sessionId, state.workspaceRoot, 'turn-complete');
+    void this.fireHarvest(state.workspaceRoot);
+  }
+
+  private async fireHarvest(workspaceRoot: string): Promise<void> {
+    try {
+      await this.harvester.harvest(workspaceRoot);
+    } catch (error: unknown) {
+      this.logger.debug('[skill-synthesis] spec harvest failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private onSubagentStop(payload: SubagentStopPayload): void {
@@ -591,6 +605,7 @@ export class SkillTriggerService {
           skipped: result.skipped,
         },
       });
+      await this.fireHarvest(root);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.synthesis.pushEvent({

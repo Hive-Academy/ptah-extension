@@ -41,6 +41,7 @@ import {
   type SkillRegistryKind,
   type SkillSuggestionStore,
   type SkillSuggestionRow,
+  type SpecHarvesterService,
 } from '@ptah-extension/skill-synthesis';
 import type { UserLayerMirrorService } from '@ptah-extension/agent-generation';
 import type {
@@ -109,6 +110,12 @@ import type {
   SkillSynthesisPromoteBulkResult,
   SkillSynthesisRejectByPatternParams,
   SkillSynthesisRejectByPatternResult,
+  SkillSynthesisListSpecsParams,
+  SkillSynthesisListSpecsResult,
+  SkillSynthesisHarvestSpecsParams,
+  SkillSynthesisHarvestSpecsResult,
+  SkillSynthesisClearStaleSpecsParams,
+  SkillSynthesisClearStaleSpecsResult,
   SkillSuggestionSummary,
   SkillSuggestionDetail,
   CloneSummary,
@@ -140,6 +147,7 @@ import {
   RejectBulkParamsSchema,
   PromoteBulkParamsSchema,
   RejectByPatternParamsSchema,
+  ClearStaleSpecsParamsSchema,
 } from './skills-synthesis-rpc.schema';
 
 interface ICuratorService {
@@ -191,6 +199,9 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:rejectBulk',
     'skillSynthesis:promoteBulk',
     'skillSynthesis:rejectByPattern',
+    'skillSynthesis:listSpecs',
+    'skillSynthesis:harvestSpecs',
+    'skillSynthesis:clearStaleSpecs',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -218,6 +229,8 @@ export class SkillsSynthesisRpcHandlers {
     private readonly contentDownload: ContentDownloadService | null,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_SUGGESTION_STORE, { isOptional: true })
     private readonly suggestionStore: SkillSuggestionStore | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SPEC_HARVESTER_SERVICE, { isOptional: true })
+    private readonly specHarvester: SpecHarvesterService | null,
   ) {}
 
   register(): void {
@@ -251,6 +264,9 @@ export class SkillsSynthesisRpcHandlers {
     this.registerRejectBulk();
     this.registerPromoteBulk();
     this.registerRejectByPattern();
+    this.registerListSpecs();
+    this.registerHarvestSpecs();
+    this.registerClearStaleSpecs();
 
     this.logger.debug('Skill Synthesis RPC handlers registered', {
       methods: SkillsSynthesisRpcHandlers.METHODS as unknown as string[],
@@ -1146,6 +1162,68 @@ export class SkillsSynthesisRpcHandlers {
         this.report(
           error,
           'SkillsSynthesisRpcHandlers.registerRejectByPattern',
+        );
+        throw error;
+      }
+    });
+  }
+
+  private registerListSpecs(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisListSpecsParams,
+      SkillSynthesisListSpecsResult
+    >('skillSynthesis:listSpecs', async () => {
+      try {
+        const harvester = this.requireDesktop(this.specHarvester);
+        const specs = await harvester.listSpecs();
+        return { specs };
+      } catch (error) {
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerListSpecs');
+        throw error;
+      }
+    });
+  }
+
+  private registerHarvestSpecs(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisHarvestSpecsParams,
+      SkillSynthesisHarvestSpecsResult
+    >('skillSynthesis:harvestSpecs', async () => {
+      try {
+        const harvester = this.requireDesktop(this.specHarvester);
+        return await harvester.harvest();
+      } catch (error) {
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerHarvestSpecs');
+        throw error;
+      }
+    });
+  }
+
+  private registerClearStaleSpecs(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisClearStaleSpecsParams,
+      SkillSynthesisClearStaleSpecsResult
+    >('skillSynthesis:clearStaleSpecs', async (params) => {
+      const parsed = this.parseParams(
+        ClearStaleSpecsParamsSchema,
+        params,
+        'skillSynthesis:clearStaleSpecs',
+      );
+      try {
+        const harvester = this.requireDesktop(this.specHarvester);
+        const result = await harvester.clearStaleSpecs(undefined, {
+          retentionDays: parsed.retentionDays,
+          mode: parsed.mode,
+        });
+        return {
+          cleared: result.cleared,
+          mode: result.mode,
+          taskIds: [...result.taskIds],
+        };
+      } catch (error) {
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerClearStaleSpecs',
         );
         throw error;
       }

@@ -315,6 +315,7 @@ function buildService(opts?: {
     expansion.registry,
     recorder,
     stop.registry,
+    { harvest: jest.fn().mockResolvedValue(undefined) } as never,
   );
   return {
     service,

@@ -1475,6 +1475,18 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisRejectByPatternParams;
     result: SkillSynthesisRejectByPatternResult;
   };
+  'skillSynthesis:listSpecs': {
+    params: SkillSynthesisListSpecsParams;
+    result: SkillSynthesisListSpecsResult;
+  };
+  'skillSynthesis:harvestSpecs': {
+    params: SkillSynthesisHarvestSpecsParams;
+    result: SkillSynthesisHarvestSpecsResult;
+  };
+  'skillSynthesis:clearStaleSpecs': {
+    params: SkillSynthesisClearStaleSpecsParams;
+    result: SkillSynthesisClearStaleSpecsResult;
+  };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -1717,6 +1729,37 @@ export interface SkillSynthesisRejectByPatternParams {
 export interface SkillSynthesisRejectByPatternResult {
   rejected: number;
   matched: number;
+}
+
+export type SkillSynthesisSpecStatus =
+  | 'active'
+  | 'complete-unharvested'
+  | 'harvested';
+export interface SkillSynthesisSpecSummary {
+  taskId: string;
+  status: SkillSynthesisSpecStatus;
+  batchCount: number;
+  harvestedAt: number | null;
+  ageDays: number | null;
+}
+export type SkillSynthesisListSpecsParams = Record<string, never>;
+export interface SkillSynthesisListSpecsResult {
+  specs: SkillSynthesisSpecSummary[];
+}
+export type SkillSynthesisHarvestSpecsParams = Record<string, never>;
+export interface SkillSynthesisHarvestSpecsResult {
+  scanned: number;
+  harvested: number;
+  reconciled: number;
+}
+export interface SkillSynthesisClearStaleSpecsParams {
+  retentionDays?: number;
+  mode?: 'archive' | 'delete';
+}
+export interface SkillSynthesisClearStaleSpecsResult {
+  cleared: number;
+  mode: 'archive' | 'delete';
+  taskIds: string[];
 }
 
 export interface SkillSynthesisInvocationsParams {
@@ -2449,6 +2492,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:rejectBulk': true,
   'skillSynthesis:promoteBulk': true,
   'skillSynthesis:rejectByPattern': true,
+  'skillSynthesis:listSpecs': true,
+  'skillSynthesis:harvestSpecs': true,
+  'skillSynthesis:clearStaleSpecs': true,
 
   'cron:list': true,
   'cron:get': true,

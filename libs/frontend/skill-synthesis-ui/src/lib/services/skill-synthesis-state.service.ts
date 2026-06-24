@@ -9,6 +9,7 @@ import type {
   SkillSynthesisRejectByPatternResult,
   SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
+  SkillSynthesisSpecSummary,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
@@ -77,6 +78,13 @@ export class SkillSynthesisStateService {
   public readonly suggestionsLoading = signal<boolean>(false);
   public readonly suggestionDetail = signal<SkillSuggestionDetail | null>(null);
   public readonly suggestionDetailLoading = signal<boolean>(false);
+
+  public readonly specs = signal<SkillSynthesisSpecSummary[]>([]);
+  public readonly specsLoading = signal<boolean>(false);
+
+  public readonly staleSpecCount = computed(
+    () => this.specs().filter((s) => s.status === 'harvested').length,
+  );
 
   public readonly selectedCandidate = computed(() => {
     const id = this.selectedCandidateId();
@@ -352,6 +360,58 @@ export class SkillSynthesisStateService {
       this.error.set(this.toMessage(err));
     } finally {
       this.suggestionsLoading.set(false);
+    }
+  }
+
+  /** Refresh the orchestration-specs list under `.ptah/specs`. */
+  public async refreshSpecs(): Promise<void> {
+    this.specsLoading.set(true);
+    this.error.set(null);
+    try {
+      const list = await this.rpc.listSpecs();
+      this.specs.set(list);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.specsLoading.set(false);
+    }
+  }
+
+  /** Reconcile completed specs into telemetry now, then refresh the list. */
+  public async harvestSpecs(): Promise<void> {
+    this.specsLoading.set(true);
+    this.error.set(null);
+    try {
+      await this.rpc.harvestSpecs();
+      await this.refreshSpecs();
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.specsLoading.set(false);
+    }
+  }
+
+  /**
+   * Archive (or delete) completed + harvested specs older than the retention
+   * window, then refresh the list. Returns the number cleared (0 on error).
+   */
+  public async clearStaleSpecs(
+    options: {
+      retentionDays?: number;
+      mode?: 'archive' | 'delete';
+    } = {},
+  ): Promise<number> {
+    this.specsLoading.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.rpc.clearStaleSpecs(options);
+      await this.refreshSpecs();
+      return result.cleared;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return 0;
+    } finally {
+      this.specsLoading.set(false);
     }
   }
 
