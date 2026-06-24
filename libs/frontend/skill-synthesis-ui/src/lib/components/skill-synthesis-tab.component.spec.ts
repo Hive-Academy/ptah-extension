@@ -183,6 +183,9 @@ interface StubState {
   readonly refreshSpecs: jest.Mock<Promise<void>, []>;
   readonly harvestSpecs: jest.Mock<Promise<void>, []>;
   readonly clearStaleSpecs: jest.Mock<Promise<number>, [unknown]>;
+  readonly candidateDetail: ReturnType<typeof signal<unknown>>;
+  readonly candidateDetailLoading: ReturnType<typeof signal<boolean>>;
+  readonly loadCandidateDetail: jest.Mock<Promise<void>, [string | null]>;
 }
 
 function makeStub(
@@ -226,6 +229,9 @@ function makeStub(
     refreshSpecs: jest.fn(async () => undefined),
     harvestSpecs: jest.fn(async () => undefined),
     clearStaleSpecs: jest.fn(async () => 0),
+    candidateDetail: signal<unknown>(null),
+    candidateDetailLoading: signal<boolean>(false),
+    loadCandidateDetail: jest.fn(async () => undefined),
   };
 }
 

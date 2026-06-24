@@ -14,6 +14,7 @@ import {
   FormGroup,
 } from '@angular/forms';
 import { VSCodeService } from '@ptah-extension/core';
+import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { LucideAngularModule, Sparkles } from 'lucide-angular';
 import type {
   SkillSynthesisCandidateSummary,
@@ -71,6 +72,7 @@ interface ActionDialogState {
     SkillCandidatesTableComponent,
     SkillInvocationsPanelComponent,
     SkillSettingsPanelComponent,
+    MarkdownBlockComponent,
   ],
   template: `
     @if (!isElectron()) {
@@ -299,11 +301,119 @@ interface ActionDialogState {
               />
 
               @if (selectedCandidate(); as sc) {
-                <ptah-skill-invocations-panel
-                  [candidate]="sc"
-                  [invocations]="invocations()"
-                  (closed)="onClearSelection()"
-                />
+                <dialog
+                  class="modal modal-open"
+                  role="dialog"
+                  aria-modal="true"
+                  [attr.aria-label]="'Candidate ' + sc.name"
+                  data-testid="skills-candidate-detail-modal"
+                >
+                  <div class="modal-box max-w-3xl">
+                    <header class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <h3 class="truncate text-base font-semibold">
+                          {{ sc.name }}
+                        </h3>
+                        <p class="mt-0.5 text-sm text-base-content/60">
+                          {{ sc.description }}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm btn-circle"
+                        aria-label="Close"
+                        (click)="onClearSelection()"
+                      >
+                        ✕
+                      </button>
+                    </header>
+
+                    <div
+                      class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-base-content/60"
+                    >
+                      <span
+                        >Status:
+                        <span class="font-medium">{{ sc.status }}</span></span
+                      >
+                      <span
+                        >Successes:
+                        <span class="font-medium">{{
+                          sc.successCount
+                        }}</span></span
+                      >
+                      <span
+                        >Failures:
+                        <span class="font-medium">{{
+                          sc.failureCount
+                        }}</span></span
+                      >
+                      @if (candidateDetail(); as d) {
+                        <span
+                          >Sources:
+                          <span class="font-medium">{{
+                            d.sourceSessionIds.length
+                          }}</span></span
+                        >
+                      }
+                    </div>
+
+                    <div class="mt-4 max-h-[55vh] overflow-y-auto">
+                      @if (candidateDetailLoading()) {
+                        <div class="flex flex-col gap-2 py-4">
+                          <div class="h-3 w-2/3 rounded bg-base-300/50"></div>
+                          <div class="h-3 w-1/2 rounded bg-base-300/40"></div>
+                          <div class="h-3 w-3/5 rounded bg-base-300/30"></div>
+                        </div>
+                      } @else if (candidateDetail()?.body; as body) {
+                        <ptah-markdown-block [content]="body" />
+                      } @else {
+                        <p class="py-4 text-sm text-base-content/60">
+                          No content available for this candidate.
+                        </p>
+                      }
+                    </div>
+
+                    @if (invocations().length > 0) {
+                      <ptah-skill-invocations-panel
+                        class="mt-4 block"
+                        [candidate]="sc"
+                        [invocations]="invocations()"
+                        (closed)="onClearSelection()"
+                      />
+                    }
+
+                    <div class="modal-action">
+                      <button
+                        type="button"
+                        class="btn btn-success btn-sm"
+                        [disabled]="sc.status === 'promoted' || loading()"
+                        (click)="onActionFromDetail('promote', sc)"
+                      >
+                        Promote
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-error btn-sm"
+                        [disabled]="sc.status === 'rejected' || loading()"
+                        (click)="onActionFromDetail('reject', sc)"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm"
+                        (click)="onClearSelection()"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                  <form method="dialog" class="modal-backdrop">
+                    <button type="button" (click)="onClearSelection()">
+                      close
+                    </button>
+                  </form>
+                </dialog>
               }
 
               @if (toast(); as t) {
@@ -588,6 +698,9 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly specsLoading = this.state.specsLoading;
   public readonly staleSpecCount = this.state.staleSpecCount;
 
+  public readonly candidateDetail = this.state.candidateDetail;
+  public readonly candidateDetailLoading = this.state.candidateDetailLoading;
+
   public readonly ineligibleHint = computed<string | null>(() => {
     const events = this.recentEvents();
     if (events.length === 0) return null;
@@ -772,14 +885,25 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   protected onSelectRow(id: string): void {
     if (this.selectedCandidateId() === id) {
-      void this.state.selectCandidate(null);
+      this.onClearSelection();
       return;
     }
     void this.state.selectCandidate(id);
+    void this.state.loadCandidateDetail(id);
   }
 
   protected onClearSelection(): void {
     void this.state.selectCandidate(null);
+    void this.state.loadCandidateDetail(null);
+  }
+
+  protected onActionFromDetail(
+    kind: ActionKind,
+    candidate: SkillSynthesisCandidateSummary,
+  ): void {
+    this.onClearSelection();
+    this.actionReason = '';
+    this.actionDialog.set({ kind, candidate });
   }
 
   protected onOpenAction(kind: ActionKind, action: SkillCandidateAction): void {

@@ -10,6 +10,7 @@ import type {
   SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
   SkillSynthesisSpecSummary,
+  SkillSynthesisCandidateDetail,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
@@ -79,6 +80,10 @@ export class SkillSynthesisStateService {
   public readonly suggestionDetail = signal<SkillSuggestionDetail | null>(null);
   public readonly suggestionDetailLoading = signal<boolean>(false);
 
+  public readonly candidateDetail =
+    signal<SkillSynthesisCandidateDetail | null>(null);
+  public readonly candidateDetailLoading = signal<boolean>(false);
+
   public readonly specs = signal<SkillSynthesisSpecSummary[]>([]);
   public readonly specsLoading = signal<boolean>(false);
 
@@ -132,6 +137,27 @@ export class SkillSynthesisStateService {
       this.error.set(this.toMessage(err));
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  /**
+   * Load a single candidate's full detail (including the SKILL.md body) into
+   * `candidateDetail` for the preview modal. Pass `null` to clear it.
+   */
+  public async loadCandidateDetail(id: string | null): Promise<void> {
+    if (!id) {
+      this.candidateDetail.set(null);
+      return;
+    }
+    this.candidateDetailLoading.set(true);
+    this.error.set(null);
+    try {
+      const detail = await this.rpc.getCandidate(id);
+      this.candidateDetail.set(detail);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.candidateDetailLoading.set(false);
     }
   }
 
