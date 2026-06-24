@@ -59,7 +59,7 @@ export class AssistantMessageTransformer {
     }
 
     if (state.activeSkillToolUseIdsCount() > 0) {
-      helpers.logger.info(
+      helpers.logger.debug(
         '[SdkMessageTransformer] Clearing activeSkillToolUseIds on complete assistant message',
         { clearedIds: state.snapshotActiveSkillToolUseIds() },
       );
@@ -137,7 +137,7 @@ export class AssistantMessageTransformer {
           if (isBackground) {
             state.addBackgroundTaskToolUseId(block.id);
             helpers.subagentRegistry.markPendingBackground(block.id);
-            helpers.logger.info(
+            helpers.logger.debug(
               '[SdkMessageTransformer] Detected background Task tool_use',
               {
                 toolCallId: block.id,
@@ -150,7 +150,7 @@ export class AssistantMessageTransformer {
 
         if (block.name === 'Skill') {
           state.addActiveSkillToolUseId(block.id);
-          helpers.logger.info(
+          helpers.logger.debug(
             '[SdkMessageTransformer] Tracking Skill tool_use for content filtering',
             { toolCallId: block.id },
           );
@@ -231,7 +231,7 @@ export class AssistantMessageTransformer {
           };
           events.push(bgEvent);
 
-          helpers.logger.info(
+          helpers.logger.debug(
             '[SdkMessageTransformer] Emitted background_agent_started event',
             {
               toolCallId: block.tool_use_id,
