@@ -245,6 +245,30 @@ export class SkillTriggerService {
   }
 
   private onSubagentStop(payload: SubagentStopPayload): void {
+    // Record agent-invocation telemetry first, independent of the subagent-stop
+    // *analyze* trigger below. A subagent completing IS an agent invocation, and
+    // this is the only reliable seam to observe it: a subagent's Task tool-use
+    // runs in its own nested SDK session and never surfaces back to the parent
+    // session's PostToolUse hook, so onPostToolUse's `Task` branch never fires
+    // for agent runs. Without this, every authored agent shows 0 invocations in
+    // the Library tab no matter how many times it runs. Keyed on `agentType`
+    // (the agent slug); the recorder's slug|session|2s-bucket dedup makes this
+    // idempotent if a Task PostToolUse ever does fire for the same run.
+    if (
+      this.readSkillInvocationTelemetryEnabled() &&
+      payload.agentType &&
+      payload.subagentSessionId
+    ) {
+      void this.recordInvocation({
+        slug: payload.agentType,
+        sessionId: payload.parentSessionId || payload.subagentSessionId,
+        workspaceRoot: payload.workspaceRoot,
+        succeeded: true,
+        invokedAt: payload.timestamp,
+        source: 'subagent',
+      });
+    }
+
     if (!this.readSubagentStopEnabled()) return;
     if (!payload.subagentSessionId || payload.subagentSessionId.length === 0) {
       this.logger.warn(

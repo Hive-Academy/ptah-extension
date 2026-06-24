@@ -624,6 +624,60 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
     expect(synthesis.analyzeSession).not.toHaveBeenCalled();
     expect(synthesis.pushEvent).not.toHaveBeenCalled();
   });
+
+  it('records an agent invocation keyed on agentType when a subagent stops', async () => {
+    const { service, subagentStop, recorder } = buildService();
+    service.start();
+    subagentStop.fire(
+      subagentStopPayload({ agentType: 'backend-developer', timestamp: 1000 }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: 'backend-developer',
+        sessionId: 'parent-1',
+        succeeded: true,
+        invokedAt: 1000,
+        source: 'subagent',
+      }),
+    );
+  });
+
+  it('records invocation telemetry even when the subagent-stop analyze trigger is disabled', async () => {
+    const { service, subagentStop, synthesis, recorder } = buildService({
+      workspace: makeWorkspace({
+        'skillSynthesis.triggers.subagentStop.enabled': false,
+      }),
+    });
+    service.start();
+    subagentStop.fire(subagentStopPayload({ agentType: 'frontend-developer' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: 'frontend-developer',
+        source: 'subagent',
+      }),
+    );
+  });
+
+  it('skips invocation telemetry when skillInvocationTelemetry is disabled', async () => {
+    const { service, subagentStop, recorder } = buildService({
+      workspace: makeWorkspace({
+        'skillSynthesis.triggers.skillInvocationTelemetry.enabled': false,
+      }),
+    });
+    service.start();
+    subagentStop.fire(subagentStopPayload({ agentType: 'software-architect' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
 });
 
 describe('SkillTriggerService — turn-complete trigger', () => {
