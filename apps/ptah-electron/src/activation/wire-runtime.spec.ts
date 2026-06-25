@@ -254,6 +254,11 @@ function buildTestContainer(): DependencyContainer {
       recordSkillEvent: jest.fn(),
     },
   });
+  c.register(SKILL_SYNTHESIS_TOKENS.SPEC_HARVESTER_SERVICE, {
+    useValue: {
+      harvest: jest.fn().mockResolvedValue(undefined),
+    },
+  });
   c.register(
     SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
     {
