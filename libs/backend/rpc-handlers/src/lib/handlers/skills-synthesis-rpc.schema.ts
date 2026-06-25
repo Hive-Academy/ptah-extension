@@ -190,3 +190,34 @@ export const SkillUpdateSuggestionParamsSchema = z.object({
   description: z.string().min(1).max(4000).optional(),
   body: z.string().min(1).max(100000).optional(),
 });
+
+export const RejectBulkParamsSchema = z.object({
+  ids: z.array(z.string()).min(1),
+  reason: z.string().optional(),
+});
+
+export type RejectBulkParams = z.infer<typeof RejectBulkParamsSchema>;
+
+export const PromoteBulkParamsSchema = z.object({
+  ids: z.array(z.string()).min(1),
+});
+
+export type PromoteBulkParams = z.infer<typeof PromoteBulkParamsSchema>;
+
+export const RejectByPatternParamsSchema = z.object({
+  pattern: z.string().min(1),
+  reason: z.string().optional(),
+});
+
+export type RejectByPatternParams = z.infer<typeof RejectByPatternParamsSchema>;
+
+export const ListSpecsParamsSchema = z.object({}).strict().optional();
+
+export const HarvestSpecsParamsSchema = z.object({}).strict().optional();
+
+export const ClearStaleSpecsParamsSchema = z.object({
+  retentionDays: z.coerce.number().int().min(0).max(3650).optional(),
+  mode: z.enum(['archive', 'delete']).optional(),
+});
+
+export type ClearStaleSpecsParams = z.infer<typeof ClearStaleSpecsParamsSchema>;

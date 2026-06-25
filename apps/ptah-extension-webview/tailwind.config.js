@@ -106,10 +106,12 @@ module.exports = {
           'primary-focus': 'oklch(80% 0.15 181)',
           'primary-content': 'oklch(43% 0.078 188.216)', // Dark text on light primary
 
-          // SECONDARY: Cupcake pink/rose (exact match)
-          secondary: 'oklch(89% 0.061 343.231)',
-          'secondary-focus': 'oklch(84% 0.08 343)',
-          'secondary-content': 'oklch(45% 0.187 3.815)', // Dark text on light secondary
+          // SECONDARY: Anubis gold — darkened for readable contrast on the
+          // cream base (brand anchor). The dark theme keeps bright #d4af37;
+          // here it is deepened so headings/accents keyed on --s stay legible.
+          secondary: 'oklch(58% 0.132 75)',
+          'secondary-focus': 'oklch(50% 0.12 72)',
+          'secondary-content': 'oklch(98% 0.015 80)', // Light text on gold secondary
 
           // ACCENT: Cupcake warm accent (exact match)
           accent: 'oklch(90% 0.076 70.697)',

@@ -138,6 +138,7 @@ function buildHarness(opts?: {
     userPromptExpansionRegistry,
     recorder,
     stopRegistry,
+    { harvest: jest.fn().mockResolvedValue(undefined) } as never,
   );
   return {
     service,

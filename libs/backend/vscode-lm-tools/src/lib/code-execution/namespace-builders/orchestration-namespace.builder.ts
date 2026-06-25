@@ -82,9 +82,25 @@ export function buildOrchestrationNamespace(
   const { workspaceRoot } = deps;
 
   /**
+   * Get the task folder for a given taskId. State co-locates with the spec
+   * artifacts the orchestration skill writes under `.ptah/specs/<taskId>/`.
+   */
+  const getTaskFolder = (taskId: string): string => {
+    return path.join(workspaceRoot, '.ptah', 'specs', taskId);
+  };
+
+  /**
    * Get the file path for orchestration state
    */
   const getStatePath = (taskId: string): string => {
+    return path.join(getTaskFolder(taskId), '.orchestration-state.json');
+  };
+
+  /**
+   * Legacy state path (pre-`.ptah/specs` consolidation). Read-only fallback so
+   * in-flight tasks created under `task-tracking/` are not orphaned.
+   */
+  const getLegacyStatePath = (taskId: string): string => {
     return path.join(
       workspaceRoot,
       'task-tracking',
@@ -99,14 +115,18 @@ export function buildOrchestrationNamespace(
   const readStateFile = async (
     taskId: string,
   ): Promise<OrchestrationState | null> => {
-    const statePath = getStatePath(taskId);
-
-    try {
-      const content = await fs.promises.readFile(statePath, 'utf8');
-      return JSON.parse(content) as OrchestrationState;
-    } catch {
-      return null;
+    for (const statePath of [
+      getStatePath(taskId),
+      getLegacyStatePath(taskId),
+    ]) {
+      try {
+        const content = await fs.promises.readFile(statePath, 'utf8');
+        return JSON.parse(content) as OrchestrationState;
+      } catch {
+        // try next location
+      }
     }
+    return null;
   };
 
   /**
@@ -114,7 +134,7 @@ export function buildOrchestrationNamespace(
    */
   const writeStateFile = async (state: OrchestrationState): Promise<void> => {
     const statePath = getStatePath(state.taskId);
-    const taskFolder = path.join(workspaceRoot, 'task-tracking', state.taskId);
+    const taskFolder = getTaskFolder(state.taskId);
 
     await fs.promises.mkdir(taskFolder, { recursive: true });
 

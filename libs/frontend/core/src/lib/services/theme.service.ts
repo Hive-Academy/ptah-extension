@@ -142,7 +142,14 @@ export class ThemeService {
 
     effect(() => {
       const theme = this._currentTheme();
-      document.documentElement.setAttribute('data-theme', theme);
+      const root = document.documentElement;
+      root.setAttribute('data-theme', theme);
+      // Expose a coarse light/dark marker so brand tokens (e.g. --ptah-gold)
+      // can adapt to ANY selected daisyUI theme without per-theme CSS.
+      root.setAttribute(
+        'data-theme-mode',
+        DARK_THEMES.has(theme) ? 'dark' : 'light',
+      );
     });
   }
 

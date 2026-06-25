@@ -64,6 +64,8 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_SUGGESTION_STORE: Symbol.for('PtahSkillSuggestionStore'),
   /** SkillClusteringService — groups candidates for cluster suggestions. */
   SKILL_CLUSTERING_SERVICE: Symbol.for('PtahSkillClusteringService'),
+  /** SpecHarvesterService — reconciles .ptah/specs verdicts into telemetry. */
+  SPEC_HARVESTER_SERVICE: Symbol.for('PtahSpecHarvesterService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

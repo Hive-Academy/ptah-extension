@@ -44,6 +44,7 @@ import {
 } from '@ptah-extension/editor';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui';
+import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui';
 import { ThothStatusService } from '@ptah-extension/dashboard';
 import {
   HarnessBuilderViewComponent,
@@ -134,6 +135,11 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: GatewayStateService,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: SkillSynthesisLiveService,
       multi: true,
     },
     {
