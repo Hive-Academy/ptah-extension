@@ -16,10 +16,6 @@ describe('migration 0026_skill_residency — registry entry', () => {
     expect(entry?.requiresVec).toBeUndefined();
     expect(entry?.run).toBeUndefined();
   });
-
-  it('is the highest bundled version', () => {
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(26);
-  });
 });
 
 function makeTempDbPath(): string {

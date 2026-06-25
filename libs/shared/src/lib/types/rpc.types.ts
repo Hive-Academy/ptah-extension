@@ -1463,6 +1463,30 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisUpdateSuggestionParams;
     result: SkillSynthesisUpdateSuggestionResult;
   };
+  'skillSynthesis:rejectBulk': {
+    params: SkillSynthesisRejectBulkParams;
+    result: SkillSynthesisRejectBulkResult;
+  };
+  'skillSynthesis:promoteBulk': {
+    params: SkillSynthesisPromoteBulkParams;
+    result: SkillSynthesisPromoteBulkResult;
+  };
+  'skillSynthesis:rejectByPattern': {
+    params: SkillSynthesisRejectByPatternParams;
+    result: SkillSynthesisRejectByPatternResult;
+  };
+  'skillSynthesis:listSpecs': {
+    params: SkillSynthesisListSpecsParams;
+    result: SkillSynthesisListSpecsResult;
+  };
+  'skillSynthesis:harvestSpecs': {
+    params: SkillSynthesisHarvestSpecsParams;
+    result: SkillSynthesisHarvestSpecsResult;
+  };
+  'skillSynthesis:clearStaleSpecs': {
+    params: SkillSynthesisClearStaleSpecsParams;
+    result: SkillSynthesisClearStaleSpecsResult;
+  };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -1678,6 +1702,66 @@ export interface SkillSynthesisRejectResult {
   rejected: boolean;
 }
 
+export interface SkillSynthesisRejectBulkParams {
+  ids: string[];
+  reason?: string;
+}
+export interface SkillSynthesisRejectBulkResult {
+  rejected: number;
+}
+export interface SkillSynthesisPromoteBulkParams {
+  ids: string[];
+}
+export interface SkillSynthesisPromoteBulkDecision {
+  id: string;
+  promoted: boolean;
+  reason: string | null;
+  filePath: string | null;
+}
+export interface SkillSynthesisPromoteBulkResult {
+  decisions: SkillSynthesisPromoteBulkDecision[];
+  promoted: number;
+}
+export interface SkillSynthesisRejectByPatternParams {
+  pattern: string;
+  reason?: string;
+}
+export interface SkillSynthesisRejectByPatternResult {
+  rejected: number;
+  matched: number;
+}
+
+export type SkillSynthesisSpecStatus =
+  | 'active'
+  | 'complete-unharvested'
+  | 'harvested';
+export interface SkillSynthesisSpecSummary {
+  taskId: string;
+  status: SkillSynthesisSpecStatus;
+  batchCount: number;
+  harvestedAt: number | null;
+  ageDays: number | null;
+}
+export type SkillSynthesisListSpecsParams = Record<string, never>;
+export interface SkillSynthesisListSpecsResult {
+  specs: SkillSynthesisSpecSummary[];
+}
+export type SkillSynthesisHarvestSpecsParams = Record<string, never>;
+export interface SkillSynthesisHarvestSpecsResult {
+  scanned: number;
+  harvested: number;
+  reconciled: number;
+}
+export interface SkillSynthesisClearStaleSpecsParams {
+  retentionDays?: number;
+  mode?: 'archive' | 'delete';
+}
+export interface SkillSynthesisClearStaleSpecsResult {
+  cleared: number;
+  mode: 'archive' | 'delete';
+  taskIds: string[];
+}
+
 export interface SkillSynthesisInvocationsParams {
   skillId: string;
   limit?: number;
@@ -1761,6 +1845,7 @@ export interface SkillSynthesisRunCuratorResult {
   changesQueued: number;
   skippedPinned: number;
   overlaps?: SkillSynthesisCuratorOverlap[];
+  suggestionsCreated: number;
 }
 
 export type SkillSuggestionStatus = 'pending' | 'accepted' | 'dismissed';
@@ -2404,6 +2489,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:dismissSuggestion': true,
   'skillSynthesis:getSuggestion': true,
   'skillSynthesis:updateSuggestion': true,
+  'skillSynthesis:rejectBulk': true,
+  'skillSynthesis:promoteBulk': true,
+  'skillSynthesis:rejectByPattern': true,
+  'skillSynthesis:listSpecs': true,
+  'skillSynthesis:harvestSpecs': true,
+  'skillSynthesis:clearStaleSpecs': true,
 
   'cron:list': true,
   'cron:get': true,

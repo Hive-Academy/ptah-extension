@@ -131,7 +131,7 @@ export class SdkMessageTransformer implements TransformerState {
         if (this.activeSkillToolUseIds.size > 0) {
           const hasToolResult = userMessageHasToolResult(sdkMessage);
           if (!hasToolResult) {
-            this.logger.info(
+            this.logger.debug(
               '[SdkMessageTransformer] Skipping user message during active Skill tool execution (skill content injection)',
               { activeSkillTools: [...this.activeSkillToolUseIds] },
             );
@@ -140,7 +140,7 @@ export class SdkMessageTransformer implements TransformerState {
         }
 
         if (isSkillOrMetaContent(sdkMessage)) {
-          this.logger.info(
+          this.logger.debug(
             '[SdkMessageTransformer] Skipping user message detected as skill/meta content by pattern',
           );
           return [];

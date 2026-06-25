@@ -91,7 +91,9 @@ function createInMemoryDb(): BetterSqliteDb {
       source TEXT NOT NULL,
       succeeded INTEGER NOT NULL,
       is_error INTEGER NOT NULL,
-      invoked_at INTEGER NOT NULL
+      invoked_at INTEGER NOT NULL,
+      reconciled_at INTEGER,
+      verdict_source TEXT
     );
   `);
   return db;
@@ -255,6 +257,97 @@ describe('SkillCandidateStore', () => {
         // contextId omitted — defaults to null
       });
       expect(store.countDistinctContexts(candidate.id)).toBe(0);
+    });
+  });
+
+  describe('reconcileSubagentEvent', () => {
+    function recordSubagentRun(
+      store: SkillCandidateStore,
+      slug: string,
+      invokedAt: number,
+    ): void {
+      store.recordSkillEvent({
+        skillSlug: slug,
+        sessionId: `sess-${invokedAt}`,
+        contextId: null,
+        source: 'subagent',
+        succeeded: true, // optimistic, as onSubagentStop records it
+        isError: false,
+        invokedAt,
+      });
+    }
+
+    maybe('flips an optimistic success to the graded FAILED verdict', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      recordSubagentRun(store, 'backend-developer', 1000);
+
+      const did = store.reconcileSubagentEvent({
+        slug: 'backend-developer',
+        succeeded: false,
+        isError: true,
+        windowStart: 0,
+        windowEnd: 2000,
+        verdictSource: 'spec:TASK_2026_001',
+        reconciledAt: 5000,
+      });
+
+      expect(did).toBe(true);
+      const stats = store.getInvocationStats('backend-developer');
+      expect(stats.total).toBe(1);
+      expect(stats.succeeded).toBe(0);
+      expect(stats.failed).toBe(1);
+    });
+
+    maybe(
+      'is idempotent — a second reconcile finds no unreconciled row',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        recordSubagentRun(store, 'frontend-developer', 1000);
+
+        const first = store.reconcileSubagentEvent({
+          slug: 'frontend-developer',
+          succeeded: false,
+          isError: true,
+          windowStart: 0,
+          windowEnd: 2000,
+          verdictSource: 'spec:TASK_2026_002',
+          reconciledAt: 5000,
+        });
+        const second = store.reconcileSubagentEvent({
+          slug: 'frontend-developer',
+          succeeded: true,
+          isError: false,
+          windowStart: 0,
+          windowEnd: 2000,
+          verdictSource: 'spec:TASK_2026_002',
+          reconciledAt: 6000,
+        });
+
+        expect(first).toBe(true);
+        expect(second).toBe(false);
+        expect(store.getInvocationStats('frontend-developer').failed).toBe(1);
+      },
+    );
+
+    maybe('ignores events outside the task time window', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      recordSubagentRun(store, 'senior-tester', 9999);
+
+      const did = store.reconcileSubagentEvent({
+        slug: 'senior-tester',
+        succeeded: false,
+        isError: true,
+        windowStart: 0,
+        windowEnd: 2000,
+        verdictSource: 'spec:TASK_2026_003',
+        reconciledAt: 5000,
+      });
+
+      expect(did).toBe(false);
+      expect(store.getInvocationStats('senior-tester').succeeded).toBe(1);
     });
   });
 

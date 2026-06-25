@@ -52,6 +52,7 @@ import { sql as sql0023SkillRegistryPending } from './0023_skill_registry_pendin
 import { sql as sql0024GatewayConversations } from './0024_gateway_conversations';
 import { sql as sql0025SkillSuggestions } from './0025_skill_suggestions';
 import { sql as sql0026SkillResidency } from './0026_skill_residency';
+import { sql as sql0027SkillEventReconciliation } from './0027_skill_event_reconciliation';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -226,5 +227,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 26,
     name: '0026_skill_residency',
     sql: sql0026SkillResidency,
+  },
+  {
+    version: 27,
+    name: '0027_skill_event_reconciliation',
+    sql: sql0027SkillEventReconciliation,
   },
 ];

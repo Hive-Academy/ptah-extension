@@ -86,6 +86,7 @@ export interface CuratorReport {
   changesQueued: number;
   skippedPinned: number;
   overlaps: CuratorOverlap[];
+  suggestionsCreated: number;
 }
 
 /** Internal structure parsed from the LLM response. */
@@ -97,6 +98,11 @@ interface CuratorFinding {
 
 export interface SkillCuratorStartOptions {
   readonly onPassComplete?: (timestamp: number) => void;
+  readonly onEvent?: (event: {
+    kind: 'curator-pass-start' | 'curator-pass';
+    timestamp: number;
+    stats?: Record<string, number | string | boolean | null>;
+  }) => void;
 }
 
 @injectable()
@@ -105,6 +111,7 @@ export class SkillCuratorService {
   private currentSettings: SkillSynthesisSettings | null = null;
   private currentIntervalHours: number | null = null;
   private onPassComplete: ((timestamp: number) => void) | null = null;
+  private onEvent: SkillCuratorStartOptions['onEvent'] | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -142,6 +149,7 @@ export class SkillCuratorService {
   ): void {
     this.currentSettings = settings;
     this.onPassComplete = options?.onPassComplete ?? null;
+    this.onEvent = options?.onEvent ?? null;
     if (!settings.curatorEnabled) {
       this.logger.info('[skill-curator] disabled via settings; not scheduling');
       return;
@@ -169,6 +177,7 @@ export class SkillCuratorService {
       this.currentIntervalHours = null;
     }
     this.onPassComplete = null;
+    this.onEvent = null;
   }
 
   runManual(): Promise<CuratorReport> {
@@ -184,6 +193,8 @@ export class SkillCuratorService {
   private async runPass(
     settings: SkillSynthesisSettings,
   ): Promise<CuratorReport> {
+    this.onEvent?.({ kind: 'curator-pass-start', timestamp: Date.now() });
+
     if (!this.internalQuery) {
       this.logger.warn(
         '[skill-curator] InternalQueryService not available; skipping pass',
@@ -197,7 +208,12 @@ export class SkillCuratorService {
         '[skill-curator] no promoted skills to review; skipping overlap pass',
       );
       await this.runEnhancementPass(settings);
-      await this.runSuggestionPass(settings);
+      const suggestionsCreated = await this.runSuggestionPass(settings);
+      this.onEvent?.({
+        kind: 'curator-pass',
+        timestamp: Date.now(),
+        stats: { suggestionsCreated, changesQueued: 0, skippedPinned: 0 },
+      });
       try {
         this.onPassComplete?.(Date.now());
       } catch (err: unknown) {
@@ -205,7 +221,7 @@ export class SkillCuratorService {
           error: err instanceof Error ? err.message : String(err),
         });
       }
-      return this.emptyReport();
+      return { ...this.emptyReport(), suggestionsCreated };
     }
     const skillList = promoted
       .map(
@@ -311,7 +327,13 @@ export class SkillCuratorService {
     );
 
     await this.runEnhancementPass(settings);
-    await this.runSuggestionPass(settings);
+    const suggestionsCreated = await this.runSuggestionPass(settings);
+
+    this.onEvent?.({
+      kind: 'curator-pass',
+      timestamp: Date.now(),
+      stats: { suggestionsCreated, changesQueued, skippedPinned },
+    });
 
     try {
       this.onPassComplete?.(Date.now());
@@ -321,7 +343,13 @@ export class SkillCuratorService {
       });
     }
 
-    return { reportPath, changesQueued, skippedPinned, overlaps };
+    return {
+      reportPath,
+      changesQueued,
+      skippedPinned,
+      overlaps,
+      suggestionsCreated,
+    };
   }
 
   /**
@@ -332,14 +360,14 @@ export class SkillCuratorService {
    */
   private async runSuggestionPass(
     settings: SkillSynthesisSettings,
-  ): Promise<void> {
+  ): Promise<number> {
     if (
       !this.clustering ||
       !this.synthesizer ||
       !this.suggestionStore ||
       !this.judge
     ) {
-      return;
+      return 0;
     }
     let clusters: SkillCandidateCluster[];
     try {
@@ -348,12 +376,13 @@ export class SkillCuratorService {
       this.logger.warn('[skill-curator] clustering failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return;
+      return 0;
     }
-    if (clusters.length === 0) return;
+    if (clusters.length === 0) return 0;
 
     const authoredSlugs = this.authoredSlugs();
 
+    let suggestionsCreated = 0;
     let processed = 0;
     for (const cluster of clusters) {
       if (processed >= SUGGESTION_MAX_CLUSTERS_PER_PASS) break;
@@ -428,6 +457,7 @@ export class SkillCuratorService {
           technologyFingerprint: fingerprint,
           judgeScore: verdict.score,
         });
+        suggestionsCreated += 1;
         this.logger.info('[skill-curator] suggestion proposed', {
           name: synthesized.name,
           clusterSize: cluster.members.length,
@@ -439,6 +469,7 @@ export class SkillCuratorService {
         });
       }
     }
+    return suggestionsCreated;
   }
 
   /**
@@ -733,6 +764,12 @@ export class SkillCuratorService {
   }
 
   private emptyReport(): CuratorReport {
-    return { reportPath: '', changesQueued: 0, skippedPinned: 0, overlaps: [] };
+    return {
+      reportPath: '',
+      changesQueued: 0,
+      skippedPinned: 0,
+      overlaps: [],
+      suggestionsCreated: 0,
+    };
   }
 }

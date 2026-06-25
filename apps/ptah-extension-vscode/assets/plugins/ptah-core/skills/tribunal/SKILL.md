@@ -1,6 +1,6 @@
 ---
 name: tribunal
-description: 'Multi-vendor ensemble workflows — a flat PANEL OF PEERS across different AI vendors (codex, copilot, cursor, and ptah-cli providers: Moonshot Kimi, Z.AI GLM, Ollama Cloud, OpenRouter) where disagreement and cross-vendor review are the SIGNAL, not noise. Three moves: COUNCIL (fan a question to N vendors, anonymized cross-critique, synthesize a cited verdict — no code), FORGE (same coding task per vendor in isolated git worktrees, round-robin cross-review of diffs, judge ranks, merge the winner), RACE (N attempts, judge-panel rubric, verify the winner before any commit). TRIGGER on: "tribunal", "convene a council", "council of models", "forge", "race the models", "second opinion", "multi-vendor", "ensemble", "panel of models", "have the models debate", "cross-vendor review", "which vendor does this best". DISTINCT from `orchestration` (that is the hierarchical default dev workflow where CLI agents are junior labor; this is a panel of peers where vendor diversity is the product). Electron/CLI-leaning — needs installed CLI vendors to form a panel.'
+description: 'Multi-vendor ensemble workflows — a flat PANEL OF PEERS across different AI vendors (codex, copilot, cursor, and ptah-cli providers: Moonshot Kimi, Z.AI GLM, Ollama Cloud, OpenRouter) where disagreement and cross-vendor review are the SIGNAL, not noise. Four moves: COUNCIL (fan a question to N vendors, anonymized cross-critique, synthesize a cited verdict — no code), FORGE (same coding task per vendor in isolated git worktrees, round-robin cross-review of diffs, judge ranks, merge the winner), RACE (N attempts, judge-panel rubric, verify the winner before any commit), RELAY (one task through a plan→architect→implement→review pipeline, each phase run on a CLI vendor lane instead of a subagent, persisted to .ptah/specs). TRIGGER on: "tribunal", "convene a council", "council of models", "forge", "race the models", "relay", "second opinion", "multi-vendor", "ensemble", "panel of models", "have the models debate", "cross-vendor review", "which vendor does this best". DISTINCT from `orchestration` (that is the hierarchical default dev workflow where CLI agents are junior labor; this is a panel of peers where vendor diversity is the product). Electron/CLI-leaning — needs installed CLI vendors to form a panel.'
 ---
 
 # Tribunal Skill
@@ -28,7 +28,7 @@ Convene a **panel of peer AI vendors**, make them deliberate or compete, and ren
 3. **Announce the chosen panel to the user before spending any vendor calls** (each spawn is a real, paid call).
 4. If fewer than **2** distinct families are available, say so and offer to proceed single-voice or stop. A tribunal of one is not a tribunal.
 
-## The three moves
+## The four moves
 
 ### Council — deliberate (no code) · available now
 
@@ -44,6 +44,11 @@ Give each panelist its **own git worktree**, have them all implement the same ta
 
 N attempts at one change, scored on a **fixed rubric**, with the top attempt **verified (tests/`/verify`) before any commit**. Losers are never committed. Use for high-stakes single changes.
 → [references/race.md](references/race.md)
+
+### Relay — orchestrate one task across CLI lanes (no subagents) · available now
+
+Run a **single task** through a phased pipeline — plan → architect → implement → review — with each phase executed by a **CLI vendor lane** instead of a `Task`-tool subagent. The Conductor is the sole spawner; each phase's output is persisted to `.ptah/specs/TASK_[ID]/`. Unlike the moves above, lanes get **different** prompts (one per phase) and run **sequentially**, with the cross-vendor review phase as the tribunal signal. Reach for it when you want orchestration's structured, auditable delivery but want the work done by external vendors.
+→ [references/relay.md](references/relay.md)
 
 ## The shared spine
 
@@ -72,5 +77,6 @@ The skill ships everywhere, but the panel only forms where CLI vendors are insta
 | [references/council.md](references/council.md)           | Running a Council    | Available |
 | [references/forge.md](references/forge.md)               | Running a Forge      | Available |
 | [references/race.md](references/race.md)                 | Running a Race       | Available |
+| [references/relay.md](references/relay.md)               | Running a Relay      | Available |
 
 **Loading protocol:** this SKILL.md loads on trigger; load `vendor-panel.md` for every move; load the per-move reference on demand. Never preload all references.

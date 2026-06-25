@@ -4,8 +4,13 @@ import type {
   SkillSuggestionSummary,
   SkillSynthesisCandidateSummary,
   SkillSynthesisInvocationEntry,
+  SkillSynthesisPromoteBulkResult,
+  SkillSynthesisPromoteResult,
+  SkillSynthesisRejectByPatternResult,
   SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
+  SkillSynthesisSpecSummary,
+  SkillSynthesisCandidateDetail,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
@@ -75,6 +80,17 @@ export class SkillSynthesisStateService {
   public readonly suggestionDetail = signal<SkillSuggestionDetail | null>(null);
   public readonly suggestionDetailLoading = signal<boolean>(false);
 
+  public readonly candidateDetail =
+    signal<SkillSynthesisCandidateDetail | null>(null);
+  public readonly candidateDetailLoading = signal<boolean>(false);
+
+  public readonly specs = signal<SkillSynthesisSpecSummary[]>([]);
+  public readonly specsLoading = signal<boolean>(false);
+
+  public readonly staleSpecCount = computed(
+    () => this.specs().filter((s) => s.status === 'harvested').length,
+  );
+
   public readonly selectedCandidate = computed(() => {
     const id = this.selectedCandidateId();
     if (!id) return null;
@@ -125,20 +141,49 @@ export class SkillSynthesisStateService {
   }
 
   /**
+   * Load a single candidate's full detail (including the SKILL.md body) into
+   * `candidateDetail` for the preview modal. Pass `null` to clear it.
+   */
+  public async loadCandidateDetail(id: string | null): Promise<void> {
+    if (!id) {
+      this.candidateDetail.set(null);
+      return;
+    }
+    this.candidateDetailLoading.set(true);
+    this.error.set(null);
+    try {
+      const detail = await this.rpc.getCandidate(id);
+      this.candidateDetail.set(detail);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.candidateDetailLoading.set(false);
+    }
+  }
+
+  /**
    * Promote a candidate. The optional `reason` is currently advisory —
    * the backend `skillSynthesis:promote` shape stores its own reason on
    * the result, but we accept one here to keep the modal UX symmetric
    * with reject. Refreshes the list on success.
+   *
+   * Returns the backend decision so the caller can surface why a candidate
+   * was NOT promoted (e.g. below-threshold), or `null` on error.
    */
-  public async promote(id: string, reason?: string): Promise<void> {
+  public async promote(
+    id: string,
+    reason?: string,
+  ): Promise<SkillSynthesisPromoteResult | null> {
     this.loading.set(true);
     this.error.set(null);
     try {
-      await this.rpc.promote(id);
+      const result = await this.rpc.promote(id);
       void reason;
       await this.refreshCandidates();
+      return result;
     } catch (err) {
       this.error.set(this.toMessage(err));
+      return null;
     } finally {
       this.loading.set(false);
     }
@@ -153,6 +198,69 @@ export class SkillSynthesisStateService {
       await this.refreshCandidates();
     } catch (err) {
       this.error.set(this.toMessage(err));
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  /**
+   * Reject many candidates by id in one pass. Returns the number actually
+   * rejected (0 on error). Refreshes the list on success.
+   */
+  public async rejectBulk(ids: string[], reason?: string): Promise<number> {
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const rejected = await this.rpc.rejectBulk(ids, reason);
+      await this.refreshCandidates();
+      return rejected;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return 0;
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  /**
+   * Promote many candidates by id. Returns the per-id decision result, or
+   * `null` on error. Refreshes the list on success.
+   */
+  public async promoteBulk(
+    ids: string[],
+  ): Promise<SkillSynthesisPromoteBulkResult | null> {
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.rpc.promoteBulk(ids);
+      await this.refreshCandidates();
+      return result;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return null;
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  /**
+   * Reject every pending candidate whose name matches the given pattern
+   * (supports `*`). Returns the match/reject counts, or `null` on error.
+   * Refreshes the list on success.
+   */
+  public async rejectByPattern(
+    pattern: string,
+    reason?: string,
+  ): Promise<SkillSynthesisRejectByPatternResult | null> {
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.rpc.rejectByPattern(pattern, reason);
+      await this.refreshCandidates();
+      return result;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return null;
     } finally {
       this.loading.set(false);
     }
@@ -278,6 +386,58 @@ export class SkillSynthesisStateService {
       this.error.set(this.toMessage(err));
     } finally {
       this.suggestionsLoading.set(false);
+    }
+  }
+
+  /** Refresh the orchestration-specs list under `.ptah/specs`. */
+  public async refreshSpecs(): Promise<void> {
+    this.specsLoading.set(true);
+    this.error.set(null);
+    try {
+      const list = await this.rpc.listSpecs();
+      this.specs.set(list);
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.specsLoading.set(false);
+    }
+  }
+
+  /** Reconcile completed specs into telemetry now, then refresh the list. */
+  public async harvestSpecs(): Promise<void> {
+    this.specsLoading.set(true);
+    this.error.set(null);
+    try {
+      await this.rpc.harvestSpecs();
+      await this.refreshSpecs();
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+    } finally {
+      this.specsLoading.set(false);
+    }
+  }
+
+  /**
+   * Archive (or delete) completed + harvested specs older than the retention
+   * window, then refresh the list. Returns the number cleared (0 on error).
+   */
+  public async clearStaleSpecs(
+    options: {
+      retentionDays?: number;
+      mode?: 'archive' | 'delete';
+    } = {},
+  ): Promise<number> {
+    this.specsLoading.set(true);
+    this.error.set(null);
+    try {
+      const result = await this.rpc.clearStaleSpecs(options);
+      await this.refreshSpecs();
+      return result.cleared;
+    } catch (err) {
+      this.error.set(this.toMessage(err));
+      return 0;
+    } finally {
+      this.specsLoading.set(false);
     }
   }
 

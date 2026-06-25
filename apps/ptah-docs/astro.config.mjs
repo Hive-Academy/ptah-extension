@@ -67,6 +67,7 @@ export default defineConfig({
             { label: 'Council', slug: 'tribunal/council' },
             { label: 'Forge', slug: 'tribunal/forge' },
             { label: 'Race', slug: 'tribunal/race' },
+            { label: 'Relay', slug: 'tribunal/relay' },
           ],
         },
         {
