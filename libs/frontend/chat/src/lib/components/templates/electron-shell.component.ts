@@ -112,10 +112,10 @@ import {
     @keyframes hero-glow-pulse {
       0%,
       100% {
-        box-shadow: 0 0 20px rgba(212, 175, 55, 0.15);
+        box-shadow: 0 0 20px oklch(var(--s) / 0.15);
       }
       50% {
-        box-shadow: 0 0 40px rgba(212, 175, 55, 0.3);
+        box-shadow: 0 0 40px oklch(var(--s) / 0.3);
       }
     }
     @keyframes hero-particle-float {
@@ -150,7 +150,11 @@ import {
       width: 4px;
       height: 4px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #d4af37, #f5d97d);
+      background: linear-gradient(
+        135deg,
+        var(--ptah-gold),
+        var(--ptah-gold-strong)
+      );
     }
     .hero-particle-1 {
       left: 20%;
@@ -329,7 +333,7 @@ import {
           <div class="w-1/2 overflow-y-auto bg-base-100 relative">
             <!-- Subtle gradient bleed from right panel -->
             <div
-              class="absolute inset-0 bg-gradient-to-r from-transparent to-[#d4af37]/[0.02] pointer-events-none"
+              class="absolute inset-0 bg-gradient-to-r from-transparent to-secondary/[0.02] pointer-events-none"
             ></div>
             <ptah-auth-welcome class="relative z-10" />
           </div>
@@ -365,12 +369,12 @@ import {
               <div class="flex flex-col gap-3 w-full max-w-sm">
                 <!-- Feature: AI-Powered Assistance -->
                 <div
-                  class="bg-base-200/60 backdrop-blur-xl border border-[#d4af37]/10 rounded-xl p-4 shadow-lg hero-card-float"
+                  class="bg-base-200/60 backdrop-blur-xl border border-secondary/10 rounded-xl p-4 shadow-lg hero-card-float"
                 >
                   <div class="flex items-start gap-3">
                     <lucide-angular
                       [img]="BotIcon"
-                      class="w-5 h-5 text-[#d4af37] flex-shrink-0 mt-0.5"
+                      class="w-5 h-5 text-secondary flex-shrink-0 mt-0.5"
                     />
                     <div class="text-left">
                       <h3 class="font-semibold text-sm text-base-content">
@@ -385,13 +389,13 @@ import {
 
                 <!-- Feature: Multi-Agent Orchestration -->
                 <div
-                  class="bg-base-200/60 backdrop-blur-xl border border-[#d4af37]/10 rounded-xl p-4 shadow-lg hero-card-float"
+                  class="bg-base-200/60 backdrop-blur-xl border border-secondary/10 rounded-xl p-4 shadow-lg hero-card-float"
                   style="animation-delay: -1s;"
                 >
                   <div class="flex items-start gap-3">
                     <lucide-angular
                       [img]="GitBranchIcon"
-                      class="w-5 h-5 text-[#d4af37] flex-shrink-0 mt-0.5"
+                      class="w-5 h-5 text-secondary flex-shrink-0 mt-0.5"
                     />
                     <div class="text-left">
                       <h3 class="font-semibold text-sm text-base-content">
@@ -406,13 +410,13 @@ import {
 
                 <!-- Feature: VS Code Native Integration -->
                 <div
-                  class="bg-base-200/60 backdrop-blur-xl border border-[#d4af37]/10 rounded-xl p-4 shadow-lg hero-card-float"
+                  class="bg-base-200/60 backdrop-blur-xl border border-secondary/10 rounded-xl p-4 shadow-lg hero-card-float"
                   style="animation-delay: -2s;"
                 >
                   <div class="flex items-start gap-3">
                     <lucide-angular
                       [img]="ZapIcon"
-                      class="w-5 h-5 text-[#d4af37] flex-shrink-0 mt-0.5"
+                      class="w-5 h-5 text-secondary flex-shrink-0 mt-0.5"
                     />
                     <div class="text-left">
                       <h3 class="font-semibold text-sm text-base-content">
@@ -427,13 +431,13 @@ import {
 
                 <!-- Feature: Session Continuity -->
                 <div
-                  class="bg-base-200/60 backdrop-blur-xl border border-[#d4af37]/10 rounded-xl p-4 shadow-lg hero-card-float"
+                  class="bg-base-200/60 backdrop-blur-xl border border-secondary/10 rounded-xl p-4 shadow-lg hero-card-float"
                   style="animation-delay: -3s;"
                 >
                   <div class="flex items-start gap-3">
                     <lucide-angular
                       [img]="SparklesIcon"
-                      class="w-5 h-5 text-[#d4af37] flex-shrink-0 mt-0.5"
+                      class="w-5 h-5 text-secondary flex-shrink-0 mt-0.5"
                     />
                     <div class="text-left">
                       <h3 class="font-semibold text-sm text-base-content">
@@ -454,15 +458,15 @@ import {
               class="absolute bottom-16 left-8 right-8 hero-card-float-delayed z-10"
             >
               <div
-                class="bg-base-200/80 backdrop-blur-xl border border-[#d4af37]/20 rounded-2xl p-5 shadow-2xl"
+                class="bg-base-200/80 backdrop-blur-xl border border-secondary/20 rounded-2xl p-5 shadow-2xl"
               >
                 <div class="flex items-start gap-4">
                   <div
-                    class="w-10 h-10 rounded-xl bg-[#d4af37]/15 flex items-center justify-center flex-shrink-0 hero-glow"
+                    class="w-10 h-10 rounded-xl bg-secondary/15 flex items-center justify-center flex-shrink-0 hero-glow"
                   >
                     <lucide-angular
                       [img]="ZapIcon"
-                      class="w-5 h-5 text-[#d4af37]"
+                      class="w-5 h-5 text-secondary"
                     />
                   </div>
                   <div class="text-left">

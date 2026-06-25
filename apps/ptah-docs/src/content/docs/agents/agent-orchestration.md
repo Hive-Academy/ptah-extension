@@ -40,6 +40,10 @@ Senior leads can spawn other senior leads. Hierarchy depth is capped to prevent 
 
 External CLIs (Copilot, Codex, ptah-cli) spawned for bulk, parallel, or provider-specific work. They follow the [spawn → poll → read](/agents/cli-agents/#the-spawn--poll--read-pattern) pattern and are capped at 3 concurrent.
 
+:::tip[CLI-only delivery: Relay]
+If you want this same plan → architect → implement → review pipeline run **entirely on CLI vendors with no sub-agents** — each phase handed to a different vendor, persisted to `.ptah/specs`, with the review phase done by a different vendor family — use Tribunal's [**Relay**](/tribunal/relay/) move. It's orchestration's pipeline on the vendor panel.
+:::
+
 ## When to delegate
 
 | Task shape                                                     | Who handles it                                                    |

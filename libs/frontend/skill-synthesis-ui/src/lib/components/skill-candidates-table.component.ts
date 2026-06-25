@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   input,
   output,
 } from '@angular/core';
@@ -23,6 +24,17 @@ export interface SkillCandidateAction {
       <table class="table table-sm">
         <thead>
           <tr class="text-xs text-base-content/50">
+            <th scope="col" class="w-1 font-normal">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-xs"
+                data-testid="skills-select-all"
+                aria-label="Select all candidates"
+                [checked]="allSelected()"
+                (click)="$event.stopPropagation()"
+                (change)="toggleSelectAll.emit()"
+              />
+            </th>
             <th scope="col" class="font-normal">Name</th>
             <th scope="col" class="font-normal">Status</th>
             <th scope="col" class="text-right font-normal">Successes</th>
@@ -38,6 +50,17 @@ export interface SkillCandidateAction {
               [class.bg-base-300/40]="selectedCandidateId() === c.id"
               (click)="selectRow.emit(c.id)"
             >
+              <td>
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-xs"
+                  data-testid="skills-select-row"
+                  [attr.aria-label]="'Select ' + c.name"
+                  [checked]="selectedIds().has(c.id)"
+                  (click)="$event.stopPropagation()"
+                  (change)="toggleSelect.emit(c.id)"
+                />
+              </td>
               <td>
                 <div class="flex flex-col gap-0.5">
                   <span class="flex items-center gap-1.5 font-medium">
@@ -106,7 +129,7 @@ export interface SkillCandidateAction {
             </tr>
           } @empty {
             <tr>
-              <td colspan="5">
+              <td colspan="6">
                 @if (loading()) {
                   <div class="flex flex-col gap-2 px-2 py-4">
                     <div class="h-3 w-1/3 rounded bg-base-300/50"></div>
@@ -143,11 +166,25 @@ export class SkillCandidatesTableComponent {
     input.required<readonly SkillSynthesisCandidateSummary[]>();
   public readonly selectedCandidateId = input<string | null>(null);
   public readonly loading = input<boolean>(false);
+  public readonly selectedIds = input<ReadonlySet<string>>(new Set());
 
   public readonly selectRow = output<string>();
   public readonly promote = output<SkillCandidateAction>();
   public readonly reject = output<SkillCandidateAction>();
   public readonly togglePin = output<SkillCandidateAction>();
+  public readonly toggleSelect = output<string>();
+  public readonly toggleSelectAll = output<void>();
+
+  /**
+   * True when every visible candidate is selected and there is at least one
+   * candidate — drives the header "select all" checkbox checked state.
+   */
+  protected readonly allSelected = computed<boolean>(() => {
+    const rows = this.candidates();
+    if (rows.length === 0) return false;
+    const selected = this.selectedIds();
+    return rows.every((c) => selected.has(c.id));
+  });
 
   protected statusDotClass(c: SkillSynthesisCandidateSummary): string {
     switch (c.status) {

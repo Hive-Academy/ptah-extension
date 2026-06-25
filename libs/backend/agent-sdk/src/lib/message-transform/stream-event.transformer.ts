@@ -148,7 +148,7 @@ export class StreamEventTransformer {
     state.clearToolCallIdsForContext(context);
 
     if (state.activeSkillToolUseIdsCount() > 0) {
-      helpers.logger.info(
+      helpers.logger.debug(
         '[SdkMessageTransformer] Clearing activeSkillToolUseIds on assistant message_start',
         { clearedIds: state.snapshotActiveSkillToolUseIds() },
       );
@@ -300,7 +300,7 @@ export class StreamEventTransformer {
 
       if (contentBlock.name === 'Skill') {
         state.addActiveSkillToolUseId(contentBlock.id);
-        helpers.logger.info(
+        helpers.logger.debug(
           '[SdkMessageTransformer] Tracking Skill tool_use (streaming) for content filtering',
           { toolCallId: contentBlock.id },
         );

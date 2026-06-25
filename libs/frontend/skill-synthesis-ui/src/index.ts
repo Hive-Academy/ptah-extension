@@ -9,6 +9,7 @@ export { SkillClonesViewComponent } from './lib/components/clones/skill-clones-v
 export { SkillSuggestionsViewComponent } from './lib/components/suggestions/skill-suggestions-view.component';
 export { SkillSynthesisRpcService } from './lib/services/skill-synthesis-rpc.service';
 export { SkillSynthesisStateService } from './lib/services/skill-synthesis-state.service';
+export { SkillSynthesisLiveService } from './lib/services/skill-synthesis-live.service';
 export { SkillClonesStateService } from './lib/services/skill-clones-state.service';
 export type { SkillStatusFilter } from './lib/services/skill-synthesis-state.service';
 export type { SkillCloneDetail } from './lib/services/skill-clones-state.service';

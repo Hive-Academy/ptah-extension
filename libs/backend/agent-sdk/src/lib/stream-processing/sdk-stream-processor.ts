@@ -79,7 +79,7 @@ export class SdkStreamProcessor {
           if (timeoutId !== undefined) clearTimeout(timeoutId);
 
           if (message.subtype === 'success') {
-            logger.info(`${serviceTag} Query completed`, {
+            logger.debug(`${serviceTag} Query completed`, {
               turns: message.num_turns,
               cost: message.total_cost_usd,
               inputTokens: message.usage.input_tokens,

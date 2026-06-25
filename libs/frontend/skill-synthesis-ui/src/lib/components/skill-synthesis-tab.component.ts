@@ -14,6 +14,7 @@ import {
   FormGroup,
 } from '@angular/forms';
 import { VSCodeService } from '@ptah-extension/core';
+import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { LucideAngularModule, Sparkles } from 'lucide-angular';
 import type {
   SkillSynthesisCandidateSummary,
@@ -27,6 +28,7 @@ import {
 } from '../services/skill-synthesis-state.service';
 import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
 import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
+import { SkillSynthesisLiveService } from '../services/skill-synthesis-live.service';
 import { SkillDiagnosticsAccordionComponent } from './diagnostics/skill-diagnostics-accordion.component';
 import { SkillClonesViewComponent } from './clones/skill-clones-view.component';
 import { SkillSuggestionsViewComponent } from './suggestions/skill-suggestions-view.component';
@@ -70,6 +72,7 @@ interface ActionDialogState {
     SkillCandidatesTableComponent,
     SkillInvocationsPanelComponent,
     SkillSettingsPanelComponent,
+    MarkdownBlockComponent,
   ],
   template: `
     @if (!isElectron()) {
@@ -118,6 +121,17 @@ interface ActionDialogState {
             </div>
           </div>
           <div class="flex items-center gap-2">
+            @if (activity(); as label) {
+              <span
+                class="flex items-center gap-1.5 text-xs text-base-content/60"
+                role="status"
+                aria-live="polite"
+                data-testid="skills-activity-indicator"
+              >
+                <span class="loading loading-spinner loading-xs"></span>
+                {{ label }}
+              </span>
+            }
             <button
               type="button"
               class="btn btn-primary btn-sm transition-colors duration-150"
@@ -193,6 +207,80 @@ interface ActionDialogState {
                 <p class="text-xs text-base-content/60">{{ hint }}</p>
               }
 
+              <div
+                class="flex flex-wrap items-center gap-2"
+                data-testid="skills-maintenance-row"
+              >
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  data-testid="skills-reject-all-pending"
+                  [disabled]="loading()"
+                  (click)="onRejectAllPending()"
+                >
+                  Reject all pending
+                </button>
+                <div class="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    class="input input-bordered input-xs w-48"
+                    placeholder="name-pattern*"
+                    aria-label="Reject by name pattern"
+                    [(ngModel)]="patternInput"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    data-testid="skills-reject-by-pattern"
+                    [disabled]="loading()"
+                    (click)="onRejectByPattern()"
+                  >
+                    Reject matching
+                  </button>
+                </div>
+                <span class="text-xs text-base-content/50">
+                  Supports * wildcard, e.g. looking-at-our-skills*
+                </span>
+              </div>
+
+              @if (selectedCount() > 0) {
+                <div
+                  class="flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-200/60 px-3 py-2"
+                  data-testid="skills-bulk-toolbar"
+                >
+                  <span class="text-sm font-medium">
+                    {{ selectedCount() }} selected
+                  </span>
+                  <div class="flex-1"></div>
+                  <button
+                    type="button"
+                    class="btn btn-sm transition-colors duration-150"
+                    data-testid="skills-bulk-promote"
+                    [disabled]="loading()"
+                    (click)="onBulkPromote()"
+                  >
+                    Promote selected
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-error btn-sm transition-colors duration-150"
+                    data-testid="skills-bulk-reject"
+                    [disabled]="loading()"
+                    (click)="onBulkReject()"
+                  >
+                    Reject selected
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    data-testid="skills-bulk-clear"
+                    (click)="clearSelection()"
+                  >
+                    Clear
+                  </button>
+                </div>
+              }
+
               @if (error(); as msg) {
                 <div role="alert" class="alert alert-error py-2 text-sm">
                   <span>{{ msg }}</span>
@@ -202,19 +290,130 @@ interface ActionDialogState {
               <ptah-skill-candidates-table
                 [candidates]="candidates()"
                 [selectedCandidateId]="selectedCandidateId()"
+                [selectedIds]="selectedIds()"
                 [loading]="loading()"
                 (selectRow)="onSelectRow($event)"
                 (promote)="onOpenAction('promote', $event)"
                 (reject)="onOpenAction('reject', $event)"
                 (togglePin)="onTogglePin($event)"
+                (toggleSelect)="onToggleSelect($event)"
+                (toggleSelectAll)="onToggleSelectAll()"
               />
 
               @if (selectedCandidate(); as sc) {
-                <ptah-skill-invocations-panel
-                  [candidate]="sc"
-                  [invocations]="invocations()"
-                  (closed)="onClearSelection()"
-                />
+                <dialog
+                  class="modal modal-open"
+                  role="dialog"
+                  aria-modal="true"
+                  [attr.aria-label]="'Candidate ' + sc.name"
+                  data-testid="skills-candidate-detail-modal"
+                >
+                  <div class="modal-box max-w-3xl">
+                    <header class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <h3 class="truncate text-base font-semibold">
+                          {{ sc.name }}
+                        </h3>
+                        <p class="mt-0.5 text-sm text-base-content/60">
+                          {{ sc.description }}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm btn-circle"
+                        aria-label="Close"
+                        (click)="onClearSelection()"
+                      >
+                        ✕
+                      </button>
+                    </header>
+
+                    <div
+                      class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-base-content/60"
+                    >
+                      <span
+                        >Status:
+                        <span class="font-medium">{{ sc.status }}</span></span
+                      >
+                      <span
+                        >Successes:
+                        <span class="font-medium">{{
+                          sc.successCount
+                        }}</span></span
+                      >
+                      <span
+                        >Failures:
+                        <span class="font-medium">{{
+                          sc.failureCount
+                        }}</span></span
+                      >
+                      @if (candidateDetail(); as d) {
+                        <span
+                          >Sources:
+                          <span class="font-medium">{{
+                            d.sourceSessionIds.length
+                          }}</span></span
+                        >
+                      }
+                    </div>
+
+                    <div class="mt-4 max-h-[55vh] overflow-y-auto">
+                      @if (candidateDetailLoading()) {
+                        <div class="flex flex-col gap-2 py-4">
+                          <div class="h-3 w-2/3 rounded bg-base-300/50"></div>
+                          <div class="h-3 w-1/2 rounded bg-base-300/40"></div>
+                          <div class="h-3 w-3/5 rounded bg-base-300/30"></div>
+                        </div>
+                      } @else if (candidateDetail()?.body; as body) {
+                        <ptah-markdown-block [content]="body" />
+                      } @else {
+                        <p class="py-4 text-sm text-base-content/60">
+                          No content available for this candidate.
+                        </p>
+                      }
+                    </div>
+
+                    @if (invocations().length > 0) {
+                      <ptah-skill-invocations-panel
+                        class="mt-4 block"
+                        [candidate]="sc"
+                        [invocations]="invocations()"
+                        (closed)="onClearSelection()"
+                      />
+                    }
+
+                    <div class="modal-action">
+                      <button
+                        type="button"
+                        class="btn btn-success btn-sm"
+                        [disabled]="sc.status === 'promoted' || loading()"
+                        (click)="onActionFromDetail('promote', sc)"
+                      >
+                        Promote
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-error btn-sm"
+                        [disabled]="sc.status === 'rejected' || loading()"
+                        (click)="onActionFromDetail('reject', sc)"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm"
+                        (click)="onClearSelection()"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                  <form method="dialog" class="modal-backdrop">
+                    <button type="button" (click)="onClearSelection()">
+                      close
+                    </button>
+                  </form>
+                </dialog>
               }
 
               @if (toast(); as t) {
@@ -242,6 +441,92 @@ interface ActionDialogState {
                 [recentEvents]="recentEvents()"
               />
               <ptah-skill-diagnostics-accordion />
+
+              <div class="card border border-base-300 bg-base-200/40">
+                <div class="card-body gap-3 p-4">
+                  <div class="flex items-center justify-between gap-2">
+                    <div>
+                      <h3 class="text-sm font-semibold">Orchestration specs</h3>
+                      <p class="text-xs opacity-70">
+                        Reconciles agent Success from
+                        <code>.ptah/specs</code> review verdicts and feeds them
+                        into Enhance. Clear archives harvested specs older than
+                        7 days.
+                      </p>
+                    </div>
+                    <div class="flex shrink-0 gap-2">
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        [disabled]="specsLoading()"
+                        (click)="onRefreshSpecs()"
+                      >
+                        Refresh
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-xs"
+                        [disabled]="specsLoading()"
+                        (click)="onHarvestSpecs()"
+                      >
+                        Harvest now
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-outline btn-xs"
+                        [disabled]="specsLoading() || staleSpecCount() === 0"
+                        (click)="onClearStaleSpecs()"
+                      >
+                        Clear stale ({{ staleSpecCount() }})
+                      </button>
+                    </div>
+                  </div>
+
+                  @if (specs().length === 0) {
+                    <p class="text-xs opacity-60">
+                      No specs found under <code>.ptah/specs</code>.
+                    </p>
+                  } @else {
+                    <div class="overflow-x-auto">
+                      <table class="table table-xs">
+                        <thead>
+                          <tr>
+                            <th>Task</th>
+                            <th>Status</th>
+                            <th class="text-right">Batches</th>
+                            <th class="text-right">Age (d)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (spec of specs(); track spec.taskId) {
+                            <tr>
+                              <td class="font-mono">{{ spec.taskId }}</td>
+                              <td>
+                                <span
+                                  class="badge badge-xs"
+                                  [class.badge-info]="spec.status === 'active'"
+                                  [class.badge-warning]="
+                                    spec.status === 'complete-unharvested'
+                                  "
+                                  [class.badge-ghost]="
+                                    spec.status === 'harvested'
+                                  "
+                                >
+                                  {{ spec.status }}
+                                </span>
+                              </td>
+                              <td class="text-right">{{ spec.batchCount }}</td>
+                              <td class="text-right">
+                                {{ spec.ageDays ?? '—' }}
+                              </td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  }
+                </div>
+              </div>
             </div>
           }
           @case ('clones') {
@@ -291,6 +576,10 @@ interface ActionDialogState {
                 <p>
                   <span class="font-medium">Skipped (pinned):</span>
                   {{ report.skippedPinned }}
+                </p>
+                <p>
+                  <span class="font-medium">Recommended skills created:</span>
+                  {{ report.suggestionsCreated }}
                 </p>
               </div>
               @if (report.overlaps && report.overlaps.length > 0) {
@@ -379,9 +668,13 @@ export class SkillSynthesisTabComponent implements OnInit {
   private readonly rpc = inject(SkillSynthesisRpcService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly diagnostics = inject(SkillDiagnosticsStateService);
+  private readonly live = inject(SkillSynthesisLiveService);
   private readonly fb = inject(FormBuilder);
 
   protected readonly SparklesIcon = Sparkles;
+
+  /** Live background-activity label (curator pass / embedding backfill). */
+  protected readonly activity = this.live.activity;
 
   public readonly isElectron = computed(
     () => this.vscodeService.config()?.isElectron === true,
@@ -400,6 +693,13 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly lastAnalyzeRunAt = this.diagnostics.lastAnalyzeRunAt;
   public readonly eligibilityHistogram = this.diagnostics.eligibilityHistogram;
   public readonly recentEvents = this.diagnostics.recentEvents;
+
+  public readonly specs = this.state.specs;
+  public readonly specsLoading = this.state.specsLoading;
+  public readonly staleSpecCount = this.state.staleSpecCount;
+
+  public readonly candidateDetail = this.state.candidateDetail;
+  public readonly candidateDetailLoading = this.state.candidateDetailLoading;
 
   public readonly ineligibleHint = computed<string | null>(() => {
     const events = this.recentEvents();
@@ -478,17 +778,45 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   public actionReason = '';
 
+  /** Ids of candidates currently selected for a bulk action. */
+  private readonly _selectedIds = signal<Set<string>>(new Set());
+  protected readonly selectedIds = this._selectedIds.asReadonly();
+  protected readonly selectedCount = computed(() => this._selectedIds().size);
+
+  /** Free-text pattern for the reject-by-pattern maintenance control. */
+  public patternInput = '';
+
   public ngOnInit(): void {
     if (!this.isElectron()) return;
     void this.state.refreshCandidates();
     void this.state.refreshSuggestions();
     void this.state.loadStats();
     void this.diagnostics.refresh();
+    void this.state.refreshSpecs();
     void this.loadSettings();
   }
 
   protected setSubView(view: SkillSubView): void {
     this._subView.set(view);
+  }
+
+  protected async onHarvestSpecs(): Promise<void> {
+    await this.state.harvestSpecs();
+  }
+
+  protected async onRefreshSpecs(): Promise<void> {
+    await this.state.refreshSpecs();
+  }
+
+  protected async onClearStaleSpecs(): Promise<void> {
+    const cleared = await this.state.clearStaleSpecs({ mode: 'archive' });
+    this.toast.set({
+      message:
+        cleared > 0
+          ? `Archived ${cleared} stale spec${cleared === 1 ? '' : 's'}.`
+          : 'No stale specs to clear.',
+      kind: 'success',
+    });
   }
 
   private async loadSettings(): Promise<void> {
@@ -557,14 +885,25 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   protected onSelectRow(id: string): void {
     if (this.selectedCandidateId() === id) {
-      void this.state.selectCandidate(null);
+      this.onClearSelection();
       return;
     }
     void this.state.selectCandidate(id);
+    void this.state.loadCandidateDetail(id);
   }
 
   protected onClearSelection(): void {
     void this.state.selectCandidate(null);
+    void this.state.loadCandidateDetail(null);
+  }
+
+  protected onActionFromDetail(
+    kind: ActionKind,
+    candidate: SkillSynthesisCandidateSummary,
+  ): void {
+    this.onClearSelection();
+    this.actionReason = '';
+    this.actionDialog.set({ kind, candidate });
   }
 
   protected onOpenAction(kind: ActionKind, action: SkillCandidateAction): void {
@@ -583,12 +922,153 @@ export class SkillSynthesisTabComponent implements OnInit {
     if (!dlg) return;
     const reason = this.actionReason.trim() || undefined;
     if (dlg.kind === 'promote') {
-      await this.state.promote(dlg.candidate.id, reason);
+      const result = await this.state.promote(dlg.candidate.id, reason);
+      if (result?.promoted) {
+        this.showToast(`Promoted "${dlg.candidate.name}".`, 'success');
+      } else {
+        const reasonText = this.promoteReasonText(
+          result?.reason ?? null,
+          dlg.candidate,
+        );
+        this.showToast(`Not promoted: ${reasonText}`, 'error');
+      }
     } else {
       await this.state.reject(dlg.candidate.id, reason);
     }
     await this.state.loadStats();
     this.actionDialog.set(null);
     this.actionReason = '';
+  }
+
+  /**
+   * Map a backend promote-gate reason code to friendly, human-readable text.
+   * The below-threshold case reads the active `successesToPromote` setting
+   * from the settings form (fallback 3) so the message matches the gate.
+   */
+  private promoteReasonText(
+    reason: string | null,
+    candidate: SkillSynthesisCandidateSummary,
+  ): string {
+    switch (reason) {
+      case 'below-threshold': {
+        const threshold =
+          (this.settingsForm.value.successesToPromote as number | undefined) ??
+          3;
+        return `needs ${threshold} successful runs (has ${candidate.successCount})`;
+      }
+      case 'duplicate':
+        return 'too similar to an existing active skill';
+      case 'below-judge-score':
+        return 'quality judge score too low';
+      case 'cap-rejected':
+        return 'active-skill cap reached';
+      case 'already-promoted':
+      case 'already-rejected':
+        return reason;
+      default:
+        return 'not eligible';
+    }
+  }
+
+  // --- Multi-select + bulk actions -----------------------------------------
+
+  protected onToggleSelect(id: string): void {
+    const next = new Set(this._selectedIds());
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    this._selectedIds.set(next);
+  }
+
+  protected onToggleSelectAll(): void {
+    const ids = this.candidates().map((c) => c.id);
+    const selected = this._selectedIds();
+    const allSelected = ids.length > 0 && ids.every((id) => selected.has(id));
+    this._selectedIds.set(allSelected ? new Set() : new Set(ids));
+  }
+
+  protected clearSelection(): void {
+    this._selectedIds.set(new Set());
+  }
+
+  protected async onBulkPromote(): Promise<void> {
+    const ids = [...this._selectedIds()];
+    if (ids.length === 0) return;
+    const result = await this.state.promoteBulk(ids);
+    if (result) {
+      const total = result.decisions.length;
+      let message = `${result.promoted}/${total} promoted`;
+      if (result.promoted < total) {
+        const reason = this.mostCommonFailureReason(result.decisions);
+        if (reason) message += ` — ${reason}`;
+      }
+      this.showToast(message, result.promoted > 0 ? 'success' : 'error');
+    }
+    this.clearSelection();
+    await this.state.loadStats();
+  }
+
+  protected async onBulkReject(): Promise<void> {
+    const ids = [...this._selectedIds()];
+    if (ids.length === 0) return;
+    const rejected = await this.state.rejectBulk(ids);
+    this.showToast(`${rejected} rejected`, 'success');
+    this.clearSelection();
+    await this.state.loadStats();
+  }
+
+  /** Find the most frequent failure reason across bulk-promote decisions. */
+  private mostCommonFailureReason(
+    decisions: ReadonlyArray<{ promoted: boolean; reason: string | null }>,
+  ): string | null {
+    const counts = new Map<string, number>();
+    for (const d of decisions) {
+      if (d.promoted || !d.reason) continue;
+      counts.set(d.reason, (counts.get(d.reason) ?? 0) + 1);
+    }
+    let best: string | null = null;
+    let bestCount = 0;
+    for (const [reason, count] of counts) {
+      if (count > bestCount) {
+        best = reason;
+        bestCount = count;
+      }
+    }
+    return best;
+  }
+
+  // --- Maintenance actions -------------------------------------------------
+
+  protected async onRejectAllPending(): Promise<void> {
+    const ids = this.candidates()
+      .filter((c) => c.status === 'candidate')
+      .map((c) => c.id);
+    if (ids.length === 0) {
+      this.showToast('No pending candidates to reject.', 'error');
+      return;
+    }
+    const rejected = await this.state.rejectBulk(ids);
+    this.showToast(`${rejected} rejected`, 'success');
+    this.clearSelection();
+    await this.state.loadStats();
+  }
+
+  protected async onRejectByPattern(): Promise<void> {
+    const pattern = this.patternInput.trim();
+    if (!pattern) {
+      this.showToast('Enter a pattern to match.', 'error');
+      return;
+    }
+    const result = await this.state.rejectByPattern(pattern);
+    if (result) {
+      this.showToast(
+        `Rejected ${result.rejected} of ${result.matched} matching`,
+        'success',
+      );
+    }
+    this.patternInput = '';
+    await this.state.loadStats();
   }
 }

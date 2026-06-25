@@ -571,13 +571,15 @@ describe('SkillSynthesisService', () => {
     expect(all[all.length - 1].sessionId).toBe('s204');
   });
 
-  it('recordCuratorPass updates lastCuratorPassAt and emits curator-pass event', async () => {
+  it('recordCuratorPass updates lastCuratorPassAt only (no event push)', async () => {
     const { svc } = setup();
     await svc.start();
     svc.recordCuratorPass(1234567890);
     expect(svc.lastRunSummary().lastCuratorPassAt).toBe(1234567890);
+    // The richer curator-pass event now flows through the curator's onEvent
+    // sink, so recordCuratorPass itself no longer pushes an event.
     expect(svc.recentEvents(10).some((e) => e.kind === 'curator-pass')).toBe(
-      true,
+      false,
     );
   });
 

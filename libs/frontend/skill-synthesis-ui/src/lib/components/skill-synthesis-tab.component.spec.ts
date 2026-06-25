@@ -8,6 +8,9 @@ import type {
   SkillSynthesisCandidateSummary,
   SkillSynthesisEventWire,
   SkillSynthesisInvocationEntry,
+  SkillSynthesisPromoteBulkResult,
+  SkillSynthesisPromoteResult,
+  SkillSynthesisRejectByPatternResult,
   SkillSynthesisStatsResult,
 } from '@ptah-extension/shared';
 
@@ -157,8 +160,32 @@ interface StubState {
     ['all' | 'pending' | 'promoted' | 'rejected']
   >;
   readonly selectCandidate: jest.Mock<Promise<void>, [string | null]>;
-  readonly promote: jest.Mock<Promise<void>, [string, string | undefined]>;
+  readonly promote: jest.Mock<
+    Promise<SkillSynthesisPromoteResult | null>,
+    [string, string | undefined]
+  >;
   readonly reject: jest.Mock<Promise<void>, [string, string | undefined]>;
+  readonly rejectBulk: jest.Mock<
+    Promise<number>,
+    [string[], string | undefined]
+  >;
+  readonly promoteBulk: jest.Mock<
+    Promise<SkillSynthesisPromoteBulkResult | null>,
+    [string[]]
+  >;
+  readonly rejectByPattern: jest.Mock<
+    Promise<SkillSynthesisRejectByPatternResult | null>,
+    [string, string | undefined]
+  >;
+  readonly specs: ReturnType<typeof signal<unknown[]>>;
+  readonly specsLoading: ReturnType<typeof signal<boolean>>;
+  readonly staleSpecCount: ReturnType<typeof computed<number>>;
+  readonly refreshSpecs: jest.Mock<Promise<void>, []>;
+  readonly harvestSpecs: jest.Mock<Promise<void>, []>;
+  readonly clearStaleSpecs: jest.Mock<Promise<number>, [unknown]>;
+  readonly candidateDetail: ReturnType<typeof signal<unknown>>;
+  readonly candidateDetailLoading: ReturnType<typeof signal<boolean>>;
+  readonly loadCandidateDetail: jest.Mock<Promise<void>, [string | null]>;
 }
 
 function makeStub(
@@ -191,8 +218,20 @@ function makeStub(
     loadStats: jest.fn(async () => undefined),
     setStatusFilter: jest.fn(async () => undefined),
     selectCandidate: jest.fn(async () => undefined),
-    promote: jest.fn(async () => undefined),
+    promote: jest.fn(async () => null),
     reject: jest.fn(async () => undefined),
+    rejectBulk: jest.fn(async () => 0),
+    promoteBulk: jest.fn(async () => null),
+    rejectByPattern: jest.fn(async () => null),
+    specs: signal<unknown[]>([]),
+    specsLoading: signal<boolean>(false),
+    staleSpecCount: computed(() => 0),
+    refreshSpecs: jest.fn(async () => undefined),
+    harvestSpecs: jest.fn(async () => undefined),
+    clearStaleSpecs: jest.fn(async () => 0),
+    candidateDetail: signal<unknown>(null),
+    candidateDetailLoading: signal<boolean>(false),
+    loadCandidateDetail: jest.fn(async () => undefined),
   };
 }
 

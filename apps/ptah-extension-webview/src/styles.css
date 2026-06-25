@@ -31,14 +31,20 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
  * and Egyptian gold accents used throughout the Anubis theme. They remain
  * constant across light/dark themes to maintain brand identity.
  *
- * Note: Gold accents (--gold-glow, --gold-accent, etc.) are intentionally NOT
- * theme-switched as they represent the consistent "Egyptian gold" brand aesthetic
- * that gives Ptah its distinctive visual identity.
+ * Brand gold tokens (--ptah-gold*) ARE theme-aware: the dark theme uses the
+ * bright Egyptian gold (#d4af37), while the light theme deepens it so the same
+ * accents remain readable against the warm cream background. Always reference
+ * these tokens instead of hardcoding #d4af37 / #f5d97d / rgba(212,175,55).
  *
  * The glass morphism effects use semi-transparent backgrounds with backdrop blur
  * to create the crystalline "Wisdom of Thoth" visual language.
  */
 :root {
+  /* Brand gold — theme-aware (overridden for light theme below) */
+  --ptah-gold: #d4af37; /* primary brand gold */
+  --ptah-gold-strong: #f5d97d; /* emphasis / hover (brighter in dark) */
+  --ptah-gold-soft: rgba(212, 175, 55, 0.12); /* translucent fill / hover bg */
+
   /* ========================================================================
      VS CODE SIDEBAR SCALING SYSTEM
      Optimized for sidebar widths: 200px (min) to 600px (max)
@@ -88,11 +94,11 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   );
 
   /* Agent Color Variables (God Pantheon) */
-  --agent-color-anubis: #d4af37; /* Supervisor - Gold */
+  --agent-color-anubis: var(--ptah-gold); /* Supervisor - Gold */
   --agent-color-thoth: #2563eb; /* Architect - Blue */
   --agent-color-ptah: #16a34a; /* Developer - Green */
   --agent-color-seshat: #e8e6e1; /* QA - White */
-  --agent-color-maat: #d4af37; /* Reviewer - Gold */
+  --agent-color-maat: var(--ptah-gold); /* Reviewer - Gold */
   --agent-color-khnum: #dc2626; /* PM - Red */
 
   /* Sacred Geometry */
@@ -101,6 +107,16 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   /* Animation colors (for keyframes that need theme-awareness) */
   --aura-color-dim: oklch(70% 0.18 70 / 0.5); /* Gold glow dim */
   --aura-color-bright: oklch(70% 0.18 70 / 0.8); /* Gold glow bright */
+}
+
+/* Brand gold — deepened for ANY light theme (cupcake, emerald, pastel, …) so
+   accents stay readable on light backgrounds. Driven by the data-theme-mode
+   marker ThemeService sets, NOT by individual theme names, so new themes need
+   no extra CSS. Dark themes keep the bright #d4af37 from :root above. */
+[data-theme-mode='light'] {
+  --ptah-gold: oklch(58% 0.132 75);
+  --ptah-gold-strong: oklch(48% 0.12 70);
+  --ptah-gold-soft: oklch(58% 0.132 75 / 0.14);
 }
 
 /* Light theme overrides for glass morphism and decorative elements */
@@ -709,6 +725,14 @@ Enhanced typography, visual hierarchy, and reading comfort
   word-break: break-all;
 }
 
+/* Light themes: the pale warning amber is illegible on light backgrounds — use
+   the deepened brand gold so inline code pills keep the warm accent while
+   staying readable. Keyed on the mode marker so it covers every light theme. */
+[data-theme-mode='light'] .prose code,
+[data-theme-mode='light'] .agent-prose code {
+  color: var(--ptah-gold-strong);
+}
+
 /* --- Code blocks: Elevated card with subtle shadow --- */
 
 .prose pre {
@@ -1315,7 +1339,7 @@ UTILITY CLASSES
 }
 
 .text-gold {
-  color: #d4af37;
+  color: var(--ptah-gold);
 }
 
 .text-lapis {
@@ -1852,14 +1876,14 @@ Session-related buttons use the brand gold, view pills get elegant styling
 
 /* Gold accent button — used for Sessions toggle and +New session */
 .btn-gold {
-  color: #d4af37;
+  color: var(--ptah-gold);
   background: transparent;
   border: none;
 }
 
 .btn-gold:hover {
-  background-color: rgba(212, 175, 55, 0.12);
-  color: #f5d97d;
+  background-color: var(--ptah-gold-soft);
+  color: var(--ptah-gold-strong);
 }
 
 /* Electron navbar — DaisyUI tabs-lifted with gold active accent */
@@ -1871,8 +1895,8 @@ Session-related buttons use the brand gold, view pills get elegant styling
 
 .electron-tabs.tabs-lifted > .tab-active {
   --tab-bg: oklch(var(--b1));
-  --tab-border-color: #d4af37;
-  color: #f5d97d;
+  --tab-border-color: var(--ptah-gold);
+  color: var(--ptah-gold-strong);
   font-weight: 500;
 }
 

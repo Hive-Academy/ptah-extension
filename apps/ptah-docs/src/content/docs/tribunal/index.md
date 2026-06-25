@@ -13,7 +13,7 @@ That disagreement is the signal.
 
 When a Claude-family model, a Codex-family model, and a Kimi-family model all reach the same conclusion independently, you can trust it. When they diverge, Tribunal surfaces the disagreement and explains why each vendor arrived where it did — so you can make an informed call instead of inheriting one model's blind spots.
 
-## The three moves
+## The four moves
 
 <CardGrid>
   <Card title="Council" icon="approve-check">
@@ -24,6 +24,9 @@ When a Claude-family model, a Codex-family model, and a Kimi-family model all re
   </Card>
   <Card title="Race" icon="rocket">
     N parallel attempts → rubric scoring → verified winner before any commit. **Available now.** [How it works →](/tribunal/race/)
+  </Card>
+  <Card title="Relay" icon="random">
+    One task through a plan → architect → implement → review pipeline, each phase run by a different vendor, persisted to `.ptah/specs`. **Available now.** [How it works →](/tribunal/relay/)
   </Card>
 </CardGrid>
 
@@ -63,6 +66,8 @@ Tribunal and the everyday [orchestration workflow](/agents/agent-orchestration/)
 
 :::tip
 If you're building something, use **Orchestration**. If you're deciding something, use **Tribunal**.
+
+The one exception is [**Relay**](/tribunal/relay/) — it runs orchestration's build-it pipeline _on the vendor panel_, with each phase handled by a different vendor and no sub-agents. Reach for it when you want structured delivery but want the work done by external CLI vendors with built-in cross-vendor review.
 :::
 
 ## Invoking Tribunal
@@ -74,6 +79,12 @@ Tribunal activates in response to natural language. Trigger phrases that start a
 - "Have the models debate this approach"
 - "Multi-vendor review of X"
 - "What do the other vendors think?"
+
+Trigger phrases that start a coding move — [Forge](/tribunal/forge/), [Race](/tribunal/race/), or [Relay](/tribunal/relay/):
+
+- "Forge this across the panel" / "Race the models on this"
+- "Relay this task across the panel" — plan, build, and a different vendor reviews
+- "Orchestrate this with CLI vendors instead of sub-agents"
 
 You can also select the **Tribunal Conductor** harness explicitly from the harness picker to start a structured Tribunal session.
 

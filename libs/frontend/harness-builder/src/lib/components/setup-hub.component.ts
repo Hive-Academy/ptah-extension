@@ -63,13 +63,13 @@ import type {
         0%,
         100% {
           box-shadow:
-            0 0 12px rgba(212, 175, 55, 0.15),
-            0 0 24px rgba(212, 175, 55, 0.05);
+            0 0 12px oklch(var(--s) / 0.15),
+            0 0 24px oklch(var(--s) / 0.05);
         }
         50% {
           box-shadow:
-            0 0 20px rgba(212, 175, 55, 0.3),
-            0 0 40px rgba(212, 175, 55, 0.1);
+            0 0 20px oklch(var(--s) / 0.3),
+            0 0 40px oklch(var(--s) / 0.1);
         }
       }
 
@@ -249,7 +249,7 @@ import type {
           >
             <!-- Decorative: gold radial glow -->
             <div
-              class="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-[#d4af37]/[0.06] blur-3xl pointer-events-none"
+              class="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-secondary/[0.06] blur-3xl pointer-events-none"
             ></div>
             <!-- Decorative: blue radial glow -->
             <div
@@ -277,7 +277,7 @@ import type {
                   </p>
                 </div>
                 <div
-                  class="hidden md:block w-16 h-0.5 bg-gradient-to-r from-[#d4af37]/40 to-transparent mt-4"
+                  class="hidden md:block w-16 h-0.5 bg-gradient-to-r from-secondary/40 to-transparent mt-4"
                 ></div>
               </div>
             </div>
@@ -299,10 +299,10 @@ import type {
             <!-- ── Card 1: Workspace Analysis ── -->
             <div
               class="group relative rounded-xl p-px cursor-pointer
-                     bg-gradient-to-br from-[#d4af37]/20 via-base-300/50 to-[#d4af37]/10
-                     hover:from-[#d4af37]/40 hover:via-[#d4af37]/15 hover:to-[#d4af37]/30
+                     bg-gradient-to-br from-secondary/20 via-base-300/50 to-secondary/10
+                     hover:from-secondary/40 hover:via-secondary/15 hover:to-secondary/30
                      transition-all duration-300 ease-out
-                     hover:shadow-[0_0_30px_rgba(212,175,55,0.08)]
+                     hover:shadow-[0_0_30px_oklch(var(--s)/0.08)]
                      card-enter card-enter-delay-1"
               (click)="openSetupWizard()"
               (keydown.enter)="openSetupWizard()"
@@ -318,14 +318,14 @@ import type {
                 <div class="flex items-start justify-between">
                   <div class="relative">
                     <div
-                      class="absolute -inset-1 rounded-xl bg-[#d4af37]/10 blur-sm icon-glow"
+                      class="absolute -inset-1 rounded-xl bg-secondary/10 blur-sm icon-glow"
                     ></div>
                     <div
-                      class="relative w-11 h-11 rounded-xl bg-[#d4af37]/10 border border-[#d4af37]/20 flex items-center justify-center"
+                      class="relative w-11 h-11 rounded-xl bg-secondary/10 border border-secondary/20 flex items-center justify-center"
                     >
                       <lucide-angular
                         [img]="SearchIcon"
-                        class="w-5 h-5 text-[#d4af37]"
+                        class="w-5 h-5 text-secondary"
                         aria-hidden="true"
                       />
                     </div>
@@ -389,7 +389,7 @@ import type {
                       r="12"
                       fill="none"
                       stroke="currentColor"
-                      class="text-[#d4af37] ring-pulse"
+                      class="text-secondary ring-pulse"
                       stroke-width="2.5"
                       stroke-linecap="round"
                       [attr.stroke-dasharray]="75.4"
@@ -417,7 +417,7 @@ import type {
                     class="flex items-center gap-3 text-xs text-base-content/40 pt-2 border-t border-base-300/30"
                   >
                     <div class="flex items-center gap-1.5">
-                      <span class="w-1 h-1 rounded-full bg-[#d4af37]/50"></span>
+                      <span class="w-1 h-1 rounded-full bg-secondary/50"></span>
                       <span>{{ setupStatus()!.agentCount }} agents</span>
                     </div>
                     <div class="flex items-center gap-1.5">
@@ -435,10 +435,10 @@ import type {
                 <!-- CTA button -->
                 <button
                   class="btn btn-sm w-full mt-auto gap-1
-                         bg-gradient-to-r from-[#d4af37]/10 to-[#d4af37]/5
-                         border border-[#d4af37]/20
-                         hover:border-[#d4af37]/40 hover:from-[#d4af37]/20 hover:to-[#d4af37]/10
-                         text-[#d4af37] font-medium transition-all duration-200"
+                         bg-gradient-to-r from-secondary/10 to-secondary/5
+                         border border-secondary/20
+                         hover:border-secondary/40 hover:from-secondary/20 hover:to-secondary/10
+                         text-secondary font-medium transition-all duration-200"
                 >
                   {{
                     setupStatus()?.isConfigured ? 'Reconfigure' : 'Get Started'
