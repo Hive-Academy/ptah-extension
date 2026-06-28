@@ -22,6 +22,21 @@
         }
       }
     },
+    "showcase": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        { "target": "build-dev", "projects": ["ptah-electron"] },
+        { "target": "copy-renderer", "projects": ["ptah-electron"] }
+      ],
+      "options": {
+        "parallel": false,
+        "commands": [
+          "node scripts/copy-wasm.js dist/apps/ptah-electron",
+          "npx playwright test --config=apps/ptah-electron-e2e/showcase.config.ts",
+          "node apps/ptah-electron-e2e/scripts/transcode.mjs"
+        ]
+      }
+    },
     "e2e:nightly": {
       "executor": "nx:run-commands",
       "dependsOn": [

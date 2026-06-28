@@ -1,11 +1,9 @@
 ---
-title: Agent Setup Wizard
+title: Setup Wizard
 description: Generate a project-aware agent roster in four guided steps.
 ---
 
-# Agent Setup Wizard
-
-The Agent Setup Wizard turns your workspace into a tuned team of AI agents. It analyzes your code, detects your stack, proposes specialists, and saves them into `.claude/agents/` — all in a few clicks.
+The **Setup Wizard** (the **Workspace Analysis** card in the [Setup Hub](/setup/)) turns your workspace into a tuned team of AI agents. It analyzes your code, detects your stack, proposes specialists, and saves them into `.claude/agents/` — all in a few clicks.
 
 <video controls preload="metadata" playsinline style="width:100%;border-radius:0.5rem;border:1px solid var(--sl-color-gray-5);margin:1rem 0;">
   <source src="/assets/videos/setup-wizard-agent-generation.mp4" type="video/mp4" />
@@ -91,8 +89,12 @@ You are a senior backend engineer working in a NestJS monorepo...
 
 ## Re-running the wizard
 
-Open **Command Palette → Ptah: Run Agent Setup Wizard** at any time. The wizard detects existing agents and presents a merge view so you don't overwrite manual edits.
+Open the **Setup Hub → Workspace Analysis** card at any time (or **Command Palette → Ptah: Run Agent Setup Wizard**). The wizard detects existing agents and presents a merge view so you don't overwrite manual edits.
 
 :::tip[Best practice]
 Commit `.claude/agents/` to source control. Your team inherits the same agent roster, and pull requests can review prompt changes the same way they review code.
 :::
+
+## Setup Wizard vs. AI Team Builder
+
+The Setup Wizard is the **fast, opinionated path**: point it at a repo and it generates a sensible roster. The [AI Team Builder](/setup/ai-team-builder/) is the **hands-on path**: describe what you're building and shape the agents, skills, prompts, and MCP servers conversationally. Most people start with the wizard and reach for the builder when they want full control.

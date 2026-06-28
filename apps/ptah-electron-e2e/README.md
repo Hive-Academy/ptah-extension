@@ -48,6 +48,48 @@ test('opens settings panel', async ({ mainWindow, rpcBridge }) => {
 });
 ```
 
+## Marketing showcase (high-res feature videos)
+
+A separate, opt-in harness records high-resolution video of **real** agent runs
+for marketing — the deliberate inverse of the deterministic e2e suite above (no
+RPC mocks, real auth, real local docker backend, long waits).
+
+```bash
+# Record every scene, then transcode to mp4
+npx nx run ptah-electron-e2e:showcase
+```
+
+Prereqs:
+
+1. Run `nx serve ptah-electron` once so the **default profile is
+   authenticated** and a real workspace is restored — the showcase reuses that
+   profile. (Set `PTAH_SHOWCASE_USER_DATA_DIR` to use a dedicated profile.)
+2. Quit any running Ptah instance first (single-instance lock).
+
+What it does differently from `e2e`:
+
+- Boots with `NODE_ENV=development` (hits the local docker dev URLs) and
+  `PTAH_NO_DEVTOOLS=1` (keeps DevTools out of frame — gated in
+  `apps/ptah-electron/src/activation/post-window.ts`).
+- Records via Playwright `recordVideo` at marketing resolution. Set
+  `PTAH_SHOWCASE_RES=1080p|1440p|4k` (default `1080p`); the window is forced to
+  that size for crisp frames.
+- Output: `dist/apps/ptah-electron-e2e/recordings/*.webm`, transcoded to
+  `recordings/mp4/*.mp4` via `scripts/transcode.mjs` (uses bundled
+  `ffmpeg-static`).
+
+Authoring scenes:
+
+- Drop a `*.scene.ts` under `src/showcase/`, import `test` from
+  `./_harness/showcase-fixtures`, and drive the UI through the `director`
+  fixture (`type`, `click`, `moveTo`, `caption`, `hold`, `waitForAgentTurn`).
+- `canvas-orchestra.scene.ts` is the reference scene (P2.1 — three live agents
+  in the Canvas). Scenes map to `docs/video-content-plan.md`.
+- Config lives in `showcase.config.ts` (15-min timeout, serial, no retries).
+
+> The shell-navigation selectors in a scene (e.g. `goToCanvas()`) are
+> best-effort; verify them against the live UI on first capture.
+
 ## Architecture
 
 - `src/support/electron-launcher.ts` -- resolves the built `main.mjs`

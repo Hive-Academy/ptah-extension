@@ -114,6 +114,26 @@ export class ConversationStore {
     return updated;
   }
 
+  /**
+   * Clear the session link on a conversation (SET ptah_session_id = NULL) and
+   * bump `last_active_at`. Used by the gateway detach flow — detach CLEARS the
+   * link (no continuity flag, no "stop resuming" branch).
+   */
+  clearPtahSessionId(id: GatewayConversationId): GatewayConversation {
+    this.sqlite.db
+      .prepare(
+        'UPDATE gateway_conversations SET ptah_session_id = NULL, last_active_at = ? WHERE id = ?',
+      )
+      .run(Date.now(), id);
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(
+        `ConversationStore.clearPtahSessionId: conversation ${id} not found`,
+      );
+    }
+    return updated;
+  }
+
   touch(id: GatewayConversationId): void {
     this.sqlite.db
       .prepare(

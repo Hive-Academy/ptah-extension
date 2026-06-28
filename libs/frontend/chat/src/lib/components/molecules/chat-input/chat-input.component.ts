@@ -21,12 +21,17 @@ import {
   File as FileIcon,
   Folder as FolderIcon,
   Mic,
+  Share2,
+  Unlink,
+  MessageSquare,
 } from 'lucide-angular';
 import {
   InlineImageAttachment,
   MAX_IMAGE_SIZE_BYTES,
   resolveImageMediaType,
   type EffortLevel,
+  type GatewayBindingDto,
+  type GatewayPlatformId,
 } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -115,6 +120,37 @@ interface PastedImage {
       (dragleave)="handleDragLeave($event)"
       (drop)="handleDrop($event)"
     >
+      <!-- Read-only banner: session attached to a messaging binding -->
+      @if (attachedReadOnly()) {
+        <div
+          class="flex items-center gap-2 rounded-lg border border-info/40 bg-info/10 px-3 py-2 text-sm"
+          role="status"
+          aria-live="polite"
+        >
+          <lucide-angular
+            [img]="MessageSquareIcon"
+            class="w-4 h-4 text-info flex-shrink-0"
+          />
+          <span class="flex-1 text-base-content/80">
+            This session is attached to {{ attachedPlatformLabel() }}. Resolve
+            back to Ptah to continue here.
+          </span>
+          <button
+            class="btn btn-info btn-xs gap-1"
+            [disabled]="detaching()"
+            (click)="detachBinding()"
+            type="button"
+            data-testid="chat-resolve-back-btn"
+          >
+            @if (detaching()) {
+              <span class="loading loading-spinner loading-xs"></span>
+            } @else {
+              <lucide-angular [img]="UnlinkIcon" class="w-3.5 h-3.5" />
+            }
+            <span>Resolve back to webview</span>
+          </button>
+        </div>
+      }
       <!-- Compaction overlay on input area -->
       @if (resolvedIsCompacting()) {
         <div
@@ -253,8 +289,14 @@ interface PastedImage {
             [class.border-2]="
               autopilotState.enabled() || autopilotState.agentPlanMode()
             "
-            placeholder="Ask a question or describe a task..."
+            [placeholder]="
+              attachedReadOnly()
+                ? 'Session is attached to messaging — read-only'
+                : 'Ask a question or describe a task...'
+            "
             [value]="currentMessage()"
+            [readonly]="attachedReadOnly()"
+            [class.opacity-60]="attachedReadOnly()"
             (input)="handleInput($event)"
             (keydown)="handleKeyDown($event)"
             (paste)="handlePaste($event)"
@@ -308,7 +350,7 @@ interface PastedImage {
           <!-- Send Button (always functional - queues message during streaming) -->
           <button
             class="btn btn-primary btn-sm btn-square"
-            [disabled]="!canSend()"
+            [disabled]="!canSend() || attachedReadOnly()"
             (click)="handleSend()"
             type="button"
             data-testid="chat-send-btn"
@@ -338,8 +380,72 @@ interface PastedImage {
           <ptah-model-selector />
         </div>
 
-        <!-- Right: Agent Selector, Effort Selector and Autopilot Popover -->
+        <!-- Right: Send-to-messaging, Agent Selector, Effort Selector, Autopilot -->
         <div class="flex items-center gap-0.5 min-w-0">
+          <!-- Send to messaging (Electron only; needs a real session) -->
+          @if (canSendToMessaging()) {
+            <div class="relative">
+              <button
+                class="btn btn-ghost btn-xs gap-1 text-base-content/60 hover:text-base-content/90"
+                (click)="
+                  showBindingPicker()
+                    ? closeBindingPicker()
+                    : openBindingPicker()
+                "
+                type="button"
+                title="Send this session to a messaging app"
+                data-testid="chat-send-to-messaging-btn"
+              >
+                <lucide-angular
+                  [img]="SendToMessagingIcon"
+                  class="w-3.5 h-3.5"
+                />
+                <span class="text-[11px]">Send to messaging</span>
+              </button>
+
+              @if (showBindingPicker()) {
+                <div
+                  class="absolute bottom-full right-0 mb-1 z-20 w-64 rounded-lg border border-base-300 bg-base-100 shadow-lg p-1"
+                  role="listbox"
+                  aria-label="Approved messaging bindings"
+                >
+                  @if (bindingsLoading()) {
+                    <div
+                      class="flex items-center gap-2 px-3 py-3 text-sm text-base-content/60"
+                    >
+                      <span class="loading loading-spinner loading-xs"></span>
+                      <span>Loading bindings…</span>
+                    </div>
+                  } @else if (approvedBindings().length === 0) {
+                    <div class="px-3 py-3 text-sm text-base-content/60">
+                      No approved bindings. Approve one in the Gateway tab
+                      first.
+                    </div>
+                  } @else {
+                    @for (binding of approvedBindings(); track binding.id) {
+                      <button
+                        class="w-full text-left px-3 py-2 rounded-md text-sm hover:bg-base-200 disabled:opacity-50 flex items-center gap-2"
+                        [disabled]="attaching()"
+                        (click)="attachToBinding(binding)"
+                        type="button"
+                        role="option"
+                        [attr.aria-selected]="false"
+                      >
+                        <lucide-angular
+                          [img]="MessageSquareIcon"
+                          class="w-3.5 h-3.5 flex-shrink-0 text-base-content/50"
+                        />
+                        <span class="truncate">{{
+                          bindingLabel(binding)
+                        }}</span>
+                      </button>
+                    }
+                  }
+                </div>
+              }
+            </div>
+          }
+
           <!-- Agent Selector - dedicated button for built-in sub-agents -->
           <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
 
@@ -420,6 +526,68 @@ export class ChatInputComponent implements OnInit {
   });
 
   /**
+   * The active tab resolved the same way `inputEnabled` resolves it
+   * (SESSION_CONTEXT tile scope first, else the global active tab). Single
+   * source of truth for both the read-only gate and the "Send to messaging"
+   * trigger so they always agree on which tab they act on.
+   */
+  private readonly resolvedTab = computed(() => {
+    const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+    if (!tabId) return null;
+    return this.tabManager.tabs().find((t) => t.id === tabId) ?? null;
+  });
+
+  /**
+   * The messaging binding this tab's session is attached to, or null. When
+   * non-null the composer is READ-ONLY (the session is being driven from
+   * Telegram / Discord / Slack) and the "Resolve back to webview" banner shows.
+   */
+  readonly attachedBinding = computed(
+    () => this.resolvedTab()?.attachedBinding ?? null,
+  );
+
+  /** True when this tab's session is attached to a messaging binding. */
+  readonly attachedReadOnly = computed(() => this.attachedBinding() != null);
+
+  /** Human-readable platform label for the read-only banner. */
+  readonly attachedPlatformLabel = computed(() => {
+    const platform = this.attachedBinding()?.platform;
+    return platform ? this.platformLabel(platform) : '';
+  });
+
+  /** In-flight guard for the detach ("Resolve back to webview") action. */
+  private readonly _detaching = signal(false);
+  readonly detaching = this._detaching.asReadonly();
+
+  // ----- "Send to messaging" trigger / picker state -----
+
+  /** Whether the binding picker popover is open. */
+  private readonly _showBindingPicker = signal(false);
+  readonly showBindingPicker = this._showBindingPicker.asReadonly();
+
+  /** Approved bindings loaded for the picker. */
+  private readonly _approvedBindings = signal<GatewayBindingDto[]>([]);
+  readonly approvedBindings = this._approvedBindings.asReadonly();
+
+  /** Whether the approved-binding list is loading. */
+  private readonly _bindingsLoading = signal(false);
+  readonly bindingsLoading = this._bindingsLoading.asReadonly();
+
+  /** In-flight guard for the attach action. */
+  private readonly _attaching = signal(false);
+  readonly attaching = this._attaching.asReadonly();
+
+  /**
+   * Whether the "Send to messaging" trigger is available: an Electron-only
+   * affordance that requires a real SDK session and an un-attached tab.
+   */
+  readonly canSendToMessaging = computed(() => {
+    if (!this.isElectron) return false;
+    if (this.attachedReadOnly()) return false;
+    return !!this.resolvedTab()?.claudeSessionId;
+  });
+
+  /**
    * Per-tab compaction state. In canvas mode, scoped to this tile's tab.
    * Prevents compaction overlay from showing on ALL tiles.
    */
@@ -459,6 +627,9 @@ export class ChatInputComponent implements OnInit {
   readonly PaperclipIcon = Paperclip;
   readonly ImagePlusIcon = ImagePlus;
   readonly MicIcon = Mic;
+  readonly SendToMessagingIcon = Share2;
+  readonly UnlinkIcon = Unlink;
+  readonly MessageSquareIcon = MessageSquare;
   private _lastSessionId: string | null = null;
   private readonly _currentMessage = signal('');
   private readonly _showSuggestions = signal(false);
@@ -1151,6 +1322,8 @@ export class ChatInputComponent implements OnInit {
     }
     if (!this.showSuggestions() && event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
+      // Read-only while attached to a messaging binding — Enter must not send.
+      if (this.attachedReadOnly()) return;
       this.handleSend();
     }
   }
@@ -1160,6 +1333,9 @@ export class ChatInputComponent implements OnInit {
    * FIX #8: Delegate smart routing to ChatStore (SRP violation fixed)
    */
   async handleSend(): Promise<void> {
+    // Composer is read-only while the session is attached to a messaging
+    // binding — block sends; the user must "Resolve back to webview" first.
+    if (this.attachedReadOnly()) return;
     const content = this.currentMessage().trim();
     const images = this._pastedImages();
     if (!content && images.length === 0) return;
@@ -1201,6 +1377,173 @@ export class ChatInputComponent implements OnInit {
       console.log('[ChatInputComponent] Stop requested, aborted:', aborted);
     } catch (error) {
       console.error('[ChatInputComponent] Failed to stop streaming:', error);
+    }
+  }
+
+  // ==========================================================================
+  // MESSAGING ATTACHMENT — "Send to messaging" + "Resolve back to webview"
+  // ==========================================================================
+
+  /** Map a platform id to a display label for banners/picker. */
+  private platformLabel(platform: GatewayPlatformId): string {
+    switch (platform) {
+      case 'telegram':
+        return 'Telegram';
+      case 'discord':
+        return 'Discord';
+      case 'slack':
+        return 'Slack';
+    }
+  }
+
+  /** Display label for a binding row in the picker. */
+  bindingLabel(binding: GatewayBindingDto): string {
+    const platform = this.platformLabel(binding.platform);
+    const name = binding.displayName?.trim();
+    return name ? `${platform} · ${name}` : platform;
+  }
+
+  /**
+   * Resolve the workspace root for THIS tab's session (not just the active
+   * workspace). The tab's session is registered to a workspace in the
+   * partition reverse index — look it up by the tab's SDK session id.
+   */
+  private resolveTabWorkspaceRoot(sessionId: string): string | null {
+    const lookup =
+      this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId);
+    return lookup?.workspacePath ?? this.tabManager.activeWorkspacePath ?? null;
+  }
+
+  /**
+   * Open the binding picker: fetch the approved bindings via
+   * `gateway:listBindings({ status: 'approved' })`. Disabled unless the tab has
+   * a real SDK session and is not already attached (see `canSendToMessaging`).
+   */
+  async openBindingPicker(): Promise<void> {
+    if (!this.canSendToMessaging()) return;
+    this._showBindingPicker.set(true);
+    this._bindingsLoading.set(true);
+    try {
+      const result = await this.rpcService.call('gateway:listBindings', {
+        status: 'approved',
+      });
+      if (result.isSuccess() && result.data) {
+        this._approvedBindings.set(result.data.bindings ?? []);
+      } else {
+        this._approvedBindings.set([]);
+        this.showImageAttachmentError(
+          result.error || 'Failed to load messaging bindings',
+        );
+      }
+    } catch (error) {
+      console.error('[ChatInputComponent] listBindings failed:', error);
+      this._approvedBindings.set([]);
+      this.showImageAttachmentError('Failed to load messaging bindings');
+    } finally {
+      this._bindingsLoading.set(false);
+    }
+  }
+
+  /** Close the binding picker popover. */
+  closeBindingPicker(): void {
+    this._showBindingPicker.set(false);
+  }
+
+  /**
+   * Attach this tab's session to the chosen binding via
+   * `gateway:attachSession`. Surfaces the typed error results
+   * (`binding-not-approved`, `session-not-resumable`, `binding-not-found`) as a
+   * short transient message. On success the backend pushes
+   * `gateway:sessionAttached`, which flips the tab to read-only.
+   */
+  async attachToBinding(binding: GatewayBindingDto): Promise<void> {
+    if (this._attaching()) return;
+    const tab = this.resolvedTab();
+    const sessionUuid = tab?.claudeSessionId;
+    if (!tab || !sessionUuid) {
+      this.showImageAttachmentError('No session to attach yet');
+      return;
+    }
+    const workspaceRoot = this.resolveTabWorkspaceRoot(sessionUuid);
+    if (!workspaceRoot) {
+      this.showImageAttachmentError('Could not resolve this tab’s workspace');
+      return;
+    }
+
+    this._attaching.set(true);
+    try {
+      const result = await this.rpcService.call('gateway:attachSession', {
+        bindingId: binding.id,
+        sessionUuid,
+        workspaceRoot,
+        externalConversationId: 'default',
+      });
+      if (result.isSuccess() && result.data?.ok) {
+        // Success — backend push (`gateway:sessionAttached`) sets read-only.
+        this.closeBindingPicker();
+      } else {
+        const reason =
+          result.isSuccess() && result.data && result.data.ok === false
+            ? result.data.error
+            : result.error;
+        this.showImageAttachmentError(this.attachErrorLabel(reason));
+      }
+    } catch (error) {
+      console.error('[ChatInputComponent] attachSession failed:', error);
+      this.showImageAttachmentError('Failed to attach session to messaging');
+    } finally {
+      this._attaching.set(false);
+    }
+  }
+
+  /** Map a typed attach error to a short user-facing message. */
+  private attachErrorLabel(reason: string | undefined): string {
+    switch (reason) {
+      case 'binding-not-approved':
+        return 'That messaging binding is not approved yet';
+      case 'session-not-resumable':
+        return 'This session can’t be resumed for messaging';
+      case 'binding-not-found':
+        return 'Messaging binding no longer exists';
+      default:
+        return reason || 'Failed to attach session to messaging';
+    }
+  }
+
+  /**
+   * "Resolve back to webview" — detach the binding via
+   * `gateway:detachSession`. The backend clears the link and pushes
+   * `gateway:sessionDetached`, which re-enables this composer.
+   */
+  async detachBinding(): Promise<void> {
+    if (this._detaching()) return;
+    const bindingId = this.attachedBinding()?.bindingId;
+    if (!bindingId) return;
+
+    this._detaching.set(true);
+    try {
+      const result = await this.rpcService.call('gateway:detachSession', {
+        bindingId,
+      });
+      if (!(result.isSuccess() && result.data?.ok)) {
+        const reason =
+          result.isSuccess() && result.data && result.data.ok === false
+            ? result.data.error
+            : result.error;
+        this.showImageAttachmentError(
+          reason === 'binding-not-found'
+            ? 'Messaging binding no longer exists'
+            : reason || 'Failed to resolve session back to webview',
+        );
+      }
+      // On success the `gateway:sessionDetached` push clears `attachedBinding`.
+    } catch (error) {
+      console.error('[ChatInputComponent] detachSession failed:', error);
+      this.showImageAttachmentError(
+        'Failed to resolve session back to webview',
+      );
+    } finally {
+      this._detaching.set(false);
     }
   }
 

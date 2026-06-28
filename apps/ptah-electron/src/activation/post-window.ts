@@ -148,7 +148,10 @@ export async function registerPostWindow(
       scheduleWarmup();
     });
   }
-  if (process.env['NODE_ENV'] === 'development') {
+  if (
+    process.env['NODE_ENV'] === 'development' &&
+    process.env['PTAH_NO_DEVTOOLS'] !== '1'
+  ) {
     mainWindow.webContents.openDevTools();
   }
   try {

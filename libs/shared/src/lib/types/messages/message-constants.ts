@@ -149,6 +149,10 @@ export const MESSAGE_TYPES = {
   GATEWAY_STATUS_CHANGED: 'gateway:statusChanged',
   /** Backend → Frontend: bindings list changed (new pending request, approve/reject/revoke). */
   GATEWAY_BINDINGS_CHANGED: 'gateway:bindingsChanged',
+  /** Backend → Frontend: an existing Ptah session was attached to a binding. */
+  GATEWAY_SESSION_ATTACHED: 'gateway:sessionAttached',
+  /** Backend → Frontend: a binding's session link was cleared (detach). */
+  GATEWAY_SESSION_DETACHED: 'gateway:sessionDetached',
   /** Backend → Frontend: Whisper voice model download progress tick (Electron only). */
   VOICE_MODEL_DOWNLOAD_PROGRESS: 'voice:modelDownloadProgress',
   /** Backend → Frontend: update lifecycle state changed (Electron only). */

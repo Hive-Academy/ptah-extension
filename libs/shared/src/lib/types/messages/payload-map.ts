@@ -92,6 +92,8 @@ import type {
 import type { WorkspaceChangedPayload } from './workspace';
 import type {
   GatewayBindingsChangedPayload,
+  GatewaySessionAttachedPayload,
+  GatewaySessionDetachedPayload,
   GatewayStatusChangedPayload,
 } from './gateway';
 import type { VoiceModelDownloadProgressPayload } from './voice';
@@ -240,6 +242,8 @@ export interface MessagePayloadMap {
   workspaceChanged: WorkspaceChangedPayload;
   'gateway:statusChanged': GatewayStatusChangedPayload;
   'gateway:bindingsChanged': GatewayBindingsChangedPayload;
+  'gateway:sessionAttached': GatewaySessionAttachedPayload;
+  'gateway:sessionDetached': GatewaySessionDetachedPayload;
   'voice:modelDownloadProgress': VoiceModelDownloadProgressPayload;
   'update:statusChanged': UpdateStatusChangedPayload;
   'session:compactionComplete': SdkCompactionCompletePayload;
