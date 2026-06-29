@@ -1601,30 +1601,24 @@ export class ChatInputComponent implements OnInit {
   }
 
   constructor() {
-    effect(
-      () => {
-        const restoreData = this.chatStore.queueRestoreContent();
-        if (restoreData) {
-          const activeTabId = this.tabManager.activeTabId();
-          if (activeTabId && activeTabId === restoreData.tabId) {
-            this.restoreContentToInput(restoreData.content);
-          }
-          this.chatStore.clearQueueRestoreSignal();
+    effect(() => {
+      const restoreData = this.chatStore.queueRestoreContent();
+      if (restoreData) {
+        const activeTabId = this.tabManager.activeTabId();
+        if (activeTabId && activeTabId === restoreData.tabId) {
+          this.restoreContentToInput(restoreData.content);
         }
-      },
-      { allowSignalWrites: true },
-    );
-    effect(
-      () => {
-        const currentTabId = this.tabManager.activeTabId();
-        if (currentTabId !== this._lastSessionId) {
-          if (this._lastSessionId !== null && currentTabId !== null) {
-            this.commandDiscovery.clearCache();
-          }
-          this._lastSessionId = currentTabId;
+        this.chatStore.clearQueueRestoreSignal();
+      }
+    });
+    effect(() => {
+      const currentTabId = this.tabManager.activeTabId();
+      if (currentTabId !== this._lastSessionId) {
+        if (this._lastSessionId !== null && currentTabId !== null) {
+          this.commandDiscovery.clearCache();
         }
-      },
-      { allowSignalWrites: true },
-    );
+        this._lastSessionId = currentTabId;
+      }
+    });
   }
 }
