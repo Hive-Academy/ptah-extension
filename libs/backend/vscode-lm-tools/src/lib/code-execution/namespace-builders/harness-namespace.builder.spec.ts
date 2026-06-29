@@ -74,6 +74,10 @@ interface SmitheryRegistryMock extends HarnessMcpRegistrySource {
   listServers: jest.Mock;
 }
 
+interface PulseMcpRegistryMock extends HarnessMcpRegistrySource {
+  listServers: jest.Mock;
+}
+
 function makeDeps(
   overrides: {
     skills?: DiscoveredSkill[];
@@ -82,6 +86,7 @@ function makeDeps(
     workspaceRoot?: string;
     skillsDirectory?: SkillsDirectoryMock;
     smitheryRegistry?: SmitheryRegistryMock;
+    pulseMcpRegistry?: PulseMcpRegistryMock;
   } = {},
 ): {
   deps: HarnessNamespaceDependencies;
@@ -89,6 +94,7 @@ function makeDeps(
   mcpRegistry: McpRegistryMock;
   skillsDirectory?: SkillsDirectoryMock;
   smitheryRegistry?: SmitheryRegistryMock;
+  pulseMcpRegistry?: PulseMcpRegistryMock;
   broadcast: jest.Mock;
   logger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
 } {
@@ -115,6 +121,7 @@ function makeDeps(
     mcpRegistry,
     skillsDirectory: overrides.skillsDirectory,
     smitheryRegistry: overrides.smitheryRegistry,
+    pulseMcpRegistry: overrides.pulseMcpRegistry,
     getWorkspaceRoot: () => overrides.workspaceRoot ?? 'D:/ws',
     broadcast,
     logger,
@@ -125,6 +132,7 @@ function makeDeps(
     mcpRegistry,
     skillsDirectory: overrides.skillsDirectory,
     smitheryRegistry: overrides.smitheryRegistry,
+    pulseMcpRegistry: overrides.pulseMcpRegistry,
     broadcast,
     logger,
   };
@@ -450,6 +458,73 @@ describe('buildHarnessNamespace — searchMcpRegistry', () => {
     const { deps, logger } = makeDeps({
       servers: { servers: [{ name: 'official/srv' }] },
       smitheryRegistry,
+    });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
+
+    expect(out.servers.map((s) => s.source)).toEqual(['official']);
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('merges PulseMCP results tagged source="pulsemcp" when configured', async () => {
+    const pulseMcpRegistry: PulseMcpRegistryMock = {
+      listServers: jest
+        .fn()
+        .mockResolvedValue({ servers: [{ name: 'autodesk-mcp' }] }),
+    };
+    const { deps } = makeDeps({
+      servers: { servers: [{ name: 'official/srv' }] },
+      pulseMcpRegistry,
+    });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry(
+      'autodesk',
+      5,
+    );
+
+    expect(pulseMcpRegistry.listServers).toHaveBeenCalledWith({
+      query: 'autodesk',
+      limit: 5,
+    });
+    expect(out.servers).toEqual([
+      { name: 'official/srv', description: undefined, source: 'official' },
+      { name: 'autodesk-mcp', description: undefined, source: 'pulsemcp' },
+    ]);
+  });
+
+  it('merges official + smithery + pulsemcp results in order', async () => {
+    const smitheryRegistry: SmitheryRegistryMock = {
+      listServers: jest
+        .fn()
+        .mockResolvedValue({ servers: [{ name: 'smithery/srv' }] }),
+    };
+    const pulseMcpRegistry: PulseMcpRegistryMock = {
+      listServers: jest
+        .fn()
+        .mockResolvedValue({ servers: [{ name: 'pulse/srv' }] }),
+    };
+    const { deps } = makeDeps({
+      servers: { servers: [{ name: 'official/srv' }] },
+      smitheryRegistry,
+      pulseMcpRegistry,
+    });
+
+    const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
+
+    expect(out.servers.map((s) => s.source)).toEqual([
+      'official',
+      'smithery',
+      'pulsemcp',
+    ]);
+  });
+
+  it('still returns official results when PulseMCP search fails', async () => {
+    const pulseMcpRegistry: PulseMcpRegistryMock = {
+      listServers: jest.fn().mockRejectedValue(new Error('pulse down')),
+    };
+    const { deps, logger } = makeDeps({
+      servers: { servers: [{ name: 'official/srv' }] },
+      pulseMcpRegistry,
     });
 
     const out = await buildHarnessNamespace(deps).searchMcpRegistry('db');
