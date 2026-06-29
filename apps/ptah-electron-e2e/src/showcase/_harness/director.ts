@@ -66,6 +66,17 @@ const OVERLAY_INIT = `
   });
   document.body.appendChild(caption);
 
+  const spot = document.createElement('div');
+  spot.id = 'ptah-director-spotlight';
+  Object.assign(spot.style, {
+    position: 'fixed', left: '0px', top: '0px', width: '0px', height: '0px',
+    borderRadius: '12px', border: '2px solid rgba(129,140,248,0.95)',
+    boxShadow: '0 0 0 3px rgba(99,102,241,0.35), 0 0 22px 6px rgba(99,102,241,0.55)',
+    zIndex: '2147483644', pointerEvents: 'none', opacity: '0',
+    transition: 'opacity 220ms ease, left 320ms ease, top 320ms ease, width 320ms ease, height 320ms ease',
+  });
+  document.body.appendChild(spot);
+
   const move = (x, y) => {
     cursor.style.left = x + 'px';
     cursor.style.top = y + 'px';
@@ -93,6 +104,16 @@ const OVERLAY_INIT = `
     clearCaption: () => {
       caption.style.opacity = '0';
       caption.style.transform = 'translateX(-50%) translateY(20px)';
+    },
+    spotlight: (r) => {
+      spot.style.left = r.x - 6 + 'px';
+      spot.style.top = r.y - 6 + 'px';
+      spot.style.width = r.width + 12 + 'px';
+      spot.style.height = r.height + 12 + 'px';
+      spot.style.opacity = '1';
+    },
+    clearSpotlight: () => {
+      spot.style.opacity = '0';
     },
   };
 })();
@@ -135,6 +156,36 @@ export class Director {
     await this.page.evaluate((t) => window.__ptahDirector?.caption(t), text);
   }
 
+  /**
+   * Dismiss any blocking startup dialogs (e.g. the license / trial-ended modal)
+   * so they stay out of frame. Best-effort: clicks the first visible match from
+   * a list of known dismiss affordances, repeating until none remain.
+   */
+  async dismissDialogs(): Promise<void> {
+    const labels = ['Maybe Later', 'Dismiss', 'Not now', 'Close', 'close'];
+    for (let pass = 0; pass < 4; pass++) {
+      let dismissed = false;
+      for (const label of labels) {
+        const btn = this.page.getByRole('button', { name: label, exact: true });
+        if (
+          await btn
+            .first()
+            .isVisible()
+            .catch(() => false)
+        ) {
+          await btn
+            .first()
+            .click({ timeout: 5_000 })
+            .catch(() => undefined);
+          await this.hold(250);
+          dismissed = true;
+          break;
+        }
+      }
+      if (!dismissed) return;
+    }
+  }
+
   /** Smoothly ease the synthetic cursor to the center of a target. */
   async moveTo(target: Locator): Promise<void> {
     await target.scrollIntoViewIfNeeded().catch(() => undefined);
@@ -169,6 +220,90 @@ export class Director {
     await this.hold(400);
   }
 
+  /** Ease the cursor onto a target and dwell, without clicking. */
+  async hover(target: Locator, dwellMs = 600): Promise<void> {
+    await this.moveTo(target);
+    await this.hold(dwellMs);
+  }
+
+  /**
+   * Draw a glowing spotlight ring around a target for `ms`, then clear it.
+   * Great for drawing the eye to a control on social-media footage.
+   */
+  async spotlight(target: Locator, ms = 1600): Promise<void> {
+    await target.scrollIntoViewIfNeeded().catch(() => undefined);
+    const box = await target.boundingBox();
+    if (!box) return;
+    await this.page.evaluate((r) => window.__ptahDirector?.spotlight(r), box);
+    await this.hold(ms);
+    await this.page.evaluate(() => window.__ptahDirector?.clearSpotlight());
+    await this.hold(180);
+  }
+
+  /**
+   * Smoothly pan a scrollable region top→bottom (and optionally back) so the
+   * camera reveals long content. Resolves the best scroll container from the
+   * target: the element or a scrollable ancestor, else the tallest scrollable
+   * descendant, else the document. With no target, scrolls the page.
+   */
+  async scrollThrough(
+    target?: Locator,
+    opts: { steps?: number; dwellMs?: number; andBack?: boolean } = {},
+  ): Promise<void> {
+    const steps = opts.steps ?? 6;
+    const dwellMs = opts.dwellMs ?? 650;
+    const andBack = opts.andBack ?? true;
+    const handle = target ?? this.page.locator('body');
+
+    const setFrac = (frac: number) =>
+      handle.evaluate((el: Element, f: number) => {
+        const scrollable = (node: Element): Element => {
+          let cur: Element | null = node;
+          while (cur) {
+            const cs = getComputedStyle(cur);
+            if (
+              /(auto|scroll)/.test(cs.overflowY) &&
+              cur.scrollHeight > cur.clientHeight + 4
+            ) {
+              return cur;
+            }
+            cur = cur.parentElement;
+          }
+          let best: Element = document.scrollingElement ?? document.body;
+          let bestDelta = best.scrollHeight - best.clientHeight;
+          node.querySelectorAll('*').forEach((d) => {
+            const delta = d.scrollHeight - d.clientHeight;
+            if (
+              delta > bestDelta &&
+              /(auto|scroll)/.test(getComputedStyle(d).overflowY)
+            ) {
+              best = d;
+              bestDelta = delta;
+            }
+          });
+          return best;
+        };
+        const sc = scrollable(el);
+        const max = sc.scrollHeight - sc.clientHeight;
+        sc.scrollTo({ top: max * f, behavior: 'smooth' });
+      }, frac);
+
+    for (let i = 1; i <= steps; i++) {
+      await setFrac(i / steps);
+      await this.hold(dwellMs);
+    }
+    if (andBack) {
+      await setFrac(0);
+      await this.hold(dwellMs);
+    }
+  }
+
+  /** Mouse-wheel at the current cursor position (positive dy scrolls down). */
+  async wheel(dy: number): Promise<void> {
+    await this.page.mouse.wheel(0, dy);
+    await this.hold(400);
+  }
+
   /**
    * Wait for a single real agent turn to finish within a scope (a tile or the
    * whole page). The chat input swaps the send button for a stop button while
@@ -195,6 +330,13 @@ declare global {
       pulse: () => void;
       caption: (text: string) => void;
       clearCaption: () => void;
+      spotlight: (rect: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }) => void;
+      clearSpotlight: () => void;
     };
   }
 }

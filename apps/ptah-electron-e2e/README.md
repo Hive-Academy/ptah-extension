@@ -66,6 +66,12 @@ Prereqs:
    profile. (Set `PTAH_SHOWCASE_USER_DATA_DIR` to use a dedicated profile.)
 2. Quit any running Ptah instance first (single-instance lock).
 
+For a **pristine canvas** (no tiles restored from prior sessions), point at a
+fresh profile: `PTAH_SHOWCASE_USER_DATA_DIR=/tmp/ptah-showcase`. Provider auth
+via the Claude CLI is machine-global, so a fresh Electron profile is still
+authenticated. Scenes also auto-dismiss the startup license/trial modal and
+tolerate pre-existing tiles, but a fresh profile gives the cleanest shot.
+
 What it does differently from `e2e`:
 
 - Boots with `NODE_ENV=development` (hits the local docker dev URLs) and

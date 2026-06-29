@@ -60,18 +60,16 @@ async function createTile(
   page: Page,
   director: Director,
   name: string,
-  isFirst: boolean,
 ): Promise<void> {
-  if (isFirst) {
-    // Empty-state path: the empty state surfaces a "create session" affordance.
-    const emptyCreate = page
-      .locator('ptah-canvas-empty-state')
-      .getByRole('button')
-      .first();
-    await director.click(emptyCreate);
+  // The "add tile" affordance depends on whether the canvas is empty: the FAB
+  // ("Add new session tile") when tiles exist, the empty-state CTA otherwise.
+  const fab = page.locator('[title="Add new session tile"]').first();
+  if (await fab.isVisible().catch(() => false)) {
+    await director.click(fab);
   } else {
-    // FAB path: floating "Add new session tile" button.
-    await director.click(page.locator('[title="Add new session tile"]'));
+    await director.click(
+      page.getByRole('button', { name: 'Create new session' }).first(),
+    );
   }
 
   const nameInput = page.locator('input[placeholder*="session name" i]').last();
@@ -91,24 +89,88 @@ async function sendPromptToTile(
   await director.click(tile.locator('[data-testid="chat-send-btn"]'));
 }
 
+/** True if a locator is present and visible (never throws). */
+async function visible(loc: Locator): Promise<boolean> {
+  return loc
+    .first()
+    .isVisible()
+    .catch(() => false);
+}
+
+/**
+ * Exploration coda for a single tile: pan its conversation, spotlight the
+ * stats strip, hover its agent indicator, and toggle compact/full view. Every
+ * beat is guarded on visibility so a tile that finished sparse never stalls the
+ * scene. Strictly non-destructive — we never touch "Close tile".
+ */
+async function exploreTile(director: Director, tile: Locator): Promise<void> {
+  // Pan the tile's own conversation transcript so the camera reveals the full
+  // turn: text, tool calls, and the rendered result.
+  const transcript = tile.locator('[data-testid="chat-tool-output"]').first();
+  if (await visible(transcript)) {
+    await director.scrollThrough(transcript, {
+      steps: 5,
+      dwellMs: 650,
+      andBack: true,
+    });
+  }
+
+  // Spotlight the live stats strip (Ctx / Tokens / Cost / Time) — proof that
+  // every agent's cost is on-screen, not hidden.
+  const stats = tile.locator('ptah-session-stats-summary').first();
+  if (await visible(stats)) {
+    await director.caption('Every agent shows its own cost, tokens, time.');
+    await director.spotlight(stats, 1800);
+    await director.caption();
+  }
+
+  // Hover the per-tile agent indicator (the pulsing status pill) to draw the
+  // eye to the live agent state.
+  const indicator = tile.locator('ptah-tile-agent-indicator button').first();
+  if (await visible(indicator)) {
+    await director.hover(indicator, 900);
+  }
+
+  // Toggle the tile between full and compact view, then back — a quick,
+  // satisfying layout flourish that shows the tiles are real, resizable panes.
+  const viewToggle = tile.locator(
+    'button[title="Switch to compact view"], button[title="Switch to full view"]',
+  );
+  if (await visible(viewToggle)) {
+    await director.click(viewToggle.first());
+    await director.hold(900);
+    if (await visible(viewToggle)) {
+      await director.click(viewToggle.first());
+      await director.hold(700);
+    }
+  }
+}
+
 test('P2.1 — three agents at once (Canvas orchestra)', async ({
   page,
   director,
 }) => {
+  // Clear any blocking startup modal (license / trial dialog) before filming.
+  await director.dismissDialogs();
+
   await director.caption('One workspace. Three agents. At once.');
   await director.hold(1600);
   await director.caption();
 
   await goToCanvas(page, director);
+  await director.dismissDialogs();
   await director.hold();
 
   const tiles = page.locator('[data-testid="canvas-tile"]');
+  // The canvas may restore prior tiles from the profile — drive only the ones
+  // we create here so pre-existing tiles don't shift our selectors.
+  const startCount = await tiles.count();
 
   // Spin up three session tiles.
   await director.caption('Spin up three sessions…');
   for (let i = 0; i < PROMPTS.length; i++) {
-    await createTile(page, director, `agent-${i + 1}`, i === 0);
-    await tiles.nth(i).waitFor({ state: 'visible' });
+    await createTile(page, director, `agent-${i + 1}`);
+    await tiles.nth(startCount + i).waitFor({ state: 'visible' });
     await director.hold(500);
   }
   await director.caption();
@@ -116,7 +178,7 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
   // Hand each tile its own task and fire it off — concurrently.
   await director.caption('Give each one a different job…');
   for (let i = 0; i < PROMPTS.length; i++) {
-    await sendPromptToTile(director, tiles.nth(i), PROMPTS[i]);
+    await sendPromptToTile(director, tiles.nth(startCount + i), PROMPTS[i]);
     await director.hold(600);
   }
   await director.caption();
@@ -124,11 +186,54 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
   // Let the orchestra play. Hold on the live multi-agent view while they run.
   await director.caption('…and watch them work in parallel.');
   await Promise.all(
-    PROMPTS.map((_, i) => director.waitForAgentTurn(tiles.nth(i))),
+    PROMPTS.map((_, i) => director.waitForAgentTurn(tiles.nth(startCount + i))),
   );
   await director.caption();
 
   await director.caption('Three tasks. One screen. No waiting in line.');
   await director.hold(2600);
+  await director.caption();
+
+  // ── Exploration coda ──────────────────────────────────────────────────────
+  // The orchestra has finished. Now give the camera a tour of what just
+  // happened: dive into a tile's transcript, surface the per-agent telemetry,
+  // flex the layout, and pan the whole grid. Everything here is read-only.
+
+  await director.caption('Take a closer look at the orchestra.');
+  await director.hold(1400);
+  await director.caption();
+
+  // Tour each tile we created: scroll its conversation, spotlight its stats,
+  // hover its agent indicator, flex compact/full.
+  for (let i = 0; i < PROMPTS.length; i++) {
+    const tile = tiles.nth(startCount + i);
+    if (!(await visible(tile))) continue;
+    await director.caption(`Agent ${i + 1} — its work, its numbers.`);
+    await director.hold(700);
+    await director.caption();
+    await exploreTile(director, tile);
+  }
+
+  // Spotlight the "Lock tiles" control — the layout-freeze affordance that keeps
+  // a curated orchestra arrangement put. Non-destructive: spotlight only, no
+  // click, so we don't change the grid behaviour mid-shot.
+  const lockBtn = page.getByRole('button', { name: 'Lock tiles' }).first();
+  if (await visible(lockBtn)) {
+    await director.caption(
+      'Lock the layout when the arrangement is just right.',
+    );
+    await director.spotlight(lockBtn, 1800);
+    await director.caption();
+  }
+
+  // Final wide pan across the whole grid so the closing frame is the full
+  // multi-agent canvas, alive with three concurrent conversations.
+  await director.caption('One canvas. A whole orchestra of agents.');
+  await director.scrollThrough(page.locator('[data-testid="canvas-grid"]'), {
+    steps: 6,
+    dwellMs: 700,
+    andBack: true,
+  });
+  await director.hold(2200);
   await director.caption();
 });
