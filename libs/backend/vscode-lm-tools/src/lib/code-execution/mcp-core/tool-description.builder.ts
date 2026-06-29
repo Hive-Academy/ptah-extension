@@ -999,11 +999,15 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
     name: 'ptah_harness_search_mcp_registry',
     description:
       'Harness-builder tool: search the official MCP Server Registry ' +
-      '(registry.modelcontextprotocol.io) AND, when a Smithery API key is configured, the Smithery ' +
-      'registry for servers matching a query. Each result is tagged with source: "official" or "smithery". ' +
-      'Returns server names and descriptions. Use specific technology keywords ' +
-      '(e.g., "github", "postgresql", "slack") for best results. Pair with ' +
-      'harness_list_installed_mcp to see which servers are already configured before adding more.',
+      '(registry.modelcontextprotocol.io), the PulseMCP directory (a trusted ' +
+      'online catalogue of vendor/community servers — e.g. Autodesk, IFC, ' +
+      'Procore — not present in the official registry), AND, when a Smithery ' +
+      'API key is configured, the Smithery registry for servers matching a ' +
+      'query. Each result is tagged with source: "official", "pulsemcp", or ' +
+      '"smithery". Returns server names and descriptions. Use specific ' +
+      'technology or vendor keywords (e.g., "github", "postgresql", "autodesk") ' +
+      'for best results. Pair with harness_list_installed_mcp to see which ' +
+      'servers are already configured before adding more.',
     inputSchema: {
       type: 'object',
       properties: {

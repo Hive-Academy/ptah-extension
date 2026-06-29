@@ -87,6 +87,7 @@ import {
   CliDetectionService,
   McpRegistryProvider,
   SmitheryRegistrySource,
+  PulseMcpRegistrySource,
   SkillsShApiClient,
 } from '@ptah-extension/cli-agent-runtime';
 import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
@@ -623,6 +624,9 @@ export class PtahAPIBuilder {
           mcpRegistry: new McpRegistryProvider(this.logger),
           skillsDirectory: this.skillsShApiClient,
           smitheryRegistry,
+          // PulseMCP needs no API key — always live in production so the harness
+          // builder also discovers trusted vendor/community servers.
+          pulseMcpRegistry: new PulseMcpRegistrySource({ logger: this.logger }),
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
           broadcast: (type, payload) => {
             if (!webviewManager) {

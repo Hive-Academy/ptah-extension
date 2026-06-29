@@ -165,7 +165,7 @@ export interface McpRegistryEntry {
 }
 
 /** Provenance discriminator for an MCP registry entry / query. */
-export type McpRegistrySourceKind = 'official' | 'smithery';
+export type McpRegistrySourceKind = 'official' | 'smithery' | 'pulsemcp';
 
 /** Paginated list response from the registry */
 export interface McpRegistryListResponse {
