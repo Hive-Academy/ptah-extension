@@ -364,12 +364,21 @@ jobs:
           echo "manifest=$manifestPath" >> $env:GITHUB_OUTPUT
           echo "count=$($binaries.Count)" >> $env:GITHUB_OUTPUT
 
-      # Phase 2b: ONE batch_sign call signs every staged binary in place (output
-      # written back into the same staging dir). Single OTP for the whole batch.
+      # Phase 2b: batch_sign signs every staged binary (output written to a
+      # separate dir). Single OTP per attempt. malware_block: true makes the
+      # action run a per-file `scan_code` first; each scan_code independently
+      # fetches an OAuth access token from SSL.com. That auth endpoint
+      # intermittently returns an HTML error page instead of JSON, which
+      # CodeSignTool reports as "Unexpected character (<) at position 0" thrown
+      # from AccessToken.getAccessToken — a transient SSL.com server-side flake,
+      # NOT a config error. When it hits, the batch produces no/partial output
+      # yet the action still exits 0. So: run with continue-on-error, count the
+      # output, and retry the whole sign up to two more times. override: true
+      # makes each retry re-sign the full batch cleanly.
       - name: Batch-sign Windows internal binaries with SSL.com eSigner
         if: runner.os == 'Windows'
         uses: sslcom/esigner-codesign@v1.3.2
-        with:
+        with: &batch_sign_with
           command: batch_sign
           username: ${{ secrets.SSL_COM_USERNAME }}
           password: ${{ secrets.SSL_COM_PASSWORD }}
@@ -383,16 +392,67 @@ jobs:
           # sign ("hash needs to be scanned first before submitting for signing").
           # malware_block: true makes CodeSignTool submit the scan and wait.
           malware_block: true
+        continue-on-error: true
+
+      - name: Check batch-sign output (attempt 1)
+        id: sign-check-1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $have = @(Get-ChildItem -Path "${{ steps.stage-sign.outputs.signed_dir }}" -File -ErrorAction SilentlyContinue).Count
+          $expected = [int]"${{ steps.stage-sign.outputs.count }}"
+          Write-Host "batch_sign attempt 1 produced $have / $expected signed file(s)"
+          if ($have -ge $expected) {
+            "complete=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "complete=false" >> $env:GITHUB_OUTPUT
+            Write-Host "Incomplete — likely a transient SSL.com auth/API error. Retrying after 30s."
+            Start-Sleep -Seconds 30
+          }
+
+      - name: Batch-sign retry (attempt 2)
+        if: runner.os == 'Windows' && steps.sign-check-1.outputs.complete != 'true'
+        uses: sslcom/esigner-codesign@v1.3.2
+        with: *batch_sign_with
+        continue-on-error: true
+
+      - name: Check batch-sign output (attempt 2)
+        id: sign-check-2
+        if: runner.os == 'Windows' && steps.sign-check-1.outputs.complete != 'true'
+        shell: pwsh
+        run: |
+          $have = @(Get-ChildItem -Path "${{ steps.stage-sign.outputs.signed_dir }}" -File -ErrorAction SilentlyContinue).Count
+          $expected = [int]"${{ steps.stage-sign.outputs.count }}"
+          Write-Host "batch_sign attempt 2 produced $have / $expected signed file(s)"
+          if ($have -ge $expected) {
+            "complete=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "complete=false" >> $env:GITHUB_OUTPUT
+            Write-Host "Still incomplete — retrying after 60s."
+            Start-Sleep -Seconds 60
+          }
+
+      - name: Batch-sign retry (attempt 3)
+        if: runner.os == 'Windows' && steps.sign-check-1.outputs.complete != 'true' && steps.sign-check-2.outputs.complete != 'true'
+        uses: sslcom/esigner-codesign@v1.3.2
+        with: *batch_sign_with
+        continue-on-error: true
 
       # Phase 2c: copy each signed binary back over its original nested location
-      # (restoring the .node extension). Fail loudly if a staged file is missing
-      # or did not actually receive an Authenticode signature.
+      # (restoring the .node extension). This is the strict final gate: it fails
+      # loudly if — after all sign attempts above — any staged file is missing or
+      # did not receive a Valid Authenticode signature.
       - name: Copy signed binaries back into win-unpacked
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $signedDir = "${{ steps.stage-sign.outputs.signed_dir }}"
           $manifest = Get-Content "${{ steps.stage-sign.outputs.manifest }}" -Raw | ConvertFrom-Json
+          # Diagnostic: show what batch_sign actually emitted. An empty/short
+          # output dir here means every sign attempt hit the transient SSL.com
+          # auth/API error (HTML instead of JSON from AccessToken.getAccessToken).
+          $produced = @(Get-ChildItem -Path $signedDir -File -ErrorAction SilentlyContinue)
+          Write-Host "batch_sign produced $($produced.Count) file(s) in $signedDir"
           $missing = @()
           $unsigned = @()
           foreach ($entry in $manifest) {
