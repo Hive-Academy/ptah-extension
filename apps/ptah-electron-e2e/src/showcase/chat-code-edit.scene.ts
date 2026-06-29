@@ -55,11 +55,13 @@ async function sendChatPrompt(
   prompt: string,
 ): Promise<void> {
   const textarea = page
-    .locator('ptah-chat-input textarea[role="combobox"]')
+    .locator('ptah-chat-input textarea[role="combobox"]:visible')
     .first();
   await textarea.waitFor({ state: 'visible' });
   await director.type(textarea, prompt);
-  await director.click(page.locator('[data-testid="chat-send-btn"]').first());
+  await director.click(
+    page.locator('[data-testid="chat-send-btn"]:visible').first(),
+  );
 }
 
 /** True if a locator is present and visible (never throws). */
@@ -177,9 +179,11 @@ async function goToChat(page: Page, director: Director): Promise<void> {
       break;
     }
   }
-  // The chat input proves we landed on (or already had) the chat surface.
+  // The VISIBLE chat input proves we landed on the chat surface. Restored
+  // canvas tiles leave hidden `ptah-chat-input` nodes in the DOM, so we must
+  // scope to `:visible` rather than blindly taking the first match.
   await page
-    .locator('ptah-chat-input textarea[role="combobox"]')
+    .locator('ptah-chat-input textarea[role="combobox"]:visible')
     .first()
     .waitFor({ state: 'visible' });
 }

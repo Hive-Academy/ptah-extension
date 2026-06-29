@@ -186,10 +186,26 @@ export class Director {
     }
   }
 
+  /**
+   * Resolve a target's on-screen box, retrying briefly while it animates/mounts
+   * in. Returns null if the element never gains a non-zero box (hidden, zero-
+   * area, or detached) — callers decide whether that's fatal.
+   */
+  private async boxOf(
+    target: Locator,
+  ): Promise<{ x: number; y: number; width: number; height: number } | null> {
+    await target.scrollIntoViewIfNeeded().catch(() => undefined);
+    for (let i = 0; i < 6; i++) {
+      const box = await target.boundingBox().catch(() => null);
+      if (box && box.width > 0 && box.height > 0) return box;
+      await this.hold(150);
+    }
+    return null;
+  }
+
   /** Smoothly ease the synthetic cursor to the center of a target. */
   async moveTo(target: Locator): Promise<void> {
-    await target.scrollIntoViewIfNeeded().catch(() => undefined);
-    const box = await target.boundingBox();
+    const box = await this.boxOf(target);
     if (!box) throw new Error('[Director] moveTo: target has no bounding box');
     const x = box.x + box.width / 2;
     const y = box.y + box.height / 2;
@@ -220,9 +236,22 @@ export class Director {
     await this.hold(400);
   }
 
-  /** Ease the cursor onto a target and dwell, without clicking. */
+  /**
+   * Ease the cursor onto a target and dwell, without clicking. Decorative — if
+   * the target has no on-screen box it degrades to a plain hold rather than
+   * throwing, so a missing flourish never kills a scene.
+   */
   async hover(target: Locator, dwellMs = 600): Promise<void> {
-    await this.moveTo(target);
+    const box = await this.boxOf(target);
+    if (box) {
+      await this.page.mouse.move(
+        box.x + box.width / 2,
+        box.y + box.height / 2,
+        { steps: 24 },
+      );
+      this.cursorX = box.x + box.width / 2;
+      this.cursorY = box.y + box.height / 2;
+    }
     await this.hold(dwellMs);
   }
 
@@ -231,8 +260,7 @@ export class Director {
    * Great for drawing the eye to a control on social-media footage.
    */
   async spotlight(target: Locator, ms = 1600): Promise<void> {
-    await target.scrollIntoViewIfNeeded().catch(() => undefined);
-    const box = await target.boundingBox();
+    const box = await this.boxOf(target);
     if (!box) return;
     await this.page.evaluate((r) => window.__ptahDirector?.spotlight(r), box);
     await this.hold(ms);
