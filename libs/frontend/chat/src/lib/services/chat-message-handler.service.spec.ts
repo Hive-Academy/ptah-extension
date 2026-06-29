@@ -73,6 +73,9 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     tabs: jest.Mock;
     resetTabToFresh: jest.Mock;
     findTabBySessionIdAcrossWorkspaces: jest.Mock;
+    findTabIdsBySessionId: jest.Mock;
+    markTabAttached: jest.Mock;
+    markTabDetached: jest.Mock;
   };
   let claims: WorkflowSessionClaimService;
   let surfaceRegistry: StreamingSurfaceRegistry;
@@ -107,6 +110,9 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       tabs: jest.fn(() => [{ id: 'tab-1' }]),
       resetTabToFresh: jest.fn(),
       findTabBySessionIdAcrossWorkspaces: jest.fn(() => null),
+      findTabIdsBySessionId: jest.fn(() => []),
+      markTabAttached: jest.fn(),
+      markTabDetached: jest.fn(),
     };
 
     TestBed.configureTestingModule({
@@ -199,6 +205,59 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
 
     expect(chatStore.handleQuestionRequest).toHaveBeenCalledTimes(1);
     expect(streamRouter.routeQuestionPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  // ----- GATEWAY_SESSION_ATTACHED / DETACHED --------------------------------
+
+  it('gateway:sessionAttached marks every resolved tab attached', () => {
+    tabManager.findTabIdsBySessionId.mockReturnValueOnce(['tab-1', 'tab-2']);
+
+    handler.handleMessage({
+      type: MESSAGE_TYPES.GATEWAY_SESSION_ATTACHED,
+      payload: {
+        bindingId: 'binding-9',
+        sessionUuid: VALID_UUID,
+        platform: 'telegram',
+      },
+    });
+
+    expect(tabManager.findTabIdsBySessionId).toHaveBeenCalledTimes(1);
+    expect(tabManager.markTabAttached).toHaveBeenCalledTimes(2);
+    expect(tabManager.markTabAttached).toHaveBeenCalledWith('tab-1', {
+      bindingId: 'binding-9',
+      platform: 'telegram',
+    });
+    expect(tabManager.markTabAttached).toHaveBeenCalledWith('tab-2', {
+      bindingId: 'binding-9',
+      platform: 'telegram',
+    });
+  });
+
+  it('gateway:sessionAttached drops a payload missing fields without throwing', () => {
+    expect(() =>
+      handler.handleMessage({
+        type: MESSAGE_TYPES.GATEWAY_SESSION_ATTACHED,
+        payload: { bindingId: 'binding-9' },
+      }),
+    ).not.toThrow();
+
+    expect(tabManager.markTabAttached).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('gateway:sessionAttached payload missing fields'),
+      expect.anything(),
+    );
+  });
+
+  it('gateway:sessionDetached marks every resolved tab detached', () => {
+    tabManager.findTabIdsBySessionId.mockReturnValueOnce(['tab-1']);
+
+    handler.handleMessage({
+      type: MESSAGE_TYPES.GATEWAY_SESSION_DETACHED,
+      payload: { bindingId: 'binding-9', sessionUuid: VALID_UUID },
+    });
+
+    expect(tabManager.markTabDetached).toHaveBeenCalledTimes(1);
+    expect(tabManager.markTabDetached).toHaveBeenCalledWith('tab-1');
   });
 
   // ----- SESSION_TURN_ENDED (Phase 2 Batch 3) -------------------------------

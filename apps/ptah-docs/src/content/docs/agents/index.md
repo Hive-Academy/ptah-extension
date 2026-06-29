@@ -73,7 +73,7 @@ Each agent is a Markdown file with YAML frontmatter describing its name, descrip
 
 <CardGrid>
   <Card title="Run the setup wizard" icon="puzzle">
-    Let Ptah analyze your project and generate a tuned agent roster. [Start here →](/agents/setup-wizard/)
+    Let Ptah analyze your project and generate a tuned agent roster. [Start here →](/setup/setup-wizard/)
   </Card>
   <Card title="Browse the built-ins" icon="list-format">
     See all 13 agents and when to reach for each. [Catalog →](/agents/built-in-agents/)

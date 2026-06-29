@@ -41,6 +41,28 @@ async function settle(
   fixture.detectChanges();
 }
 
+/**
+ * Route mock RPC responses by method name. `ngOnInit` fires `voice:getConfig`
+ * and `voice:getTtsConfig` in parallel, so ordered `mockResolvedValueOnce`
+ * queues are unreliable — keying by method keeps each test independent of call
+ * order. Unrouted methods fall back to a benign TTS-config success.
+ */
+function routeRpc(
+  rpc: MockRpcService,
+  routes: Record<string, () => unknown>,
+): void {
+  rpc.call.mockImplementation((method: string) => {
+    const handler = routes[method];
+    if (handler) return Promise.resolve(handler());
+    return Promise.resolve(
+      rpcSuccess({
+        ok: true,
+        config: { voice: 'af_heart', downloaded: false },
+      }),
+    );
+  });
+}
+
 describe('VoiceConfigComponent', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
@@ -71,28 +93,26 @@ describe('VoiceConfigComponent', () => {
     fixture.detectChanges();
     await settle(fixture);
 
-    const groups = fixture.nativeElement.querySelectorAll(
+    const groups = select(fixture).querySelectorAll(
       'optgroup',
     ) as NodeListOf<HTMLOptGroupElement>;
     const labels = Array.from(groups).map((g) => g.label);
     expect(labels).toEqual(['English-only', 'Multilingual']);
     expect(
-      fixture.nativeElement.querySelector('option[value="large-v3-turbo"]'),
+      select(fixture).querySelector('option[value="large-v3-turbo"]'),
     ).not.toBeNull();
   });
 
   it('saves the chosen model via voice:setConfig and shows saved feedback', async () => {
     const rpc = createMockRpcService();
-    rpc.call.mockResolvedValueOnce(
-      rpcSuccess({ ok: true, config: { whisperModel: 'base.en' } }),
-    );
-    rpc.call.mockResolvedValueOnce(rpcSuccess({ ok: true }));
-    rpc.call.mockResolvedValueOnce(
-      rpcSuccess({
-        ok: true,
-        config: { whisperModel: 'medium', downloaded: false },
-      }),
-    );
+    routeRpc(rpc, {
+      'voice:getConfig': () =>
+        rpcSuccess({
+          ok: true,
+          config: { whisperModel: 'base.en', downloaded: false },
+        }),
+      'voice:setConfig': () => rpcSuccess({ ok: true }),
+    });
 
     const { fixture, component } = mount(rpc);
     fixture.detectChanges();
@@ -115,10 +135,11 @@ describe('VoiceConfigComponent', () => {
 
   it('reverts the selection and surfaces an error when save fails', async () => {
     const rpc = createMockRpcService();
-    rpc.call.mockResolvedValueOnce(
-      rpcSuccess({ ok: true, config: { whisperModel: 'base.en' } }),
-    );
-    rpc.call.mockResolvedValueOnce(rpcError('disk full'));
+    routeRpc(rpc, {
+      'voice:getConfig': () =>
+        rpcSuccess({ ok: true, config: { whisperModel: 'base.en' } }),
+      'voice:setConfig': () => rpcError('disk full'),
+    });
 
     const { fixture, component } = mount(rpc);
     fixture.detectChanges();
@@ -171,15 +192,15 @@ describe('VoiceConfigComponent', () => {
 
   it('downloads the selected model via voice:downloadModel and marks it ready', async () => {
     const rpc = createMockRpcService();
-    rpc.call.mockResolvedValueOnce(
-      rpcSuccess({
-        ok: true,
-        config: { whisperModel: 'small.en', downloaded: false },
-      }),
-    );
-    rpc.call.mockResolvedValueOnce(
-      rpcSuccess({ ok: true, alreadyPresent: false }),
-    );
+    routeRpc(rpc, {
+      'voice:getConfig': () =>
+        rpcSuccess({
+          ok: true,
+          config: { whisperModel: 'small.en', downloaded: false },
+        }),
+      'voice:downloadModel': () =>
+        rpcSuccess({ ok: true, alreadyPresent: false }),
+    });
 
     const { fixture, component } = mount(rpc);
     fixture.detectChanges();
@@ -229,18 +250,18 @@ describe('VoiceConfigComponent', () => {
 
   it('renders a live progress bar while a download is in flight', async () => {
     const rpc = createMockRpcService();
-    rpc.call.mockResolvedValueOnce(
-      rpcSuccess({
-        ok: true,
-        config: { whisperModel: 'small.en', downloaded: false },
-      }),
-    );
     let resolveDownload!: (value: unknown) => void;
-    rpc.call.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveDownload = resolve;
-      }),
-    );
+    routeRpc(rpc, {
+      'voice:getConfig': () =>
+        rpcSuccess({
+          ok: true,
+          config: { whisperModel: 'small.en', downloaded: false },
+        }),
+      'voice:downloadModel': () =>
+        new Promise((resolve) => {
+          resolveDownload = resolve;
+        }),
+    });
 
     const { fixture, component } = mount(rpc);
     fixture.detectChanges();
@@ -274,13 +295,14 @@ describe('VoiceConfigComponent', () => {
 
   it('surfaces an error when voice:downloadModel fails', async () => {
     const rpc = createMockRpcService();
-    rpc.call.mockResolvedValueOnce(
-      rpcSuccess({
-        ok: true,
-        config: { whisperModel: 'small.en', downloaded: false },
-      }),
-    );
-    rpc.call.mockResolvedValueOnce(rpcError('network down'));
+    routeRpc(rpc, {
+      'voice:getConfig': () =>
+        rpcSuccess({
+          ok: true,
+          config: { whisperModel: 'small.en', downloaded: false },
+        }),
+      'voice:downloadModel': () => rpcError('network down'),
+    });
 
     const { fixture, component } = mount(rpc);
     fixture.detectChanges();
