@@ -98,3 +98,66 @@ describe('StreamCoalescer (structured routing)', () => {
     expect(flush).not.toHaveBeenCalled();
   });
 });
+
+describe('StreamCoalescer (complete mode)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('does NOT auto-flush on idle/age/token thresholds — only an explicit drain flushes', async () => {
+    const flush = jest.fn().mockResolvedValue(undefined);
+    const coalescer = new StreamCoalescer(flush, { mode: 'complete' });
+    const route = threadRoute();
+
+    // Many appends, including enough chars to cross the streaming maxTokens
+    // threshold (~200 tokens ≈ 800 chars). None of this should flush.
+    coalescer.append(route, 'a'.repeat(500));
+    coalescer.append(route, 'b'.repeat(500));
+    jest.advanceTimersByTime(60_000); // far past idle (800ms) and max-age (5000ms)
+    coalescer.append(route, 'c');
+
+    expect(flush).not.toHaveBeenCalled();
+
+    await coalescer.drain(route.conversationKey);
+
+    expect(flush).toHaveBeenCalledTimes(1);
+    const payload = flush.mock.calls[0][0] as FlushPayload;
+    expect(payload.conversationKey).toBe('discord:chan-1:thread-9');
+    expect(payload.body).toBe('a'.repeat(500) + 'b'.repeat(500) + 'c');
+    expect(payload.isFirstFlush).toBe(true);
+  });
+
+  it('flushes the full cumulative body exactly ONCE on drain', async () => {
+    const flush = jest.fn().mockResolvedValue(undefined);
+    const coalescer = new StreamCoalescer(flush, { mode: 'complete' });
+    const route = baseRoute();
+
+    coalescer.append(route, 'hello ');
+    coalescer.append(route, 'world');
+    await coalescer.drain(route.conversationKey);
+
+    // A second drain after the buffer is empty must not double-send.
+    await coalescer.drain(route.conversationKey);
+
+    expect(flush).toHaveBeenCalledTimes(1);
+    const payload = flush.mock.calls[0][0] as FlushPayload;
+    expect(payload.body).toBe('hello world');
+    expect(payload.isFirstFlush).toBe(true);
+  });
+
+  it('discard drops the buffer without flushing in complete mode', () => {
+    const flush = jest.fn().mockResolvedValue(undefined);
+    const coalescer = new StreamCoalescer(flush, { mode: 'complete' });
+    const route = threadRoute();
+
+    coalescer.append(route, 'doomed');
+    coalescer.discard(route.conversationKey);
+    jest.advanceTimersByTime(60_000);
+
+    expect(flush).not.toHaveBeenCalled();
+  });
+});

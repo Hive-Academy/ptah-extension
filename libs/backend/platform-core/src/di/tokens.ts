@@ -70,4 +70,11 @@ export const PLATFORM_TOKENS = {
 
   /** ITracer — performance tracing port (spans + breadcrumbs). Adapters: SentryTracerAdapter / NoopTracer (vscode-core). */
   TRACER: Symbol.for('Ptah.ITracer'),
+
+  /**
+   * ISessionAttachmentGuard — webview-resume contention backstop. Adapters:
+   * AttachedSessionRegistry (messaging-gateway, Electron host) /
+   * NullSessionAttachmentGuard (vscode-core default, VS Code host).
+   */
+  SESSION_ATTACHMENT_GUARD: Symbol.for('PlatformSessionAttachmentGuard'),
 } as const;

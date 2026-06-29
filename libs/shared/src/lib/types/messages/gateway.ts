@@ -1,4 +1,8 @@
-import type { GatewayBindingDto, GatewayStatusResult } from '../rpc.types';
+import type {
+  GatewayBindingDto,
+  GatewayPlatformId,
+  GatewayStatusResult,
+} from '../rpc.types';
 
 /**
  * Payload for MESSAGE_TYPES.GATEWAY_STATUS_CHANGED ('gateway:statusChanged').
@@ -27,4 +31,28 @@ export interface GatewayStatusChangedPayload {
  */
 export interface GatewayBindingsChangedPayload {
   bindings: GatewayBindingDto[];
+}
+
+/**
+ * Payload for MESSAGE_TYPES.GATEWAY_SESSION_ATTACHED ('gateway:sessionAttached').
+ *
+ * Emitted by the backend after `gateway:attachSession` links an existing Ptah
+ * SDK session to an approved binding. The renderer uses this to flip the
+ * matching session tab to read-only (the bridge becomes the sole driver).
+ */
+export interface GatewaySessionAttachedPayload {
+  bindingId: string;
+  sessionUuid: string;
+  platform: GatewayPlatformId;
+}
+
+/**
+ * Payload for MESSAGE_TYPES.GATEWAY_SESSION_DETACHED ('gateway:sessionDetached').
+ *
+ * Emitted by the backend after `gateway:detachSession` clears a binding's
+ * session link. The renderer restores the session tab to a writable state.
+ */
+export interface GatewaySessionDetachedPayload {
+  bindingId: string;
+  sessionUuid: string;
 }

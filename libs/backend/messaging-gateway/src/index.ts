@@ -18,6 +18,9 @@ export type {
 export { BindingStore } from './lib/binding.store';
 export { ConversationStore } from './lib/conversation.store';
 export { MessageStore } from './lib/message.store';
+export { AttachedSessionRegistry } from './lib/attached-session-registry';
+export { JsonlSessionResumabilityChecker } from './lib/session-resumability';
+export type { ISessionResumabilityChecker } from './lib/session-resumability';
 export { StreamCoalescer } from './lib/stream-coalescer';
 export type {
   CoalescerOptions,
@@ -71,6 +74,19 @@ export type {
   PipelineProgressInfo,
   WhisperDownloadEvent,
 } from './lib/voice/whisper-transcriber';
+export {
+  KokoroSynthesizer,
+  DEFAULT_KOKORO_MODEL_ID,
+  DEFAULT_KOKORO_VOICE,
+  DEFAULT_KOKORO_DTYPE,
+} from './lib/voice/kokoro-synthesizer';
+export type {
+  KokoroAudio,
+  KokoroPipeline,
+  KokoroDownloadEvent,
+  SynthesisResult,
+  TtsPipelineFactory,
+} from './lib/voice/kokoro-synthesizer';
 export {
   resolveWhisperModel,
   VOICE_WHISPER_MODEL_KEY,

@@ -19,6 +19,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { GatewayService } from './gateway.service';
+import { AttachedSessionRegistry } from './attached-session-registry';
 import type { GrammyTelegramAdapter } from './adapters/telegram/grammy.adapter';
 import type { DiscordAdapter } from './adapters/discord/discord.adapter';
 import type { BoltSlackAdapter } from './adapters/slack/bolt.adapter';
@@ -218,6 +219,8 @@ function buildServiceWithRealStore(
     {} as unknown as FfmpegDecoder,
     { configure: jest.fn() } as unknown as WhisperTranscriber,
     gatewaySettings,
+    new AttachedSessionRegistry(),
+    { isResumable: jest.fn().mockResolvedValue(true) },
   );
 
   return { service, gatewaySettings };

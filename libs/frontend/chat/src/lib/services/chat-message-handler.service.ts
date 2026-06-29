@@ -22,12 +22,15 @@ import { type MessageHandler } from '@ptah-extension/core';
 import {
   AskUserQuestionRequestSchema,
   FlatStreamEventUnion,
+  GatewaySessionAttachedPayload,
+  GatewaySessionDetachedPayload,
   MESSAGE_TYPES,
   PermissionRequestSchema,
   SdkCompactionCompletePayloadSchema,
   SdkSubagentEndedPayloadSchema,
   SdkTurnEndedPayloadSchema,
   SdkTurnFailedPayloadSchema,
+  SessionId,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
@@ -85,6 +88,8 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.SESSION_TURN_ENDED,
     MESSAGE_TYPES.SESSION_TURN_FAILED,
     MESSAGE_TYPES.SESSION_SUBAGENT_ENDED,
+    MESSAGE_TYPES.GATEWAY_SESSION_ATTACHED,
+    MESSAGE_TYPES.GATEWAY_SESSION_DETACHED,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -137,6 +142,70 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.SESSION_SUBAGENT_ENDED:
         this.handleSessionSubagentEnded(message.payload);
         break;
+      case MESSAGE_TYPES.GATEWAY_SESSION_ATTACHED:
+        this.handleGatewaySessionAttached(message.payload);
+        break;
+      case MESSAGE_TYPES.GATEWAY_SESSION_DETACHED:
+        this.handleGatewaySessionDetached(message.payload);
+        break;
+    }
+  }
+
+  /**
+   * `gateway:sessionAttached` — the backend has handed this tab's SDK session
+   * off to a messaging binding. Resolve the session UUID to EVERY active-tab
+   * showing it (canvas tiles can mirror one session) and mark all of them
+   * attached so their composers go read-only. Frontend-only flag — no
+   * persistence; the matching `gateway:sessionDetached` clears it.
+   */
+  private handleGatewaySessionAttached(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') {
+      console.warn(
+        '[ChatMessageHandler] gateway:sessionAttached received but payload is undefined!',
+      );
+      return;
+    }
+    const { bindingId, sessionUuid, platform } =
+      payload as GatewaySessionAttachedPayload;
+    if (!bindingId || !sessionUuid || !platform) {
+      console.warn(
+        '[ChatMessageHandler] gateway:sessionAttached payload missing fields — dropped',
+        payload,
+      );
+      return;
+    }
+    const tabIds = this.tabManager.findTabIdsBySessionId(
+      SessionId.from(sessionUuid),
+    );
+    for (const tabId of tabIds) {
+      this.tabManager.markTabAttached(tabId, { bindingId, platform });
+    }
+  }
+
+  /**
+   * `gateway:sessionDetached` — the messaging binding was resolved back to the
+   * webview (or revoked). Re-enable every tab bound to the session.
+   */
+  private handleGatewaySessionDetached(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') {
+      console.warn(
+        '[ChatMessageHandler] gateway:sessionDetached received but payload is undefined!',
+      );
+      return;
+    }
+    const { sessionUuid } = payload as GatewaySessionDetachedPayload;
+    if (!sessionUuid) {
+      console.warn(
+        '[ChatMessageHandler] gateway:sessionDetached payload missing sessionUuid — dropped',
+        payload,
+      );
+      return;
+    }
+    const tabIds = this.tabManager.findTabIdsBySessionId(
+      SessionId.from(sessionUuid),
+    );
+    for (const tabId of tabIds) {
+      this.tabManager.markTabDetached(tabId);
     }
   }
 
