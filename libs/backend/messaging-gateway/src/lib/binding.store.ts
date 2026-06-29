@@ -171,6 +171,25 @@ export class BindingStore {
     return updated;
   }
 
+  /**
+   * Update only the workspace root (and bump `last_active_at`) on an existing
+   * binding. Used by the webview-initiated session-attach flow, which carries
+   * the session's real `workspaceRoot`. Deliberately does NOT touch
+   * `approval_status`, `ptah_session_id`, or `pairing_code` — unlike
+   * {@link approve}, which clobbers all three.
+   */
+  setWorkspaceRoot(id: BindingId, workspaceRoot: string): GatewayBinding {
+    this.sqlite.db
+      .prepare(
+        'UPDATE gateway_bindings SET workspace_root = ?, last_active_at = ? WHERE id = ?',
+      )
+      .run(workspaceRoot, Date.now(), id);
+    const updated = this.findById(id);
+    if (!updated)
+      throw new Error(`BindingStore.setWorkspaceRoot: binding ${id} not found`);
+    return updated;
+  }
+
   setStatus(id: BindingId, status: ApprovalStatus): GatewayBinding {
     this.sqlite.db
       .prepare(

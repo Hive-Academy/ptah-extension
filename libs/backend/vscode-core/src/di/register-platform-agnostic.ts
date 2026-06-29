@@ -21,6 +21,7 @@ import { LicenseService } from '../services/license.service';
 import { AuthSecretsService } from '../services/auth-secrets.service';
 import { SentryService } from '../services/sentry.service';
 import { SentryTracerAdapter } from '../services/sentry-tracer.adapter';
+import { NullSessionAttachmentGuard } from '../services/null-session-attachment-guard';
 
 export interface PlatformAgnosticRegistrationOptions {
   /**
@@ -65,6 +66,17 @@ export function registerVsCodeCorePlatformAgnostic(
   );
 
   container.registerSingleton(TOKENS.FEATURE_GATE_SERVICE, FeatureGateService);
+
+  // Null-object default for the webview-resume contention guard. The Electron
+  // host overrides this with the gateway's AttachedSessionRegistry (last
+  // registration wins); the VS Code host keeps this no-op so the shared chat
+  // RPC handler can inject the token unconditionally without crashing.
+  if (!container.isRegistered(PLATFORM_TOKENS.SESSION_ATTACHMENT_GUARD)) {
+    container.registerSingleton(
+      PLATFORM_TOKENS.SESSION_ATTACHMENT_GUARD,
+      NullSessionAttachmentGuard,
+    );
+  }
 
   if (includeLicensingAndAuth) {
     container.registerSingleton(TOKENS.SENTRY_SERVICE, SentryService);

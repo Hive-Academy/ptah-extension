@@ -187,14 +187,11 @@ export class GitStatusBarComponent {
   constructor() {
     this.gitBranches.startListening();
     void this.gitBranches.refreshBranches();
-    effect(
-      () => {
-        if (!this.gitStatus.hasChanges()) {
-          this.showChangedFiles.set(false);
-        }
-      },
-      { allowSignalWrites: true },
-    );
+    effect(() => {
+      if (!this.gitStatus.hasChanges()) {
+        this.showChangedFiles.set(false);
+      }
+    });
   }
 
   /** Close inline panels when clicking outside the component. */
@@ -234,8 +231,7 @@ export class GitStatusBarComponent {
     this.detailsPopoverOpen.update((v) => !v);
   }
 
-  protected onBranchCheckedOut(_branchName: string): void {
-  }
+  protected onBranchCheckedOut(_branchName: string): void {}
 
   /**
    * Handle file click from the changed files panel.

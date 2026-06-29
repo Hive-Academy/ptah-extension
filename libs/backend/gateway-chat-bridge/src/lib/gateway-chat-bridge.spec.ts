@@ -34,6 +34,9 @@ class FakeGateway extends EventEmitter {
   drainOutbound = jest.fn<Promise<void>, [ConversationKey]>(async () => {
     /* no-op */
   });
+  completeOutboundTurn = jest.fn<Promise<void>, [ConversationKey]>(async () => {
+    /* no-op */
+  });
 }
 
 function makeBinding(
@@ -246,7 +249,9 @@ describe('GatewayChatBridge', () => {
       'inbound',
       makeEvent(binding, 'hello agent', { conversation }),
     );
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
 
     expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
     const config = h.adapter.startChatSession.mock.calls[0][0];
@@ -256,7 +261,7 @@ describe('GatewayChatBridge', () => {
     expect(config.workspaceId).toBe('/ws/proj');
   });
 
-  it('appends a route-bearing chunk per text_delta and drains exactly once', async () => {
+  it('appends a route-bearing chunk per text_delta and flushes once at end of turn', async () => {
     const h = setup();
     const binding = makeBinding({ workspaceRoot: '/ws/proj' });
     h.adapter.startChatSession.mockResolvedValue(
@@ -270,7 +275,9 @@ describe('GatewayChatBridge', () => {
     h.bridge.start();
     const key = ConversationKey.for(binding.platform, binding.externalChatId);
     h.gateway.emit('inbound', makeEvent(binding, 'go'));
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
 
     const expectedRoute = {
       conversationKey: key,
@@ -286,8 +293,11 @@ describe('GatewayChatBridge', () => {
       'bar',
     );
     expect(h.gateway.appendOutboundChunk).toHaveBeenCalledTimes(2);
-    expect(h.gateway.drainOutbound).toHaveBeenCalledTimes(1);
-    expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
+    // No mid-turn drain on the agent-reply path — the single flush is the
+    // end-of-turn seal via completeOutboundTurn.
+    expect(h.gateway.drainOutbound).not.toHaveBeenCalled();
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledWith(key);
   });
 
   it('includes conversationId in the outbound route for threaded inbound', async () => {
@@ -312,7 +322,9 @@ describe('GatewayChatBridge', () => {
       'inbound',
       makeEvent(binding, 'go', { conversation, conversationId: 'thread-9' }),
     );
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
 
     const key = ConversationKey.for(
       binding.platform,
@@ -328,7 +340,8 @@ describe('GatewayChatBridge', () => {
       },
       'reply',
     );
-    expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledWith(key);
+    expect(h.gateway.drainOutbound).not.toHaveBeenCalled();
   });
 
   it('persists the first non-tabId sessionId to the conversation row exactly once', async () => {
@@ -345,7 +358,9 @@ describe('GatewayChatBridge', () => {
 
     h.bridge.start();
     h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
 
     expect(h.conversations.setPtahSessionId).toHaveBeenCalledTimes(1);
     expect(h.conversations.setPtahSessionId).toHaveBeenCalledWith(
@@ -367,7 +382,9 @@ describe('GatewayChatBridge', () => {
 
     h.bridge.start();
     h.gateway.emit('inbound', makeEvent(binding, 'go'));
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
     await flushUntil(() => h.adapter.endSession.mock.calls.length > 0);
 
     expect(h.adapter.endSession).toHaveBeenCalledWith(SDK_UUID);
@@ -385,7 +402,9 @@ describe('GatewayChatBridge', () => {
 
     h.bridge.start();
     h.gateway.emit('inbound', makeEvent(binding, 'go'));
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
 
     expect(h.adapter.setSessionPermissionLevel).toHaveBeenCalledWith(
       SDK_UUID,
@@ -409,7 +428,9 @@ describe('GatewayChatBridge', () => {
 
     h.bridge.start();
     h.gateway.emit('inbound', makeEvent(binding, 'again', { conversation }));
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
 
     expect(h.adapter.resumeSession).toHaveBeenCalledTimes(1);
     expect(h.adapter.startChatSession).not.toHaveBeenCalled();
@@ -471,7 +492,9 @@ describe('GatewayChatBridge', () => {
 
     h.bridge.start();
     h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
 
     expect(h.adapter.resumeSession).not.toHaveBeenCalled();
     expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
@@ -527,7 +550,9 @@ describe('GatewayChatBridge', () => {
 
     release['gw-conv-a']();
     release['gw-conv-b']();
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length === 2);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length === 2,
+    );
 
     const keyA = ConversationKey.for(
       'discord',
@@ -553,8 +578,9 @@ describe('GatewayChatBridge', () => {
       }),
       'answer-b',
     );
-    expect(h.gateway.drainOutbound).toHaveBeenCalledWith(keyA);
-    expect(h.gateway.drainOutbound).toHaveBeenCalledWith(keyB);
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledWith(keyA);
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledWith(keyB);
+    expect(h.gateway.drainOutbound).not.toHaveBeenCalled();
     expect(h.conversations.setPtahSessionId).toHaveBeenCalledWith(
       convA.id,
       SDK_UUID,
@@ -604,7 +630,9 @@ describe('GatewayChatBridge', () => {
     expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
 
     releaseFirst();
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length === 2);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length === 2,
+    );
 
     expect(h.adapter.startChatSession).toHaveBeenCalledTimes(2);
     expect(h.adapter.startChatSession.mock.calls[0][0].prompt).toBe('first');
@@ -628,7 +656,9 @@ describe('GatewayChatBridge', () => {
 
     h.bridge.start();
     h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
 
     expect(h.adapter.resumeSession).toHaveBeenCalledTimes(1);
     expect(h.adapter.resumeSession.mock.calls[0][0]).toBe(SDK_UUID);
@@ -652,7 +682,9 @@ describe('GatewayChatBridge', () => {
 
     h.bridge.start();
     h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
 
     expect(h.adapter.resumeSession).toHaveBeenCalled();
     expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
@@ -675,7 +707,9 @@ describe('GatewayChatBridge', () => {
 
     h.bridge.start();
     h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
 
     expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
   });
@@ -687,7 +721,9 @@ describe('GatewayChatBridge', () => {
     h.bridge.start();
     const key = ConversationKey.for(binding.platform, binding.externalChatId);
     h.gateway.emit('inbound', makeEvent(binding, 'go'));
-    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
 
     expect(h.adapter.startChatSession).not.toHaveBeenCalled();
     expect(h.adapter.resumeSession).not.toHaveBeenCalled();
@@ -713,7 +749,9 @@ describe('GatewayChatBridge', () => {
     await expect(
       (async () => {
         h.gateway.emit('inbound', makeEvent(binding, 'go'));
-        await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+        await flushUntil(
+          () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+        );
       })(),
     ).resolves.toBeUndefined();
 
@@ -723,6 +761,82 @@ describe('GatewayChatBridge', () => {
         ([, msg]) => typeof msg === 'string' && msg.length > 0,
       ),
     ).toBe(true);
+  });
+
+  it('seals the turn once via completeOutboundTurn in the finally (success path)', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'x'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    const key = ConversationKey.for(binding.platform, binding.externalChatId);
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    // Sealed exactly once, on the same key used for append/drain this turn.
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledWith(key);
+  });
+
+  it('emits exactly ONE outbound flush per turn — no mid-turn send on message_complete', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    // A turn with several text_delta events plus message_complete must NOT
+    // flush mid-turn. Every delta only accumulates; the single send happens
+    // once at end-of-turn via completeOutboundTurn. message_complete is no
+    // longer a flush point.
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'a'),
+        textDelta(SDK_UUID, 'b'),
+        messageComplete(SDK_UUID),
+        textDelta(SDK_UUID, 'c'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    const key = ConversationKey.for(binding.platform, binding.externalChatId);
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    // All three deltas were appended (accumulated), none triggered a send.
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledTimes(3);
+    // NO mid-turn drain on the agent-reply path.
+    expect(h.gateway.drainOutbound).not.toHaveBeenCalled();
+    // The single flush is the end-of-turn seal, fired exactly once.
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledWith(key);
+  });
+
+  it('still seals the turn when the stream errors mid-flight (finally path)', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue({
+      async *[Symbol.asyncIterator]() {
+        yield textDelta(SDK_UUID, 'partial');
+        throw new Error('mid-stream boom');
+      },
+    } as AsyncIterable<FlatStreamEventUnion>);
+
+    h.bridge.start();
+    const key = ConversationKey.for(binding.platform, binding.externalChatId);
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledWith(key);
   });
 
   it('stop() removes the listener so no further turns run', async () => {

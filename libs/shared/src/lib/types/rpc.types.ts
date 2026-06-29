@@ -1556,6 +1556,14 @@ export interface RpcMethodRegistry {
     params: GatewayListDiscordGuildsParams;
     result: GatewayListDiscordGuildsResult;
   };
+  'gateway:attachSession': {
+    params: GatewayAttachSessionParams;
+    result: GatewayAttachSessionResult;
+  };
+  'gateway:detachSession': {
+    params: GatewayDetachSessionParams;
+    result: GatewayDetachSessionResult;
+  };
 
   'voice:transcribe': {
     params: VoiceTranscribeParams;
@@ -1572,6 +1580,22 @@ export interface RpcMethodRegistry {
   'voice:downloadModel': {
     params: VoiceDownloadModelParams;
     result: VoiceDownloadModelResult;
+  };
+  'voice:getTtsConfig': {
+    params: VoiceGetTtsConfigParams;
+    result: VoiceGetTtsConfigResult;
+  };
+  'voice:setTtsConfig': {
+    params: VoiceSetTtsConfigParams;
+    result: VoiceSetTtsConfigResult;
+  };
+  'voice:downloadTtsModel': {
+    params: VoiceDownloadTtsModelParams;
+    result: VoiceDownloadTtsModelResult;
+  };
+  'voice:synthesize': {
+    params: VoiceSynthesizeParams;
+    result: VoiceSynthesizeResult;
   };
 
   'db:health': {
@@ -2069,6 +2093,42 @@ export type GatewayRegisterDiscordCommandsResult =
   | { ok: true; registered: number; scope: 'guild' | 'global' }
   | { ok: false; error: string };
 
+/**
+ * `gateway:attachSession` — attach an existing Ptah SDK session to an approved
+ * messaging binding so subsequent inbound platform messages resume that exact
+ * conversation. Webview-initiated: the webview supplies the real SDK
+ * `sessionUuid` AND the session's `workspaceRoot` (never inferred backend-side).
+ */
+export interface GatewayAttachSessionParams {
+  bindingId: string;
+  /** The canonical SDK session UUID to attach (from the webview). */
+  sessionUuid: string;
+  /** The session's workspace root — supplied by the webview, never inferred. */
+  workspaceRoot: string;
+  /** Optional external conversation id (Discord thread, etc.); defaults to 'default'. */
+  externalConversationId?: string;
+}
+export type GatewayAttachSessionResult =
+  | { ok: true; binding: GatewayBindingDto }
+  | {
+      ok: false;
+      error:
+        | 'binding-not-found'
+        | 'binding-not-approved'
+        | 'session-not-resumable';
+    };
+
+/**
+ * `gateway:detachSession` — clear the session link on a binding's
+ * conversation(s) (sets `ptahSessionId` to NULL). No continuity flag.
+ */
+export interface GatewayDetachSessionParams {
+  bindingId: string;
+}
+export type GatewayDetachSessionResult =
+  | { ok: true; binding: GatewayBindingDto }
+  | { ok: false; error: 'binding-not-found' };
+
 export interface GatewayDiscordGuildDto {
   id: string;
   name: string;
@@ -2114,6 +2174,44 @@ export interface VoiceDownloadModelParams {
 
 export type VoiceDownloadModelResult =
   | { ok: true; alreadyPresent: boolean }
+  | { ok: false; error: string; code?: string; remediation?: string };
+
+export interface TtsConfigDto {
+  /** Selected Kokoro voice id, e.g. 'af_heart'. */
+  voice: string;
+  /** Whether the Kokoro TTS model is already downloaded on disk. */
+  downloaded: boolean;
+}
+
+export type VoiceGetTtsConfigParams = Record<string, never>;
+
+export type VoiceGetTtsConfigResult =
+  | { ok: true; config: TtsConfigDto }
+  | { ok: false; error: string };
+
+export interface VoiceSetTtsConfigParams {
+  voice: string;
+}
+
+export type VoiceSetTtsConfigResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export type VoiceDownloadTtsModelParams = Record<string, never>;
+
+export type VoiceDownloadTtsModelResult =
+  | { ok: true; alreadyPresent: boolean }
+  | { ok: false; error: string; code?: string; remediation?: string };
+
+export interface VoiceSynthesizeParams {
+  /** Text to speak. */
+  text: string;
+  /** Voice id override; defaults to the configured TTS voice. */
+  voice?: string;
+}
+
+export type VoiceSynthesizeResult =
+  | { ok: true; audioBase64: string; mimeType: string }
   | { ok: false; error: string; code?: string; remediation?: string };
 
 export interface ScheduledJobDto {
@@ -2521,11 +2619,17 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'gateway:setDiscordAppId': true,
   'gateway:registerDiscordCommands': true,
   'gateway:listDiscordGuilds': true,
+  'gateway:attachSession': true,
+  'gateway:detachSession': true,
 
   'voice:transcribe': true,
   'voice:getConfig': true,
   'voice:setConfig': true,
   'voice:downloadModel': true,
+  'voice:getTtsConfig': true,
+  'voice:setTtsConfig': true,
+  'voice:downloadTtsModel': true,
+  'voice:synthesize': true,
 
   'db:health': true,
   'db:reset': true,

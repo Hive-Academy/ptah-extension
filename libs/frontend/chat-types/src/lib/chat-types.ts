@@ -9,6 +9,7 @@ import {
   SdkBackgroundTaskSummary,
   SdkSessionCronSummary,
   SdkTerminalReason,
+  GatewayPlatformId,
 } from '@ptah-extension/shared';
 
 /**
@@ -297,6 +298,19 @@ export interface TabState {
 
   /** Real Claude CLI session UUID (null if draft) */
   claudeSessionId: SessionId | null;
+
+  /**
+   * Messaging-gateway attachment link (frontend-only, NOT persisted).
+   *
+   * When set, this tab's SDK session has been handed off to a messaging
+   * binding (Telegram / Discord / Slack) and the tab is READ-ONLY in the
+   * webview — the composer is disabled and a banner offers "Resolve back to
+   * webview" (which calls `gateway:detachSession`). It is set/cleared purely
+   * by backend push events (`gateway:sessionAttached` / `gateway:sessionDetached`)
+   * via `TabManagerService.markTabAttached` / `markTabDetached`; the webview
+   * never writes it directly and it is never written to localStorage.
+   */
+  attachedBinding?: { bindingId: string; platform: GatewayPlatformId } | null;
 
   /** User-provided or auto-generated session name */
   name: string;
