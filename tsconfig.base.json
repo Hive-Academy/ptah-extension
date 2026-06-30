@@ -16,6 +16,9 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "paths": {
+      "@ptah/showcase-manifest": [
+        "./apps/ptah-electron-e2e/src/showcase/_harness/manifest.types.ts"
+      ],
       "@ptah-extension/agent-generation": [
         "./libs/backend/agent-generation/src/index.ts"
       ],
