@@ -3,9 +3,11 @@
  *
  * This is the single source of truth for the machine-readable timeline that the
  * Director emits alongside each `.webm` recording. It is imported by both the
- * Director (this e2e app) and the Remotion compositions (the video-studio app)
- * via the `@ptah/showcase-manifest` TS path alias — never re-declared on either
- * side, so the capture and render halves can never drift.
+ * Director (the `ptah-electron-e2e` app) and the Remotion compositions (the
+ * `ptah-video-studio` app) via the `@ptah-extension/showcase-manifest` package
+ * alias — never re-declared on either side, so the capture and render halves
+ * can never drift. It lives in its own `type:util` lib (not inside either app)
+ * because Nx forbids importing one application/e2e project from another.
  *
  * Timing model: beat `tMs` and `recordStartMs`/`durationMs` use `Date.now()`
  * wall-clock. This is acceptable here (unlike workflow scripts, where wall-clock

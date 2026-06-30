@@ -1,7 +1,7 @@
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Beat, SceneManifest } from './manifest.types';
+import type { Beat, SceneManifest } from '@ptah-extension/showcase-manifest';
 
 /**
  * Director — cinematic helper for recording marketing scenes.
