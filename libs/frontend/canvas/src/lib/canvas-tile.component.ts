@@ -19,6 +19,7 @@ import {
   ChatViewComponent,
   TabManagerService,
   SESSION_CONTEXT,
+  SendToMessagingComponent,
 } from '@ptah-extension/chat';
 import { EffortStateService, ModelStateService } from '@ptah-extension/core';
 import { LucideAngularModule, Minimize2, Maximize2 } from 'lucide-angular';
@@ -48,6 +49,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
     LucideAngularModule,
     TileAgentIndicatorComponent,
     TileAgentMiniPanelComponent,
+    SendToMessagingComponent,
   ],
   template: `
     <div
@@ -67,6 +69,10 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
           tabLabel()
         }}</span>
         <ptah-tile-agent-indicator [tabId]="tabId()" />
+        <ptah-send-to-messaging
+          [tabId]="tabId()"
+          (click)="$event.stopPropagation()"
+        />
         <button
           class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-base-content"
           (click)="onToggleViewMode($event)"

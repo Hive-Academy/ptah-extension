@@ -91,6 +91,7 @@ export {
   PermissionRequestCardComponent,
 } from '@ptah-extension/chat-ui';
 export * from './molecules/chat-input/chat-input.component';
+export * from './molecules/send-to-messaging/send-to-messaging.component';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.
