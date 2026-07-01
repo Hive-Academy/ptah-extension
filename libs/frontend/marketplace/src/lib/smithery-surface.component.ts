@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   BadgeCheck,
   KeyRound,
+  Sparkles,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { JsonSchemaFormComponent, JsonSchemaObject } from '@ptah-extension/ui';
@@ -26,6 +27,30 @@ import type {
 } from '@ptah-extension/shared';
 
 /**
+ * A curated category. Smithery has NO category field, so categories are
+ * implemented as curated search queries — exactly as smithery.ai does.
+ */
+interface SmitheryCategory {
+  readonly label: string;
+  /** Search query this chip drives. Empty string = default browse (All). */
+  readonly query: string;
+}
+
+/** Curated category chips. `All` ('') browses the full popular list. */
+const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
+  { label: 'All', query: '' },
+  { label: 'Web Search', query: 'web search' },
+  { label: 'Browser Automation', query: 'browser automation' },
+  { label: 'Academic Research', query: 'academic research' },
+  { label: 'Finance', query: 'finance' },
+  { label: 'Dev Tools', query: 'developer tools' },
+  { label: 'Memory', query: 'memory' },
+  { label: 'Communication', query: 'communication' },
+  { label: 'Productivity', query: 'productivity' },
+  { label: 'Data', query: 'database' },
+] as const;
+
+/**
  * SmitherySurfaceComponent — the Smithery provider surface mounted by the
  * Marketplace hub for the `smithery` descriptor.
  *
@@ -33,19 +58,23 @@ import type {
  *  - On mount it resolves `mcpDirectory:getSmitheryKeyStatus`. When the key is
  *    NOT configured it renders an API-key entry prompt and fires NO browse RPC.
  *  - Saving a key writes via `mcpDirectory:setSmitheryApiKey`, then re-checks
- *    status and (on success) loads the popular list.
- *  - All browse RPCs (`search`/`getPopular`/`getDetails`) carry `source:'smithery'`.
+ *    status and (on success) loads the first browse page.
+ *  - Browse is unified behind the cursor-paginated `mcpDirectory:search`
+ *    (`source:'smithery'`). The "effective query" is the search box text, the
+ *    active category's query, or '' for All — `q:''` returns the popular list.
+ *    Pages accumulate; "Load more" appends the next cursor page.
  *  - Install resolves details, renders {@link JsonSchemaFormComponent} when the
  *    connection carries a `configSchema` with properties (else one-click), then
  *    calls `mcpDirectory:resolveSmithery`. Resolve success/error is surfaced
  *    in-view — no blank screen / unhandled rejection.
  *
  * The hub already gates the whole view on premium; this surface only mounts for
- * premium users. As a defensive measure it still refuses to fire any RPC unless
- * key status has been resolved.
+ * premium users. As a defensive measure it still refuses to fire any browse RPC
+ * unless key status has been resolved to `configured`.
  *
- * Complexity Level: 3 — key-gate state machine + browse + per-server config form
- * + resolve flow. Patterns: signal state, debounced search, DaisyUI cards.
+ * Complexity Level: 3 — key-gate state machine + paginated browse + category
+ * chips + per-server config form + resolve flow. Patterns: signal state,
+ * debounced search, cursor pagination, DaisyUI cards.
  */
 @Component({
   selector: 'ptah-smithery-surface',
@@ -141,6 +170,23 @@ import type {
           }
         </div>
 
+        <!-- Category chips: curated search queries (Smithery has no category field). -->
+        <div class="flex gap-1 flex-wrap">
+          @for (cat of categories; track cat.label) {
+            <button
+              type="button"
+              class="btn btn-xs rounded-full normal-case font-medium"
+              [class.btn-primary]="isCategoryActive(cat)"
+              [class.btn-ghost]="!isCategoryActive(cat)"
+              [class.border-base-300]="!isCategoryActive(cat)"
+              [attr.aria-pressed]="isCategoryActive(cat)"
+              (click)="selectCategory(cat)"
+            >
+              {{ cat.label }}
+            </button>
+          }
+        </div>
+
         @if (browseError()) {
           <div class="alert alert-error alert-sm py-1 px-2">
             <span class="text-xs">{{ browseError() }}</span>
@@ -155,7 +201,7 @@ import type {
         }
 
         <div>
-          @if (isLoadingPopular() && !searchQuery()) {
+          @if (isLoadingInitial()) {
             @for (i of [1, 2, 3, 4, 5]; track i) {
               <div class="skeleton h-16 w-full rounded-lg mb-1.5"></div>
             }
@@ -163,28 +209,49 @@ import type {
             <div
               class="text-[11px] text-base-content/50 uppercase tracking-wide mb-1.5 font-medium"
             >
-              {{ searchQuery() ? 'Search Results' : 'Popular Servers' }}
+              {{ listHeading() }}
             </div>
-            @if (displayServers().length === 0) {
+            @if (servers().length === 0) {
               <div class="text-xs text-base-content/50 text-center py-4">
-                {{
-                  searchQuery()
-                    ? 'No servers found for "' + searchQuery() + '"'
-                    : 'No servers available'
-                }}
+                {{ emptyMessage() }}
               </div>
             }
             <div class="space-y-1.5">
-              @for (server of displayServers(); track server.name) {
+              @for (server of servers(); track server.name) {
                 <div
                   class="rounded-lg border border-base-300 bg-base-200/30 hover:bg-base-200/60 transition-colors"
                 >
                   <div class="flex items-start gap-2 p-2">
+                    <!-- Logo / lettered fallback avatar -->
+                    @if (iconSrc(server); as src) {
+                      <!-- eslint-disable @angular-eslint/template/prefer-ngsrc -- remote logos have unknown dimensions and need an (error) fallback; NgOptimizedImage is unsuitable -->
+                      <img
+                        [attr.src]="src"
+                        [attr.alt]="cardTitle(server) + ' logo'"
+                        class="w-8 h-8 rounded-lg object-cover bg-base-300 shrink-0"
+                        loading="lazy"
+                        (error)="onIconError(src)"
+                      />
+                      <!-- eslint-enable @angular-eslint/template/prefer-ngsrc -->
+                    } @else {
+                      <div
+                        class="w-8 h-8 rounded-lg bg-base-300 border border-base-300 flex items-center justify-center shrink-0"
+                        aria-hidden="true"
+                      >
+                        <span
+                          class="text-sm font-semibold text-base-content/60"
+                        >
+                          {{ avatarLetter(server) }}
+                        </span>
+                      </div>
+                    }
+
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-1.5 flex-wrap">
-                        <span class="text-xs font-medium text-base-content">{{
-                          getDisplayName(server.name)
-                        }}</span>
+                        <span
+                          class="text-xs font-medium text-base-content truncate"
+                          >{{ cardTitle(server) }}</span
+                        >
                         @if (server.verified) {
                           <span
                             class="badge badge-xs badge-info text-[10px] gap-0.5"
@@ -209,6 +276,18 @@ import type {
                             Scan passed
                           </span>
                         }
+                        @if (server.bySmithery) {
+                          <span
+                            class="badge badge-xs badge-neutral text-[10px] gap-0.5"
+                          >
+                            <lucide-angular
+                              [img]="SparklesIcon"
+                              class="w-2 h-2"
+                              aria-hidden="true"
+                            />
+                            Managed
+                          </span>
+                        }
                         @if (resolvedNames().has(server.name)) {
                           <span
                             class="badge badge-xs badge-primary text-[10px] gap-0.5"
@@ -220,6 +299,20 @@ import type {
                             />
                             Ready
                           </span>
+                        }
+                      </div>
+                      <div
+                        class="flex items-center gap-1 text-[10px] text-base-content/40 font-mono mt-0.5 truncate"
+                      >
+                        <span class="truncate">{{ server.name }}</span>
+                        @if (hasUseCount(server)) {
+                          <span aria-hidden="true">·</span>
+                          <span class="whitespace-nowrap"
+                            >{{
+                              formatUseCount(server.useCount ?? 0)
+                            }}
+                            uses</span
+                          >
                         }
                       </div>
                       <p
@@ -234,9 +327,7 @@ import type {
                         [disabled]="installingNames().has(server.name)"
                         (click)="toggleInstallPanel(server)"
                         type="button"
-                        [attr.aria-label]="
-                          'Install ' + getDisplayName(server.name)
-                        "
+                        [attr.aria-label]="'Install ' + cardTitle(server)"
                       >
                         @if (installingNames().has(server.name)) {
                           <span
@@ -322,6 +413,23 @@ import type {
                 </div>
               }
             </div>
+
+            <!-- Load more: appends the next cursor page. -->
+            @if (nextCursor()) {
+              <button
+                class="btn btn-ghost btn-sm w-full mt-1.5 border border-base-300"
+                type="button"
+                [disabled]="isLoadingMore()"
+                (click)="loadMore()"
+              >
+                @if (isLoadingMore()) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                  Loading...
+                } @else {
+                  Load more
+                }
+              </button>
+            }
           }
         </div>
 
@@ -362,6 +470,10 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
   protected readonly ShieldCheckIcon = ShieldCheck;
   protected readonly BadgeCheckIcon = BadgeCheck;
   protected readonly KeyRoundIcon = KeyRound;
+  protected readonly SparklesIcon = Sparkles;
+
+  /** Curated category chips exposed to the template. */
+  protected readonly categories = SMITHERY_CATEGORIES;
 
   /** 'unknown' until status RPC resolves; gates ALL browse RPC. */
   public readonly keyStatus = signal<
@@ -372,12 +484,28 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
   public readonly isSavingKey = signal(false);
   public readonly keyError = signal<string | null>(null);
 
+  /** Free-text search box content. */
   public readonly searchQuery = signal('');
-  public readonly searchResults = signal<McpRegistryEntry[]>([]);
-  public readonly popularServers = signal<McpRegistryEntry[]>([]);
+  /**
+   * Active category. `null` means "free-text mode" (driven by the search box).
+   * Defaults to the All chip ('' query) so the popular list loads on mount.
+   */
+  public readonly activeCategory = signal<SmitheryCategory | null>(
+    SMITHERY_CATEGORIES[0],
+  );
+
+  /** Unified, accumulated browse list (all pages). */
+  public readonly servers = signal<McpRegistryEntry[]>([]);
+  /** Cursor for the next page, or null when exhausted. */
+  public readonly nextCursor = signal<string | null>(null);
+
+  public readonly isLoadingInitial = signal(false);
+  public readonly isLoadingMore = signal(false);
   public readonly isSearching = signal(false);
-  public readonly isLoadingPopular = signal(false);
   public readonly browseError = signal<string | null>(null);
+
+  /** Remote icon srcs that failed to load → render the lettered fallback. */
+  public readonly failedIcons = signal<Set<string>>(new Set());
 
   public readonly expandedName = signal<string | null>(null);
   public readonly isLoadingDetails = signal(false);
@@ -391,14 +519,33 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
   public readonly resolvedNames = signal<Set<string>>(new Set());
   public readonly resolveError = signal<string | null>(null);
 
-  public readonly displayServers = computed(() =>
-    this.searchQuery() ? this.searchResults() : this.popularServers(),
-  );
+  /**
+   * Back-compat accessor: the rendered list. Tests and any consumers can read
+   * `displayServers()` as the single source of the visible browse list.
+   */
+  public readonly displayServers = computed(() => this.servers());
 
   /** True when the active config form (if any) is satisfied. */
   public readonly canResolve = computed(
     () => this.activeConfigSchema() === null || this.configValid(),
   );
+
+  /** Heading above the list, reflecting the current browse mode. */
+  public readonly listHeading = computed(() => {
+    if (this.searchQuery().trim()) return 'Search Results';
+    const cat = this.activeCategory();
+    if (cat && cat.query) return cat.label;
+    return 'Popular Servers';
+  });
+
+  /** Empty-state message reflecting the current browse mode. */
+  public readonly emptyMessage = computed(() => {
+    const q = this.searchQuery().trim();
+    if (q) return `No servers found for "${q}"`;
+    const cat = this.activeCategory();
+    if (cat && cat.query) return `No servers found for "${cat.label}"`;
+    return 'No servers available';
+  });
 
   private searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -414,6 +561,8 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
       clearTimeout(this.searchTimeout);
     }
   }
+
+  // ── Key gate ───────────────────────────────────────────────────────────────
 
   public onKeyInput(event: Event): void {
     this.keyInput.set((event.target as HTMLInputElement).value);
@@ -449,21 +598,102 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
     }
   }
 
+  // ── Category chips ──────────────────────────────────────────────────────────
+
+  /** A chip is active when it matches the current category AND no free text is active. */
+  public isCategoryActive(cat: SmitheryCategory): boolean {
+    return !this.searchQuery().trim() && this.activeCategory() === cat;
+  }
+
+  /** Selecting a chip clears free-text mode and drives a fresh browse. */
+  public selectCategory(cat: SmitheryCategory): void {
+    if (this.searchTimeout) {
+      clearTimeout(this.searchTimeout);
+      this.searchTimeout = null;
+    }
+    this.searchQuery.set('');
+    this.isSearching.set(false);
+    this.activeCategory.set(cat);
+    void this.runBrowse();
+  }
+
+  // ── Search box ──────────────────────────────────────────────────────────────
+
   public onSearchInput(event: Event): void {
     const query = (event.target as HTMLInputElement).value;
     this.searchQuery.set(query);
+    // Typing exits category mode into free-text mode.
+    this.activeCategory.set(null);
 
     if (this.searchTimeout) {
       clearTimeout(this.searchTimeout);
     }
     if (!query.trim()) {
-      this.searchResults.set([]);
+      // Empty box → fall back to the All (popular) browse.
       this.isSearching.set(false);
+      this.activeCategory.set(SMITHERY_CATEGORIES[0]);
+      void this.runBrowse();
       return;
     }
     this.isSearching.set(true);
     this.searchTimeout = setTimeout(() => this.performSearch(query), 300);
   }
+
+  // ── Logos / avatars ─────────────────────────────────────────────────────────
+
+  /** Effective icon src for a card, or null when absent / previously failed. */
+  public iconSrc(server: McpRegistryEntry): string | null {
+    const src = server.icons?.[0]?.src;
+    if (!src) return null;
+    return this.failedIcons().has(src) ? null : src;
+  }
+
+  /** Remember a failed remote icon so the lettered avatar renders instead. */
+  public onIconError(src: string): void {
+    this.failedIcons.update((s) => new Set([...s, src]));
+  }
+
+  /** First letter of the card title for the fallback avatar. */
+  public avatarLetter(server: McpRegistryEntry): string {
+    const title = this.cardTitle(server).trim();
+    return (title.charAt(0) || '?').toUpperCase();
+  }
+
+  // ── Card display helpers ────────────────────────────────────────────────────
+
+  /** Preferred card title: friendly displayName, else the qualified-name leaf. */
+  public cardTitle(server: McpRegistryEntry): string {
+    return server.displayName?.trim() || this.getDisplayName(server.name);
+  }
+
+  public getDisplayName(name: string): string {
+    const parts = name.split('/');
+    return parts[parts.length - 1] || name;
+  }
+
+  /** Whether a useCount popularity signal is present (null/undefined → false). */
+  public hasUseCount(server: McpRegistryEntry): boolean {
+    return server.useCount !== null && server.useCount !== undefined;
+  }
+
+  /** Compact popularity formatter: 41630 → "41.6k", 2_400_000 → "2.4M". */
+  public formatUseCount(count: number): string {
+    if (count >= 1_000_000) {
+      return `${this.trimZero(count / 1_000_000)}M`;
+    }
+    if (count >= 1_000) {
+      return `${this.trimZero(count / 1_000)}k`;
+    }
+    return `${count}`;
+  }
+
+  private trimZero(value: number): string {
+    // One decimal, but drop a trailing ".0" (e.g. 2.0 → "2").
+    const rounded = Math.round(value * 10) / 10;
+    return Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1);
+  }
+
+  // ── Install / resolve ───────────────────────────────────────────────────────
 
   public async toggleInstallPanel(server: McpRegistryEntry): Promise<void> {
     if (this.expandedName() === server.name) {
@@ -525,10 +755,7 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
     }
   }
 
-  public getDisplayName(name: string): string {
-    const parts = name.split('/');
-    return parts[parts.length - 1] || name;
-  }
+  // ── Browse / pagination ─────────────────────────────────────────────────────
 
   private async checkKeyStatus(): Promise<void> {
     try {
@@ -540,7 +767,7 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
       const configured = result.isSuccess() && result.data.configured === true;
       this.keyStatus.set(configured ? 'configured' : 'not-configured');
       if (configured) {
-        await this.loadPopular();
+        await this.runBrowse();
       }
     } catch {
       if (this.destroyed) return;
@@ -548,53 +775,110 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
     }
   }
 
-  private async loadPopular(): Promise<void> {
-    this.isLoadingPopular.set(true);
+  /** The query to browse with: free text, else active category, else ''. */
+  private effectiveQuery(): string {
+    const text = this.searchQuery().trim();
+    if (text) return text;
+    return this.activeCategory()?.query ?? '';
+  }
+
+  /**
+   * Reset the list and load the first page for the current effective query.
+   * Gated on `keyStatus() === 'configured'` — defence in depth.
+   */
+  private async runBrowse(): Promise<void> {
+    if (this.keyStatus() !== 'configured') return;
+    this.isLoadingInitial.set(true);
     this.browseError.set(null);
+    this.nextCursor.set(null);
     try {
-      const result = await this.rpc.call('mcpDirectory:getPopular', {
-        source: 'smithery',
-      });
+      const result = await this.searchPage(this.effectiveQuery(), undefined);
       if (this.destroyed) return;
       if (result.isSuccess()) {
-        this.popularServers.set(result.data.servers);
+        this.servers.set(result.data.servers);
+        this.nextCursor.set(result.data.nextCursor ?? null);
       } else {
-        this.browseError.set(
-          result.error ?? 'Failed to load popular Smithery servers',
-        );
-        this.popularServers.set([]);
+        this.browseError.set(result.error ?? 'Failed to load Smithery servers');
+        this.servers.set([]);
       }
     } catch {
       if (this.destroyed) return;
-      this.browseError.set('Failed to load popular Smithery servers');
-      this.popularServers.set([]);
+      this.browseError.set('Failed to load Smithery servers');
+      this.servers.set([]);
     } finally {
-      if (!this.destroyed) this.isLoadingPopular.set(false);
+      if (!this.destroyed) this.isLoadingInitial.set(false);
     }
   }
 
-  private async performSearch(query: string): Promise<void> {
+  /** Append the next cursor page. No-op when no cursor or already loading. */
+  public async loadMore(): Promise<void> {
+    const cursor = this.nextCursor();
+    if (!cursor || this.isLoadingMore() || this.keyStatus() !== 'configured') {
+      return;
+    }
+    this.isLoadingMore.set(true);
     this.browseError.set(null);
     try {
-      const result = await this.rpc.call('mcpDirectory:search', {
-        query,
-        source: 'smithery',
-      });
+      const result = await this.searchPage(this.effectiveQuery(), cursor);
       if (this.destroyed) return;
       if (result.isSuccess()) {
-        this.searchResults.set(result.data.servers);
+        this.servers.update((prev) => [...prev, ...result.data.servers]);
+        this.nextCursor.set(result.data.nextCursor ?? null);
+      } else {
+        this.browseError.set(result.error ?? 'Failed to load more servers');
+      }
+    } catch {
+      if (this.destroyed) return;
+      this.browseError.set('Failed to load more servers');
+    } finally {
+      if (!this.destroyed) this.isLoadingMore.set(false);
+    }
+  }
+
+  /** Debounced free-text search. Resets the list (page 1). */
+  private async performSearch(query: string): Promise<void> {
+    if (this.keyStatus() !== 'configured') {
+      this.isSearching.set(false);
+      return;
+    }
+    this.browseError.set(null);
+    this.nextCursor.set(null);
+    try {
+      const result = await this.searchPage(query, undefined);
+      if (this.destroyed) return;
+      if (result.isSuccess()) {
+        this.servers.set(result.data.servers);
+        this.nextCursor.set(result.data.nextCursor ?? null);
       } else {
         this.browseError.set(result.error ?? 'Search failed');
-        this.searchResults.set([]);
+        this.servers.set([]);
       }
     } catch {
       if (this.destroyed) return;
       this.browseError.set('Search failed');
-      this.searchResults.set([]);
+      this.servers.set([]);
     } finally {
       if (!this.destroyed) this.isSearching.set(false);
     }
   }
+
+  /**
+   * Single cursor-paginated `mcpDirectory:search` call. `cursor` is omitted
+   * from the params object when undefined to keep the wire payload minimal.
+   */
+  private searchPage(query: string, cursor: string | undefined) {
+    const params: {
+      query: string;
+      source: 'smithery';
+      cursor?: string;
+    } = { query, source: 'smithery' };
+    if (cursor !== undefined) {
+      params.cursor = cursor;
+    }
+    return this.rpc.call('mcpDirectory:search', params);
+  }
+
+  // ── Internals ───────────────────────────────────────────────────────────────
 
   private extractConfigSchema(
     connections: McpRegistryConnection[] | undefined,
