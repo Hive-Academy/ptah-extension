@@ -1,0 +1,64 @@
+{
+  "name": "ptah-video-studio",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/ptah-video-studio/src",
+  "tags": ["scope:video-studio", "type:app"],
+  "implicitDependencies": ["ptah-electron-e2e"],
+  "targets": {
+    "studio": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ptah-video-studio",
+        "command": "npx remotion studio src/Root.tsx"
+      }
+    },
+    "polish": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node apps/ptah-video-studio/scripts/polish.mjs"
+      }
+    },
+    "narrate": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node apps/ptah-video-studio/scripts/narrate.mjs"
+      }
+    },
+    "caption": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node apps/ptah-video-studio/scripts/caption.mjs"
+      }
+    },
+    "render": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node apps/ptah-video-studio/scripts/render-all.mjs"
+      }
+    },
+    "video": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        { "target": "showcase", "projects": ["ptah-electron-e2e"] }
+      ],
+      "options": {
+        "parallel": false,
+        "commands": [
+          "node apps/ptah-video-studio/scripts/narrate.mjs",
+          "node apps/ptah-video-studio/scripts/caption.mjs",
+          "node apps/ptah-video-studio/scripts/render-all.mjs"
+        ]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project apps/ptah-video-studio/tsconfig.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}

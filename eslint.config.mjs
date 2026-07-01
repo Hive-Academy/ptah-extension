@@ -5,7 +5,17 @@ export default [
   ...nx.configs['flat/typescript'],
   ...nx.configs['flat/javascript'],
   {
-    ignores: ['**/dist', '**/.vscode-test/**'],
+    ignores: [
+      '**/dist',
+      '**/.vscode-test/**',
+      // ptah-video-studio transient artifacts: Remotion bundle output, the
+      // whisper.cpp binary/model cache, and rendered mp4 output. All are
+      // generated/downloaded (gitignored) and must never be linted.
+      'apps/ptah-video-studio/build/**',
+      'apps/ptah-video-studio/.whisper/**',
+      'apps/ptah-video-studio/out/**',
+      'apps/ptah-video-studio/.remotion/**',
+    ],
   },
   {
     files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
