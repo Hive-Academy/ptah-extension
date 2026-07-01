@@ -1,14 +1,17 @@
 /**
  * caption.mjs — word-level caption timestamps via whisper.cpp.
  *
- * Pipeline per scene:
- *   1. ffmpeg-static concat of wav/*.wav (beat order) into wav/_concat.wav,
- *      resampled to 16kHz / mono / s16 — the format whisper.cpp requires and
- *      the exact track Remotion mixes, so word timings align to the final audio.
+ * Pipeline per scene (per-beat, footage-timed):
+ *   1. For each beat wav (wav/NNNN.wav), ffmpeg-static resamples it to
+ *      16kHz / mono / s16 — the format whisper.cpp requires.
  *   2. @remotion/install-whisper-cpp: installWhisperCpp -> downloadWhisperModel
- *      (base.en) -> transcribe(tokenLevelTimestamps:true) -> toCaptions.
- *   3. Write captions.json = the Caption[] consumed by <LowerThird> /
- *      @remotion/captions.
+ *      (base.en) -> transcribe(tokenLevelTimestamps:true) -> toCaptions, per wav.
+ *   3. Each beat's tokens are OFFSET by that beat's recorded `tMs` (from
+ *      durations.json / beats.json) so caption timings live on the same footage
+ *      timeline as the per-beat <Audio> placements. This keeps voice and words
+ *      locked even when beats are spread across the scene (no concat drift).
+ *   4. Write captions.json = the flat Caption[] (footage-timed, sorted by
+ *      startMs) consumed by <LowerThird> / @remotion/captions with offsetMs=0.
  *
  * Binary + model cache under apps/ptah-video-studio/.whisper (gitignored,
  * idempotent first-run download ~150MB for base.en).
@@ -42,6 +45,39 @@ function ffmpegBin() {
   return bin;
 }
 
+/**
+ * Merge whisper's sub-word / punctuation tokens into whole words.
+ *
+ * `tokenLevelTimestamps` emits BPE fragments — "refactors" arrives as
+ * "ref"+"act"+"ors" and "." as its own token. A new word is signalled by a
+ * LEADING SPACE in the token text; continuations and bare punctuation attach to
+ * the previous word. Word start = first fragment's start; end = last fragment's
+ * end. Without this, captions render as "ref act ors . valid ator".
+ */
+function mergeToWords(tokens) {
+  const words = [];
+  for (const t of tokens) {
+    const trimmed = t.text.trim();
+    if (!trimmed) continue;
+    const isPunct = /^[.,!?;:'")\]}%…–-]+$/.test(trimmed);
+    const startsWord = /^\s/.test(t.text) && !isPunct;
+    if (words.length === 0 || startsWord) {
+      words.push({
+        text: trimmed,
+        startMs: t.startMs,
+        endMs: t.endMs,
+        timestampMs: t.timestampMs ?? null,
+        confidence: t.confidence ?? null,
+      });
+    } else {
+      const w = words[words.length - 1];
+      w.text += trimmed;
+      w.endMs = t.endMs;
+    }
+  }
+  return words;
+}
+
 /** Ordered list of wav files for a scene (excluding the transient concat). */
 function orderedWavs(wavDir) {
   if (!fs.existsSync(wavDir)) return [];
@@ -52,36 +88,37 @@ function orderedWavs(wavDir) {
     .map((f) => path.join(wavDir, f));
 }
 
-/** Concat + resample to 16kHz/mono/s16 -> wav/_concat.wav. */
-function buildConcat(wavDir) {
-  const wavs = orderedWavs(wavDir);
-  if (wavs.length === 0) {
-    throw new Error(`No per-beat wavs in ${wavDir} — run narrate.mjs first.`);
-  }
-  const concatPath = path.join(wavDir, '_concat.wav');
-  const listPath = path.join(wavDir, '_concat-list.txt');
-  // ffmpeg concat demuxer needs a list file with escaped absolute paths.
-  const listBody = wavs
-    .map((w) => `file '${w.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`)
-    .join('\n');
-  fs.writeFileSync(listPath, listBody);
-
+/** Resample a single wav to 16kHz/mono/s16 (the format whisper.cpp needs). */
+function resample16k(srcWav, outWav) {
   execFileSync(
     ffmpegBin(),
-    [
-      '-y',
-      '-f', 'concat',
-      '-safe', '0',
-      '-i', listPath,
-      '-ar', '16000',
-      '-ac', '1',
-      '-sample_fmt', 's16',
-      concatPath,
-    ],
+    ['-y', '-i', srcWav, '-ar', '16000', '-ac', '1', '-sample_fmt', 's16', outWav],
     { stdio: 'inherit' },
   );
-  fs.rmSync(listPath, { force: true });
-  return concatPath;
+}
+
+/**
+ * Ordered [{ wav, beatTMs }] for a scene. Prefers durations.json (authoritative
+ * beatTMs written by narrate.mjs); falls back to pairing sorted wavs with
+ * beats.json tMs by order.
+ */
+function orderedClips(dir, wavDir) {
+  const durationsPath = path.join(dir, 'durations.json');
+  if (fs.existsSync(durationsPath)) {
+    const d = JSON.parse(fs.readFileSync(durationsPath, 'utf8'));
+    return (d.clips ?? [])
+      .slice()
+      .sort((a, b) => a.index - b.index)
+      .map((c) => ({ wav: path.join(dir, c.file), beatTMs: c.beatTMs ?? 0 }));
+  }
+  const beatsPath = path.join(dir, 'beats.json');
+  const beats = fs.existsSync(beatsPath)
+    ? JSON.parse(fs.readFileSync(beatsPath, 'utf8')).beats ?? []
+    : [];
+  return orderedWavs(wavDir).map((wav, i) => ({
+    wav,
+    beatTMs: beats[i]?.tMs ?? 0,
+  }));
 }
 
 async function captionScene(scene, opts) {
@@ -101,8 +138,10 @@ async function captionScene(scene, opts) {
     }
   }
 
-  console.log(`[caption] ${scene}: building 16kHz mono concat…`);
-  const concatPath = buildConcat(wavDir);
+  const clips = orderedClips(dir, wavDir);
+  if (clips.length === 0) {
+    throw new Error(`No per-beat wavs in ${wavDir} — run narrate.mjs first.`);
+  }
 
   // Do NOT pre-create WHISPER_DIR: installWhisperCpp rejects a pre-existing
   // folder that lacks the binary as a stale install. Let it own creation;
@@ -112,18 +151,38 @@ async function captionScene(scene, opts) {
   await installWhisperCpp({ to: WHISPER_DIR, version: WHISPER_VERSION });
   await downloadWhisperModel({ model: opts.model, folder: WHISPER_DIR });
 
-  console.log(`[caption] ${scene}: transcribing (${opts.model})…`);
-  const whisperOutput = await transcribe({
-    inputPath: concatPath,
-    whisperPath: WHISPER_DIR,
-    whisperCppVersion: WHISPER_VERSION,
-    model: opts.model,
-    tokenLevelTimestamps: true,
-  });
-
-  const { captions } = toCaptions({ whisperCppOutput: whisperOutput });
-  fs.writeFileSync(captionsPath, JSON.stringify(captions, null, 2));
-  console.log(`[caption] ${scene}: wrote ${captions.length} caption token(s).`);
+  const tmp16k = path.join(wavDir, '_t16k.wav');
+  const all = [];
+  console.log(`[caption] ${scene}: transcribing ${clips.length} beat(s) (${opts.model})…`);
+  for (const { wav, beatTMs } of clips) {
+    if (!fs.existsSync(wav)) continue;
+    resample16k(wav, tmp16k);
+    const whisperOutput = await transcribe({
+      inputPath: tmp16k,
+      whisperPath: WHISPER_DIR,
+      whisperCppVersion: WHISPER_VERSION,
+      model: opts.model,
+      tokenLevelTimestamps: true,
+    });
+    const { captions } = toCaptions({ whisperCppOutput: whisperOutput });
+    // Merge sub-word tokens into whole words, then shift each word onto the
+    // footage timeline so it aligns with the beat's <Audio> (placed at tMs).
+    for (const w of mergeToWords(captions)) {
+      all.push({
+        text: w.text,
+        startMs: w.startMs + beatTMs,
+        endMs: w.endMs + beatTMs,
+        timestampMs: w.timestampMs == null ? null : w.timestampMs + beatTMs,
+        confidence: w.confidence ?? null,
+      });
+    }
+  }
+  fs.rmSync(tmp16k, { force: true });
+  all.sort((a, b) => a.startMs - b.startMs);
+  fs.writeFileSync(captionsPath, JSON.stringify(all, null, 2));
+  console.log(
+    `[caption] ${scene}: wrote ${all.length} caption token(s) across ${clips.length} beat(s).`,
+  );
 }
 
 async function main() {

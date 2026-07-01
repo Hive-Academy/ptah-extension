@@ -1,46 +1,55 @@
 /**
  * ShowcaseVideo — the single parametric Remotion composition.
  *
- * Layout (Phase 1, audio-follows-video):
- *   [IntroCard]  ->  [ recording + narration + captions ]  ->  [OutroCard]
+ * Layer stack (bottom → top):
+ *   <Backdrop>            animated gradient, continuous across all sections
+ *   <Series>             intro card → body (device frame + VO + captions) → outro
+ *   <Watermark>          persistent PTAH wordmark
+ *   <ProgressBar>        thin amber playback bar
  *
- * - Background: <OffthreadVideo> of raw.webm wrapped in optional <KenBurns>.
- *   OffthreadVideo (ffmpeg frame extraction) is mandatory over <Video> for
- *   reliable webm seeking in headless render.
- * - Narration: one <Audio> per beat inside a <Sequence from={msToFrames(tMs)}>,
- *   dropped at the beat's recorded wall-clock tMs (FR-11).
- * - Captions: word-synced <LowerThird>, offset so caption timings (relative to
- *   the concatenated narration track) line up with where audio actually plays.
+ * Sections fade at their edges so the intro→body→outro cuts read as crossfades
+ * through the shared backdrop. Narration is one <Audio> per beat placed at the
+ * beat's recorded tMs; captions are footage-timed (offsetMs=0) so words and
+ * voice stay locked. The recording is framed in a <DeviceFrame> that also clips
+ * the capture's bottom padding band (see DeviceFrame + render-all detection).
  */
 import React from 'react';
 import {
   AbsoluteFill,
-  Audio,
-  OffthreadVideo,
-  Sequence,
   Series,
+  interpolate,
   staticFile,
+  useCurrentFrame,
+  useVideoConfig,
 } from 'remotion';
 import type { SceneManifest } from '@ptah-extension/showcase-manifest';
-import { KenBurns } from './components/KenBurns';
-import { LowerThird } from './components/LowerThird';
+import { Backdrop } from './components/Backdrop';
+import { type SourceInfo } from './components/DeviceFrame';
+import { BodyScene } from './components/BodyScene';
 import { IntroCard } from './components/IntroCard';
 import { OutroCard } from './components/OutroCard';
+import { ProgressBar } from './components/ProgressBar';
+import { Watermark } from './components/Watermark';
 import {
   msToFrames,
   OUTPUT_FPS,
   type CaptionToken,
   type Durations,
 } from './lib/load-manifest';
+import type { Shot } from './lib/shots';
 
 export type ShowcaseVideoProps = {
-  /** Absolute path or staticFile() ref to raw.webm. */
+  /** Remote URL or name relative to --public-dir (the scene dir) for raw.webm. */
   rawVideo: string;
   manifest: SceneManifest;
-  /** Map of beat index (1-based) -> absolute/staticFile path to its wav. */
+  /** Map of beat index (1-based) -> wav name relative to the scene dir. */
   narrationFiles: Record<number, string>;
   durations: Durations | null;
   captions: CaptionToken[];
+  /** Detected source geometry; contentHeight clips the capture padding band. */
+  source?: SourceInfo;
+  /** Camera / annotation shots; empty falls back to idle Ken Burns. */
+  shots?: Shot[];
   introCopy?: string;
   outroCopy?: string;
   introMs?: number;
@@ -48,23 +57,50 @@ export type ShowcaseVideoProps = {
   kenBurns?: boolean;
 };
 
-const DEFAULT_INTRO_MS = 1500;
-const DEFAULT_OUTRO_MS = 2000;
+const DEFAULT_INTRO_MS = 1800;
+const DEFAULT_OUTRO_MS = 2400;
 
 function resolveSrc(value: string): string {
-  // Absolute paths are passed straight through; relative paths resolve from the
-  // Remotion public/ dir via staticFile.
-  if (/^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('/') || value.startsWith('file:')) {
+  // Remote URLs pass through; everything else is a name relative to the scene
+  // dir (wired as Remotion's --public-dir) and resolves via staticFile. The
+  // renderer's asset loader rejects absolute file:// paths, so local assets
+  // MUST be served through staticFile's internal http server.
+  if (/^https?:\/\//.test(value)) {
     return value;
   }
   return staticFile(value);
 }
+
+/** Fade a Series section in/out at its edges (crossfade through the backdrop). */
+const SectionFade: React.FC<{
+  children: React.ReactNode;
+  inFrames?: number;
+  outFrames?: number;
+}> = ({ children, inFrames = 9, outFrames = 9 }) => {
+  const frame = useCurrentFrame();
+  const { durationInFrames } = useVideoConfig();
+  const opacity = Math.min(
+    interpolate(frame, [0, inFrames], [0, 1], {
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+    }),
+    interpolate(
+      frame,
+      [durationInFrames - outFrames, durationInFrames],
+      [1, 0],
+      { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
+    ),
+  );
+  return <AbsoluteFill style={{ opacity }}>{children}</AbsoluteFill>;
+};
 
 export const ShowcaseVideo: React.FC<ShowcaseVideoProps> = ({
   rawVideo,
   manifest,
   narrationFiles,
   captions,
+  source,
+  shots = [],
   introCopy,
   outroCopy,
   introMs = DEFAULT_INTRO_MS,
@@ -76,51 +112,54 @@ export const ShowcaseVideo: React.FC<ShowcaseVideoProps> = ({
   const bodyFrames = Math.max(1, msToFrames(manifest.durationMs));
   const outroFrames = msToFrames(outroMs);
 
+  const resolvedSource: SourceInfo = source ?? {
+    width: manifest.res.width,
+    height: manifest.res.height,
+    contentHeight: manifest.res.height,
+  };
+
   return (
     <AbsoluteFill style={{ backgroundColor: '#05060c' }}>
+      <Backdrop />
+
       <Series>
         <Series.Sequence durationInFrames={introFrames}>
-          <IntroCard
-            title={introCopy ?? manifest.title ?? manifest.scene}
-            subtitle={introCopy ? undefined : 'Ptah'}
-            videoHeight={height}
-          />
+          <SectionFade>
+            <IntroCard
+              title={introCopy ?? manifest.title ?? manifest.scene}
+              subtitle={introCopy ? undefined : 'Ptah'}
+              videoHeight={height}
+            />
+          </SectionFade>
         </Series.Sequence>
 
         <Series.Sequence durationInFrames={bodyFrames}>
-          <AbsoluteFill>
-            <KenBurns enabled={kenBurns}>
-              <OffthreadVideo
-                src={resolveSrc(rawVideo)}
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-            </KenBurns>
-
-            {manifest.beats.map((beat, i) => {
-              const file = narrationFiles[i + 1];
-              if (!file) return null;
-              return (
-                <Sequence
-                  key={`vo-${i}`}
-                  from={msToFrames(beat.tMs)}
-                  name={`beat-${i + 1}`}
-                >
-                  <Audio src={resolveSrc(file)} />
-                </Sequence>
-              );
-            })}
-
-            <LowerThird captions={captions} videoHeight={height} offsetMs={0} />
-          </AbsoluteFill>
+          <SectionFade>
+            <BodyScene
+              src={resolveSrc(rawVideo)}
+              source={resolvedSource}
+              manifest={manifest}
+              narrationFiles={narrationFiles}
+              captions={captions}
+              shots={shots}
+              kenBurns={kenBurns}
+              resolveSrc={resolveSrc}
+            />
+          </SectionFade>
         </Series.Sequence>
 
         <Series.Sequence durationInFrames={outroFrames}>
-          <OutroCard
-            copy={outroCopy ?? 'Try Ptah free'}
-            videoHeight={height}
-          />
+          <SectionFade>
+            <OutroCard
+              copy={outroCopy ?? 'The whole team, in one place.'}
+              videoHeight={height}
+            />
+          </SectionFade>
         </Series.Sequence>
       </Series>
+
+      <Watermark videoHeight={height} />
+      <ProgressBar />
     </AbsoluteFill>
   );
 };

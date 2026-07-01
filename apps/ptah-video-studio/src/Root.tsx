@@ -61,6 +61,12 @@ const RemotionRoot: React.FC = () => {
         narrationFiles: {},
         durations: null,
         captions: [],
+        source: {
+          width: FALLBACK_MANIFEST.res.width,
+          height: FALLBACK_MANIFEST.res.height,
+          contentHeight: FALLBACK_MANIFEST.res.height,
+        },
+        shots: [],
         kenBurns: true,
       }}
     />
