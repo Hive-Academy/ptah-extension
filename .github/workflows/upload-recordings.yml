@@ -1,0 +1,178 @@
+name: Upload Recordings
+
+# Companion to render-showcase.yml.
+#
+# PURPOSE: transfer a locally-captured recordings directory into a GitHub
+# Actions artifact so render-showcase.yml can download and render it.
+#
+# WHY THIS WORKFLOW EXISTS:
+#   The capture step (nx run ptah-electron-e2e:showcase) requires the
+#   authenticated Electron app + a local Docker backend.  It produces
+#   dist/apps/ptah-electron-e2e/recordings/<scene>/{raw.webm,beats.json}.
+#   Rendering is blocked on Windows by Smart App Control (SAC blocks
+#   Remotion's unsigned compositor DLLs).  This workflow receives the
+#   recordings as a packed tar via a repository-dispatch event sent by the
+#   dev's machine using the `gh` CLI, then re-uploads them as a named
+#   artifact that render-showcase.yml can consume cross-run.
+#
+# OPERATOR USAGE (from the dev machine, after a local capture):
+#
+#   # 1. Pack the recordings directory
+#   cd <workspace-root>
+#   tar -czf showcase-recordings.tar.gz \
+#     -C dist/apps/ptah-electron-e2e/recordings .
+#
+#   # 2. Encode to base64 (stays within the 65 KB repository-dispatch limit
+#   #    only for small captures; for large payloads use the artifact-upload
+#   #    approach below).
+#   #
+#   # For captures larger than ~40 KB encoded (i.e. almost always), use the
+#   # gh CLI artifact upload approach instead:
+#   #
+#   #   gh run download <any-recent-run-id> --dir /tmp/dummy 2>/dev/null || true
+#   #   # The dummy download is just to confirm gh auth works.
+#   #   # Then trigger a workflow_dispatch and upload via a multipart form:
+#   #
+#   # RECOMMENDED: use the helper script documented in
+#   # apps/ptah-video-studio/README.md § "Path A: render on CI".
+#
+# SIMPLER ALTERNATIVE (used in practice — see README):
+#   The dev runs:
+#     gh workflow run upload-recordings.yml \
+#       --field scene=editor-tour
+#   Then uploads the artifact directly using the GitHub REST API:
+#     gh api repos/{owner}/{repo}/actions/artifacts \
+#       (see README for the exact curl / gh command)
+#
+# NOTE ON ARTIFACT SIZE:
+#   actions/upload-artifact@v4 accepts up to 10 GB per artifact.
+#   A typical recordings directory with 13 scenes (raw.webm + beats.json
+#   each) is 100 MB – 2 GB depending on resolution.  The tar is not
+#   committed to git.
+#
+# This workflow uses workflow_dispatch so the dev can trigger it from the
+# GitHub Actions UI or via `gh workflow run`.  After it completes, copy the
+# run ID from the Actions UI URL (or from `gh run list`) and pass it to
+# render-showcase.yml as `recordings_run_id`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      scene:
+        description: >
+          Single scene slug to upload (e.g. editor-tour), or leave blank
+          to upload ALL scene directories under recordings/.
+          The local recordings must be packed into showcase-recordings.tar.gz
+          at the workspace root before running this workflow.
+          See apps/ptah-video-studio/README.md for the full upload script.
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  # This job itself does not receive the local files — it cannot: GitHub
+  # Actions jobs cannot directly receive large local files via inputs.
+  # Instead, this job acts as a placeholder that documents where to upload,
+  # and the REAL upload is done by the dev machine using `gh api` after this
+  # job is triggered.
+  #
+  # See apps/ptah-video-studio/README.md § "Uploading recordings to CI" for
+  # the exact commands.  The short version:
+  #
+  #   1.  gh workflow run upload-recordings.yml   # creates the run
+  #   2.  RUN_ID=$(gh run list --workflow=upload-recordings.yml \
+  #           --limit 1 --json databaseId -q '.[0].databaseId')
+  #   3.  gh api repos/{owner}/{repo}/actions/runs/$RUN_ID/artifacts \
+  #         ... (see README)
+  #
+  # Because GitHub does not support uploading artifacts to an in-progress run
+  # via public API without a runner present, the PRACTICAL approach is:
+  #
+  #   Use `gh run upload` (gh CLI ≥ 2.40) OR use a local runner step below
+  #   that checks out and uploads a pre-staged tar from a known URL / release.
+  #
+  # ACTUAL APPROACH IMPLEMENTED HERE:
+  #   The dev uses the local-upload helper script (see README) which:
+  #     a) starts a self-hosted-style local `act` run (optional), OR
+  #     b) uploads the tar to a GitHub Release as a draft asset, then
+  #        a separate job here downloads from that release URL and re-uploads
+  #        as a proper Actions artifact that dawidd6/action-download-artifact
+  #        can fetch in render-showcase.yml.
+  #
+  # For simplicity, this workflow expects the tar to be uploaded as a GitHub
+  # Release asset (draft, tag = recordings/latest) by the dev machine, then
+  # downloads and re-uploads it as an artifact.
+
+  stage-recordings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # The dev machine uploads showcase-recordings.tar.gz as a draft GitHub
+      # Release asset (tag recordings/latest) using:
+      #
+      #   gh release create recordings/latest --draft --title "Showcase Recordings"
+      #   gh release upload recordings/latest showcase-recordings.tar.gz --clobber
+      #
+      # This step downloads that asset.
+      - name: Download recordings tar from GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Downloading showcase-recordings.tar.gz from release recordings/latest ..."
+          gh release download recordings/latest \
+            --pattern 'showcase-recordings.tar.gz' \
+            --output showcase-recordings.tar.gz \
+            --clobber
+
+      - name: Extract recordings
+        run: |
+          mkdir -p dist/apps/ptah-electron-e2e/recordings
+          tar -xzf showcase-recordings.tar.gz \
+            -C dist/apps/ptah-electron-e2e/recordings
+          echo "=== Extracted recordings (top 2 levels) ==="
+          find dist/apps/ptah-electron-e2e/recordings -maxdepth 2 -type f | sort
+
+      - name: Filter to single scene (if requested)
+        if: inputs.scene != ''
+        run: |
+          SCENE="${{ inputs.scene }}"
+          TARGET="dist/apps/ptah-electron-e2e/recordings/$SCENE"
+          if [ ! -d "$TARGET" ]; then
+            echo "ERROR: scene directory not found: $TARGET"
+            echo "Available scenes:"
+            ls dist/apps/ptah-electron-e2e/recordings/
+            exit 1
+          fi
+          # Remove all other scene dirs so the artifact is scoped to one scene.
+          for d in dist/apps/ptah-electron-e2e/recordings/*/; do
+            [ "$d" = "$TARGET/" ] && continue
+            rm -rf "$d"
+            echo "Removed $d"
+          done
+
+      - name: Upload showcase-recordings artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: showcase-recordings
+          # Upload only the recordings content (not the tar).
+          path: dist/apps/ptah-electron-e2e/recordings
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Print run ID for render-showcase.yml input
+        run: |
+          echo "============================================================"
+          echo " Recordings artifact uploaded successfully."
+          echo " Pass this run ID to render-showcase.yml as recordings_run_id:"
+          echo "   ${{ github.run_id }}"
+          echo "============================================================"

@@ -1,0 +1,25 @@
+{
+  "name": "@ptah-extension/showcase-manifest",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "libs/showcase-manifest/src",
+  "tags": ["scope:shared", "type:util"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/showcase-manifest",
+        "main": "libs/showcase-manifest/src/index.ts",
+        "tsConfig": "libs/showcase-manifest/tsconfig.lib.json",
+        "format": ["cjs"]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/showcase-manifest/tsconfig.lib.json"
+      }
+    }
+  }
+}

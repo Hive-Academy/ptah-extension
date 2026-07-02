@@ -1,4 +1,7 @@
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import type { Beat, SceneManifest } from '@ptah-extension/showcase-manifest';
 
 /**
  * Director — cinematic helper for recording marketing scenes.
@@ -25,6 +28,12 @@ export interface DirectorOptions {
   beatMs?: number;
   /** Max time to wait for a single agent turn to finish, ms. Default 6 min. */
   agentTimeoutMs?: number;
+  /** Scene slug (e.g. "editor-tour") stamped onto every recorded beat. */
+  scene?: string;
+  /** Playwright test title, surfaced in the manifest for intro-card copy. */
+  title?: string;
+  /** Capture resolution, threaded in from the launcher for the manifest. */
+  res?: { width: number; height: number };
 }
 
 const OVERLAY_INIT = `
@@ -126,6 +135,20 @@ export class Director {
   private cursorX = -50;
   private cursorY = -50;
 
+  /** Wall-clock baseline (Date.now()) captured at construction. */
+  private readonly recordStartMs = Date.now();
+  /**
+   * When set (via `PTAH_SHOWCASE_SILENT_CAPTIONS=1`), beats are still recorded
+   * but the baked lower-third overlay is never drawn — Remotion owns captions.
+   */
+  private readonly silentCaptions =
+    process.env['PTAH_SHOWCASE_SILENT_CAPTIONS'] === '1';
+  /** Machine-readable timeline, one entry per non-clear caption() call. */
+  private readonly beats: Beat[] = [];
+  private readonly scene: string;
+  private readonly title: string;
+  private readonly res: { width: number; height: number };
+
   constructor(
     private readonly app: ElectronApplication,
     public readonly page: Page,
@@ -134,6 +157,9 @@ export class Director {
     this.cps = opts.cps ?? 22;
     this.beatMs = opts.beatMs ?? 900;
     this.agentTimeoutMs = opts.agentTimeoutMs ?? 6 * 60_000;
+    this.scene = opts.scene ?? 'unknown';
+    this.title = opts.title ?? '';
+    this.res = opts.res ?? { width: 1920, height: 1080 };
   }
 
   /** Inject (or re-inject after navigation) the cursor + caption overlays. */
@@ -147,13 +173,45 @@ export class Director {
     await this.page.waitForTimeout(ms);
   }
 
-  /** Show a lower-third caption. Pass empty/undefined to clear. */
+  /**
+   * Show a lower-third caption. Pass empty/undefined to clear.
+   *
+   * A non-clear call ALWAYS records a beat into the machine-readable timeline
+   * (regardless of `silentCaptions`). The baked overlay is only drawn when
+   * captions are not silenced, so `PTAH_SHOWCASE_SILENT_CAPTIONS=1` produces
+   * footage with no lower-third text while still emitting `beats.json`.
+   */
   async caption(text?: string): Promise<void> {
     if (!text) {
       await this.page.evaluate(() => window.__ptahDirector?.clearCaption());
       return;
     }
-    await this.page.evaluate((t) => window.__ptahDirector?.caption(t), text);
+    this.beats.push({
+      tMs: Date.now() - this.recordStartMs,
+      text,
+      scene: this.scene,
+    });
+    if (!this.silentCaptions) {
+      await this.page.evaluate((t) => window.__ptahDirector?.caption(t), text);
+    }
+  }
+
+  /**
+   * Write the recorded timeline to `outPath` as pretty JSON. Called from the
+   * `director` fixture teardown while the page is still alive (before the app
+   * closes and Playwright flushes the `.webm`).
+   */
+  async flushBeats(outPath: string): Promise<void> {
+    const manifest: SceneManifest = {
+      scene: this.scene,
+      title: this.title,
+      recordStartMs: this.recordStartMs,
+      durationMs: Date.now() - this.recordStartMs,
+      res: this.res,
+      beats: this.beats,
+    };
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, JSON.stringify(manifest, null, 2), 'utf8');
   }
 
   /**
