@@ -10,7 +10,15 @@
  * Output: recordings/<scene>/out/<scene>.mp4 (H.264, per remotion.config.ts).
  * This replaces transcode.mjs as the mp4 producer for the full pipeline.
  *
- * Usage: node apps/ptah-video-studio/scripts/render-all.mjs [--scene editor-tour] [--concurrency N]
+ * Usage:
+ *   node apps/ptah-video-studio/scripts/render-all.mjs \
+ *     [--scene editor-tour] [--concurrency N] [--out-res 1080p|1440p|4k|native]
+ *
+ * --out-res sets the OUTPUT composition size. `native` (default) renders at the
+ * capture resolution. When the capture is taller than the output (e.g. captured
+ * at 1440p, rendered at 1080p) the footage is supersampled: DeviceFrame scales
+ * the higher-res capture down and the virtual camera can punch in past 2.4× and
+ * still resolve real pixels, so the zooms stay crisp.
  *
  * ESM, Node >=22.9. Errors caught as `unknown`.
  */
@@ -29,6 +37,35 @@ const require = createRequire(import.meta.url);
 
 const ROOT_ENTRY = 'src/Root.tsx';
 const COMPOSITION_ID = 'ShowcaseVideo';
+
+/** Sound-design assets, served via --public-dir/staticFile when present. */
+const WHOOSH_ASSET = path.join(APP_ROOT, 'assets', 'sfx', 'whoosh.mp3');
+const MUSIC_ASSET = path.join(APP_ROOT, 'assets', 'music', 'bed.mp3');
+
+/** Output-resolution presets (16:9). `native` keeps the capture size. */
+const OUT_RES_PRESETS = {
+  '1080p': { width: 1920, height: 1080 },
+  '1440p': { width: 2560, height: 1440 },
+  '4k': { width: 3840, height: 2160 },
+};
+
+/**
+ * Resolve --out-res into an explicit { width, height } (or null for native).
+ * Accepts a preset key (1080p/1440p/4k) or `native`. Throws on anything else so
+ * a typo fails loudly rather than silently rendering at the wrong size.
+ */
+function resolveOutRes(value) {
+  if (!value || value === 'native') return null;
+  const preset = OUT_RES_PRESETS[value];
+  if (!preset) {
+    throw new Error(
+      `Invalid --out-res '${value}'. Use one of: native, ${Object.keys(
+        OUT_RES_PRESETS,
+      ).join(', ')}.`,
+    );
+  }
+  return preset;
+}
 
 function readJsonIfExists(p) {
   return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null;
@@ -74,8 +111,86 @@ function detectSource(rawVideo, fallbackW, fallbackH) {
   }
 }
 
+/**
+ * Structural validation of a parsed shots.json, mirroring `shotsFileSchema`
+ * (src/lib/shots.ts). render-all is ESM `.mjs` and can't import the TS zod
+ * schema (no jiti/tsx import pattern exists in this pipeline — the authoritative
+ * zod parse still runs composition-side via `parseShots`), so we do a minimal
+ * structural check here and fail with a clear per-scene message. Keep this in
+ * lockstep with `shotSchema` when its fields change.
+ *
+ * Returns the validated `shots` array. Throws with a `<scene>: …` message.
+ */
+function validateShotsFile(scene, raw) {
+  const where = `shots.json for scene ${scene}`;
+  if (raw === null) return []; // absent file → no camera track (allowed)
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(`${where}: top-level value must be an object.`);
+  }
+  if (typeof raw.scene !== 'string') {
+    throw new Error(`${where}: missing string field "scene".`);
+  }
+  if (!Array.isArray(raw.shots)) {
+    throw new Error(`${where}: field "shots" must be an array.`);
+  }
+
+  const isRect = (r) =>
+    r != null &&
+    typeof r === 'object' &&
+    ['x', 'y', 'w', 'h'].every((k) => typeof r[k] === 'number');
+
+  raw.shots.forEach((shot, i) => {
+    const at = `${where}: shots[${i}]`;
+    if (shot == null || typeof shot !== 'object') {
+      throw new Error(`${at} must be an object.`);
+    }
+    if (typeof shot.fromMs !== 'number' || shot.fromMs < 0) {
+      throw new Error(`${at}.fromMs must be a non-negative number.`);
+    }
+    if (shot.focus !== undefined && !isRect(shot.focus)) {
+      throw new Error(`${at}.focus must be a {x,y,w,h} rect.`);
+    }
+    if (shot.ring !== undefined && !isRect(shot.ring)) {
+      throw new Error(`${at}.ring must be a {x,y,w,h} rect.`);
+    }
+    if (
+      shot.captionPos !== undefined &&
+      !['top', 'bottom'].includes(shot.captionPos)
+    ) {
+      throw new Error(`${at}.captionPos must be "top" or "bottom".`);
+    }
+    if (shot.callout !== undefined) {
+      const c = shot.callout;
+      if (
+        c == null ||
+        typeof c.text !== 'string' ||
+        !['tl', 'tr', 'bl', 'br'].includes(c.pos)
+      ) {
+        throw new Error(
+          `${at}.callout must be { text: string, pos: tl|tr|bl|br }.`,
+        );
+      }
+    }
+    // New optional motion fields (backwards compatible).
+    if (
+      shot.transMs !== undefined &&
+      (typeof shot.transMs !== 'number' || shot.transMs <= 0)
+    ) {
+      throw new Error(`${at}.transMs must be a positive number.`);
+    }
+    if (
+      shot.ease !== undefined &&
+      !['ramp', 'cut', 'smooth'].includes(shot.ease)
+    ) {
+      throw new Error(`${at}.ease must be "ramp", "cut" or "smooth".`);
+    }
+  });
+
+  return raw.shots;
+}
+
 /** Build the props object Remotion's ShowcaseVideo expects for one scene. */
-function buildProps(scene) {
+function buildProps(scene, outRes) {
   const dir = sceneDir(scene);
   const manifest = readJsonIfExists(path.join(dir, 'beats.json'));
   if (!manifest) {
@@ -91,8 +206,10 @@ function buildProps(scene) {
   const captions = readJsonIfExists(path.join(dir, 'captions.json')) ?? [];
   // Optional camera / annotation track. Hand-authored per scene today; the
   // Director will emit it from spotlighted element boxes for designed scenes.
+  // Validated structurally here (mirrors shotsFileSchema) so a malformed track
+  // fails with a clear per-scene message instead of silently mis-rendering.
   const shotsFile = readJsonIfExists(path.join(dir, 'shots.json'));
-  const shots = Array.isArray(shotsFile?.shots) ? shotsFile.shots : [];
+  const shots = validateShotsFile(scene, shotsFile);
 
   // Asset paths are relative (forward-slash) to the scene dir, which is passed
   // to `remotion render` as --public-dir. Remotion serves local assets over its
@@ -116,6 +233,27 @@ function buildProps(scene) {
     `[render] ${scene}: source ${source.width}x${source.height}, content ${source.contentHeight}px (band ${source.height - source.contentHeight}px)`,
   );
 
+  // Output size: --out-res override, or the capture res (native). Footage is
+  // supersampled when the capture is taller than the output — DeviceFrame scales
+  // it down and the camera may punch in further while staying crisp.
+  const captureH = manifest.res?.height ?? source.height;
+  const supersample = !!outRes && outRes.height < captureH;
+  if (outRes) {
+    console.log(
+      `[render] ${scene}: output ${outRes.width}x${outRes.height}` +
+        (supersample ? ` (supersampled from ${captureH}p capture)` : ''),
+    );
+  }
+
+  // Sound-design assets are optional: include them only when the files exist so
+  // a missing asset renders silent rather than failing (paths are relative to
+  // --public-dir → the scene dir, so we serve them via a symlink/copy? No —
+  // staticFile resolves against the scene dir; the asset lives in the app's
+  // assets/. We pass an absolute-ish public path by copying is overkill: instead
+  // we hand the composition a name it can staticFile-resolve. Since --public-dir
+  // is the scene dir, we stage the assets into the scene dir once per render.)
+  const sound = stageSoundAssets(dir);
+
   return {
     rawVideo: 'raw.webm',
     manifest,
@@ -125,16 +263,42 @@ function buildProps(scene) {
     source,
     shots,
     kenBurns: true,
+    supersample,
+    ...(outRes ? { outRes } : {}),
+    ...(sound.whooshSfx ? { whooshSfx: sound.whooshSfx } : {}),
+    ...(sound.musicBed ? { musicBed: sound.musicBed } : {}),
   };
 }
 
-function renderScene(scene, concurrency) {
+/**
+ * Stage optional sound-design assets into the scene dir so they resolve through
+ * Remotion's staticFile() (which serves relative to --public-dir = scene dir;
+ * it rejects absolute file:// paths). Copies whoosh.mp3 / bed.mp3 from the app's
+ * assets/ into <sceneDir>/_sfx/ when present. Returns the relative names to hand
+ * the composition, or nulls when an asset is missing (→ render stays silent).
+ */
+function stageSoundAssets(dir) {
+  const result = { whooshSfx: null, musicBed: null };
+  const stageDir = path.join(dir, '_sfx');
+  const stage = (srcAbs, relName) => {
+    if (!fs.existsSync(srcAbs)) return null;
+    fs.mkdirSync(stageDir, { recursive: true });
+    const dest = path.join(stageDir, relName);
+    fs.copyFileSync(srcAbs, dest);
+    return `_sfx/${relName}`; // forward-slash, relative to --public-dir
+  };
+  result.whooshSfx = stage(WHOOSH_ASSET, 'whoosh.mp3');
+  result.musicBed = stage(MUSIC_ASSET, 'bed.mp3');
+  return result;
+}
+
+function renderScene(scene, concurrency, outRes) {
   const dir = sceneDir(scene);
   const outDir = path.join(dir, 'out');
   fs.mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, `${scene}.mp4`);
 
-  const props = buildProps(scene);
+  const props = buildProps(scene, outRes);
   const propsPath = path.join(dir, 'render-props.json');
   fs.writeFileSync(propsPath, JSON.stringify(props, null, 2));
 
@@ -160,6 +324,11 @@ function renderScene(scene, concurrency) {
 function main() {
   const args = parseArgs();
   const concurrency = args.concurrency ? Number(args.concurrency) : undefined;
+  // --out-res accepts a preset key or `native` (default). String `true` guards
+  // against `--out-res` passed with no value.
+  const outRes = resolveOutRes(
+    typeof args['out-res'] === 'string' ? args['out-res'] : 'native',
+  );
 
   const scenes =
     typeof args.scene === 'string' ? [args.scene] : listScenesWithBeats();
@@ -169,7 +338,7 @@ function main() {
   }
 
   for (const scene of scenes) {
-    renderScene(scene, concurrency);
+    renderScene(scene, concurrency, outRes);
   }
   console.log(`[render] Done. Rendered ${scenes.length} scene(s).`);
 }

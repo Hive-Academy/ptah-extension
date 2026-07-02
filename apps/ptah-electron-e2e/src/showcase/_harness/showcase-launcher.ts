@@ -52,7 +52,16 @@ export interface ShowcaseLaunchOptions {
 
 export interface ShowcaseLaunch {
   app: ElectronApplication;
+  /**
+   * The ACTUAL renderer viewport (`innerWidth`/`innerHeight`) after the
+   * exact-viewport correction below. This is what the recorded frames contain
+   * pixel-for-pixel, so downstream normalization (shots.json) and the manifest
+   * `res` must use these measured values, not the requested capture size. Equal
+   * to the requested resolution unless the OS clamped the window to the display.
+   */
   res: ShowcaseRes;
+  /** The resolution originally requested (from opts/env), for logging. */
+  requestedRes: ShowcaseRes;
 }
 
 /** Resolves the absolute path to the built Electron main entry. */
@@ -138,15 +147,83 @@ export async function launchShowcase(
   });
 
   // Force the window to the exact capture resolution so the recorded frames
-  // are crisp (no upscaling from the default 1200x800).
+  // are crisp (no upscaling from the default 1200x800) AND — critically — so
+  // the renderer VIEWPORT equals the record size. `setContentSize` sizes the
+  // web-contents *bounds*, but the measured `innerWidth`/`innerHeight` can
+  // still come up short (device-scale rounding, integrated scrollbars, the OS
+  // clamping a window larger than the physical display). When the viewport is
+  // shorter than the record size, Playwright pads the bottom of every frame
+  // with a uniform mid-gray band — the exact defect this correction kills. The
+  // downstream gray-band auto-crop in render-all.mjs stays as a fallback.
   await app.evaluate(async ({ BrowserWindow }, size) => {
     const win = BrowserWindow.getAllWindows()[0];
     if (!win) return;
-    win.setMinimumSize(800, 600);
+    // Allow sizing beyond the physical screen (electron honours this on most
+    // platforms when the window is not maximized), and lift the minimum so a
+    // correction pass can shrink freely if we overshoot.
+    win.setMinimumSize(400, 300);
+    win.setResizable(true);
+    if (win.isMaximized()) win.unmaximize();
+    if (win.isFullScreen()) win.setFullScreen(false);
     win.setContentSize(size.width, size.height);
     win.center();
     win.focus();
   }, res);
 
-  return { app, res };
+  // Measure the real renderer viewport and iteratively correct the content
+  // size by the measured delta. 2-3 passes is plenty: the delta is a fixed
+  // chrome/scaling offset, so a single correction usually converges and the
+  // extra passes just confirm it.
+  const win = await app.firstWindow();
+  await win.waitForLoadState('domcontentloaded');
+
+  const measureViewport = (): Promise<ShowcaseRes> =>
+    win.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }));
+
+  let measured = await measureViewport();
+  for (let pass = 0; pass < 3; pass++) {
+    const dw = res.width - measured.width;
+    const dh = res.height - measured.height;
+    if (dw === 0 && dh === 0) break;
+    // Read the current content size and add the shortfall so the viewport lands
+    // exactly on the requested resolution.
+    await app.evaluate(
+      async ({ BrowserWindow }, delta) => {
+        const w = BrowserWindow.getAllWindows()[0];
+        if (!w) return;
+        const [cw, ch] = w.getContentSize();
+        w.setContentSize(cw + delta.dw, ch + delta.dh);
+        w.center();
+      },
+      { dw, dh },
+    );
+    // Let layout settle before re-measuring.
+    await win.waitForTimeout(120);
+    measured = await measureViewport();
+  }
+
+  if (measured.width === res.width && measured.height === res.height) {
+    process.stderr.write(
+      `[showcase] viewport ${measured.width}x${measured.height} == record size\n`,
+    );
+  } else {
+    // The OS clamped the window to the display (capture res exceeds the screen).
+    // We record at the requested size regardless, so the frames will carry a
+    // gray band that render-all.mjs's auto-crop trims. Thread the MEASURED
+    // viewport downstream so shots.json normalization stays accurate.
+    process.stderr.write(
+      `[showcase] WARNING: viewport ${measured.width}x${measured.height} != record size ` +
+        `${res.width}x${res.height} — the capture resolution exceeds this display, ` +
+        `so recorded frames will carry a gray padding band. The render-all.mjs ` +
+        `band-crop fallback will apply. Use a larger display or a smaller ` +
+        `PTAH_SHOWCASE_RES to capture at native size.\n`,
+    );
+  }
+
+  // Return the MEASURED viewport as `res` (what the frames actually contain),
+  // keeping the requested resolution separately for diagnostics.
+  return { app, res: measured, requestedRes: res };
 }

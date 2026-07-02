@@ -1,7 +1,13 @@
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Beat, SceneManifest } from '@ptah-extension/showcase-manifest';
+import type {
+  Beat,
+  SceneManifest,
+  Shot,
+  ShotFocusRect,
+  ShotsFile,
+} from '@ptah-extension/showcase-manifest';
 
 /**
  * Director — cinematic helper for recording marketing scenes.
@@ -145,6 +151,17 @@ export class Director {
     process.env['PTAH_SHOWCASE_SILENT_CAPTIONS'] === '1';
   /** Machine-readable timeline, one entry per non-clear caption() call. */
   private readonly beats: Beat[] = [];
+  /**
+   * Virtual-camera track, auto-emitted from every targeted interaction
+   * (spotlight/hover/click and element-targeted caption). Flushed to
+   * `shots.json` iff at least one shot was recorded (see `flushShots`).
+   */
+  private readonly shots: Shot[] = [];
+  /**
+   * Center (in capture px) + wall-clock time of the last recorded shot, used to
+   * debounce consecutive interactions that target essentially the same region.
+   */
+  private lastShotAt: { x: number; y: number; tMs: number } | null = null;
   private readonly scene: string;
   private readonly title: string;
   private readonly res: { width: number; height: number };
@@ -180,11 +197,20 @@ export class Director {
    * (regardless of `silentCaptions`). The baked overlay is only drawn when
    * captions are not silenced, so `PTAH_SHOWCASE_SILENT_CAPTIONS=1` produces
    * footage with no lower-third text while still emitting `beats.json`.
+   *
+   * When `target` is supplied the caption also records a virtual-camera shot
+   * from that element's box (same as spotlight/hover/click), so a narration
+   * beat that refers to a control auto-punches the camera onto it. The base
+   * `caption(text)` signature keeps working unchanged.
    */
-  async caption(text?: string): Promise<void> {
+  async caption(text?: string, target?: Locator): Promise<void> {
     if (!text) {
       await this.page.evaluate(() => window.__ptahDirector?.clearCaption());
       return;
+    }
+    if (target) {
+      const box = await this.boxOf(target);
+      if (box) this.recordShot(box);
     }
     this.beats.push({
       tMs: Date.now() - this.recordStartMs,
@@ -212,6 +238,28 @@ export class Director {
     };
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     fs.writeFileSync(outPath, JSON.stringify(manifest, null, 2), 'utf8');
+  }
+
+  /**
+   * Write the auto-emitted virtual-camera track to `outPath` as `shots.json`.
+   * Mirrors `flushBeats` and is wired into the same fixture teardown.
+   *
+   * Guards against clobbering hand-authored tracks:
+   *   - If THIS run recorded no shots, do nothing (a reverse-engineered scene's
+   *     hand-authored shots.json must survive).
+   *   - Even with recorded shots, never overwrite an existing shots.json unless
+   *     this run captured ≥1 shot (the check above already guarantees that, so
+   *     an existing file is only replaced by a fresh designed capture).
+   * `render-all.mjs` reads this file's `shots` array with no render changes.
+   */
+  async flushShots(outPath: string): Promise<void> {
+    if (this.shots.length === 0) return;
+    const file: ShotsFile = {
+      scene: this.scene,
+      shots: this.shots,
+    };
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, JSON.stringify(file, null, 2), 'utf8');
   }
 
   /**
@@ -261,6 +309,87 @@ export class Director {
     return null;
   }
 
+  /**
+   * Record a virtual-camera shot from an element's on-screen box.
+   *
+   * Coordinate model — this MUST match the render side exactly:
+   *   - `fromMs` uses the SAME clock as `Beat.tMs`: `Date.now() - recordStartMs`
+   *     (wall-clock ms from record start). Remotion places the body footage,
+   *     the VO/beats, and the camera all inside one rebased `<Series.Sequence>`,
+   *     where the footage's frame 0 aligns with body-local 0. Footage time,
+   *     beat time, and shot `fromMs` are therefore one and the same coordinate.
+   *     (See `render-all.mjs`, `ShowcaseVideo.tsx` <Series>, and
+   *     `BodyScene`/`DeviceFrame` where `nowMs = frame/fps*1000` is body-local.)
+   *   - x,w are normalized over the capture WIDTH; y,h over the CONTENT HEIGHT.
+   *     With Task 1's exact-viewport fix content height == full frame height, but
+   *     we normalize against the measured viewport height (`this.res.height`)
+   *     defensively so a residual gray band never skews the rects — DeviceFrame
+   *     maps 0..1 over the CROPPED content card, which is that measured height.
+   *
+   * Heuristics per the roadmap:
+   *   - focus = element box padded ~13% each side, clamped to 0..1.
+   *   - ring  = tight element box, ~5px pad.
+   *   - captionPos = 'top' when the element center is in the lower half.
+   *   - boxes covering >70% of the frame → a full-frame shot (no focus) so the
+   *     camera eases back out (no point zooming into ~everything).
+   *   - debounce: consecutive shots on essentially the same region within
+   *     <1200ms keep the first (drop the later duplicate).
+   */
+  private recordShot(box: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): void {
+    const capW = this.res.width;
+    const capH = this.res.height;
+    const tMs = Date.now() - this.recordStartMs;
+
+    const centerX = box.x + box.width / 2;
+    const centerY = box.y + box.height / 2;
+
+    // Debounce: same region (within a quarter of the frame) fired recently.
+    if (this.lastShotAt) {
+      const near =
+        Math.abs(centerX - this.lastShotAt.x) < capW * 0.25 &&
+        Math.abs(centerY - this.lastShotAt.y) < capH * 0.25;
+      if (near && tMs - this.lastShotAt.tMs < 1200) return;
+    }
+
+    const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+    // Fraction of the frame the raw element box covers.
+    const coverage = (box.width / capW) * (box.height / capH);
+
+    let shot: Shot;
+    if (coverage > 0.7) {
+      // Element ~fills the frame — ease the camera back out instead of zooming.
+      shot = { fromMs: tMs };
+    } else {
+      const padX = box.width * 0.13;
+      const padY = box.height * 0.13;
+      const focus: ShotFocusRect = {
+        x: clamp01((box.x - padX) / capW),
+        y: clamp01((box.y - padY) / capH),
+        w: clamp01((box.width + padX * 2) / capW),
+        h: clamp01((box.height + padY * 2) / capH),
+      };
+      const ringPad = 5;
+      const ring: ShotFocusRect = {
+        x: clamp01((box.x - ringPad) / capW),
+        y: clamp01((box.y - ringPad) / capH),
+        w: clamp01((box.width + ringPad * 2) / capW),
+        h: clamp01((box.height + ringPad * 2) / capH),
+      };
+      shot = { fromMs: tMs, focus, ring };
+      // Lift the caption off a close-up sitting in the lower half of the frame.
+      if (centerY > capH / 2) shot.captionPos = 'top';
+    }
+
+    this.shots.push(shot);
+    this.lastShotAt = { x: centerX, y: centerY, tMs };
+  }
+
   /** Smoothly ease the synthetic cursor to the center of a target. */
   async moveTo(target: Locator): Promise<void> {
     const box = await this.boxOf(target);
@@ -277,6 +406,8 @@ export class Director {
   /** Move to a target, pulse a click ring, then click it. */
   async click(target: Locator): Promise<void> {
     await this.moveTo(target);
+    const box = await this.boxOf(target);
+    if (box) this.recordShot(box);
     await this.hold(250);
     await this.page.evaluate(() => window.__ptahDirector?.pulse());
     await target.click();
@@ -302,6 +433,7 @@ export class Director {
   async hover(target: Locator, dwellMs = 600): Promise<void> {
     const box = await this.boxOf(target);
     if (box) {
+      this.recordShot(box);
       await this.page.mouse.move(
         box.x + box.width / 2,
         box.y + box.height / 2,
@@ -320,6 +452,7 @@ export class Director {
   async spotlight(target: Locator, ms = 1600): Promise<void> {
     const box = await this.boxOf(target);
     if (!box) return;
+    this.recordShot(box);
     await this.page.evaluate((r) => window.__ptahDirector?.spotlight(r), box);
     await this.hold(ms);
     await this.page.evaluate(() => window.__ptahDirector?.clearSpotlight());

@@ -34,3 +34,50 @@ export interface SceneManifest {
   res: { width: number; height: number };
   beats: Beat[];
 }
+
+/**
+ * Normalized region of the CONTENT (0..1). `x`/`w` are over the capture width,
+ * `y`/`h` over the content height (the cropped card space in `DeviceFrame`).
+ * Mirrors `FocusRect` in `ptah-video-studio/src/lib/shots.ts`.
+ */
+export interface ShotFocusRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * A single virtual-camera shot in `shots.json`. Shapes match `shotSchema` in
+ * `ptah-video-studio/src/lib/shots.ts` (the zod source of truth the file is
+ * validated against downstream); this interface keeps the Director's emitter
+ * and the Remotion consumer from drifting.
+ *
+ * Timing: `fromMs` shares the SAME clock as `Beat.tMs` — `Date.now()` ms from
+ * `recordStartMs`. Remotion places both the body footage and the VO/beats at
+ * that offset inside a rebased `<Series.Sequence>`, so footage time, beat time
+ * and shot time are all one body-local coordinate (see `manifest.types.ts`
+ * timing note and `ptah-video-studio` BodyScene/DeviceFrame).
+ */
+export interface Shot {
+  /** ms from recordStartMs to when this shot's interaction fired (wall-clock). */
+  fromMs: number;
+  /** Camera target region; omit for a full-frame ease-out. */
+  focus?: ShotFocusRect;
+  /** Move the caption off a close-up. */
+  captionPos?: 'top' | 'bottom';
+  /** Tight amber outline around the focused element. */
+  ring?: ShotFocusRect;
+  /** Optional floating corner card. */
+  callout?: { text: string; pos: 'tl' | 'tr' | 'bl' | 'br' };
+  /** Camera transition duration into this shot, ms (default ~750 downstream). */
+  transMs?: number;
+  /** Motion profile: 'ramp' fast-attack (default), 'smooth' ease, 'cut' instant. */
+  ease?: 'ramp' | 'smooth' | 'cut';
+}
+
+/** The on-disk `shots.json` shape — mirrors `shotsFileSchema` downstream. */
+export interface ShotsFile {
+  scene: string;
+  shots: Shot[];
+}

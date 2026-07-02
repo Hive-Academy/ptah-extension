@@ -7,19 +7,20 @@
  *   <Watermark>          persistent PTAH wordmark
  *   <ProgressBar>        thin amber playback bar
  *
- * Sections fade at their edges so the intro→body→outro cuts read as crossfades
- * through the shared backdrop. Narration is one <Audio> per beat placed at the
- * beat's recorded tMs; captions are footage-timed (offsetMs=0) so words and
- * voice stay locked. The recording is framed in a <DeviceFrame> that also clips
- * the capture's bottom padding band (see DeviceFrame + render-all detection).
+ * Section boundaries (intro→body→outro) use hand-rolled whip-pan / zoom-blur
+ * bursts (see <SectionTransition>) instead of plain crossfades, so the cuts
+ * read as energetic camera moves through the shared backdrop. Narration is one
+ * <Audio> per beat placed at the beat's recorded tMs; captions are footage-timed
+ * (offsetMs=0) so words and voice stay locked. The recording is framed in a
+ * <DeviceFrame> that also clips the capture's bottom padding band (see
+ * DeviceFrame + render-all detection). Optional whoosh SFX + music bed are layered
+ * on top via <SoundDesign> when the asset files are present.
  */
 import React from 'react';
 import {
   AbsoluteFill,
   Series,
-  interpolate,
   staticFile,
-  useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
 import type { SceneManifest } from '@ptah-extension/showcase-manifest';
@@ -30,6 +31,8 @@ import { IntroCard } from './components/IntroCard';
 import { OutroCard } from './components/OutroCard';
 import { ProgressBar } from './components/ProgressBar';
 import { Watermark } from './components/Watermark';
+import { SectionTransition } from './components/SectionTransition';
+import { SoundDesign } from './components/SoundDesign';
 import {
   msToFrames,
   OUTPUT_FPS,
@@ -55,6 +58,27 @@ export type ShowcaseVideoProps = {
   introMs?: number;
   outroMs?: number;
   kenBurns?: boolean;
+  /**
+   * True when the source footage is higher-res than this composition's output
+   * size, so the virtual camera can punch in further and stay crisp. Set by
+   * render-all when --out-res is smaller than the capture res.
+   */
+  supersample?: boolean;
+  /**
+   * Output composition size. When set (by render-all's --out-res), the
+   * composition renders at THIS size while DeviceFrame scales the higher-res
+   * capture down into it (crisper zooms). When omitted the composition falls
+   * back to `manifest.res` (native = capture size). Consumed by Root's
+   * calculateMetadata, not by the component body.
+   */
+  outRes?: { width: number; height: number };
+  /**
+   * Optional sound-design asset names (relative to --public-dir). Included only
+   * when the files exist on disk; missing assets are simply omitted here and the
+   * render proceeds silent — never fails. See render-all.mjs.
+   */
+  whooshSfx?: string;
+  musicBed?: string;
 };
 
 const DEFAULT_INTRO_MS = 1800;
@@ -71,29 +95,6 @@ function resolveSrc(value: string): string {
   return staticFile(value);
 }
 
-/** Fade a Series section in/out at its edges (crossfade through the backdrop). */
-const SectionFade: React.FC<{
-  children: React.ReactNode;
-  inFrames?: number;
-  outFrames?: number;
-}> = ({ children, inFrames = 9, outFrames = 9 }) => {
-  const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
-  const opacity = Math.min(
-    interpolate(frame, [0, inFrames], [0, 1], {
-      extrapolateLeft: 'clamp',
-      extrapolateRight: 'clamp',
-    }),
-    interpolate(
-      frame,
-      [durationInFrames - outFrames, durationInFrames],
-      [1, 0],
-      { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
-    ),
-  );
-  return <AbsoluteFill style={{ opacity }}>{children}</AbsoluteFill>;
-};
-
 export const ShowcaseVideo: React.FC<ShowcaseVideoProps> = ({
   rawVideo,
   manifest,
@@ -106,8 +107,13 @@ export const ShowcaseVideo: React.FC<ShowcaseVideoProps> = ({
   introMs = DEFAULT_INTRO_MS,
   outroMs = DEFAULT_OUTRO_MS,
   kenBurns = true,
+  supersample = false,
+  whooshSfx,
+  musicBed,
 }) => {
-  const height = manifest.res.height;
+  // Card sizing keys off the OUTPUT height (composition size), which reflects
+  // an --out-res override; falls back to capture res when no override is set.
+  const { height } = useVideoConfig();
   const introFrames = msToFrames(introMs);
   const bodyFrames = Math.max(1, msToFrames(manifest.durationMs));
   const outroFrames = msToFrames(outroMs);
@@ -124,17 +130,19 @@ export const ShowcaseVideo: React.FC<ShowcaseVideoProps> = ({
 
       <Series>
         <Series.Sequence durationInFrames={introFrames}>
-          <SectionFade>
+          {/* Intro punches out into the body with a zoom-blur burst. */}
+          <SectionTransition exit="zoom">
             <IntroCard
               title={introCopy ?? manifest.title ?? manifest.scene}
               subtitle={introCopy ? undefined : 'Ptah'}
               videoHeight={height}
             />
-          </SectionFade>
+          </SectionTransition>
         </Series.Sequence>
 
         <Series.Sequence durationInFrames={bodyFrames}>
-          <SectionFade>
+          {/* Body whips in from the intro and whips out to the outro. */}
+          <SectionTransition enter="whip" exit="whip" dir={1}>
             <BodyScene
               src={resolveSrc(rawVideo)}
               source={resolvedSource}
@@ -143,20 +151,29 @@ export const ShowcaseVideo: React.FC<ShowcaseVideoProps> = ({
               captions={captions}
               shots={shots}
               kenBurns={kenBurns}
+              supersample={supersample}
               resolveSrc={resolveSrc}
             />
-          </SectionFade>
+          </SectionTransition>
         </Series.Sequence>
 
         <Series.Sequence durationInFrames={outroFrames}>
-          <SectionFade>
+          {/* Outro zooms in as the body clears. */}
+          <SectionTransition enter="zoom">
             <OutroCard
               copy={outroCopy ?? 'The whole team, in one place.'}
               videoHeight={height}
             />
-          </SectionFade>
+          </SectionTransition>
         </Series.Sequence>
       </Series>
+
+      <SoundDesign
+        shots={shots}
+        introMs={introMs}
+        whooshSrc={whooshSfx ? resolveSrc(whooshSfx) : undefined}
+        musicSrc={musicBed ? resolveSrc(musicBed) : undefined}
+      />
 
       <Watermark videoHeight={height} />
       <ProgressBar />

@@ -113,6 +113,12 @@ export const test = base.extend<ShowcaseFixtures>({
       await director
         .flushBeats(path.join(sceneDir, 'beats.json'))
         .catch(() => undefined);
+      // Also flush the auto-emitted virtual-camera track. `flushShots` is a
+      // no-op when no targeted interaction was recorded, so hand-authored
+      // shots.json for reverse-engineered scenes is never clobbered.
+      await director
+        .flushShots(path.join(sceneDir, 'shots.json'))
+        .catch(() => undefined);
     }
   },
 });

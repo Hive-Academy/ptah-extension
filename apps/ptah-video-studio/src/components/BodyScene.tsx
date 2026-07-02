@@ -29,6 +29,8 @@ export interface BodySceneProps {
   captions: CaptionToken[];
   shots: Shot[];
   kenBurns?: boolean;
+  /** Footage is higher-res than the output composition (crisper punch-ins). */
+  supersample?: boolean;
   resolveSrc: (v: string) => string;
 }
 
@@ -40,13 +42,13 @@ export const BodyScene: React.FC<BodySceneProps> = ({
   captions,
   shots,
   kenBurns = true,
+  supersample = false,
   resolveSrc,
 }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, height } = useVideoConfig();
   const nowMs = (frame / fps) * 1000;
   const active = activeShot(shots, nowMs);
-  const height = manifest.res.height;
 
   return (
     <AbsoluteFill>
@@ -55,6 +57,7 @@ export const BodyScene: React.FC<BodySceneProps> = ({
         source={source}
         shots={shots}
         kenBurns={kenBurns}
+        supersample={supersample}
       />
 
       {manifest.beats.map((beat, i) => {
