@@ -1,0 +1,229 @@
+name: Render Showcase Videos
+
+# This workflow renders the AI marketing videos (narrate → caption → render)
+# on a Linux runner where Remotion's compositor DLLs are not blocked by
+# Smart App Control.  The capture step (nx run ptah-electron-e2e:showcase)
+# requires the authenticated Electron app + a local Docker backend and
+# CANNOT run here — it must be done on a dev machine first.
+#
+# Operator flow:
+#   1. Run capture locally:
+#        PTAH_SHOWCASE_SILENT_CAPTIONS=1 npx nx run ptah-electron-e2e:showcase
+#   2. Upload the recordings directory as a GitHub Actions artifact
+#      using the companion upload-recordings.yml workflow_dispatch.
+#   3. Trigger THIS workflow with the run_id of the upload run.
+#   4. Download the rendered mp4s from the showcase-videos artifact.
+#
+# See apps/ptah-video-studio/README.md for the full operator guide.
+
+on:
+  workflow_dispatch:
+    inputs:
+      recordings_run_id:
+        description: >
+          GitHub Actions run ID that uploaded the showcase-recordings artifact.
+          Find it in the URL of the upload-recordings workflow run
+          (Actions → Upload Recordings → <run> → the number in the URL).
+        required: true
+        type: string
+      scene:
+        description: >
+          Single scene slug to render (e.g. editor-tour).
+          Leave blank to render all scenes found in the recordings artifact.
+        required: false
+        type: string
+        default: ''
+      whisper_model:
+        description: Whisper model to use for captioning.
+        required: false
+        type: choice
+        options:
+          - base.en
+          - medium.en
+        default: base.en
+
+concurrency:
+  group: render-showcase-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  NODE_VERSION: 22
+  NX_TUI: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          filter: tree:0
+          fetch-depth: 1
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Cache node_modules keyed on lockfile + OS (matches other workflows).
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-v2-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        # Fallback to npm install on lockfile drift (npm/cli#4828: Windows-
+        # generated lockfiles omit Linux platform binaries such as rollup).
+        run: npm ci || npm install --no-audit --no-fund
+
+      # The lockfile is generated on Windows; Linux platform binaries for
+      # rollup and the unrs resolver are omitted.  Install them explicitly so
+      # Nx builds and typecheck do not silently fail.
+      - name: Install Linux platform binaries
+        run: |
+          npm install \
+            @rollup/rollup-linux-x64-gnu \
+            @unrs/resolver-binding-linux-x64-gnu \
+            --no-save --force
+
+      # Remotion's headless render uses Chromium internally.  These are the
+      # system libraries Chromium needs on a bare Ubuntu runner.  The list is
+      # taken from the Remotion docs (https://www.remotion.dev/docs/chromium-flags)
+      # plus the packages npx playwright install --with-deps chromium installs.
+      - name: Install Chromium system libraries for Remotion render
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libnss3 \
+            libdbus-1-3 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libcups2 \
+            libdrm2 \
+            libxkbcommon0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            libgbm1 \
+            libasound2 \
+            libpango-1.0-0 \
+            libcairo2 \
+            libx11-6 \
+            libx11-xcb1 \
+            libxcb1 \
+            libxext6 \
+            libxfixes3 \
+            libxi6 \
+            libxrender1 \
+            libxss1 \
+            libxtst6 \
+            fonts-liberation \
+            xdg-utils
+
+      # Cache the Hugging Face ONNX model weights for kokoro-js.
+      # The model id is pinned to match narrate.mjs (Kokoro-82M-v1.0-ONNX).
+      # Cache key includes the model id so a model upgrade busts the cache.
+      - name: Cache Hugging Face model weights (kokoro-js)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-kokoro-82m-v1-${{ runner.os }}
+          restore-keys: |
+            hf-kokoro-82m-v1-
+
+      # Cache whisper.cpp binary + downloaded model under the app-local dir
+      # (.whisper/).  Key includes the model name so switching base.en →
+      # medium.en downloads the new model automatically.
+      - name: Cache whisper.cpp binary and model
+        uses: actions/cache@v4
+        with:
+          path: apps/ptah-video-studio/.whisper
+          key: whisper-cpp-${{ runner.os }}-${{ inputs.whisper_model }}-v1
+          restore-keys: |
+            whisper-cpp-${{ runner.os }}-${{ inputs.whisper_model }}-
+
+      # Download the showcase-recordings artifact that was uploaded by the
+      # upload-recordings workflow.  dawidd6/action-download-artifact supports
+      # cross-run download via the GitHub API (actions/download-artifact@v4
+      # only works within the same run).
+      - name: Download showcase-recordings artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          run_id: ${{ inputs.recordings_run_id }}
+          name: showcase-recordings
+          # Expand into the exact path the pipeline scripts expect:
+          # dist/apps/ptah-electron-e2e/recordings/<scene>/...
+          path: dist/apps/ptah-electron-e2e/recordings
+
+      - name: List downloaded scenes
+        run: |
+          echo "=== Downloaded recordings tree (top 2 levels) ==="
+          find dist/apps/ptah-electron-e2e/recordings -maxdepth 2 -type f | sort
+
+      # ------------------------------------------------------------------ #
+      # Narrate — Kokoro-82M TTS, one WAV per beat per scene.               #
+      # First run downloads ONNX weights into ~/.cache/huggingface (~300 MB  #
+      # for q8); subsequent runs use the cache.                              #
+      # ------------------------------------------------------------------ #
+      - name: Narrate (Kokoro TTS → wav + durations.json)
+        run: |
+          SCENE_ARG=""
+          if [ -n "${{ inputs.scene }}" ]; then
+            SCENE_ARG="--scene ${{ inputs.scene }}"
+          fi
+          node apps/ptah-video-studio/scripts/narrate.mjs $SCENE_ARG --source beats
+
+      # ------------------------------------------------------------------ #
+      # Caption — whisper.cpp word-level timestamps.                        #
+      # First run downloads binary + model (~150 MB for base.en); cached    #
+      # on subsequent runs.                                                  #
+      # ------------------------------------------------------------------ #
+      - name: Caption (whisper.cpp → captions.json)
+        run: |
+          SCENE_ARG=""
+          if [ -n "${{ inputs.scene }}" ]; then
+            SCENE_ARG="--scene ${{ inputs.scene }}"
+          fi
+          MODEL_ARG="--model ${{ inputs.whisper_model }}"
+          node apps/ptah-video-studio/scripts/caption.mjs $SCENE_ARG $MODEL_ARG
+
+      # ------------------------------------------------------------------ #
+      # Render — Remotion compositor (H.264 mp4 output).                    #
+      # On Linux, npm resolves @remotion/compositor-linux-x64-gnu            #
+      # automatically (no Smart App Control restriction).                    #
+      # ------------------------------------------------------------------ #
+      - name: Render (Remotion → mp4)
+        run: |
+          SCENE_ARG=""
+          if [ -n "${{ inputs.scene }}" ]; then
+            SCENE_ARG="--scene ${{ inputs.scene }}"
+          fi
+          node apps/ptah-video-studio/scripts/render-all.mjs $SCENE_ARG
+        # Remotion downloads its own headless Chromium on first render via
+        # @remotion/renderer.  The system apt libs installed above are what
+        # that Chromium needs to run headlessly on Ubuntu.  No extra env vars
+        # are required — Remotion's Chromium management is self-contained.
+
+      - name: List rendered mp4s
+        run: |
+          echo "=== Rendered video files ==="
+          find dist/apps/ptah-electron-e2e/recordings -name '*.mp4' | sort
+
+      # Upload mp4 files produced by Remotion.  The glob matches
+      # dist/apps/ptah-electron-e2e/recordings/<scene>/out/<scene>.mp4.
+      - name: Upload rendered videos artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: showcase-videos
+          path: dist/apps/ptah-electron-e2e/recordings/*/out/*.mp4
+          retention-days: 30
+          if-no-files-found: error

@@ -22,6 +22,7 @@ import {
   ElectronMasterKeyProvider,
   type ElectronSafeStorageApi,
 } from './electron-master-key-provider';
+import { decryptWithMachineSeed } from './machine-seed-key';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -634,4 +635,168 @@ describe('MKP-DL — ElectronMasterKeyProvider: data-loss audit', () => {
   it.todo(
     'MKP-DL-4: covered by IMasterKeyProvider contract — two concurrent calls return identical bytes',
   );
+});
+
+// ---------------------------------------------------------------------------
+// MKP-REC — machine-seed dual-wrap recovery (Windows-reinstall token loss fix)
+//
+// Three recovery paths:
+//   1. keychain works, machineWrapped missing  → key returned + backfilled.
+//   2. keychain throws, machineWrapped valid    → SAME key (no regen) + re-wrap.
+//   3. keychain throws, machineWrapped missing   → regenerate (notifyCorruption).
+//
+// The machine-seed helper reads/writes `.machine-uuid` under the provider's
+// ptahDir (we pass a temp dir), so derivation is deterministic per test.
+// ---------------------------------------------------------------------------
+
+describe('MKP-REC — ElectronMasterKeyProvider: keychain-first + machine-seed fallback', () => {
+  let tmpDir: string;
+
+  function keyRefPath(): string {
+    return path.join(tmpDir, 'master-key-ref.json');
+  }
+
+  function readRef(): {
+    version: number;
+    algorithm: string;
+    wrapped: string;
+    machineWrapped?: string;
+  } {
+    return JSON.parse(fs.readFileSync(keyRefPath(), 'utf8'));
+  }
+
+  /**
+   * safeStorage mock whose decryptString always throws — simulates an OS
+   * keychain that changed after a Windows reinstall.
+   */
+  function makeKeychainDecryptThrows(): ElectronSafeStorageApi {
+    const xorKey = 0x42;
+    return {
+      isEncryptionAvailable: jest.fn().mockReturnValue(true),
+      encryptString: jest.fn().mockImplementation((plaintext: string) => {
+        const buf = Buffer.from(plaintext, 'utf-8');
+        return Buffer.from(buf.map((b) => b ^ xorKey));
+      }),
+      decryptString: jest.fn().mockImplementation(() => {
+        throw new Error('DPAPI context changed (reinstall)');
+      }),
+    };
+  }
+
+  function withStorage(
+    provider: ElectronMasterKeyProvider,
+    storage: ElectronSafeStorageApi,
+  ): ElectronMasterKeyProvider {
+    (
+      provider as unknown as {
+        loadSafeStorage: () => Promise<ElectronSafeStorageApi>;
+      }
+    ).loadSafeStorage = jest.fn().mockResolvedValue(storage);
+    return provider;
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-electron-rec-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    jest.restoreAllMocks();
+  });
+
+  it('path 1: keychain works but machineWrapped missing → returns key AND backfills machineWrapped', async () => {
+    // Create an initial ref, then strip machineWrapped to simulate an older install.
+    const storage = makeAvailableSafeStorage();
+    const provider1 = withStorage(
+      new ElectronMasterKeyProvider(tmpDir),
+      storage,
+    );
+    const key1 = await provider1.getMasterKey();
+
+    const refBefore = readRef();
+    delete refBefore.machineWrapped;
+    fs.writeFileSync(keyRefPath(), JSON.stringify(refBefore), 'utf8');
+    expect(readRef().machineWrapped).toBeUndefined();
+
+    // Fresh provider reads via keychain.
+    const provider2 = withStorage(
+      new ElectronMasterKeyProvider(tmpDir),
+      makeAvailableSafeStorage(),
+    );
+    const key2 = await provider2.getMasterKey();
+
+    // Same key returned.
+    expect(key2.toString('hex')).toBe(key1.toString('hex'));
+
+    // machineWrapped was backfilled and decrypts back to the same base64 key.
+    const refAfter = readRef();
+    expect(typeof refAfter.machineWrapped).toBe('string');
+    const recoveredBase64 = decryptWithMachineSeed(
+      refAfter.machineWrapped as string,
+      tmpDir,
+    );
+    expect(recoveredBase64).toBe(key1.toString('base64'));
+  });
+
+  it('path 2: keychain decrypt throws, machineWrapped valid → returns SAME key (no regen) and re-wraps keychain', async () => {
+    // First boot writes a ref that includes machineWrapped.
+    const goodStorage = makeAvailableSafeStorage();
+    const provider1 = withStorage(
+      new ElectronMasterKeyProvider(tmpDir),
+      goodStorage,
+    );
+    const key1 = await provider1.getMasterKey();
+    expect(typeof readRef().machineWrapped).toBe('string');
+
+    // Second boot: keychain decrypt throws (Windows reinstall). Recovery must
+    // come from machineWrapped WITHOUT regenerating.
+    const throwsStorage = makeKeychainDecryptThrows();
+    const showErrorMessage = jest.fn().mockResolvedValue(undefined);
+    const provider2 = new ElectronMasterKeyProvider(tmpDir, {
+      showErrorMessage,
+    } as unknown as IUserInteraction);
+    withStorage(provider2, throwsStorage);
+
+    const key2 = await provider2.getMasterKey();
+
+    // SAME key — token stays decryptable, no data loss.
+    expect(key2.toString('hex')).toBe(key1.toString('hex'));
+    // No corruption notification — this was a successful recovery.
+    expect(showErrorMessage).not.toHaveBeenCalled();
+    // Keychain wrap was refreshed (encryptString called during restore) so the
+    // fast keychain path is armed again for next boot.
+    expect(throwsStorage.encryptString).toHaveBeenCalled();
+  });
+
+  it('path 3: keychain throws AND machineWrapped missing → regenerates (notifyCorruption called)', async () => {
+    // First boot writes a ref, then we strip machineWrapped (older install).
+    const goodStorage = makeAvailableSafeStorage();
+    const provider1 = withStorage(
+      new ElectronMasterKeyProvider(tmpDir),
+      goodStorage,
+    );
+    const key1 = await provider1.getMasterKey();
+
+    const ref = readRef();
+    delete ref.machineWrapped;
+    fs.writeFileSync(keyRefPath(), JSON.stringify(ref), 'utf8');
+
+    // Second boot: keychain decrypt throws, no machineWrapped to fall back on.
+    const throwsStorage = makeKeychainDecryptThrows();
+    const showErrorMessage = jest.fn().mockResolvedValue(undefined);
+    const provider2 = new ElectronMasterKeyProvider(tmpDir, {
+      showErrorMessage,
+    } as unknown as IUserInteraction);
+    withStorage(provider2, throwsStorage);
+
+    const key2 = await provider2.getMasterKey();
+
+    // A fresh key was generated (true loss path) — differs from the original.
+    expect(key2.length).toBe(32);
+    expect(key2.toString('hex')).not.toBe(key1.toString('hex'));
+    // User was notified exactly once.
+    expect(showErrorMessage).toHaveBeenCalledTimes(1);
+    // The regenerated ref carries a machineWrapped so the NEXT reinstall is safe.
+    expect(typeof readRef().machineWrapped).toBe('string');
+  });
 });
