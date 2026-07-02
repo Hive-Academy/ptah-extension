@@ -30,6 +30,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
 import { KokoroTTS } from 'kokoro-js';
 import {
   parseArgs,
@@ -37,6 +39,8 @@ import {
   listScenesWithBeats,
   loadStudioEnv,
 } from './paths.mjs';
+
+const require = createRequire(import.meta.url);
 
 // Studio-local .env (API keys / voice ids) — shell environment takes precedence.
 loadStudioEnv();
@@ -49,7 +53,12 @@ const DEFAULT_SPEED = 1;
 
 const ELEVENLABS_API = 'https://api.elevenlabs.io/v1/text-to-speech';
 const ELEVENLABS_DEFAULT_MODEL = 'eleven_multilingual_v2';
-const ELEVENLABS_PCM_RATE = 44100; // output_format=pcm_44100 -> 16-bit LE mono
+const ELEVENLABS_PCM_RATE = 44100; // wav we always WRITE is 16-bit LE mono @44.1k
+// Default transport format. `pcm_*` is Pro-tier only; `mp3_44100_128` works on
+// every tier, so we default to MP3 and transcode to PCM locally via ffmpeg.
+// Override with --output-format / PTAH_ELEVENLABS_OUTPUT_FORMAT (e.g. pcm_44100
+// on a Pro plan to skip the transcode).
+const ELEVENLABS_DEFAULT_FORMAT = 'mp3_44100_128';
 const ELEVENLABS_SPEED_MIN = 0.7;
 const ELEVENLABS_SPEED_MAX = 1.2;
 // Tone defaults tuned for an energetic marketing read: lower stability lets
@@ -57,6 +66,41 @@ const ELEVENLABS_SPEED_MAX = 1.2;
 const ELEVENLABS_DEFAULT_STABILITY = 0.4;
 const ELEVENLABS_DEFAULT_SIMILARITY = 0.75;
 const ELEVENLABS_DEFAULT_STYLE = 0.2;
+
+/** Resolve the bundled ffmpeg-static binary (also used by caption.mjs). */
+function ffmpegBin() {
+  const bin = require('ffmpeg-static');
+  if (!bin || !fs.existsSync(bin)) {
+    throw new Error('ffmpeg-static binary not found (npm install to fetch it).');
+  }
+  return bin;
+}
+
+/**
+ * Decode a compressed audio buffer (e.g. ElevenLabs MP3) to raw 16-bit LE mono
+ * PCM at `rate` Hz via ffmpeg, so it can flow through the same pcmToWav() path
+ * as native PCM. Returns the PCM Buffer.
+ */
+function decodeToPcm(input, rate) {
+  return execFileSync(
+    ffmpegBin(),
+    [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      'pipe:0',
+      '-ar',
+      String(rate),
+      '-ac',
+      '1',
+      '-f',
+      's16le',
+      'pipe:1',
+    ],
+    { input, maxBuffer: 1 << 28 },
+  );
+}
 
 /** Clamp a 0..1 voice_settings knob, warning when the input was out of range. */
 function clamp01(name, value) {
@@ -209,9 +253,11 @@ function createElevenLabsEngine(opts) {
   const similarity = clamp01('similarity', opts.similarity);
   const style = clamp01('style', opts.style);
 
+  const format = opts.outputFormat || ELEVENLABS_DEFAULT_FORMAT;
+  const isMp3 = format.startsWith('mp3');
   const url =
     `${ELEVENLABS_API}/${encodeURIComponent(opts.voice)}` +
-    `?output_format=pcm_44100`;
+    `?output_format=${encodeURIComponent(format)}`;
 
   async function post(text) {
     return fetch(url, {
@@ -219,7 +265,7 @@ function createElevenLabsEngine(opts) {
       headers: {
         'xi-api-key': apiKey,
         'content-type': 'application/json',
-        accept: 'audio/pcm',
+        accept: isMp3 ? 'audio/mpeg' : 'audio/pcm',
       },
       body: JSON.stringify({
         text,
@@ -239,8 +285,8 @@ function createElevenLabsEngine(opts) {
       engine: 'elevenlabs',
       voice: opts.voice,
       model,
-      // Settings fingerprint — a tone change must bust the wav-reuse skip.
-      settings: `speed:${speed}|stability:${stability}|similarity:${similarity}|style:${style}`,
+      // Settings fingerprint — a tone/format change must bust the wav-reuse skip.
+      settings: `speed:${speed}|stability:${stability}|similarity:${similarity}|style:${style}|fmt:${format}`,
     },
     async init() {
       if (!apiKey) {
@@ -292,7 +338,9 @@ function createElevenLabsEngine(opts) {
         );
       }
 
-      const pcm = Buffer.from(await res.arrayBuffer());
+      const raw = Buffer.from(await res.arrayBuffer());
+      // MP3 (all tiers) → transcode to PCM; PCM (Pro tier) → use as-is.
+      const pcm = isMp3 ? decodeToPcm(raw, ELEVENLABS_PCM_RATE) : raw;
       const wav = pcmToWav(pcm, ELEVENLABS_PCM_RATE);
       const samples = pcm.length / 2; // 16-bit LE
       const durationMs = Math.round((samples / ELEVENLABS_PCM_RATE) * 1000);
@@ -476,10 +524,16 @@ async function main() {
         ? process.env.PTAH_ELEVENLABS_MODEL || ELEVENLABS_DEFAULT_MODEL
         : undefined;
 
+  const outputFormat =
+    typeof args['output-format'] === 'string'
+      ? args['output-format']
+      : process.env.PTAH_ELEVENLABS_OUTPUT_FORMAT || ELEVENLABS_DEFAULT_FORMAT;
+
   const opts = {
     engine,
     voice,
     model,
+    outputFormat,
     speed: args.speed ? Number(args.speed) : DEFAULT_SPEED,
     stability: args.stability
       ? Number(args.stability)
