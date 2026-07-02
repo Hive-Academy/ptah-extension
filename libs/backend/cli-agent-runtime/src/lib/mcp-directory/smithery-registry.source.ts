@@ -51,6 +51,8 @@ const SmitheryServerSchema = z
     useCount: z.number().optional(),
     verified: z.boolean().optional(),
     isDeployed: z.boolean().optional(),
+    homepage: z.string().nullish(),
+    bySmithery: z.boolean().optional(),
   })
   .passthrough();
 
@@ -68,7 +70,10 @@ const SmitheryDetailSchema = z
     displayName: z.string().optional(),
     description: z.string().optional(),
     iconUrl: z.string().nullish(),
+    useCount: z.number().optional(),
     verified: z.boolean().optional(),
+    homepage: z.string().nullish(),
+    bySmithery: z.boolean().optional(),
     security: z
       .object({ scanPassed: z.boolean().optional() })
       .passthrough()
@@ -196,14 +201,14 @@ export class SmitheryRegistrySource implements IMcpRegistrySource {
     const s = parsed.data;
     return {
       name: s.qualifiedName,
-      description: s.displayName
-        ? s.description
-          ? `${s.displayName} — ${s.description}`
-          : s.displayName
-        : s.description,
+      displayName: s.displayName,
+      description: s.description,
       icons: s.iconUrl ? [{ src: s.iconUrl }] : undefined,
       source: 'smithery',
       verified: s.verified,
+      useCount: s.useCount,
+      bySmithery: s.bySmithery,
+      homepage: s.homepage ?? undefined,
     };
   }
 
@@ -223,14 +228,14 @@ export class SmitheryRegistrySource implements IMcpRegistrySource {
     );
     return {
       name: d.qualifiedName,
-      description: d.displayName
-        ? d.description
-          ? `${d.displayName} — ${d.description}`
-          : d.displayName
-        : d.description,
+      displayName: d.displayName,
+      description: d.description,
       icons: d.iconUrl ? [{ src: d.iconUrl }] : undefined,
       source: 'smithery',
       verified: d.verified,
+      useCount: d.useCount,
+      bySmithery: d.bySmithery,
+      homepage: d.homepage ?? undefined,
       scanPassed: d.security?.scanPassed,
       connections,
     };

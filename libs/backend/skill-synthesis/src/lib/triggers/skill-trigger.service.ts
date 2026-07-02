@@ -31,6 +31,7 @@ import {
 import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
 import { SkillSynthesisService } from '../skill-synthesis.service';
 import { SkillInvocationRecorder } from '../skill-invocation-recorder';
+import { SpecHarvesterService } from '../spec-harvester.service';
 import {
   SKILL_TRIGGER_DEFAULTS,
   SKILL_TRIGGER_KEYS,
@@ -102,6 +103,8 @@ export class SkillTriggerService {
     private readonly recorder: SkillInvocationRecorder,
     @inject(SDK_TOKENS.SDK_STOP_CALLBACK_REGISTRY)
     private readonly stopRegistry: StopCallbackRegistry,
+    @inject(SKILL_SYNTHESIS_TOKENS.SPEC_HARVESTER_SERVICE)
+    private readonly harvester: SpecHarvesterService,
   ) {}
 
   start(): void {
@@ -242,9 +245,44 @@ export class SkillTriggerService {
     }
 
     void this.invokeAnalyze(sessionId, state.workspaceRoot, 'turn-complete');
+    void this.fireHarvest(state.workspaceRoot);
+  }
+
+  private async fireHarvest(workspaceRoot: string): Promise<void> {
+    try {
+      await this.harvester.harvest(workspaceRoot);
+    } catch (error: unknown) {
+      this.logger.debug('[skill-synthesis] spec harvest failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private onSubagentStop(payload: SubagentStopPayload): void {
+    // Record agent-invocation telemetry first, independent of the subagent-stop
+    // *analyze* trigger below. A subagent completing IS an agent invocation, and
+    // this is the only reliable seam to observe it: a subagent's Task tool-use
+    // runs in its own nested SDK session and never surfaces back to the parent
+    // session's PostToolUse hook, so onPostToolUse's `Task` branch never fires
+    // for agent runs. Without this, every authored agent shows 0 invocations in
+    // the Library tab no matter how many times it runs. Keyed on `agentType`
+    // (the agent slug); the recorder's slug|session|2s-bucket dedup makes this
+    // idempotent if a Task PostToolUse ever does fire for the same run.
+    if (
+      this.readSkillInvocationTelemetryEnabled() &&
+      payload.agentType &&
+      payload.subagentSessionId
+    ) {
+      void this.recordInvocation({
+        slug: payload.agentType,
+        sessionId: payload.parentSessionId || payload.subagentSessionId,
+        workspaceRoot: payload.workspaceRoot,
+        succeeded: true,
+        invokedAt: payload.timestamp,
+        source: 'subagent',
+      });
+    }
+
     if (!this.readSubagentStopEnabled()) return;
     if (!payload.subagentSessionId || payload.subagentSessionId.length === 0) {
       this.logger.warn(
@@ -567,6 +605,7 @@ export class SkillTriggerService {
           skipped: result.skipped,
         },
       });
+      await this.fireHarvest(root);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.synthesis.pushEvent({

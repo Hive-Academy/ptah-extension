@@ -1463,6 +1463,30 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisUpdateSuggestionParams;
     result: SkillSynthesisUpdateSuggestionResult;
   };
+  'skillSynthesis:rejectBulk': {
+    params: SkillSynthesisRejectBulkParams;
+    result: SkillSynthesisRejectBulkResult;
+  };
+  'skillSynthesis:promoteBulk': {
+    params: SkillSynthesisPromoteBulkParams;
+    result: SkillSynthesisPromoteBulkResult;
+  };
+  'skillSynthesis:rejectByPattern': {
+    params: SkillSynthesisRejectByPatternParams;
+    result: SkillSynthesisRejectByPatternResult;
+  };
+  'skillSynthesis:listSpecs': {
+    params: SkillSynthesisListSpecsParams;
+    result: SkillSynthesisListSpecsResult;
+  };
+  'skillSynthesis:harvestSpecs': {
+    params: SkillSynthesisHarvestSpecsParams;
+    result: SkillSynthesisHarvestSpecsResult;
+  };
+  'skillSynthesis:clearStaleSpecs': {
+    params: SkillSynthesisClearStaleSpecsParams;
+    result: SkillSynthesisClearStaleSpecsResult;
+  };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
   'cron:create': { params: CronCreateParams; result: CronCreateResult };
@@ -1532,6 +1556,14 @@ export interface RpcMethodRegistry {
     params: GatewayListDiscordGuildsParams;
     result: GatewayListDiscordGuildsResult;
   };
+  'gateway:attachSession': {
+    params: GatewayAttachSessionParams;
+    result: GatewayAttachSessionResult;
+  };
+  'gateway:detachSession': {
+    params: GatewayDetachSessionParams;
+    result: GatewayDetachSessionResult;
+  };
 
   'voice:transcribe': {
     params: VoiceTranscribeParams;
@@ -1548,6 +1580,22 @@ export interface RpcMethodRegistry {
   'voice:downloadModel': {
     params: VoiceDownloadModelParams;
     result: VoiceDownloadModelResult;
+  };
+  'voice:getTtsConfig': {
+    params: VoiceGetTtsConfigParams;
+    result: VoiceGetTtsConfigResult;
+  };
+  'voice:setTtsConfig': {
+    params: VoiceSetTtsConfigParams;
+    result: VoiceSetTtsConfigResult;
+  };
+  'voice:downloadTtsModel': {
+    params: VoiceDownloadTtsModelParams;
+    result: VoiceDownloadTtsModelResult;
+  };
+  'voice:synthesize': {
+    params: VoiceSynthesizeParams;
+    result: VoiceSynthesizeResult;
   };
 
   'db:health': {
@@ -1678,6 +1726,66 @@ export interface SkillSynthesisRejectResult {
   rejected: boolean;
 }
 
+export interface SkillSynthesisRejectBulkParams {
+  ids: string[];
+  reason?: string;
+}
+export interface SkillSynthesisRejectBulkResult {
+  rejected: number;
+}
+export interface SkillSynthesisPromoteBulkParams {
+  ids: string[];
+}
+export interface SkillSynthesisPromoteBulkDecision {
+  id: string;
+  promoted: boolean;
+  reason: string | null;
+  filePath: string | null;
+}
+export interface SkillSynthesisPromoteBulkResult {
+  decisions: SkillSynthesisPromoteBulkDecision[];
+  promoted: number;
+}
+export interface SkillSynthesisRejectByPatternParams {
+  pattern: string;
+  reason?: string;
+}
+export interface SkillSynthesisRejectByPatternResult {
+  rejected: number;
+  matched: number;
+}
+
+export type SkillSynthesisSpecStatus =
+  | 'active'
+  | 'complete-unharvested'
+  | 'harvested';
+export interface SkillSynthesisSpecSummary {
+  taskId: string;
+  status: SkillSynthesisSpecStatus;
+  batchCount: number;
+  harvestedAt: number | null;
+  ageDays: number | null;
+}
+export type SkillSynthesisListSpecsParams = Record<string, never>;
+export interface SkillSynthesisListSpecsResult {
+  specs: SkillSynthesisSpecSummary[];
+}
+export type SkillSynthesisHarvestSpecsParams = Record<string, never>;
+export interface SkillSynthesisHarvestSpecsResult {
+  scanned: number;
+  harvested: number;
+  reconciled: number;
+}
+export interface SkillSynthesisClearStaleSpecsParams {
+  retentionDays?: number;
+  mode?: 'archive' | 'delete';
+}
+export interface SkillSynthesisClearStaleSpecsResult {
+  cleared: number;
+  mode: 'archive' | 'delete';
+  taskIds: string[];
+}
+
 export interface SkillSynthesisInvocationsParams {
   skillId: string;
   limit?: number;
@@ -1761,6 +1869,7 @@ export interface SkillSynthesisRunCuratorResult {
   changesQueued: number;
   skippedPinned: number;
   overlaps?: SkillSynthesisCuratorOverlap[];
+  suggestionsCreated: number;
 }
 
 export type SkillSuggestionStatus = 'pending' | 'accepted' | 'dismissed';
@@ -1984,6 +2093,42 @@ export type GatewayRegisterDiscordCommandsResult =
   | { ok: true; registered: number; scope: 'guild' | 'global' }
   | { ok: false; error: string };
 
+/**
+ * `gateway:attachSession` — attach an existing Ptah SDK session to an approved
+ * messaging binding so subsequent inbound platform messages resume that exact
+ * conversation. Webview-initiated: the webview supplies the real SDK
+ * `sessionUuid` AND the session's `workspaceRoot` (never inferred backend-side).
+ */
+export interface GatewayAttachSessionParams {
+  bindingId: string;
+  /** The canonical SDK session UUID to attach (from the webview). */
+  sessionUuid: string;
+  /** The session's workspace root — supplied by the webview, never inferred. */
+  workspaceRoot: string;
+  /** Optional external conversation id (Discord thread, etc.); defaults to 'default'. */
+  externalConversationId?: string;
+}
+export type GatewayAttachSessionResult =
+  | { ok: true; binding: GatewayBindingDto }
+  | {
+      ok: false;
+      error:
+        | 'binding-not-found'
+        | 'binding-not-approved'
+        | 'session-not-resumable';
+    };
+
+/**
+ * `gateway:detachSession` — clear the session link on a binding's
+ * conversation(s) (sets `ptahSessionId` to NULL). No continuity flag.
+ */
+export interface GatewayDetachSessionParams {
+  bindingId: string;
+}
+export type GatewayDetachSessionResult =
+  | { ok: true; binding: GatewayBindingDto }
+  | { ok: false; error: 'binding-not-found' };
+
 export interface GatewayDiscordGuildDto {
   id: string;
   name: string;
@@ -2029,6 +2174,44 @@ export interface VoiceDownloadModelParams {
 
 export type VoiceDownloadModelResult =
   | { ok: true; alreadyPresent: boolean }
+  | { ok: false; error: string; code?: string; remediation?: string };
+
+export interface TtsConfigDto {
+  /** Selected Kokoro voice id, e.g. 'af_heart'. */
+  voice: string;
+  /** Whether the Kokoro TTS model is already downloaded on disk. */
+  downloaded: boolean;
+}
+
+export type VoiceGetTtsConfigParams = Record<string, never>;
+
+export type VoiceGetTtsConfigResult =
+  | { ok: true; config: TtsConfigDto }
+  | { ok: false; error: string };
+
+export interface VoiceSetTtsConfigParams {
+  voice: string;
+}
+
+export type VoiceSetTtsConfigResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export type VoiceDownloadTtsModelParams = Record<string, never>;
+
+export type VoiceDownloadTtsModelResult =
+  | { ok: true; alreadyPresent: boolean }
+  | { ok: false; error: string; code?: string; remediation?: string };
+
+export interface VoiceSynthesizeParams {
+  /** Text to speak. */
+  text: string;
+  /** Voice id override; defaults to the configured TTS voice. */
+  voice?: string;
+}
+
+export type VoiceSynthesizeResult =
+  | { ok: true; audioBase64: string; mimeType: string }
   | { ok: false; error: string; code?: string; remediation?: string };
 
 export interface ScheduledJobDto {
@@ -2404,6 +2587,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:dismissSuggestion': true,
   'skillSynthesis:getSuggestion': true,
   'skillSynthesis:updateSuggestion': true,
+  'skillSynthesis:rejectBulk': true,
+  'skillSynthesis:promoteBulk': true,
+  'skillSynthesis:rejectByPattern': true,
+  'skillSynthesis:listSpecs': true,
+  'skillSynthesis:harvestSpecs': true,
+  'skillSynthesis:clearStaleSpecs': true,
 
   'cron:list': true,
   'cron:get': true,
@@ -2430,11 +2619,17 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'gateway:setDiscordAppId': true,
   'gateway:registerDiscordCommands': true,
   'gateway:listDiscordGuilds': true,
+  'gateway:attachSession': true,
+  'gateway:detachSession': true,
 
   'voice:transcribe': true,
   'voice:getConfig': true,
   'voice:setConfig': true,
   'voice:downloadModel': true,
+  'voice:getTtsConfig': true,
+  'voice:setTtsConfig': true,
+  'voice:downloadTtsModel': true,
+  'voice:synthesize': true,
 
   'db:health': true,
   'db:reset': true,

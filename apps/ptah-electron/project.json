@@ -69,6 +69,7 @@
           "croner",
           "ulid",
           "@huggingface/transformers",
+          "kokoro-js",
           "grammy",
           "discord.js",
           "@slack/bolt",

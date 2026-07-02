@@ -51,6 +51,7 @@ import {
   GATEWAY_TOKENS,
   type FfmpegDecoder,
   type WhisperTranscriber,
+  type KokoroSynthesizer,
 } from '@ptah-extension/messaging-gateway';
 import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import { ElectronSafeStorageVault } from '../services/platform/electron-safe-storage-vault';
@@ -241,6 +242,11 @@ function configureElectronVoiceAssets(
       GATEWAY_TOKENS.GATEWAY_WHISPER_TRANSCRIBER,
     );
     whisper.configure({ modelCacheDir });
+
+    const kokoro = container.resolve<KokoroSynthesizer>(
+      GATEWAY_TOKENS.GATEWAY_KOKORO_SYNTHESIZER,
+    );
+    kokoro.configure({ modelCacheDir });
 
     logger.info('[Electron DI] Voice assets configured', {
       ffmpegPath,

@@ -58,7 +58,7 @@ export interface HarnessSkillResult {
 export interface HarnessMcpServerResult {
   name: string;
   description?: string;
-  source: 'official' | 'smithery';
+  source: 'official' | 'smithery' | 'pulsemcp';
 }
 
 /**
@@ -78,6 +78,7 @@ export interface HarnessNamespaceDependencies {
   mcpRegistry: HarnessMcpRegistrySource;
   skillsDirectory?: HarnessSkillsDirectory;
   smitheryRegistry?: HarnessMcpRegistrySource;
+  pulseMcpRegistry?: HarnessMcpRegistrySource;
   getWorkspaceRoot: () => string;
   broadcast: (type: string, payload: unknown) => void;
   logger: {
@@ -176,6 +177,7 @@ export function buildHarnessNamespace(
     mcpRegistry,
     skillsDirectory,
     smitheryRegistry,
+    pulseMcpRegistry,
     getWorkspaceRoot,
     broadcast,
     logger,
@@ -330,8 +332,27 @@ export function buildHarnessNamespace(
         }
       }
 
+      let pulseMcpServers: HarnessMcpServerResult[] = [];
+      if (pulseMcpRegistry) {
+        try {
+          const pulse = await pulseMcpRegistry.listServers({
+            query,
+            limit: effectiveLimit,
+          });
+          pulseMcpServers = pulse.servers.map((server) => ({
+            name: server.name,
+            description: server.description,
+            source: 'pulsemcp',
+          }));
+        } catch (error: unknown) {
+          logger.warn(
+            `[Harness] PulseMCP registry search failed, returning other results only: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
       return {
-        servers: [...officialServers, ...smitheryServers],
+        servers: [...officialServers, ...smitheryServers, ...pulseMcpServers],
         next_cursor: official.next_cursor,
       };
     },

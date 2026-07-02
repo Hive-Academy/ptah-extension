@@ -153,6 +153,31 @@ export class SkillDiagnosticsStateService {
     }
   }
 
+  /**
+   * Append a live skill-synthesis event pushed from the backend, keeping the
+   * recent-events list chronological and capped to the last 50. Bumps the
+   * matching last-run timestamps and, for ineligible events, the eligibility
+   * histogram bucket when the reason is derivable. The periodic poll/refresh
+   * corrects any drift, so this stays intentionally simple.
+   */
+  public pushLiveEvent(event: SkillSynthesisEventWire): void {
+    this._recentEvents.update((list) => [...list, event].slice(-50));
+
+    if (event.kind === 'analyze-run') {
+      this._lastAnalyzeRunAt.set(event.timestamp);
+    } else if (event.kind === 'curator-pass') {
+      this._lastCuratorPassAt.set(event.timestamp);
+    } else if (event.kind === 'ineligible') {
+      const reason = event.stats?.['reason'];
+      if (reason === 'prefilterTooThin' || reason === 'prefilterRejected') {
+        this._eligibilityHistogram.update((h) => ({
+          ...h,
+          [reason]: h[reason] + 1,
+        }));
+      }
+    }
+  }
+
   private applySnapshot(snapshot: SkillDiagnosticsResult): void {
     this._lastAnalyzeRunAt.set(snapshot.lastAnalyzeRunAt ?? null);
     this._lastCuratorPassAt.set(snapshot.lastCuratorPassAt ?? null);

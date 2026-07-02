@@ -54,6 +54,7 @@ describe('ThemeService', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('data-theme-mode');
   });
 
   describe('initial theme resolution', () => {
@@ -172,6 +173,23 @@ describe('ThemeService', () => {
       service.setTheme('night');
       appRef.tick();
       expect(document.documentElement.getAttribute('data-theme')).toBe('night');
+    });
+
+    it('writes data-theme-mode reflecting the light/dark classification', () => {
+      const mock = createMockVscode({ persisted: 'dracula' });
+      const service = configure(mock);
+      const appRef = TestBed.inject(ApplicationRef);
+
+      appRef.tick();
+      expect(document.documentElement.getAttribute('data-theme-mode')).toBe(
+        'dark',
+      );
+
+      service.setTheme('cupcake');
+      appRef.tick();
+      expect(document.documentElement.getAttribute('data-theme-mode')).toBe(
+        'light',
+      );
     });
   });
 });

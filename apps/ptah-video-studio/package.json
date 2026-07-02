@@ -1,0 +1,14 @@
+{
+  "name": "@ptah-extension/ptah-video-studio",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Remotion compositor + AI narration/caption pipeline that turns showcase recordings into narrated, captioned marketing mp4s. Tooling only — never shipped in the VSIX.",
+  "scripts": {
+    "studio": "remotion studio src/Root.tsx",
+    "render": "node scripts/render-all.mjs",
+    "narrate": "node scripts/narrate.mjs",
+    "caption": "node scripts/caption.mjs",
+    "polish": "node scripts/polish.mjs"
+  }
+}

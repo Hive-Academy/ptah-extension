@@ -97,11 +97,17 @@ export class GatewayChatBridge {
       return;
     }
 
-    let drained = false;
-    const drainOnce = async (): Promise<void> => {
-      if (drained) return;
-      drained = true;
-      await this.gateway.drainOutbound(route.conversationKey);
+    // End-of-turn seal — flushes the turn's FULL accumulated text as ONE
+    // outbound message AND resets the per-conversation buffer + message handle
+    // so the NEXT turn starts a fresh platform message. This is the only
+    // outbound flush per turn (no mid-turn send, no live `editMessage`
+    // streaming). Runs exactly once in the `finally` below (success and error
+    // paths alike). `completeOutboundTurn` drains internally.
+    let sealed = false;
+    const sealTurn = async (): Promise<void> => {
+      if (sealed) return;
+      sealed = true;
+      await this.gateway.completeOutboundTurn(route.conversationKey);
     };
 
     const tabId = `gw-${conversation.id}`;
@@ -115,13 +121,8 @@ export class GatewayChatBridge {
         tabId,
       );
       sessionToEnd =
-        (await this.pumpStream(
-          stream,
-          conversation,
-          tabId,
-          route,
-          drainOnce,
-        )) ?? sessionToEnd;
+        (await this.pumpStream(stream, conversation, tabId, route)) ??
+        sessionToEnd;
     } catch (error: unknown) {
       const recovered = await this.tryFallbackStart(
         error,
@@ -130,7 +131,6 @@ export class GatewayChatBridge {
         workspaceRoot,
         tabId,
         route,
-        drainOnce,
       );
       if (recovered.ok) {
         sessionToEnd = recovered.sessionId ?? sessionToEnd;
@@ -145,10 +145,9 @@ export class GatewayChatBridge {
         );
       }
     } finally {
-      await drainOnce().catch((drainErr: unknown) => {
+      await sealTurn().catch((sealErr: unknown) => {
         this.logger.warn('[gateway-chat-bridge] drain failed', {
-          error:
-            drainErr instanceof Error ? drainErr.message : String(drainErr),
+          error: sealErr instanceof Error ? sealErr.message : String(sealErr),
         });
       });
       this.endSessionAfterTurn(sessionToEnd ?? tabId);
@@ -239,12 +238,15 @@ export class GatewayChatBridge {
     conversation: GatewayConversation,
     tabId: string,
     route: OutboundRoute,
-    drainOnce: () => Promise<void>,
   ): Promise<string | null> {
     let eventCount = 0;
     let sessionUuidBound = false;
     let resolvedSessionId: string | null = null;
 
+    // `text_delta` only accumulates into the coalescer buffer (no send). The
+    // single outbound message is flushed once at end-of-turn via `sealTurn()`
+    // → `completeOutboundTurn`. `message_complete` carries no text and is not
+    // a flush point here — flushing mid-turn would emit a partial message.
     for await (const event of stream) {
       eventCount++;
       if (!sessionUuidBound && event.sessionId && event.sessionId !== tabId) {
@@ -254,8 +256,6 @@ export class GatewayChatBridge {
       }
       if (event.eventType === 'text_delta' && event.delta) {
         this.gateway.appendOutboundChunk(route, event.delta);
-      } else if (event.eventType === 'message_complete') {
-        await drainOnce();
       }
     }
 
@@ -273,7 +273,6 @@ export class GatewayChatBridge {
     workspaceRoot: string,
     tabId: string,
     route: OutboundRoute,
-    drainOnce: () => Promise<void>,
   ): Promise<{ ok: boolean; sessionId: string | null }> {
     if (!conversation.ptahSessionId) return { ok: false, sessionId: null };
     this.logger.warn(
@@ -290,7 +289,6 @@ export class GatewayChatBridge {
         conversation,
         tabId,
         route,
-        drainOnce,
       );
       return { ok: true, sessionId };
     } catch (fallbackError: unknown) {

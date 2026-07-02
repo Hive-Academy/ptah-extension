@@ -21,8 +21,18 @@ export const GATEWAY_TOKENS = {
   GATEWAY_STREAM_COALESCER: Symbol.for('PtahGatewayStreamCoalescer'),
   /** WhisperTranscriber — voice → text. */
   GATEWAY_WHISPER_TRANSCRIBER: Symbol.for('PtahGatewayWhisperTranscriber'),
+  /** KokoroSynthesizer — text → voice. */
+  GATEWAY_KOKORO_SYNTHESIZER: Symbol.for('PtahGatewayKokoroSynthesizer'),
   /** FfmpegDecoder — OGG/Opus → 16kHz WAV. */
   GATEWAY_FFMPEG_DECODER: Symbol.for('PtahGatewayFfmpegDecoder'),
+  /** AttachedSessionRegistry — in-memory attach contention backstop. */
+  GATEWAY_ATTACHED_SESSION_REGISTRY: Symbol.for(
+    'PtahGatewayAttachedSessionRegistry',
+  ),
+  /** ISessionResumabilityChecker — JSONL-exists check for the attach flow. */
+  GATEWAY_SESSION_RESUMABILITY_CHECKER: Symbol.for(
+    'PtahGatewaySessionResumabilityChecker',
+  ),
 } as const;
 
 export type GatewayDIToken = keyof typeof GATEWAY_TOKENS;

@@ -15,6 +15,18 @@ export type {
   SmitheryLogger,
   SmitheryRegistrySourceOptions,
 } from './smithery-registry.source';
+export { PulseMcpRegistrySource } from './pulsemcp-registry.source';
+export type {
+  PulseMcpLogger,
+  PulseMcpRegistrySourceOptions,
+} from './pulsemcp-registry.source';
+export {
+  PULSEMCP_DEFAULT_REGISTRY_BASE,
+  PULSEMCP_DEFAULT_PAGE_SIZE,
+  PULSEMCP_CACHE_TTL_MS,
+  PULSEMCP_REQUEST_TIMEOUT_MS,
+  PULSEMCP_FIRST_OFFSET,
+} from './pulsemcp-wire.constants';
 export { SmitheryConnectionResolver } from './smithery-connection-resolver';
 export type {
   SmitheryResolveInput,

@@ -36,7 +36,7 @@ DI: `GATEWAY_TOKENS`, `GatewayDIToken`, `registerMessagingGatewayServices`.
 - `src/lib/binding.store.ts`, `message.store.ts` — SQLite-backed (uses persistence-sqlite)
 - `src/lib/adapters/{telegram,discord,slack}/` — per-platform adapters behind `IMessagingAdapter`
 - `src/lib/voice/` — `ffmpeg-decoder.ts`, `whisper-transcriber.ts`
-- `src/lib/stream-coalescer.ts` — flushes streamed AI output in batched chunks
+- `src/lib/stream-coalescer.ts` — buffers assistant token chunks per conversation; two modes: `'stream'` (timer-driven batched edits) and `'complete'` (accumulate-until-drain — flushes the full turn text as ONE message on explicit `drain()`, no streaming edits). `GatewayService` constructs it in `'complete'` mode so each agent turn emits exactly one outbound message.
 - `src/lib/token-vault.interface.ts`
 - `src/lib/di/{tokens,register}.ts`
 

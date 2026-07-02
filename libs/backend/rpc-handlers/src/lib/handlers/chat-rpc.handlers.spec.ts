@@ -19,12 +19,15 @@ import type {
   RpcHandler,
   SentryService,
 } from '@ptah-extension/vscode-core';
+import { RpcUserError } from '@ptah-extension/vscode-core';
 import {
   createMockRpcHandler,
   createMockSentryService,
   type MockRpcHandler,
 } from '@ptah-extension/vscode-core/testing';
 import { createMockLogger } from '@ptah-extension/shared/testing';
+
+import type { ISessionAttachmentGuard } from '@ptah-extension/platform-core';
 
 import { ChatRpcHandlers } from './chat-rpc.handlers';
 import type { ChatPtahCliService } from '../chat/ptah-cli/chat-ptah-cli.service';
@@ -41,9 +44,16 @@ interface Suite {
   ptahCli: Mocked<ChatPtahCliService>;
   streamBroadcaster: Mocked<ChatStreamBroadcaster>;
   session: Mocked<ChatSessionService>;
+  attachmentGuard: Mocked<ISessionAttachmentGuard>;
 }
 
-function buildSuite(): Suite {
+/**
+ * Build a suite. By default the attachment guard reports nothing attached,
+ * matching the VS Code host (NullSessionAttachmentGuard) and the
+ * not-attached Electron case. Pass `attached: true` to simulate a session
+ * driven by a messaging binding.
+ */
+function buildSuite(opts: { attached?: boolean } = {}): Suite {
   const logger = createMockLogger();
   const rpc = createMockRpcHandler();
   const sentry = createMockSentryService();
@@ -68,6 +78,10 @@ function buildSuite(): Suite {
     listBackgroundAgents: jest.fn().mockResolvedValue({ agents: [] }),
   } as unknown as Mocked<ChatSessionService>;
 
+  const attachmentGuard = {
+    isAttached: jest.fn().mockReturnValue(opts.attached ?? false),
+  } as unknown as Mocked<ISessionAttachmentGuard>;
+
   const handlers = new ChatRpcHandlers(
     logger as unknown as Logger,
     rpc as unknown as RpcHandler,
@@ -75,6 +89,7 @@ function buildSuite(): Suite {
     ptahCli,
     streamBroadcaster,
     session,
+    attachmentGuard,
   );
 
   return {
@@ -85,6 +100,7 @@ function buildSuite(): Suite {
     ptahCli,
     streamBroadcaster,
     session,
+    attachmentGuard,
   };
 }
 
@@ -177,6 +193,53 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
         expect(suite.session[delegate]).toHaveBeenCalledWith(params);
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // chat:resume attach contention backstop (ISessionAttachmentGuard port).
+  // -------------------------------------------------------------------------
+
+  describe('chat:resume — session-attached-to-gateway backstop', () => {
+    const resumeParams = { sessionId: SESSION_UUID, tabId: TAB_UUID };
+
+    it('rejects resume with a typed RpcUserError when the session is attached', async () => {
+      const suite = buildSuite({ attached: true });
+      suite.handlers.register();
+
+      const rejection = getHandler(suite.rpc, 'chat:resume')(resumeParams);
+      await expect(rejection).rejects.toBeInstanceOf(RpcUserError);
+      await expect(rejection).rejects.toMatchObject({
+        errorCode: 'SESSION_ATTACHED_TO_GATEWAY',
+      });
+
+      expect(suite.attachmentGuard.isAttached).toHaveBeenCalledWith(
+        SESSION_UUID,
+      );
+      // The legitimate driver (gateway bridge) is the only resumer once
+      // attached — the webview resume must NOT reach ChatSessionService.
+      expect(suite.session.resumeSession).not.toHaveBeenCalled();
+    });
+
+    it('proceeds to ChatSessionService.resumeSession when not attached (default / VS Code host)', async () => {
+      const suite = buildSuite(); // guard reports nothing attached
+      suite.handlers.register();
+
+      await getHandler(suite.rpc, 'chat:resume')(resumeParams);
+
+      expect(suite.attachmentGuard.isAttached).toHaveBeenCalledWith(
+        SESSION_UUID,
+      );
+      expect(suite.session.resumeSession).toHaveBeenCalledWith(resumeParams);
+    });
+
+    it('does not leak internals — the user-facing message names the binding, not the registry', async () => {
+      const suite = buildSuite({ attached: true });
+      suite.handlers.register();
+
+      await expect(
+        getHandler(suite.rpc, 'chat:resume')(resumeParams),
+      ).rejects.toThrow(/messaging binding/i);
+    });
   });
 
   // -------------------------------------------------------------------------

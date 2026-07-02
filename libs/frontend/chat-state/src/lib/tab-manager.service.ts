@@ -14,6 +14,7 @@ import {
   SdkBackgroundTaskSummary,
   SdkSessionCronSummary,
   SdkTerminalReason,
+  GatewayPlatformId,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
@@ -1565,6 +1566,53 @@ export class TabManagerService {
     this.updateTabInternal(tabId, { hasLiveSession: true });
   }
 
+  // ----- Messaging-gateway attachment -----
+
+  /**
+   * Mark a tab as attached to a messaging binding (Telegram / Discord / Slack).
+   *
+   * Frontend-only, NOT persisted. Set exclusively in response to the backend
+   * `gateway:sessionAttached` push event (via `ChatMessageHandler`). Stamps the
+   * `attachedBinding` link onto the tab so the composer renders read-only and
+   * offers "Resolve back to webview". Does not touch session status or any
+   * streaming field — an attached session can still receive push updates.
+   *
+   * @param tabId - Tab to mark attached
+   * @param binding - The messaging binding the tab's session is now bound to
+   */
+  markTabAttached(
+    tabId: string,
+    binding: { bindingId: string; platform: GatewayPlatformId },
+  ): void {
+    this.updateTabInternal(tabId, { attachedBinding: binding });
+  }
+
+  /**
+   * Clear a tab's messaging-binding attachment, re-enabling the webview
+   * composer. Set exclusively in response to the backend
+   * `gateway:sessionDetached` push event (via `ChatMessageHandler`).
+   *
+   * @param tabId - Tab to mark detached
+   */
+  markTabDetached(tabId: string): void {
+    this.updateTabInternal(tabId, { attachedBinding: null });
+  }
+
+  /**
+   * Resolve an SDK session UUID to every active-workspace `TabId` bound to it.
+   *
+   * A single session can be shown in MULTIPLE tabs (canvas tiles), so gateway
+   * attach/detach push events must mark ALL of them. Reuses the same
+   * `ConversationRegistry` + `TabSessionBinding` reverse-lookup path as
+   * `findTabsBySessionId` (plural) and returns just the ids.
+   *
+   * @param sessionId - SDK session UUID from the gateway push payload
+   * @returns Every matching active-workspace TabId (possibly empty)
+   */
+  findTabIdsBySessionId(sessionId: SessionId): readonly TabId[] {
+    return this.findTabsBySessionId(sessionId).map((t) => t.id as TabId);
+  }
+
   // ----- Session resume / load -----
 
   /**
@@ -1838,6 +1886,9 @@ export class TabManagerService {
               : tab.status,
           queuedContent: null,
           queuedOptions: null,
+          // Messaging attachment is a live, push-driven flag — a restored tab
+          // is never attached. Clear so a stale flag can't leave it read-only.
+          attachedBinding: null,
         }));
         this._tabs.set(sanitizedTabs);
         this._activeTabId.set(state.activeTabId ?? null);

@@ -13,13 +13,18 @@ import type {
   SkillSynthesisInvocationEntry,
   SkillSynthesisKeepCloneResult,
   SkillSynthesisListCandidatesParams,
+  SkillSynthesisPromoteBulkResult,
   SkillSynthesisPromoteResult,
   SkillSynthesisRebaseCloneResult,
+  SkillSynthesisRejectByPatternResult,
   SkillSynthesisRevertEnhancementResult,
   SkillSynthesisRunCuratorResult,
   SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
   SkillSynthesisUpdateSuggestionResult,
+  SkillSynthesisSpecSummary,
+  SkillSynthesisHarvestSpecsResult,
+  SkillSynthesisClearStaleSpecsResult,
 } from '@ptah-extension/shared';
 
 export interface SkillAcceptSuggestionResult {
@@ -118,6 +123,61 @@ export class SkillSynthesisRpcService {
       return result.data.rejected;
     }
     throw new Error(result.error || 'Failed to reject skill candidate');
+  }
+
+  /**
+   * Reject many candidates by id in one pass. Returns the number actually
+   * rejected (already-rejected ids are skipped by the backend).
+   */
+  public async rejectBulk(ids: string[], reason?: string): Promise<number> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:rejectBulk',
+      reason ? { ids, reason } : { ids },
+      { timeout: SKILL_RPC_TIMEOUTS.SHORT_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.rejected;
+    }
+    throw new Error(result.error || 'Failed to reject skill candidates');
+  }
+
+  /**
+   * Promote many candidates by id. Each candidate runs through the same
+   * gate as single promotion, so the result carries a per-id decision list
+   * alongside the count actually promoted.
+   */
+  public async promoteBulk(
+    ids: string[],
+  ): Promise<SkillSynthesisPromoteBulkResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:promoteBulk',
+      { ids },
+      { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to promote skill candidates');
+  }
+
+  /**
+   * Reject every pending candidate whose name matches the given glob-style
+   * pattern (supports `*`). Returns how many matched and how many were
+   * rejected.
+   */
+  public async rejectByPattern(
+    pattern: string,
+    reason?: string,
+  ): Promise<SkillSynthesisRejectByPatternResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:rejectByPattern',
+      reason ? { pattern, reason } : { pattern },
+      { timeout: SKILL_RPC_TIMEOUTS.SHORT_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to reject skills by pattern');
   }
 
   /** Fetch invocation history for a single skill / candidate id. */
@@ -402,5 +462,46 @@ export class SkillSynthesisRpcService {
       return result.data.dismissed;
     }
     throw new Error(result.error || 'Failed to dismiss skill suggestion');
+  }
+
+  /** List orchestration specs under `.ptah/specs`, classified for cleanup. */
+  public async listSpecs(): Promise<SkillSynthesisSpecSummary[]> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:listSpecs',
+      {},
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.specs;
+    }
+    throw new Error(result.error || 'Failed to list specs');
+  }
+
+  /** Reconcile completed specs into skill telemetry now. */
+  public async harvestSpecs(): Promise<SkillSynthesisHarvestSpecsResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:harvestSpecs',
+      {},
+      { timeout: SKILL_RPC_TIMEOUTS.CURATOR_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to harvest specs');
+  }
+
+  /** Archive (or delete) completed + harvested specs older than retention. */
+  public async clearStaleSpecs(
+    options: { retentionDays?: number; mode?: 'archive' | 'delete' } = {},
+  ): Promise<SkillSynthesisClearStaleSpecsResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:clearStaleSpecs',
+      options,
+      { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to clear stale specs');
   }
 }

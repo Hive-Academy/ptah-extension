@@ -253,8 +253,14 @@ interface PastedImage {
             [class.border-2]="
               autopilotState.enabled() || autopilotState.agentPlanMode()
             "
-            placeholder="Ask a question or describe a task..."
+            [placeholder]="
+              attachedReadOnly()
+                ? 'Session is attached to messaging — read-only'
+                : 'Ask a question or describe a task...'
+            "
             [value]="currentMessage()"
+            [readonly]="attachedReadOnly()"
+            [class.opacity-60]="attachedReadOnly()"
             (input)="handleInput($event)"
             (keydown)="handleKeyDown($event)"
             (paste)="handlePaste($event)"
@@ -308,7 +314,7 @@ interface PastedImage {
           <!-- Send Button (always functional - queues message during streaming) -->
           <button
             class="btn btn-primary btn-sm btn-square"
-            [disabled]="!canSend()"
+            [disabled]="!canSend() || attachedReadOnly()"
             (click)="handleSend()"
             type="button"
             data-testid="chat-send-btn"
@@ -338,7 +344,7 @@ interface PastedImage {
           <ptah-model-selector />
         </div>
 
-        <!-- Right: Agent Selector, Effort Selector and Autopilot Popover -->
+        <!-- Right: Agent Selector, Effort Selector, Autopilot -->
         <div class="flex items-center gap-0.5 min-w-0">
           <!-- Agent Selector - dedicated button for built-in sub-agents -->
           <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
@@ -418,6 +424,32 @@ export class ChatInputComponent implements OnInit {
         return false;
     }
   });
+
+  /**
+   * The active tab resolved the same way `inputEnabled` resolves it
+   * (SESSION_CONTEXT tile scope first, else the global active tab). Single
+   * source of truth for both the read-only gate and the "Send to messaging"
+   * trigger so they always agree on which tab they act on.
+   */
+  private readonly resolvedTab = computed(() => {
+    const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+    if (!tabId) return null;
+    return this.tabManager.tabs().find((t) => t.id === tabId) ?? null;
+  });
+
+  /**
+   * The messaging binding this tab's session is attached to, or null. When
+   * non-null the composer is READ-ONLY (the session is being driven from
+   * Telegram / Discord / Slack). The "attached" indicator and the "Resolve
+   * back to webview" detach action now live in the tile header
+   * (`SendToMessagingComponent`); this composer only gates input on the state.
+   */
+  private readonly attachedBinding = computed(
+    () => this.resolvedTab()?.attachedBinding ?? null,
+  );
+
+  /** True when this tab's session is attached to a messaging binding. */
+  readonly attachedReadOnly = computed(() => this.attachedBinding() != null);
 
   /**
    * Per-tab compaction state. In canvas mode, scoped to this tile's tab.
@@ -1151,6 +1183,8 @@ export class ChatInputComponent implements OnInit {
     }
     if (!this.showSuggestions() && event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
+      // Read-only while attached to a messaging binding — Enter must not send.
+      if (this.attachedReadOnly()) return;
       this.handleSend();
     }
   }
@@ -1160,6 +1194,9 @@ export class ChatInputComponent implements OnInit {
    * FIX #8: Delegate smart routing to ChatStore (SRP violation fixed)
    */
   async handleSend(): Promise<void> {
+    // Composer is read-only while the session is attached to a messaging
+    // binding — block sends; the user must "Resolve back to webview" first.
+    if (this.attachedReadOnly()) return;
     const content = this.currentMessage().trim();
     const images = this._pastedImages();
     if (!content && images.length === 0) return;
@@ -1258,30 +1295,24 @@ export class ChatInputComponent implements OnInit {
   }
 
   constructor() {
-    effect(
-      () => {
-        const restoreData = this.chatStore.queueRestoreContent();
-        if (restoreData) {
-          const activeTabId = this.tabManager.activeTabId();
-          if (activeTabId && activeTabId === restoreData.tabId) {
-            this.restoreContentToInput(restoreData.content);
-          }
-          this.chatStore.clearQueueRestoreSignal();
+    effect(() => {
+      const restoreData = this.chatStore.queueRestoreContent();
+      if (restoreData) {
+        const activeTabId = this.tabManager.activeTabId();
+        if (activeTabId && activeTabId === restoreData.tabId) {
+          this.restoreContentToInput(restoreData.content);
         }
-      },
-      { allowSignalWrites: true },
-    );
-    effect(
-      () => {
-        const currentTabId = this.tabManager.activeTabId();
-        if (currentTabId !== this._lastSessionId) {
-          if (this._lastSessionId !== null && currentTabId !== null) {
-            this.commandDiscovery.clearCache();
-          }
-          this._lastSessionId = currentTabId;
+        this.chatStore.clearQueueRestoreSignal();
+      }
+    });
+    effect(() => {
+      const currentTabId = this.tabManager.activeTabId();
+      if (currentTabId !== this._lastSessionId) {
+        if (this._lastSessionId !== null && currentTabId !== null) {
+          this.commandDiscovery.clearCache();
         }
-      },
-      { allowSignalWrites: true },
-    );
+        this._lastSessionId = currentTabId;
+      }
+    });
   }
 }

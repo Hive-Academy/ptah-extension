@@ -432,6 +432,9 @@ export class TabWorkspacePartitionService {
           tab.status === 'streaming' || tab.status === 'awaiting-background'
             ? 'loaded'
             : tab.status,
+        // Messaging attachment is a live, push-driven flag — a restored tab is
+        // never attached. Clear so a stale flag can't leave it read-only.
+        attachedBinding: null,
       }));
 
       return {

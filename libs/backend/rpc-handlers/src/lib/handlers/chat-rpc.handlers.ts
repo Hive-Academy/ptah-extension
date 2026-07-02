@@ -31,6 +31,10 @@ import {
   TOKENS,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  type ISessionAttachmentGuard,
+} from '@ptah-extension/platform-core';
 import { ModelNotAvailableError } from '@ptah-extension/agent-sdk';
 import type {
   ChatStartParams,
@@ -90,6 +94,8 @@ export class ChatRpcHandlers {
     private readonly streamBroadcaster: ChatStreamBroadcaster,
     @inject(CHAT_TOKENS.SESSION)
     private readonly session: ChatSessionService,
+    @inject(PLATFORM_TOKENS.SESSION_ATTACHMENT_GUARD)
+    private readonly attachmentGuard: ISessionAttachmentGuard,
   ) {}
 
   /**
@@ -202,6 +208,22 @@ export class ChatRpcHandlers {
       'registerChatResume',
       (params) => {
         ChatResumeParamsSchema.parse(params);
+        // Contention backstop: when a session is attached to a messaging
+        // binding the gateway bridge is the SOLE legitimate driver of its
+        // JSONL, so a stale webview tab must not resume it concurrently. The
+        // guard is a platform-core port: in the Electron host it is the
+        // gateway's AttachedSessionRegistry; in the VS Code host (gateway
+        // absent) it is a no-op null-object that always returns `false`, so
+        // this check never blocks there. The bridge's own resume path
+        // (gateway-chat-bridge → IAgentAdapter.resumeSession) does NOT route
+        // through `chat:resume`, so it is unaffected. The frontend already
+        // renders attached tabs read-only; this is the enforcement backstop.
+        if (this.attachmentGuard.isAttached(params.sessionId)) {
+          throw new RpcUserError(
+            'This session is currently driven by a messaging binding and is read-only in the app. Detach it from the binding to resume it here.',
+            'SESSION_ATTACHED_TO_GATEWAY',
+          );
+        }
         return this.session.resumeSession(params);
       },
     );

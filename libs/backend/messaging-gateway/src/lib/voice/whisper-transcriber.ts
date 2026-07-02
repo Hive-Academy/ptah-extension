@@ -47,8 +47,19 @@ const WHISPER_MODELS: ReadonlySet<string> = new Set([
   'large-v3-turbo',
 ]);
 
+/**
+ * Models whose ONNX repo is NOT under the `Xenova` org. `large-v3-turbo` was
+ * only ever published as `onnx-community/whisper-large-v3-turbo`; requesting
+ * `Xenova/whisper-large-v3-turbo` returns HTTP 401 from Hugging Face (it maps
+ * non-existent/inaccessible repos to Unauthorized), which transformers.js
+ * surfaces as "Unauthorized access to file".
+ */
+const MODEL_REPO_OVERRIDES: Readonly<Record<string, string>> = {
+  'large-v3-turbo': 'onnx-community/whisper-large-v3-turbo',
+};
+
 function modelIdFor(modelName: string): string {
-  return `Xenova/whisper-${modelName}`;
+  return MODEL_REPO_OVERRIDES[modelName] ?? `Xenova/whisper-${modelName}`;
 }
 
 export interface PipelineProgressInfo {

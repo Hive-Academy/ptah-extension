@@ -22,6 +22,10 @@ import * as path from 'path';
 import * as os from 'os';
 import type { IMasterKeyProvider } from '@ptah-extension/platform-core';
 import type { IUserInteraction } from '@ptah-extension/platform-core';
+import {
+  encryptWithMachineSeed,
+  decryptWithMachineSeed,
+} from './machine-seed-key';
 
 const KEY_REF_ALGORITHM = 'electron-safeStorage';
 const KEY_REF_VERSION = 1;
@@ -45,6 +49,14 @@ const MasterKeyRefSchema = z.object({
   wrapped: z
     .string()
     .regex(base64Regex, 'wrapped must be a valid base64 string'),
+  /**
+   * OPTIONAL recovery wrap: the SAME base64 master key encrypted under the
+   * stable per-machine seed key (AES-256-GCM, `gcm:<iv>:<tag>:<ct>`).
+   * Absent on older installs; backfilled on next successful read. Lets the
+   * master key survive an OS-keychain change (e.g. Windows reinstall) that
+   * breaks `wrapped`, instead of silently regenerating and dropping secrets.
+   */
+  machineWrapped: z.string().optional(),
 });
 
 type MasterKeyRef = z.infer<typeof MasterKeyRefSchema>;
@@ -61,6 +73,8 @@ export interface ElectronSafeStorageApi {
 
 export class ElectronMasterKeyProvider implements IMasterKeyProvider {
   private readonly keyRefPath: string;
+  /** Directory holding master-key-ref.json AND the machine-seed .machine-uuid. */
+  private readonly ptahDir: string;
   private cachedKey: Buffer | null = null;
   /** In-flight Promise coalesces concurrent first-calls to prevent key divergence. */
   private pendingKey: Promise<Buffer> | null = null;
@@ -77,6 +91,7 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
     private readonly userInteraction?: IUserInteraction,
   ) {
     const dir = ptahDir ?? path.join(os.homedir(), '.ptah');
+    this.ptahDir = dir;
     this.keyRefPath = path.join(dir, 'master-key-ref.json');
   }
 
@@ -133,26 +148,122 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
     }
 
     const ref: MasterKeyRef = parseResult.data;
-    const wrappedBuf = Buffer.from(ref.wrapped, 'base64');
+
+    // -----------------------------------------------------------------
+    // Recovery step 1: keychain (safeStorage) — the fast, primary path.
+    // -----------------------------------------------------------------
+    const keychainKey = this.tryDecryptKeychain(safeStorage, ref.wrapped);
+    if (keychainKey) {
+      // Older installs have no machineWrapped. Backfill it now (best-effort)
+      // so a FUTURE OS-keychain change (e.g. Windows reinstall) is survivable.
+      if (!ref.machineWrapped) {
+        await this.backfillMachineWrap(ref, keychainKey);
+      }
+      return keychainKey;
+    }
+
+    // -----------------------------------------------------------------
+    // Recovery step 2: machine-seed fallback. This is what saves the token
+    // after a Windows reinstall — the master key is recovered WITHOUT
+    // regenerating, so secrets.enc.json stays decryptable.
+    // -----------------------------------------------------------------
+    if (ref.machineWrapped) {
+      const recovered = this.tryDecryptMachineWrap(ref.machineWrapped);
+      if (recovered) {
+        // Re-establish the keychain wrap for next boot (best-effort). Only
+        // possible when the keychain is actually available to encrypt.
+        await this.restoreKeychainWrap(safeStorage, ref, recovered);
+        return recovered;
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // Recovery step 3: both wraps absent or unrecoverable — true loss.
+    // Regenerate (unchanged legacy behavior).
+    // -----------------------------------------------------------------
+    await this.notifyCorruption(
+      'master key unreadable via keychain and machine-seed fallback ' +
+        '(OS keyring changed and no valid machineWrapped present)',
+    );
+    return this.createAndStoreKey(safeStorage);
+  }
+
+  /**
+   * Attempt to unwrap the master key via safeStorage. Returns the 32-byte
+   * key on success, or null if decryption throws or yields a wrong length.
+   */
+  private tryDecryptKeychain(
+    safeStorage: ElectronSafeStorageApi,
+    wrapped: string,
+  ): Buffer | null {
     let base64Key: string;
     try {
-      base64Key = safeStorage.decryptString(wrappedBuf);
-    } catch {
-      await this.notifyCorruption(
-        'decryptString failed (OS keyring may have changed)',
-      );
-      return this.createAndStoreKey(safeStorage);
+      base64Key = safeStorage.decryptString(Buffer.from(wrapped, 'base64'));
+    } catch (error: unknown) {
+      void error;
+      return null;
     }
-
     const keyBuf = Buffer.from(base64Key, 'base64');
-    if (keyBuf.length !== 32) {
-      await this.notifyCorruption(
-        `master key has wrong length ${keyBuf.length} (expected 32)`,
-      );
-      return this.createAndStoreKey(safeStorage);
-    }
+    return keyBuf.length === 32 ? keyBuf : null;
+  }
 
-    return keyBuf;
+  /**
+   * Attempt to unwrap the master key via the machine-seed envelope. Returns
+   * the 32-byte key on success, or null on any failure. Does NOT depend on
+   * safeStorage being available (that is the whole point of the fallback).
+   */
+  private tryDecryptMachineWrap(machineWrapped: string): Buffer | null {
+    const base64Key = decryptWithMachineSeed(machineWrapped, this.ptahDir);
+    if (base64Key === null) return null;
+    const keyBuf = Buffer.from(base64Key, 'base64');
+    return keyBuf.length === 32 ? keyBuf : null;
+  }
+
+  /**
+   * Best-effort: add a machineWrapped envelope to an existing ref and rewrite
+   * it atomically. Never throws — a backfill failure must not fail the read.
+   */
+  private async backfillMachineWrap(
+    ref: MasterKeyRef,
+    key: Buffer,
+  ): Promise<void> {
+    try {
+      const machineWrapped = encryptWithMachineSeed(
+        key.toString('base64'),
+        this.ptahDir,
+      );
+      await this.writeKeyRefAtomic({ ...ref, machineWrapped });
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[ptah-electron] WARN: failed to backfill machineWrapped master-key-ref (${detail}). ` +
+          'Keychain read still succeeded; recovery fallback is not yet armed.',
+      );
+    }
+  }
+
+  /**
+   * Best-effort: after recovering via the machine seed, re-wrap the key with
+   * safeStorage so the keychain fast-path works again next boot. Never throws.
+   */
+  private async restoreKeychainWrap(
+    safeStorage: ElectronSafeStorageApi,
+    ref: MasterKeyRef,
+    key: Buffer,
+  ): Promise<void> {
+    try {
+      if (!safeStorage.isEncryptionAvailable()) return;
+      const wrapped = safeStorage
+        .encryptString(key.toString('base64'))
+        .toString('base64');
+      await this.writeKeyRefAtomic({ ...ref, wrapped });
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[ptah-electron] WARN: recovered master key via machine seed but could not ` +
+          `restore the keychain wrap (${detail}). Recovery still succeeded.`,
+      );
+    }
   }
 
   private async createAndStoreKey(
@@ -170,10 +281,14 @@ export class ElectronMasterKeyProvider implements IMasterKeyProvider {
     const base64Key = newKey.toString('base64');
 
     const wrappedBuf = safeStorage.encryptString(base64Key);
+    // Dual-wrap: ALSO wrap under the stable machine seed so a future OS
+    // keychain change can recover this key instead of regenerating.
+    const machineWrapped = encryptWithMachineSeed(base64Key, this.ptahDir);
     const ref: MasterKeyRef = {
       version: KEY_REF_VERSION,
       algorithm: KEY_REF_ALGORITHM,
       wrapped: wrappedBuf.toString('base64'),
+      machineWrapped,
     };
 
     await this.writeKeyRefAtomic(ref);

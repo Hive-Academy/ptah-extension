@@ -92,6 +92,8 @@ import type {
 import type { WorkspaceChangedPayload } from './workspace';
 import type {
   GatewayBindingsChangedPayload,
+  GatewaySessionAttachedPayload,
+  GatewaySessionDetachedPayload,
   GatewayStatusChangedPayload,
 } from './gateway';
 import type { VoiceModelDownloadProgressPayload } from './voice';
@@ -117,6 +119,7 @@ import type {
   EmbedderStatusWire,
 } from '../rpc/rpc-persistence.types';
 import type { HarnessConfig } from '../rpc/rpc-harness.types';
+import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
 
 /** Payload for MESSAGE_TYPES.VEC_STATUS_CHANGED ('db:vecStatusChanged'). */
 export interface VecStatusChangedPayload {
@@ -127,6 +130,11 @@ export interface VecStatusChangedPayload {
 /** Payload for MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED ('embedder:statusChanged'). */
 export interface EmbedderStatusChangedPayload {
   readonly status: EmbedderStatusWire;
+}
+
+/** Payload for MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT ('skillSynthesis:event'). */
+export interface SkillSynthesisEventPayload {
+  readonly event: SkillSynthesisEventWire;
 }
 
 /** Payload for MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW ('harness:open-workflow'). */
@@ -234,6 +242,8 @@ export interface MessagePayloadMap {
   workspaceChanged: WorkspaceChangedPayload;
   'gateway:statusChanged': GatewayStatusChangedPayload;
   'gateway:bindingsChanged': GatewayBindingsChangedPayload;
+  'gateway:sessionAttached': GatewaySessionAttachedPayload;
+  'gateway:sessionDetached': GatewaySessionDetachedPayload;
   'voice:modelDownloadProgress': VoiceModelDownloadProgressPayload;
   'update:statusChanged': UpdateStatusChangedPayload;
   'session:compactionComplete': SdkCompactionCompletePayload;
@@ -248,6 +258,7 @@ export interface MessagePayloadMap {
   'memory:sessionStartInjected': MemorySessionStartInjectedPayload;
   'db:vecStatusChanged': VecStatusChangedPayload;
   'embedder:statusChanged': EmbedderStatusChangedPayload;
+  'skillSynthesis:event': SkillSynthesisEventPayload;
   'harness:open-workflow': HarnessOpenWorkflowPayload;
   'harness:config-proposed': HarnessConfigProposedPayload;
   'chat:sendMessage:response': MessageResponse;
