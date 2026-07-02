@@ -16,6 +16,25 @@ import {
   MACHINE_WRAP_PREFIX,
 } from './machine-seed-key';
 
+// On Linux CI /etc/machine-id exists, which takes priority over the per-dir
+// .machine-uuid fallback and makes every ptahDir derive the SAME key. Force
+// ENOENT on the system machine-id paths so the suite deterministically
+// exercises the .machine-uuid path on every OS.
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  const readFileSync = ((...args: Parameters<typeof actual.readFileSync>) => {
+    const [file] = args;
+    if (file === '/etc/machine-id' || file === '/var/lib/dbus/machine-id') {
+      throw Object.assign(
+        new Error(`ENOENT: no such file or directory, open '${file}'`),
+        { code: 'ENOENT' },
+      );
+    }
+    return actual.readFileSync(...args);
+  }) as typeof actual.readFileSync;
+  return { ...actual, readFileSync };
+});
+
 function makeTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-machine-seed-'));
 }
@@ -36,8 +55,8 @@ describe('machine-seed-key', () => {
     expect(Buffer.isBuffer(key)).toBe(true);
     expect(key.length).toBe(32);
 
-    // On Windows CI /etc/machine-id is absent, so the uuid file is created.
-    // On Linux CI a real machine-id may be used; either way derivation works.
+    // With the system machine-id paths stubbed out, the uuid file is created.
+    expect(fs.existsSync(path.join(tmpDir, '.machine-uuid'))).toBe(true);
     const key2 = deriveMachineSeedKey(tmpDir);
     expect(key2.toString('hex')).toBe(key.toString('hex'));
   });
