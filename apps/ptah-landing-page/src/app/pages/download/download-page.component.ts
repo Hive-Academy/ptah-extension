@@ -1,8 +1,8 @@
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   inject,
-  OnInit,
   signal,
 } from '@angular/core';
 import {
@@ -369,7 +369,7 @@ import { GitHubReleaseService } from '../../services/github-release.service';
     `,
   ],
 })
-export class DownloadPageComponent implements OnInit {
+export class DownloadPageComponent {
   private readonly releaseService = inject(GitHubReleaseService);
 
   readonly DownloadIcon = Download;
@@ -407,19 +407,21 @@ export class DownloadPageComponent implements OnInit {
     threshold: 0.2,
   };
 
-  ngOnInit(): void {
-    this.releaseService.fetchReleases(3);
-    const checkExpand = setInterval(() => {
-      const r = this.releases();
-      if (r.length > 0 && !this.autoExpandApplied()) {
-        this.expandedSet.update((s) => new Set(s).add(r[0].tagName));
-        this.autoExpandApplied.set(true);
-        clearInterval(checkExpand);
-      }
-      if (!this.loading()) {
-        clearInterval(checkExpand);
-      }
-    }, 100);
+  constructor() {
+    afterNextRender(() => {
+      this.releaseService.fetchReleases(3);
+      const checkExpand = setInterval(() => {
+        const r = this.releases();
+        if (r.length > 0 && !this.autoExpandApplied()) {
+          this.expandedSet.update((s) => new Set(s).add(r[0].tagName));
+          this.autoExpandApplied.set(true);
+          clearInterval(checkExpand);
+        }
+        if (!this.loading()) {
+          clearInterval(checkExpand);
+        }
+      }, 100);
+    });
   }
 
   toggleRelease(tagName: string): void {

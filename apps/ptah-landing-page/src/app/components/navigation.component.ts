@@ -3,8 +3,8 @@ import {
   ChangeDetectionStrategy,
   signal,
   inject,
-  OnInit,
   DestroyRef,
+  afterNextRender,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
@@ -540,7 +540,7 @@ import { AuthService } from '../services/auth.service';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class NavigationComponent implements OnInit {
+export class NavigationComponent {
   /** Lucide icon references */
   public readonly UserIcon = User;
   public readonly LogOutIcon = LogOut;
@@ -578,11 +578,8 @@ export class NavigationComponent implements OnInit {
    */
   public readonly isAuthenticated = signal<boolean | null>(null);
 
-  /**
-   * Initialize component - check auth state
-   */
-  public ngOnInit(): void {
-    this.checkAuthState();
+  constructor() {
+    afterNextRender(() => this.checkAuthState());
   }
 
   /**
