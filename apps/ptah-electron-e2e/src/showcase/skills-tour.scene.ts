@@ -104,9 +104,18 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
   // The persistent authed profile ALWAYS shows the trial modal on boot.
   await director.dismissDialogs();
 
-  const OPENING = 'Ptah learns from its own work.';
-  await director.caption(OPENING);
-  await director.hold(voHold(OPENING));
+  // HOOK — fire immediately so the video opens on a claim, not dead air.
+  const HOOK =
+    'Most AI tools forget everything the moment a session ends. Ptah learns from its own work.';
+  await director.caption(HOOK);
+  await director.hold(voHold(HOOK));
+  await director.caption();
+
+  // WARMUP — one line of context before the tour starts.
+  const WARMUP =
+    'You are inside Ptah Desktop, on the Skills tab — where wins become reusable skills. Let us open it up.';
+  await director.caption(WARMUP);
+  await director.hold(voHold(WARMUP));
   await director.caption();
 
   const panel = await goToSkills(page, director);
@@ -114,7 +123,7 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
   // 1) Land + read the stats strip: candidates / promoted / active skills.
   // Element-targeted onto the stats strip; spotlight(1700) covers most of the VO.
   const CANDIDATE =
-    'Every successful session it runs becomes a skill candidate.';
+    'Every win gets captured for you, automatically — each successful session becomes a skill candidate.';
   const statsStrip = await firstVisible(panel, [
     '[aria-label="Skill synthesis statistics"]',
     '[data-testid="skills-stat-candidates"]',
@@ -132,7 +141,7 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
   // 2) Pan the Recommended list — the default sub-view (cluster-distilled,
   //    judge-gated skills awaiting review). The scrollThrough outlasts the VO.
   await director.caption(
-    'Thoth then clusters similar wins together into one reusable skill.',
+    'You do not curate any of this. Thoth clusters similar wins into one reusable skill, on its own.',
     panel,
   );
   await director.scrollThrough(panel, { steps: 5, dwellMs: 600 });
@@ -144,7 +153,8 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
 
   if (hasRecommendation) {
     // Element-targeted onto the card; hover(700) + spotlight(1500) cover the VO.
-    const PROPOSE = 'Each one is a brand-new skill it proposes to itself.';
+    const PROPOSE =
+      'Each card is a capability you never wrote — a brand-new skill Ptah has proposed to itself.';
     await director.caption(PROPOSE, card);
     await director.hover(card, 700);
     await director.spotlight(card, 1500);
@@ -159,7 +169,7 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
       .first();
     if (await reviewBtn.isVisible().catch(() => false)) {
       await director.caption(
-        'Open it up to read the full generated skill file.',
+        'And nothing lands without your say-so — open one, and read the full generated skill file.',
         reviewBtn,
       );
       await director.click(reviewBtn);
@@ -196,7 +206,7 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
       '[data-testid="suggestions-view"]',
     ]);
     const RECS_APPEAR =
-      'Recommendations appear here once enough sessions cluster together.';
+      'Run a few sessions, and recommendations start appearing here on their own.';
     if (empty) {
       await director.caption(RECS_APPEAR, empty);
       await director.spotlight(empty, 1700);
@@ -216,7 +226,7 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
   if (await sessionsTab.isVisible().catch(() => false)) {
     // The tab switch + scrollThrough loop that follows outlasts this caption.
     await director.caption(
-      'And under the hood, you can see every single session it captured.',
+      'And there is no black box here — under the hood, you can inspect every session it captured.',
       sessionsTab,
     );
     await director.click(sessionsTab);
@@ -227,7 +237,7 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
     if (await row.isVisible().catch(() => false)) {
       // Element-targeted onto the row; hover(600) + spotlight(1400) cover the VO.
       const CAPTURED =
-        'Each of these is one raw capture, feeding the clustering above.';
+        'Every row is raw evidence — one real session, feeding the clustering you just saw.';
       await director.caption(CAPTURED, row);
       await director.hover(row, 600);
       await director.spotlight(row, 1400);
@@ -237,7 +247,7 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
       // Clicking a row opens a READ-ONLY candidate detail modal. The click +
       // modal open + spotlight loop outlasts this lead-in caption.
       await director.caption(
-        'Click any one to inspect exactly what it learned.',
+        'Click any one, and you can see exactly what it learned, and why.',
         row,
       );
       await director.click(row);
@@ -269,7 +279,7 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
 
   // 6) Payoff.
   const PAYOFF =
-    'Ptah extracts reusable skills from its own work, and gets better every day.';
+    'So while other tools forget, Ptah remembers, distills, and gets better every single day.';
   await director.caption(PAYOFF);
   await director.hold(voHold(PAYOFF));
   await director.caption();

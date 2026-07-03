@@ -50,21 +50,22 @@ const TAB_BEATS: readonly SettingsBeat[] = [
   {
     tab: 'Providers',
     caption:
-      'Bring your own provider — and your keys stay one hundred percent local, on your machine.',
+      'Your keys never leave your machine. Bring any provider, and everything stays one hundred percent local.',
   },
   {
     tab: 'Agent Orchestration',
     caption:
-      'Wire up the command-line agents that do the heavy lifting behind the scenes.',
+      'Want more hands on deck? Wire up command-line agents to do the heavy lifting behind the scenes.',
   },
   {
     tab: 'Pro Features',
-    caption: 'Unlock enhanced prompts, MCP servers, and language-model tools.',
+    caption:
+      'Go further when you are ready — enhanced prompts, MCP servers, and language-model tools.',
   },
   {
     tab: 'Search & Voice',
     caption:
-      'Pick a web-search provider and a voice for hands-free, spoken chat.',
+      'Talk to your workspace, hands-free. Pick a web-search provider and a voice for spoken chat.',
   },
 ];
 
@@ -152,7 +153,7 @@ async function demoThemeSwitch(page: Page, director: Director): Promise<void> {
   // The dropdown open + theme switch + hold below cover the narration, so the
   // caption plays fully during them (no explicit voHold needed).
   await director.caption(
-    'And you can re-skin the entire app, live, with a single click.',
+    'Prefer a different look? Re-skin the entire app, live, with a single click.',
     trigger,
   );
   await director.click(trigger);
@@ -218,10 +219,18 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
 
-  const OPENING =
-    'Every workflow is different — so Ptah is built to be tuned to yours.';
-  await director.caption(OPENING);
-  await director.hold(voHold(OPENING));
+  // HOOK — fire immediately so the video opens on a question, not dead air.
+  const HOOK =
+    'What if your AI workspace adapted to you — instead of the other way around?';
+  await director.caption(HOOK);
+  await director.hold(voHold(HOOK));
+  await director.caption();
+
+  // WARMUP — one line of context before the tour starts.
+  const WARMUP =
+    'Ptah is an AI coding workspace, and this is its control room. In the next minute, we tune it to your stack.';
+  await director.caption(WARMUP);
+  await director.hold(voHold(WARMUP));
   await director.caption();
 
   // Enter Settings; the trial modal can re-assert after navigation, so dismiss
@@ -232,7 +241,7 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
 
   // Open on the Authentication section — the heart of the Providers tab.
   const CONNECT =
-    'Start by connecting any AI provider you like — this is where it all begins.';
+    'Use whatever AI you already pay for. Connect any provider you like — it all starts right here.';
   const authSection = page.locator('[data-testid="settings-section-auth"]');
   await director.caption(CONNECT, authSection);
   if (await authSection.isVisible().catch(() => false)) {
@@ -261,7 +270,7 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
   );
   if (await providerSelect.isVisible().catch(() => false)) {
     const SWAP =
-      'Swap between web-search providers on the fly — no restart, no fuss.';
+      'Change your mind any time. Swap web-search providers on the fly — no restart, no fuss.';
     await director.caption(SWAP, providerSelect);
     await director.spotlight(providerSelect, 1600);
     await director.hover(providerSelect, 700);
@@ -286,7 +295,7 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
     .first();
   if (await exportBtn.isVisible().catch(() => false)) {
     const EXPORT =
-      'And when you are set up, export your entire configuration — keys, preferences, and providers alike.';
+      'Set it up once, take it anywhere. Export your entire configuration — keys, preferences, and providers.';
     await director.caption(EXPORT, exportBtn);
     await director.spotlight(exportBtn, 1500);
     await director.hover(exportBtn, 600);
@@ -300,7 +309,7 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
   const bell = page.getByRole('button', { name: 'Notifications' }).first();
   if (await bell.isVisible().catch(() => false)) {
     const BELL =
-      'Notifications keep you in the loop, without ever pulling you out of your work.';
+      'Stay in the loop without breaking focus. Notifications come to you, right in the top bar.';
     await director.caption(BELL, bell);
     await director.spotlight(bell, 1300);
     await director.hover(bell, 600);
@@ -312,7 +321,7 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
   await demoThemeSwitch(page, director);
 
   const OUTRO =
-    'Configure it once, and it is yours — exactly the way you like it.';
+    'So no, you do not adapt to your tools. Ptah adapts to you — configure it once, and it is yours.';
   await director.caption(OUTRO);
   await director.hold(voHold(OUTRO) + 600);
   await director.caption();

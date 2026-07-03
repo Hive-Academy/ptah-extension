@@ -103,9 +103,18 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
   // The persistent authed profile ALWAYS shows the trial modal on boot.
   await director.dismissDialogs();
 
-  const OPENING = 'Set it once, and forget it.';
-  await director.caption(OPENING);
-  await director.hold(voHold(OPENING));
+  // HOOK — fire immediately so the video opens on a question, not dead air.
+  const HOOK =
+    'Set it once, and forget it. What if your agents kept working long after you logged off?';
+  await director.caption(HOOK);
+  await director.hold(voHold(HOOK));
+  await director.caption();
+
+  // WARMUP — one line of context before the tour starts.
+  const WARMUP =
+    'This is Ptah Desktop, on the Schedules tab — where you put agents on a clock. Let us take a look.';
+  await director.caption(WARMUP);
+  await director.hold(voHold(WARMUP));
   await director.caption();
 
   const panel = await goToCron(page, director);
@@ -114,7 +123,7 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
   // Caption is element-targeted onto the stats strip; spotlight(1700) covers
   // most of the VO, so subtract it via alreadySpentMs.
   const SCHEDULES =
-    'These are your schedules — agents that run entirely on their own clock.';
+    'At a glance, you know exactly what is automated — how many jobs, and when the next one fires.';
   const statsStrip = await firstVisible(panel, [
     '[aria-label="Cron statistics"]',
     '[data-testid="cron-stat-total"]',
@@ -132,7 +141,7 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
   // 2) Pan the schedules table top→bottom so the camera reveals every job. The
   // scrollThrough (5 steps × 600ms) outlasts the VO.
   await director.caption(
-    'A simple cron expression drives each headless Ptah session.',
+    'You write one line of cron, and Ptah does the rest — a full headless agent session, on repeat.',
     panel,
   );
   await director.scrollThrough(panel, { steps: 5, dwellMs: 600 });
@@ -145,7 +154,7 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
   if (hasJob) {
     // Element-targeted onto the row; hover(700) + spotlight(1600) cover the VO.
     const ROW =
-      'Each row is one recurring job — its name, its cron schedule, and its status.';
+      'Every row is a task you never have to remember again — its name, its schedule, its status.';
     await director.caption(ROW, row);
     await director.hover(row, 700);
     await director.spotlight(row, 1600);
@@ -155,7 +164,8 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
     // 4) Click the row — selection only — to reveal the READ-ONLY run-history
     //    panel below the table. This mutates nothing. The click + reveal +
     //    spotlight loop outlasts this lead-in caption.
-    const HISTORY = 'Open any one of them to see its full run history.';
+    const HISTORY =
+      'And you never have to wonder if it ran — open any job, and its full run history is right there.';
     await director.caption(HISTORY, row);
     await director.click(row);
     await director.hold(600);
@@ -174,7 +184,7 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
       '[data-testid="cron-empty-state"]',
     ]);
     const EMPTY =
-      'Schedule a prompt — nightly builds, daily digests, routine maintenance — and simply walk away.';
+      'Type a prompt, pick a schedule — nightly builds, daily digests, routine cleanup — then walk away.';
     if (empty) {
       await director.caption(EMPTY, empty);
       await director.spotlight(empty, 1800);
@@ -190,7 +200,7 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
 
   // 5) Payoff.
   const PAYOFF =
-    'Nightly agents, running on a schedule, with no one at the keyboard.';
+    'So set it once, and forget it. Your agents work the night shift now — with no one at the keyboard.';
   await director.caption(PAYOFF);
   await director.hold(voHold(PAYOFF));
   await director.caption();

@@ -57,12 +57,12 @@ const PROVIDER_BEATS: readonly ProviderBeat[] = [
   {
     name: 'MCP Registry',
     caption:
-      'Browse the official Model Context Protocol registry, right from inside Ptah.',
+      'Need a new capability? Browse the official Model Context Protocol registry without leaving Ptah.',
   },
   {
     name: 'Skills',
     caption:
-      'Discover community skills, hand-picked and matched to your project.',
+      'Skip the digging. Community skills arrive hand-picked and matched to your project.',
   },
 ];
 
@@ -117,7 +117,7 @@ async function goToMarketplace(page: Page, director: Director): Promise<void> {
  */
 async function tourProviderGrid(page: Page, director: Director): Promise<void> {
   const GRID =
-    'Plugins, MCP servers, and skills — every provider, gathered in one place.';
+    'Everything you can bolt on lives here. Plugins, MCP servers, skills — every provider in one place.';
   await director.caption(GRID);
   await director.hold(voHold(GRID));
   await director.caption();
@@ -179,7 +179,7 @@ async function tourProvider(
     .first();
   if (await firstRow.isVisible().catch(() => false)) {
     const ROW =
-      'Hover over any item to size it up, and install it the moment you are ready.';
+      'Hover to size up any item — and when it fits, it is one click to install.';
     await director.caption(ROW, firstRow);
     await director.spotlight(firstRow, 1400);
     await director.hover(firstRow, 700);
@@ -203,10 +203,18 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
 
-  const OPENING =
-    'Ptah is built to grow with you — and you can extend it without ever leaving the app.';
-  await director.caption(OPENING);
-  await director.hold(voHold(OPENING));
+  // HOOK — fire immediately so the video opens on a question, not dead air.
+  const HOOK =
+    'Every workflow eventually outgrows its tools. What if your workspace could just grow with you?';
+  await director.caption(HOOK);
+  await director.hold(voHold(HOOK));
+  await director.caption();
+
+  // WARMUP — one line of context before the tour starts.
+  const WARMUP =
+    'This is the Ptah Marketplace — one hub for plugins, MCP servers, and skills. Let us look around.';
+  await director.caption(WARMUP);
+  await director.hold(voHold(WARMUP));
   await director.caption();
 
   // Enter the Marketplace; the trial modal can re-assert after navigation, so
@@ -237,7 +245,7 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
       .first();
     if (await composio.isVisible().catch(() => false)) {
       const SOON =
-        'And this is only the beginning — with even more providers landing soon.';
+        'And the shelf keeps growing — even more providers are landing soon.';
       await director.caption(SOON, composio);
       await director.spotlight(composio, 1500);
       // spotlight(1500 + 180 settle) already spent ~1.7s of VO time.
@@ -249,7 +257,7 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
     // whatever copy is visible. No provider RPC fires here by design. The
     // settle + scroll below cover the narration (no explicit voHold needed).
     await director.caption(
-      'The full Marketplace is a Pro feature — upgrade any time to unlock it.',
+      'The full Marketplace is a Pro feature. Upgrade any time, and all of this unlocks.',
     );
     await director.hold(1600);
     await director.scrollThrough(page.locator('ptah-marketplace-hub'), {
@@ -260,7 +268,8 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
     await director.caption();
   }
 
-  const OUTRO = 'Skills, servers, and integrations — all just one click away.';
+  const OUTRO =
+    'So when your workflow outgrows its tools, do not switch apps. Grow Ptah instead — one click at a time.';
   await director.caption(OUTRO);
   await director.hold(voHold(OUTRO) + 600);
   await director.caption();

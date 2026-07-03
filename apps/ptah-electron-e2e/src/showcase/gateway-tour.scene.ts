@@ -73,19 +73,19 @@ const SEL = {
 const PLATFORM_COPY: Record<GatewayPlatform, { hook: string; detail: string }> =
   {
     telegram: {
-      hook: 'Start with Telegram, and message your agents from absolutely anywhere.',
+      hook: 'Start with Telegram — send a message from anywhere, and your agents get to work back home.',
       detail:
-        'Paste in a bot token, approve a one-time pairing code, and just like that you are driving Ptah straight from a chat window.',
+        'Setup is two moves: paste in a bot token, approve a one-time pairing code, and you are driving Ptah from a chat window.',
     },
     discord: {
-      hook: 'Or bring Ptah right into your Discord server, where your whole team already hangs out.',
+      hook: 'Or give your whole team that same power, right inside your Discord server.',
       detail:
-        'Invite the bot, register the slash-ptah command, and choose exactly which servers are allowed to reach it.',
+        'Invite the bot, register the slash-ptah command, and you decide exactly which servers get access.',
     },
     slack: {
-      hook: 'And Slack fits in just the same, dropping Ptah into the workspace where your team already works.',
+      hook: 'And for the office, Slack slots in just the same — Ptah lives where your projects already do.',
       detail:
-        'Connect a bot token, then approve precisely who is allowed to talk to it.',
+        'Connect a bot token, and you approve exactly who is allowed to talk to it. Nobody else gets in.',
     },
   };
 
@@ -176,7 +176,7 @@ async function tourPlatform(
   const empty = pane.locator(SEL.bindingEmpty).first();
   if (await empty.isVisible().catch(() => false)) {
     const PAIR =
-      'Every pairing is safe by design — you approve each new device with a one-time code before it can do a thing.';
+      'And you stay in control — every new device needs your one-time approval code before it can do a thing.';
     await director.caption(PAIR, empty);
     await director.hover(empty, 2000);
     // hover(2000 + 180 settle) already covered ~2.2s of the narration.
@@ -200,6 +200,13 @@ test('P3.2 — drive Ptah from your phone (Messaging Gateway)', async ({
   await director.hold(voHold(OPENING));
   await director.caption();
 
+  // WARMUP — one line of context before the tour starts.
+  const WARMUP =
+    'You are inside Ptah, an AI coding workspace on your desktop. In the next minute, we take it mobile.';
+  await director.caption(WARMUP);
+  await director.hold(voHold(WARMUP));
+  await director.caption();
+
   // Into the Gateway tab.
   await goToGateway(page, director);
   await director.hold();
@@ -208,7 +215,7 @@ test('P3.2 — drive Ptah from your phone (Messaging Gateway)', async ({
   // The moveTo + per-block spotlight loop below outlasts the narration, so the
   // caption plays fully across it.
   const GATEWAY_INTRO =
-    'This is the Gateway — the bridge that connects Ptah to the chat apps you already use every day: Telegram, Discord, and Slack.';
+    'Meet the Gateway. It puts your agents inside the chat apps you already use every day: Telegram, Discord, and Slack.';
   const stats = page.locator(SEL.statsStrip).first();
   if (await stats.isVisible().catch(() => false)) {
     await director.caption(GATEWAY_INTRO, stats);
@@ -230,7 +237,7 @@ test('P3.2 — drive Ptah from your phone (Messaging Gateway)', async ({
   const section = page.locator(SEL.platformSection).first();
   if (await section.isVisible().catch(() => false)) {
     const THREE_CONNECTORS =
-      'There are three connectors here, so you can simply pick the place where your team already talks.';
+      'You do not change your habits. You pick the place your team already talks, and Ptah meets you there.';
     await director.caption(THREE_CONNECTORS, section);
     await director.moveTo(section);
     await director.hold(voHold(THREE_CONNECTORS, 300));
@@ -244,7 +251,7 @@ test('P3.2 — drive Ptah from your phone (Messaging Gateway)', async ({
 
   // Payoff beat.
   const OUTRO =
-    'Telegram, Discord, or Slack — now you can drive Ptah from your phone, wherever you are.';
+    'So yes — your agents really do live in your pocket now. Kick off work from the couch, the train, anywhere.';
   await director.caption(OUTRO);
   await director.hold(voHold(OUTRO) + 600);
   await director.caption();

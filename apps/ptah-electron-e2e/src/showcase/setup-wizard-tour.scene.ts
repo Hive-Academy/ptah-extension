@@ -79,9 +79,16 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
   await director.dismissDialogs();
 
   const OPENING =
-    'Let us make Ptah truly yours, with agents tuned to your own codebase.';
+    'Generic AI agents give generic answers. What if yours actually knew your codebase?';
   await director.caption(OPENING);
   await director.hold(voHold(OPENING));
+  await director.caption();
+
+  // WARMUP — one line of context before the tour starts.
+  const WARMUP =
+    'Welcome to Ptah. This is the Setup Wizard — it reads your project and builds a team of agents around it.';
+  await director.caption(WARMUP);
+  await director.hold(voHold(WARMUP));
   await director.caption();
 
   await goToSetup(page, director);
@@ -93,7 +100,8 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
   if (await upsell.isVisible().catch(() => false)) {
     // spotlight + scrollThrough that follow outlast the narration, so the
     // caption plays fully across them — no explicit voHold needed here.
-    const UPSELL = 'Deep analysis and tailored agents are part of Ptah Pro.';
+    const UPSELL =
+      'Tailored agents and deep analysis come with Ptah Pro — one upgrade, and this whole pipeline is yours.';
     await director.caption(UPSELL, upsell);
     await director.spotlight(upsell, 1700);
     await director.scrollThrough(upsell, { steps: 3, dwellMs: 700 });
@@ -109,7 +117,7 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
 
   // --- The 7-step progress rail ------------------------------------------
   const SEVEN_STEPS =
-    'It is just seven guided steps — scan, analyze, generate, and you are done.';
+    'You do not configure anything by hand. Seven guided steps — scan, analyze, generate — and you are done.';
   const progressRail = await firstVisible([
     page.locator('.wizard-progress'),
     page.locator('ul.steps').first(),
@@ -128,7 +136,8 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
   // --- Welcome hero ------------------------------------------------------
   // The scrollThrough that follows outlasts the narration, so the caption plays
   // fully during it — no explicit voHold needed here.
-  const FOUR_PHASE = 'It all begins with a four-phase AI scan of your project.';
+  const FOUR_PHASE =
+    'It starts by actually reading your code — a four-phase AI scan of your whole project.';
   const welcome = page.locator('ptah-welcome').first();
   if (await welcome.isVisible().catch(() => false)) {
     await director.caption(FOUR_PHASE, welcome);
@@ -147,19 +156,19 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
   const featureHeadings = [
     {
       name: 'Deep Analysis',
-      line: 'First, a deep analysis of your real, actual project structure.',
+      line: 'Your agents learn your real structure first — a deep analysis, not a guess.',
     },
     {
       name: 'Smart Agents',
-      line: 'Then thirteen agent templates, each matched to your exact stack.',
+      line: 'Then you get thirteen agent templates, each one matched to your exact stack.',
     },
     {
       name: 'Quick Setup',
-      line: 'The whole thing sets up in under five minutes.',
+      line: 'And you are not signing up for an afternoon — the whole thing takes under five minutes.',
     },
     {
       name: 'Project-Specific',
-      line: 'And every single rule is specific to your code.',
+      line: 'Every rule the wizard writes is specific to your code. Nothing generic survives.',
     },
   ];
   for (const { name, line } of featureHeadings) {
@@ -178,7 +187,8 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
   // keep the tour read-only to avoid touching the authed config.
   const modelSelect = page.locator('#wizard-model-select').first();
   if (await modelSelect.isVisible().catch(() => false)) {
-    const PICK_MODEL = 'You even choose which model runs your analysis.';
+    const PICK_MODEL =
+      'You stay in charge of cost and power — you choose which model runs your analysis.';
     await director.caption(PICK_MODEL, modelSelect);
     await director.spotlight(modelSelect, 1500);
     // spotlight(1500 + 180 settle) already covered ~1.7s of the narration.
@@ -192,7 +202,7 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
   const startCta = page.locator('[data-testid="wizard-next-btn"]').first();
   if (await startCta.isVisible().catch(() => false)) {
     const ONE_CLICK =
-      'And a single click is all it takes to kick off the whole pipeline.';
+      'And when you are ready, one click kicks off the entire pipeline.';
     await director.caption(ONE_CLICK, startCta);
     await director.spotlight(startCta, 1700);
     await director.hover(startCta, 900);
@@ -210,7 +220,7 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
     // The hover loop across the step rail outlasts the narration, so the caption
     // plays fully during it — no explicit voHold needed here.
     await director.caption(
-      'Just follow the rail from there: scan, analyze, select, and generate.',
+      'From there you just follow the rail: scan, analyze, select, and generate.',
     );
     for (let i = 1; i < Math.min(stepCount, 4); i++) {
       await director.hover(stepItems.nth(i), 650);
@@ -220,7 +230,7 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
 
   // STOP on welcome — never advance, never commit the authed config.
   const OUTRO =
-    'The result is a set of personalized agents, born from your very own codebase.';
+    'The payoff: agents that are not generic at all, because they were born from your own codebase.';
   await director.caption(OUTRO);
   await director.hold(voHold(OUTRO) + 600);
   await director.caption();

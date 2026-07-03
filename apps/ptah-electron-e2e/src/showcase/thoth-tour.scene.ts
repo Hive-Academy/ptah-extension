@@ -58,7 +58,7 @@ const BEATS: readonly ThothBeat[] = [
   {
     id: 'memory',
     caption:
-      'First, Memory — a persistent brain that quietly remembers what matters, across every session you run.',
+      'First, Memory. Your context survives every restart — a persistent brain that remembers what matters.',
     hero: [
       '[data-testid="memory-stat-blocks"]',
       '[data-testid="memory-blocks-list"]',
@@ -68,7 +68,7 @@ const BEATS: readonly ThothBeat[] = [
   {
     id: 'skills',
     caption:
-      'Next, Skills — where your agents take what they have learned and turn it into reusable skills they can call on again.',
+      'Next, Skills. Solve a problem once, and your agents keep that ability forever — ready to call on again.',
     hero: [
       '[data-testid="suggestions-card"]',
       '[data-testid="skills-stat-candidates"]',
@@ -78,7 +78,7 @@ const BEATS: readonly ThothBeat[] = [
   {
     id: 'cron',
     caption:
-      'Then Schedules — cron-driven agents that wake up on their own, overnight, and get the work done while you sleep.',
+      'Then Schedules. The work gets done while you sleep — cron-driven agents that wake up on their own.',
     hero: [
       '[data-testid="cron-job-row"]',
       '[data-testid="cron-stat-total"]',
@@ -88,7 +88,7 @@ const BEATS: readonly ThothBeat[] = [
   {
     id: 'gateway',
     caption:
-      'And finally the Gateway — so you can drive Ptah from Telegram, Discord, or Slack, right from your phone.',
+      'And finally, the Gateway. Leave your desk behind — and drive Ptah from Telegram, Discord, or Slack.',
     hero: [
       '[data-testid="gateway-channel-card"]',
       '[data-testid="gateway-stat-total"]',
@@ -194,10 +194,18 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
 
-  const OPENING =
-    'The VS Code extension is just the tip. The desktop app is the whole iceberg.';
-  await director.caption(OPENING);
-  await director.hold(voHold(OPENING));
+  // HOOK — fire immediately so the video opens on a claim, not dead air.
+  const HOOK =
+    'You have seen Ptah inside VS Code. That was just the tip. The desktop app is the whole iceberg.';
+  await director.caption(HOOK);
+  await director.hold(voHold(HOOK));
+  await director.caption();
+
+  // WARMUP — one line of context before the tour starts.
+  const WARMUP =
+    'This is Ptah Desktop — the full cockpit. Four tabs, all powered by a local brain. Let us take the tour.';
+  await director.caption(WARMUP);
+  await director.hold(voHold(WARMUP));
   await director.caption();
 
   // Enter the cockpit; the trial modal can re-assert after navigation, so
@@ -208,7 +216,9 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
 
   // The four-tab pan below runs for far longer than this line — interaction-
   // covered — so a short hold is enough before the loop takes over.
-  await director.caption('Here are four tabs the extension could never have.');
+  await director.caption(
+    'Four tabs, four superpowers the extension could never have.',
+  );
   await director.hold(1400);
   await director.caption();
 
@@ -220,7 +230,7 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
   // Payoff — desktop runs a local SQLite brain + embedder worker, which is why
   // these four are desktop-only by design.
   const PAYOFF =
-    'On the desktop, you get the full brain — memory, skills, schedules, and the gateway, all in one place.';
+    'Memory, skills, schedules, and the gateway — one app, one full brain. That is the rest of the iceberg.';
   await director.caption(PAYOFF);
   await director.hold(voHold(PAYOFF));
   await director.caption();

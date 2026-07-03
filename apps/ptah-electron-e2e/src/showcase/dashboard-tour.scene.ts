@@ -93,10 +93,18 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
   // film, then again after we switch surfaces.
   await director.dismissDialogs();
 
-  const OPENING =
-    'Meet the Ptah dashboard. Every session you have ever run, at a glance.';
-  await director.caption(OPENING);
-  await director.hold(voHold(OPENING));
+  // HOOK — fire immediately so the video opens on a question, not dead air.
+  const HOOK =
+    'How much did your AI agents cost you this week? If you do not know, keep watching.';
+  await director.caption(HOOK);
+  await director.hold(voHold(HOOK));
+  await director.caption();
+
+  // WARMUP — one line of context before the tour starts.
+  const WARMUP =
+    'You are looking at the Ptah dashboard — home base for every agent you run. Let us take the tour.';
+  await director.caption(WARMUP);
+  await director.hold(voHold(WARMUP));
   await director.caption();
 
   await goToDashboard(page, director);
@@ -106,14 +114,16 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
   const grid = page.locator('[data-testid="dashboard-grid"]').first();
 
   const HOME =
-    'This is your card-driven home. Live cards, real data. No mock numbers anywhere.';
+    'Everything on this screen is live. Real cards, real data — not one mock number anywhere.';
   await director.caption(HOME);
   await director.hold(voHold(HOME));
   await director.caption();
 
   // Reveal the full page top→bottom so every card scrolls into frame. The
   // scroll itself (7 steps × 700ms × down-and-back) outlasts the narration.
-  await director.caption('Take the full tour, top to bottom.');
+  await director.caption(
+    'First, get the lay of the land — the full page, top to bottom.',
+  );
   await director.scrollThrough(grid, { steps: 7, dwellMs: 700, andBack: true });
   await director.caption();
 
@@ -125,7 +135,7 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     .first();
   if (await isVisible(tribunalCard)) {
     const TRIBUNAL =
-      'This card convenes a Tribunal. A panel of AI vendors that debate your question, or race to build the best answer.';
+      'Need a second opinion? Convene a Tribunal — rival AI vendors debate your question, or race to build the answer.';
     await director.caption(TRIBUNAL, tribunalCard);
     await director.hover(tribunalCard, 700);
     await director.spotlight(tribunalCard, 1800);
@@ -140,7 +150,7 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     .first();
   if (await isVisible(analyticsCard)) {
     const ANALYTICS =
-      'Session Analytics reads your real usage straight from disk. Every token, every dollar.';
+      'Here is where the cost question gets answered. Session Analytics reads your real usage straight from disk.';
     await director.caption(ANALYTICS, analyticsCard);
     await director.hover(analyticsCard, 700);
     await director.spotlight(analyticsCard, 2000);
@@ -151,7 +161,7 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     const metricCard = page.locator('ptah-session-metrics-cards').first();
     if (await isVisible(metricCard)) {
       const METRICS =
-        'Tokens, cost, and turns. Aggregated across every session.';
+        'Every token, every dollar, every turn — totaled across all of your sessions.';
       await director.caption(METRICS, metricCard);
       await director.hover(metricCard, 1400);
       await director.hold(voHold(METRICS, 1400));
@@ -166,7 +176,7 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
       .first();
     if (await isVisible(rangeChip)) {
       const spokenRange = RANGE_SPOKEN[RANGE_LABEL] ?? RANGE_LABEL;
-      const FILTER = `One click filters everything to ${spokenRange}.`;
+      const FILTER = `Want a tighter window? One click filters everything to ${spokenRange}.`;
       await director.caption(FILTER, rangeChip);
       await director.click(rangeChip);
       await director.hold(voHold(FILTER, 550));
@@ -177,7 +187,7 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     const sessionCard = page.locator('ptah-session-stats-card').first();
     if (await isVisible(sessionCard)) {
       const DRILL =
-        'And you can drill into any single session for the full story.';
+        'And when one session looks off, drill in and get the full story.';
       await director.caption(DRILL, sessionCard);
       await director.hover(sessionCard, 800);
       await director.spotlight(sessionCard, 1600);
@@ -202,7 +212,8 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     .catch(() => undefined);
   await director.hold(900);
 
-  const OUTRO = 'One home. Every session. Real numbers. That is Ptah.';
+  const OUTRO =
+    'So, what did your agents cost this week? Now you know, down to the dollar. That is Ptah.';
   await director.caption(OUTRO);
   await director.hold(voHold(OUTRO) + 600);
   await director.caption();

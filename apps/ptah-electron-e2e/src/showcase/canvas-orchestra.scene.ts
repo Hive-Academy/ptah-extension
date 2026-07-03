@@ -113,6 +113,33 @@ async function visible(loc: Locator): Promise<boolean> {
 }
 
 /**
+ * Close tiles left behind by previous captures. Canvas state persists in the
+ * profile, so each run's `agent-N` tiles survive into the next — cluttering the
+ * frame and eventually hitting the 9-tile cap, which makes createTile fail.
+ * Closes ONLY tiles whose header label matches `agent-<n>` (our own artifacts);
+ * anything else on the canvas is left alone. Runs before the hook beat, so the
+ * lead-in trim keeps the cleanup out of the final cut.
+ */
+async function closeStaleAgentTiles(
+  page: Page,
+  director: Director,
+): Promise<void> {
+  for (let i = 0; i < 9; i++) {
+    const stale = page
+      .locator('[data-testid="canvas-tile"]')
+      .filter({
+        has: page.locator('.tile-header span', { hasText: /^agent-\d+$/ }),
+      })
+      .first();
+    if (!(await visible(stale))) return;
+    const close = stale.locator('[title="Close tile"]').first();
+    if (!(await visible(close))) return;
+    await close.click({ timeout: 5_000 }).catch(() => undefined);
+    await director.hold(400);
+  }
+}
+
+/**
  * Exploration coda for a single tile: pan its conversation, spotlight the
  * stats strip, hover its agent indicator, and toggle compact/full view. Every
  * beat is guarded on visibility so a tile that finished sparse never stalls the
@@ -135,7 +162,7 @@ async function exploreTile(director: Director, tile: Locator): Promise<void> {
   const stats = tile.locator('ptah-session-stats-summary').first();
   if (await visible(stats)) {
     await director.caption(
-      'Every agent shows its own cost, tokens, and time — nothing hidden.',
+      'You always know what each agent costs you — tokens, time, and money, right on the tile.',
       stats,
     );
     await director.spotlight(stats, 1800);
@@ -171,15 +198,26 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
   // Clear any blocking startup modal (license / trial dialog) before filming.
   await director.dismissDialogs();
 
-  const OPENING =
-    'This is the Orchestra Canvas. One workspace, three AI agents, all running at once.';
-  await director.caption(OPENING);
-  await director.hold(voHold(OPENING));
-  await director.caption();
-
+  // Navigate + clean up BEFORE the first beat: everything until the hook is
+  // trimmed by render-all's lead-in trim, so stale-tile closing never airs.
   await goToCanvas(page, director);
   await director.dismissDialogs();
+  await closeStaleAgentTiles(page, director);
   await director.hold();
+
+  // HOOK — fire immediately so the video opens on a question, not dead air.
+  const HOOK =
+    'What if you could stop chatting with one AI — and start conducting three, live, on one screen?';
+  await director.caption(HOOK);
+  await director.hold(voHold(HOOK));
+  await director.caption();
+
+  // WARMUP — one line of context before the orchestra starts.
+  const WARMUP =
+    'This is the Orchestra Canvas in Ptah — real agents, on your real codebase, side by side. Let us put three to work.';
+  await director.caption(WARMUP);
+  await director.hold(voHold(WARMUP));
+  await director.caption();
 
   const tiles = page.locator('[data-testid="canvas-tile"]');
   // The canvas may restore prior tiles from the profile — drive only the ones
@@ -188,7 +226,9 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
 
   // Spin up three session tiles. The create loop far outlasts the narration,
   // so the caption plays fully during it (no explicit voHold needed).
-  await director.caption('Spin up a session tile for each one.');
+  await director.caption(
+    'First, every agent gets its own tile — a separate session, ready in seconds.',
+  );
   for (let i = 0; i < PROMPTS.length; i++) {
     await createTile(page, director, `agent-${i + 1}`);
     await tiles.nth(startCount + i).waitFor({ state: 'visible' });
@@ -197,7 +237,9 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
   await director.caption();
 
   // Hand each tile its own task and fire it off — concurrently.
-  await director.caption('Now give every agent a different job.');
+  await director.caption(
+    'Now hand out the work — a different job for each agent, no queue, no waiting for turns.',
+  );
   for (let i = 0; i < PROMPTS.length; i++) {
     await sendPromptToTile(director, tiles.nth(startCount + i), PROMPTS[i]);
     await director.hold(600);
@@ -206,13 +248,16 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
 
   // Let the orchestra play. The agent turns take far longer than the VO, so the
   // caption plays fully while they run.
-  await director.caption('And watch them work — all in parallel, no waiting.');
+  await director.caption(
+    'And let them loose. Three tasks moving forward at once, while you just watch.',
+  );
   await Promise.all(
     PROMPTS.map((_, i) => director.waitForAgentTurn(tiles.nth(startCount + i))),
   );
   await director.caption();
 
-  const PARALLEL = 'Three real tasks, running on one screen at the same time.';
+  const PARALLEL =
+    'That was real work — three finished tasks, one screen, zero time spent waiting in line.';
   await director.caption(PARALLEL);
   await director.hold(voHold(PARALLEL));
   await director.caption();
@@ -222,7 +267,7 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
   // happened: dive into a tile's transcript, surface the per-agent telemetry,
   // flex the layout, and pan the whole grid. Everything here is read-only.
 
-  const CLOSER = 'Let us take a closer look at what each agent did.';
+  const CLOSER = 'Now let us take a closer look at what each one actually did.';
   await director.caption(CLOSER);
   await director.hold(voHold(CLOSER));
   await director.caption();
@@ -234,7 +279,7 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
     const tile = tiles.nth(startCount + i);
     if (!(await visible(tile))) continue;
     await director.caption(
-      `Agent ${i + 1}: its own conversation, its own results.`,
+      `Agent ${i + 1} kept its own thread — its own conversation, its own results, nothing tangled.`,
       tile,
     );
     await director.hold(700);
@@ -248,7 +293,7 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
   const lockBtn = page.getByRole('button', { name: 'Lock tiles' }).first();
   if (await visible(lockBtn)) {
     await director.caption(
-      'Lock the layout once your arrangement is just right.',
+      'Found an arrangement you love? Lock it, and your orchestra stays exactly where you put it.',
       lockBtn,
     );
     await director.spotlight(lockBtn, 1800);
@@ -259,7 +304,7 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
   // multi-agent canvas, alive with three concurrent conversations. The pan
   // outlasts the narration.
   await director.caption(
-    'One canvas. A whole orchestra of agents, working together.',
+    'This is what conducting looks like. One canvas, a whole orchestra — and you hold the baton. That is Ptah.',
   );
   await director.scrollThrough(page.locator('[data-testid="canvas-grid"]'), {
     steps: 6,

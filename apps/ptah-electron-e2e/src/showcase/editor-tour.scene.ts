@@ -144,10 +144,18 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
 }) => {
   await director.dismissDialogs();
 
-  const OPENING =
-    'Ptah ships with a real editor, built right into the app — no window-hopping.';
-  await director.caption(OPENING);
-  await director.hold(voHold(OPENING));
+  // HOOK — fire immediately so the video opens on a question, not dead air.
+  const HOOK =
+    'Your AI agents write code all day. But where do you actually read it?';
+  await director.caption(HOOK);
+  await director.hold(voHold(HOOK));
+  await director.caption();
+
+  // WARMUP — one line of context before the tour starts.
+  const WARMUP =
+    'This is Ptah — an AI coding workspace. And it ships with a real editor, built right in. Let me show you.';
+  await director.caption(WARMUP);
+  await director.hold(voHold(WARMUP));
   await director.caption();
 
   const panel = await openEditorPanel(page, director);
@@ -171,7 +179,7 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
     .first();
   if (await isVisible(fileTree)) {
     const TREE =
-      'Your entire workspace lives right here, in a familiar file tree.';
+      'Here is your whole project, in a file tree you already know how to use.';
     await director.caption(TREE, fileTree);
     await director.hover(fileTree, 700);
     await director.spotlight(fileTree, 1800);
@@ -182,14 +190,14 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
 
   // Open a real file into Monaco. The openAFile expand/click loop covers the
   // narration, so the caption plays fully during it (no explicit voHold needed).
-  await director.caption('Open any file, and it drops straight into Monaco.');
+  await director.caption('Click any file, and it opens straight into Monaco.');
   const opened = await openAFile(page, director);
   await director.caption();
 
   if (opened) {
     const monacoHost = page.locator('[data-testid="editor-monaco"]').first();
     const MONACO =
-      'This is the full Monaco editor — the very same engine that powers VS Code.';
+      'Monaco is the same engine that powers VS Code — so this is not a preview pane. It is the real thing.';
     await director.caption(MONACO, monacoHost);
     // Hold covers the VO, minus the spotlight (1800 + 180 settle) that follows.
     await director.hold(voHold(MONACO, 1980));
@@ -204,7 +212,7 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
       .or(monacoHost)
       .first();
     await director.caption(
-      'Scroll through real source, with the syntax highlighting you already know.',
+      'Real source, real highlighting — right where your agents do their work.',
     );
     await director.scrollThrough(scroller, {
       steps: 6,
@@ -228,7 +236,7 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
     // The spotlight + click + reveal cover the narration, so the caption plays
     // fully during them (no explicit voHold needed).
     await director.caption(
-      'And when you need a command line, there is a full terminal built in.',
+      'Need to run something? There is a full terminal built in too.',
       terminalToggle,
     );
     await director.spotlight(terminalToggle, 1200);
@@ -251,7 +259,7 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
       }
 
       const SHELL =
-        'A real shell, running right beside your code — no separate window required.';
+        'A real shell, living right beside your code — no window-hopping, no context lost.';
       await director.caption(SHELL, terminalPanel);
       await director.hover(terminalPanel, 600);
       await director.spotlight(terminalPanel, 2000);
@@ -262,7 +270,7 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
   }
 
   const OUTRO =
-    'Edit, browse, and run — everything you need, without ever leaving Ptah.';
+    'Read it, browse it, run it — your code and your agents, finally in one place. That is Ptah.';
   await director.caption(OUTRO);
   await director.hold(voHold(OUTRO) + 600);
   await director.caption();
