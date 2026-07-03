@@ -54,6 +54,12 @@ export interface DeviceFrameProps {
    * `source.height`.
    */
   supersample?: boolean;
+  /**
+   * Ms of dead lead-in to skip at the FRONT of the footage (see render-all's
+   * lead-in trim). The footage starts `trimBeforeMs` in; beats, shots and
+   * captions are shifted by the same amount upstream so everything stays locked.
+   */
+  trimBeforeMs?: number;
 }
 
 /** Peak motion-blur radius (px) at maximum normalized camera velocity. */
@@ -97,6 +103,7 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
   shots = [],
   kenBurns = true,
   supersample = false,
+  trimBeforeMs = 0,
 }) => {
   const frame = useCurrentFrame();
   const { width: compW, height: compH, fps, durationInFrames } =
@@ -125,8 +132,10 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
     : undefined; /* focusToTransform default (2.4) */
 
   // Camera: shot-driven zoom/pan, or a gentle idle Ken Burns when no shots.
+  // Pass the true footage height so the translate clamp keeps the video covering
+  // the card (no background bleed on edge pans).
   const f = focusAt(shots, nowMs);
-  const cam = focusToTransform(f, cardW, cardH, maxScale);
+  const cam = focusToTransform(f, cardW, cardH, maxScale, videoDispH);
   const idle =
     !hasShots && kenBurns
       ? interpolate(frame, [0, durationInFrames], [1.0, 1.06], {
@@ -158,6 +167,10 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
     >
       <div
         style={{
+          // Containing block for the camera stage: without this, the absolute
+          // stage anchors to the outer wrapper and the footage escapes the card
+          // (drawn at comp origin, unclipped — the "frame completely off" bug).
+          position: 'relative',
           width: cardW,
           height: cardH,
           overflow: 'hidden',
@@ -181,6 +194,7 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
         >
           <OffthreadVideo
             src={src}
+            trimBefore={Math.max(0, Math.round((trimBeforeMs / 1000) * fps))}
             style={{
               width: cardW,
               height: videoDispH,

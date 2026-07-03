@@ -31,6 +31,8 @@ export interface BodySceneProps {
   kenBurns?: boolean;
   /** Footage is higher-res than the output composition (crisper punch-ins). */
   supersample?: boolean;
+  /** Ms of dead lead-in trimmed from the front of the footage (see render-all). */
+  trimBeforeMs?: number;
   resolveSrc: (v: string) => string;
 }
 
@@ -43,6 +45,7 @@ export const BodyScene: React.FC<BodySceneProps> = ({
   shots,
   kenBurns = true,
   supersample = false,
+  trimBeforeMs = 0,
   resolveSrc,
 }) => {
   const frame = useCurrentFrame();
@@ -58,6 +61,7 @@ export const BodyScene: React.FC<BodySceneProps> = ({
         shots={shots}
         kenBurns={kenBurns}
         supersample={supersample}
+        trimBeforeMs={trimBeforeMs}
       />
 
       {manifest.beats.map((beat, i) => {

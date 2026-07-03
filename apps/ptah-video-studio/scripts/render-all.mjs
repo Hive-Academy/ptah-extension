@@ -42,6 +42,50 @@ const COMPOSITION_ID = 'ShowcaseVideo';
 const WHOOSH_ASSET = path.join(APP_ROOT, 'assets', 'sfx', 'whoosh.mp3');
 const MUSIC_ASSET = path.join(APP_ROOT, 'assets', 'music', 'bed.mp3');
 
+/** Breath left before the first narration line after trimming the dead lead-in. */
+const LEAD_IN_MS = 700;
+
+/**
+ * Ms of dead footage to skip at the front: everything up to `LEAD_IN_MS` before
+ * the first beat. Returns 0 when the first beat already starts within the lead-in
+ * window (nothing to trim) or there are no beats.
+ */
+function computeLeadTrim(manifest) {
+  const firstBeatMs = manifest.beats?.[0]?.tMs ?? 0;
+  return Math.max(0, firstBeatMs - LEAD_IN_MS);
+}
+
+/**
+ * Shift every shot back by `trimMs`. Shots that fell entirely inside the trimmed
+ * lead-in collapse to the opening shot: the last such shot is kept at fromMs 0
+ * (so the scene opens on the region it was framing), earlier ones are dropped.
+ */
+function shiftShots(shots, trimMs) {
+  const shifted = shots.map((s) => ({ ...s, fromMs: s.fromMs - trimMs }));
+  const after = shifted.filter((s) => s.fromMs > 0);
+  const before = shifted.filter((s) => s.fromMs <= 0);
+  if (before.length > 0) {
+    after.unshift({ ...before[before.length - 1], fromMs: 0 });
+  }
+  return after;
+}
+
+/**
+ * Shift every caption token back by `trimMs`, dropping tokens that end before the
+ * new start and clamping a token straddling the cut to start at 0.
+ */
+function shiftCaptions(captions, trimMs) {
+  return captions
+    .map((c) => ({
+      ...c,
+      startMs: c.startMs - trimMs,
+      endMs: c.endMs - trimMs,
+      timestampMs: c.timestampMs == null ? null : c.timestampMs - trimMs,
+    }))
+    .filter((c) => c.endMs > 0)
+    .map((c) => ({ ...c, startMs: Math.max(0, c.startMs) }));
+}
+
 /** Output-resolution presets (16:9). `native` keeps the capture size. */
 const OUT_RES_PRESETS = {
   '1080p': { width: 1920, height: 1080 },
@@ -203,13 +247,35 @@ function buildProps(scene, outRes) {
   }
 
   const durations = readJsonIfExists(path.join(dir, 'durations.json'));
-  const captions = readJsonIfExists(path.join(dir, 'captions.json')) ?? [];
+  let captions = readJsonIfExists(path.join(dir, 'captions.json')) ?? [];
   // Optional camera / annotation track. Hand-authored per scene today; the
   // Director will emit it from spotlighted element boxes for designed scenes.
   // Validated structurally here (mirrors shotsFileSchema) so a malformed track
   // fails with a clear per-scene message instead of silently mis-rendering.
   const shotsFile = readJsonIfExists(path.join(dir, 'shots.json'));
-  const shots = validateShotsFile(scene, shotsFile);
+  let shots = validateShotsFile(scene, shotsFile);
+
+  // ── Lead-in trim ──────────────────────────────────────────────────────────
+  // Captures open with seconds of setup (dismiss dialogs, navigate, wait for the
+  // workspace) BEFORE the first narration beat — dead air that made every video
+  // feel like it "waits for something" at the start. Skip the footage up to just
+  // before the first beat and shift beats, shots and captions by the same amount
+  // so audio / camera / words stay locked to the (now front-trimmed) footage.
+  // DeviceFrame applies the matching `trimBefore` on the <OffthreadVideo>.
+  const leadTrimMs = computeLeadTrim(manifest);
+  if (leadTrimMs > 0) {
+    manifest.beats = (manifest.beats ?? []).map((b) => ({
+      ...b,
+      tMs: Math.max(0, b.tMs - leadTrimMs),
+    }));
+    manifest.durationMs = Math.max(1, (manifest.durationMs ?? 0) - leadTrimMs);
+    shots = shiftShots(shots, leadTrimMs);
+    captions = shiftCaptions(captions, leadTrimMs);
+    console.log(
+      `[render] ${scene}: trimmed ${leadTrimMs}ms dead lead-in ` +
+        `(first beat was at ${leadTrimMs + LEAD_IN_MS}ms).`,
+    );
+  }
 
   // Asset paths are relative (forward-slash) to the scene dir, which is passed
   // to `remotion render` as --public-dir. Remotion serves local assets over its
@@ -264,6 +330,7 @@ function buildProps(scene, outRes) {
     shots,
     kenBurns: true,
     supersample,
+    ...(leadTrimMs > 0 ? { trimBeforeMs: leadTrimMs } : {}),
     ...(outRes ? { outRes } : {}),
     ...(sound.whooshSfx ? { whooshSfx: sound.whooshSfx } : {}),
     ...(sound.musicBed ? { musicBed: sound.musicBed } : {}),

@@ -345,6 +345,11 @@ export class Director {
     const capH = this.res.height;
     const tMs = Date.now() - this.recordStartMs;
 
+    // Degenerate boxes (scrollbars, dividers, collapsed rails — under ~3% of
+    // the frame on either axis) are never a real camera subject: skip them so
+    // the virtual camera doesn't punch onto a sliver.
+    if (box.width < capW * 0.03 || box.height < capH * 0.03) return;
+
     const centerX = box.x + box.width / 2;
     const centerY = box.y + box.height / 2;
 

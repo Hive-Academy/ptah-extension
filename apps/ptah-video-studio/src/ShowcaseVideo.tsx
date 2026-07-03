@@ -65,6 +65,13 @@ export type ShowcaseVideoProps = {
    */
   supersample?: boolean;
   /**
+   * Ms of dead lead-in trimmed from the FRONT of the footage. render-all sets
+   * this to skip captured setup time (dialog dismissal, navigation, workspace
+   * load) before the first narration beat; beats/shots/captions are shifted by
+   * the same amount upstream so everything stays locked to the trimmed footage.
+   */
+  trimBeforeMs?: number;
+  /**
    * Output composition size. When set (by render-all's --out-res), the
    * composition renders at THIS size while DeviceFrame scales the higher-res
    * capture down into it (crisper zooms). When omitted the composition falls
@@ -108,6 +115,7 @@ export const ShowcaseVideo: React.FC<ShowcaseVideoProps> = ({
   outroMs = DEFAULT_OUTRO_MS,
   kenBurns = true,
   supersample = false,
+  trimBeforeMs = 0,
   whooshSfx,
   musicBed,
 }) => {
@@ -152,6 +160,7 @@ export const ShowcaseVideo: React.FC<ShowcaseVideoProps> = ({
               shots={shots}
               kenBurns={kenBurns}
               supersample={supersample}
+              trimBeforeMs={trimBeforeMs}
               resolveSrc={resolveSrc}
             />
           </SectionTransition>

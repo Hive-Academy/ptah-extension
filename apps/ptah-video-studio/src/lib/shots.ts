@@ -82,6 +82,23 @@ export function parseShots(raw: unknown): Shot[] {
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
+/**
+ * Minimum focus extent per axis (fraction of the frame). Auto-emitted shots can
+ * target degenerate boxes — a scrollbar, a divider, a collapsed rail — and a
+ * faithful punch-in onto a 1.5%-wide sliver is a meaningless macro shot. Expand
+ * such rects (recentred, clamped to 0..1) so a close-up always carries context.
+ */
+const MIN_FOCUS_EXTENT = 0.22;
+
+function normalizeFocus(f: FocusRect): FocusRect {
+  if (f.w >= MIN_FOCUS_EXTENT && f.h >= MIN_FOCUS_EXTENT) return f;
+  const w = Math.max(f.w, MIN_FOCUS_EXTENT);
+  const h = Math.max(f.h, MIN_FOCUS_EXTENT);
+  const x = Math.max(0, Math.min(1 - w, f.x + f.w / 2 - w / 2));
+  const y = Math.max(0, Math.min(1 - h, f.y + f.h / 2 - h / 2));
+  return { x, y, w, h };
+}
+
 /** Symmetric ease-in-out (legacy `smooth` profile). */
 const easeInOut = (k: number) =>
   k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
@@ -138,9 +155,9 @@ export function focusAt(
   for (let i = 0; i < shots.length; i++) {
     if (nowMs >= shots[i].fromMs) idx = i;
   }
-  const cur = shots[idx].focus ?? FULL;
+  const cur = normalizeFocus(shots[idx].focus ?? FULL);
   if (idx === 0) return cur;
-  const prev = shots[idx - 1].focus ?? FULL;
+  const prev = normalizeFocus(shots[idx - 1].focus ?? FULL);
 
   const shot = shots[idx];
   if (shot.ease === 'cut') return cur; // instant hold-and-cut
@@ -192,18 +209,35 @@ export function cameraVelocity(
  * `maxScale` caps how far the virtual camera can punch in. When capture res
  * exceeds output res (supersampling), the caller can raise this — the extra
  * source pixels stay crisp on the way in (see `dynamicMaxScale`).
+ *
+ * `footageH` is the actual displayed height of the footage layer (≥ cardH when a
+ * padding band is clipped). The translate is CLAMPED so the scaled footage
+ * always fully covers the visible card: without this, panning toward an edge —
+ * especially when a tall/thin focus rect limits the zoom — slides the footage
+ * off one side and exposes the card background (the "black gap" framing bug).
  */
 export function focusToTransform(
   f: FocusRect,
   cardW: number,
   cardH: number,
   maxScale = 2.4,
+  footageH = cardH,
 ): { scale: number; tx: number; ty: number } {
   let s = Math.min(1 / Math.max(f.w, 1e-3), 1 / Math.max(f.h, 1e-3));
   s = Math.max(1, Math.min(maxScale, s));
   const cx = (f.x + f.w / 2) * cardW;
   const cy = (f.y + f.h / 2) * cardH;
-  return { scale: s, tx: cardW / 2 - s * cx, ty: cardH / 2 - s * cy };
+  // Desired translate centres the focus point in the card…
+  let tx = cardW / 2 - s * cx;
+  let ty = cardH / 2 - s * cy;
+  // …then clamp to the range that keeps [0,cardW]×[0,cardH] covered by the
+  // scaled footage (scaledW/H ≥ card dims because s ≥ 1), so a pan never
+  // reveals the background behind the video.
+  const scaledW = s * cardW;
+  const scaledH = s * footageH;
+  tx = Math.min(0, Math.max(tx, cardW - scaledW));
+  ty = Math.min(0, Math.max(ty, cardH - scaledH));
+  return { scale: s, tx, ty };
 }
 
 /**
