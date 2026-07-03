@@ -301,8 +301,11 @@ function buildProps(scene, outRes) {
 
   // Output size: --out-res override, or the capture res (native). Footage is
   // supersampled when the capture is taller than the output — DeviceFrame scales
-  // it down and the camera may punch in further while staying crisp.
-  const captureH = manifest.res?.height ?? source.height;
+  // it down and the camera may punch in further while staying crisp. Use the
+  // probed frame height (`source.height`), not `manifest.res` — the launcher now
+  // records the CSS viewport there, which is smaller than the device frame on a
+  // scaled display.
+  const captureH = source.height;
   const supersample = !!outRes && outRes.height < captureH;
   if (outRes) {
     console.log(

@@ -53,11 +53,12 @@ export interface ShowcaseLaunchOptions {
 export interface ShowcaseLaunch {
   app: ElectronApplication;
   /**
-   * The ACTUAL renderer viewport (`innerWidth`/`innerHeight`) after the
-   * exact-viewport correction below. This is what the recorded frames contain
-   * pixel-for-pixel, so downstream normalization (shots.json) and the manifest
-   * `res` must use these measured values, not the requested capture size. Equal
-   * to the requested resolution unless the OS clamped the window to the display.
+   * The MEASURED CSS viewport (`innerWidth`/`innerHeight`) after deterministic
+   * placement. This is the coordinate space `boundingBox()` reports in, so the
+   * Director must normalize shot rects (and the manifest `res`) against it. On a
+   * scaled display it is smaller than the recorded device frame (e.g. 1707x960
+   * CSS for a 2560x1440 record at 150%); render-all detects the true device
+   * frame size from the raw video, so it does not rely on this value for framing.
    */
   res: ShowcaseRes;
   /** The resolution originally requested (from opts/env), for logging. */
@@ -146,84 +147,133 @@ export async function launchShowcase(
     process.stderr.write(`[ptah stderr] ${chunk.toString('utf8')}`);
   });
 
-  // Force the window to the exact capture resolution so the recorded frames
-  // are crisp (no upscaling from the default 1200x800) AND — critically — so
-  // the renderer VIEWPORT equals the record size. `setContentSize` sizes the
-  // web-contents *bounds*, but the measured `innerWidth`/`innerHeight` can
-  // still come up short (device-scale rounding, integrated scrollbars, the OS
-  // clamping a window larger than the physical display). When the viewport is
-  // shorter than the record size, Playwright pads the bottom of every frame
-  // with a uniform mid-gray band — the exact defect this correction kills. The
-  // downstream gray-band auto-crop in render-all.mjs stays as a fallback.
-  await app.evaluate(async ({ BrowserWindow }, size) => {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (!win) return;
-    // Allow sizing beyond the physical screen (electron honours this on most
-    // platforms when the window is not maximized), and lift the minimum so a
-    // correction pass can shrink freely if we overshoot.
-    win.setMinimumSize(400, 300);
-    win.setResizable(true);
-    if (win.isMaximized()) win.unmaximize();
-    if (win.isFullScreen()) win.setFullScreen(false);
-    win.setContentSize(size.width, size.height);
-    win.center();
-    win.focus();
-  }, res);
-
-  // Measure the real renderer viewport and iteratively correct the content
-  // size by the measured delta. 2-3 passes is plenty: the delta is a fixed
-  // chrome/scaling offset, so a single correction usually converges and the
-  // extra passes just confirm it.
+  // ── Deterministic high-resolution window placement ─────────────────────────
+  // Playwright records the window's ON-SCREEN region at DEVICE pixels, then
+  // scales it to fit `recordVideo.size` (= `res`). To fill a `res`-sized frame
+  // 1:1 the on-screen content must be exactly `res` device pixels — i.e. a CSS
+  // content box of `res / scaleFactor` that fits ENTIRELY within some display's
+  // work area. A 2560x1440 record therefore needs a 1707x960 CSS window on a
+  // 150%-scaled display, or a 2560x1440 CSS window on a 100% display at least
+  // that large. We enumerate displays, pick the one that can host the box
+  // (highest scale factor first — smallest on-screen footprint), and size the
+  // content to `res / scaleFactor` there.
+  //
+  // This replaces the old "force a `res`-sized CSS window and centre it"
+  // strategy, which was the root of the nondeterministic letterbox: on a scaled
+  // display a `res`-sized CSS window spills off-screen, so Playwright captured
+  // only the on-screen part and padded the rest with a gray band. render-all's
+  // band-crop then produced a small letterboxed card. The MEASURED CSS viewport
+  // is returned as `res` (the coordinate space `boundingBox()` reports in, which
+  // the Director normalizes shot rects against); render-all detects the true
+  // device frame size from the raw video itself.
   const win = await app.firstWindow();
   await win.waitForLoadState('domcontentloaded');
 
-  const measureViewport = (): Promise<ShowcaseRes> =>
+  const placement = await app.evaluate(({ screen, BrowserWindow }, rec) => {
+    const w = BrowserWindow.getAllWindows()[0];
+    if (!w) return null;
+    w.setResizable(true);
+    w.setMinimumSize(400, 300);
+    if (w.isMaximized()) w.unmaximize();
+    if (w.isFullScreen()) w.setFullScreen(false);
+
+    const candidates = screen.getAllDisplays().map((d) => {
+      // CSS content box that yields exactly `rec` device pixels on this display.
+      const cssW = Math.round(rec.width / d.scaleFactor);
+      const cssH = Math.round(rec.height / d.scaleFactor);
+      const fits = cssW <= d.workArea.width && cssH <= d.workArea.height;
+      // Fraction of the target frame this display can paint fully on-screen
+      // (1 == whole frame). Drives the least-letterboxed fallback when nothing
+      // fits cleanly.
+      const coverage =
+        ((Math.min(cssW, d.workArea.width) * d.scaleFactor) / rec.width) *
+        ((Math.min(cssH, d.workArea.height) * d.scaleFactor) / rec.height);
+      return { d, cssW, cssH, fits, coverage };
+    });
+    const best =
+      candidates
+        .filter((c) => c.fits)
+        .sort((a, b) => b.d.scaleFactor - a.d.scaleFactor)[0] ??
+      [...candidates].sort((a, b) => b.coverage - a.coverage)[0];
+    if (!best) return null;
+
+    // Cap to the work area so the window is never partly off-screen (an
+    // off-screen region records as a padding band), and anchor at the work-area
+    // origin so the whole window is on the chosen display.
+    const cssW = Math.min(best.cssW, best.d.workArea.width);
+    const cssH = Math.min(best.cssH, best.d.workArea.height);
+    w.setPosition(best.d.workArea.x, best.d.workArea.y);
+    w.setContentSize(cssW, cssH);
+    w.focus();
+    return {
+      fits: best.fits,
+      scaleFactor: best.d.scaleFactor,
+      appliedCssW: cssW,
+      appliedCssH: cssH,
+    };
+  }, res);
+
+  // Fine-correct the CSS content size so the measured viewport lands on the
+  // applied target (setContentSize can come up a pixel or two short after
+  // chrome / DPR rounding). Converges in one pass; extra passes just confirm.
+  const measure = (): Promise<{ width: number; height: number; dpr: number }> =>
     win.evaluate(() => ({
       width: window.innerWidth,
       height: window.innerHeight,
+      dpr: window.devicePixelRatio,
     }));
 
-  let measured = await measureViewport();
+  const targetW = placement?.appliedCssW ?? res.width;
+  const targetH = placement?.appliedCssH ?? res.height;
+  let m = await measure();
   for (let pass = 0; pass < 3; pass++) {
-    const dw = res.width - measured.width;
-    const dh = res.height - measured.height;
+    const dw = targetW - m.width;
+    const dh = targetH - m.height;
     if (dw === 0 && dh === 0) break;
-    // Read the current content size and add the shortfall so the viewport lands
-    // exactly on the requested resolution.
     await app.evaluate(
-      async ({ BrowserWindow }, delta) => {
+      ({ BrowserWindow }, delta) => {
         const w = BrowserWindow.getAllWindows()[0];
         if (!w) return;
         const [cw, ch] = w.getContentSize();
         w.setContentSize(cw + delta.dw, ch + delta.dh);
-        w.center();
       },
       { dw, dh },
     );
-    // Let layout settle before re-measuring.
     await win.waitForTimeout(120);
-    measured = await measureViewport();
+    m = await measure();
   }
 
-  if (measured.width === res.width && measured.height === res.height) {
+  // The recorded frame is the on-screen content at device resolution.
+  const deviceW = Math.round(m.width * m.dpr);
+  const deviceH = Math.round(m.height * m.dpr);
+  if (
+    Math.abs(deviceW - res.width) <= 2 &&
+    Math.abs(deviceH - res.height) <= 2
+  ) {
     process.stderr.write(
-      `[showcase] viewport ${measured.width}x${measured.height} == record size\n`,
+      `[showcase] capturing ${res.width}x${res.height} device px — viewport ` +
+        `${m.width}x${m.height} @ ${m.dpr}x (full frame, no padding band)\n`,
     );
   } else {
-    // The OS clamped the window to the display (capture res exceeds the screen).
-    // We record at the requested size regardless, so the frames will carry a
-    // gray band that render-all.mjs's auto-crop trims. Thread the MEASURED
-    // viewport downstream so shots.json normalization stays accurate.
+    // No display could host the full frame; we record the largest on-screen
+    // region that fit and render-all's band-crop trims the rest (letterboxed
+    // card). Raise PTAH_SHOWCASE_RES to a size a display can host, or attach a
+    // larger / higher-DPI display.
     process.stderr.write(
-      `[showcase] WARNING: viewport ${measured.width}x${measured.height} != record size ` +
-        `${res.width}x${res.height} — the capture resolution exceeds this display, ` +
-        `so recorded frames will carry a gray padding band. The render-all.mjs ` +
-        `band-crop fallback will apply. Use a larger display or a smaller ` +
-        `PTAH_SHOWCASE_RES to capture at native size.\n`,
+      `[showcase] WARNING: best on-screen capture is ${deviceW}x${deviceH} device px, ` +
+        `short of the ${res.width}x${res.height} record size — no display can host ` +
+        `it (viewport ${m.width}x${m.height} @ ${m.dpr}x). Recorded frames will ` +
+        `carry a padding band that render-all.mjs crops (letterboxed card). Use a ` +
+        `smaller PTAH_SHOWCASE_RES or a larger / higher-DPI display.\n`,
     );
   }
 
-  // Return the MEASURED viewport as `res` (what the frames actually contain),
-  // keeping the requested resolution separately for diagnostics.
-  return { app, res: measured, requestedRes: res };
+  // Return the MEASURED CSS viewport as `res` — the coordinate space the
+  // Director normalizes shot rects against. render-all detects the true device
+  // frame size from the raw video, so it needs no device dimensions here.
+  return {
+    app,
+    res: { width: m.width, height: m.height },
+    requestedRes: res,
+  };
 }
