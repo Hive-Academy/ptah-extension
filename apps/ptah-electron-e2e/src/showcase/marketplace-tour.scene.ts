@@ -11,6 +11,12 @@ import type { Locator, Page } from '@playwright/test';
  * is a SCENE, not a test — it asserts almost nothing and is tuned for how it
  * looks on camera.
  *
+ * Captions double as the VOICEOVER SCRIPT (`narrate.mjs --source beats`), so
+ * they are written as spoken prose and caption-only beats hold via `voHold`
+ * (~65ms/char) so narration finishes before the next beat. Element-targeted
+ * captions + spotlight/hover auto-emit `shots.json`, punching the camera onto
+ * each provider and listing as the VO names it.
+ *
  * Everything here is NON-DESTRUCTIVE: we open providers, scroll listings,
  * spotlight cards and hover into detail. We NEVER click Install, purchase, or
  * download anything, and we never check an install target.
@@ -50,13 +56,25 @@ interface ProviderBeat {
 const PROVIDER_BEATS: readonly ProviderBeat[] = [
   {
     name: 'MCP Registry',
-    caption: 'Browse the official Model Context Protocol registry.',
+    caption:
+      'Browse the official Model Context Protocol registry, right from inside Ptah.',
   },
   {
     name: 'Skills',
-    caption: 'Discover community skills, matched to your project.',
+    caption:
+      'Discover community skills, hand-picked and matched to your project.',
   },
 ];
+
+/**
+ * Hold long enough for the narration of `text` to finish before the next beat
+ * starts (~65ms/char + settle), minus time already spent in interactions that
+ * run between this beat and the next. Captions double as the VO script
+ * (`narrate.mjs --source beats`), so this prevents audio overlap.
+ */
+function voHold(text: string, alreadySpentMs = 0): number {
+  return Math.max(600, Math.round(text.length * 65) + 500 - alreadySpentMs);
+}
 
 /**
  * Click the first visible candidate from a list, easing the cursor to it.
@@ -98,8 +116,10 @@ async function goToMarketplace(page: Page, director: Director): Promise<void> {
  * eye lands on each tile, narrating the breadth of the registry.
  */
 async function tourProviderGrid(page: Page, director: Director): Promise<void> {
-  await director.caption('Plugins, MCP servers, skills — one place.');
-  await director.hold(1200);
+  const GRID =
+    'Plugins, MCP servers, and skills — every provider, gathered in one place.';
+  await director.caption(GRID);
+  await director.hold(voHold(GRID));
   await director.caption();
 
   // Spotlight the headline providers by their stable card aria-labels.
@@ -124,7 +144,9 @@ async function tourProvider(
   const card = page.getByRole('button', { name: `Open ${beat.name}` }).first();
   if (!(await card.isVisible().catch(() => false))) return;
 
-  await director.caption(beat.caption);
+  // The click + populate hold + spotlight + scroll below cover the narration, so
+  // the caption plays fully during them (no explicit voHold needed).
+  await director.caption(beat.caption, card);
   await director.click(card);
 
   // The selected surface mounts inside the hub; give it a beat to populate from
@@ -156,11 +178,13 @@ async function tourProvider(
     .locator('.rounded-lg.border')
     .first();
   if (await firstRow.isVisible().catch(() => false)) {
-    await director.caption(
-      'Hover any item to size it up — install when ready.',
-    );
+    const ROW =
+      'Hover over any item to size it up, and install it the moment you are ready.';
+    await director.caption(ROW, firstRow);
     await director.spotlight(firstRow, 1400);
     await director.hover(firstRow, 700);
+    // spotlight(1400 + 180 settle) + hover(700) already spent ~2.3s of VO time.
+    await director.hold(voHold(ROW, 2280));
     await director.caption();
   }
 
@@ -179,8 +203,10 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
 
-  await director.caption('Extend Ptah without leaving the app.');
-  await director.hold(1600);
+  const OPENING =
+    'Ptah is built to grow with you — and you can extend it without ever leaving the app.';
+  await director.caption(OPENING);
+  await director.hold(voHold(OPENING));
   await director.caption();
 
   // Enter the Marketplace; the trial modal can re-assert after navigation, so
@@ -210,14 +236,21 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
       .getByRole('button', { name: 'Open Composio' })
       .first();
     if (await composio.isVisible().catch(() => false)) {
-      await director.caption('…and more providers landing soon.');
+      const SOON =
+        'And this is only the beginning — with even more providers landing soon.';
+      await director.caption(SOON, composio);
       await director.spotlight(composio, 1500);
+      // spotlight(1500 + 180 settle) already spent ~1.7s of VO time.
+      await director.hold(voHold(SOON, 1680));
       await director.caption();
     }
   } else {
     // Non-premium / trial-ended path — narrate the Pro gate gracefully and pan
-    // whatever copy is visible. No provider RPC fires here by design.
-    await director.caption('The Marketplace is a Pro feature.');
+    // whatever copy is visible. No provider RPC fires here by design. The
+    // settle + scroll below cover the narration (no explicit voHold needed).
+    await director.caption(
+      'The full Marketplace is a Pro feature — upgrade any time to unlock it.',
+    );
     await director.hold(1600);
     await director.scrollThrough(page.locator('ptah-marketplace-hub'), {
       steps: 3,
@@ -227,7 +260,8 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
     await director.caption();
   }
 
-  await director.caption('Skills and servers, one click away.');
-  await director.hold(2600);
+  const OUTRO = 'Skills, servers, and integrations — all just one click away.';
+  await director.caption(OUTRO);
+  await director.hold(voHold(OUTRO) + 600);
   await director.caption();
 });

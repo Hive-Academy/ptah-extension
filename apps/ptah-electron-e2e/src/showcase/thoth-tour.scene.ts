@@ -19,6 +19,10 @@ import type { Locator, Page } from '@playwright/test';
  * Purely UI-driven: NO agents run and NO LLM inference happens, so there is no
  * `waitForAgentTurn` here.
  *
+ * Captions double as the VOICEOVER SCRIPT (`narrate.mjs --source beats`), so they
+ * are spoken prose; element-targeted captions + spotlight/hover auto-emit
+ * `shots.json`, punching the camera onto each subject.
+ *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
  *   authenticated and a real workspace is restored.
@@ -53,7 +57,8 @@ interface ThothBeat {
 const BEATS: readonly ThothBeat[] = [
   {
     id: 'memory',
-    caption: 'Memory — a persistent brain that remembers across sessions.',
+    caption:
+      'First, Memory — a persistent brain that quietly remembers what matters, across every session you run.',
     hero: [
       '[data-testid="memory-stat-blocks"]',
       '[data-testid="memory-blocks-list"]',
@@ -62,7 +67,8 @@ const BEATS: readonly ThothBeat[] = [
   },
   {
     id: 'skills',
-    caption: 'Skills — agents that turn what they learn into reusable skills.',
+    caption:
+      'Next, Skills — where your agents take what they have learned and turn it into reusable skills they can call on again.',
     hero: [
       '[data-testid="suggestions-card"]',
       '[data-testid="skills-stat-candidates"]',
@@ -71,7 +77,8 @@ const BEATS: readonly ThothBeat[] = [
   },
   {
     id: 'cron',
-    caption: 'Schedules — cron-driven nightly agents that run on their own.',
+    caption:
+      'Then Schedules — cron-driven agents that wake up on their own, overnight, and get the work done while you sleep.',
     hero: [
       '[data-testid="cron-job-row"]',
       '[data-testid="cron-stat-total"]',
@@ -80,7 +87,8 @@ const BEATS: readonly ThothBeat[] = [
   },
   {
     id: 'gateway',
-    caption: 'Gateway — drive Ptah from Telegram, Discord or Slack.',
+    caption:
+      'And finally the Gateway — so you can drive Ptah from Telegram, Discord, or Slack, right from your phone.',
     hero: [
       '[data-testid="gateway-channel-card"]',
       '[data-testid="gateway-stat-total"]',
@@ -88,6 +96,16 @@ const BEATS: readonly ThothBeat[] = [
     ],
   },
 ];
+
+/**
+ * Hold long enough for the narration of `text` to finish before the next beat
+ * starts (~65ms/char + settle), minus time already spent in interactions that
+ * run between this beat and the next. Captions double as the VO script
+ * (`narrate.mjs --source beats`), so this prevents audio overlap.
+ */
+function voHold(text: string, alreadySpentMs = 0): number {
+  return Math.max(600, Math.round(text.length * 65) + 500 - alreadySpentMs);
+}
 
 /**
  * Enter the Thoth shell from the top nav. Best-effort against the live shell:
@@ -152,7 +170,9 @@ async function tourTab(
   // The trial modal can re-assert after a tab switch — keep it out of frame.
   await director.dismissDialogs();
 
-  await director.caption(beat.caption);
+  // Target the panel so the camera frames this tab's surface as the VO names it.
+  await director.caption(beat.caption, panel);
+  // scrollThrough + hero spotlight below outlast the VO — keep a short hold.
   await director.hold(900);
 
   // Reveal the full surface with a slow top→bottom→top pan.
@@ -174,10 +194,10 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
 
-  await director.caption(
-    'The VS Code extension is the tip. This is the whole iceberg.',
-  );
-  await director.hold(1800);
+  const OPENING =
+    'The VS Code extension is just the tip. The desktop app is the whole iceberg.';
+  await director.caption(OPENING);
+  await director.hold(voHold(OPENING));
   await director.caption();
 
   // Enter the cockpit; the trial modal can re-assert after navigation, so
@@ -186,7 +206,9 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
   await director.dismissDialogs();
   await director.hold();
 
-  await director.caption('Four tabs the extension can never have…');
+  // The four-tab pan below runs for far longer than this line — interaction-
+  // covered — so a short hold is enough before the loop takes over.
+  await director.caption('Here are four tabs the extension could never have.');
   await director.hold(1400);
   await director.caption();
 
@@ -197,7 +219,9 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
 
   // Payoff — desktop runs a local SQLite brain + embedder worker, which is why
   // these four are desktop-only by design.
-  await director.caption('Desktop = the full brain.');
-  await director.hold(2600);
+  const PAYOFF =
+    'On the desktop, you get the full brain — memory, skills, schedules, and the gateway, all in one place.';
+  await director.caption(PAYOFF);
+  await director.hold(voHold(PAYOFF));
   await director.caption();
 });

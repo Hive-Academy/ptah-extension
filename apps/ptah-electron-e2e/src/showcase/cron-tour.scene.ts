@@ -17,6 +17,12 @@ import type { Locator, Page } from '@playwright/test';
  *
  * Purely UI-driven: NO agents, NO LLM inference, so no `waitForAgentTurn`.
  *
+ * Captions double as the VOICEOVER SCRIPT (`narrate.mjs --source beats`), so
+ * they are written as spoken prose and caption-only beats hold via `voHold`
+ * (~65ms/char) so narration finishes before the next beat. Element-targeted
+ * captions + spotlight/hover auto-emit `shots.json`, punching the camera onto
+ * each subject.
+ *
  * NON-DESTRUCTIVE by design. Clicking a job ROW only selects it and reveals the
  * run-history panel — it mutates nothing. We deliberately NEVER click the
  * per-row Run / Edit / Enable-Disable / Delete buttons, nor "New job", nor the
@@ -35,6 +41,16 @@ import type { Locator, Page } from '@playwright/test';
  * `data-testid`s from `libs/frontend/cron-scheduler-ui` (see the gold spec
  * `src/specs/thoth/cron.spec.ts`).
  */
+
+/**
+ * Hold long enough for the narration of `text` to finish before the next beat
+ * starts (~65ms/char + settle), minus time already spent in interactions that
+ * run between this beat and the next. Captions double as the VO script
+ * (`narrate.mjs --source beats`), so this prevents audio overlap.
+ */
+function voHold(text: string, alreadySpentMs = 0): number {
+  return Math.max(600, Math.round(text.length * 65) + 500 - alreadySpentMs);
+}
 
 /** First visible locator from an ordered candidate list, scoped to `root`. */
 async function firstVisible(
@@ -87,27 +103,38 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
   // The persistent authed profile ALWAYS shows the trial modal on boot.
   await director.dismissDialogs();
 
-  await director.caption('Set it and forget it.');
-  await director.hold(1600);
+  const OPENING = 'Set it once, and forget it.';
+  await director.caption(OPENING);
+  await director.hold(voHold(OPENING));
   await director.caption();
 
   const panel = await goToCron(page, director);
 
   // 1) Land + read the stats strip: jobs / enabled / disabled / next run.
-  await director.caption('Schedules — agents that run on their own clock.');
+  // Caption is element-targeted onto the stats strip; spotlight(1700) covers
+  // most of the VO, so subtract it via alreadySpentMs.
+  const SCHEDULES =
+    'These are your schedules — agents that run entirely on their own clock.';
   const statsStrip = await firstVisible(panel, [
     '[aria-label="Cron statistics"]',
     '[data-testid="cron-stat-total"]',
   ]);
   if (statsStrip) {
+    await director.caption(SCHEDULES, statsStrip);
     await director.spotlight(statsStrip, 1700);
+    await director.hold(voHold(SCHEDULES, 1880));
   } else {
-    await director.hold(1200);
+    await director.caption(SCHEDULES);
+    await director.hold(voHold(SCHEDULES));
   }
   await director.caption();
 
-  // 2) Pan the schedules table top→bottom so the camera reveals every job.
-  await director.caption('Cron expressions drive headless Ptah sessions.');
+  // 2) Pan the schedules table top→bottom so the camera reveals every job. The
+  // scrollThrough (5 steps × 600ms) outlasts the VO.
+  await director.caption(
+    'A simple cron expression drives each headless Ptah session.',
+    panel,
+  );
   await director.scrollThrough(panel, { steps: 5, dwellMs: 600 });
   await director.caption();
 
@@ -116,16 +143,20 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
   const hasJob = await row.isVisible().catch(() => false);
 
   if (hasJob) {
-    await director.caption(
-      'Each row is one recurring job — name, cron, status.',
-    );
+    // Element-targeted onto the row; hover(700) + spotlight(1600) cover the VO.
+    const ROW =
+      'Each row is one recurring job — its name, its cron schedule, and its status.';
+    await director.caption(ROW, row);
     await director.hover(row, 700);
     await director.spotlight(row, 1600);
+    await director.hold(voHold(ROW, 2480));
     await director.caption();
 
     // 4) Click the row — selection only — to reveal the READ-ONLY run-history
-    //    panel below the table. This mutates nothing.
-    await director.caption('Open one to see its run history.');
+    //    panel below the table. This mutates nothing. The click + reveal +
+    //    spotlight loop outlasts this lead-in caption.
+    const HISTORY = 'Open any one of them to see its full run history.';
+    await director.caption(HISTORY, row);
     await director.click(row);
     await director.hold(600);
 
@@ -134,7 +165,7 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
       // `spotlight` scrolls the target into view before drawing the ring.
       await director.spotlight(history, 1700);
     } else {
-      await director.hold(900);
+      await director.hold(voHold(HISTORY, 600));
     }
     await director.caption();
   } else {
@@ -142,13 +173,15 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
     const empty = await firstVisible(panel, [
       '[data-testid="cron-empty-state"]',
     ]);
-    await director.caption(
-      'Schedule a prompt — nightly builds, digests, maintenance — and walk away.',
-    );
+    const EMPTY =
+      'Schedule a prompt — nightly builds, daily digests, routine maintenance — and simply walk away.';
     if (empty) {
+      await director.caption(EMPTY, empty);
       await director.spotlight(empty, 1800);
+      await director.hold(voHold(EMPTY, 1980));
     } else {
-      await director.hold(1400);
+      await director.caption(EMPTY);
+      await director.hold(voHold(EMPTY));
     }
     await director.caption();
   }
@@ -156,9 +189,9 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
   await director.dismissDialogs();
 
   // 5) Payoff.
-  await director.caption(
-    'Nightly agents on a schedule. No one at the keyboard.',
-  );
-  await director.hold(2600);
+  const PAYOFF =
+    'Nightly agents, running on a schedule, with no one at the keyboard.';
+  await director.caption(PAYOFF);
+  await director.hold(voHold(PAYOFF));
   await director.caption();
 });

@@ -11,6 +11,12 @@ import type { Locator, Page } from '@playwright/test';
  * almost nothing, runs NO agents, and is tuned for camera: eased pointer
  * travel, lower-third captions, spotlights, and generous dwell.
  *
+ * Captions double as the VOICEOVER SCRIPT (`narrate.mjs --source beats`), so
+ * they are written as spoken prose and caption-only beats hold via `voHold`
+ * (~65ms/char) so narration finishes before the next beat. Element-targeted
+ * captions + spotlight/hover auto-emit `shots.json`, punching the camera onto
+ * each subject as the VO names it.
+ *
  * Strictly NON-DESTRUCTIVE: it toggles the panel, expands the tree, OPENS and
  * SCROLLS a file, and reveals (but does not type into) the terminal. It never
  * edits, saves, or runs a command — opening and scrolling only.
@@ -30,6 +36,16 @@ import type { Locator, Page } from '@playwright/test';
  */
 
 const PREFERRED_FILE = process.env['PTAH_SHOWCASE_EDITOR_FILE'] ?? '';
+
+/**
+ * Hold long enough for the narration of `text` to finish before the next beat
+ * starts (~65ms/char + settle), minus time already spent in interactions that
+ * run between this beat and the next. Captions double as the VO script
+ * (`narrate.mjs --source beats`), so this prevents audio overlap.
+ */
+function voHold(text: string, alreadySpentMs = 0): number {
+  return Math.max(600, Math.round(text.length * 65) + 500 - alreadySpentMs);
+}
 
 async function isVisible(loc: Locator): Promise<boolean> {
   return loc
@@ -128,8 +144,10 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
 }) => {
   await director.dismissDialogs();
 
-  await director.caption('A real editor, built right in.');
-  await director.hold(1600);
+  const OPENING =
+    'Ptah ships with a real editor, built right into the app — no window-hopping.';
+  await director.caption(OPENING);
+  await director.hold(voHold(OPENING));
   await director.caption();
 
   const panel = await openEditorPanel(page, director);
@@ -138,8 +156,10 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
 
   if (!(await isVisible(panel))) {
     // Nothing mounted — bail gracefully with a closing beat rather than throw.
-    await director.caption('Monaco, the file tree, and a terminal — together.');
-    await director.hold(2400);
+    const FALLBACK =
+      'Monaco, the file tree, and an integrated terminal — all together in one place.';
+    await director.caption(FALLBACK);
+    await director.hold(voHold(FALLBACK));
     await director.caption();
     return;
   }
@@ -150,30 +170,42 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
     .or(page.locator('ptah-file-tree'))
     .first();
   if (await isVisible(fileTree)) {
-    await director.caption('Your whole workspace, in a tree.');
+    const TREE =
+      'Your entire workspace lives right here, in a familiar file tree.';
+    await director.caption(TREE, fileTree);
     await director.hover(fileTree, 700);
     await director.spotlight(fileTree, 1800);
+    // hover(700) + spotlight(1800 + 180 settle) already spent ~2.7s of VO time.
+    await director.hold(voHold(TREE, 2680));
     await director.caption();
   }
 
-  // Open a real file into Monaco.
-  await director.caption('Open a file into Monaco…');
+  // Open a real file into Monaco. The openAFile expand/click loop covers the
+  // narration, so the caption plays fully during it (no explicit voHold needed).
+  await director.caption('Open any file, and it drops straight into Monaco.');
   const opened = await openAFile(page, director);
   await director.caption();
 
   if (opened) {
     const monacoHost = page.locator('[data-testid="editor-monaco"]').first();
-    await director.caption('Full Monaco — the editor that powers VS Code.');
-    await director.hold(1000);
+    const MONACO =
+      'This is the full Monaco editor — the very same engine that powers VS Code.';
+    await director.caption(MONACO, monacoHost);
+    // Hold covers the VO, minus the spotlight (1800 + 180 settle) that follows.
+    await director.hold(voHold(MONACO, 1980));
     await director.spotlight(monacoHost, 1800);
     await director.caption();
 
-    // Scroll through the code so the camera reveals real content.
+    // Scroll through the code so the camera reveals real content. The scroll
+    // (6 steps × 650ms × down-and-back) outlasts the narration, so the caption
+    // plays fully during it (no explicit voHold needed).
     const scroller = page
       .locator('[data-testid="editor-monaco"] .monaco-scrollable-element')
       .or(monacoHost)
       .first();
-    await director.caption('Scroll the source…');
+    await director.caption(
+      'Scroll through real source, with the syntax highlighting you already know.',
+    );
     await director.scrollThrough(scroller, {
       steps: 6,
       dwellMs: 650,
@@ -182,8 +214,8 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
     await director.caption();
   } else {
     // File-tree fetch raced or the workspace had no reachable leaf — show what
-    // is visible and continue.
-    await director.caption('Browse the workspace from the tree.');
+    // is visible and continue. The scroll covers the narration.
+    await director.caption('Browse your whole workspace, right from the tree.');
     await director.scrollThrough(fileTree, { steps: 4, dwellMs: 600 });
     await director.caption();
   }
@@ -193,7 +225,12 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
     .locator('[data-testid="editor-terminal-toggle"]')
     .first();
   if (await isVisible(terminalToggle)) {
-    await director.caption('And an integrated terminal.');
+    // The spotlight + click + reveal cover the narration, so the caption plays
+    // fully during them (no explicit voHold needed).
+    await director.caption(
+      'And when you need a command line, there is a full terminal built in.',
+      terminalToggle,
+    );
     await director.spotlight(terminalToggle, 1200);
     await director.click(terminalToggle);
     await director.hold(900);
@@ -213,14 +250,20 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
         await director.hold(1200);
       }
 
-      await director.caption('A real shell, right beside your code.');
+      const SHELL =
+        'A real shell, running right beside your code — no separate window required.';
+      await director.caption(SHELL, terminalPanel);
       await director.hover(terminalPanel, 600);
       await director.spotlight(terminalPanel, 2000);
+      // hover(600) + spotlight(2000 + 180 settle) already spent ~2.8s of VO time.
+      await director.hold(voHold(SHELL, 2780));
       await director.caption();
     }
   }
 
-  await director.caption('Edit, browse, and run — without leaving Ptah.');
-  await director.hold(2600);
+  const OUTRO =
+    'Edit, browse, and run — everything you need, without ever leaving Ptah.';
+  await director.caption(OUTRO);
+  await director.hold(voHold(OUTRO) + 600);
   await director.caption();
 });

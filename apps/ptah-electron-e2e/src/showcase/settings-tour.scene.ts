@@ -11,6 +11,12 @@ import type { Locator, Page } from '@playwright/test';
  * affordances (Notifications + the live theme switcher). This is a SCENE, not a
  * test — it asserts almost nothing and is tuned for how it looks on camera.
  *
+ * Captions double as the VOICEOVER SCRIPT (`narrate.mjs --source beats`), so
+ * they are written as spoken prose and caption-only beats hold via `voHold`
+ * (~65ms/char) so narration finishes before the next beat. Element-targeted
+ * captions + spotlight/hover auto-emit `shots.json`, punching the camera onto
+ * each control as the VO names it.
+ *
  * Everything here is NON-DESTRUCTIVE: we read, scroll, spotlight and hover, and
  * we demo the theme switcher live (a purely cosmetic preference we restore
  * afterwards). We never touch provider keys, never sign out, never import or
@@ -43,21 +49,34 @@ interface SettingsBeat {
 const TAB_BEATS: readonly SettingsBeat[] = [
   {
     tab: 'Providers',
-    caption: 'Bring your own provider — keys stay 100% local.',
+    caption:
+      'Bring your own provider — and your keys stay one hundred percent local, on your machine.',
   },
   {
     tab: 'Agent Orchestration',
-    caption: 'Wire up the CLI agents that do the heavy lifting.',
+    caption:
+      'Wire up the command-line agents that do the heavy lifting behind the scenes.',
   },
   {
     tab: 'Pro Features',
-    caption: 'Enhanced prompts, MCP servers, and language-model tools.',
+    caption: 'Unlock enhanced prompts, MCP servers, and language-model tools.',
   },
   {
     tab: 'Search & Voice',
-    caption: 'Pick a web-search provider and a voice for hands-free chat.',
+    caption:
+      'Pick a web-search provider and a voice for hands-free, spoken chat.',
   },
 ];
+
+/**
+ * Hold long enough for the narration of `text` to finish before the next beat
+ * starts (~65ms/char + settle), minus time already spent in interactions that
+ * run between this beat and the next. Captions double as the VO script
+ * (`narrate.mjs --source beats`), so this prevents audio overlap.
+ */
+function voHold(text: string, alreadySpentMs = 0): number {
+  return Math.max(600, Math.round(text.length * 65) + 500 - alreadySpentMs);
+}
 
 /**
  * Click the first visible candidate from a list, easing the cursor to it.
@@ -107,6 +126,8 @@ async function tourTab(
   await director.hold(500);
   await director.caption(beat.caption);
   // Reveal the full tab body — these panels can run taller than the viewport.
+  // The scroll (4 steps × 650ms × down-and-back) outlasts the narration, so the
+  // caption plays fully during it (no explicit voHold needed).
   await director.scrollThrough(page.locator('ptah-settings'), {
     steps: 4,
     dwellMs: 650,
@@ -128,7 +149,12 @@ async function demoThemeSwitch(page: Page, director: Director): Promise<void> {
   const trigger = page.getByRole('button', { name: 'Change theme' }).first();
   if (!(await trigger.isVisible().catch(() => false))) return;
 
-  await director.caption('Re-skin the whole app in one click.');
+  // The dropdown open + theme switch + hold below cover the narration, so the
+  // caption plays fully during them (no explicit voHold needed).
+  await director.caption(
+    'And you can re-skin the entire app, live, with a single click.',
+    trigger,
+  );
   await director.click(trigger);
   await director.hold(500);
 
@@ -192,8 +218,10 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
 
-  await director.caption('Make Ptah yours.');
-  await director.hold(1600);
+  const OPENING =
+    'Every workflow is different — so Ptah is built to be tuned to yours.';
+  await director.caption(OPENING);
+  await director.hold(voHold(OPENING));
   await director.caption();
 
   // Enter Settings; the trial modal can re-assert after navigation, so dismiss
@@ -203,10 +231,16 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
   await director.hold();
 
   // Open on the Authentication section — the heart of the Providers tab.
-  await director.caption('Connect any AI provider.');
+  const CONNECT =
+    'Start by connecting any AI provider you like — this is where it all begins.';
   const authSection = page.locator('[data-testid="settings-section-auth"]');
+  await director.caption(CONNECT, authSection);
   if (await authSection.isVisible().catch(() => false)) {
     await director.spotlight(authSection, 1800);
+    // spotlight(1800 + 180 settle) already spent ~2s of VO time.
+    await director.hold(voHold(CONNECT, 1980));
+  } else {
+    await director.hold(voHold(CONNECT));
   }
   await director.caption();
 
@@ -226,9 +260,13 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
     '[data-testid="settings-toggle-web-search-provider"]',
   );
   if (await providerSelect.isVisible().catch(() => false)) {
-    await director.caption('Swap web-search providers without a restart.');
+    const SWAP =
+      'Swap between web-search providers on the fly — no restart, no fuss.';
+    await director.caption(SWAP, providerSelect);
     await director.spotlight(providerSelect, 1600);
     await director.hover(providerSelect, 700);
+    // spotlight(1600 + 180 settle) + hover(700) already spent ~2.5s of VO time.
+    await director.hold(voHold(SWAP, 2480));
     await director.caption();
   }
 
@@ -247,11 +285,13 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
     .getByRole('button', { name: 'Export settings' })
     .first();
   if (await exportBtn.isVisible().catch(() => false)) {
-    await director.caption(
-      'Export your whole config — keys, prefs, providers.',
-    );
+    const EXPORT =
+      'And when you are set up, export your entire configuration — keys, preferences, and providers alike.';
+    await director.caption(EXPORT, exportBtn);
     await director.spotlight(exportBtn, 1500);
     await director.hover(exportBtn, 600);
+    // spotlight(1500 + 180 settle) + hover(600) already spent ~2.3s of VO time.
+    await director.hold(voHold(EXPORT, 2280));
     await director.caption();
   }
 
@@ -259,15 +299,21 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
   // switcher (restored afterwards — see demoThemeSwitch).
   const bell = page.getByRole('button', { name: 'Notifications' }).first();
   if (await bell.isVisible().catch(() => false)) {
-    await director.caption('Stay in the loop without leaving the app.');
+    const BELL =
+      'Notifications keep you in the loop, without ever pulling you out of your work.';
+    await director.caption(BELL, bell);
     await director.spotlight(bell, 1300);
     await director.hover(bell, 600);
+    // spotlight(1300 + 180 settle) + hover(600) already spent ~2.1s of VO time.
+    await director.hold(voHold(BELL, 2080));
     await director.caption();
   }
 
   await demoThemeSwitch(page, director);
 
-  await director.caption('Configured once. Yours forever.');
-  await director.hold(2600);
+  const OUTRO =
+    'Configure it once, and it is yours — exactly the way you like it.';
+  await director.caption(OUTRO);
+  await director.hold(voHold(OUTRO) + 600);
   await director.caption();
 });

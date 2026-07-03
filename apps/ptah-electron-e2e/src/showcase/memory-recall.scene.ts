@@ -12,6 +12,11 @@ import type { Locator, Page } from '@playwright/test';
  * actually read what's stored. This is a SCENE, not a test — it asserts almost
  * nothing and is tuned for how it looks on camera. See `docs/video-content-plan.md` P3.1.
  *
+ * Captions double as the VOICEOVER SCRIPT (`narrate.mjs --source beats`), so
+ * they are spoken prose and caption-only beats hold via `voHold` (~65ms/char)
+ * so narration finishes before the next beat. Element-targeted captions +
+ * spotlight/hover auto-emit `shots.json`, punching the camera onto each subject.
+ *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
  *   authenticated and a real workspace is restored.
@@ -33,6 +38,16 @@ import type { Locator, Page } from '@playwright/test';
  */
 const MEMORY_QUERY: string =
   process.env['PTAH_SHOWCASE_MEMORY_QUERY'] ?? 'architecture';
+
+/**
+ * Hold long enough for the narration of `text` to finish before the next beat
+ * starts (~65ms/char + settle), minus time already spent in interactions that
+ * run between this beat and the next. Captions double as the VO script
+ * (`narrate.mjs --source beats`), so this prevents audio overlap.
+ */
+function voHold(text: string, alreadySpentMs = 0): number {
+  return Math.max(600, Math.round(text.length * 65) + 500 - alreadySpentMs);
+}
 
 /** Live, verified selectors from `libs/frontend/memory-curator-ui`. */
 const SEL = {
@@ -99,8 +114,11 @@ async function spotlightStat(
 ): Promise<void> {
   const tile = page.locator(selector).first();
   if (!(await tile.isVisible().catch(() => false))) return;
-  await director.caption(caption);
+  // Targeted caption punches the camera onto the tile as the VO names the tier.
+  await director.caption(caption, tile);
   await director.spotlight(tile, 2000);
+  // spotlight(2000 + 180 settle) already spent ~2.2s of this beat's narration.
+  await director.hold(voHold(caption, 2180));
   await director.caption();
 }
 
@@ -112,8 +130,9 @@ test('P3.1 — Ptah remembers (persistent memory)', async ({
   await director.dismissDialogs();
 
   // Hook beat.
-  await director.caption('Teach it once. It remembers.');
-  await director.hold(1800);
+  const OPENING = 'Teach it something once, and it simply remembers.';
+  await director.caption(OPENING);
+  await director.hold(voHold(OPENING));
   await director.caption();
 
   // Into the persistent brain.
@@ -121,10 +140,10 @@ test('P3.1 — Ptah remembers (persistent memory)', async ({
   await director.hold();
 
   // Orient on the live, populated memory list + tier stats.
-  await director.caption(
-    'A persistent local brain — facts and decisions, saved across every session.',
-  );
-  await director.hold(2200);
+  const BRAIN =
+    'This is a persistent local brain — the facts and decisions Ptah has saved, carried across every single session.';
+  await director.caption(BRAIN);
+  await director.hold(voHold(BRAIN));
   await director.caption();
 
   // Tour the tier-count stat strip — three glowing spotlights, one per tier,
@@ -133,26 +152,31 @@ test('P3.1 — Ptah remembers (persistent memory)', async ({
     page,
     director,
     SEL.statCore,
-    'Core — the always-on facts it never forgets.',
+    'Core holds the always-on facts it never forgets.',
   );
   await spotlightStat(
     page,
     director,
     SEL.statRecall,
-    'Recall — recent, working memory it can pull back fast.',
+    'Recall is its recent, working memory — the things it can pull back in an instant.',
   );
   await spotlightStat(
     page,
     director,
     SEL.statArchival,
-    'Archival — the deep, long-term store, searchable on demand.',
+    'And Archival is the deep, long-term store, searchable the moment you need it.',
   );
 
   // Slowly pan the populated entry list so the camera reveals everything
   // Thoth has curated, then settle back at the top.
   const seedEntry = await firstVisibleEntry(page);
   if (seedEntry) {
-    await director.caption('Everything Thoth has learned, in one place.');
+    // The scrollThrough (7 steps × 750ms × down-and-back) far outlasts the
+    // narration, so the caption plays fully during it — no voHold needed.
+    await director.caption(
+      'Everything Thoth has learned, gathered here in one place.',
+      seedEntry,
+    );
     await director.scrollThrough(seedEntry, {
       steps: 7,
       dwellMs: 750,
@@ -161,35 +185,42 @@ test('P3.1 — Ptah remembers (persistent memory)', async ({
     await director.caption();
 
     // Hover the first row to surface its inline affordances (pin, tier badge).
-    await director.caption(
-      'Hover any memory — pin it, see its tier, why it stuck.',
-    );
+    const HOVER =
+      'Hover over any memory to pin it, see its tier, and understand why it stuck.';
+    await director.caption(HOVER, seedEntry);
     await director.hover(seedEntry, 2200);
+    // hover(2200 + 180 settle) already covered ~2.4s of the narration.
+    await director.hold(voHold(HOVER, 2380));
     await director.caption();
   }
 
-  // The payoff move: hybrid search against the local index.
-  await director.caption('Ask it what it knows…');
+  // The payoff move: hybrid search against the local index. The type loop and
+  // debounce wait that follow cover this caption's narration, so a short hold
+  // is enough here — the interaction itself plays it out.
   const searchBox = page.locator(SEL.searchInput).first();
   await searchBox.waitFor({ state: 'visible' });
+  await director.caption('So go ahead — ask it what it knows.', searchBox);
   await director.type(searchBox, MEMORY_QUERY);
   await director.hold(700);
   await director.caption();
 
   // Hold on the filtered, debounced results (search debounces at ~300ms).
   await director.hold(900);
-  await director.caption(
-    'Hybrid search — BM25 + vector — over its own memory.',
-  );
-  await director.hold(2400);
+  const HYBRID =
+    'This is hybrid search — BM25 and vector together — running over its very own memory.';
+  await director.caption(HYBRID);
+  await director.hold(voHold(HYBRID));
   await director.caption();
 
   // Browse the matched results: scroll the filtered list, then dwell on the
   // top hit so the stored subject + content read on camera.
   const hit = await firstVisibleEntry(page);
   if (hit) {
+    // The scrollThrough plus the moveTo + long hold that follow outlast the
+    // narration, so the caption plays fully across them — no voHold needed.
     await director.caption(
-      'Open any memory — the fact, its tier, why it stuck.',
+      'Open any result and you get the fact itself, its tier, and exactly why it stuck.',
+      hit,
     );
     await director.scrollThrough(hit, {
       steps: 4,
@@ -202,15 +233,16 @@ test('P3.1 — Ptah remembers (persistent memory)', async ({
   } else {
     // Real-profile guard: if the query matched nothing, narrate the empty state
     // rather than reaching for a row that isn't there.
-    await director.caption(
-      'Nothing stored for that yet — it learns as you work.',
-    );
-    await director.hold(2000);
+    const EMPTY =
+      'Nothing stored for that just yet — but it learns more as you work.';
+    await director.caption(EMPTY);
+    await director.hold(voHold(EMPTY));
     await director.caption();
   }
 
   // Payoff beat.
-  await director.caption('One brain, remembered across every session.');
-  await director.hold(2800);
+  const OUTRO = 'One brain, remembered across every session you ever run.';
+  await director.caption(OUTRO);
+  await director.hold(voHold(OUTRO) + 600);
   await director.caption();
 });

@@ -16,6 +16,12 @@ import type { Locator, Page } from '@playwright/test';
  * almost nothing and is tuned for how it reads on camera. Two real agent turns
  * run against the live authenticated workspace, so the footage is genuine.
  *
+ * Captions double as the VOICEOVER SCRIPT (`narrate.mjs --source beats`), so
+ * they are written as spoken prose; caption-only beats hold via `voHold`
+ * (~65ms/char) so narration finishes before the next beat, while beats covered
+ * by an agent turn keep a short hold. Element-targeted captions +
+ * spotlight/hover auto-emit `shots.json`, punching the camera onto each subject.
+ *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
  *   authenticated and a real workspace is restored.
@@ -47,6 +53,16 @@ const EDIT_PROMPT =
   process.env['PTAH_SHOWCASE_EDIT_PROMPT'] ??
   'Add a concise JSDoc comment to that function explaining what it guards ' +
     'against — documentation only, no behavior change — then show me the diff.';
+
+/**
+ * Hold long enough for the narration of `text` to finish before the next beat
+ * starts (~65ms/char + settle), minus time already spent in interactions that
+ * run between this beat and the next. Captions double as the VO script
+ * (`narrate.mjs --source beats`), so this prevents audio overlap.
+ */
+function voHold(text: string, alreadySpentMs = 0): number {
+  return Math.max(600, Math.round(text.length * 65) + 500 - alreadySpentMs);
+}
 
 /** Resilient send of a prompt into the global chat input + click send. */
 async function sendChatPrompt(
@@ -86,7 +102,11 @@ async function exploreTransparency(
   // tool calls, and the rendered diff.
   const transcript = page.locator('[data-testid="chat-tool-output"]').first();
   if (await visible(transcript)) {
-    await director.caption('Scroll back through the whole turn.');
+    // scrollThrough (6 steps × 700ms, down and back) outlasts the VO.
+    await director.caption(
+      'Scroll back through the whole turn — every step is right here.',
+      transcript,
+    );
     await director.scrollThrough(transcript, {
       steps: 6,
       dwellMs: 700,
@@ -102,8 +122,11 @@ async function exploreTransparency(
     .last();
   const stats = assistantBubble.locator('ptah-session-stats-summary').first();
   if (await visible(stats)) {
-    await director.caption('Tokens, cost, and time — on every single turn.');
+    const TURN_STATS =
+      'Tokens, cost, and time — measured on every single turn.';
+    await director.caption(TURN_STATS, stats);
     await director.spotlight(stats, 2000);
+    await director.hold(voHold(TURN_STATS, 2180));
     await director.caption();
   }
 
@@ -113,10 +136,11 @@ async function exploreTransparency(
     .locator('[aria-label="Branch conversation from this message"]')
     .first();
   if (await visible(branch)) {
-    await director.caption(
-      'Branch from any message to explore an alternative.',
-    );
+    const BRANCH =
+      'Branch from any message to explore a different path without losing the thread.';
+    await director.caption(BRANCH, branch);
     await director.hover(branch, 1100);
+    await director.hold(voHold(BRANCH, 1100));
     await director.caption();
   }
 
@@ -136,7 +160,11 @@ async function showAgentsPanel(page: Page, director: Director): Promise<void> {
   const toggle = page.locator('[aria-label="Toggle Agents panel"]').first();
   if (!(await visible(toggle))) return;
 
-  await director.caption('Every sub-agent it spawned is right here.');
+  // Caption plays while the panel opens, dwells, and spotlights — the
+  // click + hold(1400) + spotlight(1600) loop outlasts the VO.
+  await director.caption(
+    'And every sub-agent it spawned to get the job done is right here.',
+  );
   await director.click(toggle);
   await director.hold(1400);
 
@@ -193,8 +221,9 @@ test('P6.1 — fix / edit code in a single chat', async ({ page, director }) => 
   // start filming — the persistent authed profile always shows it on launch.
   await director.dismissDialogs();
 
-  await director.caption('Stop copy-pasting code into a chatbot.');
-  await director.hold(1600);
+  const OPENING = 'Stop copy-pasting code back and forth into a chatbot.';
+  await director.caption(OPENING);
+  await director.hold(voHold(OPENING));
   await director.caption();
 
   // Land on the global Chat surface, then clear any modal that the navigation
@@ -203,17 +232,25 @@ test('P6.1 — fix / edit code in a single chat', async ({ page, director }) => 
   await director.dismissDialogs();
   await director.hold();
 
-  // Turn 1 — ask about the real codebase and prove workspace awareness.
-  await director.caption('Ask about your own codebase…');
+  // Turn 1 — ask about the real codebase and prove workspace awareness. The
+  // send + agent turn that follows outlasts this short lead-in caption.
+  await director.caption('Just ask a question about your own codebase.');
   await director.hold(900);
   await director.caption();
 
+  // agent turn outlasts the VO
+  await director.caption(
+    'It reads your actual repository and answers with real file and line references.',
+  );
   await sendChatPrompt(page, director, ASK_PROMPT);
   await director.waitForAgentTurn();
+  await director.caption();
 
   // Hold on the grounded answer so the file:line citations are readable.
-  await director.caption('Real answers — with file:line references.');
-  await director.hold(3200);
+  const GROUNDED =
+    'These are real answers, grounded in your code — not generic guesses.';
+  await director.caption(GROUNDED);
+  await director.hold(voHold(GROUNDED));
   await director.caption();
 
   // Pan back through the grounded answer so the citations + reasoning read on
@@ -227,17 +264,25 @@ test('P6.1 — fix / edit code in a single chat', async ({ page, director }) => 
     });
   }
 
-  // Turn 2 — a small, safe edit. Documentation only, no behavior change.
-  await director.caption('Now ask it to make the change…');
+  // Turn 2 — a small, safe edit. Documentation only, no behavior change. The
+  // send + agent turn that follows outlasts this short lead-in caption.
+  await director.caption('Now just ask it to make the change.');
   await director.hold(900);
   await director.caption();
 
+  // agent turn outlasts the VO
+  await director.caption(
+    'It edits the file directly and renders the diff inline — no copy-paste, no tab-switching.',
+  );
   await sendChatPrompt(page, director, EDIT_PROMPT);
   await director.waitForAgentTurn();
+  await director.caption();
 
   // Hold on the rendered diff — the inline edit is the payoff frame.
-  await director.caption('It edits the file and shows you the diff.');
-  await director.hold(3600);
+  const DIFF =
+    'There it is — the exact change, applied to your file and shown right in the chat.';
+  await director.caption(DIFF);
+  await director.hold(voHold(DIFF));
   await director.caption();
 
   // ── Transparency coda ─────────────────────────────────────────────────────
@@ -245,8 +290,10 @@ test('P6.1 — fix / edit code in a single chat', async ({ page, director }) => 
   // cost, tokens, tools, the agents it ran, all visible. Everything below is
   // read-only; we never undo the edit or touch a running agent.
 
-  await director.caption('Every turn is transparent — nothing is hidden.');
-  await director.hold(1400);
+  const TRANSPARENT =
+    'And every turn is completely transparent — nothing is hidden from you.';
+  await director.caption(TRANSPARENT);
+  await director.hold(voHold(TRANSPARENT));
   await director.caption();
 
   // Pan the history, spotlight per-message stats, hover Branch + Copy.
@@ -259,12 +306,17 @@ test('P6.1 — fix / edit code in a single chat', async ({ page, director }) => 
   // answered. Targeted via the trigger button inside the model selector.
   const modelBtn = page.locator('ptah-model-selector button[trigger]').first();
   if (await visible(modelBtn)) {
-    await director.caption('And you always know which model is answering.');
+    const MODEL =
+      'And you always know — and control — exactly which model is answering.';
+    await director.caption(MODEL, modelBtn);
     await director.spotlight(modelBtn, 1800);
+    await director.hold(voHold(MODEL, 1980));
     await director.caption();
   }
 
-  await director.caption('No copy-paste. It sees your code, edits your files.');
-  await director.hold(2600);
+  const OUTRO =
+    'No copy-paste. It sees your code, edits your files, and shows its work.';
+  await director.caption(OUTRO);
+  await director.hold(voHold(OUTRO));
   await director.caption();
 });

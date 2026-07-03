@@ -11,6 +11,11 @@ import type { Locator, Page } from '@playwright/test';
  * Analysis → Selection → Enhance → Generation → Completion). See
  * `docs/video-content-plan.md` P7.1.
  *
+ * Captions double as the VOICEOVER SCRIPT (`narrate.mjs --source beats`), so
+ * they are spoken prose and caption-only beats hold via `voHold` (~65ms/char)
+ * so narration finishes before the next beat. Element-targeted captions +
+ * spotlight/hover auto-emit `shots.json`, punching the camera onto each subject.
+ *
  * STRICTLY NON-DESTRUCTIVE: clicking "Start New Analysis" launches a real,
  * paid 4-phase AI codebase scan and would commit wizard state against the
  * authenticated workspace. So this tour DELIBERATELY STOPS on the welcome step.
@@ -29,6 +34,16 @@ import type { Locator, Page } from '@playwright/test';
  * `[data-testid="wizard-step"]` carries a `data-step` attribute; the welcome
  * CTA is `[data-testid="wizard-next-btn"]` (DO NOT click — it starts a scan).
  */
+
+/**
+ * Hold long enough for the narration of `text` to finish before the next beat
+ * starts (~65ms/char + settle), minus time already spent in interactions that
+ * run between this beat and the next. Captions double as the VO script
+ * (`narrate.mjs --source beats`), so this prevents audio overlap.
+ */
+function voHold(text: string, alreadySpentMs = 0): number {
+  return Math.max(600, Math.round(text.length * 65) + 500 - alreadySpentMs);
+}
 
 /** Pick the first visible locator from a list, or null if none are on screen. */
 async function firstVisible(candidates: Locator[]): Promise<Locator | null> {
@@ -63,8 +78,10 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
   // Clear any blocking startup modal (license / trial dialog) before filming.
   await director.dismissDialogs();
 
-  await director.caption('Make Ptah yours — agents tuned to your codebase.');
-  await director.hold(1800);
+  const OPENING =
+    'Let us make Ptah truly yours, with agents tuned to your own codebase.';
+  await director.caption(OPENING);
+  await director.hold(voHold(OPENING));
   await director.caption();
 
   await goToSetup(page, director);
@@ -74,7 +91,10 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
   // --- Premium-gate fallback ---------------------------------------------
   const upsell = page.locator('ptah-premium-upsell').first();
   if (await upsell.isVisible().catch(() => false)) {
-    await director.caption('Deep analysis & tailored agents — a Pro feature.');
+    // spotlight + scrollThrough that follow outlast the narration, so the
+    // caption plays fully across them — no explicit voHold needed here.
+    const UPSELL = 'Deep analysis and tailored agents are part of Ptah Pro.';
+    await director.caption(UPSELL, upsell);
     await director.spotlight(upsell, 1700);
     await director.scrollThrough(upsell, { steps: 3, dwellMs: 700 });
     await director.caption();
@@ -88,56 +108,81 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
     .catch(() => undefined);
 
   // --- The 7-step progress rail ------------------------------------------
-  await director.caption('Seven steps. Scan, analyze, generate, done.');
+  const SEVEN_STEPS =
+    'It is just seven guided steps — scan, analyze, generate, and you are done.';
   const progressRail = await firstVisible([
     page.locator('.wizard-progress'),
     page.locator('ul.steps').first(),
   ]);
   if (progressRail) {
+    await director.caption(SEVEN_STEPS, progressRail);
     await director.spotlight(progressRail, 1800);
+    // spotlight(1800 + 180 settle) already spent ~2s of this beat's narration.
+    await director.hold(voHold(SEVEN_STEPS, 1980));
+  } else {
+    await director.caption(SEVEN_STEPS);
+    await director.hold(voHold(SEVEN_STEPS));
   }
   await director.caption();
 
   // --- Welcome hero ------------------------------------------------------
-  await director.caption('It starts with a four-phase AI scan.');
+  // The scrollThrough that follows outlasts the narration, so the caption plays
+  // fully during it — no explicit voHold needed here.
+  const FOUR_PHASE = 'It all begins with a four-phase AI scan of your project.';
   const welcome = page.locator('ptah-welcome').first();
   if (await welcome.isVisible().catch(() => false)) {
+    await director.caption(FOUR_PHASE, welcome);
     await director.scrollThrough(welcome, {
       steps: 4,
       dwellMs: 650,
       andBack: true,
     });
+  } else {
+    await director.caption(FOUR_PHASE);
   }
   await director.caption();
 
-  // Spotlight the four value-prop feature cards by their headings.
+  // Spotlight the four value-prop feature cards by their headings. Each caption
+  // is targeted at its card so the camera punches onto it as the VO names it.
   const featureHeadings = [
     {
       name: 'Deep Analysis',
-      line: 'Deep analysis of your real project structure.',
+      line: 'First, a deep analysis of your real, actual project structure.',
     },
     {
       name: 'Smart Agents',
-      line: 'Thirteen agent templates, matched to your stack.',
+      line: 'Then thirteen agent templates, each matched to your exact stack.',
     },
-    { name: 'Quick Setup', line: 'Set up in under five minutes.' },
-    { name: 'Project-Specific', line: 'Every rule, specific to your code.' },
+    {
+      name: 'Quick Setup',
+      line: 'The whole thing sets up in under five minutes.',
+    },
+    {
+      name: 'Project-Specific',
+      line: 'And every single rule is specific to your code.',
+    },
   ];
   for (const { name, line } of featureHeadings) {
     const card = page.getByRole('heading', { name }).first();
     if (await card.isVisible().catch(() => false)) {
-      await director.caption(line);
+      await director.caption(line, card);
       await director.hover(card, 800);
+      // hover(800 + 180 settle) covers ~1s; hold the rest so this card's
+      // narration finishes before the next card's caption starts.
+      await director.hold(voHold(line, 980));
+      await director.caption();
     }
   }
-  await director.caption();
 
   // Analysis-model picker — hover only; switching the model is harmless but we
   // keep the tour read-only to avoid touching the authed config.
   const modelSelect = page.locator('#wizard-model-select').first();
   if (await modelSelect.isVisible().catch(() => false)) {
-    await director.caption('Choose the model that runs your analysis.');
+    const PICK_MODEL = 'You even choose which model runs your analysis.';
+    await director.caption(PICK_MODEL, modelSelect);
     await director.spotlight(modelSelect, 1500);
+    // spotlight(1500 + 180 settle) already covered ~1.7s of the narration.
+    await director.hold(voHold(PICK_MODEL, 1680));
     await director.caption();
   }
 
@@ -146,9 +191,13 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
   // workspace, which this non-destructive tour must never trigger.
   const startCta = page.locator('[data-testid="wizard-next-btn"]').first();
   if (await startCta.isVisible().catch(() => false)) {
-    await director.caption('One click kicks off the whole pipeline.');
+    const ONE_CLICK =
+      'And a single click is all it takes to kick off the whole pipeline.';
+    await director.caption(ONE_CLICK, startCta);
     await director.spotlight(startCta, 1700);
     await director.hover(startCta, 900);
+    // spotlight(1700) + hover(900) + settle already spent ~2.9s of the VO.
+    await director.hold(voHold(ONE_CLICK, 2860));
     await director.caption();
   }
 
@@ -158,7 +207,11 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
   const stepItems = page.locator('ul.steps > li.step');
   const stepCount = await stepItems.count();
   if (stepCount > 1) {
-    await director.caption('Follow the rail: scan, analyze, select, generate.');
+    // The hover loop across the step rail outlasts the narration, so the caption
+    // plays fully during it — no explicit voHold needed here.
+    await director.caption(
+      'Just follow the rail from there: scan, analyze, select, and generate.',
+    );
     for (let i = 1; i < Math.min(stepCount, 4); i++) {
       await director.hover(stepItems.nth(i), 650);
     }
@@ -166,7 +219,9 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
   }
 
   // STOP on welcome — never advance, never commit the authed config.
-  await director.caption('Personalized agents, born from your own codebase.');
-  await director.hold(2600);
+  const OUTRO =
+    'The result is a set of personalized agents, born from your very own codebase.';
+  await director.caption(OUTRO);
+  await director.hold(voHold(OUTRO) + 600);
   await director.caption();
 });
