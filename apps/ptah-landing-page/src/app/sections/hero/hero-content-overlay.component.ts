@@ -3,125 +3,111 @@ import { RouterLink } from '@angular/router';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
-  ScrollAnimationDirective,
-  ScrollAnimationConfig,
 } from '@hive-academy/angular-gsap';
+import { LucideAngularModule, CirclePlay, Download } from 'lucide-angular';
 
 /**
- * HeroContentOverlayComponent - Hero text content with cinematic scroll animations
+ * HeroContentOverlayComponent — the centered hero text block (design spec §4 S1).
  *
- * Animation Strategy:
- * 1. ENTRANCE (viewport): Staggered reveal - badge → headline → subheadline → CTAs → stats
- * 2. EXIT (scroll): Cinematic fade-out + rise as user scrolls down
- *
- * The scroll exit creates a dramatic "leaving the temple" effect
+ * Operator Console rebuild: eyebrow pill → H1 wedge → subhead → two CTAs
+ * (primary Download, secondary "Watch it work") → mono stat row. Entrance is
+ * staggered via `ViewportAnimationDirective` (final DOM state is fully opaque
+ * and positioned — the directive applies the `from` state via JS post-hydration,
+ * never as a static class), so the copy lands intact in the prerendered HTML.
  */
 @Component({
   selector: 'ptah-hero-content-overlay',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ViewportAnimationDirective, ScrollAnimationDirective, RouterLink],
+  imports: [ViewportAnimationDirective, RouterLink, LucideAngularModule],
   template: `
-    <!-- Scroll-linked fade-out container for cinematic exit -->
-    <div
-      scrollAnimation
-      [scrollConfig]="contentScrollExitConfig"
-      class="flex flex-col items-center justify-center min-h-screen py-20 px-6 text-center max-w-4xl mx-auto"
-    >
-      <!-- Badge -->
+    <div class="max-w-3xl mx-auto text-center pt-40 pb-16 px-6">
+      <!-- Eyebrow pill -->
       <div
         viewportAnimation
         [viewportConfig]="badgeConfig"
-        class="inline-flex items-center gap-2 px-4 py-2 mb-10 bg-amber-500/10 border border-amber-500/20 rounded-full"
+        class="inline-flex items-center gap-2 px-4 py-2 mb-8 rounded-full bg-amber-500/10 border border-amber-500/20"
       >
-        <span class="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span>
-        <span class="text-sm font-medium text-amber-300/90 tracking-wide"
-          >VS Code · Electron · CLI — One Platform, Every AI</span
+        <span
+          class="w-1.5 h-1.5 rounded-full bg-amber-500 motion-safe:animate-pulse"
+          aria-hidden="true"
+        ></span>
+        <span
+          class="font-mono text-xs sm:text-sm uppercase tracking-[0.2em] text-amber-500/90"
+          >PERSISTENT · MULTI-AGENT · ALWAYS ON</span
         >
       </div>
 
-      <!-- Main Headline: Ptah -->
+      <!-- Main Headline (the wedge) -->
       <h1
         viewportAnimation
         [viewportConfig]="headlineConfig"
-        class="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-bold mb-8 leading-none tracking-tight bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 bg-clip-text text-transparent"
+        class="text-5xl sm:text-6xl lg:text-7xl xl:text-8xl font-extrabold tracking-tight leading-[0.95] text-white"
       >
-        Ptah
+        Your AI Employee, Not Your Autocomplete.
       </h1>
 
       <!-- Subheadline -->
       <p
         viewportAnimation
         [viewportConfig]="subheadlineConfig"
-        class="text-base md:text-lg lg:text-xl text-white/70 mb-12 max-w-2xl leading-relaxed font-light"
+        class="text-lg sm:text-xl text-ink-300 max-w-2xl mx-auto leading-relaxed mt-6"
       >
-        The AI coding orchestra that runs inside VS Code, as a standalone
-        desktop app, or headless in CI. Connect Claude, GitHub Copilot, OpenAI
-        Codex, or any local Ollama model — Ptah orchestrates them all.
+        Ptah is a desktop AI coding agent that remembers your codebase, runs up
+        to nine agents in parallel, works on a schedule while you're away, and
+        takes instructions from Telegram, Discord, or Slack. Bring your own
+        model — Claude, GitHub Copilot, OpenAI Codex, OpenRouter, local Ollama,
+        Kimi K2, or GLM.
       </p>
 
-      <!-- CTA Buttons -->
+      <!-- CTA row -->
       <div
         viewportAnimation
         [viewportConfig]="ctaConfig"
-        class="flex flex-col sm:flex-row gap-5 sm:gap-6 mb-12 sm:mb-16 w-full sm:w-auto px-2 sm:px-0"
+        class="flex flex-col sm:flex-row gap-4 justify-center items-center mt-10"
       >
-        <!-- VS Code Extension -->
-        <div class="relative">
-          <span
-            class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-slate-900 border border-amber-400/50 text-[10px] font-bold text-amber-300 tracking-wide z-20 whitespace-nowrap"
-          >
-            100 DAYS TRIAL
-          </span>
-          <a
-            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
-            target="_blank"
-            rel="noopener"
-            class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"
-          >
-            <span class="relative z-[1]">Install VS Code Extension</span>
-          </a>
-        </div>
-
-        <!-- Desktop App -->
-        <div class="relative">
-          <span
-            class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-slate-900 border border-amber-400/50 text-[10px] font-bold text-amber-300 tracking-wide z-20 whitespace-nowrap"
-          >
-            100 DAYS TRIAL
-          </span>
+        <!-- Primary: Download -->
+        <div class="flex flex-col items-center w-full sm:w-auto">
           <a
             routerLink="/download"
-            class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"
+            class="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-amber-500 text-ink-950 font-semibold text-sm sm:text-base transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber active:bg-amber-600 active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+            aria-label="Download the Ptah desktop app"
           >
-            <span class="relative z-[1]">Download Desktop App</span>
+            <lucide-angular
+              [img]="DownloadIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Download Ptah
           </a>
+          <span class="text-xs text-ink-500 mt-2 text-center"
+            >100 days free. No credit card.</span
+          >
         </div>
+
+        <!-- Secondary ghost: Watch it work -->
+        <a
+          href="#demo"
+          class="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-6 py-3.5 rounded-lg border border-ink-600 text-ink-100 font-medium text-sm sm:text-base transition-colors duration-200 hover:border-amber-500/40 hover:text-white hover:bg-ink-850 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+          aria-label="Watch Ptah in action"
+        >
+          <lucide-angular [img]="PlayIcon" class="w-4 h-4" aria-hidden="true" />
+          Watch it work
+        </a>
       </div>
 
-      <!-- Tertiary CLI ghost link -->
-      <a
-        viewportAnimation
-        [viewportConfig]="ctaConfig"
-        href="https://docs.ptah.live/providers/ptah-cli/"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="text-[#f4d47c]/70 hover:text-[#f4d47c] text-sm font-medium transition-colors mt-4 mb-8 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
-      >
-        Try the CLI →
-      </a>
-
-      <!-- Social Proof Stats -->
+      <!-- Stat row -->
       <div
         viewportAnimation
         [viewportConfig]="socialProofConfig"
-        class="grid grid-cols-2 gap-x-6 gap-y-4 sm:gap-6 md:flex md:flex-wrap md:justify-center md:gap-10 w-full max-w-sm sm:max-w-none mx-auto"
+        class="grid grid-cols-2 sm:flex sm:justify-center gap-x-8 gap-y-4 mt-14"
       >
-        @for (stat of stats; track stat.value) {
-          <div class="flex items-baseline justify-center gap-1.5 sm:gap-2">
-            <span class="text-xl sm:text-2xl font-semibold text-white/90">{{
-              stat.value
-            }}</span>
-            <span class="text-xs sm:text-sm text-white/50">{{
+        @for (stat of stats; track stat.label) {
+          <div class="flex flex-col items-center text-center">
+            <span
+              class="font-mono text-3xl sm:text-4xl font-bold text-white leading-none"
+              >{{ stat.value }}</span
+            >
+            <span class="text-xs sm:text-sm text-ink-400 mt-1.5">{{
               stat.label
             }}</span>
           </div>
@@ -134,112 +120,28 @@ import {
       :host {
         display: block;
       }
-
-      .cta-glow-button {
-        background: linear-gradient(
-          135deg,
-          rgba(212, 175, 55, 0.15) 0%,
-          rgba(212, 175, 55, 0.05) 50%,
-          rgba(212, 175, 55, 0.15) 100%
-        );
-        border: 1px solid rgba(212, 175, 55, 0.3);
-        box-shadow:
-          0 0 15px rgba(212, 175, 55, 0.15),
-          0 0 30px rgba(212, 175, 55, 0.05),
-          inset 0 1px 0 rgba(244, 212, 124, 0.1);
-        transition: all 0.3s ease;
-      }
-
-      .cta-glow-button:hover {
-        transform: translateY(-2px);
-        border-color: rgba(212, 175, 55, 0.5);
-        box-shadow:
-          0 0 20px rgba(212, 175, 55, 0.3),
-          0 0 50px rgba(212, 175, 55, 0.1),
-          inset 0 1px 0 rgba(244, 212, 124, 0.2);
-      }
-
-      /* Rotating beam element — sits behind the border */
-      .cta-glow-button::before {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 200%;
-        height: 200%;
-        background: conic-gradient(
-          from 0deg,
-          transparent 0%,
-          transparent 65%,
-          rgba(244, 212, 124, 0.7) 75%,
-          rgba(212, 175, 55, 1) 80%,
-          rgba(244, 212, 124, 0.7) 85%,
-          transparent 95%,
-          transparent 100%
-        );
-        animation: beam-spin 4s linear infinite;
-        z-index: 0;
-      }
-
-      /* Mask that reveals beam only on the border edge */
-      .cta-glow-button::after {
-        content: '';
-        position: absolute;
-        inset: 1px;
-        border-radius: 10px;
-        background: linear-gradient(
-          135deg,
-          rgba(15, 23, 42, 0.95) 0%,
-          rgba(15, 23, 42, 0.98) 50%,
-          rgba(15, 23, 42, 0.95) 100%
-        );
-        z-index: 0;
-      }
-
-      @keyframes beam-spin {
-        from {
-          transform: translate(-50%, -50%) rotate(0deg);
-        }
-        to {
-          transform: translate(-50%, -50%) rotate(360deg);
-        }
-      }
     `,
   ],
 })
 export class HeroContentOverlayComponent {
+  public readonly DownloadIcon = Download;
+  public readonly PlayIcon = CirclePlay;
+
   public readonly stats = [
-    { value: '9', label: 'concurrent tiles' },
-    { value: '200+', label: 'LLM models' },
-    { value: '4', label: 'providers' },
+    { value: '9', label: 'concurrent agent tiles' },
+    { value: '7', label: 'model providers, zero lock-in' },
     { value: '100-day', label: 'free trial' },
+    { value: '3', label: 'platforms: Windows, macOS, Linux' },
   ];
 
-  /**
-   * Cinematic scroll exit - content fades out and rises as user scrolls
-   * Creates "ascending from the temple" effect
-   */
-  public readonly contentScrollExitConfig: ScrollAnimationConfig = {
-    animation: 'custom',
-    start: 'top top',
-    end: 'bottom 50%',
-    scrub: 1.2,
-    from: { opacity: 1, y: 0 },
-    to: { opacity: 0, y: -120 },
-  };
-
-  /**
-   * Badge entrance - quick scale in
-   */
+  /** Eyebrow pill entrance — quick scale in. */
   public readonly badgeConfig: ViewportAnimationConfig = {
     animation: 'scaleIn',
     duration: 0.5,
     threshold: 0.1,
   };
 
-  /**
-   * Headline entrance - dramatic slide up
-   */
+  /** Headline entrance — slide up. */
   public readonly headlineConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.8,
@@ -248,9 +150,7 @@ export class HeroContentOverlayComponent {
     ease: 'power2.out',
   };
 
-  /**
-   * Subheadline - fade in after headline
-   */
+  /** Subheadline — fade in after headline. */
   public readonly subheadlineConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
     duration: 0.7,
@@ -258,9 +158,7 @@ export class HeroContentOverlayComponent {
     threshold: 0.1,
   };
 
-  /**
-   * CTAs - slide up together
-   */
+  /** CTAs — slide up together. */
   public readonly ctaConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.6,
@@ -269,9 +167,7 @@ export class HeroContentOverlayComponent {
     ease: 'power2.out',
   };
 
-  /**
-   * Stats - fade in last
-   */
+  /** Stats — fade in last. */
   public readonly socialProofConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
     duration: 0.6,

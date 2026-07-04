@@ -4,6 +4,7 @@ import { ComparisonSectionComponent } from '../sections/comparison/comparison-se
 import { CTASectionComponent } from '../sections/cta/cta-section.component';
 import { FooterComponent } from '../components/footer.component';
 import { HeroComponent } from '../sections/hero/hero.component';
+import { ProblemSectionComponent } from '../sections/problem/problem-section.component';
 import { OpenSourceSectionComponent } from '../sections/open-source/open-source-section.component';
 import { PremiumShowcaseComponent } from '../sections/premium-showcase/premium-showcase.component';
 import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcase.component';
@@ -18,6 +19,7 @@ import { WorkspaceIntelligenceComponent } from '../sections/workspace-intelligen
   imports: [
     NavigationComponent,
     HeroComponent,
+    ProblemSectionComponent,
     VideoShowcaseComponent,
     RuntimesTriptychComponent,
     PremiumShowcaseComponent,
@@ -36,9 +38,9 @@ import { WorkspaceIntelligenceComponent } from '../sections/workspace-intelligen
       <main>
         <ptah-hero />
 
-        <section id="video-showcase" aria-label="Video Showcase">
-          <ptah-video-showcase />
-        </section>
+        <ptah-problem-section />
+
+        <ptah-video-showcase />
 
         <div class="relative overflow-hidden bg-slate-950" aria-hidden="true">
           <img
