@@ -52,7 +52,7 @@ import { AuthService } from '../services/auth.service';
       <!-- Logo and Branding -->
       <a
         routerLink="/"
-        class="flex items-center gap-3 focus-visible:outline mt-10 focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
+        class="flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
         aria-label="Ptah home"
         (click)="closeMobileMenu()"
       >
@@ -61,7 +61,7 @@ import { AuthService } from '../services/auth.service';
           alt="Ptah logo"
           width="96"
           height="96"
-          class="w-24 h-24"
+          class="w-11 h-11"
         />
       </a>
 
@@ -82,12 +82,7 @@ import { AuthService } from '../services/auth.service';
       </button>
 
       <!-- Desktop Navigation Links + CTAs -->
-      <div
-        class="hidden md:flex items-center gap-6"
-        [ngClass]="{
-          'mt-4 transition-all': !scrolled() && !mobileMenuOpen(),
-        }"
-      >
+      <div class="hidden md:flex items-center gap-6">
         <!-- Features Anchor -->
         <a
           routerLink="/"

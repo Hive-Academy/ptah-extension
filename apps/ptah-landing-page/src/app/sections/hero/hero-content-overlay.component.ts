@@ -20,7 +20,7 @@ import { LucideAngularModule, CirclePlay, Download } from 'lucide-angular';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ViewportAnimationDirective, RouterLink, LucideAngularModule],
   template: `
-    <div class="max-w-3xl mx-auto text-center pt-40 pb-16 px-6">
+    <div class="max-w-5xl mx-auto text-center pt-28 sm:pt-32 pb-14 px-6">
       <!-- Eyebrow pill -->
       <div
         viewportAnimation
@@ -41,7 +41,7 @@ import { LucideAngularModule, CirclePlay, Download } from 'lucide-angular';
       <h1
         viewportAnimation
         [viewportConfig]="headlineConfig"
-        class="text-5xl sm:text-6xl lg:text-7xl xl:text-8xl font-extrabold tracking-tight leading-[0.95] text-white"
+        class="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-extrabold tracking-tight leading-[1.02] text-white [text-wrap:balance] max-w-4xl mx-auto"
       >
         Your AI Employee, Not Your Autocomplete.
       </h1>
@@ -99,15 +99,15 @@ import { LucideAngularModule, CirclePlay, Download } from 'lucide-angular';
       <div
         viewportAnimation
         [viewportConfig]="socialProofConfig"
-        class="grid grid-cols-2 sm:flex sm:justify-center gap-x-8 gap-y-4 mt-14"
+        class="grid grid-cols-2 sm:flex sm:flex-wrap sm:justify-center gap-x-10 gap-y-8 mt-12 max-w-md sm:max-w-3xl mx-auto"
       >
         @for (stat of stats; track stat.label) {
-          <div class="flex flex-col items-center text-center">
+          <div class="flex flex-col items-center text-center sm:w-40">
             <span
-              class="font-mono text-3xl sm:text-4xl font-bold text-white leading-none"
+              class="font-mono text-3xl sm:text-4xl font-bold text-white leading-none whitespace-nowrap"
               >{{ stat.value }}</span
             >
-            <span class="text-xs sm:text-sm text-ink-400 mt-1.5">{{
+            <span class="text-xs sm:text-sm text-ink-400 mt-2 leading-snug">{{
               stat.label
             }}</span>
           </div>
