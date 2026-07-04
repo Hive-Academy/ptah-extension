@@ -120,6 +120,14 @@ export const routes: Routes = [
     data: { hideFromNav: true },
   },
   {
+    path: 'hero-lab',
+    loadComponent: () =>
+      import('./pages/hero-lab/hero-lab-page.component').then(
+        (m) => m.HeroLabPageComponent,
+      ),
+    data: { hideFromNav: true },
+  },
+  {
     path: '**',
     redirectTo: '',
   },
