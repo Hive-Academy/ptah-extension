@@ -1,0 +1,18 @@
+{
+  "scene": "memory-recall",
+  "lines": [
+    "How many times have you explained the same codebase to an AI that forgot you by the next session?",
+    "Ptah is different — it ships with a persistent memory, and you are about to see inside it.",
+    "Everything it learns stays with you — facts and decisions, saved in a local brain and carried across every session.",
+    "Core is what it never forgets — the always-on facts about you and your project.",
+    "Recall is its working memory — recent context it can pull back for you in an instant.",
+    "And Archival is the deep, long-term store — nothing is lost, and all of it is searchable.",
+    "Every lesson it has learned about your work, gathered in one place you can actually read.",
+    "And you stay in control — hover any memory to pin it, check its tier, and see why it stuck.",
+    "So go ahead — ask it what it knows.",
+    "It finds the right memory even when your words do not match — keyword and meaning, searched together.",
+    "And every hit gives you the fact itself, its tier, and exactly why it was worth keeping.",
+    "Nothing stored for that just yet — but it learns more with every session you run.",
+    "So explain your codebase once. Ptah remembers — this session, the next one, and every one after that."
+  ]
+}

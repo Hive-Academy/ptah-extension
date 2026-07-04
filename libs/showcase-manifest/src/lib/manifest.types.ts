@@ -24,6 +24,13 @@ export interface Beat {
   text: string;
   /** Scene slug, e.g. "editor-tour". */
   scene: string;
+  /**
+   * Index of this line in the scene's script file (`scripts/<scene>.json`),
+   * emitted by `director.say(i)`. Locks the beat to its pre-generated narration
+   * clip (`wav/{i+1}.wav`) even when a conditional beat is skipped at capture —
+   * without it, downstream wav mapping falls back to the beat's array position.
+   */
+  scriptIndex?: number;
 }
 
 export interface SceneManifest {

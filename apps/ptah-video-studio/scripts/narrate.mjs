@@ -81,25 +81,17 @@ function ffmpegBin() {
  * PCM at `rate` Hz via ffmpeg, so it can flow through the same pcmToWav() path
  * as native PCM. Returns the PCM Buffer.
  */
-function decodeToPcm(input, rate) {
-  return execFileSync(
-    ffmpegBin(),
-    [
-      '-hide_banner',
-      '-loglevel',
-      'error',
-      '-i',
-      'pipe:0',
-      '-ar',
-      String(rate),
-      '-ac',
-      '1',
-      '-f',
-      's16le',
-      'pipe:1',
-    ],
-    { input, maxBuffer: 1 << 28 },
-  );
+function decodeToPcm(input, rate, { loudnorm = false } = {}) {
+  const args = ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0'];
+  if (loudnorm) {
+    // EBU R128 one-pass loudness normalization so every clip lands at the same
+    // perceived level (-16 LUFS, the podcast/VO standard) regardless of how hot
+    // the TTS render came back. Gain-only in effect for speech clips — no
+    // time-stretch, so alignment timestamps stay valid.
+    args.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=11');
+  }
+  args.push('-ar', String(rate), '-ac', '1', '-f', 's16le', 'pipe:1');
+  return execFileSync(ffmpegBin(), args, { input, maxBuffer: 1 << 28 });
 }
 
 /** Clamp a 0..1 voice_settings knob, warning when the input was out of range. */
@@ -112,24 +104,149 @@ function clamp01(name, value) {
   return clamped;
 }
 
-/** Load + compile the whole-word, case-sensitive normalization replacer. */
-function buildNormalizer() {
+/**
+ * Whole-word, case-sensitive normalization (text-normalization.json) that ALSO
+ * returns a char map from each spoken (normalized) character back to the
+ * original character it derives from. Replaced spans map every spoken char to
+ * the start of the original match. The map lets ElevenLabs' character
+ * alignment (timed against the SPOKEN text) be projected back onto the
+ * ORIGINAL words, so rendered captions show "Ptah", not "puh-TAH".
+ */
+function buildMappingNormalizer() {
   const dictPath = path.join(__dirname, 'text-normalization.json');
   /** @type {Record<string,string>} */
   const dict = JSON.parse(fs.readFileSync(dictPath, 'utf8'));
-  // Longest keys first so multi-word terms ("VS Code") win over substrings.
   const terms = Object.keys(dict).sort((a, b) => b.length - a.length);
   const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   const re = new RegExp(`(?<![\\w-])(?:${escaped.join('|')})(?![\\w-])`, 'g');
-  return (text) => text.replace(re, (m) => dict[m] ?? m);
+
+  return (text) => {
+    let spoken = '';
+    /** @type {number[]} spoken char index -> original char index */
+    const mapToOrig = [];
+    let cursor = 0;
+    for (const m of text.matchAll(re)) {
+      for (let i = cursor; i < m.index; i++) {
+        mapToOrig.push(i);
+        spoken += text[i];
+      }
+      const replacement = dict[m[0]] ?? m[0];
+      for (let i = 0; i < replacement.length; i++) {
+        mapToOrig.push(m.index);
+        spoken += replacement[i];
+      }
+      cursor = m.index + m[0].length;
+    }
+    for (let i = cursor; i < text.length; i++) {
+      mapToOrig.push(i);
+      spoken += text[i];
+    }
+    return { spoken, mapToOrig };
+  };
 }
 
 /**
- * Resolve the ordered list of narration entries for a scene.
- * Prefers narration-script.json (polished VO) unless --source beats.
+ * Project ElevenLabs character alignment (timed against the SPOKEN text) onto
+ * the ORIGINAL text's words via the normalization char map. Returns
+ * clip-relative word tokens `{ text, startMs, endMs }`, one per whitespace-
+ * separated original word. Words whose chars were all consumed by a
+ * replacement inherit the replacement span's timing.
+ */
+function wordsFromAlignment(originalText, mapToOrig, alignment) {
+  const chars = alignment?.characters ?? [];
+  const starts = alignment?.character_start_times_seconds ?? [];
+  const ends = alignment?.character_end_times_seconds ?? [];
+  if (chars.length === 0) return [];
+
+  // Original char index -> [minStartSec, maxEndSec] over spoken chars mapping to it.
+  const spanForOrig = new Map();
+  const n = Math.min(chars.length, mapToOrig.length);
+  for (let s = 0; s < n; s++) {
+    const o = mapToOrig[s];
+    const cur = spanForOrig.get(o);
+    if (cur) {
+      cur[0] = Math.min(cur[0], starts[s]);
+      cur[1] = Math.max(cur[1], ends[s]);
+    } else {
+      spanForOrig.set(o, [starts[s], ends[s]]);
+    }
+  }
+
+  const words = [];
+  for (const m of originalText.matchAll(/\S+/g)) {
+    // Standalone punctuation ("—") is not a caption word: extend the previous
+    // word over its time span instead of emitting a floating token.
+    const prev = words[words.length - 1];
+    const isPunctuation = !/[\p{L}\p{N}]/u.test(m[0]);
+
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let o = m.index; o < m.index + m[0].length; o++) {
+      const span = spanForOrig.get(o);
+      if (span) {
+        lo = Math.min(lo, span[0]);
+        hi = Math.max(hi, span[1]);
+      }
+    }
+    if (lo === Infinity) {
+      // Whole word swallowed by a replacement keyed to an earlier char (rare);
+      // reuse the previous word's end as a zero-width anchor.
+      lo = prev ? prev.endMs / 1000 : 0;
+      hi = lo;
+    }
+
+    if (isPunctuation && prev) {
+      prev.endMs = Math.max(prev.endMs, Math.round(hi * 1000));
+      continue;
+    }
+    words.push({
+      text: m[0],
+      startMs: Math.round(lo * 1000),
+      endMs: Math.round(hi * 1000),
+    });
+  }
+  return words;
+}
+
+/**
+ * Repo-tracked scene scripts (`{ scene, lines: string[] }`), the audio-first
+ * narration source of truth. Living in the e2e app's source tree (not the
+ * gitignored recordings dir) so scripts version with the scenes that speak
+ * them, and `narrate` can run BEFORE any capture exists.
+ */
+const SCENE_SCRIPTS_DIR = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  'ptah-electron-e2e',
+  'src',
+  'showcase',
+  'scripts',
+);
+
+function sceneScriptPath(scene) {
+  return path.join(SCENE_SCRIPTS_DIR, `${scene}.json`);
+}
+
+/**
+ * Resolve the ordered list of narration entries for a scene, in priority order:
+ *   1. Repo scene script `showcase/scripts/<scene>.json` — the audio-first
+ *      source of truth, available BEFORE any capture exists.
+ *   2. `narration-script.json` in the recordings dir (legacy polished VO).
+ *   3. `beats.json` caption text (legacy capture-first flow / --source beats).
  * @returns {{ beatIndex: number, beatTMs: number, text: string }[]}
  */
-function resolveEntries(dir, source) {
+function resolveEntries(scene, dir, source) {
+  const repoScript = sceneScriptPath(scene);
+  if (source !== 'beats' && fs.existsSync(repoScript)) {
+    const script = JSON.parse(fs.readFileSync(repoScript, 'utf8'));
+    return (script.lines ?? []).map((line, i) => ({
+      beatIndex: i,
+      beatTMs: 0,
+      text: String(line).trim(),
+    }));
+  }
+
   const scriptPath = path.join(dir, 'narration-script.json');
   const beatsPath = path.join(dir, 'beats.json');
 
@@ -146,7 +263,10 @@ function resolveEntries(dir, source) {
   }
 
   if (!fs.existsSync(beatsPath)) {
-    throw new Error(`No beats.json (and no narration-script.json) in ${dir}`);
+    throw new Error(
+      `No narration source for ${scene}: no ${repoScript}, ` +
+        `no narration-script.json and no beats.json in ${dir}.`,
+    );
   }
   const manifest = JSON.parse(fs.readFileSync(beatsPath, 'utf8'));
   return (manifest.beats ?? []).map((b, i) => ({
@@ -255,21 +375,29 @@ function createElevenLabsEngine(opts) {
 
   const format = opts.outputFormat || ELEVENLABS_DEFAULT_FORMAT;
   const isMp3 = format.startsWith('mp3');
+  // `/with-timestamps` returns JSON: base64 audio + character-level alignment.
+  // The alignment drives word-accurate rendered captions directly (no whisper
+  // transcription pass) — see wordsFromAlignment().
   const url =
     `${ELEVENLABS_API}/${encodeURIComponent(opts.voice)}` +
-    `?output_format=${encodeURIComponent(format)}`;
+    `/with-timestamps?output_format=${encodeURIComponent(format)}`;
 
-  async function post(text) {
+  async function post(text, ctx = {}) {
     return fetch(url, {
       method: 'POST',
       headers: {
         'xi-api-key': apiKey,
         'content-type': 'application/json',
-        accept: isMp3 ? 'audio/mpeg' : 'audio/pcm',
+        accept: 'application/json',
       },
       body: JSON.stringify({
         text,
         model_id: model,
+        // Prosody continuity: telling the model what was said before/after this
+        // clip makes consecutive beats read as one narration instead of nine
+        // cold starts (pitch resets between clips are the tell).
+        ...(ctx.previousText ? { previous_text: ctx.previousText } : {}),
+        ...(ctx.nextText ? { next_text: ctx.nextText } : {}),
         voice_settings: {
           speed,
           stability,
@@ -307,10 +435,10 @@ function createElevenLabsEngine(opts) {
           `style ${style}).`,
       );
     },
-    async synthesize(text) {
+    async synthesize(text, ctx = {}) {
       let res;
       try {
-        res = await post(text);
+        res = await post(text, ctx);
         if ((res.status === 429 || res.status >= 500) && !res.ok) {
           const body = await res.text();
           console.warn(
@@ -318,7 +446,7 @@ function createElevenLabsEngine(opts) {
               (body ? ` (${body.slice(0, 200)})` : ''),
           );
           await sleep(2000);
-          res = await post(text);
+          res = await post(text, ctx);
         }
       } catch (error) {
         // Network-level failure (not an HTTP status): retry once.
@@ -327,7 +455,7 @@ function createElevenLabsEngine(opts) {
           `[narrate] elevenlabs: request failed (${message}) — retrying once in 2s…`,
         );
         await sleep(2000);
-        res = await post(text);
+        res = await post(text, ctx);
       }
 
       if (!res.ok) {
@@ -338,13 +466,25 @@ function createElevenLabsEngine(opts) {
         );
       }
 
-      const raw = Buffer.from(await res.arrayBuffer());
-      // MP3 (all tiers) → transcode to PCM; PCM (Pro tier) → use as-is.
-      const pcm = isMp3 ? decodeToPcm(raw, ELEVENLABS_PCM_RATE) : raw;
+      const payload = await res.json();
+      const raw = Buffer.from(payload.audio_base64, 'base64');
+      // MP3 (all tiers) → decode + loudness-normalize to PCM in one ffmpeg
+      // pass; PCM (Pro tier) → normalize likewise (input is headerless s16le,
+      // so wrap it before piping).
+      const pcm = isMp3
+        ? decodeToPcm(raw, ELEVENLABS_PCM_RATE, { loudnorm: true })
+        : decodeToPcm(pcmToWav(raw, ELEVENLABS_PCM_RATE), ELEVENLABS_PCM_RATE, {
+            loudnorm: true,
+          });
       const wav = pcmToWav(pcm, ELEVENLABS_PCM_RATE);
       const samples = pcm.length / 2; // 16-bit LE
       const durationMs = Math.round((samples / ELEVENLABS_PCM_RATE) * 1000);
-      return { wav, sampleRate: ELEVENLABS_PCM_RATE, durationMs };
+      return {
+        wav,
+        sampleRate: ELEVENLABS_PCM_RATE,
+        durationMs,
+        alignment: payload.alignment ?? null,
+      };
     },
   };
 }
@@ -370,7 +510,7 @@ function createEngine(opts) {
  * otherwise switching engines would silently reuse the old audio.
  * @returns {{ skip: boolean, reason: string }}
  */
-function evaluateSkip(dir, durationsPath, descriptor, source) {
+function evaluateSkip(scene, dir, durationsPath, descriptor, source) {
   if (!fs.existsSync(durationsPath)) {
     return { skip: false, reason: 'no durations.json yet' };
   }
@@ -411,8 +551,13 @@ function evaluateSkip(dir, durationsPath, descriptor, source) {
 
   const beatsPath = path.join(dir, 'beats.json');
   const scriptPath = path.join(dir, 'narration-script.json');
+  const repoScript = sceneScriptPath(scene);
   const srcPath =
-    fs.existsSync(scriptPath) && source !== 'beats' ? scriptPath : beatsPath;
+    source !== 'beats' && fs.existsSync(repoScript)
+      ? repoScript
+      : fs.existsSync(scriptPath) && source !== 'beats'
+        ? scriptPath
+        : beatsPath;
   if (!fs.existsSync(srcPath)) {
     return { skip: false, reason: 'narration source missing' };
   }
@@ -425,11 +570,11 @@ function evaluateSkip(dir, durationsPath, descriptor, source) {
 
 async function narrateScene(scene, opts) {
   const dir = sceneDir(scene);
-  if (!fs.existsSync(dir)) {
-    throw new Error(`Scene dir does not exist: ${dir}`);
-  }
+  // Audio-first: narration runs BEFORE the first capture, so create the scene
+  // dir rather than requiring a recording to exist.
+  fs.mkdirSync(dir, { recursive: true });
 
-  const entries = resolveEntries(dir, opts.source).filter((e) => e.text);
+  const entries = resolveEntries(scene, dir, opts.source).filter((e) => e.text);
   if (entries.length === 0) {
     console.log(`[narrate] ${scene}: no narration text — skipping.`);
     return;
@@ -444,7 +589,7 @@ async function narrateScene(scene, opts) {
   // Content- + config-keyed skip: reuse wavs only when the narration source is
   // unchanged AND the engine/voice/model match what durations.json recorded.
   if (!opts.force) {
-    const { skip } = evaluateSkip(dir, durationsPath, engine.descriptor, opts.source);
+    const { skip } = evaluateSkip(scene, dir, durationsPath, engine.descriptor, opts.source);
     if (skip) {
       console.log(
         `[narrate] ${scene}: up to date (engine ${engine.descriptor.engine}, ` +
@@ -456,23 +601,45 @@ async function narrateScene(scene, opts) {
 
   await engine.init();
 
-  const normalize = buildNormalizer();
+  const normalizeMapped = buildMappingNormalizer();
+  // Pre-normalize every line once so each request can carry its neighbors as
+  // prosody context (previous_text / next_text).
+  const prepared = entries.map((entry) => ({
+    ...entry,
+    ...normalizeMapped(entry.text),
+  }));
+
   const clips = [];
   let totalChars = 0;
 
-  for (const entry of entries) {
+  for (let i = 0; i < prepared.length; i++) {
+    const entry = prepared[i];
     const index = entry.beatIndex + 1; // 1-based, zero-padded file names
     const padded = String(index).padStart(4, '0');
     const file = path.join('wav', `${padded}.wav`);
     const absFile = path.join(dir, file);
-    const spoken = normalize(entry.text);
+    const spoken = entry.spoken;
     totalChars += spoken.length;
 
     console.log(
       `[narrate] ${scene}: beat ${padded} -> ${file} (${spoken.length} chars)`,
     );
-    const { wav, sampleRate, durationMs } = await engine.synthesize(spoken);
+    const { wav, sampleRate, durationMs, alignment } = await engine.synthesize(
+      spoken,
+      {
+        previousText: prepared[i - 1]?.spoken,
+        nextText: prepared[i + 1]?.spoken,
+      },
+    );
     fs.writeFileSync(absFile, wav);
+
+    // Clip-relative word timings for rendered captions, projected back onto
+    // the ORIGINAL text so replacements ("puh-TAH") never leak on screen.
+    // Engines without alignment (kokoro) leave words empty — caption.mjs's
+    // whisper pass remains the fallback for those.
+    const words = alignment
+      ? wordsFromAlignment(entry.text, entry.mapToOrig, alignment)
+      : [];
 
     clips.push({
       index,
@@ -482,6 +649,7 @@ async function narrateScene(scene, opts) {
       durationMs,
       chars: spoken.length,
       text: spoken,
+      ...(words.length > 0 ? { words } : {}),
     });
   }
 
@@ -546,10 +714,22 @@ async function main() {
     force: Boolean(args.force),
   };
 
+  // Audio-first: scenes with a repo script narrate before any capture exists;
+  // legacy scenes (beats.json only) stay narratable too.
+  const scripted = fs.existsSync(SCENE_SCRIPTS_DIR)
+    ? fs
+        .readdirSync(SCENE_SCRIPTS_DIR)
+        .filter((f) => f.endsWith('.json'))
+        .map((f) => f.replace(/\.json$/, ''))
+    : [];
   const scenes =
-    typeof args.scene === 'string' ? [args.scene] : listScenesWithBeats();
+    typeof args.scene === 'string'
+      ? [args.scene]
+      : [...new Set([...scripted, ...listScenesWithBeats()])];
   if (scenes.length === 0) {
-    console.log('[narrate] No scenes with beats.json found. Nothing to do.');
+    console.log(
+      '[narrate] No scene scripts or beats.json found. Nothing to do.',
+    );
     return;
   }
 

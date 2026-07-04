@@ -15,9 +15,12 @@ import type { Locator, Page } from '@playwright/test';
  * panel spins up real, paid multi-vendor agents, so we walk up to the edge —
  * picking a move, previewing the panel — and stop before "Open Tribunal".
  *
- * Captions double as the VOICEOVER SCRIPT (`narrate.mjs --source beats`), so they
- * are spoken prose; element-targeted captions + spotlight/hover auto-emit
- * `shots.json`, punching the camera onto each subject.
+ * AUDIO-FIRST: the voiceover script lives in `scripts/tribunal-tour.json`
+ * and is narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)`
+ * speaks line i, holding for the REAL clip duration (durations.json) so
+ * narration, captions and footage stay locked — no estimated holds, no silent
+ * gaps. Element-targeted says + spotlight/hover auto-emit `shots.json`,
+ * punching the camera onto each subject as the VO names it.
  *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
@@ -29,16 +32,6 @@ import type { Locator, Page } from '@playwright/test';
  * tribunal-step-pick-move, tribunal-step-panel-preview, …) plus stable
  * aria-labels on the convene CTA and move cards.
  */
-
-/**
- * Hold long enough for the narration of `text` to finish before the next beat
- * starts (~65ms/char + settle), minus time already spent in interactions that
- * run between this beat and the next. Captions double as the VO script
- * (`narrate.mjs --source beats`), so this prevents audio overlap.
- */
-function voHold(text: string, alreadySpentMs = 0): number {
-  return Math.max(600, Math.round(text.length * 65) + 500 - alreadySpentMs);
-}
 
 /** Pick the first visible locator from a list, or null if none are on screen. */
 async function firstVisible(candidates: Locator[]): Promise<Locator | null> {
@@ -72,17 +65,11 @@ test('Tribunal — a panel of rival models', async ({ page, director }) => {
   // Clear any blocking startup modal (license / trial dialog) before filming.
   await director.dismissDialogs();
 
-  const OPENING = 'What if your AI models disagreed — on purpose?';
-  await director.caption(OPENING);
-  await director.hold(voHold(OPENING));
-  await director.caption();
+  // OPENING — fire immediately so the video opens on a question, not dead air.
+  await director.say(0);
 
   // WARMUP — one line of context before the tour starts.
-  const WARMUP =
-    'Inside Ptah, there is a room built for exactly that. It is called the Tribunal. Let me show you how it works.';
-  await director.caption(WARMUP);
-  await director.hold(voHold(WARMUP));
-  await director.caption();
+  await director.say(1);
 
   await goToTribunal(page, director);
   await director.dismissDialogs();
@@ -91,61 +78,60 @@ test('Tribunal — a panel of rival models', async ({ page, director }) => {
   const grid = page.locator('[data-testid="tribunal-grid"]').first();
 
   // --- Establish the surface ---------------------------------------------
-  // scrollThrough below runs longer than the VO — interaction-covered.
-  const SURFACE =
-    'Here they sit — rival vendors on one bench, ready to check each other, so you do not have to.';
-  await director.caption(SURFACE, grid);
-  await director.scrollThrough(grid, { steps: 4, dwellMs: 650, andBack: true });
-  await director.caption();
+  // scrollThrough runs under the VO — interaction-covered.
+  await director.say(2, {
+    target: grid,
+    during: async () => {
+      await director.scrollThrough(grid, {
+        steps: 4,
+        dwellMs: 650,
+        andBack: true,
+      });
+    },
+  });
 
   // If a previous run left tiles on screen, narrate the live panel layout
   // (conductor + panelist lanes) instead of the convene flow, and exit.
   const liveTopBar = page.locator('[data-testid="tribunal-top-bar"]').first();
   if (await liveTopBar.isVisible().catch(() => false)) {
-    // Spotlight + hover loop below outlast the VO — interaction-covered.
-    await director.caption(
-      'You get one conductor keeping order, and a whole row of rival panelists lined up beside it.',
-      liveTopBar,
-    );
-    const conductor = page
-      .locator('[data-testid="tribunal-conductor-pane"]')
-      .first();
-    if (await conductor.isVisible().catch(() => false)) {
-      await director.spotlight(conductor, 1700);
-    }
-    const tiles = page.locator('[data-testid="tribunal-tile"]');
-    const tileCount = await tiles.count();
-    for (let i = 0; i < Math.min(tileCount, 3); i++) {
-      await director.hover(tiles.nth(i), 700);
-    }
-    await director.caption();
+    // Spotlight + hover loop run under the VO — interaction-covered.
+    await director.say(3, {
+      target: liveTopBar,
+      during: async () => {
+        const conductor = page
+          .locator('[data-testid="tribunal-conductor-pane"]')
+          .first();
+        if (await conductor.isVisible().catch(() => false)) {
+          await director.spotlight(conductor, 1700);
+        }
+        const tiles = page.locator('[data-testid="tribunal-tile"]');
+        const tileCount = await tiles.count();
+        for (let i = 0; i < Math.min(tileCount, 3); i++) {
+          await director.hover(tiles.nth(i), 700);
+        }
+      },
+    });
 
     const lockToggle = page
       .locator('[data-testid="tribunal-lock-toggle"]')
       .first();
     if (await lockToggle.isVisible().catch(() => false)) {
-      // spotlight below outlasts the VO — interaction-covered.
-      await director.caption(
-        'The bench is yours to arrange — lock the layout in place, or shuffle it however you like.',
-        lockToggle,
-      );
-      await director.spotlight(lockToggle, 1500);
-      await director.caption();
+      // spotlight runs under the VO — interaction-covered.
+      await director.say(4, {
+        target: lockToggle,
+        during: async () => {
+          await director.spotlight(lockToggle, 1500);
+        },
+      });
     }
 
-    const WEAPON = 'Debate. Forge. Race. You pick the weapon.';
-    await director.caption(WEAPON);
-    await director.hold(voHold(WEAPON));
-    await director.caption();
+    await director.say(5);
     return;
   }
 
   // --- Empty state: the convene pitch ------------------------------------
-  // A caption-only pitch — hold for the full narration before we convene.
-  const PITCH =
-    'Need a verdict? Council. Need working code? Forge. Need a winner? Race.';
-  await director.caption(PITCH);
-  await director.hold(voHold(PITCH));
+  // A narration-only pitch — say() holds for the full clip before we convene.
+  await director.say(6);
 
   const conveneCta = await firstVisible([
     page.getByRole('button', { name: 'Convene a Tribunal' }),
@@ -153,23 +139,27 @@ test('Tribunal — a panel of rival models', async ({ page, director }) => {
   ]);
   if (!conveneCta) {
     // Surface is gated or unexpectedly empty — pan what's visible and bow out.
-    // scrollThrough outlasts the VO — interaction-covered.
-    await director.caption(
-      'The idea is simple — put your rival models on one bench, and let the friction find the truth.',
-      grid,
-    );
-    await director.scrollThrough(grid, { steps: 3, dwellMs: 700 });
-    await director.caption();
+    // scrollThrough runs under the VO — interaction-covered.
+    await director.say(7, {
+      target: grid,
+      during: async () => {
+        await director.scrollThrough(grid, { steps: 3, dwellMs: 700 });
+      },
+    });
     await director.hold(1500);
     return;
   }
 
-  // spotlight + click + convene below outlast the VO — interaction-covered.
-  await director.caption('So let us convene the panel.', conveneCta);
-  await director.spotlight(conveneCta, 1400);
-  await director.click(conveneCta);
-  await director.dismissDialogs();
-  await director.hold();
+  // spotlight + click + convene run under the VO — interaction-covered.
+  await director.say(8, {
+    target: conveneCta,
+    during: async () => {
+      await director.spotlight(conveneCta, 1400);
+      await director.click(conveneCta);
+      await director.dismissDialogs();
+      await director.hold();
+    },
+  });
 
   // --- Step 0: pick a move -----------------------------------------------
   const wizard = page.locator('[data-testid="tribunal-wizard"]').first();
@@ -177,52 +167,46 @@ test('Tribunal — a panel of rival models', async ({ page, director }) => {
     .waitFor({ state: 'visible', timeout: 8_000 })
     .catch(() => undefined);
 
-  // spotlight below outlasts the VO — interaction-covered.
-  await director.caption(
-    'You get three moves — three different ways to settle an argument.',
-    wizard,
-  );
-  const pickMove = page
-    .locator('[data-testid="tribunal-step-pick-move"]')
-    .first();
-  if (await pickMove.isVisible().catch(() => false)) {
-    await director.spotlight(pickMove, 1500);
-  }
-  await director.caption();
+  // spotlight runs under the VO — interaction-covered.
+  await director.say(9, {
+    target: wizard,
+    during: async () => {
+      const pickMove = page
+        .locator('[data-testid="tribunal-step-pick-move"]')
+        .first();
+      if (await pickMove.isVisible().catch(() => false)) {
+        await director.spotlight(pickMove, 1500);
+      }
+    },
+  });
 
   // Hover each move card so the viewer reads the descriptions, then pick FORGE
-  // for a punchier story (competing implementations across worktrees).
-  const moveCards: Array<{ label: string; line: string }> = [
-    {
-      label: 'Council',
-      line: 'Council gets you a straight answer — every vendor weighs in, and you get one cited verdict.',
-    },
-    {
-      label: 'Forge',
-      line: 'Forge gets you real code — each model builds in its own isolated worktree, and the best diff wins.',
-    },
-    {
-      label: 'Race',
-      line: 'And Race gets you a champion — every model competes, and a rubric crowns the winner.',
-    },
-  ];
-  for (const { label, line } of moveCards) {
-    const card = page.getByRole('button', { name: label }).first();
+  // for a punchier story (competing implementations across worktrees). The
+  // per-card narration lines are script indices 10..12, in this array order.
+  const moveCards: string[] = ['Council', 'Forge', 'Race'];
+  for (let i = 0; i < moveCards.length; i++) {
+    const card = page.getByRole('button', { name: moveCards[i] }).first();
     if (await card.isVisible().catch(() => false)) {
-      // hover follows each line — interaction-covered; target the card.
-      await director.caption(line, card);
-      await director.hover(card, 850);
+      // hover runs under each line — interaction-covered; target the card.
+      await director.say(10 + i, {
+        target: card,
+        during: async () => {
+          await director.hover(card, 850);
+        },
+      });
     }
   }
-  await director.caption();
 
   const forgeCard = page.getByRole('button', { name: 'Forge' }).first();
   if (await forgeCard.isVisible().catch(() => false)) {
-    // click + convene below outlast the VO — interaction-covered.
-    await director.caption('Let us send them to the Forge.', forgeCard);
-    await director.click(forgeCard);
-    await director.hold();
-    await director.caption();
+    // click + convene run under the VO — interaction-covered.
+    await director.say(13, {
+      target: forgeCard,
+      during: async () => {
+        await director.click(forgeCard);
+        await director.hold();
+      },
+    });
   }
 
   // Advance to the panel-assembly step.
@@ -238,37 +222,34 @@ test('Tribunal — a panel of rival models', async ({ page, director }) => {
     .locator('[data-testid="tribunal-step-panel-preview"]')
     .first();
   if (await panelStep.isVisible().catch(() => false)) {
-    // spotlight + hover loop below outlast the VO — interaction-covered.
-    await director.caption(
-      'Now you pick your fighters — one model to each lane on the bench.',
-      panelStep,
-    );
-    await director.spotlight(panelStep, 1600);
+    // spotlight + hover loop run under the VO — interaction-covered.
+    await director.say(14, {
+      target: panelStep,
+      during: async () => {
+        await director.spotlight(panelStep, 1600);
 
-    // Hover a couple of discovered vendor lanes (the "Add" buttons), without
-    // committing the panel — purely a reveal of who can sit on the panel.
-    const addButtons = page.locator(
-      '[data-testid="tribunal-step-panel-preview"] button[aria-label^="Add "]',
-    );
-    const addCount = await addButtons.count();
-    for (let i = 0; i < Math.min(addCount, 3); i++) {
-      await director.hover(addButtons.nth(i), 750);
-    }
-    await director.caption();
+        // Hover a couple of discovered vendor lanes (the "Add" buttons),
+        // without committing the panel — purely a reveal of who can sit on
+        // the panel.
+        const addButtons = page.locator(
+          '[data-testid="tribunal-step-panel-preview"] button[aria-label^="Add "]',
+        );
+        const addCount = await addButtons.count();
+        for (let i = 0; i < Math.min(addCount, 3); i++) {
+          await director.hover(addButtons.nth(i), 750);
+        }
+      },
+    });
 
-    // scrollThrough below outlasts the VO — interaction-covered.
-    await director.caption(
-      'And there are no surprise bills — effort, model, and turn estimate, every cost shown up front.',
-      panelStep,
-    );
-    await director.scrollThrough(panelStep, { steps: 3, dwellMs: 650 });
-    await director.caption();
+    // scrollThrough runs under the VO — interaction-covered.
+    await director.say(15, {
+      target: panelStep,
+      during: async () => {
+        await director.scrollThrough(panelStep, { steps: 3, dwellMs: 650 });
+      },
+    });
   }
 
   // STOP before "Open Tribunal" — convening would launch real paid vendors.
-  const CLOSER =
-    'So yes — your models disagree on purpose. Because that disagreement is exactly the signal you need.';
-  await director.caption(CLOSER);
-  await director.hold(voHold(CLOSER));
-  await director.caption();
+  await director.say(16);
 });

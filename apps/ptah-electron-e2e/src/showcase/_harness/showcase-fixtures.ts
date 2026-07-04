@@ -49,6 +49,55 @@ function sceneSlug(testInfo: TestInfo): string {
   return path.basename(testInfo.file).replace(/\.scene\.ts$/, '');
 }
 
+/** Repo-tracked narration scripts (`{ scene, lines }`), one per scene. */
+const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
+
+/** Ordered VO lines for a scene, or [] when it has no script (legacy flow). */
+function loadScript(slug: string): string[] {
+  const p = path.join(SCRIPTS_DIR, `${slug}.json`);
+  if (!fs.existsSync(p)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(p, 'utf8')) as {
+      lines?: unknown[];
+    };
+    return (parsed.lines ?? []).map((l) => String(l));
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[showcase] unreadable script for ${slug}: ${message}`);
+    return [];
+  }
+}
+
+/**
+ * Real narration clip lengths from a pre-capture `narrate.mjs` run, indexed by
+ * script line. Missing/partial durations degrade to nulls — the Director falls
+ * back to its estimate for those lines.
+ */
+function loadClipDurations(
+  sceneDir: string,
+  lineCount: number,
+): (number | null)[] {
+  const p = path.join(sceneDir, 'durations.json');
+  if (!fs.existsSync(p)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(p, 'utf8')) as {
+      clips?: { index?: number; durationMs?: number }[];
+    };
+    const out: (number | null)[] = new Array(lineCount).fill(null);
+    for (const clip of parsed.clips ?? []) {
+      const i = (clip.index ?? 0) - 1; // clips are 1-based
+      if (i >= 0 && i < lineCount && typeof clip.durationMs === 'number') {
+        out[i] = clip.durationMs;
+      }
+    }
+    return out;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[showcase] unreadable durations.json: ${message}`);
+    return [];
+  }
+}
+
 export const test = base.extend<ShowcaseFixtures>({
   // eslint-disable-next-line no-empty-pattern
   app: async ({}, use, testInfo) => {
@@ -99,10 +148,23 @@ export const test = base.extend<ShowcaseFixtures>({
     const sceneDir = path.join(RECORDINGS_ROOT, slug);
     const res = (app as unknown as { __showcaseRes: ShowcaseRes })
       .__showcaseRes;
+    // Audio-first pacing: the scene's script + the real clip lengths from the
+    // pre-capture narrate run drive `say()`'s holds.
+    const script = loadScript(slug);
+    const clipDurationsMs = loadClipDurations(sceneDir, script.length);
+    if (script.length > 0 && clipDurationsMs.every((d) => d === null)) {
+      console.warn(
+        `[showcase] ${slug}: no narration durations found — run ` +
+          `narrate.mjs BEFORE capture for audio-locked pacing ` +
+          `(falling back to estimated holds).`,
+      );
+    }
     const director = new Director(app, page, {
       scene: slug,
       title: testInfo.title,
       res,
+      script,
+      clipDurationsMs,
     });
     await director.installOverlays();
     try {

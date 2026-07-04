@@ -12,11 +12,12 @@ import type { Locator, Page } from '@playwright/test';
  * pointer travel, lower-third captions, generous dwell, and spotlight beats on
  * the hero cards.
  *
- * Captions double as the VOICEOVER SCRIPT (`narrate.mjs --source beats`), so
- * they are written as spoken prose and each beat holds long enough (`voHold`,
- * ~65ms/char) for the narration to finish before the next beat starts.
- * Element-targeted captions + spotlight/hover auto-emit `shots.json`, so the
- * rendered video punches the virtual camera onto each card as the VO names it.
+ * AUDIO-FIRST: the voiceover script lives in `scripts/dashboard-tour.json` and
+ * is narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)` speaks
+ * line i, holding for the REAL clip duration (durations.json) so narration,
+ * captions and footage stay locked — no estimated holds, no silent gaps.
+ * Element-targeted says + spotlight/hover auto-emit `shots.json`, punching the
+ * camera onto each card as the VO names it.
  *
  * Strictly NON-DESTRUCTIVE: it navigates, scrolls, hovers, and spotlights. It
  * never clicks "Convene a Tribunal" or any control that would start a paid run.
@@ -38,23 +39,6 @@ import type { Locator, Page } from '@playwright/test';
  * loosely against the chip label; falls back gracefully if not present.
  */
 const RANGE_LABEL = process.env['PTAH_SHOWCASE_DASHBOARD_RANGE'] ?? '7d';
-
-/** Spoken form of the range chip label — captions double as the VO script. */
-const RANGE_SPOKEN: Record<string, string> = {
-  '24h': 'the last twenty-four hours',
-  '7d': 'the last seven days',
-  '30d': 'the last thirty days',
-  All: 'all time',
-};
-
-/**
- * Hold long enough for the ElevenLabs narration of `text` to finish before the
- * next beat starts (~65ms per character + settle), minus time the scene will
- * spend inside interactions that already run between this beat and the next.
- */
-function voHold(text: string, alreadySpentMs = 0): number {
-  return Math.max(600, Math.round(text.length * 65) + 500 - alreadySpentMs);
-}
 
 async function isVisible(loc: Locator): Promise<boolean> {
   return loc
@@ -94,18 +78,10 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
   await director.dismissDialogs();
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
-  const HOOK =
-    'How much did your AI agents cost you this week? If you do not know, keep watching.';
-  await director.caption(HOOK);
-  await director.hold(voHold(HOOK));
-  await director.caption();
+  await director.say(0);
 
   // WARMUP — one line of context before the tour starts.
-  const WARMUP =
-    'You are looking at the Ptah dashboard — home base for every agent you run. Let us take the tour.';
-  await director.caption(WARMUP);
-  await director.hold(voHold(WARMUP));
-  await director.caption();
+  await director.say(1);
 
   await goToDashboard(page, director);
   await director.dismissDialogs();
@@ -113,19 +89,19 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
 
   const grid = page.locator('[data-testid="dashboard-grid"]').first();
 
-  const HOME =
-    'Everything on this screen is live. Real cards, real data — not one mock number anywhere.';
-  await director.caption(HOME);
-  await director.hold(voHold(HOME));
-  await director.caption();
+  await director.say(2);
 
-  // Reveal the full page top→bottom so every card scrolls into frame. The
-  // scroll itself (7 steps × 700ms × down-and-back) outlasts the narration.
-  await director.caption(
-    'First, get the lay of the land — the full page, top to bottom.',
-  );
-  await director.scrollThrough(grid, { steps: 7, dwellMs: 700, andBack: true });
-  await director.caption();
+  // Reveal the full page top→bottom so every card scrolls into frame while the
+  // narration plays over the scroll.
+  await director.say(3, {
+    during: async () => {
+      await director.scrollThrough(grid, {
+        steps: 7,
+        dwellMs: 700,
+        andBack: true,
+      });
+    },
+  });
 
   // Hero card #1 — the Tribunal convene affordance (spotlight + hover only,
   // never click: clicking would launch a multi-vendor panel). The targeted
@@ -134,14 +110,13 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     .getByRole('button', { name: 'Convene a Tribunal' })
     .first();
   if (await isVisible(tribunalCard)) {
-    const TRIBUNAL =
-      'Need a second opinion? Convene a Tribunal — rival AI vendors debate your question, or race to build the answer.';
-    await director.caption(TRIBUNAL, tribunalCard);
-    await director.hover(tribunalCard, 700);
-    await director.spotlight(tribunalCard, 1800);
-    // hover(700) + spotlight(1800 + 180 settle) already spent ~2.7s of VO time.
-    await director.hold(voHold(TRIBUNAL, 2680));
-    await director.caption();
+    await director.say(4, {
+      target: tribunalCard,
+      during: async () => {
+        await director.hover(tribunalCard, 700);
+        await director.spotlight(tribunalCard, 1800);
+      },
+    });
   }
 
   // Hero card #2 — the Session Analytics card (real costs from JSONL).
@@ -149,50 +124,52 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     .locator('section[aria-label="Session analytics"]')
     .first();
   if (await isVisible(analyticsCard)) {
-    const ANALYTICS =
-      'Here is where the cost question gets answered. Session Analytics reads your real usage straight from disk.';
-    await director.caption(ANALYTICS, analyticsCard);
-    await director.hover(analyticsCard, 700);
-    await director.spotlight(analyticsCard, 2000);
-    await director.hold(voHold(ANALYTICS, 2880));
-    await director.caption();
+    await director.say(5, {
+      target: analyticsCard,
+      during: async () => {
+        await director.hover(analyticsCard, 700);
+        await director.spotlight(analyticsCard, 2000);
+      },
+    });
 
     // Hover into the aggregate metric cards if they rendered.
     const metricCard = page.locator('ptah-session-metrics-cards').first();
     if (await isVisible(metricCard)) {
-      const METRICS =
-        'Every token, every dollar, every turn — totaled across all of your sessions.';
-      await director.caption(METRICS, metricCard);
-      await director.hover(metricCard, 1400);
-      await director.hold(voHold(METRICS, 1400));
-      await director.caption();
+      await director.say(6, {
+        target: metricCard,
+        during: async () => {
+          await director.hover(metricCard, 1400);
+        },
+      });
     }
 
     // Non-destructive interaction: flip the date-range filter. This only
-    // re-reads local session history — no agent, no spend.
+    // re-reads local session history — no agent, no spend. The line is
+    // range-agnostic so it can be a fixed script line regardless of the
+    // env-chosen PTAH_SHOWCASE_DASHBOARD_RANGE.
     const rangeChip = analyticsCard
       .getByRole('group', { name: 'Filter sessions by date range' })
       .getByRole('button', { name: RANGE_LABEL })
       .first();
     if (await isVisible(rangeChip)) {
-      const spokenRange = RANGE_SPOKEN[RANGE_LABEL] ?? RANGE_LABEL;
-      const FILTER = `Want a tighter window? One click filters everything to ${spokenRange}.`;
-      await director.caption(FILTER, rangeChip);
-      await director.click(rangeChip);
-      await director.hold(voHold(FILTER, 550));
-      await director.caption();
+      await director.say(7, {
+        target: rangeChip,
+        during: async () => {
+          await director.click(rangeChip);
+        },
+      });
     }
 
     // Hover into a per-session stats card if present.
     const sessionCard = page.locator('ptah-session-stats-card').first();
     if (await isVisible(sessionCard)) {
-      const DRILL =
-        'And when one session looks off, drill in and get the full story.';
-      await director.caption(DRILL, sessionCard);
-      await director.hover(sessionCard, 800);
-      await director.spotlight(sessionCard, 1600);
-      await director.hold(voHold(DRILL, 2580));
-      await director.caption();
+      await director.say(8, {
+        target: sessionCard,
+        during: async () => {
+          await director.hover(sessionCard, 800);
+          await director.spotlight(sessionCard, 1600);
+        },
+      });
     }
   }
 
@@ -212,9 +189,5 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     .catch(() => undefined);
   await director.hold(900);
 
-  const OUTRO =
-    'So, what did your agents cost this week? Now you know, down to the dollar. That is Ptah.';
-  await director.caption(OUTRO);
-  await director.hold(voHold(OUTRO) + 600);
-  await director.caption();
+  await director.say(9, { breathMs: 950 });
 });

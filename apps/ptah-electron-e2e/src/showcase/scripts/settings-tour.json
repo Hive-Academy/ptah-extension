@@ -1,0 +1,17 @@
+{
+  "scene": "settings-tour",
+  "lines": [
+    "What if your AI workspace adapted to you — instead of the other way around?",
+    "Ptah is an AI coding workspace, and this is its control room. In the next minute, we tune it to your stack.",
+    "Use whatever AI you already pay for. Connect any provider you like — it all starts right here.",
+    "Your keys never leave your machine. Bring any provider, and everything stays one hundred percent local.",
+    "Want more hands on deck? Wire up command-line agents to do the heavy lifting behind the scenes.",
+    "Go further when you are ready — enhanced prompts, MCP servers, and language-model tools.",
+    "Talk to your workspace, hands-free. Pick a web-search provider and a voice for spoken chat.",
+    "Change your mind any time. Swap web-search providers on the fly — no restart, no fuss.",
+    "Set it up once, take it anywhere. Export your entire configuration — keys, preferences, and providers.",
+    "Stay in the loop without breaking focus. Notifications come to you, right in the top bar.",
+    "Prefer a different look? Re-skin the entire app, live, with a single click.",
+    "So no, you do not adapt to your tools. Ptah adapts to you — configure it once, and it is yours."
+  ]
+}

@@ -13,10 +13,12 @@ import type { Locator, Page } from '@playwright/test';
  * and each platform's connection / access pane — so a viewer understands they
  * can drive Ptah from chat. Length is tuned for how it looks on camera.
  *
- * Captions double as the VOICEOVER SCRIPT (`narrate.mjs --source beats`), so
- * they are spoken prose and caption-only beats hold via `voHold` (~65ms/char)
- * so narration finishes before the next beat. Element-targeted captions +
- * spotlight/hover auto-emit `shots.json`, punching the camera onto each subject.
+ * AUDIO-FIRST: the voiceover script lives in `scripts/gateway-tour.json` and is
+ * narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)` speaks line
+ * i, holding for the REAL clip duration (durations.json) so narration, captions
+ * and footage stay locked — no estimated holds, no silent gaps. Element-
+ * targeted says + spotlight/hover auto-emit `shots.json`, punching the camera
+ * onto each subject as the VO names it.
  *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
@@ -36,16 +38,6 @@ import type { Locator, Page } from '@playwright/test';
 
 /** The platforms toured, in the order they appear in the tab strip. */
 type GatewayPlatform = 'discord' | 'slack' | 'telegram';
-
-/**
- * Hold long enough for the narration of `text` to finish before the next beat
- * starts (~65ms/char + settle), minus time already spent in interactions that
- * run between this beat and the next. Captions double as the VO script
- * (`narrate.mjs --source beats`), so this prevents audio overlap.
- */
-function voHold(text: string, alreadySpentMs = 0): number {
-  return Math.max(600, Math.round(text.length * 65) + 500 - alreadySpentMs);
-}
 
 /** Live, verified selectors from `libs/frontend/messaging-gateway-ui`. */
 const SEL = {
@@ -69,25 +61,20 @@ const SEL = {
   bindingEmpty: '[data-testid="gateway-binding-empty"]',
 } as const;
 
-/** Per-platform narration. */
-const PLATFORM_COPY: Record<GatewayPlatform, { hook: string; detail: string }> =
-  {
-    telegram: {
-      hook: 'Start with Telegram — send a message from anywhere, and your agents get to work back home.',
-      detail:
-        'Setup is two moves: paste in a bot token, approve a one-time pairing code, and you are driving Ptah from a chat window.',
-    },
-    discord: {
-      hook: 'Or give your whole team that same power, right inside your Discord server.',
-      detail:
-        'Invite the bot, register the slash-ptah command, and you decide exactly which servers get access.',
-    },
-    slack: {
-      hook: 'And for the office, Slack slots in just the same — Ptah lives where your projects already do.',
-      detail:
-        'Connect a bot token, and you approve exactly who is allowed to talk to it. Nobody else gets in.',
-    },
-  };
+/**
+ * Script-line base index per platform in `scripts/gateway-tour.json`: the
+ * platform's `hook` line lives at `base`, its `detail` line at `base + 1`.
+ * (Lines 4–5 telegram, 6–7 discord, 8–9 slack; the shared pairing-approval
+ * line is 10.)
+ */
+const PLATFORM_SCRIPT_BASE: Record<GatewayPlatform, number> = {
+  telegram: 4,
+  discord: 6,
+  slack: 8,
+};
+
+/** Script index of the shared "one-time approval code" pairing line. */
+const PAIRING_LINE = 10;
 
 /**
  * Navigate from wherever the shell opens into the Thoth → Gateway tab and wait
@@ -147,41 +134,47 @@ async function tourPlatform(
   director: Director,
   platform: GatewayPlatform,
 ): Promise<void> {
-  const copy = PLATFORM_COPY[platform];
+  const base = PLATFORM_SCRIPT_BASE[platform];
 
   // Draw the eye to the connector tile (icon + live status chip). The targeted
-  // caption punches the camera onto the tile as the VO names the platform.
+  // say punches the camera onto the tile as the VO names the platform.
   const tile = page.locator(SEL.tile(platform)).first();
   if (await tile.isVisible().catch(() => false)) {
-    await director.caption(copy.hook, tile);
-    await director.spotlight(tile, 1900);
-    // spotlight(1900 + 180 settle) already spent ~2.1s of this beat's VO.
-    await director.hold(voHold(copy.hook, 2080));
-    await director.caption();
+    await director.say(base, {
+      target: tile,
+      during: async () => {
+        await director.spotlight(tile, 1900);
+      },
+    });
   }
 
   // Switch to this platform's pane and dwell on the connection chrome.
   const pane = await selectPlatform(page, director, platform);
   if (!pane) return;
 
-  // The scrollThrough (4 steps × 700ms × down-and-back) outlasts the narration,
-  // so the caption plays fully during it — no explicit voHold needed here.
-  await director.caption(copy.detail, pane);
-  // Reveal the full pane (Connection + Access, plus Discord's integration kit).
-  await director.scrollThrough(pane, { steps: 4, dwellMs: 700, andBack: true });
-  await director.caption();
+  // Reveal the full pane (Connection + Access, plus Discord's integration kit)
+  // while the platform's detail line narrates over the pan.
+  await director.say(base + 1, {
+    target: pane,
+    during: async () => {
+      await director.scrollThrough(pane, {
+        steps: 4,
+        dwellMs: 700,
+        andBack: true,
+      });
+    },
+  });
 
   // Surface the pairing/approval state without touching it. If there are no
   // bindings yet, narrate the empty pairing flow gracefully.
   const empty = pane.locator(SEL.bindingEmpty).first();
   if (await empty.isVisible().catch(() => false)) {
-    const PAIR =
-      'And you stay in control — every new device needs your one-time approval code before it can do a thing.';
-    await director.caption(PAIR, empty);
-    await director.hover(empty, 2000);
-    // hover(2000 + 180 settle) already covered ~2.2s of the narration.
-    await director.hold(voHold(PAIR, 2180));
-    await director.caption();
+    await director.say(PAIRING_LINE, {
+      target: empty,
+      during: async () => {
+        await director.hover(empty, 2000);
+      },
+    });
   } else {
     await director.hold(1400);
   }
@@ -195,53 +188,45 @@ test('P3.2 — drive Ptah from your phone (Messaging Gateway)', async ({
   await director.dismissDialogs();
 
   // Hook beat.
-  const OPENING = 'What if your agents lived right in your pocket?';
-  await director.caption(OPENING);
-  await director.hold(voHold(OPENING));
-  await director.caption();
+  await director.say(0);
 
   // WARMUP — one line of context before the tour starts.
-  const WARMUP =
-    'You are inside Ptah, an AI coding workspace on your desktop. In the next minute, we take it mobile.';
-  await director.caption(WARMUP);
-  await director.hold(voHold(WARMUP));
-  await director.caption();
+  await director.say(1);
 
   // Into the Gateway tab.
   await goToGateway(page, director);
   await director.hold();
 
   // Orient: the master status + live stat strip (adapters / pending / approved / voice).
-  // The moveTo + per-block spotlight loop below outlasts the narration, so the
-  // caption plays fully across it.
-  const GATEWAY_INTRO =
-    'Meet the Gateway. It puts your agents inside the chat apps you already use every day: Telegram, Discord, and Slack.';
+  // The moveTo + per-block spotlight loop runs during the narration.
   const stats = page.locator(SEL.statsStrip).first();
   if (await stats.isVisible().catch(() => false)) {
-    await director.caption(GATEWAY_INTRO, stats);
-    await director.moveTo(stats);
-    await director.hold(1200);
-    // Glow each live counter so the running/pending/approved numbers read.
-    const blocks = page.locator(SEL.statBlock);
-    const blockCount = await blocks.count();
-    for (let i = 0; i < blockCount; i++) {
-      await director.spotlight(blocks.nth(i), 1100);
-    }
+    await director.say(2, {
+      target: stats,
+      during: async () => {
+        await director.moveTo(stats);
+        await director.hold(1200);
+        // Glow each live counter so the running/pending/approved numbers read.
+        const blocks = page.locator(SEL.statBlock);
+        const blockCount = await blocks.count();
+        for (let i = 0; i < blockCount; i++) {
+          await director.spotlight(blocks.nth(i), 1100);
+        }
+      },
+    });
   } else {
-    await director.caption(GATEWAY_INTRO);
+    await director.say(2);
   }
-  await director.hold(1600);
-  await director.caption();
 
   // Show the three connector tiles together before diving into each.
   const section = page.locator(SEL.platformSection).first();
   if (await section.isVisible().catch(() => false)) {
-    const THREE_CONNECTORS =
-      'You do not change your habits. You pick the place your team already talks, and Ptah meets you there.';
-    await director.caption(THREE_CONNECTORS, section);
-    await director.moveTo(section);
-    await director.hold(voHold(THREE_CONNECTORS, 300));
-    await director.caption();
+    await director.say(3, {
+      target: section,
+      during: async () => {
+        await director.moveTo(section);
+      },
+    });
   }
 
   // Deep-dive each platform pane in tab order: Telegram, then Discord, then Slack.
@@ -250,9 +235,5 @@ test('P3.2 — drive Ptah from your phone (Messaging Gateway)', async ({
   await tourPlatform(page, director, 'slack');
 
   // Payoff beat.
-  const OUTRO =
-    'So yes — your agents really do live in your pocket now. Kick off work from the couch, the train, anywhere.';
-  await director.caption(OUTRO);
-  await director.hold(voHold(OUTRO) + 600);
-  await director.caption();
+  await director.say(11, { breathMs: 350 + 600 });
 });

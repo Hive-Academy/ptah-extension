@@ -1,0 +1,18 @@
+{
+  "scene": "setup-wizard-tour",
+  "lines": [
+    "Generic AI agents give generic answers. What if yours actually knew your codebase?",
+    "Welcome to Ptah. This is the Setup Wizard — it reads your project and builds a team of agents around it.",
+    "Tailored agents and deep analysis come with Ptah Pro — one upgrade, and this whole pipeline is yours.",
+    "You do not configure anything by hand. Seven guided steps — scan, analyze, generate — and you are done.",
+    "It starts by actually reading your code — a four-phase AI scan of your whole project.",
+    "Your agents learn your real structure first — a deep analysis, not a guess.",
+    "Then you get thirteen agent templates, each one matched to your exact stack.",
+    "And you are not signing up for an afternoon — the whole thing takes under five minutes.",
+    "Every rule the wizard writes is specific to your code. Nothing generic survives.",
+    "You stay in charge of cost and power — you choose which model runs your analysis.",
+    "And when you are ready, one click kicks off the entire pipeline.",
+    "From there you just follow the rail: scan, analyze, select, and generate.",
+    "The payoff: agents that are not generic at all, because they were born from your own codebase."
+  ]
+}

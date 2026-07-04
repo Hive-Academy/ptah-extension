@@ -19,9 +19,12 @@ import type { Locator, Page } from '@playwright/test';
  * Purely UI-driven: NO agents run and NO LLM inference happens, so there is no
  * `waitForAgentTurn` here.
  *
- * Captions double as the VOICEOVER SCRIPT (`narrate.mjs --source beats`), so they
- * are spoken prose; element-targeted captions + spotlight/hover auto-emit
- * `shots.json`, punching the camera onto each subject.
+ * AUDIO-FIRST: the voiceover script lives in `scripts/thoth-tour.json` and is
+ * narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)` speaks line
+ * i, holding for the REAL clip duration (durations.json) so narration, captions
+ * and footage stay locked — no estimated holds, no silent gaps. Element-
+ * targeted says + spotlight/hover auto-emit `shots.json`, punching the camera
+ * onto each subject as the VO names it.
  *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
@@ -38,13 +41,12 @@ import type { Locator, Page } from '@playwright/test';
  * rather than by role to avoid colliding with the top-nav tablist.
  */
 
-/** One inner tab of the Thoth shell: its id, the line we narrate, and a list of
- * candidate hero selectors to spotlight (first visible wins). */
+/** One inner tab of the Thoth shell: its id and a list of candidate hero
+ * selectors to spotlight (first visible wins). Its narration line lives in
+ * `scripts/thoth-tour.json` at index `TAB_SCRIPT_BASE + position`. */
 interface ThothBeat {
   /** Tab/panel id suffix — drives `#thoth-tab-<id>` and `#thoth-panel-<id>`. */
   readonly id: 'memory' | 'skills' | 'cron' | 'gateway';
-  /** Single-line teaser caption for this tab. */
-  readonly caption: string;
   /**
    * Ordered hero candidates to spotlight — the first visible one wins. Falls
    * back to the panel's own heading, then the panel root, if none match (these
@@ -53,12 +55,10 @@ interface ThothBeat {
   readonly hero: readonly string[];
 }
 
-/** The four tabs, in cockpit-pan order, each with its line + hero candidates. */
+/** The four tabs, in cockpit-pan order, each with its hero candidates. */
 const BEATS: readonly ThothBeat[] = [
   {
     id: 'memory',
-    caption:
-      'First, Memory. Your context survives every restart — a persistent brain that remembers what matters.',
     hero: [
       '[data-testid="memory-stat-blocks"]',
       '[data-testid="memory-blocks-list"]',
@@ -67,8 +67,6 @@ const BEATS: readonly ThothBeat[] = [
   },
   {
     id: 'skills',
-    caption:
-      'Next, Skills. Solve a problem once, and your agents keep that ability forever — ready to call on again.',
     hero: [
       '[data-testid="suggestions-card"]',
       '[data-testid="skills-stat-candidates"]',
@@ -77,8 +75,6 @@ const BEATS: readonly ThothBeat[] = [
   },
   {
     id: 'cron',
-    caption:
-      'Then Schedules. The work gets done while you sleep — cron-driven agents that wake up on their own.',
     hero: [
       '[data-testid="cron-job-row"]',
       '[data-testid="cron-stat-total"]',
@@ -87,8 +83,6 @@ const BEATS: readonly ThothBeat[] = [
   },
   {
     id: 'gateway',
-    caption:
-      'And finally, the Gateway. Leave your desk behind — and drive Ptah from Telegram, Discord, or Slack.',
     hero: [
       '[data-testid="gateway-channel-card"]',
       '[data-testid="gateway-stat-total"]',
@@ -98,14 +92,10 @@ const BEATS: readonly ThothBeat[] = [
 ];
 
 /**
- * Hold long enough for the narration of `text` to finish before the next beat
- * starts (~65ms/char + settle), minus time already spent in interactions that
- * run between this beat and the next. Captions double as the VO script
- * (`narrate.mjs --source beats`), so this prevents audio overlap.
+ * Script index of the FIRST tab line in `scripts/thoth-tour.json` — the four
+ * `BEATS` narrate lines `TAB_SCRIPT_BASE + position` in array order.
  */
-function voHold(text: string, alreadySpentMs = 0): number {
-  return Math.max(600, Math.round(text.length * 65) + 500 - alreadySpentMs);
-}
+const TAB_SCRIPT_BASE = 3;
 
 /**
  * Enter the Thoth shell from the top nav. Best-effort against the live shell:
@@ -163,6 +153,7 @@ async function tourTab(
   page: Page,
   director: Director,
   beat: ThothBeat,
+  scriptIndex: number,
 ): Promise<void> {
   await director.click(page.locator(`#thoth-tab-${beat.id}`));
   const panel = page.locator(`#thoth-panel-${beat.id}`);
@@ -171,19 +162,21 @@ async function tourTab(
   await director.dismissDialogs();
 
   // Target the panel so the camera frames this tab's surface as the VO names it.
-  await director.caption(beat.caption, panel);
-  // scrollThrough + hero spotlight below outlast the VO — keep a short hold.
-  await director.hold(900);
+  await director.say(scriptIndex, {
+    target: panel,
+    during: async () => {
+      await director.hold(900);
 
-  // Reveal the full surface with a slow top→bottom→top pan.
-  await director.scrollThrough(panel, { steps: 5, dwellMs: 620 });
+      // Reveal the full surface with a slow top→bottom→top pan.
+      await director.scrollThrough(panel, { steps: 5, dwellMs: 620 });
 
-  // Draw the eye to this tab's hero element (or the panel chrome if sparse).
-  const hero = await resolveHero(page, beat, panel);
-  await director.spotlight(hero, 1700);
+      // Draw the eye to this tab's hero element (or the panel chrome if sparse).
+      const hero = await resolveHero(page, beat, panel);
+      await director.spotlight(hero, 1700);
 
-  await director.hold(500);
-  await director.caption();
+      await director.hold(500);
+    },
+  });
 }
 
 test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
@@ -195,18 +188,10 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
   await director.dismissDialogs();
 
   // HOOK — fire immediately so the video opens on a claim, not dead air.
-  const HOOK =
-    'You have seen Ptah inside VS Code. That was just the tip. The desktop app is the whole iceberg.';
-  await director.caption(HOOK);
-  await director.hold(voHold(HOOK));
-  await director.caption();
+  await director.say(0);
 
   // WARMUP — one line of context before the tour starts.
-  const WARMUP =
-    'This is Ptah Desktop — the full cockpit. Four tabs, all powered by a local brain. Let us take the tour.';
-  await director.caption(WARMUP);
-  await director.hold(voHold(WARMUP));
-  await director.caption();
+  await director.say(1);
 
   // Enter the cockpit; the trial modal can re-assert after navigation, so
   // dismiss again before we start panning the tabs.
@@ -214,24 +199,14 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
   await director.dismissDialogs();
   await director.hold();
 
-  // The four-tab pan below runs for far longer than this line — interaction-
-  // covered — so a short hold is enough before the loop takes over.
-  await director.caption(
-    'Four tabs, four superpowers the extension could never have.',
-  );
-  await director.hold(1400);
-  await director.caption();
+  await director.say(2);
 
   // One confident pan across the four Electron-only tabs — scroll + spotlight.
-  for (const beat of BEATS) {
-    await tourTab(page, director, beat);
+  for (const [position, beat] of BEATS.entries()) {
+    await tourTab(page, director, beat, TAB_SCRIPT_BASE + position);
   }
 
   // Payoff — desktop runs a local SQLite brain + embedder worker, which is why
   // these four are desktop-only by design.
-  const PAYOFF =
-    'Memory, skills, schedules, and the gateway — one app, one full brain. That is the rest of the iceberg.';
-  await director.caption(PAYOFF);
-  await director.hold(voHold(PAYOFF));
-  await director.caption();
+  await director.say(7);
 });

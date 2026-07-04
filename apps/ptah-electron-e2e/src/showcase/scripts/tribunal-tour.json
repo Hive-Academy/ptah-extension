@@ -1,0 +1,22 @@
+{
+  "scene": "tribunal-tour",
+  "lines": [
+    "What if your AI models disagreed — on purpose?",
+    "Inside Ptah, there is a room built for exactly that. It is called the Tribunal. Let me show you how it works.",
+    "Here they sit — rival vendors on one bench, ready to check each other, so you do not have to.",
+    "You get one conductor keeping order, and a whole row of rival panelists lined up beside it.",
+    "The bench is yours to arrange — lock the layout in place, or shuffle it however you like.",
+    "Debate. Forge. Race. You pick the weapon.",
+    "Need a verdict? Council. Need working code? Forge. Need a winner? Race.",
+    "The idea is simple — put your rival models on one bench, and let the friction find the truth.",
+    "So let us convene the panel.",
+    "You get three moves — three different ways to settle an argument.",
+    "Council gets you a straight answer — every vendor weighs in, and you get one cited verdict.",
+    "Forge gets you real code — each model builds in its own isolated worktree, and the best diff wins.",
+    "And Race gets you a champion — every model competes, and a rubric crowns the winner.",
+    "Let us send them to the Forge.",
+    "Now you pick your fighters — one model to each lane on the bench.",
+    "And there are no surprise bills — effort, model, and turn estimate, every cost shown up front.",
+    "So yes — your models disagree on purpose. Because that disagreement is exactly the signal you need."
+  ]
+}

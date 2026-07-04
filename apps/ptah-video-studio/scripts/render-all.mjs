@@ -46,6 +46,80 @@ const MUSIC_ASSET = path.join(APP_ROOT, 'assets', 'music', 'bed.mp3');
 const LEAD_IN_MS = 700;
 
 /**
+ * Camera grammar: the body always OPENS full-frame for at least this long so
+ * the viewer sees the whole app before the first punch-in.
+ */
+const ESTABLISH_MS = 2600;
+/** Minimum time between camera shots — punch-ins faster than this read as jitter. */
+const MIN_SHOT_MS = 1400;
+
+/**
+ * Enforce the camera grammar on a (body-local, post-trim) shot list:
+ *   1. Insert a full-frame establishing shot at 0 and push any focus shot that
+ *      fired inside the establishing window out to `ESTABLISH_MS` (keeping only
+ *      the last such shot — earlier ones would flash by anyway).
+ *   2. Drop shots that start within `MIN_SHOT_MS` of the previous kept shot.
+ */
+function applyCameraGrammar(shots) {
+  if (shots.length === 0) return shots;
+  const sorted = [...shots].sort((a, b) => a.fromMs - b.fromMs);
+
+  const earlyFocus = sorted.filter((s) => s.fromMs < ESTABLISH_MS && s.focus);
+  const kept = [{ fromMs: 0 }];
+  if (earlyFocus.length > 0) {
+    kept.push({ ...earlyFocus[earlyFocus.length - 1], fromMs: ESTABLISH_MS });
+  }
+  for (const s of sorted) {
+    if (s.fromMs < ESTABLISH_MS) continue; // covered by the opener / pushed shot
+    kept.push(s);
+  }
+
+  const spaced = [];
+  for (const s of kept.sort((a, b) => a.fromMs - b.fromMs)) {
+    const prev = spaced[spaced.length - 1];
+    if (prev && s.fromMs - prev.fromMs < MIN_SHOT_MS) continue;
+    spaced.push(s);
+  }
+  return spaced;
+}
+
+/**
+ * Word-accurate captions synthesized from ElevenLabs character alignment
+ * (durations.json `clips[].words`, clip-relative ms) instead of a whisper
+ * transcription pass. Each beat's words are shifted onto the footage clock at
+ * the beat's recorded tMs. Returns null when no clip carries words (legacy /
+ * kokoro narration) so the caller falls back to captions.json.
+ */
+function captionsFromAlignment(beats, durations) {
+  const clips = durations?.clips ?? [];
+  if (!clips.some((c) => Array.isArray(c.words) && c.words.length > 0)) {
+    return null;
+  }
+  // In a scripted scene (any beat carries scriptIndex), a beat WITHOUT one is
+  // a legacy/dynamic beat with no pre-generated clip — position-mapping it
+  // would steal another line's clip, so it gets no tokens. Pure-legacy scenes
+  // (no scriptIndex anywhere) keep the position mapping.
+  const scripted = beats.some((b) => b.scriptIndex !== undefined);
+  const byIndex = new Map(clips.map((c) => [c.index, c]));
+  const tokens = [];
+  beats.forEach((beat, i) => {
+    const wavIndex = scripted ? beat.scriptIndex : i;
+    if (wavIndex === undefined) return;
+    const clip = byIndex.get(wavIndex + 1);
+    for (const w of clip?.words ?? []) {
+      tokens.push({
+        text: w.text,
+        startMs: beat.tMs + w.startMs,
+        endMs: beat.tMs + w.endMs,
+        timestampMs: beat.tMs + Math.round((w.startMs + w.endMs) / 2),
+        confidence: 1,
+      });
+    }
+  });
+  return tokens;
+}
+
+/**
  * Ms of dead footage to skip at the front: everything up to `LEAD_IN_MS` before
  * the first beat. Returns 0 when the first beat already starts within the lead-in
  * window (nothing to trim) or there are no beats.
@@ -247,7 +321,16 @@ function buildProps(scene, outRes) {
   }
 
   const durations = readJsonIfExists(path.join(dir, 'durations.json'));
-  let captions = readJsonIfExists(path.join(dir, 'captions.json')) ?? [];
+  // Prefer word-accurate captions from the narration's character alignment;
+  // captions.json (whisper) remains the fallback for alignment-less engines.
+  const aligned = captionsFromAlignment(manifest.beats ?? [], durations);
+  let captions =
+    aligned ?? readJsonIfExists(path.join(dir, 'captions.json')) ?? [];
+  if (aligned) {
+    console.log(
+      `[render] ${scene}: captions from narration alignment (${aligned.length} tokens).`,
+    );
+  }
   // Optional camera / annotation track. Hand-authored per scene today; the
   // Director will emit it from spotlighted element boxes for designed scenes.
   // Validated structurally here (mirrors shotsFileSchema) so a malformed track
@@ -277,17 +360,34 @@ function buildProps(scene, outRes) {
     );
   }
 
+  // Camera grammar on the (now body-local) track: full-frame establishing
+  // opening, then minimum-spaced punch-ins.
+  shots = applyCameraGrammar(shots);
+
   // Asset paths are relative (forward-slash) to the scene dir, which is passed
   // to `remotion render` as --public-dir. Remotion serves local assets over its
   // internal http server via staticFile(); absolute file:// paths are rejected
   // by the renderer's asset loader.
+  // Beat position -> narration wav. Beats tagged with `scriptIndex` (emitted
+  // by director.say) map to the wav of their SCRIPT line, so pre-generated
+  // clips stay locked to their lines even when a conditional beat was skipped
+  // at capture; untagged beats keep the legacy position-based mapping.
   const narrationFiles = {};
   const wavDir = path.join(dir, 'wav');
   if (fs.existsSync(wavDir)) {
-    for (const f of fs.readdirSync(wavDir)) {
-      const m = /^(\d+)\.wav$/i.exec(f);
-      if (m) narrationFiles[Number(m[1])] = `wav/${f}`;
-    }
+    // See captionsFromAlignment: in a scripted scene, a beat without a
+    // scriptIndex has no clip of its own — never position-map it onto one.
+    const scripted = (manifest.beats ?? []).some(
+      (b) => b.scriptIndex !== undefined,
+    );
+    (manifest.beats ?? []).forEach((beat, i) => {
+      const wavIndex = scripted ? beat.scriptIndex : i;
+      if (wavIndex === undefined) return;
+      const f = `${String(wavIndex + 1).padStart(4, '0')}.wav`;
+      if (fs.existsSync(path.join(wavDir, f))) {
+        narrationFiles[i + 1] = `wav/${f}`;
+      }
+    });
   }
 
   const source = detectSource(
