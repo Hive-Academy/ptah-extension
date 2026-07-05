@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmThoth } from './_harness/prewarm';
 
 /**
  * P3.2 — "Drive Ptah from your phone" (Messaging Gateway tour).
@@ -186,6 +187,12 @@ test('P3.2 — drive Ptah from your phone (Messaging Gateway)', async ({
 }) => {
   // Clear the persistent "Your Pro Trial Has Ended" startup modal before filming.
   await director.dismissDialogs();
+
+  // PRE-WARM (trimmed lead-in, before the first beat): the Gateway tab mounts
+  // the Telegram/Discord/Slack connector chrome and its live status strip on
+  // first visit. Force it now so `goToGateway` below hits a warm panel instead
+  // of stalling between the warmup and orient beats. Silent + guarded.
+  await prewarmThoth(page, ['gateway']).catch(() => undefined);
 
   // Hook beat.
   await director.say(0);

@@ -9,10 +9,14 @@
  *  - Whooshes fire at each shot transition that CHANGES the focus (a real punch-
  *    in / reframe, not a no-op shot). Shot times are body-local (VO time), so
  *    we offset them by `introMs` to land on the composition timeline.
- *  - The music bed is placed at frame 0, trimmed to the composition length, and
- *    faded in/out at the edges via a per-frame volume ramp.
+ *  - The music bed is placed at frame 0, looped + trimmed to the composition
+ *    length, and DUCKED under narration: its volume drops to ~0.12 while any
+ *    narration clip plays and rises to ~0.32 in the gaps (250ms linear ramps),
+ *    with a 1s fade-in at the head and a 1.5s fade-out at the tail. Narration
+ *    windows come in body-local output ms (render-all) and are offset by introMs
+ *    onto the composition timeline — the same shift used for the whooshes.
  *
- * Volumes follow the roadmap: whoosh ~0.35, music bed ~0.08.
+ * Volumes follow the roadmap: whoosh ~0.35, ducked bed ~0.12, open bed ~0.32.
  */
 import React from 'react';
 import {
@@ -21,13 +25,19 @@ import {
   interpolate,
   useVideoConfig,
 } from 'remotion';
-import { msToFrames } from '../lib/load-manifest';
+import { msToFrames, type NarrationWindow } from '../lib/load-manifest';
 import { FULL, type FocusRect, type Shot } from '../lib/shots';
 
 export interface SoundDesignProps {
   shots: Shot[];
-  /** Intro length (ms) — body-local shot times are offset by this. */
+  /** Intro length (ms) — body-local shot/window times are offset by this. */
   introMs: number;
+  /**
+   * Narration windows in body-local OUTPUT ms (render-all). The bed ducks inside
+   * these and rises between them. Empty → the bed holds its open level (only the
+   * head/tail fades apply).
+   */
+  narrationWindows?: NarrationWindow[];
   /** Resolved whoosh SFX src; omit to skip whooshes. */
   whooshSrc?: string;
   /** Resolved music-bed src; omit to skip the bed. */
@@ -35,9 +45,14 @@ export interface SoundDesignProps {
 }
 
 const WHOOSH_VOLUME = 0.35;
-const MUSIC_VOLUME = 0.08;
-/** Music fade in/out at the composition edges (ms). */
-const MUSIC_FADE_MS = 900;
+/** Bed level while narration plays (ducked) and in the gaps (open). */
+const MUSIC_DUCK_VOLUME = 0.12;
+const MUSIC_OPEN_VOLUME = 0.32;
+/** Linear ramp between ducked/open around each narration window edge (ms). */
+const DUCK_RAMP_MS = 250;
+/** Head fade-in and tail fade-out at the composition edges (ms). */
+const FADE_IN_MS = 1000;
+const FADE_OUT_MS = 1500;
 
 /** Two focus rects differ enough to count as a real reframe (whoosh-worthy). */
 function focusChanged(a: FocusRect, b: FocusRect): boolean {
@@ -53,6 +68,7 @@ function focusChanged(a: FocusRect, b: FocusRect): boolean {
 export const SoundDesign: React.FC<SoundDesignProps> = ({
   shots,
   introMs,
+  narrationWindows = [],
   whooshSrc,
   musicSrc,
 }) => {
@@ -71,22 +87,63 @@ export const SoundDesign: React.FC<SoundDesignProps> = ({
     }
   }
 
-  // Per-frame volume ramp for the music bed (fade in at head, out at tail).
-  const fadeFrames = Math.max(1, msToFrames(MUSIC_FADE_MS));
-  const musicVolume = (f: number): number =>
-    MUSIC_VOLUME *
-    Math.min(
-      interpolate(f, [0, fadeFrames], [0, 1], {
+  // Narration windows shifted onto the composition timeline (body-local +
+  // introMs), in ms — the ducking envelope reads these per frame.
+  const duckWindows = narrationWindows.map((w) => ({
+    startMs: introMs + w.startMs,
+    endMs: introMs + w.endMs,
+  }));
+
+  // Ducking level (ms → volume) with linear ramps around each window edge; the
+  // MINIMUM across windows wins so overlapping ramps stay ducked. Open level in
+  // the gaps, ducked inside speech.
+  const duckLevel = (tMs: number): number => {
+    let level = MUSIC_OPEN_VOLUME;
+    for (const w of duckWindows) {
+      if (tMs <= w.startMs - DUCK_RAMP_MS || tMs >= w.endMs + DUCK_RAMP_MS) {
+        continue;
+      }
+      let v: number;
+      if (tMs < w.startMs) {
+        v = interpolate(
+          tMs,
+          [w.startMs - DUCK_RAMP_MS, w.startMs],
+          [MUSIC_OPEN_VOLUME, MUSIC_DUCK_VOLUME],
+          { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
+        );
+      } else if (tMs <= w.endMs) {
+        v = MUSIC_DUCK_VOLUME;
+      } else {
+        v = interpolate(
+          tMs,
+          [w.endMs, w.endMs + DUCK_RAMP_MS],
+          [MUSIC_DUCK_VOLUME, MUSIC_OPEN_VOLUME],
+          { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
+        );
+      }
+      level = Math.min(level, v);
+    }
+    return level;
+  };
+
+  // Head fade-in / tail fade-out multiplier (0..1), applied over the duck level.
+  const fadeInFrames = Math.max(1, msToFrames(FADE_IN_MS));
+  const fadeOutFrames = Math.max(1, msToFrames(FADE_OUT_MS));
+  const musicVolume = (f: number): number => {
+    const fade = Math.min(
+      interpolate(f, [0, fadeInFrames], [0, 1], {
         extrapolateLeft: 'clamp',
         extrapolateRight: 'clamp',
       }),
       interpolate(
         f,
-        [durationInFrames - fadeFrames, durationInFrames],
+        [durationInFrames - fadeOutFrames, durationInFrames],
         [1, 0],
         { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
       ),
     );
+    return duckLevel((f / fps) * 1000) * fade;
+  };
 
   return (
     <>

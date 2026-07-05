@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmNavSurface } from './_harness/prewarm';
 
 /**
  * Setup Wizard Tour — "personalize Ptah in minutes" (P7.1, 7-step onboarding).
@@ -69,6 +70,17 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
 }) => {
   // Clear any blocking startup modal (license / trial dialog) before filming.
   await director.dismissDialogs();
+
+  // PRE-WARM (trimmed lead-in, before the first beat): force the setup wizard
+  // view (step container OR premium upsell) to take its first-mount cost now so
+  // `goToSetup` below hits a warm surface instead of stalling between the warmup
+  // and welcome beats. Navigation-only — it never clicks the analysis CTA.
+  // Silent + guarded; returns to the starting surface.
+  await prewarmNavSurface(
+    page,
+    'Setup',
+    '[data-testid="wizard-step"], ptah-premium-upsell',
+  ).catch(() => undefined);
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
   await director.say(0);

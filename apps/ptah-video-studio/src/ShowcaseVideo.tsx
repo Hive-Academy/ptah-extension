@@ -38,6 +38,8 @@ import {
   OUTPUT_FPS,
   type CaptionToken,
   type Durations,
+  type Segment,
+  type NarrationWindow,
 } from './lib/load-manifest';
 import type { Shot } from './lib/shots';
 
@@ -53,6 +55,19 @@ export type ShowcaseVideoProps = {
   source?: SourceInfo;
   /** Camera / annotation shots; empty falls back to idle Ken Burns. */
   shots?: Shot[];
+  /**
+   * Segment-based timeline (render-all's time-remap). When present, DeviceFrame
+   * plays the footage as per-segment <OffthreadVideo>s with their own
+   * trimBefore/playbackRate so dead spans between narration beats are compressed.
+   * Absent (or --no-segments) → the single-video path with a flat trimBefore.
+   */
+  segments?: Segment[];
+  /**
+   * Narration windows (OUTPUT ms, body-local) used by SoundDesign to duck the
+   * music bed under speech and let it rise in the gaps. Absent → the bed plays
+   * at its flat gap level throughout.
+   */
+  narrationWindows?: NarrationWindow[];
   introCopy?: string;
   outroCopy?: string;
   introMs?: number;
@@ -109,6 +124,8 @@ export const ShowcaseVideo: React.FC<ShowcaseVideoProps> = ({
   captions,
   source,
   shots = [],
+  segments = [],
+  narrationWindows = [],
   introCopy,
   outroCopy,
   introMs = DEFAULT_INTRO_MS,
@@ -158,6 +175,7 @@ export const ShowcaseVideo: React.FC<ShowcaseVideoProps> = ({
               narrationFiles={narrationFiles}
               captions={captions}
               shots={shots}
+              segments={segments}
               kenBurns={kenBurns}
               supersample={supersample}
               trimBeforeMs={trimBeforeMs}
@@ -180,6 +198,7 @@ export const ShowcaseVideo: React.FC<ShowcaseVideoProps> = ({
       <SoundDesign
         shots={shots}
         introMs={introMs}
+        narrationWindows={narrationWindows}
         whooshSrc={whooshSfx ? resolveSrc(whooshSfx) : undefined}
         musicSrc={musicBed ? resolveSrc(musicBed) : undefined}
       />

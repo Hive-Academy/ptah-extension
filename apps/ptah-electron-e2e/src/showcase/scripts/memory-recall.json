@@ -2,7 +2,7 @@
   "scene": "memory-recall",
   "lines": [
     "How many times have you explained the same codebase to an AI that forgot you by the next session?",
-    "Ptah is different — it ships with a persistent memory, and you are about to see inside it.",
+    "Ptah, the AI coding orchestra, is different — it ships with a persistent memory shared across every agent, and you are about to see inside it.",
     "Everything it learns stays with you — facts and decisions, saved in a local brain and carried across every session.",
     "Core is what it never forgets — the always-on facts about you and your project.",
     "Recall is its working memory — recent context it can pull back for you in an instant.",

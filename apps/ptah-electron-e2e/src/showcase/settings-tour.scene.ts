@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmNavSurface } from './_harness/prewarm';
 
 /**
  * P3.x — "Tune Ptah to your stack" (Settings surface tour).
@@ -196,6 +197,14 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
   // The persistent authed profile ALWAYS shows the "Pro Trial Has Ended"
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
+
+  // PRE-WARM (trimmed lead-in, before the first beat): force the Settings shell
+  // to take its first-mount cost now so `goToSettings` below hits a warm surface
+  // instead of stalling between the warmup and auth-section beats. Read-only
+  // navigation — no key, toggle, or theme is touched here. Silent + guarded.
+  await prewarmNavSurface(page, 'Settings', 'ptah-settings').catch(
+    () => undefined,
+  );
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
   await director.say(0);

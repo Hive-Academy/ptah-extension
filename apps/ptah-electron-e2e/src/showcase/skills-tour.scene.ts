@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmThoth } from './_harness/prewarm';
 
 /**
  * P1.3 — "Skills synthesis" (deep dive on the Thoth Skills tab).
@@ -94,6 +95,12 @@ async function goToSkills(page: Page, director: Director): Promise<Locator> {
 test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
   // The persistent authed profile ALWAYS shows the trial modal on boot.
   await director.dismissDialogs();
+
+  // PRE-WARM (trimmed lead-in, before the first beat): the Skills tab's
+  // synthesis panel is SQLite/embedder-backed and slow on first mount. Force it
+  // now so `goToSkills` below hits a warm panel instead of stalling between the
+  // warmup and stats beats. Silent + guarded (see prewarm.ts).
+  await prewarmThoth(page, ['skills']).catch(() => undefined);
 
   // HOOK — fire immediately so the video opens on a claim, not dead air.
   await director.say(0);

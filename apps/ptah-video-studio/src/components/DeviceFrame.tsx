@@ -20,11 +20,13 @@
 import React from 'react';
 import {
   OffthreadVideo,
+  Sequence,
   interpolate,
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
 import { THEME } from '../theme';
+import type { Segment } from '../lib/load-manifest';
 import {
   activeShot,
   cameraVelocity,
@@ -46,6 +48,15 @@ export interface DeviceFrameProps {
   src: string;
   source: SourceInfo;
   shots?: Shot[];
+  /**
+   * Segment-based timeline (render-all's time-remap). When non-empty the footage
+   * is played as a series of <Sequence>-wrapped <OffthreadVideo> segments, each
+   * with its own trimBefore (frames) + playbackRate, so dead spans between
+   * narration beats are compressed. Empty → the single-video path (flat
+   * trimBefore). The camera stage geometry is identical in both paths — segments
+   * only swap the video-source timing, never the camera layer.
+   */
+  segments?: Segment[];
   kenBurns?: boolean;
   /**
    * True when capture footage is higher-res than the output composition, so the
@@ -97,10 +108,78 @@ const Ring: React.FC<{
   );
 };
 
+/**
+ * Footage rendered as the segment-based timeline: one <Sequence>-wrapped
+ * <OffthreadVideo> per segment. Each segment starts at its output frame
+ * (`outFromMs`), runs until the next segment's start (contiguous, no frame
+ * gaps — the last one is clamped to the body length), and plays the source from
+ * `trimBeforeMs + srcFromMs` at `playbackRate`. Exactly one segment is on-screen
+ * at a time; the shared camera stage transforms them all identically, so the
+ * camera/ring geometry is untouched — only the video-source timing changes.
+ */
+const SegmentedFootage: React.FC<{
+  src: string;
+  segments: Segment[];
+  trimBeforeMs: number;
+  fps: number;
+  cardW: number;
+  videoDispH: number;
+  footageFilter: string;
+  bodyFrames: number;
+}> = ({
+  src,
+  segments,
+  trimBeforeMs,
+  fps,
+  cardW,
+  videoDispH,
+  footageFilter,
+  bodyFrames,
+}) => {
+  const toFrames = (ms: number) => Math.round((ms / 1000) * fps);
+  const starts = segments.map((s) => toFrames(s.outFromMs));
+  return (
+    <>
+      {segments.map((seg, i) => {
+        const from = starts[i];
+        const to = i + 1 < segments.length ? starts[i + 1] : bodyFrames;
+        const durationInFrames = Math.max(1, to - from);
+        const trimBefore = Math.max(
+          0,
+          toFrames(trimBeforeMs + seg.srcFromMs),
+        );
+        return (
+          <Sequence
+            key={`seg-${i}`}
+            from={from}
+            durationInFrames={durationInFrames}
+            name={`seg-${i}${seg.playbackRate !== 1 ? `-${seg.playbackRate.toFixed(1)}x` : ''}`}
+            layout="none"
+          >
+            <OffthreadVideo
+              src={src}
+              trimBefore={trimBefore}
+              playbackRate={seg.playbackRate}
+              style={{
+                width: cardW,
+                height: videoDispH,
+                display: 'block',
+                filter: footageFilter,
+                willChange: footageFilter === 'none' ? undefined : 'filter',
+              }}
+            />
+          </Sequence>
+        );
+      })}
+    </>
+  );
+};
+
 export const DeviceFrame: React.FC<DeviceFrameProps> = ({
   src,
   source,
   shots = [],
+  segments = [],
   kenBurns = true,
   supersample = false,
   trimBeforeMs = 0,
@@ -192,19 +271,32 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
             transformOrigin: 'top left',
           }}
         >
-          <OffthreadVideo
-            src={src}
-            trimBefore={Math.max(0, Math.round((trimBeforeMs / 1000) * fps))}
-            style={{
-              width: cardW,
-              height: videoDispH,
-              display: 'block',
-              filter: footageFilter,
-              // Nudge the browser to composite the blur on its own layer so the
-              // filter doesn't jitter the ring/annotations sharing this stage.
-              willChange: footageFilter === 'none' ? undefined : 'filter',
-            }}
-          />
+          {segments.length > 0 ? (
+            <SegmentedFootage
+              src={src}
+              segments={segments}
+              trimBeforeMs={trimBeforeMs}
+              fps={fps}
+              cardW={cardW}
+              videoDispH={videoDispH}
+              footageFilter={footageFilter}
+              bodyFrames={durationInFrames}
+            />
+          ) : (
+            <OffthreadVideo
+              src={src}
+              trimBefore={Math.max(0, Math.round((trimBeforeMs / 1000) * fps))}
+              style={{
+                width: cardW,
+                height: videoDispH,
+                display: 'block',
+                filter: footageFilter,
+                // Nudge the browser to composite the blur on its own layer so the
+                // filter doesn't jitter the ring/annotations sharing this stage.
+                willChange: footageFilter === 'none' ? undefined : 'filter',
+              }}
+            />
+          )}
           {active?.ring ? (
             <Ring
               rect={active.ring}

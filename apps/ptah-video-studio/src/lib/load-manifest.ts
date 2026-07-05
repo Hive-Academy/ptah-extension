@@ -71,6 +71,31 @@ export type Durations = z.infer<typeof durationsSchema>;
 export type DurationClip = z.infer<typeof durationClipSchema>;
 export type CaptionToken = z.infer<typeof captionSchema>;
 
+/**
+ * One piece of the segment-based timeline (render-all's time-remap). Footage
+ * from source ms [srcFromMs, srcToMs] is shown over OUTPUT ms
+ * [outFromMs, outToMs] at `playbackRate` (1 = real-time under narration; >1 =
+ * a speed-ramped dead span). Times are body-local (post lead-trim); DeviceFrame
+ * adds the lead-trim to reach the raw footage frame. Segments tile the output
+ * timeline contiguously; the SOURCE may skip footage where a hard-cut dropped a
+ * dead span.
+ */
+export const segmentSchema = z.object({
+  srcFromMs: z.number().nonnegative(),
+  srcToMs: z.number().nonnegative(),
+  outFromMs: z.number().nonnegative(),
+  outToMs: z.number().nonnegative(),
+  playbackRate: z.number().positive(),
+});
+export type Segment = z.infer<typeof segmentSchema>;
+
+/** A narration window in OUTPUT ms (body-local) — drives the music-bed ducking. */
+export const narrationWindowSchema = z.object({
+  startMs: z.number().nonnegative(),
+  endMs: z.number().nonnegative(),
+});
+export type NarrationWindow = z.infer<typeof narrationWindowSchema>;
+
 /** Parse + validate a raw beats.json object. Throws on schema mismatch. */
 export function parseManifest(raw: unknown): SceneManifest {
   return sceneManifestSchema.parse(raw) as SceneManifest;

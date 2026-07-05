@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmEditor } from './_harness/prewarm';
 
 /**
  * SHOWCASE — "A real editor, built in" (Monaco + terminal tour).
@@ -134,6 +135,13 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
   director,
 }) => {
   await director.dismissDialogs();
+
+  // PRE-WARM (trimmed lead-in, before the first beat): the editor panel's
+  // Monaco host is the worst mid-scene stall (~31s first-mount). Force it to
+  // mount now — open the panel, open a leaf file, then close the panel — so the
+  // `openEditorPanel` / `openAFile` calls below hit a warm Monaco and no longer
+  // freeze the frame between beats. Silent + fully guarded (see prewarm.ts).
+  await prewarmEditor(page).catch(() => undefined);
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
   await director.say(0);

@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmThoth } from './_harness/prewarm';
 
 /**
  * P1.2 — "Ptah Desktop — the Thoth shell" (4-tab cockpit tour).
@@ -186,6 +187,15 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
   // The persistent authed profile ALWAYS shows the "Pro Trial Has Ended"
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
+
+  // PRE-WARM (trimmed lead-in, before the first beat): this cockpit pan visits
+  // all four Electron-only tabs, each of which pays a SQLite/embedder-backed
+  // first-mount cost. Force those mounts now so the per-tab switches in the
+  // `tourTab` loop stay snappy between beats instead of stalling on camera.
+  // Silent + fully guarded (see prewarm.ts); returns to the starting surface.
+  await prewarmThoth(page, ['memory', 'skills', 'cron', 'gateway']).catch(
+    () => undefined,
+  );
 
   // HOOK — fire immediately so the video opens on a claim, not dead air.
   await director.say(0);

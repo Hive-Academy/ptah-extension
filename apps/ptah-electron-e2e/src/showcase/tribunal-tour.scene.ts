@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmNavSurface } from './_harness/prewarm';
 
 /**
  * Tribunal Tour — "a panel of rival models" (multi-vendor peer panel).
@@ -64,6 +65,17 @@ async function goToTribunal(page: Page, director: Director): Promise<void> {
 test('Tribunal — a panel of rival models', async ({ page, director }) => {
   // Clear any blocking startup modal (license / trial dialog) before filming.
   await director.dismissDialogs();
+
+  // PRE-WARM (trimmed lead-in, before the first beat): force the Tribunal grid
+  // surface to take its first-mount cost now so `goToTribunal` below hits a warm
+  // grid instead of stalling between the warmup and establish beats. Strictly
+  // navigation-only — it NEVER convenes a panel (no paid agents). Silent +
+  // guarded; returns to the starting surface.
+  await prewarmNavSurface(
+    page,
+    'Tribunal',
+    '[data-testid="tribunal-grid"]',
+  ).catch(() => undefined);
 
   // OPENING — fire immediately so the video opens on a question, not dead air.
   await director.say(0);

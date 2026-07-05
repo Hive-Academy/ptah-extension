@@ -18,7 +18,11 @@ import type { SceneManifest } from '@ptah-extension/showcase-manifest';
 import { DeviceFrame, type SourceInfo } from './DeviceFrame';
 import { LowerThird } from './LowerThird';
 import { Callout } from './Callout';
-import { msToFrames, type CaptionToken } from '../lib/load-manifest';
+import {
+  msToFrames,
+  type CaptionToken,
+  type Segment,
+} from '../lib/load-manifest';
 import { activeShot, type Shot } from '../lib/shots';
 
 export interface BodySceneProps {
@@ -28,6 +32,8 @@ export interface BodySceneProps {
   narrationFiles: Record<number, string>;
   captions: CaptionToken[];
   shots: Shot[];
+  /** Segment-based timeline; empty → single-video path (see DeviceFrame). */
+  segments?: Segment[];
   kenBurns?: boolean;
   /** Footage is higher-res than the output composition (crisper punch-ins). */
   supersample?: boolean;
@@ -43,6 +49,7 @@ export const BodyScene: React.FC<BodySceneProps> = ({
   narrationFiles,
   captions,
   shots,
+  segments = [],
   kenBurns = true,
   supersample = false,
   trimBeforeMs = 0,
@@ -59,6 +66,7 @@ export const BodyScene: React.FC<BodySceneProps> = ({
         src={src}
         source={source}
         shots={shots}
+        segments={segments}
         kenBurns={kenBurns}
         supersample={supersample}
         trimBeforeMs={trimBeforeMs}

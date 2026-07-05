@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmThoth } from './_harness/prewarm';
 
 /**
  * P3.1 — "Ptah remembers (persistent memory)".
@@ -122,6 +123,12 @@ test('P3.1 — Ptah remembers (persistent memory)', async ({
 }) => {
   // Clear the persistent "Your Pro Trial Has Ended" startup modal before filming.
   await director.dismissDialogs();
+
+  // PRE-WARM (trimmed lead-in, before the first beat): the Memory tab is backed
+  // by the local SQLite brain + embedder worker, whose first-mount is slow.
+  // Force it now so `goToMemory` below hits a warm panel instead of stalling
+  // between the warmup and orient beats. Silent + guarded (see prewarm.ts).
+  await prewarmThoth(page, ['memory']).catch(() => undefined);
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
   await director.say(0);

@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmThoth } from './_harness/prewarm';
 
 /**
  * P1.4 — "Nightly agents on a schedule" (deep dive on the Thoth Schedules tab).
@@ -93,6 +94,12 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
 }) => {
   // The persistent authed profile ALWAYS shows the trial modal on boot.
   await director.dismissDialogs();
+
+  // PRE-WARM (trimmed lead-in, before the first beat): the Schedules (cron) tab
+  // is SQLite-backed and slow on first mount. Force it now so `goToCron` below
+  // hits a warm panel instead of stalling between the warmup and stats beats.
+  // Silent + guarded (see prewarm.ts).
+  await prewarmThoth(page, ['cron']).catch(() => undefined);
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
   await director.say(0);
