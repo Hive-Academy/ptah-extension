@@ -1,7 +1,6 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
-import { prewarmNavSurface } from './_harness/prewarm';
 
 /**
  * P3.x — "Tune Ptah to your stack" (Settings surface tour).
@@ -198,25 +197,20 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
 
-  // PRE-WARM (trimmed lead-in, before the first beat): force the Settings shell
-  // to take its first-mount cost now so `goToSettings` below hits a warm surface
-  // instead of stalling between the warmup and auth-section beats. Read-only
-  // navigation — no key, toggle, or theme is touched here. Silent + guarded.
-  await prewarmNavSurface(page, 'Settings', 'ptah-settings').catch(
-    () => undefined,
-  );
+  // Navigate + clean up BEFORE the first beat: everything until the hook is
+  // trimmed by render-all's lead-in trim, so this surface swap never airs — and
+  // the hook lands on Settings instead of the stale restored surface. Entering
+  // Settings here also forces the shell's first-mount, so no separate pre-warm
+  // is needed. The trial modal can re-assert after navigation, so dismiss again.
+  await goToSettings(page, director);
+  await director.dismissDialogs();
+  await director.hold();
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
   await director.say(0);
 
   // WARMUP — one line of context before the tour starts.
   await director.say(1);
-
-  // Enter Settings; the trial modal can re-assert after navigation, so dismiss
-  // again before we start the tour.
-  await goToSettings(page, director);
-  await director.dismissDialogs();
-  await director.hold();
 
   // Open on the Authentication section — the heart of the Providers tab.
   const authSection = page.locator('[data-testid="settings-section-auth"]');
