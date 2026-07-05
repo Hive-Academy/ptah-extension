@@ -1,71 +1,82 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { RouterLink } from '@angular/router';
 import {
-  ViewportAnimationDirective,
-  ViewportAnimationConfig,
-} from '@hive-academy/angular-gsap';
+  Component,
+  ChangeDetectionStrategy,
+  ElementRef,
+  afterNextRender,
+  inject,
+  DestroyRef,
+} from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { LucideAngularModule, CirclePlay, Download } from 'lucide-angular';
+import gsap from 'gsap';
+import { SplitText } from 'gsap/SplitText';
+import { ScrambleTextPlugin } from 'gsap/ScrambleTextPlugin';
+
+gsap.registerPlugin(SplitText, ScrambleTextPlugin);
+
+/** Slot-safe scramble glyphs — near-uniform width, ankh + geometry + binary. */
+const GLYPHS = '☥ΔΛΞΦϟ01▮▚';
 
 /**
- * HeroContentOverlayComponent — the centered hero text block (design spec §4 S1).
+ * HeroContentOverlayComponent — decrypt headline block (TASK_2026_153 winner:
+ * Temple × Decrypt × Engraving).
  *
- * Operator Console rebuild: eyebrow pill → H1 wedge → subhead → two CTAs
- * (primary Download, secondary "Watch it work") → mono stat row. Entrance is
- * staggered via `ViewportAnimationDirective` (final DOM state is fully opaque
- * and positioned — the directive applies the `from` state via JS post-hydration,
- * never as a static class), so the copy lands intact in the prerendered HTML.
+ * Decrypt: SplitText chars are width-locked in place (inline-block, measured
+ * px width) so the scramble NEVER reflows the layout. Each character cycles
+ * glyph noise in amber and resolves to its final color in a slow
+ * left-to-right wave (~3s).
+ *
+ * Engraving finish: once the headline has resolved, an amber band masked by
+ * the hieroglyph-circuit pattern sweeps across it once (light through a
+ * stencil), then a breathing amber glow settles on "It Ships."
+ *
+ * Reduced motion / no JS: the static DOM is already the final state — full
+ * headline, stencil at opacity 0, nothing hidden behind animation. The H1
+ * carries the real text via aria-label; animated spans are aria-hidden.
  */
 @Component({
   selector: 'ptah-hero-content-overlay',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ViewportAnimationDirective, RouterLink, LucideAngularModule],
+  imports: [RouterLink, LucideAngularModule],
   template: `
-    <div class="max-w-5xl mx-auto text-center pt-28 sm:pt-32 pb-14 px-6">
-      <!-- Eyebrow pill -->
-      <div
-        viewportAnimation
-        [viewportConfig]="badgeConfig"
-        class="inline-flex items-center gap-2 px-4 py-2 mb-8 rounded-full bg-amber-500/10 border border-amber-500/20"
-      >
-        <span
-          class="w-1.5 h-1.5 rounded-full bg-amber-500 motion-safe:animate-pulse"
-          aria-hidden="true"
-        ></span>
-        <span
-          class="font-mono text-xs sm:text-sm uppercase tracking-[0.2em] text-amber-500/90"
-          >PERSISTENT · MULTI-AGENT · ALWAYS ON</span
-        >
-      </div>
-
-      <!-- Main Headline (the wedge) -->
-      <h1
-        viewportAnimation
-        [viewportConfig]="headlineConfig"
-        class="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-extrabold tracking-tight leading-[1.02] text-white [text-wrap:balance] max-w-4xl mx-auto"
-      >
-        Your AI Employee, Not Your Autocomplete.
-      </h1>
-
-      <!-- Subheadline -->
+    <div class="max-w-4xl mx-auto px-6 text-center py-28">
       <p
-        viewportAnimation
-        [viewportConfig]="subheadlineConfig"
-        class="text-lg sm:text-xl text-ink-300 max-w-2xl mx-auto leading-relaxed mt-6"
+        data-kicker
+        class="font-mono text-xs sm:text-sm uppercase tracking-[0.22em] text-amber-500/90"
       >
-        Ptah is a desktop AI coding agent that remembers your codebase, runs up
-        to nine agents in parallel, works on a schedule while you're away, and
-        takes instructions from Telegram, Discord, or Slack. Bring your own
-        model — Claude, GitHub Copilot, OpenAI Codex, OpenRouter, local Ollama,
-        Kimi K2, or GLM.
+        Persistent · Multi-Agent · Always On
       </p>
 
-      <!-- CTA row -->
-      <div
-        viewportAnimation
-        [viewportConfig]="ctaConfig"
-        class="flex flex-col sm:flex-row gap-4 justify-center items-center mt-10"
+      <h1
+        data-headline
+        aria-label="It Remembers. It Learns. It Ships."
+        class="relative mt-6 font-extrabold tracking-tight text-white [text-wrap:balance] text-4xl sm:text-5xl lg:text-6xl xl:text-7xl leading-[1.06]"
       >
-        <!-- Primary: Download -->
+        <span aria-hidden="true" class="hl-stack relative overflow-hidden">
+          <span data-plain class="block"
+            >It Remembers. It Learns.
+            <span data-glow class="text-amber-500">It Ships.</span></span
+          >
+          <span
+            data-stencil
+            class="hl-stencil absolute inset-y-0 -left-1/3 w-1/3 pointer-events-none opacity-0"
+          ></span>
+        </span>
+      </h1>
+
+      <p
+        data-reveal
+        class="mt-6 text-lg sm:text-xl text-ink-300 max-w-2xl mx-auto [text-wrap:balance]"
+      >
+        Your AI employee on the desktop — persistent memory of your codebase,
+        skills that compound with every task, and up to nine agents shipping in
+        parallel while you're away. Bring any model.
+      </p>
+
+      <div
+        data-reveal
+        class="mt-10 flex flex-col sm:flex-row justify-center items-center gap-4"
+      >
         <div class="flex flex-col items-center w-full sm:w-auto">
           <a
             routerLink="/download"
@@ -84,7 +95,6 @@ import { LucideAngularModule, CirclePlay, Download } from 'lucide-angular';
           >
         </div>
 
-        <!-- Secondary ghost: Watch it work -->
         <a
           href="#demo"
           class="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-6 py-3.5 rounded-lg border border-ink-600 text-ink-100 font-medium text-sm sm:text-base transition-colors duration-200 hover:border-amber-500/40 hover:text-white hover:bg-ink-850 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
@@ -94,31 +104,31 @@ import { LucideAngularModule, CirclePlay, Download } from 'lucide-angular';
           Watch it work
         </a>
       </div>
-
-      <!-- Stat row -->
-      <div
-        viewportAnimation
-        [viewportConfig]="socialProofConfig"
-        class="grid grid-cols-2 sm:flex sm:flex-wrap sm:justify-center gap-x-10 gap-y-8 mt-12 max-w-md sm:max-w-3xl mx-auto"
-      >
-        @for (stat of stats; track stat.label) {
-          <div class="flex flex-col items-center text-center sm:w-40">
-            <span
-              class="font-mono text-3xl sm:text-4xl font-bold text-white leading-none whitespace-nowrap"
-              >{{ stat.value }}</span
-            >
-            <span class="text-xs sm:text-sm text-ink-400 mt-2 leading-snug">{{
-              stat.label
-            }}</span>
-          </div>
-        }
-      </div>
     </div>
   `,
   styles: [
     `
       :host {
         display: block;
+      }
+
+      .hl-stack {
+        display: grid;
+      }
+      .hl-stack > * {
+        grid-area: 1 / 1;
+      }
+
+      /* Light through a hieroglyph stencil: an amber band shaped by the
+         pattern, swept across the headline by GSAP. The pattern PNG is
+         opaque (24bpp, no alpha), so the mask MUST read luminance — with the
+         default alpha mode the band renders as a solid block. */
+      .hl-stencil {
+        background-color: rgba(245, 165, 36, 0.5);
+        mask-image: url('/assets/backgrounds/hieroglyph-circuit-pattern.png');
+        mask-size: 380px;
+        mask-mode: luminance;
+        mix-blend-mode: screen;
       }
     `,
   ],
@@ -127,51 +137,123 @@ export class HeroContentOverlayComponent {
   public readonly DownloadIcon = Download;
   public readonly PlayIcon = CirclePlay;
 
-  public readonly stats = [
-    { value: '9', label: 'concurrent agent tiles' },
-    { value: '7', label: 'model providers, zero lock-in' },
-    { value: '100-day', label: 'free trial' },
-    { value: '3', label: 'platforms: Windows, macOS, Linux' },
-  ];
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly destroyRef = inject(DestroyRef);
 
-  /** Eyebrow pill entrance — quick scale in. */
-  public readonly badgeConfig: ViewportAnimationConfig = {
-    animation: 'scaleIn',
-    duration: 0.5,
-    threshold: 0.1,
-  };
+  constructor() {
+    afterNextRender(() => {
+      const mm = gsap.matchMedia();
+      mm.add('(prefers-reduced-motion: no-preference)', () => {
+        const el = this.host.nativeElement;
+        this.animateChrome(el);
+        const decodeDone = this.decryptInPlace(el);
+        this.engrave(el, decodeDone);
+      });
+      this.destroyRef.onDestroy(() => mm.revert());
+    });
+  }
 
-  /** Headline entrance — slide up. */
-  public readonly headlineConfig: ViewportAnimationConfig = {
-    animation: 'slideUp',
-    duration: 0.8,
-    delay: 0.15,
-    threshold: 0.1,
-    ease: 'power2.out',
-  };
+  /** Kicker scramble + sub/CTA reveal. */
+  private animateChrome(el: HTMLElement): void {
+    const kicker = el.querySelector<HTMLElement>('[data-kicker]');
+    if (kicker) {
+      gsap.to(kicker, {
+        duration: 1.6,
+        scrambleText: {
+          text: kicker.textContent ?? '',
+          chars: 'upperCase',
+          speed: 0.25,
+        },
+        ease: 'none',
+      });
+    }
 
-  /** Subheadline — fade in after headline. */
-  public readonly subheadlineConfig: ViewportAnimationConfig = {
-    animation: 'fadeIn',
-    duration: 0.7,
-    delay: 0.3,
-    threshold: 0.1,
-  };
+    gsap.from(el.querySelectorAll('[data-reveal]'), {
+      y: 26,
+      opacity: 0,
+      duration: 0.9,
+      stagger: 0.14,
+      ease: 'power3.out',
+      delay: 1.3,
+    });
+  }
 
-  /** CTAs — slide up together. */
-  public readonly ctaConfig: ViewportAnimationConfig = {
-    animation: 'slideUp',
-    duration: 0.6,
-    delay: 0.45,
-    threshold: 0.1,
-    ease: 'power2.out',
-  };
+  /**
+   * In-place decrypt: every char is width-locked before scrambling, so the
+   * wave of glyph noise resolves with ZERO layout shift. Returns the time
+   * (seconds) at which the last character has settled.
+   */
+  private decryptInPlace(el: HTMLElement): number {
+    const plain = el.querySelector<HTMLElement>('[data-plain]');
+    if (!plain) return 0;
+    const split = new SplitText(plain, { type: 'chars,words' });
+    const chars = split.chars as HTMLElement[];
+    const BASE_DELAY = 0.2;
+    const WAVE = 0.05;
+    let last = 0;
 
-  /** Stats — fade in last. */
-  public readonly socialProofConfig: ViewportAnimationConfig = {
-    animation: 'fadeIn',
-    duration: 0.6,
-    delay: 0.6,
-    threshold: 0.1,
-  };
+    chars.forEach((char) => {
+      char.style.width = `${char.offsetWidth}px`;
+      char.style.display = 'inline-block';
+      char.style.textAlign = 'center';
+    });
+
+    chars.forEach((char, i) => {
+      const finalColor = getComputedStyle(char).color;
+      const finalText = char.textContent ?? '';
+      const delay = BASE_DELAY + i * WAVE;
+      const duration = gsap.utils.random(1.2, 1.9);
+      char.style.color = 'rgba(245, 165, 36, 0.55)';
+      gsap.to(char, {
+        duration,
+        delay,
+        scrambleText: { text: finalText, chars: GLYPHS, speed: 0.28 },
+        ease: 'none',
+      });
+      gsap.to(char, {
+        color: finalColor,
+        duration: 0.6,
+        delay: delay + duration - 0.45,
+        ease: 'power1.inOut',
+      });
+      last = Math.max(last, delay + duration + 0.2);
+    });
+
+    gsap.delayedCall(last + 1.6, () => split.revert());
+    return last;
+  }
+
+  /** Engraving finish: stencil light-sweep, then breathing glow on "It Ships." */
+  private engrave(el: HTMLElement, at: number): void {
+    const stencil = el.querySelector<HTMLElement>('[data-stencil]');
+    if (stencil) {
+      gsap.fromTo(
+        stencil,
+        { xPercent: 0, autoAlpha: 1 },
+        {
+          xPercent: 500,
+          duration: 2.0,
+          ease: 'power2.inOut',
+          delay: at + 0.2,
+          onComplete: function (this: gsap.core.Tween) {
+            gsap.set(this.targets(), { autoAlpha: 0 });
+          },
+        },
+      );
+    }
+    // Re-query at fire time: split.revert() (at `last + 1.6`) replaces the
+    // headline's children, so a reference captured now would be detached.
+    gsap.delayedCall(at + 2.0, () => {
+      const glow = el.querySelector('[data-glow]');
+      if (glow) {
+        gsap.to(glow, {
+          textShadow: '0 0 34px rgba(245,165,36,0.55)',
+          duration: 2.8,
+          ease: 'sine.inOut',
+          yoyo: true,
+          repeat: -1,
+        });
+      }
+    });
+  }
 }
