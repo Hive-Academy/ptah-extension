@@ -36,4 +36,18 @@ describe('CostBadgeComponent', () => {
     const span = fixture.nativeElement.querySelector('span');
     expect(span.getAttribute('title')).toBe('$0.5000 USD');
   });
+
+  it('renders without throwing when cost is null (missing pricing)', () => {
+    fixture.componentRef.setInput('cost', null);
+    expect(() => fixture.detectChanges()).not.toThrow();
+    expect(fixture.nativeElement.textContent).toContain('$0.0000');
+    const span = fixture.nativeElement.querySelector('span');
+    expect(span.getAttribute('title')).toBe('$0.0000 USD');
+  });
+
+  it('renders without throwing when cost is NaN', () => {
+    fixture.componentRef.setInput('cost', Number.NaN);
+    expect(() => fixture.detectChanges()).not.toThrow();
+    expect(fixture.nativeElement.textContent).toContain('$0.0000');
+  });
 });

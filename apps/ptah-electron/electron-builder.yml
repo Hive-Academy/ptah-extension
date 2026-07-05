@@ -62,14 +62,15 @@ asarUnpack:
   # TASK_2026_HERMES — native binaries that cannot load from inside asar.
   # better-sqlite3: prebuilt .node binding
   # sqlite-vec: native extension (.so/.dylib/.dll)
-  # ffmpeg-static: prebuilt ffmpeg binary
-  # nodejs-whisper: native bindings + downloaded model cache
+  # ffmpeg-static: prebuilt ffmpeg binary (decodes voice notes to PCM); cannot
+  #   be spawned from inside app.asar, so it is unpacked + path-resolved in
+  #   phase-2-libraries. Voice transcription itself runs on @huggingface/
+  #   transformers (ASR) + onnxruntime-node, already unpacked below.
   - 'node_modules/better-sqlite3/**'
   - 'node_modules/sqlite-vec/**'
   # Glob covers every sqlite-vec platform binary package (avoids name drift).
   - 'node_modules/sqlite-vec-*/**'
   - 'node_modules/ffmpeg-static/**'
-  - 'node_modules/nodejs-whisper/**'
   # @huggingface/transformers: ONNX embedder/reranker. Its default model cache
   # is <pkg>/.cache — inside app.asar (a file) it fails with ENOTDIR. Unpack so
   # it resolves on the real FS; the worker also redirects the cache to
@@ -85,6 +86,18 @@ asarUnpack:
 extraResources:
   - from: 'renderer'
     to: 'renderer'
+  # kokoro-js voice style vectors (54 `<voice>.bin` files, ~28 MB). kokoro-js
+  # loads these with `fs.readFile(path.resolve(<moduleDir>, '../voices/<name>.
+  # bin'))` and IGNORES the transformers `env.cacheDir`, so — unlike the model
+  # weights (cached to ~/.ptah/models) — they are NEVER downloaded. Loaded as
+  # ESM from inside app.asar, `import.meta.dirname` collapses to `resources/
+  # app.asar`, so `../voices` resolves to `resources/voices` (the observed
+  # ENOENT path), OUTSIDE the archive. Copy the voice pack there so the files
+  # physically sit at exactly the path kokoro-js resolves. `from` is relative
+  # to the electron-builder --project dir (dist/apps/ptah-electron); the voices
+  # live in the hoisted workspace-root node_modules three levels up.
+  - from: '../../../node_modules/kokoro-js/voices'
+    to: 'voices'
 
 icon: assets/icons/icon.png
 

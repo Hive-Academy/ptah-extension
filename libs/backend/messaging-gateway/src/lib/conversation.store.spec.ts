@@ -218,6 +218,39 @@ maybe('ConversationStore', () => {
     });
   });
 
+  describe('clearPtahSessionId', () => {
+    it('sets ptah_session_id to NULL and bumps last_active_at', () => {
+      const bindingId = seedBinding();
+      const conversation = store.resolveOrCreate(bindingId, 'thread-1');
+      store.setPtahSessionId(conversation.id, 'session-to-clear');
+      expect(store.findById(conversation.id)?.ptahSessionId).toBe(
+        'session-to-clear',
+      );
+
+      const returned = store.clearPtahSessionId(conversation.id);
+
+      expect(returned.ptahSessionId).toBeNull();
+      expect(store.findById(conversation.id)?.ptahSessionId).toBeNull();
+    });
+
+    it('is a no-op-safe clear when already null', () => {
+      const bindingId = seedBinding();
+      const conversation = store.resolveOrCreate(bindingId, 'thread-1');
+
+      const returned = store.clearPtahSessionId(conversation.id);
+
+      expect(returned.ptahSessionId).toBeNull();
+    });
+
+    it('throws when the conversation id is unknown', () => {
+      const bindingId = seedBinding();
+      const fresh = store.resolveOrCreate(bindingId, 'thread-2');
+      store.deleteByBinding(bindingId);
+
+      expect(() => store.clearPtahSessionId(fresh.id)).toThrow(/not found/);
+    });
+  });
+
   describe('touch', () => {
     it('updates last_active_at', () => {
       const bindingId = seedBinding();

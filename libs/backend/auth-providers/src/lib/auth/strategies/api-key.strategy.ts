@@ -34,6 +34,7 @@ import {
 } from '@ptah-extension/shared';
 import type { ITranslationProxy } from '../../translation';
 import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../../providers/openrouter';
+import { SAKANA_PROXY_TOKEN_PLACEHOLDER } from '../../providers/sakana';
 
 /** Provider ID for OpenRouter — matches ANTHROPIC_PROVIDERS registry entry */
 const OPENROUTER_PROVIDER_ID = 'openrouter';
@@ -53,9 +54,35 @@ export class ApiKeyStrategy implements IAuthStrategy {
     private readonly authEnv: AuthEnv,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_PROXY)
     private readonly openRouterProxy: ITranslationProxy,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_SAKANA_PROXY)
+    private readonly sakanaProxy: ITranslationProxy,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {}
+
+  /**
+   * Translation proxy + placeholder token for each apiKey provider that
+   * requires a local proxy (`requiresProxy: true`). OpenRouter and Sakana share
+   * one generalized configure/stop code path keyed off this map.
+   */
+  private get proxyProviders(): ReadonlyArray<{
+    providerId: string;
+    proxy: ITranslationProxy;
+    placeholder: string;
+  }> {
+    return [
+      {
+        providerId: OPENROUTER_PROVIDER_ID,
+        proxy: this.openRouterProxy,
+        placeholder: OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+      },
+      {
+        providerId: 'sakana',
+        proxy: this.sakanaProxy,
+        placeholder: SAKANA_PROXY_TOKEN_PLACEHOLDER,
+      },
+    ];
+  }
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
     const { providerId, authEnv, envSnapshot } = context;
@@ -63,133 +90,164 @@ export class ApiKeyStrategy implements IAuthStrategy {
       providerId === ANTHROPIC_DIRECT_PROVIDER_ID ||
       providerId === 'apiKey'
     ) {
-      await this.stopOpenRouterProxyIfRunning();
+      await this.stopProxyIfRunning(providerId);
       return this.configureDirectApiKey(authEnv, envSnapshot);
     }
-    if (providerId === OPENROUTER_PROVIDER_ID) {
-      return this.configureOpenRouterProxy(providerId, authEnv);
+    // Any apiKey provider that requires a local translation proxy (OpenRouter,
+    // Sakana) shares the generalized proxy configure path, keyed off the
+    // registry `requiresProxy` flag rather than a hardcoded provider id.
+    if (getAnthropicProvider(providerId)?.requiresProxy === true) {
+      const config = this.proxyProviders.find(
+        (p) => p.providerId === providerId,
+      );
+      if (config) {
+        // Stop any OTHER apiKey proxy that may be running before starting ours.
+        await this.stopProxyIfRunning(providerId);
+        return this.configureProxyProvider(
+          providerId,
+          authEnv,
+          config.proxy,
+          config.placeholder,
+        );
+      }
     }
-    await this.stopOpenRouterProxyIfRunning();
+    await this.stopProxyIfRunning(providerId);
     return this.configureProviderApiKey(providerId, authEnv, envSnapshot);
   }
 
   async teardown(): Promise<void> {
-    await this.stopOpenRouterProxyIfRunning();
+    await this.stopProxyIfRunning();
   }
 
   /**
-   * Stop the OpenRouter proxy if running.
-   * Called when switching away from OpenRouter or on teardown.
+   * Stop any apiKey-proxy that is currently running, except the one for
+   * `keepProviderId` (the provider being configured). Called when switching
+   * away from a proxy provider or on teardown. Mirrors
+   * `LocalProxyStrategy.stopProxyIfRunning` but iterates the full apiKey-proxy
+   * set so OpenRouter and Sakana are mutually torn down.
    */
-  private async stopOpenRouterProxyIfRunning(): Promise<void> {
-    if (!this.openRouterProxy.isRunning()) {
-      return;
-    }
-    this.logger.info(
-      `[${this.name}] Stopping OpenRouter proxy (switching to different provider)`,
-    );
-    try {
-      await this.openRouterProxy.stop();
-    } catch (error) {
-      this.sentryService.captureException(
-        error instanceof Error ? error : new Error(String(error)),
-        { errorSource: 'ApiKeyStrategy.stopOpenRouterProxyIfRunning' },
+  private async stopProxyIfRunning(keepProviderId?: string): Promise<void> {
+    for (const { providerId, proxy } of this.proxyProviders) {
+      if (providerId === keepProviderId) {
+        continue;
+      }
+      if (!proxy.isRunning()) {
+        continue;
+      }
+      const provider = getAnthropicProvider(providerId);
+      const providerName = provider?.name ?? providerId;
+      this.logger.info(
+        `[${this.name}] Stopping ${providerName} proxy (switching to different provider)`,
       );
-      this.logger.warn(
-        `[${this.name}] Failed to stop OpenRouter proxy: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
+      try {
+        await proxy.stop();
+      } catch (error) {
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ApiKeyStrategy.stopProxyIfRunning' },
+        );
+        this.logger.warn(
+          `[${this.name}] Failed to stop ${providerName} proxy: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
   }
 
   /**
-   * Configure OpenRouter via the local translation proxy.
+   * Configure an apiKey provider via its local translation proxy
+   * (OpenRouter, Sakana).
    *
-   * Reads the OpenRouter API key from SecretStorage, starts the local HTTP
+   * Reads the per-provider API key from SecretStorage, starts the local HTTP
    * proxy (if not already running), and points the SDK at 127.0.0.1:<port>
-   * instead of openrouter.ai. The proxy handles Anthropic↔OpenAI translation
-   * so every OpenRouter model (not just Anthropic-family) works with the SDK.
+   * instead of the provider's remote endpoint. The proxy handles
+   * Anthropic↔OpenAI translation so every model works with the SDK.
    */
-  private async configureOpenRouterProxy(
+  private async configureProxyProvider(
     providerId: string,
     authEnv: AuthEnv,
+    proxy: ITranslationProxy,
+    placeholder: string,
   ): Promise<AuthConfigureResult> {
+    const provider = getAnthropicProvider(providerId);
+    const providerName = provider?.name ?? providerId;
+
     const providerKey = await this.authSecrets.getProviderKey(providerId);
     if (!providerKey?.trim()) {
       this.logger.debug(
-        `[${this.name}] No OpenRouter API key found in SecretStorage`,
+        `[${this.name}] No ${providerName} API key found in SecretStorage`,
       );
-      return { configured: false, details: [] };
+      return {
+        configured: false,
+        details: [],
+        errorMessage: `No ${providerName} API key configured. Add one in Settings, or choose a different provider.`,
+      };
     }
 
-    const provider = getAnthropicProvider(providerId);
-    const providerName = provider?.name ?? providerId;
     const keyLength = providerKey.length;
     const hasExpectedPrefix = provider?.keyPrefix
       ? providerKey.startsWith(provider.keyPrefix)
       : true;
 
     this.logger.info(
-      `[${this.name}] Found OpenRouter API key (length: ${keyLength}, valid format: ${hasExpectedPrefix})`,
+      `[${this.name}] Found ${providerName} API key (length: ${keyLength}, valid format: ${hasExpectedPrefix})`,
     );
 
     if (!hasExpectedPrefix && provider?.keyPrefix) {
       this.logger.warn(
-        `[${this.name}] WARNING: OpenRouter key does not start with "${provider.keyPrefix}". ` +
+        `[${this.name}] WARNING: ${providerName} key does not start with "${provider.keyPrefix}". ` +
           `Get valid keys from: ${provider.helpUrl}`,
       );
     }
     let proxyUrl: string;
     try {
-      if (this.openRouterProxy.isRunning()) {
-        proxyUrl = this.openRouterProxy.getUrl() ?? '';
+      if (proxy.isRunning()) {
+        proxyUrl = proxy.getUrl() ?? '';
         if (!proxyUrl) {
           this.logger.error(
-            `[${this.name}] OpenRouter proxy reports running but returned no URL`,
+            `[${this.name}] ${providerName} proxy reports running but returned no URL`,
           );
           return {
             configured: false,
             details: [],
-            errorMessage:
-              'OpenRouter translation proxy URL unavailable. Try restarting.',
+            errorMessage: `${providerName} translation proxy URL unavailable. Try restarting.`,
           };
         }
         this.logger.info(
-          `[${this.name}] OpenRouter translation proxy already running at ${proxyUrl}`,
+          `[${this.name}] ${providerName} translation proxy already running at ${proxyUrl}`,
         );
       } else {
-        const result = await this.openRouterProxy.start();
+        const result = await proxy.start();
         proxyUrl = result.url;
         this.logger.info(
-          `[${this.name}] OpenRouter translation proxy started at ${proxyUrl}`,
+          `[${this.name}] ${providerName} translation proxy started at ${proxyUrl}`,
         );
       }
     } catch (error) {
       this.sentryService.captureException(
         error instanceof Error ? error : new Error(String(error)),
         {
-          errorSource: 'ApiKeyStrategy.configureOpenRouterProxy',
+          errorSource: 'ApiKeyStrategy.configureProxyProvider',
           activeProvider: providerId,
         },
       );
       this.logger.error(
-        `[${this.name}] Failed to start OpenRouter translation proxy: ${
+        `[${this.name}] Failed to start ${providerName} translation proxy: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
       return {
         configured: false,
         details: [],
-        errorMessage:
-          'Failed to start OpenRouter translation proxy. Check if a local port is available.',
+        errorMessage: `Failed to start ${providerName} translation proxy. Check if a local port is available.`,
       };
     }
     authEnv.ANTHROPIC_BASE_URL = proxyUrl;
-    authEnv.ANTHROPIC_AUTH_TOKEN = OPENROUTER_PROXY_TOKEN_PLACEHOLDER;
+    authEnv.ANTHROPIC_AUTH_TOKEN = placeholder;
     authEnv.ANTHROPIC_API_KEY = '';
     process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
-    process.env['ANTHROPIC_AUTH_TOKEN'] = OPENROUTER_PROXY_TOKEN_PLACEHOLDER;
+    process.env['ANTHROPIC_AUTH_TOKEN'] = placeholder;
     delete process.env['ANTHROPIC_API_KEY'];
     this.providerModels.switchActiveProvider(providerId);
     seedStaticModelPricing(providerId);
@@ -282,7 +340,12 @@ export class ApiKeyStrategy implements IAuthStrategy {
     this.logger.debug(
       `[${this.name}] No API key found in SecretStorage or environment`,
     );
-    return { configured: false, details: [] };
+    return {
+      configured: false,
+      details: [],
+      errorMessage:
+        'No Anthropic API key configured. Add an API key in Settings, or switch to Claude CLI.',
+    };
   }
 
   /**
@@ -337,7 +400,11 @@ export class ApiKeyStrategy implements IAuthStrategy {
       this.logger.debug(
         `[${this.name}] No provider key found in SecretStorage or environment for ${providerId}`,
       );
-      return { configured: false, details: [] };
+      return {
+        configured: false,
+        details: [],
+        errorMessage: `No API key configured for ${providerName}. Add one in Settings, or choose a different provider.`,
+      };
     }
 
     const keyLength = providerKey.length;

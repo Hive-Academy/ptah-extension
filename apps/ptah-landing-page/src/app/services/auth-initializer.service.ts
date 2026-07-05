@@ -1,4 +1,5 @@
-import { inject, Injectable } from '@angular/core';
+import { inject, Injectable, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { AuthService } from './auth.service';
 
 /**
@@ -39,6 +40,7 @@ import { AuthService } from './auth.service';
 @Injectable({ providedIn: 'root' })
 export class AuthInitializerService {
   private readonly authService = inject(AuthService);
+  private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
   /**
    * Initialize auth state from URL parameters
@@ -47,6 +49,10 @@ export class AuthInitializerService {
    * Synchronous operation - no need for async/Promise.
    */
   public initialize(): void {
+    if (!this.isBrowser) {
+      return;
+    }
+
     const url = new URL(window.location.href);
     const authHint = url.searchParams.get('auth_hint');
 

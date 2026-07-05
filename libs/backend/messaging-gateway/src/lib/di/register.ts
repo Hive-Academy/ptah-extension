@@ -11,6 +11,10 @@
  */
 import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  type ISessionAttachmentGuard,
+} from '@ptah-extension/platform-core';
 import { GATEWAY_TOKENS } from './tokens';
 import { GatewayService } from '../gateway.service';
 import { BindingStore } from '../binding.store';
@@ -18,9 +22,12 @@ import { ConversationStore } from '../conversation.store';
 import { MessageStore } from '../message.store';
 import { FfmpegDecoder } from '../voice/ffmpeg-decoder';
 import { WhisperTranscriber } from '../voice/whisper-transcriber';
+import { KokoroSynthesizer } from '../voice/kokoro-synthesizer';
 import { GrammyTelegramAdapter } from '../adapters/telegram/grammy.adapter';
 import { DiscordAdapter } from '../adapters/discord/discord.adapter';
 import { BoltSlackAdapter } from '../adapters/slack/bolt.adapter';
+import { AttachedSessionRegistry } from '../attached-session-registry';
+import { JsonlSessionResumabilityChecker } from '../session-resumability';
 
 export function registerMessagingGatewayServices(
   container: DependencyContainer,
@@ -48,9 +55,37 @@ export function registerMessagingGatewayServices(
     GATEWAY_TOKENS.GATEWAY_WHISPER_TRANSCRIBER,
     WhisperTranscriber,
   );
+  container.registerSingleton(
+    GATEWAY_TOKENS.GATEWAY_KOKORO_SYNTHESIZER,
+    KokoroSynthesizer,
+  );
   container.registerSingleton(GrammyTelegramAdapter);
   container.registerSingleton(DiscordAdapter);
   container.registerSingleton(BoltSlackAdapter);
+
+  container.registerSingleton(
+    GATEWAY_TOKENS.GATEWAY_ATTACHED_SESSION_REGISTRY,
+    AttachedSessionRegistry,
+  );
+  // Bind the platform-core port to the SAME registry singleton so the shared
+  // chat RPC handler (`chat:resume`) can consult attach state via the
+  // gateway-agnostic `ISessionAttachmentGuard` token. This overrides the
+  // `NullSessionAttachmentGuard` default registered by vscode-core's
+  // platform-agnostic bootstrap (Electron host only — the VS Code host keeps
+  // the no-op default).
+  container.register<ISessionAttachmentGuard>(
+    PLATFORM_TOKENS.SESSION_ATTACHMENT_GUARD,
+    {
+      useFactory: (c) =>
+        c.resolve<AttachedSessionRegistry>(
+          GATEWAY_TOKENS.GATEWAY_ATTACHED_SESSION_REGISTRY,
+        ),
+    },
+  );
+  container.registerSingleton(
+    GATEWAY_TOKENS.GATEWAY_SESSION_RESUMABILITY_CHECKER,
+    JsonlSessionResumabilityChecker,
+  );
 
   container.registerSingleton(GATEWAY_TOKENS.GATEWAY_SERVICE, GatewayService);
 

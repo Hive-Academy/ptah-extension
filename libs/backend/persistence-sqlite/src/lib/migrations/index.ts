@@ -50,6 +50,9 @@ import { sql as sql0021SkillInvocationEvents } from './0021_skill_invocation_eve
 import { sql as sql0022SkillRegistry } from './0022_skill_registry';
 import { sql as sql0023SkillRegistryPending } from './0023_skill_registry_pending';
 import { sql as sql0024GatewayConversations } from './0024_gateway_conversations';
+import { sql as sql0025SkillSuggestions } from './0025_skill_suggestions';
+import { sql as sql0026SkillResidency } from './0026_skill_residency';
+import { sql as sql0027SkillEventReconciliation } from './0027_skill_event_reconciliation';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -214,5 +217,20 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 24,
     name: '0024_gateway_conversations',
     sql: sql0024GatewayConversations,
+  },
+  {
+    version: 25,
+    name: '0025_skill_suggestions',
+    sql: sql0025SkillSuggestions,
+  },
+  {
+    version: 26,
+    name: '0026_skill_residency',
+    sql: sql0026SkillResidency,
+  },
+  {
+    version: 27,
+    name: '0027_skill_event_reconciliation',
+    sql: sql0027SkillEventReconciliation,
   },
 ];

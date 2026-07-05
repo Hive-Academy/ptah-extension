@@ -30,6 +30,8 @@ function clone(overrides: Partial<CloneSummary> = {}): CloneSummary {
     lastEnhancedAt: null,
     historyCount: 0,
     pendingSourceHash: null,
+    enhanceMinInvocations: 5,
+    enhanceCooldownUntil: null,
     ...overrides,
   };
 }
@@ -342,5 +344,84 @@ describe('SkillClonesViewComponent', () => {
     await fixture.whenStable();
     expect(rpc.keepClone).toHaveBeenCalledWith('skill', 'deep-research');
     expect(state.refreshClones).toHaveBeenCalledTimes(2);
+  });
+
+  // enhanceHint display — added for feature coverage
+  it('shows N/M runs hint when invocationCount is below enhanceMinInvocations', () => {
+    // clone() defaults: invocationCount=4, enhanceMinInvocations=5
+    const state = makeStateStub([
+      clone({ invocationCount: 4, enhanceMinInvocations: 5 }),
+    ]);
+    const { fixture } = setup({ isElectron: true, state });
+    const hint = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="clones-enhance-hint"]',
+    ) as HTMLElement | null;
+    expect(hint).not.toBeNull();
+    expect(hint?.textContent?.trim()).toBe('4/5 runs');
+  });
+
+  it('shows cooldown hint when invocationCount >= threshold but cooldown is active', () => {
+    const futureMs = Date.now() + 2 * 60 * 60 * 1000; // 2h from now
+    const state = makeStateStub([
+      clone({
+        invocationCount: 10,
+        enhanceMinInvocations: 5,
+        enhanceCooldownUntil: futureMs,
+      }),
+    ]);
+    const { fixture } = setup({ isElectron: true, state });
+    const hint = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="clones-enhance-hint"]',
+    ) as HTMLElement | null;
+    expect(hint?.textContent?.trim()).toMatch(/^cooldown \d+h$/);
+  });
+
+  it('shows "ready" hint when invocationCount >= threshold and cooldown has expired', () => {
+    const pastMs = Date.now() - 1000; // already expired
+    const state = makeStateStub([
+      clone({
+        invocationCount: 10,
+        enhanceMinInvocations: 5,
+        enhanceCooldownUntil: pastMs,
+      }),
+    ]);
+    const { fixture } = setup({ isElectron: true, state });
+    const hint = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="clones-enhance-hint"]',
+    ) as HTMLElement | null;
+    expect(hint?.textContent?.trim()).toBe('ready');
+  });
+
+  it('shows "ready" hint when invocationCount >= threshold and enhanceCooldownUntil is null', () => {
+    const state = makeStateStub([
+      clone({
+        invocationCount: 10,
+        enhanceMinInvocations: 5,
+        enhanceCooldownUntil: null,
+      }),
+    ]);
+    const { fixture } = setup({ isElectron: true, state });
+    const hint = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="clones-enhance-hint"]',
+    ) as HTMLElement | null;
+    expect(hint?.textContent?.trim()).toBe('ready');
+  });
+
+  it('shows "—" for success rate when invocationCount is 0', () => {
+    const state = makeStateStub([
+      clone({ invocationCount: 0, successRate: 0 }),
+    ]);
+    const { fixture } = setup({ isElectron: true, state });
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('—');
+  });
+
+  it('shows percentage success rate when invocationCount > 0', () => {
+    const state = makeStateStub([
+      clone({ invocationCount: 10, successRate: 0.8 }),
+    ]);
+    const { fixture } = setup({ isElectron: true, state });
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('80%');
   });
 });

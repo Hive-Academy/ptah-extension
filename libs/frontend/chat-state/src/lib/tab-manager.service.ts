@@ -14,6 +14,7 @@ import {
   SdkBackgroundTaskSummary,
   SdkSessionCronSummary,
   SdkTerminalReason,
+  GatewayPlatformId,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
@@ -401,10 +402,23 @@ export class TabManagerService {
     }
 
     const tabIds = this.tabSessionBinding.tabsFor(convRecord.id);
-    if (tabIds.length === 0) return [];
+    if (tabIds.length > 0) {
+      const boundTabIds = new Set<TabId>(tabIds);
+      const matched = this._tabs().filter((t) => boundTabIds.has(t.id));
+      if (matched.length > 0) return matched;
+    }
 
-    const boundTabIds = new Set<TabId>(tabIds);
-    return this._tabs().filter((t) => boundTabIds.has(t.id));
+    // The conversation is known but resolved to no active-workspace tab. This
+    // happens when the binding was seeded with a placeholder session id (the
+    // tab id) while the real SDK uuid was attached to `claudeSessionId` later —
+    // the Tribunal conductor (a hidden tab streamed under its tabId) is the
+    // canonical case. Turn-end and session-stats arrive under the real uuid, so
+    // fall back to a direct `claudeSessionId` match rather than returning empty,
+    // which would strand `markTabIdle`/finalize and freeze the streaming
+    // indicators on a finished turn. Active-workspace tabs only — background
+    // tabs must keep flowing through the `updateBackgroundTab` partition path.
+    const direct = this._tabs().find((t) => t.claudeSessionId === sessionId);
+    return direct ? [direct] : [];
   }
 
   /**
@@ -1030,6 +1044,29 @@ export class TabManagerService {
     });
   }
 
+  /**
+   * Stamp a hidden preamble onto a tab. It is prepended to the BACKEND prompt
+   * of the tab's first message only (not the visible bubble) and cleared on
+   * consume. Used by surfaces like the Tribunal conductor to inject framing
+   * while the user types a plain objective into the normal chat input.
+   */
+  setFirstMessagePreamble(tabId: string, preamble: string): void {
+    this.updateTabInternal(tabId, { firstMessagePreamble: preamble });
+  }
+
+  /**
+   * Read and clear a tab's first-message preamble. Returns null when none is
+   * set. Idempotent — a second call after consume returns null.
+   */
+  consumeFirstMessagePreamble(tabId: string): string | null {
+    const tab = this._tabs().find((t) => t.id === tabId);
+    const preamble = tab?.firstMessagePreamble ?? null;
+    if (preamble !== null) {
+      this.updateTabInternal(tabId, { firstMessagePreamble: null });
+    }
+    return preamble;
+  }
+
   // The StreamRouter owns the "first event for a fresh tab seeds the
   // session" flow via `routeStreamEvent` + `ConversationRegistry.
   // appendSession`. Callers that need to attach a session id should use
@@ -1529,6 +1566,53 @@ export class TabManagerService {
     this.updateTabInternal(tabId, { hasLiveSession: true });
   }
 
+  // ----- Messaging-gateway attachment -----
+
+  /**
+   * Mark a tab as attached to a messaging binding (Telegram / Discord / Slack).
+   *
+   * Frontend-only, NOT persisted. Set exclusively in response to the backend
+   * `gateway:sessionAttached` push event (via `ChatMessageHandler`). Stamps the
+   * `attachedBinding` link onto the tab so the composer renders read-only and
+   * offers "Resolve back to webview". Does not touch session status or any
+   * streaming field — an attached session can still receive push updates.
+   *
+   * @param tabId - Tab to mark attached
+   * @param binding - The messaging binding the tab's session is now bound to
+   */
+  markTabAttached(
+    tabId: string,
+    binding: { bindingId: string; platform: GatewayPlatformId },
+  ): void {
+    this.updateTabInternal(tabId, { attachedBinding: binding });
+  }
+
+  /**
+   * Clear a tab's messaging-binding attachment, re-enabling the webview
+   * composer. Set exclusively in response to the backend
+   * `gateway:sessionDetached` push event (via `ChatMessageHandler`).
+   *
+   * @param tabId - Tab to mark detached
+   */
+  markTabDetached(tabId: string): void {
+    this.updateTabInternal(tabId, { attachedBinding: null });
+  }
+
+  /**
+   * Resolve an SDK session UUID to every active-workspace `TabId` bound to it.
+   *
+   * A single session can be shown in MULTIPLE tabs (canvas tiles), so gateway
+   * attach/detach push events must mark ALL of them. Reuses the same
+   * `ConversationRegistry` + `TabSessionBinding` reverse-lookup path as
+   * `findTabsBySessionId` (plural) and returns just the ids.
+   *
+   * @param sessionId - SDK session UUID from the gateway push payload
+   * @returns Every matching active-workspace TabId (possibly empty)
+   */
+  findTabIdsBySessionId(sessionId: SessionId): readonly TabId[] {
+    return this.findTabsBySessionId(sessionId).map((t) => t.id as TabId);
+  }
+
   // ----- Session resume / load -----
 
   /**
@@ -1802,6 +1886,9 @@ export class TabManagerService {
               : tab.status,
           queuedContent: null,
           queuedOptions: null,
+          // Messaging attachment is a live, push-driven flag — a restored tab
+          // is never attached. Clear so a stale flag can't leave it read-only.
+          attachedBinding: null,
         }));
         this._tabs.set(sanitizedTabs);
         this._activeTabId.set(state.activeTabId ?? null);
@@ -1821,6 +1908,7 @@ export class TabManagerService {
    */
   markTabStreaming(tabId: string): void {
     this._streamingTabIds.update((set) => new Set([...set, tabId]));
+    this.updateTabInternal(tabId, { lastTerminalReason: undefined });
   }
 
   /**

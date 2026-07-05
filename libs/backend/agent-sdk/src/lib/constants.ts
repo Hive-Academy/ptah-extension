@@ -5,6 +5,27 @@
  * duplication and ensure consistent behavior.
  */
 
+import type { Settings } from './types/sdk-types/claude-sdk.types';
+
+/**
+ * Flag-layer settings forced onto every Ptah-spawned SDK query to disable the
+ * SDK's built-in auto-memory subsystem: the per-project markdown memory store
+ * (`~/.claude/projects/<cwd>/memory/`), the memory-recall supervisor that
+ * surfaces those files into every turn, and background auto-dream
+ * consolidation. Ptah relies exclusively on its own indexed memory
+ * (MemoryPromptInjector + memory-curator), so the SDK's filesystem memory is
+ * redundant work and a duplicate recall source.
+ *
+ * Applied via `Options.settings`, which feeds the flag-settings layer and
+ * overrides user/project/local settings.json — so auto-memory stays off
+ * regardless of the user's global Claude Code configuration. CLAUDE.md
+ * instruction loading is unaffected; that is governed by `settingSources`.
+ */
+export const PTAH_DISABLE_SDK_AUTO_MEMORY: Settings = {
+  autoMemoryEnabled: false,
+  autoDreamEnabled: false,
+};
+
 /**
  * Default port for Ptah HTTP MCP server.
  * Used by SdkQueryOptionsBuilder, PtahCliAdapter, and InternalQueryService.

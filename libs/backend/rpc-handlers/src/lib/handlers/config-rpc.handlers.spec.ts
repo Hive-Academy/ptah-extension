@@ -96,6 +96,7 @@ type MockSdkAdapter = jest.Mocked<
     | 'setSessionModel'
     | 'setSessionEffort'
     | 'setSessionPermissionLevel'
+    | 'getActiveSessionIds'
     | 'getSupportedModels'
     | 'getApiModels'
   >
@@ -106,6 +107,7 @@ function createMockSdkAdapter(): MockSdkAdapter {
     setSessionModel: jest.fn().mockResolvedValue(undefined),
     setSessionEffort: jest.fn().mockResolvedValue(undefined),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
+    getActiveSessionIds: jest.fn().mockReturnValue([]),
     getSupportedModels: jest.fn().mockResolvedValue([]),
     getApiModels: jest.fn().mockResolvedValue([]),
   };
@@ -317,6 +319,7 @@ describe('ConfigRpcHandlers', () => {
       expect(result.model).toBe('claude-opus-4-7');
       expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
         'claude-opus-4-7',
+        'app',
       );
     });
 
@@ -348,6 +351,22 @@ describe('ConfigRpcHandlers', () => {
       expect(result.model).toBe('claude-haiku-4-5');
       expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
         'claude-haiku-4-5',
+        'app',
+      );
+    });
+
+    it('threads applyTo:workspace into the workspace-scoped model write', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'config:model-switch', {
+        model: 'claude-opus-4-7',
+        applyTo: 'workspace',
+      });
+
+      expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
+        'claude-opus-4-7',
+        'workspace',
       );
     });
   });
@@ -489,6 +508,38 @@ describe('ConfigRpcHandlers', () => {
         'sess-1',
         'acceptEdits',
       );
+    });
+
+    it('falls back to the most-recently-active session when no sessionId is supplied', async () => {
+      const h = makeHarness({ isPro: true });
+      h.sdkAdapter.getActiveSessionIds.mockReturnValue([
+        'active-sess',
+      ] as unknown as ReturnType<SdkAgentAdapter['getActiveSessionIds']>);
+      h.handlers.register();
+
+      // The autopilot popover omits sessionId — the toggle must still reach the
+      // running session so per-session gating takes effect.
+      await call(h, 'config:autopilot-toggle', {
+        enabled: true,
+        permissionLevel: 'yolo',
+      });
+
+      expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledWith(
+        'active-sess',
+        'bypassPermissions',
+      );
+    });
+
+    it('skips session sync when no sessionId and no active session', async () => {
+      const h = makeHarness({ isPro: true });
+      h.handlers.register();
+
+      await call(h, 'config:autopilot-toggle', {
+        enabled: true,
+        permissionLevel: 'yolo',
+      });
+
+      expect(h.sdkAdapter.setSessionPermissionLevel).not.toHaveBeenCalled();
     });
 
     it('maps plan → plan for the active SDK session', async () => {
@@ -757,7 +808,10 @@ describe('ConfigRpcHandlers', () => {
         { effort: 'high' },
       );
       expect(setResult.effort).toBe('high');
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('high');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
+        'high',
+        'app',
+      );
 
       // Simulate the effect of the set so get returns the updated value.
       h.reasoningSettings.effort.get.mockReturnValue('high');
@@ -771,7 +825,7 @@ describe('ConfigRpcHandlers', () => {
 
       await call(h, 'config:effort-set', { effort: '' });
 
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('', 'app');
 
       // Simulate the effect of clearing so get reflects the cleared state.
       h.reasoningSettings.effort.get.mockReturnValue('');
@@ -788,7 +842,10 @@ describe('ConfigRpcHandlers', () => {
         sessionId: 'sess-1',
       });
 
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('high');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
+        'high',
+        'app',
+      );
       expect(h.sdkAdapter.setSessionEffort).toHaveBeenCalledWith(
         'sess-1',
         'high',
@@ -815,7 +872,25 @@ describe('ConfigRpcHandlers', () => {
       });
 
       expect(result.effort).toBe('xhigh');
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith('xhigh');
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
+        'xhigh',
+        'app',
+      );
+    });
+
+    it('threads applyTo:workspace into the workspace-scoped effort write', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'config:effort-set', {
+        effort: 'high',
+        applyTo: 'workspace',
+      });
+
+      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
+        'high',
+        'workspace',
+      );
     });
   });
 });

@@ -88,6 +88,7 @@ function makeSuite(): Suite {
         providerName: 'Moonshot',
         providerId: 'moonshot',
         hasApiKey: true,
+        hasStoredKey: true,
         status: 'available',
         enabled: true,
         modelCount: 1,

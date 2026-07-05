@@ -9,6 +9,7 @@ import {
   SdkBackgroundTaskSummary,
   SdkSessionCronSummary,
   SdkTerminalReason,
+  GatewayPlatformId,
 } from '@ptah-extension/shared';
 
 /**
@@ -298,6 +299,19 @@ export interface TabState {
   /** Real Claude CLI session UUID (null if draft) */
   claudeSessionId: SessionId | null;
 
+  /**
+   * Messaging-gateway attachment link (frontend-only, NOT persisted).
+   *
+   * When set, this tab's SDK session has been handed off to a messaging
+   * binding (Telegram / Discord / Slack) and the tab is READ-ONLY in the
+   * webview — the composer is disabled and a banner offers "Resolve back to
+   * webview" (which calls `gateway:detachSession`). It is set/cleared purely
+   * by backend push events (`gateway:sessionAttached` / `gateway:sessionDetached`)
+   * via `TabManagerService.markTabAttached` / `markTabDetached`; the webview
+   * never writes it directly and it is never written to localStorage.
+   */
+  attachedBinding?: { bindingId: string; platform: GatewayPlatformId } | null;
+
   /** User-provided or auto-generated session name */
   name: string;
 
@@ -342,6 +356,15 @@ export interface TabState {
    * (subsequent queued messages are text-only appends).
    */
   queuedOptions?: SendMessageOptions | null;
+
+  /**
+   * Hidden preamble prepended to the BACKEND prompt of this tab's first
+   * message only — never shown in the user's chat bubble. Consumed (cleared)
+   * when that first message is sent. Lets a configured surface (e.g. the
+   * Tribunal conductor) inject framing/spawn instructions while the user just
+   * types a plain objective into the normal chat input.
+   */
+  firstMessagePreamble?: string | null;
 
   /**
    * Preloaded stats from backend (for old sessions loaded from JSONL).

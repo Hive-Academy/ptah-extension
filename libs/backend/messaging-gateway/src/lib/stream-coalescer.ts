@@ -1,16 +1,25 @@
 /**
- * StreamCoalescer — merges high-frequency assistant token chunks into a
- * small number of outbound message edits per conversation.
+ * StreamCoalescer — accumulates assistant token chunks per conversation and
+ * flushes them through a callback that performs the platform-side send/edit.
  *
- * Per architecture §9 Track 4 requirement 3:
- *   - Per `(platform, externalChatId)` p-queue with `concurrency=1, intervalCap=1, interval=1000ms`.
- *   - Flush at 800ms idle OR 200 tokens.
- *   - Concatenate, never drop.
+ * Two modes (see {@link CoalescerOptions.mode}):
  *
- * We intentionally do NOT depend on `p-queue` directly here (the runtime
- * dependency is added via `apps/ptah-electron/package.json`). Instead the
- * coalescer is a pure timer/buffer state machine that the GatewayService
- * drives — keeping it trivially unit-testable with `jest.useFakeTimers()`.
+ *   - `'stream'` (default): timer-driven. Flushes at 800ms idle OR ~200 tokens
+ *     OR a 5000ms max-age ceiling, so a long reply surfaces incrementally via
+ *     `editMessage`. `append()` concatenates, never drops.
+ *   - `'complete'`: accumulate-until-drain. `append()` only grows the cumulative
+ *     `body`; NO idle/age timers are armed and the `maxTokens` auto-flush is
+ *     disabled. Nothing flushes automatically — the buffer flushes exactly once
+ *     on an explicit `drain()` (or is dropped on `discard()`). This yields ONE
+ *     complete outbound message per turn (no live-streaming partial edits).
+ *
+ * Per architecture §9 Track 4 requirement 3 the `'stream'` mode mirrors a per
+ * `(platform, externalChatId)` p-queue with `concurrency=1, intervalCap=1,
+ * interval=1000ms`. We intentionally do NOT depend on `p-queue` directly here
+ * (the runtime dependency is added via `apps/ptah-electron/package.json`).
+ * Instead the coalescer is a pure timer/buffer state machine that the
+ * GatewayService drives — keeping it trivially unit-testable with
+ * `jest.useFakeTimers()`.
  *
  * The flush callback is responsible for the actual platform-side edit (or
  * first-time send when `isFirstFlush === true`). We surface that flag so
@@ -19,6 +28,12 @@
 import type { ConversationKey, GatewayPlatform } from './types';
 
 export interface CoalescerOptions {
+  /**
+   * Flush strategy. `'stream'` (default) auto-flushes on idle/age/token
+   * thresholds; `'complete'` accumulates until an explicit `drain()`/`discard()`
+   * (no automatic flush). INTERNAL construction option — not a user-facing flag.
+   */
+  mode?: 'stream' | 'complete';
   /** Idle window — flush this long after the last chunk. Default 800ms. */
   idleMs?: number;
   /** Token-count flush threshold (approx — we count chars / 4). Default 200. */
@@ -68,6 +83,7 @@ interface BufferState {
 
 /** Default options derived from architecture §9. */
 const DEFAULTS: Required<CoalescerOptions> = {
+  mode: 'stream',
   idleMs: 800,
   maxTokens: 200,
   maxAgeMs: 5_000,
@@ -90,12 +106,15 @@ export class StreamCoalescer {
   }
 
   /**
-   * Append a new chunk. Resets the idle timer. May trigger an immediate
-   * flush if the buffer crossed `maxTokens`.
+   * Append a new chunk. In `'stream'` mode this resets the idle timer and may
+   * trigger an immediate flush if the buffer crossed `maxTokens`. In
+   * `'complete'` mode it only accumulates — no timer is armed and no auto-flush
+   * occurs, so the buffer flushes solely on an explicit `drain()`/`discard()`.
    */
   append(route: OutboundRoute, chunk: string): void {
     if (!chunk) return;
     const conversationKey = route.conversationKey;
+    const streaming = this.opts.mode === 'stream';
     let state = this.buffers.get(conversationKey);
     if (!state) {
       state = {
@@ -109,13 +128,16 @@ export class StreamCoalescer {
         flushing: false,
       };
       this.buffers.set(conversationKey, state);
-      state.ageTimer = setTimeout(
-        () => void this.doFlush(conversationKey),
-        this.opts.maxAgeMs,
-      );
+      if (streaming) {
+        state.ageTimer = setTimeout(
+          () => void this.doFlush(conversationKey),
+          this.opts.maxAgeMs,
+        );
+      }
     }
     state.body += chunk;
     state.pendingDelta += chunk;
+    if (!streaming) return;
     if (state.idleTimer) clearTimeout(state.idleTimer);
     state.idleTimer = setTimeout(
       () => void this.doFlush(conversationKey),

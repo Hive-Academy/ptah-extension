@@ -121,12 +121,26 @@ function makeHarness(
     sessionId?: string;
     sessionIsActive?: boolean;
     confirmResult?: boolean;
+    /**
+     * When true, wire the REAL `ActionBannerService` instead of the jest stub
+     * so the per-tile banner filtering computeds (`actionInfo`/`actionWarning`/
+     * `actionError`) are exercised end-to-end.
+     */
+    useRealBanner?: boolean;
+    /**
+     * Tile id for `SESSION_CONTEXT`. When provided, the component resolves its
+     * own tab id to this value (canvas/tile mode) instead of the global active
+     * tab — the scenario where a banner from another tile must NOT leak in.
+     */
+    sessionContextTabId?: string;
   } = {},
 ) {
   const {
     sessionId = 'session-uuid-123',
     sessionIsActive = true,
     confirmResult = true,
+    useRealBanner = false,
+    sessionContextTabId,
   } = opts;
 
   // Writable signals for reactive control from tests
@@ -136,6 +150,8 @@ function makeHarness(
   const suppressAnimateOnceSig = signal<boolean>(false);
 
   const switchSessionMock = jest.fn().mockResolvedValue(undefined);
+  const upsertSessionSummaryMock = jest.fn();
+  const removeSessionFromListMock = jest.fn();
   const chatStoreStub = {
     currentSessionId: sessionIdSig.asReadonly(),
     sessionIsActive: sessionIsActiveSig.asReadonly(),
@@ -148,6 +164,8 @@ function makeHarness(
     queueRestoreContent: signal(null),
     agentPanelOpen: signal(false),
     switchSession: switchSessionMock,
+    upsertSessionSummary: upsertSessionSummaryMock,
+    removeSessionFromList: removeSessionFromListMock,
   } as unknown as ChatStore;
 
   // TabManagerService: resolvedTabId and resolvedSessionId depend on it
@@ -225,7 +243,9 @@ function makeHarness(
 
   const showInfoMock = jest.fn();
   const showWarningMock = jest.fn();
+  const realActionBanner = new ActionBannerService();
   const actionBannerStub = {
+    banner: signal<unknown>(null).asReadonly(),
     error: signal<string | null>(null).asReadonly(),
     info: signal<string | null>(null).asReadonly(),
     warning: signal<string | null>(null).asReadonly(),
@@ -233,6 +253,9 @@ function makeHarness(
     showInfo: showInfoMock,
     showWarning: showWarningMock,
   } as unknown as ActionBannerService;
+  const actionBannerProvider: ActionBannerService = useRealBanner
+    ? realActionBanner
+    : actionBannerStub;
 
   const compactionLifecycleStub = {
     suppressAnimateOnce: suppressAnimateOnceSig.asReadonly(),
@@ -283,7 +306,7 @@ function makeHarness(
       { provide: VSCodeService, useValue: vscodeStub },
       { provide: ClaudeRpcService, useValue: rpcStub },
       { provide: ConfirmationDialogService, useValue: confirmDialogStub },
-      { provide: ActionBannerService, useValue: actionBannerStub },
+      { provide: ActionBannerService, useValue: actionBannerProvider },
       { provide: TabManagerService, useValue: tabManagerStub },
       {
         provide: CompactionLifecycleService,
@@ -296,7 +319,13 @@ function makeHarness(
       { provide: ConversationRegistry, useValue: conversationRegistryStub },
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
-      { provide: SESSION_CONTEXT, useValue: null },
+      {
+        provide: SESSION_CONTEXT,
+        useValue:
+          sessionContextTabId === undefined
+            ? null
+            : signal<string | null>(sessionContextTabId).asReadonly(),
+      },
     ],
   });
 
@@ -319,11 +348,14 @@ function makeHarness(
     findTabsBySessionIdMock,
     rebindTabSessionMock,
     closeTabMock,
+    upsertSessionSummaryMock,
+    removeSessionFromListMock,
     requestCanvasSessionMock,
     layoutModeSig,
     showErrorMock,
     showInfoMock,
     showWarningMock,
+    realActionBanner,
     sessionIsActiveSig,
     sessionIdSig,
     activeTabIdSig,
@@ -384,6 +416,7 @@ describe('ChatViewComponent — rewind flow (backend auto-resume)', () => {
     expect(h.showErrorMock).toHaveBeenCalledTimes(1);
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.rewindFilesMock).toHaveBeenCalledTimes(1);
     expect(h.confirmMock).not.toHaveBeenCalled();
@@ -462,16 +495,27 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
       activate: true,
     });
 
+    // Forked session optimistically surfaced in the sidebar before rebind.
+    expect(h.upsertSessionSummaryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'new-session-uuid-999',
+        name: 'Original Session (rewind)',
+        isActive: true,
+      }),
+    );
+
     // Success message — no rollback suffix
     expect(h.showInfoMock).toHaveBeenCalledTimes(1);
     expect(h.showInfoMock).toHaveBeenCalledWith(
       'Rewind complete — conversation rewound to this message',
+      'tab-abc',
     );
 
     // Original NOT deleted
     expect(h.findTabsBySessionIdMock).not.toHaveBeenCalled();
     expect(h.deleteSessionMock).not.toHaveBeenCalled();
     expect(h.closeTabMock).not.toHaveBeenCalled();
+    expect(h.removeSessionFromListMock).not.toHaveBeenCalled();
   });
 
   it('delete-original path: checkbox checked + all tabs closed → findTabsBySessionId + closeTab + claudeRpc.deleteSession called in order', async () => {
@@ -496,11 +540,17 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     const firstDelete = h.deleteSessionMock.mock.invocationCallOrder[0];
     expect(firstClose).toBeLessThan(firstDelete);
 
+    // Original dropped from the sidebar immediately after a successful delete.
+    expect(h.removeSessionFromListMock).toHaveBeenCalledWith(
+      'session-uuid-123',
+    );
+
     expect(h.switchSessionMock).toHaveBeenCalledWith('new-session-uuid-999', {
       activate: true,
     });
     expect(h.showInfoMock).toHaveBeenCalledWith(
       'Rewind complete — conversation rewound to this message',
+      'tab-abc',
     );
   });
 
@@ -521,6 +571,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.deleteSessionMock).not.toHaveBeenCalled();
     expect(h.showWarningMock).toHaveBeenCalledWith(
       expect.stringContaining('original session left in place'),
+      'tab-abc',
     );
   });
 
@@ -541,6 +592,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.deleteSessionMock).toHaveBeenCalledWith('session-uuid-123');
     expect(h.showWarningMock).toHaveBeenCalledWith(
       expect.stringContaining('original session delete failed'),
+      'tab-abc',
     );
   });
 
@@ -552,6 +604,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.forkSessionMock).not.toHaveBeenCalled();
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
@@ -586,6 +639,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.showWarningMock).toHaveBeenCalledTimes(1);
     expect(h.showWarningMock).toHaveBeenCalledWith(
       expect.stringContaining('file rollback skipped'),
+      'tab-abc',
     );
   });
 
@@ -611,6 +665,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.forkSessionMock).not.toHaveBeenCalled();
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
@@ -637,6 +692,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.forkSessionMock).not.toHaveBeenCalled();
   });
@@ -661,6 +717,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.forkSessionMock).toHaveBeenCalled();
     expect(h.showInfoMock).toHaveBeenCalledWith(
       'Rewind complete — conversation rewound to this message',
+      'tab-abc',
     );
   });
 
@@ -688,6 +745,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     );
     expect(h.showWarningMock).toHaveBeenCalledWith(
       expect.stringContaining('file rollback skipped'),
+      'tab-abc',
     );
   });
 
@@ -720,6 +778,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('Rewind failed'),
+      null,
     );
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
     expect(h.switchSessionMock).not.toHaveBeenCalled();
@@ -757,6 +816,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 
     expect(h.showErrorMock).toHaveBeenCalledWith(
       'Cannot rewind to this point — no assistant reply exists yet.',
+      null,
     );
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
     expect(h.switchSessionMock).not.toHaveBeenCalled();
@@ -798,6 +858,7 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     });
     expect(h.showInfoMock).toHaveBeenCalledWith(
       'Rewind complete — conversation rewound to this message',
+      'tab-abc',
     );
   });
 
@@ -816,8 +877,93 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.rebindTabSessionMock).toHaveBeenCalled();
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringContaining('activating it failed'),
+      'tab-abc',
     );
     expect(h.deleteSessionMock).not.toHaveBeenCalled();
     expect(h.showInfoMock).not.toHaveBeenCalled();
+  });
+
+  it('aborts when the originating tab cannot be found — does NOT rewire the active tab', async () => {
+    const h = makeHarness();
+    primeHappyPath(h);
+    // Simulate the originating tab having been closed mid-dialog (or a
+    // workspace-partition mismatch): the singular lookup returns null.
+    h.findTabBySessionIdMock.mockReturnValue(null);
+
+    await h.component.onRewindRequested('msg-no-origin-tab');
+
+    // The origin-tab check now runs BEFORE forkSession, so we abort without
+    // creating an orphaned fork on disk. The active tab is NOT silently
+    // rewired to the fork (the wrong-session-rewind regression).
+    expect(h.forkSessionMock).not.toHaveBeenCalled();
+    expect(h.rebindTabSessionMock).not.toHaveBeenCalled();
+    expect(h.switchSessionMock).not.toHaveBeenCalled();
+    expect(h.upsertSessionSummaryMock).not.toHaveBeenCalled();
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining('originating tab could not be found'),
+      null,
+    );
+    expect(h.showInfoMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-tile banner scoping — the wrong-session-toast regression.
+//
+// Two sessions are mounted side by side in canvas/tile mode. A rewind fired on
+// session A surfaces its success/warning toast scoped to A's tab id. Before the
+// fix the banner signals were global, so B's `ChatViewComponent` rendered A's
+// toast too ("the success message showed in the other tab"). These tests wire
+// the REAL `ActionBannerService` and a tile `SESSION_CONTEXT` so the filtering
+// computeds are exercised end-to-end: a banner scoped to another tile must NOT
+// leak into this tile, a global (`null`) banner must, and the kind must match.
+// ---------------------------------------------------------------------------
+describe('ChatViewComponent — per-tile banner scoping', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('surfaces a banner scoped to THIS tile', () => {
+    const h = makeHarness({
+      useRealBanner: true,
+      sessionContextTabId: 'tile-A',
+    });
+    h.realActionBanner.showInfo('rewind complete', 'tile-A');
+    expect(h.component.actionInfo()).toBe('rewind complete');
+    h.realActionBanner.clear();
+  });
+
+  it('does NOT surface a banner scoped to ANOTHER tile (the wrong-session-toast bug)', () => {
+    const h = makeHarness({
+      useRealBanner: true,
+      sessionContextTabId: 'tile-A',
+    });
+    // Banner fired by session B's rewind, scoped to tile-B.
+    h.realActionBanner.showInfo('rewind complete', 'tile-B');
+    expect(h.component.actionInfo()).toBeNull();
+    h.realActionBanner.clear();
+  });
+
+  it('surfaces a global (tabId: null) banner on every tile', () => {
+    const h = makeHarness({
+      useRealBanner: true,
+      sessionContextTabId: 'tile-A',
+    });
+    h.realActionBanner.showError('No active session to rewind.', null);
+    expect(h.component.actionError()).toBe('No active session to rewind.');
+    h.realActionBanner.clear();
+  });
+
+  it('discriminates by kind — a warning does not leak into the info/error slots', () => {
+    const h = makeHarness({
+      useRealBanner: true,
+      sessionContextTabId: 'tile-A',
+    });
+    h.realActionBanner.showWarning('rollback skipped', 'tile-A');
+    expect(h.component.actionWarning()).toBe('rollback skipped');
+    expect(h.component.actionInfo()).toBeNull();
+    expect(h.component.actionError()).toBeNull();
+    h.realActionBanner.clear();
   });
 });

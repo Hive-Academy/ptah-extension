@@ -139,9 +139,8 @@ function makeDiagnostics() {
       lastAnalyzeRunAt: null,
       lastCuratorPassAt: null,
       eligibilityHistogram: {
-        tooFewTurns: 0,
-        lowFidelity: 0,
-        insufficientAbstraction: 0,
+        prefilterTooThin: 0,
+        prefilterRejected: 0,
         accepted: 0,
       },
       byStatus: { candidate: 0, promoted: 0, rejected: 0, invocations: 0 },
@@ -225,9 +224,8 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
       lastAnalyzeRunAt: 1700000000000,
       lastCuratorPassAt: 1699000000000,
       eligibilityHistogram: {
-        tooFewTurns: 1,
-        lowFidelity: 2,
-        insufficientAbstraction: 3,
+        prefilterTooThin: 1,
+        prefilterRejected: 5,
         accepted: 4,
       },
       byStatus: { candidate: 10, promoted: 3, rejected: 2, invocations: 12 },
@@ -643,6 +641,8 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       successRate: 0.7,
       historyCount: 2,
       lastEnhancedAt: 1700000000000,
+      enhanceMinInvocations: 5,
+      enhanceCooldownUntil: 1700000000000 + 24 * 60 * 60 * 1000,
     });
   });
 
@@ -1026,5 +1026,468 @@ describe('SkillsSynthesisRpcHandlers — dual-registration smoke', () => {
       const ok = ALLOWED_METHOD_PREFIXES.some((p) => method.startsWith(p));
       expect(ok).toBe(true);
     }
+  });
+});
+
+const fakeSuggestionRow = {
+  id: 'sug-1',
+  name: 'My Skill',
+  description: 'does things',
+  body: '## Body\nStep 1.',
+  memberSessionIds: ['s-1'],
+  memberCandidateIds: ['c-1'],
+  clusterSize: 3,
+  technologyFingerprint: 'fp-abc',
+  judgeScore: 7.5,
+  status: 'pending' as const,
+  createdAt: 1700000000000,
+  decidedAt: null,
+};
+
+function makeSuggestionStore() {
+  return {
+    listByStatus: jest.fn().mockReturnValue([]),
+    hasExistingForCluster: jest.fn().mockReturnValue(false),
+    insertPending: jest.fn(),
+    findById: jest.fn().mockReturnValue(fakeSuggestionRow),
+    updatePending: jest.fn().mockReturnValue(fakeSuggestionRow),
+  };
+}
+
+function makeCurator() {
+  return {
+    runManual: jest.fn().mockResolvedValue({
+      reportPath: '/tmp/report.md',
+      changesQueued: 0,
+      skippedPinned: 0,
+    }),
+    start: jest.fn(),
+    stop: jest.fn(),
+    acceptSuggestion: jest.fn().mockReturnValue({
+      accepted: true,
+      filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
+    }),
+    dismissSuggestion: jest.fn().mockReturnValue({ dismissed: true }),
+  };
+}
+
+function buildHandlersWithSuggestions(
+  workspaceFolders: string[] = ['/workspace/project'],
+) {
+  const logger = makeLogger();
+  const rpcHandler = makeRpcHandler();
+  const sentry = makeSentry();
+  const synthesis = makeSynthesis();
+  const store = makeStore();
+  const diagnostics = makeDiagnostics();
+  const enhancer = makeEnhancer();
+  const registry = makeRegistry();
+  const mirror = makeMirror();
+  const contentDownload = makeContentDownload();
+  const suggestionStore = makeSuggestionStore();
+  const curator = makeCurator();
+  const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
+    folders: workspaceFolders,
+  });
+
+  const child = container.createChildContainer();
+  child.registerInstance(TOKENS.LOGGER, logger);
+  child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
+  child.registerInstance(TOKENS.SENTRY_SERVICE, sentry);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
+    synthesis,
+  );
+  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, store);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
+    diagnostics,
+  );
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_ENHANCER_SERVICE,
+    enhancer,
+  );
+  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, registry);
+  child.registerInstance(USER_LAYER_MIRROR_SERVICE_TOKEN, mirror);
+  child.registerInstance(PLATFORM_TOKENS.CONTENT_DOWNLOAD, contentDownload);
+  child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_SUGGESTION_STORE,
+    suggestionStore,
+  );
+  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_CURATOR_SERVICE, curator);
+  child.register(SkillsSynthesisRpcHandlers, {
+    useClass: SkillsSynthesisRpcHandlers,
+  });
+
+  const handlers = child.resolve(SkillsSynthesisRpcHandlers);
+  handlers.register();
+
+  return {
+    handlers,
+    rpcHandler,
+    sentry,
+    synthesis,
+    store,
+    diagnostics,
+    enhancer,
+    registry,
+    mirror,
+    contentDownload,
+    workspaceProvider,
+    logger,
+    suggestionStore,
+    curator,
+  };
+}
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:listSuggestions', () => {
+  it('happy path: calls suggestionStore.listByStatus with pending default and returns mapped suggestions', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    const fakeRow = {
+      id: 'sug-1',
+      name: 'My Skill',
+      description: 'does things',
+      body: '## Description\nx',
+      memberSessionIds: ['s-1'],
+      memberCandidateIds: ['c-1'],
+      clusterSize: 3,
+      technologyFingerprint: 'fp-abc',
+      judgeScore: 7.5,
+      status: 'pending' as const,
+      createdAt: 1700000000000,
+      decidedAt: null,
+    };
+    suggestionStore.listByStatus.mockReturnValue([fakeRow]);
+
+    const result = await rpcHandler.call('skillSynthesis:listSuggestions', {});
+
+    expect(suggestionStore.listByStatus).toHaveBeenCalledWith('pending');
+    expect(result).toMatchObject({
+      suggestions: [
+        {
+          id: 'sug-1',
+          name: 'My Skill',
+          description: 'does things',
+          clusterSize: 3,
+          technologyFingerprint: 'fp-abc',
+          judgeScore: 7.5,
+          memberSessionIds: ['s-1'],
+          status: 'pending',
+          createdAt: 1700000000000,
+        },
+      ],
+    });
+  });
+
+  it('happy path: forwards explicit status=accepted to listByStatus', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    suggestionStore.listByStatus.mockReturnValue([]);
+
+    const result = await rpcHandler.call('skillSynthesis:listSuggestions', {
+      status: 'accepted',
+    });
+
+    expect(suggestionStore.listByStatus).toHaveBeenCalledWith('accepted');
+    expect(result).toMatchObject({ suggestions: [] });
+  });
+
+  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when suggestionStore is absent (VS Code)', async () => {
+    const { rpcHandler } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:listSuggestions', {}),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('param validation: invalid status value rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:listSuggestions', { status: 'bogus' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:acceptSuggestion', () => {
+  it('happy path: calls curator.acceptSuggestion with id + settings and returns accepted + filePath', async () => {
+    const { rpcHandler, curator, synthesis } = buildHandlersWithSuggestions();
+    const fakeSettings = {
+      enabled: true,
+      successesToPromote: 3,
+      dedupCosineThreshold: 0.85,
+      maxActiveSkills: 50,
+      candidatesDir: '',
+      eligibilityMinTurns: 5,
+      evictionDecayRate: 0.95,
+      generalizationContextThreshold: 3,
+      dedupClusterThreshold: 0.78,
+      prefilterMinEdits: 1,
+      prefilterMinChars: 800,
+      prefilterMinToolUses: 2,
+      judgeEnabled: true,
+      minJudgeScore: 6.0,
+      judgeModel: 'inherit',
+      maxPinnedSkills: 10,
+      curatorEnabled: true,
+      curatorIntervalHours: 24,
+      suggestionMinClusterSize: 2,
+      suggestionMaxCandidates: 200,
+    };
+    synthesis.readSettings.mockReturnValue(fakeSettings);
+    curator.acceptSuggestion.mockReturnValue({
+      accepted: true,
+      filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:acceptSuggestion', {
+      id: 'sug-42',
+    });
+
+    expect(synthesis.readSettings).toHaveBeenCalled();
+    expect(curator.acceptSuggestion).toHaveBeenCalledWith(
+      'sug-42',
+      fakeSettings,
+    );
+    expect(result).toMatchObject({
+      accepted: true,
+      filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
+    });
+  });
+
+  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when curator is absent (VS Code)', async () => {
+    const { rpcHandler } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:acceptSuggestion', { id: 'sug-1' }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:acceptSuggestion', {}),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:acceptSuggestion', { id: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:dismissSuggestion', () => {
+  it('happy path: calls curator.dismissSuggestion with id and returns dismissed', async () => {
+    const { rpcHandler, curator } = buildHandlersWithSuggestions();
+    curator.dismissSuggestion.mockReturnValue({ dismissed: true });
+
+    const result = await rpcHandler.call('skillSynthesis:dismissSuggestion', {
+      id: 'sug-99',
+    });
+
+    expect(curator.dismissSuggestion).toHaveBeenCalledWith('sug-99');
+    expect(result).toMatchObject({ dismissed: true });
+  });
+
+  it('happy path: optional reason field is accepted and does not break dispatch', async () => {
+    const { rpcHandler, curator } = buildHandlersWithSuggestions();
+    curator.dismissSuggestion.mockReturnValue({ dismissed: true });
+
+    const result = await rpcHandler.call('skillSynthesis:dismissSuggestion', {
+      id: 'sug-99',
+      reason: 'not useful',
+    });
+
+    expect(curator.dismissSuggestion).toHaveBeenCalledWith('sug-99');
+    expect(result).toMatchObject({ dismissed: true });
+  });
+
+  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when curator is absent (VS Code)', async () => {
+    const { rpcHandler } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:dismissSuggestion', { id: 'sug-1' }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:dismissSuggestion', {}),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:dismissSuggestion', { id: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: reason exceeding 500 chars rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:dismissSuggestion', {
+        id: 'sug-1',
+        reason: 'x'.repeat(501),
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:getSuggestion', () => {
+  it('happy path: calls suggestionStore.findById and returns suggestion with body', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    suggestionStore.findById.mockReturnValue(fakeSuggestionRow);
+
+    const result = await rpcHandler.call('skillSynthesis:getSuggestion', {
+      id: 'sug-1',
+    });
+
+    expect(suggestionStore.findById).toHaveBeenCalledWith('sug-1');
+    expect(result).toMatchObject({
+      suggestion: {
+        id: 'sug-1',
+        name: 'My Skill',
+        description: 'does things',
+        body: '## Body\nStep 1.',
+        status: 'pending',
+      },
+    });
+  });
+
+  it('returns suggestion:null when findById returns null (not found)', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    suggestionStore.findById.mockReturnValue(null);
+
+    const result = (await rpcHandler.call('skillSynthesis:getSuggestion', {
+      id: 'missing',
+    })) as { suggestion: null };
+
+    expect(result.suggestion).toBeNull();
+  });
+
+  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when suggestionStore is absent (VS Code)', async () => {
+    const { rpcHandler } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:getSuggestion', { id: 'sug-1' }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:getSuggestion', {}),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:getSuggestion', { id: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:updateSuggestion', () => {
+  it('happy path: calls updatePending with fields and returns updated=true when still pending', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    const updatedRow = {
+      ...fakeSuggestionRow,
+      name: 'New Name',
+      status: 'pending' as const,
+    };
+    suggestionStore.updatePending.mockReturnValue(updatedRow);
+
+    const result = await rpcHandler.call('skillSynthesis:updateSuggestion', {
+      id: 'sug-1',
+      name: 'New Name',
+    });
+
+    expect(suggestionStore.updatePending).toHaveBeenCalledWith('sug-1', {
+      name: 'New Name',
+      description: undefined,
+      body: undefined,
+    });
+    expect(result).toMatchObject({
+      updated: true,
+      suggestion: expect.objectContaining({ name: 'New Name' }),
+    });
+  });
+
+  it('returns updated=false when the row is accepted (immutable)', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    // Store returns the accepted row unchanged (it was already accepted)
+    const acceptedRow = { ...fakeSuggestionRow, status: 'accepted' as const };
+    suggestionStore.updatePending.mockReturnValue(acceptedRow);
+
+    const result = (await rpcHandler.call('skillSynthesis:updateSuggestion', {
+      id: 'sug-1',
+      name: 'ignored',
+    })) as { updated: boolean; suggestion: unknown };
+
+    expect(result.updated).toBe(false);
+    expect(result.suggestion).not.toBeNull();
+  });
+
+  it('returns updated=false and suggestion=null when id not found', async () => {
+    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
+    suggestionStore.updatePending.mockReturnValue(null);
+
+    const result = (await rpcHandler.call('skillSynthesis:updateSuggestion', {
+      id: 'missing',
+      name: 'x',
+    })) as { updated: boolean; suggestion: null };
+
+    expect(result.updated).toBe(false);
+    expect(result.suggestion).toBeNull();
+  });
+
+  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when suggestionStore is absent (VS Code)', async () => {
+    const { rpcHandler } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:updateSuggestion', {
+        id: 'sug-1',
+        name: 'x',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:updateSuggestion', { name: 'x' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:updateSuggestion', { id: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('param validation: name longer than 200 chars rejected with INVALID_PARAMS', async () => {
+    const { rpcHandler } = buildHandlersWithSuggestions();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:updateSuggestion', {
+        id: 'sug-1',
+        name: 'x'.repeat(201),
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
   });
 });

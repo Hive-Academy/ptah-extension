@@ -12,14 +12,14 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, TOKENS, ConfigManager } from '@ptah-extension/vscode-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { AuthEnv, isDirectAnthropic } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { ModelInfo } from '../types/sdk-types/claude-sdk.types';
+import { PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 import { SdkModuleLoader } from './sdk-module-loader';
-import type { IModelResolver } from '../auth-env.port';
-import { normalizeAuthMethod } from '@ptah-extension/shared';
+import type { IModelResolver, IAuthEnvProvider } from '../auth-env.port';
 
 /**
  * Model entry from the Anthropic /v1/models API
@@ -128,7 +128,8 @@ export class SdkModelService {
     private readonly authEnv: AuthEnv,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER)
     private readonly modelResolver: IModelResolver,
-    @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER)
+    private readonly authProvider: IAuthEnvProvider,
   ) {}
 
   /**
@@ -163,8 +164,7 @@ export class SdkModelService {
   }
 
   private async fetchSupportedModelsInternal(): Promise<ModelInfo[]> {
-    const rawAuthMethod = this.config.get<string>('authMethod') || 'apiKey';
-    const authMethod = normalizeAuthMethod(rawAuthMethod);
+    const { authMethod } = this.authProvider.resolveActiveAuth();
 
     this.logger.info('[SdkModelService] Fetching models', {
       authMethod,
@@ -352,6 +352,7 @@ export class SdkModelService {
           cwd: require('os').homedir(),
           pathToClaudeCodeExecutable: cliJsPath,
           settingSources,
+          settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
           env,
           stderr: (data: string) => {
             stderrLines.push(data);

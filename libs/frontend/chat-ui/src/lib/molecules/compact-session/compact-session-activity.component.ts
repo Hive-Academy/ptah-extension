@@ -18,20 +18,28 @@ import {
   ChevronDown as ChevronDownIcon2,
   ChevronRight as ChevronRightIcon2,
   Copy,
+  Brain,
 } from 'lucide-angular';
 import { Clipboard } from '@angular/cdk/clipboard';
 import { MarkdownModule } from 'ngx-markdown';
 import { TypingCursorComponent } from '../../atoms/typing-cursor.component';
 import { PermissionRequestCardComponent } from '../permissions/permission-request-card.component';
 import { QuestionCardComponent } from '../question-card.component';
+import {
+  CompactToolRowComponent,
+  type CompactToolRow,
+} from './compact-tool-row.component';
 import { generateAgentColor } from '../../utils/agent-color.utils';
 import type {
   StreamingState,
   AgentContentBlock,
 } from '@ptah-extension/chat-types';
+import { AccumulatorKeys } from '@ptah-extension/chat-types';
 import type {
   ExecutionChatMessage,
   ExecutionNode,
+  TextDeltaEvent,
+  ThinkingDeltaEvent,
   ToolStartEvent,
   ToolResultEvent,
   AgentStartEvent,
@@ -39,6 +47,16 @@ import type {
   PermissionResponse,
   AskUserQuestionRequest,
   AskUserQuestionResponse,
+} from '@ptah-extension/shared';
+import {
+  isReadToolInput,
+  isWriteToolInput,
+  isEditToolInput,
+  isBashToolInput,
+  isGrepToolInput,
+  isGlobToolInput,
+  isWebFetchToolInput,
+  isWebSearchToolInput,
 } from '@ptah-extension/shared';
 
 interface AgentEntry {
@@ -56,18 +74,22 @@ interface AgentEntry {
   duration?: number;
 }
 
-interface ToolSummaryEntry {
-  type: 'tool-summary';
+interface ToolGroupEntry {
+  type: 'tool-group';
   total: number;
-  complete: number;
   running: number;
   errors: number;
-  names: string[];
-  tools: { name: string; status: 'running' | 'complete' | 'error' }[];
+  tools: CompactToolRow[];
 }
 
 interface TextEntry {
   type: 'text';
+  textContent: string;
+  isStreaming?: boolean;
+}
+
+interface ThinkingEntry {
+  type: 'thinking';
   textContent: string;
   isStreaming?: boolean;
 }
@@ -84,8 +106,9 @@ interface QuestionEntry {
 
 type FeedEntry =
   | AgentEntry
-  | ToolSummaryEntry
+  | ToolGroupEntry
   | TextEntry
+  | ThinkingEntry
   | PermissionEntry
   | QuestionEntry;
 
@@ -113,6 +136,7 @@ type FeedEntry =
     DecimalPipe,
     PermissionRequestCardComponent,
     QuestionCardComponent,
+    CompactToolRowComponent,
   ],
   host: { class: 'flex flex-col min-h-0' },
   styles: [
@@ -146,6 +170,24 @@ type FeedEntry =
       :host ::ng-deep .compact-markdown ol {
         padding-left: 1rem;
         margin: 0.25rem 0;
+      }
+      /* Retro terminal aesthetic for the thinking block body */
+      :host ::ng-deep .thinking-terminal .compact-markdown .markdown-body,
+      :host ::ng-deep .thinking-terminal .compact-markdown markdown,
+      :host ::ng-deep .thinking-terminal .compact-markdown p,
+      :host ::ng-deep .thinking-terminal .compact-markdown li {
+        font-family:
+          ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+        color: oklch(var(--su) / 0.85);
+        letter-spacing: 0.01em;
+      }
+      :host .thinking-terminal {
+        background-image: repeating-linear-gradient(
+          oklch(var(--su) / 0.05) 0px,
+          oklch(var(--su) / 0.05) 1px,
+          transparent 1px,
+          transparent 3px
+        );
       }
     `,
   ],
@@ -234,75 +276,89 @@ type FeedEntry =
                 }
               </div>
             }
-            @case ('tool-summary') {
-              <button
-                type="button"
-                class="flex items-center gap-2 py-1 px-2 text-[10px] font-mono text-base-content/40 w-full text-left hover:bg-base-300/30 rounded transition-colors cursor-pointer"
-                (click)="toggleToolSummary($index)"
+            @case ('tool-group') {
+              <div
+                class="flex flex-col rounded-md bg-base-300/30 border border-base-content/5 px-2 py-1"
               >
-                @if (entry.running > 0) {
-                  <span
-                    class="loading loading-spinner w-2.5 h-2.5 text-primary flex-shrink-0"
-                  ></span>
+                @if (entry.tools.length <= toolCollapseThreshold) {
+                  @for (row of entry.tools; track $index) {
+                    <ptah-compact-tool-row [row]="row" />
+                  }
                 } @else {
+                  @for (row of visibleToolRows(entry, $index); track $index) {
+                    <ptah-compact-tool-row [row]="row" />
+                  }
+                  <button
+                    type="button"
+                    class="flex items-center gap-1.5 py-0.5 text-[10px] font-mono text-base-content/40 hover:text-base-content/70 transition-colors cursor-pointer"
+                    (click)="toggleToolGroup($index)"
+                  >
+                    <lucide-angular
+                      [img]="
+                        expandedToolGroups().has($index)
+                          ? ChevronDownIcon2
+                          : ChevronRightIcon2
+                      "
+                      class="w-2.5 h-2.5 flex-shrink-0"
+                    />
+                    @if (expandedToolGroups().has($index)) {
+                      <span>Show fewer</span>
+                    } @else {
+                      <span
+                        >{{ entry.tools.length - toolPreviewCount }} more tool{{
+                          entry.tools.length - toolPreviewCount !== 1 ? 's' : ''
+                        }}</span
+                      >
+                    }
+                    @if (entry.errors > 0) {
+                      <span class="text-error/60"
+                        >· {{ entry.errors }} failed</span
+                      >
+                    }
+                  </button>
+                }
+              </div>
+            }
+            @case ('thinking') {
+              <div
+                class="thinking-terminal flex flex-col rounded-md bg-base-300/50 border border-success/20 overflow-hidden"
+              >
+                <button
+                  type="button"
+                  class="flex items-center gap-1.5 py-1 px-2 text-[10px] font-mono text-success/70 hover:bg-success/5 transition-colors cursor-pointer w-full text-left"
+                  (click)="toggleThinking($index)"
+                >
                   <lucide-angular
-                    [img]="CheckIcon"
-                    class="w-2.5 h-2.5 text-success/50 flex-shrink-0"
+                    [img]="BrainIcon"
+                    class="w-3 h-3 flex-shrink-0"
+                    [class.animate-pulse]="
+                      entry.isStreaming && isSessionStreaming()
+                    "
                   />
+                  <span class="uppercase tracking-wider">Thinking</span>
+                  @if (entry.isStreaming && isSessionStreaming()) {
+                    <span class="text-success/50 normal-case tracking-normal"
+                      >· reasoning…</span
+                    >
+                  }
+                  <lucide-angular
+                    [img]="
+                      expandedThinking().has($index)
+                        ? ChevronDownIcon2
+                        : ChevronRightIcon2
+                    "
+                    class="w-2.5 h-2.5 flex-shrink-0 ml-auto"
+                  />
+                </button>
+                @if (expandedThinking().has($index)) {
+                  <div class="px-2 pb-1.5 compact-markdown">
+                    <markdown [data]="entry.textContent" />
+                    @if (entry.isStreaming && isSessionStreaming()) {
+                      <ptah-typing-cursor colorClass="text-success/50" />
+                    }
+                  </div>
                 }
-                <lucide-angular
-                  [img]="
-                    expandedToolSummaries().has($index)
-                      ? ChevronDownIcon2
-                      : ChevronRightIcon2
-                  "
-                  class="w-2.5 h-2.5 flex-shrink-0"
-                />
-                <span>
-                  {{ entry.total }} tool{{ entry.total !== 1 ? 's' : '' }}
-                  @if (entry.running > 0) {
-                    <span class="text-primary/60"
-                      >· {{ entry.running }} running</span
-                    >
-                  }
-                  @if (entry.errors > 0) {
-                    <span class="text-error/60"
-                      >· {{ entry.errors }} failed</span
-                    >
-                  }
-                </span>
-                @if (!expandedToolSummaries().has($index)) {
-                  <span class="truncate text-base-content/25">{{
-                    entry.names.join(', ')
-                  }}</span>
-                }
-              </button>
-              @if (expandedToolSummaries().has($index)) {
-                <div class="pl-7 pr-2 pb-1 space-y-0.5">
-                  @for (tool of entry.tools; track $index) {
-                    <div
-                      class="flex items-center gap-1.5 text-[10px] font-mono text-base-content/40"
-                    >
-                      @if (tool.status === 'running') {
-                        <span
-                          class="loading loading-spinner w-2 h-2 text-primary"
-                        ></span>
-                      } @else if (tool.status === 'error') {
-                        <lucide-angular
-                          [img]="AlertCircleIcon"
-                          class="w-2.5 h-2.5 text-error/60"
-                        />
-                      } @else {
-                        <lucide-angular
-                          [img]="CheckIcon"
-                          class="w-2.5 h-2.5 text-success/40"
-                        />
-                      }
-                      <span>{{ tool.name }}</span>
-                    </div>
-                  }
-                </div>
-              }
+              </div>
             }
             @case ('text') {
               <div class="group relative py-1.5">
@@ -373,22 +429,49 @@ export class CompactSessionActivityComponent {
   protected readonly ChevronDownIcon2 = ChevronDownIcon2;
   protected readonly ChevronRightIcon2 = ChevronRightIcon2;
   protected readonly CopyIcon = Copy;
+  protected readonly BrainIcon = Brain;
+
+  /** Groups larger than this collapse their tail behind a "show more" toggle. */
+  protected readonly toolCollapseThreshold = 6;
+  /** How many tool rows stay visible when a large group is collapsed. */
+  protected readonly toolPreviewCount = 5;
 
   private readonly clipboard = inject(Clipboard);
 
-  /** Tracks which tool summary entries are expanded by feed index */
-  protected readonly expandedToolSummaries = signal<Set<number>>(new Set());
+  /** Tracks which large tool groups are fully expanded, by feed index */
+  protected readonly expandedToolGroups = signal<Set<number>>(new Set());
+
+  /** Tracks which thinking blocks are expanded, by feed index */
+  protected readonly expandedThinking = signal<Set<number>>(new Set());
 
   /** Tracks which text entry just had its content copied (for visual feedback) */
   protected readonly copiedIndex = signal<number | null>(null);
 
-  protected toggleToolSummary(index: number): void {
-    this.expandedToolSummaries.update((set) => {
+  protected toggleToolGroup(index: number): void {
+    this.expandedToolGroups.update((set) => {
       const next = new Set(set);
       if (next.has(index)) next.delete(index);
       else next.add(index);
       return next;
     });
+  }
+
+  protected toggleThinking(index: number): void {
+    this.expandedThinking.update((set) => {
+      const next = new Set(set);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  /** Visible rows for a large (collapsible) tool group at a given feed index. */
+  protected visibleToolRows(
+    entry: ToolGroupEntry,
+    index: number,
+  ): CompactToolRow[] {
+    if (this.expandedToolGroups().has(index)) return entry.tools;
+    return entry.tools.slice(0, this.toolPreviewCount);
   }
 
   protected copyText(text: string, index: number): void {
@@ -506,34 +589,42 @@ export class CompactSessionActivityComponent {
       });
       return;
     }
+
+    if (node.type === 'thinking' && node.content?.trim()) {
+      entries.push({
+        type: 'thinking',
+        textContent: this.truncate(node.content, 4000),
+      });
+      return;
+    }
     if (
       node.type === 'message' ||
       node.type === 'system' ||
       node.children.length > 0
     ) {
-      let pendingTools: string[] = [];
+      let pendingTools: CompactToolRow[] = [];
 
       const flushTools = () => {
         if (pendingTools.length === 0) return;
-        const names = [...new Set(pendingTools)];
-        entries.push({
-          type: 'tool-summary',
-          total: pendingTools.length,
-          complete: pendingTools.length,
-          running: 0,
-          errors: 0,
-          names,
-          tools: pendingTools.map((n) => ({
-            name: n,
-            status: 'complete' as const,
-          })),
-        });
+        entries.push(this.makeToolGroup(pendingTools));
         pendingTools = [];
       };
 
       for (const child of node.children) {
         if (child.type === 'tool') {
-          pendingTools.push(child.toolName || 'tool');
+          const status: CompactToolRow['status'] =
+            child.status === 'error'
+              ? 'error'
+              : child.status === 'streaming' || child.status === 'pending'
+                ? 'running'
+                : 'complete';
+          pendingTools.push(
+            this.deriveToolRow(
+              child.toolName || 'tool',
+              child.toolInput,
+              status,
+            ),
+          );
         } else {
           flushTools();
           this.walkExecutionTree(child, entries);
@@ -544,6 +635,30 @@ export class CompactSessionActivityComponent {
     }
   }
 
+  /** Assemble a ToolGroupEntry from a run of derived rows (with tallies). */
+  private makeToolGroup(tools: CompactToolRow[]): ToolGroupEntry {
+    const running = tools.filter((t) => t.status === 'running').length;
+    const errors = tools.filter((t) => t.status === 'error').length;
+    return {
+      type: 'tool-group',
+      total: tools.length,
+      running,
+      errors,
+      tools,
+    };
+  }
+
+  /**
+   * Build the feed from live streaming events.
+   *
+   * Iterates `state.events` in insertion order — which is the true arrival
+   * order of content blocks — so assistant text is interleaved inline with
+   * tool and agent activity, exactly like the finalized tree walk. Text
+   * blocks are keyed by messageId+blockIndex and emitted once (at the
+   * position of their first delta) with the full accumulated content, so the
+   * prose grows chunk-by-chunk on every RAF flush instead of only appearing
+   * as a single trailing blob once the turn completes.
+   */
   private buildFeedFromEvents(state: StreamingState): FeedEntry[] {
     const entries: FeedEntry[] = [];
     const toolResults = new Map<string, ToolResultEvent>();
@@ -555,42 +670,72 @@ export class CompactSessionActivityComponent {
       }
     }
 
-    let pendingTools: {
-      name: string;
-      status: 'running' | 'complete' | 'error';
-    }[] = [];
+    let pendingTools: CompactToolRow[] = [];
 
     const flushTools = () => {
       if (pendingTools.length === 0) return;
-      const running = pendingTools.filter((t) => t.status === 'running').length;
-      const errors = pendingTools.filter((t) => t.status === 'error').length;
-      const complete = pendingTools.length - running - errors;
-      const names = [...new Set(pendingTools.map((t) => t.name))];
-      entries.push({
-        type: 'tool-summary',
-        total: pendingTools.length,
-        complete,
-        running,
-        errors,
-        names,
-        tools: [...pendingTools],
-      });
+      entries.push(this.makeToolGroup(pendingTools));
       pendingTools = [];
     };
 
-    for (const eventId of state.messageEventIds) {
-      const event = state.events.get(eventId);
-      if (!event) continue;
+    const seenTextBlocks = new Set<string>();
+    const seenThinkingBlocks = new Set<string>();
 
-      if (event.eventType === 'tool_start') {
+    for (const event of state.events.values()) {
+      if (event.eventType === 'text_delta') {
+        const delta = event as TextDeltaEvent;
+        const blockKey = AccumulatorKeys.textBlock(
+          delta.messageId,
+          delta.blockIndex ?? 0,
+        );
+        if (seenTextBlocks.has(blockKey)) continue;
+        seenTextBlocks.add(blockKey);
+
+        const content = state.textAccumulators.get(blockKey);
+        if (!content || !content.trim()) continue;
+
+        flushTools();
+        entries.push({
+          type: 'text',
+          textContent: this.truncate(content, 1000),
+          isStreaming: false,
+        });
+      } else if (
+        event.eventType === 'thinking_start' ||
+        event.eventType === 'thinking_delta'
+      ) {
+        // Interleave thinking in arrival order. Emitted once, at the position
+        // of its first thinking event, with the full accumulated reasoning so
+        // it grows chunk-by-chunk on each RAF flush (mirrors text handling).
+        const blockIndex = (event as ThinkingDeltaEvent).blockIndex ?? 0;
+        const blockKey = AccumulatorKeys.thinkingBlock(
+          event.messageId,
+          blockIndex,
+        );
+        if (seenThinkingBlocks.has(blockKey)) continue;
+        seenThinkingBlocks.add(blockKey);
+
+        const content = state.textAccumulators.get(blockKey);
+        if (!content || !content.trim()) continue;
+
+        flushTools();
+        entries.push({
+          type: 'thinking',
+          textContent: this.truncate(content, 4000),
+          isStreaming: false,
+        });
+      } else if (event.eventType === 'tool_start') {
         const tool = event as ToolStartEvent;
         if (tool.isTaskTool) continue;
 
         const result = toolResults.get(tool.toolCallId);
-        pendingTools.push({
-          name: tool.toolName,
-          status: result ? (result.isError ? 'error' : 'complete') : 'running',
-        });
+        const status: CompactToolRow['status'] = result
+          ? result.isError
+            ? 'error'
+            : 'complete'
+          : 'running';
+        const toolInput = this.resolveStreamingToolInput(state, tool);
+        pendingTools.push(this.deriveToolRow(tool.toolName, toolInput, status));
       } else if (event.eventType === 'agent_start') {
         flushTools();
         const agent = event as AgentStartEvent;
@@ -610,21 +755,192 @@ export class CompactSessionActivityComponent {
     }
 
     flushTools();
-    if (state.textAccumulators.size > 0) {
-      let latestText = '';
-      for (const text of state.textAccumulators.values()) {
-        latestText = text;
-      }
-      if (latestText.trim()) {
-        entries.push({
-          type: 'text',
-          textContent: latestText.substring(0, 1000),
-          isStreaming: true,
-        });
+
+    // Attach the "live" flag to the last streamable block (text or thinking)
+    // while the session is still streaming, so the newest content reads as
+    // live (cursor on text, pulsing label on the collapsed thinking header).
+    if (this.isSessionStreaming()) {
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i];
+        if (entry.type === 'text' || entry.type === 'thinking') {
+          entry.isStreaming = true;
+          break;
+        }
       }
     }
 
     return entries.slice(-this.maxEntries());
+  }
+
+  /**
+   * Resolve the tool input for a live tool_start event. The event may already
+   * carry the parsed input; otherwise the streamed JSON is accumulated in
+   * `state.toolInputAccumulators` keyed by `${toolCallId}-input`. Parse it
+   * defensively since it can be partial mid-stream.
+   */
+  private resolveStreamingToolInput(
+    state: StreamingState,
+    tool: ToolStartEvent,
+  ): Record<string, unknown> | undefined {
+    if (tool.toolInput && Object.keys(tool.toolInput).length > 0) {
+      return tool.toolInput;
+    }
+    const raw = state.toolInputAccumulators.get(
+      AccumulatorKeys.toolInput(tool.toolCallId),
+    );
+    if (raw) {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          return parsed as Record<string, unknown>;
+        }
+      } catch (error: unknown) {
+        // Partial JSON mid-stream — fall back to whatever the event carries.
+        void error;
+      }
+    }
+    return tool.toolInput;
+  }
+
+  /**
+   * Derive a render-ready tool row from a tool name + input.
+   *
+   * Verb map: Read→"Read", Write→"Wrote", Edit/MultiEdit/NotebookEdit→
+   * "Updated", Bash→"Ran", Grep/WebSearch→"Searched", Glob→"Explored",
+   * WebFetch→"Fetched", Task/Agent→"Delegated", TodoWrite→"Planned".
+   *
+   * File badges come from `file_path` basenames. Diff stats are only emitted
+   * when honestly derivable: Write → `+<lines in content>`; Edit → a real
+   * line-level LCS diff of old_string vs new_string. Never fabricated.
+   */
+  private deriveToolRow(
+    toolName: string,
+    toolInput: Record<string, unknown> | undefined,
+    status: CompactToolRow['status'],
+  ): CompactToolRow {
+    const row: CompactToolRow = {
+      toolName,
+      verb: this.toolVerb(toolName),
+      status,
+      files: [],
+    };
+
+    if (isWriteToolInput(toolInput)) {
+      row.files = [this.basename(toolInput.file_path)];
+      const added = toolInput.content
+        ? toolInput.content.split('\n').length
+        : 0;
+      if (added > 0) row.added = added;
+    } else if (isEditToolInput(toolInput)) {
+      row.files = [this.basename(toolInput.file_path)];
+      const diff = this.lineDiff(toolInput.old_string, toolInput.new_string);
+      if (diff) {
+        if (diff.added > 0) row.added = diff.added;
+        if (diff.removed > 0) row.removed = diff.removed;
+      }
+    } else if (isReadToolInput(toolInput)) {
+      row.files = [this.basename(toolInput.file_path)];
+    } else if (isBashToolInput(toolInput)) {
+      row.command = this.truncate(
+        toolInput.description || toolInput.command,
+        60,
+      );
+    } else if (isGrepToolInput(toolInput)) {
+      row.detail = this.truncate(toolInput.pattern, 40);
+    } else if (isGlobToolInput(toolInput)) {
+      row.detail = this.truncate(toolInput.pattern, 40);
+    } else if (isWebFetchToolInput(toolInput)) {
+      row.detail = this.truncate(toolInput.url, 48);
+    } else if (isWebSearchToolInput(toolInput)) {
+      row.detail = this.truncate(toolInput.query, 40);
+    } else {
+      // Generic fallback: surface a file_path badge if one exists.
+      const filePath = this.readStringField(toolInput, 'file_path');
+      if (filePath) row.files = [this.basename(filePath)];
+    }
+
+    return row;
+  }
+
+  /** Map a tool name to a human verb. */
+  private toolVerb(toolName: string): string {
+    switch (toolName) {
+      case 'Read':
+        return 'Read';
+      case 'Write':
+        return 'Wrote';
+      case 'Edit':
+      case 'MultiEdit':
+      case 'NotebookEdit':
+        return 'Updated';
+      case 'Bash':
+        return 'Ran';
+      case 'Grep':
+      case 'WebSearch':
+        return 'Searched';
+      case 'Glob':
+        return 'Explored';
+      case 'WebFetch':
+        return 'Fetched';
+      case 'Task':
+      case 'Agent':
+        return 'Delegated';
+      case 'TodoWrite':
+        return 'Planned';
+      default: {
+        // Clean up Ptah MCP tool names (mcp__ptah__x / ptah-ptah_x) → "x".
+        const mcp = toolName.match(/^mcp__[^_]+__(.+)$/);
+        if (mcp) return mcp[1].replace(/_/g, ' ');
+        return toolName;
+      }
+    }
+  }
+
+  /** Read a string field from an unknown tool-input record. */
+  private readStringField(
+    input: Record<string, unknown> | undefined,
+    field: string,
+  ): string | undefined {
+    if (input && typeof input[field] === 'string') {
+      return input[field] as string;
+    }
+    return undefined;
+  }
+
+  /** Last path segment (basename) from a Windows or POSIX path. */
+  private basename(path: string): string {
+    const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '');
+    const idx = normalized.lastIndexOf('/');
+    return idx >= 0 ? normalized.slice(idx + 1) : normalized;
+  }
+
+  /**
+   * Honest line-level added/removed counts via an LCS diff of two strings.
+   * Bounded to keep it cheap; returns undefined for oversized inputs.
+   */
+  private lineDiff(
+    oldStr: string,
+    newStr: string,
+  ): { added: number; removed: number } | undefined {
+    const a = oldStr.split('\n');
+    const b = newStr.split('\n');
+    const m = a.length;
+    const n = b.length;
+    if (m * n > 250_000) return undefined;
+
+    const dp: number[][] = Array.from({ length: m + 1 }, () =>
+      new Array<number>(n + 1).fill(0),
+    );
+    for (let i = m - 1; i >= 0; i--) {
+      for (let j = n - 1; j >= 0; j--) {
+        dp[i][j] =
+          a[i] === b[j]
+            ? dp[i + 1][j + 1] + 1
+            : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+    const lcs = dp[0][0];
+    return { added: n - lcs, removed: m - lcs };
   }
 
   private getAgentText(

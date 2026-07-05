@@ -19,6 +19,13 @@ export interface CloneSummary {
   lastEnhancedAt: number | null;
   historyCount: number;
   pendingSourceHash: string | null;
+  /** Recorded invocations required before auto-enhancement becomes eligible. */
+  enhanceMinInvocations: number;
+  /**
+   * Epoch ms until which auto-enhancement is on cooldown after the last
+   * enhancement, or `null` when never enhanced (no cooldown active).
+   */
+  enhanceCooldownUntil: number | null;
 }
 
 export interface SkillCloneHistoryEntry {

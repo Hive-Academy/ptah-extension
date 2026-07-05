@@ -2,10 +2,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
 import { injectable, inject } from 'tsyringe';
-import {
-  PLATFORM_TOKENS,
-  isUnsafeWorkspacePath,
-} from '@ptah-extension/platform-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IPlatformInfo,
   IWorkspaceProvider,
@@ -47,7 +44,6 @@ import {
   StreamTransformer,
   SdkModuleLoader,
   SdkModelService,
-  SdkWarmQueryManager,
   SessionForkService,
   SdkAdapterCallbackRegistry,
   type SessionIdResolvedCallback,
@@ -56,8 +52,6 @@ import {
   type WorktreeCreatedCallback,
   type WorktreeRemovedCallback,
   type SlashCommandConfig,
-  type WarmPrewarmFingerprint,
-  type WarmQueryHandle,
 } from './helpers';
 import {
   ClaudeCliDetector,
@@ -71,8 +65,6 @@ export type {
   WorktreeCreatedCallback,
   WorktreeRemovedCallback,
 } from './helpers';
-
-export type { WarmQueryHandle, WarmPrewarmFingerprint } from './helpers';
 
 const SDK_CAPABILITIES: ProviderCapabilities = {
   streaming: true,
@@ -105,6 +97,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   private cliInstallation: ClaudeInstallation | null = null;
 
+  private lastConfiguredAuth: {
+    authMethod: string;
+    providerId: string;
+  } | null = null;
+
   private readonly callbacks: SdkAdapterCallbackRegistry;
 
   constructor(
@@ -128,8 +125,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly modelService: SdkModelService,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
-    @inject(SDK_TOKENS.SDK_WARM_QUERY_MANAGER)
-    private readonly warmQueryManager: SdkWarmQueryManager,
     @inject(SDK_TOKENS.SDK_SESSION_FORK_SERVICE)
     private readonly forkService: SessionForkService,
     @inject(TOKENS.SENTRY_SERVICE)
@@ -194,68 +189,57 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return this.moduleLoader.preload();
   }
 
-  public async prewarm(
-    activeMcpServers?: Record<string, unknown>,
-  ): Promise<void> {
-    const cwd = this.resolveSafeCwd();
-    return this.warmQueryManager.prewarm(
-      this.runtimeState.getCliJsPath(),
-      cwd,
-      activeMcpServers,
-    );
-  }
-
-  public consumeWarmQuery(
-    requirements?: WarmPrewarmFingerprint,
-  ): WarmQueryHandle | null {
-    return this.warmQueryManager.consumeWarmQuery(requirements);
-  }
-
   /**
-   * Returns the active workspace root only when it passes the safety guard
-   * (not the install dir, not a filesystem root, not app storage). Used to
-   * decide whether prewarm is allowed at all.
-   */
-  private resolveSafeCwd(): string | null {
-    const root = this.workspaceProvider.getWorkspaceRoot();
-    if (!root) return null;
-    const safety = isUnsafeWorkspacePath(root, this.platformInfo);
-    if (!safety.ok) {
-      this.logger.warn(
-        `[SdkAgentAdapter] Active workspace root is unsafe — ${safety.reason}`,
-      );
-      return null;
-    }
-    return root;
-  }
-
-  /**
-   * On workspace switch the pre-warmed SDK subprocess (spawned with the
-   * previous cwd) is no longer valid — `WarmQuery.query(prompt)` cannot
-   * rebind cwd, so reusing it would leak the old workspace into the next
-   * new session. Discard the warm handle and respawn against the new cwd
-   * so the next `chat:start` still hits the fast path.
+   * On workspace switch, re-resolve authentication if the active provider /
+   * auth method changed so the next session uses the correct credentials.
    */
   private handleWorkspaceChanged(): void {
-    this.warmQueryManager.discardWarmHandle();
     if (!this.initialized) {
       return;
     }
-    this.prewarm().catch((err) => {
+    this.reconfigureAuthIfChanged().catch((err) => {
       this.logger.warn(
-        '[SdkAgentAdapter] Re-prewarm after workspace change failed',
+        '[SdkAgentAdapter] Auth reconfigure after workspace change failed',
         err instanceof Error ? err : new Error(String(err)),
       );
     });
+  }
+
+  private async reconfigureAuthIfChanged(): Promise<void> {
+    const active = this.authManager.resolveActiveAuth();
+    if (
+      this.lastConfiguredAuth &&
+      this.lastConfiguredAuth.authMethod === active.authMethod &&
+      this.lastConfiguredAuth.providerId === active.providerId
+    ) {
+      return;
+    }
+    this.logger.info(
+      `[SdkAgentAdapter] Active auth changed on workspace switch → ${active.authMethod}/${active.providerId}, reconfiguring`,
+    );
+    const result = await this.authManager.configureAuthentication(
+      active.authMethod,
+    );
+    if (result.configured) {
+      this.lastConfiguredAuth = {
+        authMethod: active.authMethod,
+        providerId: active.providerId,
+      };
+    }
   }
 
   async initialize(): Promise<boolean> {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
-      const authMethod = this.config.get<string>('authMethod') || 'apiKey';
-      const authResult =
-        await this.authManager.configureAuthentication(authMethod);
+      const active = this.authManager.resolveActiveAuth();
+      this.lastConfiguredAuth = {
+        authMethod: active.authMethod,
+        providerId: active.providerId,
+      };
+      const authResult = await this.authManager.configureAuthentication(
+        active.authMethod,
+      );
 
       if (!authResult.configured) {
         this.runtimeState.setHealth({
@@ -388,7 +372,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       });
     this.authManager.clearAuthentication();
     this.modelService.clearCache();
-    this.warmQueryManager.dispose();
     this.initialized = false;
     this.runtimeState.reset();
     this.logger.info('[SdkAgentAdapter] Disposed successfully');
@@ -471,20 +454,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       { isPremium, mcpServerRunning, providerId: providerProfile?.providerId },
     );
 
-    const requestedCwd = config?.projectPath
-      ? path.resolve(config.projectPath)
-      : null;
-    const warmHandle =
-      mcpServersOverride || providerProfile || !requestedCwd
-        ? null
-        : this.warmQueryManager.consumeWarmQuery({
-            pathToClaudeCodeExecutable: currentCliJsPath,
-            mcpServers: null,
-            baseUrl: null,
-            authEnvHash: null,
-            cwd: requestedCwd,
-          });
-
     const { sdkQuery, initialModel, abortController } =
       await this.sessionLifecycle.executeQuery({
         sessionId: trackingId,
@@ -509,7 +478,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
         includePartialMessages,
         mcpServersOverride,
         authEnvOverride: effectiveAuthEnv,
-        warmQuery: warmHandle ?? undefined,
       });
 
     const resolvedProjectPath = config?.projectPath || os.homedir();
@@ -808,6 +776,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
       | 'bypassPermissions',
   ): Promise<void> {
     return this.sessionLifecycle.setSessionPermissionLevel(sessionId, level);
+  }
+
+  /**
+   * Active session IDs, most-recently-active first. Used by the autopilot
+   * toggle to target the session the user is interacting with when the
+   * frontend does not supply an explicit sessionId.
+   */
+  getActiveSessionIds(): SessionId[] {
+    return this.sessionLifecycle.getActiveSessionIds();
   }
 
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {

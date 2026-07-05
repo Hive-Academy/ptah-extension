@@ -40,7 +40,7 @@ export class SystemMessageTransformer {
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
   ): FlatStreamEventUnion[] {
-    helpers.logger.info(
+    helpers.logger.debug(
       '[SdkMessageTransformer] Compact boundary received, resetting streaming state',
       { trigger: sdkMessage.compact_metadata.trigger },
     );
@@ -89,7 +89,7 @@ export class SystemMessageTransformer {
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
   ): FlatStreamEventUnion[] {
-    helpers.logger.info(
+    helpers.logger.debug(
       '[SdkMessageTransformer] Local command output received',
       { contentLength: sdkMessage.content.length },
     );

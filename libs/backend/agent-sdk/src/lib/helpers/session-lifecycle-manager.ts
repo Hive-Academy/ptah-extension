@@ -189,26 +189,6 @@ export interface ExecuteQueryConfig {
    * auth env instead of the DI-singleton AuthEnv.
    */
   authEnvOverride?: AuthEnv;
-  /**
-   * Pre-warmed `WarmQuery` handle from `SdkAgentAdapter.prewarm()`. When
-   * provided, the executor uses `warm.query(prompt)` for the very first
-   * query of this session instead of the standard `queryFn(...)` call â€”
-   * skipping the spawn + initialize handshake.
-   *
-   * **Caller contract**: the caller MUST have already validated (via
-   * `consumeWarmQuery(requirements)`) that this warm handle's option
-   * fingerprint matches the options about to be built for this session.
-   * The executor does NOT re-validate â€” `WarmQuery.query` accepts only a
-   * prompt and silently inherits every other Option from the original
-   * `startup()` call, so any mismatch produces a session running with the
-   * wrong options. Callers that aren't sure must pass `undefined` here.
-   *
-   * Only meaningful for NEW (non-resume, non-fork) sessions with a string
-   * or iterable prompt. The executor falls back to the normal `queryFn`
-   * path if this is `undefined`, if the session is a resume/fork, or if
-   * `warm.query` is missing on the handle.
-   */
-  warmQuery?: { close: () => void; query?: unknown };
 }
 
 /**

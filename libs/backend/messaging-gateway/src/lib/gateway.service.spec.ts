@@ -9,6 +9,8 @@ import {
   type GatewayConversationId,
   type GatewayPlatform,
 } from './types';
+import { AttachedSessionRegistry } from './attached-session-registry';
+import type { ISessionResumabilityChecker } from './session-resumability';
 import type { BindingStore } from './binding.store';
 import type { ConversationStore } from './conversation.store';
 import type { MessageStore } from './message.store';
@@ -42,6 +44,17 @@ function createLogger(): FakeLogger {
     warn: jest.fn(),
     error: jest.fn(),
   };
+}
+
+async function flushUntil(
+  predicate: () => boolean,
+  attempts = 50,
+): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    if (predicate()) return;
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
+  }
 }
 
 interface SuiteCiphers {
@@ -103,6 +116,7 @@ function createBindingStore(): jest.Mocked<BindingStore> {
     list: jest.fn(),
     upsertPending: jest.fn(),
     approve: jest.fn(),
+    setWorkspaceRoot: jest.fn(),
     setStatus: jest.fn(),
     touch: jest.fn(),
   } as unknown as jest.Mocked<BindingStore>;
@@ -116,6 +130,7 @@ function createConversationStore(): jest.Mocked<ConversationStore> {
     resolveOrCreate: jest.fn(),
     resolveOrAdopt: jest.fn(),
     setPtahSessionId: jest.fn(),
+    clearPtahSessionId: jest.fn(),
     touch: jest.fn(),
     deleteByBinding: jest.fn(),
   } as unknown as jest.Mocked<ConversationStore>;
@@ -134,6 +149,7 @@ function createAdapter(
 ): jest.Mocked<IMessagingAdapter> {
   return {
     platform,
+    ...(platform === 'discord' ? { maxMessageChars: 2000 } : {}),
     start: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn().mockResolvedValue(undefined),
     isRunning: jest.fn().mockReturnValue(true),
@@ -221,6 +237,8 @@ interface Suite {
   vault: { encrypt: jest.Mock; decrypt: jest.Mock };
   telegramAdapter: jest.Mocked<IMessagingAdapter>;
   discordAdapter: jest.Mocked<IMessagingAdapter>;
+  attachedSessionRegistry: AttachedSessionRegistry;
+  resumability: { isResumable: jest.Mock };
   events: GatewayInboundEvent[];
 }
 
@@ -248,6 +266,11 @@ function buildSuite(options?: SuiteOptions): Suite {
     on: jest.fn(),
   } as unknown as WhisperTranscriber;
 
+  const attachedSessionRegistry = new AttachedSessionRegistry();
+  const resumability = {
+    isResumable: jest.fn().mockResolvedValue(true),
+  };
+
   const service = new GatewayService(
     logger as unknown as Logger,
     workspace.provider,
@@ -261,6 +284,8 @@ function buildSuite(options?: SuiteOptions): Suite {
     ffmpeg,
     whisper,
     createMockGatewaySettings(options?.ciphers),
+    attachedSessionRegistry,
+    resumability,
   );
   service.configureForTest({
     telegram: telegramAdapter,
@@ -280,6 +305,8 @@ function buildSuite(options?: SuiteOptions): Suite {
     vault,
     telegramAdapter,
     discordAdapter,
+    attachedSessionRegistry,
+    resumability,
     events,
   };
 }
@@ -597,6 +624,37 @@ describe('GatewayService.flushOutbound — structured routing (AC 1.5)', () => {
     await suite.service.stop();
   });
 
+  it('paginates a reply longer than the discord maxMessageChars into multiple sends', async () => {
+    const suite = buildSuite();
+    suite.bindings.findByExternal.mockReturnValue(
+      makeBinding({ platform: 'discord', externalChatId: 'chan-1' }),
+    );
+    suite.discordAdapter.sendMessage
+      .mockResolvedValueOnce({ externalMsgId: 'p0' } as SendResult)
+      .mockResolvedValueOnce({ externalMsgId: 'p1' } as SendResult);
+    const route: OutboundRoute = {
+      conversationKey: ConversationKey.for('discord', 'chan-1', 'thread-9'),
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      conversationId: 'thread-9',
+    };
+    const body = 'x'.repeat(2500);
+
+    suite.service.appendOutboundChunk(route, body);
+    await suite.service.drainOutbound(route.conversationKey);
+    await flushUntil(
+      () => suite.discordAdapter.sendMessage.mock.calls.length >= 2,
+    );
+
+    const calls = suite.discordAdapter.sendMessage.mock.calls;
+    expect(calls.length).toBe(2);
+    expect(calls[0][1]).toHaveLength(2000);
+    expect(calls[1][1]).toHaveLength(500);
+    expect(calls[0][2]).toEqual({ conversationId: 'thread-9' });
+    expect(calls[1][2]).toEqual({ conversationId: 'thread-9' });
+    await suite.service.stop();
+  });
+
   it('routes a 2-segment route without conversationId opts', async () => {
     const suite = buildSuite();
     suite.bindings.findByExternal.mockReturnValue(
@@ -616,6 +674,81 @@ describe('GatewayService.flushOutbound — structured routing (AC 1.5)', () => {
       'hi',
       undefined,
     );
+    await suite.service.stop();
+  });
+});
+
+describe('GatewayService.completeOutboundTurn — per-turn reset (bugfix)', () => {
+  it('seals a turn so the next turn starts a FRESH message with only its own body', async () => {
+    const suite = buildSuite();
+    suite.bindings.findByExternal.mockReturnValue(
+      makeBinding({ platform: 'discord', externalChatId: 'chan-1' }),
+    );
+    suite.discordAdapter.sendMessage
+      .mockResolvedValueOnce({ externalMsgId: 'turn1-msg' } as SendResult)
+      .mockResolvedValueOnce({ externalMsgId: 'turn2-msg' } as SendResult);
+    const route: OutboundRoute = {
+      conversationKey: ConversationKey.for('discord', 'chan-1', 'thread-9'),
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      conversationId: 'thread-9',
+    };
+
+    // Turn 1: stream "alpha", drain, then seal the turn.
+    suite.service.appendOutboundChunk(route, 'alpha');
+    await suite.service.drainOutbound(route.conversationKey);
+    await suite.service.completeOutboundTurn(route.conversationKey);
+
+    // Turn 2: stream "beta", drain.
+    suite.service.appendOutboundChunk(route, 'beta');
+    await suite.service.drainOutbound(route.conversationKey);
+
+    // Two distinct sendMessage calls — NOT an edit of turn 1's message.
+    expect(suite.discordAdapter.sendMessage).toHaveBeenCalledTimes(2);
+    expect(suite.discordAdapter.editMessage).not.toHaveBeenCalled();
+    expect(suite.discordAdapter.sendMessage.mock.calls[0][1]).toBe('alpha');
+    // Turn 2's body is ONLY "beta" — no cumulative "alphabeta".
+    expect(suite.discordAdapter.sendMessage.mock.calls[1][1]).toBe('beta');
+
+    await suite.service.stop();
+  });
+
+  it('accumulates a whole turn and emits ONE complete sendMessage at seal — no streaming edits', async () => {
+    const suite = buildSuite();
+    suite.bindings.findByExternal.mockReturnValue(
+      makeBinding({ platform: 'discord', externalChatId: 'chan-1' }),
+    );
+    suite.discordAdapter.sendMessage.mockResolvedValue({
+      externalMsgId: 'turn1-msg',
+    } as SendResult);
+    suite.discordAdapter.editMessage.mockResolvedValue(undefined as never);
+    const route: OutboundRoute = {
+      conversationKey: ConversationKey.for('discord', 'chan-1', 'thread-9'),
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      conversationId: 'thread-9',
+    };
+
+    // The coalescer runs in 'complete' mode: appends only accumulate. A large
+    // first chunk that would have crossed the old ~200-token streaming
+    // threshold must NOT auto-flush. The single send happens only at the
+    // end-of-turn seal, carrying the full cumulative body, never an edit.
+    const firstChunk = 'a'.repeat(900);
+    suite.service.appendOutboundChunk(route, firstChunk);
+    // Give any (now-absent) auto-flush a chance to fire — it must not.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(suite.discordAdapter.sendMessage).not.toHaveBeenCalled();
+
+    suite.service.appendOutboundChunk(route, 'beta');
+    await suite.service.completeOutboundTurn(route.conversationKey);
+
+    // Exactly one send with the full turn body; zero edits.
+    expect(suite.discordAdapter.sendMessage).toHaveBeenCalledTimes(1);
+    expect(suite.discordAdapter.sendMessage.mock.calls[0][1]).toBe(
+      `${firstChunk}beta`,
+    );
+    expect(suite.discordAdapter.editMessage).not.toHaveBeenCalled();
+
     await suite.service.stop();
   });
 });
@@ -834,5 +967,189 @@ describe('GatewayService — enabled-flag persistence (Item 2)', () => {
       (call) => call[1],
     );
     expect(writtenKeys).toEqual(['gateway.discord.enabled', 'gateway.enabled']);
+  });
+});
+
+describe('GatewayService.attachSession', () => {
+  it('returns binding-not-found when the binding does not exist', async () => {
+    const { service, bindings } = buildSuite();
+    bindings.findById.mockReturnValue(null);
+
+    const result = await service.attachSession(
+      BindingId.create('binding-x'),
+      'uuid-1',
+      '/repo',
+    );
+
+    expect(result).toEqual({ ok: false, error: 'binding-not-found' });
+  });
+
+  it('returns binding-not-approved when the binding is pending', async () => {
+    const { service, bindings } = buildSuite();
+    bindings.findById.mockReturnValue(
+      makeBinding({
+        platform: 'telegram',
+        externalChatId: 'chat-1',
+        approvalStatus: 'pending',
+      }),
+    );
+
+    const result = await service.attachSession(
+      BindingId.create('binding-1'),
+      'uuid-1',
+      '/repo',
+    );
+
+    expect(result).toEqual({ ok: false, error: 'binding-not-approved' });
+  });
+
+  it('returns session-not-resumable when the session JSONL is missing', async () => {
+    const { service, bindings, resumability } = buildSuite();
+    bindings.findById.mockReturnValue(
+      makeBinding({ platform: 'telegram', externalChatId: 'chat-1' }),
+    );
+    resumability.isResumable.mockResolvedValue(false);
+
+    const result = await service.attachSession(
+      BindingId.create('binding-1'),
+      'uuid-1',
+      '/repo',
+    );
+
+    expect(result).toEqual({ ok: false, error: 'session-not-resumable' });
+  });
+
+  it('attaches: sets workspace root, links session, registers, and emits events', async () => {
+    const { service, bindings, conversations, attachedSessionRegistry } =
+      buildSuite();
+    const approved = makeBinding({
+      platform: 'telegram',
+      externalChatId: 'chat-1',
+      approvalStatus: 'approved',
+    });
+    bindings.findById.mockReturnValue(approved);
+    bindings.setWorkspaceRoot.mockReturnValue({
+      ...approved,
+      workspaceRoot: '/repo',
+    });
+    conversations.resolveOrCreate.mockReturnValue(makeConversation());
+
+    const attached: Array<unknown> = [];
+    const changed: Array<unknown> = [];
+    service.on('session-attached', (p) => attached.push(p));
+    service.on('bindings-changed', () => changed.push(true));
+
+    const result = await service.attachSession(
+      BindingId.create('binding-1'),
+      'uuid-1',
+      '/repo',
+    );
+
+    expect(result.ok).toBe(true);
+    expect(bindings.setWorkspaceRoot).toHaveBeenCalledWith(
+      approved.id,
+      '/repo',
+    );
+    expect(conversations.resolveOrCreate).toHaveBeenCalledWith(
+      approved.id,
+      'default',
+    );
+    expect(conversations.setPtahSessionId).toHaveBeenCalledWith(
+      'conv-1',
+      'uuid-1',
+    );
+    expect(attachedSessionRegistry.isAttached('uuid-1')).toBe(true);
+    expect(attachedSessionRegistry.bindingFor('uuid-1')).toBe('binding-1');
+    expect(attached).toEqual([
+      { bindingId: 'binding-1', sessionUuid: 'uuid-1', platform: 'telegram' },
+    ]);
+    expect(changed).toHaveLength(1);
+  });
+
+  it('honors a custom externalConversationId', async () => {
+    const { service, bindings, conversations } = buildSuite();
+    const approved = makeBinding({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      approvalStatus: 'approved',
+    });
+    bindings.findById.mockReturnValue(approved);
+    bindings.setWorkspaceRoot.mockReturnValue(approved);
+    conversations.resolveOrCreate.mockReturnValue(
+      makeConversation({ externalConversationId: 'thread-9' }),
+    );
+
+    await service.attachSession(
+      BindingId.create('binding-1'),
+      'uuid-1',
+      '/repo',
+      'thread-9',
+    );
+
+    expect(conversations.resolveOrCreate).toHaveBeenCalledWith(
+      approved.id,
+      'thread-9',
+    );
+  });
+});
+
+describe('GatewayService.detachSession', () => {
+  it('returns binding-not-found when the binding does not exist', () => {
+    const { service, bindings } = buildSuite();
+    bindings.findById.mockReturnValue(null);
+
+    const result = service.detachSession(BindingId.create('binding-x'));
+
+    expect(result).toEqual({ ok: false, error: 'binding-not-found' });
+  });
+
+  it('clears ptahSessionId on linked conversations, detaches registry, emits events', () => {
+    const { service, bindings, conversations, attachedSessionRegistry } =
+      buildSuite();
+    const binding = makeBinding({
+      platform: 'telegram',
+      externalChatId: 'chat-1',
+      approvalStatus: 'approved',
+    });
+    bindings.findById.mockReturnValue(binding);
+    conversations.listByBinding.mockReturnValue([
+      makeConversation({ ptahSessionId: 'uuid-1' }),
+    ]);
+    attachedSessionRegistry.attach('uuid-1', 'binding-1');
+
+    const detached: Array<unknown> = [];
+    service.on('session-detached', (p) => detached.push(p));
+
+    const result = service.detachSession(BindingId.create('binding-1'));
+
+    expect(result.ok).toBe(true);
+    expect(conversations.clearPtahSessionId).toHaveBeenCalledWith('conv-1');
+    expect(attachedSessionRegistry.isAttached('uuid-1')).toBe(false);
+    expect(detached).toEqual([
+      { bindingId: 'binding-1', sessionUuid: 'uuid-1' },
+    ]);
+  });
+
+  it('succeeds with empty sessionUuid when no conversation is linked', () => {
+    const { service, bindings, conversations } = buildSuite();
+    bindings.findById.mockReturnValue(
+      makeBinding({
+        platform: 'telegram',
+        externalChatId: 'chat-1',
+        approvalStatus: 'approved',
+      }),
+    );
+    conversations.listByBinding.mockReturnValue([
+      makeConversation({ ptahSessionId: null }),
+    ]);
+
+    const detached: Array<unknown> = [];
+    service.on('session-detached', (p) => detached.push(p));
+
+    const result = service.detachSession(BindingId.create('binding-1'));
+
+    expect(result.ok).toBe(true);
+    expect(conversations.clearPtahSessionId).not.toHaveBeenCalled();
+    expect(detached).toEqual([{ bindingId: 'binding-1', sessionUuid: '' }]);
   });
 });

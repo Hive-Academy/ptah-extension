@@ -20,9 +20,8 @@ const DEFAULT_TRIGGERS: SkillTriggersDto = {
 };
 
 const DEFAULT_HISTOGRAM: EligibilityHistogramDto = {
-  tooFewTurns: 0,
-  lowFidelity: 0,
-  insufficientAbstraction: 0,
+  prefilterTooThin: 0,
+  prefilterRejected: 0,
   accepted: 0,
 };
 
@@ -71,9 +70,7 @@ export class SkillDiagnosticsStateService {
 
   public readonly sessionsAnalyzedToday = computed<number>(() => {
     const h = this._eligibilityHistogram();
-    return (
-      h.tooFewTurns + h.lowFidelity + h.insufficientAbstraction + h.accepted
-    );
+    return h.prefilterTooThin + h.prefilterRejected + h.accepted;
   });
 
   public readonly hasActiveSession = computed<boolean>(() => {
@@ -153,6 +150,31 @@ export class SkillDiagnosticsStateService {
     if (next === 0 && this.pollHandle !== null) {
       clearInterval(this.pollHandle);
       this.pollHandle = null;
+    }
+  }
+
+  /**
+   * Append a live skill-synthesis event pushed from the backend, keeping the
+   * recent-events list chronological and capped to the last 50. Bumps the
+   * matching last-run timestamps and, for ineligible events, the eligibility
+   * histogram bucket when the reason is derivable. The periodic poll/refresh
+   * corrects any drift, so this stays intentionally simple.
+   */
+  public pushLiveEvent(event: SkillSynthesisEventWire): void {
+    this._recentEvents.update((list) => [...list, event].slice(-50));
+
+    if (event.kind === 'analyze-run') {
+      this._lastAnalyzeRunAt.set(event.timestamp);
+    } else if (event.kind === 'curator-pass') {
+      this._lastCuratorPassAt.set(event.timestamp);
+    } else if (event.kind === 'ineligible') {
+      const reason = event.stats?.['reason'];
+      if (reason === 'prefilterTooThin' || reason === 'prefilterRejected') {
+        this._eligibilityHistogram.update((h) => ({
+          ...h,
+          [reason]: h[reason] + 1,
+        }));
+      }
     }
   }
 

@@ -40,6 +40,7 @@ export type {
 export type { IMasterKeyProvider } from './interfaces/master-key-provider.interface';
 export type { IMcpServerStatus } from './interfaces/mcp-server-status.interface';
 export type { ITracer } from './interfaces/tracer.interface';
+export type { ISessionAttachmentGuard } from './interfaces/session-attachment-guard.interface';
 export type {
   IPlatformCommands,
   IPlatformAuthProvider,

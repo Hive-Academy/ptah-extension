@@ -3,6 +3,7 @@ export type {
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,
+  ContinuationOutcome,
 } from './cli-adapter.interface';
 export {
   stripAnsiCodes,

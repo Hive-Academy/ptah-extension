@@ -1,4 +1,11 @@
-import { Injectable, signal, inject, computed } from '@angular/core';
+import {
+  Injectable,
+  signal,
+  inject,
+  computed,
+  PLATFORM_ID,
+} from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom, retry, catchError, of } from 'rxjs';
@@ -67,6 +74,7 @@ export class PaddleCheckoutService {
   private readonly router = inject(Router);
   private readonly http = inject(HttpClient);
   private readonly paddleConfig = inject(PADDLE_CONFIG);
+  private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
   private readonly MAX_RETRY_ATTEMPTS = this.paddleConfig.maxRetries ?? 3;
   private readonly LICENSE_VERIFY_RETRIES =
@@ -111,6 +119,10 @@ export class PaddleCheckoutService {
    * Guards against concurrent initialization calls.
    */
   public initialize(): Promise<void> {
+    if (!this.isBrowser) {
+      return Promise.resolve();
+    }
+
     if (this.initPromise) {
       return this.initPromise;
     }

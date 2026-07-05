@@ -240,9 +240,8 @@ function makeSynthesis(): SkillSynthesisService {
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     getEligibilityHistogram: jest.fn(() => ({
-      tooFewTurns: 0,
-      lowFidelity: 0,
-      insufficientAbstraction: 0,
+      prefilterTooThin: 0,
+      prefilterRejected: 0,
       accepted: 0,
     })),
     lastRunSummary: jest.fn(() => ({
@@ -316,6 +315,7 @@ function buildService(opts?: {
     expansion.registry,
     recorder,
     stop.registry,
+    { harvest: jest.fn().mockResolvedValue(undefined) } as never,
   );
   return {
     service,
@@ -396,6 +396,7 @@ describe('SkillTriggerService', () => {
     expect(synthesis.analyzeSession).toHaveBeenCalledWith('s1', '/ws', {
       force: false,
       transcriptPath: undefined,
+      source: 'idle',
     });
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'idle-trigger', sessionId: 's1' }),
@@ -568,6 +569,7 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
       {
         force: false,
         transcriptPath: '/tmp/agents/sub-aaaa-bbbb-cccc-dddd.jsonl',
+        source: 'subagent-stop',
       },
     );
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
@@ -623,6 +625,60 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
     expect(synthesis.analyzeSession).not.toHaveBeenCalled();
     expect(synthesis.pushEvent).not.toHaveBeenCalled();
   });
+
+  it('records an agent invocation keyed on agentType when a subagent stops', async () => {
+    const { service, subagentStop, recorder } = buildService();
+    service.start();
+    subagentStop.fire(
+      subagentStopPayload({ agentType: 'backend-developer', timestamp: 1000 }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: 'backend-developer',
+        sessionId: 'parent-1',
+        succeeded: true,
+        invokedAt: 1000,
+        source: 'subagent',
+      }),
+    );
+  });
+
+  it('records invocation telemetry even when the subagent-stop analyze trigger is disabled', async () => {
+    const { service, subagentStop, synthesis, recorder } = buildService({
+      workspace: makeWorkspace({
+        'skillSynthesis.triggers.subagentStop.enabled': false,
+      }),
+    });
+    service.start();
+    subagentStop.fire(subagentStopPayload({ agentType: 'frontend-developer' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: 'frontend-developer',
+        source: 'subagent',
+      }),
+    );
+  });
+
+  it('skips invocation telemetry when skillInvocationTelemetry is disabled', async () => {
+    const { service, subagentStop, recorder } = buildService({
+      workspace: makeWorkspace({
+        'skillSynthesis.triggers.skillInvocationTelemetry.enabled': false,
+      }),
+    });
+    service.start();
+    subagentStop.fire(subagentStopPayload({ agentType: 'software-architect' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
 });
 
 describe('SkillTriggerService — turn-complete trigger', () => {
@@ -645,6 +701,7 @@ describe('SkillTriggerService — turn-complete trigger', () => {
     expect(synthesis.analyzeSession).toHaveBeenCalledWith('s1', '/ws', {
       force: false,
       transcriptPath: undefined,
+      source: 'turn-complete',
     });
   });
 
@@ -758,6 +815,7 @@ describe('SkillTriggerService — edit-then-test FSM', () => {
     expect(synthesis.analyzeSession).toHaveBeenCalledWith('s1', '/ws', {
       force: false,
       transcriptPath: undefined,
+      source: 'edit-then-test',
     });
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1181,6 +1239,100 @@ describe('SkillTriggerService — Skill invocation telemetry', () => {
     });
     await flush();
     expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  // Task branch (subagent invocation recording) — added for feature coverage
+  it('Task tool with subagent_type records slug with source=subagent', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Task',
+        toolInput: { subagent_type: 'senior-tester' },
+        success: true,
+        timestamp: 3000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).toHaveBeenCalledTimes(1);
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: 'senior-tester',
+        sessionId: 's1',
+        succeeded: true,
+        invokedAt: 3000,
+        source: 'subagent',
+      }),
+    );
+  });
+
+  it('Task tool with missing subagent_type does not record', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Task',
+        toolInput: { description: 'do something' },
+        timestamp: 3000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('Task tool with blank subagent_type does not record', async () => {
+    const { service, postToolUse, recorder } = buildService();
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Task',
+        toolInput: { subagent_type: '   ' },
+        timestamp: 3000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('Task tool does not record when telemetry is disabled', async () => {
+    const { service, postToolUse, recorder } = buildService({
+      workspace: makeWorkspace({
+        'skillSynthesis.triggers.skillInvocationTelemetry.enabled': false,
+      }),
+    });
+    service.start();
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Task',
+        toolInput: { subagent_type: 'senior-tester' },
+        timestamp: 3000,
+      }),
+    );
+    await flush();
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('Task tool does not proceed to edit-then-test FSM', async () => {
+    // After the Task branch returns early, an immediately following Bash test
+    // command should NOT trigger analyzeSession (edit state not accumulated).
+    const { service, postToolUse, synthesis } = buildService();
+    service.start();
+    for (let i = 0; i < 3; i++) {
+      postToolUse.fire(
+        postToolUsePayload({ toolName: 'Edit', timestamp: 1000 + i }),
+      );
+    }
+    postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Task',
+        toolInput: { subagent_type: 'senior-tester' },
+        timestamp: 2000,
+      }),
+    );
+    // Task fires its recorder path and returns — edit state is preserved;
+    // no analyzeSession should fire here (Bash test not yet seen).
+    await flush();
+    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
   });
 });
 

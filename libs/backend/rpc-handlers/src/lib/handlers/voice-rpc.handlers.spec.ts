@@ -11,6 +11,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   FfmpegDecoder,
   WhisperTranscriber,
+  KokoroSynthesizer,
 } from '@ptah-extension/messaging-gateway';
 import {
   VoiceAssetsUnavailableError,
@@ -23,6 +24,7 @@ import { VoiceRpcHandlers } from './voice-rpc.handlers';
 interface StoredSettings {
   voiceModel?: string;
   legacyGatewayModel?: string;
+  ttsVoice?: string;
 }
 
 interface Suite {
@@ -30,6 +32,8 @@ interface Suite {
   rpc: MockRpcHandler;
   ffmpeg: jest.Mocked<FfmpegDecoder>;
   whisper: jest.Mocked<WhisperTranscriber>;
+  kokoro: jest.Mocked<KokoroSynthesizer>;
+  webviewManager: { broadcastMessage: jest.Mock };
   workspace: jest.Mocked<IWorkspaceProvider> & {
     setConfiguration: jest.Mock;
   };
@@ -47,16 +51,34 @@ function buildSuite(initial: StoredSettings = {}): Suite {
   } as unknown as Logger;
   const rpc = createMockRpcHandler();
 
+  const fakePcm = new Float32Array([0, 0.1, -0.1, 0.2]);
   const ffmpeg = {
-    decodeToPcm16Wav: jest
-      .fn()
-      .mockResolvedValue('/tmp/ptah-voice-x/audio.wav'),
+    decodeToPcm16: jest.fn().mockResolvedValue(fakePcm),
   } as unknown as jest.Mocked<FfmpegDecoder>;
 
   const whisper = {
     configure: jest.fn(),
     transcribe: jest.fn().mockResolvedValue('hello world'),
+    isModelDownloaded: jest.fn().mockResolvedValue(false),
+    downloadModel: jest.fn().mockResolvedValue({ alreadyPresent: false }),
+    on: jest.fn(),
+    off: jest.fn(),
   } as unknown as jest.Mocked<WhisperTranscriber>;
+
+  const kokoro = {
+    configure: jest.fn(),
+    synthesize: jest
+      .fn()
+      .mockResolvedValue({ wav: new Uint8Array([1, 2, 3]), sampleRate: 24000 }),
+    isModelDownloaded: jest.fn().mockResolvedValue(false),
+    downloadModel: jest.fn().mockResolvedValue({ alreadyPresent: false }),
+    on: jest.fn(),
+    off: jest.fn(),
+  } as unknown as jest.Mocked<KokoroSynthesizer>;
+
+  const webviewManager = {
+    broadcastMessage: jest.fn().mockResolvedValue(undefined),
+  };
 
   const store: StoredSettings = { ...initial };
 
@@ -68,6 +90,9 @@ function buildSuite(initial: StoredSettings = {}): Suite {
       if (key === 'gateway.voice.whisperModel') {
         return store.legacyGatewayModel ?? defaultValue;
       }
+      if (key === 'voice.ttsVoice') {
+        return store.ttsVoice ?? defaultValue;
+      }
       return defaultValue;
     },
   );
@@ -78,6 +103,8 @@ function buildSuite(initial: StoredSettings = {}): Suite {
         store.voiceModel = value as string;
       } else if (key === 'gateway.voice.whisperModel') {
         store.legacyGatewayModel = value as string;
+      } else if (key === 'voice.ttsVoice') {
+        store.ttsVoice = value as string;
       }
     },
   );
@@ -95,9 +122,20 @@ function buildSuite(initial: StoredSettings = {}): Suite {
     workspace,
     ffmpeg,
     whisper,
+    kokoro,
+    webviewManager,
   );
   handlers.register();
-  return { handlers, rpc, ffmpeg, whisper, workspace, store };
+  return {
+    handlers,
+    rpc,
+    ffmpeg,
+    whisper,
+    kokoro,
+    webviewManager,
+    workspace,
+    store,
+  };
 }
 
 describe('VoiceRpcHandlers', () => {
@@ -127,10 +165,8 @@ describe('VoiceRpcHandlers', () => {
 
       expect(response.success).toBe(true);
       expect(response.data).toEqual({ ok: true, transcript: 'hello world' });
-      expect(ffmpeg.decodeToPcm16Wav).toHaveBeenCalledTimes(1);
-      expect(whisper.transcribe).toHaveBeenCalledWith(
-        '/tmp/ptah-voice-x/audio.wav',
-      );
+      expect(ffmpeg.decodeToPcm16).toHaveBeenCalledTimes(1);
+      expect(whisper.transcribe).toHaveBeenCalledWith(expect.any(Float32Array));
     });
 
     it('leaves no input temp file behind after a successful transcription', async () => {
@@ -188,13 +224,13 @@ describe('VoiceRpcHandlers', () => {
 
       expect(response.success).toBe(true);
       expect(response.data).toMatchObject({ ok: false });
-      expect(ffmpeg.decodeToPcm16Wav).not.toHaveBeenCalled();
+      expect(ffmpeg.decodeToPcm16).not.toHaveBeenCalled();
       expect(whisper.transcribe).not.toHaveBeenCalled();
     });
 
     it('returns { ok: false } when the decoder throws, without rejecting', async () => {
       const { rpc, ffmpeg, whisper } = buildSuite();
-      (ffmpeg.decodeToPcm16Wav as jest.Mock).mockRejectedValue(
+      (ffmpeg.decodeToPcm16 as jest.Mock).mockRejectedValue(
         new Error('ffmpeg-boom'),
       );
 
@@ -211,7 +247,7 @@ describe('VoiceRpcHandlers', () => {
 
     it('surfaces VOICE_ASSETS_UNAVAILABLE with remediation when assets are missing', async () => {
       const { rpc, ffmpeg, whisper } = buildSuite();
-      (ffmpeg.decodeToPcm16Wav as jest.Mock).mockRejectedValue(
+      (ffmpeg.decodeToPcm16 as jest.Mock).mockRejectedValue(
         new VoiceAssetsUnavailableError('ffmpeg-static'),
       );
 
@@ -248,8 +284,9 @@ describe('VoiceRpcHandlers', () => {
   });
 
   describe('voice:getConfig', () => {
-    it('returns the new voice.whisperModel value when set', async () => {
-      const { rpc } = buildSuite({ voiceModel: 'large-v3' });
+    it('returns the new voice.whisperModel value with download status when set', async () => {
+      const { rpc, whisper } = buildSuite({ voiceModel: 'small.en' });
+      (whisper.isModelDownloaded as jest.Mock).mockResolvedValue(true);
 
       const response = await rpc.handleMessage({
         method: 'voice:getConfig',
@@ -260,8 +297,9 @@ describe('VoiceRpcHandlers', () => {
       expect(response.success).toBe(true);
       expect(response.data).toEqual({
         ok: true,
-        config: { whisperModel: 'large-v3' },
+        config: { whisperModel: 'small.en', downloaded: true },
       });
+      expect(whisper.isModelDownloaded).toHaveBeenCalledWith('small.en');
     });
 
     it('falls back to the legacy gateway key when the new key is unset', async () => {
@@ -276,7 +314,7 @@ describe('VoiceRpcHandlers', () => {
       expect(response.success).toBe(true);
       expect(response.data).toEqual({
         ok: true,
-        config: { whisperModel: 'medium.en' },
+        config: { whisperModel: 'medium.en', downloaded: false },
       });
     });
 
@@ -292,8 +330,153 @@ describe('VoiceRpcHandlers', () => {
       expect(response.success).toBe(true);
       expect(response.data).toEqual({
         ok: true,
-        config: { whisperModel: 'base.en' },
+        config: { whisperModel: 'base.en', downloaded: false },
       });
+    });
+  });
+
+  describe('voice:downloadModel', () => {
+    it('downloads the configured model and reports it was fetched', async () => {
+      const { rpc, whisper } = buildSuite({ voiceModel: 'small.en' });
+
+      const response = await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: {},
+        correlationId: 'dl-1',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual({ ok: true, alreadyPresent: false });
+      expect(whisper.downloadModel).toHaveBeenCalledWith('small.en');
+    });
+
+    it('downloads an explicitly requested model', async () => {
+      const { rpc, whisper } = buildSuite();
+      (whisper.downloadModel as jest.Mock).mockResolvedValue({
+        alreadyPresent: true,
+      });
+
+      const response = await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: { model: 'medium.en' },
+        correlationId: 'dl-2',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual({ ok: true, alreadyPresent: true });
+      expect(whisper.downloadModel).toHaveBeenCalledWith('medium.en');
+    });
+
+    it('rejects an invalid model string without downloading', async () => {
+      const { rpc, whisper } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: { model: 'bad model!' },
+        correlationId: 'dl-3',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toMatchObject({ ok: false });
+      expect(whisper.downloadModel).not.toHaveBeenCalled();
+    });
+
+    it('broadcasts download progress ticks to the webview and detaches the listener', async () => {
+      const { rpc, whisper, webviewManager } = buildSuite({
+        voiceModel: 'small.en',
+      });
+      let captured: ((evt: unknown) => void) | undefined;
+      (whisper.on as jest.Mock).mockImplementation(
+        (event: string, listener: (evt: unknown) => void) => {
+          if (event === 'download') captured = listener;
+        },
+      );
+      (whisper.downloadModel as jest.Mock).mockImplementation(async () => {
+        captured?.({
+          kind: 'download:progress',
+          model: 'small.en',
+          percent: 42,
+        });
+        captured?.({ kind: 'download:progress', model: 'other', percent: 99 });
+        return { alreadyPresent: false };
+      });
+
+      await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: {},
+        correlationId: 'dl-progress',
+      });
+
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'voice:modelDownloadProgress',
+        { model: 'small.en', percent: 42 },
+      );
+      // The tick for a different model must be ignored.
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledTimes(1);
+      expect(whisper.off).toHaveBeenCalledWith('download', captured);
+    });
+
+    it('broadcasts a terminal 100% tick on download:complete', async () => {
+      const { rpc, whisper, webviewManager } = buildSuite({
+        voiceModel: 'small.en',
+      });
+      let captured: ((evt: unknown) => void) | undefined;
+      (whisper.on as jest.Mock).mockImplementation(
+        (event: string, listener: (evt: unknown) => void) => {
+          if (event === 'download') captured = listener;
+        },
+      );
+      (whisper.downloadModel as jest.Mock).mockImplementation(async () => {
+        captured?.({ kind: 'download:complete', model: 'small.en' });
+        return { alreadyPresent: false };
+      });
+
+      await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: {},
+        correlationId: 'dl-complete',
+      });
+
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'voice:modelDownloadProgress',
+        { model: 'small.en', percent: 100 },
+      );
+    });
+
+    it('surfaces VOICE_ASSETS_UNAVAILABLE with remediation when assets are missing', async () => {
+      const { rpc, whisper } = buildSuite();
+      (whisper.downloadModel as jest.Mock).mockRejectedValue(
+        new VoiceAssetsUnavailableError('@huggingface/transformers'),
+      );
+
+      const response = await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: {},
+        correlationId: 'dl-4',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toMatchObject({
+        ok: false,
+        code: VOICE_ASSETS_UNAVAILABLE,
+        remediation: VOICE_ASSETS_REMEDIATION,
+      });
+    });
+
+    it('returns { ok: false } when the download throws, without rejecting', async () => {
+      const { rpc, whisper } = buildSuite();
+      (whisper.downloadModel as jest.Mock).mockRejectedValue(
+        new Error('network-boom'),
+      );
+
+      const response = await rpc.handleMessage({
+        method: 'voice:downloadModel',
+        params: {},
+        correlationId: 'dl-5',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual({ ok: false, error: 'network-boom' });
     });
   });
 
@@ -344,6 +527,170 @@ describe('VoiceRpcHandlers', () => {
       expect(response.success).toBe(true);
       expect(response.data).toMatchObject({ ok: false });
       expect(workspace.setConfiguration).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('voice:getTtsConfig', () => {
+    it('returns the configured voice and download status', async () => {
+      const { rpc, kokoro } = buildSuite({ ttsVoice: 'am_michael' });
+      (kokoro.isModelDownloaded as jest.Mock).mockResolvedValue(true);
+
+      const response = await rpc.handleMessage({
+        method: 'voice:getTtsConfig',
+        params: {},
+        correlationId: 'tts-cfg-1',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual({
+        ok: true,
+        config: { voice: 'am_michael', downloaded: true },
+      });
+    });
+
+    it('falls back to the default voice when unset', async () => {
+      const { rpc } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:getTtsConfig',
+        params: {},
+        correlationId: 'tts-cfg-2',
+      });
+
+      expect(response.data).toMatchObject({
+        ok: true,
+        config: { voice: 'af_heart' },
+      });
+    });
+  });
+
+  describe('voice:setTtsConfig', () => {
+    it('writes the voice.ttsVoice key and reconfigures the synthesizer', async () => {
+      const { rpc, workspace, store, kokoro } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:setTtsConfig',
+        params: { voice: 'bf_emma' },
+        correlationId: 'tts-set-1',
+      });
+
+      expect(response.data).toEqual({ ok: true });
+      expect(workspace.setConfiguration).toHaveBeenCalledWith(
+        'ptah',
+        'voice.ttsVoice',
+        'bf_emma',
+      );
+      expect(store.ttsVoice).toBe('bf_emma');
+      expect(kokoro.configure).toHaveBeenCalledWith({ voice: 'bf_emma' });
+    });
+
+    it('rejects an invalid voice id without writing', async () => {
+      const { rpc, workspace } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:setTtsConfig',
+        params: { voice: 'bad voice!' },
+        correlationId: 'tts-set-2',
+      });
+
+      expect(response.data).toMatchObject({ ok: false });
+      expect(workspace.setConfiguration).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('voice:downloadTtsModel', () => {
+    it('downloads and broadcasts progress under the tts sentinel', async () => {
+      const { rpc, kokoro, webviewManager } = buildSuite();
+      let captured: ((evt: unknown) => void) | undefined;
+      (kokoro.on as jest.Mock).mockImplementation(
+        (_evt: string, cb: (evt: unknown) => void) => {
+          captured = cb;
+        },
+      );
+      (kokoro.downloadModel as jest.Mock).mockImplementation(async () => {
+        captured?.({
+          kind: 'download:progress',
+          model: 'whatever',
+          percent: 42,
+        });
+        return { alreadyPresent: false };
+      });
+
+      const response = await rpc.handleMessage({
+        method: 'voice:downloadTtsModel',
+        params: {},
+        correlationId: 'tts-dl-1',
+      });
+
+      expect(response.data).toEqual({ ok: true, alreadyPresent: false });
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'voice:modelDownloadProgress',
+        { model: 'tts', percent: 42 },
+      );
+      expect(kokoro.off).toHaveBeenCalledWith('download', captured);
+    });
+
+    it('maps VoiceAssetsUnavailableError to a coded result', async () => {
+      const { rpc, kokoro } = buildSuite();
+      (kokoro.downloadModel as jest.Mock).mockRejectedValue(
+        new VoiceAssetsUnavailableError('kokoro-js'),
+      );
+
+      const response = await rpc.handleMessage({
+        method: 'voice:downloadTtsModel',
+        params: {},
+        correlationId: 'tts-dl-2',
+      });
+
+      expect(response.data).toMatchObject({
+        ok: false,
+        code: VOICE_ASSETS_UNAVAILABLE,
+        remediation: VOICE_ASSETS_REMEDIATION,
+      });
+    });
+  });
+
+  describe('voice:synthesize', () => {
+    it('returns base64 WAV for the given text and voice', async () => {
+      const { rpc, kokoro } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:synthesize',
+        params: { text: 'hello there', voice: 'am_puck' },
+        correlationId: 'tts-syn-1',
+      });
+
+      expect(response.data).toEqual({
+        ok: true,
+        audioBase64: Buffer.from(new Uint8Array([1, 2, 3])).toString('base64'),
+        mimeType: 'audio/wav',
+      });
+      expect(kokoro.synthesize).toHaveBeenCalledWith('hello there', 'am_puck');
+    });
+
+    it('falls back to the configured voice when none is given', async () => {
+      const { rpc, kokoro } = buildSuite({ ttsVoice: 'bf_emma' });
+
+      await rpc.handleMessage({
+        method: 'voice:synthesize',
+        params: { text: 'hi' },
+        correlationId: 'tts-syn-2',
+      });
+
+      expect(kokoro.synthesize).toHaveBeenCalledWith('hi', 'bf_emma');
+    });
+
+    it('rejects empty text without synthesizing', async () => {
+      const { rpc, kokoro } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:synthesize',
+        params: { text: '' },
+        correlationId: 'tts-syn-3',
+      });
+
+      expect(response.data).toMatchObject({ ok: false });
+      expect(kokoro.synthesize).not.toHaveBeenCalled();
     });
   });
 });

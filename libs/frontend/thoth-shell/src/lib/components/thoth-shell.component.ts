@@ -1,16 +1,15 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  OnInit,
   computed,
   inject,
-  signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   ArrowLeft,
   Brain,
   CalendarClock,
-  ChevronDown,
   LucideAngularModule,
   MessagesSquare,
   RadioTower,
@@ -19,7 +18,10 @@ import {
 } from 'lucide-angular';
 
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
-import { ThothStatusCardComponent } from '@ptah-extension/dashboard';
+import {
+  ThothStatusService,
+  type ThothGatewayBadge,
+} from '@ptah-extension/dashboard';
 import { MemoryCuratorTabComponent } from '@ptah-extension/memory-curator-ui';
 import { SkillSynthesisTabComponent } from '@ptah-extension/skill-synthesis-ui';
 import { CronSchedulerTabComponent } from '@ptah-extension/cron-scheduler-ui';
@@ -50,7 +52,6 @@ interface ThothTabSpec {
   imports: [
     CommonModule,
     LucideAngularModule,
-    ThothStatusCardComponent,
     MemoryCuratorTabComponent,
     SkillSynthesisTabComponent,
     CronSchedulerTabComponent,
@@ -59,7 +60,7 @@ interface ThothTabSpec {
   template: `
     <div class="flex h-full w-full flex-col bg-base-100 lg:flex-row">
       <aside
-        class="flex shrink-0 flex-col border-b border-base-300 bg-base-200/40 lg:w-56 lg:border-b-0 lg:border-r"
+        class="flex shrink-0 flex-col border-b border-base-300 bg-base-200/40 lg:w-64 lg:border-b-0 lg:border-r"
       >
         <div class="flex items-center gap-2 px-3 pb-3 pt-4 lg:px-4">
           <button
@@ -88,32 +89,83 @@ interface ThothTabSpec {
         <nav
           role="tablist"
           aria-label="Thoth feature tabs"
-          class="flex gap-1 overflow-x-auto px-3 pb-3 lg:flex-col lg:overflow-visible lg:pb-4"
+          class="flex gap-1.5 overflow-x-auto px-3 pb-3 lg:flex-col lg:overflow-visible lg:pb-4"
         >
           @for (tab of visibleTabs(); track tab.id) {
+            @let status = pillars()[tab.id];
+            @let isActive = activeTab() === tab.id;
             <button
               type="button"
               role="tab"
-              class="flex items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm transition-colors duration-150"
-              [class.bg-base-300/70]="activeTab() === tab.id"
-              [class.font-medium]="activeTab() === tab.id"
-              [class.text-base-content]="activeTab() === tab.id"
-              [class.text-base-content/65]="activeTab() !== tab.id"
-              [class.hover:bg-base-300/40]="activeTab() !== tab.id"
-              [class.hover:text-base-content]="activeTab() !== tab.id"
-              [attr.aria-selected]="activeTab() === tab.id"
+              class="flex min-w-[8.5rem] flex-col gap-1.5 rounded-lg border px-3 py-2.5 text-left transition-colors duration-150 lg:min-w-0"
+              [class.border-base-300]="isActive"
+              [class.bg-base-300/50]="isActive"
+              [class.border-transparent]="!isActive"
+              [class.hover:bg-base-300/30]="!isActive"
+              [class.opacity-70]="!status.available"
+              [attr.aria-selected]="isActive"
               [attr.aria-controls]="'thoth-panel-' + tab.id"
               [id]="'thoth-tab-' + tab.id"
+              data-testid="dashboard-status-card"
+              [attr.data-pillar]="tab.id"
               (click)="selectTab(tab.id)"
             >
-              <lucide-angular
-                [img]="tab.icon"
-                class="size-4 shrink-0"
-                [class.text-secondary]="activeTab() === tab.id"
-                [class.text-base-content/40]="activeTab() !== tab.id"
-                aria-hidden="true"
-              />
-              {{ tab.label }}
+              <div class="flex items-center gap-2">
+                <lucide-angular
+                  [img]="tab.icon"
+                  class="size-4 shrink-0"
+                  [class.text-secondary]="isActive"
+                  [class.text-base-content/40]="!isActive"
+                  aria-hidden="true"
+                />
+                <span
+                  data-testid="thoth-tab-label"
+                  class="text-sm"
+                  [class.font-medium]="isActive"
+                  [class.text-base-content]="isActive"
+                  [class.text-base-content/70]="!isActive"
+                  >{{ tab.label }}</span
+                >
+              </div>
+
+              @if (status.available) {
+                <div class="flex items-baseline gap-1 pl-6">
+                  <span
+                    data-testid="dashboard-status-card-value"
+                    class="text-xl font-semibold leading-none"
+                    [class]="status.accent"
+                    >{{ status.value }}</span
+                  >
+                  @if (status.unit) {
+                    <span class="text-[11px] text-base-content/45">{{
+                      status.unit
+                    }}</span>
+                  }
+                </div>
+                @if (tab.id === 'gateway' && status.platforms.length > 0) {
+                  <div class="flex flex-wrap items-center gap-1 pl-6">
+                    @for (
+                      platform of status.platforms;
+                      track platform.platform
+                    ) {
+                      <span
+                        [class]="badgeClassFor(platform.state)"
+                        [attr.title]="platform.lastError ?? platform.state"
+                        >{{ platform.platform }}</span
+                      >
+                    }
+                  </div>
+                } @else {
+                  <span
+                    class="truncate pl-6 text-[11px] text-base-content/45"
+                    >{{ status.desc }}</span
+                  >
+                }
+              } @else {
+                <span class="pl-6 text-[11px] text-base-content/35">{{
+                  status.desc
+                }}</span>
+              }
             </button>
           }
         </nav>
@@ -126,29 +178,6 @@ interface ThothTabSpec {
         [attr.aria-labelledby]="'thoth-tab-' + activeTab()"
       >
         <div class="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-          <div class="mb-6">
-            <button
-              type="button"
-              class="mb-2 flex items-center gap-1.5 text-xs font-medium text-base-content/60 transition-colors hover:text-base-content"
-              [attr.aria-expanded]="statusExpanded()"
-              aria-controls="thoth-status-region"
-              (click)="toggleStatus()"
-            >
-              <lucide-angular
-                [img]="ChevronDownIcon"
-                class="size-3.5 transition-transform duration-150"
-                [class.-rotate-90]="!statusExpanded()"
-                aria-hidden="true"
-              />
-              Status
-            </button>
-            @if (statusExpanded()) {
-              <div id="thoth-status-region">
-                <ptah-thoth-status-card class="block" />
-              </div>
-            }
-          </div>
-
           @switch (activeTab()) {
             @case ('memory') {
               <ptah-memory-curator-tab />
@@ -168,20 +197,37 @@ interface ThothTabSpec {
     </div>
   `,
 })
-export class ThothShellComponent {
+export class ThothShellComponent implements OnInit {
   private readonly appState = inject(AppStateManager);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly thothStatus = inject(ThothStatusService);
 
   protected readonly RadioTowerIcon = RadioTower;
   protected readonly ArrowLeftIcon = ArrowLeft;
-  protected readonly ChevronDownIcon = ChevronDown;
 
-  /** Whether the pillar status row is expanded. Defaults to open. */
-  protected readonly statusExpanded = signal(true);
+  /**
+   * Per-pillar status tiles keyed by tab id, derived from
+   * {@link ThothStatusService}. Powers the live numbers in each sidebar tile.
+   */
+  protected readonly pillars = this.thothStatus.pillars;
 
-  /** Toggle the pillar status row open/closed. */
-  protected toggleStatus(): void {
-    this.statusExpanded.update((open) => !open);
+  public ngOnInit(): void {
+    void this.thothStatus.refreshIfNeeded();
+  }
+
+  /** daisyUI badge classes for a gateway platform's connection state. */
+  protected badgeClassFor(state: ThothGatewayBadge): string {
+    switch (state) {
+      case 'running':
+        return 'badge badge-success badge-xs';
+      case 'enabled':
+        return 'badge badge-info badge-xs';
+      case 'error':
+        return 'badge badge-error badge-xs';
+      case 'disabled':
+      default:
+        return 'badge badge-ghost badge-xs';
+    }
   }
 
   /**

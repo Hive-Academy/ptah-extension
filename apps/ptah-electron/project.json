@@ -69,11 +69,11 @@
           "croner",
           "ulid",
           "@huggingface/transformers",
+          "kokoro-js",
           "grammy",
           "discord.js",
           "@slack/bolt",
           "ffmpeg-static",
-          "nodejs-whisper",
           "bottleneck"
         ],
         "assets": [

@@ -1,0 +1,10 @@
+# whisper.cpp binary + downloaded models (idempotent first-run downloads)
+.whisper/
+
+# Remotion bundle / preview artifacts
+node_modules/
+out/
+build/
+
+# Headless Chromium download cache (Remotion render)
+.remotion/

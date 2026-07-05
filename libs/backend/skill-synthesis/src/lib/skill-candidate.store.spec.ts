@@ -69,7 +69,8 @@ function createInMemoryDb(): BetterSqliteDb {
       promoted_at INTEGER,
       rejected_at INTEGER,
       rejected_reason TEXT,
-      pinned INTEGER NOT NULL DEFAULT 0
+      pinned INTEGER NOT NULL DEFAULT 0,
+      residency TEXT NOT NULL DEFAULT 'resident' CHECK(residency IN ('resident','dormant'))
     );
 
     CREATE TABLE skill_invocations (
@@ -80,6 +81,19 @@ function createInMemoryDb(): BetterSqliteDb {
       invoked_at INTEGER NOT NULL,
       notes TEXT,
       context_id TEXT
+    );
+
+    CREATE TABLE skill_invocation_events (
+      id TEXT PRIMARY KEY,
+      skill_slug TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      context_id TEXT,
+      source TEXT NOT NULL,
+      succeeded INTEGER NOT NULL,
+      is_error INTEGER NOT NULL,
+      invoked_at INTEGER NOT NULL,
+      reconciled_at INTEGER,
+      verdict_source TEXT
     );
   `);
   return db;
@@ -246,6 +260,97 @@ describe('SkillCandidateStore', () => {
     });
   });
 
+  describe('reconcileSubagentEvent', () => {
+    function recordSubagentRun(
+      store: SkillCandidateStore,
+      slug: string,
+      invokedAt: number,
+    ): void {
+      store.recordSkillEvent({
+        skillSlug: slug,
+        sessionId: `sess-${invokedAt}`,
+        contextId: null,
+        source: 'subagent',
+        succeeded: true, // optimistic, as onSubagentStop records it
+        isError: false,
+        invokedAt,
+      });
+    }
+
+    maybe('flips an optimistic success to the graded FAILED verdict', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      recordSubagentRun(store, 'backend-developer', 1000);
+
+      const did = store.reconcileSubagentEvent({
+        slug: 'backend-developer',
+        succeeded: false,
+        isError: true,
+        windowStart: 0,
+        windowEnd: 2000,
+        verdictSource: 'spec:TASK_2026_001',
+        reconciledAt: 5000,
+      });
+
+      expect(did).toBe(true);
+      const stats = store.getInvocationStats('backend-developer');
+      expect(stats.total).toBe(1);
+      expect(stats.succeeded).toBe(0);
+      expect(stats.failed).toBe(1);
+    });
+
+    maybe(
+      'is idempotent — a second reconcile finds no unreconciled row',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        recordSubagentRun(store, 'frontend-developer', 1000);
+
+        const first = store.reconcileSubagentEvent({
+          slug: 'frontend-developer',
+          succeeded: false,
+          isError: true,
+          windowStart: 0,
+          windowEnd: 2000,
+          verdictSource: 'spec:TASK_2026_002',
+          reconciledAt: 5000,
+        });
+        const second = store.reconcileSubagentEvent({
+          slug: 'frontend-developer',
+          succeeded: true,
+          isError: false,
+          windowStart: 0,
+          windowEnd: 2000,
+          verdictSource: 'spec:TASK_2026_002',
+          reconciledAt: 6000,
+        });
+
+        expect(first).toBe(true);
+        expect(second).toBe(false);
+        expect(store.getInvocationStats('frontend-developer').failed).toBe(1);
+      },
+    );
+
+    maybe('ignores events outside the task time window', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      recordSubagentRun(store, 'senior-tester', 9999);
+
+      const did = store.reconcileSubagentEvent({
+        slug: 'senior-tester',
+        succeeded: false,
+        isError: true,
+        windowStart: 0,
+        windowEnd: 2000,
+        verdictSource: 'spec:TASK_2026_003',
+        reconciledAt: 5000,
+      });
+
+      expect(did).toBe(false);
+      expect(store.getInvocationStats('senior-tester').succeeded).toBe(1);
+    });
+  });
+
   describe('listActiveOrderedByDecayScore', () => {
     maybe(
       'returns decay score=0 for a skill with no invocations (sorts last among zero-invocation)',
@@ -349,5 +454,93 @@ describe('SkillCandidateStore', () => {
         expect(list.some((r) => r.id === candidate.id)).toBe(true);
       },
     );
+
+    maybe('excludes dormant skills from the decay demotion list', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(
+        candidateInput('dormant-decay'),
+      );
+      store.updateStatus(candidate.id, 'promoted', { promotedAt: Date.now() });
+      store.setResidency(candidate.id, 'dormant');
+      const list = store.listActiveOrderedByDecayScore(Date.now(), 0.95);
+      expect(list.some((r) => r.id === candidate.id)).toBe(false);
+    });
+  });
+
+  describe('setResidency + listDormantPromotedSlugs', () => {
+    maybe('defaults to resident and flips to dormant', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('res-1'));
+      store.updateStatus(candidate.id, 'promoted', { promotedAt: Date.now() });
+      expect(store.findById(candidate.id)?.residency).toBe('resident');
+
+      const updated = store.setResidency(candidate.id, 'dormant');
+      expect(updated.residency).toBe('dormant');
+      expect(store.findById(candidate.id)?.residency).toBe('dormant');
+    });
+
+    maybe('lists only dormant promoted slugs', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate: a } = store.registerCandidate(
+        candidateInput('slug-a'),
+      );
+      const { candidate: b } = store.registerCandidate(
+        candidateInput('slug-b'),
+      );
+      const { candidate: c } = store.registerCandidate(
+        candidateInput('slug-c'),
+      );
+      store.updateStatus(a.id, 'promoted', { promotedAt: Date.now() });
+      store.updateStatus(b.id, 'promoted', { promotedAt: Date.now() });
+      // c stays a candidate (not promoted) even though dormant
+      store.setResidency(a.id, 'dormant');
+      store.setResidency(c.id, 'dormant');
+
+      const slugs = store.listDormantPromotedSlugs();
+      expect(slugs).toEqual(['skill-slug-a']);
+    });
+  });
+
+  describe('getDominantSkillSlugForSessions', () => {
+    maybe('returns null for empty input', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      expect(store.getDominantSkillSlugForSessions([])).toBeNull();
+    });
+
+    maybe('returns null when no events recorded for the sessions', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      expect(store.getDominantSkillSlugForSessions(['unknown'])).toBeNull();
+    });
+
+    maybe('returns the most-invoked slug across the given sessions', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const now = Date.now();
+      const ev = (slug: string, session: string) =>
+        store.recordSkillEvent({
+          skillSlug: slug,
+          sessionId: session,
+          contextId: null,
+          source: 'post-tool-use',
+          succeeded: true,
+          isError: false,
+          invokedAt: now,
+        });
+      ev('orchestrate', 's1');
+      ev('orchestrate', 's1');
+      ev('review-code', 's1');
+      ev('orchestrate', 's2');
+
+      expect(store.getDominantSkillSlugForSessions(['s1', 's2'])).toBe(
+        'orchestrate',
+      );
+      // A session set that only includes the review event yields review-code.
+      expect(store.getDominantSkillSlugForSessions(['s3'])).toBeNull();
+    });
   });
 });

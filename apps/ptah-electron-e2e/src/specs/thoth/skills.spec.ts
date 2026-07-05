@@ -42,9 +42,10 @@ const SETTINGS_FIXTURE = {
   eligibilityMinTurns: 5,
   evictionDecayRate: 0.95,
   generalizationContextThreshold: 3,
-  minTrajectoryFidelityRatio: 0.4,
   dedupClusterThreshold: 0.78,
-  minAbstractionEditDistance: 0.3,
+  prefilterMinEdits: 1,
+  prefilterMinChars: 800,
+  prefilterMinToolUses: 2,
   judgeEnabled: true,
   minJudgeScore: 6.0,
   judgeModel: 'inherit',
@@ -75,6 +76,8 @@ test.describe('Thoth — Skills tab', () => {
     await ui.openTab('skills');
 
     const page = ui.page;
+
+    await page.locator('[data-testid="skills-subview-candidates"]').click();
 
     await expect(
       page.locator('[data-testid="skills-candidate-row"]'),
@@ -119,6 +122,8 @@ test.describe('Thoth — Skills tab', () => {
     await ui.openTab('skills');
 
     const page = ui.page;
+
+    await page.locator('[data-testid="skills-subview-candidates"]').click();
 
     await expect(
       page.locator('[data-testid="skills-candidate-row"]'),
@@ -165,6 +170,8 @@ test.describe('Thoth — Skills tab', () => {
     await ui.openTab('skills');
 
     const page = ui.page;
+
+    await page.locator('[data-testid="skills-subview-candidates"]').click();
 
     await expect(
       page.locator('[data-testid="skills-candidate-row"]'),

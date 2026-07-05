@@ -35,15 +35,18 @@ function makeSettings(
     eligibilityMinTurns: 5,
     evictionDecayRate: 0.95,
     generalizationContextThreshold: 3,
-    minTrajectoryFidelityRatio: 0.4,
     dedupClusterThreshold: 0.78,
-    minAbstractionEditDistance: 0.3,
+    prefilterMinEdits: 1,
+    prefilterMinChars: 800,
+    prefilterMinToolUses: 2,
     judgeEnabled: true,
     minJudgeScore: 6.0,
     judgeModel: 'claude-haiku-4-5-20251001',
     maxPinnedSkills: 10,
     curatorEnabled: false,
     curatorIntervalHours: 24,
+    suggestionMinClusterSize: 2,
+    suggestionMaxCandidates: 200,
     ...overrides,
   };
 }
@@ -65,6 +68,7 @@ function fakeCandidate(): SkillCandidateRow {
     rejectedAt: null,
     rejectedReason: null,
     pinned: false,
+    residency: 'resident',
   };
 }
 
@@ -124,6 +128,22 @@ describe('SkillJudgeService', () => {
     expect(result.reason).toBe('judge-error-passthrough');
   });
 
+  it('fails open when LLM returns only the old 3-criteria JSON (missing generalization + triggerClarity) — passes through', async () => {
+    // LLM replies with the old 3-field schema — generalization and triggerClarity
+    // will be null from toScore, triggering the null-guard and the fail-open path.
+    const query = makeInternalQuery(
+      '{"novelty":8,"actionability":8,"scope":8}',
+    );
+    const svc = new SkillJudgeService(
+      noopLogger,
+      noopWorkspaceProvider,
+      query as never,
+    );
+    const result = await svc.judge(fakeCandidate(), 'body', makeSettings());
+    expect(result.passed).toBe(true);
+    expect(result.reason).toBe('judge-error-passthrough');
+  });
+
   it('fails open when LLM returns malformed JSON — passed=true with judge-error-passthrough', async () => {
     const query = makeInternalQuery('this is not json at all');
     const svc = new SkillJudgeService(
@@ -137,9 +157,9 @@ describe('SkillJudgeService', () => {
   });
 
   it('returns passed=false when composite score < minJudgeScore', async () => {
-    // novelty=3, actionability=4, scope=5 → avg=4.0 < 6.0
+    // novelty=3, actionability=4, scope=5, generalization=4, triggerClarity=4 → avg=4.0 < 6.0
     const query = makeInternalQuery(
-      '{"novelty":3,"actionability":4,"scope":5}',
+      '{"novelty":3,"actionability":4,"scope":5,"generalization":4,"triggerClarity":4}',
     );
     const svc = new SkillJudgeService(
       noopLogger,
@@ -157,9 +177,9 @@ describe('SkillJudgeService', () => {
   });
 
   it('returns passed=true when composite score >= minJudgeScore', async () => {
-    // novelty=7, actionability=7, scope=7 → avg=7.0 >= 6.0
+    // all five criteria = 7 → avg=7.0 >= 6.0
     const query = makeInternalQuery(
-      '{"novelty":7,"actionability":7,"scope":7}',
+      '{"novelty":7,"actionability":7,"scope":7,"generalization":7,"triggerClarity":7}',
     );
     const svc = new SkillJudgeService(
       noopLogger,

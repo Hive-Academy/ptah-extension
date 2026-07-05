@@ -5,7 +5,17 @@ export default [
   ...nx.configs['flat/typescript'],
   ...nx.configs['flat/javascript'],
   {
-    ignores: ['**/dist', '**/.vscode-test/**'],
+    ignores: [
+      '**/dist',
+      '**/.vscode-test/**',
+      // ptah-video-studio transient artifacts: Remotion bundle output, the
+      // whisper.cpp binary/model cache, and rendered mp4 output. All are
+      // generated/downloaded (gitignored) and must never be linted.
+      'apps/ptah-video-studio/build/**',
+      'apps/ptah-video-studio/.whisper/**',
+      'apps/ptah-video-studio/out/**',
+      'apps/ptah-video-studio/.remotion/**',
+    ],
   },
   {
     files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
@@ -51,6 +61,14 @@ export default [
                 'scope:cli',
                 'scope:extension',
               ],
+            },
+            // e2e harnesses drive the runtime apps and consume shared
+            // contracts (e.g. @ptah-extension/showcase-manifest). Without
+            // this entry, scope:e2e matches no sourceTag and any workspace
+            // import trips projectWithoutTagsCannotHaveDependencies.
+            {
+              sourceTag: 'scope:e2e',
+              onlyDependOnLibsWithTags: ['scope:shared', 'scope:e2e'],
             },
             {
               sourceTag: 'type:application',
@@ -99,6 +117,18 @@ export default [
             {
               sourceTag: 'type:core',
               onlyDependOnLibsWithTags: ['type:core', 'type:util'],
+            },
+            // e2e is an application-level consumer (mirrors type:app): it may
+            // depend on feature/data-access/ui/util/core libs it exercises.
+            {
+              sourceTag: 'type:e2e',
+              onlyDependOnLibsWithTags: [
+                'type:feature',
+                'type:data-access',
+                'type:ui',
+                'type:util',
+                'type:core',
+              ],
             },
           ],
         },

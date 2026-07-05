@@ -439,4 +439,94 @@ describe('AgentMonitorStore', () => {
       expect(after).toBe(before); // unchanged — waits for agent_completed
     });
   });
+
+  describe('continueAgent', () => {
+    it('calls agent:continue with agentId + message and maps success', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ success: true }));
+
+      const result = await store.continueAgent('agent-1', 'do more');
+
+      expect(rpcMock.call).toHaveBeenCalledWith('agent:continue', {
+        agentId: 'agent-1',
+        message: 'do more',
+      });
+      expect(result).toEqual({ ok: true, code: undefined });
+    });
+
+    it('maps a typed error code from the RPC result', async () => {
+      rpcMock.call.mockResolvedValueOnce(
+        rpcSuccess({ success: false, code: 'busy' }),
+      );
+
+      const result = await store.continueAgent('agent-1', 'do more');
+
+      expect(result.ok).toBe(true);
+      expect(result.code).toBe('busy');
+    });
+
+    it('reports ok=false when the RPC itself fails', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcError<unknown>('boom'));
+
+      const result = await store.continueAgent('agent-1', 'do more');
+
+      expect(result.ok).toBe(false);
+      expect(result.code).toBeUndefined();
+    });
+  });
+
+  describe('agent:spawned re-open idempotency', () => {
+    function spawnWith(overrides: Record<string, unknown>): void {
+      store.onAgentSpawned({
+        agentId: 'agent-x',
+        cli: 'codex',
+        task: 'Task for agent-x',
+        status: 'running',
+        startedAt: Date.now(),
+        displayName: 'Codex',
+        ...overrides,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+    }
+
+    it('flips an existing completed agent back to running without duplicating the card', () => {
+      spawnWith({ supportsContinuation: true });
+      store.onAgentExited({
+        agentId: 'agent-x',
+        cli: 'codex',
+        task: 'Task for agent-x',
+        status: 'completed',
+        startedAt: Date.now(),
+        exitCode: 0,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const completed = store.agents().find((a) => a.agentId === 'agent-x');
+      expect(completed?.status).toBe('completed');
+      expect(completed?.completedAt).toBeDefined();
+
+      spawnWith({ status: 'running', supportsContinuation: true });
+
+      const cards = store.agents().filter((a) => a.agentId === 'agent-x');
+      expect(cards.length).toBe(1);
+      expect(cards[0].status).toBe('running');
+      expect(cards[0].completedAt).toBeUndefined();
+      expect(cards[0].exitCode).toBeUndefined();
+    });
+
+    it('preserves supportsContinuation across spawn → exit', () => {
+      spawnWith({ supportsContinuation: true });
+      store.onAgentExited({
+        agentId: 'agent-x',
+        cli: 'codex',
+        task: 'Task for agent-x',
+        status: 'completed',
+        startedAt: Date.now(),
+        exitCode: 0,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const card = store.agents().find((a) => a.agentId === 'agent-x');
+      expect(card?.supportsContinuation).toBe(true);
+    });
+  });
 });

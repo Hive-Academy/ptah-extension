@@ -97,10 +97,12 @@ export class TurnEndHandlerService {
       return;
     }
     for (const tab of tabs) {
+      const effectiveReason =
+        payload.terminalReason ?? tab.lastTerminalReason ?? null;
       this.tabManager.setTurnEndedFields(tab.id, {
         pendingBackgroundTasks: payload.backgroundTasks,
         pendingSessionCrons: payload.sessionCrons,
-        lastTerminalReason: payload.terminalReason,
+        lastTerminalReason: effectiveReason,
       });
       this.finalization.finalizeCurrentMessage(tab.id, isAborted);
       this.tabManager.markTabIdle(tab.id);

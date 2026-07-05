@@ -216,4 +216,40 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
       'mcpDirectory:resolveSmithery',
     );
   });
+
+  it('routes search to PulseMCP when source=pulsemcp (no key required)', async () => {
+    // No provider key configured — PulseMCP must still be reachable.
+    authSecrets.getProviderKey.mockResolvedValue(undefined);
+    mockFetch((url) => {
+      expect(url).toContain('api.pulsemcp.com');
+      return {
+        servers: [{ name: 'autodesk-mcp', short_description: 'Autodesk MCP' }],
+        total_count: 1,
+      };
+    });
+    build();
+
+    const res = await call('mcpDirectory:search', {
+      query: 'autodesk',
+      source: 'pulsemcp',
+    });
+    expect(res.success).toBe(true);
+    const data = res.data as { servers: { name: string; source?: string }[] };
+    expect(data.servers[0].name).toBe('autodesk-mcp');
+    expect(data.servers[0].source).toBe('pulsemcp');
+  });
+
+  it('routes getPopular to PulseMCP when source=pulsemcp', async () => {
+    authSecrets.getProviderKey.mockResolvedValue(undefined);
+    mockFetch((url) => {
+      expect(url).toContain('api.pulsemcp.com');
+      return { servers: [{ name: 'popular-mcp' }], total_count: 1 };
+    });
+    build();
+
+    const res = await call('mcpDirectory:getPopular', { source: 'pulsemcp' });
+    expect(res.success).toBe(true);
+    const data = res.data as { servers: { name: string }[] };
+    expect(data.servers[0].name).toBe('popular-mcp');
+  });
 });

@@ -38,7 +38,9 @@ interface ClonesToast {
       <div class="space-y-4" data-testid="clones-view">
         <div class="flex items-center justify-between">
           <p class="text-sm text-base-content/60">
-            Local copies of skills, enhanced from your usage.
+            Your active skills, agents, and commands. Thoth auto-improves them
+            from usage; Success and Last enhanced stay blank until they're
+            actually invoked.
           </p>
           <button
             type="button"
@@ -50,6 +52,37 @@ interface ClonesToast {
             {{ loading() ? 'Refreshing…' : 'Refresh' }}
           </button>
         </div>
+
+        <dl
+          class="flex flex-wrap gap-x-5 gap-y-1 text-xs text-base-content/60"
+          aria-label="Status legend"
+          data-testid="clones-legend"
+        >
+          <div class="inline-flex items-center gap-1.5">
+            <span class="inline-block size-1.5 rounded-full bg-info"></span>
+            <dt class="font-medium">authored</dt>
+            <dd>built-in / yours</dd>
+          </div>
+          <div class="inline-flex items-center gap-1.5">
+            <span
+              class="inline-block size-1.5 rounded-full bg-base-content/40"
+            ></span>
+            <dt class="font-medium">clone</dt>
+            <dd>copied from a plugin</dd>
+          </div>
+          <div class="inline-flex items-center gap-1.5">
+            <span
+              class="inline-block size-1.5 rounded-full bg-secondary"
+            ></span>
+            <dt class="font-medium">synth</dt>
+            <dd>from an accepted recommendation</dd>
+          </div>
+          <div class="inline-flex items-center gap-1.5">
+            <span class="inline-block size-1.5 rounded-full bg-warning"></span>
+            <dt class="font-medium">diverged</dt>
+            <dd>upstream changed — rebase or keep</dd>
+          </div>
+        </dl>
 
         @if (error(); as msg) {
           <div role="alert" class="alert alert-error py-2 text-sm">
@@ -109,14 +142,24 @@ interface ClonesToast {
                     {{ c.invocationCount }}
                   </td>
                   <td class="text-right tabular-nums">
-                    {{ formatSuccessRate(c.successRate) }}
+                    {{ formatSuccess(c) }}
                   </td>
                   <td class="text-xs">
                     {{ formatRelative(c.lastEnhancedAt) }}
                   </td>
                   <td class="text-right tabular-nums">{{ c.historyCount }}</td>
                   <td>
-                    <div class="flex justify-end gap-1">
+                    <div class="flex items-center justify-end gap-2">
+                      @if (enhanceHint(c); as hint) {
+                        <span
+                          class="text-xs tabular-nums"
+                          [class.text-success]="hint === 'ready'"
+                          [class.text-base-content/50]="hint !== 'ready'"
+                          [title]="enhanceHintTitle(c)"
+                          data-testid="clones-enhance-hint"
+                          >{{ hint }}</span
+                        >
+                      }
                       <button
                         type="button"
                         class="btn btn-ghost btn-xs transition-colors duration-150"
@@ -374,9 +417,48 @@ export class SkillClonesViewComponent implements OnInit {
     }
   }
 
-  protected formatSuccessRate(rate: number): string {
-    if (!Number.isFinite(rate)) return '—';
-    return `${Math.round(rate * 100)}%`;
+  protected formatSuccess(c: CloneSummary): string {
+    if (c.invocationCount <= 0 || !Number.isFinite(c.successRate)) return '—';
+    return `${Math.round(c.successRate * 100)}%`;
+  }
+
+  /**
+   * Short auto-enhancement eligibility tag: invocation progress toward the
+   * threshold, remaining cooldown, or 'ready'. The manual "Enhance now" button
+   * works regardless of this state.
+   */
+  protected enhanceHint(c: CloneSummary): string {
+    if (c.invocationCount < c.enhanceMinInvocations) {
+      return `${c.invocationCount}/${c.enhanceMinInvocations} runs`;
+    }
+    if (
+      c.enhanceCooldownUntil !== null &&
+      Date.now() < c.enhanceCooldownUntil
+    ) {
+      return `cooldown ${this.formatDuration(c.enhanceCooldownUntil - Date.now())}`;
+    }
+    return 'ready';
+  }
+
+  protected enhanceHintTitle(c: CloneSummary): string {
+    if (c.invocationCount < c.enhanceMinInvocations) {
+      return `Auto-enhances after ${c.enhanceMinInvocations} recorded runs (has ${c.invocationCount}). "Enhance now" runs it manually.`;
+    }
+    if (
+      c.enhanceCooldownUntil !== null &&
+      Date.now() < c.enhanceCooldownUntil
+    ) {
+      return 'Recently enhanced — auto-enhance is on cooldown. "Enhance now" still works.';
+    }
+    return 'Eligible for auto-enhancement on the next Curator pass.';
+  }
+
+  private formatDuration(ms: number): string {
+    const minutes = Math.max(1, Math.floor(ms / 60_000));
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    return `${Math.floor(hours / 24)}d`;
   }
 
   protected formatRelative(epochMs: number | null): string {

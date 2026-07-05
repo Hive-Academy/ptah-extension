@@ -13,9 +13,8 @@ import { EligibilityHistogramComponent } from './eligibility-histogram.component
 })
 class HostComponent {
   public readonly histogram = signal<EligibilityHistogramDto>({
-    tooFewTurns: 0,
-    lowFidelity: 0,
-    insufficientAbstraction: 0,
+    prefilterTooThin: 0,
+    prefilterRejected: 0,
     accepted: 0,
   });
 }
@@ -30,13 +29,12 @@ describe('EligibilityHistogramComponent', () => {
     );
   });
 
-  it('renders four bars proportional to their values', () => {
+  it('renders three bars proportional to their values', () => {
     TestBed.configureTestingModule({ imports: [HostComponent] });
     const fixture = TestBed.createComponent(HostComponent);
     fixture.componentInstance.histogram.set({
-      tooFewTurns: 1,
-      lowFidelity: 2,
-      insufficientAbstraction: 4,
+      prefilterTooThin: 2,
+      prefilterRejected: 4,
       accepted: 8,
     });
     fixture.detectChanges();
@@ -44,24 +42,22 @@ describe('EligibilityHistogramComponent', () => {
     const items = fixture.nativeElement.querySelectorAll(
       '[role="listitem"]',
     ) as NodeListOf<HTMLElement>;
-    expect(items.length).toBe(4);
+    expect(items.length).toBe(3);
 
     const bars = fixture.nativeElement.querySelectorAll(
       '[role="listitem"] > div > div',
     ) as NodeListOf<HTMLElement>;
-    expect(bars.length).toBe(4);
-    expect(bars[0].style.width).toBe('12.5%');
-    expect(bars[1].style.width).toBe('25%');
-    expect(bars[2].style.width).toBe('50%');
-    expect(bars[3].style.width).toBe('100%');
+    expect(bars.length).toBe(3);
+    expect(bars[0].style.width).toBe('25%');
+    expect(bars[1].style.width).toBe('50%');
+    expect(bars[2].style.width).toBe('100%');
 
     const labels = Array.from(items).map((it) =>
       it.querySelector('span:first-child')?.textContent?.trim(),
     );
     expect(labels).toEqual([
-      'Too few turns',
-      'Low fidelity',
-      'Insufficient abstraction',
+      'Prefilter too thin',
+      'Prefilter rejected',
       'Accepted',
     ]);
   });

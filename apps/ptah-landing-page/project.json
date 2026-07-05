@@ -12,6 +12,8 @@
       "options": {
         "outputPath": "dist/ptah-landing-page",
         "browser": "apps/ptah-landing-page/src/main.ts",
+        "server": "apps/ptah-landing-page/src/main.server.ts",
+        "outputMode": "static",
         "polyfills": ["zone.js"],
         "tsConfig": "apps/ptah-landing-page/tsconfig.app.json",
         "assets": [

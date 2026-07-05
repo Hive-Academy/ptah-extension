@@ -1,6 +1,14 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { LucideAngularModule, ArrowLeft } from 'lucide-angular';
-import { AppStateManager } from '@ptah-extension/core';
+import {
+  LucideAngularModule,
+  ArrowLeft,
+  Scale,
+  ChevronRight,
+} from 'lucide-angular';
+import {
+  AppStateManager,
+  WebviewNavigationService,
+} from '@ptah-extension/core';
 import { AnalyticsCardComponent } from '../analytics-card/analytics-card.component';
 
 /**
@@ -19,10 +27,17 @@ import { AnalyticsCardComponent } from '../analytics-card/analytics-card.compone
 })
 export class DashboardGridComponent {
   private readonly appState = inject(AppStateManager);
+  private readonly navigation = inject(WebviewNavigationService);
 
   readonly ArrowLeftIcon = ArrowLeft;
+  readonly ScaleIcon = Scale;
+  readonly ChevronRightIcon = ChevronRight;
 
   navigateBack(): void {
     this.appState.setCurrentView('chat');
+  }
+
+  conveneTribunal(): void {
+    void this.navigation.navigateToView('tribunal');
   }
 }

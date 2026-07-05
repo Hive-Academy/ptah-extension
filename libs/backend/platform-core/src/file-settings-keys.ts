@@ -114,15 +114,18 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.eligibilityMinTurns',
   'skillSynthesis.evictionDecayRate',
   'skillSynthesis.generalizationContextThreshold',
-  'skillSynthesis.minTrajectoryFidelityRatio',
   'skillSynthesis.dedupClusterThreshold',
-  'skillSynthesis.minAbstractionEditDistance',
+  'skillSynthesis.prefilterMinEdits',
+  'skillSynthesis.prefilterMinChars',
+  'skillSynthesis.prefilterMinToolUses',
   'skillSynthesis.judgeEnabled',
   'skillSynthesis.minJudgeScore',
   'skillSynthesis.judgeModel',
   'skillSynthesis.maxPinnedSkills',
   'skillSynthesis.curatorEnabled',
   'skillSynthesis.curatorIntervalHours',
+  'skillSynthesis.suggestionMinClusterSize',
+  'skillSynthesis.suggestionMaxCandidates',
   'memory.triggers.preCompact',
   'memory.triggers.idleMs',
   'memory.triggers.turnThreshold',
@@ -149,6 +152,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'gateway.voice.enabled',
   'gateway.voice.whisperModel',
   'voice.whisperModel',
+  'voice.ttsVoice',
   'gateway.telegram.enabled',
   'gateway.telegram.tokenCipher',
   'gateway.telegram.allowedUserIds',
@@ -244,20 +248,23 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.enabled': true,
   'skillSynthesis.successesToPromote': 3,
   'skillSynthesis.dedupCosineThreshold': 0.85,
-  'skillSynthesis.maxActiveSkills': 50,
+  'skillSynthesis.maxActiveSkills': 200,
   'skillSynthesis.candidatesDir': '',
   'skillSynthesis.eligibilityMinTurns': 5,
   'skillSynthesis.evictionDecayRate': 0.95,
   'skillSynthesis.generalizationContextThreshold': 3,
-  'skillSynthesis.minTrajectoryFidelityRatio': 0.4,
   'skillSynthesis.dedupClusterThreshold': 0.78,
-  'skillSynthesis.minAbstractionEditDistance': 0.3,
+  'skillSynthesis.prefilterMinEdits': 1,
+  'skillSynthesis.prefilterMinChars': 800,
+  'skillSynthesis.prefilterMinToolUses': 2,
   'skillSynthesis.judgeEnabled': true,
   'skillSynthesis.minJudgeScore': 6.0,
   'skillSynthesis.judgeModel': 'inherit',
   'skillSynthesis.maxPinnedSkills': 10,
   'skillSynthesis.curatorEnabled': true,
   'skillSynthesis.curatorIntervalHours': 24,
+  'skillSynthesis.suggestionMinClusterSize': 2,
+  'skillSynthesis.suggestionMaxCandidates': 200,
   'memory.triggers.preCompact': true,
   'memory.triggers.idleMs': 600000,
   'memory.triggers.turnThreshold': 20,
@@ -292,6 +299,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'gateway.voice.enabled': true,
   'gateway.voice.whisperModel': 'base.en',
   'voice.whisperModel': 'base.en',
+  'voice.ttsVoice': 'af_heart',
   'gateway.telegram.enabled': false,
   'gateway.telegram.tokenCipher': '',
   'gateway.telegram.allowedUserIds': [],
@@ -331,6 +339,8 @@ const PROVIDER_BASE_URL_PATTERN = /^provider\.[a-z0-9-]+\.baseUrl$/;
 const PROVIDER_SCOPED_TIER_PATTERN =
   /^provider\.[a-z0-9-]+\.(mainAgent|cliAgent)\.modelTier\.(sonnet|opus|haiku)$/;
 
+const SCOPED_SETTING_PREFIX_PATTERN = /^(app|workspace)\./;
+
 /**
  * Returns true when the given settings key should be routed to file-based
  * storage (~/.ptah/settings.json). Prefer this over `FILE_BASED_SETTINGS_KEYS.has()`
@@ -341,5 +351,6 @@ export function isFileBasedSettingKey(key: string): boolean {
   if (FILE_BASED_SETTINGS_KEYS.has(key)) return true;
   if (PROVIDER_BASE_URL_PATTERN.test(key)) return true;
   if (PROVIDER_SCOPED_TIER_PATTERN.test(key)) return true;
+  if (SCOPED_SETTING_PREFIX_PATTERN.test(key)) return true;
   return false;
 }

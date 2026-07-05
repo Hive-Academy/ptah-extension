@@ -5,6 +5,10 @@ import {
   provideBrowserGlobalErrorListeners,
   provideZoneChangeDetection,
 } from '@angular/core';
+import {
+  provideClientHydration,
+  withEventReplay,
+} from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import { provideGsap } from '@hive-academy/angular-gsap';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
@@ -24,6 +28,7 @@ export const appConfig: ApplicationConfig = {
       multi: true,
     },
     provideRouter(routes),
+    provideClientHydration(withEventReplay()),
     provideHttpClient(withInterceptors([apiInterceptor])),
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),

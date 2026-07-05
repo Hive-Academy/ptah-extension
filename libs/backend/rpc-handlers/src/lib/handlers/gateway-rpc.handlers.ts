@@ -19,7 +19,14 @@ import type {
   GatewayApprovalStatus,
   GatewayApproveBindingParams,
   GatewayApproveBindingResult,
+  GatewayAttachSessionParams,
+  GatewayAttachSessionResult,
+  GatewayDetachSessionParams,
+  GatewayDetachSessionResult,
+  GatewaySessionAttachedPayload,
+  GatewaySessionDetachedPayload,
   GatewayBindingDto,
+  GatewayBindingsChangedPayload,
   GatewayBlockBindingParams,
   GatewayBlockBindingResult,
   GatewayListBindingsParams,
@@ -61,7 +68,11 @@ import {
   type GatewayPlatform,
   BindingId,
 } from '@ptah-extension/messaging-gateway';
-import { extractGatewayOrigin } from './gateway-rpc.schema';
+import {
+  extractGatewayOrigin,
+  GatewayAttachSessionParamsSchema,
+  GatewayDetachSessionParamsSchema,
+} from './gateway-rpc.schema';
 
 @injectable()
 export class GatewayRpcHandlers {
@@ -81,6 +92,8 @@ export class GatewayRpcHandlers {
     'gateway:setDiscordAppId',
     'gateway:registerDiscordCommands',
     'gateway:listDiscordGuilds',
+    'gateway:attachSession',
+    'gateway:detachSession',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -110,10 +123,73 @@ export class GatewayRpcHandlers {
     this.registerSetDiscordAppId();
     this.registerRegisterDiscordCommands();
     this.registerListDiscordGuilds();
+    this.registerAttachSession();
+    this.registerDetachSession();
+    this.subscribeBindingChanges();
+    this.subscribeSessionAttachChanges();
 
     this.logger.debug('Gateway RPC handlers registered', {
       methods: GatewayRpcHandlers.METHODS,
     });
+  }
+
+  /**
+   * Push the bindings list to the renderer whenever it changes (new inbound
+   * pairing request, approve / reject / revoke). Without this, the gateway tab
+   * only hydrates bindings once at boot and a pending request stays invisible
+   * until the user manually reloads the tab.
+   */
+  private subscribeBindingChanges(): void {
+    this.gateway.on('bindings-changed', () => {
+      void this.broadcastBindings();
+    });
+  }
+
+  /**
+   * Bridge the GatewayService `session-attached` / `session-detached` events to
+   * webview push messages so the renderer can flip the matching session tab
+   * read-only (attach) or writable (detach). Mirrors {@link subscribeBindingChanges}.
+   */
+  private subscribeSessionAttachChanges(): void {
+    this.gateway.on(
+      'session-attached',
+      (payload: GatewaySessionAttachedPayload) => {
+        void this.webviewManager
+          .broadcastMessage(MESSAGE_TYPES.GATEWAY_SESSION_ATTACHED, payload)
+          .catch((err: unknown) => {
+            this.logger.warn('[gateway] broadcast sessionAttached failed', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+      },
+    );
+    this.gateway.on(
+      'session-detached',
+      (payload: GatewaySessionDetachedPayload) => {
+        void this.webviewManager
+          .broadcastMessage(MESSAGE_TYPES.GATEWAY_SESSION_DETACHED, payload)
+          .catch((err: unknown) => {
+            this.logger.warn('[gateway] broadcast sessionDetached failed', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+      },
+    );
+  }
+
+  private async broadcastBindings(): Promise<void> {
+    try {
+      const bindings = this.gateway.listBindings().map(toBindingDtoPublic);
+      const payload: GatewayBindingsChangedPayload = { bindings };
+      await this.webviewManager.broadcastMessage(
+        MESSAGE_TYPES.GATEWAY_BINDINGS_CHANGED,
+        payload,
+      );
+    } catch (err: unknown) {
+      this.logger.warn('[gateway] broadcastBindings failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   private async broadcastStatus(origin: string | null): Promise<void> {
@@ -272,6 +348,57 @@ export class GatewayRpcHandlers {
         platform: result.binding.platform,
       });
       return { ok: true, binding: toBindingDto(result.binding) };
+    });
+  }
+
+  private registerAttachSession(): void {
+    this.rpcHandler.registerMethod<
+      GatewayAttachSessionParams,
+      GatewayAttachSessionResult
+    >('gateway:attachSession', async (params) => {
+      const parsed = GatewayAttachSessionParamsSchema.parse(params);
+      const result = await this.gateway.attachSession(
+        BindingId.create(parsed.bindingId),
+        parsed.sessionUuid,
+        parsed.workspaceRoot,
+        parsed.externalConversationId,
+      );
+      if (result.ok === false) {
+        this.logger.warn('[gateway] attachSession rejected', {
+          bindingId: parsed.bindingId,
+          reason: result.error,
+        });
+        return { ok: false, error: result.error };
+      }
+      this.logger.info('[gateway] session attached', {
+        bindingId: parsed.bindingId,
+        platform: result.binding.platform,
+      });
+      return { ok: true, binding: toBindingDtoPublic(result.binding) };
+    });
+  }
+
+  private registerDetachSession(): void {
+    this.rpcHandler.registerMethod<
+      GatewayDetachSessionParams,
+      GatewayDetachSessionResult
+    >('gateway:detachSession', async (params) => {
+      const parsed = GatewayDetachSessionParamsSchema.parse(params);
+      const result = this.gateway.detachSession(
+        BindingId.create(parsed.bindingId),
+      );
+      if (result.ok === false) {
+        this.logger.warn('[gateway] detachSession rejected', {
+          bindingId: parsed.bindingId,
+          reason: result.error,
+        });
+        return { ok: false, error: result.error };
+      }
+      this.logger.info('[gateway] session detached', {
+        bindingId: parsed.bindingId,
+        platform: result.binding.platform,
+      });
+      return { ok: true, binding: toBindingDtoPublic(result.binding) };
     });
   }
 

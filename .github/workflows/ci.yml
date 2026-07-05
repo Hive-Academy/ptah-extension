@@ -29,9 +29,14 @@ jobs:
   main:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Skip if PR was closed/merged, or if commit message is a version bump
+    # Skip if PR was closed/merged, or if this is an auto-generated version
+    # bump. On pull_request events `github.event.head_commit` is null (it only
+    # exists on push), so the commit-message check alone never matched bump
+    # PRs — guard on the head branch (chore/bump-*) instead, which IS populated
+    # for PRs. The head_commit check is kept for the push/non-PR path.
     if: |
       (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') &&
+      !startsWith(github.head_ref, 'chore/bump-') &&
       !contains(github.event.head_commit.message, 'chore(release)')
     steps:
       - uses: actions/checkout@v4

@@ -1,54 +1,78 @@
 ---
 title: How Skill Synthesis Works
-description: Trajectory extraction, dedup, and the path from candidate to promoted skill.
+description: From a captured session to a distilled, judged, and auto-improving skill.
 ---
 
 # How Skill Synthesis Works
 
-## The pipeline
+A skill goes through three stages: **capture**, **distillation**, and **a living library**. The [Skills tab](/skill-synthesis/the-skills-tab/) surfaces each stage (Sessions → Recommended → Library).
+
+## Stage 1 — Capture (Sessions)
 
 ```text
-Session ends or compacts
+session ends / idle / subagent stops / turn completes / boot scan
         ↓
-Trajectory extractor   → records (turn count, tool sequence, outcome) for the session
+Trajectory extractor   → normalized turns + tool sequence + success signal
         ↓
-Cosine dedup           → embed the trajectory, compare against active skills;
-                         skip if similarity ≥ skillSynthesis.dedupCosineThreshold
+Prefilter              → drop the thin stuff (needs edits, or tools + length, or a test run)
         ↓
-Candidate row          → insert (status: candidate) or update existing match
+Trajectory-hash dedup  → skip if this exact trajectory was already captured
         ↓
-Invocation tracker     → on each subsequent successful repetition, increment count
-        ↓
-Promotion service      → on the 3rd success (skillSynthesis.successesToPromote),
-                         materialise ~/.ptah/skills/<slug>/SKILL.md and
-                         flip status to "promoted"
+Candidate row (Sessions, status: candidate)
 ```
 
-## What counts as a trajectory
+For each captured session, an LLM distills a first-pass `{ name, description, body }` following skill-authoring best practices (a trigger-oriented description, an imperative body, no workspace-specific paths). On boot scans, or when no model is available, a template is used instead and the row keeps a raw name until it's distilled.
 
-A trajectory is the **shape** of a successful session, not its literal content. The extractor records:
+## Stage 2 — Distillation (two paths to a skill)
 
-- Number of turns
-- Tool-call sequence (which MCP tools fired, in what order)
-- Outcome signal (did the user accept the result, hit retry, abandon?)
+### Cluster → Recommended (the main path)
 
-Trajectories shorter than the minimum threshold are ignored — single-turn answers aren't workflows.
+The **Curator** pass clusters candidates that look alike. When at least `skillSynthesis.suggestionMinClusterSize` (default `2`) similar candidates cluster, it:
+
+1. Synthesizes **one** generalized, repo-agnostic skill from the whole cluster
+2. Runs it past the **quality judge**
+3. If it passes, proposes it in **Recommended** for you to review, edit, and Accept
+
+Accepting materializes it to `~/.ptah/skills/<slug>/SKILL.md` and registers it in the Library.
+
+### Direct promotion
+
+A single candidate that succeeds `skillSynthesis.successesToPromote` (default `3`) times is promoted directly — also judge-gated — and materialized the same way. This is the "I did the exact same thing three times" path.
+
+## The judge
+
+Before anything is promoted or recommended, the **judge** scores it 1–10 on five criteria and compares the average to `skillSynthesis.minJudgeScore` (default `6.0`):
+
+| Criterion      | Asks                                                                |
+| -------------- | ------------------------------------------------------------------- |
+| novelty        | Is this non-obvious versus what an agent already knows?             |
+| actionability  | Are the steps concrete and ordered?                                 |
+| scope          | Is it one well-defined workflow, not a trivial one-off?             |
+| generalization | Repo-agnostic and transferable, with no session-specific leftovers? |
+| triggerClarity | Does the description clearly say _when_ to use the skill?           |
+
+The judge **fails open** — if the model is unavailable it lets the skill through rather than blocking the pipeline.
 
 ## Dedup
 
-Before a candidate is created or counted, its embedding is compared against the active skill set. If cosine similarity to any active skill is ≥ `skillSynthesis.dedupCosineThreshold` (default `0.85`), the trajectory is treated as **already represented** — its invocation count rolls up against the matching skill instead of creating a duplicate.
+Before a candidate is created or counted, its embedding is compared against the active skill set. If cosine similarity to any active skill is ≥ `skillSynthesis.dedupCosineThreshold` (default `0.85`), the trajectory is treated as **already represented** rather than creating a duplicate.
 
-## Promotion
+## Stage 3 — A living library
 
-On the 3rd successful invocation of a candidate (configurable via `skillSynthesis.successesToPromote`), the **SkillPromotionService**:
+Materialized skills, plus cloned agents and commands, live in the **Library**. Ptah records when each one is actually used — the `Skill` tool, slash-command/skill expansion, and **subagent runs** (by `subagent_type`). That usage signal drives auto-enhancement:
 
-1. Generates a slug from the trajectory summary
-2. Writes `~/.ptah/skills/<slug>/SKILL.md` with frontmatter and prose
-3. Updates the candidate row's status to `promoted`
-4. Records the promotion timestamp
+```text
+≥ 5 recorded runs and not in cooldown
+        ↓
+Curator rewrites the skill against its recent usage (judge-gated)
+        ↓
+previous version snapshotted to History → re-propagated
+        ↓
+24h cooldown
+```
 
-From that moment the skill is discoverable by every agent in Ptah, just like a hand-authored one.
+You can also **Enhance now** to run it manually, or **Revert** to any History snapshot.
 
-## LRU eviction
+## Residency
 
-When the active skill count exceeds `skillSynthesis.maxActiveSkills` (default `50`), the least-recently-invoked skill is archived. Archived skills aren't deleted — they stay on disk and can be re-promoted manually if their pattern returns.
+Active skills are capped at `skillSynthesis.maxActiveSkills` (default `200`). When the cap is exceeded, the weakest resident is demoted to **`dormant`** — it stays on disk and in the database but is skipped when skills are loaded into a session. Dormant skills are never deleted, and **authored** skills are exempt from demotion entirely.

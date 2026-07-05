@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { SeoService } from '../../services/seo.service';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -453,6 +454,15 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
   ],
 })
 export class PrivacyPageComponent {
+  constructor() {
+    inject(SeoService).setPage({
+      title: 'Privacy Policy — Ptah',
+      description:
+        'How Ptah collects, stores, and protects your data across the desktop app, VS Code extension, and CLI.',
+      url: 'https://ptah.live/privacy',
+    });
+  }
+
   public readonly headerConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.8,

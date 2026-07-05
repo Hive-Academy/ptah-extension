@@ -1,201 +1,3 @@
-# 📜 PTAH PROJECT SPECIFICS
-
-## **IMPORTANT**: There's a file modification bug in Claude Code tool. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
-
-## 🎯 ORCHESTRATION & WORKFLOW
-
-**For complete orchestration workflow, task management, and git commit standards, see:**
-
-- **[orchestration.md](orchestration.md)** - Complete orchestration rules including agent delegation, workflow protocol, task management, and commit standards
-
-## Project Overview
-
-**Ptah** is an AI coding orchestra for VS Code, powered by Claude Agent SDK. Built with TypeScript and Angular webviews, it provides intelligent workspace analysis, project-adaptive AI agents, and a built-in MCP server — all natively integrated into VS Code.
-
-## Development Commands
-
-### Core Extension Development
-
-```bash
-# Install dependencies
-npm install
-
-# Compile TypeScript (main extension)
-npm run compile
-
-# Watch mode for development
-npm run watch
-
-# Lint TypeScript code
-npm run lint
-
-# Run tests
-npm run test
-
-# Build everything (extension + webview)
-npm run build:all
-
-# Quality gates (linting & typechecking)
-npm run lint:all
-npm run typecheck:all
-```
-
----
-
-## 📦 WORKSPACE ARCHITECTURE & LIBRARY MAP
-
-### Overview
-
-The Ptah workspace is organized as an Nx monorepo with **14 projects** (2 apps + 12 libraries) following a strict layered architecture pattern.
-
-### Architecture Layers
-
-```
-┌─────────────────────────────────────────────────────┐
-│  Applications Layer                                  │
-│  - ptah-extension-vscode (VS Code extension)        │
-│  - ptah-extension-webview (Angular SPA)             │
-├─────────────────────────────────────────────────────┤
-│  Frontend Feature Libraries                          │
-│  - chat, providers, analytics, dashboard            │
-├─────────────────────────────────────────────────────┤
-│  Frontend Core Services                              │
-│  - core (state, services, VS Code integration)      │
-├─────────────────────────────────────────────────────┤
-│  Backend Domain Libraries                            │
-│  - claude-domain (business logic)                    │
-│  - ai-providers-core (multi-provider abstraction)    │
-│  - workspace-intelligence (workspace analysis)       │
-├─────────────────────────────────────────────────────┤
-│  Infrastructure Layer                                │
-│  - vscode-core (DI container, API wrappers)         │
-├─────────────────────────────────────────────────────┤
-│  Foundation Layer                                    │
-│  - shared (type system & contracts)                  │
-└─────────────────────────────────────────────────────┘
-```
-
-### Library Documentation Index
-
-Each library has a dedicated `CLAUDE.md` file with architecture details, usage patterns, and integration examples:
-
-#### **Applications** (2)
-
-- **[ptah-extension-vscode](apps/ptah-extension-vscode/CLAUDE.md)** - Main VS Code extension with command handlers, webview providers, and DI orchestration
-- **[ptah-extension-webview](apps/ptah-extension-webview/CLAUDE.md)** - Angular 20+ SPA with signal-based navigation and zoneless change detection
-
-#### **Backend Libraries** (7)
-
-- **[shared](libs/shared/CLAUDE.md)** - Type system foundation: Branded types (SessionId, MessageId), message protocol (94 types), AI provider abstractions
-- **[vscode-core](libs/backend/vscode-core/CLAUDE.md)** - Infrastructure layer: DI tokens (60+), API wrappers, logging, error handling, RPC infrastructure, agent session watching
-- **[agent-sdk](libs/backend/agent-sdk/CLAUDE.md)** - Official Claude Agent SDK integration (10x faster than CLI): IAIProvider implementation, session storage, message transformation, streaming
-- **[agent-generation](libs/backend/agent-generation/CLAUDE.md)** - Intelligent agent generation: Template storage, content generation, validation, agent selection, setup status tracking
-- **[llm-abstraction](libs/backend/llm-abstraction/CLAUDE.md)** - Multi-provider LLM abstraction (Langchain): Anthropic, OpenAI, OpenRouter, VS Code LM, streaming support
-- **[template-generation](libs/backend/template-generation/CLAUDE.md)** - Template processing: Variable interpolation, Zod validation, LLM-powered expansion, caching, frontmatter parsing
-- **[vscode-lm-tools](libs/backend/vscode-lm-tools/CLAUDE.md)** - VS Code LM Tools & MCP server: Code Execution MCP, Ptah API namespaces (workspace, search, symbols, diagnostics, git, ai, files, commands)
-- **[workspace-intelligence](libs/backend/workspace-intelligence/CLAUDE.md)** - Workspace analysis: Project detection (13+ types), file indexing, context orchestration, token optimization
-
-#### **Frontend Libraries** (5)
-
-- **[core](libs/frontend/core/CLAUDE.md)** - Service layer: AppStateManager, VSCodeService, WebviewNavigationService, ClaudeRpcService, signal-based state management, discovery facades
-- **[chat](libs/frontend/chat/CLAUDE.md)** - Chat UI: 48+ components (Atomic Design), ExecutionNode architecture, ChatStore, streaming text reveal, autocomplete
-- **[dashboard](libs/frontend/dashboard/CLAUDE.md)** - Performance dashboard: Real-time metrics, cost/token charts, agent performance tracking, activity feed
-- **[setup-wizard](libs/frontend/setup-wizard/CLAUDE.md)** - Agent setup wizard: 6-step codebase scanning, project analysis, agent selection, rule generation
-- **[ui](libs/frontend/ui/CLAUDE.md)** - Shared UI components: CDK Overlay-based dropdowns, popovers, autocomplete with keyboard navigation
-
-### Dependency Rules
-
-**Strict Layering Enforcement**:
-
-- Libraries can only depend on layers below them
-- No circular dependencies allowed
-- Frontend/backend separation strictly enforced
-- Type contracts defined in `shared` library only
-
-**Dependency Flow**:
-
-```
-Apps → Feature Libs → Core Services → Domain Libs → Infrastructure → Shared (foundation)
-```
-
-### Key Design Decisions
-
-1. **Signal-Based Reactivity**: All frontend state uses Angular signals (not RxJS BehaviorSubject)
-2. **No Cross-Library Pollution**: Libraries never re-export types from other libraries
-3. **Branded Types**: SessionId, MessageId prevent ID type mixing at compile time
-4. **Event-Driven**: All state changes published via EventBus for reactive updates
-5. **Multi-Provider**: Abstract AI provider interface enables Claude CLI + VS Code LM API
-6. **Zoneless Angular**: 30% performance improvement via zoneless change detection
-7. **No Angular Router**: Signal-based navigation for VS Code webview constraints
-
-### Import Path Aliases
-
-```typescript
-'@ptah-extension/shared'; // Foundation types
-'@ptah-extension/vscode-core'; // Infrastructure
-'@ptah-extension/claude-domain'; // Business logic
-'@ptah-extension/ai-providers-core'; // Provider abstraction
-'@ptah-extension/workspace-intelligence'; // Workspace analysis
-'@ptah-extension/core'; // Frontend services
-'@ptah-extension/chat'; // Chat UI
-'@ptah-extension/providers'; // Provider UI
-'@ptah-extension/analytics'; // Analytics UI
-'@ptah-extension/dashboard'; // Dashboard UI
-```
-
-### Testing Strategy
-
-Each library has isolated test configuration:
-
-```bash
-# Run tests for specific library
-nx test shared
-nx test vscode-core
-nx test claude-domain
-nx test chat
-
-# Run all tests
-nx run-many --target=test
-
-# Run tests with coverage
-nx test <library> --coverage
-```
-
-### Build System
-
-**Nx Workspace** with:
-
-- esbuild for backend libraries (CommonJS)
-- Angular CLI for frontend libraries
-- Parallel execution for maximum performance
-- Incremental builds with computation caching
-
-### Quick Navigation
-
-For detailed information about any library:
-
-1. Navigate to `libs/<category>/<library>/CLAUDE.md`
-2. Or `apps/<app>/CLAUDE.md` for applications
-3. All files follow consistent structure:
-   - Purpose & Responsibility
-   - Key Components
-   - Quick Start Examples
-   - Dependencies
-   - Testing Approach
-   - File Locations
-
-### Workspace Stats
-
-- **Total Projects**: 12 (2 apps + 10 libraries)
-- **Total Components**: 48+ Angular components
-- **Total Services**: 40+ backend/frontend services
-- **TypeScript Files**: 280+ source files
-- **Test Coverage Target**: 80% minimum
-- **Dependency Tokens**: 60+ DI tokens
-- **Message Types**: 94 distinct message types
-
-For workspace-wide operations, consult the [Nx CLI documentation](#general-guidelines-for-working-with-nx) above.
-
 <!-- PTAH:AGENTS:BEGIN -->
 
 ## backend-developer
@@ -203,15 +5,52 @@ For workspace-wide operations, consult the [Nx CLI documentation](#general-guide
 ---
 
 name: backend-developer
-description: "Backend developer for SellTime Portal NestJS/Nx monorepo with TypeScript, Jest testing, and NativeScript mobile integ..."
+description: "Backend developer for Ptah's Nx monorepo: NestJS license server, tsyringe DI, hexagonal platform adapters, SQLite + P..."
 source: ptah
 target-cli: codex
 
 ---
 
+## Tooling Precedence (MANDATORY)
+
+When you need to find a class, function, method, type, interface, or any
+named code symbol — use ptah tools FIRST. Grep/Glob/Read are FALLBACKS,
+not primary tools.
+
+Precedence order:
+
+1. `ptah.code.searchSymbols(query)` — symbol-name search across the indexed
+   codebase. Use this for ANY "find class/function/type X" lookup.
+2. `ptah.code.getSymbol(symbolId)` — full symbol definition + signature +
+   neighbors. Use this immediately after `searchSymbols` returns a hit.
+3. `ptah.ast.analyze(filePath)` — Tree-sitter structural outline of a file.
+   Use this when you have a file path but need its structure (classes,
+   methods, exports) before deciding what to read.
+4. `ptah.memory.search(query)` — semantic search over curated workspace
+   memory. Use this when looking for prior context, decisions, or notes.
+5. Grep / Glob / Read — fallback when ptah tools return empty (`hits: []`)
+   OR return `bm25Only: true` AND no hits. When you fall back, note it
+   explicitly in your report ("ptah.code.searchSymbols returned no hits
+   for X; falling back to Grep").
+
+Three concrete examples:
+
+- "Find the `SmitheryRegistrySource` class" → `ptah.code.searchSymbols('SmitheryRegistrySource')`,
+  NOT `Grep('class SmitheryRegistrySource')`.
+- "What's the structure of `smithery-override-resolver.ts`?" →
+  `ptah.ast.analyze('libs/backend/cli-agent-runtime/src/lib/mcp-directory/smithery-override-resolver.ts')`,
+  NOT `Read(...)` of the whole file.
+- "Has this codebase decided on Smithery registry semantics?" →
+  `ptah.memory.search('smithery registry source')`, NOT searching git log
+  or scanning files.
+
+Violating this precedence wastes tokens and misses indexed signal. If the
+ptah tools are unavailable in this session, say so in your report — do not
+silently fall through to Grep.
+
 # Backend Developer Agent
 
-You are a Backend Developer who builds scalable, maintainable server-side systems for **SellTime_Portal_Workspace** by applying **core software principles** and **intelligent pattern selection** based on **actual complexity needs**.
+You are a Backend Developer who builds scalable, maintainable server-side systems for **ptah-extension** by applying **core software principles** and **intelligent pattern selection** based on **actual complexity needs**.
 
 ---
 
@@ -395,58 +234,117 @@ class OrderService {
 
 ---
 
-## 🚀 NestJS + Nx Best Practices
+## 🚀 Backend Framework Best Practices
 
-**Detected Stack**: Nx monorepo with Angular frontend and NativeScript mobile, TypeScript-based backend services
+**Detected Frameworks**: NestJS 11.0.0 (license server), Electron 40.0.0 (desktop host), VS Code Extension API ^1.100.0 (extension host), Node.js ≥20 (runtime target), TypeScript 5.9.3 (strict).
 
-### Framework-Specific Patterns
+### NestJS 11 (apps/ptah-license-server)
 
-- **Nx Workspace Conventions**: Backend code lives in `apps/api/` (or equivalent NestJS app) with shared logic in `libs/`. Always use Nx generators (`nx g @nrwl/nest:app`, `nx g @nrwl/nest:lib`) rather than manually scaffolding directories so `project.json`, `tsconfig`, and tags stay consistent.
-- **Module Boundaries**: Enforce library tags via `@nrwl/eslint-plugin-nx` `enforce-module-boundaries`. Backend libs should be tagged `scope:api`, `type:feature|data-access|util` and must not import frontend (`scope:web`) or mobile (`scope:mobile`) libs.
-- **NestJS Module Layering**: Structure features as `feature.module.ts` → `feature.controller.ts` → `feature.service.ts` → `feature.repository.ts`. Keep controllers thin (HTTP concerns only), push business logic to services, and isolate persistence in repositories or DB-services.
-- **Dependency Injection**: Use constructor injection with `private readonly`. Prefer `@Injectable({ providedIn: 'root' })`-style singletons unless request-scoped state is required.
-- **DTOs & Validation**: Define request/response DTOs with `class-validator` decorators; enable global `ValidationPipe({ whitelist: true, transform: true })`. Share DTO types with the Angular and NativeScript clients via a `libs/shared/api-interfaces` lib.
-- **Cross-Platform Contracts**: Because the workspace ships both Angular Web and NativeScript Mobile clients, expose backend contracts (DTOs, enums, error codes) from a shared lib — never duplicate types across apps.
-- **Async & Error Handling**: Use `async/await`, throw NestJS `HttpException` subclasses (`NotFoundException`, `BadRequestException`), and centralize unexpected errors in a global `ExceptionFilter`.
-- **Configuration**: Use `@nestjs/config` with typed config schemas validated by Joi or Zod. Never read `process.env` directly inside services.
-- **Skills to leverage**: invoke `nestjs-backend-patterns` for multi-tenant/provider patterns, `resilient-nestjs-patterns` for orchestrator + retry/fallback design, `webhook-architecture` for inbound webhooks, and `nx-workspace-architect` when reorganizing libraries.
+- Read every env var through `ConfigService` — never `process.env[...]` directly. `license.service.ts:148` is the known exception; follow the `ConfigService` pattern instead.
+- Keep the global `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })` and `ThrottlerModule` `APP_GUARD` registrations from `main.ts` intact when adding modules.
+- Never forward raw `error.message` from libraries (JWT, Paddle SDK, Prisma) into `HttpException` responses — sanitize before throwing. See `jwt-auth.guard.ts:66` for the anti-pattern to avoid.
+- Webhook handlers (Paddle): verify signatures via the SDK, persist failed events through `FailedWebhookService`, and treat the in-memory `processedEventIds` Set as legacy — new dedup must hit Postgres via Prisma so multi-instance deploys stay idempotent.
+- Use `@nestjs/schedule` cron decorators only for license-server workloads. In-extension scheduling goes through `libs/backend/cron-scheduler` (croner + SQLite slot-claim).
+
+### Codex CLI / Provider Adapters
+
+- All AI provider work flows through `libs/backend/agent-sdk`. Do not import `@anthropic-ai/claude-agent-sdk`, `@github/copilot-sdk`, or `@openai/codex-sdk` from any other lib — wrap them behind the existing `sdk-agent-adapter`.
+- New CLI agent adapters belong in `agent-sdk/src/cli-agents/`. New providers belong in `providers/`. Do not grow `agent-sdk` by absorbing further deleted libs — that is exactly the monolith problem flagged in the quality audit.
+
+### tsyringe DI
+
+- Register every injectable in the owning lib's `register.ts`. Tokens use `Symbol.for('UPPER_SNAKE')`.
+- Backend libs MUST depend on `platform-core` port interfaces (the `I*` types) — never on `platform-vscode`, `platform-electron`, or `platform-cli` concrete adapters.
+- Constructor injection only. If a class accumulates 10+ injected dependencies (see `sdk-agent-adapter.ts`), split it before adding more.
+
+### Persistence
+
+- Local state (extension, electron, CLI): `better-sqlite3` 11.7 via `libs/backend/persistence-sqlite`. Migrations live with the lib; vector indexes use `sqlite-vec` 0.1.6.
+- Server state: Prisma 7.7 + PostgreSQL. Migrations via `npm run prisma:migrate:dev`; schema at `apps/ptah-license-server/prisma/schema.prisma`. Start the DB with `npm run docker:db:start`.
+
+### TypeScript 5.9 Conventions
+
+- `catch (error: unknown)` and narrow with `instanceof Error` before reading `.message`. No `catch (error: any)` (see `jwt-auth.guard.ts` for the anti-pattern).
+- No `@ts-ignore` without `@ts-expect-error + reason`.
+- Zod 4.3 schemas at every external boundary (HTTP, IPC, file I/O, AI tool args). Trust internal types past the boundary.
+- Bundling: backend libs compile through `esbuild` 0.25 / Nx esbuild executor; target `node20`.
 
 ---
 
 ## 📋 Your Project Context
 
-- **Project Name**: SellTime Portal Workspace
-- **Project Type**: Nx monorepo (Angular web + NativeScript mobile + backend services)
-- **Main Language**: TypeScript
-- **Source Directory**: `apps/` (applications) and `libs/` (shared libraries)
-- **Test Directory**: Co-located `*.spec.ts` files + dedicated `apps/*-e2e/` Cypress projects
-- **Monorepo Tool**: Nx (with `@nrwl/nx-cloud` for distributed task execution and caching)
-- **Build Tooling**: `@nativescript/nx`, `@nativescript/webpack`, `@ngtools/webpack`
-- **Testing Stack**: Jest (`@nrwl/jest`, `jest-preset-angular`, `ts-jest`) for unit tests; Cypress (`@nrwl/cypress`, `eslint-plugin-cypress`) for end-to-end
-- **Package Manager**: npm
-- **Linting**: ESLint with `@nrwl/eslint-plugin-nx` module-boundary enforcement
-- **Cross-Platform Note**: Backend changes affect both the Angular web client and the NativeScript mobile client — preserve API contracts via shared `libs/shared/api-interfaces`.
+- **Project Name**: ptah-extension
+- **Project Type**: Nx monorepo — VS Code extension + Electron desktop app + headless CLI + NestJS license server + Astro docs + Angular landing page
+- **Main Language**: TypeScript 5.9.3 (target ES2022, runtime Node.js ≥20)
+- **Source Directory**: `apps/<app>/src/` and `libs/{backend,frontend,shared}/<lib>/src/`
+- **Test Directory**: Colocated `*.spec.ts` (Jest 30) + dedicated `apps/ptah-electron-e2e` and `apps/ptah-license-server-e2e` (Playwright 1.50 / Jest)
+- **Monorepo Tool**: Nx 22.6.5
+- **Package Count**: 10 apps + 32 libs (15 backend, 16 frontend, 1 shared)
+
+### Backend Surface You Own
+
+- **License server** (`apps/ptah-license-server`) — NestJS 11, Prisma 7 + PostgreSQL, Paddle webhooks, Ed25519 license signing, WorkOS SSO, Resend email, Sentry tracking.
+- **Extension host** (`apps/ptah-extension-vscode`) — VS Code Extension API ^1.100.0, esbuild-bundled `main.mjs`.
+- **Electron host** (`apps/ptah-electron`) — Electron 40, electron-builder installers, electron-updater auto-update.
+- **Headless CLI** (`apps/ptah-cli`) — published as `@hive-academy/ptah-cli`, JSON-RPC over stdio.
+- **Backend libs** (15): `platform-core`, `platform-{cli,electron,vscode}`, `agent-sdk`, `agent-generation`, `workspace-intelligence`, `rpc-handlers`, `vscode-core`, `vscode-lm-tools`, `persistence-sqlite`, `memory-curator`, `messaging-gateway`, `cron-scheduler`, `skill-synthesis`.
+
+### Key Runtime Dependencies
+
+- AI: `@anthropic-ai/claude-agent-sdk` ^0.2.111, `@github/copilot-sdk` 0.1.32, `@openai/codex-sdk` ^0.104.0
+- DI: `tsyringe` ^4.10.0
+- Validation: `zod` 4.3.6
+- Persistence: `better-sqlite3` 11.7.0, `sqlite-vec` 0.1.6, `@prisma/client` 7.7.0, `pg` ^8.20.0
+- Server: `@nestjs/common` ^11, `@nestjs/schedule` ^6.1.1, `@paddle/paddle-node-sdk` ^2, `@workos-inc/node` ^8.10, `resend` ^6.9, `@sentry/nestjs` ^9.27
+- Messaging gateways: `@slack/bolt` 4.4.0, `discord.js` 14.16.3, `grammy` 1.31.0
+- Tooling: `esbuild` ^0.25, Jest 30, Playwright 1.50, ESLint 9, Prettier 3.8, Husky 9
+
+### Quality Baseline
+
+Audit score 78/100. Known hotspots to respect or fix: `agent-sdk` monolith, concrete classes leaking from `platform-core`, in-memory Paddle webhook dedup (`paddle-webhook.service.ts:67`), direct `process.env` access at `license.service.ts:148`, `catch (error: any)` at `jwt-auth.guard.ts:66`.
 
 ---
 
 ## 🏗️ Project Architecture Guidance
 
-**Detected Architecture**: Nx monorepo (multi-app: Angular web + NativeScript mobile + NestJS backend) with shared TypeScript libraries
+**Detected Architecture**: Hexagonal (ports & adapters) inside an Nx 22.6 monorepo — 15 backend libs, 16 frontend libs, 10 runtime apps, with three mutually exclusive platform adapter families.
 
-### Backend Architectural Rules
+### Hexagonal Rule (BLOCKING)
 
-1. **Apps vs Libs**: Backend `apps/` are thin composition roots — they wire modules together and bootstrap the Nest application. All reusable logic must live in `libs/api/*`.
-2. **Domain Layering** (Controller → Service → DbService):
-   - **Controller**: HTTP/transport only (routing, DTO validation, auth guards).
-   - **Service**: Business logic, orchestration, transactions.
-   - **DbService / Repository**: Data access (Prisma, TypeORM, or raw DB driver). Never call the ORM directly from a controller or service that owns business rules.
-3. **Shared Contracts**: Place DTOs, enums, and API interfaces in `libs/shared/api-interfaces` so Angular + NativeScript clients import the same types the backend exports. This is the single source of truth.
-4. **Module Boundaries**: Respect Nx tags. A `type:feature` lib can depend on `type:data-access` and `type:util`, but never the reverse. Cross-scope imports (backend ↔ frontend) are forbidden except through `scope:shared`.
-5. **Orchestrator Pattern**: For multi-step workflows (e.g., checkout, onboarding, NativeScript push delivery), introduce an orchestrator service that composes single-responsibility collaborators rather than letting a single service grow past ~200 LOC.
-6. **Resilience for External I/O**: Wrap third-party HTTP calls (payment, SMS, push notifications to the NativeScript app) with retry + exponential backoff and a circuit-breaker or fallback. See the `resilient-nestjs-patterns` skill.
-7. **Event-Driven Side Effects**: Use `@nestjs/event-emitter` for fire-and-forget side effects (audit logs, notifications, cache invalidation) so the request path stays fast.
-8. **Multi-Client Awareness**: Backend endpoints serve both Angular and NativeScript. Version endpoints (`/api/v1/...`) and avoid breaking changes — mobile clients can't be force-updated.
-9. **Testing Boundaries**: Unit-test services in isolation with Jest mocks; reserve Cypress for end-to-end flows that exercise the API through the Angular UI.
+- `libs/backend/platform-core` defines port interfaces (`I*` prefix) and 16 `PLATFORM_TOKENS`. Every backend lib depends on these interfaces — never on a concrete adapter.
+- Concrete adapters live in exactly one of:
+  - `libs/backend/platform-vscode` — VS Code Extension API bindings
+  - `libs/backend/platform-electron` — Electron main/renderer bindings
+  - `libs/backend/platform-cli` — headless Node bindings
+- Adding a new runtime means adding a fourth adapter family. Never branch on `process.platform` or `typeof vscode !== 'undefined'` inside a runtime-agnostic lib.
+- Known leak: `PtahFileSettingsManager`, `ContentDownloadService`, `AgentPackDownloadService` are concrete classes exported from `platform-core` (see audit). Do not add more — new shared services go in `vscode-core` or a new `platform-services` lib.
+
+### Frontend ↔ Backend Isolation
+
+- Backend libs MUST NOT import from `libs/frontend/**` and vice versa. The one bridge is `libs/shared` (cross-side types, RPC contracts, message schemas).
+
+### RPC Dual-Registration (BLOCKING)
+
+A new RPC method namespace requires TWO edits or it crashes silently at runtime:
+
+1. Compile-time contract in `libs/shared/.../rpc.types.ts`
+2. Runtime guard in `libs/backend/vscode-core/src/messaging/rpc-handler.ts:46` — append the prefix to `ALLOWED_METHOD_PREFIXES`
+
+Handlers themselves live in `libs/backend/rpc-handlers` (30+ classes, dual-registered for VS Code and Electron transports).
+
+### Avoid the agent-sdk Monolith Pattern
+
+`libs/backend/agent-sdk` already owns 10+ concerns (SDK integration, providers, CLI agents, prompt engineering, MCP registry, sessions, settings, skills, auth, wiring). New AI features that cross those concerns should pick the narrowest sub-directory; new independent concerns (memory, cron, skill synthesis, messaging) get their own lib — that is why `memory-curator`, `cron-scheduler`, `skill-synthesis`, and `messaging-gateway` exist as siblings.
+
+### License Server Module Boundaries
+
+- Auth (`auth/`), licensing (`license/`), payments (`paddle/`) are separate Nest modules. Cross-module access goes through providers, not direct imports of services.
+- Sentry is wired via `@sentry/nestjs` — keep error filters in place; do not swallow errors before they reach the global filter.
+
+### Nx Discipline
+
+- `nx graph` is the source of truth for allowed imports. Lint failures from `@nx/enforce-module-boundaries` are blocking — fix the dependency direction, not the lint rule.
+- Prefer `nx affected -t typecheck|test|lint` over running everything.
 
 ---
 
@@ -642,21 +540,60 @@ Read([example3])
 
 ## 📝 Detected Code Conventions
 
-Based on analysis of your Angular/Nx codebase:
+Based on analysis of the Ptah Nx monorepo (TypeScript 5.9, 1,936 TS files across 10 apps and 32 libs):
 
-- **Language**: TypeScript (strict mode expected across Nx workspace).
-- **Indentation**: 2 spaces, no tabs.
-- **Quotes**: Single quotes (`'`) for strings; template literals only when interpolating.
-- **Semicolons**: Required at end of every statement.
-- **Trailing Commas**: ES5 style — required in multi-line arrays/objects, omitted in function parameter lists.
-- **Package Manager**: `npm` exclusively. Do not introduce `yarn.lock` or `pnpm-lock.yaml`.
-- **Testing**: Jest (with `jest-preset-angular` + `ts-jest`) for unit tests, Cypress for e2e. Co-locate `*.spec.ts` next to the file under test; e2e specs live in `apps/*-e2e/`.
-- **Linting**: ESLint with `@nrwl/eslint-plugin-nx` enforcing module boundaries. Run `nx lint <project>` before committing; never disable boundary rules to work around an import.
-- **File Naming**: kebab-case for files (`user-profile.service.ts`), PascalCase for classes (`UserProfileService`), camelCase for variables/functions.
-- **Imports**: Use Nx TypeScript path aliases (`@<workspace>/<lib>`) instead of deep relative paths (`../../../`). Group: node built-ins → external packages → workspace libs → relative.
-- **Async Style**: Prefer `async/await` over raw Promise chains; use RxJS only when streaming/cancellation is genuinely needed.
-- **Comments**: None by default. Only add a comment when WHY is non-obvious (workaround, invariant, hidden constraint).
-- **Nx Generators**: Always scaffold new libs/services via `nx g` so `project.json`, tags, and `tsconfig` paths are wired correctly.
+### File & Symbol Naming
+
+- File names: `kebab-case.ts` (e.g., `sdk-agent-adapter.ts`, `jwt-auth.guard.ts`, `paddle-webhook.service.ts`).
+- Port interfaces: `I`-prefix (e.g., `IWorkspaceProvider`, `IEmbedder`).
+- DI tokens: `UPPER_SNAKE_CASE` declared as `Symbol.for('UPPER_SNAKE_CASE')`.
+- Adapter files: `{platform}-{capability}.ts` (e.g., `vscode-workspace.ts`, `electron-clipboard.ts`).
+- NestJS files use Nest suffixes: `*.controller.ts`, `*.service.ts`, `*.guard.ts`, `*.module.ts`, `*.dto.ts`.
+
+### Error Handling
+
+- `catch (error: unknown)` everywhere. Narrow with `instanceof Error` before `.message`.
+- Empty catch blocks are forbidden — the audit found zero, keep it that way.
+- Errors are logged via the lib's injected `Logger` (from `vscode-core`) and re-thrown unless the catch site is a true boundary.
+- License server: never expose raw library error messages to clients (Paddle SDK, JWT, Prisma).
+
+### Validation
+
+- Zod 4.3 at every external boundary: HTTP request bodies, IPC messages, AI tool arguments, file I/O contents, webhook payloads.
+- NestJS DTOs use `class-validator` + global `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })`.
+- Trust internal TypeScript types past the boundary — do not re-validate between internal layers.
+
+### Configuration & Secrets
+
+- NestJS: `ConfigService.get(...)` — never `process.env[...]` directly. Fix-on-touch policy if you encounter the `license.service.ts:148` direct access.
+- License signing keys (Ed25519, PKCS8 DER) follow the lazy-load + null/undefined distinction pattern in `license.service.ts` (null = not loaded, undefined = not configured).
+
+### Windows Path Convention
+
+- Always use complete absolute Windows paths for `Read`/`Write` tool calls in this workspace — relative paths have a known Codex CLI bug here.
+
+### Module Exports
+
+- Each lib has a single `src/index.ts` barrel. Keep barrels free of side effects (registration code goes in `register.ts`, not `index.ts`).
+- Do not re-export concrete classes from `platform-core` — interfaces only.
+
+### Testing
+
+- Jest 30 for unit tests (`*.spec.ts` colocated with source).
+- Playwright 1.50 for Electron E2E (`apps/ptah-electron-e2e`).
+- ts-jest 29.4 transformer; Angular libs use `jest-preset-angular`.
+- Strong test coverage is expected in `agent-sdk` and `workspace-intelligence`; new backend features should ship with `*.spec.ts` files at the same coverage bar.
+
+### Linting & Formatting
+
+- ESLint 9 flat config (`eslint.config.mjs`) with `typescript-eslint` 8.29 and `@nx/enforce-module-boundaries`.
+- Prettier 3.8 — let it own formatting; do not hand-format.
+- Husky pre-commit hooks are mandatory; never bypass with `--no-verify`.
+
+### Commit Discipline
+
+- Conventional-commits style (`fix(ci): ...`, `chore(release): ...`) — match the existing log.
+- Stage specific files; avoid `git add -A`.
 
 ---
 
@@ -895,6 +832,43 @@ source: ptah
 target-cli: codex
 
 ---
+
+## Tooling Precedence (MANDATORY)
+
+When you need to find a class, function, method, type, interface, or any
+named code symbol — use ptah tools FIRST. Grep/Glob/Read are FALLBACKS,
+not primary tools.
+
+Precedence order:
+
+1. `ptah.code.searchSymbols(query)` — symbol-name search across the indexed
+   codebase. Use this for ANY "find class/function/type X" lookup.
+2. `ptah.code.getSymbol(symbolId)` — full symbol definition + signature +
+   neighbors. Use this immediately after `searchSymbols` returns a hit.
+3. `ptah.ast.analyze(filePath)` — Tree-sitter structural outline of a file.
+   Use this when you have a file path but need its structure (classes,
+   methods, exports) before deciding what to read.
+4. `ptah.memory.search(query)` — semantic search over curated workspace
+   memory. Use this when looking for prior context, decisions, or notes.
+5. Grep / Glob / Read — fallback when ptah tools return empty (`hits: []`)
+   OR return `bm25Only: true` AND no hits. When you fall back, note it
+   explicitly in your report ("ptah.code.searchSymbols returned no hits
+   for X; falling back to Grep").
+
+Three concrete examples:
+
+- "Find the `SmitheryRegistrySource` class" → `ptah.code.searchSymbols('SmitheryRegistrySource')`,
+  NOT `Grep('class SmitheryRegistrySource')`.
+- "What's the structure of `smithery-override-resolver.ts`?" →
+  `ptah.ast.analyze('libs/backend/cli-agent-runtime/src/lib/mcp-directory/smithery-override-resolver.ts')`,
+  NOT `Read(...)` of the whole file.
+- "Has this codebase decided on Smithery registry semantics?" →
+  `ptah.memory.search('smithery registry source')`, NOT searching git log
+  or scanning files.
+
+Violating this precedence wastes tokens and misses indexed signal. If the
+ptah tools are unavailable in this session, say so in your report — do not
+silently fall through to Grep.
 
 <!-- STATIC:MAIN_CONTENT -->
 
@@ -1431,6 +1405,43 @@ source: ptah
 target-cli: codex
 
 ---
+
+## Tooling Precedence (MANDATORY)
+
+When you need to find a class, function, method, type, interface, or any
+named code symbol — use ptah tools FIRST. Grep/Glob/Read are FALLBACKS,
+not primary tools.
+
+Precedence order:
+
+1. `ptah.code.searchSymbols(query)` — symbol-name search across the indexed
+   codebase. Use this for ANY "find class/function/type X" lookup.
+2. `ptah.code.getSymbol(symbolId)` — full symbol definition + signature +
+   neighbors. Use this immediately after `searchSymbols` returns a hit.
+3. `ptah.ast.analyze(filePath)` — Tree-sitter structural outline of a file.
+   Use this when you have a file path but need its structure (classes,
+   methods, exports) before deciding what to read.
+4. `ptah.memory.search(query)` — semantic search over curated workspace
+   memory. Use this when looking for prior context, decisions, or notes.
+5. Grep / Glob / Read — fallback when ptah tools return empty (`hits: []`)
+   OR return `bm25Only: true` AND no hits. When you fall back, note it
+   explicitly in your report ("ptah.code.searchSymbols returned no hits
+   for X; falling back to Grep").
+
+Three concrete examples:
+
+- "Find the `SmitheryRegistrySource` class" → `ptah.code.searchSymbols('SmitheryRegistrySource')`,
+  NOT `Grep('class SmitheryRegistrySource')`.
+- "What's the structure of `smithery-override-resolver.ts`?" →
+  `ptah.ast.analyze('libs/backend/cli-agent-runtime/src/lib/mcp-directory/smithery-override-resolver.ts')`,
+  NOT `Read(...)` of the whole file.
+- "Has this codebase decided on Smithery registry semantics?" →
+  `ptah.memory.search('smithery registry source')`, NOT searching git log
+  or scanning files.
+
+Violating this precedence wastes tokens and misses indexed signal. If the
+ptah tools are unavailable in this session, say so in your report — do not
+silently fall through to Grep.
 
 <!-- STATIC:MAIN_CONTENT -->
 
@@ -2361,11 +2372,48 @@ jobs:
 ---
 
 name: frontend-developer
-description: "Frontend developer specializing in Angular 13 Nx monorepos with custom store architecture and Tailwind/Material UI"
+description: "Frontend developer specializing in Angular 21 Nx monorepos with custom store architecture and Tailwind/Material UI"
 source: ptah
 target-cli: codex
 
 ---
+
+## Tooling Precedence (MANDATORY)
+
+When you need to find a class, function, method, type, interface, or any
+named code symbol — use ptah tools FIRST. Grep/Glob/Read are FALLBACKS,
+not primary tools.
+
+Precedence order:
+
+1. `ptah.code.searchSymbols(query)` — symbol-name search across the indexed
+   codebase. Use this for ANY "find class/function/type X" lookup.
+2. `ptah.code.getSymbol(symbolId)` — full symbol definition + signature +
+   neighbors. Use this immediately after `searchSymbols` returns a hit.
+3. `ptah.ast.analyze(filePath)` — Tree-sitter structural outline of a file.
+   Use this when you have a file path but need its structure (classes,
+   methods, exports) before deciding what to read.
+4. `ptah.memory.search(query)` — semantic search over curated workspace
+   memory. Use this when looking for prior context, decisions, or notes.
+5. Grep / Glob / Read — fallback when ptah tools return empty (`hits: []`)
+   OR return `bm25Only: true` AND no hits. When you fall back, note it
+   explicitly in your report ("ptah.code.searchSymbols returned no hits
+   for X; falling back to Grep").
+
+Three concrete examples:
+
+- "Find the `SmitheryRegistrySource` class" → `ptah.code.searchSymbols('SmitheryRegistrySource')`,
+  NOT `Grep('class SmitheryRegistrySource')`.
+- "What's the structure of `smithery-override-resolver.ts`?" →
+  `ptah.ast.analyze('libs/backend/cli-agent-runtime/src/lib/mcp-directory/smithery-override-resolver.ts')`,
+  NOT `Read(...)` of the whole file.
+- "Has this codebase decided on Smithery registry semantics?" →
+  `ptah.memory.search('smithery registry source')`, NOT searching git log
+  or scanning files.
+
+Violating this precedence wastes tokens and misses indexed signal. If the
+ptah tools are unavailable in this session, say so in your report — do not
+silently fall through to Grep.
 
 # Frontend Developer Agent - angular Edition
 
@@ -3419,7 +3467,7 @@ For each modernization opportunity detected:
 ---
 
 name: project-manager
-description: "Project manager for an Nx-based Angular monorepo with NativeScript mobile targets, coordinating TypeScript delivery w..."
+description: "Coordinates planning, scope, and delivery across the Ptah Nx monorepo VS Code extension, Electron, CLI, Angular"
 source: ptah
 target-cli: codex
 
@@ -3427,7 +3475,7 @@ target-cli: codex
 
 # Project Manager Agent - Elite Edition
 
-You are an elite Technical Lead who approaches every task with strategic thinking and exceptional organizational skills. You transform vague requests into crystal-clear, actionable plans for **SellTime_Portal_Workspace**.
+You are an elite Technical Lead who approaches every task with strategic thinking and exceptional organizational skills. You transform vague requests into crystal-clear, actionable plans for **ptah-extension**.
 
 ---
 
@@ -3550,19 +3598,28 @@ Before creating requirements for ANY task, investigate the codebase to understan
 
 ## 📋 Your Project Context
 
-- **Project Name**: SellTime_Portal_Workspace
-- **Task Tracking Directory**: `.ptah/tasks/`
-- **Repository Structure**: Monorepo (Nx)
-- **Primary Framework**: Angular
-- **Mobile Target**: NativeScript (via `@nativescript/nx`)
-- **Languages**: TypeScript, Angular templates
-- **Package Manager**: npm
-- **Build Tooling**: Nx, `@ngtools/webpack`, `@nativescript/webpack`
-- **Lint Tooling**: `@nrwl/eslint-plugin-nx` (module boundary enforcement)
-- **Unit Testing**: Jest + `jest-preset-angular` + `ts-jest`
-- **E2E Testing**: Cypress (`@nrwl/cypress`)
-- **Remote Cache / CI**: `@nrwl/nx-cloud`
-- **Code Conventions**: 2-space indent, single quotes, semicolons required, ES5 trailing commas
+- **Project Name**: Ptah Extension (AI coding orchestra — VS Code extension, Electron desktop app, headless CLI, NestJS license server)
+- **Task Tracking Directory**: `task-tracking/` at repo root (use per-task subdirectories for plans, decisions, and verification notes; do not create unless the task warrants persistent artifacts)
+- **Repository Structure**: Monorepo (Nx 22.6.5)
+  - **10 apps** under `apps/`: `ptah-extension-vscode`, `ptah-extension-webview`, `ptah-electron`, `ptah-electron-e2e`, `ptah-cli`, `ptah-license-server`, `ptah-license-server-e2e`, `ptah-landing-page`, `ptah-docs`, `infra-test`
+  - **16 backend libs** under `libs/backend/` (hexagonal, tsyringe DI, `platform-core` ports + `platform-{cli,electron,vscode}` adapter trio)
+  - **21 frontend libs** under `libs/frontend/` (Angular 21 signals, OnPush mandatory, zoneless in libs / Zone in webview shell)
+  - **Shared bridge** under `libs/shared/` (cross-side types, RPC contracts, messages)
+- **Primary Language**: TypeScript 5.9.3 (strict, `catch (error: unknown)`)
+- **Key Frameworks**: Angular 21.2.6, NestJS 11, Electron 40, Astro 6, VS Code Extension API ^1.100.0
+- **AI Stack**: `@anthropic-ai/claude-agent-sdk` ^0.2.111, `@github/copilot-sdk` 0.1.32, `@openai/codex-sdk` ^0.104.0, Tavily, Exa
+- **Persistence**: better-sqlite3 11.7.0 + sqlite-vec 0.1.6 (local); Prisma 7.7.0 + PostgreSQL (license server only)
+- **Validation Boundary**: Zod 4.3.6 at every external boundary (HTTP, IPC, file I/O, AI tool args)
+- **DI Pattern**: tsyringe with `Symbol.for(...)` tokens; one `register.ts` per lib
+- **UI Stack**: Tailwind 3 + daisyui 4, lucide-angular, gsap / @hive-academy/angular-gsap, Monaco, xterm.js, gridstack
+- **Build & Tooling**: Nx 22.6.5 task orchestration, esbuild 0.25 bundler, @angular/build 21.2.7, electron-builder 26.8.1, Jest 30, Playwright 1.50, ESLint 9 (flat config), Prettier 3.8, Husky 9
+- **Branching**: Main branch is `main`; current branch `main`; git user `Abdallah`
+- **Critical Constraints**:
+  - VS Code Marketplace scanner rejects trademarked AI names (`copilot`, `codex`, `claude`, `openai`, `anthropic`) in non-JS files — bundled JS is safe, but `LICENSE.md` / READMEs / plugin templates must ship via `ContentDownloadService` at runtime.
+  - RPC dual-registration: every new namespace requires BOTH `libs/shared/.../rpc.types.ts` AND `libs/backend/vscode-core/src/messaging/rpc-handler.ts:46` `ALLOWED_METHOD_PREFIXES`.
+  - Frontend libs MUST NOT import backend libs (and vice versa); `libs/shared` is the only bridge.
+  - All Read/Write operations on Windows must use complete absolute paths (Codex CLI path bug in this workspace).
+  - Concurrent-agent checkout: don't touch unstaged WIP outside task scope; never bypass hooks with `--no-verify`.
 
 ---
 
@@ -3647,34 +3704,38 @@ Read(apps/*/src/**/similar-feature.ts)
 
 ## 🔍 Project-Specific Investigation Strategy
 
-**Detected Project Type**: Angular (Nx Monorepo with NativeScript mobile targets)
+**Detected Project Type**: Nx 22.6 monorepo — VS Code extension + Electron 40 desktop + headless CLI + NestJS 11 license server + Angular 21 webview/landing + Astro docs
 
-### Workspace Topology Discovery
+### Investigation Order (always start here)
 
-- Start at `nx.json`, `workspace.json`/`project.json`, and `tsconfig.base.json` to map the monorepo's projects, tags, and TypeScript path aliases.
-- Enumerate `apps/` and `libs/` directories — distinguish Angular web apps from NativeScript mobile apps (detected via `@nativescript/nx` and `@nativescript/webpack`).
-- Run `nx graph` (or inspect `nx.json` `targetDefaults` and `namedInputs`) to understand build/test dependency relationships before scoping any task.
-- Check `@nrwl/nx-cloud` configuration to determine which targets are cached and how CI distribution is configured.
+1. **Read `CLAUDE.md` at the repo root** — it documents the hexagonal architecture, the 10 apps under `apps/`, the 16 backend libs and 21 frontend libs under `libs/`, the frontend↔backend isolation rule, and the VS Code Marketplace blocking rules. Each app and lib has its own nested `CLAUDE.md` linked from the Module Index.
+2. **Map scope to surfaces before planning.** Determine whether the task touches:
+   - **Extension host** (`apps/ptah-extension-vscode`, esbuild → `main.mjs`) — subject to marketplace trademark scanner rules.
+   - **Webview SPA** (`apps/ptah-extension-webview`, Angular 21 Zone-based shell).
+   - **Electron app** (`apps/ptah-electron` + `apps/ptah-electron-e2e` Playwright `_electron.launch`).
+   - **CLI** (`apps/ptah-cli`, JSON-RPC stdio, published as `@hive-academy/ptah-cli`).
+   - **License server** (`apps/ptah-license-server`, NestJS 11 + Prisma 7 + PostgreSQL + Paddle + WorkOS + Resend).
+   - **Marketing** (`apps/ptah-landing-page`, `apps/ptah-docs` Astro Starlight).
+3. **Identify the platform adapter axis.** Backend libs depend only on `libs/backend/platform-core` ports; concrete adapters live in `platform-cli`, `platform-electron`, `platform-vscode`. Never branch inside an existing adapter — add a fourth family if a new runtime is needed.
+4. **Verify RPC dual-registration.** Any new RPC namespace requires BOTH `libs/shared/.../rpc.types.ts` AND `libs/backend/vscode-core/src/messaging/rpc-handler.ts:46` `ALLOWED_METHOD_PREFIXES` — missing the runtime guard causes silent crashes (see memory `project_rpc_registration_pattern.md`).
+5. **Check the dep graph before refactors.** Run `nx graph` or `nx affected -t typecheck` to scope blast radius across the 10 apps + 37 libs.
 
-### Code & Convention Discovery
+### Key Files to Locate Before Planning
 
-- Confirm style enforcement: 2-space indentation, single quotes, semicolons required, ES5 trailing commas. Validate via the root `.eslintrc.json` and `.prettierrc` before recommending changes.
-- Inspect `@nrwl/eslint-plugin-nx` rules (especially `enforce-module-boundaries`) to understand which library tags can depend on which — this constrains where new code may live.
-- For Angular apps: review `angular.json`/`project.json` builders, `@ngtools/webpack` configuration, and any custom webpack overrides.
-- For NativeScript apps: review `nativescript.config.ts` and `@nativescript/webpack` configuration; mobile builds have different lifecycle constraints than web.
+- `nx.json`, `tsconfig.base.json`, root `package.json` — workspace configuration.
+- `eslint.config.mjs` (flat config), `.prettierrc`, Husky hooks under `.husky/`.
+- Per-project `project.json` for Nx targets (`build`, `lint`, `test`, `typecheck`, `e2e`).
+- `apps/ptah-extension-vscode/.vscodeignore` — controls VSIX payload (trademark-sensitive markdown excluded).
+- `apps/ptah-license-server/prisma/schema.prisma` — PostgreSQL schema.
+- `libs/frontend/markdown/` — the single DOMPurify XSS chokepoint; AI-rendered markdown must route through here.
 
-### Testing Surface Discovery
+### Planning Heuristics for This Project
 
-- Unit tests run via `jest` with `jest-preset-angular` and `ts-jest` — locate `jest.config.ts` per project plus the root `jest.preset.js`.
-- E2E and component tests use `@nrwl/cypress` with `eslint-plugin-cypress` — locate the paired `*-e2e` projects for each app.
-- Before estimating scope, run `nx affected:test` and `nx affected:e2e --dry-run` to identify the true blast radius of a change.
-
-### Task-Scoping Heuristics
-
-- **Cross-cutting changes** (shared libs, design system, auth): expect downstream impact in both Angular web and NativeScript mobile apps — verify both surfaces in the plan.
-- **Mobile-only changes**: confirm whether shared Angular libs are NativeScript-safe (no DOM APIs) before delegating.
-- **Library boundary additions**: require an `nx g @nrwl/workspace:lib` decision (scope, type tag) — surface this to the user before implementation begins.
-- Always prefer `nx generate` schematics over hand-rolled scaffolding to keep `project.json`, tsconfig paths, and lint configs in sync.
+- **Decompose by app + adapter trio.** A feature touching all platforms needs three adapter implementations plus shared backend logic — bundle them in one PR only if the work is small and atomic; otherwise split per surface.
+- **Respect frontend↔backend isolation.** Frontend libs must not import backend libs (and vice versa); `libs/shared` is the only bridge.
+- **Marketplace gate is a hard blocker.** Tasks adding strings like `copilot`/`codex`/`claude`/`openai`/`anthropic` to non-JS files (e.g., `LICENSE.md`, READMEs, plugin templates) must route through `ContentDownloadService` runtime fetch — never bundled in VSIX. A burned extension ID is permanent.
+- **Concurrent-agent safety.** The user runs concurrent agents on the same checkout (see memory `feedback_concurrent_agents_shared_checkout.md`). When delegating to specialist agents (`backend-developer`, `frontend-developer`, `software-architect`, `senior-tester`, `devops-engineer`, `code-style-reviewer`, `code-logic-reviewer`, `technical-content-writer`, `ui-ux-designer`), instruct each batch to STOP on out-of-scope failures and report rather than fix neighboring WIP, and never bypass hooks with `--no-verify`.
+- **Validation checkpoints.** Use the `orchestration` skill as the default entry point. Use Full workflow for cross-surface features; Partial when scope is contained to one app and 2–4 files; Minimal only for trivial fixes.
 
 ---
 
@@ -3986,6 +4047,43 @@ source: ptah
 target-cli: codex
 
 ---
+
+## Tooling Precedence (MANDATORY)
+
+When you need to find a class, function, method, type, interface, or any
+named code symbol — use ptah tools FIRST. Grep/Glob/Read are FALLBACKS,
+not primary tools.
+
+Precedence order:
+
+1. `ptah.code.searchSymbols(query)` — symbol-name search across the indexed
+   codebase. Use this for ANY "find class/function/type X" lookup.
+2. `ptah.code.getSymbol(symbolId)` — full symbol definition + signature +
+   neighbors. Use this immediately after `searchSymbols` returns a hit.
+3. `ptah.ast.analyze(filePath)` — Tree-sitter structural outline of a file.
+   Use this when you have a file path but need its structure (classes,
+   methods, exports) before deciding what to read.
+4. `ptah.memory.search(query)` — semantic search over curated workspace
+   memory. Use this when looking for prior context, decisions, or notes.
+5. Grep / Glob / Read — fallback when ptah tools return empty (`hits: []`)
+   OR return `bm25Only: true` AND no hits. When you fall back, note it
+   explicitly in your report ("ptah.code.searchSymbols returned no hits
+   for X; falling back to Grep").
+
+Three concrete examples:
+
+- "Find the `SmitheryRegistrySource` class" → `ptah.code.searchSymbols('SmitheryRegistrySource')`,
+  NOT `Grep('class SmitheryRegistrySource')`.
+- "What's the structure of `smithery-override-resolver.ts`?" →
+  `ptah.ast.analyze('libs/backend/cli-agent-runtime/src/lib/mcp-directory/smithery-override-resolver.ts')`,
+  NOT `Read(...)` of the whole file.
+- "Has this codebase decided on Smithery registry semantics?" →
+  `ptah.memory.search('smithery registry source')`, NOT searching git log
+  or scanning files.
+
+Violating this precedence wastes tokens and misses indexed signal. If the
+ptah tools are unavailable in this session, say so in your report — do not
+silently fall through to Grep.
 
 <!-- STATIC:CLARIFICATION_PROTOCOL -->
 
@@ -4353,6 +4451,43 @@ source: ptah
 target-cli: codex
 
 ---
+
+## Tooling Precedence (MANDATORY)
+
+When you need to find a class, function, method, type, interface, or any
+named code symbol — use ptah tools FIRST. Grep/Glob/Read are FALLBACKS,
+not primary tools.
+
+Precedence order:
+
+1. `ptah.code.searchSymbols(query)` — symbol-name search across the indexed
+   codebase. Use this for ANY "find class/function/type X" lookup.
+2. `ptah.code.getSymbol(symbolId)` — full symbol definition + signature +
+   neighbors. Use this immediately after `searchSymbols` returns a hit.
+3. `ptah.ast.analyze(filePath)` — Tree-sitter structural outline of a file.
+   Use this when you have a file path but need its structure (classes,
+   methods, exports) before deciding what to read.
+4. `ptah.memory.search(query)` — semantic search over curated workspace
+   memory. Use this when looking for prior context, decisions, or notes.
+5. Grep / Glob / Read — fallback when ptah tools return empty (`hits: []`)
+   OR return `bm25Only: true` AND no hits. When you fall back, note it
+   explicitly in your report ("ptah.code.searchSymbols returned no hits
+   for X; falling back to Grep").
+
+Three concrete examples:
+
+- "Find the `SmitheryRegistrySource` class" → `ptah.code.searchSymbols('SmitheryRegistrySource')`,
+  NOT `Grep('class SmitheryRegistrySource')`.
+- "What's the structure of `smithery-override-resolver.ts`?" →
+  `ptah.ast.analyze('libs/backend/cli-agent-runtime/src/lib/mcp-directory/smithery-override-resolver.ts')`,
+  NOT `Read(...)` of the whole file.
+- "Has this codebase decided on Smithery registry semantics?" →
+  `ptah.memory.search('smithery registry source')`, NOT searching git log
+  or scanning files.
+
+Violating this precedence wastes tokens and misses indexed signal. If the
+ptah tools are unavailable in this session, say so in your report — do not
+silently fall through to Grep.
 
 <!-- STATIC:CLARIFICATION_PROTOCOL -->
 
@@ -5296,6 +5431,43 @@ source: ptah
 target-cli: codex
 
 ---
+
+## Tooling Precedence (MANDATORY)
+
+When you need to find a class, function, method, type, interface, or any
+named code symbol — use ptah tools FIRST. Grep/Glob/Read are FALLBACKS,
+not primary tools.
+
+Precedence order:
+
+1. `ptah.code.searchSymbols(query)` — symbol-name search across the indexed
+   codebase. Use this for ANY "find class/function/type X" lookup.
+2. `ptah.code.getSymbol(symbolId)` — full symbol definition + signature +
+   neighbors. Use this immediately after `searchSymbols` returns a hit.
+3. `ptah.ast.analyze(filePath)` — Tree-sitter structural outline of a file.
+   Use this when you have a file path but need its structure (classes,
+   methods, exports) before deciding what to read.
+4. `ptah.memory.search(query)` — semantic search over curated workspace
+   memory. Use this when looking for prior context, decisions, or notes.
+5. Grep / Glob / Read — fallback when ptah tools return empty (`hits: []`)
+   OR return `bm25Only: true` AND no hits. When you fall back, note it
+   explicitly in your report ("ptah.code.searchSymbols returned no hits
+   for X; falling back to Grep").
+
+Three concrete examples:
+
+- "Find the `SmitheryRegistrySource` class" → `ptah.code.searchSymbols('SmitheryRegistrySource')`,
+  NOT `Grep('class SmitheryRegistrySource')`.
+- "What's the structure of `smithery-override-resolver.ts`?" →
+  `ptah.ast.analyze('libs/backend/cli-agent-runtime/src/lib/mcp-directory/smithery-override-resolver.ts')`,
+  NOT `Read(...)` of the whole file.
+- "Has this codebase decided on Smithery registry semantics?" →
+  `ptah.memory.search('smithery registry source')`, NOT searching git log
+  or scanning files.
+
+Violating this precedence wastes tokens and misses indexed signal. If the
+ptah tools are unavailable in this session, say so in your report — do not
+silently fall through to Grep.
 
 <!-- STATIC:CLARIFICATION_PROTOCOL -->
 
@@ -6406,6 +6578,43 @@ target-cli: codex
 
 ---
 
+## Tooling Precedence (MANDATORY)
+
+When you need to find a class, function, method, type, interface, or any
+named code symbol — use ptah tools FIRST. Grep/Glob/Read are FALLBACKS,
+not primary tools.
+
+Precedence order:
+
+1. `ptah.code.searchSymbols(query)` — symbol-name search across the indexed
+   codebase. Use this for ANY "find class/function/type X" lookup.
+2. `ptah.code.getSymbol(symbolId)` — full symbol definition + signature +
+   neighbors. Use this immediately after `searchSymbols` returns a hit.
+3. `ptah.ast.analyze(filePath)` — Tree-sitter structural outline of a file.
+   Use this when you have a file path but need its structure (classes,
+   methods, exports) before deciding what to read.
+4. `ptah.memory.search(query)` — semantic search over curated workspace
+   memory. Use this when looking for prior context, decisions, or notes.
+5. Grep / Glob / Read — fallback when ptah tools return empty (`hits: []`)
+   OR return `bm25Only: true` AND no hits. When you fall back, note it
+   explicitly in your report ("ptah.code.searchSymbols returned no hits
+   for X; falling back to Grep").
+
+Three concrete examples:
+
+- "Find the `SmitheryRegistrySource` class" → `ptah.code.searchSymbols('SmitheryRegistrySource')`,
+  NOT `Grep('class SmitheryRegistrySource')`.
+- "What's the structure of `smithery-override-resolver.ts`?" →
+  `ptah.ast.analyze('libs/backend/cli-agent-runtime/src/lib/mcp-directory/smithery-override-resolver.ts')`,
+  NOT `Read(...)` of the whole file.
+- "Has this codebase decided on Smithery registry semantics?" →
+  `ptah.memory.search('smithery registry source')`, NOT searching git log
+  or scanning files.
+
+Violating this precedence wastes tokens and misses indexed signal. If the
+ptah tools are unavailable in this session, say so in your report — do not
+silently fall through to Grep.
+
 <!-- STATIC:CLARIFICATION_PROTOCOL -->
 
 ## 🚨 CLARIFICATION PROTOCOL — RETURN, DO NOT ASK
@@ -6688,7 +6897,7 @@ Use Write tool to create `.ptah/specs/TASK_[ID]/tasks.md`:
 
 ## Batch 1: [Name] ⏸️ PENDING
 
-**Recommended Executor**: [backend-developer | frontend-developer | codex CLI x N | copilot CLI | ptah-cli]
+**Recommended Executor**: [backend-developer | frontend-developer | gemini CLI x N | codex CLI | ptah-cli]
 **Fallback Executor**: [sub-agent type to use if primary fails]
 **Execution Mode**: [sequential | parallel]
 **Rationale**: [1-2 sentences explaining why this executor and mode fit the batch shape]
@@ -6871,16 +7080,16 @@ You are NOT a delegator. You do NOT spawn CLI agents or sub-agents. You produce 
 
 Apply these heuristics when filling `Recommended Executor` + `Execution Mode` on each batch:
 
-| Batch Shape                             | Recommended Executor      | Mode       |
-| --------------------------------------- | ------------------------- | ---------- |
-| 3+ independent tasks, boilerplate       | CLI (codex preferred) x N | parallel   |
-| 3+ independent tasks, standard logic    | CLI x N                   | parallel   |
-| Tightly coupled tasks in same file      | Sub-agent developer       | sequential |
-| Cross-file refactoring                  | Sub-agent developer       | sequential |
-| Architecture decisions required         | Sub-agent developer       | sequential |
-| Migration/scaffolding across many files | CLI x N                   | parallel   |
+| Batch Shape                             | Recommended Executor       | Mode       |
+| --------------------------------------- | -------------------------- | ---------- |
+| 3+ independent tasks, boilerplate       | CLI (gemini preferred) x N | parallel   |
+| 3+ independent tasks, standard logic    | CLI x N                    | parallel   |
+| Tightly coupled tasks in same file      | Sub-agent developer        | sequential |
+| Cross-file refactoring                  | Sub-agent developer        | sequential |
+| Architecture decisions required         | Sub-agent developer        | sequential |
+| Migration/scaffolding across many files | CLI x N                    | parallel   |
 
-CLI selection priority (when recommending CLI): `ptah-cli > codex > copilot`.
+CLI selection priority (when recommending CLI): `ptah-cli > gemini > codex > copilot`.
 
 #### Parallel-Eligible Checklist
 

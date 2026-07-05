@@ -8,6 +8,10 @@ const EDIT_BASE = `${GITHUB_REPO}/edit/main/apps/ptah-docs/`;
 
 export default defineConfig({
   site: 'https://docs.ptah.live',
+  redirects: {
+    // Setup Wizard moved out of the Agents section into its own Setup group.
+    '/agents/setup-wizard': '/setup/setup-wizard/',
+  },
   integrations: [
     starlight({
       title: 'Ptah Documentation',
@@ -43,6 +47,15 @@ export default defineConfig({
           autogenerate: { directory: 'agents' },
         },
         {
+          label: 'Setup',
+          items: [
+            { label: 'Setup Hub', slug: 'setup' },
+            { label: 'Setup Wizard', slug: 'setup/setup-wizard' },
+            { label: 'AI Team Builder', slug: 'setup/ai-team-builder' },
+            { label: 'New Project Setup', slug: 'setup/new-project' },
+          ],
+        },
+        {
           label: 'Sessions',
           autogenerate: { directory: 'sessions' },
         },
@@ -61,9 +74,20 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Tribunal',
+          items: [
+            { label: 'Overview', slug: 'tribunal' },
+            { label: 'Council', slug: 'tribunal/council' },
+            { label: 'Forge', slug: 'tribunal/forge' },
+            { label: 'Race', slug: 'tribunal/race' },
+            { label: 'Relay', slug: 'tribunal/relay' },
+          ],
+        },
+        {
           label: 'Skill Synthesis',
           items: [
             { label: 'Overview', slug: 'skill-synthesis' },
+            { label: 'The Skills Tab', slug: 'skill-synthesis/the-skills-tab' },
             { label: 'How It Works', slug: 'skill-synthesis/how-it-works' },
             { label: 'Reviewing Candidates', slug: 'skill-synthesis/reviewing-candidates' },
             { label: 'SKILL.md Anatomy', slug: 'skill-synthesis/skill-md-anatomy' },
@@ -93,6 +117,14 @@ export default defineConfig({
         {
           label: 'Git & Version Control',
           autogenerate: { directory: 'git' },
+        },
+        {
+          label: 'Marketplace',
+          items: [
+            { label: 'Overview', slug: 'marketplace' },
+            { label: 'MCP Registry', slug: 'marketplace/mcp-registry' },
+            { label: 'Smithery', slug: 'marketplace/smithery' },
+          ],
         },
         {
           label: 'Plugins',

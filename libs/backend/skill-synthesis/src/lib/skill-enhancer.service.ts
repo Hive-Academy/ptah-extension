@@ -34,10 +34,16 @@ import {
   SKILL_REPROPAGATION_TOKEN,
   type SkillRepropagationPort,
 } from './skill-repropagation.port';
+import {
+  SPEC_FINDINGS_TOKEN,
+  type SpecFindingsPort,
+} from './spec-findings.port';
 
 const ENHANCE_TIMEOUT_MS = 30_000;
-const ENHANCE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const MIN_INVOCATIONS_TO_ENHANCE = 5;
+/** Auto-enhancement cooldown after a successful enhancement. */
+export const ENHANCE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+/** Minimum recorded invocations before a clone is auto-enhance eligible. */
+export const MIN_INVOCATIONS_TO_ENHANCE = 5;
 const MAX_TRAJECTORY_SESSIONS = 3;
 const TRAJECTORY_MIN_TURNS = 5;
 
@@ -94,6 +100,8 @@ export class SkillEnhancerService {
     private readonly internalQuery: IInternalQuery | null,
     @inject(SKILL_REPROPAGATION_TOKEN, { isOptional: true })
     private readonly repropagation: SkillRepropagationPort | null,
+    @inject(SPEC_FINDINGS_TOKEN, { isOptional: true })
+    private readonly specFindings: SpecFindingsPort | null,
   ) {}
 
   isEligible(
@@ -345,6 +353,7 @@ export class SkillEnhancerService {
     if (!this.internalQuery) return null;
     const stats = this.candidates.getInvocationStats(slug);
     const trajectorySignal = await this.collectTrajectorySignal(slug, cwd);
+    const specFindings = await this.collectSpecFindings(slug);
     const model = resolveJudgeModel(
       settings.judgeModel,
       this.workspaceProvider,
@@ -359,10 +368,11 @@ export class SkillEnhancerService {
     const promptLines = [
       `You are improving an existing AI ${artifactLabel} based on real usage signal.`,
       `Rewrite it to be clearer, more actionable, and more robust against the observed failures.`,
+      ...this.bestPracticeGuidance(kind),
     ];
     if (this.requiresFrontmatter(kind)) {
       promptLines.push(
-        `Preserve the YAML frontmatter (name, description) unless it is clearly wrong.`,
+        `Preserve the YAML frontmatter (name, description) unless it is clearly wrong — and if you touch the description, make sure it still states WHEN to use this ${artifactLabel}.`,
       );
     }
     promptLines.push(
@@ -372,6 +382,9 @@ export class SkillEnhancerService {
       ``,
       `Recent trajectory signal:`,
       trajectorySignal || '(none available)',
+      ``,
+      `Graded review findings (from orchestration specs — how this ${artifactLabel} actually performed):`,
+      specFindings || '(none available)',
       ``,
       `Current ${artifactLabel}:`,
       `---`,
@@ -419,6 +432,37 @@ export class SkillEnhancerService {
     }
   }
 
+  /**
+   * Kind-specific authoring best practices injected into the enhancement
+   * prompt so rewrites converge on well-formed artifacts rather than just
+   * "more text". Mirrors the synthesis-time skill-creator guidance.
+   */
+  private bestPracticeGuidance(kind: SkillRegistryKind): string[] {
+    if (kind === 'agent') {
+      return [
+        `Best practices for an agent definition:`,
+        `- Keep the role sharp: one clear specialty, explicit responsibilities, and what it should NOT do.`,
+        `- The frontmatter description is the routing signal — it must say WHEN to delegate to this agent.`,
+        `- Prefer concise, imperative instructions and concrete workflow steps over prose; assume the agent is already capable.`,
+        `- Address the observed failures directly; remove guidance that is redundant with general competence.`,
+      ];
+    }
+    if (kind === 'command') {
+      return [
+        `Best practices for a command prompt:`,
+        `- Keep it single-purpose and deterministic; state the exact steps to follow.`,
+        `- Handle arguments explicitly and note required vs optional inputs.`,
+        `- Be concise — every line must earn its token cost.`,
+      ];
+    }
+    return [
+      `Best practices for a SKILL.md (skill-creator rules):`,
+      `- Put ALL "when to use" / trigger information in the frontmatter description — never as a body section.`,
+      `- Body is imperative procedural guidance only: concise steps, generalized (no workspace-specific paths or one-off details), no frontmatter duplication, no README/changelog prose.`,
+      `- Match degrees of freedom to the task: exact steps where fragile, heuristics where multiple approaches are valid.`,
+    ];
+  }
+
   private async collectTrajectorySignal(
     slug: string,
     workspaceRoot: string,
@@ -449,6 +493,20 @@ export class SkillEnhancerService {
     return parts.join('\n\n---\n\n');
   }
 
+  private async collectSpecFindings(slug: string): Promise<string> {
+    if (!this.specFindings) return '';
+    try {
+      const findings = await this.specFindings.getRecentFindings(slug);
+      return findings ?? '';
+    } catch (error: unknown) {
+      this.logger.debug('[skill-enhancer] spec findings lookup failed', {
+        slug,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return '';
+    }
+  }
+
   private synthRow(slug: string, body: string): SkillCandidateRow {
     return {
       id: slug as unknown as CandidateId,
@@ -466,6 +524,7 @@ export class SkillEnhancerService {
       rejectedAt: null,
       rejectedReason: null,
       pinned: false,
+      residency: 'resident',
     };
   }
 

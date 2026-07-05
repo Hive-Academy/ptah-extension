@@ -54,6 +54,7 @@ export {
   ThinkingBlockComponent,
 } from '@ptah-extension/chat-ui';
 export * from './molecules/agent-card/agent-card.component';
+export * from './molecules/agent-continue-input/agent-continue-input.component';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.
@@ -90,6 +91,7 @@ export {
   PermissionRequestCardComponent,
 } from '@ptah-extension/chat-ui';
 export * from './molecules/chat-input/chat-input.component';
+export * from './molecules/send-to-messaging/send-to-messaging.component';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.

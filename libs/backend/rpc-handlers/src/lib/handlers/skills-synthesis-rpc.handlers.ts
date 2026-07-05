@@ -1,14 +1,10 @@
 /**
  * Skill Synthesis RPC Handlers.
  *
- * Bridges the frontend Skill Synthesis UI to the backend SkillCandidateStore +
- * SkillSynthesisService. Six methods:
- *   - skillSynthesis:listCandidates  → list candidates filtered by status
- *   - skillSynthesis:getCandidate    → fetch one candidate (incl. body text)
- *   - skillSynthesis:promote         → manual promotion (runs full eval)
- *   - skillSynthesis:reject          → manual reject with reason
- *   - skillSynthesis:invocations     → list invocations for a candidate
- *   - skillSynthesis:stats           → aggregate counts for dashboard
+ * Bridges the frontend Skill Synthesis UI to the backend stores/services
+ * (candidates, suggestions, clones/registry, diagnostics, settings). The full
+ * method set is the `static METHODS` tuple below, compile-asserted to equal the
+ * `skillSynthesis:*` slice of `RpcMethodName`.
  *
  * Class is named `SkillsSynthesisRpcHandlers` (plural) to avoid colliding
  * with the existing `SkillsShRpcHandlers` (shell skills).
@@ -27,6 +23,8 @@ import {
 import {
   SKILL_SYNTHESIS_TOKENS,
   USER_LAYER_MIRROR_SERVICE_TOKEN,
+  MIN_INVOCATIONS_TO_ENHANCE,
+  ENHANCE_COOLDOWN_MS,
   flattenSkillTriggers,
   readSkillTriggers,
   type SkillCandidateStore,
@@ -41,6 +39,9 @@ import {
   type SkillRegistryStore,
   type SkillRegistryRow,
   type SkillRegistryKind,
+  type SkillSuggestionStore,
+  type SkillSuggestionRow,
+  type SpecHarvesterService,
 } from '@ptah-extension/skill-synthesis';
 import type { UserLayerMirrorService } from '@ptah-extension/agent-generation';
 import type {
@@ -93,6 +94,30 @@ import type {
   SkillSynthesisKeepCloneResult,
   SkillSynthesisInvocationStatsParams,
   SkillSynthesisInvocationStatsResult,
+  SkillSynthesisListSuggestionsParams,
+  SkillSynthesisListSuggestionsResult,
+  SkillSynthesisAcceptSuggestionParams,
+  SkillSynthesisAcceptSuggestionResult,
+  SkillSynthesisDismissSuggestionParams,
+  SkillSynthesisDismissSuggestionResult,
+  SkillSynthesisGetSuggestionParams,
+  SkillSynthesisGetSuggestionResult,
+  SkillSynthesisUpdateSuggestionParams,
+  SkillSynthesisUpdateSuggestionResult,
+  SkillSynthesisRejectBulkParams,
+  SkillSynthesisRejectBulkResult,
+  SkillSynthesisPromoteBulkParams,
+  SkillSynthesisPromoteBulkResult,
+  SkillSynthesisRejectByPatternParams,
+  SkillSynthesisRejectByPatternResult,
+  SkillSynthesisListSpecsParams,
+  SkillSynthesisListSpecsResult,
+  SkillSynthesisHarvestSpecsParams,
+  SkillSynthesisHarvestSpecsResult,
+  SkillSynthesisClearStaleSpecsParams,
+  SkillSynthesisClearStaleSpecsResult,
+  SkillSuggestionSummary,
+  SkillSuggestionDetail,
   CloneSummary,
   SkillCloneKind,
 } from '@ptah-extension/shared';
@@ -114,6 +139,15 @@ import {
   SkillRebaseCloneParamsSchema,
   SkillKeepCloneParamsSchema,
   SkillInvocationStatsParamsSchema,
+  SkillListSuggestionsParamsSchema,
+  SkillAcceptSuggestionParamsSchema,
+  SkillDismissSuggestionParamsSchema,
+  SkillGetSuggestionParamsSchema,
+  SkillUpdateSuggestionParamsSchema,
+  RejectBulkParamsSchema,
+  PromoteBulkParamsSchema,
+  RejectByPatternParamsSchema,
+  ClearStaleSpecsParamsSchema,
 } from './skills-synthesis-rpc.schema';
 
 interface ICuratorService {
@@ -121,9 +155,15 @@ interface ICuratorService {
     reportPath: string;
     changesQueued: number;
     skippedPinned: number;
+    suggestionsCreated: number;
   }>;
   start(settings: SkillSynthesisSettings): void;
   stop(): void;
+  acceptSuggestion(
+    id: string,
+    settings: SkillSynthesisSettings,
+  ): { accepted: boolean; filePath: string };
+  dismissSuggestion(id: string): { dismissed: boolean };
 }
 
 @injectable()
@@ -151,6 +191,17 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:rebaseClone',
     'skillSynthesis:keepClone',
     'skillSynthesis:invocationStats',
+    'skillSynthesis:listSuggestions',
+    'skillSynthesis:acceptSuggestion',
+    'skillSynthesis:dismissSuggestion',
+    'skillSynthesis:getSuggestion',
+    'skillSynthesis:updateSuggestion',
+    'skillSynthesis:rejectBulk',
+    'skillSynthesis:promoteBulk',
+    'skillSynthesis:rejectByPattern',
+    'skillSynthesis:listSpecs',
+    'skillSynthesis:harvestSpecs',
+    'skillSynthesis:clearStaleSpecs',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -176,6 +227,10 @@ export class SkillsSynthesisRpcHandlers {
     private readonly mirror: UserLayerMirrorService | null,
     @inject(PLATFORM_TOKENS.CONTENT_DOWNLOAD, { isOptional: true })
     private readonly contentDownload: ContentDownloadService | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_SUGGESTION_STORE, { isOptional: true })
+    private readonly suggestionStore: SkillSuggestionStore | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SPEC_HARVESTER_SERVICE, { isOptional: true })
+    private readonly specHarvester: SpecHarvesterService | null,
   ) {}
 
   register(): void {
@@ -201,6 +256,17 @@ export class SkillsSynthesisRpcHandlers {
     this.registerRebaseClone();
     this.registerKeepClone();
     this.registerInvocationStats();
+    this.registerListSuggestions();
+    this.registerAcceptSuggestion();
+    this.registerDismissSuggestion();
+    this.registerGetSuggestion();
+    this.registerUpdateSuggestion();
+    this.registerRejectBulk();
+    this.registerPromoteBulk();
+    this.registerRejectByPattern();
+    this.registerListSpecs();
+    this.registerHarvestSpecs();
+    this.registerClearStaleSpecs();
 
     this.logger.debug('Skill Synthesis RPC handlers registered', {
       methods: SkillsSynthesisRpcHandlers.METHODS as unknown as string[],
@@ -451,13 +517,19 @@ export class SkillsSynthesisRpcHandlers {
       try {
         RunCuratorParamsSchema.parse({});
         if (!this.curator) {
-          return { reportPath: '', changesQueued: 0, skippedPinned: 0 };
+          return {
+            reportPath: '',
+            changesQueued: 0,
+            skippedPinned: 0,
+            suggestionsCreated: 0,
+          };
         }
         const result = await this.curator.runManual();
         return {
           reportPath: result.reportPath,
           changesQueued: result.changesQueued,
           skippedPinned: result.skippedPinned,
+          suggestionsCreated: result.suggestionsCreated,
         };
       } catch (error) {
         this.report(error, 'SkillsSynthesisRpcHandlers.registerRunCurator');
@@ -498,10 +570,8 @@ export class SkillsSynthesisRpcHandlers {
           totalInvocations: stats.invocations,
           activeSkills: stats.promoted,
           eligibilityHistogram: {
-            tooFewTurns: snapshot.eligibilityHistogram.tooFewTurns,
-            lowFidelity: snapshot.eligibilityHistogram.lowFidelity,
-            insufficientAbstraction:
-              snapshot.eligibilityHistogram.insufficientAbstraction,
+            prefilterTooThin: snapshot.eligibilityHistogram.prefilterTooThin,
+            prefilterRejected: snapshot.eligibilityHistogram.prefilterRejected,
             accepted: snapshot.eligibilityHistogram.accepted,
           },
           recentEvents: snapshot.recentEvents.map((e) => ({
@@ -896,6 +966,270 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
+  private registerListSuggestions(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisListSuggestionsParams,
+      SkillSynthesisListSuggestionsResult
+    >('skillSynthesis:listSuggestions', async (params) => {
+      const parsed = this.parseParams(
+        SkillListSuggestionsParamsSchema,
+        params,
+        'skillSynthesis:listSuggestions',
+      );
+      try {
+        const store = this.requireDesktop(this.suggestionStore);
+        const rows = store.listByStatus(parsed?.status ?? 'pending');
+        return { suggestions: rows.map(toSuggestionSummary) };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerListSuggestions',
+        );
+        throw this.toUserError('skillSynthesis:listSuggestions');
+      }
+    });
+  }
+
+  private registerAcceptSuggestion(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisAcceptSuggestionParams,
+      SkillSynthesisAcceptSuggestionResult
+    >('skillSynthesis:acceptSuggestion', async (params) => {
+      const parsed = this.parseParams(
+        SkillAcceptSuggestionParamsSchema,
+        params,
+        'skillSynthesis:acceptSuggestion',
+      );
+      try {
+        this.requireDesktop(this.suggestionStore);
+        const curator = this.requireDesktop(this.curator);
+        const settings = this.synthesis.readSettings();
+        const result = curator.acceptSuggestion(parsed.id, settings);
+        return { accepted: result.accepted, filePath: result.filePath };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerAcceptSuggestion',
+        );
+        throw this.toUserError('skillSynthesis:acceptSuggestion');
+      }
+    });
+  }
+
+  private registerDismissSuggestion(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisDismissSuggestionParams,
+      SkillSynthesisDismissSuggestionResult
+    >('skillSynthesis:dismissSuggestion', async (params) => {
+      const parsed = this.parseParams(
+        SkillDismissSuggestionParamsSchema,
+        params,
+        'skillSynthesis:dismissSuggestion',
+      );
+      try {
+        this.requireDesktop(this.suggestionStore);
+        const curator = this.requireDesktop(this.curator);
+        const result = curator.dismissSuggestion(parsed.id);
+        return { dismissed: result.dismissed };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerDismissSuggestion',
+        );
+        throw this.toUserError('skillSynthesis:dismissSuggestion');
+      }
+    });
+  }
+
+  private registerGetSuggestion(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisGetSuggestionParams,
+      SkillSynthesisGetSuggestionResult
+    >('skillSynthesis:getSuggestion', async (params) => {
+      const parsed = this.parseParams(
+        SkillGetSuggestionParamsSchema,
+        params,
+        'skillSynthesis:getSuggestion',
+      );
+      try {
+        const store = this.requireDesktop(this.suggestionStore);
+        const row = store.findById(parsed.id);
+        return { suggestion: row ? toSuggestionDetail(row) : null };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerGetSuggestion');
+        throw this.toUserError('skillSynthesis:getSuggestion');
+      }
+    });
+  }
+
+  private registerUpdateSuggestion(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisUpdateSuggestionParams,
+      SkillSynthesisUpdateSuggestionResult
+    >('skillSynthesis:updateSuggestion', async (params) => {
+      const parsed = this.parseParams(
+        SkillUpdateSuggestionParamsSchema,
+        params,
+        'skillSynthesis:updateSuggestion',
+      );
+      try {
+        const store = this.requireDesktop(this.suggestionStore);
+        const row = store.updatePending(parsed.id, {
+          name: parsed.name,
+          description: parsed.description,
+          body: parsed.body,
+        });
+        const updated = row !== null && row.status === 'pending';
+        return {
+          updated,
+          suggestion: row ? toSuggestionDetail(row) : null,
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerUpdateSuggestion',
+        );
+        throw this.toUserError('skillSynthesis:updateSuggestion');
+      }
+    });
+  }
+
+  private registerRejectBulk(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisRejectBulkParams,
+      SkillSynthesisRejectBulkResult
+    >('skillSynthesis:rejectBulk', async (params) => {
+      const parsed = this.parseParams(
+        RejectBulkParamsSchema,
+        params,
+        'skillSynthesis:rejectBulk',
+      );
+      try {
+        const ids = parsed.ids.map((id) => id as CandidateId);
+        const rejected = this.synthesis.rejectBulk(ids, parsed.reason);
+        return { rejected };
+      } catch (error) {
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerRejectBulk');
+        throw error;
+      }
+    });
+  }
+
+  private registerPromoteBulk(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisPromoteBulkParams,
+      SkillSynthesisPromoteBulkResult
+    >('skillSynthesis:promoteBulk', async (params) => {
+      const parsed = this.parseParams(
+        PromoteBulkParamsSchema,
+        params,
+        'skillSynthesis:promoteBulk',
+      );
+      try {
+        const ids = parsed.ids.map((id) => id as CandidateId);
+        const decisions = await this.synthesis.promoteBulk(ids);
+        const promoted = decisions.filter((d) => d.promoted).length;
+        return { decisions, promoted };
+      } catch (error) {
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerPromoteBulk');
+        throw error;
+      }
+    });
+  }
+
+  private registerRejectByPattern(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisRejectByPatternParams,
+      SkillSynthesisRejectByPatternResult
+    >('skillSynthesis:rejectByPattern', async (params) => {
+      const parsed = this.parseParams(
+        RejectByPatternParamsSchema,
+        params,
+        'skillSynthesis:rejectByPattern',
+      );
+      try {
+        const result = this.synthesis.rejectByPattern(
+          parsed.pattern,
+          parsed.reason,
+        );
+        return { rejected: result.rejected, matched: result.matched };
+      } catch (error) {
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerRejectByPattern',
+        );
+        throw error;
+      }
+    });
+  }
+
+  private registerListSpecs(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisListSpecsParams,
+      SkillSynthesisListSpecsResult
+    >('skillSynthesis:listSpecs', async () => {
+      try {
+        const harvester = this.requireDesktop(this.specHarvester);
+        const specs = await harvester.listSpecs();
+        return { specs };
+      } catch (error) {
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerListSpecs');
+        throw error;
+      }
+    });
+  }
+
+  private registerHarvestSpecs(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisHarvestSpecsParams,
+      SkillSynthesisHarvestSpecsResult
+    >('skillSynthesis:harvestSpecs', async () => {
+      try {
+        const harvester = this.requireDesktop(this.specHarvester);
+        return await harvester.harvest();
+      } catch (error) {
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerHarvestSpecs');
+        throw error;
+      }
+    });
+  }
+
+  private registerClearStaleSpecs(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisClearStaleSpecsParams,
+      SkillSynthesisClearStaleSpecsResult
+    >('skillSynthesis:clearStaleSpecs', async (params) => {
+      const parsed = this.parseParams(
+        ClearStaleSpecsParamsSchema,
+        params,
+        'skillSynthesis:clearStaleSpecs',
+      );
+      try {
+        const harvester = this.requireDesktop(this.specHarvester);
+        const result = await harvester.clearStaleSpecs(undefined, {
+          retentionDays: parsed.retentionDays,
+          mode: parsed.mode,
+        });
+        return {
+          cleared: result.cleared,
+          mode: result.mode,
+          taskIds: [...result.taskIds],
+        };
+      } catch (error) {
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerClearStaleSpecs',
+        );
+        throw error;
+      }
+    });
+  }
+
   private parseParams<T>(
     schema: { parse: (input: unknown) => T },
     params: unknown,
@@ -917,7 +1251,7 @@ export class SkillsSynthesisRpcHandlers {
   private requireDesktop<T>(value: T | null): T {
     if (value === null || value === undefined) {
       throw new RpcUserError(
-        'Skill clones are available on the desktop app only.',
+        'This feature is available in the Ptah desktop app only.',
         'PERSISTENCE_UNAVAILABLE',
       );
     }
@@ -954,6 +1288,11 @@ export class SkillsSynthesisRpcHandlers {
       lastEnhancedAt: row.lastEnhancedAt,
       historyCount,
       pendingSourceHash: row.pendingSourceHash,
+      enhanceMinInvocations: MIN_INVOCATIONS_TO_ENHANCE,
+      enhanceCooldownUntil:
+        row.lastEnhancedAt !== null
+          ? row.lastEnhancedAt + ENHANCE_COOLDOWN_MS
+          : null,
     };
   }
 
@@ -1070,6 +1409,27 @@ function toDetail(row: SkillCandidateRow): SkillSynthesisCandidateDetail {
     body,
     trajectoryHash: row.trajectoryHash,
     sourceSessionIds: row.sourceSessionIds,
+  };
+}
+
+function toSuggestionSummary(row: SkillSuggestionRow): SkillSuggestionSummary {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    clusterSize: row.clusterSize,
+    technologyFingerprint: row.technologyFingerprint,
+    judgeScore: row.judgeScore,
+    memberSessionIds: row.memberSessionIds,
+    status: row.status,
+    createdAt: row.createdAt,
+  };
+}
+
+function toSuggestionDetail(row: SkillSuggestionRow): SkillSuggestionDetail {
+  return {
+    ...toSuggestionSummary(row),
+    body: row.body,
   };
 }
 

@@ -19,7 +19,11 @@
  */
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { SessionId, AISessionConfig } from '@ptah-extension/shared';
+import type {
+  SessionId,
+  AISessionConfig,
+  PermissionLevel,
+} from '@ptah-extension/shared';
 
 import type { Query, SDKUserMessage } from '../session-lifecycle-manager';
 
@@ -48,6 +52,13 @@ export interface SessionRecord {
   resolveNext: (() => void) | null;
   /** Current model ID (may differ from config.model after setModel calls). */
   currentModel: string;
+  /**
+   * Live autopilot permission level for THIS session — the per-session source
+   * of truth read by the canUseTool callback. Seeded at session start from the
+   * global default and updated by setSessionPermissionLevel on live toggle, so
+   * a tool call in one workspace's session never sees another workspace's level.
+   */
+  permissionLevel: PermissionLevel;
   lastActivityAt: number;
 }
 
@@ -107,6 +118,7 @@ export class SessionRegistry {
       messageQueue: [],
       resolveNext: null,
       currentModel: config.model || '',
+      permissionLevel: 'ask',
       lastActivityAt: this._now(),
     };
     this.byTabId.set(tabId, rec);
@@ -292,9 +304,7 @@ export class SessionRegistry {
         this.evictStale(this._now(), this._sweepTtlMs);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
-        this.logger.warn(
-          `[SessionRegistry] eviction sweep threw: ${message}`,
-        );
+        this.logger.warn(`[SessionRegistry] eviction sweep threw: ${message}`);
       }
     }, intervalMs);
     if (typeof (timer as { unref?: () => void }).unref === 'function') {

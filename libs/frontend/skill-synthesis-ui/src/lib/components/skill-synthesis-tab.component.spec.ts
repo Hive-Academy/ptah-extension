@@ -1,12 +1,16 @@
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { signal, computed } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   EligibilityHistogramDto,
+  SkillSuggestionSummary,
   SkillSynthesisCandidateSummary,
   SkillSynthesisEventWire,
   SkillSynthesisInvocationEntry,
+  SkillSynthesisPromoteBulkResult,
+  SkillSynthesisPromoteResult,
+  SkillSynthesisRejectByPatternResult,
   SkillSynthesisStatsResult,
 } from '@ptah-extension/shared';
 
@@ -56,9 +60,8 @@ function makeDiagnosticsStub(
     lastCuratorPassAt: signal<number | null>(null),
     eligibilityHistogram: signal<EligibilityHistogramDto>(
       overrides.eligibilityHistogram ?? {
-        tooFewTurns: 0,
-        lowFidelity: 0,
-        insufficientAbstraction: 0,
+        prefilterTooThin: 0,
+        prefilterRejected: 0,
         accepted: 0,
       },
     ),
@@ -104,6 +107,21 @@ function openActivity(
   fixture.detectChanges();
 }
 
+function openSessions(
+  fixture: ReturnType<typeof TestBed.createComponent>,
+): void {
+  const root = fixture.nativeElement as HTMLElement;
+  const subViewNav = root.querySelector('[aria-label="Skills views"]');
+  const tabs = subViewNav?.querySelectorAll(
+    '[role="tab"]',
+  ) as NodeListOf<HTMLButtonElement>;
+  const sessions = Array.from(tabs).find(
+    (t) => t.textContent?.trim() === 'Sessions',
+  );
+  sessions?.click();
+  fixture.detectChanges();
+}
+
 const tabManagerStub: Pick<TabManagerService, 'activeTab'> = {
   activeTab: signal(null) as unknown as TabManagerService['activeTab'],
 };
@@ -131,23 +149,58 @@ interface StubState {
   >;
   readonly loading: ReturnType<typeof signal<boolean>>;
   readonly error: ReturnType<typeof signal<string | null>>;
+  readonly suggestions: ReturnType<typeof signal<SkillSuggestionSummary[]>>;
+  readonly suggestionsLoading: ReturnType<typeof signal<boolean>>;
+  readonly pendingSuggestionCount: ReturnType<typeof computed<number>>;
   readonly refreshCandidates: jest.Mock<Promise<void>, []>;
+  readonly refreshSuggestions: jest.Mock<Promise<void>, []>;
   readonly loadStats: jest.Mock<Promise<void>, []>;
   readonly setStatusFilter: jest.Mock<
     Promise<void>,
     ['all' | 'pending' | 'promoted' | 'rejected']
   >;
   readonly selectCandidate: jest.Mock<Promise<void>, [string | null]>;
-  readonly promote: jest.Mock<Promise<void>, [string, string | undefined]>;
+  readonly promote: jest.Mock<
+    Promise<SkillSynthesisPromoteResult | null>,
+    [string, string | undefined]
+  >;
   readonly reject: jest.Mock<Promise<void>, [string, string | undefined]>;
+  readonly rejectBulk: jest.Mock<
+    Promise<number>,
+    [string[], string | undefined]
+  >;
+  readonly promoteBulk: jest.Mock<
+    Promise<SkillSynthesisPromoteBulkResult | null>,
+    [string[]]
+  >;
+  readonly rejectByPattern: jest.Mock<
+    Promise<SkillSynthesisRejectByPatternResult | null>,
+    [string, string | undefined]
+  >;
+  readonly specs: ReturnType<typeof signal<unknown[]>>;
+  readonly specsLoading: ReturnType<typeof signal<boolean>>;
+  readonly staleSpecCount: ReturnType<typeof computed<number>>;
+  readonly refreshSpecs: jest.Mock<Promise<void>, []>;
+  readonly harvestSpecs: jest.Mock<Promise<void>, []>;
+  readonly clearStaleSpecs: jest.Mock<Promise<number>, [unknown]>;
+  readonly candidateDetail: ReturnType<typeof signal<unknown>>;
+  readonly candidateDetailLoading: ReturnType<typeof signal<boolean>>;
+  readonly loadCandidateDetail: jest.Mock<Promise<void>, [string | null]>;
 }
 
 function makeStub(
   candidatesValue: SkillSynthesisCandidateSummary[] = [],
 ): StubState {
   const candidates = signal<SkillSynthesisCandidateSummary[]>(candidatesValue);
+  const suggestions = signal<SkillSuggestionSummary[]>([]);
   return {
     candidates,
+    suggestions,
+    suggestionsLoading: signal<boolean>(false),
+    pendingSuggestionCount: computed(
+      () => suggestions().filter((s) => s.status === 'pending').length,
+    ),
+    refreshSuggestions: jest.fn(async () => undefined),
     invocations: signal<SkillSynthesisInvocationEntry[]>([]),
     stats: signal<SkillSynthesisStatsResult | null>({
       totalCandidates: candidatesValue.length,
@@ -165,8 +218,20 @@ function makeStub(
     loadStats: jest.fn(async () => undefined),
     setStatusFilter: jest.fn(async () => undefined),
     selectCandidate: jest.fn(async () => undefined),
-    promote: jest.fn(async () => undefined),
+    promote: jest.fn(async () => null),
     reject: jest.fn(async () => undefined),
+    rejectBulk: jest.fn(async () => 0),
+    promoteBulk: jest.fn(async () => null),
+    rejectByPattern: jest.fn(async () => null),
+    specs: signal<unknown[]>([]),
+    specsLoading: signal<boolean>(false),
+    staleSpecCount: computed(() => 0),
+    refreshSpecs: jest.fn(async () => undefined),
+    harvestSpecs: jest.fn(async () => undefined),
+    clearStaleSpecs: jest.fn(async () => 0),
+    candidateDetail: signal<unknown>(null),
+    candidateDetailLoading: signal<boolean>(false),
+    loadCandidateDetail: jest.fn(async () => undefined),
   };
 }
 
@@ -189,23 +254,26 @@ describe('SkillSynthesisTabComponent', () => {
     fixture.detectChanges();
 
     const root = fixture.nativeElement as HTMLElement;
-    const filterNav = root.querySelector('nav[aria-label="Status filter"]');
-    const filterTabs = filterNav?.querySelectorAll(
-      '[role="tab"]',
-    ) as NodeListOf<HTMLButtonElement>;
-    const labels = Array.from(filterTabs).map((t) => t.textContent?.trim());
-    expect(labels).toEqual(['Pending', 'Promoted', 'Rejected', 'All']);
 
     const subViewNav = root.querySelector('[aria-label="Skills views"]');
     const subViewTabs = subViewNav?.querySelectorAll(
       '[role="tab"]',
     ) as NodeListOf<HTMLButtonElement>;
     expect(Array.from(subViewTabs).map((t) => t.textContent?.trim())).toEqual([
-      'Candidates',
+      'Recommended',
+      'Sessions',
+      'Library',
       'Activity',
-      'Clones',
       'Settings',
     ]);
+
+    openSessions(fixture);
+    const filterNav = root.querySelector('nav[aria-label="Status filter"]');
+    const filterTabs = filterNav?.querySelectorAll(
+      '[role="tab"]',
+    ) as NodeListOf<HTMLButtonElement>;
+    const labels = Array.from(filterTabs).map((t) => t.textContent?.trim());
+    expect(labels).toEqual(['Pending', 'Promoted', 'Rejected', 'All']);
 
     expect(stub.refreshCandidates).toHaveBeenCalledTimes(1);
     expect(stub.loadStats).toHaveBeenCalledTimes(1);
@@ -246,9 +314,8 @@ describe('SkillSynthesisTabComponent', () => {
     const diag = makeDiagnosticsStub({
       lastAnalyzeRunAt: Date.now() - 2 * 60_000,
       eligibilityHistogram: {
-        tooFewTurns: 2,
-        lowFidelity: 1,
-        insufficientAbstraction: 1,
+        prefilterTooThin: 2,
+        prefilterRejected: 2,
         accepted: 3,
       },
       recentEvents: [
@@ -327,6 +394,7 @@ describe('SkillSynthesisTabComponent', () => {
 
     const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
     fixture.detectChanges();
+    openSessions(fixture);
 
     const empty = (fixture.nativeElement as HTMLElement).querySelector(
       '[data-testid="skills-empty-state"]',
@@ -367,6 +435,7 @@ describe('SkillSynthesisTabComponent', () => {
 
     const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
     fixture.detectChanges();
+    openSessions(fixture);
 
     const text = fixture.nativeElement.textContent ?? '';
     expect(text).toContain('refactor-tests');

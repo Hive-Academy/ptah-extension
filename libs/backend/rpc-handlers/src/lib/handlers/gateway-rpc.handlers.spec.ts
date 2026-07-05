@@ -52,8 +52,11 @@ function buildSuite(): Suite {
     listBindings: jest.fn().mockReturnValue([]),
     listMessages: jest.fn().mockReturnValue([]),
     approveBinding: jest.fn(),
+    attachSession: jest.fn(),
+    detachSession: jest.fn(),
     setBindingStatus: jest.fn(),
     sendTest: jest.fn(),
+    on: jest.fn(),
   } as unknown as jest.Mocked<GatewayService>;
 
   const webviewManager = {
@@ -125,6 +128,7 @@ describe('GatewayRpcHandlers', () => {
         approveBinding: jest.fn(),
         setBindingStatus: jest.fn(),
         sendTest: jest.fn(),
+        on: jest.fn(),
       } as unknown as jest.Mocked<GatewayService>;
 
       const webviewManager = {
@@ -220,6 +224,7 @@ describe('GatewayRpcHandlers', () => {
         approveBinding: jest.fn(),
         setBindingStatus: jest.fn(),
         sendTest: jest.fn(),
+        on: jest.fn(),
       } as unknown as jest.Mocked<GatewayService>;
 
       // broadcastMessage rejects — simulates IPC transport failure
@@ -321,6 +326,266 @@ describe('GatewayRpcHandlers', () => {
       expect(response.data).toMatchObject({ ok: false });
       expect((response.data as { error: string }).error).toMatch(
         /unknown platform/,
+      );
+    });
+  });
+
+  describe('gateway:attachSession', () => {
+    it('validates params and forwards the success shape (pairingCode stripped)', async () => {
+      const { rpc, gateway } = buildSuite();
+      (gateway.attachSession as jest.Mock).mockResolvedValue({
+        ok: true,
+        binding: {
+          id: 'b1',
+          platform: 'telegram',
+          externalChatId: 'chat-1',
+          allowListId: null,
+          displayName: null,
+          approvalStatus: 'approved',
+          ptahSessionId: 'uuid-1',
+          workspaceRoot: '/repo',
+          pairingCode: '123456',
+          createdAt: 1,
+          approvedAt: 1,
+          lastActiveAt: 1,
+        },
+      });
+
+      const response = await rpc.handleMessage({
+        method: 'gateway:attachSession',
+        params: {
+          bindingId: 'b1',
+          sessionUuid: 'uuid-1',
+          workspaceRoot: '/repo',
+        },
+        correlationId: 'att-1',
+      });
+
+      expect(gateway.attachSession).toHaveBeenCalledWith(
+        'b1',
+        'uuid-1',
+        '/repo',
+        undefined,
+      );
+      expect(response.success).toBe(true);
+      expect(response.data).toMatchObject({ ok: true });
+      expect(
+        (response.data as { binding: { pairingCode: string | null } }).binding
+          .pairingCode,
+      ).toBeNull();
+    });
+
+    it('forwards a service error result without throwing', async () => {
+      const { rpc, gateway } = buildSuite();
+      (gateway.attachSession as jest.Mock).mockResolvedValue({
+        ok: false,
+        error: 'session-not-resumable',
+      });
+
+      const response = await rpc.handleMessage({
+        method: 'gateway:attachSession',
+        params: {
+          bindingId: 'b1',
+          sessionUuid: 'uuid-1',
+          workspaceRoot: '/repo',
+        },
+        correlationId: 'att-2',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual({
+        ok: false,
+        error: 'session-not-resumable',
+      });
+    });
+
+    it('rejects params missing required fields at the schema boundary', async () => {
+      const { rpc, gateway } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'gateway:attachSession',
+        params: { bindingId: 'b1' },
+        correlationId: 'att-3',
+      });
+
+      expect(gateway.attachSession).not.toHaveBeenCalled();
+      expect(response.success).toBe(false);
+    });
+  });
+
+  describe('gateway:detachSession', () => {
+    it('validates params and forwards the success shape', async () => {
+      const { rpc, gateway } = buildSuite();
+      (gateway.detachSession as jest.Mock).mockReturnValue({
+        ok: true,
+        binding: {
+          id: 'b1',
+          platform: 'telegram',
+          externalChatId: 'chat-1',
+          allowListId: null,
+          displayName: null,
+          approvalStatus: 'approved',
+          ptahSessionId: null,
+          workspaceRoot: '/repo',
+          pairingCode: null,
+          createdAt: 1,
+          approvedAt: 1,
+          lastActiveAt: 1,
+        },
+      });
+
+      const response = await rpc.handleMessage({
+        method: 'gateway:detachSession',
+        params: { bindingId: 'b1' },
+        correlationId: 'det-1',
+      });
+
+      expect(gateway.detachSession).toHaveBeenCalledWith('b1');
+      expect(response.success).toBe(true);
+      expect(response.data).toMatchObject({ ok: true });
+    });
+
+    it('forwards binding-not-found without throwing', async () => {
+      const { rpc, gateway } = buildSuite();
+      (gateway.detachSession as jest.Mock).mockReturnValue({
+        ok: false,
+        error: 'binding-not-found',
+      });
+
+      const response = await rpc.handleMessage({
+        method: 'gateway:detachSession',
+        params: { bindingId: 'missing' },
+        correlationId: 'det-2',
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual({ ok: false, error: 'binding-not-found' });
+    });
+  });
+
+  describe('GATEWAY_SESSION_ATTACHED / DETACHED emission', () => {
+    it('bridges session-attached / session-detached gateway events to webview pushes', async () => {
+      const logger = {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      } as unknown as Logger;
+      const rpc = createMockRpcHandler();
+      const listeners: Record<string, (p: unknown) => void> = {};
+      const gateway = {
+        status: jest.fn().mockReturnValue({ enabled: true, adapters: [] }),
+        start: jest.fn(),
+        stop: jest.fn(),
+        startPlatform: jest.fn(),
+        stopPlatform: jest.fn(),
+        setToken: jest.fn(),
+        listBindings: jest.fn().mockReturnValue([]),
+        listMessages: jest.fn().mockReturnValue([]),
+        approveBinding: jest.fn(),
+        attachSession: jest.fn(),
+        detachSession: jest.fn(),
+        setBindingStatus: jest.fn(),
+        sendTest: jest.fn(),
+        on: jest.fn((event: string, cb: (p: unknown) => void) => {
+          listeners[event] = cb;
+        }),
+      } as unknown as jest.Mocked<GatewayService>;
+
+      const webviewManager = {
+        broadcastMessage: jest.fn().mockResolvedValue(undefined),
+      };
+
+      const handlers = new GatewayRpcHandlers(
+        logger,
+        rpc as unknown as RpcHandler,
+        gateway,
+        webviewManager,
+      );
+      handlers.register();
+
+      listeners['session-attached']?.({
+        bindingId: 'b1',
+        sessionUuid: 'uuid-1',
+        platform: 'telegram',
+      });
+      listeners['session-detached']?.({
+        bindingId: 'b1',
+        sessionUuid: 'uuid-1',
+      });
+      await Promise.resolve();
+
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'gateway:sessionAttached',
+        { bindingId: 'b1', sessionUuid: 'uuid-1', platform: 'telegram' },
+      );
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'gateway:sessionDetached',
+        { bindingId: 'b1', sessionUuid: 'uuid-1' },
+      );
+    });
+  });
+
+  describe('GATEWAY_BINDINGS_CHANGED emission', () => {
+    it('broadcasts the bindings list when the gateway emits bindings-changed', async () => {
+      const logger = {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      } as unknown as Logger;
+      const rpc = createMockRpcHandler();
+      let bindingsChangedListener: (() => void) | undefined;
+      const gateway = {
+        status: jest.fn().mockReturnValue({ enabled: true, adapters: [] }),
+        start: jest.fn(),
+        stop: jest.fn(),
+        startPlatform: jest.fn(),
+        stopPlatform: jest.fn(),
+        setToken: jest.fn(),
+        listBindings: jest.fn().mockReturnValue([
+          {
+            id: 'b1',
+            platform: 'discord',
+            externalChatId: 'chan-1',
+            approvalStatus: 'pending',
+            pairingCode: '123456',
+            createdAt: 1,
+          },
+        ]),
+        listMessages: jest.fn().mockReturnValue([]),
+        approveBinding: jest.fn(),
+        setBindingStatus: jest.fn(),
+        sendTest: jest.fn(),
+        on: jest.fn((event: string, cb: () => void) => {
+          if (event === 'bindings-changed') bindingsChangedListener = cb;
+        }),
+      } as unknown as jest.Mocked<GatewayService>;
+
+      const webviewManager = {
+        broadcastMessage: jest.fn().mockResolvedValue(undefined),
+      };
+
+      const handlers = new GatewayRpcHandlers(
+        logger,
+        rpc as unknown as RpcHandler,
+        gateway,
+        webviewManager,
+      );
+      handlers.register();
+
+      expect(bindingsChangedListener).toBeDefined();
+      bindingsChangedListener?.();
+      await Promise.resolve();
+
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'gateway:bindingsChanged',
+        expect.objectContaining({
+          bindings: expect.arrayContaining([
+            // pairingCode must be stripped from the public list
+            expect.objectContaining({ id: 'b1', pairingCode: null }),
+          ]),
+        }),
       );
     });
   });

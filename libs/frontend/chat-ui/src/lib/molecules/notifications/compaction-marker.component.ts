@@ -5,44 +5,82 @@ import {
   signal,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { LucideAngularModule, Archive } from 'lucide-angular';
+import { LucideAngularModule, Archive, X } from 'lucide-angular';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
-import { ExpandableContentComponent } from '../../atoms/expandable-content.component';
 
 @Component({
   selector: 'ptah-compaction-marker',
   standalone: true,
-  imports: [
-    LucideAngularModule,
-    MarkdownBlockComponent,
-    ExpandableContentComponent,
-  ],
+  imports: [LucideAngularModule, MarkdownBlockComponent],
   template: `
-    <div class="alert shadow-sm mb-4 py-2 px-3 flex-col items-start gap-2">
-      <div class="flex items-center gap-2 w-full">
-        <lucide-angular [img]="ArchiveIcon" class="w-4 h-4 flex-shrink-0" />
-        <div class="flex-1 min-w-0">
-          <h3 class="font-bold text-sm">Context compacted</h3>
-          @if (tokenLine(); as line) {
-            <p class="text-xs opacity-70">{{ line }}</p>
-          }
-        </div>
-      </div>
-
-      @if (summary(); as text) {
-        <ptah-expandable-content
-          [content]="text"
-          [isExpanded]="expanded()"
-          (toggleClicked)="toggle()"
-        />
-        @if (expanded()) {
-          <div class="w-full text-xs">
-            <ptah-markdown-block [content]="text" />
-          </div>
-        }
+    <!-- Compact inline chip -->
+    <div
+      class="inline-flex items-center gap-1.5 my-2 px-2 py-0.5 rounded-full border border-base-300 bg-base-200/40 text-xs text-base-content/70 max-w-full"
+    >
+      <lucide-angular [img]="ArchiveIcon" class="w-3 h-3 flex-shrink-0" />
+      <span class="font-medium text-base-content/90">Context compacted</span>
+      @if (tokenLine(); as line) {
+        <span class="opacity-60 truncate">· {{ line }}</span>
+      }
+      @if (summary()) {
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs h-4 min-h-4 px-1 text-primary"
+          (click)="open()"
+        >
+          View
+        </button>
       }
     </div>
+
+    <!-- Detail modal -->
+    @if (summary(); as text) {
+      <dialog class="modal" [class.modal-open]="isOpen()">
+        <div class="modal-box max-w-2xl flex flex-col max-h-[80vh]">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <lucide-angular
+                [img]="ArchiveIcon"
+                class="w-4 h-4 text-primary"
+                aria-hidden="true"
+              />
+              <span class="font-bold text-base">Context compacted</span>
+            </div>
+            <button
+              class="btn btn-sm btn-circle btn-ghost"
+              type="button"
+              aria-label="Close compaction summary"
+              (click)="close()"
+            >
+              <lucide-angular
+                [img]="XIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+
+          @if (tokenLine(); as line) {
+            <p class="text-xs text-base-content/60 mb-3">{{ line }}</p>
+          }
+
+          <div class="flex-1 overflow-y-auto text-sm pr-1">
+            @if (isOpen()) {
+              <ptah-markdown-block [content]="text" />
+            }
+          </div>
+        </div>
+        <div class="modal-backdrop" (click)="close()"></div>
+      </dialog>
+    }
   `,
+  styles: [
+    `
+      :host {
+        display: contents;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CompactionMarkerComponent {
@@ -52,8 +90,9 @@ export class CompactionMarkerComponent {
   readonly durationMs = input<number | null>(null);
 
   protected readonly ArchiveIcon = Archive;
-  private readonly _expanded = signal(false);
-  protected readonly expanded = this._expanded.asReadonly();
+  protected readonly XIcon = X;
+  private readonly _isOpen = signal(false);
+  protected readonly isOpen = this._isOpen.asReadonly();
 
   protected readonly tokenLine = computed<string | null>(() => {
     const pre = this.preTokens();
@@ -65,8 +104,12 @@ export class CompactionMarkerComponent {
     return `${base} in ${this.formatDuration(ms)}`;
   });
 
-  protected toggle(): void {
-    this._expanded.update((v) => !v);
+  protected open(): void {
+    this._isOpen.set(true);
+  }
+
+  protected close(): void {
+    this._isOpen.set(false);
   }
 
   private format(value: number): string {

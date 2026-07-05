@@ -15,15 +15,18 @@ function makeSettings(
     eligibilityMinTurns: 5,
     evictionDecayRate: 0.95,
     generalizationContextThreshold: 3,
-    minTrajectoryFidelityRatio: 0.4,
     dedupClusterThreshold: 0.78,
-    minAbstractionEditDistance: 0.3,
+    prefilterMinEdits: 1,
+    prefilterMinChars: 800,
+    prefilterMinToolUses: 2,
     judgeEnabled: true,
     minJudgeScore: 6.0,
     judgeModel: 'claude-haiku-4-5-20251001',
     maxPinnedSkills: 10,
     curatorEnabled: false,
     curatorIntervalHours: 24,
+    suggestionMinClusterSize: 2,
+    suggestionMaxCandidates: 200,
     ...overrides,
   };
 }
@@ -67,6 +70,7 @@ interface Harness {
   judge: { judge: jest.Mock };
   internalQuery: { execute: jest.Mock };
   repropagation: { repropagate: jest.Mock };
+  specFindings: { getRecentFindings: jest.Mock };
 }
 
 function makeHarness(opts: {
@@ -80,6 +84,7 @@ function makeHarness(opts: {
   };
   lastEnhancedAt?: number | null;
   workspaceRoot?: string;
+  specFindings?: string | null;
 }): Harness {
   const workspaceProvider = {
     getConfiguration: jest.fn(() => ''),
@@ -143,6 +148,9 @@ function makeHarness(opts: {
   };
   const internalQuery = makeInternalQuery(opts.candidateText);
   const repropagation = { repropagate: jest.fn().mockResolvedValue(undefined) };
+  const specFindings = {
+    getRecentFindings: jest.fn().mockResolvedValue(opts.specFindings ?? null),
+  };
 
   const svc = new SkillEnhancerService(
     logger as never,
@@ -154,6 +162,7 @@ function makeHarness(opts: {
     trajectories as never,
     internalQuery as never,
     repropagation as never,
+    specFindings as never,
   );
 
   return {
@@ -164,6 +173,7 @@ function makeHarness(opts: {
     judge,
     internalQuery,
     repropagation,
+    specFindings,
   };
 }
 
@@ -258,6 +268,21 @@ describe('SkillEnhancerService', () => {
     const cwd = h.internalQuery.execute.mock.calls[0][0].cwd as string;
     expect(cwd).not.toBe(process.cwd());
     expect(cwd).toBe('/home/u/project');
+  });
+
+  it('spec findings: graded review verdict is injected into the enhance prompt', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText: 'Improved body',
+      specFindings: 'REVIEW: missing error handling on the write path',
+    });
+    await h.svc.enhance('deep-research', makeSettings());
+    expect(h.specFindings.getRecentFindings).toHaveBeenCalledWith(
+      'deep-research',
+    );
+    const prompt = h.internalQuery.execute.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain('Graded review findings');
+    expect(prompt).toContain('missing error handling on the write path');
   });
 
   it('cooldown: skips when lastEnhancedAt is recent', async () => {

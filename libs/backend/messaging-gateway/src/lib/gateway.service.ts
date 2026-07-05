@@ -12,10 +12,12 @@
  *     the message (do not forward to the agent).
  *   - On approved bindings: persist inbound, then emit a typed event so the
  *     RPC handler / orchestrator layer can hand it off to the chat session.
- *   - Stream coalescing: callers push outbound assistant chunks through
- *     `appendOutboundChunk()`. The coalescer batches them into 1–3 edits
- *     per ~250ms window and the flush callback pushes them through the
- *     adapter's `sendMessage` / `editMessage`.
+ *   - Outbound coalescing: callers push assistant chunks through
+ *     `appendOutboundChunk()`. The coalescer runs in `'complete'` mode —
+ *     it accumulates the full turn and flushes ONE message when the turn is
+ *     sealed via `completeOutboundTurn()`. The flush callback pushes that
+ *     single message through the adapter's `sendMessage` (paginated only if it
+ *     exceeds `maxMessageChars`). No mid-turn flush, no live `editMessage`.
  *   - Voice retention: on `start()`, delete `voice_path` files older than
  *     7 days (architecture §11 default 5).
  *   - Inbound abuse guard: drop silently when a single allow-list id sends
@@ -42,8 +44,11 @@ import type { ITokenVault } from './token-vault.interface';
 import { BindingStore } from './binding.store';
 import { ConversationStore } from './conversation.store';
 import { MessageStore } from './message.store';
+import { AttachedSessionRegistry } from './attached-session-registry';
+import type { ISessionResumabilityChecker } from './session-resumability';
 import {
   StreamCoalescer,
+  type FlushCallback,
   type FlushPayload,
   type OutboundRoute,
 } from './stream-coalescer';
@@ -107,6 +112,20 @@ const SETTINGS_KEYS = {
 const VOICE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const INBOUND_ABUSE_LIMIT_PER_MIN = 60;
 
+function paginate(body: string, limit?: number): string[] {
+  if (!limit || body.length <= limit) return [body];
+  const pages: string[] = [];
+  let rest = body;
+  while (rest.length > limit) {
+    let cut = rest.lastIndexOf('\n', limit);
+    if (cut <= 0) cut = limit;
+    pages.push(rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\n/, '');
+  }
+  if (rest.length) pages.push(rest);
+  return pages;
+}
+
 export interface GatewayInboundEvent {
   binding: GatewayBinding;
   conversation: GatewayConversation;
@@ -136,8 +155,8 @@ export class GatewayService extends EventEmitter {
   private lastErrors = new Map<GatewayPlatform, string>();
   private coalescer: StreamCoalescer | null = null;
   private inboundCounters = new Map<string, number[]>();
-  /** Map conversationKey → first outbound externalMsgId (for editMessage). */
-  private streamHandles = new Map<ConversationKey, { externalMsgId: string }>();
+  /** Map conversationKey → ordered outbound message ids (one per page). */
+  private streamHandles = new Map<ConversationKey, { pageMsgIds: string[] }>();
 
   /** Ciphertext-decrypt-failure flag — surfaced via gateway:status. */
   private decryptFailures = new Set<GatewayPlatform>();
@@ -170,6 +189,10 @@ export class GatewayService extends EventEmitter {
     @inject(WhisperTranscriber) private readonly whisper: WhisperTranscriber,
     @inject(SETTINGS_TOKENS.GATEWAY_SETTINGS)
     private readonly gatewaySettings: GatewaySettings,
+    @inject(GATEWAY_TOKENS.GATEWAY_ATTACHED_SESSION_REGISTRY)
+    private readonly attachedSessionRegistry: AttachedSessionRegistry,
+    @inject(GATEWAY_TOKENS.GATEWAY_SESSION_RESUMABILITY_CHECKER)
+    private readonly resumability: ISessionResumabilityChecker,
   ) {
     super();
   }
@@ -180,8 +203,21 @@ export class GatewayService extends EventEmitter {
     if (overrides.discord) this.adapters.set('discord', overrides.discord);
     if (overrides.slack) this.adapters.set('slack', overrides.slack);
     if (overrides.flushCallback) {
-      this.coalescer = new StreamCoalescer(overrides.flushCallback);
+      this.coalescer = this.createCoalescer(overrides.flushCallback);
     }
+  }
+
+  /**
+   * Build a coalescer in `'complete'` (accumulate-until-drain) mode so each
+   * agent turn produces exactly ONE outbound send when the turn is sealed —
+   * no mid-turn flushes, no live `editMessage` streaming. The optional
+   * `flushCb` overrides the default {@link flushOutbound} (used by the test
+   * seam); when omitted the service's own flush path is used.
+   */
+  private createCoalescer(flushCb?: FlushCallback): StreamCoalescer {
+    const flush: FlushCallback =
+      flushCb ?? ((payload) => this.flushOutbound(payload));
+    return new StreamCoalescer(flush, { mode: 'complete' });
   }
 
   /** Inject grammy bot factory before start. */
@@ -231,9 +267,7 @@ export class GatewayService extends EventEmitter {
     );
 
     if (!this.coalescer) {
-      this.coalescer = new StreamCoalescer((payload) =>
-        this.flushOutbound(payload),
-      );
+      this.coalescer = this.createCoalescer();
     }
     this.bridgeWhisperEvents();
 
@@ -381,7 +415,116 @@ export class GatewayService extends EventEmitter {
     }
     const binding = this.bindings.approve(id, ptahSessionId, workspaceRoot);
     this.pairingPromptSent.delete(id);
+    this.emit('bindings-changed');
     return { ok: true, binding };
+  }
+
+  /**
+   * Attach an existing Ptah SDK session (webview-supplied `sessionUuid` +
+   * `workspaceRoot`) to an approved binding so subsequent inbound platform
+   * messages resume that exact conversation.
+   *
+   * Mirrors {@link approveBinding}'s discriminated-union contract. "Resumable"
+   * means the JSONL plausibly exists — NOT "currently active" — so a session
+   * opened earlier but now inactive can still be attached.
+   */
+  async attachSession(
+    bindingId: BindingId,
+    sessionUuid: string,
+    workspaceRoot: string,
+    externalConversationId = 'default',
+  ): Promise<
+    | { ok: true; binding: GatewayBinding }
+    | {
+        ok: false;
+        error:
+          | 'binding-not-found'
+          | 'binding-not-approved'
+          | 'session-not-resumable';
+      }
+  > {
+    const existing = this.bindings.findById(bindingId);
+    if (!existing) {
+      return { ok: false, error: 'binding-not-found' };
+    }
+    if (existing.approvalStatus !== 'approved') {
+      return { ok: false, error: 'binding-not-approved' };
+    }
+
+    const resumable = await this.resumability.isResumable(
+      sessionUuid,
+      workspaceRoot,
+    );
+    if (!resumable) {
+      this.logger.warn('[gateway] attachSession rejected — not resumable', {
+        bindingId: String(bindingId),
+        platform: existing.platform,
+      });
+      return { ok: false, error: 'session-not-resumable' };
+    }
+
+    const binding = this.bindings.setWorkspaceRoot(bindingId, workspaceRoot);
+    const conversation = this.conversations.resolveOrCreate(
+      bindingId,
+      externalConversationId,
+    );
+    this.conversations.setPtahSessionId(conversation.id, sessionUuid);
+    this.attachedSessionRegistry.attach(sessionUuid, String(bindingId));
+
+    this.logger.info('[gateway] session attached to binding', {
+      bindingId: String(bindingId),
+      platform: binding.platform,
+    });
+    this.emit('bindings-changed');
+    this.emit('session-attached', {
+      bindingId: String(bindingId),
+      sessionUuid,
+      platform: binding.platform,
+    });
+    return { ok: true, binding };
+  }
+
+  /**
+   * Detach a binding — CLEAR the session link on all its conversation(s)
+   * (sets `ptah_session_id` to NULL). No continuity flag, no "stop resuming"
+   * branch. Idempotent: detaching a binding with no linked session still
+   * succeeds and emits with an empty `sessionUuid`.
+   */
+  detachSession(
+    bindingId: BindingId,
+  ):
+    | { ok: true; binding: GatewayBinding }
+    | { ok: false; error: 'binding-not-found' } {
+    const existing = this.bindings.findById(bindingId);
+    if (!existing) {
+      return { ok: false, error: 'binding-not-found' };
+    }
+
+    const conversations = this.conversations.listByBinding(bindingId);
+    let clearedUuid = '';
+    for (const conversation of conversations) {
+      if (conversation.ptahSessionId && !clearedUuid) {
+        clearedUuid = conversation.ptahSessionId;
+      }
+      if (conversation.ptahSessionId) {
+        this.conversations.clearPtahSessionId(conversation.id);
+      }
+    }
+    if (clearedUuid) {
+      this.attachedSessionRegistry.detach(clearedUuid);
+    }
+
+    this.logger.info('[gateway] session detached from binding', {
+      bindingId: String(bindingId),
+      platform: existing.platform,
+      hadSession: clearedUuid.length > 0,
+    });
+    this.emit('bindings-changed');
+    this.emit('session-detached', {
+      bindingId: String(bindingId),
+      sessionUuid: clearedUuid,
+    });
+    return { ok: true, binding: existing };
   }
 
   setBindingStatus(id: BindingId, status: ApprovalStatus): GatewayBinding {
@@ -407,6 +550,7 @@ export class GatewayService extends EventEmitter {
       }
       this.conversations.deleteByBinding(id);
     }
+    this.emit('bindings-changed');
     return binding;
   }
 
@@ -597,9 +741,7 @@ export class GatewayService extends EventEmitter {
    */
   appendOutboundChunk(route: OutboundRoute, chunk: string): void {
     if (!this.coalescer) {
-      this.coalescer = new StreamCoalescer((payload) =>
-        this.flushOutbound(payload),
-      );
+      this.coalescer = this.createCoalescer();
     }
     this.coalescer.append(route, chunk);
   }
@@ -607,6 +749,21 @@ export class GatewayService extends EventEmitter {
   async drainOutbound(conversationKey: ConversationKey): Promise<void> {
     await this.coalescer?.drain(conversationKey);
     this.streamHandles.delete(conversationKey);
+  }
+
+  /**
+   * Finalize a turn's outbound stream. Flushes whatever text is still pending,
+   * then RESETS the per-conversation coalescer buffer and the platform message
+   * handle so the NEXT turn starts a fresh platform message instead of editing
+   * (and cumulatively re-sending) the previous turn's growing message.
+   *
+   * Call exactly once at the end of a turn. `drainOutbound` remains the
+   * mid-turn flush primitive and must NOT seal the turn.
+   */
+  async completeOutboundTurn(conversationKey: ConversationKey): Promise<void> {
+    await this.coalescer?.drain(conversationKey); // flush whatever is pending
+    this.coalescer?.discard(conversationKey); // reset cumulative body
+    this.streamHandles.delete(conversationKey); // next turn -> sendMessage (new msg)
   }
 
   private wireAdapter(
@@ -700,8 +857,8 @@ export class GatewayService extends EventEmitter {
     let body = msg.body;
     if (msg.voicePath && this.cfgBool(SETTINGS_KEYS.voiceEnabled, true)) {
       try {
-        const wav = await this.ffmpeg.decodeToPcm16Wav(msg.voicePath);
-        const transcript = await this.whisper.transcribe(wav);
+        const pcm = await this.ffmpeg.decodeToPcm16(msg.voicePath);
+        const transcript = await this.whisper.transcribe(pcm);
         if (transcript) body = body ? `${body}\n${transcript}` : transcript;
       } catch (err) {
         this.logger.warn('[gateway] voice transcription failed', {
@@ -736,6 +893,7 @@ export class GatewayService extends EventEmitter {
       });
 
       if (binding.approvalStatus === 'pending') {
+        this.emit('bindings-changed');
         if (!this.pairingPromptSent.has(binding.id)) {
           const code = binding.pairingCode ?? '------';
           const reply =
@@ -791,7 +949,6 @@ export class GatewayService extends EventEmitter {
   }
 
   private async flushOutbound(payload: FlushPayload): Promise<void> {
-    const handle = this.streamHandles.get(payload.conversationKey);
     const adapter = this.adapters.get(payload.platform);
     if (!adapter) {
       this.logger.warn('[gateway] flushOutbound: no adapter for platform', {
@@ -799,36 +956,49 @@ export class GatewayService extends EventEmitter {
       });
       return;
     }
+    const handle = this.streamHandles.get(payload.conversationKey) ?? {
+      pageMsgIds: [],
+    };
+    this.streamHandles.set(payload.conversationKey, handle);
+    const pages = paginate(payload.body, adapter.maxMessageChars);
+    const sendOpts =
+      payload.conversationId !== undefined
+        ? { conversationId: payload.conversationId }
+        : undefined;
     try {
-      if (payload.isFirstFlush || !handle) {
+      for (
+        let i = Math.max(0, handle.pageMsgIds.length - 1);
+        i < pages.length;
+        i++
+      ) {
+        if (i < handle.pageMsgIds.length) {
+          await adapter.editMessage(
+            payload.externalChatId,
+            handle.pageMsgIds[i],
+            pages[i],
+          );
+          continue;
+        }
         const res = await adapter.sendMessage(
           payload.externalChatId,
-          payload.body,
-          payload.conversationId !== undefined
-            ? { conversationId: payload.conversationId }
-            : undefined,
+          pages[i],
+          sendOpts,
         );
-        this.streamHandles.set(payload.conversationKey, {
-          externalMsgId: res.externalMsgId,
-        });
-        const binding = this.bindings.findByExternal(
-          payload.platform,
-          payload.externalChatId,
-        );
-        if (binding) {
-          this.messages.insert({
-            bindingId: binding.id,
-            direction: 'outbound',
-            externalMsgId: res.externalMsgId,
-            body: payload.body,
-          });
+        handle.pageMsgIds.push(res.externalMsgId);
+        if (i === 0) {
+          const binding = this.bindings.findByExternal(
+            payload.platform,
+            payload.externalChatId,
+          );
+          if (binding) {
+            this.messages.insert({
+              bindingId: binding.id,
+              direction: 'outbound',
+              externalMsgId: res.externalMsgId,
+              body: pages[i],
+            });
+          }
         }
-      } else {
-        await adapter.editMessage(
-          payload.externalChatId,
-          handle.externalMsgId,
-          payload.body,
-        );
       }
     } catch (error: unknown) {
       this.logger.warn('[gateway] flushOutbound failed', {

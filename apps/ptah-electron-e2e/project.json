@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
   "sourceRoot": "apps/ptah-electron-e2e/src",
-  "tags": ["scope:e2e", "type:e2e"],
+  "tags": ["scope:e2e", "type:e2e", "scope:electron", "type:app"],
   "implicitDependencies": ["ptah-electron"],
   "targets": {
     "e2e": {
@@ -20,6 +20,22 @@
         "ci": {
           "command": "npx playwright test --config=playwright.config.ts --reporter=list"
         }
+      }
+    },
+    "showcase": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        { "target": "build-dev", "projects": ["ptah-electron"] },
+        { "target": "copy-renderer", "projects": ["ptah-electron"] }
+      ],
+      "options": {
+        "parallel": false,
+        "commands": [
+          "node apps/ptah-electron-e2e/scripts/clean-recordings.mjs",
+          "node scripts/copy-wasm.js dist/apps/ptah-electron",
+          "npx playwright test --config=apps/ptah-electron-e2e/showcase.config.ts",
+          "node apps/ptah-electron-e2e/scripts/transcode.mjs"
+        ]
       }
     },
     "e2e:nightly": {

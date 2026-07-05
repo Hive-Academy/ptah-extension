@@ -256,6 +256,9 @@ export class UiDriver {
         await editorTab.click();
       }
       await editorPanel.first().waitFor({ state: 'visible' });
+      // Force a deterministic file-tree reload from the registered mock — the
+      // lazily-mounted panel's one-shot fetch can race the mock under xvfb.
+      await this.pushEvent({ type: 'file:tree-changed', payload: {} });
       return;
     }
     const viewName = view === 'dashboard' ? 'analytics' : view;

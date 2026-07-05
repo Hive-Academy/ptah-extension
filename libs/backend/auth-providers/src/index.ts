@@ -20,6 +20,10 @@ export {
   type LegacyAuthMethod,
 } from './lib/auth/auth-method.utils';
 export { ModelResolver } from './lib/auth/model-resolver';
+export {
+  ActiveProviderResolver,
+  type ActiveAuth,
+} from './lib/auth/active-provider-resolver';
 export type {
   IAuthStrategy,
   AuthConfigureResult,
@@ -87,6 +91,13 @@ export type {
   IOpenRouterAuthService,
   OpenRouterModel,
 } from './lib/providers/openrouter';
+export {
+  SakanaAuthService,
+  SakanaTranslationProxy,
+  createSakanaProxyForKey,
+  SAKANA_PROXY_TOKEN_PLACEHOLDER,
+} from './lib/providers/sakana';
+export type { ISakanaAuthService } from './lib/providers/sakana';
 export {
   LmStudioTranslationProxy,
   OllamaModelDiscoveryService,

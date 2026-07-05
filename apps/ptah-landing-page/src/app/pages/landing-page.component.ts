@@ -1,16 +1,17 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { SeoService } from '../services/seo.service';
 import { NavigationComponent } from '../components/navigation.component';
 import { ComparisonSectionComponent } from '../sections/comparison/comparison-section.component';
 import { CTASectionComponent } from '../sections/cta/cta-section.component';
 import { FooterComponent } from '../components/footer.component';
 import { HeroComponent } from '../sections/hero/hero.component';
-import { OpenSourceSectionComponent } from '../sections/open-source/open-source-section.component';
-import { PremiumShowcaseComponent } from '../sections/premium-showcase/premium-showcase.component';
+import { ProblemSectionComponent } from '../sections/problem/problem-section.component';
 import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcase.component';
-import { RuntimesTriptychComponent } from '../sections/runtimes-triptych/runtimes-triptych.component';
-import { ThothSuiteComponent } from '../sections/thoth-suite/thoth-suite.component';
-import { CanvasOrchestraComponent } from '../sections/canvas-orchestra/canvas-orchestra.component';
-import { WorkspaceIntelligenceComponent } from '../sections/workspace-intelligence/workspace-intelligence.component';
+import { PillarMemoryComponent } from '../sections/pillar-memory/pillar-memory.component';
+import { PillarSkillsOrchestrationComponent } from '../sections/pillar-skills-orchestration/pillar-skills-orchestration.component';
+import { PillarAlwaysOnComponent } from '../sections/pillar-always-on/pillar-always-on.component';
+import { ProviderStripComponent } from '../sections/provider-strip/provider-strip.component';
+import { AlsoAvailableComponent } from '../sections/also-available/also-available.component';
 
 @Component({
   selector: 'ptah-landing-page',
@@ -18,99 +19,58 @@ import { WorkspaceIntelligenceComponent } from '../sections/workspace-intelligen
   imports: [
     NavigationComponent,
     HeroComponent,
+    ProblemSectionComponent,
     VideoShowcaseComponent,
-    RuntimesTriptychComponent,
-    PremiumShowcaseComponent,
-    ThothSuiteComponent,
-    CanvasOrchestraComponent,
-    WorkspaceIntelligenceComponent,
-    OpenSourceSectionComponent,
+    PillarMemoryComponent,
+    PillarSkillsOrchestrationComponent,
+    PillarAlwaysOnComponent,
+    ProviderStripComponent,
     ComparisonSectionComponent,
+    AlsoAvailableComponent,
     CTASectionComponent,
     FooterComponent,
   ],
   template: `
-    <div class="min-h-screen bg-base-100 text-base-content">
+    <div class="min-h-screen bg-ink-950 text-ink-100">
       <ptah-navigation />
 
       <main>
+        <!-- S1 Promise -->
         <ptah-hero />
 
-        <section id="video-showcase" aria-label="Video Showcase">
-          <ptah-video-showcase />
-        </section>
+        <!-- S2 Problem -->
+        <ptah-problem-section />
 
-        <div class="relative overflow-hidden bg-slate-950" aria-hidden="true">
-          <img
-            src="/assets/backgrounds/circuit-divider.jpg"
-            alt=""
-            loading="lazy"
-            decoding="async"
-            class="w-full h-14 sm:h-20 object-cover opacity-50"
-          />
-          <div
-            class="absolute inset-0 bg-gradient-to-r from-slate-950 via-transparent to-slate-950"
-          ></div>
+        <!-- S3 Demo -->
+        <ptah-video-showcase />
+
+        <!--
+          S4–S7 render eagerly (not @defer) so their SEO/GEO-bearing copy and
+          citable claims ship in the prerendered static HTML. They are lightweight
+          coded DOM (no images), and their entrance animations are SSG-safe
+          (final DOM state fully opaque; the from-state is applied post-hydration).
+        -->
+        <div id="features">
+          <ptah-pillar-memory />
         </div>
 
-        <ptah-runtimes-triptych />
+        <ptah-pillar-skills-orchestration />
 
-        @defer (on viewport) {
-          <section id="features" aria-label="Why Ptah">
-            <ptah-premium-showcase />
-          </section>
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
+        <ptah-pillar-always-on />
 
-        @defer (on viewport) {
-          <ptah-thoth-suite />
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
+        <ptah-provider-strip />
 
-        @defer (on viewport) {
-          <ptah-canvas-orchestra />
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
+        <!-- S8 Comparison -->
+        <ptah-comparison-section />
 
-        @defer (on viewport) {
-          <ptah-workspace-intelligence />
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
+        <!-- S9 Also Available (single VS Code / CLI mention) -->
+        <ptah-also-available />
 
-        @defer (on viewport) {
-          <section id="open-source" aria-label="Open Source">
-            <ptah-open-source-section />
-          </section>
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
-
-        @defer (on viewport) {
-          <ptah-comparison-section />
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
-
-        <div class="relative overflow-hidden bg-slate-950" aria-hidden="true">
-          <img
-            src="/assets/backgrounds/circuit-divider.jpg"
-            alt=""
-            loading="lazy"
-            decoding="async"
-            class="w-full h-14 sm:h-20 object-cover opacity-50"
-          />
-          <div
-            class="absolute inset-0 bg-gradient-to-r from-slate-950 via-transparent to-slate-950"
-          ></div>
-        </div>
-
+        <!-- S10 Final CTA -->
         <ptah-cta-section />
       </main>
 
+      <!-- S11 Footer -->
       <ptah-footer />
     </div>
   `,
@@ -124,4 +84,16 @@ import { WorkspaceIntelligenceComponent } from '../sections/workspace-intelligen
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class LandingPageComponent {}
+export class LandingPageComponent {
+  constructor() {
+    inject(SeoService).setPage({
+      title: 'Ptah — Persistent, Multi-Agent AI Coding Agent for Your Desktop',
+      description:
+        'A desktop AI coding agent that remembers your codebase, runs agents in parallel, and works on a schedule. Reachable from Telegram & Slack. Free trial.',
+      url: 'https://ptah.live',
+      ogTitle: 'Ptah — It Remembers. It Learns. It Ships.',
+      ogDescription:
+        'A persistent, multi-agent AI coding desktop app. Remembers your codebase, works in parallel, runs on a schedule, and answers from Telegram, Discord, or Slack.',
+    });
+  }
+}

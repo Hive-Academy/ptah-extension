@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { SeoService } from '../../services/seo.service';
 import { RouterLink } from '@angular/router';
 import {
   ViewportAnimationDirective,
@@ -413,6 +414,15 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
   ],
 })
 export class TermsPageComponent {
+  constructor() {
+    inject(SeoService).setPage({
+      title: 'Terms and Conditions — Ptah',
+      description:
+        'Terms of service for the Ptah AI coding agent desktop app, VS Code extension, and CLI.',
+      url: 'https://ptah.live/terms-and-conditions',
+    });
+  }
+
   public readonly headerConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.8,

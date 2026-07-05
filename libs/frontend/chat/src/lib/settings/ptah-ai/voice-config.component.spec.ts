@@ -8,6 +8,7 @@ import {
 } from '@ptah-extension/core/testing';
 
 import { VoiceConfigComponent } from './voice-config.component';
+import { VoiceDownloadProgressService } from '../../services/voice-download-progress.service';
 
 function mount(rpc: MockRpcService): {
   fixture: ComponentFixture<VoiceConfigComponent>;
@@ -40,6 +41,28 @@ async function settle(
   fixture.detectChanges();
 }
 
+/**
+ * Route mock RPC responses by method name. `ngOnInit` fires `voice:getConfig`
+ * and `voice:getTtsConfig` in parallel, so ordered `mockResolvedValueOnce`
+ * queues are unreliable — keying by method keeps each test independent of call
+ * order. Unrouted methods fall back to a benign TTS-config success.
+ */
+function routeRpc(
+  rpc: MockRpcService,
+  routes: Record<string, () => unknown>,
+): void {
+  rpc.call.mockImplementation((method: string) => {
+    const handler = routes[method];
+    if (handler) return Promise.resolve(handler());
+    return Promise.resolve(
+      rpcSuccess({
+        ok: true,
+        config: { voice: 'af_heart', downloaded: false },
+      }),
+    );
+  });
+}
+
 describe('VoiceConfigComponent', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
@@ -70,22 +93,26 @@ describe('VoiceConfigComponent', () => {
     fixture.detectChanges();
     await settle(fixture);
 
-    const groups = fixture.nativeElement.querySelectorAll(
+    const groups = select(fixture).querySelectorAll(
       'optgroup',
     ) as NodeListOf<HTMLOptGroupElement>;
     const labels = Array.from(groups).map((g) => g.label);
     expect(labels).toEqual(['English-only', 'Multilingual']);
     expect(
-      fixture.nativeElement.querySelector('option[value="large-v3"]'),
+      select(fixture).querySelector('option[value="large-v3-turbo"]'),
     ).not.toBeNull();
   });
 
   it('saves the chosen model via voice:setConfig and shows saved feedback', async () => {
     const rpc = createMockRpcService();
-    rpc.call.mockResolvedValueOnce(
-      rpcSuccess({ ok: true, config: { whisperModel: 'base.en' } }),
-    );
-    rpc.call.mockResolvedValueOnce(rpcSuccess({ ok: true }));
+    routeRpc(rpc, {
+      'voice:getConfig': () =>
+        rpcSuccess({
+          ok: true,
+          config: { whisperModel: 'base.en', downloaded: false },
+        }),
+      'voice:setConfig': () => rpcSuccess({ ok: true }),
+    });
 
     const { fixture, component } = mount(rpc);
     fixture.detectChanges();
@@ -96,7 +123,7 @@ describe('VoiceConfigComponent', () => {
     el.dispatchEvent(new Event('change'));
     await settle(fixture);
 
-    expect(rpc.call).toHaveBeenLastCalledWith('voice:setConfig', {
+    expect(rpc.call).toHaveBeenCalledWith('voice:setConfig', {
       whisperModel: 'medium',
     });
     expect(component.selectedModel()).toBe('medium');
@@ -108,17 +135,18 @@ describe('VoiceConfigComponent', () => {
 
   it('reverts the selection and surfaces an error when save fails', async () => {
     const rpc = createMockRpcService();
-    rpc.call.mockResolvedValueOnce(
-      rpcSuccess({ ok: true, config: { whisperModel: 'base.en' } }),
-    );
-    rpc.call.mockResolvedValueOnce(rpcError('disk full'));
+    routeRpc(rpc, {
+      'voice:getConfig': () =>
+        rpcSuccess({ ok: true, config: { whisperModel: 'base.en' } }),
+      'voice:setConfig': () => rpcError('disk full'),
+    });
 
     const { fixture, component } = mount(rpc);
     fixture.detectChanges();
     await settle(fixture);
 
     const el = select(fixture);
-    el.value = 'large-v3';
+    el.value = 'large-v3-turbo';
     el.dispatchEvent(new Event('change'));
     await settle(fixture);
 
@@ -139,5 +167,154 @@ describe('VoiceConfigComponent', () => {
     await settle(fixture);
 
     expect(component.errorMessage()).toBe('no settings');
+  });
+
+  it('reflects the downloaded status from voice:getConfig', async () => {
+    const rpc = createMockRpcService();
+    rpc.call.mockResolvedValue(
+      rpcSuccess({
+        ok: true,
+        config: { whisperModel: 'base.en', downloaded: true },
+      }),
+    );
+
+    const { fixture, component } = mount(rpc);
+    fixture.detectChanges();
+    await settle(fixture);
+
+    expect(component.downloaded()).toBe(true);
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="voice-config-download-status"]',
+      )?.textContent,
+    ).toContain('Downloaded');
+  });
+
+  it('downloads the selected model via voice:downloadModel and marks it ready', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, {
+      'voice:getConfig': () =>
+        rpcSuccess({
+          ok: true,
+          config: { whisperModel: 'small.en', downloaded: false },
+        }),
+      'voice:downloadModel': () =>
+        rpcSuccess({ ok: true, alreadyPresent: false }),
+    });
+
+    const { fixture, component } = mount(rpc);
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const btn = fixture.nativeElement.querySelector(
+      '[data-testid="voice-config-download-btn"]',
+    ) as HTMLButtonElement;
+    btn.click();
+    await settle(fixture);
+
+    expect(rpc.call).toHaveBeenLastCalledWith(
+      'voice:downloadModel',
+      { model: 'small.en' },
+      { timeout: expect.any(Number) },
+    );
+    expect(component.downloaded()).toBe(true);
+  });
+
+  it('maps a download progress push for the selected model to downloadPercent', async () => {
+    const rpc = createMockRpcService();
+    rpc.call.mockResolvedValue(
+      rpcSuccess({
+        ok: true,
+        config: { whisperModel: 'small.en', downloaded: false },
+      }),
+    );
+
+    const { fixture, component } = mount(rpc);
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const progressService = TestBed.inject(VoiceDownloadProgressService);
+    progressService.handleMessage({
+      type: 'voice:modelDownloadProgress',
+      payload: { model: 'small.en', percent: 55 },
+    });
+    expect(component.downloadPercent()).toBe(55);
+
+    // A tick for a different model must not affect this component.
+    progressService.handleMessage({
+      type: 'voice:modelDownloadProgress',
+      payload: { model: 'medium.en', percent: 90 },
+    });
+    expect(component.downloadPercent()).toBeNull();
+  });
+
+  it('renders a live progress bar while a download is in flight', async () => {
+    const rpc = createMockRpcService();
+    let resolveDownload!: (value: unknown) => void;
+    routeRpc(rpc, {
+      'voice:getConfig': () =>
+        rpcSuccess({
+          ok: true,
+          config: { whisperModel: 'small.en', downloaded: false },
+        }),
+      'voice:downloadModel': () =>
+        new Promise((resolve) => {
+          resolveDownload = resolve;
+        }),
+    });
+
+    const { fixture, component } = mount(rpc);
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const btn = fixture.nativeElement.querySelector(
+      '[data-testid="voice-config-download-btn"]',
+    ) as HTMLButtonElement;
+    btn.click();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(component.isDownloading()).toBe(true);
+
+    TestBed.inject(VoiceDownloadProgressService).handleMessage({
+      type: 'voice:modelDownloadProgress',
+      payload: { model: 'small.en', percent: 30 },
+    });
+    fixture.detectChanges();
+
+    const bar = fixture.nativeElement.querySelector(
+      '[data-testid="voice-config-download-progress"]',
+    ) as HTMLProgressElement | null;
+    expect(bar).not.toBeNull();
+    expect(bar?.value).toBe(30);
+
+    resolveDownload(rpcSuccess({ ok: true, alreadyPresent: false }));
+    await settle(fixture);
+    expect(component.isDownloading()).toBe(false);
+  });
+
+  it('surfaces an error when voice:downloadModel fails', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, {
+      'voice:getConfig': () =>
+        rpcSuccess({
+          ok: true,
+          config: { whisperModel: 'small.en', downloaded: false },
+        }),
+      'voice:downloadModel': () => rpcError('network down'),
+    });
+
+    const { fixture, component } = mount(rpc);
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const btn = fixture.nativeElement.querySelector(
+      '[data-testid="voice-config-download-btn"]',
+    ) as HTMLButtonElement;
+    btn.click();
+    await settle(fixture);
+
+    expect(component.downloaded()).toBe(false);
+    expect(component.errorMessage()).toBe('network down');
   });
 });

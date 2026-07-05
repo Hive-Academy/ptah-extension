@@ -302,22 +302,6 @@ export class StreamTransformer {
                 }
               }
             }
-            const messageDetails: Record<string, unknown> = {
-              sessionId,
-              messageType: sdkMessage.type,
-              messageNumber: sdkMessageCount,
-            };
-            if (sdkMessage.type === 'stream_event') {
-              const event = sdkMessage.event as {
-                type?: string;
-                message?: { id?: string };
-              };
-              messageDetails['eventType'] = event?.type;
-              messageDetails['messageId'] = event?.message?.id;
-            } else if (sdkMessage.type === 'assistant') {
-              const msg = sdkMessage as { message?: { id?: string } };
-              messageDetails['messageId'] = msg?.message?.id;
-            }
             if (isSystemInit(sdkMessage)) {
               const realSessionId = sdkMessage.session_id;
               effectiveSessionId = realSessionId as SessionId;
@@ -329,7 +313,7 @@ export class StreamTransformer {
                 const eagerPtahTools = sdkMessage.tools.filter((name) =>
                   name.startsWith('mcp__ptah'),
                 );
-                logger.info(
+                logger.debug(
                   `[StreamTransformer] Eager-loaded ptah MCP tools (${eagerPtahTools.length})`,
                   {
                     sessionId: realSessionId,
@@ -474,7 +458,7 @@ export class StreamTransformer {
             }
           }
 
-          logger.info(
+          logger.debug(
             `[StreamTransformer] Stream ended for ${sessionId}: ${sdkMessageCount} SDK messages, ${yieldedEventCount} events yielded`,
           );
         } catch (error) {
@@ -488,7 +472,7 @@ export class StreamTransformer {
             lowerMessage.includes('canceled');
 
           if (isUserAbort) {
-            logger.info(
+            logger.debug(
               `[StreamTransformer] Session ${sessionId} aborted by user`,
             );
           } else {
@@ -524,7 +508,7 @@ export class StreamTransformer {
           if (timeoutHandle) {
             clearTimeout(timeoutHandle);
           }
-          logger.info(`[StreamTransformer] Session ${sessionId} stream ended`);
+          logger.debug(`[StreamTransformer] Session ${sessionId} stream ended`);
         }
       },
     };

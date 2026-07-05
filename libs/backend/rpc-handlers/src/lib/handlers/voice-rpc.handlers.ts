@@ -16,27 +16,56 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   RpcMethodName,
+  VoiceDownloadModelParams,
+  VoiceDownloadModelResult,
   VoiceGetConfigParams,
   VoiceGetConfigResult,
   VoiceSetConfigParams,
   VoiceSetConfigResult,
   VoiceTranscribeParams,
   VoiceTranscribeResult,
+  VoiceGetTtsConfigParams,
+  VoiceGetTtsConfigResult,
+  VoiceSetTtsConfigParams,
+  VoiceSetTtsConfigResult,
+  VoiceDownloadTtsModelParams,
+  VoiceDownloadTtsModelResult,
+  VoiceSynthesizeParams,
+  VoiceSynthesizeResult,
 } from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import {
   GATEWAY_TOKENS,
   FfmpegDecoder,
   WhisperTranscriber,
+  KokoroSynthesizer,
   resolveWhisperModel,
   VOICE_WHISPER_MODEL_KEY,
+  DEFAULT_KOKORO_VOICE,
   VOICE_ASSETS_UNAVAILABLE,
   VOICE_ASSETS_REMEDIATION,
   isVoiceAssetsUnavailable,
 } from '@ptah-extension/messaging-gateway';
+import type {
+  WhisperDownloadEvent,
+  KokoroDownloadEvent,
+} from '@ptah-extension/messaging-gateway';
 import {
+  VoiceDownloadModelParamsSchema,
   VoiceSetConfigParamsSchema,
   VoiceTranscribeParamsSchema,
+  VoiceSetTtsConfigParamsSchema,
+  VoiceSynthesizeParamsSchema,
 } from './voice-rpc.schema';
+
+/** Settings key for the selected Kokoro TTS voice. */
+const VOICE_TTS_VOICE_KEY = 'voice.ttsVoice';
+/**
+ * Stable sentinel model id for the TTS download progress channel, so the
+ * settings UI can distinguish Kokoro download ticks from Whisper ones (which
+ * are keyed by the selected Whisper model name).
+ */
+const TTS_PROGRESS_MODEL = 'tts';
 
 const MIME_EXTENSIONS: Record<string, string> = {
   'audio/webm': '.webm',
@@ -59,6 +88,11 @@ export class VoiceRpcHandlers {
     'voice:transcribe',
     'voice:getConfig',
     'voice:setConfig',
+    'voice:downloadModel',
+    'voice:getTtsConfig',
+    'voice:setTtsConfig',
+    'voice:downloadTtsModel',
+    'voice:synthesize',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -70,6 +104,12 @@ export class VoiceRpcHandlers {
     private readonly ffmpeg: FfmpegDecoder,
     @inject(GATEWAY_TOKENS.GATEWAY_WHISPER_TRANSCRIBER)
     private readonly whisper: WhisperTranscriber,
+    @inject(GATEWAY_TOKENS.GATEWAY_KOKORO_SYNTHESIZER)
+    private readonly kokoro: KokoroSynthesizer,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: {
+      broadcastMessage(type: string, payload: unknown): Promise<void>;
+    },
   ) {}
 
   register(): void {
@@ -88,19 +128,231 @@ export class VoiceRpcHandlers {
       (params) => this.setConfig(params),
     );
 
+    this.rpcHandler.registerMethod<
+      VoiceDownloadModelParams,
+      VoiceDownloadModelResult
+    >('voice:downloadModel', (params) => this.downloadModel(params));
+
+    this.rpcHandler.registerMethod<
+      VoiceGetTtsConfigParams,
+      VoiceGetTtsConfigResult
+    >('voice:getTtsConfig', () => this.getTtsConfig());
+
+    this.rpcHandler.registerMethod<
+      VoiceSetTtsConfigParams,
+      VoiceSetTtsConfigResult
+    >('voice:setTtsConfig', (params) => this.setTtsConfig(params));
+
+    this.rpcHandler.registerMethod<
+      VoiceDownloadTtsModelParams,
+      VoiceDownloadTtsModelResult
+    >('voice:downloadTtsModel', () => this.downloadTtsModel());
+
+    this.rpcHandler.registerMethod<
+      VoiceSynthesizeParams,
+      VoiceSynthesizeResult
+    >('voice:synthesize', (params) => this.synthesize(params));
+
     this.logger.debug('Voice RPC handlers registered', {
       methods: VoiceRpcHandlers.METHODS,
     });
   }
 
+  private resolveTtsVoice(): string {
+    const voice = this.workspace.getConfiguration<string>(
+      'ptah',
+      VOICE_TTS_VOICE_KEY,
+      DEFAULT_KOKORO_VOICE,
+    );
+    return typeof voice === 'string' && voice.trim().length > 0
+      ? voice.trim()
+      : DEFAULT_KOKORO_VOICE;
+  }
+
+  private async getTtsConfig(): Promise<VoiceGetTtsConfigResult> {
+    try {
+      const voice = this.resolveTtsVoice();
+      const downloaded = await this.kokoro.isModelDownloaded();
+      return { ok: true, config: { voice, downloaded } };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[voice] getTtsConfig failed', { error: message });
+      return { ok: false, error: message };
+    }
+  }
+
+  private async setTtsConfig(
+    params: VoiceSetTtsConfigParams,
+  ): Promise<VoiceSetTtsConfigResult> {
+    const parsed = VoiceSetTtsConfigParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      const message = parsed.error.issues[0]?.message ?? 'invalid params';
+      this.logger.warn('[voice] rejected invalid setTtsConfig params', {
+        error: message,
+      });
+      return { ok: false, error: message };
+    }
+
+    try {
+      await this.writeConfiguration(VOICE_TTS_VOICE_KEY, parsed.data.voice);
+      this.kokoro.configure({ voice: parsed.data.voice });
+      this.logger.info('[voice] tts voice updated', {
+        voice: parsed.data.voice,
+      });
+      return { ok: true };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[voice] setTtsConfig failed', { error: message });
+      return { ok: false, error: message };
+    }
+  }
+
+  private async downloadTtsModel(): Promise<VoiceDownloadTtsModelResult> {
+    const onProgress = (evt: KokoroDownloadEvent): void => {
+      let percent: number | null = null;
+      if (evt.kind === 'download:start') percent = 0;
+      else if (evt.kind === 'download:progress') percent = evt.percent;
+      else if (evt.kind === 'download:complete') percent = 100;
+      if (percent === null) return;
+      void this.webviewManager
+        .broadcastMessage(MESSAGE_TYPES.VOICE_MODEL_DOWNLOAD_PROGRESS, {
+          model: TTS_PROGRESS_MODEL,
+          percent,
+        })
+        .catch(() => undefined);
+    };
+    this.kokoro.on('download', onProgress);
+    try {
+      const { alreadyPresent } = await this.kokoro.downloadModel();
+      this.logger.info('[voice] tts model download complete', {
+        alreadyPresent,
+      });
+      return { ok: true, alreadyPresent };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isVoiceAssetsUnavailable(error)) {
+        this.logger.warn('[voice] tts download assets unavailable');
+        return {
+          ok: false,
+          error: message,
+          code: VOICE_ASSETS_UNAVAILABLE,
+          remediation: VOICE_ASSETS_REMEDIATION,
+        };
+      }
+      this.logger.error(
+        `[voice] tts model download failed: ${message}`,
+        error instanceof Error ? error : undefined,
+      );
+      return { ok: false, error: message };
+    } finally {
+      this.kokoro.off('download', onProgress);
+    }
+  }
+
+  private async synthesize(
+    params: VoiceSynthesizeParams,
+  ): Promise<VoiceSynthesizeResult> {
+    const parsed = VoiceSynthesizeParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      const message = parsed.error.issues[0]?.message ?? 'invalid params';
+      this.logger.warn('[voice] rejected invalid synthesize params', {
+        error: message,
+      });
+      return { ok: false, error: message };
+    }
+
+    try {
+      const voice = parsed.data.voice ?? this.resolveTtsVoice();
+      const { wav } = await this.kokoro.synthesize(parsed.data.text, voice);
+      return {
+        ok: true,
+        audioBase64: Buffer.from(wav).toString('base64'),
+        mimeType: 'audio/wav',
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isVoiceAssetsUnavailable(error)) {
+        this.logger.warn('[voice] synthesis assets unavailable');
+        return {
+          ok: false,
+          error: message,
+          code: VOICE_ASSETS_UNAVAILABLE,
+          remediation: VOICE_ASSETS_REMEDIATION,
+        };
+      }
+      this.logger.error(
+        `[voice] synthesis failed: ${message}`,
+        error instanceof Error ? error : undefined,
+      );
+      return { ok: false, error: message };
+    }
+  }
+
   private async getConfig(): Promise<VoiceGetConfigResult> {
     try {
       const whisperModel = resolveWhisperModel(this.workspace);
-      return { ok: true, config: { whisperModel } };
+      const downloaded = await this.whisper.isModelDownloaded(whisperModel);
+      return { ok: true, config: { whisperModel, downloaded } };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error('[voice] getConfig failed', { error: message });
       return { ok: false, error: message };
+    }
+  }
+
+  private async downloadModel(
+    params: VoiceDownloadModelParams,
+  ): Promise<VoiceDownloadModelResult> {
+    const parsed = VoiceDownloadModelParamsSchema.safeParse(params ?? {});
+    if (!parsed.success) {
+      const message = parsed.error.issues[0]?.message ?? 'invalid params';
+      this.logger.warn('[voice] rejected invalid downloadModel params', {
+        error: message,
+      });
+      return { ok: false, error: message };
+    }
+
+    const model = parsed.data.model ?? resolveWhisperModel(this.workspace);
+    const onProgress = (evt: WhisperDownloadEvent): void => {
+      if (evt.model !== model) return;
+      let percent: number | null = null;
+      if (evt.kind === 'download:start') percent = 0;
+      else if (evt.kind === 'download:progress') percent = evt.percent;
+      else if (evt.kind === 'download:complete') percent = 100;
+      if (percent === null) return;
+      void this.webviewManager
+        .broadcastMessage(MESSAGE_TYPES.VOICE_MODEL_DOWNLOAD_PROGRESS, {
+          model,
+          percent,
+        })
+        .catch(() => undefined);
+    };
+    this.whisper.on('download', onProgress);
+    try {
+      const { alreadyPresent } = await this.whisper.downloadModel(model);
+      this.logger.info('[voice] model download complete', {
+        model,
+        alreadyPresent,
+      });
+      return { ok: true, alreadyPresent };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isVoiceAssetsUnavailable(error)) {
+        this.logger.warn('[voice] download assets unavailable', { model });
+        return {
+          ok: false,
+          error: message,
+          code: VOICE_ASSETS_UNAVAILABLE,
+          remediation: VOICE_ASSETS_REMEDIATION,
+        };
+      }
+      this.logger.error(
+        `[voice] model download failed (${model}): ${message}`,
+        error instanceof Error ? error : undefined,
+      );
+      return { ok: false, error: message };
+    } finally {
+      this.whisper.off('download', onProgress);
     }
   }
 
@@ -168,7 +420,6 @@ export class VoiceRpcHandlers {
       os.tmpdir(),
       `ptah-voice-${randomUUID()}${extensionForMime(mimeType)}`,
     );
-    let wavPath: string | null = null;
 
     try {
       await fs.writeFile(inputPath, Buffer.from(audioBase64, 'base64'));
@@ -178,8 +429,8 @@ export class VoiceRpcHandlers {
         this.whisper.configure({ modelName });
       }
 
-      wavPath = await this.ffmpeg.decodeToPcm16Wav(inputPath);
-      const transcript = await this.whisper.transcribe(wavPath);
+      const pcm = await this.ffmpeg.decodeToPcm16(inputPath);
+      const transcript = await this.whisper.transcribe(pcm);
       return { ok: true, transcript };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -194,14 +445,13 @@ export class VoiceRpcHandlers {
           remediation: VOICE_ASSETS_REMEDIATION,
         };
       }
-      this.logger.error('[voice] transcription failed', {
-        error: message,
-        mimeType,
-      });
+      this.logger.error(
+        `[voice] transcription failed (${mimeType}): ${message}`,
+        error instanceof Error ? error : undefined,
+      );
       return { ok: false, error: message };
     } finally {
       await this.cleanup(inputPath);
-      if (wavPath) await this.cleanup(path.dirname(wavPath), true);
     }
   }
 

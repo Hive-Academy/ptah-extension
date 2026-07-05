@@ -43,6 +43,17 @@ import type { AuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 
 import { ProviderModelsService } from './provider-models.service';
+import { ActiveProviderResolver } from './auth/active-provider-resolver';
+import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
+
+function makeActiveProviderResolver(
+  values: Record<string, unknown>,
+): ActiveProviderResolver {
+  const scope = {
+    read: <T>(key: string): T | undefined => values[key] as T | undefined,
+  } as unknown as WorkspaceScopeResolver;
+  return new ActiveProviderResolver(scope);
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,6 +77,7 @@ function makeService(opts: {
     logger as unknown as Logger,
     config as unknown as import('@ptah-extension/vscode-core').ConfigManager,
     authEnv,
+    makeActiveProviderResolver(opts.configValues ?? {}),
   );
 
   return { service, config, authEnv };

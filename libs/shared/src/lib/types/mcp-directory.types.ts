@@ -142,10 +142,18 @@ export interface McpRegistryConnection {
 export interface McpRegistryEntry {
   /** Fully qualified server name (e.g., "io.github.user/server-name") */
   name: string;
+  /** Friendly display name (Smithery `displayName`), preferred for card titles. */
+  displayName?: string;
   /** Human-readable description */
   description?: string;
   /** Server icons */
   icons?: McpRegistryIcon[];
+  /** Popularity signal — number of recorded uses (Smithery `useCount`). */
+  useCount?: number;
+  /** Whether the server is managed/hosted by Smithery (Smithery `bySmithery`). */
+  bySmithery?: boolean;
+  /** Server homepage URL, when published (Smithery `homepage`). */
+  homepage?: string;
   /** Source code repository */
   repository?: McpRegistryRepository;
   /** Latest version detail (populated on detail fetch) */
@@ -165,7 +173,7 @@ export interface McpRegistryEntry {
 }
 
 /** Provenance discriminator for an MCP registry entry / query. */
-export type McpRegistrySourceKind = 'official' | 'smithery';
+export type McpRegistrySourceKind = 'official' | 'smithery' | 'pulsemcp';
 
 /** Paginated list response from the registry */
 export interface McpRegistryListResponse {

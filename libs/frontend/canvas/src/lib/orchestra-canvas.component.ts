@@ -78,9 +78,7 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
       } @else {
         <!-- Lock toggle: freezes the layout and disables drag/resize -->
         <button
-          class="absolute top-3 right-3 z-20 btn btn-circle btn-sm shadow-lg"
-          [class.btn-primary]="locked()"
-          [class.btn-ghost]="!locked()"
+          class="absolute bottom-20 right-4 z-20 btn btn-circle shadow-lg"
           [title]="
             locked()
               ? 'Unlock tiles (enable drag & resize)'
@@ -92,12 +90,12 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
         >
           <lucide-angular
             [img]="locked() ? LockIcon : UnlockIcon"
-            class="w-4 h-4"
+            class="w-5 h-5"
           />
         </button>
 
         <!-- Gridstack drag-and-resize grid -->
-        <div class="flex-1 overflow-auto">
+        <div class="flex-1 overflow-auto w-[97%]">
           <gridstack [options]="gsOptions" (changeCB)="onGridChange($event)">
             @for (tile of canvasStore.tiles(); track tile.tabId) {
               <gridstack-item

@@ -16,15 +16,18 @@ export const SkillSynthesisSettingsSchema = z.object({
   eligibilityMinTurns: z.coerce.number().int().min(1).max(100),
   evictionDecayRate: z.coerce.number().min(0).max(1),
   generalizationContextThreshold: z.coerce.number().int().min(1).max(100),
-  minTrajectoryFidelityRatio: z.coerce.number().min(0).max(1),
   dedupClusterThreshold: z.coerce.number().min(0).max(1),
-  minAbstractionEditDistance: z.coerce.number().min(0).max(1),
+  prefilterMinEdits: z.coerce.number().int().min(0).max(100),
+  prefilterMinChars: z.coerce.number().int().min(0).max(100000),
+  prefilterMinToolUses: z.coerce.number().int().min(0).max(100),
   judgeEnabled: z.boolean(),
   minJudgeScore: z.coerce.number().min(0).max(10),
   judgeModel: z.string(),
   maxPinnedSkills: z.coerce.number().int().min(0).max(1000),
   curatorEnabled: z.boolean(),
   curatorIntervalHours: z.coerce.number().int().min(1).max(8760),
+  suggestionMinClusterSize: z.coerce.number().int().min(2).max(100),
+  suggestionMaxCandidates: z.coerce.number().int().min(1).max(5000),
 });
 
 export type SkillSynthesisSettingsInput = z.infer<
@@ -153,3 +156,68 @@ export const SkillKeepCloneParamsSchema = z.object({
 export const SkillInvocationStatsParamsSchema = z.object({
   slug: SlugSchema,
 });
+
+const SuggestionStatusSchema = z.enum(['pending', 'accepted', 'dismissed']);
+
+export const SkillListSuggestionsParamsSchema = z
+  .object({
+    status: SuggestionStatusSchema.optional(),
+  })
+  .optional();
+
+export const SkillAcceptSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+});
+
+export const SkillDismissSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+  reason: z.string().max(500).optional(),
+});
+
+export const SkillGetSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+});
+
+export const SkillUpdateSuggestionParamsSchema = z.object({
+  id: z.string().min(1).max(64),
+  // No newlines: the name becomes the SKILL.md frontmatter `name:` line.
+  name: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(/^[^\r\n]+$/, 'name must be a single line')
+    .optional(),
+  description: z.string().min(1).max(4000).optional(),
+  body: z.string().min(1).max(100000).optional(),
+});
+
+export const RejectBulkParamsSchema = z.object({
+  ids: z.array(z.string()).min(1),
+  reason: z.string().optional(),
+});
+
+export type RejectBulkParams = z.infer<typeof RejectBulkParamsSchema>;
+
+export const PromoteBulkParamsSchema = z.object({
+  ids: z.array(z.string()).min(1),
+});
+
+export type PromoteBulkParams = z.infer<typeof PromoteBulkParamsSchema>;
+
+export const RejectByPatternParamsSchema = z.object({
+  pattern: z.string().min(1),
+  reason: z.string().optional(),
+});
+
+export type RejectByPatternParams = z.infer<typeof RejectByPatternParamsSchema>;
+
+export const ListSpecsParamsSchema = z.object({}).strict().optional();
+
+export const HarvestSpecsParamsSchema = z.object({}).strict().optional();
+
+export const ClearStaleSpecsParamsSchema = z.object({
+  retentionDays: z.coerce.number().int().min(0).max(3650).optional(),
+  mode: z.enum(['archive', 'delete']).optional(),
+});
+
+export type ClearStaleSpecsParams = z.infer<typeof ClearStaleSpecsParamsSchema>;

@@ -26,6 +26,7 @@ import {
   type RegisterCandidateResult,
   type SkillCandidateRow,
   type SkillInvocationRow,
+  type SkillResidency,
   type SkillStatus,
 } from './types';
 import { cosineSimilarity } from './cosine-similarity';
@@ -46,6 +47,7 @@ interface RawCandidateRow {
   rejected_at: number | null;
   rejected_reason: string | null;
   pinned: number;
+  residency: string;
 }
 
 interface RawInvocationRow {
@@ -157,17 +159,21 @@ export class SkillCandidateStore {
 
   /**
    * Active promoted skills ordered by decay-weighted score (ascending).
-   * Lowest score = least valuable = evict first.
-   * Only includes unpinned candidates — pinned skills are exempt from eviction.
+   * Lowest score = least valuable = demote first.
+   * Only includes unpinned, resident candidates — pinned skills are exempt and
+   * already-dormant skills are excluded (they no longer count against the
+   * residency budget and must not be re-demoted).
    *
    * Decay score per skill = sum of decayRate^(ageDays) for each invocation.
-   * Skills with no invocations get score 0 (oldest for eviction).
+   * Skills with no invocations get score 0 (oldest for demotion).
    */
   listActiveOrderedByDecayScore(
     now: number,
     decayRate: number,
   ): SkillCandidateRow[] {
-    const promoted = this.listByStatus('promoted').filter((r) => !r.pinned);
+    const promoted = this.listByStatus('promoted').filter(
+      (r) => !r.pinned && r.residency === 'resident',
+    );
     if (promoted.length === 0) return [];
     const scored: Array<{ row: SkillCandidateRow; score: number }> = [];
     for (const row of promoted) {
@@ -181,6 +187,40 @@ export class SkillCandidateStore {
     }
     scored.sort((a, b) => a.score - b.score);
     return scored.map((s) => s.row);
+  }
+
+  /**
+   * Set the residency of a candidate. `dormant` skills are skipped at the
+   * junction layer (description+body no longer fed to the model) but keep their
+   * row and SKILL.md for future re-promotion; `resident` is the default.
+   */
+  setResidency(id: CandidateId, residency: SkillResidency): SkillCandidateRow {
+    const stmt = this.db.prepare(
+      `UPDATE skill_candidates SET residency = ? WHERE id = ?`,
+    );
+    stmt.run(residency, id);
+    const row = this.findById(id);
+    if (!row) {
+      throw new Error(
+        `[skill-synthesis] setResidency: row ${id} disappeared after update`,
+      );
+    }
+    return row;
+  }
+
+  /**
+   * Slugs (candidate.name) of promoted skills currently marked dormant. Used by
+   * the junction integration seam to skip dormant skills so they no longer
+   * occupy the prompt budget.
+   */
+  listDormantPromotedSlugs(): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT name FROM skill_candidates
+         WHERE status = 'promoted' AND residency = 'dormant'`,
+      )
+      .all() as Array<{ name: string }>;
+    return rows.map((r) => r.name).filter((name) => name.length > 0);
   }
 
   /**
@@ -390,6 +430,56 @@ export class SkillCandidateStore {
     );
   }
 
+  /**
+   * Reconcile the most-recent un-reconciled subagent invocation event for a
+   * slug against a graded verdict harvested from `.ptah/specs`. Updates the
+   * single newest matching `source='subagent'` row whose `invoked_at` falls in
+   * [windowStart, windowEnd] and that has not yet been reconciled.
+   *
+   * Idempotent: the `reconciled_at IS NULL` guard means re-running a harvest
+   * never double-flips a row. Returns true when a row was updated, false when
+   * no eligible event existed (e.g. telemetry never recorded the run).
+   */
+  reconcileSubagentEvent(input: {
+    slug: string;
+    succeeded: boolean;
+    isError: boolean;
+    windowStart: number;
+    windowEnd: number;
+    verdictSource: string;
+    reconciledAt: number;
+  }): boolean {
+    const target = this.db
+      .prepare(
+        `SELECT id FROM skill_invocation_events
+         WHERE skill_slug = ?
+           AND source = 'subagent'
+           AND reconciled_at IS NULL
+           AND invoked_at BETWEEN ? AND ?
+         ORDER BY invoked_at DESC
+         LIMIT 1`,
+      )
+      .get(input.slug, input.windowStart, input.windowEnd) as
+      | { id: string }
+      | undefined;
+    if (!target) return false;
+
+    this.db
+      .prepare(
+        `UPDATE skill_invocation_events
+         SET succeeded = ?, is_error = ?, reconciled_at = ?, verdict_source = ?
+         WHERE id = ?`,
+      )
+      .run(
+        input.succeeded ? 1 : 0,
+        input.isError ? 1 : 0,
+        input.reconciledAt,
+        input.verdictSource,
+        target.id,
+      );
+    return true;
+  }
+
   getInvocationStats(slug: string): {
     total: number;
     succeeded: number;
@@ -420,6 +510,32 @@ export class SkillCandidateStore {
       failed: row?.failed ?? 0,
       distinctContexts: row?.distinctContexts ?? 0,
     };
+  }
+
+  /**
+   * Reverse lookup: given a set of session ids, return the single skill slug
+   * invoked most often across them (the "dominant" skill of those sessions), or
+   * null when none of the sessions recorded any skill invocation. Used by the
+   * never-re-synthesize guard to detect when a trajectory is dominated by an
+   * authored skill.
+   */
+  getDominantSkillSlugForSessions(
+    sessionIds: readonly string[],
+  ): string | null {
+    if (sessionIds.length === 0) return null;
+    const placeholders = sessionIds.map(() => '?').join(', ');
+    const row = this.db
+      .prepare(
+        `SELECT skill_slug, COUNT(*) AS c
+         FROM skill_invocation_events
+         WHERE session_id IN (${placeholders})
+         GROUP BY skill_slug
+         ORDER BY c DESC
+         LIMIT 1`,
+      )
+      .get(...sessionIds) as { skill_slug: string; c: number } | undefined;
+    if (!row || !row.skill_slug) return null;
+    return row.skill_slug;
   }
 
   getRecentSessionsForSlug(slug: string, limit = 5): string[] {
@@ -507,6 +623,20 @@ export class SkillCandidateStore {
     return { candidates, promoted, rejected, invocations };
   }
 
+  /**
+   * Attach an embedding to an existing candidate row (backfill path). No-ops
+   * when sqlite-vec is unavailable. Inserts the vector into the vec0 table and
+   * links its rowid onto the candidate.
+   */
+  setEmbedding(id: CandidateId, vec: Float32Array): void {
+    if (!this.vecStatus.available) return;
+    const rowid = this.insertEmbedding(vec);
+    const stmt = this.db.prepare(
+      `UPDATE skill_candidates SET embedding_rowid = ? WHERE id = ?`,
+    );
+    stmt.run(rowid, id);
+  }
+
   private insertEmbedding(vec: Float32Array): number {
     const stmt = this.db.prepare(
       `INSERT INTO skill_candidates_vec (embedding) VALUES (?)`,
@@ -564,6 +694,7 @@ export class SkillCandidateStore {
       rejectedAt: raw.rejected_at,
       rejectedReason: raw.rejected_reason,
       pinned: raw.pinned === 1,
+      residency: raw.residency === 'dormant' ? 'dormant' : 'resident',
     };
   }
 

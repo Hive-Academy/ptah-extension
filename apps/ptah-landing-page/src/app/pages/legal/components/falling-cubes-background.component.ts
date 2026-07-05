@@ -141,10 +141,13 @@ interface CubeConfig {
         top: 0;
         left: 0;
         backface-visibility: visible;
-        background-image: url('/assets/backgrounds/hieroglyph-circuit-pattern.png');
-        background-size: 200px 200px;
-        background-repeat: repeat;
-        border: 1px solid rgba(245, 158, 11, 0.12);
+        background-color: rgba(18, 20, 26, 0.6);
+        background-image: radial-gradient(
+          rgba(245, 165, 36, 0.18) 1px,
+          transparent 1px
+        );
+        background-size: 22px 22px;
+        border: 1px solid rgba(245, 165, 36, 0.14);
       }
 
       @keyframes cube-idle-spin {

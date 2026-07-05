@@ -2,10 +2,14 @@
  * ActionBannerService - Shared inline banner for branch/rewind/editor actions.
  *
  * Lifted out of `ChatViewComponent._actionBanner` (S3) so any webview surface —
- * including canvas/tile views and the active chat view — can display the banner
- * regardless of which originating tile fired the action. Without this, in
- * canvas/tile mode the banner used to render on the originating tile rather
- * than where the user is currently looking.
+ * including canvas/tile views and the active chat view — can display the banner.
+ *
+ * Scoping: each banner carries an optional `tabId`. A `ChatViewComponent` only
+ * renders banners whose `tabId` is `null` (global, e.g. "no active session") or
+ * matches its own tab id. This prevents a rewind fired on session A from
+ * surfacing its success toast on session B's view when both are mounted
+ * (canvas/tile mode). The rewind flow activates the rebound tab, so a
+ * tab-scoped banner still lands on the surface the user is looking at.
  *
  * Lifecycle: a new banner cancels any prior auto-clear timer, so rapid
  * successive actions show only the most recent message and the timer is
@@ -16,6 +20,8 @@ import { Injectable, signal, computed } from '@angular/core';
 export interface ActionBannerState {
   kind: 'error' | 'info' | 'warning';
   message: string;
+  /** Tab id this banner is scoped to, or null for a global banner. */
+  tabId: string | null;
 }
 
 const DEFAULT_DURATION_MS = 4000;
@@ -52,14 +58,26 @@ export class ActionBannerService {
     return b?.kind === 'warning' ? b.message : null;
   });
 
-  /** Show an error-style banner. Auto-clears after `durationMs` (default 4s). */
-  showError(message: string, durationMs: number = DEFAULT_DURATION_MS): void {
-    this.show({ kind: 'error', message }, durationMs);
+  /**
+   * Show an error-style banner. Auto-clears after `durationMs` (default 4s).
+   * Pass `tabId` to scope the banner to a specific tab's surface, or omit it
+   * for a global banner shown on every mounted chat view.
+   */
+  showError(
+    message: string,
+    tabId: string | null = null,
+    durationMs: number = DEFAULT_DURATION_MS,
+  ): void {
+    this.show({ kind: 'error', message, tabId }, durationMs);
   }
 
   /** Show an info-style banner. Auto-clears after `durationMs` (default 4s). */
-  showInfo(message: string, durationMs: number = DEFAULT_DURATION_MS): void {
-    this.show({ kind: 'info', message }, durationMs);
+  showInfo(
+    message: string,
+    tabId: string | null = null,
+    durationMs: number = DEFAULT_DURATION_MS,
+  ): void {
+    this.show({ kind: 'info', message, tabId }, durationMs);
   }
 
   /**
@@ -71,9 +89,10 @@ export class ActionBannerService {
    */
   showWarning(
     message: string,
+    tabId: string | null = null,
     durationMs: number = WARNING_DURATION_MS,
   ): void {
-    this.show({ kind: 'warning', message }, durationMs);
+    this.show({ kind: 'warning', message, tabId }, durationMs);
   }
 
   /** Dismiss any active banner immediately and cancel its auto-clear timer. */

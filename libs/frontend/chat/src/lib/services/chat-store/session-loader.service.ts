@@ -308,6 +308,41 @@ export class SessionLoaderService {
   }
 
   /**
+   * Insert or replace a session summary in the local list (UI only), without
+   * an RPC round-trip. Used by the rewind flow to surface the freshly-forked
+   * session in the sidebar immediately — the debounced
+   * `session:metadataChanged` → `loadSessions()` broadcast can otherwise race
+   * and run before the fork is listable by `session:list`, leaving the sidebar
+   * empty until an app restart. The subsequent broadcast-driven `loadSessions()`
+   * reconciles with the persisted truth (same id, refreshed counts).
+   *
+   * Replaces an existing entry with the same id in place; otherwise prepends
+   * the new entry and increments the total. Mirrors `updateSessionName` /
+   * `removeSessionFromList`.
+   */
+  upsertSessionSummary(summary: ChatSessionSummary): void {
+    let inserted = false;
+    this._sessions.update((current) => {
+      const idx = current.findIndex((s) => s.id === summary.id);
+      if (idx === -1) {
+        inserted = true;
+        return [summary, ...current];
+      }
+      const next = current.slice();
+      next[idx] = summary;
+      return next;
+    });
+    if (inserted) {
+      this._totalSessions.update((count) => count + 1);
+    }
+    const workspacePath =
+      this.currentWorkspacePath || this.vscodeService.config().workspaceRoot;
+    if (workspacePath) {
+      this.updateCache(workspacePath);
+    }
+  }
+
+  /**
    * Switch the session list to a different workspace.
    *
    * Saves the current session state to the cache under the old workspace path,

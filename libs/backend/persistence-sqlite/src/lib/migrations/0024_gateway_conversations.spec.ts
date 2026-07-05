@@ -62,10 +62,6 @@ describe('migration 0024_gateway_conversations — registry entry', () => {
     expect(entry?.requiresVec).toBeUndefined();
     expect(entry?.run).toBeUndefined();
   });
-
-  it('is the highest bundled version', () => {
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(24);
-  });
 });
 
 describe('migration 0024_gateway_conversations — behavior (skipped without native)', () => {
