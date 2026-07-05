@@ -6,12 +6,12 @@ import { FooterComponent } from '../components/footer.component';
 import { HeroComponent } from '../sections/hero/hero.component';
 import { ProblemSectionComponent } from '../sections/problem/problem-section.component';
 import { OpenSourceSectionComponent } from '../sections/open-source/open-source-section.component';
-import { PremiumShowcaseComponent } from '../sections/premium-showcase/premium-showcase.component';
 import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcase.component';
 import { RuntimesTriptychComponent } from '../sections/runtimes-triptych/runtimes-triptych.component';
-import { ThothSuiteComponent } from '../sections/thoth-suite/thoth-suite.component';
-import { CanvasOrchestraComponent } from '../sections/canvas-orchestra/canvas-orchestra.component';
-import { WorkspaceIntelligenceComponent } from '../sections/workspace-intelligence/workspace-intelligence.component';
+import { PillarMemoryComponent } from '../sections/pillar-memory/pillar-memory.component';
+import { PillarSkillsOrchestrationComponent } from '../sections/pillar-skills-orchestration/pillar-skills-orchestration.component';
+import { PillarAlwaysOnComponent } from '../sections/pillar-always-on/pillar-always-on.component';
+import { ProviderStripComponent } from '../sections/provider-strip/provider-strip.component';
 
 @Component({
   selector: 'ptah-landing-page',
@@ -22,10 +22,10 @@ import { WorkspaceIntelligenceComponent } from '../sections/workspace-intelligen
     ProblemSectionComponent,
     VideoShowcaseComponent,
     RuntimesTriptychComponent,
-    PremiumShowcaseComponent,
-    ThothSuiteComponent,
-    CanvasOrchestraComponent,
-    WorkspaceIntelligenceComponent,
+    PillarMemoryComponent,
+    PillarSkillsOrchestrationComponent,
+    PillarAlwaysOnComponent,
+    ProviderStripComponent,
     OpenSourceSectionComponent,
     ComparisonSectionComponent,
     CTASectionComponent,
@@ -57,31 +57,21 @@ import { WorkspaceIntelligenceComponent } from '../sections/workspace-intelligen
 
         <ptah-runtimes-triptych />
 
-        @defer (on viewport) {
-          <section id="features" aria-label="Why Ptah">
-            <ptah-premium-showcase />
-          </section>
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
+        <!--
+          Pillars render eagerly (not @defer) so their SEO/GEO-bearing copy and
+          citable claims ship in the prerendered static HTML. They are lightweight
+          coded DOM (no images), and their entrance animations are SSG-safe
+          (final DOM state fully opaque; the from-state is applied post-hydration).
+        -->
+        <div id="features">
+          <ptah-pillar-memory />
+        </div>
 
-        @defer (on viewport) {
-          <ptah-thoth-suite />
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
+        <ptah-pillar-skills-orchestration />
 
-        @defer (on viewport) {
-          <ptah-canvas-orchestra />
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
+        <ptah-pillar-always-on />
 
-        @defer (on viewport) {
-          <ptah-workspace-intelligence />
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
+        <ptah-provider-strip />
 
         @defer (on viewport) {
           <section id="open-source" aria-label="Open Source">
