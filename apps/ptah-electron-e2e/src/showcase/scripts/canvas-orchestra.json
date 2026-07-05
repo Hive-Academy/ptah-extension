@@ -1,0 +1,18 @@
+{
+  "scene": "canvas-orchestra",
+  "lines": [
+    "You always know what each agent costs you — tokens, time, and money, right on the tile.",
+    "What if you could stop chatting with one AI — and start conducting three, live, on one screen?",
+    "This is the Orchestra Canvas — Ptah, the AI coding orchestra, running three real agents on your real codebase, side by side. Let us put three to work.",
+    "First, every agent gets its own tile — a separate session, ready in seconds.",
+    "Now hand out the work — a different job for each agent, no queue, no waiting for turns.",
+    "And let them loose. Three tasks moving forward at once, while you just watch.",
+    "That was real work — three finished tasks, one screen, zero time spent waiting in line.",
+    "Now let us take a closer look at what each one actually did.",
+    "Found an arrangement you love? Lock it, and your orchestra stays exactly where you put it.",
+    "This is what conducting looks like. One canvas, a whole orchestra — and you hold the baton. That is Ptah.",
+    "Agent one kept its own thread — its own conversation, its own results, nothing tangled.",
+    "Agent two, the same — a clean, separate session of its own.",
+    "And agent three — its own thread, its own history, untouched by the others."
+  ]
+}

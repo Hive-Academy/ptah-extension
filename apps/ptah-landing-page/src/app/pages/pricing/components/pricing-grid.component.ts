@@ -8,7 +8,9 @@ import {
   effect,
   OnDestroy,
   DestroyRef,
+  PLATFORM_ID,
 } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -277,6 +279,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   private readonly subscriptionService = inject(SubscriptionStateService);
   private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
   private readonly STAGGER_DELAY = 0.15;
   private readonly CHECKOUT_TIMEOUT = 30000; // 30 seconds
   private readonly AUTO_CHECKOUT_TIMEOUT = 10000; // 10 seconds max wait for Paddle
@@ -477,6 +480,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Also checks for autoCheckout query param for returning from login
    */
   public ngOnInit(): void {
+    if (!this.isBrowser) {
+      return;
+    }
+
     this.paddleService.initialize();
     this.subscriptionService
       .fetchSubscriptionState()

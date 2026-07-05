@@ -1,0 +1,20 @@
+{
+  "scene": "chat-code-edit",
+  "lines": [
+    "Scroll back any time — every step it took is right here, in the open.",
+    "You see the price of every answer — tokens, cost, and time, on the message itself.",
+    "Want to try a different path? Branch from any message without losing the thread.",
+    "Curious how it got the job done? Every sub-agent it spawned is listed right here.",
+    "Be honest — how much of your day goes to copy-pasting code into a chatbot? Here is how that ends.",
+    "You are looking at Ptah, the AI coding orchestra — a chat that lives inside your codebase. One question, one edit, start to finish.",
+    "Start by asking about your own code — plain English, no context to paste in.",
+    "You get an answer you can trust, because it reads your actual repository — real files, real line numbers.",
+    "Every reference points at your code. Not a generic guess — your files, your lines.",
+    "Like the answer? Then just say: make the change.",
+    "You never touch the clipboard. It edits the file itself and shows you the diff, right in the chat.",
+    "There is your change — already applied to the file, with the exact diff on screen.",
+    "And you can trust what just happened, because every turn shows its work — nothing runs off screen.",
+    "And you decide exactly which model answers — always visible, always your call.",
+    "So stop being the clipboard. Ask, and Ptah reads your code, edits your files, and shows its work."
+  ]
+}

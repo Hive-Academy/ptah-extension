@@ -18,7 +18,11 @@ import type { SceneManifest } from '@ptah-extension/showcase-manifest';
 import { DeviceFrame, type SourceInfo } from './DeviceFrame';
 import { LowerThird } from './LowerThird';
 import { Callout } from './Callout';
-import { msToFrames, type CaptionToken } from '../lib/load-manifest';
+import {
+  msToFrames,
+  type CaptionToken,
+  type Segment,
+} from '../lib/load-manifest';
 import { activeShot, type Shot } from '../lib/shots';
 
 export interface BodySceneProps {
@@ -28,7 +32,13 @@ export interface BodySceneProps {
   narrationFiles: Record<number, string>;
   captions: CaptionToken[];
   shots: Shot[];
+  /** Segment-based timeline; empty → single-video path (see DeviceFrame). */
+  segments?: Segment[];
   kenBurns?: boolean;
+  /** Footage is higher-res than the output composition (crisper punch-ins). */
+  supersample?: boolean;
+  /** Ms of dead lead-in trimmed from the front of the footage (see render-all). */
+  trimBeforeMs?: number;
   resolveSrc: (v: string) => string;
 }
 
@@ -39,14 +49,16 @@ export const BodyScene: React.FC<BodySceneProps> = ({
   narrationFiles,
   captions,
   shots,
+  segments = [],
   kenBurns = true,
+  supersample = false,
+  trimBeforeMs = 0,
   resolveSrc,
 }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, height } = useVideoConfig();
   const nowMs = (frame / fps) * 1000;
   const active = activeShot(shots, nowMs);
-  const height = manifest.res.height;
 
   return (
     <AbsoluteFill>
@@ -54,7 +66,10 @@ export const BodyScene: React.FC<BodySceneProps> = ({
         src={src}
         source={source}
         shots={shots}
+        segments={segments}
         kenBurns={kenBurns}
+        supersample={supersample}
+        trimBeforeMs={trimBeforeMs}
       />
 
       {manifest.beats.map((beat, i) => {

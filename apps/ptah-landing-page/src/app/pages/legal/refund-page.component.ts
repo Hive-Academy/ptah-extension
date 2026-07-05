@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { SeoService } from '../../services/seo.service';
 import { RouterLink } from '@angular/router';
 import {
   ViewportAnimationDirective,
@@ -310,6 +311,15 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
   ],
 })
 export class RefundPageComponent {
+  constructor() {
+    inject(SeoService).setPage({
+      title: 'Refund Policy — Ptah',
+      description:
+        'Refund terms for Ptah Pro subscriptions, billed through Paddle.',
+      url: 'https://ptah.live/refund',
+    });
+  }
+
   public readonly headerConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.8,

@@ -8,14 +8,12 @@ import {
 } from '../config/auth-animation.configs';
 
 /**
- * AuthHeroComponent - Right side hero section
+ * AuthHeroComponent — right-side hero panel for the auth page.
  *
- * Displays:
- * - Temple background with parallax effect
- * - Gradient overlays
- * - Floating particles animation
- * - Feature card with multi-provider branding
- * - Active developers counter card
+ * Restores the Egyptian temple-bg.png backdrop (parallax + gradient veils + gold
+ * particles) behind the Operator Console floating cards. The `/login` and
+ * `/signup` routes render client-side (`RenderMode.Client`), so the GSAP viewport
+ * animations run normally with no prerender/hydration risk.
  */
 @Component({
   selector: 'ptah-auth-hero',
@@ -23,8 +21,10 @@ import {
   standalone: true,
   imports: [ViewportAnimationDirective, LucideAngularModule],
   template: `
-    <div class="hidden lg:block lg:w-1/2 relative overflow-hidden h-100vh">
-      <!-- Temple Background with parallax -->
+    <div
+      class="hidden lg:block lg:w-1/2 relative overflow-hidden h-100vh bg-ink-950"
+    >
+      <!-- Temple background with parallax -->
       <div
         viewportAnimation
         [viewportConfig]="cardAnimationConfig"
@@ -32,15 +32,15 @@ import {
         [style.backgroundImage]="'url(/assets/backgrounds/temple-bg.png)'"
       ></div>
 
-      <!-- Gradient Overlay -->
+      <!-- Left fade into the form column -->
       <div
-        class="absolute inset-0 bg-gradient-to-l from-transparent via-base-100/20 to-base-100"
+        class="absolute inset-0 bg-gradient-to-l from-transparent to-ink-950"
         aria-hidden="true"
       ></div>
 
-      <!-- Bottom Gradient -->
+      <!-- Bottom gradient -->
       <div
-        class="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-base-100/80 to-transparent"
+        class="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-ink-950/80 to-transparent"
         aria-hidden="true"
       ></div>
 
@@ -55,28 +55,26 @@ import {
       <div
         viewportAnimation
         [viewportConfig]="heroCardConfig"
-        class="absolute bottom-16 left-8 right-8 bg-base-200/90 backdrop-blur-xl
-               border border-secondary/20 rounded-2xl p-6 shadow-2xl
-               animate-float"
+        class="absolute bottom-16 left-8 right-8 bg-ink-900/90 backdrop-blur-xl
+               border border-amber-500/20 rounded-2xl p-6 shadow-2xl animate-float"
       >
         <div class="flex items-start gap-4">
           <div
-            class="w-12 h-12 rounded-xl bg-secondary/20 flex items-center justify-center shrink-0
-                   animate-glow-pulse"
+            class="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0 animate-glow-pulse"
           >
             <lucide-angular
               [img]="ZapIcon"
-              class="w-6 h-6 text-secondary"
+              class="w-6 h-6 text-amber-500"
               aria-hidden="true"
             />
           </div>
           <div>
             <h3 class="font-semibold text-white mb-1">
-              Multi-Provider AI Harness
+              Your AI Employee on the Desktop
             </h3>
-            <p class="text-sm text-neutral-content/70">
-              Orchestrate any AI provider through a unified visual interface
-              designed for VS Code.
+            <p class="text-sm text-ink-400">
+              Persistent memory, sub-agent orchestration, and scheduled runs —
+              one desktop app, any model.
             </p>
           </div>
         </div>
@@ -86,19 +84,18 @@ import {
       <div
         viewportAnimation
         [viewportConfig]="secondaryCardConfig"
-        class="absolute top-24 right-8 bg-base-200/80 backdrop-blur-xl
-               border border-secondary/10 rounded-xl px-4 py-3 shadow-xl
-               animate-float-delayed"
+        class="absolute top-24 right-8 bg-ink-900/80 backdrop-blur-xl
+               border border-amber-500/10 rounded-xl px-4 py-3 shadow-xl animate-float-delayed"
       >
         <div class="flex items-center gap-3">
           <div class="flex -space-x-2">
             <div
-              class="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-secondary flex items-center justify-center text-xs font-bold text-base-100"
+              class="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-xs font-bold text-ink-950"
             >
               5K+
             </div>
           </div>
-          <span class="text-sm text-neutral-content/70">Active developers</span>
+          <span class="text-sm text-ink-400">Active developers</span>
         </div>
       </div>
     </div>
@@ -133,10 +130,10 @@ import {
       @keyframes glow-pulse {
         0%,
         100% {
-          box-shadow: 0 0 20px rgba(212, 175, 55, 0.2);
+          box-shadow: 0 0 20px rgba(245, 165, 36, 0.2);
         }
         50% {
-          box-shadow: 0 0 30px rgba(212, 175, 55, 0.4);
+          box-shadow: 0 0 30px rgba(245, 165, 36, 0.4);
         }
       }
 
@@ -167,7 +164,7 @@ import {
         position: absolute;
         width: 6px;
         height: 6px;
-        background: linear-gradient(135deg, #d4af37, #f5d97d);
+        background: linear-gradient(135deg, #f5a524, #f5d97d);
         border-radius: 50%;
         opacity: 0;
       }
@@ -187,6 +184,15 @@ import {
         left: 80%;
         animation: particle-float 12s ease-in-out infinite;
         animation-delay: -10s;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .animate-float,
+        .animate-float-delayed,
+        .animate-glow-pulse,
+        .particle {
+          animation: none;
+        }
       }
     `,
   ],

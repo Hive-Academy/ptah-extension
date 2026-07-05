@@ -3,8 +3,8 @@ import {
   ChangeDetectionStrategy,
   signal,
   inject,
-  OnInit,
   DestroyRef,
+  afterNextRender,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   MoreHorizontal,
+  Download,
 } from 'lucide-angular';
 import { AuthService } from '../services/auth.service';
 
@@ -28,7 +29,7 @@ import { AuthService } from '../services/auth.service';
  * - Ptah logo and branding
  * - Navigation links: Pricing, Login/Profile (based on auth state)
  * - Discord link with icon
- * - VS Code Marketplace CTA button
+ * - Primary "Download Ptah" desktop-app CTA button
  * - Auth-aware: Shows Profile when logged in, Login/Sign Up when not
  */
 @Component({
@@ -42,7 +43,7 @@ import { AuthService } from '../services/auth.service';
       class="fixed top-0 left-0 right-0 z-50 h-16 px-4 sm:px-6 lg:px-16 flex items-center justify-between transition-all duration-300"
       [ngClass]="{
         'bg-transparent': !scrolled() && !mobileMenuOpen(),
-        'bg-slate-950/90 backdrop-blur-md shadow-lg border-b border-amber-500/10':
+        'bg-ink-900/90 backdrop-blur-md shadow-lg border-b border-ink-700':
           scrolled() || mobileMenuOpen(),
       }"
       role="navigation"
@@ -51,23 +52,23 @@ import { AuthService } from '../services/auth.service';
       <!-- Logo and Branding -->
       <a
         routerLink="/"
-        class="flex items-center gap-3 focus-visible:outline mt-10 focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
-        aria-label="Ptah Extension Home"
+        class="flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
+        aria-label="Ptah home"
         (click)="closeMobileMenu()"
       >
         <img
           ngSrc="/assets/icons/ptah-icon.png"
-          alt="Ptah Extension Logo"
+          alt="Ptah logo"
           width="96"
           height="96"
-          class="w-24 h-24"
+          class="w-11 h-11"
         />
       </a>
 
       <!-- Mobile Hamburger Button -->
       <button
         type="button"
-        class="md:hidden flex items-center justify-center w-11 h-11 rounded-lg text-white/80 hover:text-amber-400 hover:bg-white/5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+        class="md:hidden flex items-center justify-center w-11 h-11 rounded-lg text-white/80 hover:text-amber-500 hover:bg-white/5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
         [attr.aria-expanded]="mobileMenuOpen()"
         aria-controls="mobile-menu"
         aria-label="Toggle navigation menu"
@@ -81,17 +82,12 @@ import { AuthService } from '../services/auth.service';
       </button>
 
       <!-- Desktop Navigation Links + CTAs -->
-      <div
-        class="hidden md:flex items-center gap-6"
-        [ngClass]="{
-          'mt-4 transition-all': !scrolled() && !mobileMenuOpen(),
-        }"
-      >
+      <div class="hidden md:flex items-center gap-6">
         <!-- Features Anchor -->
         <a
           routerLink="/"
           fragment="features"
-          class="text-white/80 hover:text-amber-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
           aria-label="Jump to features"
         >
           Features
@@ -100,7 +96,7 @@ import { AuthService } from '../services/auth.service';
         <!-- Pricing Link -->
         <a
           routerLink="/pricing"
-          class="text-white/80 hover:text-amber-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
           aria-label="View pricing plans"
         >
           Pricing
@@ -111,7 +107,7 @@ import { AuthService } from '../services/auth.service';
           href="https://docs.ptah.live"
           target="_blank"
           rel="noopener noreferrer"
-          class="text-white/80 hover:text-amber-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
           aria-label="View documentation"
         >
           Docs
@@ -120,7 +116,7 @@ import { AuthService } from '../services/auth.service';
         <!-- Download Link -->
         <a
           routerLink="/download"
-          class="text-white/80 hover:text-amber-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
           aria-label="Download desktop app"
         >
           Download
@@ -130,7 +126,7 @@ import { AuthService } from '../services/auth.service';
           <!-- Profile Link (Authenticated) -->
           <a
             routerLink="/profile"
-            class="text-white/80 hover:text-amber-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1 flex items-center gap-1.5"
+            class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1 flex items-center gap-1.5"
             aria-label="View your profile"
           >
             <lucide-angular
@@ -159,7 +155,7 @@ import { AuthService } from '../services/auth.service';
           <!-- Login Link (Not Authenticated) -->
           <a
             routerLink="/login"
-            class="text-white/80 hover:text-amber-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+            class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
             aria-label="Sign in to your account"
           >
             Login
@@ -168,7 +164,7 @@ import { AuthService } from '../services/auth.service';
           <!-- Sign Up CTA (Not Authenticated) -->
           <a
             routerLink="/signup"
-            class="text-amber-400/90 hover:text-amber-300 border border-amber-500/30 hover:border-amber-400/50 px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+            class="text-amber-500 hover:text-amber-400 border border-ink-600 hover:border-amber-500/40 px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
             aria-label="Create an account"
           >
             Sign Up
@@ -285,15 +281,18 @@ import { AuthService } from '../services/auth.service';
           }
         </div>
 
-        <!-- Marketplace CTA -->
+        <!-- Primary Download CTA -->
         <a
-          href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="bg-gradient-to-r from-amber-500 to-amber-600 text-slate-900 px-5 py-2 rounded-lg font-semibold text-sm hover:from-amber-400 hover:to-amber-500 hover:scale-105 transition-all duration-200 shadow-lg shadow-amber-500/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-          aria-label="Install from VS Code Marketplace"
+          routerLink="/download"
+          class="inline-flex items-center justify-center gap-2 bg-amber-500 text-ink-950 px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+          aria-label="Download the Ptah desktop app"
         >
-          Get Extension
+          <lucide-angular
+            [img]="DownloadIcon"
+            class="w-4 h-4"
+            aria-hidden="true"
+          />
+          Download Ptah
         </a>
       </div>
     </nav>
@@ -302,7 +301,7 @@ import { AuthService } from '../services/auth.service';
     @if (mobileMenuOpen()) {
       <!-- Backdrop -->
       <div
-        class="fixed inset-0 z-40 bg-slate-950/80 backdrop-blur-sm md:hidden"
+        class="fixed inset-0 z-40 bg-ink-950/80 backdrop-blur-sm md:hidden"
         aria-hidden="true"
         (click)="closeMobileMenu()"
       ></div>
@@ -310,7 +309,7 @@ import { AuthService } from '../services/auth.service';
       <!-- Mobile Menu Panel -->
       <div
         id="mobile-menu"
-        class="fixed top-16 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-md border-b border-amber-500/10 md:hidden animate-slide-down"
+        class="fixed top-16 left-0 right-0 z-50 bg-ink-900/95 backdrop-blur-md border-b border-ink-700 md:hidden animate-slide-down"
         role="menu"
         aria-label="Mobile navigation menu"
       >
@@ -319,7 +318,7 @@ import { AuthService } from '../services/auth.service';
           <a
             routerLink="/"
             fragment="features"
-            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
             role="menuitem"
             (click)="closeMobileMenu()"
           >
@@ -329,7 +328,7 @@ import { AuthService } from '../services/auth.service';
           <!-- Pricing Link -->
           <a
             routerLink="/pricing"
-            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
             role="menuitem"
             (click)="closeMobileMenu()"
           >
@@ -341,7 +340,7 @@ import { AuthService } from '../services/auth.service';
             href="https://docs.ptah.live"
             target="_blank"
             rel="noopener noreferrer"
-            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
             role="menuitem"
             (click)="closeMobileMenu()"
           >
@@ -351,7 +350,7 @@ import { AuthService } from '../services/auth.service';
           <!-- Download Link -->
           <a
             routerLink="/download"
-            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
             role="menuitem"
             (click)="closeMobileMenu()"
           >
@@ -362,7 +361,7 @@ import { AuthService } from '../services/auth.service';
             <!-- Profile Link (Authenticated) -->
             <a
               routerLink="/profile"
-              class="flex items-center gap-2 px-4 py-3 text-white/80 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+              class="flex items-center gap-2 px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
               role="menuitem"
               (click)="closeMobileMenu()"
             >
@@ -392,7 +391,7 @@ import { AuthService } from '../services/auth.service';
             <!-- Login Link (Not Authenticated) -->
             <a
               routerLink="/login"
-              class="flex items-center px-4 py-3 text-white/80 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+              class="flex items-center px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
               role="menuitem"
               (click)="closeMobileMenu()"
             >
@@ -402,7 +401,7 @@ import { AuthService } from '../services/auth.service';
             <!-- Sign Up Link (Not Authenticated) -->
             <a
               routerLink="/signup"
-              class="flex items-center px-4 py-3 text-amber-400/90 hover:text-amber-300 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+              class="flex items-center px-4 py-3 text-amber-500 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
               role="menuitem"
               (click)="closeMobileMenu()"
             >
@@ -501,16 +500,19 @@ import { AuthService } from '../services/auth.service';
             LinkedIn
           </a>
 
-          <!-- Get Extension CTA -->
+          <!-- Primary Download CTA -->
           <a
-            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="flex items-center justify-center mt-2 mx-2 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-900 px-5 py-3 rounded-lg font-semibold text-base hover:from-amber-400 hover:to-amber-500 transition-all duration-200 shadow-lg shadow-amber-500/20"
+            routerLink="/download"
+            class="flex items-center justify-center gap-2 mt-2 mx-2 bg-amber-500 text-ink-950 px-5 py-3 rounded-lg font-semibold text-base hover:bg-amber-400 transition-all duration-200 shadow-lg shadow-amber-500/20"
             role="menuitem"
             (click)="closeMobileMenu()"
           >
-            Get Extension
+            <lucide-angular
+              [img]="DownloadIcon"
+              class="w-5 h-5"
+              aria-hidden="true"
+            />
+            Download Ptah
           </a>
         </div>
       </div>
@@ -540,13 +542,14 @@ import { AuthService } from '../services/auth.service';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class NavigationComponent implements OnInit {
+export class NavigationComponent {
   /** Lucide icon references */
   public readonly UserIcon = User;
   public readonly LogOutIcon = LogOut;
   public readonly MenuIcon = Menu;
   public readonly XIcon = X;
   public readonly MoreIcon = MoreHorizontal;
+  public readonly DownloadIcon = Download;
 
   private readonly authService = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
@@ -578,11 +581,8 @@ export class NavigationComponent implements OnInit {
    */
   public readonly isAuthenticated = signal<boolean | null>(null);
 
-  /**
-   * Initialize component - check auth state
-   */
-  public ngOnInit(): void {
-    this.checkAuthState();
+  constructor() {
+    afterNextRender(() => this.checkAuthState());
   }
 
   /**

@@ -1,0 +1,16 @@
+{
+  "scene": "skills-tour",
+  "lines": [
+    "Most AI tools forget everything the moment a session ends. Ptah learns from its own work.",
+    "You are inside Ptah, the AI coding orchestra, on the Skills tab — where wins become reusable skills. Let us open it up.",
+    "Every win gets captured for you, automatically — each successful session becomes a skill candidate.",
+    "You do not curate any of this. Thoth clusters similar wins into one reusable skill, on its own.",
+    "Each card is a capability you never wrote — a brand-new skill Ptah has proposed to itself.",
+    "And nothing lands without your say-so — open one, and read the full generated skill file.",
+    "Run a few sessions, and recommendations start appearing here on their own.",
+    "And there is no black box here — under the hood, you can inspect every session it captured.",
+    "Every row is raw evidence — one real session, feeding the clustering you just saw.",
+    "Click any one, and you can see exactly what it learned, and why.",
+    "So while other tools forget, Ptah remembers, distills, and gets better every single day."
+  ]
+}

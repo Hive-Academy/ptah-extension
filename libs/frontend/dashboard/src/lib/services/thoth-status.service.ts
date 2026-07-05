@@ -1,5 +1,13 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
 import {
+  Injectable,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
+import {
+  AppStateManager,
   VSCodeService,
   type MessageHandler,
   type ThothActiveTabId,
@@ -122,18 +130,39 @@ const PLATFORMS: readonly GatewayPlatformId[] = [
  * sidebar.
  *
  * Refresh strategy: lazy. The Thoth shell calls {@link refreshIfNeeded} on first
- * render. Cron and gateway calls are gated by `vscodeService.config().isElectron`
- * — VS Code surfaces `'desktop-only'` placeholders for those rows.
+ * render, and a constructor effect re-runs {@link refresh} whenever the active
+ * workspace root changes (Electron workspace switcher) so the memory tile
+ * tracks the workspace-scoped counts. Cron and gateway calls are gated by
+ * `vscodeService.config().isElectron` — VS Code surfaces `'desktop-only'`
+ * placeholders for those rows.
  *
  * No polling — re-call `refresh()` on user interaction (e.g. window focus).
  */
 @Injectable({ providedIn: 'root' })
 export class ThothStatusService implements MessageHandler {
   private readonly vscode = inject(VSCodeService);
+  private readonly appState = inject(AppStateManager);
   private readonly memoryRpc = inject(MemoryRpcService);
   private readonly skillsRpc = inject(SkillSynthesisRpcService);
   private readonly cronRpc = inject(CronRpcService);
   private readonly gatewayRpc = inject(GatewayRpcService);
+
+  /**
+   * Workspace root the effect below last observed. `undefined` means "no
+   * emission seen yet" — the first observation only records the value so the
+   * effect's initial run doesn't duplicate the shell's `refreshIfNeeded()`.
+   */
+  private lastWorkspaceRoot: string | null | undefined;
+
+  public constructor() {
+    effect(() => {
+      const root = this.appState.workspaceInfo()?.path ?? null;
+      const prev = this.lastWorkspaceRoot;
+      this.lastWorkspaceRoot = root;
+      if (prev === undefined || prev === root) return;
+      untracked(() => void this.refresh());
+    });
+  }
 
   public readonly handledMessageTypes = [
     MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
@@ -246,7 +275,10 @@ export class ThothStatusService implements MessageHandler {
 
   private async loadMemory(): Promise<void> {
     try {
-      const stats = await this.memoryRpc.stats();
+      // Scope to the active workspace so the sidebar tile matches the memory
+      // tab's workspace-filtered stats; null falls back to global counts.
+      const workspaceRoot = this.appState.workspaceInfo()?.path ?? null;
+      const stats = await this.memoryRpc.stats(workspaceRoot);
       const totalFacts = stats.core + stats.recall + stats.archival;
       this._memory.set({
         available: true,

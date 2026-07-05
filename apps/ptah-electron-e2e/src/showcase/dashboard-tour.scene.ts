@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmNavSurface } from './_harness/prewarm';
 
 /**
  * SHOWCASE — "Your card-driven home" (Dashboard tour).
@@ -11,6 +12,13 @@ import type { Locator, Page } from '@playwright/test';
  * nothing, runs NO agents, and is tuned for how it looks on camera: smooth
  * pointer travel, lower-third captions, generous dwell, and spotlight beats on
  * the hero cards.
+ *
+ * AUDIO-FIRST: the voiceover script lives in `scripts/dashboard-tour.json` and
+ * is narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)` speaks
+ * line i, holding for the REAL clip duration (durations.json) so narration,
+ * captions and footage stay locked — no estimated holds, no silent gaps.
+ * Element-targeted says + spotlight/hover auto-emit `shots.json`, punching the
+ * camera onto each card as the VO names it.
  *
  * Strictly NON-DESTRUCTIVE: it navigates, scrolls, hovers, and spotlights. It
  * never clicks "Convene a Tribunal" or any control that would start a paid run.
@@ -70,9 +78,22 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
   // film, then again after we switch surfaces.
   await director.dismissDialogs();
 
-  await director.caption('Every session, at a glance.');
-  await director.hold(1600);
-  await director.caption();
+  // PRE-WARM (trimmed lead-in, before the first beat): the Dashboard grid reads
+  // real session costs from JSONL on first mount. Force it now so
+  // `goToDashboard` below hits a warm grid instead of stalling between the
+  // warmup and orient beats. The date-range chip is only clicked later inside a
+  // beat; this pre-warm is navigation-only. Silent + guarded.
+  await prewarmNavSurface(
+    page,
+    'Dashboard',
+    '[data-testid="dashboard-grid"]',
+  ).catch(() => undefined);
+
+  // HOOK — fire immediately so the video opens on a question, not dead air.
+  await director.say(0);
+
+  // WARMUP — one line of context before the tour starts.
+  await director.say(1);
 
   await goToDashboard(page, director);
   await director.dismissDialogs();
@@ -80,25 +101,34 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
 
   const grid = page.locator('[data-testid="dashboard-grid"]').first();
 
-  await director.caption('This is your card-driven home.');
-  await director.hold(1400);
-  await director.caption();
+  await director.say(2);
 
-  // Reveal the full page top→bottom so every card scrolls into frame.
-  await director.caption('Scroll the whole surface…');
-  await director.scrollThrough(grid, { steps: 7, dwellMs: 700, andBack: true });
-  await director.caption();
+  // Reveal the full page top→bottom so every card scrolls into frame while the
+  // narration plays over the scroll.
+  await director.say(3, {
+    during: async () => {
+      await director.scrollThrough(grid, {
+        steps: 7,
+        dwellMs: 700,
+        andBack: true,
+      });
+    },
+  });
 
   // Hero card #1 — the Tribunal convene affordance (spotlight + hover only,
-  // never click: clicking would launch a multi-vendor panel).
+  // never click: clicking would launch a multi-vendor panel). The targeted
+  // caption punches the virtual camera onto the card as the VO names it.
   const tribunalCard = page
     .getByRole('button', { name: 'Convene a Tribunal' })
     .first();
   if (await isVisible(tribunalCard)) {
-    await director.caption('Convene a Tribunal — Council, Forge, or Race.');
-    await director.hover(tribunalCard, 700);
-    await director.spotlight(tribunalCard, 1800);
-    await director.caption();
+    await director.say(4, {
+      target: tribunalCard,
+      during: async () => {
+        await director.hover(tribunalCard, 700);
+        await director.spotlight(tribunalCard, 1800);
+      },
+    });
   }
 
   // Hero card #2 — the Session Analytics card (real costs from JSONL).
@@ -106,39 +136,52 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     .locator('section[aria-label="Session analytics"]')
     .first();
   if (await isVisible(analyticsCard)) {
-    await director.caption('Session Analytics — real costs from JSONL.');
-    await director.hover(analyticsCard, 700);
-    await director.spotlight(analyticsCard, 2000);
-    await director.caption();
+    await director.say(5, {
+      target: analyticsCard,
+      during: async () => {
+        await director.hover(analyticsCard, 700);
+        await director.spotlight(analyticsCard, 2000);
+      },
+    });
 
     // Hover into the aggregate metric cards if they rendered.
     const metricCard = page.locator('ptah-session-metrics-cards').first();
     if (await isVisible(metricCard)) {
-      await director.caption('Tokens, cost, and turns — aggregated.');
-      await director.hover(metricCard, 1400);
-      await director.caption();
+      await director.say(6, {
+        target: metricCard,
+        during: async () => {
+          await director.hover(metricCard, 1400);
+        },
+      });
     }
 
     // Non-destructive interaction: flip the date-range filter. This only
-    // re-reads local session history — no agent, no spend.
+    // re-reads local session history — no agent, no spend. The line is
+    // range-agnostic so it can be a fixed script line regardless of the
+    // env-chosen PTAH_SHOWCASE_DASHBOARD_RANGE.
     const rangeChip = analyticsCard
       .getByRole('group', { name: 'Filter sessions by date range' })
       .getByRole('button', { name: RANGE_LABEL })
       .first();
     if (await isVisible(rangeChip)) {
-      await director.caption('Filter by range — last ' + RANGE_LABEL + '.');
-      await director.click(rangeChip);
-      await director.hold(1200);
-      await director.caption();
+      await director.say(7, {
+        target: rangeChip,
+        during: async () => {
+          await director.click(rangeChip);
+        },
+      });
     }
 
     // Hover into a per-session stats card if present.
     const sessionCard = page.locator('ptah-session-stats-card').first();
     if (await isVisible(sessionCard)) {
-      await director.caption('Drill into any single session.');
-      await director.hover(sessionCard, 800);
-      await director.spotlight(sessionCard, 1600);
-      await director.caption();
+      await director.say(8, {
+        target: sessionCard,
+        during: async () => {
+          await director.hover(sessionCard, 800);
+          await director.spotlight(sessionCard, 1600);
+        },
+      });
     }
   }
 
@@ -158,7 +201,5 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     .catch(() => undefined);
   await director.hold(900);
 
-  await director.caption('One home. Every session. Real numbers.');
-  await director.hold(2600);
-  await director.caption();
+  await director.say(9, { breathMs: 950 });
 });

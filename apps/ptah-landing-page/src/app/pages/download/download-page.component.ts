@@ -1,8 +1,8 @@
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   inject,
-  OnInit,
   signal,
 } from '@angular/core';
 import {
@@ -19,6 +19,8 @@ import {
 import { NavigationComponent } from '../../components/navigation.component';
 import { FooterComponent } from '../../components/footer.component';
 import { GitHubReleaseService } from '../../services/github-release.service';
+import { SeoService } from '../../services/seo.service';
+import { ConsoleGridBackgroundComponent } from '../../components/console/console-grid-background.component';
 
 @Component({
   selector: 'ptah-download-page',
@@ -29,40 +31,30 @@ import { GitHubReleaseService } from '../../services/github-release.service';
     FooterComponent,
     ViewportAnimationDirective,
     LucideAngularModule,
+    ConsoleGridBackgroundComponent,
   ],
   template: `
     <div class="min-h-screen bg-base-100 text-base-content">
       <ptah-navigation />
 
       <!-- Hero Header -->
-      <div class="relative pt-32 pb-16 sm:pt-40 sm:pb-20 overflow-hidden">
-        <!-- Background layers -->
-        <div
-          class="absolute inset-0 opacity-40"
-          style="
-            background-image: url('/assets/backgrounds/hieroglyph-circuit-pattern.png');
-            background-repeat: repeat;
-            background-size: 400px 400px;
-          "
-          aria-hidden="true"
-        ></div>
-        <div
-          class="absolute inset-0 bg-gradient-to-b from-base-100/30 via-base-100/60 to-base-100"
-          aria-hidden="true"
-        ></div>
+      <div
+        class="relative bg-ink-950 pt-32 pb-16 sm:pt-40 sm:pb-20 overflow-hidden"
+      >
+        <ptah-console-grid-background [glow]="true" />
 
         <div class="relative z-10 max-w-5xl mx-auto px-6 sm:px-10">
           <h1
             viewportAnimation
             [viewportConfig]="headlineConfig"
-            class="text-4xl sm:text-5xl lg:text-6xl font-display font-bold leading-tight mb-4"
+            class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-tight mb-4"
           >
-            <span class="gradient-text-gold">Downloads</span>
+            Downloads
           </h1>
           <p
             viewportAnimation
             [viewportConfig]="subheadlineConfig"
-            class="text-lg sm:text-xl text-neutral-content max-w-2xl leading-relaxed"
+            class="text-lg sm:text-xl text-ink-400 max-w-2xl leading-relaxed"
           >
             Download the Ptah Desktop app for Windows, macOS, or Linux.
             Auto-updates keep you on the latest version.
@@ -369,7 +361,7 @@ import { GitHubReleaseService } from '../../services/github-release.service';
     `,
   ],
 })
-export class DownloadPageComponent implements OnInit {
+export class DownloadPageComponent {
   private readonly releaseService = inject(GitHubReleaseService);
 
   readonly DownloadIcon = Download;
@@ -407,19 +399,31 @@ export class DownloadPageComponent implements OnInit {
     threshold: 0.2,
   };
 
-  ngOnInit(): void {
-    this.releaseService.fetchReleases(3);
-    const checkExpand = setInterval(() => {
-      const r = this.releases();
-      if (r.length > 0 && !this.autoExpandApplied()) {
-        this.expandedSet.update((s) => new Set(s).add(r[0].tagName));
-        this.autoExpandApplied.set(true);
-        clearInterval(checkExpand);
-      }
-      if (!this.loading()) {
-        clearInterval(checkExpand);
-      }
-    }, 100);
+  constructor() {
+    inject(SeoService).setPage({
+      title: 'Download Ptah — AI Coding Agent for Windows, macOS & Linux',
+      description:
+        'Download Ptah for Windows, macOS, or Linux. Persistent memory, sub-agent orchestration, scheduled agents. 100-day free trial, no credit card.',
+      url: 'https://ptah.live/download',
+      ogTitle: 'Download Ptah — Windows, macOS & Linux',
+      ogDescription:
+        "The desktop AI coding agent that remembers your codebase and works while you're away. 100-day free trial, no credit card.",
+    });
+
+    afterNextRender(() => {
+      this.releaseService.fetchReleases(3);
+      const checkExpand = setInterval(() => {
+        const r = this.releases();
+        if (r.length > 0 && !this.autoExpandApplied()) {
+          this.expandedSet.update((s) => new Set(s).add(r[0].tagName));
+          this.autoExpandApplied.set(true);
+          clearInterval(checkExpand);
+        }
+        if (!this.loading()) {
+          clearInterval(checkExpand);
+        }
+      }, 100);
+    });
   }
 
   toggleRelease(tagName: string): void {

@@ -33,6 +33,7 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   VoiceAssetsUnavailableError,
   isModuleNotFound,
+  isVoiceBinNotFound,
 } from './voice-assets-error';
 import type { PipelineProgressInfo } from './whisper-transcriber';
 
@@ -259,15 +260,26 @@ export class KokoroSynthesizer extends EventEmitter {
         wav: new Uint8Array(audio.toWav()),
         sampleRate: audio.sampling_rate,
       };
-    } catch (err) {
+    } catch (err: unknown) {
+      // kokoro-js reads per-voice style vectors (voices/<name>.bin) from its
+      // own package dir with fs.readFile, ignoring the model cache. In a
+      // packaged app where that folder is missing this surfaces as a raw fs
+      // ENOENT; convert it to the typed error so the RPC surface returns a
+      // clean code + remediation instead of leaking the filesystem path.
+      const mapped = isVoiceBinNotFound(err)
+        ? new VoiceAssetsUnavailableError(
+            `kokoro voice pack (${voice && voice.length > 0 ? voice : this.voice}.bin)`,
+            err,
+          )
+        : err;
       if (!present) {
         this.emit('download', {
           kind: 'download:error',
           model: this.modelId,
-          error: err instanceof Error ? err.message : String(err),
+          error: mapped instanceof Error ? mapped.message : String(mapped),
         });
       }
-      throw err;
+      throw mapped;
     }
   }
 

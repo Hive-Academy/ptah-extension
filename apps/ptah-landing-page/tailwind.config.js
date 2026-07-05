@@ -9,38 +9,58 @@ module.exports = {
   ],
   theme: {
     extend: {
+      colors: {
+        ink: {
+          950: '#08090c',
+          900: '#0e1015',
+          850: '#12141a',
+          800: '#171a21',
+          700: '#262a33',
+          600: '#3a3f4b',
+          500: '#5b616f',
+          400: '#8b92a1',
+          300: '#b7bdc9',
+          100: '#e9ebef',
+        },
+        amber: { 400: '#ffbb4d', 500: '#f5a524', 600: '#c97e0e' },
+      },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'Menlo', 'monospace'],
-        display: ['Cinzel', 'Playfair Display', 'serif'],
+        // 'display' (Cinzel) REMOVED — do not carry it forward.
       },
       fontSize: {
         '8xl': ['6rem', { lineHeight: '1', letterSpacing: '-0.03em' }],
         '9xl': ['8rem', { lineHeight: '0.95', letterSpacing: '-0.04em' }],
       },
       animation: {
-        'glow-pulse': 'glow-pulse 2s ease-in-out infinite',
-        'pulse-ring': 'pulse-ring 2s ease-out infinite',
-        'divider-draw': 'divider-draw 1.5s ease-out forwards',
+        'glow-pulse': 'glow-pulse 2.2s ease-in-out infinite',
+        'pulse-ring': 'pulse-ring 2.2s ease-out infinite',
+        'divider-draw': 'divider-draw 1.2s ease-out forwards',
+        'status-blink': 'status-blink 2s ease-in-out infinite',
       },
       keyframes: {
         'glow-pulse': {
-          '0%, 100%': { boxShadow: '0 0 40px rgba(212, 175, 55, 0.3)' },
-          '50%': { boxShadow: '0 0 60px rgba(212, 175, 55, 0.5)' },
+          '0%, 100%': { boxShadow: '0 0 30px rgba(245,165,36,0.25)' },
+          '50%': { boxShadow: '0 0 46px rgba(245,165,36,0.40)' },
         },
         'pulse-ring': {
-          '0%': { boxShadow: '0 0 0 0 rgba(212, 175, 55, 0.4)' },
-          '50%': { boxShadow: '0 0 0 20px rgba(212, 175, 55, 0)' },
-          '100%': { boxShadow: '0 0 0 0 rgba(212, 175, 55, 0)' },
+          '0%': { boxShadow: '0 0 0 0 rgba(245,165,36,0.35)' },
+          '50%': { boxShadow: '0 0 0 14px rgba(245,165,36,0)' },
+          '100%': { boxShadow: '0 0 0 0 rgba(245,165,36,0)' },
         },
         'divider-draw': {
           from: { transform: 'translateX(-100%)' },
           to: { transform: 'translateX(0)' },
         },
+        'status-blink': {
+          '0%, 100%': { opacity: 1 },
+          '50%': { opacity: 0.35 },
+        },
       },
       boxShadow: {
-        'glow-gold': '0 0 60px rgba(212, 175, 55, 0.4)',
-        'glow-gold-lg': '0 0 100px rgba(212, 175, 55, 0.5)',
+        device: '0 30px 80px -20px rgba(0,0,0,0.65)',
+        'glow-amber': '0 0 60px rgba(245,165,36,0.28)',
       },
     },
   },
@@ -48,60 +68,44 @@ module.exports = {
   daisyui: {
     themes: [
       {
-        anubis: {
-          // PRIMARY: Lapis Lazuli Blue (Divine guidance, wisdom)
-          primary: '#1e3a8a',
-          'primary-focus': '#1e40af',
-          'primary-content': '#f5f5dc',
-
-          // SECONDARY: Pharaoh's Gold (Eternal accent)
-          secondary: '#d4af37',
-          'secondary-focus': '#92400e',
-          'secondary-content': '#0a0a0a',
-
-          // ACCENT: Gold Light (Highlights, warnings)
-          accent: '#fbbf24',
-          'accent-focus': '#d4af37',
-          'accent-content': '#0a0a0a',
-
-          // NEUTRAL: Obsidian grays (panels, cards)
-          neutral: '#1a1a1a',
-          'neutral-focus': '#2a2a2a',
-          'neutral-content': '#d1d5db',
-
-          // BASE: Background hierarchy (The Void)
-          'base-100': '#0a0a0a',
-          'base-200': '#1a1a1a',
-          'base-300': '#2a2a2a',
-          'base-content': '#f5f5dc',
-
-          // SEMANTIC COLORS (God Powers)
-          info: '#3b82f6',
-          'info-content': '#f5f5dc',
-
-          success: '#228b22',
-          'success-content': '#f5f5dc',
-
-          warning: '#fbbf24',
-          'warning-content': '#0a0a0a',
-
-          error: '#b22222',
-          'error-content': '#f5f5dc',
-
-          // DAISYUI CUSTOM PROPERTIES
+        operator: {
+          primary: '#f5a524',
+          'primary-focus': '#c97e0e',
+          'primary-content': '#08090c',
+          secondary: '#34d399',
+          'secondary-focus': '#10b981',
+          'secondary-content': '#08090c',
+          accent: '#ffbb4d',
+          'accent-focus': '#f5a524',
+          'accent-content': '#08090c',
+          neutral: '#12141a',
+          'neutral-focus': '#171a21',
+          'neutral-content': '#b7bdc9',
+          'base-100': '#08090c',
+          'base-200': '#0e1015',
+          'base-300': '#171a21',
+          'base-content': '#e9ebef',
+          info: '#38bdf8',
+          'info-content': '#08090c',
+          success: '#34d399',
+          'success-content': '#08090c',
+          warning: '#f5a524',
+          'warning-content': '#08090c',
+          error: '#fb7185',
+          'error-content': '#08090c',
           '--rounded-box': '0.75rem',
-          '--rounded-btn': '0.375rem',
-          '--rounded-badge': '0.25rem',
+          '--rounded-btn': '0.5rem',
+          '--rounded-badge': '999px',
           '--animation-btn': '0.15s',
           '--animation-input': '0.2s',
-          '--btn-focus-scale': '1.02',
+          '--btn-focus-scale': '1.0',
           '--border-btn': '1px',
           '--tab-border': '2px',
           '--tab-radius': '0.5rem',
         },
       },
     ],
-    darkTheme: 'anubis',
+    darkTheme: 'operator',
     base: true,
     styled: true,
     utils: true,

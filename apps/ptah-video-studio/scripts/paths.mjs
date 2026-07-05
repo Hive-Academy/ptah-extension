@@ -35,6 +35,27 @@ export const RECORDINGS_ROOT = path.resolve(
 /** App-local whisper.cpp binary + model cache (gitignored). */
 export const WHISPER_DIR = path.resolve(APP_ROOT, '.whisper');
 
+/**
+ * Load `apps/ptah-video-studio/.env` (gitignored; see .env.example) into
+ * process.env. Deliberately NOT the workspace-root .env — that file is the
+ * license server's and is injected into its Docker container via env_file;
+ * studio credentials (ELEVENLABS_API_KEY, …) must not leak there.
+ *
+ * Values already present in the environment win, so `--engine`-style shell
+ * exports and CI secrets override the file. Missing file is fine.
+ */
+export function loadStudioEnv() {
+  const envPath = path.join(APP_ROOT, '.env');
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
+    if (!match || line.trimStart().startsWith('#')) continue;
+    const [, key, rawValue] = match;
+    if (process.env[key] !== undefined) continue;
+    process.env[key] = rawValue.replace(/^(['"])(.*)\1$/, '$2');
+  }
+}
+
 /** Per-scene recording subdir, e.g. recordings/editor-tour. */
 export function sceneDir(scene) {
   return path.join(RECORDINGS_ROOT, scene);

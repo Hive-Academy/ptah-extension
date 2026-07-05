@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmThoth } from './_harness/prewarm';
 
 /**
  * P1.3 — "Skills synthesis" (deep dive on the Thoth Skills tab).
@@ -17,6 +18,13 @@ import type { Locator, Page } from '@playwright/test';
  *   6. payoff caption.
  *
  * Purely UI-driven: NO agents, NO LLM inference, so no `waitForAgentTurn`.
+ *
+ * AUDIO-FIRST: the voiceover script lives in `scripts/skills-tour.json` and is
+ * narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)` speaks line
+ * i, holding for the REAL clip duration (durations.json) so narration, captions
+ * and footage stay locked — no estimated holds, no silent gaps. Element-
+ * targeted says + spotlight/hover auto-emit `shots.json`, punching the camera
+ * onto each subject as the VO names it.
  *
  * NON-DESTRUCTIVE by design. We only OPEN read-only surfaces:
  * - the Recommended "Review" button (`suggestions-view-btn`) fetches and renders
@@ -88,64 +96,86 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
   // The persistent authed profile ALWAYS shows the trial modal on boot.
   await director.dismissDialogs();
 
-  await director.caption('Ptah learns from its own work.');
-  await director.hold(1700);
-  await director.caption();
+  // PRE-WARM (trimmed lead-in, before the first beat): the Skills tab's
+  // synthesis panel is SQLite/embedder-backed and slow on first mount. Force it
+  // now so `goToSkills` below hits a warm panel instead of stalling between the
+  // warmup and stats beats. Silent + guarded (see prewarm.ts).
+  await prewarmThoth(page, ['skills']).catch(() => undefined);
+
+  // HOOK — fire immediately so the video opens on a claim, not dead air.
+  await director.say(0);
+
+  // WARMUP — one line of context before the tour starts.
+  await director.say(1);
 
   const panel = await goToSkills(page, director);
 
   // 1) Land + read the stats strip: candidates / promoted / active skills.
-  await director.caption('Every successful session becomes a skill candidate.');
+  // Element-targeted onto the stats strip; the spotlight plays under the VO.
   const statsStrip = await firstVisible(panel, [
     '[aria-label="Skill synthesis statistics"]',
     '[data-testid="skills-stat-candidates"]',
   ]);
   if (statsStrip) {
-    await director.spotlight(statsStrip, 1700);
+    await director.say(2, {
+      target: statsStrip,
+      during: async () => {
+        await director.spotlight(statsStrip, 1700);
+      },
+    });
   } else {
-    await director.hold(1200);
+    await director.say(2);
   }
-  await director.caption();
 
   // 2) Pan the Recommended list — the default sub-view (cluster-distilled,
-  //    judge-gated skills awaiting review).
-  await director.caption(
-    'Thoth clusters similar wins into one reusable skill.',
-  );
-  await director.scrollThrough(panel, { steps: 5, dwellMs: 600 });
-  await director.caption();
+  //    judge-gated skills awaiting review). The scrollThrough plays under the VO.
+  await director.say(3, {
+    target: panel,
+    during: async () => {
+      await director.scrollThrough(panel, { steps: 5, dwellMs: 600 });
+    },
+  });
 
   // 3) Spotlight a single recommendation card (or gracefully narrate empty).
   const card = page.locator('[data-testid="suggestions-card"]').first();
   const hasRecommendation = await card.isVisible().catch(() => false);
 
   if (hasRecommendation) {
-    await director.caption('Each one is a skill it proposes to itself.');
-    await director.hover(card, 700);
-    await director.spotlight(card, 1500);
-    await director.caption();
+    // Element-targeted onto the card; hover(700) + spotlight(1500) play under
+    // the VO.
+    await director.say(4, {
+      target: card,
+      during: async () => {
+        await director.hover(card, 700);
+        await director.spotlight(card, 1500);
+      },
+    });
 
     // 4) Open the READ-ONLY review modal to reveal the SKILL.md body. The
-    //    "Review" button only fetches + renders — it mutates nothing.
+    //    "Review" button only fetches + renders — it mutates nothing. The click
+    //    + modal open + scroll loop all play under this lead-in line.
     const reviewBtn = card
       .locator('[data-testid="suggestions-view-btn"]')
       .first();
     if (await reviewBtn.isVisible().catch(() => false)) {
-      await director.caption('Open it to read the generated SKILL.md.');
-      await director.click(reviewBtn);
-
       const modal = page.locator('[data-testid="suggestions-view-modal"]');
-      await modal
-        .waitFor({ state: 'visible', timeout: 8_000 })
-        .catch(() => undefined);
-      const body = page.locator('[data-testid="suggestions-view-body"]');
-      if (await body.isVisible().catch(() => false)) {
-        await director.scrollThrough(body, { steps: 4, dwellMs: 650 });
-        await director.spotlight(body, 1500);
-      } else {
-        await director.spotlight(modal, 1500);
-      }
-      await director.caption();
+      await director.say(5, {
+        target: reviewBtn,
+        during: async () => {
+          await director.click(reviewBtn);
+
+          await modal
+            .waitFor({ state: 'visible', timeout: 8_000 })
+            .catch(() => undefined);
+          const body = page.locator('[data-testid="suggestions-view-body"]');
+          if (await body.isVisible().catch(() => false)) {
+            await director.scrollThrough(body, { steps: 4, dwellMs: 650 });
+            await director.spotlight(body, 1500);
+          } else {
+            await director.spotlight(modal, 1500);
+          }
+        },
+      });
 
       // Close the read-only modal without taking any action.
       const closeBtn = modal.getByRole('button', { name: 'Close' }).first();
@@ -165,15 +195,16 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
       '[data-testid="suggestions-empty"]',
       '[data-testid="suggestions-view"]',
     ]);
-    await director.caption(
-      'Recommendations appear once enough sessions cluster together.',
-    );
     if (empty) {
-      await director.spotlight(empty, 1700);
+      await director.say(6, {
+        target: empty,
+        during: async () => {
+          await director.spotlight(empty, 1700);
+        },
+      });
     } else {
-      await director.hold(1400);
+      await director.say(6);
     }
-    await director.caption();
   }
 
   // 5) Flip to the raw Sessions log — the per-session captures that feed the
@@ -182,48 +213,60 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
     .locator('[data-testid="skills-subview-candidates"]')
     .first();
   if (await sessionsTab.isVisible().catch(() => false)) {
-    await director.caption('Under the hood: every session it captured.');
-    await director.click(sessionsTab);
-    await director.hold(600);
-    await director.scrollThrough(panel, { steps: 4, dwellMs: 580 });
+    // The tab switch + scrollThrough loop play under this lead-in line.
+    await director.say(7, {
+      target: sessionsTab,
+      during: async () => {
+        await director.click(sessionsTab);
+        await director.hold(600);
+        await director.scrollThrough(panel, { steps: 4, dwellMs: 580 });
+      },
+    });
 
     const row = page.locator('[data-testid="skills-candidate-row"]').first();
     if (await row.isVisible().catch(() => false)) {
-      await director.hover(row, 600);
-      await director.spotlight(row, 1400);
-      await director.caption();
+      // Element-targeted onto the row; hover(600) + spotlight(1400) play under
+      // the VO.
+      await director.say(8, {
+        target: row,
+        during: async () => {
+          await director.hover(row, 600);
+          await director.spotlight(row, 1400);
+        },
+      });
 
-      // Clicking a row opens a READ-ONLY candidate detail modal.
-      await director.caption('Click one to inspect what it learned.');
-      await director.click(row);
-      const detail = page.locator(
-        '[data-testid="skills-candidate-detail-modal"]',
-      );
-      if (await detail.isVisible({ timeout: 6_000 }).catch(() => false)) {
-        await director.spotlight(detail, 1600);
-        const close = detail.getByRole('button', { name: 'Close' }).first();
-        if (await close.isVisible().catch(() => false)) {
-          await director.click(close);
-        } else {
-          await page.keyboard.press('Escape').catch(() => undefined);
-        }
-        await detail
-          .waitFor({ state: 'hidden', timeout: 5_000 })
-          .catch(() => undefined);
-      }
-      await director.caption();
+      // Clicking a row opens a READ-ONLY candidate detail modal. The click +
+      // modal open + spotlight loop play under this lead-in line.
+      await director.say(9, {
+        target: row,
+        during: async () => {
+          await director.click(row);
+          const detail = page.locator(
+            '[data-testid="skills-candidate-detail-modal"]',
+          );
+          if (await detail.isVisible({ timeout: 6_000 }).catch(() => false)) {
+            await director.spotlight(detail, 1600);
+            const close = detail.getByRole('button', { name: 'Close' }).first();
+            if (await close.isVisible().catch(() => false)) {
+              await director.click(close);
+            } else {
+              await page.keyboard.press('Escape').catch(() => undefined);
+            }
+            await detail
+              .waitFor({ state: 'hidden', timeout: 5_000 })
+              .catch(() => undefined);
+          }
+        },
+      });
     } else {
       const empty = await firstVisible(panel, [
         '[data-testid="skills-empty-state"]',
       ]);
       if (empty) await director.spotlight(empty, 1500);
-      await director.caption();
     }
     await director.dismissDialogs();
   }
 
   // 6) Payoff.
-  await director.caption('Ptah extracts reusable skills from its own work.');
-  await director.hold(2600);
-  await director.caption();
+  await director.say(10);
 });
