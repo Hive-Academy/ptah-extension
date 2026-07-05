@@ -1,131 +1,108 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { RouterLink } from '@angular/router';
 import {
-  ViewportAnimationDirective,
-  ViewportAnimationConfig,
-  ScrollAnimationDirective,
-  ScrollAnimationConfig,
-} from '@hive-academy/angular-gsap';
+  Component,
+  ChangeDetectionStrategy,
+  ElementRef,
+  afterNextRender,
+  inject,
+  DestroyRef,
+} from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { LucideAngularModule, CirclePlay, Download } from 'lucide-angular';
+import gsap from 'gsap';
+import { SplitText } from 'gsap/SplitText';
+import { ScrambleTextPlugin } from 'gsap/ScrambleTextPlugin';
+
+gsap.registerPlugin(SplitText, ScrambleTextPlugin);
+
+/** Slot-safe scramble glyphs — near-uniform width, ankh + geometry + binary. */
+const GLYPHS = '☥ΔΛΞΦϟ01▮▚';
 
 /**
- * HeroContentOverlayComponent - Hero text content with cinematic scroll animations
+ * HeroContentOverlayComponent — decrypt headline block (TASK_2026_153 winner:
+ * Temple × Decrypt × Engraving).
  *
- * Animation Strategy:
- * 1. ENTRANCE (viewport): Staggered reveal - badge → headline → subheadline → CTAs → stats
- * 2. EXIT (scroll): Cinematic fade-out + rise as user scrolls down
+ * Decrypt: SplitText chars are width-locked in place (inline-block, measured
+ * px width) so the scramble NEVER reflows the layout. Each character cycles
+ * glyph noise in amber and resolves to its final color in a slow
+ * left-to-right wave (~3s).
  *
- * The scroll exit creates a dramatic "leaving the temple" effect
+ * Engraving finish: once the headline has resolved, an amber band masked by
+ * the hieroglyph-circuit pattern sweeps across it once (light through a
+ * stencil), then a breathing amber glow settles on "It Ships."
+ *
+ * Reduced motion / no JS: the static DOM is already the final state — full
+ * headline, stencil at opacity 0, nothing hidden behind animation. The H1
+ * carries the real text via aria-label; animated spans are aria-hidden.
  */
 @Component({
   selector: 'ptah-hero-content-overlay',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ViewportAnimationDirective, ScrollAnimationDirective, RouterLink],
+  imports: [RouterLink, LucideAngularModule],
   template: `
-    <!-- Scroll-linked fade-out container for cinematic exit -->
-    <div
-      scrollAnimation
-      [scrollConfig]="contentScrollExitConfig"
-      class="flex flex-col items-center justify-center min-h-screen py-20 px-6 text-center max-w-4xl mx-auto"
-    >
-      <!-- Badge -->
-      <div
-        viewportAnimation
-        [viewportConfig]="badgeConfig"
-        class="inline-flex items-center gap-2 px-4 py-2 mb-10 bg-amber-500/10 border border-amber-500/20 rounded-full"
-      >
-        <span class="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span>
-        <span class="text-sm font-medium text-amber-300/90 tracking-wide"
-          >VS Code · Electron · CLI — One Platform, Every AI</span
-        >
-      </div>
-
-      <!-- Main Headline: Ptah -->
-      <h1
-        viewportAnimation
-        [viewportConfig]="headlineConfig"
-        class="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-bold mb-8 leading-none tracking-tight bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 bg-clip-text text-transparent"
-      >
-        Ptah
-      </h1>
-
-      <!-- Subheadline -->
+    <div class="max-w-4xl mx-auto px-6 text-center py-28">
       <p
-        viewportAnimation
-        [viewportConfig]="subheadlineConfig"
-        class="text-base md:text-lg lg:text-xl text-white/70 mb-12 max-w-2xl leading-relaxed font-light"
+        data-kicker
+        class="font-mono text-xs sm:text-sm uppercase tracking-[0.22em] text-amber-500/90"
       >
-        The AI coding orchestra that runs inside VS Code, as a standalone
-        desktop app, or headless in CI. Connect Claude, GitHub Copilot, OpenAI
-        Codex, or any local Ollama model — Ptah orchestrates them all.
+        Persistent · Multi-Agent · Always On
       </p>
 
-      <!-- CTA Buttons -->
-      <div
-        viewportAnimation
-        [viewportConfig]="ctaConfig"
-        class="flex flex-col sm:flex-row gap-5 sm:gap-6 mb-12 sm:mb-16 w-full sm:w-auto px-2 sm:px-0"
+      <h1
+        data-headline
+        aria-label="It Remembers. It Learns. It Ships."
+        class="relative mt-6 font-extrabold tracking-tight text-white [text-wrap:balance] text-4xl sm:text-5xl lg:text-6xl xl:text-7xl leading-[1.06]"
       >
-        <!-- VS Code Extension -->
-        <div class="relative">
+        <span aria-hidden="true" class="hl-stack relative overflow-hidden">
+          <span data-plain class="block"
+            >It Remembers. It Learns.
+            <span data-glow class="text-amber-500">It Ships.</span></span
+          >
           <span
-            class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-slate-900 border border-amber-400/50 text-[10px] font-bold text-amber-300 tracking-wide z-20 whitespace-nowrap"
-          >
-            100 DAYS TRIAL
-          </span>
-          <a
-            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
-            target="_blank"
-            rel="noopener"
-            class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"
-          >
-            <span class="relative z-[1]">Install VS Code Extension</span>
-          </a>
-        </div>
+            data-stencil
+            class="hl-stencil absolute inset-y-0 -left-1/3 w-1/3 pointer-events-none opacity-0"
+          ></span>
+        </span>
+      </h1>
 
-        <!-- Desktop App -->
-        <div class="relative">
-          <span
-            class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-slate-900 border border-amber-400/50 text-[10px] font-bold text-amber-300 tracking-wide z-20 whitespace-nowrap"
-          >
-            100 DAYS TRIAL
-          </span>
+      <p
+        data-reveal
+        class="mt-6 text-lg sm:text-xl text-ink-300 max-w-2xl mx-auto [text-wrap:balance]"
+      >
+        Your AI employee on the desktop — persistent memory of your codebase,
+        skills that compound with every task, and up to nine agents shipping in
+        parallel while you're away. Bring any model.
+      </p>
+
+      <div
+        data-reveal
+        class="mt-10 flex flex-col sm:flex-row justify-center items-center gap-4"
+      >
+        <div class="flex flex-col items-center w-full sm:w-auto">
           <a
             routerLink="/download"
-            class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"
+            class="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-amber-500 text-ink-950 font-semibold text-sm sm:text-base transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber active:bg-amber-600 active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+            aria-label="Download the Ptah desktop app"
           >
-            <span class="relative z-[1]">Download Desktop App</span>
+            <lucide-angular
+              [img]="DownloadIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Download Ptah
           </a>
+          <span class="text-xs text-ink-500 mt-2 text-center"
+            >100 days free. No credit card.</span
+          >
         </div>
-      </div>
 
-      <!-- Tertiary CLI ghost link -->
-      <a
-        viewportAnimation
-        [viewportConfig]="ctaConfig"
-        href="https://docs.ptah.live/providers/ptah-cli/"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="text-[#f4d47c]/70 hover:text-[#f4d47c] text-sm font-medium transition-colors mt-4 mb-8 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
-      >
-        Try the CLI →
-      </a>
-
-      <!-- Social Proof Stats -->
-      <div
-        viewportAnimation
-        [viewportConfig]="socialProofConfig"
-        class="grid grid-cols-2 gap-x-6 gap-y-4 sm:gap-6 md:flex md:flex-wrap md:justify-center md:gap-10 w-full max-w-sm sm:max-w-none mx-auto"
-      >
-        @for (stat of stats; track stat.value) {
-          <div class="flex items-baseline justify-center gap-1.5 sm:gap-2">
-            <span class="text-xl sm:text-2xl font-semibold text-white/90">{{
-              stat.value
-            }}</span>
-            <span class="text-xs sm:text-sm text-white/50">{{
-              stat.label
-            }}</span>
-          </div>
-        }
+        <a
+          href="#demo"
+          class="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-6 py-3.5 rounded-lg border border-ink-600 text-ink-100 font-medium text-sm sm:text-base transition-colors duration-200 hover:border-amber-500/40 hover:text-white hover:bg-ink-850 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+          aria-label="Watch Ptah in action"
+        >
+          <lucide-angular [img]="PlayIcon" class="w-4 h-4" aria-hidden="true" />
+          Watch it work
+        </a>
       </div>
     </div>
   `,
@@ -135,147 +112,148 @@ import {
         display: block;
       }
 
-      .cta-glow-button {
-        background: linear-gradient(
-          135deg,
-          rgba(212, 175, 55, 0.15) 0%,
-          rgba(212, 175, 55, 0.05) 50%,
-          rgba(212, 175, 55, 0.15) 100%
-        );
-        border: 1px solid rgba(212, 175, 55, 0.3);
-        box-shadow:
-          0 0 15px rgba(212, 175, 55, 0.15),
-          0 0 30px rgba(212, 175, 55, 0.05),
-          inset 0 1px 0 rgba(244, 212, 124, 0.1);
-        transition: all 0.3s ease;
+      .hl-stack {
+        display: grid;
+      }
+      .hl-stack > * {
+        grid-area: 1 / 1;
       }
 
-      .cta-glow-button:hover {
-        transform: translateY(-2px);
-        border-color: rgba(212, 175, 55, 0.5);
-        box-shadow:
-          0 0 20px rgba(212, 175, 55, 0.3),
-          0 0 50px rgba(212, 175, 55, 0.1),
-          inset 0 1px 0 rgba(244, 212, 124, 0.2);
-      }
-
-      /* Rotating beam element — sits behind the border */
-      .cta-glow-button::before {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 200%;
-        height: 200%;
-        background: conic-gradient(
-          from 0deg,
-          transparent 0%,
-          transparent 65%,
-          rgba(244, 212, 124, 0.7) 75%,
-          rgba(212, 175, 55, 1) 80%,
-          rgba(244, 212, 124, 0.7) 85%,
-          transparent 95%,
-          transparent 100%
-        );
-        animation: beam-spin 4s linear infinite;
-        z-index: 0;
-      }
-
-      /* Mask that reveals beam only on the border edge */
-      .cta-glow-button::after {
-        content: '';
-        position: absolute;
-        inset: 1px;
-        border-radius: 10px;
-        background: linear-gradient(
-          135deg,
-          rgba(15, 23, 42, 0.95) 0%,
-          rgba(15, 23, 42, 0.98) 50%,
-          rgba(15, 23, 42, 0.95) 100%
-        );
-        z-index: 0;
-      }
-
-      @keyframes beam-spin {
-        from {
-          transform: translate(-50%, -50%) rotate(0deg);
-        }
-        to {
-          transform: translate(-50%, -50%) rotate(360deg);
-        }
+      /* Light through a hieroglyph stencil: an amber band shaped by the
+         pattern, swept across the headline by GSAP. The pattern PNG is
+         opaque (24bpp, no alpha), so the mask MUST read luminance — with the
+         default alpha mode the band renders as a solid block. */
+      .hl-stencil {
+        background-color: rgba(245, 165, 36, 0.5);
+        mask-image: url('/assets/backgrounds/hieroglyph-circuit-pattern.png');
+        mask-size: 380px;
+        mask-mode: luminance;
+        mix-blend-mode: screen;
       }
     `,
   ],
 })
 export class HeroContentOverlayComponent {
-  public readonly stats = [
-    { value: '9', label: 'concurrent tiles' },
-    { value: '200+', label: 'LLM models' },
-    { value: '4', label: 'providers' },
-    { value: '100-day', label: 'free trial' },
-  ];
+  public readonly DownloadIcon = Download;
+  public readonly PlayIcon = CirclePlay;
+
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly destroyRef = inject(DestroyRef);
+
+  constructor() {
+    afterNextRender(() => {
+      const mm = gsap.matchMedia();
+      mm.add('(prefers-reduced-motion: no-preference)', () => {
+        const el = this.host.nativeElement;
+        this.animateChrome(el);
+        const decodeDone = this.decryptInPlace(el);
+        this.engrave(el, decodeDone);
+      });
+      this.destroyRef.onDestroy(() => mm.revert());
+    });
+  }
+
+  /** Kicker scramble + sub/CTA reveal. */
+  private animateChrome(el: HTMLElement): void {
+    const kicker = el.querySelector<HTMLElement>('[data-kicker]');
+    if (kicker) {
+      gsap.to(kicker, {
+        duration: 1.6,
+        scrambleText: {
+          text: kicker.textContent ?? '',
+          chars: 'upperCase',
+          speed: 0.25,
+        },
+        ease: 'none',
+      });
+    }
+
+    gsap.from(el.querySelectorAll('[data-reveal]'), {
+      y: 26,
+      opacity: 0,
+      duration: 0.9,
+      stagger: 0.14,
+      ease: 'power3.out',
+      delay: 1.3,
+    });
+  }
 
   /**
-   * Cinematic scroll exit - content fades out and rises as user scrolls
-   * Creates "ascending from the temple" effect
+   * In-place decrypt: every char is width-locked before scrambling, so the
+   * wave of glyph noise resolves with ZERO layout shift. Returns the time
+   * (seconds) at which the last character has settled.
    */
-  public readonly contentScrollExitConfig: ScrollAnimationConfig = {
-    animation: 'custom',
-    start: 'top top',
-    end: 'bottom 50%',
-    scrub: 1.2,
-    from: { opacity: 1, y: 0 },
-    to: { opacity: 0, y: -120 },
-  };
+  private decryptInPlace(el: HTMLElement): number {
+    const plain = el.querySelector<HTMLElement>('[data-plain]');
+    if (!plain) return 0;
+    const split = new SplitText(plain, { type: 'chars,words' });
+    const chars = split.chars as HTMLElement[];
+    const BASE_DELAY = 0.2;
+    const WAVE = 0.05;
+    let last = 0;
 
-  /**
-   * Badge entrance - quick scale in
-   */
-  public readonly badgeConfig: ViewportAnimationConfig = {
-    animation: 'scaleIn',
-    duration: 0.5,
-    threshold: 0.1,
-  };
+    chars.forEach((char) => {
+      char.style.width = `${char.offsetWidth}px`;
+      char.style.display = 'inline-block';
+      char.style.textAlign = 'center';
+    });
 
-  /**
-   * Headline entrance - dramatic slide up
-   */
-  public readonly headlineConfig: ViewportAnimationConfig = {
-    animation: 'slideUp',
-    duration: 0.8,
-    delay: 0.15,
-    threshold: 0.1,
-    ease: 'power2.out',
-  };
+    chars.forEach((char, i) => {
+      const finalColor = getComputedStyle(char).color;
+      const finalText = char.textContent ?? '';
+      const delay = BASE_DELAY + i * WAVE;
+      const duration = gsap.utils.random(1.2, 1.9);
+      char.style.color = 'rgba(245, 165, 36, 0.55)';
+      gsap.to(char, {
+        duration,
+        delay,
+        scrambleText: { text: finalText, chars: GLYPHS, speed: 0.28 },
+        ease: 'none',
+      });
+      gsap.to(char, {
+        color: finalColor,
+        duration: 0.6,
+        delay: delay + duration - 0.45,
+        ease: 'power1.inOut',
+      });
+      last = Math.max(last, delay + duration + 0.2);
+    });
 
-  /**
-   * Subheadline - fade in after headline
-   */
-  public readonly subheadlineConfig: ViewportAnimationConfig = {
-    animation: 'fadeIn',
-    duration: 0.7,
-    delay: 0.3,
-    threshold: 0.1,
-  };
+    gsap.delayedCall(last + 1.6, () => split.revert());
+    return last;
+  }
 
-  /**
-   * CTAs - slide up together
-   */
-  public readonly ctaConfig: ViewportAnimationConfig = {
-    animation: 'slideUp',
-    duration: 0.6,
-    delay: 0.45,
-    threshold: 0.1,
-    ease: 'power2.out',
-  };
-
-  /**
-   * Stats - fade in last
-   */
-  public readonly socialProofConfig: ViewportAnimationConfig = {
-    animation: 'fadeIn',
-    duration: 0.6,
-    delay: 0.6,
-    threshold: 0.1,
-  };
+  /** Engraving finish: stencil light-sweep, then breathing glow on "It Ships." */
+  private engrave(el: HTMLElement, at: number): void {
+    const stencil = el.querySelector<HTMLElement>('[data-stencil]');
+    if (stencil) {
+      gsap.fromTo(
+        stencil,
+        { xPercent: 0, autoAlpha: 1 },
+        {
+          xPercent: 500,
+          duration: 2.0,
+          ease: 'power2.inOut',
+          delay: at + 0.2,
+          onComplete: function (this: gsap.core.Tween) {
+            gsap.set(this.targets(), { autoAlpha: 0 });
+          },
+        },
+      );
+    }
+    // Re-query at fire time: split.revert() (at `last + 1.6`) replaces the
+    // headline's children, so a reference captured now would be detached.
+    gsap.delayedCall(at + 2.0, () => {
+      const glow = el.querySelector('[data-glow]');
+      if (glow) {
+        gsap.to(glow, {
+          textShadow: '0 0 34px rgba(245,165,36,0.55)',
+          duration: 2.8,
+          ease: 'sine.inOut',
+          yoyo: true,
+          repeat: -1,
+        });
+      }
+    });
+  }
 }

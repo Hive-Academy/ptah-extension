@@ -1,85 +1,81 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
 import {
-  ScrollAnimationDirective,
-  ScrollAnimationConfig,
-} from '@hive-academy/angular-gsap';
+  Component,
+  ChangeDetectionStrategy,
+  ElementRef,
+  afterNextRender,
+  inject,
+  DestroyRef,
+} from '@angular/core';
+import gsap from 'gsap';
 import { HeroContentOverlayComponent } from './hero-content-overlay.component';
-import { HeroFloatingImagesComponent } from './hero-floating-images.component';
+import { HeroDeviceShowcaseComponent } from './hero-device-showcase.component';
 
 /**
- * HeroComponent - Orchestrator for hero section with cinematic scroll animations
+ * HeroComponent — "Temple of the Machine" hero (TASK_2026_153, final round).
  *
- * Layer Structure (z-index order):
- * 1. Hieroglyph Circuit Pattern (z-0) - Parallax background (slowest)
- * 2. Dark Overlay (z-1) - Semi-transparent for readability
- * 3. Cinematic Vignette (z-2) - Darker corners with scroll intensity
- * 4. Floating Images (z-3) - Egyptian symbols with mouse + scroll parallax
- * 5. Content Overlay (z-10) - Text, CTAs, stats with scroll fade-out
+ * Layers:
+ * 1. Temple stage (min-h-screen): pyramid backdrop veiled at 0.16, four masked
+ *    Egyptian artifacts drifting on independent sine loops, and the centered
+ *    decrypt headline block (`HeroContentOverlayComponent`).
+ * 2. Device showcase + stat row below the fold.
  *
- * Scroll Animation Strategy:
- * - Background: Slow parallax (0.3 speed) creates depth
- * - Vignette: Intensifies on scroll for dramatic exit
- * - Content: Fades out and moves up as user scrolls (cinematic exit)
+ * Artifacts are scoped to the stage container so their percentage positions
+ * stay inside the first viewport, not the full section.
  */
 @Component({
   selector: 'ptah-hero',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    HeroContentOverlayComponent,
-    HeroFloatingImagesComponent,
-    ScrollAnimationDirective,
-  ],
+  imports: [HeroContentOverlayComponent, HeroDeviceShowcaseComponent],
   template: `
-    <section class="relative min-h-screen overflow-hidden bg-slate-950">
-      <!-- Layer 1: Hieroglyph Circuit Pattern with Scroll Parallax (z-0) -->
+    <section class="relative overflow-hidden bg-ink-950">
       <div
-        scrollAnimation
-        [scrollConfig]="backgroundParallaxConfig"
-        class="absolute inset-0 w-full h-[130%] -top-[15%] z-0"
-        style="
-          background-image: url('/assets/backgrounds/hieroglyph-circuit-pattern.png');
-          background-repeat: repeat;
-          background-size: 400px 400px;
-        "
-        aria-hidden="true"
-      ></div>
-
-      <!-- Layer 2: Dark Overlay for readability (z-1) -->
-      <div
-        class="absolute inset-0 z-[1] bg-gradient-to-b from-slate-950/70 via-slate-900/75 to-slate-950/80"
-        aria-hidden="true"
-      ></div>
-
-      <!-- Layer 3: Cinematic Vignette with Scroll Intensity (z-2) -->
-      <div
-        scrollAnimation
-        [scrollConfig]="vignetteScrollConfig"
-        class="vignette-container absolute inset-0 z-[2] pointer-events-none"
-        aria-hidden="true"
+        class="relative min-h-screen flex items-center justify-center overflow-hidden"
       >
-        <!-- Top-left corner -->
+        <!-- temple backdrop, veiled -->
         <div
-          class="absolute top-0 left-0 w-1/2 h-1/2 bg-gradient-to-br from-black/80 via-black/40 to-transparent"
+          class="absolute inset-0 opacity-[0.16]"
+          style="background-image: url('/assets/backgrounds/pyramid_energy_apex.png'); background-size: cover; background-position: center 30%;"
+          aria-hidden="true"
         ></div>
-        <!-- Top-right corner -->
         <div
-          class="absolute top-0 right-0 w-1/2 h-1/2 bg-gradient-to-bl from-black/80 via-black/40 to-transparent"
+          class="absolute inset-0 bg-gradient-to-b from-ink-950/70 via-transparent to-ink-950"
+          aria-hidden="true"
         ></div>
-        <!-- Bottom-left corner -->
-        <div
-          class="absolute bottom-0 left-0 w-1/2 h-1/2 bg-gradient-to-tr from-black/80 via-black/40 to-transparent"
-        ></div>
-        <!-- Bottom-right corner -->
-        <div
-          class="absolute bottom-0 right-0 w-1/2 h-1/2 bg-gradient-to-tl from-black/80 via-black/40 to-transparent"
-        ></div>
+
+        <!-- four artifacts, four depths -->
+        <img
+          data-float
+          src="/assets/textures/ankh-sphere.png"
+          alt=""
+          aria-hidden="true"
+          class="absolute left-[8%] top-[20%] w-24 lg:w-36 opacity-70 [mask-image:radial-gradient(circle,black_52%,transparent_71%)] pointer-events-none select-none will-change-transform"
+        />
+        <img
+          data-float
+          src="/assets/textures/scarab.png"
+          alt=""
+          aria-hidden="true"
+          class="absolute right-[10%] top-[14%] w-20 lg:w-28 opacity-50 blur-[1px] [mask-image:radial-gradient(circle,black_52%,transparent_71%)] pointer-events-none select-none will-change-transform"
+        />
+        <img
+          data-float
+          src="/assets/textures/eye_of_horus.png"
+          alt=""
+          aria-hidden="true"
+          class="absolute right-[6%] bottom-[18%] w-28 lg:w-40 opacity-65 [mask-image:radial-gradient(circle,black_52%,transparent_71%)] pointer-events-none select-none will-change-transform"
+        />
+        <img
+          data-float
+          src="/assets/textures/sun_disk_ra.png"
+          alt=""
+          aria-hidden="true"
+          class="absolute left-[10%] bottom-[12%] w-20 lg:w-32 opacity-40 blur-[2px] [mask-image:radial-gradient(circle,black_52%,transparent_71%)] pointer-events-none select-none will-change-transform"
+        />
+
+        <ptah-hero-content-overlay class="relative z-10" />
       </div>
 
-      <!-- Layer 4: Floating Egyptian Symbols with Mouse + Scroll Parallax (z-3) -->
-      <ptah-hero-floating-images class="z-[3]" />
-
-      <!-- Layer 5: Content Overlay with Scroll Fade-Out (z-10) -->
-      <ptah-hero-content-overlay class="relative z-10" />
+      <ptah-hero-device-showcase />
     </section>
   `,
   styles: [
@@ -91,26 +87,34 @@ import { HeroFloatingImagesComponent } from './hero-floating-images.component';
   ],
 })
 export class HeroComponent {
-  /**
-   * Background parallax - moves at 30% scroll speed for depth effect
-   * Creates the illusion of distance
-   */
-  public readonly backgroundParallaxConfig: ScrollAnimationConfig = {
-    animation: 'parallax',
-    speed: 0.3,
-    scrub: 1.5,
-  };
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly destroyRef = inject(DestroyRef);
 
-  /**
-   * Vignette intensity increases on scroll for dramatic effect
-   * Opacity goes from 1 to 1.3 (slightly stronger) as user scrolls
-   */
-  public readonly vignetteScrollConfig: ScrollAnimationConfig = {
-    animation: 'custom',
-    start: 'top top',
-    end: 'bottom 60%',
-    scrub: 1,
-    from: { opacity: 1 },
-    to: { opacity: 1.4 },
-  };
+  constructor() {
+    afterNextRender(() => {
+      const mm = gsap.matchMedia();
+      mm.add('(prefers-reduced-motion: no-preference)', () => {
+        const orbs =
+          this.host.nativeElement.querySelectorAll<HTMLElement>('[data-float]');
+        gsap.from(orbs, {
+          opacity: 0,
+          scale: 0.92,
+          duration: 1.4,
+          stagger: 0.15,
+          ease: 'power2.out',
+        });
+        orbs.forEach((orb, i) => {
+          gsap.to(orb, {
+            y: i % 2 === 0 ? -18 : 15,
+            duration: 3.4 + i * 0.7,
+            ease: 'sine.inOut',
+            yoyo: true,
+            repeat: -1,
+            delay: 0.3 * i,
+          });
+        });
+      });
+      this.destroyRef.onDestroy(() => mm.revert());
+    });
+  }
 }

@@ -31,9 +31,15 @@ const calculateMetadata: CalculateMetadataFunction<ShowcaseVideoProps> = ({
   props,
 }) => {
   const manifest = props.manifest ?? FALLBACK_MANIFEST;
+  // Output size = explicit --out-res override (render-all) if present, else the
+  // capture res from the manifest (native). When the capture is taller than the
+  // output, the footage is supersampled — DeviceFrame scales it down and the
+  // camera may punch in further (see props.supersample / dynamicMaxScale).
+  const width = props.outRes?.width ?? manifest.res.width;
+  const height = props.outRes?.height ?? manifest.res.height;
   return {
-    width: manifest.res.width,
-    height: manifest.res.height,
+    width,
+    height,
     fps: OUTPUT_FPS,
     durationInFrames: totalDurationInFrames(
       manifest,
@@ -68,6 +74,7 @@ const RemotionRoot: React.FC = () => {
         },
         shots: [],
         kenBurns: true,
+        supersample: false,
       }}
     />
   );

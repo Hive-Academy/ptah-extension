@@ -16,6 +16,13 @@ import type { Locator, Page } from '@playwright/test';
  * almost nothing and is tuned for how it reads on camera. Two real agent turns
  * run against the live authenticated workspace, so the footage is genuine.
  *
+ * AUDIO-FIRST: the voiceover script lives in `scripts/chat-code-edit.json`
+ * and is narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)`
+ * speaks line i, holding for the REAL clip duration (durations.json) so
+ * narration, captions and footage stay locked — no estimated holds, no silent
+ * gaps. Element-targeted says + spotlight/hover auto-emit `shots.json`,
+ * punching the camera onto each subject as the VO names it.
+ *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
  *   authenticated and a real workspace is restored.
@@ -86,13 +93,17 @@ async function exploreTransparency(
   // tool calls, and the rendered diff.
   const transcript = page.locator('[data-testid="chat-tool-output"]').first();
   if (await visible(transcript)) {
-    await director.caption('Scroll back through the whole turn.');
-    await director.scrollThrough(transcript, {
-      steps: 6,
-      dwellMs: 700,
-      andBack: true,
+    // scrollThrough (6 steps × 700ms, down and back) plays under the VO.
+    await director.say(0, {
+      target: transcript,
+      during: async () => {
+        await director.scrollThrough(transcript, {
+          steps: 6,
+          dwellMs: 700,
+          andBack: true,
+        });
+      },
     });
-    await director.caption();
   }
 
   // Spotlight the per-message stats (tokens / cost / time) on the latest
@@ -102,9 +113,12 @@ async function exploreTransparency(
     .last();
   const stats = assistantBubble.locator('ptah-session-stats-summary').first();
   if (await visible(stats)) {
-    await director.caption('Tokens, cost, and time — on every single turn.');
-    await director.spotlight(stats, 2000);
-    await director.caption();
+    await director.say(1, {
+      target: stats,
+      during: async () => {
+        await director.spotlight(stats, 2000);
+      },
+    });
   }
 
   // Hover the per-message "Branch conversation" affordance — fork from any
@@ -113,11 +127,12 @@ async function exploreTransparency(
     .locator('[aria-label="Branch conversation from this message"]')
     .first();
   if (await visible(branch)) {
-    await director.caption(
-      'Branch from any message to explore an alternative.',
-    );
-    await director.hover(branch, 1100);
-    await director.caption();
+    await director.say(2, {
+      target: branch,
+      during: async () => {
+        await director.hover(branch, 1100);
+      },
+    });
   }
 
   // Hover "Copy message" — one click to take the answer with you.
@@ -136,15 +151,19 @@ async function showAgentsPanel(page: Page, director: Director): Promise<void> {
   const toggle = page.locator('[aria-label="Toggle Agents panel"]').first();
   if (!(await visible(toggle))) return;
 
-  await director.caption('Every sub-agent it spawned is right here.');
-  await director.click(toggle);
-  await director.hold(1400);
+  // Narration plays while the panel opens, dwells, and spotlights — the
+  // click + hold(1400) + spotlight(1600) sequence runs under the VO.
+  await director.say(3, {
+    during: async () => {
+      await director.click(toggle);
+      await director.hold(1400);
 
-  const panel = page.locator('ptah-agent-monitor-panel').first();
-  if (await visible(panel)) {
-    await director.spotlight(panel, 1600);
-  }
-  await director.caption();
+      const panel = page.locator('ptah-agent-monitor-panel').first();
+      if (await visible(panel)) {
+        await director.spotlight(panel, 1600);
+      }
+    },
+  });
 
   // Close it again — prefer the panel's own close affordance, fall back to the
   // toggle tab. Either way the agents keep running untouched.
@@ -193,9 +212,11 @@ test('P6.1 — fix / edit code in a single chat', async ({ page, director }) => 
   // start filming — the persistent authed profile always shows it on launch.
   await director.dismissDialogs();
 
-  await director.caption('Stop copy-pasting code into a chatbot.');
-  await director.hold(1600);
-  await director.caption();
+  // HOOK — fire immediately so the video opens on a question, not dead air.
+  await director.say(4);
+
+  // WARMUP — one line of context before the workflow starts.
+  await director.say(5);
 
   // Land on the global Chat surface, then clear any modal that the navigation
   // may have surfaced.
@@ -204,17 +225,18 @@ test('P6.1 — fix / edit code in a single chat', async ({ page, director }) => 
   await director.hold();
 
   // Turn 1 — ask about the real codebase and prove workspace awareness.
-  await director.caption('Ask about your own codebase…');
-  await director.hold(900);
-  await director.caption();
+  await director.say(6);
 
-  await sendChatPrompt(page, director, ASK_PROMPT);
-  await director.waitForAgentTurn();
+  // The send + agent turn run under the VO.
+  await director.say(7, {
+    during: async () => {
+      await sendChatPrompt(page, director, ASK_PROMPT);
+      await director.waitForAgentTurn();
+    },
+  });
 
   // Hold on the grounded answer so the file:line citations are readable.
-  await director.caption('Real answers — with file:line references.');
-  await director.hold(3200);
-  await director.caption();
+  await director.say(8);
 
   // Pan back through the grounded answer so the citations + reasoning read on
   // camera before we ask for the edit.
@@ -228,26 +250,25 @@ test('P6.1 — fix / edit code in a single chat', async ({ page, director }) => 
   }
 
   // Turn 2 — a small, safe edit. Documentation only, no behavior change.
-  await director.caption('Now ask it to make the change…');
-  await director.hold(900);
-  await director.caption();
+  await director.say(9);
 
-  await sendChatPrompt(page, director, EDIT_PROMPT);
-  await director.waitForAgentTurn();
+  // The send + agent turn run under the VO.
+  await director.say(10, {
+    during: async () => {
+      await sendChatPrompt(page, director, EDIT_PROMPT);
+      await director.waitForAgentTurn();
+    },
+  });
 
   // Hold on the rendered diff — the inline edit is the payoff frame.
-  await director.caption('It edits the file and shows you the diff.');
-  await director.hold(3600);
-  await director.caption();
+  await director.say(11);
 
   // ── Transparency coda ─────────────────────────────────────────────────────
   // The edit landed. Now show WHY you can trust it: every turn is transparent —
   // cost, tokens, tools, the agents it ran, all visible. Everything below is
   // read-only; we never undo the edit or touch a running agent.
 
-  await director.caption('Every turn is transparent — nothing is hidden.');
-  await director.hold(1400);
-  await director.caption();
+  await director.say(12);
 
   // Pan the history, spotlight per-message stats, hover Branch + Copy.
   await exploreTransparency(page, director);
@@ -259,12 +280,13 @@ test('P6.1 — fix / edit code in a single chat', async ({ page, director }) => 
   // answered. Targeted via the trigger button inside the model selector.
   const modelBtn = page.locator('ptah-model-selector button[trigger]').first();
   if (await visible(modelBtn)) {
-    await director.caption('And you always know which model is answering.');
-    await director.spotlight(modelBtn, 1800);
-    await director.caption();
+    await director.say(13, {
+      target: modelBtn,
+      during: async () => {
+        await director.spotlight(modelBtn, 1800);
+      },
+    });
   }
 
-  await director.caption('No copy-paste. It sees your code, edits your files.');
-  await director.hold(2600);
-  await director.caption();
+  await director.say(14);
 });

@@ -1,0 +1,13 @@
+{
+  "scene": "cron-tour",
+  "lines": [
+    "Set it once, and forget it. What if your agents kept working long after you logged off?",
+    "This is Ptah, the AI coding orchestra, running on your desktop — on the Schedules tab, where you put agents on a clock. Let us take a look.",
+    "At a glance, you know exactly what is automated — how many jobs, and when the next one fires.",
+    "You write one line of cron, and Ptah does the rest — a full headless agent session, on repeat.",
+    "Every row is a task you never have to remember again — its name, its schedule, its status.",
+    "And you never have to wonder if it ran — open any job, and its full run history is right there.",
+    "Type a prompt, pick a schedule — nightly builds, daily digests, routine cleanup — then walk away.",
+    "So set it once, and forget it. Your agents work the night shift now — with no one at the keyboard."
+  ]
+}

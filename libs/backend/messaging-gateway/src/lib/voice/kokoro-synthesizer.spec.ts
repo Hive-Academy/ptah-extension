@@ -14,6 +14,7 @@ import {
   type TtsPipelineFactory,
 } from './kokoro-synthesizer';
 import type { PipelineProgressInfo } from './whisper-transcriber';
+import { VOICE_ASSETS_UNAVAILABLE } from './voice-assets-error';
 
 function makeLogger(): Logger {
   return {
@@ -157,6 +158,38 @@ describe('KokoroSynthesizer (kokoro-js TTS)', () => {
 
     await expect(s.downloadModel()).rejects.toThrow('load-boom');
     expect(events.at(-1)).toMatchObject({ kind: 'download:error' });
+  });
+
+  it('maps a missing voice .bin (fs ENOENT) to VoiceAssetsUnavailableError', async () => {
+    const enoent = Object.assign(
+      new Error(
+        "ENOENT: no such file or directory, open 'C:\\\\app\\\\resources\\\\voices\\\\am_michael.bin'",
+      ),
+      { code: 'ENOENT', path: 'C:\\app\\resources\\voices\\am_michael.bin' },
+    );
+    const generate = jest.fn().mockRejectedValue(enoent);
+    const factory = jest.fn(
+      async () => ({ generate }) as KokoroPipeline,
+    ) as unknown as TtsPipelineFactory;
+
+    const s = new KokoroSynthesizer(makeLogger());
+    s.configure({ pipelineFactory: factory });
+
+    await expect(s.synthesize('hi', 'am_michael')).rejects.toMatchObject({
+      code: VOICE_ASSETS_UNAVAILABLE,
+    });
+  });
+
+  it('rethrows unrelated synthesis errors unchanged', async () => {
+    const generate = jest.fn().mockRejectedValue(new Error('generate-boom'));
+    const factory = jest.fn(
+      async () => ({ generate }) as KokoroPipeline,
+    ) as unknown as TtsPipelineFactory;
+
+    const s = new KokoroSynthesizer(makeLogger());
+    s.configure({ pipelineFactory: factory });
+
+    await expect(s.synthesize('hi')).rejects.toThrow('generate-boom');
   });
 
   describe('isModelDownloaded', () => {

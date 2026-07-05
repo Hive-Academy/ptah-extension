@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MemoryRpcService } from '@ptah-extension/memory-curator-ui';
 import { SkillSynthesisRpcService } from '@ptah-extension/skill-synthesis-ui';
 import { CronRpcService } from '@ptah-extension/cron-scheduler-ui';
@@ -20,6 +20,10 @@ import { ThothStatusService } from './thoth-status.service';
 
 interface VscodeStub {
   config: ReturnType<typeof signal<{ isElectron: boolean }>>;
+}
+
+interface AppStateStub {
+  workspaceInfo: ReturnType<typeof signal<{ path: string } | null>>;
 }
 
 function makeJob(over: Partial<ScheduledJobDto>): ScheduledJobDto {
@@ -44,6 +48,7 @@ describe('ThothStatusService', () => {
   let cronRpc: jest.Mocked<CronRpcService>;
   let gatewayRpc: jest.Mocked<GatewayRpcService>;
   let vscode: VscodeStub;
+  let appState: AppStateStub;
 
   beforeEach(() => {
     memoryRpc = {
@@ -60,11 +65,13 @@ describe('ThothStatusService', () => {
       listBindings: jest.fn(),
     } as unknown as jest.Mocked<GatewayRpcService>;
     vscode = { config: signal({ isElectron: true }) };
+    appState = { workspaceInfo: signal<{ path: string } | null>(null) };
 
     TestBed.configureTestingModule({
       providers: [
         ThothStatusService,
         { provide: VSCodeService, useValue: vscode },
+        { provide: AppStateManager, useValue: appState },
         { provide: MemoryRpcService, useValue: memoryRpc },
         { provide: SkillSynthesisRpcService, useValue: skillsRpc },
         { provide: CronRpcService, useValue: cronRpc },
@@ -398,6 +405,76 @@ describe('ThothStatusService', () => {
       });
 
       expect(service.summary().gateway).toEqual(before);
+    });
+  });
+
+  describe('workspace scoping', () => {
+    const emptyStats: MemoryStatsResult = {
+      core: 0,
+      recall: 0,
+      archival: 0,
+      codeIndex: 0,
+      lastCuratedAt: null,
+    };
+
+    beforeEach(() => {
+      vscode.config.set({ isElectron: true });
+      memoryRpc.stats.mockResolvedValue(emptyStats);
+      skillsRpc.listCandidates.mockResolvedValue([]);
+      cronRpc.list.mockResolvedValue({ jobs: [] });
+      gatewayRpc.status.mockResolvedValue({ enabled: false, adapters: [] });
+      gatewayRpc.listBindings.mockResolvedValue({ bindings: [] });
+    });
+
+    it('scopes memory stats to the active workspace root', async () => {
+      appState.workspaceInfo.set({ path: '/ws-a' });
+
+      const service = TestBed.inject(ThothStatusService);
+      await service.refresh();
+
+      expect(memoryRpc.stats).toHaveBeenCalledWith('/ws-a');
+    });
+
+    it('passes null when no workspace is open (global stats)', async () => {
+      const service = TestBed.inject(ThothStatusService);
+      await service.refresh();
+
+      expect(memoryRpc.stats).toHaveBeenCalledWith(null);
+    });
+
+    it('re-refreshes all pillars when the workspace root changes', async () => {
+      appState.workspaceInfo.set({ path: '/ws-a' });
+
+      const service = TestBed.inject(ThothStatusService);
+      TestBed.tick(); // first effect run only records the current root
+      expect(memoryRpc.stats).not.toHaveBeenCalled();
+
+      await service.refresh();
+      expect(memoryRpc.stats).toHaveBeenCalledTimes(1);
+
+      appState.workspaceInfo.set({ path: '/ws-b' });
+      TestBed.tick();
+      await Promise.resolve();
+
+      expect(memoryRpc.stats).toHaveBeenCalledTimes(2);
+      expect(memoryRpc.stats).toHaveBeenLastCalledWith('/ws-b');
+      expect(skillsRpc.listCandidates).toHaveBeenCalledTimes(2);
+      expect(cronRpc.list).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not refresh when workspaceInfo re-emits the same root', async () => {
+      appState.workspaceInfo.set({ path: '/ws-a' });
+
+      const service = TestBed.inject(ThothStatusService);
+      TestBed.tick();
+      await service.refresh();
+      expect(memoryRpc.stats).toHaveBeenCalledTimes(1);
+
+      appState.workspaceInfo.set({ path: '/ws-a' });
+      TestBed.tick();
+      await Promise.resolve();
+
+      expect(memoryRpc.stats).toHaveBeenCalledTimes(1);
     });
   });
 

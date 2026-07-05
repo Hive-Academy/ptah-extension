@@ -62,6 +62,14 @@ export default [
                 'scope:extension',
               ],
             },
+            // e2e harnesses drive the runtime apps and consume shared
+            // contracts (e.g. @ptah-extension/showcase-manifest). Without
+            // this entry, scope:e2e matches no sourceTag and any workspace
+            // import trips projectWithoutTagsCannotHaveDependencies.
+            {
+              sourceTag: 'scope:e2e',
+              onlyDependOnLibsWithTags: ['scope:shared', 'scope:e2e'],
+            },
             {
               sourceTag: 'type:application',
               onlyDependOnLibsWithTags: [
@@ -109,6 +117,18 @@ export default [
             {
               sourceTag: 'type:core',
               onlyDependOnLibsWithTags: ['type:core', 'type:util'],
+            },
+            // e2e is an application-level consumer (mirrors type:app): it may
+            // depend on feature/data-access/ui/util/core libs it exercises.
+            {
+              sourceTag: 'type:e2e',
+              onlyDependOnLibsWithTags: [
+                'type:feature',
+                'type:data-access',
+                'type:ui',
+                'type:util',
+                'type:core',
+              ],
             },
           ],
         },

@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmNavSurface } from './_harness/prewarm';
 
 /**
  * P3.x — "One marketplace, every provider" (Marketplace surface tour).
@@ -10,6 +11,13 @@ import type { Locator, Page } from '@playwright/test';
  * provider to reveal its browse/search surface, then panning the listings. This
  * is a SCENE, not a test — it asserts almost nothing and is tuned for how it
  * looks on camera.
+ *
+ * AUDIO-FIRST: the voiceover script lives in `scripts/marketplace-tour.json`
+ * and is narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)`
+ * speaks line i, holding for the REAL clip duration (durations.json) so
+ * narration, captions and footage stay locked — no estimated holds, no silent
+ * gaps. Element-targeted says + spotlight/hover auto-emit `shots.json`,
+ * punching the camera onto each provider and listing as the VO names it.
  *
  * Everything here is NON-DESTRUCTIVE: we open providers, scroll listings,
  * spotlight cards and hover into detail. We NEVER click Install, purchase, or
@@ -38,25 +46,15 @@ import type { Locator, Page } from '@playwright/test';
  *   input ("Search MCP servers..." / "Search skills...").
  */
 
-/** A provider to open, with the line we narrate while its surface is up. */
-interface ProviderBeat {
-  /** Display name as it appears in the card `aria-label` ("Open <name>"). */
-  readonly name: string;
-  /** Single-line teaser caption shown while the provider surface is open. */
-  readonly caption: string;
-}
+/**
+ * Live providers to open in tour order — coming-soon stays teased. Script
+ * lines 3..4 in `scripts/marketplace-tour.json` narrate them — one line per
+ * provider, same order.
+ */
+const PROVIDER_NAMES: readonly string[] = ['MCP Registry', 'Skills'];
 
-/** Providers to open in tour order. Live ones only — coming-soon stays teased. */
-const PROVIDER_BEATS: readonly ProviderBeat[] = [
-  {
-    name: 'MCP Registry',
-    caption: 'Browse the official Model Context Protocol registry.',
-  },
-  {
-    name: 'Skills',
-    caption: 'Discover community skills, matched to your project.',
-  },
-];
+/** Script index of the first provider line in `scripts/marketplace-tour.json`. */
+const PROVIDER_SCRIPT_BASE = 3;
 
 /**
  * Click the first visible candidate from a list, easing the cursor to it.
@@ -98,9 +96,7 @@ async function goToMarketplace(page: Page, director: Director): Promise<void> {
  * eye lands on each tile, narrating the breadth of the registry.
  */
 async function tourProviderGrid(page: Page, director: Director): Promise<void> {
-  await director.caption('Plugins, MCP servers, skills — one place.');
-  await director.hold(1200);
-  await director.caption();
+  await director.say(2);
 
   // Spotlight the headline providers by their stable card aria-labels.
   for (const name of ['MCP Registry', 'Skills', 'Smithery']) {
@@ -119,49 +115,58 @@ async function tourProviderGrid(page: Page, director: Director): Promise<void> {
 async function tourProvider(
   page: Page,
   director: Director,
-  beat: ProviderBeat,
+  name: string,
+  scriptIndex: number,
 ): Promise<void> {
-  const card = page.getByRole('button', { name: `Open ${beat.name}` }).first();
+  const card = page.getByRole('button', { name: `Open ${name}` }).first();
   if (!(await card.isVisible().catch(() => false))) return;
 
-  await director.caption(beat.caption);
-  await director.click(card);
+  // The click + populate hold + spotlight + scroll all run inside `during`;
+  // say() keeps holding until the narration clip has finished.
+  await director.say(scriptIndex, {
+    target: card,
+    during: async () => {
+      await director.click(card);
 
-  // The selected surface mounts inside the hub; give it a beat to populate from
-  // the network, then pan its listings. The two live surfaces share a Browse
-  // search box + a results list, so scrolling the hub reveals the catalogue.
-  await director.hold(1400);
+      // The selected surface mounts inside the hub; give it a beat to populate
+      // from the network, then pan its listings. The two live surfaces share a
+      // Browse search box + a results list, so scrolling the hub reveals the
+      // catalogue.
+      await director.hold(1400);
 
-  const search = page
-    .locator(
-      'input[placeholder="Search MCP servers..."], input[placeholder="Search skills..."]',
-    )
-    .first();
-  if (await search.isVisible().catch(() => false)) {
-    await director.spotlight(search, 1100);
-  }
+      const search = page
+        .locator(
+          'input[placeholder="Search MCP servers..."], input[placeholder="Search skills..."]',
+        )
+        .first();
+      if (await search.isVisible().catch(() => false)) {
+        await director.spotlight(search, 1100);
+      }
 
-  // Reveal the listings — these run well past the viewport once loaded.
-  await director.scrollThrough(page.locator('ptah-marketplace-hub'), {
-    steps: 5,
-    dwellMs: 700,
-    andBack: true,
+      // Reveal the listings — these run well past the viewport once loaded.
+      await director.scrollThrough(page.locator('ptah-marketplace-hub'), {
+        steps: 5,
+        dwellMs: 700,
+        andBack: true,
+      });
+    },
   });
-  await director.caption();
 
   // Hover the first listing row to draw attention to an item's detail, without
-  // clicking the Install button next to it.
+  // clicking the Install button next to it. Script line 5 is shared by every
+  // provider visit — the same clip replays for each one.
   const firstRow = page
     .locator('ptah-marketplace-hub')
     .locator('.rounded-lg.border')
     .first();
   if (await firstRow.isVisible().catch(() => false)) {
-    await director.caption(
-      'Hover any item to size it up — install when ready.',
-    );
-    await director.spotlight(firstRow, 1400);
-    await director.hover(firstRow, 700);
-    await director.caption();
+    await director.say(5, {
+      target: firstRow,
+      during: async () => {
+        await director.spotlight(firstRow, 1400);
+        await director.hover(firstRow, 700);
+      },
+    });
   }
 
   // Back out to the provider overview for the next beat.
@@ -179,9 +184,20 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
 
-  await director.caption('Extend Ptah without leaving the app.');
-  await director.hold(1600);
-  await director.caption();
+  // PRE-WARM (trimmed lead-in, before the first beat): the Marketplace hub is
+  // Pro-gated and populates its provider registry from the network on first
+  // mount. Force that mount now so `goToMarketplace` below hits a warm hub
+  // instead of stalling between the warmup and overview beats. Silent + guarded;
+  // returns to the starting surface (no-op when the tab is gated off-screen).
+  await prewarmNavSurface(page, 'Marketplace', 'ptah-marketplace-hub').catch(
+    () => undefined,
+  );
+
+  // HOOK — fire immediately so the video opens on a question, not dead air.
+  await director.say(0);
+
+  // WARMUP — one line of context before the tour starts.
+  await director.say(1);
 
   // Enter the Marketplace; the trial modal can re-assert after navigation, so
   // dismiss again before we start the tour.
@@ -200,8 +216,8 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
     // Premium path — full tour of the registry.
     await tourProviderGrid(page, director);
 
-    for (const beat of PROVIDER_BEATS) {
-      await tourProvider(page, director, beat);
+    for (const [i, name] of PROVIDER_NAMES.entries()) {
+      await tourProvider(page, director, name, PROVIDER_SCRIPT_BASE + i);
     }
 
     // Tease the coming-soon provider so the breadth reads as "and more on the
@@ -210,24 +226,27 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
       .getByRole('button', { name: 'Open Composio' })
       .first();
     if (await composio.isVisible().catch(() => false)) {
-      await director.caption('…and more providers landing soon.');
-      await director.spotlight(composio, 1500);
-      await director.caption();
+      await director.say(6, {
+        target: composio,
+        during: async () => {
+          await director.spotlight(composio, 1500);
+        },
+      });
     }
   } else {
     // Non-premium / trial-ended path — narrate the Pro gate gracefully and pan
     // whatever copy is visible. No provider RPC fires here by design.
-    await director.caption('The Marketplace is a Pro feature.');
-    await director.hold(1600);
-    await director.scrollThrough(page.locator('ptah-marketplace-hub'), {
-      steps: 3,
-      dwellMs: 700,
-      andBack: true,
+    await director.say(7, {
+      during: async () => {
+        await director.hold(1600);
+        await director.scrollThrough(page.locator('ptah-marketplace-hub'), {
+          steps: 3,
+          dwellMs: 700,
+          andBack: true,
+        });
+      },
     });
-    await director.caption();
   }
 
-  await director.caption('Skills and servers, one click away.');
-  await director.hold(2600);
-  await director.caption();
+  await director.say(8, { breathMs: 950 });
 });

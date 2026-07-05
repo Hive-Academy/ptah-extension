@@ -1,0 +1,40 @@
+# Ptah
+
+> Ptah is a persistent, multi-agent AI coding agent desktop app for Windows, macOS, and Linux. It remembers your codebase across sessions, works in parallel across up to nine agents, runs on a schedule, and is reachable from Telegram, Discord, and Slack. It is provider-agnostic: Claude, GitHub Copilot, OpenAI Codex, OpenRouter (200+ models), local Ollama, Kimi K2, and GLM all run through the same app.
+
+## What Ptah is
+
+Ptah's desktop app is the primary product. Unlike autocomplete-class tools (Cursor, GitHub Copilot inline completion), Ptah is designed around four properties: persistence (it remembers), multi-agent execution (it parallelizes), schedulability (it runs unattended), and reachability (it answers outside the editor). Ptah also ships as a VS Code extension and a headless CLI, sharing one license with the desktop app, for users who want a lighter footprint without the desktop-exclusive suite below.
+
+## The seven differentiators
+
+1. **Persistent memory** — hybrid BM25 + vector search, fused with Reciprocal Rank Fusion, auto-curated across sessions.
+2. **Auto-learning skills curator** — extracts, judges, and promotes repeated session trajectories into reusable `SKILL.md` files.
+3. **Codebase indexing** — tree-sitter AST parsing and hybrid symbol search across JavaScript, TypeScript, Python, and Go.
+4. **Cron scheduler** — SQLite-backed, slot-claimed scheduled agent runs on any cron expression.
+5. **Messaging gateways** — trigger and approve agent work from Telegram, Discord, or Slack, including voice input and Discord per-thread sessions.
+6. **Sub-agent orchestration** — a main agent fans work out to parallel sub-agents across a three-tier hierarchy, each with its own provider and context.
+7. **Workflows and built-in skills library** — pre-built skills for common stacks, extendable via a skills registry.
+
+Bonus: **Orchestra Canvas** — up to 9 concurrent agent sessions in one drag-and-resize grid, each tile independently provider- and model-configured.
+
+## Supported model providers
+
+Claude, GitHub Copilot, OpenAI Codex, OpenRouter (200+ models), Ollama (local models), Kimi K2, GLM.
+
+## Pricing
+
+- **Community**: free forever, install from the VS Code Marketplace.
+- **Pro**: $5/month or $50/year, 100-day free trial, no credit card required. Unlocks the desktop-exclusive Memory, Skills, Cron, and Gateway suite.
+
+## License
+
+Ptah is open source under the FSL-1.1-MIT license, converting to MIT after two years.
+
+## Canonical links
+
+- Homepage: https://ptah.live
+- Download: https://ptah.live/download
+- Pricing: https://ptah.live/pricing
+- Documentation: https://docs.ptah.live
+- GitHub: https://github.com/Hive-Academy/ptah-extension

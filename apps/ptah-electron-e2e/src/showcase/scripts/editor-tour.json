@@ -1,0 +1,16 @@
+{
+  "scene": "editor-tour",
+  "lines": [
+    "Your AI agents write code all day. But where do you actually read it?",
+    "This is Ptah — an AI coding workspace. And it ships with a real editor, built right in. Let me show you.",
+    "Monaco, the file tree, and an integrated terminal — all together in one place.",
+    "Here is your whole project, in a file tree you already know how to use.",
+    "Click any file, and it opens straight into Monaco.",
+    "Monaco is the same engine that powers VS Code — so this is not a preview pane. It is the real thing.",
+    "Real source, real highlighting — right where your agents do their work.",
+    "Browse your whole workspace, right from the tree.",
+    "Need to run something? There is a full terminal built in too.",
+    "A real shell, living right beside your code — no window-hopping, no context lost.",
+    "Read it, browse it, run it — your code and your agents, finally in one place. That is Ptah."
+  ]
+}
