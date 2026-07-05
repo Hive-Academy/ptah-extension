@@ -5,13 +5,12 @@ import { CTASectionComponent } from '../sections/cta/cta-section.component';
 import { FooterComponent } from '../components/footer.component';
 import { HeroComponent } from '../sections/hero/hero.component';
 import { ProblemSectionComponent } from '../sections/problem/problem-section.component';
-import { OpenSourceSectionComponent } from '../sections/open-source/open-source-section.component';
 import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcase.component';
-import { RuntimesTriptychComponent } from '../sections/runtimes-triptych/runtimes-triptych.component';
 import { PillarMemoryComponent } from '../sections/pillar-memory/pillar-memory.component';
 import { PillarSkillsOrchestrationComponent } from '../sections/pillar-skills-orchestration/pillar-skills-orchestration.component';
 import { PillarAlwaysOnComponent } from '../sections/pillar-always-on/pillar-always-on.component';
 import { ProviderStripComponent } from '../sections/provider-strip/provider-strip.component';
+import { AlsoAvailableComponent } from '../sections/also-available/also-available.component';
 
 @Component({
   selector: 'ptah-landing-page',
@@ -21,44 +20,31 @@ import { ProviderStripComponent } from '../sections/provider-strip/provider-stri
     HeroComponent,
     ProblemSectionComponent,
     VideoShowcaseComponent,
-    RuntimesTriptychComponent,
     PillarMemoryComponent,
     PillarSkillsOrchestrationComponent,
     PillarAlwaysOnComponent,
     ProviderStripComponent,
-    OpenSourceSectionComponent,
     ComparisonSectionComponent,
+    AlsoAvailableComponent,
     CTASectionComponent,
     FooterComponent,
   ],
   template: `
-    <div class="min-h-screen bg-base-100 text-base-content">
+    <div class="min-h-screen bg-ink-950 text-ink-100">
       <ptah-navigation />
 
       <main>
+        <!-- S1 Promise -->
         <ptah-hero />
 
+        <!-- S2 Problem -->
         <ptah-problem-section />
 
+        <!-- S3 Demo -->
         <ptah-video-showcase />
 
-        <div class="relative overflow-hidden bg-slate-950" aria-hidden="true">
-          <img
-            src="/assets/backgrounds/circuit-divider.jpg"
-            alt=""
-            loading="lazy"
-            decoding="async"
-            class="w-full h-14 sm:h-20 object-cover opacity-50"
-          />
-          <div
-            class="absolute inset-0 bg-gradient-to-r from-slate-950 via-transparent to-slate-950"
-          ></div>
-        </div>
-
-        <ptah-runtimes-triptych />
-
         <!--
-          Pillars render eagerly (not @defer) so their SEO/GEO-bearing copy and
+          S4–S7 render eagerly (not @defer) so their SEO/GEO-bearing copy and
           citable claims ship in the prerendered static HTML. They are lightweight
           coded DOM (no images), and their entrance animations are SSG-safe
           (final DOM state fully opaque; the from-state is applied post-hydration).
@@ -73,36 +59,17 @@ import { ProviderStripComponent } from '../sections/provider-strip/provider-stri
 
         <ptah-provider-strip />
 
-        @defer (on viewport) {
-          <section id="open-source" aria-label="Open Source">
-            <ptah-open-source-section />
-          </section>
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
+        <!-- S8 Comparison -->
+        <ptah-comparison-section />
 
-        @defer (on viewport) {
-          <ptah-comparison-section />
-        } @placeholder {
-          <div class="min-h-screen"></div>
-        }
+        <!-- S9 Also Available (single VS Code / CLI mention) -->
+        <ptah-also-available />
 
-        <div class="relative overflow-hidden bg-slate-950" aria-hidden="true">
-          <img
-            src="/assets/backgrounds/circuit-divider.jpg"
-            alt=""
-            loading="lazy"
-            decoding="async"
-            class="w-full h-14 sm:h-20 object-cover opacity-50"
-          />
-          <div
-            class="absolute inset-0 bg-gradient-to-r from-slate-950 via-transparent to-slate-950"
-          ></div>
-        </div>
-
+        <!-- S10 Final CTA -->
         <ptah-cta-section />
       </main>
 
+      <!-- S11 Footer -->
       <ptah-footer />
     </div>
   `,

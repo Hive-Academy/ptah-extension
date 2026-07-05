@@ -22,7 +22,7 @@ interface FooterLink {
       class="overflow-hidden"
     >
       <div
-        class="h-px w-full bg-gradient-to-r from-transparent via-secondary/70 to-transparent"
+        class="h-px w-full bg-gradient-to-r from-transparent via-amber-500/60 to-transparent"
       ></div>
     </div>
 
@@ -43,22 +43,20 @@ interface FooterLink {
                 height="48"
                 class="w-12 h-12"
               />
-              <span class="font-display text-xl font-semibold text-[#f4d47c]"
-                >Ptah</span
-              >
+              <span class="text-xl font-semibold text-amber-500">Ptah</span>
             </div>
-            <p class="text-sm text-gray-400 leading-relaxed max-w-xs mb-3">
-              The AI coding orchestra. One harness for every provider, every
-              runtime, every workflow.
+            <p class="text-sm text-ink-400 leading-relaxed max-w-xs mb-3">
+              Ptah is a persistent, multi-agent AI coding desktop app. Choose
+              your model — no lock-in.
             </p>
-            <p class="text-xs text-gray-600">Powered by Claude Agent SDK</p>
+            <p class="text-xs text-ink-500">Powered by Claude Agent SDK</p>
             <div class="flex items-center gap-5 mt-7">
               @for (social of socialLinks; track social.label) {
                 <a
                   [href]="social.href"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-gray-500 hover:text-[#d4af37] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded"
+                  class="text-ink-500 hover:text-amber-500 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded"
                   [attr.aria-label]="social.label"
                 >
                   <svg
@@ -90,14 +88,14 @@ interface FooterLink {
                         [href]="link.href"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="text-sm text-gray-500 hover:text-[#f4d47c] transition-colors"
+                        class="text-sm text-ink-400 hover:text-amber-500 transition-colors"
                       >
                         {{ link.label }}
                       </a>
                     } @else {
                       <a
                         [routerLink]="link.href"
-                        class="text-sm text-gray-500 hover:text-[#f4d47c] transition-colors"
+                        class="text-sm text-ink-400 hover:text-amber-500 transition-colors"
                       >
                         {{ link.label }}
                       </a>
@@ -112,10 +110,12 @@ interface FooterLink {
         <div
           class="pt-8 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4"
         >
-          <p class="text-xs text-gray-600">
+          <p class="text-xs text-ink-500">
             © 2026 Ptah Extension. All rights reserved.
           </p>
-          <p class="text-xs text-gray-600">Craftsman of AI Development</p>
+          <p class="text-xs text-ink-500">
+            Persistent AI coding agent for developers.
+          </p>
         </div>
       </div>
     </footer>
@@ -130,8 +130,13 @@ export class FooterComponent {
         { label: 'Download', href: '/download', external: false },
         { label: 'Pricing', href: '/pricing', external: false },
         {
-          label: 'Marketplace',
+          label: 'VS Code Extension',
           href: 'https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra',
+          external: true,
+        },
+        {
+          label: 'CLI Docs',
+          href: 'https://docs.ptah.live/providers/ptah-cli/',
           external: true,
         },
         {

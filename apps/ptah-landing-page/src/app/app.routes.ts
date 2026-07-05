@@ -1,16 +1,8 @@
 import { Routes } from '@angular/router';
 import { LandingPageComponent } from './pages/landing-page.component';
-import { PricingPageComponent } from './pages/pricing/pricing-page.component';
-import { AuthPageComponent } from './pages/auth/auth-page.component';
-import { ProfilePageComponent } from './pages/profile/profile-page.component';
-import { TrialEndedPageComponent } from './pages/trial-ended/trial-ended-page.component';
 import { AdminAuthGuard } from './guards/admin-auth.guard';
 import { AuthGuard } from './guards/auth.guard';
 import { GuestGuard } from './guards/guest.guard';
-import { DownloadPageComponent } from './pages/download/download-page.component';
-import { TermsPageComponent } from './pages/legal/terms-page.component';
-import { PrivacyPageComponent } from './pages/legal/privacy-page.component';
-import { RefundPageComponent } from './pages/legal/refund-page.component';
 import { TrialStatusGuard } from './guards/trial-status.guard';
 
 /**
@@ -18,33 +10,15 @@ import { TrialStatusGuard } from './guards/trial-status.guard';
  *
  * Route definitions for the Ptah landing page and license system pages.
  *
- * Routes:
- * - `/` → Landing page (home)
- * - `/pricing` → Pricing plans page (protected by TrialStatusGuard)
- * - `/login` → Unified auth page (Sign In mode) - GuestGuard redirects to /profile if already logged in
- * - `/signup` → Unified auth page (Sign Up mode) - GuestGuard redirects to /profile if already logged in
- * - `/profile` → User dashboard with tabs: Account, Sessions, Contact (protected by AuthGuard + TrialStatusGuard)
- * - `/sessions` → Redirects to /profile (sessions tab lives under profile)
- * - `/contact` → Redirects to /profile (contact tab lives under profile)
- * - `/trial-ended` → Trial expired page (protected by AuthGuard only)
- * - `/**` → Wildcard redirects to home (404 handling)
+ * The home route is eager (primary entry). Every other page is lazy-loaded via
+ * `loadComponent` so the ancillary pages (pricing, download, auth, profile,
+ * legal) stay out of the home page's initial bundle — prerendering still works
+ * for the Prerender-mode routes in `app.routes.server.ts`.
  *
  * Guards:
  * - AuthGuard: Protects authenticated routes, redirects guests to /login
  * - GuestGuard: Protects guest-only routes, redirects authenticated users to /profile
  * - TrialStatusGuard: Redirects users with expired trials to /trial-ended
- *
- * Authentication:
- * Uses unified AuthPageComponent with child components:
- * - AuthFormComponent: Email/password form
- * - SocialLoginButtonsComponent: GitHub, Google OAuth
- * - AuthHeroComponent: Right-side hero section
- *
- * Backend Integration:
- * - POST /api/auth/login/email - Email/password login
- * - POST /api/auth/signup - User registration
- * - GET /api/auth/oauth/:provider - OAuth redirects
- * - POST /api/auth/magic-link - Passwordless login
  */
 export const routes: Routes = [
   {
@@ -65,26 +39,41 @@ export const routes: Routes = [
   },
   {
     path: 'download',
-    component: DownloadPageComponent,
+    loadComponent: () =>
+      import('./pages/download/download-page.component').then(
+        (m) => m.DownloadPageComponent,
+      ),
   },
   {
     path: 'pricing',
-    component: PricingPageComponent,
+    loadComponent: () =>
+      import('./pages/pricing/pricing-page.component').then(
+        (m) => m.PricingPageComponent,
+      ),
     canActivate: [TrialStatusGuard], // Redirect expired trials to /trial-ended
   },
   {
     path: 'login',
-    component: AuthPageComponent,
+    loadComponent: () =>
+      import('./pages/auth/auth-page.component').then(
+        (m) => m.AuthPageComponent,
+      ),
     canActivate: [GuestGuard],
   },
   {
     path: 'signup',
-    component: AuthPageComponent,
+    loadComponent: () =>
+      import('./pages/auth/auth-page.component').then(
+        (m) => m.AuthPageComponent,
+      ),
     canActivate: [GuestGuard],
   },
   {
     path: 'profile',
-    component: ProfilePageComponent,
+    loadComponent: () =>
+      import('./pages/profile/profile-page.component').then(
+        (m) => m.ProfilePageComponent,
+      ),
     canActivate: [AuthGuard, TrialStatusGuard], // Auth + trial status check
   },
   {
@@ -97,19 +86,31 @@ export const routes: Routes = [
   },
   {
     path: 'terms-and-conditions',
-    component: TermsPageComponent,
+    loadComponent: () =>
+      import('./pages/legal/terms-page.component').then(
+        (m) => m.TermsPageComponent,
+      ),
   },
   {
     path: 'privacy',
-    component: PrivacyPageComponent,
+    loadComponent: () =>
+      import('./pages/legal/privacy-page.component').then(
+        (m) => m.PrivacyPageComponent,
+      ),
   },
   {
     path: 'refund',
-    component: RefundPageComponent,
+    loadComponent: () =>
+      import('./pages/legal/refund-page.component').then(
+        (m) => m.RefundPageComponent,
+      ),
   },
   {
     path: 'trial-ended',
-    component: TrialEndedPageComponent,
+    loadComponent: () =>
+      import('./pages/trial-ended/trial-ended-page.component').then(
+        (m) => m.TrialEndedPageComponent,
+      ),
     canActivate: [AuthGuard], // Must be logged in, but no trial check
   },
   {
@@ -117,14 +118,6 @@ export const routes: Routes = [
     canActivate: [AdminAuthGuard],
     loadChildren: () =>
       import('./pages/admin/admin.routes').then((m) => m.ADMIN_ROUTES),
-    data: { hideFromNav: true },
-  },
-  {
-    path: 'hero-lab',
-    loadComponent: () =>
-      import('./pages/hero-lab/hero-lab-page.component').then(
-        (m) => m.HeroLabPageComponent,
-      ),
     data: { hideFromNav: true },
   },
   {
