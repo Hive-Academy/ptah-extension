@@ -1,8 +1,8 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { ViewportAnimationDirective } from '@hive-academy/angular-gsap';
 import { LucideAngularModule, Zap } from 'lucide-angular';
-import { ConsoleGridBackgroundComponent } from '../../../components/console/console-grid-background.component';
 import {
+  CARD_ANIMATION,
   HERO_CARD_ANIMATION,
   SECONDARY_CARD_ANIMATION,
 } from '../config/auth-animation.configs';
@@ -10,32 +10,46 @@ import {
 /**
  * AuthHeroComponent — right-side hero panel for the auth page.
  *
- * Restyled onto the Operator Console system: the Egyptian temple-bg.png image
- * and gold particles are replaced by a coded ConsoleGridBackground + amber
- * glow, and the feature card drops the VS Code-framed "harness" copy for the
- * desktop-first positioning. Two floating cards remain as light motion accents.
+ * Restores the Egyptian temple-bg.png backdrop (parallax + gradient veils + gold
+ * particles) behind the Operator Console floating cards. The `/login` and
+ * `/signup` routes render client-side (`RenderMode.Client`), so the GSAP viewport
+ * animations run normally with no prerender/hydration risk.
  */
 @Component({
   selector: 'ptah-auth-hero',
   changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
-  imports: [
-    ViewportAnimationDirective,
-    LucideAngularModule,
-    ConsoleGridBackgroundComponent,
-  ],
+  imports: [ViewportAnimationDirective, LucideAngularModule],
   template: `
     <div
       class="hidden lg:block lg:w-1/2 relative overflow-hidden h-100vh bg-ink-950"
     >
-      <!-- Coded ambient background -->
-      <ptah-console-grid-background [glow]="true" />
+      <!-- Temple background with parallax -->
+      <div
+        viewportAnimation
+        [viewportConfig]="cardAnimationConfig"
+        class="absolute inset-0 bg-cover bg-center bg-no-repeat scale-110"
+        [style.backgroundImage]="'url(/assets/backgrounds/temple-bg.png)'"
+      ></div>
 
       <!-- Left fade into the form column -->
       <div
         class="absolute inset-0 bg-gradient-to-l from-transparent to-ink-950"
         aria-hidden="true"
       ></div>
+
+      <!-- Bottom gradient -->
+      <div
+        class="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-ink-950/80 to-transparent"
+        aria-hidden="true"
+      ></div>
+
+      <!-- Floating particles -->
+      <div class="absolute inset-0 pointer-events-none overflow-hidden">
+        <div class="particle particle-1"></div>
+        <div class="particle particle-2"></div>
+        <div class="particle particle-3"></div>
+      </div>
 
       <!-- Main Floating Card -->
       <div
@@ -127,10 +141,56 @@ import {
         animation: glow-pulse 3s ease-in-out infinite;
       }
 
+      /* Floating particles */
+      @keyframes particle-float {
+        0%,
+        100% {
+          transform: translateY(100vh) rotate(0deg);
+          opacity: 0;
+        }
+        10% {
+          opacity: 0.6;
+        }
+        90% {
+          opacity: 0.6;
+        }
+        100% {
+          transform: translateY(-100px) rotate(720deg);
+          opacity: 0;
+        }
+      }
+
+      .particle {
+        position: absolute;
+        width: 6px;
+        height: 6px;
+        background: linear-gradient(135deg, #f5a524, #f5d97d);
+        border-radius: 50%;
+        opacity: 0;
+      }
+
+      .particle-1 {
+        left: 20%;
+        animation: particle-float 15s ease-in-out infinite;
+      }
+
+      .particle-2 {
+        left: 50%;
+        animation: particle-float 18s ease-in-out infinite;
+        animation-delay: -5s;
+      }
+
+      .particle-3 {
+        left: 80%;
+        animation: particle-float 12s ease-in-out infinite;
+        animation-delay: -10s;
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .animate-float,
         .animate-float-delayed,
-        .animate-glow-pulse {
+        .animate-glow-pulse,
+        .particle {
           animation: none;
         }
       }
@@ -142,6 +202,7 @@ export class AuthHeroComponent {
   public readonly ZapIcon = Zap;
 
   /** Animation configurations */
+  public readonly cardAnimationConfig = CARD_ANIMATION;
   public readonly heroCardConfig = HERO_CARD_ANIMATION;
   public readonly secondaryCardConfig = SECONDARY_CARD_ANIMATION;
 }
