@@ -212,17 +212,22 @@ test('P6.1 — fix / edit code in a single chat', async ({ page, director }) => 
   // start filming — the persistent authed profile always shows it on launch.
   await director.dismissDialogs();
 
+  // Navigate + settle BEFORE the first beat: land on the global Chat surface
+  // (the subject surface) so the hook airs over chat rather than the stale
+  // restored boot surface. Everything until the hook is trimmed by render-all's
+  // lead-in trim, so this navigation never airs. This scene appends its two real
+  // turns into the active chat conversation — there is no separate fresh-session
+  // affordance in the flow, so `goToChat` is the only navigation to relocate;
+  // the agent interactions below are left untouched.
+  await goToChat(page, director);
+  await director.dismissDialogs();
+  await director.hold();
+
   // HOOK — fire immediately so the video opens on a question, not dead air.
   await director.say(4);
 
   // WARMUP — one line of context before the workflow starts.
   await director.say(5);
-
-  // Land on the global Chat surface, then clear any modal that the navigation
-  // may have surfaced.
-  await goToChat(page, director);
-  await director.dismissDialogs();
-  await director.hold();
 
   // Turn 1 — ask about the real codebase and prove workspace awareness.
   await director.say(6);

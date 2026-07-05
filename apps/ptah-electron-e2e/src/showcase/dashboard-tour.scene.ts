@@ -1,7 +1,6 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
-import { prewarmNavSurface } from './_harness/prewarm';
 
 /**
  * SHOWCASE — "Your card-driven home" (Dashboard tour).
@@ -78,26 +77,20 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
   // film, then again after we switch surfaces.
   await director.dismissDialogs();
 
-  // PRE-WARM (trimmed lead-in, before the first beat): the Dashboard grid reads
-  // real session costs from JSONL on first mount. Force it now so
-  // `goToDashboard` below hits a warm grid instead of stalling between the
-  // warmup and orient beats. The date-range chip is only clicked later inside a
-  // beat; this pre-warm is navigation-only. Silent + guarded.
-  await prewarmNavSurface(
-    page,
-    'Dashboard',
-    '[data-testid="dashboard-grid"]',
-  ).catch(() => undefined);
+  // Navigate + clean up BEFORE the first beat: everything until the hook is
+  // trimmed by render-all's lead-in trim, so this surface swap never airs — and
+  // the hook lands on the Dashboard instead of the stale restored surface. This
+  // navigation also forces the grid's first-mount (real session costs from
+  // JSONL), so no separate pre-warm is needed.
+  await goToDashboard(page, director);
+  await director.dismissDialogs();
+  await director.hold();
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
   await director.say(0);
 
   // WARMUP — one line of context before the tour starts.
   await director.say(1);
-
-  await goToDashboard(page, director);
-  await director.dismissDialogs();
-  await director.hold();
 
   const grid = page.locator('[data-testid="dashboard-grid"]').first();
 
