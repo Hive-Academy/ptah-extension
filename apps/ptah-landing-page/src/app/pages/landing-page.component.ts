@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { SeoService } from '../services/seo.service';
 import { NavigationComponent } from '../components/navigation.component';
 import { ComparisonSectionComponent } from '../sections/comparison/comparison-section.component';
 import { CTASectionComponent } from '../sections/cta/cta-section.component';
@@ -83,4 +84,16 @@ import { AlsoAvailableComponent } from '../sections/also-available/also-availabl
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class LandingPageComponent {}
+export class LandingPageComponent {
+  constructor() {
+    inject(SeoService).setPage({
+      title: 'Ptah — Persistent, Multi-Agent AI Coding Agent for Your Desktop',
+      description:
+        'A desktop AI coding agent that remembers your codebase, runs agents in parallel, and works on a schedule. Reachable from Telegram & Slack. Free trial.',
+      url: 'https://ptah.live',
+      ogTitle: 'Ptah — It Remembers. It Learns. It Ships.',
+      ogDescription:
+        'A persistent, multi-agent AI coding desktop app. Remembers your codebase, works in parallel, runs on a schedule, and answers from Telegram, Discord, or Slack.',
+    });
+  }
+}

@@ -19,6 +19,7 @@ import {
 import { NavigationComponent } from '../../components/navigation.component';
 import { FooterComponent } from '../../components/footer.component';
 import { GitHubReleaseService } from '../../services/github-release.service';
+import { SeoService } from '../../services/seo.service';
 
 @Component({
   selector: 'ptah-download-page',
@@ -408,6 +409,16 @@ export class DownloadPageComponent {
   };
 
   constructor() {
+    inject(SeoService).setPage({
+      title: 'Download Ptah — AI Coding Agent for Windows, macOS & Linux',
+      description:
+        'Download Ptah for Windows, macOS, or Linux. Persistent memory, sub-agent orchestration, scheduled agents. 100-day free trial, no credit card.',
+      url: 'https://ptah.live/download',
+      ogTitle: 'Download Ptah — Windows, macOS & Linux',
+      ogDescription:
+        "The desktop AI coding agent that remembers your codebase and works while you're away. 100-day free trial, no credit card.",
+    });
+
     afterNextRender(() => {
       this.releaseService.fetchReleases(3);
       const checkExpand = setInterval(() => {
