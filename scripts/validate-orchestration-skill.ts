@@ -111,6 +111,7 @@ const REQUIRED_AGENTS: readonly string[] = [
   'researcher-expert',
   'modernization-detector',
   'ui-ux-designer',
+  'visual-reviewer',
   'technical-content-writer',
 ] as const;
 
@@ -141,7 +142,7 @@ const SKILL_ROOT: string = path.join(
   process.cwd(),
   '.claude',
   'skills',
-  'orchestration'
+  'orchestration',
 );
 const AGENTS_DIR: string = path.join(process.cwd(), '.claude', 'agents');
 const REFERENCES_DIR: string = path.join(SKILL_ROOT, 'references');
@@ -164,11 +165,11 @@ function logError(error: ValidationError): void {
   console.log(
     `  ${colors.red}[${error.type.toUpperCase()}]${colors.reset} ${
       error.file
-    }${lineInfo}`
+    }${lineInfo}`,
   );
   console.log(`    ${colors.yellow}Message:${colors.reset} ${error.message}`);
   console.log(
-    `    ${colors.cyan}Suggestion:${colors.reset} ${error.suggestion}`
+    `    ${colors.cyan}Suggestion:${colors.reset} ${error.suggestion}`,
   );
 }
 
@@ -179,11 +180,11 @@ function logError(error: ValidationError): void {
 function logWarning(warning: ValidationError): void {
   const lineInfo = warning.line ? `:${warning.line}` : '';
   console.log(
-    `  ${colors.yellow}[WARNING]${colors.reset} ${warning.file}${lineInfo}`
+    `  ${colors.yellow}[WARNING]${colors.reset} ${warning.file}${lineInfo}`,
   );
   console.log(`    ${colors.yellow}Message:${colors.reset} ${warning.message}`);
   console.log(
-    `    ${colors.cyan}Suggestion:${colors.reset} ${warning.suggestion}`
+    `    ${colors.cyan}Suggestion:${colors.reset} ${warning.suggestion}`,
   );
 }
 
@@ -224,7 +225,7 @@ function getSkillMarkdownFiles(): string[] {
  */
 function validateMarkdownSyntax(
   filePath: string,
-  content: string
+  content: string,
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   const lines = content.split('\n');
@@ -311,7 +312,7 @@ function extractMarkdownLinks(content: string): ExtractedLink[] {
  */
 function validateInternalReferences(
   filePath: string,
-  content: string
+  content: string,
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   const links = extractMarkdownLinks(content);
@@ -329,7 +330,7 @@ function validateInternalReferences(
         message: `Broken link: "${link}" - file does not exist`,
         suggestion: `Check if the file path is correct. Expected: ${path.relative(
           process.cwd(),
-          resolvedPath
+          resolvedPath,
         )}`,
         line,
       });
@@ -347,7 +348,7 @@ function validateInternalReferences(
  */
 function validateStrategiesDocumented(
   strategiesFile: string,
-  content: string
+  content: string,
 ): ValidationError[] {
   const errors: ValidationError[] = [];
 
@@ -374,14 +375,14 @@ function validateStrategiesDocumented(
  */
 function validateAgentsDocumented(
   catalogFile: string,
-  content: string
+  content: string,
 ): ValidationError[] {
   const errors: ValidationError[] = [];
 
   for (const agent of REQUIRED_AGENTS) {
     const headingPattern = new RegExp(
       `###\\s+${agent.replace(/-/g, '[- ]?')}`,
-      'i'
+      'i',
     );
     if (!headingPattern.test(content)) {
       errors.push({
@@ -427,7 +428,7 @@ function validateAgentFilesExist(): ValidationError[] {
  */
 function validateSkillStructure(
   skillFile: string,
-  content: string
+  content: string,
 ): ValidationError[] {
   const errors: ValidationError[] = [];
 
@@ -453,7 +454,7 @@ function validateSkillStructure(
  */
 function validateInvocationPatterns(
   catalogFile: string,
-  content: string
+  content: string,
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   const subagentPattern = /subagent_type:\s*['"]([^'"]+)['"]/g;
@@ -468,7 +469,7 @@ function validateInvocationPatterns(
         type: 'consistency',
         message: `Unknown agent in invocation pattern: "${agentName}"`,
         suggestion: `Check if agent name is correct. Valid agents: ${REQUIRED_AGENTS.join(
-          ', '
+          ', ',
         )}`,
       });
     }
@@ -508,7 +509,7 @@ function validateReferenceFilesExist(): ValidationError[] {
  */
 function validateSkillLineCount(
   skillFile: string,
-  content: string
+  content: string,
 ): ValidationError[] {
   const warnings: ValidationError[] = [];
   const lineCount = content.split('\n').length;
@@ -592,7 +593,7 @@ function printResults(result: ValidationResult): void {
   if (result.errors.length > 0) {
     log(
       'red',
-      `\n${colors.bold}ERRORS (${result.errors.length}):${colors.reset}`
+      `\n${colors.bold}ERRORS (${result.errors.length}):${colors.reset}`,
     );
     for (const error of result.errors) {
       logError(error);
@@ -602,7 +603,7 @@ function printResults(result: ValidationResult): void {
   if (result.warnings.length > 0) {
     log(
       'yellow',
-      `\n${colors.bold}WARNINGS (${result.warnings.length}):${colors.reset}`
+      `\n${colors.bold}WARNINGS (${result.warnings.length}):${colors.reset}`,
     );
     for (const warning of result.warnings) {
       logWarning(warning);
@@ -616,7 +617,7 @@ function printResults(result: ValidationResult): void {
   console.log(`  Files checked: ${result.filesChecked}`);
   console.log(`  Errors: ${colors.red}${result.errors.length}${colors.reset}`);
   console.log(
-    `  Warnings: ${colors.yellow}${result.warnings.length}${colors.reset}`
+    `  Warnings: ${colors.yellow}${result.warnings.length}${colors.reset}`,
   );
   console.log('');
 
