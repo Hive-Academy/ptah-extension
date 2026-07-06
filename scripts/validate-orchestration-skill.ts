@@ -5,7 +5,7 @@
  * Validates the orchestration skill's markdown files for:
  * 1. Markdown syntax (all files parseable)
  * 2. Internal references (all links point to existing files)
- * 3. Content completeness (all 6 strategies, all 13 agents documented)
+ * 3. Content completeness (all 6 strategies, all 14 agents documented)
  * 4. Consistency (invocation patterns match agent-catalog)
  *
  * Run: npx ts-node scripts/validate-orchestration-skill.ts
@@ -97,7 +97,14 @@ const REQUIRED_STRATEGIES: readonly string[] = [
   'DEVOPS',
 ] as const;
 
-/** Required agents that must be documented (all 13) */
+/**
+ * Required agents that must be documented (the 14 orchestration-roster agents).
+ *
+ * NOTE: this is the orchestration skill's roster, NOT the full agent-template
+ * set. Standalone templates such as `video-director` are intentionally absent
+ * here — they are not part of the /orchestrate workflow and must not be forced
+ * into agent-catalog.md or .claude/agents by this validator.
+ */
 const REQUIRED_AGENTS: readonly string[] = [
   'project-manager',
   'software-architect',

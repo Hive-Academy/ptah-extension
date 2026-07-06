@@ -1,0 +1,11 @@
+{
+  "name": "ptah-video",
+  "description": "Marketing-video toolkit - narrated, captioned, camera-animated product demos from automated UI walkthroughs (Playwright capture, Remotion render)",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ptah"
+  },
+  "repository": "https://github.com/nicoss01/ptah-claude-plugins",
+  "homepage": "https://github.com/nicoss01/ptah-claude-plugins",
+  "license": "MIT"
+}

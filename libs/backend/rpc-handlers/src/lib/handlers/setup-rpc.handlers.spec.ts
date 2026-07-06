@@ -556,7 +556,7 @@ describe('SetupRpcHandlers', () => {
       expect(response.error).toMatch(/Missing analysis input/);
     });
 
-    it('short-circuits to the full 13-agent catalog on isMultiPhase input', async () => {
+    it('short-circuits to the full agent catalog on isMultiPhase input', async () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -568,16 +568,19 @@ describe('SetupRpcHandlers', () => {
         }>
       >(h, 'wizard:recommend-agents', { isMultiPhase: true });
 
-      // All 13 canonical agents, all recommended with relevanceScore=100.
-      expect(result).toHaveLength(13);
+      // Every catalog agent, all recommended with relevanceScore=100.
+      expect(result.length).toBeGreaterThanOrEqual(15);
       expect(result.every((r) => r.recommended === true)).toBe(true);
       expect(result.every((r) => r.relevanceScore === 100)).toBe(true);
 
-      // Spot-check: anchor agents from each category.
+      // Spot-check: anchor agents from each category, including the agents
+      // that historically drifted out of the catalog.
       const ids = new Set(result.map((r) => r.agentId));
       expect(ids.has('backend-developer')).toBe(true);
       expect(ids.has('ui-ux-designer')).toBe(true);
       expect(ids.has('senior-tester')).toBe(true);
+      expect(ids.has('visual-reviewer')).toBe(true);
+      expect(ids.has('video-director')).toBe(true);
     });
 
     it('throws "Invalid analysis input" for malformed single-phase input', async () => {

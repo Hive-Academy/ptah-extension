@@ -1,10 +1,15 @@
 /**
  * Agent Recommendation Service
  *
- * Returns all 13 orchestration agents as recommended for every project.
+ * Returns the full agent-template roster as recommended for every project.
  * These agents represent standard software development roles — the intelligence
  * is in how the LLM customizes each agent's template with the project analysis,
  * not in whether an agent gets selected.
+ *
+ * NOTE: this catalog is the wizard's picker source and MUST stay in sync with
+ * `libs/backend/agent-generation/templates/agents/*.template.md`. An agent that
+ * exists as a template but is missing here is never offered in the wizard and
+ * therefore never generated (historical `visual-reviewer` drop).
  *
  * @module @ptah-extension/agent-generation/services
  */
@@ -29,10 +34,12 @@ interface AgentMetadata {
 }
 
 /**
- * All 13 agents available in the Ptah system.
+ * All agents available in the Ptah system (one entry per agent template).
  * These represent standard software development roles.
  * Every agent is always recommended — customization happens
  * at the template level via LLM-driven analysis.
+ *
+ * Keep in sync with the `templates/agents/*.template.md` set.
  */
 const AGENT_CATALOG: AgentMetadata[] = [
   {
@@ -139,12 +146,28 @@ const AGENT_CATALOG: AgentMetadata[] = [
     category: 'creative',
     icon: 'content',
   },
+  {
+    id: 'visual-reviewer',
+    name: 'Visual Reviewer',
+    description:
+      'Hunts UI/UX visual bugs, responsive breakpoints, and accessibility issues via browser testing',
+    category: 'qa',
+    icon: 'visual',
+  },
+  {
+    id: 'video-director',
+    name: 'Video Director',
+    description:
+      'Authors and renders narrated, camera-animated marketing/demo videos from automated UI walkthroughs',
+    category: 'creative',
+    icon: 'video',
+  },
 ];
 
 /**
  * Agent Recommendation Service
  *
- * All 13 agents are always recommended. The analysis data is used to generate
+ * All agents are always recommended. The analysis data is used to generate
  * meaningful context descriptions (matchedCriteria) that help the user understand
  * what each agent will be customized with — but no agent is ever excluded.
  *
@@ -156,19 +179,19 @@ const AGENT_CATALOG: AgentMetadata[] = [
 export class AgentRecommendationService {
   constructor(
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger
+    private readonly logger: Logger,
   ) {
     this.logger.debug('AgentRecommendationService initialized');
   }
 
   /**
-   * Return all 13 agents as recommended, with analysis-derived context.
+   * Return all agents as recommended, with analysis-derived context.
    *
    * @param analysis - Deep project analysis result
    * @returns All agents with relevanceScore 100 and recommended: true
    */
   calculateRecommendations(
-    analysis: DeepProjectAnalysis
+    analysis: DeepProjectAnalysis,
   ): AgentRecommendation[] {
     this.logger.info(
       'Calculating agent recommendations — all agents included',
@@ -176,7 +199,7 @@ export class AgentRecommendationService {
         projectType: analysis.projectType?.toString() || 'unknown',
         frameworkCount: analysis.frameworks?.length || 0,
         patternCount: analysis.architecturePatterns?.length || 0,
-      }
+      },
     );
 
     const projectContext = this.buildProjectContext(analysis);
@@ -191,7 +214,7 @@ export class AgentRecommendationService {
         recommended: true,
         description: agent.description,
         icon: agent.icon,
-      })
+      }),
     );
 
     this.logger.info('Agent recommendations calculated', {
@@ -271,7 +294,7 @@ export class AgentRecommendationService {
         }
         if (ctx.errorCount > 0 || ctx.warningCount > 0) {
           criteria.push(
-            `Existing issues: ${ctx.errorCount} errors, ${ctx.warningCount} warnings`
+            `Existing issues: ${ctx.errorCount} errors, ${ctx.warningCount} warnings`,
           );
         }
         break;
@@ -279,7 +302,7 @@ export class AgentRecommendationService {
       case 'specialist':
         if (ctx.errorCount + ctx.warningCount > 0) {
           criteria.push(
-            `${ctx.errorCount + ctx.warningCount} existing issues to analyze`
+            `${ctx.errorCount + ctx.warningCount} existing issues to analyze`,
           );
         }
         break;

@@ -531,6 +531,20 @@ export class SetupRpcHandlers {
                 'Designs user interfaces, creates visual specifications, and improves user experience',
               category: 'creative',
             },
+            {
+              id: 'visual-reviewer',
+              name: 'Visual Reviewer',
+              description:
+                'Hunts UI/UX visual bugs, responsive breakpoints, and accessibility issues via browser testing',
+              category: 'qa',
+            },
+            {
+              id: 'video-director',
+              name: 'Video Director',
+              description:
+                'Authors and renders narrated, camera-animated marketing/demo videos from automated UI walkthroughs',
+              category: 'creative',
+            },
           ];
 
           const recommendations: AgentRecommendation[] = agentCatalog.map(
@@ -548,7 +562,7 @@ export class SetupRpcHandlers {
             }),
           );
 
-          this.logger.info('All 13 agents recommended (multi-phase)', {
+          this.logger.info('All agents recommended (multi-phase)', {
             totalAgents: recommendations.length,
           });
 
