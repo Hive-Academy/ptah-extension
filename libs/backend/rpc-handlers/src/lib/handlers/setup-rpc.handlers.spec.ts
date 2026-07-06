@@ -568,10 +568,15 @@ describe('SetupRpcHandlers', () => {
         }>
       >(h, 'wizard:recommend-agents', { isMultiPhase: true });
 
-      // Every catalog agent, all recommended with relevanceScore=100.
+      // Every catalog agent at relevanceScore=100; all recommended except
+      // opt-in specialists (video-director), which are offered but not preselected.
       expect(result.length).toBeGreaterThanOrEqual(15);
-      expect(result.every((r) => r.recommended === true)).toBe(true);
       expect(result.every((r) => r.relevanceScore === 100)).toBe(true);
+      expect(
+        result.every((r) =>
+          r.agentId === 'video-director' ? !r.recommended : r.recommended,
+        ),
+      ).toBe(true);
 
       // Spot-check: anchor agents from each category, including the agents
       // that historically drifted out of the catalog.

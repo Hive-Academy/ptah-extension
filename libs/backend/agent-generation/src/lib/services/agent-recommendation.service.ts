@@ -41,6 +41,12 @@ interface AgentMetadata {
  *
  * Keep in sync with the `templates/agents/*.template.md` set.
  */
+/**
+ * Agents offered in the picker but NOT pre-selected — opt-in specialists a user
+ * adds only when relevant, so they aren't force-generated into every project.
+ */
+const OPT_IN_AGENT_IDS = new Set<string>(['video-director']);
+
 const AGENT_CATALOG: AgentMetadata[] = [
   {
     id: 'project-manager',
@@ -211,7 +217,9 @@ export class AgentRecommendationService {
         relevanceScore: 100,
         matchedCriteria: this.buildCriteria(agent, projectContext),
         category: agent.category,
-        recommended: true,
+        // Offered in the picker but not pre-selected — opt-in specialists the
+        // user adds only when relevant (e.g. video-director for demo videos).
+        recommended: !OPT_IN_AGENT_IDS.has(agent.id),
         description: agent.description,
         icon: agent.icon,
       }),

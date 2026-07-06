@@ -553,7 +553,9 @@ export class SetupRpcHandlers {
               agentName: name,
               category,
               relevanceScore: 100,
-              recommended: true,
+              // Opt-in specialists (e.g. video-director) are offered but not
+              // pre-selected, so they aren't force-generated into every project.
+              recommended: agentId !== 'video-director',
               matchedCriteria: [
                 'Deep codebase analysis',
                 'All agents recommended',

@@ -21,9 +21,9 @@ A single, unrestricted chat session tends to drift: it forgets the architecture 
 
 The result: higher-quality output, fewer hallucinations, and a reviewable trail of who did what.
 
-## The 13 built-in agents
+## The 14 built-in agents
 
-Ptah ships with 13 built-in agents covering the full software delivery lifecycle — from planning and architecture through implementation, review, and release. They live in every new workspace and are always available from the agent picker.
+Ptah ships with 14 built-in agents covering the full software delivery lifecycle — from planning and architecture through implementation, review, and release. They live in every new workspace and are always available from the agent picker.
 
 <CardGrid>
   <Card title="Planning & Leadership" icon="rocket">
@@ -76,7 +76,7 @@ Each agent is a Markdown file with YAML frontmatter describing its name, descrip
     Let Ptah analyze your project and generate a tuned agent roster. [Start here →](/setup/setup-wizard/)
   </Card>
   <Card title="Browse the built-ins" icon="list-format">
-    See all 13 agents and when to reach for each. [Catalog →](/agents/built-in-agents/)
+    See all 14 built-in agents and when to reach for each. [Catalog →](/agents/built-in-agents/)
   </Card>
   <Card title="Spawn CLI agents" icon="seti:shell">
     Parallelize work with Copilot, Codex, and ptah-cli. [CLI agents →](/agents/cli-agents/)

@@ -64,14 +64,20 @@ describe('AgentRecommendationService', () => {
     expect(recommendedIds).toContain('video-director');
   });
 
-  it('marks every agent as recommended with maximum relevance', () => {
+  it('recommends every agent at max relevance except opt-in specialists', () => {
     const service = createService();
     const recommendations = service.calculateRecommendations(MINIMAL_ANALYSIS);
 
     expect(recommendations.length).toBeGreaterThan(0);
     for (const rec of recommendations) {
-      expect(rec.recommended).toBe(true);
       expect(rec.relevanceScore).toBe(100);
+    }
+    // Opt-in specialists are offered but not pre-selected.
+    const byId = new Map(recommendations.map((r) => [r.agentId, r]));
+    expect(byId.get('video-director')?.recommended).toBe(false);
+    for (const rec of recommendations) {
+      if (rec.agentId === 'video-director') continue;
+      expect(rec.recommended).toBe(true);
     }
   });
 });

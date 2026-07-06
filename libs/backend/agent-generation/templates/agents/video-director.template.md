@@ -5,7 +5,7 @@ model: opus
 applicabilityRules:
   projectTypes: [ALL]
   minimumRelevanceScore: 60
-  alwaysInclude: true
+  alwaysInclude: false
 dependencies: []
 ---
 

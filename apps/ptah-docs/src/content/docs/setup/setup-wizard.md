@@ -43,7 +43,7 @@ The results from step 1 are summarized into a **detected stack** — languages, 
 
 ### Step 3 — Agent generation
 
-Ptah uses the confirmed stack to produce a recommended agent roster. All 13 built-ins are always included; the wizard additionally proposes **stack-specific variations** (for example, a `backend-developer` tuned for NestJS + Prisma, or a `frontend-developer` tuned for Angular signals).
+Ptah uses the confirmed stack to produce a recommended agent roster. All 14 built-ins are recommended by default; the wizard additionally proposes **stack-specific variations** (for example, a `backend-developer` tuned for NestJS + Prisma, or a `frontend-developer` tuned for Angular signals) and offers **opt-in specialists** like `video-director` unchecked.
 
 Each proposed agent shows:
 

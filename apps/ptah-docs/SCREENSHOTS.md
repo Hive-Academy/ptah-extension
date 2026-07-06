@@ -43,7 +43,7 @@ Drop PNG files into `apps/ptah-docs/public/screenshots/` (served at `/screenshot
 | Filename                    | Shows                                                 | Page                            |
 | --------------------------- | ----------------------------------------------------- | ------------------------------- |
 | `agents-overview.png`       | Agents panel listing installed agents                 | `agents/index.md`               |
-| `agents-catalog.png`        | Built-in agents catalog grid (13 agents)              | `agents/built-in-agents.md`     |
+| `agents-catalog.png`        | Built-in agents catalog grid (14 agents)              | `agents/built-in-agents.md`     |
 | `agents-custom-editor.png`  | Custom agent editor (system prompt + tools)           | `agents/custom-agents.md`       |
 | `agents-cli-panel.png`      | CLI agents panel (Codex / Copilot / ptah-cli status)  | `agents/cli-agents.md`          |
 | `agents-orchestration.png`  | 3-tier orchestration hierarchy diagram or live view   | `agents/agent-orchestration.md` |
