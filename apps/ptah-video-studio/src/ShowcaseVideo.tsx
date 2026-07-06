@@ -33,6 +33,7 @@ import { ProgressBar } from './components/ProgressBar';
 import { Watermark } from './components/Watermark';
 import { SectionTransition } from './components/SectionTransition';
 import { SoundDesign } from './components/SoundDesign';
+import { BRAND } from './brand.config';
 import {
   msToFrames,
   OUTPUT_FPS,
@@ -159,7 +160,7 @@ export const ShowcaseVideo: React.FC<ShowcaseVideoProps> = ({
           <SectionTransition exit="zoom">
             <IntroCard
               title={introCopy ?? manifest.title ?? manifest.scene}
-              subtitle={introCopy ? undefined : 'Ptah'}
+              subtitle={introCopy ? undefined : BRAND.productName}
               videoHeight={height}
             />
           </SectionTransition>
