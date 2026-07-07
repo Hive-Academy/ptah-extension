@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:2e17a998bbe8da16cdf354899a5a73a9a1f7996c1057f5689af1199b0dc81c38",
-  "generatedAt": "2026-06-17T12:39:07.253Z",
+  "contentHash": "sha256:56132dbb745be08452b3f88be3ca9bd71295a1d3165c634a35a2577174b956ea",
+  "generatedAt": "2026-07-06T22:19:32.774Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -87,6 +87,7 @@
       "ptah-core/skills/tribunal/references/council.md",
       "ptah-core/skills/tribunal/references/forge.md",
       "ptah-core/skills/tribunal/references/race.md",
+      "ptah-core/skills/tribunal/references/relay.md",
       "ptah-core/skills/tribunal/references/vendor-panel.md",
       "ptah-core/skills/ui-ux-designer/ASSET-GENERATION.md",
       "ptah-core/skills/ui-ux-designer/DESIGN-SYSTEM-BUILDER.md",
@@ -212,7 +213,13 @@
       "ptah-react/skills/react-best-practices/rules/server-serialization.md",
       "ptah-react/skills/react-nx-patterns/SKILL.md",
       "ptah-react/skills/react-nx-patterns/references/client-components.md",
-      "ptah-react/skills/react-nx-patterns/references/server-components.md"
+      "ptah-react/skills/react-nx-patterns/references/server-components.md",
+      "ptah-video/.claude-plugin/plugin.json",
+      "ptah-video/skills/video-showcase/SKILL.md",
+      "ptah-video/skills/video-showcase/reference/brand-and-runtime.md",
+      "ptah-video/skills/video-showcase/reference/camera-and-render.md",
+      "ptah-video/skills/video-showcase/reference/install.md",
+      "ptah-video/skills/video-showcase/reference/scene-authoring.md"
     ]
   },
   "templates": {
@@ -231,6 +238,7 @@
       "team-leader.template.md",
       "technical-content-writer.template.md",
       "ui-ux-designer.template.md",
+      "video-director.template.md",
       "visual-reviewer.template.md"
     ]
   }

@@ -96,6 +96,14 @@ export interface AgentTemplate {
    * Each section is marked with `<!-- LLM:sectionId -->` in the content.
    */
   llmSections: LlmSection[];
+
+  /**
+   * Optional model hint for the generated agent (e.g. 'opus', 'sonnet').
+   * When present, it is emitted as a `model:` frontmatter field in the
+   * written `.claude/agents/<id>.md` file. Absent for templates that should
+   * run on the caller's default model.
+   */
+  model?: string;
 }
 
 /**

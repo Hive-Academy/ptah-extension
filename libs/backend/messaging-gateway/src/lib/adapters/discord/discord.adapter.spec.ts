@@ -140,6 +140,7 @@ function fakeIncomingMessage(
     bot: boolean;
     isThread: boolean;
     parentId: string | null;
+    ownerId: string | null;
     mentionsBot: boolean;
   }> = {},
 ): DiscordIncomingMessageLike {
@@ -159,6 +160,7 @@ function fakeIncomingMessage(
     channel: {
       isThread: () => overrides.isThread ?? false,
       parentId: overrides.parentId ?? null,
+      ownerId: overrides.ownerId ?? null,
     },
   };
 }
@@ -399,7 +401,7 @@ describe('DiscordAdapter — inbound thread lifecycle', () => {
     );
   });
 
-  it('plain message in a never-seen thread on a fresh adapter emits attach with zero map dependency', async () => {
+  it('plain message in a Ptah-owned thread on a fresh adapter emits attach with zero map dependency', async () => {
     const { client, inbound } = await startAdapter();
 
     await client.emitMessage(
@@ -409,6 +411,7 @@ describe('DiscordAdapter — inbound thread lifecycle', () => {
         channelId: 'thread-resumed',
         isThread: true,
         parentId: 'chan-9',
+        ownerId: 'bot-1',
       }),
     );
 
@@ -422,6 +425,52 @@ describe('DiscordAdapter — inbound thread lifecycle', () => {
         conversationId: 'thread-resumed',
         conversationMode: 'attach',
         conversationKey: 'discord:chan-9:thread-resumed',
+      }),
+    );
+  });
+
+  it('ignores a plain message in a human-created thread that does not mention the bot', async () => {
+    const { client, inbound } = await startAdapter();
+
+    await client.emitMessage(
+      fakeIncomingMessage({
+        id: 'in-human-thread',
+        content: 'just chatting in an unrelated thread',
+        channelId: 'thread-human',
+        isThread: true,
+        parentId: 'chan-1',
+        ownerId: 'human-99',
+      }),
+    );
+
+    expect(inbound).toHaveLength(0);
+    expect(client.channelsFetch).not.toHaveBeenCalled();
+  });
+
+  it('engages in a human-created thread only when the bot is mentioned', async () => {
+    const { client, inbound } = await startAdapter();
+
+    await client.emitMessage(
+      fakeIncomingMessage({
+        id: 'in-human-mention',
+        content: '<@bot-1> help me here',
+        channelId: 'thread-human',
+        isThread: true,
+        parentId: 'chan-1',
+        ownerId: 'human-99',
+        mentionsBot: true,
+      }),
+    );
+
+    expect(inbound).toHaveLength(1);
+    expect(inbound[0]).toEqual(
+      expect.objectContaining({
+        externalChatId: 'chan-1',
+        externalMsgId: 'in-human-mention',
+        body: 'help me here',
+        conversationId: 'thread-human',
+        conversationMode: 'attach',
+        conversationKey: 'discord:chan-1:thread-human',
       }),
     );
   });

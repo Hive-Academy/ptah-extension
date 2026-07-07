@@ -136,22 +136,27 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
 }) => {
   await director.dismissDialogs();
 
-  // PRE-WARM (trimmed lead-in, before the first beat): the editor panel's
+  // PRE-WARM (kept — trimmed lead-in, before the first beat): the editor panel's
   // Monaco host is the worst mid-scene stall (~31s first-mount). Force it to
   // mount now — open the panel, open a leaf file, then close the panel — so the
-  // `openEditorPanel` / `openAFile` calls below hit a warm Monaco and no longer
-  // freeze the frame between beats. Silent + fully guarded (see prewarm.ts).
+  // mid-body `openAFile` (which opens the REAL subject file) hits a warm Monaco
+  // and no longer freezes the frame between beats. The navigation below only
+  // re-opens the panel; it does NOT open a file, so this prewarm of the Monaco
+  // runtime stays load-bearing. Silent + fully guarded (see prewarm.ts).
   await prewarmEditor(page).catch(() => undefined);
+
+  // Navigate + settle BEFORE the first beat: open the editor panel (the subject
+  // surface) so the hook lands on it instead of the stale restored surface.
+  // Trimmed by render-all's lead-in trim, so the panel toggle never airs.
+  const panel = await openEditorPanel(page, director);
+  await director.dismissDialogs();
+  await director.hold();
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
   await director.say(0);
 
   // WARMUP — one line of context before the tour starts.
   await director.say(1);
-
-  const panel = await openEditorPanel(page, director);
-  await director.dismissDialogs();
-  await director.hold();
 
   if (!(await isVisible(panel))) {
     // Nothing mounted — bail gracefully with a closing beat rather than throw.

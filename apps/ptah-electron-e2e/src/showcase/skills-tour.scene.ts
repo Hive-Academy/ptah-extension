@@ -1,7 +1,6 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
-import { prewarmThoth } from './_harness/prewarm';
 
 /**
  * P1.3 — "Skills synthesis" (deep dive on the Thoth Skills tab).
@@ -96,19 +95,18 @@ test('P1.3 — Skills synthesis (deep dive)', async ({ page, director }) => {
   // The persistent authed profile ALWAYS shows the trial modal on boot.
   await director.dismissDialogs();
 
-  // PRE-WARM (trimmed lead-in, before the first beat): the Skills tab's
-  // synthesis panel is SQLite/embedder-backed and slow on first mount. Force it
-  // now so `goToSkills` below hits a warm panel instead of stalling between the
-  // warmup and stats beats. Silent + guarded (see prewarm.ts).
-  await prewarmThoth(page, ['skills']).catch(() => undefined);
+  // Navigate + settle BEFORE the first beat: enter the Skills tab (the subject
+  // surface) so the hook lands on it instead of the stale restored surface.
+  // Everything until the hook is trimmed by render-all's lead-in trim, so the
+  // surface swap never airs. Entering the tab here also forces its
+  // SQLite/embedder-backed first-mount, so no separate pre-warm is needed.
+  const panel = await goToSkills(page, director);
 
   // HOOK — fire immediately so the video opens on a claim, not dead air.
   await director.say(0);
 
   // WARMUP — one line of context before the tour starts.
   await director.say(1);
-
-  const panel = await goToSkills(page, director);
 
   // 1) Land + read the stats strip: candidates / promoted / active skills.
   // Element-targeted onto the stats strip; the spotlight plays under the VO.

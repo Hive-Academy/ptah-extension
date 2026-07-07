@@ -188,26 +188,31 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
 
-  // PRE-WARM (trimmed lead-in, before the first beat): this cockpit pan visits
-  // all four Electron-only tabs, each of which pays a SQLite/embedder-backed
-  // first-mount cost. Force those mounts now so the per-tab switches in the
-  // `tourTab` loop stay snappy between beats instead of stalling on camera.
-  // Silent + fully guarded (see prewarm.ts); returns to the starting surface.
+  // PRE-WARM (kept — trimmed lead-in, before the first beat): this cockpit pan
+  // visits all four Electron-only tabs mid-body, each of which pays a
+  // SQLite/embedder-backed first-mount cost. `goToThoth` below only lands on the
+  // shell (memory), so the skills/cron/gateway panels are still cold; force all
+  // four mounts now so the per-tab switches in the `tourTab` loop stay snappy
+  // instead of stalling on camera. Silent + fully guarded (see prewarm.ts);
+  // returns to the starting surface.
   await prewarmThoth(page, ['memory', 'skills', 'cron', 'gateway']).catch(
     () => undefined,
   );
+
+  // Navigate + settle BEFORE the first beat: enter the Thoth cockpit (the
+  // subject surface) so the hook lands on it instead of the stale restored
+  // surface. Everything until the hook is trimmed by render-all's lead-in trim,
+  // so the surface swap never airs. The trial modal can re-assert after
+  // navigation, so dismiss again before we start panning the tabs.
+  await goToThoth(page, director);
+  await director.dismissDialogs();
+  await director.hold();
 
   // HOOK — fire immediately so the video opens on a claim, not dead air.
   await director.say(0);
 
   // WARMUP — one line of context before the tour starts.
   await director.say(1);
-
-  // Enter the cockpit; the trial modal can re-assert after navigation, so
-  // dismiss again before we start panning the tabs.
-  await goToThoth(page, director);
-  await director.dismissDialogs();
-  await director.hold();
 
   await director.say(2);
 

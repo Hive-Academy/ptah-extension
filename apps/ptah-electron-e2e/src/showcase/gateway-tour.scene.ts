@@ -1,7 +1,6 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
-import { prewarmThoth } from './_harness/prewarm';
 
 /**
  * P3.2 — "Drive Ptah from your phone" (Messaging Gateway tour).
@@ -188,21 +187,20 @@ test('P3.2 — drive Ptah from your phone (Messaging Gateway)', async ({
   // Clear the persistent "Your Pro Trial Has Ended" startup modal before filming.
   await director.dismissDialogs();
 
-  // PRE-WARM (trimmed lead-in, before the first beat): the Gateway tab mounts
-  // the Telegram/Discord/Slack connector chrome and its live status strip on
-  // first visit. Force it now so `goToGateway` below hits a warm panel instead
-  // of stalling between the warmup and orient beats. Silent + guarded.
-  await prewarmThoth(page, ['gateway']).catch(() => undefined);
+  // Navigate + settle BEFORE the first beat: enter the Gateway tab (the subject
+  // surface) so the hook lands on it instead of the stale restored surface.
+  // Everything until the hook is trimmed by render-all's lead-in trim, so the
+  // surface swap never airs. Entering the tab here also forces its first-mount
+  // (Telegram/Discord/Slack connector chrome + live status strip), so no
+  // separate pre-warm is needed.
+  await goToGateway(page, director);
+  await director.hold();
 
   // Hook beat.
   await director.say(0);
 
   // WARMUP — one line of context before the tour starts.
   await director.say(1);
-
-  // Into the Gateway tab.
-  await goToGateway(page, director);
-  await director.hold();
 
   // Orient: the master status + live stat strip (adapters / pending / approved / voice).
   // The moveTo + per-block spotlight loop runs during the narration.

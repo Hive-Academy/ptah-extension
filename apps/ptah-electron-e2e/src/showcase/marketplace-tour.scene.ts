@@ -1,7 +1,6 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
-import { prewarmNavSurface } from './_harness/prewarm';
 
 /**
  * P3.x — "One marketplace, every provider" (Marketplace surface tour).
@@ -184,26 +183,21 @@ test('P3 — marketplace surface tour (providers, browse & detail)', async ({
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
 
-  // PRE-WARM (trimmed lead-in, before the first beat): the Marketplace hub is
-  // Pro-gated and populates its provider registry from the network on first
-  // mount. Force that mount now so `goToMarketplace` below hits a warm hub
-  // instead of stalling between the warmup and overview beats. Silent + guarded;
-  // returns to the starting surface (no-op when the tab is gated off-screen).
-  await prewarmNavSurface(page, 'Marketplace', 'ptah-marketplace-hub').catch(
-    () => undefined,
-  );
+  // Navigate + clean up BEFORE the first beat: everything until the hook is
+  // trimmed by render-all's lead-in trim, so this surface swap never airs — and
+  // the hook lands on the Marketplace instead of the stale restored surface.
+  // Entering the hub here also forces its Pro-gated, network-populated
+  // first-mount, so no separate pre-warm is needed. The trial modal can
+  // re-assert after navigation, so dismiss again before we start the tour.
+  await goToMarketplace(page, director);
+  await director.dismissDialogs();
+  await director.hold();
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
   await director.say(0);
 
   // WARMUP — one line of context before the tour starts.
   await director.say(1);
-
-  // Enter the Marketplace; the trial modal can re-assert after navigation, so
-  // dismiss again before we start the tour.
-  await goToMarketplace(page, director);
-  await director.dismissDialogs();
-  await director.hold();
 
   // Detect which surface mounted: the provider grid (premium) or the Pro gate.
   const aProviderCard = page
