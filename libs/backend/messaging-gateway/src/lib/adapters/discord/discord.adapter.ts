@@ -32,7 +32,11 @@ export interface DiscordIncomingMessageLike {
   guildId: string | null;
   author: { id: string; username?: string; bot: boolean };
   mentions: { has(id: string): boolean };
-  channel: { isThread(): boolean; parentId: string | null };
+  channel: {
+    isThread(): boolean;
+    parentId: string | null;
+    ownerId: string | null;
+  };
 }
 
 export interface DiscordGuildLike {
@@ -367,6 +371,15 @@ export class DiscordAdapter implements IMessagingAdapter {
       if (parentId === null) {
         this.logger.warn(
           '[gateway] discord thread message dropped: parent channel unknown',
+          { threadId: message.channelId },
+        );
+        return;
+      }
+      const ptahOwnsThread = !!botId && message.channel.ownerId === botId;
+      const mentionsBot = !!botId && message.mentions.has(botId);
+      if (!ptahOwnsThread && !mentionsBot) {
+        this.logger.debug(
+          '[gateway] discord thread message ignored: not a Ptah thread and bot not mentioned',
           { threadId: message.channelId },
         );
         return;

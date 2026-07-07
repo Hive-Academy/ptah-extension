@@ -877,11 +877,15 @@ describe('AgentGenerationOrchestratorService', () => {
       expect(mocks.fileWriter.writeAgent).not.toHaveBeenCalled();
     });
 
-    it('returns Result.err when ALL Phase 3 renders fail', async () => {
+    it('returns Result.err only when EVERY selected template fails to load mid-render', async () => {
+      // With the reliability contract, content-generation/validation failures
+      // no longer drop agents (they fall back to the authored template). The
+      // sole remaining "nothing rendered" path is a template that cannot even
+      // be loaded — there is no body to fall back to.
       const { service, mocks } = createOrchestrator();
       wireHappyPath(mocks);
-      mocks.contentGenerator.generateContent.mockResolvedValue(
-        Result.err(new Error('LLM offline')),
+      mocks.templateStorage.loadTemplate.mockResolvedValue(
+        Result.err(new Error('I/O error')),
       );
 
       const result = await service.generateAgents({
@@ -892,6 +896,27 @@ describe('AgentGenerationOrchestratorService', () => {
       expect(result.error?.message).toContain(
         'No agents were successfully rendered',
       );
+    });
+
+    it('falls back to the authored template (still writes) when content generation fails', async () => {
+      const { service, mocks } = createOrchestrator();
+      wireHappyPath(mocks);
+      mocks.contentGenerator.generateContent.mockResolvedValue(
+        Result.err(new Error('LLM offline')),
+      );
+
+      const result = await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.successful).toBe(1);
+      expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(1);
+      expect(
+        result.value!.warnings.some((w) =>
+          w.includes('authored template fallback'),
+        ),
+      ).toBe(true);
     });
 
     it('skips an agent (warning, not failure) when its template fails to load mid-render', async () => {
@@ -1073,7 +1098,7 @@ describe('AgentGenerationOrchestratorService', () => {
       expect(mocks.multiCliWriter.writeForClis).not.toHaveBeenCalled();
     });
 
-    it('cancels writing a single agent when validation reports a critical issue', async () => {
+    it('falls back to the authored template (never drops) on a critical SAFETY validation failure', async () => {
       const { service, mocks } = createOrchestrator();
       wireHappyPath(mocks);
       mocks.outputValidation.validate.mockResolvedValue(
@@ -1084,7 +1109,7 @@ describe('AgentGenerationOrchestratorService', () => {
             issues: [
               {
                 severity: 'error',
-                message: 'Contains sensitive credential pattern',
+                message: 'Detected potential sensitive data / credential',
               },
             ],
           }),
@@ -1095,15 +1120,19 @@ describe('AgentGenerationOrchestratorService', () => {
         workspacePath: '/workspace/test-project',
       });
 
-      // Single agent skipped at the gate -> nothing rendered -> Result.err
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain(
-        'No agents were successfully rendered',
-      );
-      expect(mocks.fileWriter.writeAgent).not.toHaveBeenCalled();
+      // Unsafe generated content is discarded, but the agent is still written
+      // from the authored static template — it is never silently dropped.
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.successful).toBe(1);
+      expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(1);
+      expect(
+        result.value!.warnings.some((w) =>
+          w.includes('authored template fallback'),
+        ),
+      ).toBe(true);
     });
 
-    it('cancels writing a single agent when validation itself errors', async () => {
+    it('still writes the agent when the validator itself errors (validation is advisory)', async () => {
       const { service, mocks } = createOrchestrator();
       wireHappyPath(mocks);
       mocks.outputValidation.validate.mockResolvedValue(
@@ -1114,8 +1143,44 @@ describe('AgentGenerationOrchestratorService', () => {
         workspacePath: '/workspace/test-project',
       });
 
-      expect(result.isErr()).toBe(true);
-      expect(mocks.fileWriter.writeAgent).not.toHaveBeenCalled();
+      expect(result.isOk()).toBe(true);
+      expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(1);
+      expect(
+        result.value!.warnings.some((w) => w.includes('Validation error')),
+      ).toBe(true);
+    });
+
+    it('writes the agent despite a NON-safety validation failure (low score, not dropped)', async () => {
+      const { service, mocks } = createOrchestrator();
+      wireHappyPath(mocks);
+      mocks.outputValidation.validate.mockResolvedValue(
+        Result.ok(
+          createValidationResult({
+            isValid: false,
+            score: 55,
+            issues: [
+              {
+                severity: 'error',
+                message:
+                  'Referenced framework "Rails" not in project tech stack',
+              },
+            ],
+          }),
+        ),
+      );
+
+      const result = await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.successful).toBe(1);
+      expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(1);
+      expect(
+        result.value!.warnings.some((w) =>
+          w.includes('written despite failing validation'),
+        ),
+      ).toBe(true);
     });
 
     it('records validation warnings but still writes the agent (steer, not cancel)', async () => {
@@ -1181,7 +1246,7 @@ describe('AgentGenerationOrchestratorService', () => {
       ).toBe(false);
     });
 
-    it('cancels per-agent rendering on contentGenerator failure but continues with siblings', async () => {
+    it('falls back to the authored template for a failing sibling and still writes BOTH agents', async () => {
       const { service, mocks } = createOrchestrator();
       wireHappyPath(mocks);
       const tplA = createMockTemplate({ id: 'agent-a' });
@@ -1195,10 +1260,8 @@ describe('AgentGenerationOrchestratorService', () => {
       mocks.templateStorage.loadTemplate.mockImplementation(async (id) =>
         Result.ok(id === 'agent-a' ? tplA : tplB),
       );
-      let calls = 0;
-      mocks.contentGenerator.generateContent.mockImplementation(async () => {
-        calls++;
-        if (calls === 1) {
+      mocks.contentGenerator.generateContent.mockImplementation(async (t) => {
+        if (t.id === 'agent-a') {
           return Result.err(new Error('Rate limited'));
         }
         return Result.ok({
@@ -1212,7 +1275,9 @@ describe('AgentGenerationOrchestratorService', () => {
       });
 
       expect(result.isOk()).toBe(true);
-      expect(result.value!.successful).toBe(1);
+      // Both agents are written — the failing sibling is NOT dropped.
+      expect(result.value!.successful).toBe(2);
+      expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(2);
       expect(result.value!.warnings.some((w) => w.includes('agent-a'))).toBe(
         true,
       );
@@ -1243,6 +1308,109 @@ describe('AgentGenerationOrchestratorService', () => {
         pluginPaths: ['/abs/plugin/a'],
         onStreamEvent,
       });
+    });
+  });
+
+  // ===========================================================================
+  // 6. NO-SILENT-DROP RELIABILITY CONTRACT
+  //    A template that parses AND is selected must ALWAYS produce a written
+  //    agent file. This is the regression guard for the "visual-reviewer
+  //    intermittently missing" class of bugs: N templates on disk -> N agent
+  //    files written, regardless of per-agent LLM / validation outcomes.
+  // ===========================================================================
+  describe('No-silent-drop reliability contract', () => {
+    it('writes exactly one agent file per selected template even when some fail generation/validation', async () => {
+      const { service, mocks } = createOrchestrator();
+      wireHappyPath(mocks);
+
+      const ids = ['alpha', 'beta', 'gamma', 'delta', 'visual-reviewer'];
+      const templates = ids.map((id) =>
+        createMockTemplate({
+          id,
+          name: id,
+          content: `# ${id}\n\nAuthored body for ${id}.`,
+        }),
+      );
+
+      mocks.agentSelector.selectAgents.mockResolvedValue(
+        Result.ok(
+          templates.map((template) => ({
+            template,
+            relevanceScore: 100,
+            matchedCriteria: [],
+          })),
+        ),
+      );
+      mocks.templateStorage.loadTemplate.mockImplementation(async (id) => {
+        const template = templates.find((t) => t.id === id);
+        return template
+          ? Result.ok(template)
+          : Result.err(new Error(`missing ${id}`));
+      });
+
+      // Two agents fail LLM generation outright; the pipeline must still emit
+      // them from the authored template body rather than dropping them.
+      mocks.contentGenerator.generateContent.mockImplementation(async (t) =>
+        t.id === 'beta' || t.id === 'visual-reviewer'
+          ? Result.err(new Error('LLM rate limited'))
+          : Result.ok({ content: `# ${t.id}`, description: `desc ${t.id}` }),
+      );
+      mocks.outputValidation.validate.mockResolvedValue(
+        Result.ok(createValidationResult()),
+      );
+
+      const written: string[] = [];
+      mocks.fileWriter.writeAgent.mockImplementation(async (agent) => {
+        written.push(agent.sourceTemplateId);
+        return Result.ok(
+          `/workspace/test-project/.claude/agents/${agent.sourceTemplateId}.md`,
+        );
+      });
+
+      const result = await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      expect(result.isOk()).toBe(true);
+      // N templates in -> N agent files written. No silent drops.
+      expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(ids.length);
+      expect(new Set(written)).toEqual(new Set(ids));
+      expect(result.value!.totalAgents).toBe(ids.length);
+      expect(result.value!.successful).toBe(ids.length);
+      // The two LLM failures were surfaced (loudly, not swallowed).
+      expect(
+        result.value!.warnings.some((w) => w.includes('visual-reviewer')),
+      ).toBe(true);
+      expect(result.value!.warnings.some((w) => w.includes('beta'))).toBe(true);
+    });
+
+    it('emits a `model:` frontmatter field when the template declares one', async () => {
+      const { service, mocks } = createOrchestrator();
+      const template = createMockTemplate({
+        id: 'video-director',
+        name: 'video-director',
+        model: 'opus',
+      });
+      wireHappyPath(mocks, template);
+
+      await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      expect(writtenAgent.content).toContain('model: opus');
+    });
+
+    it('omits the `model:` frontmatter field when the template declares none', async () => {
+      const { service, mocks } = createOrchestrator();
+      wireHappyPath(mocks);
+
+      await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      expect(writtenAgent.content).not.toContain('model:');
     });
   });
 });

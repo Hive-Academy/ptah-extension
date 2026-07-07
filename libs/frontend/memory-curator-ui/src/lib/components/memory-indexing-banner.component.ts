@@ -18,7 +18,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
     @switch (banner.kind) {
       @case ('never-indexed') {
         <div
-          class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 mt-2"
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 mb-2"
           role="status"
           data-testid="memory-banner-never-indexed"
         >

@@ -380,6 +380,10 @@ export class TemplateStorageService implements ITemplateStorageService {
         applicabilityRules: frontmatter['applicabilityRules'],
         variables: frontmatter['variables'] || [],
         llmSections: frontmatter['llmSections'] || [],
+        model:
+          typeof frontmatter['model'] === 'string'
+            ? (frontmatter['model'] as string)
+            : undefined,
       };
 
       return Result.ok(template);

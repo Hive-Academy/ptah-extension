@@ -52,6 +52,20 @@ const LEAD_IN_MS = 700;
 const ESTABLISH_MS = 2600;
 /** Minimum time between camera shots — punch-ins faster than this read as jitter. */
 const MIN_SHOT_MS = 1400;
+/**
+ * How long a punch-in dwells before the camera eases back out to full-frame.
+ * Bounds how long a static focus/ring rect is shown, so a highlight can't stay
+ * frozen (and drift onto stale pixels) across a long narration hold.
+ */
+const HOLD_MS = 2600;
+/**
+ * Only insert a full-frame release after a punch-in when the NEXT punch-in is at
+ * least this far past the release — otherwise the camera pans directly to the
+ * next region instead of bouncing out to full-frame and straight back in.
+ */
+const RELEASE_MIN_GAP_MS = 1400;
+/** Transition duration (ms) for the gentle ease-out of a release shot. */
+const RELEASE_TRANS_MS = 650;
 
 // ── Segment-based timeline (time-remap) ─────────────────────────────────────
 // Capture is real-time, so slow UI mounts BETWEEN narration beats film as dead
@@ -77,6 +91,13 @@ const HARDCUT_MS = 700;
  *      fired inside the establishing window out to `ESTABLISH_MS` (keeping only
  *      the last such shot — earlier ones would flash by anyway).
  *   2. Drop shots that start within `MIN_SHOT_MS` of the previous kept shot.
+ *   3. After each punch-in, insert a full-frame release shot at `+HOLD_MS` so the
+ *      camera eases back out (and the ring clears) instead of holding one zoom
+ *      across the whole narration gap. Without this a focus shot stays active —
+ *      frozen and zoomed — until the NEXT shot fires (often tens of seconds
+ *      later), and its static rect drifts onto stale pixels as the UI moves
+ *      underneath. The release is skipped when the next punch-in is close enough
+ *      (`RELEASE_MIN_GAP_MS`) that the camera should just pan straight across.
  */
 function applyCameraGrammar(shots) {
   if (shots.length === 0) return shots;
@@ -98,7 +119,25 @@ function applyCameraGrammar(shots) {
     if (prev && s.fromMs - prev.fromMs < MIN_SHOT_MS) continue;
     spaced.push(s);
   }
-  return spaced;
+
+  const withReleases = [];
+  for (let i = 0; i < spaced.length; i++) {
+    const s = spaced[i];
+    withReleases.push(s);
+    if (!s.focus) continue; // already full-frame — nothing to release from
+    const releaseAt = s.fromMs + HOLD_MS;
+    const next = spaced[i + 1];
+    if (!next || next.fromMs - releaseAt >= RELEASE_MIN_GAP_MS) {
+      // Full-frame (no focus/ring) → focusAt eases back to FULL and the ring
+      // clears. `smooth` gives a gentle pull-back rather than a fast snap.
+      withReleases.push({
+        fromMs: releaseAt,
+        transMs: RELEASE_TRANS_MS,
+        ease: 'smooth',
+      });
+    }
+  }
+  return withReleases;
 }
 
 /**
