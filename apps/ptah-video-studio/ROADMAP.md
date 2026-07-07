@@ -18,49 +18,44 @@ Remotion's native compositor runs. The committed CI render workflows
 
 ### Delivered
 
-| Area               | What                                                                                                                                                                                                                                                                                                 |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Capture (Phase 0)  | Director emits `beats.json` (caption text + wall-clock `tMs`); `PTAH_SHOWCASE_SILENT_CAPTIONS=1` lets Remotion own the lower-thirds.                                                                                                                                                                 |
-| Pipeline (Phase 1) | `narrate.mjs` (Kokoro TTS) → `caption.mjs` (whisper.cpp) → `render-all.mjs` (Remotion). Nx targets wired.                                                                                                                                                                                            |
-| Asset serving      | Local assets served via `--public-dir` + `staticFile()` (Remotion rejects `file://`).                                                                                                                                                                                                                |
-| First video        | `canvas-orchestra` reverse-engineered from real Jun-29 footage, single continuous VO track.                                                                                                                                                                                                          |
-| Caption sync       | Per-beat transcription, each beat's words offset to its footage `tMs`; sub-word tokens merged into whole words.                                                                                                                                                                                      |
-| Visual system      | `theme.ts`, animated `Backdrop`, `DeviceFrame` (rounded/shadowed device card + **auto gray-band crop detection**), richer `LowerThird` (spring pop, amber active-word, pill), `IntroCard` (agent-dot motif, drawing underline), `OutroCard` (CTA pill), `Watermark`, `ProgressBar`, edge crossfades. |
-| Motion graphics    | `shots.json` → virtual camera (eased zoom/pan), highlight rings, floating callouts, positional (top/bottom) captions. Authored for `canvas-orchestra`.                                                                                                                                               |
+| Area                   | What                                                                                                                                                                                                                                                                                                                  |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Capture (Phase 0)      | Director emits `beats.json` (caption text + wall-clock `tMs`); `PTAH_SHOWCASE_SILENT_CAPTIONS=1` lets Remotion own the lower-thirds.                                                                                                                                                                                  |
+| Pipeline (Phase 1)     | `narrate.mjs` (Kokoro TTS) → `caption.mjs` (whisper.cpp) → `render-all.mjs` (Remotion). Nx targets wired.                                                                                                                                                                                                             |
+| Asset serving          | Local assets served via `--public-dir` + `staticFile()` (Remotion rejects `file://`).                                                                                                                                                                                                                                 |
+| First video            | `canvas-orchestra` reverse-engineered from real Jun-29 footage, single continuous VO track.                                                                                                                                                                                                                           |
+| Caption sync           | Per-beat transcription, each beat's words offset to its footage `tMs`; sub-word tokens merged into whole words.                                                                                                                                                                                                       |
+| Visual system          | `theme.ts`, animated `Backdrop`, `DeviceFrame` (rounded/shadowed device card + **auto gray-band crop detection**), richer `LowerThird` (spring pop, amber active-word, pill), `IntroCard` (agent-dot motif, drawing underline), `OutroCard` (CTA pill), `Watermark`, `ProgressBar`, edge crossfades.                  |
+| Motion graphics        | `shots.json` → virtual camera (eased zoom/pan), highlight rings, floating callouts, positional (top/bottom) captions. Authored for `canvas-orchestra`.                                                                                                                                                                |
+| Director auto-shots    | Director records a shot at every `spotlight`/`hover`/`click` (and element-targeted `caption(text, target)`), normalized to measured content coords, debounced, and flushes `shots.json` next to `beats.json` (never clobbers a hand-authored file when a run records no shots). Types shared via `showcase-manifest`. |
+| Exact-viewport capture | Launcher measures the real renderer viewport after `setContentSize` and iteratively corrects until viewport == record size — no more gray `rgb(128)` padding band at the source. Band auto-crop in `render-all.mjs` remains as fallback. Measured res flows into the manifest + shot normalization.                   |
+| Camera motion v2       | Per-shot `transMs` / `ease: ramp\|smooth\|cut` (fast-attack quintic ramp default), velocity-scaled motion blur on the footage layer (cap 8px), whip-pan / zoom-blur section transitions replacing plain crossfades (`SectionTransition.tsx`).                                                                         |
+| Supersampled zooms     | `render-all.mjs --out-res 1080p\|1440p\|4k\|native`: capture high-res, render lower-res output — punch-ins stay crisp; `dynamicMaxScale` allows up to ~3.2× when supersampled.                                                                                                                                        |
+| Sound-design hooks     | `SoundDesign.tsx`: whoosh on focus-changing shot boundaries + looped music bed with fades — activates only when `assets/sfx/whoosh.mp3` / `assets/music/bed.mp3` exist (see `assets/README.md`), silently skipped otherwise.                                                                                          |
+| Voice cloning          | `narrate.mjs --engine elevenlabs` (ElevenLabs Instant Voice Clone via REST, PCM→WAV, sequential + retry, per-beat/scene char-count logging). `durations.json` records engine/voice/model and busts the reuse-skip on mismatch. Kokoro remains the default engine.                                                     |
 
 ### Known environmental notes
 
 - **Gray padding band**: Electron/Playwright pad the recording with a uniform
   `rgb(128)` band at the bottom when the web-contents viewport is shorter than
-  the record size (canvas-orchestra: content = top 967px of 1080). `render-all.mjs`
-  auto-detects it (ffmpeg frame + sharp row scan) and `DeviceFrame` clips it.
+  the record size (canvas-orchestra: content = top 967px of 1080). Fixed at the
+  source for NEW captures (launcher now iterates until viewport == record size);
+  `render-all.mjs` auto-detect + `DeviceFrame` clip remain for old footage and
+  as a fallback when the display physically can't fit the capture res.
 - **Intro offset**: camera/caption times are body-local; the rendered mp4 is
   offset by the intro (`DEFAULT_INTRO_MS`, 1800ms). Add it when scrubbing to a
   beat time.
 
 ---
 
-## The big next step — Director auto-emits `shots.json`
+## ~~The big next step — Director auto-emits `shots.json`~~ SHIPPED
 
-Today `shots.json` is hand-authored. The unlock: **designed scenes generate it
-for free** because the Director already spotlights the elements we'd want the
-camera on (`director.spotlight(el)`, `hover(el)`, `click(el)`, and each
-`caption()` beat).
-
-**Work:**
-
-1. In the Director, capture `await locator.boundingBox()` at each
-   spotlight/hover/click and at caption beats that target an element.
-2. Normalize to **content coordinates**: divide x by capture width, y by the
-   **content height** (not full frame — account for the gray-band crop), so
-   focus rects line up with `DeviceFrame`'s cropped card space.
-3. Emit a `shots.json` alongside `beats.json` with a shot per interaction:
-   `focus` = padded element box, `ring` = tight element box, `captionPos` from a
-   heuristic (top when the element sits in the lower half), optional `callout`.
-4. `render-all.mjs` already reads `shots.json` — no render change needed.
-
-**Payoff:** every designed scene (dashboard-tour, chat-code-edit, …) gets
-synced punch-ins, rings, and callouts with zero hand-authoring.
+Landed as described (see Delivered table): the Director records shots at every
+`spotlight`/`hover`/`click` and element-targeted `caption(text, target)`,
+normalizes to measured content coordinates, and flushes `shots.json` in fixture
+teardown. Every designed scene now gets synced punch-ins, rings, and top/bottom
+caption placement with zero hand-authoring. First real validation: the next
+`dashboard-tour` capture.
 
 ---
 
@@ -85,12 +80,12 @@ synced punch-ins, rings, and callouts with zero hand-authoring.
 
 - **Number count-ups** on stats (tokens/cost/turns animate up when focused).
 - **Parallax** between tiles during pans (subtle depth).
-- **Speed-ramps / hold-and-cut** instead of only eased moves.
-- **Section transitions**: whip-pan / zoom-blur between intro→body→outro (not
-  just crossfade). No `@remotion/transitions` installed — either add it or
-  hand-roll.
-- **Motion blur** on fast camera moves.
-- **Sound design**: subtle whooshes on punch-ins + a low music bed under VO.
+- ~~Speed-ramps / hold-and-cut~~ — shipped (per-shot `transMs` / `ease`).
+- ~~Section transitions~~ — shipped, hand-rolled (`SectionTransition.tsx`).
+- ~~Motion blur~~ — shipped (velocity-scaled, footage layer only).
+- **Sound design**: hooks shipped (`SoundDesign.tsx`); still need the actual
+  assets — drop `assets/sfx/whoosh.mp3` + `assets/music/bed.mp3` in
+  (see `assets/README.md` for expectations/sources).
 
 ### 3. Multi-beat timing — Phase 2 (video-follows-audio)
 
@@ -123,8 +118,9 @@ synced punch-ins, rings, and callouts with zero hand-authoring.
 
 ## Hardening / tech debt
 
-- **Validate `shots.json`** in `render-all.mjs` with the `shotsFileSchema` zod
-  (currently trusted). Mirror the manifest's compile-time schema-match assertion.
+- ~~Validate `shots.json` in `render-all.mjs`~~ — shipped (structural check in
+  the `.mjs` mirroring `shotsFileSchema`; keep the two in lockstep — the
+  authoritative zod parse stays composition-side).
 - **Studio per-scene preview**: a `PTAH_PREVIEW_SCENE=<scene>` path so
   `:studio` opens with a real scene's props instead of the empty fallback.
 - **Caption punctuation**: lone punctuation is mostly folded into words now;

@@ -3,97 +3,86 @@ import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
 } from '@hive-academy/angular-gsap';
-import { LucideAngularModule, Sparkles } from 'lucide-angular';
 import { YouTubePlayer } from '@angular/youtube-player';
+import { DeviceFrameComponent } from '../../components/console/device-frame.component';
 
+/**
+ * VideoShowcaseComponent — S3 Demo (design spec §4 S3, copy deck S3).
+ *
+ * The one literal footage on the page (real product session). Operator Console
+ * restyle: eyebrow `SEE IT WORK`, desktop-only H2/subhead, and the
+ * `<youtube-player>` wrapped in a `DeviceFrameComponent` ("Ptah — Live Session").
+ * `id="demo"` is the hero "Watch it work" anchor target. YouTube player renders
+ * a static thumbnail at prerender → SSG-safe.
+ */
 @Component({
   selector: 'ptah-video-showcase',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ViewportAnimationDirective, LucideAngularModule, YouTubePlayer],
+  imports: [ViewportAnimationDirective, YouTubePlayer, DeviceFrameComponent],
   template: `
-    <section class="relative bg-slate-950 py-24 sm:py-32 overflow-hidden">
+    <section
+      id="demo"
+      aria-label="See it work"
+      class="relative bg-ink-950 py-24 sm:py-32 overflow-hidden"
+    >
       <!-- Background glow -->
       <div
-        class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-[#d4af37]/[0.03] rounded-full blur-[150px] pointer-events-none"
+        class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-amber-500/[0.04] rounded-full blur-[150px] pointer-events-none"
         aria-hidden="true"
       ></div>
 
       <div class="relative z-10 max-w-6xl mx-auto px-4 sm:px-6">
-        <!-- Badge -->
-        <div
-          viewportAnimation
-          [viewportConfig]="badgeConfig"
-          class="text-center mb-6"
-        >
+        <!-- Section header -->
+        <div class="max-w-3xl mx-auto text-center mb-16">
           <span
-            class="inline-flex items-center gap-2 px-5 py-2 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-full text-sm font-semibold text-[#f4d47c]"
+            viewportAnimation
+            [viewportConfig]="badgeConfig"
+            class="font-mono text-xs sm:text-sm uppercase tracking-[0.2em] text-amber-500/80 mb-4 inline-block"
+            >SEE IT WORK</span
           >
-            <lucide-angular
-              [img]="SparklesIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            FULL PLATFORM WALKTHROUGH
-          </span>
+
+          <h2
+            viewportAnimation
+            [viewportConfig]="headlineConfig"
+            class="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white leading-tight mb-6"
+          >
+            One Desktop App. Real Sessions.
+          </h2>
+
+          <p
+            viewportAnimation
+            [viewportConfig]="subtitleConfig"
+            class="text-lg sm:text-xl text-ink-400 leading-relaxed"
+          >
+            No slideware — this is Ptah running against real projects: memory
+            recall, sub-agent fan-out, and scheduled runs, captured as they
+            happened.
+          </p>
         </div>
 
-        <!-- Headline -->
-        <h2
-          viewportAnimation
-          [viewportConfig]="headlineConfig"
-          class="text-center text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-white mb-6 leading-tight"
-        >
-          One Orchestra. Every Model.
-          <span
-            class="bg-gradient-to-r from-[#d4af37] via-[#f4d47c] to-[#8a6d10] bg-clip-text text-transparent"
-          >
-            Three Runtimes.
-          </span>
-        </h2>
-
-        <!-- Subtitle -->
-        <p
-          viewportAnimation
-          [viewportConfig]="subtitleConfig"
-          class="text-center text-lg sm:text-xl md:text-2xl text-gray-400 max-w-2xl mx-auto mb-14"
-        >
-          Watch Ptah orchestrate agents, switch providers live, and deploy
-          headless — 8 minutes.
-        </p>
-
-        <!-- Video Card -->
+        <!-- Video device frame -->
         <div
           viewportAnimation
           [viewportConfig]="videoConfig"
-          class="video-card relative w-full max-w-5xl mx-auto rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-sm"
+          class="max-w-5xl mx-auto"
         >
-          <!-- Video Player -->
-          <div class="video-wrapper aspect-video rounded-t-2xl overflow-hidden">
-            <youtube-player
-              videoId="cRrwNahaEas"
-              [disableCookies]="true"
-              placeholderImageQuality="high"
-            />
-          </div>
-
-          <!-- Bottom Sheet -->
-          <div class="px-6 py-5 border-t border-white/[0.06]">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 class="text-white font-semibold text-base sm:text-lg">
-                  Ptah — AI Coding Orchestra
-                </h3>
-                <p class="text-gray-500 text-sm mt-0.5">
-                  VS Code + Electron + CLI — full platform demo
-                </p>
-              </div>
-              <span
-                class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/20 text-xs font-medium text-[#f4d47c]"
-              >
-                HD 1080p
-              </span>
+          <ptah-device-frame
+            title="Ptah — Live Session"
+            liveLabel="LIVE SESSION"
+            aspect="16/9"
+          >
+            <div class="video-wrapper absolute inset-0">
+              <youtube-player
+                videoId="cRrwNahaEas"
+                [disableCookies]="true"
+                placeholderImageQuality="high"
+              />
             </div>
-          </div>
+          </ptah-device-frame>
+
+          <p class="text-center text-sm text-ink-400 mt-5">
+            Ptah desktop — memory recall, sub-agent fan-out, scheduled runs.
+          </p>
         </div>
       </div>
     </section>
@@ -104,19 +93,11 @@ import { YouTubePlayer } from '@angular/youtube-player';
         display: block;
       }
 
-      .video-card {
-        box-shadow:
-          0 0 0 1px rgba(255, 255, 255, 0.05),
-          0 25px 60px -12px rgba(0, 0, 0, 0.6),
-          0 0 40px rgba(212, 175, 55, 0.08),
-          0 0 80px rgba(212, 175, 55, 0.04);
-      }
-
       .video-wrapper {
-        position: relative;
+        position: absolute;
       }
 
-      /* Force youtube-player to fill the container */
+      /* Force youtube-player to fill the device-frame body */
       .video-wrapper ::ng-deep youtube-player,
       .video-wrapper ::ng-deep iframe,
       .video-wrapper ::ng-deep .youtube-player-placeholder {
@@ -130,8 +111,6 @@ import { YouTubePlayer } from '@angular/youtube-player';
   ],
 })
 export class VideoShowcaseComponent {
-  public readonly SparklesIcon = Sparkles;
-
   public readonly badgeConfig: ViewportAnimationConfig = {
     animation: 'scaleIn',
     duration: 0.5,

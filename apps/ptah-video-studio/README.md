@@ -57,11 +57,15 @@ dist/apps/ptah-electron-e2e/recordings/
 
 ## Environment variables
 
-| Variable                        | Default | Purpose                                                                                                                                                                   |
-| ------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PTAH_SHOWCASE_SILENT_CAPTIONS` | unset   | Set to `1` during capture: beats are recorded but no lower-third text is baked into pixels (Remotion renders its own animated captions). Recommended for the AI pipeline. |
-| `PTAH_SHOWCASE_RES`             | `1080p` | Capture resolution: `1080p`, `1440p`, or `4k`. Flows through to the Remotion composition via `beats.json.res`.                                                            |
-| `PTAH_POLISH`                   | unset   | Set to `1` to run `polish.mjs` before narration (requires Anthropic auth). Leave unset to narrate from raw beat captions.                                                 |
+| Variable                        | Default                  | Purpose                                                                                                                                                                   |
+| ------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PTAH_SHOWCASE_SILENT_CAPTIONS` | unset                    | Set to `1` during capture: beats are recorded but no lower-third text is baked into pixels (Remotion renders its own animated captions). Recommended for the AI pipeline. |
+| `PTAH_SHOWCASE_RES`             | `1080p`                  | Capture resolution: `1080p`, `1440p`, or `4k`. Flows through to the Remotion composition via `beats.json.res`.                                                            |
+| `PTAH_POLISH`                   | unset                    | Set to `1` to run `polish.mjs` before narration (requires Anthropic auth). Leave unset to narrate from raw beat captions.                                                 |
+| `PTAH_TTS_ENGINE`               | `kokoro`                 | Narration engine: `kokoro` (local, free) or `elevenlabs` (cloud, billed, supports voice cloning). Overridden by `narrate.mjs --engine`.                                   |
+| `ELEVENLABS_API_KEY`            | unset                    | ElevenLabs API key. Required when the narration engine is `elevenlabs`; `narrate.mjs` fails fast with a clear message if it is missing.                                   |
+| `PTAH_ELEVENLABS_VOICE_ID`      | unset                    | Default ElevenLabs voice id (e.g. your Instant Voice Clone). Used when `--voice` is omitted and the engine is `elevenlabs`.                                               |
+| `PTAH_ELEVENLABS_MODEL`         | `eleven_multilingual_v2` | Default ElevenLabs model id. Override with `--model` (e.g. `eleven_turbo_v2_5`).                                                                                          |
 
 ---
 
@@ -283,15 +287,79 @@ caption, render) when the capture was done separately.
 ```
 node apps/ptah-video-studio/scripts/narrate.mjs
   [--scene <slug>]      single scene; omit for all scenes with beats.json
-  [--voice <id>]        Kokoro voice id (default: af_heart)
+  [--engine <name>]     kokoro (local, default) or elevenlabs (cloud, voice cloning)
+                        env fallback: PTAH_TTS_ENGINE
+  [--voice <id>]        kokoro: voice id (default: af_heart)
+                        elevenlabs: voice id (env fallback: PTAH_ELEVENLABS_VOICE_ID)
+  [--model <id>]        elevenlabs model id (default: eleven_multilingual_v2,
+                        env fallback: PTAH_ELEVENLABS_MODEL; ignored by kokoro)
   [--speed <n>]         TTS speed multiplier (default: 1)
+                        elevenlabs clamps to 0.7–1.2 and warns if outside
+  [--stability <n>]     elevenlabs tone: delivery consistency, 0..1 (default 0.4)
+                        lower = more expressive variation, higher = flatter read
+  [--similarity <n>]    elevenlabs tone: adherence to the cloned timbre, 0..1
+                        (default 0.75)
+  [--style <n>]         elevenlabs tone: style exaggeration of the reference
+                        clip, 0..1 (default 0.2; >0.5 risks artifacts)
   [--source beats]      force narration from raw beats.json captions
                         (default: uses narration-script.json if present)
   [--force]             re-generate even if durations.json is up to date
 ```
 
-Voice examples: `af_heart` (default), `am_michael`, `af_bella`, `am_adam`.
+Voice examples (kokoro): `af_heart` (default), `am_michael`, `af_bella`, `am_adam`.
 List all voices: `node -e "const {KokoroTTS}=require('kokoro-js'); KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX',{dtype:'q4',device:'cpu'}).then(t=>console.log(t.list_voices()))"`.
+
+`durations.json` records the `engine`, `voice`, `model`, and a `settings`
+fingerprint (speed + tone knobs). `narrate.mjs` reuses existing wavs only when
+the narration source is unchanged **and** all of those still match — switching
+any of them busts the skip and re-synthesizes (so you never silently ship stale
+audio after changing voices or tone). `--force` always regenerates.
+
+#### Voice cloning (ElevenLabs)
+
+Narrate marketing videos in a clone of your own voice:
+
+1. Create an **Instant Voice Clone** at [elevenlabs.io](https://elevenlabs.io):
+   upload 1–5 minutes of clean, single-speaker speech (quiet room, no music).
+2. Open the cloned voice and copy its **voice id**.
+3. Set credentials in the studio-local env file (loaded automatically by the
+   pipeline scripts; gitignored):
+
+   ```bash
+   cp apps/ptah-video-studio/.env.example apps/ptah-video-studio/.env
+   # then edit it and set ELEVENLABS_API_KEY + PTAH_ELEVENLABS_VOICE_ID
+   ```
+
+   Shell exports still work and take precedence over the file. Do NOT put
+   these in the workspace-root `.env` — that file is the license server's and
+   is injected into its Docker container.
+
+4. Narrate with the ElevenLabs engine:
+
+   ```bash
+   # Single scene
+   node apps/ptah-video-studio/scripts/narrate.mjs \
+     --engine elevenlabs --scene editor-tour
+
+   # Explicit voice + faster/cheaper model
+   node apps/ptah-video-studio/scripts/narrate.mjs \
+     --engine elevenlabs --voice your_voice_id --model eleven_turbo_v2_5 \
+     --scene editor-tour
+   ```
+
+Each ElevenLabs run is **billed per character**, so `narrate.mjs` prints the
+character count per beat and a per-scene total to help you estimate credit
+usage, and logs `up to date` (with the engine + voice) when it skips. Requests
+are sequential and retry once on rate-limit / server errors. Commercial use of
+cloned-voice audio requires a **paid ElevenLabs plan** — check their terms
+before publishing.
+
+**Tone tuning.** The clone inherits most of its tone from the reference
+recording — record it in the exact delivery you want the videos to have.
+Then shape it per run with the knobs: `--stability` (0.3–0.5 = lively
+marketing read, 0.7+ = calm/flat), `--style` (0–0.3 subtle, higher amplifies
+the reference style but risks artifacts), `--speed` (1.0–1.05 for demos).
+Dial them in cheaply on one short scene before batch-narrating all 13.
 
 ### caption.mjs
 

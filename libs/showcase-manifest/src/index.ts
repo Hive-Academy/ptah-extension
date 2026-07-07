@@ -1,1 +1,7 @@
-export type { Beat, SceneManifest } from './lib/manifest.types';
+export type {
+  Beat,
+  SceneManifest,
+  Shot,
+  ShotFocusRect,
+  ShotsFile,
+} from './lib/manifest.types';

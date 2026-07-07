@@ -17,6 +17,13 @@ import type { Locator, Page } from '@playwright/test';
  *
  * Purely UI-driven: NO agents, NO LLM inference, so no `waitForAgentTurn`.
  *
+ * AUDIO-FIRST: the voiceover script lives in `scripts/cron-tour.json` and is
+ * narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)` speaks line
+ * i, holding for the REAL clip duration (durations.json) so narration, captions
+ * and footage stay locked — no estimated holds, no silent gaps. Element-
+ * targeted says + spotlight/hover auto-emit `shots.json`, punching the camera
+ * onto each subject as the VO names it.
+ *
  * NON-DESTRUCTIVE by design. Clicking a job ROW only selects it and reveals the
  * run-history panel — it mutates nothing. We deliberately NEVER click the
  * per-row Run / Edit / Enable-Disable / Delete buttons, nor "New job", nor the
@@ -87,78 +94,93 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
   // The persistent authed profile ALWAYS shows the trial modal on boot.
   await director.dismissDialogs();
 
-  await director.caption('Set it and forget it.');
-  await director.hold(1600);
-  await director.caption();
-
+  // Navigate + settle BEFORE the first beat: enter the Schedules (cron) tab (the
+  // subject surface) so the hook lands on it instead of the stale restored
+  // surface. Everything until the hook is trimmed by render-all's lead-in trim,
+  // so the surface swap never airs. Entering the tab here also forces its
+  // SQLite-backed first-mount, so no separate pre-warm is needed.
   const panel = await goToCron(page, director);
 
+  // HOOK — fire immediately so the video opens on a question, not dead air.
+  await director.say(0);
+
+  // WARMUP — one line of context before the tour starts.
+  await director.say(1);
+
   // 1) Land + read the stats strip: jobs / enabled / disabled / next run.
-  await director.caption('Schedules — agents that run on their own clock.');
   const statsStrip = await firstVisible(panel, [
     '[aria-label="Cron statistics"]',
     '[data-testid="cron-stat-total"]',
   ]);
   if (statsStrip) {
-    await director.spotlight(statsStrip, 1700);
+    await director.say(2, {
+      target: statsStrip,
+      during: async () => {
+        await director.spotlight(statsStrip, 1700);
+      },
+    });
   } else {
-    await director.hold(1200);
+    await director.say(2);
   }
-  await director.caption();
 
-  // 2) Pan the schedules table top→bottom so the camera reveals every job.
-  await director.caption('Cron expressions drive headless Ptah sessions.');
-  await director.scrollThrough(panel, { steps: 5, dwellMs: 600 });
-  await director.caption();
+  // 2) Pan the schedules table top→bottom so the camera reveals every job
+  // while the narration plays over the scroll.
+  await director.say(3, {
+    target: panel,
+    during: async () => {
+      await director.scrollThrough(panel, { steps: 5, dwellMs: 600 });
+    },
+  });
 
   // 3) Spotlight a single schedule row (or gracefully narrate the empty state).
   const row = page.locator('[data-testid="cron-job-row"]').first();
   const hasJob = await row.isVisible().catch(() => false);
 
   if (hasJob) {
-    await director.caption(
-      'Each row is one recurring job — name, cron, status.',
-    );
-    await director.hover(row, 700);
-    await director.spotlight(row, 1600);
-    await director.caption();
+    await director.say(4, {
+      target: row,
+      during: async () => {
+        await director.hover(row, 700);
+        await director.spotlight(row, 1600);
+      },
+    });
 
     // 4) Click the row — selection only — to reveal the READ-ONLY run-history
     //    panel below the table. This mutates nothing.
-    await director.caption('Open one to see its run history.');
-    await director.click(row);
-    await director.hold(600);
+    await director.say(5, {
+      target: row,
+      during: async () => {
+        await director.click(row);
+        await director.hold(600);
 
-    const history = await firstVisible(panel, ['[aria-label="Run history"]']);
-    if (history) {
-      // `spotlight` scrolls the target into view before drawing the ring.
-      await director.spotlight(history, 1700);
-    } else {
-      await director.hold(900);
-    }
-    await director.caption();
+        const history = await firstVisible(panel, [
+          '[aria-label="Run history"]',
+        ]);
+        if (history) {
+          // `spotlight` scrolls the target into view before drawing the ring.
+          await director.spotlight(history, 1700);
+        }
+      },
+    });
   } else {
     // No jobs yet: narrate the value prop over the empty state.
     const empty = await firstVisible(panel, [
       '[data-testid="cron-empty-state"]',
     ]);
-    await director.caption(
-      'Schedule a prompt — nightly builds, digests, maintenance — and walk away.',
-    );
     if (empty) {
-      await director.spotlight(empty, 1800);
+      await director.say(6, {
+        target: empty,
+        during: async () => {
+          await director.spotlight(empty, 1800);
+        },
+      });
     } else {
-      await director.hold(1400);
+      await director.say(6);
     }
-    await director.caption();
   }
 
   await director.dismissDialogs();
 
   // 5) Payoff.
-  await director.caption(
-    'Nightly agents on a schedule. No one at the keyboard.',
-  );
-  await director.hold(2600);
-  await director.caption();
+  await director.say(7);
 });

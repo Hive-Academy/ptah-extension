@@ -1,4 +1,5 @@
-import { inject, Injectable } from '@angular/core';
+import { inject, Injectable, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Observable, catchError, map, of, tap } from 'rxjs';
 
@@ -36,6 +37,7 @@ const AUTH_HINT_KEY = 'ptah_auth_hint';
 export class AuthService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = '/api/auth';
+  private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
   /**
    * Check if user is authenticated (hint-based, for UI updates)
@@ -117,6 +119,9 @@ export class AuthService {
    * Call this after successful authentication (OAuth callback, magic link, etc.)
    */
   public setAuthHint(): void {
+    if (!this.isBrowser) {
+      return;
+    }
     localStorage.setItem(AUTH_HINT_KEY, 'true');
   }
 
@@ -124,6 +129,9 @@ export class AuthService {
    * Clear auth hint
    */
   public clearAuthHint(): void {
+    if (!this.isBrowser) {
+      return;
+    }
     localStorage.removeItem(AUTH_HINT_KEY);
   }
 
@@ -131,6 +139,9 @@ export class AuthService {
    * Check if auth hint exists
    */
   private hasAuthHint(): boolean {
+    if (!this.isBrowser) {
+      return false;
+    }
     try {
       return localStorage.getItem(AUTH_HINT_KEY) === 'true';
     } catch {

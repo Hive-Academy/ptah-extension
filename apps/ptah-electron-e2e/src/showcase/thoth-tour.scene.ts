@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmThoth } from './_harness/prewarm';
 
 /**
  * P1.2 — "Ptah Desktop — the Thoth shell" (4-tab cockpit tour).
@@ -19,6 +20,13 @@ import type { Locator, Page } from '@playwright/test';
  * Purely UI-driven: NO agents run and NO LLM inference happens, so there is no
  * `waitForAgentTurn` here.
  *
+ * AUDIO-FIRST: the voiceover script lives in `scripts/thoth-tour.json` and is
+ * narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)` speaks line
+ * i, holding for the REAL clip duration (durations.json) so narration, captions
+ * and footage stay locked — no estimated holds, no silent gaps. Element-
+ * targeted says + spotlight/hover auto-emit `shots.json`, punching the camera
+ * onto each subject as the VO names it.
+ *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
  *   authenticated and a real workspace is restored.
@@ -34,13 +42,12 @@ import type { Locator, Page } from '@playwright/test';
  * rather than by role to avoid colliding with the top-nav tablist.
  */
 
-/** One inner tab of the Thoth shell: its id, the line we narrate, and a list of
- * candidate hero selectors to spotlight (first visible wins). */
+/** One inner tab of the Thoth shell: its id and a list of candidate hero
+ * selectors to spotlight (first visible wins). Its narration line lives in
+ * `scripts/thoth-tour.json` at index `TAB_SCRIPT_BASE + position`. */
 interface ThothBeat {
   /** Tab/panel id suffix — drives `#thoth-tab-<id>` and `#thoth-panel-<id>`. */
   readonly id: 'memory' | 'skills' | 'cron' | 'gateway';
-  /** Single-line teaser caption for this tab. */
-  readonly caption: string;
   /**
    * Ordered hero candidates to spotlight — the first visible one wins. Falls
    * back to the panel's own heading, then the panel root, if none match (these
@@ -49,11 +56,10 @@ interface ThothBeat {
   readonly hero: readonly string[];
 }
 
-/** The four tabs, in cockpit-pan order, each with its line + hero candidates. */
+/** The four tabs, in cockpit-pan order, each with its hero candidates. */
 const BEATS: readonly ThothBeat[] = [
   {
     id: 'memory',
-    caption: 'Memory — a persistent brain that remembers across sessions.',
     hero: [
       '[data-testid="memory-stat-blocks"]',
       '[data-testid="memory-blocks-list"]',
@@ -62,7 +68,6 @@ const BEATS: readonly ThothBeat[] = [
   },
   {
     id: 'skills',
-    caption: 'Skills — agents that turn what they learn into reusable skills.',
     hero: [
       '[data-testid="suggestions-card"]',
       '[data-testid="skills-stat-candidates"]',
@@ -71,7 +76,6 @@ const BEATS: readonly ThothBeat[] = [
   },
   {
     id: 'cron',
-    caption: 'Schedules — cron-driven nightly agents that run on their own.',
     hero: [
       '[data-testid="cron-job-row"]',
       '[data-testid="cron-stat-total"]',
@@ -80,7 +84,6 @@ const BEATS: readonly ThothBeat[] = [
   },
   {
     id: 'gateway',
-    caption: 'Gateway — drive Ptah from Telegram, Discord or Slack.',
     hero: [
       '[data-testid="gateway-channel-card"]',
       '[data-testid="gateway-stat-total"]',
@@ -88,6 +91,12 @@ const BEATS: readonly ThothBeat[] = [
     ],
   },
 ];
+
+/**
+ * Script index of the FIRST tab line in `scripts/thoth-tour.json` — the four
+ * `BEATS` narrate lines `TAB_SCRIPT_BASE + position` in array order.
+ */
+const TAB_SCRIPT_BASE = 3;
 
 /**
  * Enter the Thoth shell from the top nav. Best-effort against the live shell:
@@ -145,6 +154,7 @@ async function tourTab(
   page: Page,
   director: Director,
   beat: ThothBeat,
+  scriptIndex: number,
 ): Promise<void> {
   await director.click(page.locator(`#thoth-tab-${beat.id}`));
   const panel = page.locator(`#thoth-panel-${beat.id}`);
@@ -152,18 +162,22 @@ async function tourTab(
   // The trial modal can re-assert after a tab switch — keep it out of frame.
   await director.dismissDialogs();
 
-  await director.caption(beat.caption);
-  await director.hold(900);
+  // Target the panel so the camera frames this tab's surface as the VO names it.
+  await director.say(scriptIndex, {
+    target: panel,
+    during: async () => {
+      await director.hold(900);
 
-  // Reveal the full surface with a slow top→bottom→top pan.
-  await director.scrollThrough(panel, { steps: 5, dwellMs: 620 });
+      // Reveal the full surface with a slow top→bottom→top pan.
+      await director.scrollThrough(panel, { steps: 5, dwellMs: 620 });
 
-  // Draw the eye to this tab's hero element (or the panel chrome if sparse).
-  const hero = await resolveHero(page, beat, panel);
-  await director.spotlight(hero, 1700);
+      // Draw the eye to this tab's hero element (or the panel chrome if sparse).
+      const hero = await resolveHero(page, beat, panel);
+      await director.spotlight(hero, 1700);
 
-  await director.hold(500);
-  await director.caption();
+      await director.hold(500);
+    },
+  });
 }
 
 test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
@@ -174,30 +188,40 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
   // startup modal — clear it before filming so it stays out of frame.
   await director.dismissDialogs();
 
-  await director.caption(
-    'The VS Code extension is the tip. This is the whole iceberg.',
+  // PRE-WARM (kept — trimmed lead-in, before the first beat): this cockpit pan
+  // visits all four Electron-only tabs mid-body, each of which pays a
+  // SQLite/embedder-backed first-mount cost. `goToThoth` below only lands on the
+  // shell (memory), so the skills/cron/gateway panels are still cold; force all
+  // four mounts now so the per-tab switches in the `tourTab` loop stay snappy
+  // instead of stalling on camera. Silent + fully guarded (see prewarm.ts);
+  // returns to the starting surface.
+  await prewarmThoth(page, ['memory', 'skills', 'cron', 'gateway']).catch(
+    () => undefined,
   );
-  await director.hold(1800);
-  await director.caption();
 
-  // Enter the cockpit; the trial modal can re-assert after navigation, so
-  // dismiss again before we start panning the tabs.
+  // Navigate + settle BEFORE the first beat: enter the Thoth cockpit (the
+  // subject surface) so the hook lands on it instead of the stale restored
+  // surface. Everything until the hook is trimmed by render-all's lead-in trim,
+  // so the surface swap never airs. The trial modal can re-assert after
+  // navigation, so dismiss again before we start panning the tabs.
   await goToThoth(page, director);
   await director.dismissDialogs();
   await director.hold();
 
-  await director.caption('Four tabs the extension can never have…');
-  await director.hold(1400);
-  await director.caption();
+  // HOOK — fire immediately so the video opens on a claim, not dead air.
+  await director.say(0);
+
+  // WARMUP — one line of context before the tour starts.
+  await director.say(1);
+
+  await director.say(2);
 
   // One confident pan across the four Electron-only tabs — scroll + spotlight.
-  for (const beat of BEATS) {
-    await tourTab(page, director, beat);
+  for (const [position, beat] of BEATS.entries()) {
+    await tourTab(page, director, beat, TAB_SCRIPT_BASE + position);
   }
 
   // Payoff — desktop runs a local SQLite brain + embedder worker, which is why
   // these four are desktop-only by design.
-  await director.caption('Desktop = the full brain.');
-  await director.hold(2600);
-  await director.caption();
+  await director.say(7);
 });

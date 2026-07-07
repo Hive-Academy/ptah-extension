@@ -1,4 +1,5 @@
-import { inject } from '@angular/core';
+import { inject, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { CanActivateFn, Router } from '@angular/router';
 import { map, catchError } from 'rxjs/operators';
 import { of } from 'rxjs';
@@ -39,6 +40,10 @@ import { LicenseData } from '../pages/profile/models/license-data.interface';
  * - Observable-based activation
  */
 export const TrialStatusGuard: CanActivateFn = () => {
+  if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+    return true;
+  }
+
   const http = inject(HttpClient);
   const router = inject(Router);
 
@@ -55,6 +60,6 @@ export const TrialStatusGuard: CanActivateFn = () => {
         return of(true);
       }
       return of(false);
-    })
+    }),
   );
 };

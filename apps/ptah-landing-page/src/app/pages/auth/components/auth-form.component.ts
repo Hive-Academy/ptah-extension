@@ -247,10 +247,10 @@ import {
         type="button"
         (click)="handleSubmit()"
         [disabled]="isLoading() || !isFormValid()"
-        class="w-full py-4 rounded-xl font-semibold text-base transition-all duration-300
-               bg-gradient-to-r from-secondary to-amber-500 text-base-100
-               hover:from-secondary/90 hover:to-amber-400 hover:shadow-lg hover:shadow-secondary/25
-               hover:scale-[1.02] active:scale-[0.98]
+        class="w-full py-4 rounded-xl font-semibold text-base transition-all duration-200
+               bg-amber-500 text-ink-950
+               hover:bg-amber-400 hover:shadow-glow-amber
+               active:bg-amber-600 active:scale-[0.98]
                disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:scale-100"
       >
         @if (isLoading()) {

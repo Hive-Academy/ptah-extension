@@ -10,6 +10,13 @@ import type { Locator, Page } from '@playwright/test';
  * workspace. This is a SCENE, not a test — it asserts almost nothing and is
  * tuned for how it looks on camera. See `docs/video-content-plan.md` P2.1.
  *
+ * AUDIO-FIRST: the voiceover script lives in `scripts/canvas-orchestra.json`
+ * and is narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)`
+ * speaks line i, holding for the REAL clip duration (durations.json) so
+ * narration, captions and footage stay locked — no estimated holds, no silent
+ * gaps. Element-targeted says + spotlight/hover auto-emit `shots.json`,
+ * punching the camera onto each subject as the VO names it.
+ *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
  *   authenticated and a real workspace is restored.
@@ -98,6 +105,33 @@ async function visible(loc: Locator): Promise<boolean> {
 }
 
 /**
+ * Close tiles left behind by previous captures. Canvas state persists in the
+ * profile, so each run's `agent-N` tiles survive into the next — cluttering the
+ * frame and eventually hitting the 9-tile cap, which makes createTile fail.
+ * Closes ONLY tiles whose header label matches `agent-<n>` (our own artifacts);
+ * anything else on the canvas is left alone. Runs before the hook beat, so the
+ * lead-in trim keeps the cleanup out of the final cut.
+ */
+async function closeStaleAgentTiles(
+  page: Page,
+  director: Director,
+): Promise<void> {
+  for (let i = 0; i < 9; i++) {
+    const stale = page
+      .locator('[data-testid="canvas-tile"]')
+      .filter({
+        has: page.locator('.tile-header span', { hasText: /^agent-\d+$/ }),
+      })
+      .first();
+    if (!(await visible(stale))) return;
+    const close = stale.locator('[title="Close tile"]').first();
+    if (!(await visible(close))) return;
+    await close.click({ timeout: 5_000 }).catch(() => undefined);
+    await director.hold(400);
+  }
+}
+
+/**
  * Exploration coda for a single tile: pan its conversation, spotlight the
  * stats strip, hover its agent indicator, and toggle compact/full view. Every
  * beat is guarded on visibility so a tile that finished sparse never stalls the
@@ -119,9 +153,12 @@ async function exploreTile(director: Director, tile: Locator): Promise<void> {
   // every agent's cost is on-screen, not hidden.
   const stats = tile.locator('ptah-session-stats-summary').first();
   if (await visible(stats)) {
-    await director.caption('Every agent shows its own cost, tokens, time.');
-    await director.spotlight(stats, 1800);
-    await director.caption();
+    await director.say(0, {
+      target: stats,
+      during: async () => {
+        await director.spotlight(stats, 1800);
+      },
+    });
   }
 
   // Hover the per-tile agent indicator (the pulsing status pill) to draw the
@@ -153,64 +190,76 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
   // Clear any blocking startup modal (license / trial dialog) before filming.
   await director.dismissDialogs();
 
-  await director.caption('One workspace. Three agents. At once.');
-  await director.hold(1600);
-  await director.caption();
-
+  // Navigate + clean up BEFORE the first beat: everything until the hook is
+  // trimmed by render-all's lead-in trim, so stale-tile closing never airs.
   await goToCanvas(page, director);
   await director.dismissDialogs();
+  await closeStaleAgentTiles(page, director);
   await director.hold();
+
+  // HOOK — fire immediately so the video opens on a question, not dead air.
+  await director.say(1);
+
+  // WARMUP — one line of context before the orchestra starts.
+  await director.say(2);
 
   const tiles = page.locator('[data-testid="canvas-tile"]');
   // The canvas may restore prior tiles from the profile — drive only the ones
   // we create here so pre-existing tiles don't shift our selectors.
   const startCount = await tiles.count();
 
-  // Spin up three session tiles.
-  await director.caption('Spin up three sessions…');
-  for (let i = 0; i < PROMPTS.length; i++) {
-    await createTile(page, director, `agent-${i + 1}`);
-    await tiles.nth(startCount + i).waitFor({ state: 'visible' });
-    await director.hold(500);
-  }
-  await director.caption();
+  // Spin up three session tiles. The create loop far outlasts the narration,
+  // so the line plays fully while the tiles appear.
+  await director.say(3, {
+    during: async () => {
+      for (let i = 0; i < PROMPTS.length; i++) {
+        await createTile(page, director, `agent-${i + 1}`);
+        await tiles.nth(startCount + i).waitFor({ state: 'visible' });
+        await director.hold(500);
+      }
+    },
+  });
 
   // Hand each tile its own task and fire it off — concurrently.
-  await director.caption('Give each one a different job…');
-  for (let i = 0; i < PROMPTS.length; i++) {
-    await sendPromptToTile(director, tiles.nth(startCount + i), PROMPTS[i]);
-    await director.hold(600);
-  }
-  await director.caption();
+  await director.say(4, {
+    during: async () => {
+      for (let i = 0; i < PROMPTS.length; i++) {
+        await sendPromptToTile(director, tiles.nth(startCount + i), PROMPTS[i]);
+        await director.hold(600);
+      }
+    },
+  });
 
-  // Let the orchestra play. Hold on the live multi-agent view while they run.
-  await director.caption('…and watch them work in parallel.');
-  await Promise.all(
-    PROMPTS.map((_, i) => director.waitForAgentTurn(tiles.nth(startCount + i))),
-  );
-  await director.caption();
+  // Let the orchestra play. The agent turns take far longer than the VO, so
+  // narration covers them while they run.
+  await director.say(5, {
+    during: async () => {
+      await Promise.all(
+        PROMPTS.map((_, i) =>
+          director.waitForAgentTurn(tiles.nth(startCount + i)),
+        ),
+      );
+    },
+  });
 
-  await director.caption('Three tasks. One screen. No waiting in line.');
-  await director.hold(2600);
-  await director.caption();
+  await director.say(6);
 
   // ── Exploration coda ──────────────────────────────────────────────────────
   // The orchestra has finished. Now give the camera a tour of what just
   // happened: dive into a tile's transcript, surface the per-agent telemetry,
   // flex the layout, and pan the whole grid. Everything here is read-only.
 
-  await director.caption('Take a closer look at the orchestra.');
-  await director.hold(1400);
-  await director.caption();
+  await director.say(7);
 
   // Tour each tile we created: scroll its conversation, spotlight its stats,
-  // hover its agent indicator, flex compact/full.
+  // hover its agent indicator, flex compact/full. The targeted say punches the
+  // camera onto the tile. Per-agent lines are script indices 10..12 (one per
+  // tile position) so each stays a fixed, pre-narrated line instead of an
+  // interpolated string.
   for (let i = 0; i < PROMPTS.length; i++) {
     const tile = tiles.nth(startCount + i);
     if (!(await visible(tile))) continue;
-    await director.caption(`Agent ${i + 1} — its work, its numbers.`);
-    await director.hold(700);
-    await director.caption();
+    await director.say(10 + i, { target: tile });
     await exploreTile(director, tile);
   }
 
@@ -219,21 +268,28 @@ test('P2.1 — three agents at once (Canvas orchestra)', async ({
   // click, so we don't change the grid behaviour mid-shot.
   const lockBtn = page.getByRole('button', { name: 'Lock tiles' }).first();
   if (await visible(lockBtn)) {
-    await director.caption(
-      'Lock the layout when the arrangement is just right.',
-    );
-    await director.spotlight(lockBtn, 1800);
-    await director.caption();
+    await director.say(8, {
+      target: lockBtn,
+      during: async () => {
+        await director.spotlight(lockBtn, 1800);
+      },
+    });
   }
 
   // Final wide pan across the whole grid so the closing frame is the full
-  // multi-agent canvas, alive with three concurrent conversations.
-  await director.caption('One canvas. A whole orchestra of agents.');
-  await director.scrollThrough(page.locator('[data-testid="canvas-grid"]'), {
-    steps: 6,
-    dwellMs: 700,
-    andBack: true,
+  // multi-agent canvas, alive with three concurrent conversations. The pan
+  // outlasts the narration.
+  await director.say(9, {
+    during: async () => {
+      await director.scrollThrough(
+        page.locator('[data-testid="canvas-grid"]'),
+        {
+          steps: 6,
+          dwellMs: 700,
+          andBack: true,
+        },
+      );
+      await director.hold(2200);
+    },
   });
-  await director.hold(2200);
-  await director.caption();
 });

@@ -1,4 +1,11 @@
-import { inject, Injectable, OnDestroy, signal } from '@angular/core';
+import {
+  inject,
+  Injectable,
+  OnDestroy,
+  PLATFORM_ID,
+  signal,
+} from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Observable, Subject, filter, firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
@@ -114,6 +121,7 @@ export type ConnectionState =
 @Injectable({ providedIn: 'root' })
 export class SSEEventsService implements OnDestroy {
   private readonly http = inject(HttpClient);
+  private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
   private eventSource: EventSource | null = null;
   private readonly eventSubject = new Subject<SSEEvent>();
@@ -136,7 +144,7 @@ export class SSEEventsService implements OnDestroy {
    */
   public readonly licenseUpdated$: Observable<LicenseUpdatedEvent> =
     this.events$.pipe(
-      filter((e): e is LicenseUpdatedEvent => e.type === 'license.updated')
+      filter((e): e is LicenseUpdatedEvent => e.type === 'license.updated'),
     );
 
   /**
@@ -146,22 +154,22 @@ export class SSEEventsService implements OnDestroy {
     this.events$.pipe(
       filter(
         (e): e is SubscriptionStatusEvent =>
-          e.type === 'subscription.status_changed'
-      )
+          e.type === 'subscription.status_changed',
+      ),
     );
 
   /**
    * Connection events - emitted when SSE connection is established
    */
   public readonly connected$: Observable<ConnectionEvent> = this.events$.pipe(
-    filter((e): e is ConnectionEvent => e.type === 'connected')
+    filter((e): e is ConnectionEvent => e.type === 'connected'),
   );
 
   /**
    * Heartbeat events - emitted every 30 seconds when connected
    */
   public readonly heartbeat$: Observable<HeartbeatEvent> = this.events$.pipe(
-    filter((e): e is HeartbeatEvent => e.type === 'heartbeat')
+    filter((e): e is HeartbeatEvent => e.type === 'heartbeat'),
   );
 
   /**
@@ -171,8 +179,8 @@ export class SSEEventsService implements OnDestroy {
     this.events$.pipe(
       filter(
         (e): e is ReconciliationCompletedEvent =>
-          e.type === 'reconciliation.completed'
-      )
+          e.type === 'reconciliation.completed',
+      ),
     );
 
   public ngOnDestroy(): void {
@@ -188,6 +196,10 @@ export class SSEEventsService implements OnDestroy {
    * 3. Auto-reconnect on connection loss
    */
   public async connect(): Promise<void> {
+    if (!this.isBrowser) {
+      return;
+    }
+
     if (this.eventSource) {
       if (this.connectionState() === 'connected') {
         return;
@@ -227,7 +239,7 @@ export class SSEEventsService implements OnDestroy {
       console.error('[SSE] Failed to establish connection:', error);
       this.connectionState.set('error');
       this.errorMessage.set(
-        error instanceof Error ? error.message : 'Failed to connect'
+        error instanceof Error ? error.message : 'Failed to connect',
       );
     }
   }
@@ -264,8 +276,8 @@ export class SSEEventsService implements OnDestroy {
       const response = await firstValueFrom(
         this.http.post<{ ticket: string }>(
           `${this.authBaseUrl}/stream/ticket`,
-          {}
-        )
+          {},
+        ),
       );
       return response.ticket;
     } catch (error) {
@@ -286,18 +298,18 @@ export class SSEEventsService implements OnDestroy {
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
       console.warn(
-        `[SSE] Max reconnect attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`
+        `[SSE] Max reconnect attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`,
       );
       this.connectionState.set('error');
       this.errorMessage.set(
-        'Unable to establish real-time connection. Please refresh the page.'
+        'Unable to establish real-time connection. Please refresh the page.',
       );
       return;
     }
 
     const delay = Math.min(
       this.BASE_RECONNECT_DELAY_MS * Math.pow(2, this.reconnectAttempts),
-      this.MAX_RECONNECT_DELAY_MS
+      this.MAX_RECONNECT_DELAY_MS,
     );
     this.reconnectAttempts++;
 
@@ -305,7 +317,7 @@ export class SSEEventsService implements OnDestroy {
       const state = this.connectionState();
       if (state === 'disconnected' || state === 'error') {
         console.log(
-          `[SSE] Reconnect attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} (delay: ${delay}ms)...`
+          `[SSE] Reconnect attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} (delay: ${delay}ms)...`,
         );
         this.connect();
       }

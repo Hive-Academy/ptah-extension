@@ -1,0 +1,29 @@
+{
+  "scene": "landing-page-tour",
+  "lines": [
+    "Your AI coding assistant forgets everything the moment you close the chat. What if it did not?",
+    "Every new session it starts cold. No memory of your codebase, no memory of yesterday's decision.",
+    "This is Ptah, the AI coding orchestra. A persistent, multi-agent coding agent that lives on your desktop.",
+    "It remembers. It learns. It ships. Persistent memory, compounding skills, and up to nine agents working in parallel.",
+    "Here is the problem Ptah solves. Most AI tools treat your agent like a new hire that nobody onboarded.",
+    "Ptah onboards its agents the way you would onboard an engineer. It studies the codebase before the first message.",
+    "And this is Ptah running against real projects. No slideware. Real memory recall and scheduled runs, captured as they happened.",
+    "Pillar one. It remembers your codebase, every single session.",
+    "Ptah indexes your project before the first message, and keeps what it learns long after the last one.",
+    "Persistent memory, code indexing, and hybrid search. Ask where you validate auth tokens in plain English, and get cited results.",
+    "Pillar two. It gets better every session. Then it multiplies itself.",
+    "Repeat a workflow, and Ptah turns it into a reusable skill, judged and promoted automatically. No manual authoring required.",
+    "Then it scales. A main agent fans work out to parallel sub-agents, each with its own model and context window.",
+    "Run up to nine concurrent agents in one drag and resize grid. They keep working while you focus on a single tile.",
+    "Pillar three. It works while you sleep, and it answers where you already are.",
+    "Schedule agents like cron jobs. Nightly code reviews, dependency scans, standup summaries. No server to babysit.",
+    "Trigger and approve agent work from Telegram, Discord, or Slack, including with your voice.",
+    "And nothing runs unattended that you have not authorized. You approve every tool call before it executes.",
+    "No lock-in. Bring any model, and switch providers mid-session without losing your context.",
+    "So how is this different? Autocomplete ends at the cursor. Ptah does not.",
+    "Cursor and Copilot finish your sentence. Ptah remembers yesterday, works while you are away, and answers from your phone.",
+    "Prefer your editor or a terminal? Ptah also ships as a VS Code extension and a headless command line tool.",
+    "It remembers. It learns. It ships. Start your one hundred day free trial. No credit card required.",
+    "Download Ptah today at Ptah dot live, and give your codebase an AI employee that finally remembers."
+  ]
+}

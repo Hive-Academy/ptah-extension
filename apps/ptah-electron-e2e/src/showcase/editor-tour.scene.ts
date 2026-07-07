@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { prewarmEditor } from './_harness/prewarm';
 
 /**
  * SHOWCASE — "A real editor, built in" (Monaco + terminal tour).
@@ -10,6 +11,13 @@ import type { Locator, Page } from '@playwright/test';
  * integrated xterm.js terminal panel. This is a SCENE, not a test — it asserts
  * almost nothing, runs NO agents, and is tuned for camera: eased pointer
  * travel, lower-third captions, spotlights, and generous dwell.
+ *
+ * AUDIO-FIRST: the voiceover script lives in `scripts/editor-tour.json` and is
+ * narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)` speaks line
+ * i, holding for the REAL clip duration (durations.json) so narration, captions
+ * and footage stay locked — no estimated holds, no silent gaps. Element-
+ * targeted says + spotlight/hover auto-emit `shots.json`, punching the camera
+ * onto each subject as the VO names it.
  *
  * Strictly NON-DESTRUCTIVE: it toggles the panel, expands the tree, OPENS and
  * SCROLLS a file, and reveals (but does not type into) the terminal. It never
@@ -128,19 +136,31 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
 }) => {
   await director.dismissDialogs();
 
-  await director.caption('A real editor, built right in.');
-  await director.hold(1600);
-  await director.caption();
+  // PRE-WARM (kept — trimmed lead-in, before the first beat): the editor panel's
+  // Monaco host is the worst mid-scene stall (~31s first-mount). Force it to
+  // mount now — open the panel, open a leaf file, then close the panel — so the
+  // mid-body `openAFile` (which opens the REAL subject file) hits a warm Monaco
+  // and no longer freezes the frame between beats. The navigation below only
+  // re-opens the panel; it does NOT open a file, so this prewarm of the Monaco
+  // runtime stays load-bearing. Silent + fully guarded (see prewarm.ts).
+  await prewarmEditor(page).catch(() => undefined);
 
+  // Navigate + settle BEFORE the first beat: open the editor panel (the subject
+  // surface) so the hook lands on it instead of the stale restored surface.
+  // Trimmed by render-all's lead-in trim, so the panel toggle never airs.
   const panel = await openEditorPanel(page, director);
   await director.dismissDialogs();
   await director.hold();
 
+  // HOOK — fire immediately so the video opens on a question, not dead air.
+  await director.say(0);
+
+  // WARMUP — one line of context before the tour starts.
+  await director.say(1);
+
   if (!(await isVisible(panel))) {
     // Nothing mounted — bail gracefully with a closing beat rather than throw.
-    await director.caption('Monaco, the file tree, and a terminal — together.');
-    await director.hold(2400);
-    await director.caption();
+    await director.say(2);
     return;
   }
 
@@ -150,42 +170,54 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
     .or(page.locator('ptah-file-tree'))
     .first();
   if (await isVisible(fileTree)) {
-    await director.caption('Your whole workspace, in a tree.');
-    await director.hover(fileTree, 700);
-    await director.spotlight(fileTree, 1800);
-    await director.caption();
+    await director.say(3, {
+      target: fileTree,
+      during: async () => {
+        await director.hover(fileTree, 700);
+        await director.spotlight(fileTree, 1800);
+      },
+    });
   }
 
-  // Open a real file into Monaco.
-  await director.caption('Open a file into Monaco…');
-  const opened = await openAFile(page, director);
-  await director.caption();
+  // Open a real file into Monaco while the narration plays over the clicks.
+  let opened = false;
+  await director.say(4, {
+    during: async () => {
+      opened = await openAFile(page, director);
+    },
+  });
 
   if (opened) {
     const monacoHost = page.locator('[data-testid="editor-monaco"]').first();
-    await director.caption('Full Monaco — the editor that powers VS Code.');
-    await director.hold(1000);
-    await director.spotlight(monacoHost, 1800);
-    await director.caption();
+    await director.say(5, {
+      target: monacoHost,
+      during: async () => {
+        await director.spotlight(monacoHost, 1800);
+      },
+    });
 
     // Scroll through the code so the camera reveals real content.
     const scroller = page
       .locator('[data-testid="editor-monaco"] .monaco-scrollable-element')
       .or(monacoHost)
       .first();
-    await director.caption('Scroll the source…');
-    await director.scrollThrough(scroller, {
-      steps: 6,
-      dwellMs: 650,
-      andBack: true,
+    await director.say(6, {
+      during: async () => {
+        await director.scrollThrough(scroller, {
+          steps: 6,
+          dwellMs: 650,
+          andBack: true,
+        });
+      },
     });
-    await director.caption();
   } else {
     // File-tree fetch raced or the workspace had no reachable leaf — show what
     // is visible and continue.
-    await director.caption('Browse the workspace from the tree.');
-    await director.scrollThrough(fileTree, { steps: 4, dwellMs: 600 });
-    await director.caption();
+    await director.say(7, {
+      during: async () => {
+        await director.scrollThrough(fileTree, { steps: 4, dwellMs: 600 });
+      },
+    });
   }
 
   // Reveal the integrated terminal (xterm.js) via the toolbar toggle.
@@ -193,11 +225,14 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
     .locator('[data-testid="editor-terminal-toggle"]')
     .first();
   if (await isVisible(terminalToggle)) {
-    await director.caption('And an integrated terminal.');
-    await director.spotlight(terminalToggle, 1200);
-    await director.click(terminalToggle);
-    await director.hold(900);
-    await director.caption();
+    await director.say(8, {
+      target: terminalToggle,
+      during: async () => {
+        await director.spotlight(terminalToggle, 1200);
+        await director.click(terminalToggle);
+        await director.hold(900);
+      },
+    });
 
     const terminalPanel = page.locator('ptah-terminal-panel').first();
     if (await isVisible(terminalPanel)) {
@@ -213,14 +248,15 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
         await director.hold(1200);
       }
 
-      await director.caption('A real shell, right beside your code.');
-      await director.hover(terminalPanel, 600);
-      await director.spotlight(terminalPanel, 2000);
-      await director.caption();
+      await director.say(9, {
+        target: terminalPanel,
+        during: async () => {
+          await director.hover(terminalPanel, 600);
+          await director.spotlight(terminalPanel, 2000);
+        },
+      });
     }
   }
 
-  await director.caption('Edit, browse, and run — without leaving Ptah.');
-  await director.hold(2600);
-  await director.caption();
+  await director.say(10, { breathMs: 950 });
 });

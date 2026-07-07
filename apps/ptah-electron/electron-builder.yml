@@ -86,6 +86,18 @@ asarUnpack:
 extraResources:
   - from: 'renderer'
     to: 'renderer'
+  # kokoro-js voice style vectors (54 `<voice>.bin` files, ~28 MB). kokoro-js
+  # loads these with `fs.readFile(path.resolve(<moduleDir>, '../voices/<name>.
+  # bin'))` and IGNORES the transformers `env.cacheDir`, so — unlike the model
+  # weights (cached to ~/.ptah/models) — they are NEVER downloaded. Loaded as
+  # ESM from inside app.asar, `import.meta.dirname` collapses to `resources/
+  # app.asar`, so `../voices` resolves to `resources/voices` (the observed
+  # ENOENT path), OUTSIDE the archive. Copy the voice pack there so the files
+  # physically sit at exactly the path kokoro-js resolves. `from` is relative
+  # to the electron-builder --project dir (dist/apps/ptah-electron); the voices
+  # live in the hoisted workspace-root node_modules three levels up.
+  - from: '../../../node_modules/kokoro-js/voices'
+    to: 'voices'
 
 icon: assets/icons/icon.png
 

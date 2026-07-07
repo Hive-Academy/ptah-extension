@@ -8,17 +8,20 @@
 import React from 'react';
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { THEME } from '../theme';
+import { BRAND } from '../brand.config';
 
 export interface OutroCardProps {
   copy: string;
   videoHeight: number;
   tagline?: string;
+  ctaLabel?: string;
 }
 
 export const OutroCard: React.FC<OutroCardProps> = ({
   copy,
   videoHeight,
-  tagline = 'ptah.live',
+  tagline = BRAND.tagline,
+  ctaLabel = BRAND.ctaLabel,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -71,7 +74,7 @@ export const OutroCard: React.FC<OutroCardProps> = ({
           boxShadow: `0 14px 40px rgba(245,158,11,0.4), 0 0 0 1px rgba(255,255,255,0.15) inset`,
         }}
       >
-        Get Ptah free
+        {ctaLabel}
       </div>
 
       <div

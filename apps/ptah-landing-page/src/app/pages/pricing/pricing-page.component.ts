@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { SeoService } from '../../services/seo.service';
 import { NavigationComponent } from '../../components/navigation.component';
 import { FooterComponent } from '../../components/footer.component';
 import { PricingHeroComponent } from './components/pricing-hero.component';
@@ -52,4 +53,16 @@ import { PricingGridComponent } from './components/pricing-grid.component';
     `,
   ],
 })
-export class PricingPageComponent {}
+export class PricingPageComponent {
+  constructor() {
+    inject(SeoService).setPage({
+      title: 'Ptah Pricing — Free Community Tier or Pro at $5/Month',
+      description:
+        'Start free with the Community tier, or unlock the full desktop suite with Pro: $5/month or $50/year after a 100-day free trial. No credit card required.',
+      url: 'https://ptah.live/pricing',
+      ogTitle: 'Ptah Pricing — Community (Free) or Pro ($5/mo)',
+      ogDescription:
+        'Free forever on Community. Unlock Memory, Skills, Cron, and Gateways with Pro — $5/month or $50/year after a 100-day free trial.',
+    });
+  }
+}
