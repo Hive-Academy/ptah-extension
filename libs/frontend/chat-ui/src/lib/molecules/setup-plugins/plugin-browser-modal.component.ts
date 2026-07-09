@@ -38,12 +38,14 @@ const CATEGORY_LABELS: Record<PluginInfo['category'], string> = {
   'core-tools': 'Core Tools',
   'backend-tools': 'Backend Tools',
   'frontend-tools': 'Frontend Tools',
+  'creative-tools': 'Creative Tools',
 };
 
 const CATEGORY_ORDER: PluginInfo['category'][] = [
   'core-tools',
   'backend-tools',
   'frontend-tools',
+  'creative-tools',
 ];
 
 /**

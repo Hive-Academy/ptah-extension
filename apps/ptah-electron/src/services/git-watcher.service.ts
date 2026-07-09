@@ -70,6 +70,20 @@ export class GitWatcherService {
   private isDisposed = false;
 
   /**
+   * Pending workspace-switch debounce. Rapid successive `switchWorkspace`
+   * calls (A→B→A) collapse to a single re-arm on the FINAL target so we do not
+   * tear down and rebuild the recursive `fs.watch` on every intermediate hop.
+   */
+  private switchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingSwitchPath: string | null = null;
+
+  /**
+   * Deferred initial `fetchAndPush` timer. The first git fetch after arming is
+   * pushed onto a later tick so it does not compete with the switch itself.
+   */
+  private initialFetchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
    * Distinct change kinds accumulated across the current debounce window(s).
    * Drained on every `fetchAndPush` so the broadcast carries a precise
    * `causes` list and downstream consumers can skip RPCs whose triggers
@@ -89,6 +103,12 @@ export class GitWatcherService {
 
   /** Debounce interval for file tree refresh (ms). Batches bulk ops (git pull, npm install) without making routine file creation feel laggy. */
   private static readonly TREE_DEBOUNCE_MS = 500;
+
+  /** Debounce interval for workspace switches (ms). Rapid A→B→A switching re-arms watchers only once, on the final target. */
+  private static readonly SWITCH_DEBOUNCE_MS = 300;
+
+  /** Delay before the initial post-arm git fetch (ms). Keeps the switch itself uncontended by the first `git status`. */
+  private static readonly INITIAL_FETCH_DELAY_MS = 50;
 
   constructor(
     private readonly gitInfo: GitInfoService,
@@ -149,7 +169,18 @@ export class GitWatcherService {
     this.watchFile(path.join(gitDir, 'FETCH_HEAD'), () =>
       this.scheduleGitOpsRefresh('refs'),
     );
-    void this.fetchAndPush();
+
+    // Defer the initial fetch slightly so the `git status` shell-out does not
+    // compete with the switch that just armed these watchers.
+    if (this.initialFetchTimer) {
+      clearTimeout(this.initialFetchTimer);
+    }
+    this.initialFetchTimer = setTimeout(() => {
+      this.initialFetchTimer = null;
+      if (!this.isDisposed) {
+        void this.fetchAndPush();
+      }
+    }, GitWatcherService.INITIAL_FETCH_DELAY_MS);
   }
 
   /**
@@ -188,12 +219,33 @@ export class GitWatcherService {
 
   /**
    * Switch to watching a different workspace.
+   *
+   * Debounced: rapid successive switches collapse to a single re-arm on the
+   * FINAL target. If that final target is the path already being watched (the
+   * classic A→B→A bounce), the queued restart is dropped so the current
+   * watchers are left in place — A stays watched, no teardown/rebuild churn.
    */
   switchWorkspace(workspacePath: string): void {
-    if (this.workspacePath === workspacePath) return;
-    if (this.broadcastFn) {
-      this.start(workspacePath, this.broadcastFn);
+    // Already watching this path and nothing queued → nothing to do.
+    if (
+      this.pendingSwitchPath === null &&
+      this.workspacePath === workspacePath
+    ) {
+      return;
     }
+
+    this.pendingSwitchPath = workspacePath;
+    if (this.switchDebounceTimer) {
+      clearTimeout(this.switchDebounceTimer);
+    }
+    this.switchDebounceTimer = setTimeout(() => {
+      this.switchDebounceTimer = null;
+      const target = this.pendingSwitchPath;
+      this.pendingSwitchPath = null;
+      if (target && target !== this.workspacePath && this.broadcastFn) {
+        this.start(target, this.broadcastFn);
+      }
+    }, GitWatcherService.SWITCH_DEBOUNCE_MS);
   }
 
   /**
@@ -201,6 +253,17 @@ export class GitWatcherService {
    */
   stop(): void {
     this.isDisposed = true;
+
+    if (this.switchDebounceTimer) {
+      clearTimeout(this.switchDebounceTimer);
+      this.switchDebounceTimer = null;
+    }
+    this.pendingSwitchPath = null;
+
+    if (this.initialFetchTimer) {
+      clearTimeout(this.initialFetchTimer);
+      this.initialFetchTimer = null;
+    }
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);

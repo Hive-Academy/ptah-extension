@@ -1,7 +1,6 @@
 ---
 templateId: video-director-v1
 templateVersion: 1.0.0
-model: opus
 applicabilityRules:
   projectTypes: [ALL]
   minimumRelevanceScore: 60

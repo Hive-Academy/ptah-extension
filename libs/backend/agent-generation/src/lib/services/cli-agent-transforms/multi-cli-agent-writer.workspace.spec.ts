@@ -5,7 +5,7 @@ import { join } from 'path';
 import { MultiCliAgentWriterService } from './multi-cli-agent-writer.service';
 import { CursorAgentTransformer } from './cursor-agent-transformer';
 import { CopilotAgentTransformer } from './copilot-agent-transformer';
-import { CodexAgentTransformer } from './codex-agent-transformer';
+import { CodexSubagentTransformer } from './codex-agent-transformer';
 import type { GeneratedAgent } from '../../types/core.types';
 
 const logger = {
@@ -59,25 +59,62 @@ describe('Workspace agent transformers (decision #4)', () => {
     );
   });
 
-  it('Codex agent transform points at {ws}/AGENTS.md', () => {
-    const result = new CodexAgentTransformer().transform(
+  it('Codex subagent transform targets {ws}/.codex/agents/{slug}.toml', () => {
+    const result = new CodexSubagentTransformer().transform(
       agent('x'),
       '/work/space',
     );
-    expect(result.filePath).toBe(join('/work/space', 'AGENTS.md'));
+    expect(result.filePath).toBe(
+      join('/work/space', '.codex', 'agents', 'x.toml'),
+    );
   });
 
-  it('frontmatter name is the BARE agentId (no ptah- prefix) for all CLIs', () => {
+  it('Codex subagent TOML carries name/description and the body as developer_instructions', () => {
+    const result = new CodexSubagentTransformer().transform(
+      agent('backend-developer', 'Implement the feature.'),
+      '/work/space',
+    );
+    expect(result.content).toContain('name = "backend-developer"');
+    expect(result.content).toContain('description = "backend-developer agent"');
+    expect(result.content).toContain('developer_instructions = """');
+    expect(result.content).toContain('Implement the feature.');
+    // Body only — no leftover YAML frontmatter delimiters.
+    expect(result.content).not.toContain('\n---\n');
+  });
+
+  it('Codex reviewer agents run in the read-only sandbox', () => {
+    const reviewer = new CodexSubagentTransformer().transform(
+      agent('code-logic-reviewer'),
+      '/work/space',
+    );
+    expect(reviewer.content).toContain('sandbox_mode = "read-only"');
+
+    const worker = new CodexSubagentTransformer().transform(
+      agent('backend-developer'),
+      '/work/space',
+    );
+    expect(worker.content).not.toContain('sandbox_mode');
+  });
+
+  it('agent name is the BARE agentId (no ptah- prefix) for all CLIs', () => {
     const ws = '/work/space';
     const id = 'backend-developer';
-    const results: Array<{ content: string }> = [
-      new CursorAgentTransformer().transform(agent(id), ws),
-      new CopilotAgentTransformer().transform(agent(id), ws),
-      new CodexAgentTransformer().transform(agent(id), ws),
-    ];
-    for (const result of results) {
-      expect(result.content).toContain(`name: ${id}`);
-      expect(result.content).not.toContain('ptah-');
+    expect(
+      new CursorAgentTransformer().transform(agent(id), ws).content,
+    ).toContain(`name: ${id}`);
+    expect(
+      new CopilotAgentTransformer().transform(agent(id), ws).content,
+    ).toContain(`name: ${id}`);
+    expect(
+      new CodexSubagentTransformer().transform(agent(id), ws).content,
+    ).toContain(`name = "${id}"`);
+
+    for (const t of [
+      new CursorAgentTransformer(),
+      new CopilotAgentTransformer(),
+      new CodexSubagentTransformer(),
+    ]) {
+      expect(t.transform(agent(id), ws).content).not.toContain('ptah-');
     }
   });
 });
@@ -97,13 +134,13 @@ describe('MultiCliAgentWriterService.writeForClis (workspace)', () => {
     return ws;
   }
 
-  it('writes Cursor + Copilot agents to workspace dirs', async () => {
+  it('writes Cursor + Copilot + Codex agents to workspace dirs', async () => {
     const ws = await workspace();
     const svc = new MultiCliAgentWriterService(logger);
 
     const results = await svc.writeForClis(
       [agent('backend-developer')],
-      ['cursor', 'copilot'],
+      ['cursor', 'copilot', 'codex'],
       ws,
     );
 
@@ -114,32 +151,26 @@ describe('MultiCliAgentWriterService.writeForClis (workspace)', () => {
     expect(
       await exists(join(ws, '.github', 'agents', 'backend-developer.agent.md')),
     ).toBe(true);
+    expect(
+      await exists(join(ws, '.codex', 'agents', 'backend-developer.toml')),
+    ).toBe(true);
   });
 
-  it('Codex merges agents into {ws}/AGENTS.md without clobbering existing content', async () => {
+  it('Codex writes per-file subagent TOML and re-runs overwrite in place', async () => {
     const ws = await workspace();
-    await writeFile(
-      join(ws, 'AGENTS.md'),
-      '# Project rules\n\nDo not delete me.\n',
-      'utf8',
-    );
     const svc = new MultiCliAgentWriterService(logger);
+    const tomlPath = join(ws, '.codex', 'agents', 'a.toml');
 
     await svc.writeForClis([agent('a', 'first body')], ['codex'], ws);
-    const afterFirst = await readFile(join(ws, 'AGENTS.md'), 'utf8');
-    expect(afterFirst).toContain('# Project rules');
-    expect(afterFirst).toContain('Do not delete me.');
-    expect(afterFirst).toContain('## a');
-    expect(afterFirst).toContain('PTAH:AGENTS:BEGIN');
+    const afterFirst = await readFile(tomlPath, 'utf8');
+    expect(afterFirst).toContain('name = "a"');
+    expect(afterFirst).toContain('first body');
 
+    // Re-run overwrites the same file (no duplication, latest body wins).
     await svc.writeForClis([agent('a', 'second body')], ['codex'], ws);
-    const afterSecond = await readFile(join(ws, 'AGENTS.md'), 'utf8');
-    expect(afterSecond).toContain('# Project rules');
+    const afterSecond = await readFile(tomlPath, 'utf8');
     expect(afterSecond).toContain('second body');
     expect(afterSecond).not.toContain('first body');
-    expect(afterSecond.indexOf('PTAH:AGENTS:BEGIN')).toBe(
-      afterSecond.lastIndexOf('PTAH:AGENTS:BEGIN'),
-    );
   });
 
   it('Copilot home reap only deletes ptah-/ptahsynth- prefixed home files', async () => {

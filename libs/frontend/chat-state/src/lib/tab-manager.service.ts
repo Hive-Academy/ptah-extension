@@ -437,6 +437,25 @@ export class TabManagerService {
     );
   }
 
+  /**
+   * Find a tab by its global tab id with workspace context, across the active
+   * workspace AND every background partition.
+   *
+   * Unlike `tabs().find((t) => t.id === tabId)` (active workspace only), this
+   * resolves the OWNER of a streaming event even when it lives in a background
+   * workspace. Used by `SESSION_ID_RESOLVED` routing so a background tab's
+   * session id is attached to the correct partitioned TabState instead of
+   * clobbering the active tab's live session.
+   *
+   * Delegates to TabWorkspacePartitionService. Pure lookup — no mutation.
+   */
+  findTabByIdAcrossWorkspaces(tabId: string): TabLookupResult | null {
+    return this.workspacePartition.findTabByIdAcrossWorkspaces(
+      tabId,
+      this._tabs(),
+    );
+  }
+
   updateBackgroundTab(tabId: string, updates: Partial<TabState>): boolean {
     return this.workspacePartition.updateBackgroundTab(tabId, updates);
   }
