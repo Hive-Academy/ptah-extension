@@ -542,6 +542,9 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
           agentType: 'general-purpose',
           toolCallId: 'toolu_agent_1',
         }),
+        // TASK_2026_154 Wave 2: the owning session id is now tagged so a scoped
+        // clearNodeMaps can target it without cross-workspace wipes.
+        SESSION_ID,
       );
     });
 

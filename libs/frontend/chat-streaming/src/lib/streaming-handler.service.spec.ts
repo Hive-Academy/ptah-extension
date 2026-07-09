@@ -421,6 +421,8 @@ describe('StreamingHandlerService', () => {
           agentType: 'general-purpose',
           toolCallId: 'toolu_agent_1',
         }),
+        // TASK_2026_154 Wave 2: session id is now tagged for scoped node-map clears.
+        SESSION_ID,
       );
       // Structural events flush immediately so the UI shows the new node.
       expect(batchedUpdate.flushSync).toHaveBeenCalled();

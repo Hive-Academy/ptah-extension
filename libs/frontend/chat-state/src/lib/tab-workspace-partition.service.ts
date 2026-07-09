@@ -247,6 +247,47 @@ export class TabWorkspacePartitionService {
   }
 
   /**
+   * Find a tab by its (global) tab id with workspace context, searching the
+   * active workspace first, then every background workspace partition.
+   *
+   * Tab ids are global UUIDs, so a background-workspace tab's id will never be
+   * present in the active `_tabs` signal. Callers that resolve the OWNER of a
+   * streaming event by tab id (e.g. `SESSION_ID_RESOLVED` routing) must use
+   * this instead of `tabs().find(...)` to avoid falling through to the active
+   * tab and clobbering its live session.
+   *
+   * Pure lookup — never mutates state.
+   *
+   * @param tabId - Tab ID to look up
+   * @param activeTabs - Current active workspace tabs (from signal) for the
+   *   active-workspace fast path (the map copy can lag behind the signal).
+   */
+  findTabByIdAcrossWorkspaces(
+    tabId: string,
+    activeTabs?: TabState[],
+  ): TabLookupResult | null {
+    const activePath = this._activeWorkspacePath();
+    if (activePath) {
+      const tabs =
+        activeTabs ?? this._workspaceTabSets.get(activePath)?.tabs ?? [];
+      const activeTab = tabs.find((t) => t.id === tabId);
+      if (activeTab) {
+        return { tab: activeTab, workspacePath: activePath };
+      }
+    }
+
+    for (const [wsPath, tabSet] of this._workspaceTabSets) {
+      if (wsPath === activePath) continue;
+      const found = tabSet.tabs.find((t) => t.id === tabId);
+      if (found) {
+        return { tab: found, workspacePath: wsPath };
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Update a tab in a background workspace (streaming in non-active workspace).
    * Mutates the tab directly in _workspaceTabSets without touching signals.
    *

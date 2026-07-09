@@ -41,6 +41,17 @@ export class SessionManager {
   private readonly _agentNodeMap = new Map<string, ExecutionNode>();
   private readonly _toolNodeMap = new Map<string, ExecutionNode>();
   private readonly _pendingAgentChunks = new Map<string, PendingChunk[]>();
+  /**
+   * Reverse index: node key (toolCallId) → owning sessionId. The node maps are
+   * a global singleton keyed by globally-unique toolCallIds, so two concurrent
+   * sessions' entries never collide. This owner index lets `clearNodeMaps`
+   * scope its wipe to a single session, so starting a new conversation in one
+   * workspace can no longer erase node/tool tracking for a session that is
+   * streaming in a DIFFERENT (background) workspace (TASK_2026_154 Wave 2
+   * revision). Entries without a recorded owner are only removed by a full
+   * (argument-less) clear.
+   */
+  private readonly _nodeSessionOwner = new Map<string, string>();
   private readonly _sessionId = signal<string | null>(null);
   private readonly _status = signal<SessionStatus>('fresh');
   private readonly _sessionState = signal<SessionState>('draft');
@@ -153,26 +164,47 @@ export class SessionManager {
   }
 
   /**
-   * Clear all node maps and pending chunk buffers
+   * Clear node maps and pending chunk buffers.
+   *
+   * @param sessionId - When provided, clears ONLY the entries owned by this
+   *   session (scoped clear). When omitted, clears ALL sessions (full reset —
+   *   used by `clearSession`). The scoped form prevents a new conversation in
+   *   one workspace from wiping a session streaming in a background workspace.
    */
-  clearNodeMaps(): void {
-    this._agentNodeMap.clear();
-    this._toolNodeMap.clear();
-    this._pendingAgentChunks.clear();
+  clearNodeMaps(sessionId?: string): void {
+    if (sessionId === undefined) {
+      this._agentNodeMap.clear();
+      this._toolNodeMap.clear();
+      this._pendingAgentChunks.clear();
+      this._nodeSessionOwner.clear();
+      return;
+    }
+    for (const [key, owner] of this._nodeSessionOwner) {
+      if (owner !== sessionId) continue;
+      this._agentNodeMap.delete(key);
+      this._toolNodeMap.delete(key);
+      this._pendingAgentChunks.delete(key);
+      this._nodeSessionOwner.delete(key);
+    }
   }
 
   /**
-   * Set node maps from loaded session
+   * Set node maps from loaded session. Replaces ALL current node maps (a session
+   * load is a full reset). When `sessionId` is provided the loaded entries are
+   * tagged with it so a later scoped `clearNodeMaps(sessionId)` can target them.
    */
-  setNodeMaps(nodeMaps: NodeMaps): void {
+  setNodeMaps(nodeMaps: NodeMaps, sessionId?: string): void {
     this._agentNodeMap.clear();
     this._toolNodeMap.clear();
+    this._nodeSessionOwner.clear();
 
     for (const [key, value] of nodeMaps.agents) {
       this._agentNodeMap.set(key, value);
+      if (sessionId !== undefined) this._nodeSessionOwner.set(key, sessionId);
     }
     for (const [key, value] of nodeMaps.tools) {
       this._toolNodeMap.set(key, value);
+      if (sessionId !== undefined) this._nodeSessionOwner.set(key, sessionId);
     }
   }
 
@@ -182,10 +214,19 @@ export class SessionManager {
    *
    * @param toolCallId - The tool use ID for this agent
    * @param node - The ExecutionNode representing this agent
+   * @param sessionId - Owning session id; tags the entry so a scoped
+   *   `clearNodeMaps(sessionId)` can target it without wiping other sessions.
    * @returns Array of pending summary deltas to apply (may be empty)
    */
-  registerAgent(toolCallId: string, node: ExecutionNode): string[] {
+  registerAgent(
+    toolCallId: string,
+    node: ExecutionNode,
+    sessionId?: string,
+  ): string[] {
     this._agentNodeMap.set(toolCallId, node);
+    if (sessionId !== undefined) {
+      this._nodeSessionOwner.set(toolCallId, sessionId);
+    }
     const pendingChunks = this._pendingAgentChunks.get(toolCallId);
     if (pendingChunks && pendingChunks.length > 0) {
       this._pendingAgentChunks.delete(toolCallId);
@@ -265,8 +306,15 @@ export class SessionManager {
   /**
    * Register a tool node (used during streaming)
    */
-  registerTool(toolCallId: string, node: ExecutionNode): void {
+  registerTool(
+    toolCallId: string,
+    node: ExecutionNode,
+    sessionId?: string,
+  ): void {
     this._toolNodeMap.set(toolCallId, node);
+    if (sessionId !== undefined) {
+      this._nodeSessionOwner.set(toolCallId, sessionId);
+    }
   }
 
   /**

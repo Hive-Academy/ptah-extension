@@ -21,7 +21,14 @@ interface GitWorkspaceState {
   branch: GitBranchInfo;
   files: GitFileStatus[];
   isGitRepo: boolean;
+  /** When this cache entry was last written (data applied or state saved). */
   lastUpdated: number;
+  /**
+   * When git data was last actually fetched from (or pushed by) the backend.
+   * Distinct from `lastUpdated`, which also advances on plain save-on-switch.
+   * Used to decide whether an eager fetch is redundant on workspace switch.
+   */
+  fetchedAt?: number;
 }
 
 /** Default empty branch info for reset scenarios. */
@@ -61,6 +68,23 @@ export class GitStatusService {
   private readonly destroyRef = inject(DestroyRef);
 
   private readonly _workspaceGitState = new Map<string, GitWorkspaceState>();
+
+  /**
+   * How long a restored cache entry is considered fresh on workspace switch.
+   * Within this window the eager `git:info` fetch is skipped so rapid A↔B↔A
+   * switching does not re-hit `git:info` every time.
+   *
+   * Trade-off (do NOT restore the old 30s value without re-reading this): the
+   * Electron git watcher only watches ONE workspace at a time
+   * (`git-watcher.service.ts` re-arms a single target on switch), so NO
+   * `git:status-update` push is generated for a workspace while it is in the
+   * background. A background change (e.g. a background agent session
+   * committing in workspace A while the user views B) therefore leaves A's
+   * cache stale until the next fetch. 5s bounds that staleness while still
+   * collapsing the rapid-thrash fetches this optimization targets; missing or
+   * older entries still fetch on switch, as does an explicit refresh.
+   */
+  private static readonly CACHE_TTL_MS = 5_000;
 
   private _isListening = false;
   private _messageHandler: ((event: MessageEvent) => void) | null = null;
@@ -153,7 +177,20 @@ export class GitStatusService {
       this._files.set([]);
       this._isGitRepo.set(false);
     }
-    this.fetchGitInfo();
+
+    // Skip the eager fetch when the restored cache entry is still fresh —
+    // repeated A↔B switching otherwise re-hits `git:info` every time. The
+    // freshness window is deliberately short (see CACHE_TTL_MS) because the
+    // single-workspace Electron watcher does NOT keep background workspaces
+    // current. A missing or stale entry still fetches so first-visit and
+    // idle-past-the-window workspaces refresh as before.
+    const fetchedAt = cached?.fetchedAt;
+    const isFresh =
+      fetchedAt !== undefined &&
+      Date.now() - fetchedAt < GitStatusService.CACHE_TTL_MS;
+    if (!isFresh) {
+      this.fetchGitInfo();
+    }
   }
 
   /**
@@ -225,13 +262,15 @@ export class GitStatusService {
       this._branch.set(data.branch);
       this._files.set(data.files);
       this._isGitRepo.set(data.isGitRepo);
-      this.saveCurrentState();
+      // Fresh data just arrived for the active workspace — stamp fetchedAt.
+      this.saveCurrentState(Date.now());
     } else {
       this._workspaceGitState.set(target, {
         branch: data.branch,
         files: data.files,
         isGitRepo: data.isGitRepo,
         lastUpdated: Date.now(),
+        fetchedAt: Date.now(),
       });
     }
   }
@@ -265,15 +304,23 @@ export class GitStatusService {
 
   /**
    * Save current signal values into the workspace state map.
+   *
+   * @param fetchedAt When supplied, stamps the entry's data-freshness marker
+   *   (fresh backend data just arrived). When omitted, the previous
+   *   `fetchedAt` is preserved so a plain save-on-switch does not make stale
+   *   data look freshly fetched.
    */
-  private saveCurrentState(): void {
-    if (!this._activeWorkspacePath()) return;
+  private saveCurrentState(fetchedAt?: number): void {
+    const activePath = this._activeWorkspacePath();
+    if (!activePath) return;
 
-    this._workspaceGitState.set(this._activeWorkspacePath()!, {
+    const existing = this._workspaceGitState.get(activePath);
+    this._workspaceGitState.set(activePath, {
       branch: this._branch(),
       files: this._files(),
       isGitRepo: this._isGitRepo(),
       lastUpdated: Date.now(),
+      fetchedAt: fetchedAt ?? existing?.fetchedAt,
     });
   }
 }

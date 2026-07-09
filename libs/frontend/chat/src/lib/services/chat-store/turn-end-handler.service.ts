@@ -80,12 +80,39 @@ export class TurnEndHandlerService {
         payload.sessionId,
       );
       if (lookup) {
+        const effectiveReason =
+          payload.terminalReason ?? lookup.tab.lastTerminalReason ?? null;
+        // Snapshot the SDK turn-end fields onto the background partition. Status
+        // defaults to 'loaded'; the `awaiting-background` flip (when background
+        // work remains) is applied AFTER finalize via `markTabAwaitingBackground`
+        // below so it survives finalize's own status microtask — exactly as the
+        // active branch does.
         this.tabManager.updateBackgroundTab(lookup.tab.id, {
           pendingBackgroundTasks: payload.backgroundTasks,
           pendingSessionCrons: payload.sessionCrons,
-          lastTerminalReason: payload.terminalReason,
-          status: hasBackgroundWork ? 'awaiting-background' : 'loaded',
+          lastTerminalReason: effectiveReason,
+          status: 'loaded',
         });
+        // Promote the in-flight assistant reply from `streamingState` into the
+        // persisted `messages` array. Without this a turn that completes while
+        // its tab is backgrounded leaves its reply solely in `streamingState`,
+        // which the reload sanitize nulls — silent data loss. `finalizeCurrentMessage`
+        // is workspace-aware (resolves the owner across partitions) and writes
+        // through the workspace-aware `applyFinalizedTurn` path.
+        this.finalization.finalizeCurrentMessage(lookup.tab.id, isAborted);
+        // `updateBackgroundTab` mutates only the partitioned TabState — it does
+        // NOT touch the global `_streamingTabIds` visual set that drives the
+        // tab-bar spinner. Without this the spinner stays lit forever once the
+        // owning tab is backgrounded (turn started active → spinner lit → user
+        // switched away → turn ends here with no markTabIdle). The active
+        // branch below always pairs turn-end with `markTabIdle` regardless of
+        // background work (awaiting-background is a separate indicator), so the
+        // background branch mirrors that. `markTabIdle` keys purely on tab id,
+        // so it is safe for a background tab.
+        this.tabManager.markTabIdle(lookup.tab.id);
+        if (hasBackgroundWork) {
+          this.tabManager.markTabAwaitingBackground(lookup.tab.id);
+        }
         return;
       }
       console.warn('[ChatStore] handleTurnEnded: no tab bound to sessionId', {
@@ -149,10 +176,19 @@ export class TurnEndHandlerService {
         const updates: Partial<TabState> = {
           pendingBackgroundTasks: payload.backgroundTasks,
         };
-        if (lookup.tab.status === 'awaiting-background' && remaining === 0) {
+        const transitionsToLoaded =
+          lookup.tab.status === 'awaiting-background' && remaining === 0;
+        if (transitionsToLoaded) {
           updates.status = 'loaded';
         }
         this.tabManager.updateBackgroundTab(lookup.tab.id, updates);
+        // Only clear the spinner when this subagent-stop actually ends the
+        // turn (awaiting-background → loaded with no remaining tasks). A
+        // subagent ending mid-turn (tasks still running) must NOT clear the
+        // parent turn's spinner.
+        if (transitionsToLoaded) {
+          this.tabManager.markTabIdle(lookup.tab.id);
+        }
         return;
       }
       console.warn(
@@ -198,6 +234,14 @@ export class TurnEndHandlerService {
           lastTerminalReason: payload.terminalReason,
           status: 'loaded',
         });
+        // Promote the aborted turn's reply into `messages` (workspace-aware,
+        // marks streaming nodes interrupted) so it survives reload — mirrors the
+        // active branch's `finalizeCurrentMessage(tab.id, true)`.
+        this.finalization.finalizeCurrentMessage(lookup.tab.id, true);
+        // Clear the tab-bar spinner for the backgrounded tab — see the
+        // handleTurnEnded background branch for why `updateBackgroundTab`
+        // alone leaves `_streamingTabIds` (and thus the spinner) stuck.
+        this.tabManager.markTabIdle(lookup.tab.id);
         return;
       }
       console.warn('[ChatStore] handleTurnFailed: no tab bound to sessionId', {

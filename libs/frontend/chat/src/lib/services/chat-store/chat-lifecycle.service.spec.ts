@@ -92,6 +92,8 @@ describe('ChatLifecycleService', () => {
   let attachSessionMock: jest.Mock;
   let applyErrorResetMock: jest.Mock;
   let findTabsBySessionIdMock: jest.Mock;
+  let findTabByIdAcrossWorkspacesMock: jest.Mock;
+  let findTabBySessionIdAcrossWorkspacesMock: jest.Mock;
   let activeTabMock: jest.Mock;
   let activeTabIdMock: jest.Mock;
   let markTabIdleMock: jest.Mock;
@@ -136,6 +138,17 @@ describe('ChatLifecycleService', () => {
     findTabsBySessionIdMock = jest.fn((sid: string) =>
       tabs.filter((t) => t.claudeSessionId === sid),
     );
+    // Cross-workspace lookups. In these unit tests the "all workspaces" set is
+    // just the `tabs` array; true cross-workspace routing is covered by the
+    // dedicated cross-workspace integration spec.
+    findTabByIdAcrossWorkspacesMock = jest.fn((id: string) => {
+      const tab = tabs.find((t) => t.id === id);
+      return tab ? { tab, workspacePath: '/ws' } : null;
+    });
+    findTabBySessionIdAcrossWorkspacesMock = jest.fn((sid: string) => {
+      const tab = tabs.find((t) => t.claudeSessionId === sid);
+      return tab ? { tab, workspacePath: '/ws' } : null;
+    });
     activeTabMock = jest.fn(() => tabs[0] ?? null);
     activeTabIdMock = jest.fn(() => tabs[0]?.id ?? null);
     markTabIdleMock = jest.fn();
@@ -155,6 +168,9 @@ describe('ChatLifecycleService', () => {
       attachSession: attachSessionMock,
       applyErrorReset: applyErrorResetMock,
       findTabsBySessionId: findTabsBySessionIdMock,
+      findTabByIdAcrossWorkspaces: findTabByIdAcrossWorkspacesMock,
+      findTabBySessionIdAcrossWorkspaces:
+        findTabBySessionIdAcrossWorkspacesMock,
       activeTab: activeTabMock,
       activeTabId: activeTabIdMock,
       markTabIdle: markTabIdleMock,
@@ -345,19 +361,75 @@ describe('ChatLifecycleService', () => {
         { type: 'text', text: 'hi' },
       ]);
     });
+
+    it('routes a BACKGROUND session summary chunk to the background tab', () => {
+      // Active-only findTabsBySessionId misses (session owned by a background
+      // workspace); the cross-workspace fallback resolves the owner and writes
+      // through the workspace-aware setStreamingState.
+      const state = makeStreamingState();
+      state.agentSummaryAccumulators.set('agent-9', 'bg ');
+      const bgTab = makeTab({
+        id: 'bg-tab',
+        claudeSessionId: SESS_2,
+        streamingState: state,
+      });
+      // Not in the active `tabs` array → findTabsBySessionId returns [].
+      findTabBySessionIdAcrossWorkspacesMock.mockReturnValue({
+        tab: bgTab,
+        workspacePath: '/ws/bg',
+      });
+
+      service.handleAgentSummaryChunk({
+        toolUseId: 't9',
+        summaryDelta: 'delta',
+        agentId: 'agent-9',
+        sessionId: SESS_2,
+      });
+
+      expect(state.agentSummaryAccumulators.get('agent-9')).toBe('bg delta');
+      expect(setStreamingStateMock).toHaveBeenCalledWith(
+        'bg-tab',
+        expect.any(Object),
+      );
+    });
   });
 
   describe('handleSessionIdResolved', () => {
-    it('routes by tabId directly when tab exists', () => {
+    it('routes by tabId directly when the owning tab exists', () => {
       service.handleSessionIdResolved({
         tabId: 'tab-1',
         realSessionId: 'real-uuid',
       });
+      expect(findTabByIdAcrossWorkspacesMock).toHaveBeenCalledWith('tab-1');
       expect(attachSessionMock).toHaveBeenCalledWith('tab-1', 'real-uuid');
     });
 
-    it('falls back to active tab when streaming/draft', () => {
-      tabs = [makeTab({ id: 'tab-2', status: 'streaming' })];
+    it('attaches to the OWNING tab resolved across workspaces (background owner)', () => {
+      // Owner lives in a background workspace: not the active tab. The lookup
+      // resolves it and attachSession (workspace-aware) writes to the owner,
+      // never the active tab.
+      const bgTab = makeTab({
+        id: 'bg-tab',
+        status: 'streaming',
+        claudeSessionId: null,
+      });
+      findTabByIdAcrossWorkspacesMock.mockReturnValue({
+        tab: bgTab,
+        workspacePath: '/ws/bg',
+      });
+      service.handleSessionIdResolved({
+        tabId: 'bg-tab',
+        realSessionId: 'real-uuid',
+      });
+      expect(attachSessionMock).toHaveBeenCalledWith('bg-tab', 'real-uuid');
+    });
+
+    it('falls back to a sessionless streaming/draft active tab when the tab id is unknown', () => {
+      // Brand-new draft: active tab has NO session yet, so the guarded
+      // fallback may safely light it.
+      tabs = [
+        makeTab({ id: 'tab-2', status: 'streaming', claudeSessionId: null }),
+      ];
       service.handleSessionIdResolved({
         tabId: 'missing',
         realSessionId: 'real-uuid',
@@ -365,8 +437,27 @@ describe('ChatLifecycleService', () => {
       expect(attachSessionMock).toHaveBeenCalledWith('tab-2', 'real-uuid');
     });
 
+    it('NEVER clobbers an active tab that already owns a live session', () => {
+      // The active tab is streaming its OWN live session. A stray resolution
+      // whose tab id is not found must not overwrite claudeSessionId.
+      tabs = [
+        makeTab({ id: 'tab-2', status: 'streaming', claudeSessionId: SESS_2 }),
+      ];
+      service.handleSessionIdResolved({
+        tabId: 'missing',
+        realSessionId: 'foreign-uuid',
+      });
+      expect(attachSessionMock).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        '[ChatStore] No tab found for session ID resolution:',
+        { tabId: 'missing', realSessionId: 'foreign-uuid' },
+      );
+    });
+
     it('warns when no tab matches and active tab is not streaming/draft', () => {
-      tabs = [makeTab({ id: 'tab-2', status: 'loaded' })];
+      tabs = [
+        makeTab({ id: 'tab-2', status: 'loaded', claudeSessionId: null }),
+      ];
       service.handleSessionIdResolved({
         tabId: 'missing',
         realSessionId: 'real-uuid',

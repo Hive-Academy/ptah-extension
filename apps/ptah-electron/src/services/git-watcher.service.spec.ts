@@ -398,9 +398,21 @@ describe('GitWatcherService', () => {
       expect(secondCount).toBe(1);
     });
 
-    it('switchWorkspace() to a non-git workspace re-attaches workspace watcher', () => {
+    it('switchWorkspace() to a non-git workspace re-attaches workspace watcher (after debounce)', async () => {
       svc.start(tmpA, broadcast);
       svc.switchWorkspace(tmpB);
+
+      // Debounced: the re-arm has not happened yet.
+      expect((svc as unknown as { workspacePath: string }).workspacePath).toBe(
+        tmpA,
+      );
+
+      // After the switch-debounce window the final target is armed.
+      await waitFor(
+        () =>
+          (svc as unknown as { workspacePath: string }).workspacePath === tmpB,
+        1500,
+      );
 
       const watchers = (svc as unknown as { watchers: unknown[] }).watchers;
       expect(watchers.length).toBe(1);
@@ -453,6 +465,117 @@ describe('GitWatcherService', () => {
         ([t]) => t === 'git:status-update',
       );
       expect(gitCalls.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // ===========================================================================
+  // SWITCH DEBOUNCE + DEFERRED INITIAL FETCH (deterministic, fake timers)
+  // ===========================================================================
+
+  describe('switch debounce + deferred initial fetch', () => {
+    let tmpA: string;
+    let tmpB: string;
+
+    beforeEach(() => {
+      tmpA = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-switch-a-'));
+      tmpB = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-switch-b-'));
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+      for (const dir of [tmpA, tmpB]) {
+        try {
+          fs.rmSync(dir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+
+    it('collapses rapid switches into a single re-arm on the final target', () => {
+      svc.start(tmpA, broadcast);
+      const startSpy = jest.spyOn(svc, 'start');
+
+      svc.switchWorkspace(tmpB);
+      svc.switchWorkspace(tmpA);
+      svc.switchWorkspace(tmpB);
+
+      // Nothing re-armed yet — still debouncing.
+      expect(startSpy).not.toHaveBeenCalled();
+      expect((svc as unknown as { workspacePath: string }).workspacePath).toBe(
+        tmpA,
+      );
+
+      jest.advanceTimersByTime(300);
+
+      // Exactly one re-arm, on the final target (tmpB).
+      expect(startSpy).toHaveBeenCalledTimes(1);
+      expect(startSpy).toHaveBeenCalledWith(tmpB, broadcast);
+      expect((svc as unknown as { workspacePath: string }).workspacePath).toBe(
+        tmpB,
+      );
+    });
+
+    it('A→B→A quickly leaves A watched with no teardown (queued restart dropped)', () => {
+      svc.start(tmpA, broadcast);
+      const startSpy = jest.spyOn(svc, 'start');
+
+      svc.switchWorkspace(tmpB);
+      svc.switchWorkspace(tmpA); // final target === currently watched path
+
+      jest.advanceTimersByTime(300);
+
+      // The restart is dropped because the final target is already watched.
+      expect(startSpy).not.toHaveBeenCalled();
+      expect((svc as unknown as { workspacePath: string }).workspacePath).toBe(
+        tmpA,
+      );
+    });
+
+    it('does not fire the initial git:status-update synchronously on arm', async () => {
+      // Give tmpA a .git dir so the initial fetch path is reached.
+      const gitDir = path.join(tmpA, '.git');
+      fs.mkdirSync(gitDir);
+      fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+      fs.writeFileSync(path.join(gitDir, 'index'), '');
+      fs.mkdirSync(path.join(gitDir, 'refs'));
+
+      svc.start(tmpA, broadcast);
+
+      // Watchers are armed immediately, but the fetch is deferred.
+      expect(
+        broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
+      ).toBe(false);
+
+      jest.advanceTimersByTime(50);
+      // Flush the async fetchAndPush microtasks.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(gitInfo.getGitInfo).toHaveBeenCalledWith(tmpA);
+      expect(
+        broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
+      ).toBe(true);
+    });
+
+    it('stop() before the deferred initial fetch fires suppresses it', async () => {
+      const gitDir = path.join(tmpA, '.git');
+      fs.mkdirSync(gitDir);
+      fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+      fs.writeFileSync(path.join(gitDir, 'index'), '');
+      fs.mkdirSync(path.join(gitDir, 'refs'));
+
+      svc.start(tmpA, broadcast);
+      svc.stop();
+
+      jest.advanceTimersByTime(50);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(
+        broadcast.mock.calls.some(([t]) => t === 'git:status-update'),
+      ).toBe(false);
     });
   });
 

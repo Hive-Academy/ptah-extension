@@ -72,6 +72,8 @@ describe('StreamingHandlerService — background routing', () => {
   let process: jest.Mock<AccumulatorResult, unknown[]>;
   let scheduleUpdate: jest.Mock;
   let flushSync: jest.Mock;
+  let markTabStreaming: jest.Mock;
+  let isTabStreaming: jest.Mock<boolean, [string]>;
   let consoleWarn: jest.SpyInstance;
   let consoleError: jest.SpyInstance;
 
@@ -83,6 +85,8 @@ describe('StreamingHandlerService — background routing', () => {
     process = jest.fn().mockReturnValue({} as AccumulatorResult);
     scheduleUpdate = jest.fn();
     flushSync = jest.fn();
+    markTabStreaming = jest.fn();
+    isTabStreaming = jest.fn<boolean, [string]>().mockReturnValue(false);
 
     const tabManager = {
       tabs: computed(() => tabsSignal()),
@@ -100,8 +104,8 @@ describe('StreamingHandlerService — background routing', () => {
       setStreamingState: jest.fn(),
       setMessages: jest.fn(),
       markTabIdle: jest.fn(),
-      markTabStreaming: jest.fn(),
-      isTabStreaming: jest.fn().mockReturnValue(false),
+      markTabStreaming,
+      isTabStreaming,
     } as unknown as TabManagerService;
 
     const sessionManager = {
@@ -255,6 +259,52 @@ describe('StreamingHandlerService — background routing', () => {
 
       expect(findTabBySessionIdAcrossWorkspaces).not.toHaveBeenCalled();
       expect(updateBackgroundTab).not.toHaveBeenCalled();
+    });
+  });
+
+  // TASK_2026_154 Wave 2 revision (Failure Mode 3): a turn that STARTS while its
+  // tab is already backgrounded (cron/gateway-triggered) must light the tab-bar
+  // spinner via markTabStreaming — otherwise the tab never shows as streaming
+  // when the user switches to its workspace.
+  describe('background-started turn lights the spinner', () => {
+    beforeEach(() => {
+      findTabBySessionIdAcrossWorkspaces.mockReturnValue({
+        tab: makeTab(),
+        workspacePath: '/ws/bg',
+      });
+    });
+
+    it('calls markTabStreaming on the first content-bearing background event', () => {
+      process.mockReturnValue({
+        stateMutated: true,
+        eventType: 'text_delta',
+      } as AccumulatorResult);
+      isTabStreaming.mockReturnValue(false);
+
+      service.processStreamEvent(textDelta());
+
+      expect(markTabStreaming).toHaveBeenCalledWith(BG_TAB_ID);
+    });
+
+    it('does NOT re-light the spinner when the tab is already streaming (fires once per turn)', () => {
+      process.mockReturnValue({
+        stateMutated: true,
+        eventType: 'text_delta',
+      } as AccumulatorResult);
+      isTabStreaming.mockReturnValue(true);
+
+      service.processStreamEvent(textDelta());
+
+      expect(markTabStreaming).not.toHaveBeenCalled();
+    });
+
+    it('does NOT light the spinner for a non-content (non-mutating) background event', () => {
+      process.mockReturnValue({ stateMutated: false } as AccumulatorResult);
+      isTabStreaming.mockReturnValue(false);
+
+      service.processStreamEvent(textDelta());
+
+      expect(markTabStreaming).not.toHaveBeenCalled();
     });
   });
 });

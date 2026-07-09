@@ -287,7 +287,13 @@ describe('MessageSenderService', () => {
         effort: 'high',
       });
 
-      expect(sessionManager.clearNodeMaps).toHaveBeenCalled();
+      // TASK_2026_154 Wave 2: the node-map clear is SCOPED to the new
+      // conversation's session id (a string arg), never a global wipe — a
+      // global clearNodeMaps() would erase a session streaming in a background
+      // workspace.
+      expect(sessionManager.clearNodeMaps).toHaveBeenCalledWith(
+        expect.any(String),
+      );
       expect(sessionManager.setStatus).toHaveBeenCalledWith('streaming');
       expect(tabManager.markTabStreaming).toHaveBeenCalledWith('tab-1');
 

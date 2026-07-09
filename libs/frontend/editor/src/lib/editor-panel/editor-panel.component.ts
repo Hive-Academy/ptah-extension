@@ -237,51 +237,64 @@ import type { FileTreeNode } from '../models/file-tree.model';
                   }
                 </div>
               }
-              <!-- Left pane editor content -->
-              @if (
-                editorService.isLoading() && !editorService.hasActiveFile()
-              ) {
-                <div class="flex-1 flex items-center justify-center">
-                  <span class="loading loading-spinner loading-md"></span>
-                </div>
-              } @else {
-                <div class="flex-1 min-h-0">
-                  @if (editorService.activeDiffTab()) {
-                    <ptah-diff-view
-                      [filePath]="
-                        editorService.activeDiffTab()!.diffRelativePath!
-                      "
-                      [originalContent]="
-                        editorService.activeDiffTab()!.originalContent!
-                      "
-                      [modifiedContent]="editorService.activeDiffTab()!.content"
+              <!-- Left pane editor content.
+
+                   The loading spinner is rendered as an OVERLAY on top of the
+                   always-mounted editor region rather than as a structural
+                   else-branch. A structural swap here destroyed the code-editor
+                   instance the first time a never-visited workspace was opened
+                   (EditorWorkspaceHelper clears activeFilePath then sets
+                   isLoading), which threw away the Monaco model/view-state
+                   cache for EVERY open workspace, not just the new one
+                   (TASK_2026_154 Serious #2). Keeping the editor host mounted
+                   preserves that cache; the opaque overlay reproduces the
+                   identical visual (spinner shown, editor hidden underneath
+                   while loading with no file yet). -->
+              <div class="flex-1 min-h-0 relative">
+                @if (editorService.activeDiffTab()) {
+                  <ptah-diff-view
+                    [filePath]="
+                      editorService.activeDiffTab()!.diffRelativePath!
+                    "
+                    [originalContent]="
+                      editorService.activeDiffTab()!.originalContent!
+                    "
+                    [modifiedContent]="editorService.activeDiffTab()!.content"
+                  />
+                } @else if (editorService.isActiveFileImage()) {
+                  <div
+                    class="h-full w-full flex items-center justify-center bg-base-100 overflow-auto p-4"
+                  >
+                    <img
+                      [src]="imageFileUrl()"
+                      [alt]="editorService.activeFilePath()"
+                      class="max-w-full max-h-full object-contain"
+                      draggable="false"
                     />
-                  } @else if (editorService.isActiveFileImage()) {
-                    <div
-                      class="h-full w-full flex items-center justify-center bg-base-100 overflow-auto p-4"
-                    >
-                      <img
-                        [src]="imageFileUrl()"
-                        [alt]="editorService.activeFilePath()"
-                        class="max-w-full max-h-full object-contain"
-                        draggable="false"
-                      />
-                    </div>
-                  } @else {
-                    <ptah-code-editor
-                      [filePath]="editorService.activeFilePath()"
-                      [content]="editorService.activeFileContent()"
-                      [isFocused]="
-                        editorService.splitActive()
-                          ? editorService.focusedPane() === 'left'
-                          : true
-                      "
-                      (contentChanged)="onContentChanged($event)"
-                      (fileSaved)="onFileSaved($event)"
-                    />
-                  }
-                </div>
-              }
+                  </div>
+                } @else {
+                  <ptah-code-editor
+                    [filePath]="editorService.activeFilePath()"
+                    [content]="editorService.activeFileContent()"
+                    [isFocused]="
+                      editorService.splitActive()
+                        ? editorService.focusedPane() === 'left'
+                        : true
+                    "
+                    (contentChanged)="onContentChanged($event)"
+                    (fileSaved)="onFileSaved($event)"
+                  />
+                }
+                @if (
+                  editorService.isLoading() && !editorService.hasActiveFile()
+                ) {
+                  <div
+                    class="absolute inset-0 flex items-center justify-center bg-base-100"
+                  >
+                    <span class="loading loading-spinner loading-md"></span>
+                  </div>
+                }
+              </div>
             </div>
 
             <!-- SPLIT DIVIDER (vertical, draggable) -->
