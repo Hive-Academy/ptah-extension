@@ -91,6 +91,27 @@ const AVAILABLE_PLUGINS: ReadonlyArray<PluginInfo> = [
     isDefault: false,
     keywords: ['react', 'frontend', 'hooks', 'components'],
   },
+  {
+    id: 'ptah-video',
+    name: 'Ptah Video',
+    description:
+      'Marketing-video toolkit — narrated, captioned, camera-animated product demos from automated UI walkthroughs (Playwright capture, Remotion render)',
+    category: 'creative-tools',
+    skillCount: 1,
+    commandCount: 0,
+    isDefault: false,
+    keywords: [
+      'video',
+      'showcase',
+      'demo',
+      'tour',
+      'marketing',
+      'remotion',
+      'playwright',
+      'capture',
+      'render',
+    ],
+  },
 ];
 
 /** Set of valid plugin IDs for path validation */

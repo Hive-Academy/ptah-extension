@@ -266,7 +266,11 @@ export interface PluginInfo {
   /** Plugin description */
   description: string;
   /** Plugin category for grouping in UI */
-  category: 'core-tools' | 'backend-tools' | 'frontend-tools';
+  category:
+    | 'core-tools'
+    | 'backend-tools'
+    | 'frontend-tools'
+    | 'creative-tools';
   /** Number of skills in this plugin */
   skillCount: number;
   /** Number of commands in this plugin */
