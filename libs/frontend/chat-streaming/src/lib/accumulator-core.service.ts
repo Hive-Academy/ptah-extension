@@ -431,6 +431,7 @@ export class StreamingAccumulatorCore {
         const pendingDeltas = sessionManager.registerAgent(
           event.toolCallId,
           preliminaryAgentNode,
+          event.sessionId,
         );
 
         if (pendingDeltas.length > 0) {
@@ -439,7 +440,11 @@ export class StreamingAccumulatorCore {
             ...preliminaryAgentNode,
             summaryContent,
           };
-          sessionManager.registerAgent(event.toolCallId, updatedNode);
+          sessionManager.registerAgent(
+            event.toolCallId,
+            updatedNode,
+            event.sessionId,
+          );
         }
 
         ctx.onStateChanged?.(state);

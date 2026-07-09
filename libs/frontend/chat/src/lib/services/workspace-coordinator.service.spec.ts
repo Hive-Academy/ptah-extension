@@ -40,6 +40,18 @@ type SessionLoaderSlice = Pick<
 >;
 type ConfirmSlice = Pick<ConfirmationDialogService, 'confirm'>;
 
+/**
+ * Flush pending microtasks. The auth/model/effort re-resolution is fired
+ * non-blocking from switchWorkspace (F3, TASK_2026_154) with auth awaited
+ * before models+effort, so a few microtask turns are needed for all three to
+ * run after the switch resolves.
+ */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await Promise.resolve();
+  }
+}
+
 function makeTab(overrides: Partial<TabState> = {}): TabState {
   return {
     id: 't',
@@ -121,15 +133,83 @@ describe('WorkspaceCoordinatorService', () => {
       expect(sessionLoader.switchWorkspace).toHaveBeenCalledWith('D:/repo/foo');
     });
 
-    it('re-resolves auth/model/effort after the fan-out', async () => {
+    it('re-resolves auth/model/effort after the fan-out (non-blocking)', async () => {
       await service.switchWorkspace('D:/repo/foo');
+      // Auth is kicked off synchronously (before the first await) so it is
+      // already called by the time the switch resolves...
       expect(authState.refreshAuthStatus).toHaveBeenCalledTimes(1);
+      // ...models + effort run after auth resolves, on later microtasks.
+      await flushMicrotasks();
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not block the switch on the provider re-resolution', async () => {
+      // A slow auth refresh must not delay switchWorkspace resolving — the
+      // provider re-resolution is fired detached.
+      let releaseAuth: (() => void) | undefined;
+      authState.refreshAuthStatus.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseAuth = resolve;
+          }),
+      );
+
+      await expect(
+        service.switchWorkspace('D:/repo/slow'),
+      ).resolves.toBeUndefined();
+      // Switch resolved even though auth is still pending.
+      expect(modelState.refreshModels).not.toHaveBeenCalled();
+
+      releaseAuth?.();
+      await flushMicrotasks();
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
+    });
+
+    it("drops a superseded switch's provider refresh (rapid A→B→A, B resolves last)", async () => {
+      // Each refreshAuthStatus call parks on its own deferred so we control the
+      // resolve order independently of call order. This simulates the rapid
+      // A→B→A race where B's auth round-trip resolves AFTER the final A switch.
+      const authResolvers: Array<() => void> = [];
+      authState.refreshAuthStatus.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            authResolvers.push(() => resolve());
+          }),
+      );
+
+      await service.switchWorkspace('D:/repo/A'); // generation 1
+      await service.switchWorkspace('D:/repo/B'); // generation 2
+      await service.switchWorkspace('D:/repo/A'); // generation 3 (current)
+
+      // All three switches kicked off their auth refresh (before the gate).
+      expect(authState.refreshAuthStatus).toHaveBeenCalledTimes(3);
+      expect(modelState.refreshModels).not.toHaveBeenCalled();
+
+      // The winning (latest) switch resolves first and proceeds to models+effort.
+      authResolvers[2]();
+      await flushMicrotasks();
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
+
+      // B's stale refresh (generation 2) resolves LAST — its continuation must
+      // be dropped, NOT clobber the current workspace's model/effort state.
+      authResolvers[1]();
+      await flushMicrotasks();
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
+
+      // A's original (generation 1) refresh resolving late is likewise dropped.
+      authResolvers[0]();
+      await flushMicrotasks();
       expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
       expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
     });
 
     it('still re-resolves auth/model/effort even when editor services fail', async () => {
       await expect(service.switchWorkspace('D:/x')).resolves.toBeUndefined();
+      await flushMicrotasks();
       expect(authState.refreshAuthStatus).toHaveBeenCalledTimes(1);
       expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
       expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);

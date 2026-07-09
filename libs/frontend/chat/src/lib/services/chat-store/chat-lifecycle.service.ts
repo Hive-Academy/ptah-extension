@@ -164,7 +164,19 @@ export class ChatLifecycleService {
     const targetTabs = this.tabManager.findTabsBySessionId(
       SessionId.from(sessionId),
     );
-    const tabsWithStreaming = targetTabs.filter((t) => t.streamingState);
+    let tabsWithStreaming = targetTabs.filter((t) => t.streamingState);
+    if (tabsWithStreaming.length === 0) {
+      // `findTabsBySessionId` resolves active-workspace tabs only. When the
+      // owning session is streaming in a BACKGROUND workspace its summary
+      // deltas would be silently dropped — resolve the owner across workspaces
+      // and write through the workspace-aware `setStreamingState` (which routes
+      // background tabs to the partition update path).
+      const lookup =
+        this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId);
+      if (lookup?.tab.streamingState) {
+        tabsWithStreaming = [lookup.tab];
+      }
+    }
     if (tabsWithStreaming.length === 0) {
       console.warn(
         '[ChatStore] No tab with streamingState for summary chunk:',
@@ -206,14 +218,26 @@ export class ChatLifecycleService {
     realSessionId: string;
   }): void {
     const { tabId, realSessionId } = data;
-    const targetTab = this.tabManager.tabs().find((t) => t.id === tabId);
 
-    if (targetTab) {
-      this.tabManager.attachSession(targetTab.id, realSessionId);
+    // Resolve the OWNING tab across ALL workspaces by tab id. Tab ids are
+    // global UUIDs, so a background-workspace owner is invisible to the
+    // active-only `tabs()` signal. Attaching via the owner's id lets the
+    // workspace-aware `attachSession` write to the correct partitioned
+    // TabState (active signal OR background partition) instead of clobbering
+    // the active tab's live session with a foreign workspace's session id.
+    const owner = this.tabManager.findTabByIdAcrossWorkspaces(tabId);
+
+    if (owner) {
+      this.tabManager.attachSession(owner.tab.id, realSessionId);
     } else {
+      // Last-resort fallback for the genuine "brand-new draft, tab id not yet
+      // in any partition" case. Guarded by `!activeTab.claudeSessionId` so it
+      // can NEVER overwrite a tab that already owns a live session — that
+      // guard is the fix for the cross-workspace clobber.
       const activeTab = this.tabManager.activeTab();
       if (
         activeTab &&
+        !activeTab.claudeSessionId &&
         (activeTab.status === 'streaming' || activeTab.status === 'draft')
       ) {
         this.tabManager.attachSession(activeTab.id, realSessionId);

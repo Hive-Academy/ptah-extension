@@ -295,12 +295,18 @@ export class MessageSenderService {
         activeTabId = this.tabManager.createTab();
         this.tabManager.switchTab(activeTabId);
       }
-      this.sessionManager.clearNodeMaps();
       const activeTab =
         this.tabManager.tabs().find((t) => t.id === activeTabId) ??
         this.tabManager.activeTab();
       const sessionId =
         this.headSessionForTab(activeTab?.id) ?? this.generateId();
+      // Give THIS conversation a clean node-map slate — scoped to its own
+      // session id. A global `clearNodeMaps()` would also erase the agent/tool
+      // node tracking for a session streaming in a BACKGROUND workspace (the
+      // maps are a global singleton), cross-contaminating an unrelated
+      // workspace. Scoping to `sessionId` avoids that while still resetting this
+      // conversation (TASK_2026_154 Wave 2 revision).
+      this.sessionManager.clearNodeMaps(sessionId);
       const currentName = activeTab?.name;
       const hasUserName = currentName && currentName !== 'New Chat';
       const autoName = hasUserName

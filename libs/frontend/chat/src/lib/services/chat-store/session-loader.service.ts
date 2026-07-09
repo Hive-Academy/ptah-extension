@@ -529,10 +529,13 @@ export class SessionLoaderService {
         title,
         streamingState: createEmptyStreamingState(),
       });
-      this.sessionManager.setNodeMaps({
-        agents: new Map(),
-        tools: new Map(),
-      });
+      this.sessionManager.setNodeMaps(
+        {
+          agents: new Map(),
+          tools: new Map(),
+        },
+        sessionId,
+      );
       this.sessionManager.setSessionId(sessionId);
       this.sessionManager.setStatus('resuming');
       this.streamingHandler.cleanupSessionDeduplication(sessionId);

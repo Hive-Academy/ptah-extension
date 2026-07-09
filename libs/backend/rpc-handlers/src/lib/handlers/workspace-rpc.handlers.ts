@@ -59,6 +59,43 @@ export class WorkspaceRpcHandlers {
     'workspace:switch',
   ] as const satisfies readonly RpcMethodName[];
 
+  /**
+   * Skip a deferred session import when the same workspace path was imported
+   * within this window. Guards rapid A↔B↔A switching from rescanning on every
+   * switch. In-memory only.
+   */
+  private static readonly IMPORT_RECENCY_MS = 60_000;
+
+  /**
+   * Backoff window after a deferred import FAILS for a path. A persistently
+   * failing path (permissions error, corrupt JSONL) would otherwise be
+   * rescanned on every switch because the success-recency guard never engages.
+   * Shorter than the success window so a transient failure self-heals soon.
+   */
+  private static readonly IMPORT_FAILURE_BACKOFF_MS = 15_000;
+
+  /**
+   * Completion timestamps of the most recent deferred session import per
+   * normalized workspace path. Feeds the recency guard in
+   * {@link deferSessionImport}.
+   */
+  private readonly lastImportCompletedAt = new Map<string, number>();
+
+  /**
+   * Timestamps of the most recent deferred import FAILURE per normalized
+   * workspace path. Feeds the failure-backoff guard in
+   * {@link deferSessionImport} so a broken path is not rescanned on every
+   * switch. Cleared on a subsequent successful import.
+   */
+  private readonly lastImportFailedAt = new Map<string, number>();
+
+  /**
+   * Normalized workspace paths whose deferred import is currently running.
+   * Prevents a second concurrent scan for the same path before the first
+   * finishes (rapid re-switches during a slow scan).
+   */
+  private readonly importsInFlight = new Set<string>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -255,21 +292,32 @@ export class WorkspaceRpcHandlers {
           }
 
           this.workspaceLifecycle.setActiveFolder(params.path);
+
+          // Session import is intentionally OFF the switch critical path: the
+          // RPC responds immediately and the scan runs fire-and-forget. When
+          // the import saves/prunes anything the SessionMetadataStore emits
+          // `metadataChanged`, which is pushed to the webview as
+          // SESSION_METADATA_CHANGED and refreshes the session list — so a
+          // list fetched before the import finished self-heals without the
+          // switch ever blocking on file I/O + SQLite.
+          //
+          // Defensive isolation: deferSessionImport is fire-and-forget and
+          // must never turn a successful switch into `success:false`.
+          // `scanAndImport` is async so a synchronous throw is not possible
+          // today, but a future refactor could introduce one — wrap the call
+          // so any synchronous throw stays non-fatal to the switch response,
+          // matching the async failure path's non-fatal contract.
           try {
-            const importCount = await this.sessionImporter.scanAndImport(
-              params.path,
-              50,
-            );
-            if (importCount > 0) {
-              this.logger.info(
-                `[RPC] workspace:switch imported ${importCount} session(s)`,
-                { path: params.path },
-              );
-            }
-          } catch (err: unknown) {
+            this.deferSessionImport(params.path);
+          } catch (importErr: unknown) {
             this.logger.warn(
-              '[RPC] workspace:switch session import failed (non-fatal)',
-              { error: err instanceof Error ? err.message : String(err) },
+              '[RPC] workspace:switch deferSessionImport threw synchronously (non-fatal)',
+              {
+                error:
+                  importErr instanceof Error
+                    ? importErr.message
+                    : String(importErr),
+              },
             );
           }
 
@@ -295,5 +343,91 @@ export class WorkspaceRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * Import Claude sessions for a workspace OFF the `workspace:switch` critical
+   * path.
+   *
+   * `SessionImporterService.scanAndImport` does blocking file I/O + SQLite
+   * work (directory scan, up to 50 JSONL reads, title-only prune). Awaiting it
+   * inside the RPC made every switch wait on that work. Here it runs
+   * fire-and-forget; the resulting `metadataChanged` push refreshes the
+   * renderer's session list when anything actually changed.
+   *
+   * Three in-memory guards keep repeated switching cheap:
+   * - **recency** — skip the scan when this path was imported within
+   *   {@link WorkspaceRpcHandlers.IMPORT_RECENCY_MS}.
+   * - **failure-backoff** — skip when this path's last import FAILED within
+   *   {@link WorkspaceRpcHandlers.IMPORT_FAILURE_BACKOFF_MS}, so a broken path
+   *   is not rescanned on every switch.
+   * - **in-flight** — skip when a previous scan for this path has not resolved
+   *   yet, so rapid re-switches during a slow scan do not stack.
+   *
+   * Both are per-process only: a fresh process re-imports on the first switch,
+   * and the separate boot-time import (app activation) is unaffected because
+   * it calls `scanAndImport` directly, not through this handler.
+   */
+  private deferSessionImport(workspacePath: string): void {
+    const key = workspacePath.replace(/\\/g, '/').toLowerCase();
+
+    const lastCompleted = this.lastImportCompletedAt.get(key);
+    if (
+      lastCompleted !== undefined &&
+      Date.now() - lastCompleted < WorkspaceRpcHandlers.IMPORT_RECENCY_MS
+    ) {
+      this.logger.debug(
+        '[RPC] workspace:switch skipping session import (imported recently)',
+        { path: workspacePath },
+      );
+      return;
+    }
+
+    const lastFailed = this.lastImportFailedAt.get(key);
+    if (
+      lastFailed !== undefined &&
+      Date.now() - lastFailed < WorkspaceRpcHandlers.IMPORT_FAILURE_BACKOFF_MS
+    ) {
+      this.logger.debug(
+        '[RPC] workspace:switch skipping session import (failed recently)',
+        { path: workspacePath },
+      );
+      return;
+    }
+
+    if (this.importsInFlight.has(key)) {
+      this.logger.debug(
+        '[RPC] workspace:switch skipping session import (already in flight)',
+        { path: workspacePath },
+      );
+      return;
+    }
+
+    this.importsInFlight.add(key);
+    void this.sessionImporter
+      .scanAndImport(workspacePath, 50)
+      .then((importCount) => {
+        this.lastImportCompletedAt.set(key, Date.now());
+        this.lastImportFailedAt.delete(key);
+        if (importCount > 0) {
+          this.logger.info(
+            `[RPC] workspace:switch imported ${importCount} session(s)`,
+            { path: workspacePath },
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        // Stamp the failure so a persistently-broken path backs off instead of
+        // rescanning on every switch (the success-recency guard never engages
+        // for a path that never completes).
+        this.lastImportFailedAt.set(key, Date.now());
+        this.logger.warn(
+          '[RPC] workspace:switch session import failed (non-fatal)',
+          { error: err instanceof Error ? err.message : String(err) },
+        );
+      })
+      .finally(() => {
+        this.importsInFlight.delete(key);
+      });
   }
 }

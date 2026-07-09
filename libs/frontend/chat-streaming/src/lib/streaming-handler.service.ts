@@ -353,6 +353,18 @@ export class StreamingHandlerService {
       state = result.replacementState;
     }
 
+    // A turn that STARTS while its tab is already backgrounded (e.g. a cron- or
+    // gateway-triggered turn landing on a non-active workspace) never went
+    // through the active `markStreaming`/`markTabStreaming` path, so the tab-bar
+    // spinner would never light for it. Light it on the first content-bearing
+    // background event so the tab shows as streaming when the user switches to
+    // its workspace. Guarded on spinner-set membership so it fires once per turn
+    // (not per delta) and does not disturb a turn that started active; the
+    // turn-end background branch's `markTabIdle` clears it.
+    if (result.stateMutated && !this.tabManager.isTabStreaming(tab.id)) {
+      this.tabManager.markTabStreaming(tab.id);
+    }
+
     return this.tabManager.updateBackgroundTab(tab.id, {
       streamingState: state,
       status: 'streaming',
@@ -400,6 +412,45 @@ export class StreamingHandlerService {
     );
     let primaryTab: TabState | undefined = boundTabs[0];
     if (!primaryTab) {
+      // Before falling back to the active tab, resolve the owner across all
+      // workspaces. A session that belongs to a BACKGROUND workspace must NOT
+      // finalize its stats onto the active tab — that renders another
+      // workspace's turn onto the wrong session.
+      //
+      // The primary turn-end pivot (`TurnEndHandlerService`) now finalizes
+      // background turns (it promotes the reply into `messages` and stamps
+      // `lastTerminalReason`). So in the common case this branch only stashes
+      // the stats onto the background tab's streaming state for a post-finalize
+      // merge. If Stop NEVER fired for this background session, however, this
+      // stats event is the sole terminal — so it acts as a safety-net finalizer
+      // (guarded on `lastTerminalReason === undefined`, exactly like the active
+      // path below), promoting the reply and clearing the spinner. Exactly one
+      // finalization per terminal: turn-end sets `lastTerminalReason`, so a
+      // later stats event sees `stopAlreadyObserved` and skips.
+      const bgLookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
+        stats.sessionId,
+      );
+      if (bgLookup) {
+        const bgTab = bgLookup.tab;
+        const stopAlreadyObserved = bgTab.lastTerminalReason !== undefined;
+        const bgState = bgTab.streamingState;
+        if (bgState) {
+          bgState.pendingStats = {
+            cost: stats.cost,
+            tokens: stats.tokens,
+            duration: stats.duration,
+          };
+          this.tabManager.updateBackgroundTab(bgTab.id, {
+            streamingState: { ...bgState },
+          });
+        }
+        if (!stopAlreadyObserved && bgState) {
+          this.finalization.finalizeCurrentMessage(bgTab.id);
+          this.tabManager.markTabIdle(bgTab.id);
+        }
+        return null;
+      }
+
       const activeTab = this.tabManager.activeTab();
 
       if (
