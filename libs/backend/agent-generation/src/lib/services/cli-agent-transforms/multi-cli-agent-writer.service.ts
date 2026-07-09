@@ -5,7 +5,7 @@
  * WORKSPACE-level agents directory (decision #4):
  * - Cursor:        per-file {ws}/.cursor/agents/{slug}.md (bare-name)
  * - Copilot:       per-file {ws}/.github/agents/{slug}.agent.md + home-copy reap
- * - Codex:         merged into a delimited Ptah region inside {ws}/AGENTS.md
+ * - Codex:         per-file {ws}/.codex/agents/{slug}.toml (native subagents)
  *
  * Security: Uses fs.promises directly (NOT AgentFileWriterService) because the
  * target paths are outside .claude/. Paths derive from workspaceRoot (not user
@@ -14,18 +14,14 @@
 
 import { injectable, inject } from 'tsyringe';
 import { homedir } from 'os';
-import { mkdir, writeFile, readFile, readdir, rm } from 'fs/promises';
+import { mkdir, writeFile, readdir, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
-import {
-  mergeAgentsRegion,
-  type CliTarget,
-  type CliGenerationResult,
-} from '@ptah-extension/shared';
+import type { CliTarget, CliGenerationResult } from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../../types/core.types';
 import type { ICliAgentTransformer } from './cli-agent-transformer.interface';
 import { CopilotAgentTransformer } from './copilot-agent-transformer';
-import { CodexAgentTransformer } from './codex-agent-transformer';
+import { CodexSubagentTransformer } from './codex-agent-transformer';
 import { CursorAgentTransformer } from './cursor-agent-transformer';
 
 const LEGACY_HOME_PREFIXES = ['ptah-', 'ptahsynth-'];
@@ -37,7 +33,7 @@ export class MultiCliAgentWriterService {
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     this.transformers.set('copilot', new CopilotAgentTransformer());
-    this.transformers.set('codex', new CodexAgentTransformer());
+    this.transformers.set('codex', new CodexSubagentTransformer());
     this.transformers.set('cursor', new CursorAgentTransformer());
 
     this.logger.debug('[MultiCliWriter] Service initialized');
@@ -68,13 +64,6 @@ export class MultiCliAgentWriterService {
           paths: [],
           errors: [`No transformer registered for ${cli}`],
         });
-        continue;
-      }
-
-      if (cli === 'codex') {
-        results.push(
-          await this.writeCodexMerged(agents, transformer, workspaceRoot),
-        );
         continue;
       }
 
@@ -138,68 +127,6 @@ export class MultiCliAgentWriterService {
     });
 
     return { cli, agentsWritten, agentsFailed, paths, errors };
-  }
-
-  private async writeCodexMerged(
-    agents: GeneratedAgent[],
-    transformer: ICliAgentTransformer,
-    workspaceRoot: string,
-  ): Promise<CliGenerationResult> {
-    const errors: string[] = [];
-    const agentsFilePath = join(workspaceRoot, 'AGENTS.md');
-
-    if (agents.length === 0) {
-      return {
-        cli: 'codex',
-        agentsWritten: 0,
-        agentsFailed: 0,
-        paths: [],
-        errors,
-      };
-    }
-
-    try {
-      const bodies = agents.map((agent) => {
-        const result = transformer.transform(agent, workspaceRoot);
-        return { name: result.agentId, content: result.content };
-      });
-
-      let existing = '';
-      try {
-        existing = await readFile(agentsFilePath, 'utf8');
-      } catch {
-        existing = '';
-      }
-
-      const merged = mergeAgentsRegion(existing, bodies);
-      await mkdir(dirname(agentsFilePath), { recursive: true });
-      await writeFile(agentsFilePath, merged, 'utf8');
-
-      this.logger.info('[MultiCliWriter] codex AGENTS.md merge complete', {
-        agents: agents.length,
-        path: agentsFilePath,
-      });
-
-      return {
-        cli: 'codex',
-        agentsWritten: agents.length,
-        agentsFailed: 0,
-        paths: [agentsFilePath],
-        errors,
-      };
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      this.logger.warn('[MultiCliWriter] codex AGENTS.md merge failed', {
-        error: msg,
-      });
-      return {
-        cli: 'codex',
-        agentsWritten: 0,
-        agentsFailed: agents.length,
-        paths: [],
-        errors: [`Failed to merge AGENTS.md: ${msg}`],
-      };
-    }
   }
 
   private async reapCopilotHomeAgents(): Promise<void> {

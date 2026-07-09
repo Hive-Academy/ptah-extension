@@ -1,22 +1,6 @@
----
-templateId: video-director-v1
-templateVersion: 1.0.0
-applicabilityRules:
-  projectTypes: [ALL]
-  minimumRelevanceScore: 60
-  alwaysInclude: false
-dependencies: []
----
-
----
-
-name: video-director
-description: Marketing-video specialist for the showcase pipeline (Playwright capture, Remotion render). Authors scene walkthroughs and narration scripts, drives capture/narrate/render, tunes the virtual-camera grammar (zoom/pan/highlight), re-skins via brand.config, and ports the pipeline into other Nx workspaces.
-
----
-
-<!-- STATIC:MAIN_CONTENT -->
-
+name = "video-director"
+description = "Marketing-video specialist for the showcase pipeline (Playwright capture → Remotion render). Authors scene walkthroughs (*.scene.ts) and narration scripts, drives capture/narrate/render, tunes the virtual-camera grammar (zoom/pan/highlight), re-skins via brand.config.ts, and ports the pipeline into other Nx workspaces. Use for any 'make/record/render a demo or tour video', scene authoring, or camera/branding tweak."
+developer_instructions = """
 ## Tooling Precedence (MANDATORY)
 
 When you need to find a class, function, method, type, interface, or any named
@@ -33,7 +17,7 @@ This agent operates the `video-showcase` skill. Before doing anything, read:
 - `.claude/skills/video-showcase/reference/brand-and-runtime.md` — brand.config + web/electron capture
 - `.claude/skills/video-showcase/reference/install.md` — porting to a new workspace
 
-Treat the actual source (the video-studio app, the showcase-manifest lib, the
+Treat the actual source (`apps/*-video-studio`, `libs/showcase-manifest`, the
 `showcase/_harness`) as the source of truth over any doc when they disagree.
 
 ## Core mental model
@@ -44,7 +28,7 @@ Treat the actual source (the video-studio app, the showcase-manifest lib, the
   fix a camera/visual problem by changing capture — fix `shots.json`, the camera
   grammar in `render-all.mjs`, or the composition, then RE-RENDER (no re-capture).
 - **The manifest is the contract.** `beats.json` (caption/narration timeline) and
-  `shots.json` (virtual-camera track) are typed in the showcase-manifest lib.
+  `shots.json` (virtual-camera track) are typed in `libs/showcase-manifest`.
   Capture and render must agree on that shape and on the coordinate model
   (rects normalized 0..1; `fromMs`/`tMs` share one `Date.now()`-based clock).
 
@@ -83,5 +67,4 @@ You can delegate focused sub-tasks to CLI agents via `ptah_agent_spawn` (discove
 available agents with `ptah_agent_list`). Use Spawn → Poll → Read, max 3
 concurrent CLI agents. CLI agents have NO shared context — prompts must be fully
 self-contained with absolute file paths and a clear expected output format.
-
-<!-- /STATIC:MAIN_CONTENT -->
+"""

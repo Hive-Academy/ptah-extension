@@ -107,6 +107,17 @@ export function stripInternalReferences(content: string): string {
 }
 
 /**
+ * Strip the leading YAML frontmatter block from agent content.
+ * Returns the body only — used by targets (e.g. Codex TOML) that carry
+ * name/description in their own structured format instead of frontmatter.
+ */
+export function stripFrontmatter(content: string): string {
+  const normalized = normalizeCrlf(content);
+  const match = normalized.match(/^---\n[\s\S]*?\n---\n?/);
+  return match ? normalized.slice(match[0].length) : normalized;
+}
+
+/**
  * Rewrite YAML frontmatter for the target CLI.
  *
  * Keeps `name` and `description` fields (used by all CLIs).
@@ -212,4 +223,20 @@ export function transformAgentContent(
   result = stripInternalReferences(result);
 
   return result;
+}
+
+/**
+ * Transform an agent's body (no frontmatter) for a target CLI.
+ *
+ * Same rewrite rules as {@link transformAgentContent} minus the frontmatter
+ * step — for targets that store name/description structurally (e.g. Codex
+ * subagent TOML `developer_instructions`).
+ */
+export function transformAgentBody(content: string, cli: CliTarget): string {
+  let result = stripFrontmatter(content);
+  result = rewriteToolReferences(result, cli);
+  result = rewriteSlashCommands(result, cli);
+  result = rewriteProductReferences(result, cli);
+  result = stripInternalReferences(result);
+  return result.trim();
 }
