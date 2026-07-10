@@ -33,6 +33,7 @@ import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-req
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
+import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
@@ -103,6 +104,7 @@ import type {
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [TranscriptRetentionService],
 })
 export class ChatViewComponent {
   readonly chatStore = inject(ChatStore);
@@ -314,6 +316,51 @@ export class ChatViewComponent {
     const ctx = this._sessionContext;
     return ctx ? ctx() : this._tabManager.activeTabId();
   });
+
+  /**
+   * Component-scoped LRU of tab ids whose transcript stays mounted (keep-alive).
+   * One instance per ChatViewComponent (declared in `providers`).
+   */
+  private readonly _retention = inject(TranscriptRetentionService);
+
+  /**
+   * Tab ids to render as `<ptah-chat-transcript>` instances. Tile mode
+   * (SESSION_CONTEXT present) renders exactly its one tab; the main panel
+   * renders the retained set so switching tabs/workspaces reuses built DOM
+   * instead of rebuilding it.
+   */
+  protected readonly transcriptTabIds = computed<readonly string[]>(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const id = ctx();
+      return id ? [id] : [];
+    }
+    // The active tab always renders (appended once if the retention effect has
+    // not registered it yet), so the transcript never blinks on the frame
+    // between an active-tab change and the effect touch. Appending at the end
+    // matches where `touch` inserts it, so `@for track tabId` never reorders.
+    const retained = this._retention.retainedTabIds();
+    const active = this._tabManager.activeTabId();
+    if (active && !retained.includes(active)) {
+      return [...retained, active];
+    }
+    return retained;
+  });
+
+  /**
+   * The main panel renders a transcript LIVE only outside grid layout — in grid
+   * mode the canvas tiles own the live render, so the hidden main panel must not
+   * double-render the same tab (plan risk 5). Tile mode is always "showing"
+   * (its single tab is on-screen); Batch 3 wires tile visibility to the
+   * workspace grid.
+   *
+   * NOTE: compact view mode (`resolvedViewMode() === 'compact'`) destroys the
+   * keep-alive region via the template `@if/@else`; a main-panel compact toggle
+   * is rare and simply rebuilds on return. Accepted, not fixed (plan risk 6).
+   */
+  protected readonly mainPanelShowing = computed(() =>
+    this._sessionContext ? true : this._appState.layoutMode() !== 'grid',
+  );
 
   /**
    * Resolved messages: tile-scoped when SESSION_CONTEXT is provided, otherwise global.

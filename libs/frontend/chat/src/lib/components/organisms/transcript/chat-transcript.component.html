@@ -5,7 +5,7 @@
 >
   <div #messageContent class="chat-scroll-content">
     @for (
-      msg of allMessages();
+      msg of vm().messages;
       track trackByMessageId($index, msg);
       let i = $index
     ) {
@@ -13,10 +13,10 @@
         class="block px-2 pb-3 chat-msg-cv"
         [message]="msg"
         [messageIndex]="i"
-        [totalMessages]="totalMessageCount()"
-        [isStreaming]="i >= finalizedFiltered().length"
+        [totalMessages]="vm().totalCount"
+        [isStreaming]="i >= vm().finalizedCount"
         [isFinalizing]="isFinalizingTransition()"
-        [isSessionActive]="isSessionActive()"
+        [isSessionActive]="vm().isSessionActive"
         (branchRequested)="branchRequested.emit($event)"
         (rewindRequested)="rewindRequested.emit($event)"
       />
@@ -24,7 +24,7 @@
   </div>
 </div>
 
-@if (streamingMessages().length === 0 && isStreaming()) {
+@if (vm().streamingCount === 0 && vm().isStreaming) {
   <div
     class="chat chat-start px-2 pb-2 flex-shrink-0"
     animate.enter="fade-enter"
@@ -43,9 +43,7 @@
   </div>
 }
 
-@if (
-  messages().length === 0 && !isStreaming() && streamingMessages().length === 0
-) {
+@if (!vm().hasMessages && !vm().isStreaming && vm().streamingCount === 0) {
   <ptah-chat-empty-state
     class="absolute inset-0 flex items-center justify-center"
     animate.enter="fade-enter"

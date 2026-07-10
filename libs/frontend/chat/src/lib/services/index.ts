@@ -67,6 +67,10 @@ export {
   type PreloadedStatsPayload,
 } from '@ptah-extension/chat-state';
 export { WorkspaceCoordinatorService } from './workspace-coordinator.service';
+export {
+  TranscriptRetentionService,
+  RETAINED_TRANSCRIPT_CAP,
+} from './transcript-retention.service';
 /** @deprecated Import from `@ptah-extension/chat-state` instead. */
 export {
   TabWorkspacePartitionService,

@@ -32,6 +32,33 @@ const EMPTY_MESSAGES: readonly ExecutionChatMessage[] = [];
 const EMPTY_TREES: readonly ExecutionNode[] = [];
 
 /**
+ * Frozen view snapshot consumed by the template. When the transcript is hidden
+ * (`!active()`), the gated `vm` computed returns the last snapshot taken while
+ * active, so streaming writes to `TabManagerService.tabs()` neither rebuild the
+ * execution tree nor refresh the DOM — and the built bubbles survive a
+ * workspace switch that drops the tab from `tabs()` entirely.
+ */
+interface TranscriptViewModel {
+  readonly messages: readonly ExecutionChatMessage[];
+  readonly finalizedCount: number;
+  readonly streamingCount: number;
+  readonly totalCount: number;
+  readonly isStreaming: boolean;
+  readonly hasMessages: boolean;
+  readonly isSessionActive: boolean;
+}
+
+const EMPTY_VIEW_MODEL: TranscriptViewModel = {
+  messages: EMPTY_MESSAGES,
+  finalizedCount: 0,
+  streamingCount: 0,
+  totalCount: 0,
+  isStreaming: false,
+  hasMessages: false,
+  isSessionActive: false,
+};
+
+/**
  * ChatTranscriptComponent - Per-tab message list (scroll container + `@for` +
  * streaming skeleton + empty state + scroll/pin/resize-observer logic).
  *
@@ -134,8 +161,16 @@ export class ChatTranscriptComponent {
    */
   private isAdjusting = false;
 
-  private readonly scrollPositionCache = new Map<string, number>();
-  private previousTabId: string | null = null;
+  /**
+   * Saved scroll offset for THIS tab. Each instance owns exactly one tab, so the
+   * per-tab cache Map collapses to a single field. Written eagerly on every
+   * scroll (before the `display:none` hide can reset `scrollTop`) and restored
+   * on the activation edge.
+   */
+  private savedScrollTop: number | null = null;
+
+  /** Previous `active()` value — detects the hidden→visible activation edge. */
+  private wasActive = false;
 
   /**
    * Active during the streaming→finalized DOM transition. Suppresses onScroll
@@ -271,6 +306,39 @@ export class ChatTranscriptComponent {
     return next;
   });
 
+  /**
+   * Frozen snapshot backing the gated `vm` computed. Same
+   * mutable-field-inside-computed precedent as the `allMessages` memo above.
+   */
+  private _frozenView: TranscriptViewModel = EMPTY_VIEW_MODEL;
+
+  /**
+   * Single template-facing view model, GATED on `active()`. While hidden it
+   * returns `_frozenView` and its ONLY dependency is `active` — streaming
+   * chunks (`tabs()` identity churn, `buildTree`, markdown re-parse) become
+   * invisible. Flipping `active` true re-evaluates it exactly once, producing a
+   * one-shot catch-up render over the diffed `@for` (`track msg.id` reuses every
+   * existing bubble).
+   */
+  protected readonly vm = computed<TranscriptViewModel>(() => {
+    if (!this.active()) {
+      return this._frozenView;
+    }
+    const finalized = this.finalizedFiltered();
+    const streaming = this.streamingMessages();
+    const next: TranscriptViewModel = {
+      messages: this.allMessages(),
+      finalizedCount: finalized.length,
+      streamingCount: streaming.length,
+      totalCount: finalized.length + streaming.length,
+      isStreaming: this.isStreaming(),
+      hasMessages: this.messages().length > 0,
+      isSessionActive: this.isSessionActive(),
+    };
+    this._frozenView = next;
+    return next;
+  });
+
   protected trackByMessageId(
     _index: number,
     msg: ExecutionChatMessage,
@@ -279,20 +347,25 @@ export class ChatTranscriptComponent {
   }
 
   constructor() {
-    // Unified content-follow controller. Reacts to BOTH tab switches (tabId)
-    // and content changes (allMessages — which transitively tracks
-    // streaming-tree growth). One effect, one source of truth.
+    // Activation edge (hidden→visible): restore the saved scroll offset, or
+    // stick to bottom when pinned. `display:none` resets `scrollTop`, so the
+    // restore runs on re-show via rAF (once the block layout is back).
     effect(() => {
-      const tabId = this.tabId();
-      const messages = this.allMessages();
+      const isActive = this.active();
+      untracked(() => {
+        if (isActive && !this.wasActive) {
+          this.restoreScrollOnActivation();
+        }
+        this.wasActive = isActive;
+      });
+    });
+    // Content-follow controller. Reads the GATED `vm` so streaming into a hidden
+    // transcript schedules no work; on activation `vm` catches up once and this
+    // re-sticks a pinned transcript to the bottom.
+    effect(() => {
+      const messages = this.vm().messages;
       const count = messages.length;
       untracked(() => {
-        if (tabId !== this.previousTabId) {
-          this.previousTabId = tabId ?? null;
-          this.lastMessageCount = count;
-          this.restoreScrollForTab(tabId);
-          return;
-        }
         const last = messages[count - 1];
         const isNewUserMessage =
           count > this.lastMessageCount && last?.role === 'user';
@@ -306,7 +379,7 @@ export class ChatTranscriptComponent {
       });
     });
     effect(() => {
-      const isStreaming = this.isStreaming();
+      const isStreaming = this.vm().isStreaming;
       untracked(() => {
         if (this.wasStreaming && !isStreaming) {
           this.isFinalizingTransition.set(true);
@@ -353,10 +426,7 @@ export class ChatTranscriptComponent {
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     this.pinnedToBottom = distanceFromBottom < this.NEAR_BOTTOM_PX;
 
-    const tabId = this.tabId();
-    if (tabId) {
-      this.scrollPositionCache.set(tabId, el.scrollTop);
-    }
+    this.savedScrollTop = el.scrollTop;
   }
 
   /**
@@ -385,12 +455,10 @@ export class ChatTranscriptComponent {
   }
 
   /**
-   * On tab switch, restore the saved scroll offset (don't auto-follow),
-   * or pin to the bottom for a freshly-opened tab.
+   * On the activation edge, restore the saved scroll offset — or stick to the
+   * bottom when pinned (or when there is no saved offset yet, e.g. first show).
    */
-  private restoreScrollForTab(tabId: string | null): void {
-    const saved =
-      tabId !== null ? this.scrollPositionCache.get(tabId) : undefined;
+  private restoreScrollOnActivation(): void {
     if (this.scrollRafId !== null) {
       cancelAnimationFrame(this.scrollRafId);
     }
@@ -399,12 +467,10 @@ export class ChatTranscriptComponent {
       const el = this.scrollContainer()?.nativeElement;
       if (!el) return;
       this.isAdjusting = true;
-      if (saved !== undefined) {
-        el.scrollTop = saved;
-        this.pinnedToBottom = false;
-      } else {
+      if (this.pinnedToBottom || this.savedScrollTop === null) {
         el.scrollTop = el.scrollHeight;
-        this.pinnedToBottom = true;
+      } else {
+        el.scrollTop = this.savedScrollTop;
       }
       requestAnimationFrame(() => {
         this.isAdjusting = false;

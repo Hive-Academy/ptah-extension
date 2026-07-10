@@ -208,6 +208,11 @@ function makeHarness(
     findTabsBySessionId: findTabsBySessionIdMock,
     rebindTabSession: rebindTabSessionMock,
     closeTab: closeTabMock,
+    // Consumed by the component-scoped TranscriptRetentionService effects.
+    closedTab: signal(null).asReadonly(),
+    removedWorkspace$: signal(null).asReadonly(),
+    findTabByIdAcrossWorkspaces: jest.fn(() => null),
+    clearRemovedWorkspace: jest.fn(),
   } as unknown as TabManagerService;
 
   const vscodeStub = {
@@ -282,7 +287,9 @@ function makeHarness(
     requestCanvasSession: requestCanvasSessionMock,
   } as unknown as AppStateManager;
 
-  const treeBuilderStub = {} as unknown as ExecutionTreeBuilderService;
+  const treeBuilderStub = {
+    clearForTab: jest.fn(),
+  } as unknown as ExecutionTreeBuilderService;
 
   const conversationRegistryStub = {
     getIsCompacting: jest.fn(() => false),
