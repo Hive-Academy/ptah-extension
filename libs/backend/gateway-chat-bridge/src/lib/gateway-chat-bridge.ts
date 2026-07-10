@@ -6,11 +6,25 @@
  * Inbound `GatewayInboundEvent`s are serialized per conversation via
  * {@link ConversationQueue}; each turn either starts a new SDK session (first
  * message for the conversation row) or resumes the one persisted on it.
- * Gateway-originated sessions run with bypass permission (v1 auto-approve)
- * once the real SDK session UUID resolves.
+ * Gateway-originated sessions are auto-approved from turn one: each start/resume
+ * seeds the session's permission level to the frontend `'yolo'` level, so the
+ * first tool call is auto-approved (no post-hoc bypass flip, no permission
+ * prompt that a chat platform cannot render).
+ *
+ * Each turn runs in the conversation's EFFECTIVE workspace: the
+ * conversation-pinned root first, then the binding root, then the active
+ * Electron workspace (AC-7.2). A pinned root that left the allowlist or the
+ * disk fails the turn closed — never a silent fallback to the binding root
+ * (Data-2).
  */
+import { access } from 'node:fs/promises';
 import { inject, injectable } from 'tsyringe';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  isPremiumTier,
+  type Logger,
+  type LicenseService,
+} from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
@@ -18,7 +32,9 @@ import {
 import {
   GATEWAY_TOKENS,
   ConversationKey,
+  resolveEffectiveWorkspaceRoot,
   type ConversationStore,
+  type ConversationTurnTracker,
   type GatewayConversation,
   type GatewayInboundEvent,
   type GatewayService,
@@ -33,7 +49,54 @@ import {
   SETTINGS_TOKENS,
   type ModelSettings,
 } from '@ptah-extension/settings-core';
+import { type CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
+import { SDK_TOKENS, type PluginLoaderService } from '@ptah-extension/agent-sdk';
+import {
+  AGENT_GENERATION_TOKENS,
+  type EnhancedPromptsService,
+} from '@ptah-extension/agent-generation';
 import { ConversationQueue } from './conversation-queue';
+
+/**
+ * Hard cap on a single gateway turn. If the SDK stream neither completes nor
+ * errors within this window the watchdog force-terminates the turn: it ends the
+ * session, sends one error reply, and lets the `finally` seal run — guaranteeing
+ * the per-conversation {@link ConversationQueue} chain always settles.
+ */
+const TURN_WATCHDOG_MS = 10 * 60_000;
+
+/**
+ * Fail-closed reply when the conversation's pinned workspace root is no longer
+ * allowlisted or no longer exists on disk (Data-2). The user must explicitly
+ * re-pick via `/workspace use` — the turn never silently falls back to the
+ * binding root.
+ */
+const WORKSPACE_UNAVAILABLE_MESSAGE =
+  "This thread's workspace is no longer available in Ptah. Run /workspace use to pick another.";
+
+/**
+ * Premium/session context resolved once per turn and threaded into the
+ * start/resume config so gateway sessions reach parity with the webview chat
+ * path (enhanced prompts, plugins, code-exec MCP).
+ */
+interface PremiumSessionContext {
+  isPremium: boolean;
+  mcpServerRunning: boolean;
+  enhancedPromptsContent?: string;
+  pluginPaths?: string[];
+}
+
+/**
+ * Per-turn cancellation flag tripped by the turn watchdog. Once tripped, the
+ * now-abandoned turn's background continuation must become an inert no-op: it
+ * must not bind a session id, append outbound chunks, retry via a fresh
+ * session, or send an error reply — otherwise it would corrupt the shared
+ * per-conversation state the NEXT dequeued turn is already using (the
+ * `ConversationQueue` concurrency-1-per-key contract).
+ */
+interface TurnCancellation {
+  cancelled: boolean;
+}
 
 @injectable()
 export class GatewayChatBridge {
@@ -53,6 +116,16 @@ export class GatewayChatBridge {
     private readonly workspace: IWorkspaceProvider,
     @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
     private readonly modelSettings: ModelSettings,
+    @inject(TOKENS.LICENSE_SERVICE)
+    private readonly licenseService: LicenseService,
+    @inject(TOKENS.CODE_EXECUTION_MCP)
+    private readonly codeExecutionMcp: CodeExecutionMCP,
+    @inject(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE)
+    private readonly enhancedPromptsService: EnhancedPromptsService,
+    @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
+    private readonly pluginLoader: PluginLoaderService,
+    @inject(GATEWAY_TOKENS.GATEWAY_TURN_TRACKER)
+    private readonly turnTracker: ConversationTurnTracker,
   ) {}
 
   start(): void {
@@ -78,7 +151,15 @@ export class GatewayChatBridge {
   private onInbound(event: GatewayInboundEvent): void {
     if (this.stopped) return;
     const conversationKey = this.resolveConversationKey(event);
-    void this.queue.enqueue(conversationKey, () => this.runTurn(event));
+    // Busy-signal for the command control plane (AC-3.6/4.3/6.6): the key is
+    // marked before enqueue so a queued turn behind a running one keeps it
+    // busy, and released when the enqueue promise settles — which the
+    // watchdog guarantees even for a wedged stream, so busy-state cannot leak.
+    this.turnTracker.begin(conversationKey);
+    void this.queue
+      .enqueue(conversationKey, () => this.runTurn(event))
+      .catch(() => undefined)
+      .finally(() => this.turnTracker.end(conversationKey));
   }
 
   private async runTurn(event: GatewayInboundEvent): Promise<void> {
@@ -87,15 +168,25 @@ export class GatewayChatBridge {
     const route = this.resolveRoute(event);
     const body = event.message.body;
 
-    const workspaceRoot =
-      binding.workspaceRoot ?? this.workspace.getWorkspaceRoot() ?? null;
-    if (!workspaceRoot) {
+    const resolved = resolveEffectiveWorkspaceRoot({
+      conversationRoot: conversation.workspaceRoot,
+      bindingRoot: binding.workspaceRoot,
+      workspace: this.workspace,
+    });
+    if (!resolved.ok) {
       await this.sendError(
         route,
-        'No workspace is open in Ptah. Open a project folder, then try again.',
+        resolved.reason === 'conversation-root-revoked'
+          ? WORKSPACE_UNAVAILABLE_MESSAGE
+          : 'No workspace is open in Ptah. Open a project folder, then try again.',
       );
       return;
     }
+    if (!(await this.workspaceRootExists(resolved.root))) {
+      await this.sendError(route, WORKSPACE_UNAVAILABLE_MESSAGE);
+      return;
+    }
+    const workspaceRoot = resolved.root;
 
     // End-of-turn seal — flushes the turn's FULL accumulated text as ONE
     // outbound message AND resets the per-conversation buffer + message handle
@@ -113,38 +204,106 @@ export class GatewayChatBridge {
     const tabId = `gw-${conversation.id}`;
     let sessionToEnd: string | null = conversation.ptahSessionId ?? null;
 
-    try {
-      const stream = await this.openStream(
-        conversation,
-        body,
-        workspaceRoot,
-        tabId,
-      );
-      sessionToEnd =
-        (await this.pumpStream(stream, conversation, tabId, route)) ??
-        sessionToEnd;
-    } catch (error: unknown) {
-      const recovered = await this.tryFallbackStart(
-        error,
-        conversation,
-        body,
-        workspaceRoot,
-        tabId,
-        route,
-      );
-      if (recovered.ok) {
-        sessionToEnd = recovered.sessionId ?? sessionToEnd;
-      } else {
-        this.logger.error(
-          '[gateway-chat-bridge] turn failed',
-          error instanceof Error ? error : new Error(String(error)),
+    const premium = await this.resolvePremiumContext(workspaceRoot);
+
+    // Tripped by the watchdog below. `turnWork` and everything it calls check
+    // this before touching shared per-conversation state, so a timed-out turn's
+    // background continuation cannot interfere with the next dequeued turn.
+    const cancellation: TurnCancellation = { cancelled: false };
+
+    const turnWork = async (): Promise<void> => {
+      try {
+        const stream = await this.openStream(
+          conversation,
+          body,
+          workspaceRoot,
+          tabId,
+          premium,
         );
+        if (cancellation.cancelled) return;
+        sessionToEnd =
+          (await this.pumpStream(
+            stream,
+            conversation,
+            tabId,
+            route,
+            cancellation,
+          )) ?? sessionToEnd;
+      } catch (error: unknown) {
+        const recovered = await this.tryFallbackStart(
+          error,
+          conversation,
+          body,
+          workspaceRoot,
+          tabId,
+          route,
+          premium,
+          cancellation,
+        );
+        if (recovered.ok) {
+          sessionToEnd = recovered.sessionId ?? sessionToEnd;
+        } else if (!cancellation.cancelled) {
+          this.logger.error(
+            '[gateway-chat-bridge] turn failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          await this.sendError(
+            route,
+            'Ptah could not complete this request. Please try again.',
+          ).catch((sendErr: unknown) => {
+            this.logger.warn(
+              '[gateway-chat-bridge] failed to send turn-failure error reply',
+              {
+                error:
+                  sendErr instanceof Error ? sendErr.message : String(sendErr),
+              },
+            );
+          });
+        }
+      }
+    };
+
+    // Turn watchdog: race the turn work against a hard timeout so a stream that
+    // never settles (e.g. a wedged `canUseTool`) cannot wedge the conversation
+    // queue. On timeout the turn is cancelled (so its abandoned continuation
+    // becomes inert), the session is ended, and one error reply is sent; the
+    // `finally` below then seals exactly once. The timer is cleared as soon as
+    // the turn settles so a normal turn never triggers the watchdog reply.
+    let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    const watchdog = new Promise<void>((resolve) => {
+      watchdogTimer = setTimeout(() => {
+        timedOut = true;
+        cancellation.cancelled = true;
+        resolve();
+      }, TURN_WATCHDOG_MS);
+    });
+
+    try {
+      await Promise.race([turnWork(), watchdog]);
+      if (timedOut) {
+        this.logger.warn('[gateway-chat-bridge] turn watchdog fired', {
+          conversationId: String(conversation.id),
+          timeoutMs: TURN_WATCHDOG_MS,
+        });
+        this.endSessionAfterTurn(sessionToEnd ?? tabId);
         await this.sendError(
           route,
-          'Ptah could not complete this request. Please try again.',
-        );
+          'This request took too long and was stopped. Please try again.',
+        ).catch((sendErr: unknown) => {
+          this.logger.warn(
+            '[gateway-chat-bridge] failed to send watchdog error reply',
+            {
+              error:
+                sendErr instanceof Error ? sendErr.message : String(sendErr),
+            },
+          );
+        });
       }
     } finally {
+      if (watchdogTimer) {
+        clearTimeout(watchdogTimer);
+      }
       await sealTurn().catch((sealErr: unknown) => {
         this.logger.warn('[gateway-chat-bridge] drain failed', {
           error: sealErr instanceof Error ? sealErr.message : String(sealErr),
@@ -152,6 +311,94 @@ export class GatewayChatBridge {
       });
       this.endSessionAfterTurn(sessionToEnd ?? tabId);
     }
+  }
+
+  /**
+   * Resolve the premium/session context for a turn, mirroring the webview chat
+   * path (`ChatSessionService` + `ChatPremiumContextService`). Every external
+   * call is guarded so a license/prompt/plugin failure degrades to non-premium
+   * defaults rather than breaking the turn.
+   */
+  private async resolvePremiumContext(
+    workspaceRoot: string,
+  ): Promise<PremiumSessionContext> {
+    let isPremium = false;
+    try {
+      isPremium = isPremiumTier(await this.licenseService.verifyLicense());
+    } catch (error: unknown) {
+      this.logger.debug(
+        '[gateway-chat-bridge] license verification failed; treating as non-premium',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+
+    let mcpServerRunning = false;
+    try {
+      mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
+      if (isPremium && mcpServerRunning) {
+        this.codeExecutionMcp.ensureRegisteredForSubagents();
+      }
+    } catch (error: unknown) {
+      mcpServerRunning = false;
+      this.logger.debug(
+        '[gateway-chat-bridge] MCP availability check failed',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+
+    let enhancedPromptsContent: string | undefined;
+    if (isPremium) {
+      try {
+        enhancedPromptsContent =
+          (await this.enhancedPromptsService.getEnhancedPromptContent(
+            workspaceRoot,
+          )) ?? undefined;
+      } catch (error: unknown) {
+        this.logger.debug(
+          '[gateway-chat-bridge] enhanced prompt resolution failed',
+          { error: error instanceof Error ? error.message : String(error) },
+        );
+      }
+    }
+
+    let pluginPaths: string[] | undefined;
+    if (isPremium) {
+      try {
+        pluginPaths = this.resolvePluginPaths();
+      } catch (error: unknown) {
+        this.logger.debug(
+          '[gateway-chat-bridge] plugin path resolution failed',
+          { error: error instanceof Error ? error.message : String(error) },
+        );
+      }
+    }
+
+    return { isPremium, mcpServerRunning, enhancedPromptsContent, pluginPaths };
+  }
+
+  /**
+   * On-disk existence gate for the resolved effective root, run once per turn
+   * before any session starts. Kept out of the pure resolver
+   * (`resolveEffectiveWorkspaceRoot`) so that stays synchronously testable;
+   * a root deleted since it was pinned/listed fails the turn closed (AC-6.3
+   * spirit, Data-2).
+   */
+  private async workspaceRootExists(root: string): Promise<boolean> {
+    try {
+      await access(root);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private resolvePluginPaths(): string[] | undefined {
+    const config = this.pluginLoader.getWorkspacePluginConfig();
+    if (!config.enabledPluginIds || config.enabledPluginIds.length === 0) {
+      return undefined;
+    }
+    const paths = this.pluginLoader.resolvePluginPaths(config.enabledPluginIds);
+    return paths.length > 0 ? paths : undefined;
   }
 
   /**
@@ -181,6 +428,7 @@ export class GatewayChatBridge {
     body: string,
     workspaceRoot: string,
     tabId: string,
+    premium: PremiumSessionContext,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     const persistedId = conversation.ptahSessionId;
     const canResume =
@@ -193,13 +441,28 @@ export class GatewayChatBridge {
         tabId,
         projectPath: workspaceRoot,
         model,
+        permissionLevel: 'yolo',
+        isPremium: premium.isPremium,
+        mcpServerRunning: premium.mcpServerRunning,
+        enhancedPromptsContent: premium.enhancedPromptsContent,
+        pluginPaths: premium.pluginPaths,
       });
     }
     if (persistedId) {
       try {
         return await this.agentAdapter.resumeSession(
           SessionId.from(persistedId),
-          { prompt: body, tabId, projectPath: workspaceRoot, model },
+          {
+            prompt: body,
+            tabId,
+            projectPath: workspaceRoot,
+            model,
+            permissionLevel: 'yolo',
+            isPremium: premium.isPremium,
+            mcpServerRunning: premium.mcpServerRunning,
+            enhancedPromptsContent: premium.enhancedPromptsContent,
+            pluginPaths: premium.pluginPaths,
+          },
         );
       } catch (error: unknown) {
         this.logger.warn(
@@ -211,13 +474,14 @@ export class GatewayChatBridge {
         );
       }
     }
-    return this.startNew(body, workspaceRoot, tabId);
+    return this.startNew(body, workspaceRoot, tabId, premium);
   }
 
   private startNew(
     body: string,
     workspaceRoot: string,
     tabId: string,
+    premium: PremiumSessionContext,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     return this.agentAdapter.startChatSession({
       tabId,
@@ -226,6 +490,11 @@ export class GatewayChatBridge {
       workspaceId: workspaceRoot,
       model: this.resolveModel(),
       includePartialMessages: true,
+      permissionLevel: 'yolo',
+      isPremium: premium.isPremium,
+      mcpServerRunning: premium.mcpServerRunning,
+      enhancedPromptsContent: premium.enhancedPromptsContent,
+      pluginPaths: premium.pluginPaths,
     });
   }
 
@@ -238,6 +507,7 @@ export class GatewayChatBridge {
     conversation: GatewayConversation,
     tabId: string,
     route: OutboundRoute,
+    cancellation: TurnCancellation,
   ): Promise<string | null> {
     let eventCount = 0;
     let sessionUuidBound = false;
@@ -248,15 +518,24 @@ export class GatewayChatBridge {
     // → `completeOutboundTurn`. `message_complete` carries no text and is not
     // a flush point here — flushing mid-turn would emit a partial message.
     for await (const event of stream) {
+      // Watchdog fired mid-stream: stop consuming and touching shared state so
+      // the next dequeued turn owns the conversation exclusively.
+      if (cancellation.cancelled) break;
       eventCount++;
       if (!sessionUuidBound && event.sessionId && event.sessionId !== tabId) {
         sessionUuidBound = true;
         resolvedSessionId = event.sessionId;
-        await this.bindSession(conversation, event.sessionId);
+        this.bindSession(conversation, event.sessionId);
       }
       if (event.eventType === 'text_delta' && event.delta) {
         this.gateway.appendOutboundChunk(route, event.delta);
       }
+    }
+
+    // A cancelled turn never throws the zero-events sentinel — that would drive
+    // the caller into `tryFallbackStart` and start a stray retry session.
+    if (cancellation.cancelled) {
+      return resolvedSessionId;
     }
 
     if (eventCount === 0) {
@@ -273,7 +552,12 @@ export class GatewayChatBridge {
     workspaceRoot: string,
     tabId: string,
     route: OutboundRoute,
+    premium: PremiumSessionContext,
+    cancellation: TurnCancellation,
   ): Promise<{ ok: boolean; sessionId: string | null }> {
+    // Turn already watchdog-terminated — do not start a stray retry session or
+    // touch the next turn's conversation state.
+    if (cancellation.cancelled) return { ok: false, sessionId: null };
     if (!conversation.ptahSessionId) return { ok: false, sessionId: null };
     this.logger.warn(
       '[gateway-chat-bridge] resumed turn failed; retrying with a new session',
@@ -283,12 +567,14 @@ export class GatewayChatBridge {
       },
     );
     try {
-      const stream = await this.startNew(body, workspaceRoot, tabId);
+      const stream = await this.startNew(body, workspaceRoot, tabId, premium);
+      if (cancellation.cancelled) return { ok: false, sessionId: null };
       const sessionId = await this.pumpStream(
         stream,
         conversation,
         tabId,
         route,
+        cancellation,
       );
       return { ok: true, sessionId };
     } catch (fallbackError: unknown) {
@@ -302,10 +588,10 @@ export class GatewayChatBridge {
     }
   }
 
-  private async bindSession(
+  private bindSession(
     conversation: GatewayConversation,
     sessionUuid: string,
-  ): Promise<void> {
+  ): void {
     if (sessionUuid !== conversation.ptahSessionId) {
       try {
         this.conversations.setPtahSessionId(conversation.id, sessionUuid);
@@ -315,20 +601,6 @@ export class GatewayChatBridge {
           error: error instanceof Error ? error.message : String(error),
         });
       }
-    }
-    try {
-      await this.agentAdapter.setSessionPermissionLevel(
-        SessionId.from(sessionUuid),
-        'bypassPermissions',
-      );
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[gateway-chat-bridge] failed to set bypass permission',
-        {
-          conversationId: String(conversation.id),
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
     }
   }
 

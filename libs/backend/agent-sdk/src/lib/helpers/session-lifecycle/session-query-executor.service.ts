@@ -85,6 +85,7 @@ export class SessionQueryExecutor {
       mcpServerRunning = true,
       enhancedPromptsContent,
       pluginPaths,
+      permissionLevel,
       pathToClaudeCodeExecutable,
       forkSession,
       enableFileCheckpointing,
@@ -138,11 +139,15 @@ export class SessionQueryExecutor {
         sessionId,
         abortController,
       );
-      const currentLevel = this.permissionHandler.getPermissionLevel();
+      const currentLevel =
+        permissionLevel ?? this.permissionHandler.getPermissionLevel();
       // Seed this session's level on its record and bind the canUseTool
-      // resolver to it. Reading `rec.permissionLevel` live keeps mid-session
-      // toggles working while scoping the level per session — a tool call here
-      // never sees the level of a session running in another workspace.
+      // resolver to it. A caller-supplied `permissionLevel` (e.g. the gateway
+      // bridge passing `'yolo'`) wins over the global default so the first tool
+      // call already runs at the right level. Reading `rec.permissionLevel`
+      // live keeps mid-session toggles working while scoping the level per
+      // session — a tool call here never sees the level of a session running in
+      // another workspace.
       rec.permissionLevel = currentLevel;
       const permissionLevelResolver = () => rec.permissionLevel;
       // YOLO maps to 'default' (not 'bypassPermissions') so the canUseTool

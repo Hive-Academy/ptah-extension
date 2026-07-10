@@ -10,6 +10,9 @@
     "@ptah-extension/platform-core": "0.0.1",
     "@ptah-extension/settings-core": "0.0.1",
     "@ptah-extension/vscode-core": "0.0.1",
-    "tsyringe": "^4.10.0"
+    "tsyringe": "^4.10.0",
+    "@ptah-extension/vscode-lm-tools": "0.0.1",
+    "@ptah-extension/agent-sdk": "0.0.1",
+    "@ptah-extension/agent-generation": "0.0.1"
   }
 }

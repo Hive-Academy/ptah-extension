@@ -16,10 +16,6 @@ describe('migration 0027_skill_event_reconciliation — registry entry', () => {
     expect(entry?.requiresVec).toBeUndefined();
     expect(entry?.run).toBeUndefined();
   });
-
-  it('is the highest bundled version', () => {
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(27);
-  });
 });
 
 function makeTempDbPath(): string {

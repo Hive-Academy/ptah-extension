@@ -21,6 +21,26 @@ export { MessageStore } from './lib/message.store';
 export { AttachedSessionRegistry } from './lib/attached-session-registry';
 export { JsonlSessionResumabilityChecker } from './lib/session-resumability';
 export type { ISessionResumabilityChecker } from './lib/session-resumability';
+export { ConversationTurnTracker } from './lib/turn-activity-tracker';
+export {
+  normalizeWorkspacePath,
+  isAllowlistedWorkspaceRoot,
+  resolveEffectiveWorkspaceRoot,
+  workspaceRootDigest,
+} from './lib/workspace-resolution';
+export type { EffectiveWorkspace } from './lib/workspace-resolution';
+export type {
+  IGatewaySessionLister,
+  GatewaySessionSummary,
+} from './lib/session-lister.interface';
+export type { ISessionActivityProbe } from './lib/session-activity.interface';
+export type {
+  GatewayCommand,
+  GatewayCommandInvocation,
+  GatewayCommandOutcome,
+  GatewayAutocompleteRequest,
+  IGatewayCommandHandler,
+} from './lib/commands/gateway-command.types';
 export { StreamCoalescer } from './lib/stream-coalescer';
 export type {
   CoalescerOptions,

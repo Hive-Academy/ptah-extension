@@ -53,6 +53,7 @@ import { sql as sql0024GatewayConversations } from './0024_gateway_conversations
 import { sql as sql0025SkillSuggestions } from './0025_skill_suggestions';
 import { sql as sql0026SkillResidency } from './0026_skill_residency';
 import { sql as sql0027SkillEventReconciliation } from './0027_skill_event_reconciliation';
+import { sql as sql0028GatewayConversationWorkspaceRoot } from './0028_gateway_conversation_workspace_root';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -232,5 +233,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 27,
     name: '0027_skill_event_reconciliation',
     sql: sql0027SkillEventReconciliation,
+  },
+  {
+    version: 28,
+    name: '0028_gateway_conversation_workspace_root',
+    sql: sql0028GatewayConversationWorkspaceRoot,
   },
 ];

@@ -91,6 +91,8 @@ export interface GatewayConversation {
   /** Discord thread id, or `'default'` for non-threaded platforms. */
   externalConversationId: string;
   ptahSessionId: string | null;
+  /** Conversation-pinned workspace root; NULL = inherit `binding.workspaceRoot`. */
+  workspaceRoot: string | null;
   createdAt: number;
   lastActiveAt: number | null;
 }
