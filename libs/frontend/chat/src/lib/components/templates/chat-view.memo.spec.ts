@@ -4,6 +4,7 @@ import {
   NgModule,
   ChangeDetectionStrategy,
   signal,
+  computed,
   WritableSignal,
 } from '@angular/core';
 
@@ -35,28 +36,11 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
-import { TestBed } from '@angular/core/testing';
-import { ChatViewComponent } from './chat-view.component';
-import { ChatStore } from '../../services/chat.store';
-import { ActionBannerService } from '../../services/action-banner.service';
-import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
-import {
-  VSCodeService,
-  ClaudeRpcService,
-  AppStateManager,
-  AuthStateService,
-} from '@ptah-extension/core';
-import {
-  TabManagerService,
-  ConversationRegistry,
-  TabSessionBinding,
-  ConfirmationDialogService,
-} from '@ptah-extension/chat-state';
-import {
-  AgentMonitorStore,
-  ExecutionTreeBuilderService,
-} from '@ptah-extension/chat-streaming';
-import { PanelResizeService } from '../../services/panel-resize.service';
+import { TestBed, ComponentFixture } from '@angular/core/testing';
+import { ChatTranscriptComponent } from '../organisms/transcript/chat-transcript.component';
+import { VSCodeService } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { SESSION_CONTEXT } from '../../tokens/session-context.token';
 import type {
   ExecutionChatMessage,
@@ -64,7 +48,8 @@ import type {
 } from '@ptah-extension/shared';
 
 interface MemoHarness {
-  component: ChatViewComponent;
+  fixture: ComponentFixture<ChatTranscriptComponent>;
+  component: ChatTranscriptComponent;
   messagesSig: WritableSignal<readonly ExecutionChatMessage[]>;
   streamingStateSig: WritableSignal<unknown>;
   buildTreeMock: jest.Mock;
@@ -88,134 +73,57 @@ function makeTree(id: string): ExecutionNode {
   } as unknown as ExecutionNode;
 }
 
+/**
+ * The memoization invariants of the transcript (`finalizedMessageIds`,
+ * `streamingMessages`, `allMessages`) were extracted from `ChatViewComponent`
+ * into `ChatTranscriptComponent` (TASK_2026_155 Batch 1). Data now resolves
+ * per-tab from `TabManagerService.tabs()` keyed by the `tabId` input rather
+ * than from the `ChatStore` facade — the harness seeds a single tab whose
+ * `messages` / `streamingState` are driven by writable signals.
+ */
 function makeMemoHarness(): MemoHarness {
   const messagesSig = signal<readonly ExecutionChatMessage[]>([]);
   const streamingStateSig = signal<unknown>(null);
   const buildTreeMock = jest.fn(() => [] as ExecutionNode[]);
 
-  const chatStoreStub = {
-    currentSessionId: signal('session-1').asReadonly(),
-    sessionIsActive: signal(true).asReadonly(),
-    activeTab: signal(null),
-    messages: messagesSig.asReadonly(),
-    isStreaming: signal(false),
-    currentModel: signal('claude-sonnet-4-20250514'),
-    sessionStatus: signal(null),
-    queueRestoreContent: signal(null),
-    agentPanelOpen: signal(false),
-    activeStreamingState: streamingStateSig.asReadonly(),
-    preloadedStats: signal(null),
-    liveModelStats: signal(null),
-    modelUsageList: signal(null),
-    compactionCount: signal(0),
-    isCompacting: signal(false),
-    questionRequests: signal([]),
-    questionTargetTabsFor: jest.fn(() => []),
-    queuedContent: signal(null),
-    clearQueuedContent: jest.fn(),
-    sendOrQueueMessage: jest.fn(),
-    removeResumableSubagent: jest.fn(),
-    switchSession: jest.fn(),
-  } as unknown as ChatStore;
+  const tabsSig = computed(() => [
+    {
+      id: 'tab-1',
+      claudeSessionId: 'session-1',
+      status: 'idle',
+      messages: messagesSig(),
+      streamingState: streamingStateSig(),
+    },
+  ]);
 
   const tabManagerStub = {
-    activeTabId: signal<string | null>(null).asReadonly(),
-    activeTabSessionId: signal<string | null>('session-1').asReadonly(),
-    activeTabHasLiveSession: signal(true).asReadonly(),
-    activeTab: signal(null).asReadonly(),
-    activeTabViewMode: signal('full').asReadonly(),
-    tabs: signal([]).asReadonly(),
-    createTab: jest.fn(),
-    toggleTabViewMode: jest.fn(),
-    streamingTabIds: signal<Set<string>>(new Set()).asReadonly(),
+    tabs: tabsSig,
+    activeTabId: signal<string | null>('tab-1').asReadonly(),
   } as unknown as TabManagerService;
 
   TestBed.configureTestingModule({
-    imports: [ChatViewComponent],
+    imports: [ChatTranscriptComponent],
     providers: [
-      { provide: ChatStore, useValue: chatStoreStub },
       {
         provide: VSCodeService,
         useValue: {
-          config: jest.fn(() => ({ workspaceRoot: '/ws' })),
           getPtahIconUri: () => 'data:image/svg+xml;base64,PHN2Zy8+',
-          getPtahUserIconUri: () => 'data:image/svg+xml;base64,PHN2Zy8+',
         } as unknown as VSCodeService,
-      },
-      {
-        provide: ClaudeRpcService,
-        useValue: { rewindFiles: jest.fn(), call: jest.fn() },
-      },
-      {
-        provide: ConfirmationDialogService,
-        useValue: { confirm: jest.fn() },
-      },
-      {
-        provide: ActionBannerService,
-        useValue: {
-          error: signal(null).asReadonly(),
-          info: signal(null).asReadonly(),
-          showError: jest.fn(),
-          showInfo: jest.fn(),
-        },
       },
       { provide: TabManagerService, useValue: tabManagerStub },
       {
-        provide: CompactionLifecycleService,
-        useValue: { suppressAnimateOnce: signal(false).asReadonly() },
-      },
-      {
-        provide: AgentMonitorStore,
-        useValue: {
-          agents: signal([]).asReadonly(),
-          agentsForSession: jest.fn(() => []),
-        },
-      },
-      {
-        provide: PanelResizeService,
-        useValue: {
-          setDragging: jest.fn(),
-          setCustomWidth: jest.fn(),
-          customWidth: signal(null),
-        },
-      },
-      {
-        provide: AppStateManager,
-        useValue: {
-          currentView: signal('chat'),
-          layoutMode: signal('single').asReadonly(),
-          setCurrentView: jest.fn(),
-          requestCanvasSession: jest.fn(),
-        },
-      },
-      {
         provide: ExecutionTreeBuilderService,
         useValue: { buildTree: buildTreeMock },
-      },
-      {
-        provide: ConversationRegistry,
-        useValue: {
-          compactionStateFor: jest.fn(() => null),
-        },
-      },
-      {
-        provide: TabSessionBinding,
-        useValue: { conversationFor: jest.fn(() => null) },
-      },
-      {
-        provide: AuthStateService,
-        useValue: {
-          authRequiredBanner: signal(null),
-          codexLogin: jest.fn(async () => undefined),
-          clearAuthRequiredBanner: jest.fn(),
-        },
       },
       { provide: SESSION_CONTEXT, useValue: null },
     ],
   });
 
-  const fixture = TestBed.createComponent(ChatViewComponent);
+  const fixture = TestBed.createComponent(ChatTranscriptComponent);
+  fixture.componentRef.setInput('tabId', 'tab-1');
+  fixture.componentRef.setInput('active', true);
   return {
+    fixture,
     component: fixture.componentInstance,
     messagesSig,
     streamingStateSig,
@@ -223,7 +131,7 @@ function makeMemoHarness(): MemoHarness {
   };
 }
 
-describe('ChatViewComponent — memoization invariants (Batch A)', () => {
+describe('ChatTranscriptComponent — memoization invariants (Batch A)', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     jest.clearAllMocks();

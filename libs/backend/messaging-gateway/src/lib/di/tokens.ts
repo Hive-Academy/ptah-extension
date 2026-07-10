@@ -33,6 +33,14 @@ export const GATEWAY_TOKENS = {
   GATEWAY_SESSION_RESUMABILITY_CHECKER: Symbol.for(
     'PtahGatewaySessionResumabilityChecker',
   ),
+  /** GatewayCommandService — control-plane command handling (never an agent turn). */
+  GATEWAY_COMMAND_SERVICE: Symbol.for('PtahGatewayCommandService'),
+  /** ConversationTurnTracker — per-conversation turn-in-flight signal. */
+  GATEWAY_TURN_TRACKER: Symbol.for('PtahGatewayTurnTracker'),
+  /** IGatewaySessionLister — per-workspace resumable-session listing (host impl). */
+  GATEWAY_SESSION_LISTER: Symbol.for('PtahGatewaySessionLister'),
+  /** ISessionActivityProbe — is a session mid-turn in the agent adapter (host impl). */
+  GATEWAY_SESSION_ACTIVITY_PROBE: Symbol.for('PtahGatewaySessionActivityProbe'),
 } as const;
 
 export type GatewayDIToken = keyof typeof GATEWAY_TOKENS;

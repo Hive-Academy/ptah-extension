@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, validate as isUuid } from 'uuid';
 import { injectable, inject } from 'tsyringe';
 import {
   Logger,
@@ -49,6 +49,14 @@ interface PendingRequest {
   sessionId?: SessionId;
   tabId?: TabId;
 }
+
+/**
+ * Deny window for UNROUTABLE permission requests only — those with no valid
+ * UUID session/tab surface to render the prompt (the broadcast-fallback case,
+ * e.g. gateway `gw-<id>` tabs). Routable webview requests keep an infinite wait
+ * so a user can legitimately take minutes to answer. See F2 in TASK_2026_155.
+ */
+const UNROUTABLE_PERMISSION_TIMEOUT_MS = 60_000;
 
 @injectable()
 export class SdkPermissionHandler implements ISdkPermissionHandler {
@@ -481,6 +489,24 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     };
   }
 
+  /**
+   * A request is routable when it carries a valid UUID session or tab surface
+   * the prompt can be delivered to. `sessionId`/`tabId` are branded types the
+   * options builder only populates from `SessionId.safeParse`/`TabId.safeParse`
+   * (non-UUID routing ids become `undefined`), so in practice "unroutable" is
+   * "both are absent" — the broadcast-fallback case. The explicit UUID check is
+   * defense-in-depth and keeps the classification correct regardless of caller.
+   */
+  private isRoutablePermissionRequest(
+    sessionId?: SessionId,
+    tabId?: TabId,
+  ): boolean {
+    return (
+      (sessionId !== undefined && isUuid(sessionId as string)) ||
+      (tabId !== undefined && isUuid(tabId as string))
+    );
+  }
+
   private async requestUserPermission(
     toolName: string,
     input: Record<string, unknown>,
@@ -497,7 +523,13 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
     const sanitizedInput = sanitizeToolInput(input);
 
-    const timeoutAt = 0;
+    // Unroutable requests (no UUID session/tab surface) get a deny timeout so
+    // the SDK stream can complete instead of hanging forever; routable webview
+    // requests keep `timeoutAt = 0` (infinite wait) exactly as before.
+    const isRoutable = this.isRoutablePermissionRequest(sessionId, tabId);
+    const timeoutAt = isRoutable
+      ? 0
+      : startTime + UNROUTABLE_PERMISSION_TIMEOUT_MS;
 
     const description = generateDescription(toolName, sanitizedInput);
 
@@ -556,6 +588,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       signal,
       sessionId,
       tabId,
+      isRoutable ? undefined : UNROUTABLE_PERMISSION_TIMEOUT_MS,
     );
 
     this.logger.info(`[SdkPermissionHandler] Permission response received`, {
@@ -716,6 +749,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     signal?: AbortSignal,
     sessionId?: SessionId,
     tabId?: TabId,
+    timeoutMs?: number,
   ): Promise<PermissionResponse | null> {
     return new Promise<PermissionResponse | null>((resolve) => {
       if (signal?.aborted) {
@@ -725,7 +759,16 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         return;
       }
 
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+      const clearTimer = () => {
+        if (timeoutHandle !== undefined) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = undefined;
+        }
+      };
+
       const onAbort = () => {
+        clearTimer();
         this.pendingRequests.delete(requestId);
         this.pendingRequestContext.delete(requestId);
         resolve(null);
@@ -734,12 +777,38 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
       this.pendingRequests.set(requestId, {
         resolve: (response) => {
+          clearTimer();
           signal?.removeEventListener('abort', onAbort);
           resolve(response);
         },
         sessionId,
         tabId,
       });
+
+      // Only unroutable requests supply a positive timeout — deny after the
+      // window so an undeliverable prompt cannot wedge the SDK stream forever.
+      // The timer is cleared by the resolve wrapper and onAbort above, so a real
+      // response or an abort arriving first cancels it (no late deny, no leak).
+      if (timeoutMs !== undefined && timeoutMs > 0) {
+        timeoutHandle = setTimeout(() => {
+          const pending = this.pendingRequests.get(requestId);
+          if (!pending) {
+            return;
+          }
+          const context = this.pendingRequestContext.get(requestId);
+          this.pendingRequests.delete(requestId);
+          this.pendingRequestContext.delete(requestId);
+          this.logger.warn(
+            `[SdkPermissionHandler] Unroutable permission request timed out — denying`,
+            { requestId, toolName: context?.toolName, timeoutMs },
+          );
+          pending.resolve({
+            id: requestId,
+            decision: 'deny',
+            reason: `Permission request timed out after ${timeoutMs}ms with no UI surface to route it to (unroutable request) — denying to prevent a permanent hang.`,
+          });
+        }, timeoutMs);
+      }
     });
   }
 

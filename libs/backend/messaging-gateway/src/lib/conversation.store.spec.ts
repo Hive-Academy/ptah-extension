@@ -8,7 +8,7 @@ import {
   type SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
 
-const SCHEMA_VERSIONS = [5, 6, 20, 24];
+const SCHEMA_VERSIONS = [5, 6, 20, 24, 28];
 
 interface NativeDb {
   exec(sql: string): void;
@@ -86,13 +86,14 @@ maybe('ConversationStore', () => {
   }
 
   describe('resolveOrCreate', () => {
-    it('creates a fresh row with a null session id', () => {
+    it('creates a fresh row with a null session id and null workspace root', () => {
       const bindingId = seedBinding();
       const conversation = store.resolveOrCreate(bindingId, 'thread-1');
 
       expect(conversation.bindingId).toBe(bindingId);
       expect(conversation.externalConversationId).toBe('thread-1');
       expect(conversation.ptahSessionId).toBeNull();
+      expect(conversation.workspaceRoot).toBeNull();
       expect(conversation.createdAt).toBeGreaterThan(0);
     });
 
@@ -248,6 +249,148 @@ maybe('ConversationStore', () => {
       store.deleteByBinding(bindingId);
 
       expect(() => store.clearPtahSessionId(fresh.id)).toThrow(/not found/);
+    });
+  });
+
+  describe('setWorkspaceRoot', () => {
+    it('pins the workspace root without touching the session link', () => {
+      const bindingId = seedBinding();
+      const conversation = store.resolveOrCreate(bindingId, 'thread-1');
+      store.setPtahSessionId(conversation.id, 'session-kept');
+
+      const returned = store.setWorkspaceRoot(conversation.id, 'D:/ws/alpha');
+
+      expect(returned.workspaceRoot).toBe('D:/ws/alpha');
+      expect(returned.ptahSessionId).toBe('session-kept');
+      const reread = store.findById(conversation.id);
+      expect(reread?.workspaceRoot).toBe('D:/ws/alpha');
+      expect(reread?.ptahSessionId).toBe('session-kept');
+    });
+
+    it('throws when the conversation id is unknown', () => {
+      const bindingId = seedBinding();
+      const fresh = store.resolveOrCreate(bindingId, 'thread-1');
+      store.deleteByBinding(bindingId);
+
+      expect(() => store.setWorkspaceRoot(fresh.id, 'D:/ws/alpha')).toThrow(
+        /not found/,
+      );
+    });
+  });
+
+  describe('setWorkspaceRootAndClearSession', () => {
+    it('sets the root and clears the session link together', () => {
+      const bindingId = seedBinding();
+      const conversation = store.resolveOrCreate(bindingId, 'thread-1');
+      store.setPtahSessionId(conversation.id, 'session-old');
+
+      const returned = store.setWorkspaceRootAndClearSession(
+        conversation.id,
+        'D:/ws/beta',
+      );
+
+      expect(returned.workspaceRoot).toBe('D:/ws/beta');
+      expect(returned.ptahSessionId).toBeNull();
+      const reread = store.findById(conversation.id);
+      expect(reread?.workspaceRoot).toBe('D:/ws/beta');
+      expect(reread?.ptahSessionId).toBeNull();
+    });
+
+    it('is safe on a conversation with no session link', () => {
+      const bindingId = seedBinding();
+      const conversation = store.resolveOrCreate(bindingId, 'thread-1');
+
+      const returned = store.setWorkspaceRootAndClearSession(
+        conversation.id,
+        'D:/ws/beta',
+      );
+
+      expect(returned.workspaceRoot).toBe('D:/ws/beta');
+      expect(returned.ptahSessionId).toBeNull();
+    });
+
+    it('does not touch other conversations on the same binding', () => {
+      const bindingId = seedBinding();
+      const target = store.resolveOrCreate(bindingId, 'thread-1');
+      const other = store.resolveOrCreate(bindingId, 'thread-2');
+      store.setPtahSessionId(other.id, 'session-other');
+
+      store.setWorkspaceRootAndClearSession(target.id, 'D:/ws/beta');
+
+      const untouched = store.findById(other.id);
+      expect(untouched?.workspaceRoot).toBeNull();
+      expect(untouched?.ptahSessionId).toBe('session-other');
+    });
+
+    it('throws when the conversation id is unknown', () => {
+      const bindingId = seedBinding();
+      const fresh = store.resolveOrCreate(bindingId, 'thread-1');
+      store.deleteByBinding(bindingId);
+
+      expect(() =>
+        store.setWorkspaceRootAndClearSession(fresh.id, 'D:/ws/beta'),
+      ).toThrow(/not found/);
+    });
+  });
+
+  describe('setPtahSessionIdAndWorkspaceRoot', () => {
+    it('sets both fields atomically and bumps last_active_at', () => {
+      const bindingId = seedBinding();
+      const conversation = store.resolveOrCreate(bindingId, 'thread-1');
+      db.prepare(
+        'UPDATE gateway_conversations SET last_active_at = NULL WHERE id = ?',
+      ).run(conversation.id);
+
+      const returned = store.setPtahSessionIdAndWorkspaceRoot(
+        conversation.id,
+        'session-attached',
+        'D:/ws/gamma',
+      );
+
+      expect(returned.ptahSessionId).toBe('session-attached');
+      expect(returned.workspaceRoot).toBe('D:/ws/gamma');
+      expect(returned.lastActiveAt).not.toBeNull();
+      const reread = store.findById(conversation.id);
+      expect(reread?.ptahSessionId).toBe('session-attached');
+      expect(reread?.workspaceRoot).toBe('D:/ws/gamma');
+    });
+
+    it('throws when the conversation id is unknown', () => {
+      const bindingId = seedBinding();
+      const fresh = store.resolveOrCreate(bindingId, 'thread-1');
+      store.deleteByBinding(bindingId);
+
+      expect(() =>
+        store.setPtahSessionIdAndWorkspaceRoot(
+          fresh.id,
+          'session-x',
+          'D:/ws/gamma',
+        ),
+      ).toThrow(/not found/);
+    });
+  });
+
+  describe('findBySessionId', () => {
+    it('returns every conversation linked to the uuid across bindings', () => {
+      const bindingA = seedBinding('chan-a');
+      const bindingB = seedBinding('chan-b');
+      const a = store.resolveOrCreate(bindingA, 'thread-1');
+      const b = store.resolveOrCreate(bindingB, 'thread-2');
+      const unrelated = store.resolveOrCreate(bindingA, 'thread-3');
+      store.setPtahSessionId(a.id, 'session-shared');
+      store.setPtahSessionId(b.id, 'session-shared');
+      store.setPtahSessionId(unrelated.id, 'session-other');
+
+      const owners = store.findBySessionId('session-shared');
+
+      expect(owners.map((c) => c.id).sort()).toEqual([a.id, b.id].sort());
+    });
+
+    it('returns an empty array for an unknown uuid', () => {
+      const bindingId = seedBinding();
+      store.resolveOrCreate(bindingId, 'thread-1');
+
+      expect(store.findBySessionId('session-unknown')).toEqual([]);
     });
   });
 

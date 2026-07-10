@@ -6,6 +6,7 @@
  * "Adapter contract: start(), stop(), sendMessage(), editMessage(), on('inbound', listener)."
  */
 import type { GatewayPlatform, ConversationKey } from '../types';
+import type { IGatewayCommandHandler } from '../commands/gateway-command.types';
 
 /**
  * An inbound message normalised across providers. The adapter is
@@ -86,4 +87,12 @@ export interface IMessagingAdapter {
   ): Promise<void>;
   /** Register the inbound listener — exactly ONE listener per adapter. */
   on(event: 'inbound', listener: InboundListener): void;
+  /**
+   * Optional control-plane hook (TASK_2026_156). Adapters with a native
+   * command surface (Discord slash commands) route control commands and
+   * autocomplete requests to this handler instead of the inbound listener —
+   * a command never becomes an agent turn (AC-1.3). Adapters without a
+   * command surface simply omit this member.
+   */
+  setCommandHandler?(handler: IGatewayCommandHandler): void;
 }

@@ -8,6 +8,14 @@
  *   - `PERSISTENCE_TOKENS.SQLITE_CONNECTION` registered.
  *   - `GATEWAY_TOKENS.GATEWAY_TOKEN_VAULT` registered (Electron host wires
  *     `ElectronSafeStorageVault`).
+ *
+ * Optional (host-overridable) — a host MAY register these before calling to
+ * enable the full Discord command plane; otherwise inert no-op defaults are
+ * installed here so `GatewayService` always resolves:
+ *   - `GATEWAY_TOKENS.GATEWAY_SESSION_LISTER` (Electron wires
+ *     `MetadataGatewaySessionLister`; CLI/VS Code fall back to an empty lister).
+ *   - `GATEWAY_TOKENS.GATEWAY_SESSION_ACTIVITY_PROBE` (Electron wires a factory
+ *     over `TOKENS.AGENT_ADAPTER.isSessionActive`; fallback reports "not active").
  */
 import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -28,6 +36,10 @@ import { DiscordAdapter } from '../adapters/discord/discord.adapter';
 import { BoltSlackAdapter } from '../adapters/slack/bolt.adapter';
 import { AttachedSessionRegistry } from '../attached-session-registry';
 import { JsonlSessionResumabilityChecker } from '../session-resumability';
+import { ConversationTurnTracker } from '../turn-activity-tracker';
+import { GatewayCommandService } from '../commands/gateway-command.service';
+import type { IGatewaySessionLister } from '../session-lister.interface';
+import type { ISessionActivityProbe } from '../session-activity.interface';
 
 export function registerMessagingGatewayServices(
   container: DependencyContainer,
@@ -85,6 +97,38 @@ export function registerMessagingGatewayServices(
   container.registerSingleton(
     GATEWAY_TOKENS.GATEWAY_SESSION_RESUMABILITY_CHECKER,
     JsonlSessionResumabilityChecker,
+  );
+  container.registerSingleton(
+    GATEWAY_TOKENS.GATEWAY_TURN_TRACKER,
+    ConversationTurnTracker,
+  );
+  // Command-plane collaborators are host-implemented (Electron registers the
+  // real `MetadataGatewaySessionLister` + agent-adapter probe BEFORE this call,
+  // so the `isRegistered` guards below skip). Hosts that wire the base gateway
+  // without the full Discord command plane (CLI Thoth runtime, VS Code) get
+  // inert no-op defaults so resolving `GatewayService` never crashes on an
+  // unregistered token. Same fallback pattern as `ensureMemoryContractFallbacks`
+  // in the CLI engine. The command plane is Discord-only and degrades to an
+  // empty session list under these defaults.
+  if (!container.isRegistered(GATEWAY_TOKENS.GATEWAY_SESSION_LISTER)) {
+    const nullSessionLister: IGatewaySessionLister = {
+      listForWorkspace: async () => ({ sessions: [], truncated: false }),
+    };
+    container.register(GATEWAY_TOKENS.GATEWAY_SESSION_LISTER, {
+      useValue: nullSessionLister,
+    });
+  }
+  if (!container.isRegistered(GATEWAY_TOKENS.GATEWAY_SESSION_ACTIVITY_PROBE)) {
+    const nullSessionActivityProbe: ISessionActivityProbe = {
+      isActive: () => false,
+    };
+    container.register(GATEWAY_TOKENS.GATEWAY_SESSION_ACTIVITY_PROBE, {
+      useValue: nullSessionActivityProbe,
+    });
+  }
+  container.registerSingleton(
+    GATEWAY_TOKENS.GATEWAY_COMMAND_SERVICE,
+    GatewayCommandService,
   );
 
   container.registerSingleton(GATEWAY_TOKENS.GATEWAY_SERVICE, GatewayService);

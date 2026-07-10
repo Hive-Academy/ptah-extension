@@ -10,7 +10,6 @@ import {
   type GatewayPlatform,
 } from './types';
 import { AttachedSessionRegistry } from './attached-session-registry';
-import type { ISessionResumabilityChecker } from './session-resumability';
 import type { BindingStore } from './binding.store';
 import type { ConversationStore } from './conversation.store';
 import type { MessageStore } from './message.store';
@@ -26,6 +25,7 @@ import type {
   InboundMessage,
   SendResult,
 } from './adapters/adapter.interface';
+import type { IGatewayCommandHandler } from './commands/gateway-command.types';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { GatewaySettings } from '@ptah-extension/settings-core';
@@ -130,6 +130,7 @@ function createConversationStore(): jest.Mocked<ConversationStore> {
     resolveOrCreate: jest.fn(),
     resolveOrAdopt: jest.fn(),
     setPtahSessionId: jest.fn(),
+    setPtahSessionIdAndWorkspaceRoot: jest.fn(),
     clearPtahSessionId: jest.fn(),
     touch: jest.fn(),
     deleteByBinding: jest.fn(),
@@ -192,6 +193,7 @@ function makeConversation(
     bindingId: BindingId.create('binding-1'),
     externalConversationId: 'default',
     ptahSessionId: null,
+    workspaceRoot: null,
     createdAt: 0,
     lastActiveAt: null,
     ...overrides,
@@ -239,6 +241,7 @@ interface Suite {
   discordAdapter: jest.Mocked<IMessagingAdapter>;
   attachedSessionRegistry: AttachedSessionRegistry;
   resumability: { isResumable: jest.Mock };
+  commandHandler: jest.Mocked<IGatewayCommandHandler>;
   events: GatewayInboundEvent[];
 }
 
@@ -270,6 +273,10 @@ function buildSuite(options?: SuiteOptions): Suite {
   const resumability = {
     isResumable: jest.fn().mockResolvedValue(true),
   };
+  const commandHandler = {
+    handleCommand: jest.fn().mockResolvedValue({ ephemeralText: 'ok' }),
+    handleAutocomplete: jest.fn().mockResolvedValue([]),
+  } as unknown as jest.Mocked<IGatewayCommandHandler>;
 
   const service = new GatewayService(
     logger as unknown as Logger,
@@ -286,6 +293,7 @@ function buildSuite(options?: SuiteOptions): Suite {
     createMockGatewaySettings(options?.ciphers),
     attachedSessionRegistry,
     resumability,
+    commandHandler,
   );
   service.configureForTest({
     telegram: telegramAdapter,
@@ -307,6 +315,7 @@ function buildSuite(options?: SuiteOptions): Suite {
     discordAdapter,
     attachedSessionRegistry,
     resumability,
+    commandHandler,
     events,
   };
 }
@@ -970,6 +979,83 @@ describe('GatewayService — enabled-flag persistence (Item 2)', () => {
   });
 });
 
+describe('GatewayService — command handler wiring (TASK_2026_156)', () => {
+  it('startPlatform(discord) hands the injected command handler to adapters exposing setCommandHandler', async () => {
+    const suite = buildSuite({ ciphers: { discord: 'cipher-d' } });
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    const setCommandHandler = jest.fn();
+    (
+      suite.discordAdapter as unknown as IMessagingAdapter & {
+        setCommandHandler: jest.Mock;
+      }
+    ).setCommandHandler = setCommandHandler;
+
+    await suite.service.startPlatform('discord');
+
+    expect(setCommandHandler).toHaveBeenCalledTimes(1);
+    expect(setCommandHandler).toHaveBeenCalledWith(suite.commandHandler);
+  });
+
+  it('start() wires the command handler on every enabled adapter that exposes the hook', async () => {
+    const suite = buildSuite({
+      settings: {
+        'gateway.enabled': true,
+        'gateway.discord.enabled': true,
+      },
+      ciphers: { discord: 'cipher-d' },
+    });
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    const setCommandHandler = jest.fn();
+    (
+      suite.discordAdapter as unknown as IMessagingAdapter & {
+        setCommandHandler: jest.Mock;
+      }
+    ).setCommandHandler = setCommandHandler;
+
+    await suite.service.start();
+
+    expect(setCommandHandler).toHaveBeenCalledWith(suite.commandHandler);
+  });
+
+  it('adapters without setCommandHandler (test overrides, Telegram/Slack) start without throwing', async () => {
+    const suite = buildSuite({ ciphers: { discord: 'cipher-d' } });
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    expect(suite.discordAdapter.setCommandHandler).toBeUndefined();
+
+    await expect(
+      suite.service.startPlatform('discord'),
+    ).resolves.toBeUndefined();
+
+    expect(suite.discordAdapter.start).toHaveBeenCalledWith('tok-d');
+  });
+
+  it('wiring the command handler never routes anything through the inbound pipeline', async () => {
+    const suite = buildSuite({ ciphers: { discord: 'cipher-d' } });
+    suite.vault.decrypt.mockReturnValue('tok-d');
+    const setCommandHandler = jest.fn();
+    (
+      suite.discordAdapter as unknown as IMessagingAdapter & {
+        setCommandHandler: jest.Mock;
+      }
+    ).setCommandHandler = setCommandHandler;
+
+    await suite.service.startPlatform('discord');
+    const wiredHandler = setCommandHandler.mock
+      .calls[0][0] as IGatewayCommandHandler;
+    await wiredHandler.handleCommand({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      threadId: 'thread-1',
+      allowListId: 'guild-1',
+      command: { kind: 'sessions' },
+    });
+
+    expect(suite.commandHandler.handleCommand).toHaveBeenCalledTimes(1);
+    expect(suite.events).toHaveLength(0);
+    expect(suite.messages.insert).not.toHaveBeenCalled();
+  });
+});
+
 describe('GatewayService.attachSession', () => {
   it('returns binding-not-found when the binding does not exist', async () => {
     const { service, bindings } = buildSuite();
@@ -1054,9 +1140,10 @@ describe('GatewayService.attachSession', () => {
       approved.id,
       'default',
     );
-    expect(conversations.setPtahSessionId).toHaveBeenCalledWith(
+    expect(conversations.setPtahSessionIdAndWorkspaceRoot).toHaveBeenCalledWith(
       'conv-1',
       'uuid-1',
+      '/repo',
     );
     expect(attachedSessionRegistry.isAttached('uuid-1')).toBe(true);
     expect(attachedSessionRegistry.bindingFor('uuid-1')).toBe('binding-1');
@@ -1064,6 +1151,46 @@ describe('GatewayService.attachSession', () => {
       { bindingId: 'binding-1', sessionUuid: 'uuid-1', platform: 'telegram' },
     ]);
     expect(changed).toHaveLength(1);
+  });
+
+  it('stamps the workspace root on the conversation row atomically with the session link (AC-7.4), never via the separate single-field writers', async () => {
+    const { service, bindings, conversations } = buildSuite();
+    const approved = makeBinding({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      approvalStatus: 'approved',
+    });
+    bindings.findById.mockReturnValue(approved);
+    bindings.setWorkspaceRoot.mockReturnValue({
+      ...approved,
+      workspaceRoot: '/repo/attached',
+    });
+    conversations.resolveOrCreate.mockReturnValue(
+      makeConversation({ externalConversationId: 'thread-7' }),
+    );
+
+    const result = await service.attachSession(
+      BindingId.create('binding-1'),
+      'uuid-7',
+      '/repo/attached',
+      'thread-7',
+    );
+
+    expect(result.ok).toBe(true);
+    // Conversation-level root + session link land in ONE transactional call so
+    // the isResumable(sessionId, effectiveWorkspace) invariant holds even if
+    // the binding root is later repointed.
+    expect(conversations.setPtahSessionIdAndWorkspaceRoot).toHaveBeenCalledWith(
+      'conv-1',
+      'uuid-7',
+      '/repo/attached',
+    );
+    expect(conversations.setPtahSessionId).not.toHaveBeenCalled();
+    // Binding-level default write is unchanged (Data-4).
+    expect(bindings.setWorkspaceRoot).toHaveBeenCalledWith(
+      approved.id,
+      '/repo/attached',
+    );
   });
 
   it('honors a custom externalConversationId', async () => {

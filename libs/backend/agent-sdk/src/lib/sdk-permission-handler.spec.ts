@@ -728,6 +728,161 @@ describe('SdkPermissionHandler - per-session level resolver', () => {
   });
 });
 
+describe('SdkPermissionHandler - F2 unroutable deny-timeout (TASK_2026_155, Task 1.4)', () => {
+  afterEach(() => {
+    container.clearInstances();
+    jest.clearAllMocks();
+  });
+
+  it('unroutable request (no UUID sessionId, gw-* tabId) with no response resolves deny after 60s, cleans up pendingRequests/pendingRequestContext, and logs a warn', async () => {
+    jest.useFakeTimers();
+    try {
+      const { handler, sent, logger } = makeHandler();
+      // sessionId is a gateway routing id, NOT a UUID -> unroutable (broadcast
+      // fallback case per context.md F2). No tabId either.
+      const callback = handler.createCallback(
+        asSessionId('gw-conv-1'),
+        undefined,
+        undefined,
+      );
+
+      const ac = new AbortController();
+      const pending = callback(
+        'Bash',
+        { command: 'ls' },
+        { signal: ac.signal, toolUseID: 'tool-unroutable' },
+      );
+
+      await flushMicrotasks();
+      const broadcast = sent.find(
+        (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+      );
+      expect(broadcast).toBeDefined();
+      const requestId = (
+        broadcast!.payload as unknown as PermissionRequestPayload
+      ).id;
+
+      // The 60s unroutable deny timer must be armed (and only that one).
+      expect(jest.getTimerCount()).toBe(1);
+
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      const result = await pending;
+      expect(result).toMatchObject({ behavior: 'deny' });
+
+      const warnedTimeout = (logger.warn as jest.Mock).mock.calls.some((call) =>
+        String(call[0]).toLowerCase().includes('timed out'),
+      );
+      expect(warnedTimeout).toBe(true);
+
+      const internal = handler as unknown as {
+        pendingRequests: Map<string, unknown>;
+        pendingRequestContext: Map<string, unknown>;
+      };
+      expect(internal.pendingRequests.has(requestId)).toBe(false);
+      expect(internal.pendingRequestContext.has(requestId)).toBe(false);
+      expect(jest.getTimerCount()).toBe(0);
+
+      ac.abort();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('routed request (valid UUID sessionId) is NEVER auto-denied — no timer armed, still pending past 60s+', async () => {
+    jest.useFakeTimers();
+    try {
+      const { handler, sent } = makeHandler();
+      const ROUTABLE_SESSION = '11111111-2222-4333-8444-555555555555';
+      const callback = handler.createCallback(asSessionId(ROUTABLE_SESSION));
+
+      const ac = new AbortController();
+      const pending = callback(
+        'Bash',
+        { command: 'ls' },
+        { signal: ac.signal, toolUseID: 'tool-routable' },
+      );
+
+      await flushMicrotasks();
+      const broadcast = sent.find(
+        (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+      );
+      expect(broadcast).toBeDefined();
+      const requestId = (
+        broadcast!.payload as unknown as PermissionRequestPayload
+      ).id;
+
+      // Routable requests arm NO timer at all (timeoutAt stays 0 / infinite
+      // wait, exactly as before F2).
+      expect(jest.getTimerCount()).toBe(0);
+
+      await jest.advanceTimersByTimeAsync(120_000);
+
+      const internal = handler as unknown as {
+        pendingRequests: Map<string, unknown>;
+      };
+      expect(internal.pendingRequests.has(requestId)).toBe(true);
+
+      // Cleanup so the promise settles and the test does not leak a pending
+      // await; this is NOT part of the assertion — the request never denied
+      // itself, we abort it ourselves.
+      ac.abort();
+      const result = await pending;
+      expect(result).toMatchObject({ behavior: 'deny', interrupt: true });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a real response arriving before the timeout clears the timer — no double-resolve, no leaked timer', async () => {
+    jest.useFakeTimers();
+    try {
+      const { handler, sent } = makeHandler();
+      const callback = handler.createCallback(
+        asSessionId('gw-conv-9'),
+        undefined,
+        undefined,
+      );
+
+      const ac = new AbortController();
+      const pending = callback(
+        'Bash',
+        { command: 'ls' },
+        { signal: ac.signal, toolUseID: 'tool-early-response' },
+      );
+
+      await flushMicrotasks();
+      const broadcast = sent.find(
+        (m) => m.type === MESSAGE_TYPES.PERMISSION_REQUEST,
+      );
+      expect(broadcast).toBeDefined();
+      const requestId = (
+        broadcast!.payload as unknown as PermissionRequestPayload
+      ).id;
+
+      // The 60s unroutable deny timer is armed before the response arrives.
+      expect(jest.getTimerCount()).toBe(1);
+
+      handler.handleResponse(requestId, { id: requestId, decision: 'allow' });
+
+      const result = await pending;
+      expect(result).toMatchObject({ behavior: 'allow' });
+
+      // clearTimer() ran as part of the resolve wrapper — no leaked timer.
+      expect(jest.getTimerCount()).toBe(0);
+
+      // Advancing past the original 60s window must not throw or re-resolve
+      // (Promise settles once; a leaked timer would show up as a non-zero
+      // getTimerCount() above, which is the load-bearing assertion here).
+      await expect(
+        jest.advanceTimersByTimeAsync(60_000),
+      ).resolves.toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
 describe('PermissionRequestSchema - UUID validation', () => {
   const BASE_VALID = {
     id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
