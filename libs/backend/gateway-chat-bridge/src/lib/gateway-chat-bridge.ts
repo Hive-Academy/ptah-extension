@@ -10,7 +10,14 @@
  * seeds the session's permission level to the frontend `'yolo'` level, so the
  * first tool call is auto-approved (no post-hoc bypass flip, no permission
  * prompt that a chat platform cannot render).
+ *
+ * Each turn runs in the conversation's EFFECTIVE workspace: the
+ * conversation-pinned root first, then the binding root, then the active
+ * Electron workspace (AC-7.2). A pinned root that left the allowlist or the
+ * disk fails the turn closed — never a silent fallback to the binding root
+ * (Data-2).
  */
+import { access } from 'node:fs/promises';
 import { inject, injectable } from 'tsyringe';
 import {
   TOKENS,
@@ -25,7 +32,9 @@ import {
 import {
   GATEWAY_TOKENS,
   ConversationKey,
+  resolveEffectiveWorkspaceRoot,
   type ConversationStore,
+  type ConversationTurnTracker,
   type GatewayConversation,
   type GatewayInboundEvent,
   type GatewayService,
@@ -55,6 +64,15 @@ import { ConversationQueue } from './conversation-queue';
  * the per-conversation {@link ConversationQueue} chain always settles.
  */
 const TURN_WATCHDOG_MS = 10 * 60_000;
+
+/**
+ * Fail-closed reply when the conversation's pinned workspace root is no longer
+ * allowlisted or no longer exists on disk (Data-2). The user must explicitly
+ * re-pick via `/workspace use` — the turn never silently falls back to the
+ * binding root.
+ */
+const WORKSPACE_UNAVAILABLE_MESSAGE =
+  "This thread's workspace is no longer available in Ptah. Run /workspace use to pick another.";
 
 /**
  * Premium/session context resolved once per turn and threaded into the
@@ -106,6 +124,8 @@ export class GatewayChatBridge {
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
+    @inject(GATEWAY_TOKENS.GATEWAY_TURN_TRACKER)
+    private readonly turnTracker: ConversationTurnTracker,
   ) {}
 
   start(): void {
@@ -131,7 +151,15 @@ export class GatewayChatBridge {
   private onInbound(event: GatewayInboundEvent): void {
     if (this.stopped) return;
     const conversationKey = this.resolveConversationKey(event);
-    void this.queue.enqueue(conversationKey, () => this.runTurn(event));
+    // Busy-signal for the command control plane (AC-3.6/4.3/6.6): the key is
+    // marked before enqueue so a queued turn behind a running one keeps it
+    // busy, and released when the enqueue promise settles — which the
+    // watchdog guarantees even for a wedged stream, so busy-state cannot leak.
+    this.turnTracker.begin(conversationKey);
+    void this.queue
+      .enqueue(conversationKey, () => this.runTurn(event))
+      .catch(() => undefined)
+      .finally(() => this.turnTracker.end(conversationKey));
   }
 
   private async runTurn(event: GatewayInboundEvent): Promise<void> {
@@ -140,15 +168,25 @@ export class GatewayChatBridge {
     const route = this.resolveRoute(event);
     const body = event.message.body;
 
-    const workspaceRoot =
-      binding.workspaceRoot ?? this.workspace.getWorkspaceRoot() ?? null;
-    if (!workspaceRoot) {
+    const resolved = resolveEffectiveWorkspaceRoot({
+      conversationRoot: conversation.workspaceRoot,
+      bindingRoot: binding.workspaceRoot,
+      workspace: this.workspace,
+    });
+    if (!resolved.ok) {
       await this.sendError(
         route,
-        'No workspace is open in Ptah. Open a project folder, then try again.',
+        resolved.reason === 'conversation-root-revoked'
+          ? WORKSPACE_UNAVAILABLE_MESSAGE
+          : 'No workspace is open in Ptah. Open a project folder, then try again.',
       );
       return;
     }
+    if (!(await this.workspaceRootExists(resolved.root))) {
+      await this.sendError(route, WORKSPACE_UNAVAILABLE_MESSAGE);
+      return;
+    }
+    const workspaceRoot = resolved.root;
 
     // End-of-turn seal — flushes the turn's FULL accumulated text as ONE
     // outbound message AND resets the per-conversation buffer + message handle
@@ -336,6 +374,22 @@ export class GatewayChatBridge {
     }
 
     return { isPremium, mcpServerRunning, enhancedPromptsContent, pluginPaths };
+  }
+
+  /**
+   * On-disk existence gate for the resolved effective root, run once per turn
+   * before any session starts. Kept out of the pure resolver
+   * (`resolveEffectiveWorkspaceRoot`) so that stays synchronously testable;
+   * a root deleted since it was pinned/listed fails the turn closed (AC-6.3
+   * spirit, Data-2).
+   */
+  private async workspaceRootExists(root: string): Promise<boolean> {
+    try {
+      await access(root);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private resolvePluginPaths(): string[] | undefined {

@@ -12,7 +12,13 @@
 
 import type { DependencyContainer } from 'tsyringe';
 
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  type Logger,
+  type WorkspaceAwareStateStorage,
+} from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { SessionId, type IAgentAdapter } from '@ptah-extension/shared';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 import {
   registerSdkServices,
@@ -52,9 +58,11 @@ import {
   type FfmpegDecoder,
   type WhisperTranscriber,
   type KokoroSynthesizer,
+  type ISessionActivityProbe,
 } from '@ptah-extension/messaging-gateway';
 import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import { ElectronSafeStorageVault } from '../services/platform/electron-safe-storage-vault';
+import { MetadataGatewaySessionLister } from '../services/gateway/metadata-gateway-session-lister';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
 
@@ -172,6 +180,39 @@ export function registerPhase2Libraries(
     container.register(GATEWAY_TOKENS.GATEWAY_TOKEN_VAULT, {
       useClass: ElectronSafeStorageVault,
     });
+    // Host-implemented command-plane collaborators (TASK_2026_156 §4.3) —
+    // registered before registerMessagingGatewayServices per its doc contract.
+    container.register(GATEWAY_TOKENS.GATEWAY_SESSION_LISTER, {
+      useFactory: (c) =>
+        new MetadataGatewaySessionLister(
+          c.resolve<WorkspaceAwareStateStorage>(
+            PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
+          ),
+        ),
+    });
+    container.register<ISessionActivityProbe>(
+      GATEWAY_TOKENS.GATEWAY_SESSION_ACTIVITY_PROBE,
+      {
+        useFactory: (c) => ({
+          isActive: (sessionUuid: string): boolean => {
+            try {
+              const adapter = c.resolve<IAgentAdapter>(TOKENS.AGENT_ADAPTER);
+              return adapter.isSessionActive(SessionId.from(sessionUuid));
+            } catch (error: unknown) {
+              // No resolvable adapter / invalid uuid → nothing can be running.
+              logger.warn(
+                '[Electron DI] session activity probe fell back to inactive',
+                {
+                  error:
+                    error instanceof Error ? error.message : String(error),
+                },
+              );
+              return false;
+            }
+          },
+        }),
+      },
+    );
     registerMessagingGatewayServices(container, logger);
     registerGatewayChatBridge(container, logger);
     configureElectronVoiceAssets(container, logger);

@@ -34,13 +34,27 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
   ContextEnrichmentService: class ContextEnrichmentServiceStub {},
 }));
 
+// The bridge fail-closed path probes the resolved workspace root on disk via
+// `fs.access`. Default the probe to "exists" so turn specs can keep using
+// synthetic roots like '/ws/proj'; the missing-on-disk spec flips it per call.
+jest.mock('node:fs/promises', () => {
+  const actual =
+    jest.requireActual<typeof import('node:fs/promises')>('node:fs/promises');
+  return {
+    ...actual,
+    access: jest.fn(async () => undefined),
+  };
+});
+
 import { EventEmitter } from 'node:events';
+import { access } from 'node:fs/promises';
 import { GatewayChatBridge } from './gateway-chat-bridge';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   BindingId,
   ConversationKey,
+  ConversationTurnTracker,
   type ConversationStore,
   type GatewayBinding,
   type GatewayConversation,
@@ -49,6 +63,8 @@ import {
   type GatewayService,
   type OutboundRoute,
 } from '@ptah-extension/messaging-gateway';
+
+const accessMock = access as jest.MockedFunction<typeof access>;
 import type {
   FlatStreamEventUnion,
   IAgentAdapter,
@@ -106,6 +122,7 @@ function makeConversation(
     bindingId: binding.id,
     externalConversationId: overrides.externalConversationId ?? 'default',
     ptahSessionId: overrides.ptahSessionId ?? null,
+    workspaceRoot: overrides.workspaceRoot ?? null,
     createdAt: 1,
     lastActiveAt: 1,
   };
@@ -211,7 +228,10 @@ interface Harness {
       | 'endSession'
     >
   >;
-  workspace: jest.Mocked<Pick<IWorkspaceProvider, 'getWorkspaceRoot'>>;
+  workspace: jest.Mocked<
+    Pick<IWorkspaceProvider, 'getWorkspaceRoot' | 'getWorkspaceFolders'>
+  >;
+  turnTracker: ConversationTurnTracker;
   selectedModelGet: jest.Mock<string, []>;
   licenseService: { verifyLicense: jest.Mock };
   codeExecutionMcp: {
@@ -227,6 +247,7 @@ interface Harness {
 
 function setup(options?: {
   workspaceRoot?: string | null;
+  workspaceFolders?: string[];
   selectedModel?: string;
   licenseStatus?: unknown;
   mcpPort?: number | null;
@@ -246,14 +267,20 @@ function setup(options?: {
     endSession: jest.fn(),
   } as unknown as Harness['adapter'];
   const workspace = {
+    // The IWorkspaceProvider port returns `string | undefined` (never null);
+    // a `workspaceRoot: null` option means "no workspace open".
     getWorkspaceRoot: jest
       .fn()
       .mockReturnValue(
         options?.workspaceRoot === undefined
           ? '/ws/global'
-          : options.workspaceRoot,
+          : (options.workspaceRoot ?? undefined),
       ),
+    getWorkspaceFolders: jest
+      .fn()
+      .mockReturnValue(options?.workspaceFolders ?? []),
   } as unknown as Harness['workspace'];
+  const turnTracker = new ConversationTurnTracker();
   const selectedModelGet = jest
     .fn<string, []>()
     .mockReturnValue(options?.selectedModel ?? '');
@@ -295,6 +322,7 @@ function setup(options?: {
     codeExecutionMcp,
     enhancedPromptsService,
     pluginLoader,
+    turnTracker,
   ] as unknown as ConstructorParameters<typeof GatewayChatBridge>;
   const bridge = new GatewayChatBridge(...ctorArgs);
   return {
@@ -303,6 +331,7 @@ function setup(options?: {
     conversations,
     adapter,
     workspace,
+    turnTracker,
     selectedModelGet,
     licenseService,
     codeExecutionMcp,
@@ -1315,5 +1344,224 @@ describe('GatewayChatBridge — premium parity (Task 2.4/3.3)', () => {
       h.codeExecutionMcp.ensureRegisteredForSubagents,
     ).not.toHaveBeenCalled();
     expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Conversation-first effective-workspace resolution (TASK_2026_156, plan §6)
+// ---------------------------------------------------------------------------
+const WORKSPACE_UNAVAILABLE_MESSAGE =
+  "This thread's workspace is no longer available in Ptah. Run /workspace use to pick another.";
+
+describe('GatewayChatBridge — conversation-first workspace resolution (TASK_2026_156)', () => {
+  it('prefers an allowlisted conversation-pinned root over the binding root', async () => {
+    const h = setup({ workspaceFolders: ['/ws/conv', '/ws/proj'] });
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, {
+      id: 'conv-pinned',
+      workspaceRoot: '/ws/conv',
+    });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'hi'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
+    const config = h.adapter.startChatSession.mock.calls[0][0];
+    expect(config.projectPath).toBe('/ws/conv');
+    expect(config.workspaceId).toBe('/ws/conv');
+    expect(h.workspace.getWorkspaceFolders).toHaveBeenCalled();
+  });
+
+  it('a NULL conversation root inherits the binding root', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, { workspaceRoot: null });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'hi'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.startChatSession.mock.calls[0][0].projectPath).toBe(
+      '/ws/proj',
+    );
+  });
+
+  it('NULL conversation root and NULL binding root fall back to the active workspace', async () => {
+    const h = setup({ workspaceRoot: '/ws/global' });
+    const binding = makeBinding({ workspaceRoot: null });
+    const conversation = makeConversation(binding, { workspaceRoot: null });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'hi'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.startChatSession.mock.calls[0][0].projectPath).toBe(
+      '/ws/global',
+    );
+  });
+
+  it('a conversation root that left the allowlist fails the turn closed — no silent fallback to the binding root, no session start', async () => {
+    const h = setup({ workspaceFolders: ['/ws/other'] });
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, {
+      workspaceRoot: '/ws/revoked',
+    });
+
+    h.bridge.start();
+    const key = ConversationKey.for(binding.platform, binding.externalChatId);
+    h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
+    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+
+    expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+    expect(h.adapter.resumeSession).not.toHaveBeenCalled();
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledTimes(1);
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationKey: key }),
+      WORKSPACE_UNAVAILABLE_MESSAGE,
+    );
+    expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
+  });
+
+  it('an allowlisted conversation root that vanished on disk fails the turn closed', async () => {
+    const h = setup({ workspaceFolders: ['/ws/conv'] });
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, {
+      workspaceRoot: '/ws/conv',
+    });
+    accessMock.mockRejectedValueOnce(new Error('ENOENT'));
+
+    h.bridge.start();
+    const key = ConversationKey.for(binding.platform, binding.externalChatId);
+    h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
+    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+
+    expect(accessMock).toHaveBeenCalledWith('/ws/conv');
+    expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+    expect(h.adapter.resumeSession).not.toHaveBeenCalled();
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledTimes(1);
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationKey: key }),
+      WORKSPACE_UNAVAILABLE_MESSAGE,
+    );
+    expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ConversationTurnTracker wiring (TASK_2026_156, plan §4.6)
+// ---------------------------------------------------------------------------
+describe('GatewayChatBridge — turn tracker wiring (TASK_2026_156)', () => {
+  const TURN_WATCHDOG_MS = 10 * 60_000;
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('marks the key busy while a turn runs and while a second is queued, and releases it once the chain settles', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding);
+    const key = ConversationKey.for(binding.platform, binding.externalChatId);
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((r) => {
+      releaseFirst = r;
+    });
+    let calls = 0;
+    h.adapter.startChatSession.mockImplementation(async () => {
+      calls++;
+      if (calls === 1) {
+        return gatedStream(firstGate, [
+          textDelta(SDK_UUID, 'one'),
+          messageComplete(SDK_UUID),
+        ]);
+      }
+      return scriptedStream([
+        textDelta(SDK_UUID_B, 'two'),
+        messageComplete(SDK_UUID_B),
+      ]);
+    });
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'first', { conversation }));
+    h.gateway.emit('inbound', makeEvent(binding, 'second', { conversation }));
+    expect(h.turnTracker.isBusy(key)).toBe(true);
+
+    await flushUntil(() => h.adapter.startChatSession.mock.calls.length === 1);
+    // First turn mid-stream, second queued behind it — still busy.
+    expect(h.turnTracker.isBusy(key)).toBe(true);
+
+    releaseFirst();
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length === 2,
+    );
+    await flushUntil(() => !h.turnTracker.isBusy(key));
+    expect(h.turnTracker.isBusy(key)).toBe(false);
+  });
+
+  it('releases the key even when the turn fails before a session starts (no workspace open)', async () => {
+    const h = setup({ workspaceRoot: null });
+    const binding = makeBinding({ workspaceRoot: null });
+    const key = ConversationKey.for(binding.platform, binding.externalChatId);
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    expect(h.turnTracker.isBusy(key)).toBe(true);
+
+    await flushUntil(() => h.gateway.drainOutbound.mock.calls.length > 0);
+    await flushUntil(() => !h.turnTracker.isBusy(key));
+    expect(h.turnTracker.isBusy(key)).toBe(false);
+  });
+
+  it('releases the key after the watchdog force-terminates a hung turn', async () => {
+    jest.useFakeTimers();
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const key = ConversationKey.for(binding.platform, binding.externalChatId);
+    h.adapter.startChatSession.mockResolvedValue({
+      async *[Symbol.asyncIterator]() {
+        await new Promise<void>(() => {
+          /* never resolves */
+        });
+        yield textDelta(SDK_UUID, 'unreachable');
+      },
+    } as AsyncIterable<FlatStreamEventUnion>);
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'hangs'));
+    expect(h.turnTracker.isBusy(key)).toBe(true);
+
+    await jest.advanceTimersByTimeAsync(0);
+    expect(h.turnTracker.isBusy(key)).toBe(true);
+
+    await jest.advanceTimersByTimeAsync(TURN_WATCHDOG_MS);
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
+    expect(h.turnTracker.isBusy(key)).toBe(false);
   });
 });

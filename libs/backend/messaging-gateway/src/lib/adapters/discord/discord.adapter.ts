@@ -6,7 +6,13 @@ import type {
   InboundMessage,
   SendResult,
 } from '../adapter.interface';
+import type { IGatewayCommandHandler } from '../../commands/gateway-command.types';
 import { ConversationKey } from '../../types';
+import {
+  DISCORD_CONTROL_COMMAND_NAMES,
+  parseDiscordAutocomplete,
+  parseDiscordControlCommand,
+} from './discord-command.schema';
 
 export interface DiscordInteractionLike {
   commandName: string;
@@ -14,10 +20,18 @@ export interface DiscordInteractionLike {
   channelId: string;
   guildId: string | null;
   user: { id: string; username?: string };
-  options: { getString(name: string): string | null };
+  options: {
+    getString(name: string): string | null;
+    getSubcommand?(required?: boolean): string | null;
+    getFocused?(): string;
+  };
   channel?: { isThread(): boolean; parentId: string | null } | null;
-  deferReply(): Promise<unknown>;
+  deferReply(opts?: { ephemeral?: boolean }): Promise<unknown>;
   editReply(payload: string | { content: string }): Promise<unknown>;
+  isAutocomplete?(): boolean;
+  respond?(
+    choices: ReadonlyArray<{ name: string; value: string }>,
+  ): Promise<unknown>;
 }
 
 export interface DiscordMessageLike {
@@ -115,6 +129,13 @@ const PER_CHANNEL_WINDOW_MS = 5_000;
 const THREAD_AUTO_ARCHIVE_MINUTES = 10_080;
 const THREAD_NAME_PROMPT_CHARS = 40;
 const PUBLIC_THREAD_TYPE_FALLBACK = 11;
+/** Discord caps autocomplete responses at 25 choices. */
+const MAX_AUTOCOMPLETE_CHOICES = 25;
+/** Fixed ephemeral reply for malformed/failed control commands (SEC-6/SEC-8). */
+const CONTROL_COMMAND_ERROR_REPLY = 'Ptah could not process that command.';
+const CONTROL_COMMANDS: ReadonlySet<string> = new Set(
+  DISCORD_CONTROL_COMMAND_NAMES,
+);
 
 @injectable()
 export class DiscordAdapter implements IMessagingAdapter {
@@ -122,6 +143,7 @@ export class DiscordAdapter implements IMessagingAdapter {
   readonly maxMessageChars = 2000;
   private client: DiscordClientLike | null = null;
   private listener: InboundListener | null = null;
+  private commandHandler: IGatewayCommandHandler | null = null;
   private factory: DiscordClientFactory = defaultFactory;
   private running = false;
 
@@ -225,6 +247,10 @@ export class DiscordAdapter implements IMessagingAdapter {
     this.listener = listener;
   }
 
+  setCommandHandler(handler: IGatewayCommandHandler): void {
+    this.commandHandler = handler;
+  }
+
   private async requireChannel(
     channelId: string,
   ): Promise<DiscordSendableChannelLike> {
@@ -264,6 +290,14 @@ export class DiscordAdapter implements IMessagingAdapter {
   private async handleInteraction(
     interaction: DiscordInteractionLike,
   ): Promise<void> {
+    if (interaction.isAutocomplete?.() === true) {
+      await this.handleAutocompleteInteraction(interaction);
+      return;
+    }
+    if (CONTROL_COMMANDS.has(interaction.commandName)) {
+      await this.handleControlInteraction(interaction);
+      return;
+    }
     if (!this.listener) return;
     if (interaction.commandName !== 'ptah') return;
     if (this.allowedGuildIds.size) {
@@ -345,6 +379,143 @@ export class DiscordAdapter implements IMessagingAdapter {
             editError instanceof Error ? editError.message : String(editError),
         });
       }
+    }
+  }
+
+  /**
+   * Control-plane branch (TASK_2026_156): the five commands terminate at the
+   * command handler — they are NEVER forwarded to the inbound listener, so a
+   * command can structurally not become an agent turn (AC-1.3). Every command
+   * defers ephemerally within Discord's 3-second window (NFR-1); lists,
+   * errors and confirmations stay ephemeral (SEC-6) and a successful
+   * mutation additionally posts one public audit line into the thread
+   * (NFR-3).
+   */
+  private async handleControlInteraction(
+    interaction: DiscordInteractionLike,
+  ): Promise<void> {
+    const handler = this.commandHandler;
+    if (!handler) {
+      this.logger.debug(
+        '[gateway] discord control command ignored: no command handler wired',
+        { commandName: interaction.commandName },
+      );
+      return;
+    }
+    if (!this.isGuildAllowed(interaction.guildId)) {
+      this.logger.debug(
+        '[gateway] discord interaction rejected by allow-list',
+        { guildId: interaction.guildId ?? 'null(DM)' },
+      );
+      return;
+    }
+    await interaction.deferReply({ ephemeral: true });
+    const parsed = parseDiscordControlCommand({
+      commandName: interaction.commandName,
+      channelId: interaction.channelId,
+      guildId: interaction.guildId,
+      userId: interaction.user?.id,
+      isThread: interaction.channel?.isThread() ?? false,
+      parentId: interaction.channel?.parentId ?? null,
+      subcommand: interaction.options.getSubcommand?.(false) ?? null,
+      pick: interaction.options.getString('pick'),
+    });
+    if (!parsed) {
+      this.logger.warn('[gateway] discord control command failed validation', {
+        commandName: interaction.commandName,
+      });
+      await this.safeEditReply(interaction, CONTROL_COMMAND_ERROR_REPLY);
+      return;
+    }
+    try {
+      const outcome = await handler.handleCommand({
+        platform: 'discord',
+        externalChatId: parsed.externalChatId,
+        threadId: parsed.threadId,
+        allowListId: parsed.allowListId,
+        command: parsed.command,
+      });
+      await interaction.editReply({ content: outcome.ephemeralText });
+      if (outcome.publicText !== undefined && parsed.threadId !== undefined) {
+        await this.sendMessage(parsed.externalChatId, outcome.publicText, {
+          conversationId: parsed.threadId,
+        });
+      }
+    } catch (error: unknown) {
+      this.logger.warn('[gateway] discord control command failed', {
+        commandName: interaction.commandName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.safeEditReply(interaction, CONTROL_COMMAND_ERROR_REPLY);
+    }
+  }
+
+  /**
+   * Autocomplete branch: respond (never defer) within the 3-second window.
+   * Non-allowlisted guilds, unwired handlers and malformed payloads all get
+   * an empty choice list — autocomplete is advisory UX only; submitted values
+   * are re-validated server-side (SEC-1).
+   */
+  private async handleAutocompleteInteraction(
+    interaction: DiscordInteractionLike,
+  ): Promise<void> {
+    const respond = interaction.respond?.bind(interaction);
+    if (!respond) return;
+    try {
+      if (!this.commandHandler || !this.isGuildAllowed(interaction.guildId)) {
+        await respond([]);
+        return;
+      }
+      const parsed = parseDiscordAutocomplete({
+        commandName: interaction.commandName,
+        channelId: interaction.channelId,
+        guildId: interaction.guildId,
+        userId: interaction.user?.id,
+        isThread: interaction.channel?.isThread() ?? false,
+        parentId: interaction.channel?.parentId ?? null,
+        focused: interaction.options.getFocused?.() ?? '',
+      });
+      if (!parsed) {
+        await respond([]);
+        return;
+      }
+      const choices = await this.commandHandler.handleAutocomplete({
+        platform: 'discord',
+        externalChatId: parsed.externalChatId,
+        threadId: parsed.threadId,
+        allowListId: parsed.allowListId,
+        target: parsed.target,
+        query: parsed.query,
+      });
+      await respond(choices.slice(0, MAX_AUTOCOMPLETE_CHOICES));
+    } catch (error: unknown) {
+      this.logger.warn('[gateway] discord autocomplete failed', {
+        commandName: interaction.commandName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      try {
+        await respond([]);
+      } catch {
+        // interaction already responded to or expired — nothing to salvage
+      }
+    }
+  }
+
+  private isGuildAllowed(guildId: string | null): boolean {
+    if (!this.allowedGuildIds.size) return true;
+    return guildId !== null && this.allowedGuildIds.has(guildId);
+  }
+
+  private async safeEditReply(
+    interaction: DiscordInteractionLike,
+    content: string,
+  ): Promise<void> {
+    try {
+      await interaction.editReply({ content });
+    } catch (error: unknown) {
+      this.logger.warn('[gateway] discord editReply after failure failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

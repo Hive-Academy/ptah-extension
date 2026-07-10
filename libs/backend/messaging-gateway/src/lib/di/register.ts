@@ -8,6 +8,11 @@
  *   - `PERSISTENCE_TOKENS.SQLITE_CONNECTION` registered.
  *   - `GATEWAY_TOKENS.GATEWAY_TOKEN_VAULT` registered (Electron host wires
  *     `ElectronSafeStorageVault`).
+ *   - `GATEWAY_TOKENS.GATEWAY_SESSION_LISTER` registered (Electron host wires
+ *     `MetadataGatewaySessionLister` — required once the command control
+ *     plane is resolved).
+ *   - `GATEWAY_TOKENS.GATEWAY_SESSION_ACTIVITY_PROBE` registered (Electron
+ *     host wires a factory over `TOKENS.AGENT_ADAPTER.isSessionActive`).
  */
 import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -28,6 +33,8 @@ import { DiscordAdapter } from '../adapters/discord/discord.adapter';
 import { BoltSlackAdapter } from '../adapters/slack/bolt.adapter';
 import { AttachedSessionRegistry } from '../attached-session-registry';
 import { JsonlSessionResumabilityChecker } from '../session-resumability';
+import { ConversationTurnTracker } from '../turn-activity-tracker';
+import { GatewayCommandService } from '../commands/gateway-command.service';
 
 export function registerMessagingGatewayServices(
   container: DependencyContainer,
@@ -85,6 +92,16 @@ export function registerMessagingGatewayServices(
   container.registerSingleton(
     GATEWAY_TOKENS.GATEWAY_SESSION_RESUMABILITY_CHECKER,
     JsonlSessionResumabilityChecker,
+  );
+  container.registerSingleton(
+    GATEWAY_TOKENS.GATEWAY_TURN_TRACKER,
+    ConversationTurnTracker,
+  );
+  // Resolution requires the two host-registered collaborators documented in
+  // the header (GATEWAY_SESSION_LISTER, GATEWAY_SESSION_ACTIVITY_PROBE).
+  container.registerSingleton(
+    GATEWAY_TOKENS.GATEWAY_COMMAND_SERVICE,
+    GatewayCommandService,
   );
 
   container.registerSingleton(GATEWAY_TOKENS.GATEWAY_SERVICE, GatewayService);

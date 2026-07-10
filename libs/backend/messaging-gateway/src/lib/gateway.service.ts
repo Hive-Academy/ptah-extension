@@ -75,6 +75,7 @@ import type {
   IMessagingAdapter,
   InboundMessage,
 } from './adapters/adapter.interface';
+import type { IGatewayCommandHandler } from './commands/gateway-command.types';
 import {
   ApprovalStatus,
   BindingId,
@@ -193,6 +194,8 @@ export class GatewayService extends EventEmitter {
     private readonly attachedSessionRegistry: AttachedSessionRegistry,
     @inject(GATEWAY_TOKENS.GATEWAY_SESSION_RESUMABILITY_CHECKER)
     private readonly resumability: ISessionResumabilityChecker,
+    @inject(GATEWAY_TOKENS.GATEWAY_COMMAND_SERVICE)
+    private readonly commandHandler: IGatewayCommandHandler,
   ) {
     super();
   }
@@ -427,6 +430,13 @@ export class GatewayService extends EventEmitter {
    * Mirrors {@link approveBinding}'s discriminated-union contract. "Resumable"
    * means the JSONL plausibly exists — NOT "currently active" — so a session
    * opened earlier but now inactive can still be attached.
+   *
+   * Because the webview carries the session's authoritative `workspaceRoot`,
+   * the attach stamps it at BOTH levels: the binding (default for new
+   * conversations, Data-4) and the target conversation row — atomically with
+   * the session link — so `isResumable(ptahSessionId,
+   * effectiveWorkspace(conversation))` holds under conversation-first
+   * resolution even if the binding root is later repointed (AC-7.4, Data-3).
    */
   async attachSession(
     bindingId: BindingId,
@@ -468,7 +478,11 @@ export class GatewayService extends EventEmitter {
       bindingId,
       externalConversationId,
     );
-    this.conversations.setPtahSessionId(conversation.id, sessionUuid);
+    this.conversations.setPtahSessionIdAndWorkspaceRoot(
+      conversation.id,
+      sessionUuid,
+      workspaceRoot,
+    );
     this.attachedSessionRegistry.attach(sessionUuid, String(bindingId));
 
     this.logger.info('[gateway] session attached to binding', {
@@ -772,6 +786,7 @@ export class GatewayService extends EventEmitter {
   ): void {
     this.adapters.set(platform, adapter);
     adapter.on('inbound', (msg) => this.handleInbound(msg));
+    adapter.setCommandHandler?.(this.commandHandler);
   }
 
   private async maybeStartTelegram(force = false): Promise<void> {

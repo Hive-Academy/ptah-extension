@@ -10,6 +10,7 @@ import type {
   DiscordThreadLike,
 } from './discord.adapter';
 import type { InboundMessage } from '../adapter.interface';
+import type { IGatewayCommandHandler } from '../../commands/gateway-command.types';
 import type { Logger } from '@ptah-extension/vscode-core';
 
 const PER_CHANNEL_WINDOW_MS = 5_000;
@@ -696,6 +697,467 @@ describe('DiscordAdapter — outbound', () => {
     await expect(
       adapter.editMessage('chan-1', sent.externalMsgId, 'y'),
     ).rejects.toThrow(/no message recorded/);
+  });
+});
+
+type FakeCommandHandler = jest.Mocked<IGatewayCommandHandler>;
+
+function createCommandHandler(): FakeCommandHandler {
+  return {
+    handleCommand: jest.fn().mockResolvedValue({ ephemeralText: 'done' }),
+    handleAutocomplete: jest.fn().mockResolvedValue([]),
+  } as unknown as FakeCommandHandler;
+}
+
+interface FakeControlInteraction extends DiscordInteractionLike {
+  deferReply: jest.Mock;
+  editReply: jest.Mock;
+  respond: jest.Mock;
+}
+
+function fakeControlInteraction(overrides: {
+  commandName: string;
+  subcommand?: string | null;
+  pick?: string | null;
+  guildId?: string | null;
+  channelId?: string;
+  isThread?: boolean;
+  parentId?: string | null;
+  focused?: string;
+  autocomplete?: boolean;
+}): FakeControlInteraction {
+  return {
+    commandName: overrides.commandName,
+    id: 'control-interaction-1',
+    channelId: overrides.channelId ?? 'chan-1',
+    guildId: overrides.guildId === undefined ? 'guild-1' : overrides.guildId,
+    user: { id: 'u1', username: 'alice' },
+    options: {
+      getString: (name: string) =>
+        name === 'pick' ? (overrides.pick ?? null) : null,
+      getSubcommand: () => overrides.subcommand ?? null,
+      getFocused: () => overrides.focused ?? '',
+    },
+    channel: {
+      isThread: () => overrides.isThread ?? false,
+      parentId: overrides.parentId ?? null,
+    },
+    isAutocomplete: () => overrides.autocomplete ?? false,
+    deferReply: jest.fn().mockResolvedValue(undefined),
+    editReply: jest.fn().mockResolvedValue(undefined),
+    respond: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
+describe('DiscordAdapter — control-plane commands (TASK_2026_156)', () => {
+  beforeEach(() => {
+    msgSeq = 0;
+    threadSeq = 0;
+    inMsgSeq = 0;
+  });
+
+  it('/sessions in a thread defers ephemerally and routes to the command handler, never the inbound listener', async () => {
+    const { adapter, client, channel, byId, inbound } = await startAdapter();
+    const handler = createCommandHandler();
+    handler.handleCommand.mockResolvedValue({ ephemeralText: 'the list' });
+    adapter.setCommandHandler(handler);
+    const thread = fakeThread(byId);
+    const interaction = fakeControlInteraction({
+      commandName: 'sessions',
+      channelId: thread.id,
+      isThread: true,
+      parentId: 'chan-1',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.deferReply).toHaveBeenCalledTimes(1);
+    expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(handler.handleCommand).toHaveBeenCalledWith({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      threadId: thread.id,
+      allowListId: 'guild-1',
+      command: { kind: 'sessions' },
+    });
+    expect(interaction.editReply).toHaveBeenCalledWith({
+      content: 'the list',
+    });
+    expect(inbound).toHaveLength(0);
+    expect(channel.threadCreate).not.toHaveBeenCalled();
+    expect(thread.send).not.toHaveBeenCalled();
+  });
+
+  it('/sessions in a parent channel propagates the channel id with no threadId', async () => {
+    const { adapter, client } = await startAdapter();
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({
+      commandName: 'sessions',
+      channelId: 'chan-1',
+      isThread: false,
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(handler.handleCommand).toHaveBeenCalledWith({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      threadId: undefined,
+      allowListId: 'guild-1',
+      command: { kind: 'sessions' },
+    });
+  });
+
+  it('/session use routes the untrusted pick and posts the public audit line into the thread', async () => {
+    const { adapter, client, channel, byId, inbound } = await startAdapter();
+    const handler = createCommandHandler();
+    handler.handleCommand.mockResolvedValue({
+      ephemeralText: 'attached',
+      publicText: 'audit line',
+    });
+    adapter.setCommandHandler(handler);
+    const thread = fakeThread(byId);
+    const interaction = fakeControlInteraction({
+      commandName: 'session',
+      subcommand: 'use',
+      pick: 'a1b2c3d4-0000-0000-0000-000000000000',
+      channelId: thread.id,
+      isThread: true,
+      parentId: 'chan-1',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(handler.handleCommand).toHaveBeenCalledWith({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      threadId: thread.id,
+      allowListId: 'guild-1',
+      command: {
+        kind: 'session-use',
+        pick: 'a1b2c3d4-0000-0000-0000-000000000000',
+      },
+    });
+    expect(interaction.editReply).toHaveBeenCalledWith({
+      content: 'attached',
+    });
+    expect(thread.send).toHaveBeenCalledWith({ content: 'audit line' });
+    expect(channel.send).not.toHaveBeenCalled();
+    expect(inbound).toHaveLength(0);
+  });
+
+  it('/new maps to the new command and skips the public send when no publicText is returned', async () => {
+    const { adapter, client, byId } = await startAdapter();
+    const handler = createCommandHandler();
+    handler.handleCommand.mockResolvedValue({
+      ephemeralText: 'already fresh',
+    });
+    adapter.setCommandHandler(handler);
+    const thread = fakeThread(byId);
+    const interaction = fakeControlInteraction({
+      commandName: 'new',
+      channelId: thread.id,
+      isThread: true,
+      parentId: 'chan-1',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(handler.handleCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ command: { kind: 'new' } }),
+    );
+    expect(interaction.editReply).toHaveBeenCalledWith({
+      content: 'already fresh',
+    });
+    expect(thread.send).not.toHaveBeenCalled();
+  });
+
+  it('/workspace list and /workspace use map to their commands', async () => {
+    const { adapter, client, byId } = await startAdapter();
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const thread = fakeThread(byId);
+
+    await client.emitInteraction(
+      fakeControlInteraction({
+        commandName: 'workspace',
+        subcommand: 'list',
+        channelId: 'chan-1',
+      }),
+    );
+    await client.emitInteraction(
+      fakeControlInteraction({
+        commandName: 'workspace',
+        subcommand: 'use',
+        pick: 'ptah-extension',
+        channelId: thread.id,
+        isThread: true,
+        parentId: 'chan-1',
+      }),
+    );
+
+    expect(handler.handleCommand).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        externalChatId: 'chan-1',
+        threadId: undefined,
+        command: { kind: 'workspace-list' },
+      }),
+    );
+    expect(handler.handleCommand).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        externalChatId: 'chan-1',
+        threadId: thread.id,
+        command: { kind: 'workspace-use', pick: 'ptah-extension' },
+      }),
+    );
+  });
+
+  it('rejects control commands from a guild not on the allow-list before deferring (SEC-6)', async () => {
+    const { adapter, client } = await startAdapter({
+      allowedGuildIds: ['guild-allowed'],
+    });
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({
+      commandName: 'sessions',
+      guildId: 'guild-other',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.deferReply).not.toHaveBeenCalled();
+    expect(handler.handleCommand).not.toHaveBeenCalled();
+  });
+
+  it('replies a fixed ephemeral error and never calls the handler when the payload fails Zod validation (SEC-8)', async () => {
+    const { adapter, client, byId } = await startAdapter();
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const thread = fakeThread(byId);
+    const emptyPick = fakeControlInteraction({
+      commandName: 'session',
+      subcommand: 'use',
+      pick: '   ',
+      channelId: thread.id,
+      isThread: true,
+      parentId: 'chan-1',
+    });
+    const badSubcommand = fakeControlInteraction({
+      commandName: 'workspace',
+      subcommand: 'nuke',
+      channelId: 'chan-1',
+    });
+    const orphanThread = fakeControlInteraction({
+      commandName: 'new',
+      channelId: 'thread-orphan',
+      isThread: true,
+      parentId: null,
+    });
+
+    for (const interaction of [emptyPick, badSubcommand, orphanThread]) {
+      await client.emitInteraction(interaction);
+      expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+      expect(interaction.editReply).toHaveBeenCalledWith({
+        content: 'Ptah could not process that command.',
+      });
+    }
+    expect(handler.handleCommand).not.toHaveBeenCalled();
+  });
+
+  it('replies the fixed ephemeral error when the handler throws', async () => {
+    const { adapter, client, logger } = await startAdapter();
+    const handler = createCommandHandler();
+    handler.handleCommand.mockRejectedValue(new Error('boom'));
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({ commandName: 'sessions' });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.editReply).toHaveBeenCalledWith({
+      content: 'Ptah could not process that command.',
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[gateway] discord control command failed',
+      expect.objectContaining({ error: 'boom' }),
+    );
+  });
+
+  it('ignores control commands entirely when no command handler is wired', async () => {
+    const { client, inbound } = await startAdapter();
+    const interaction = fakeControlInteraction({ commandName: 'sessions' });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.deferReply).not.toHaveBeenCalled();
+    expect(interaction.editReply).not.toHaveBeenCalled();
+    expect(inbound).toHaveLength(0);
+  });
+
+  it('leaves non-command interactions and the /ptah defer untouched (AC-1.4)', async () => {
+    const { adapter, client, channel, inbound } = await startAdapter();
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+
+    const unrelated = fakeControlInteraction({ commandName: 'other-bot' });
+    await client.emitInteraction(unrelated);
+    expect(unrelated.deferReply).not.toHaveBeenCalled();
+    expect(handler.handleCommand).not.toHaveBeenCalled();
+
+    const prompt = fakeInteraction({ prompt: 'hello world' });
+    await client.emitInteraction(prompt);
+    expect(prompt.deferReply).toHaveBeenCalledTimes(1);
+    expect(prompt.deferReply).toHaveBeenCalledWith();
+    expect(channel.threadCreate).toHaveBeenCalledTimes(1);
+    expect(handler.handleCommand).not.toHaveBeenCalled();
+    expect(inbound).toHaveLength(1);
+    expect(inbound[0].body).toBe('hello world');
+  });
+});
+
+describe('DiscordAdapter — autocomplete (TASK_2026_156)', () => {
+  beforeEach(() => {
+    msgSeq = 0;
+    threadSeq = 0;
+    inMsgSeq = 0;
+  });
+
+  it('session autocomplete in a thread routes to the handler and responds with its choices', async () => {
+    const { adapter, client, byId, inbound } = await startAdapter();
+    const handler = createCommandHandler();
+    const choices = [
+      { name: 'fix build · a1b2c3d4 · 5m ago', value: 'a1b2c3d4-uuid' },
+    ];
+    handler.handleAutocomplete.mockResolvedValue(choices);
+    adapter.setCommandHandler(handler);
+    const thread = fakeThread(byId);
+    const interaction = fakeControlInteraction({
+      commandName: 'session',
+      subcommand: 'use',
+      autocomplete: true,
+      focused: 'fix',
+      channelId: thread.id,
+      isThread: true,
+      parentId: 'chan-1',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(handler.handleAutocomplete).toHaveBeenCalledWith({
+      platform: 'discord',
+      externalChatId: 'chan-1',
+      threadId: thread.id,
+      allowListId: 'guild-1',
+      target: 'session-pick',
+      query: 'fix',
+    });
+    expect(interaction.respond).toHaveBeenCalledWith(choices);
+    expect(interaction.deferReply).not.toHaveBeenCalled();
+    expect(inbound).toHaveLength(0);
+  });
+
+  it('workspace autocomplete maps to the workspace-pick target', async () => {
+    const { adapter, client } = await startAdapter();
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({
+      commandName: 'workspace',
+      subcommand: 'use',
+      autocomplete: true,
+      focused: 'pta',
+      channelId: 'chan-1',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(handler.handleAutocomplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'workspace-pick',
+        externalChatId: 'chan-1',
+        threadId: undefined,
+        query: 'pta',
+      }),
+    );
+  });
+
+  it('caps the responded choices at 25 even if the handler returns more', async () => {
+    const { adapter, client } = await startAdapter();
+    const handler = createCommandHandler();
+    handler.handleAutocomplete.mockResolvedValue(
+      Array.from({ length: 30 }, (_, i) => ({
+        name: `choice-${i}`,
+        value: `value-${i}`,
+      })),
+    );
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({
+      commandName: 'workspace',
+      autocomplete: true,
+    });
+
+    await client.emitInteraction(interaction);
+
+    const responded = interaction.respond.mock.calls[0][0] as unknown[];
+    expect(responded).toHaveLength(25);
+  });
+
+  it('responds an empty choice list for a guild not on the allow-list (SEC-6)', async () => {
+    const { adapter, client } = await startAdapter({
+      allowedGuildIds: ['guild-allowed'],
+    });
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({
+      commandName: 'session',
+      autocomplete: true,
+      guildId: 'guild-other',
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.respond).toHaveBeenCalledWith([]);
+    expect(handler.handleAutocomplete).not.toHaveBeenCalled();
+  });
+
+  it('responds an empty choice list when no handler is wired or the payload fails validation', async () => {
+    const { adapter, client } = await startAdapter();
+    const unwired = fakeControlInteraction({
+      commandName: 'session',
+      autocomplete: true,
+    });
+    await client.emitInteraction(unwired);
+    expect(unwired.respond).toHaveBeenCalledWith([]);
+
+    const handler = createCommandHandler();
+    adapter.setCommandHandler(handler);
+    const wrongCommand = fakeControlInteraction({
+      commandName: 'sessions',
+      autocomplete: true,
+    });
+    await client.emitInteraction(wrongCommand);
+    expect(wrongCommand.respond).toHaveBeenCalledWith([]);
+    expect(handler.handleAutocomplete).not.toHaveBeenCalled();
+  });
+
+  it('responds an empty choice list when the handler throws', async () => {
+    const { adapter, client, logger } = await startAdapter();
+    const handler = createCommandHandler();
+    handler.handleAutocomplete.mockRejectedValue(new Error('probe down'));
+    adapter.setCommandHandler(handler);
+    const interaction = fakeControlInteraction({
+      commandName: 'workspace',
+      autocomplete: true,
+    });
+
+    await client.emitInteraction(interaction);
+
+    expect(interaction.respond).toHaveBeenCalledWith([]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[gateway] discord autocomplete failed',
+      expect.objectContaining({ error: 'probe down' }),
+    );
   });
 });
 

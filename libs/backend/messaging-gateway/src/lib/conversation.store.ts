@@ -15,12 +15,13 @@ interface ConversationRow {
   binding_id: string;
   external_conversation_id: string;
   ptah_session_id: string | null;
+  workspace_root: string | null;
   created_at: number;
   last_active_at: number | null;
 }
 
 const SELECT_COLS =
-  'id, binding_id, external_conversation_id, ptah_session_id, created_at, last_active_at';
+  'id, binding_id, external_conversation_id, ptah_session_id, workspace_root, created_at, last_active_at';
 
 @injectable()
 export class ConversationStore {
@@ -134,6 +135,97 @@ export class ConversationStore {
     return updated;
   }
 
+  /**
+   * Pin a conversation to `workspaceRoot` WITHOUT touching the session link.
+   * Used by the webview attach flow, which carries the session's authoritative
+   * root alongside a validated session uuid.
+   */
+  setWorkspaceRoot(
+    id: GatewayConversationId,
+    workspaceRoot: string,
+  ): GatewayConversation {
+    this.sqlite.db
+      .prepare(
+        'UPDATE gateway_conversations SET workspace_root = ?, last_active_at = ? WHERE id = ?',
+      )
+      .run(workspaceRoot, Date.now(), id);
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new Error(
+        `ConversationStore.setWorkspaceRoot: conversation ${id} not found`,
+      );
+    }
+    return updated;
+  }
+
+  /**
+   * Switch a conversation's workspace and clear its session link in ONE
+   * transaction (SEC-4): sessions are workspace-bound, so there is no window
+   * in which the new root and the old session coexist. Used by the
+   * `/workspace use` control command.
+   */
+  setWorkspaceRootAndClearSession(
+    id: GatewayConversationId,
+    workspaceRoot: string,
+  ): GatewayConversation {
+    const txn = this.sqlite.db.transaction(() => {
+      this.sqlite.db
+        .prepare(
+          'UPDATE gateway_conversations SET workspace_root = ?, ptah_session_id = NULL, last_active_at = ? WHERE id = ?',
+        )
+        .run(workspaceRoot, Date.now(), id);
+      const updated = this.findById(id);
+      if (!updated) {
+        throw new Error(
+          `ConversationStore.setWorkspaceRootAndClearSession: conversation ${id} not found`,
+        );
+      }
+      return updated;
+    });
+    return txn();
+  }
+
+  /**
+   * Set the session link and the workspace root atomically, so the invariant
+   * `isResumable(ptahSessionId, effectiveWorkspace(conversation))` holds the
+   * instant the attach lands. Used by `GatewayService.attachSession`.
+   */
+  setPtahSessionIdAndWorkspaceRoot(
+    id: GatewayConversationId,
+    ptahSessionId: string,
+    workspaceRoot: string,
+  ): GatewayConversation {
+    const txn = this.sqlite.db.transaction(() => {
+      this.sqlite.db
+        .prepare(
+          'UPDATE gateway_conversations SET ptah_session_id = ?, workspace_root = ?, last_active_at = ? WHERE id = ?',
+        )
+        .run(ptahSessionId, workspaceRoot, Date.now(), id);
+      const updated = this.findById(id);
+      if (!updated) {
+        throw new Error(
+          `ConversationStore.setPtahSessionIdAndWorkspaceRoot: conversation ${id} not found`,
+        );
+      }
+      return updated;
+    });
+    return txn();
+  }
+
+  /**
+   * All conversations (across every binding) currently linked to a session
+   * uuid — the durable half of the "session is in use elsewhere" ownership
+   * check.
+   */
+  findBySessionId(ptahSessionId: string): GatewayConversation[] {
+    const rows = this.sqlite.db
+      .prepare(
+        `SELECT ${SELECT_COLS} FROM gateway_conversations WHERE ptah_session_id = ? ORDER BY created_at ASC`,
+      )
+      .all(ptahSessionId) as ConversationRow[];
+    return rows.map((r) => this.toConversation(r));
+  }
+
   touch(id: GatewayConversationId): void {
     this.sqlite.db
       .prepare(
@@ -156,8 +248,8 @@ export class ConversationStore {
     const now = Date.now();
     this.sqlite.db
       .prepare(
-        `INSERT INTO gateway_conversations (id, binding_id, external_conversation_id, ptah_session_id, created_at, last_active_at)
-         VALUES (?, ?, ?, NULL, ?, ?)`,
+        `INSERT INTO gateway_conversations (id, binding_id, external_conversation_id, ptah_session_id, workspace_root, created_at, last_active_at)
+         VALUES (?, ?, ?, NULL, NULL, ?, ?)`,
       )
       .run(id, bindingId, externalConversationId, now, now);
     const created = this.findById(id as GatewayConversationId);
@@ -173,6 +265,7 @@ export class ConversationStore {
       bindingId: row.binding_id as BindingId,
       externalConversationId: row.external_conversation_id,
       ptahSessionId: row.ptah_session_id,
+      workspaceRoot: row.workspace_root,
       createdAt: row.created_at,
       lastActiveAt: row.last_active_at,
     };

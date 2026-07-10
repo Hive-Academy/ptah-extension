@@ -221,6 +221,10 @@ function buildServiceWithRealStore(
     gatewaySettings,
     new AttachedSessionRegistry(),
     { isResumable: jest.fn().mockResolvedValue(true) },
+    {
+      handleCommand: jest.fn().mockResolvedValue({ ephemeralText: 'ok' }),
+      handleAutocomplete: jest.fn().mockResolvedValue([]),
+    },
   );
 
   return { service, gatewaySettings };
