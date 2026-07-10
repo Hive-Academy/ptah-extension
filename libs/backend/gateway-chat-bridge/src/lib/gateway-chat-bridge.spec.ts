@@ -1,5 +1,39 @@
 import 'reflect-metadata';
 
+// `GatewayChatBridge` now imports `@ptah-extension/agent-generation` (for the
+// `AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE` injection token), whose
+// barrel transitively pulls `@ptah-extension/workspace-intelligence`. That
+// lib's TreeSitter module evaluates `import.meta.url` at top level — a construct
+// ts-jest's CJS transform cannot parse. Stub it (mirrors the rpc-handlers chat
+// session specs).
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  ProjectType: {},
+  Framework: {},
+  MonorepoType: {},
+  FileType: {},
+  TreeSitterParserService: class TreeSitterParserServiceStub {},
+  AstAnalysisService: class AstAnalysisServiceStub {},
+  DependencyGraphService: class DependencyGraphServiceStub {},
+  WorkspaceAnalyzerService: class WorkspaceAnalyzerServiceStub {},
+  ContextService: class ContextServiceStub {},
+  ContextOrchestrationService: class ContextOrchestrationServiceStub {},
+  WorkspaceService: class WorkspaceServiceStub {},
+  TokenCounterService: class TokenCounterServiceStub {},
+  FileSystemService: class FileSystemServiceStub {},
+  FileSystemError: class FileSystemErrorStub extends Error {},
+  ProjectDetectorService: class ProjectDetectorServiceStub {},
+  FrameworkDetectorService: class FrameworkDetectorServiceStub {},
+  DependencyAnalyzerService: class DependencyAnalyzerServiceStub {},
+  MonorepoDetectorService: class MonorepoDetectorServiceStub {},
+  PatternMatcherService: class PatternMatcherServiceStub {},
+  IgnorePatternResolverService: class IgnorePatternResolverServiceStub {},
+  WorkspaceIndexerService: class WorkspaceIndexerServiceStub {},
+  FileTypeClassifierService: class FileTypeClassifierServiceStub {},
+  FileRelevanceScorerService: class FileRelevanceScorerServiceStub {},
+  ContextSizeOptimizerService: class ContextSizeOptimizerServiceStub {},
+  ContextEnrichmentService: class ContextEnrichmentServiceStub {},
+}));
+
 import { EventEmitter } from 'node:events';
 import { GatewayChatBridge } from './gateway-chat-bridge';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -179,11 +213,26 @@ interface Harness {
   >;
   workspace: jest.Mocked<Pick<IWorkspaceProvider, 'getWorkspaceRoot'>>;
   selectedModelGet: jest.Mock<string, []>;
+  licenseService: { verifyLicense: jest.Mock };
+  codeExecutionMcp: {
+    getPort: jest.Mock;
+    ensureRegisteredForSubagents: jest.Mock;
+  };
+  enhancedPromptsService: { getEnhancedPromptContent: jest.Mock };
+  pluginLoader: {
+    getWorkspacePluginConfig: jest.Mock;
+    resolvePluginPaths: jest.Mock;
+  };
 }
 
 function setup(options?: {
   workspaceRoot?: string | null;
   selectedModel?: string;
+  licenseStatus?: unknown;
+  mcpPort?: number | null;
+  enhancedPromptsContent?: string | null;
+  enabledPluginIds?: string[];
+  resolvedPluginPaths?: string[];
 }): Harness {
   const gateway = new FakeGateway();
   const conversations = {
@@ -212,16 +261,42 @@ function setup(options?: {
     selectedModel: { get: selectedModelGet },
   };
 
-  const bridge = new GatewayChatBridge(
+  const licenseService = {
+    verifyLicense: jest
+      .fn()
+      .mockResolvedValue(options?.licenseStatus ?? { tier: 'free' }),
+  };
+  const codeExecutionMcp = {
+    getPort: jest.fn().mockReturnValue(options?.mcpPort ?? null),
+    ensureRegisteredForSubagents: jest.fn(),
+  };
+  const enhancedPromptsService = {
+    getEnhancedPromptContent: jest
+      .fn()
+      .mockResolvedValue(options?.enhancedPromptsContent ?? null),
+  };
+  const pluginLoader = {
+    getWorkspacePluginConfig: jest
+      .fn()
+      .mockReturnValue({ enabledPluginIds: options?.enabledPluginIds ?? [] }),
+    resolvePluginPaths: jest
+      .fn()
+      .mockReturnValue(options?.resolvedPluginPaths ?? []),
+  };
+
+  const ctorArgs = [
     createLogger(),
     gateway as unknown as GatewayService,
     conversations as unknown as ConversationStore,
     adapter as unknown as IAgentAdapter,
     workspace as unknown as IWorkspaceProvider,
-    modelSettings as unknown as ConstructorParameters<
-      typeof GatewayChatBridge
-    >[5],
-  );
+    modelSettings,
+    licenseService,
+    codeExecutionMcp,
+    enhancedPromptsService,
+    pluginLoader,
+  ] as unknown as ConstructorParameters<typeof GatewayChatBridge>;
+  const bridge = new GatewayChatBridge(...ctorArgs);
   return {
     bridge,
     gateway,
@@ -229,6 +304,10 @@ function setup(options?: {
     adapter,
     workspace,
     selectedModelGet,
+    licenseService,
+    codeExecutionMcp,
+    enhancedPromptsService,
+    pluginLoader,
   };
 }
 
@@ -390,7 +469,7 @@ describe('GatewayChatBridge', () => {
     expect(h.adapter.endSession).toHaveBeenCalledWith(SDK_UUID);
   });
 
-  it('auto-approves by setting bypass permission for the resolved session', async () => {
+  it('auto-approves via the initial yolo permission level, not a post-hoc bypass flip', async () => {
     const h = setup();
     const binding = makeBinding({ workspaceRoot: '/ws/proj' });
     h.adapter.startChatSession.mockResolvedValue(
@@ -406,9 +485,9 @@ describe('GatewayChatBridge', () => {
       () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
     );
 
-    expect(h.adapter.setSessionPermissionLevel).toHaveBeenCalledWith(
-      SDK_UUID,
-      'bypassPermissions',
+    expect(h.adapter.setSessionPermissionLevel).not.toHaveBeenCalled();
+    expect(h.adapter.startChatSession.mock.calls[0][0].permissionLevel).toBe(
+      'yolo',
     );
   });
 
@@ -855,5 +934,386 @@ describe('GatewayChatBridge', () => {
     await flushUntil(() => false, 5);
 
     expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F1 — permissionLevel: 'yolo' on resume (TASK_2026_155, Task 2.1/3.3)
+// ---------------------------------------------------------------------------
+//
+// `startChatSession` carrying `permissionLevel: 'yolo'` and `bindSession`
+// never calling `setSessionPermissionLevel` are already exercised by
+// 'auto-approves via the initial yolo permission level...' above. These two
+// specs close the remaining acceptance-criteria gaps: BOTH `resumeSession`
+// call sites (the canResume fast path and the try/catch resume-recovery
+// path) must also carry `permissionLevel: 'yolo'`, and `bindSession` must
+// still persist the sessionId even though it no longer flips permissions.
+describe('GatewayChatBridge — F1 resume permissionLevel + bindSession (Task 2.1/2.2/3.3)', () => {
+  it('resumeSession receives permissionLevel: "yolo" on the canResume fast path', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, { ptahSessionId: SDK_UUID });
+    h.adapter.isSessionActive.mockReturnValue(true);
+    h.adapter.resumeSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'r'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'again', { conversation }));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.resumeSession).toHaveBeenCalledTimes(1);
+    expect(h.adapter.resumeSession.mock.calls[0][1]?.permissionLevel).toBe(
+      'yolo',
+    );
+  });
+
+  it('resumeSession receives permissionLevel: "yolo" on the try/catch resume-recovery path (persisted but not active)', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, { ptahSessionId: SDK_UUID });
+    // Not active -> canResume fast path is skipped, falls into the
+    // try/catch resume-recovery branch in openStream (still attempted
+    // before giving up to startNew).
+    h.adapter.isSessionActive.mockReturnValue(false);
+    h.adapter.resumeSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'restored'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'again', { conversation }));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.resumeSession).toHaveBeenCalledTimes(1);
+    expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+    expect(h.adapter.resumeSession.mock.calls[0][1]?.permissionLevel).toBe(
+      'yolo',
+    );
+  });
+
+  it('bindSession never calls setSessionPermissionLevel, but still persists the resolved sessionId via setPtahSessionId', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, { id: 'conv-bind' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'x'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go', { conversation }));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.setSessionPermissionLevel).not.toHaveBeenCalled();
+    expect(h.conversations.setPtahSessionId).toHaveBeenCalledWith(
+      conversation.id,
+      SDK_UUID,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F3 — turn watchdog (TASK_2026_155, Task 2.3/3.3)
+// ---------------------------------------------------------------------------
+describe('GatewayChatBridge — turn watchdog (Task 2.3/3.3)', () => {
+  // Mirrors gateway-chat-bridge.ts's private `TURN_WATCHDOG_MS` (10 min).
+  // Not exported (module-private constant); hardcoded here the same way
+  // `UNROUTABLE_PERMISSION_TIMEOUT_MS` is hardcoded in the permission-handler
+  // spec. If the production constant changes, this test's window must too.
+  const TURN_WATCHDOG_MS = 10 * 60_000;
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('a stream that never settles is force-terminated after TURN_WATCHDOG_MS: session ended once, ONE error reply sent, turn sealed once, and the enqueue promise resolves so a queued second turn runs', async () => {
+    jest.useFakeTimers();
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+
+    // Realistic stateful mock: isSessionActive flips to false once endSession
+    // is actually called, mirroring the real adapter (ending a session makes
+    // it inactive). This is what makes endSessionAfterTurn's second call (in
+    // the `finally`) a genuine no-op instead of a lucky mock default.
+    let sessionActive = true;
+    h.adapter.isSessionActive.mockImplementation(() => sessionActive);
+    h.adapter.endSession.mockImplementation(() => {
+      sessionActive = false;
+    });
+
+    let startCalls = 0;
+    h.adapter.startChatSession.mockImplementation(async () => {
+      startCalls++;
+      if (startCalls === 1) {
+        return {
+          async *[Symbol.asyncIterator]() {
+            // Simulates a wedged canUseTool: the stream never produces an
+            // event and never completes. The `yield` below is unreachable
+            // (only present to satisfy eslint's require-yield rule).
+            await new Promise<void>(() => {
+              /* never resolves */
+            });
+            yield textDelta(SDK_UUID, 'unreachable');
+          },
+        } as AsyncIterable<FlatStreamEventUnion>;
+      }
+      return scriptedStream([
+        textDelta(SDK_UUID_B, 'second-turn'),
+        messageComplete(SDK_UUID_B),
+      ]);
+    });
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'first (hangs)'));
+    h.gateway.emit('inbound', makeEvent(binding, 'second (queued)'));
+
+    // Let the first (hanging) turn actually start before advancing the clock.
+    await jest.advanceTimersByTimeAsync(0);
+    expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
+    expect(h.gateway.completeOutboundTurn).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(TURN_WATCHDOG_MS);
+
+    // Watchdog fired on the first turn: session ended exactly once
+    // (idempotency proven via the stateful isSessionActive/endSession mock
+    // above, not a lucky default) and exactly one error reply was appended.
+    expect(h.adapter.endSession).toHaveBeenCalledTimes(1);
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
+      expect.anything(),
+      'This request took too long and was stopped. Please try again.',
+    );
+    expect(
+      h.gateway.appendOutboundChunk.mock.calls.filter(
+        ([, msg]) =>
+          msg === 'This request took too long and was stopped. Please try again.',
+      ),
+    ).toHaveLength(1);
+
+    // The ConversationQueue link settled as soon as the watchdog force-ended
+    // the first turn, so the queued second turn ran to completion within the
+    // same flush — this is the whole point of F3: the queue never wedges.
+    expect(h.adapter.startChatSession).toHaveBeenCalledTimes(2);
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(2);
+  });
+
+  it('an abandoned (watchdog-terminated) turn that later unblocks does NOT retry, append, or re-bind into the next turn', async () => {
+    jest.useFakeTimers();
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    // Persisted session so the abandoned turn's fallback path (tryFallbackStart
+    // -> startNew) is actually reachable — a fresh (null ptahSessionId) turn
+    // would bail out of tryFallbackStart before startNew regardless of the
+    // cancellation guard, making the sanity-check inert.
+    const conversation = makeConversation(binding, {
+      id: 'conv-x',
+      ptahSessionId: SDK_UUID,
+    });
+
+    // The hung first turn unblocks ONLY once endSession is dispatched, mirroring
+    // the real SDK where endSession -> query.interrupt() unwedges the for-await
+    // loop. It then completes with ZERO events. WITHOUT the per-turn
+    // cancellation guard, pumpStream's zero-event sentinel throws ->
+    // tryFallbackStart -> a stray startChatSession (startNew) into the SAME
+    // tabId the second turn now owns (the cross-turn corruption Critical Issue 1
+    // flags). A manual async iterator (not a generator) yields nothing without
+    // tripping eslint's require-yield.
+    let releaseHung!: () => void;
+    const hungGate = new Promise<void>((r) => {
+      releaseHung = r;
+    });
+    const active = new Set<string>([SDK_UUID]);
+    h.adapter.isSessionActive.mockImplementation((id) =>
+      active.has(String(id)),
+    );
+    h.adapter.endSession.mockImplementation((id) => {
+      active.delete(String(id));
+      releaseHung();
+    });
+
+    const hungStream: AsyncIterable<FlatStreamEventUnion> = {
+      [Symbol.asyncIterator]() {
+        let done = false;
+        return {
+          async next(): Promise<IteratorResult<FlatStreamEventUnion>> {
+            if (done) return { done: true, value: undefined };
+            await hungGate;
+            done = true;
+            return { done: true, value: undefined };
+          },
+        };
+      },
+    };
+
+    let resumeCalls = 0;
+    h.adapter.resumeSession.mockImplementation(async () => {
+      resumeCalls++;
+      if (resumeCalls === 1) {
+        return hungStream; // first turn: hangs, then zero events post-watchdog
+      }
+      return scriptedStream([
+        textDelta(SDK_UUID_B, 'second'),
+        messageComplete(SDK_UUID_B),
+      ]);
+    });
+    // startChatSession is ONLY reachable here via the abandoned turn's stray
+    // fallback (startNew). If the guard holds, it is never called.
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'STRAY'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'first (hangs)', { conversation }),
+    );
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'second (queued)', { conversation }),
+    );
+
+    await jest.advanceTimersByTimeAsync(0);
+    expect(h.adapter.resumeSession).toHaveBeenCalledTimes(1);
+
+    // Watchdog fires: cancels + ends the first turn (which unblocks the hung
+    // stream), then the queued second turn runs.
+    await jest.advanceTimersByTimeAsync(TURN_WATCHDOG_MS);
+    // Flush the now-unblocked abandoned turn's continuation.
+    await jest.advanceTimersByTimeAsync(0);
+
+    // The abandoned turn's zero-event resume did NOT spawn a stray fallback
+    // session — the cancellation guard turned its continuation into a no-op.
+    expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+
+    // Outbound bucket only ever saw the watchdog error and the SECOND turn's
+    // text — never the stray fallback's 'STRAY' debris.
+    const appended = h.gateway.appendOutboundChunk.mock.calls.map(
+      ([, msg]) => msg,
+    );
+    expect(appended).toContain('second');
+    expect(appended).toContain(
+      'This request took too long and was stopped. Please try again.',
+    );
+    expect(appended).not.toContain('STRAY');
+
+    // setPtahSessionId written once, for the second (legitimate) turn's session
+    // — never overwritten by the abandoned first turn's stray session.
+    expect(h.conversations.setPtahSessionId).toHaveBeenCalledTimes(1);
+    expect(h.conversations.setPtahSessionId).toHaveBeenCalledWith(
+      conversation.id,
+      SDK_UUID_B,
+    );
+  });
+
+  it('a fast turn never triggers the watchdog error reply and clears the timer', async () => {
+    jest.useFakeTimers();
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'fast'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+
+    await jest.advanceTimersByTimeAsync(0);
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
+
+    // Advance well past the watchdog window — the timer was cleared in the
+    // `finally`, so nothing fires and no extra error reply is sent.
+    await jest.advanceTimersByTimeAsync(TURN_WATCHDOG_MS + 60_000);
+
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
+    expect(
+      h.gateway.appendOutboundChunk.mock.calls.some(
+        ([, msg]) =>
+          msg === 'This request took too long and was stopped. Please try again.',
+      ),
+    ).toBe(false);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F4 — premium parity (TASK_2026_155, Task 2.4/3.3)
+// ---------------------------------------------------------------------------
+describe('GatewayChatBridge — premium parity (Task 2.4/3.3)', () => {
+  it('premium license + live MCP port: startChatSession receives isPremium true, mcpServerRunning true, and resolved prompts/plugins', async () => {
+    const h = setup({
+      licenseStatus: { valid: true, tier: 'pro' },
+      mcpPort: 4319,
+      enhancedPromptsContent: 'ENHANCED SYSTEM PROMPT',
+      enabledPluginIds: ['plugin-a'],
+      resolvedPluginPaths: ['/plugins/plugin-a'],
+    });
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'x'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    const config = h.adapter.startChatSession.mock.calls[0][0];
+    expect(config.isPremium).toBe(true);
+    expect(config.mcpServerRunning).toBe(true);
+    expect(config.enhancedPromptsContent).toBe('ENHANCED SYSTEM PROMPT');
+    expect(config.pluginPaths).toEqual(['/plugins/plugin-a']);
+    expect(h.codeExecutionMcp.ensureRegisteredForSubagents).toHaveBeenCalled();
+  });
+
+  it('non-premium license: startChatSession receives isPremium false, undefined prompts/plugins, and the turn still completes', async () => {
+    const h = setup({
+      licenseStatus: { valid: false, tier: 'free' },
+      mcpPort: null,
+    });
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'x'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    const config = h.adapter.startChatSession.mock.calls[0][0];
+    expect(config.isPremium).toBe(false);
+    expect(config.mcpServerRunning).toBe(false);
+    expect(config.enhancedPromptsContent).toBeUndefined();
+    expect(config.pluginPaths).toBeUndefined();
+    expect(
+      h.codeExecutionMcp.ensureRegisteredForSubagents,
+    ).not.toHaveBeenCalled();
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
   });
 });
