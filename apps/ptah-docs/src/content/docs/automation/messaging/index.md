@@ -19,8 +19,13 @@ Send a message, get an AI reply with full workspace tools. The Messaging Gateway
 
 - **Pairing** — first inbound message from a new sender produces a 6-digit code; you approve the binding in the Bindings UI before any agent work happens
 - **Voice** — audio attachments are decoded with ffmpeg and transcribed by `nodejs-whisper`
-- **Streaming** — partial AI output is coalesced into ≤3 message edits per ~250ms window so chat doesn't flap
-- **Approval gates** — anything destructive still goes through Ptah's normal approval prompts; the chat platform just relays them
+- **One reply per turn** — the agent's output is accumulated while it works and delivered as a single message when the turn completes (see [Stream coalescing](/automation/messaging/stream-coalescing/))
+- **Auto-approved tools** — gateway turns run with tool use auto-approved; there is no per-tool prompt to answer from chat. This is why pairing and allowlists are strict, and why the gateway ships disabled by default
+- **Turn ceiling** — a turn that produces nothing for 10 minutes is stopped automatically and you get an error reply; the conversation stays usable and your next message runs normally
+
+## Sessions & workspaces from chat (Discord-only for now)
+
+On Discord, each thread is its own Ptah session, and five slash commands (`/sessions`, `/session use`, `/new`, `/workspace list`, `/workspace use`) let you re-point a thread at an existing session, start fresh, or switch which workspace the thread targets — validated against a closed allowlist of folders you've opened in the desktop app. See [Discord Setup](/automation/messaging/discord/) for the full command reference. Telegram and Slack keep today's plain-message behavior; command parity there is a planned follow-up.
 
 ## Disabled by default
 
