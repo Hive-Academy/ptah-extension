@@ -18,6 +18,7 @@ import {
   ChevronDown,
 } from 'lucide-angular';
 import { ChatTranscriptComponent } from '../organisms/transcript/chat-transcript.component';
+import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
 import {
@@ -90,6 +91,7 @@ import type {
   imports: [
     LucideAngularModule,
     ChatTranscriptComponent,
+    ChatEmptyStateComponent,
     AgentMonitorPanelComponent,
     ChatInputComponent,
     PermissionBadgeComponent,

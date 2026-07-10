@@ -58,6 +58,13 @@
             (rewindRequested)="onRewindRequested($event)"
             (promptSelected)="handlePromptSelected($event)"
           />
+        } @empty {
+          <!-- No tab yet (fresh chat): the empty state lives per-transcript, so
+               render it here directly until the first tab exists. -->
+          <ptah-chat-empty-state
+            class="absolute inset-0 flex items-center justify-center"
+            (promptSelected)="handlePromptSelected($event)"
+          />
         }
       </div>
 
