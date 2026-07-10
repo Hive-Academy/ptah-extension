@@ -47,6 +47,7 @@ import {
 import {
   SESSION_CONTEXT,
   HIDE_AGENT_SIDEBAR,
+  SESSION_VISIBLE,
 } from '../../tokens/session-context.token';
 import {
   ClaudeRpcService,
@@ -111,6 +112,10 @@ export class ChatViewComponent {
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly panelResizeService = inject(PanelResizeService);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
+  /** Tile surfaces provide their on-screen state; absent → always visible. */
+  private readonly _sessionVisible = inject(SESSION_VISIBLE, {
     optional: true,
   });
   /** When true, the per-session Agents right sidebar is hidden (e.g. Tribunal
@@ -350,16 +355,19 @@ export class ChatViewComponent {
   /**
    * The main panel renders a transcript LIVE only outside grid layout — in grid
    * mode the canvas tiles own the live render, so the hidden main panel must not
-   * double-render the same tab (plan risk 5). Tile mode is always "showing"
-   * (its single tab is on-screen); Batch 3 wires tile visibility to the
-   * workspace grid.
+   * double-render the same tab (plan risk 5). In tile mode the surface reports
+   * its own on-screen state via SESSION_VISIBLE, so a hidden-workspace tile's
+   * transcript freezes; when the token is absent (tribunal conductor, tests) the
+   * tile is treated as always showing.
    *
    * NOTE: compact view mode (`resolvedViewMode() === 'compact'`) destroys the
    * keep-alive region via the template `@if/@else`; a main-panel compact toggle
    * is rare and simply rebuilds on return. Accepted, not fixed (plan risk 6).
    */
   protected readonly mainPanelShowing = computed(() =>
-    this._sessionContext ? true : this._appState.layoutMode() !== 'grid',
+    this._sessionContext
+      ? (this._sessionVisible?.() ?? true)
+      : this._appState.layoutMode() !== 'grid',
   );
 
   /**
