@@ -26,6 +26,7 @@ import {
   type EffortLevel,
   type FlagEffortLevel,
   type McpHttpServerOverride,
+  type PermissionLevel,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
@@ -137,6 +138,14 @@ export interface ExecuteQueryConfig {
    * Resolved by the caller (ChatRpcHandlers) from EnhancedPromptsService.
    */
   enhancedPromptsContent?: string;
+  /**
+   * Initial per-session permission level. When provided, seeds this session's
+   * `rec.permissionLevel` instead of the global `permissionHandler` default so
+   * the first tool call already runs at the caller-supplied level. A FRONTEND
+   * level (e.g. `'yolo'`) — mapped to the SDK mode via `PERMISSION_MODE_MAP`,
+   * never passed to the SDK as `'bypassPermissions'`.
+   */
+  permissionLevel?: PermissionLevel;
   /**
    * Plugin paths to load for this session.
    * Absolute paths to plugin directories resolved by PluginLoaderService.

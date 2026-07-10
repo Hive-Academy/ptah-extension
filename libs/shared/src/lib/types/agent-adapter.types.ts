@@ -13,6 +13,7 @@ import type {
 import type { SessionId } from './branded.types';
 import type { FlatStreamEventUnion } from './execution';
 import type { McpHttpServerOverride } from './rpc/rpc-chat.types';
+import type { PermissionLevel } from './model-autopilot.types';
 
 /**
  * Callback signatures — mirrored from agent-sdk's SdkAgentAdapter public API.
@@ -102,6 +103,15 @@ export interface AgentSessionStartConfig extends AISessionConfig {
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
   /**
+   * Initial per-session permission level for the interactive session-start
+   * path. When provided, seeds `SessionRecord.permissionLevel` instead of the
+   * global default so the very first tool call in the turn uses this level.
+   * Interactive callers pass a FRONTEND level (e.g. `'yolo'`), never the SDK
+   * `'bypassPermissions'` alias — the executor maps it to the SDK mode via
+   * `PERMISSION_MODE_MAP` so `canUseTool` still runs.
+   */
+  permissionLevel?: PermissionLevel;
+  /**
    * Opt-in to SDK `SDKPartialAssistantMessage` (`stream_event`) emissions
    * for finer streaming deltas. Forwarded to the Claude Agent SDK as
    * `Options.includePartialMessages`. Defaults to ON at the SDK plumbing
@@ -127,6 +137,13 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
   tabId?: string;
+  /**
+   * Initial per-session permission level for the interactive resume path.
+   * When provided, seeds `SessionRecord.permissionLevel` instead of the global
+   * default. Interactive callers pass a FRONTEND level (e.g. `'yolo'`), never
+   * the SDK `'bypassPermissions'` alias.
+   */
+  permissionLevel?: PermissionLevel;
   /** New user message to send as part of this resumed turn. */
   prompt?: string;
   /** See {@link AgentSessionStartConfig.includePartialMessages}. */

@@ -22,6 +22,7 @@ import {
   type McpHttpServerOverride,
   type ProviderProfile,
   type MessageAnchorHint,
+  type PermissionLevel,
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
 import type { SdkAdapterEvents } from './helpers/sdk-adapter-events.service';
@@ -422,6 +423,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       mcpServerRunning?: boolean;
       enhancedPromptsContent?: string;
       pluginPaths?: string[];
+      permissionLevel?: PermissionLevel;
       includePartialMessages?: boolean;
       mcpServersOverride?: Record<string, McpHttpServerOverride>;
       providerProfile?: ProviderProfile;
@@ -437,6 +439,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       mcpServerRunning = true,
       enhancedPromptsContent,
       pluginPaths,
+      permissionLevel,
       includePartialMessages,
       mcpServersOverride,
       providerProfile,
@@ -474,6 +477,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
+        permissionLevel,
         pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
         includePartialMessages,
         mcpServersOverride,
@@ -522,6 +526,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       enhancedPromptsContent?: string;
       pluginPaths?: string[];
       tabId?: string;
+      permissionLevel?: PermissionLevel;
       includePartialMessages?: boolean;
       providerProfile?: ProviderProfile;
     },
@@ -552,6 +557,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const mcpServerRunning = config?.mcpServerRunning ?? true;
     const enhancedPromptsContent = config?.enhancedPromptsContent;
     const pluginPaths = config?.pluginPaths;
+    const permissionLevel = config?.permissionLevel;
     const includePartialMessages = config?.includePartialMessages;
     const providerProfile = config?.providerProfile;
     const effectiveCliJsPath =
@@ -579,6 +585,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
+        permissionLevel,
         pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
         includePartialMessages,
         authEnvOverride: effectiveAuthEnv,
