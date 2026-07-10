@@ -405,12 +405,7 @@ export class CanvasStore {
   }
 
   private readWorkspacePath(): string | null {
-    const accessor = (
-      this.tabManager as unknown as {
-        activeWorkspacePath$?: () => string | null;
-      }
-    ).activeWorkspacePath$;
-    return typeof accessor === 'function' ? accessor() : null;
+    return this.tabManager.activeWorkspacePath$();
   }
 
   /** Flip the active path and (re)mount its grid section, refreshing recency. */

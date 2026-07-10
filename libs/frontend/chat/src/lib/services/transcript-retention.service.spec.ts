@@ -17,6 +17,7 @@ import {
   RETAINED_TRANSCRIPT_CAP,
   TranscriptRetentionService,
 } from './transcript-retention.service';
+import { SESSION_CONTEXT } from '../tokens/session-context.token';
 
 interface Harness {
   service: TranscriptRetentionService;
@@ -27,7 +28,7 @@ interface Harness {
   clearForTabMock: jest.Mock;
 }
 
-function makeHarness(): Harness {
+function makeHarness(opts: { tileMode?: boolean } = {}): Harness {
   const activeTabId = signal<string | null>(null);
   const closedTab = signal<ClosedTabEvent | null>(null);
   const removedWorkspace$ = signal<string | null>(null);
@@ -52,6 +53,12 @@ function makeHarness(): Harness {
       {
         provide: ExecutionTreeBuilderService,
         useValue: { clearForTab: clearForTabMock },
+      },
+      {
+        provide: SESSION_CONTEXT,
+        useValue: opts.tileMode
+          ? signal<string | null>('tile-tab').asReadonly()
+          : null,
       },
     ],
   });
@@ -159,6 +166,18 @@ describe('TranscriptRetentionService', () => {
     expect(h.clearForTabMock).toHaveBeenCalledWith('tab-1');
   });
 
+  it('closedTab effect does NOT dispose a reset (/clear) tab — it survives in place', () => {
+    const h = makeHarness();
+    h.service.touch('tab-1');
+    h.service.touch('tab-2');
+
+    h.closedTab.set({ tabId: 'tab-1', sessionId: null, kind: 'reset' });
+    TestBed.tick();
+
+    expect(h.service.retainedTabIds()).toEqual(['tab-1', 'tab-2']);
+    expect(h.clearForTabMock).not.toHaveBeenCalled();
+  });
+
   it('removedWorkspace effect disposes retained ids that no longer resolve', () => {
     const h = makeHarness();
     h.service.touch('keep');
@@ -173,5 +192,41 @@ describe('TranscriptRetentionService', () => {
 
     expect(h.service.retainedTabIds()).toEqual(['keep']);
     expect(h.clearForTabMock).toHaveBeenCalledWith('gone');
+  });
+
+  it('disposes stale unresolvable ids on activeTabId change even when removedWorkspace$ was already acked by another consumer', () => {
+    const h = makeHarness();
+    h.service.touch('keep');
+    h.service.touch('gone');
+
+    // 'gone' no longer resolves, but the shared single-shot removedWorkspace$
+    // signal stays null — a competing consumer (OrchestraCanvasComponent) won
+    // the ack race and cleared it before this instance's effect could run.
+    h.findMock.mockImplementation((id: string) =>
+      id === 'gone' ? null : { tab: { id }, workspacePath: '/ws' },
+    );
+
+    // An unrelated active-tab change is enough to prune the stale id.
+    h.activeTabId.set('keep');
+    TestBed.tick();
+
+    expect(h.service.retainedTabIds()).toEqual(['keep']);
+    expect(h.clearForTabMock).toHaveBeenCalledWith('gone');
+  });
+
+  it('tile-mode instance (SESSION_CONTEXT present) performs no touch/dispose bookkeeping', () => {
+    const h = makeHarness({ tileMode: true });
+
+    // None of the constructor effects run in tile mode, so signal changes that
+    // would normally touch/dispose leave the retained set empty and never clear
+    // any tree cache.
+    h.activeTabId.set('tab-1');
+    h.closedTab.set({ tabId: 'tab-1', sessionId: null, kind: 'close' });
+    h.findMock.mockImplementation(() => null);
+    h.removedWorkspace$.set('/ws/removed');
+    TestBed.tick();
+
+    expect(h.service.retainedTabIds()).toEqual([]);
+    expect(h.clearForTabMock).not.toHaveBeenCalled();
   });
 });

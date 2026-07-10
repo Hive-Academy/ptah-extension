@@ -364,7 +364,7 @@ export class ChatViewComponent {
    * keep-alive region via the template `@if/@else`; a main-panel compact toggle
    * is rare and simply rebuilds on return. Accepted, not fixed (plan risk 6).
    */
-  protected readonly mainPanelShowing = computed(() =>
+  readonly mainPanelShowing = computed(() =>
     this._sessionContext
       ? (this._sessionVisible?.() ?? true)
       : this._appState.layoutMode() !== 'grid',

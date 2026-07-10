@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
+import { SESSION_CONTEXT } from '../tokens/session-context.token';
 
 /**
  * Hard bound on the number of retained (hidden-but-alive) transcript DOM trees
@@ -34,6 +35,17 @@ export const RETAINED_TRANSCRIPT_CAP = 8;
 export class TranscriptRetentionService {
   private readonly _tabManager = inject(TabManagerService);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
+  /**
+   * Present only when this instance is rendered inside a canvas tile (the tile
+   * provides the tab id). Tile-mode `ChatViewComponent`s never read
+   * `retainedTabIds()` (their `transcriptTabIds` computed renders exactly their
+   * own tab), so a per-tile retention LRU is dead weight and its `clearForTab`
+   * eviction would cross-invalidate the main panel's execution-tree cache. When
+   * present the constructor stands up no effects.
+   */
+  private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
 
   /** Insertion-ordered retained ids (stable for `@for` track). */
   private readonly _retainedTabIds = signal<readonly string[]>([]);
@@ -45,24 +57,33 @@ export class TranscriptRetentionService {
   private _clock = 0;
 
   constructor() {
-    // Active-tab change → retain + refresh recency.
+    if (this._sessionContext) return;
+
+    // Active-tab change → retain + refresh recency, and opportunistically prune
+    // any retained id that no longer resolves. Piggybacking `disposeUnresolvable`
+    // here means workspace-removal cleanup never depends on winning a race for
+    // the shared, single-shot `removedWorkspace$` ack that
+    // `OrchestraCanvasComponent` also reads and clears.
     effect(() => {
       const activeId = this._tabManager.activeTabId();
-      if (activeId) {
-        untracked(() => this.touch(activeId));
-      }
+      untracked(() => {
+        if (activeId) this.touch(activeId);
+        this.disposeUnresolvable();
+      });
     });
 
-    // Tab closed → drop the retained transcript and its tree-memo cache.
+    // Tab closed → drop the retained transcript and its tree-memo cache. A
+    // `reset` (/clear) close re-empties the tab in place — it survives, so it
+    // must keep its retained slot (mirrors `orchestra-canvas.component.ts`).
     effect(() => {
       const closed = this._tabManager.closedTab();
-      if (closed) {
-        untracked(() => this.dispose(closed.tabId));
-      }
+      if (!closed || closed.kind === 'reset') return;
+      untracked(() => this.dispose(closed.tabId));
     });
 
-    // Workspace removed → drop every retained id that no longer resolves in any
-    // partition (the removed workspace's tabs are gone from the store).
+    // Workspace removed → best-effort immediate prune of every retained id that
+    // no longer resolves in any partition. Tolerates a null (already-acked)
+    // value; the `activeTabId` effect above is the race-proof backstop.
     effect(() => {
       const removed = this._tabManager.removedWorkspace$();
       if (removed) {
