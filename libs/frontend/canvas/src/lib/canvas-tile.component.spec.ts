@@ -306,3 +306,87 @@ describe('CanvasTileComponent freeze-at-creation model', () => {
     );
   });
 });
+
+describe('CanvasTileComponent visibility-driven streaming registration', () => {
+  const mockEffortState = {
+    currentEffort: signal<string | undefined>('high'),
+    isLoaded: signal(true),
+    setEffort: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockModelState = {
+    currentModel: signal<string>('claude-sonnet-4-20250514'),
+    isLoaded: signal(true),
+  };
+
+  const mockTabManager = {
+    tabs: signal<Array<{ id: string; claudeSessionId: string | null }>>([]),
+    setOverrideEffort: jest.fn(),
+    setOverrideModel: jest.fn(),
+    getTabViewMode: jest.fn().mockReturnValue('full'),
+    toggleTabViewMode: jest.fn(),
+    registerVisibleTab: jest.fn(),
+    unregisterVisibleTab: jest.fn(),
+  };
+
+  function mountTile(tabId: string, visible: boolean) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [CanvasTileComponent],
+      providers: [
+        { provide: EffortStateService, useValue: mockEffortState },
+        { provide: ModelStateService, useValue: mockModelState },
+        { provide: TabManagerService, useValue: mockTabManager },
+      ],
+    });
+    TestBed.overrideComponent(CanvasTileComponent, {
+      set: { template: '', imports: [] },
+    });
+    const fixture = TestBed.createComponent(CanvasTileComponent);
+    fixture.componentRef.setInput('tabId', tabId);
+    fixture.componentRef.setInput('visible', visible);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockTabManager.tabs.set([]);
+  });
+
+  it('registers the tab as visible when mounted visible', () => {
+    mountTile('tab-1', true);
+
+    expect(mockTabManager.registerVisibleTab).toHaveBeenCalledWith('tab-1');
+  });
+
+  it('does NOT register while hidden, then registers when it becomes visible', () => {
+    const fixture = mountTile('tab-1', false);
+
+    expect(mockTabManager.registerVisibleTab).not.toHaveBeenCalled();
+
+    fixture.componentRef.setInput('visible', true);
+    fixture.detectChanges();
+
+    expect(mockTabManager.registerVisibleTab).toHaveBeenCalledWith('tab-1');
+  });
+
+  it('unregisters when it becomes hidden (not tied to lifecycle)', () => {
+    const fixture = mountTile('tab-1', true);
+    mockTabManager.unregisterVisibleTab.mockClear();
+
+    fixture.componentRef.setInput('visible', false);
+    fixture.detectChanges();
+
+    expect(mockTabManager.unregisterVisibleTab).toHaveBeenCalledWith('tab-1');
+  });
+
+  it('still unregisters on destroy', () => {
+    const fixture = mountTile('tab-1', true);
+    mockTabManager.unregisterVisibleTab.mockClear();
+
+    fixture.destroy();
+
+    expect(mockTabManager.unregisterVisibleTab).toHaveBeenCalledWith('tab-1');
+  });
+});

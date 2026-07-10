@@ -80,7 +80,10 @@ import {
   ExecutionTreeBuilderService,
 } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
-import { SESSION_CONTEXT } from '../../tokens/session-context.token';
+import {
+  SESSION_CONTEXT,
+  SESSION_VISIBLE,
+} from '../../tokens/session-context.token';
 import { RpcResult } from '@ptah-extension/core';
 
 // ---------------------------------------------------------------------------
@@ -133,6 +136,12 @@ function makeHarness(
      * tab — the scenario where a banner from another tile must NOT leak in.
      */
     sessionContextTabId?: string;
+    /**
+     * Initial value for the `SESSION_VISIBLE` signal (tile on-screen state).
+     * When provided, `SESSION_VISIBLE` is wired so `mainPanelShowing()` reflects
+     * it. Absent → token not provided (treated as always visible).
+     */
+    sessionVisible?: boolean;
   } = {},
 ) {
   const {
@@ -141,7 +150,10 @@ function makeHarness(
     confirmResult = true,
     useRealBanner = false,
     sessionContextTabId,
+    sessionVisible,
   } = opts;
+  const sessionVisibleSig =
+    sessionVisible === undefined ? null : signal<boolean>(sessionVisible);
 
   // Writable signals for reactive control from tests
   const sessionIdSig = signal<string | null>(sessionId);
@@ -208,6 +220,11 @@ function makeHarness(
     findTabsBySessionId: findTabsBySessionIdMock,
     rebindTabSession: rebindTabSessionMock,
     closeTab: closeTabMock,
+    // Consumed by the component-scoped TranscriptRetentionService effects.
+    closedTab: signal(null).asReadonly(),
+    removedWorkspace$: signal(null).asReadonly(),
+    findTabByIdAcrossWorkspaces: jest.fn(() => null),
+    clearRemovedWorkspace: jest.fn(),
   } as unknown as TabManagerService;
 
   const vscodeStub = {
@@ -282,7 +299,9 @@ function makeHarness(
     requestCanvasSession: requestCanvasSessionMock,
   } as unknown as AppStateManager;
 
-  const treeBuilderStub = {} as unknown as ExecutionTreeBuilderService;
+  const treeBuilderStub = {
+    clearForTab: jest.fn(),
+  } as unknown as ExecutionTreeBuilderService;
 
   const conversationRegistryStub = {
     getIsCompacting: jest.fn(() => false),
@@ -326,6 +345,10 @@ function makeHarness(
             ? null
             : signal<string | null>(sessionContextTabId).asReadonly(),
       },
+      {
+        provide: SESSION_VISIBLE,
+        useValue: sessionVisibleSig ? sessionVisibleSig.asReadonly() : null,
+      },
     ],
   });
 
@@ -359,6 +382,7 @@ function makeHarness(
     sessionIsActiveSig,
     sessionIdSig,
     activeTabIdSig,
+    sessionVisibleSig,
   };
 }
 
@@ -965,5 +989,49 @@ describe('ChatViewComponent — per-tile banner scoping', () => {
     expect(h.component.actionInfo()).toBeNull();
     expect(h.component.actionError()).toBeNull();
     h.realActionBanner.clear();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mainPanelShowing() / SESSION_VISIBLE gating.
+//
+// `mainPanelShowing()` is the single computed that prevents the hidden main
+// panel from double-rendering a tab that a canvas tile already renders live
+// (plan risk 5), and freezes a hidden-workspace tile's transcript via the
+// injected SESSION_VISIBLE signal (plan §3.6). Direct coverage so a refactor
+// can't silently break the gate.
+// ---------------------------------------------------------------------------
+describe('ChatViewComponent — mainPanelShowing() / SESSION_VISIBLE gating', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('main panel: true outside grid layout, false in grid layout', () => {
+    const h = makeHarness();
+    // Default single layout → main panel renders its transcript live.
+    expect(h.component.mainPanelShowing()).toBe(true);
+
+    // Grid layout → tiles own the live render; the hidden main panel must not.
+    h.layoutModeSig.set('grid');
+    expect(h.component.mainPanelShowing()).toBe(false);
+  });
+
+  it('tile mode: reflects the injected SESSION_VISIBLE signal', () => {
+    const h = makeHarness({
+      sessionContextTabId: 'tile-A',
+      sessionVisible: false,
+    });
+    // Hidden tile → frozen (not showing).
+    expect(h.component.mainPanelShowing()).toBe(false);
+
+    // Becomes visible → shows, independent of the global layout mode.
+    h.sessionVisibleSig!.set(true);
+    expect(h.component.mainPanelShowing()).toBe(true);
+  });
+
+  it('tile mode without SESSION_VISIBLE token defaults to showing', () => {
+    const h = makeHarness({ sessionContextTabId: 'tile-A' });
+    expect(h.component.mainPanelShowing()).toBe(true);
   });
 });

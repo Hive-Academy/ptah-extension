@@ -19,6 +19,7 @@ import {
   ChatViewComponent,
   TabManagerService,
   SESSION_CONTEXT,
+  SESSION_VISIBLE,
   SendToMessagingComponent,
 } from '@ptah-extension/chat';
 import { EffortStateService, ModelStateService } from '@ptah-extension/core';
@@ -125,6 +126,14 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   readonly focused = input<boolean>(false);
 
   /**
+   * Whether this tile's workspace grid is on-screen. Drives visibility-based
+   * streaming registration and the inner transcript's reactivity pause: a
+   * hidden-workspace tile deregisters (so BatchedUpdateService keeps deferring
+   * its streaming flushes) and its transcript freezes.
+   */
+  readonly visible = input<boolean>(true);
+
+  /**
    * Emits tabId when the user clicks anywhere on the tile.
    * Parent must call canvasStore.focusTile(tabId) to update global activeTabId
    * before any message send can occur for this tile.
@@ -174,6 +183,23 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   });
 
   /**
+   * Register this tile's tab as visible only while its workspace grid is
+   * on-screen. Driven by the `visible` input (not the lifecycle) so a tile that
+   * stays mounted in a hidden background workspace deregisters — keeping
+   * BatchedUpdateService's streaming-flush deferral in effect and preserving the
+   * cross-workspace streaming isolation from commit 571227a8a. Unregistered
+   * again in ngOnDestroy.
+   */
+  private readonly _visibilityRegistration = effect(() => {
+    const id = this.tabId();
+    if (this.visible()) {
+      this.tabManager.registerVisibleTab(id);
+    } else {
+      this.tabManager.unregisterVisibleTab(id);
+    }
+  });
+
+  /**
    * Child EnvironmentInjector providing SESSION_CONTEXT for this tile's ChatViewComponent.
    * Starts null; set in ngOnInit; destroyed in ngOnDestroy.
    * Private mutable signal; exposed as readonly via childInjector.
@@ -211,12 +237,13 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
 
     this._childInjector.set(
       createEnvironmentInjector(
-        [{ provide: SESSION_CONTEXT, useValue: tabIdSignal }],
+        [
+          { provide: SESSION_CONTEXT, useValue: tabIdSignal },
+          { provide: SESSION_VISIBLE, useValue: this.visible },
+        ],
         this.parentEnvInjector,
       ),
     );
-
-    this.tabManager.registerVisibleTab(this.tabId());
   }
 
   ngOnDestroy(): void {

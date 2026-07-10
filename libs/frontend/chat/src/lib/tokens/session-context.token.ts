@@ -20,3 +20,14 @@ export const SESSION_CONTEXT = new InjectionToken<Signal<string | null>>(
 export const HIDE_AGENT_SIDEBAR = new InjectionToken<boolean>(
   'HIDE_AGENT_SIDEBAR',
 );
+
+/**
+ * Optional injection token carrying whether the surface hosting a
+ * ChatViewComponent is currently on-screen. Canvas tiles provide their
+ * `visible` signal so a hidden-workspace tile's transcript freezes (pauses
+ * reactivity) instead of re-rendering every streaming chunk. Absent → treated
+ * as always visible (main panel, tribunal conductor, tests).
+ */
+export const SESSION_VISIBLE = new InjectionToken<Signal<boolean>>(
+  'SESSION_VISIBLE',
+);

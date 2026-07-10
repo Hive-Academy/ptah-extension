@@ -67,6 +67,10 @@ export {
   type PreloadedStatsPayload,
 } from '@ptah-extension/chat-state';
 export { WorkspaceCoordinatorService } from './workspace-coordinator.service';
+export {
+  TranscriptRetentionService,
+  RETAINED_TRANSCRIPT_CAP,
+} from './transcript-retention.service';
 /** @deprecated Import from `@ptah-extension/chat-state` instead. */
 export {
   TabWorkspacePartitionService,
@@ -77,5 +81,6 @@ export { SessionDisplayUtils } from './session-display-utils.service';
 export {
   SESSION_CONTEXT,
   HIDE_AGENT_SIDEBAR,
+  SESSION_VISIBLE,
 } from '../tokens/session-context.token';
 export { provideModelRefreshControl } from './chat-store/model-refresh-control.provider';

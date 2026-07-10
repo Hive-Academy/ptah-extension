@@ -5,12 +5,8 @@ import {
   computed,
   viewChild,
   ChangeDetectionStrategy,
-  afterNextRender,
   effect,
   untracked,
-  Injector,
-  DestroyRef,
-  ElementRef,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -21,7 +17,8 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-angular';
-import { MessageBubbleComponent } from '../organisms/message-bubble.component';
+import { ChatTranscriptComponent } from '../organisms/transcript/chat-transcript.component';
+import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
 import {
@@ -32,17 +29,14 @@ import {
   CompactionMarkerComponent,
   SidebarTabComponent,
 } from '@ptah-extension/chat-ui';
-import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
+import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
-import {
-  AgentMonitorStore,
-  ExecutionTreeBuilderService,
-} from '@ptah-extension/chat-streaming';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import {
   TabManagerService,
@@ -54,52 +48,20 @@ import {
 import {
   SESSION_CONTEXT,
   HIDE_AGENT_SIDEBAR,
+  SESSION_VISIBLE,
 } from '../../tokens/session-context.token';
 import {
-  VSCodeService,
   ClaudeRpcService,
   AppStateManager,
   AuthStateService,
   RpcResult,
 } from '@ptah-extension/core';
-import {
-  createExecutionChatMessage,
-  ExecutionChatMessage,
-  SessionId,
-} from '@ptah-extension/shared';
+import { SessionId } from '@ptah-extension/shared';
 import type {
   ChatSessionSummary,
   SubagentRecord,
   MessageAnchorHint,
 } from '@ptah-extension/shared';
-
-const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
-
-/**
- * Compaction noise filter — hides post-compaction user messages that the
- * Claude SDK emits as side-effects of `/compact`:
- *  1. The slash-command echo (`/compact ...`)
- *  2. The ANSI-wrapped hook status (`[2mCompacted PreCompact … completed successfully[22m`)
- * The continuation summary itself ("This session is being continued …") is
- * kept and rendered collapsed by `MessageBubbleComponent`.
- */
-function isCompactionNoiseUserMessage(msg: ExecutionChatMessage): boolean {
-  if (msg.role !== 'user') return false;
-  const raw = (msg.rawContent ?? '').trim();
-  if (!raw) return false;
-  if (/^\/compact\b/i.test(raw)) return true;
-  if (/Compacted\s+\w+\s+\[callback\]\s+completed successfully/i.test(raw)) {
-    return true;
-  }
-  return false;
-}
-
-function filterCompactionNoise(
-  msgs: readonly ExecutionChatMessage[],
-): readonly ExecutionChatMessage[] {
-  if (!msgs.some(isCompactionNoiseUserMessage)) return msgs;
-  return msgs.filter((m) => !isCompactionNoiseUserMessage(m));
-}
 
 /**
  * ChatViewComponent - Main chat view with message list and Egyptian themed welcome
@@ -128,12 +90,12 @@ function filterCompactionNoise(
   selector: 'ptah-chat-view',
   imports: [
     LucideAngularModule,
-    MessageBubbleComponent,
+    ChatTranscriptComponent,
+    ChatEmptyStateComponent,
     AgentMonitorPanelComponent,
     ChatInputComponent,
     PermissionBadgeComponent,
     QuestionCardComponent,
-    ChatEmptyStateComponent,
     SessionStatsSummaryComponent,
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
@@ -145,15 +107,17 @@ function filterCompactionNoise(
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [TranscriptRetentionService],
 })
 export class ChatViewComponent {
   readonly chatStore = inject(ChatStore);
-  private readonly vscodeService = inject(VSCodeService);
-  private readonly injector = inject(Injector);
-  private readonly destroyRef = inject(DestroyRef);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly panelResizeService = inject(PanelResizeService);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
+  /** Tile surfaces provide their on-screen state; absent → always visible. */
+  private readonly _sessionVisible = inject(SESSION_VISIBLE, {
     optional: true,
   });
   /** When true, the per-session Agents right sidebar is hidden (e.g. Tribunal
@@ -162,7 +126,6 @@ export class ChatViewComponent {
     inject(HIDE_AGENT_SIDEBAR, { optional: true }) ?? false;
   private readonly _tabManager = inject(TabManagerService);
   private readonly _appState = inject(AppStateManager);
-  private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
   private readonly _conversationRegistry = inject(ConversationRegistry);
   private readonly _tabSessionBinding = inject(TabSessionBinding);
   /**
@@ -338,76 +301,8 @@ export class ChatViewComponent {
     document.addEventListener('mouseup', this.resizeMouseUp);
   }
 
-  /**
-   * ResizeObserver on the content wrapper. Fires whenever the content's height
-   * changes — streaming text growth, agent sub-output, markdown image load, or
-   * the streaming→finalized swap — which is exactly when a pinned transcript
-   * must re-stick to the bottom. Fires on real size change only, so it can't
-   * storm.
-   */
-  private resizeObserver: ResizeObserver | null = null;
-  private scrollRafId: number | null = null;
-  private lastContentHeight = 0;
-  /** Distance from bottom (px) within which the user is considered "pinned". */
-  private readonly NEAR_BOTTOM_PX = 120;
-
-  /**
-   * The plain scroll container (`#messageContainer`). Off-screen message
-   * bubbles are skipped by the browser via `content-visibility: auto`
-   * (see chat-view.component.css), so this gives virtual-scroll-class
-   * performance without the experimental autosize estimator — scroll
-   * positions are the element's real `scrollTop`/`scrollHeight`.
-   */
-  private readonly scrollContainer =
-    viewChild<ElementRef<HTMLElement>>('messageContainer');
-  /** Inner content wrapper observed for height changes (streaming growth). */
-  private readonly contentWrapper =
-    viewChild<ElementRef<HTMLElement>>('messageContent');
-
   /** Signal-based viewChild for chat input (used for prompt-suggestion fill) */
   private readonly chatInputRef = viewChild(ChatInputComponent);
-
-  /**
-   * Whether the transcript is pinned to the bottom (auto-follows new content).
-   * Set false when the user scrolls up past NEAR_BOTTOM_PX, true when they
-   * scroll back down or send a new message.
-   */
-  private pinnedToBottom = true;
-
-  /** Track message count to detect new user messages */
-  private lastMessageCount = 0;
-
-  /**
-   * Tracks previous streaming state to detect the streaming→idle transition,
-   * which drives `isFinalizingTransition` (animation suppression) and a
-   * stick-to-bottom when the user is pinned.
-   */
-  private wasStreaming = false;
-
-  /**
-   * Suppresses onScroll bookkeeping while WE drive the scroll position. The
-   * programmatic scroll emits scroll events that must not flip `pinnedToBottom`.
-   */
-  private isAdjusting = false;
-
-  private readonly scrollPositionCache = new Map<string, number>();
-  private previousTabId: string | null = null;
-
-  /**
-   * Active during the streaming→finalized DOM transition. Suppresses onScroll
-   * bookkeeping so the swap can't flip `pinnedToBottom`.
-   *
-   * A signal so it flows reactively into <ptah-message-bubble> and onward to
-   * ExecutionNodeComponent + InlineAgentBubbleComponent — those use it to
-   * suppress fade keyframes during the finalize burst.
-   */
-  protected readonly isFinalizingTransition = signal(false);
-  private finalizingTimeoutId: ReturnType<typeof setTimeout> | null = null;
-
-  /**
-   * Ptah icon URI for skeleton avatar placeholder
-   */
-  readonly ptahIconUri = computed(() => this.vscodeService.getPtahIconUri());
 
   /**
    * Resolved session ID: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
@@ -424,10 +319,58 @@ export class ChatViewComponent {
     return this.chatStore.currentSessionId();
   });
 
-  private readonly resolvedTabId = computed(() => {
+  protected readonly resolvedTabId = computed(() => {
     const ctx = this._sessionContext;
     return ctx ? ctx() : this._tabManager.activeTabId();
   });
+
+  /**
+   * Component-scoped LRU of tab ids whose transcript stays mounted (keep-alive).
+   * One instance per ChatViewComponent (declared in `providers`).
+   */
+  private readonly _retention = inject(TranscriptRetentionService);
+
+  /**
+   * Tab ids to render as `<ptah-chat-transcript>` instances. Tile mode
+   * (SESSION_CONTEXT present) renders exactly its one tab; the main panel
+   * renders the retained set so switching tabs/workspaces reuses built DOM
+   * instead of rebuilding it.
+   */
+  protected readonly transcriptTabIds = computed<readonly string[]>(() => {
+    const ctx = this._sessionContext;
+    if (ctx) {
+      const id = ctx();
+      return id ? [id] : [];
+    }
+    // The active tab always renders (appended once if the retention effect has
+    // not registered it yet), so the transcript never blinks on the frame
+    // between an active-tab change and the effect touch. Appending at the end
+    // matches where `touch` inserts it, so `@for track tabId` never reorders.
+    const retained = this._retention.retainedTabIds();
+    const active = this._tabManager.activeTabId();
+    if (active && !retained.includes(active)) {
+      return [...retained, active];
+    }
+    return retained;
+  });
+
+  /**
+   * The main panel renders a transcript LIVE only outside grid layout — in grid
+   * mode the canvas tiles own the live render, so the hidden main panel must not
+   * double-render the same tab (plan risk 5). In tile mode the surface reports
+   * its own on-screen state via SESSION_VISIBLE, so a hidden-workspace tile's
+   * transcript freezes; when the token is absent (tribunal conductor, tests) the
+   * tile is treated as always showing.
+   *
+   * NOTE: compact view mode (`resolvedViewMode() === 'compact'`) destroys the
+   * keep-alive region via the template `@if/@else`; a main-panel compact toggle
+   * is rare and simply rebuilds on return. Accepted, not fixed (plan risk 6).
+   */
+  readonly mainPanelShowing = computed(() =>
+    this._sessionContext
+      ? (this._sessionVisible?.() ?? true)
+      : this._appState.layoutMode() !== 'grid',
+  );
 
   /**
    * Resolved messages: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
@@ -635,135 +578,6 @@ export class ChatViewComponent {
       : this.chatStore.queuedContent();
   });
 
-  readonly resolvedStreamingState = computed(() => {
-    const tab = this.resolvedTab();
-    return tab !== null
-      ? (tab.streamingState ?? null)
-      : this.chatStore.activeStreamingState();
-  });
-
-  readonly resolvedExecutionTrees = computed(() => {
-    const state = this.resolvedStreamingState();
-    if (!state) return [];
-    const ctx = this._sessionContext;
-    const cacheKey = ctx
-      ? `tile-${ctx()}`
-      : `tab-${this._tabManager.activeTabId()}`;
-    return this._treeBuilder.buildTree(state, cacheKey);
-  });
-
-  /**
-   * Computed signal that creates ExecutionChatMessages from ALL
-   * currentExecutionTrees (not just the first one).
-   *
-   * When Claude uses tools, the SDK sends multiple assistant messages in one turn:
-   * - Message 1: Contains tool calls (e.g., Glob)
-   * - Message 2: Contains follow-up text and more tools after tool results
-   *
-   * Previously, only the first tree was rendered, causing subsequent messages to be LOST!
-   * Now we return ALL trees as messages so they can all be rendered.
-   *
-   * Includes pendingStats from streamingState so stats display during/after
-   * streaming before finalization. Stats may arrive before finalization and
-   * should be shown immediately.
-   *
-   * DEDUPLICATION: Finalized messages use tree.id (event id) NOT messageId,
-   * so we can properly match and filter out already-finalized trees.
-   */
-  private readonly finalizedMessageIds = computed((): ReadonlySet<string> => {
-    const msgs = this.resolvedMessages();
-    if (msgs.length === 0) return EMPTY_STRING_SET;
-    const ids = new Set<string>();
-    for (const m of msgs) ids.add(m.id);
-    return ids;
-  });
-
-  protected readonly finalizedFiltered = computed(
-    (): readonly ExecutionChatMessage[] => {
-      return filterCompactionNoise(this.resolvedMessages());
-    },
-  );
-
-  readonly streamingMessages = computed((): ExecutionChatMessage[] => {
-    const trees = this.resolvedExecutionTrees();
-    if (trees.length === 0) return [];
-
-    const streamingState = this.resolvedStreamingState();
-    const pendingStats = streamingState?.pendingStats;
-
-    const finalizedIds = this.finalizedMessageIds();
-    const nonFinalizedTrees = trees.filter(
-      (tree) => !finalizedIds.has(tree.id),
-    );
-    if (nonFinalizedTrees.length === 0) return [];
-
-    return nonFinalizedTrees.map((tree) =>
-      createExecutionChatMessage({
-        id: tree.id,
-        role: 'assistant',
-        streamingState: tree,
-        sessionId: this.resolvedSessionId() ?? undefined,
-        ...(pendingStats && {
-          tokens: pendingStats.tokens,
-          cost: pendingStats.cost,
-          duration: pendingStats.duration,
-        }),
-      }),
-    );
-  });
-
-  /**
-   * Unified message list: resolved (finalized) messages + currently-streaming
-   * trees, rendered through a SINGLE `@for` block in the template.
-   *
-   * Why unified: the streaming-tree id and the eventual finalized-message id
-   * are the same value (`MessageFinalizationService` sets
-   * `treeNodeId = finalTree[0]?.id`). When the finalization handler swaps the
-   * streaming tree for a finalized message, the id is preserved — Angular's
-   * `track msg.id` reuses the same `<ptah-message-bubble>` instance across the
-   * transition, so streaming → finalized is an in-place mutation rather than a
-   * remove-from-list + add-to-list remount. This eliminates the dramatic DOM
-   * destroy/create that previously caused layout shift, scroll-anchor
-   * disruption, and content-visibility flashes.
-   *
-   * Streaming entries are tagged via the `isStreaming` flag derived from
-   * `resolvedIsStreaming()` AND identity (only the live trees are streaming;
-   * historical messages are not).
-   */
-  readonly totalMessageCount = computed((): number => {
-    return this.finalizedFiltered().length + this.streamingMessages().length;
-  });
-
-  private _allMessagesCache: readonly ExecutionChatMessage[] = [];
-  private _allMessagesFinalizedRef: readonly ExecutionChatMessage[] | null =
-    null;
-  private _allMessagesStreamingRef: readonly ExecutionChatMessage[] | null =
-    null;
-
-  readonly allMessages = computed((): readonly ExecutionChatMessage[] => {
-    const finalized = this.finalizedFiltered();
-    const streaming = this.streamingMessages();
-    if (
-      finalized === this._allMessagesFinalizedRef &&
-      streaming === this._allMessagesStreamingRef
-    ) {
-      return this._allMessagesCache;
-    }
-    const next =
-      streaming.length === 0 ? finalized : [...finalized, ...streaming];
-    this._allMessagesFinalizedRef = finalized;
-    this._allMessagesStreamingRef = streaming;
-    this._allMessagesCache = next;
-    return next;
-  });
-
-  protected trackByMessageId(
-    _index: number,
-    msg: ExecutionChatMessage,
-  ): string {
-    return msg.id;
-  }
-
   constructor() {
     effect(() => {
       const agents = this.sessionAgents();
@@ -784,84 +598,6 @@ export class ChatViewComponent {
         this._userExplicitlyClosed = false;
       }
     });
-    // Unified content-follow controller. Reacts to BOTH tab/session switches
-    // (resolvedTabId) and content changes (allMessages — which transitively
-    // tracks streaming-tree growth). One effect, one source of truth.
-    effect(() => {
-      const tabId = this.resolvedTabId();
-      const messages = this.allMessages();
-      const count = messages.length;
-      untracked(() => {
-        if (tabId !== this.previousTabId) {
-          this.previousTabId = tabId ?? null;
-          this.lastMessageCount = count;
-          this.restoreScrollForTab(tabId);
-          return;
-        }
-        const last = messages[count - 1];
-        const isNewUserMessage =
-          count > this.lastMessageCount && last?.role === 'user';
-        this.lastMessageCount = count;
-        if (isNewUserMessage) {
-          this.pinnedToBottom = true;
-        }
-        if (this.pinnedToBottom) {
-          this.scheduleStickToBottom();
-        }
-      });
-    });
-    effect(() => {
-      const isStreaming = this.resolvedIsStreaming();
-      untracked(() => {
-        if (this.wasStreaming && !isStreaming) {
-          this.isFinalizingTransition.set(true);
-          if (this.pinnedToBottom) {
-            this.scheduleStickToBottom();
-          }
-          if (this.finalizingTimeoutId) {
-            clearTimeout(this.finalizingTimeoutId);
-          }
-          this.finalizingTimeoutId = setTimeout(() => {
-            this.isFinalizingTransition.set(false);
-            this.finalizingTimeoutId = null;
-            if (this.pinnedToBottom) {
-              this.scheduleStickToBottom();
-            }
-          }, 300);
-        }
-        this.wasStreaming = isStreaming;
-      });
-    });
-    afterNextRender(
-      () => {
-        this.setupResizeObserver();
-      },
-      { injector: this.injector },
-    );
-    this.destroyRef.onDestroy(() => {
-      this.cleanup();
-    });
-  }
-
-  /**
-   * Handle viewport scroll events. Updates `pinnedToBottom` from the user's
-   * position and caches the offset per tab. Ignored while WE drive the scroll
-   * (isAdjusting) or during the finalize transition, so neither can falsely
-   * unpin.
-   */
-  onScroll(_event: Event): void {
-    if (this.isAdjusting || this.isFinalizingTransition()) return;
-
-    const el = this.scrollContainer()?.nativeElement;
-    if (!el) return;
-
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    this.pinnedToBottom = distanceFromBottom < this.NEAR_BOTTOM_PX;
-
-    const tabId = this.resolvedTabId();
-    if (tabId) {
-      this.scrollPositionCache.set(tabId, el.scrollTop);
-    }
   }
 
   /**
@@ -1334,98 +1070,6 @@ export class ChatViewComponent {
     const tabId = this.resolvedTabId();
     if (tabId) {
       this._tabManager.toggleTabViewMode(tabId);
-    }
-  }
-
-  /**
-   * Stick the container to the bottom on the next frame. rAF-coalesced so a
-   * burst of streaming chunks collapses to a single adjustment per frame.
-   *
-   * Uses the element's real `scrollHeight` — there is no estimator to go
-   * stale, so the streamed content is always reachable without a manual
-   * scroll, and the position can't oscillate as it did with the autosize
-   * strategy.
-   */
-  private scheduleStickToBottom(): void {
-    if (this.scrollRafId !== null) {
-      cancelAnimationFrame(this.scrollRafId);
-    }
-    this.scrollRafId = requestAnimationFrame(() => {
-      this.scrollRafId = null;
-      const el = this.scrollContainer()?.nativeElement;
-      if (!el) return;
-      this.isAdjusting = true;
-      el.scrollTop = el.scrollHeight;
-      requestAnimationFrame(() => {
-        this.isAdjusting = false;
-      });
-    });
-  }
-
-  /**
-   * On tab/session switch, restore the saved scroll offset (don't auto-follow),
-   * or pin to the bottom for a freshly-opened tab.
-   */
-  private restoreScrollForTab(tabId: string | null): void {
-    const saved =
-      tabId !== null ? this.scrollPositionCache.get(tabId) : undefined;
-    if (this.scrollRafId !== null) {
-      cancelAnimationFrame(this.scrollRafId);
-    }
-    this.scrollRafId = requestAnimationFrame(() => {
-      this.scrollRafId = null;
-      const el = this.scrollContainer()?.nativeElement;
-      if (!el) return;
-      this.isAdjusting = true;
-      if (saved !== undefined) {
-        el.scrollTop = saved;
-        this.pinnedToBottom = false;
-      } else {
-        el.scrollTop = el.scrollHeight;
-        this.pinnedToBottom = true;
-      }
-      requestAnimationFrame(() => {
-        this.isAdjusting = false;
-      });
-    });
-  }
-
-  /**
-   * Observe the content wrapper's height. Fires on real size changes only
-   * (streaming growth, agent output, image load, finalize swap), so a pinned
-   * transcript follows the stream without any per-frame re-measure loop.
-   */
-  private setupResizeObserver(): void {
-    const wrapper = this.contentWrapper()?.nativeElement;
-    if (!wrapper || this.resizeObserver) return;
-
-    this.resizeObserver = new ResizeObserver((entries) => {
-      if (this.isAdjusting) return;
-      const height = entries[0]?.contentRect.height ?? 0;
-      if (Math.abs(height - this.lastContentHeight) < 1) return;
-      this.lastContentHeight = height;
-      if (this.pinnedToBottom) {
-        this.scheduleStickToBottom();
-      }
-    });
-    this.resizeObserver.observe(wrapper);
-  }
-
-  /**
-   * Cleanup observer, animation frame, and timeout on component destruction.
-   */
-  private cleanup(): void {
-    if (this.resizeObserver) {
-      this.resizeObserver.disconnect();
-      this.resizeObserver = null;
-    }
-    if (this.scrollRafId !== null) {
-      cancelAnimationFrame(this.scrollRafId);
-      this.scrollRafId = null;
-    }
-    if (this.finalizingTimeoutId) {
-      clearTimeout(this.finalizingTimeoutId);
-      this.finalizingTimeoutId = null;
     }
   }
 }
