@@ -319,6 +319,8 @@ import type {
   CorpusRebuildResult,
   CorpusDeleteParams,
   CorpusDeleteResult,
+  CorpusSuggestParams,
+  CorpusSuggestResult,
 } from './rpc/rpc-corpus.types';
 
 import type {
@@ -1354,6 +1356,10 @@ export interface RpcMethodRegistry {
   'corpus:delete': {
     params: CorpusDeleteParams;
     result: CorpusDeleteResult;
+  };
+  'corpus:suggest': {
+    params: CorpusSuggestParams;
+    result: CorpusSuggestResult;
   };
   'skillSynthesis:listCandidates': {
     params: SkillSynthesisListCandidatesParams;
@@ -2559,6 +2565,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'corpus:reprime': true,
   'corpus:rebuild': true,
   'corpus:delete': true,
+  'corpus:suggest': true,
 
   'skillSynthesis:listCandidates': true,
   'skillSynthesis:getCandidate': true,

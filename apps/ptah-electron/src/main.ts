@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
 import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
+import { VOICE_TOKENS } from '@ptah-extension/voice-providers';
 import { TOKENS, type SentryService } from '@ptah-extension/vscode-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -270,6 +271,19 @@ if (!gotLock) {
     }
 
     const diContainer = ElectronDIContainer.getContainer();
+    // Terminate the voice utilityProcess worker (kills the child + idle timer).
+    try {
+      if (diContainer.isRegistered(VOICE_TOKENS.VOICE_WORKER_CLIENT)) {
+        diContainer
+          .resolve<{ dispose: () => void }>(VOICE_TOKENS.VOICE_WORKER_CLIENT)
+          .dispose();
+      }
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Voice worker dispose failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     if (
       diContainer.isRegistered(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
     ) {

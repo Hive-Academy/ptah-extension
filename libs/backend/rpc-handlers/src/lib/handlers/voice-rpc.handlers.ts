@@ -1,8 +1,10 @@
 /**
  * Voice RPC Handlers
  *
- * Bridges the `voice:transcribe` RPC method to the shared voice pipeline in
- * `@ptah-extension/messaging-gateway` (FfmpegDecoder + WhisperTranscriber).
+ * Bridges the `voice:*` RPC methods to the provider-agnostic voice subsystem in
+ * `@ptah-extension/voice-providers` via the `voice-contracts` selector/registry
+ * ports. `voice:transcribe`/`voice:synthesize` route through the active provider
+ * (selector); the local model-config methods route through `registry.get*('local')`.
  * Electron-only, registered alongside the `gateway:*` namespace.
  */
 
@@ -35,21 +37,20 @@ import type {
 } from '@ptah-extension/shared';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import {
-  GATEWAY_TOKENS,
-  FfmpegDecoder,
-  WhisperTranscriber,
-  KokoroSynthesizer,
-  resolveWhisperModel,
-  VOICE_WHISPER_MODEL_KEY,
-  DEFAULT_KOKORO_VOICE,
+  VOICE_CONTRACT_TOKENS,
+  isVoiceProviderError,
   VOICE_ASSETS_UNAVAILABLE,
   VOICE_ASSETS_REMEDIATION,
-  isVoiceAssetsUnavailable,
-} from '@ptah-extension/messaging-gateway';
-import type {
-  WhisperDownloadEvent,
-  KokoroDownloadEvent,
-} from '@ptah-extension/messaging-gateway';
+  type IVoiceProviderRegistry,
+  type IVoiceProviderSelector,
+  type VoiceDownloadEvent,
+} from '@ptah-extension/voice-contracts';
+import {
+  resolveWhisperModel,
+  resolveTtsVoice,
+  VOICE_WHISPER_MODEL_KEY,
+  VOICE_TTS_VOICE_KEY,
+} from '@ptah-extension/voice-providers';
 import {
   VoiceDownloadModelParamsSchema,
   VoiceSetConfigParamsSchema,
@@ -58,8 +59,6 @@ import {
   VoiceSynthesizeParamsSchema,
 } from './voice-rpc.schema';
 
-/** Settings key for the selected Kokoro TTS voice. */
-const VOICE_TTS_VOICE_KEY = 'voice.ttsVoice';
 /**
  * Stable sentinel model id for the TTS download progress channel, so the
  * settings UI can distinguish Kokoro download ticks from Whisper ones (which
@@ -82,6 +81,14 @@ function extensionForMime(mimeType: string): string {
   return MIME_EXTENSIONS[base] ?? '.webm';
 }
 
+/** Map a download event's lifecycle kind to a broadcastable percent. */
+function downloadPercent(evt: VoiceDownloadEvent): number | null {
+  if (evt.kind === 'download:start') return 0;
+  if (evt.kind === 'download:progress') return evt.percent;
+  if (evt.kind === 'download:complete') return 100;
+  return null;
+}
+
 @injectable()
 export class VoiceRpcHandlers {
   static readonly METHODS = [
@@ -100,12 +107,10 @@ export class VoiceRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
-    @inject(GATEWAY_TOKENS.GATEWAY_FFMPEG_DECODER)
-    private readonly ffmpeg: FfmpegDecoder,
-    @inject(GATEWAY_TOKENS.GATEWAY_WHISPER_TRANSCRIBER)
-    private readonly whisper: WhisperTranscriber,
-    @inject(GATEWAY_TOKENS.GATEWAY_KOKORO_SYNTHESIZER)
-    private readonly kokoro: KokoroSynthesizer,
+    @inject(VOICE_CONTRACT_TOKENS.VOICE_PROVIDER_SELECTOR)
+    private readonly selector: IVoiceProviderSelector,
+    @inject(VOICE_CONTRACT_TOKENS.VOICE_PROVIDER_REGISTRY)
+    private readonly registry: IVoiceProviderRegistry,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: {
       broadcastMessage(type: string, payload: unknown): Promise<void>;
@@ -158,21 +163,36 @@ export class VoiceRpcHandlers {
     });
   }
 
-  private resolveTtsVoice(): string {
-    const voice = this.workspace.getConfiguration<string>(
-      'ptah',
-      VOICE_TTS_VOICE_KEY,
-      DEFAULT_KOKORO_VOICE,
-    );
-    return typeof voice === 'string' && voice.trim().length > 0
-      ? voice.trim()
-      : DEFAULT_KOKORO_VOICE;
+  /**
+   * Shared error mapping — local assets-unavailable keeps the historical
+   * `VOICE_ASSETS_UNAVAILABLE` code + remediation; everything else surfaces the
+   * sanitized message. (Cloud-category broadcasts are added in a later batch.)
+   */
+  private mapVoiceError(error: unknown): {
+    ok: false;
+    error: string;
+    code?: string;
+    remediation?: string;
+  } {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      isVoiceProviderError(error) &&
+      error.category === 'assets-unavailable'
+    ) {
+      return {
+        ok: false,
+        error: message,
+        code: VOICE_ASSETS_UNAVAILABLE,
+        remediation: VOICE_ASSETS_REMEDIATION,
+      };
+    }
+    return { ok: false, error: message };
   }
 
   private async getTtsConfig(): Promise<VoiceGetTtsConfigResult> {
     try {
-      const voice = this.resolveTtsVoice();
-      const downloaded = await this.kokoro.isModelDownloaded();
+      const voice = resolveTtsVoice(this.workspace);
+      const downloaded = (await this.registry.getTts('local').isReady()).ready;
       return { ok: true, config: { voice, downloaded } };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -195,7 +215,6 @@ export class VoiceRpcHandlers {
 
     try {
       await this.writeConfiguration(VOICE_TTS_VOICE_KEY, parsed.data.voice);
-      this.kokoro.configure({ voice: parsed.data.voice });
       this.logger.info('[voice] tts voice updated', {
         voice: parsed.data.voice,
       });
@@ -208,11 +227,9 @@ export class VoiceRpcHandlers {
   }
 
   private async downloadTtsModel(): Promise<VoiceDownloadTtsModelResult> {
-    const onProgress = (evt: KokoroDownloadEvent): void => {
-      let percent: number | null = null;
-      if (evt.kind === 'download:start') percent = 0;
-      else if (evt.kind === 'download:progress') percent = evt.percent;
-      else if (evt.kind === 'download:complete') percent = 100;
+    const subscription = this.selector.downloadEvents.onDownload((evt) => {
+      if (evt.direction !== 'tts') return;
+      const percent = downloadPercent(evt);
       if (percent === null) return;
       void this.webviewManager
         .broadcastMessage(MESSAGE_TYPES.VOICE_MODEL_DOWNLOAD_PROGRESS, {
@@ -220,32 +237,28 @@ export class VoiceRpcHandlers {
           percent,
         })
         .catch(() => undefined);
-    };
-    this.kokoro.on('download', onProgress);
+    });
     try {
-      const { alreadyPresent } = await this.kokoro.downloadModel();
+      const { alreadyPresent } = await this.registry
+        .getTts('local')
+        .downloadModel();
       this.logger.info('[voice] tts model download complete', {
         alreadyPresent,
       });
       return { ok: true, alreadyPresent };
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (isVoiceAssetsUnavailable(error)) {
+      const mapped = this.mapVoiceError(error);
+      if (mapped.code) {
         this.logger.warn('[voice] tts download assets unavailable');
-        return {
-          ok: false,
-          error: message,
-          code: VOICE_ASSETS_UNAVAILABLE,
-          remediation: VOICE_ASSETS_REMEDIATION,
-        };
+      } else {
+        this.logger.error(
+          `[voice] tts model download failed: ${mapped.error}`,
+          error instanceof Error ? error : undefined,
+        );
       }
-      this.logger.error(
-        `[voice] tts model download failed: ${message}`,
-        error instanceof Error ? error : undefined,
-      );
-      return { ok: false, error: message };
+      return mapped;
     } finally {
-      this.kokoro.off('download', onProgress);
+      subscription.dispose();
     }
   }
 
@@ -262,36 +275,32 @@ export class VoiceRpcHandlers {
     }
 
     try {
-      const voice = parsed.data.voice ?? this.resolveTtsVoice();
-      const { wav } = await this.kokoro.synthesize(parsed.data.text, voice);
+      const { audio, mimeType } = await this.selector
+        .activeTts()
+        .synthesize({ text: parsed.data.text, voice: parsed.data.voice });
       return {
         ok: true,
-        audioBase64: Buffer.from(wav).toString('base64'),
-        mimeType: 'audio/wav',
+        audioBase64: Buffer.from(audio).toString('base64'),
+        mimeType,
       };
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (isVoiceAssetsUnavailable(error)) {
+      const mapped = this.mapVoiceError(error);
+      if (mapped.code) {
         this.logger.warn('[voice] synthesis assets unavailable');
-        return {
-          ok: false,
-          error: message,
-          code: VOICE_ASSETS_UNAVAILABLE,
-          remediation: VOICE_ASSETS_REMEDIATION,
-        };
+      } else {
+        this.logger.error(
+          `[voice] synthesis failed: ${mapped.error}`,
+          error instanceof Error ? error : undefined,
+        );
       }
-      this.logger.error(
-        `[voice] synthesis failed: ${message}`,
-        error instanceof Error ? error : undefined,
-      );
-      return { ok: false, error: message };
+      return mapped;
     }
   }
 
   private async getConfig(): Promise<VoiceGetConfigResult> {
     try {
       const whisperModel = resolveWhisperModel(this.workspace);
-      const downloaded = await this.whisper.isModelDownloaded(whisperModel);
+      const downloaded = (await this.registry.getStt('local').isReady()).ready;
       return { ok: true, config: { whisperModel, downloaded } };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -313,12 +322,9 @@ export class VoiceRpcHandlers {
     }
 
     const model = parsed.data.model ?? resolveWhisperModel(this.workspace);
-    const onProgress = (evt: WhisperDownloadEvent): void => {
-      if (evt.model !== model) return;
-      let percent: number | null = null;
-      if (evt.kind === 'download:start') percent = 0;
-      else if (evt.kind === 'download:progress') percent = evt.percent;
-      else if (evt.kind === 'download:complete') percent = 100;
+    const subscription = this.selector.downloadEvents.onDownload((evt) => {
+      if (evt.direction !== 'stt') return;
+      const percent = downloadPercent(evt);
       if (percent === null) return;
       void this.webviewManager
         .broadcastMessage(MESSAGE_TYPES.VOICE_MODEL_DOWNLOAD_PROGRESS, {
@@ -326,33 +332,29 @@ export class VoiceRpcHandlers {
           percent,
         })
         .catch(() => undefined);
-    };
-    this.whisper.on('download', onProgress);
+    });
     try {
-      const { alreadyPresent } = await this.whisper.downloadModel(model);
+      const { alreadyPresent } = await this.registry
+        .getStt('local')
+        .downloadModel(model);
       this.logger.info('[voice] model download complete', {
         model,
         alreadyPresent,
       });
       return { ok: true, alreadyPresent };
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (isVoiceAssetsUnavailable(error)) {
+      const mapped = this.mapVoiceError(error);
+      if (mapped.code) {
         this.logger.warn('[voice] download assets unavailable', { model });
-        return {
-          ok: false,
-          error: message,
-          code: VOICE_ASSETS_UNAVAILABLE,
-          remediation: VOICE_ASSETS_REMEDIATION,
-        };
+      } else {
+        this.logger.error(
+          `[voice] model download failed (${model}): ${mapped.error}`,
+          error instanceof Error ? error : undefined,
+        );
       }
-      this.logger.error(
-        `[voice] model download failed (${model}): ${message}`,
-        error instanceof Error ? error : undefined,
-      );
-      return { ok: false, error: message };
+      return mapped;
     } finally {
-      this.whisper.off('download', onProgress);
+      subscription.dispose();
     }
   }
 
@@ -424,32 +426,23 @@ export class VoiceRpcHandlers {
     try {
       await fs.writeFile(inputPath, Buffer.from(audioBase64, 'base64'));
 
-      const modelName = resolveWhisperModel(this.workspace);
-      if (modelName.length > 0) {
-        this.whisper.configure({ modelName });
-      }
-
-      const pcm = await this.ffmpeg.decodeToPcm16(inputPath);
-      const transcript = await this.whisper.transcribe(pcm);
-      return { ok: true, transcript };
+      const { text } = await this.selector
+        .activeStt()
+        .transcribe({ audioPath: inputPath, mimeType });
+      return { ok: true, transcript: text };
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (isVoiceAssetsUnavailable(error)) {
+      const mapped = this.mapVoiceError(error);
+      if (mapped.code) {
         this.logger.warn('[voice] transcription assets unavailable', {
           mimeType,
         });
-        return {
-          ok: false,
-          error: message,
-          code: VOICE_ASSETS_UNAVAILABLE,
-          remediation: VOICE_ASSETS_REMEDIATION,
-        };
+      } else {
+        this.logger.error(
+          `[voice] transcription failed (${mimeType}): ${mapped.error}`,
+          error instanceof Error ? error : undefined,
+        );
       }
-      this.logger.error(
-        `[voice] transcription failed (${mimeType}): ${message}`,
-        error instanceof Error ? error : undefined,
-      );
-      return { ok: false, error: message };
+      return mapped;
     } finally {
       await this.cleanup(inputPath);
     }

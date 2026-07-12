@@ -64,13 +64,13 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
       data-testid="canvas-grid"
     >
       <!-- One Gridstack container per retained workspace; only the active
-           workspace's grid is visible, the rest stay mounted (keep-alive).
-           Rendered unconditionally so switching through an empty workspace
-           never tears down another workspace's tiles. -->
+           workspace's grid is visible (the grid drives its own display from the
+           [visible] input), the rest stay mounted (keep-alive). Rendered
+           unconditionally so switching through an empty workspace never tears
+           down another workspace's tiles. -->
       @for (path of canvasStore.workspacePaths(); track path) {
         <ptah-canvas-workspace-grid
           class="flex-1 overflow-auto w-[97%]"
-          [class.hidden]="path !== canvasStore.activeWorkspacePath()"
           [workspacePath]="path"
           [visible]="path === canvasStore.activeWorkspacePath()"
           [locked]="locked()"

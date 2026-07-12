@@ -9,6 +9,8 @@ import type {
   CorpusQueryResult,
   CorpusRebuildResult,
   CorpusReprimeResult,
+  CorpusSuggestParams,
+  CorpusSuggestResult,
   MemGetObservationsParams,
   MemGetObservationsResult,
   MemSearchIndexParams,
@@ -294,6 +296,31 @@ export class MemoryRpcService {
       return result.data;
     }
     throw new Error(result.error || 'corpus:list failed');
+  }
+
+  /**
+   * Fetch deterministic corpus suggestions for the current workspace.
+   *
+   * Read-only clustering pass surfaced by the Memory tab's "Suggested boards"
+   * strip. Each suggestion's `filter` is a complete {@link CorpusBuildParams}
+   * that feeds straight into {@link buildCorpus} with zero remapping. An empty
+   * `suggestions` array is normal (nothing to propose).
+   */
+  public async suggestCorpora(params?: {
+    workspaceRoot?: string;
+  }): Promise<CorpusSuggestResult> {
+    const wireParams: CorpusSuggestParams =
+      params?.workspaceRoot !== undefined
+        ? { workspaceRoot: params.workspaceRoot }
+        : {};
+    const result = await this.rpc.call('corpus:suggest', wireParams, {
+      timeout: MEMORY_RPC_TIMEOUTS.LIST_MS,
+    });
+
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'corpus:suggest failed');
   }
 
   public async buildCorpus(

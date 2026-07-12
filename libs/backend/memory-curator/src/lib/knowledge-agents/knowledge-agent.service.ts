@@ -28,6 +28,7 @@ import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import type { IKnowledgeAgent } from '@ptah-extension/memory-contracts';
 import { MEMORY_TOKENS } from '../di/tokens';
 import { CorpusStore } from './corpus.store';
 import { MemorySearchService } from '../memory-search.service';
@@ -56,7 +57,7 @@ export interface DeleteCorpusResult {
 }
 
 @injectable()
-export class KnowledgeAgentService {
+export class KnowledgeAgentService implements IKnowledgeAgent {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(MEMORY_TOKENS.CORPUS_STORE)

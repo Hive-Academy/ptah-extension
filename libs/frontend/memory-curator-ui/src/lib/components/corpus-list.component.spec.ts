@@ -15,6 +15,7 @@ const VALID_SESSION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 describe('CorpusListComponent', () => {
   let rpcMock: {
     listCorpora: jest.Mock;
+    suggestCorpora: jest.Mock;
     buildCorpus: jest.Mock;
     primeCorpus: jest.Mock;
     queryCorpus: jest.Mock;
@@ -28,6 +29,7 @@ describe('CorpusListComponent', () => {
   beforeEach(async () => {
     rpcMock = {
       listCorpora: jest.fn().mockResolvedValue({ corpora: [] }),
+      suggestCorpora: jest.fn().mockResolvedValue({ suggestions: [] }),
       buildCorpus: jest.fn(),
       primeCorpus: jest.fn(),
       queryCorpus: jest.fn(),
@@ -68,6 +70,12 @@ describe('CorpusListComponent', () => {
     fixture.detectChanges();
 
     expect(rpcMock.listCorpora).toHaveBeenCalledWith('/ws');
+    // ngOnInit must fetch suggestions exactly once — `refresh()` tail-calls
+    // `loadSuggestions()`, so ngOnInit must NOT call it a second time directly.
+    expect(rpcMock.suggestCorpora).toHaveBeenCalledWith({
+      workspaceRoot: '/ws',
+    });
+    expect(rpcMock.suggestCorpora).toHaveBeenCalledTimes(1);
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('No corpora yet');
   });
@@ -216,5 +224,106 @@ describe('CorpusListComponent', () => {
 
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('store gone');
+  });
+
+  it('loadSuggestions populates the Suggested boards strip', async () => {
+    rpcMock.suggestCorpora.mockResolvedValue({
+      suggestions: [
+        {
+          suggestedName: 'auth',
+          filter: { name: 'auth', concepts: ['auth'], limit: 100 },
+          memberCount: 8,
+          topConcepts: ['auth'],
+          rationale: '8 memories tagged "auth"',
+          signal: 'concept',
+        },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(CorpusListComponent);
+    fixture.detectChanges();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(rpcMock.suggestCorpora).toHaveBeenCalledWith({
+      workspaceRoot: '/ws',
+    });
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Suggested boards');
+    expect(text).toContain('8 memories tagged "auth"');
+  });
+
+  it('clears the strip without breaking the corpus list when suggestCorpora rejects', async () => {
+    rpcMock.suggestCorpora.mockRejectedValue(new Error('suggest gone'));
+    rpcMock.listCorpora.mockResolvedValue({
+      corpora: [
+        {
+          id: 'c-1',
+          name: 'auth',
+          count: 4,
+          builtAt: 1700000000000,
+          rebuiltAt: null,
+          workspaceRoot: '/ws',
+        },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(CorpusListComponent);
+    fixture.detectChanges();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    // Corpus list still renders …
+    expect(text).toContain('auth');
+    expect(text).toContain('4 memories');
+    // … and the failure did not raise the error banner nor the strip.
+    expect(text).not.toContain('suggest gone');
+    expect(text).not.toContain('Suggested boards');
+  });
+
+  it('onCreateSuggestion routes through runBuild (corpus:build)', async () => {
+    const suggestion = {
+      suggestedName: 'auth',
+      filter: { name: 'auth', concepts: ['auth'], limit: 100 },
+      memberCount: 8,
+      topConcepts: ['auth'],
+      rationale: '8 memories tagged "auth"',
+      signal: 'concept' as const,
+    };
+    rpcMock.suggestCorpora.mockResolvedValue({ suggestions: [suggestion] });
+    rpcMock.buildCorpus.mockResolvedValue({
+      corpus: {
+        id: 'c-1',
+        name: 'auth',
+        count: 8,
+        builtAt: 1700000000000,
+        rebuiltAt: null,
+        workspaceRoot: '/ws',
+      },
+    });
+
+    const fixture = TestBed.createComponent(CorpusListComponent);
+    fixture.detectChanges();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    const createBtn = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('button'),
+    ).find(
+      (b) => (b.textContent ?? '').trim() === 'Create',
+    ) as HTMLButtonElement;
+    createBtn.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(rpcMock.buildCorpus).toHaveBeenCalledWith(suggestion.filter);
   });
 });

@@ -38,6 +38,7 @@ import { MemoryTriggerService } from '../triggers/memory-trigger.service';
 import { MemoryDiagnosticsService } from '../diagnostics.service';
 import { ObservationQueueStore } from '../observation-queue.store';
 import { CorpusStore } from '../knowledge-agents/corpus.store';
+import { CorpusSuggestionService } from '../knowledge-agents/corpus-suggestion.service';
 import { KnowledgeAgentService } from '../knowledge-agents/knowledge-agent.service';
 
 export function registerMemoryCuratorServices(
@@ -98,6 +99,11 @@ export function registerMemoryCuratorServices(
   container.register(
     MEMORY_TOKENS.CORPUS_STORE,
     { useClass: CorpusStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    MEMORY_TOKENS.CORPUS_SUGGESTION_SERVICE,
+    { useClass: CorpusSuggestionService },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(

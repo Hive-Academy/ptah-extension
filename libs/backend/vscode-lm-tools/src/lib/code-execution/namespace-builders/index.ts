@@ -64,6 +64,11 @@ export {
   type MemoryNamespace,
 } from './memory-namespace.builder';
 export {
+  buildCorpusNamespace,
+  type CorpusNamespaceDependencies,
+  type CorpusNamespace,
+} from './corpus-namespace.builder';
+export {
   buildCodeNamespace,
   type CodeNamespaceDependencies,
   type CodeNamespace,

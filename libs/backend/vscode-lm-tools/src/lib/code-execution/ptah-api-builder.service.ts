@@ -1,7 +1,7 @@
 /**
  * Ptah API Builder Service
  *
- * Constructs the complete "ptah" API object with 15 namespaces for code execution context.
+ * Constructs the complete "ptah" API object with 16 namespaces for code execution context.
  * Delegates to specialized namespace builders for each domain:
  *
  * Core (workspace discovery):
@@ -30,7 +30,9 @@ import type {
   IMemoryReader,
   IMemoryLister,
   ICodeSymbolReader,
+  IKnowledgeAgent,
 } from '@ptah-extension/memory-contracts';
+import { KNOWLEDGE_AGENT_TOKEN } from '@ptah-extension/memory-contracts';
 import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -79,6 +81,7 @@ import {
   type IBrowserCapabilities,
   buildSkillNamespace,
   buildMemoryNamespace,
+  buildCorpusNamespace,
   buildCodeNamespace,
   buildHarnessNamespace,
 } from './namespace-builders';
@@ -344,6 +347,9 @@ export class PtahAPIBuilder {
     @inject(MEMORY_STORE_TOKEN, { isOptional: true })
     private readonly memoryStore: IMemoryLister | undefined,
 
+    @inject(KNOWLEDGE_AGENT_TOKEN, { isOptional: true })
+    private readonly knowledgeAgent: IKnowledgeAgent | undefined,
+
     @inject(CODE_SYMBOL_READER_TOKEN, { isOptional: true })
     private readonly codeSymbolReader: ICodeSymbolReader | undefined,
 
@@ -368,7 +374,7 @@ export class PtahAPIBuilder {
     @inject(TOKENS.AUTH_SECRETS_SERVICE, { isOptional: true })
     private readonly authSecretsService: IAuthSecretsService | undefined,
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 15 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 16 namespaces');
   }
 
   /**
@@ -381,7 +387,7 @@ export class PtahAPIBuilder {
   }
 
   /**
-   * Build the complete Ptah API object with all 14 namespaces.
+   * Build the complete Ptah API object with all 16 namespaces.
    *
    * Each namespace builder is wrapped in try/catch so that one failing
    * namespace does not prevent the remaining namespaces (and their tools)
@@ -591,6 +597,12 @@ export class PtahAPIBuilder {
           getMemorySearch: () => this.memorySearch,
           getMemoryStore: () => this.memoryStore,
           getMemoryWriter: () => this.memoryWriter,
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
+        }),
+      ),
+      corpus: this.buildNamespaceSafe('corpus', () =>
+        buildCorpusNamespace({
+          getKnowledgeAgent: () => this.knowledgeAgent,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
         }),
       ),

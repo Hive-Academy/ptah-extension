@@ -3,6 +3,7 @@ import {
   Component,
   InjectionToken,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -13,11 +14,13 @@ import {
   SessionId,
   type CorpusBuildParams,
   type CorpusEntry,
+  type CorpusSuggestion,
 } from '@ptah-extension/shared';
 
 import { MemoryRpcService } from '../services/memory-rpc.service';
 
 import { CorpusBuildDialogComponent } from './corpus-build-dialog.component';
+import { CorpusSuggestionsComponent } from './corpus-suggestions.component';
 
 /**
  * Optional injection slot for the chat navigator. The Thoth shell binds this
@@ -47,9 +50,21 @@ export const CORPUS_CHAT_NAVIGATOR = new InjectionToken<CorpusChatNavigator>(
   selector: 'ptah-corpus-list',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, CorpusBuildDialogComponent],
+  imports: [
+    CommonModule,
+    CorpusBuildDialogComponent,
+    CorpusSuggestionsComponent,
+  ],
   template: `
     <div class="flex h-full w-full flex-col gap-3">
+      <ptah-corpus-suggestions
+        [suggestions]="visibleSuggestions()"
+        [loading]="suggestLoading()"
+        [busyName]="busyName()"
+        (create)="onCreateSuggestion($event)"
+        (dismiss)="onDismissSuggestion($event)"
+      />
+
       <header class="flex flex-wrap items-center gap-2">
         <span class="text-sm font-semibold">Knowledge corpora</span>
         <span class="text-xs text-base-content/60">
@@ -211,7 +226,18 @@ export class CorpusListComponent implements OnInit {
   protected readonly busyName = signal<string | null>(null);
   protected readonly skeletonRows = [0, 1, 2] as const;
 
+  protected readonly suggestions = signal<readonly CorpusSuggestion[]>([]);
+  protected readonly suggestLoading = signal<boolean>(false);
+  /** Session-scoped set of dismissed suggestion names (no persistence, no RPC). */
+  private readonly dismissed = signal<ReadonlySet<string>>(new Set());
+  protected readonly visibleSuggestions = computed(() => {
+    const hidden = this.dismissed();
+    return this.suggestions().filter((s) => !hidden.has(s.suggestedName));
+  });
+
   public ngOnInit(): void {
+    // `refresh()` tail-calls `loadSuggestions()`, so a single call loads both
+    // the corpus list and the suggestion strip — no separate suggest fetch here.
     void this.refresh();
   }
 
@@ -230,6 +256,21 @@ export class CorpusListComponent implements OnInit {
   protected onSubmitBuild(params: CorpusBuildParams): void {
     this.buildOpen.set(false);
     void this.runBuild(params);
+  }
+
+  protected onCreateSuggestion(suggestion: CorpusSuggestion): void {
+    // `filter` is a complete CorpusBuildParams — reuse the existing build path
+    // (sets the banner + refreshes). Backend dedupe drops the created concept
+    // from the next suggest pass, so the card falls out of the strip.
+    void this.runBuild(suggestion.filter);
+  }
+
+  protected onDismissSuggestion(suggestion: CorpusSuggestion): void {
+    this.dismissed.update((prev) => {
+      const next = new Set(prev);
+      next.add(suggestion.suggestedName);
+      return next;
+    });
   }
 
   protected onPrimeInNewChat(corpus: CorpusEntry): void {
@@ -271,6 +312,27 @@ export class CorpusListComponent implements OnInit {
       this.error.set(toErrorMessage(err));
     } finally {
       this.loading.set(false);
+    }
+    void this.loadSuggestions();
+  }
+
+  /**
+   * Load the "Suggested boards" strip. Tolerant by design: a suggest failure
+   * only clears the strip and must NEVER surface an error banner or block the
+   * corpus list (which is the primary content of this panel).
+   */
+  private async loadSuggestions(): Promise<void> {
+    this.suggestLoading.set(true);
+    try {
+      const root = this.appState.workspaceInfo()?.path;
+      const result = await this.rpc.suggestCorpora(
+        root !== undefined ? { workspaceRoot: root } : undefined,
+      );
+      this.suggestions.set(result.suggestions);
+    } catch {
+      this.suggestions.set([]);
+    } finally {
+      this.suggestLoading.set(false);
     }
   }
 

@@ -336,7 +336,21 @@ Both methods return \`{ error: "..." }\` when SQLite or the indexer is unavailab
 
 **When to use**:
 - \`searchSymbols\` — before modifying a function/class, to find all usages or related symbols across the workspace
-- \`reindex\` — after bulk code generation, to ensure the symbol index is up-to-date before searching`;
+- \`reindex\` — after bulk code generation, to ensure the symbol index is up-to-date before searching
+
+## Knowledge Corpora — ptah.corpus (via execute_code)
+
+Corpora are named, workspace-scoped memory boards. When the user asks to "make a board/
+corpus about X", build one instead of just searching memory.
+
+- await ptah.corpus.build("Auth System", { concepts: ["auth","jwt"], query: "authentication flow" })
+- await ptah.corpus.list()
+- await ptah.corpus.rebuild("Auth System")   // refresh membership from the saved filter
+- await ptah.corpus.prime("Auth System")     // open a chat session pre-loaded with the corpus
+
+Translate vague asks into a filter: topic words -> concepts[]; a named module/folder ->
+files[]; "bugs"/"decisions"/"features" -> type[]. Never pass workspaceRoot. All methods
+return { error } on failure — check it before using the result.`;
 
 export const PTAH_SYSTEM_PROMPT_TOKENS = Math.ceil(
   PTAH_SYSTEM_PROMPT.length / 4,

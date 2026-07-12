@@ -31,7 +31,15 @@ export const MEMORY_TOKENS = {
   OBSERVATION_QUEUE_STORE: Symbol.for('PtahObservationQueueStore'),
   /** CorpusStore — typed CRUD over `corpora` + `corpus_memories` (migration 0017). */
   CORPUS_STORE: Symbol.for('PtahCorpusStore'),
-  /** KnowledgeAgentService — orchestrates corpus build/prime/query/rebuild. */
+  /** CorpusSuggestionService — read-only clustering pass for one-click corpus suggestions. */
+  CORPUS_SUGGESTION_SERVICE: Symbol.for('PtahCorpusSuggestionService'),
+  /**
+   * KnowledgeAgentService — orchestrates corpus build/prime/query/rebuild.
+   * Same interned symbol as `memory-contracts` `KNOWLEDGE_AGENT_TOKEN`
+   * (`Symbol.for('PtahKnowledgeAgentService')`) — declared as its own literal
+   * (not a reference) so di-lint resolves it, mirroring the `CURATOR_LLM`
+   * dual-literal convention. Keep the description in sync with that token.
+   */
   KNOWLEDGE_AGENT_SERVICE: Symbol.for('PtahKnowledgeAgentService'),
   /** EmbedderStatusService — single source of truth for bge-small ONNX readiness + lazy download progress. */
   EMBEDDER_STATUS: Symbol.for('PtahEmbedderStatus'),

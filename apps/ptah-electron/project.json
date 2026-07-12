@@ -155,18 +155,46 @@
         "external": ["@huggingface/transformers"]
       }
     },
+    "build-voice-worker": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/apps/ptah-electron",
+        "main": "libs/backend/voice-providers/src/lib/worker/voice-worker.ts",
+        "outputFileName": "voice-worker.mjs",
+        "tsConfig": "apps/ptah-electron/tsconfig.voice-worker.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          }
+        },
+        "external": ["@huggingface/transformers", "kokoro-js"]
+      }
+    },
     "build": {
       "executor": "nx:run-commands",
       "dependsOn": [
         "build-main",
         "build-preload",
         "build-embedder-worker",
+        "build-voice-worker",
         "ptah-extension-webview:build"
       ],
       "options": {
         "commands": [
           {
             "command": "node apps/ptah-electron/scripts/patch-sqlite3-tar.js",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "node apps/ptah-electron/scripts/patch-dist-overrides.js",
             "forwardAllArgs": false
           },
           {
@@ -184,6 +212,7 @@
           "nx build-main ptah-electron --configuration=development",
           "nx build-preload ptah-electron",
           "nx build-embedder-worker ptah-electron",
+          "nx build-voice-worker ptah-electron",
           "nx build ptah-extension-webview --configuration=development"
         ],
         "parallel": false
@@ -209,6 +238,7 @@
         "commands": [
           "node apps/ptah-electron/scripts/rebuild-native.js",
           "nx build-embedder-worker ptah-electron",
+          "nx build-voice-worker ptah-electron",
           "nx build-dev ptah-electron",
           "node scripts/copy-wasm.js dist/apps/ptah-electron",
           "nx copy-renderer ptah-electron",
@@ -224,6 +254,7 @@
           "nx build-main ptah-electron --configuration=development --watch",
           "nx build-preload ptah-electron --watch",
           "nx build-embedder-worker ptah-electron --watch",
+          "nx build-voice-worker ptah-electron --watch",
           "nx build ptah-extension-webview --configuration=development --watch"
         ],
         "parallel": true
@@ -237,7 +268,8 @@
           "node scripts/copy-wasm.js dist/apps/ptah-electron",
           "electron-builder --config electron-builder.yml --project dist/apps/ptah-electron",
           "node apps/ptah-electron/scripts/verify-packed-native.js",
-          "node apps/ptah-electron/scripts/verify-packed-wasm.js"
+          "node apps/ptah-electron/scripts/verify-packed-wasm.js",
+          "node apps/ptah-electron/scripts/verify-packed-onnx.js"
         ],
         "parallel": false
       }

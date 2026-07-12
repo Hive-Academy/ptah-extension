@@ -129,6 +129,11 @@ export type {
   CorpusChangeEvent,
   CorpusChangeListener,
 } from './lib/knowledge-agents/corpus.store';
+export { CorpusSuggestionService } from './lib/knowledge-agents/corpus-suggestion.service';
+export type {
+  CorpusSuggestion,
+  SuggestOptions,
+} from './lib/knowledge-agents/corpus-suggestion.service';
 export type {
   BuildCorpusParams,
   CorpusRef,

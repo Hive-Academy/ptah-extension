@@ -32,6 +32,7 @@ export interface MemoryCuratorEvent {
 
 export interface MemoryDecayStats {
   readonly scanned: number;
+  readonly promoted: number;
   readonly demoted: number;
   readonly archived: number;
   readonly expired: number;

@@ -55,13 +55,16 @@ import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
 import {
   registerMessagingGatewayServices,
   GATEWAY_TOKENS,
-  type FfmpegDecoder,
-  type WhisperTranscriber,
-  type KokoroSynthesizer,
   type ISessionActivityProbe,
 } from '@ptah-extension/messaging-gateway';
+import {
+  registerVoiceProviderServices,
+  VOICE_TOKENS,
+} from '@ptah-extension/voice-providers';
+import { VOICE_CONTRACT_TOKENS } from '@ptah-extension/voice-contracts';
 import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import { ElectronSafeStorageVault } from '../services/platform/electron-safe-storage-vault';
+import { ElectronVoiceWorkerFactory } from '../services/platform/electron-voice-worker-factory';
 import { MetadataGatewaySessionLister } from '../services/gateway/metadata-gateway-session-lister';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
@@ -203,8 +206,7 @@ export function registerPhase2Libraries(
               logger.warn(
                 '[Electron DI] session activity probe fell back to inactive',
                 {
-                  error:
-                    error instanceof Error ? error.message : String(error),
+                  error: error instanceof Error ? error.message : String(error),
                 },
               );
               return false;
@@ -213,9 +215,11 @@ export function registerPhase2Libraries(
         }),
       },
     );
+    // Voice providers must be registered before GatewayService resolves — it
+    // now injects VOICE_PROVIDER_SELECTOR for voice-note transcription.
+    configureElectronVoiceProviders(container, logger);
     registerMessagingGatewayServices(container, logger);
     registerGatewayChatBridge(container, logger);
-    configureElectronVoiceAssets(container, logger);
     logger.info(
       '[Electron DI] Messaging gateway services registered (Track 4)',
     );
@@ -258,46 +262,65 @@ function resolveUnpackedNodeModulesDir(): string | null {
   return null;
 }
 
-function configureElectronVoiceAssets(
-  container: DependencyContainer,
-  logger: Logger,
-): void {
-  const unpackedNodeModules = resolveUnpackedNodeModulesDir();
-  if (!unpackedNodeModules) return;
-
+// Native ffmpeg cannot spawn from inside app.asar. When packaged, resolve the
+// unpacked binary; in dev/unpacked builds fall back to ffmpeg-static's own
+// resolution (require) so the worker still receives a usable path.
+function resolveElectronFfmpegPath(logger: Logger): string | null {
+  const unpacked = resolveUnpackedNodeModulesDir();
   const ffmpegBinary = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
-  const ffmpegPath = path.join(
-    unpackedNodeModules,
-    'ffmpeg-static',
-    ffmpegBinary,
-  );
-  const modelCacheDir = path.join(os.homedir(), '.ptah', 'models');
-
+  if (unpacked) {
+    return path.join(unpacked, 'ffmpeg-static', ffmpegBinary);
+  }
   try {
-    const ffmpeg = container.resolve<FfmpegDecoder>(
-      GATEWAY_TOKENS.GATEWAY_FFMPEG_DECODER,
-    );
-    ffmpeg.configure({ resolver: () => ffmpegPath });
-
-    const whisper = container.resolve<WhisperTranscriber>(
-      GATEWAY_TOKENS.GATEWAY_WHISPER_TRANSCRIBER,
-    );
-    whisper.configure({ modelCacheDir });
-
-    const kokoro = container.resolve<KokoroSynthesizer>(
-      GATEWAY_TOKENS.GATEWAY_KOKORO_SYNTHESIZER,
-    );
-    kokoro.configure({ modelCacheDir });
-
-    logger.info('[Electron DI] Voice assets configured', {
-      ffmpegPath,
-      modelCacheDir,
-    });
+    const resolved = require('ffmpeg-static') as string | { default?: string };
+    if (typeof resolved === 'string') return resolved;
+    if (resolved && typeof resolved.default === 'string') {
+      return resolved.default;
+    }
   } catch (error) {
-    logger.warn('[Electron DI] Failed to configure voice assets (non-fatal)', {
+    logger.warn('[Electron DI] ffmpeg-static resolution failed (non-fatal)', {
       error: error instanceof Error ? error.message : String(error),
     });
   }
+  return null;
+}
+
+function configureElectronVoiceProviders(
+  container: DependencyContainer,
+  logger: Logger,
+): void {
+  const dirnameGlobal = (globalThis as unknown as { __dirname?: string })
+    .__dirname;
+  const workerPath = path.join(
+    dirnameGlobal ?? path.join(os.homedir(), '.ptah'),
+    'voice-worker.mjs',
+  );
+  const modelCacheDir = path.join(os.homedir(), '.ptah', 'models');
+  const ffmpegPath = resolveElectronFfmpegPath(logger);
+
+  container.register(VOICE_TOKENS.VOICE_WORKER_PATH, { useValue: workerPath });
+  container.register(VOICE_TOKENS.VOICE_MODEL_CACHE_DIR, {
+    useValue: modelCacheDir,
+  });
+  container.register(VOICE_TOKENS.VOICE_WORKER_PROCESS_FACTORY, {
+    useValue: new ElectronVoiceWorkerFactory(
+      workerPath,
+      ffmpegPath,
+      modelCacheDir,
+    ),
+  });
+  // Dual-register the SAME vault under the voice port token (D4 — structural
+  // twin, no adapter class needed).
+  container.register(VOICE_CONTRACT_TOKENS.VOICE_TOKEN_VAULT, {
+    useFactory: (c) => c.resolve(GATEWAY_TOKENS.GATEWAY_TOKEN_VAULT),
+  });
+
+  registerVoiceProviderServices(container, logger);
+  logger.info('[Electron DI] Voice providers registered', {
+    workerPath,
+    modelCacheDir,
+    ffmpegConfigured: ffmpegPath !== null,
+  });
 }
 
 function createElectronVecPathResolver(logger: Logger): SqliteVecPathResolver {

@@ -31,6 +31,7 @@ import {
   registerMessagingGatewayServices,
   GATEWAY_TOKENS,
 } from '@ptah-extension/messaging-gateway';
+import { registerVoiceProviderServices } from '@ptah-extension/voice-providers';
 import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 
 import { createCliVecPathResolver } from './cli-vec-path-resolver';
@@ -121,6 +122,10 @@ export function registerThothLibraries(
     container.register(GATEWAY_TOKENS.GATEWAY_TOKEN_VAULT, {
       useValue: new CliTokenVault(),
     });
+    // No worker factory / vault twin on CLI → local voice degrades to
+    // unavailable (assets-unavailable at call time); GatewayService still
+    // resolves its selector dependency.
+    registerVoiceProviderServices(container, logger);
     registerMessagingGatewayServices(container, logger);
     registerGatewayChatBridge(container, logger);
     logger.info('[CLI DI] Messaging gateway services registered (Track 4)');

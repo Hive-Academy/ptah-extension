@@ -104,3 +104,27 @@ export interface CorpusDeleteParams {
 export interface CorpusDeleteResult {
   readonly deleted: boolean;
 }
+
+/**
+ * A read-only, one-click corpus proposal produced by the clustering pass
+ * (`corpus:suggest`). `filter` is a full {@link CorpusBuildParams}, so the UI
+ * feeds it straight into `corpus:build` with zero remapping.
+ */
+export interface CorpusSuggestion {
+  readonly suggestedName: string;
+  readonly filter: CorpusBuildParams;
+  readonly memberCount: number;
+  readonly topConcepts: readonly string[];
+  readonly rationale: string;
+  readonly signal: 'concept' | 'type';
+}
+
+export interface CorpusSuggestParams {
+  readonly workspaceRoot?: string;
+  readonly minClusterSize?: number;
+  readonly limit?: number;
+}
+
+export interface CorpusSuggestResult {
+  readonly suggestions: readonly CorpusSuggestion[];
+}

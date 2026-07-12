@@ -17,6 +17,8 @@
     "@ptah-extension/agent-generation": "0.0.1",
     "@ptah-extension/settings-core": "0.0.1",
     "@ptah-extension/cli-agent-runtime": "0.0.1",
-    "@ptah-extension/auth-providers": "0.0.1"
+    "@ptah-extension/auth-providers": "0.0.1",
+    "@ptah-extension/voice-contracts": "0.0.1",
+    "@ptah-extension/voice-providers": "0.0.1"
   }
 }
