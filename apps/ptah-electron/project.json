@@ -266,6 +266,7 @@
       "options": {
         "commands": [
           "node scripts/copy-wasm.js dist/apps/ptah-electron",
+          "node apps/ptah-electron/scripts/patch-transformers-onnx-dep.js",
           "electron-builder --config electron-builder.yml --project dist/apps/ptah-electron",
           "node apps/ptah-electron/scripts/verify-packed-native.js",
           "node apps/ptah-electron/scripts/verify-packed-wasm.js",
