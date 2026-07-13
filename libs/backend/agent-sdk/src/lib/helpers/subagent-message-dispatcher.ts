@@ -74,22 +74,24 @@ export class SubagentMessageDispatcher {
   ) {}
 
   /**
-   * Push a user message into a running subagent.
+   * Nudge the coordinator to re-steer a running subagent.
    *
-   * The Claude Agent SDK (>= 0.3) routes a streamed `SDKUserMessage` INTO a
-   * running Task subagent when `parent_tool_use_id` is set to that subagent's
-   * tool_use ID — this is how the Claude CLI re-steers subagents. So the
-   * primary ("direct") path streams the user's text verbatim with
-   * `parent_tool_use_id: parentToolUseId`.
+   * There is NO direct parent→subagent input channel over `streamInput`.
+   * `parent_tool_use_id` on an incoming `SDKUserMessage` is output-labeling
+   * only: verified against the vendored CLI (claude.exe 2.1.150 in
+   * `@anthropic-ai/claude-agent-sdk` 0.3.150), the stdin ingest handler copies
+   * `priority`/`shouldQuery`/`uuid`/`clientPlatform` off the incoming message
+   * but never reads `parent_tool_use_id` and never assigns an `agentId`, so
+   * every streamed message is enqueued into the ROOT coordinator conversation
+   * regardless of that field.
    *
-   * Direct routing is only valid while the subagent is still live. When the
-   * registry has no record for `parentToolUseId`, or its record is not in a
-   * `running`/`background` status (e.g. it was interrupted, or the id is
-   * unknown), the target subagent can no longer receive input. In that case we
-   * fall back to a COORDINATOR NUDGE: the text is pushed to the root session as
-   * a normal `human` message (`parent_tool_use_id: null`) prefixed with a
-   * reference to the target subagent, so the coordinator can decide whether to
-   * relay, restart, or ignore it.
+   * The only real relay mechanism is the model-side `SendMessage` tool, keyed
+   * by the SDK short-hex `agentId` (the same value the SubagentStart hook
+   * stores in `SubagentRecord.agentId`). So we always push the user's text to
+   * the root session as a normal `human` message (`parent_tool_use_id: null`)
+   * and, when we know the live subagent's `agentId`, instruct the coordinator
+   * to relay it verbatim via `SendMessage`. Without a record or agentId we fall
+   * back to a generic reference the coordinator can act on.
    *
    * Pushes are serialised per session to avoid races with other input.
    *
@@ -120,27 +122,27 @@ export class SubagentMessageDispatcher {
     const query = session.query;
     const record = this.registry.get(parentToolUseId);
     const agentType = record?.agentType ?? 'unknown';
-    // Direct routing is only possible while the subagent is live. A missing
-    // record (unknown/expired) or any non-live status falls back to the nudge.
-    const canRouteDirect =
-      record != null &&
-      (record.status === 'running' || record.status === 'background');
-    const content = canRouteDirect
-      ? text
-      : `Regarding the running '${agentType}' subagent (toolUseId=${parentToolUseId}): ${text}`;
+    const agentId = record?.agentId;
+    // Prefer an explicit SendMessage instruction keyed by the live subagent's
+    // agentId — the only mechanism the CLI actually honours. Fall back to a
+    // generic reference when we have no record or no agentId to target.
+    const content = agentId
+      ? `The user wants to steer the running '${agentType}' subagent (id: ${agentId}). Use the SendMessage tool with to: '${agentId}' to deliver this to it verbatim: ${text}`
+      : `Regarding the running subagent (toolUseId=${parentToolUseId}): ${text}`;
 
     await serialisedPush(sessionId, async () => {
       this.logger.debug('[SubagentMessageDispatcher] sendToSubagent', {
         sessionId,
         parentToolUseId,
         agentType,
-        mode: canRouteDirect ? 'direct' : 'coordinator-nudge',
+        agentId,
+        mode: agentId ? 'sendmessage-instruction' : 'generic-nudge',
         textLength: text.length,
       });
       const msg: SDKUserMessage = {
         type: 'user',
         message: { role: 'user', content },
-        parent_tool_use_id: canRouteDirect ? parentToolUseId : null,
+        parent_tool_use_id: null,
         origin: { kind: 'human' } as unknown as SDKUserMessage['origin'],
         shouldQuery: true,
         uuid: randomUUID(),

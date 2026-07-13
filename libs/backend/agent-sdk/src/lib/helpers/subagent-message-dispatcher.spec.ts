@@ -28,7 +28,7 @@ function makeLogger(): Logger {
 }
 
 function makeRegistry(
-  record: { agentType: string; status?: string } | null = {
+  record: { agentType: string; status?: string; agentId?: string } | null = {
     agentType: 'Explore',
   },
 ): SubagentRegistryService {
@@ -116,6 +116,12 @@ describe('SubagentMessageDispatcher.sendToSubagent — Fix 3', () => {
 
 // ---------------------------------------------------------------------------
 // sendToSubagent — coordinator-nudge payload shape
+//
+// There is NO direct parent→subagent input channel: the CLI ignores
+// `parent_tool_use_id` on incoming streamInput messages (verified against
+// claude.exe 2.1.150). Every message is always enqueued to the root
+// coordinator with `parent_tool_use_id: null`; the nudge text instructs the
+// coordinator to relay via the SendMessage tool keyed by agentId.
 // ---------------------------------------------------------------------------
 
 describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () => {
@@ -141,9 +147,9 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
     return captured;
   }
 
-  it('routes to the root coordinator with parent_tool_use_id=null and origin=human', async () => {
+  it('always routes to the root coordinator with parent_tool_use_id=null and origin=human', async () => {
     const msg = await captureStreamedMessage(
-      makeRegistry({ agentType: 'software-architect' }),
+      makeRegistry({ agentType: 'software-architect', agentId: 'a1b2c3d' }),
       'toolu_abc',
       'please pause and check the README',
     );
@@ -154,9 +160,13 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
     expect(msg['session_id']).toBe('sess-1');
   });
 
-  it('prefixes the user text with the agent type and toolUseId from the registry', async () => {
+  it('emits a SendMessage instruction keyed by agentId when a live record has an agentId', async () => {
     const msg = await captureStreamedMessage(
-      makeRegistry({ agentType: 'software-architect' }),
+      makeRegistry({
+        agentType: 'software-architect',
+        status: 'running',
+        agentId: 'a1b2c3d',
+      }),
       'toolu_abc',
       'please pause and check the README',
     );
@@ -164,11 +174,29 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
     const wireMessage = msg['message'] as { role: string; content: string };
     expect(wireMessage.role).toBe('user');
     expect(wireMessage.content).toBe(
-      "Regarding the running 'software-architect' subagent (toolUseId=toolu_abc): please pause and check the README",
+      "The user wants to steer the running 'software-architect' subagent (id: a1b2c3d). Use the SendMessage tool with to: 'a1b2c3d' to deliver this to it verbatim: please pause and check the README",
     );
   });
 
-  it("falls back to agentType='unknown' when the registry has no record", async () => {
+  it('routes a background subagent with an agentId via the SendMessage instruction too', async () => {
+    const msg = await captureStreamedMessage(
+      makeRegistry({
+        agentType: 'Explore',
+        status: 'background',
+        agentId: 'bg99999',
+      }),
+      'toolu_bg',
+      'keep going',
+    );
+
+    expect(msg['parent_tool_use_id']).toBeNull();
+    const wireMessage = msg['message'] as { role: string; content: string };
+    expect(wireMessage.content).toBe(
+      "The user wants to steer the running 'Explore' subagent (id: bg99999). Use the SendMessage tool with to: 'bg99999' to deliver this to it verbatim: keep going",
+    );
+  });
+
+  it('falls back to a generic nudge when the registry has no record', async () => {
     const msg = await captureStreamedMessage(
       makeRegistry(null),
       'toolu_missing',
@@ -177,75 +205,22 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
 
     const wireMessage = msg['message'] as { role: string; content: string };
     expect(wireMessage.content).toBe(
-      "Regarding the running 'unknown' subagent (toolUseId=toolu_missing): check on this",
+      'Regarding the running subagent (toolUseId=toolu_missing): check on this',
     );
   });
 
-  it('falls back to the coordinator nudge when the record is not live (interrupted)', async () => {
+  it('falls back to a generic nudge when the record has no agentId', async () => {
     const msg = await captureStreamedMessage(
-      makeRegistry({ agentType: 'Explore', status: 'interrupted' }),
-      'toolu_dead',
+      makeRegistry({ agentType: 'Explore', status: 'running' }),
+      'toolu_noid',
       'still there?',
     );
 
     expect(msg['parent_tool_use_id']).toBeNull();
     const wireMessage = msg['message'] as { role: string; content: string };
     expect(wireMessage.content).toBe(
-      "Regarding the running 'Explore' subagent (toolUseId=toolu_dead): still there?",
+      'Regarding the running subagent (toolUseId=toolu_noid): still there?',
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// sendToSubagent — direct routing into a live subagent
-// ---------------------------------------------------------------------------
-
-describe('SubagentMessageDispatcher.sendToSubagent — direct routing', () => {
-  async function captureStreamedMessage(
-    registry: SubagentRegistryService,
-    parentToolUseId: string,
-    text: string,
-  ): Promise<Record<string, unknown>> {
-    let captured: Record<string, unknown> | undefined;
-    const streamInput = jest.fn(
-      async (stream: AsyncIterable<Record<string, unknown>>) => {
-        for await (const msg of stream) {
-          captured = msg;
-        }
-      },
-    );
-    const dispatcher = buildDispatcher(
-      makeLifecycleWithQuery({ streamInput }),
-      registry,
-    );
-    await dispatcher.sendToSubagent('sess-1', parentToolUseId, text);
-    if (!captured) throw new Error('streamInput never received a message');
-    return captured;
-  }
-
-  it('routes with parent_tool_use_id set and no prefix when the subagent is running', async () => {
-    const msg = await captureStreamedMessage(
-      makeRegistry({ agentType: 'software-architect', status: 'running' }),
-      'toolu_live',
-      'focus on the auth module',
-    );
-
-    expect(msg['parent_tool_use_id']).toBe('toolu_live');
-    expect(msg['origin']).toEqual({ kind: 'human' });
-    const wireMessage = msg['message'] as { role: string; content: string };
-    expect(wireMessage.content).toBe('focus on the auth module');
-  });
-
-  it('routes directly for a background subagent as well', async () => {
-    const msg = await captureStreamedMessage(
-      makeRegistry({ agentType: 'Explore', status: 'background' }),
-      'toolu_bg',
-      'keep going',
-    );
-
-    expect(msg['parent_tool_use_id']).toBe('toolu_bg');
-    const wireMessage = msg['message'] as { role: string; content: string };
-    expect(wireMessage.content).toBe('keep going');
   });
 });
 
