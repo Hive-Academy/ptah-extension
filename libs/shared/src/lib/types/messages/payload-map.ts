@@ -96,7 +96,10 @@ import type {
   GatewaySessionDetachedPayload,
   GatewayStatusChangedPayload,
 } from './gateway';
-import type { VoiceModelDownloadProgressPayload } from './voice';
+import type {
+  VoiceModelDownloadProgressPayload,
+  VoiceProviderErrorPayload,
+} from './voice';
 import type { UpdateStatusChangedPayload } from './update';
 import type {
   SdkCompactionCompletePayload,
@@ -245,6 +248,7 @@ export interface MessagePayloadMap {
   'gateway:sessionAttached': GatewaySessionAttachedPayload;
   'gateway:sessionDetached': GatewaySessionDetachedPayload;
   'voice:modelDownloadProgress': VoiceModelDownloadProgressPayload;
+  'voice:providerError': VoiceProviderErrorPayload;
   'update:statusChanged': UpdateStatusChangedPayload;
   'session:compactionComplete': SdkCompactionCompletePayload;
   'session:turnEnded': SdkTurnEndedPayload;

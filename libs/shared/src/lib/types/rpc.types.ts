@@ -1604,6 +1604,32 @@ export interface RpcMethodRegistry {
     result: VoiceSynthesizeResult;
   };
 
+  // Provider-agnostic voice surface (FR-8). Appended after the existing 8.
+  'voice:listProviders': {
+    params: VoiceListProvidersParams;
+    result: VoiceListProvidersResult;
+  };
+  'voice:listVoices': {
+    params: VoiceListVoicesParams;
+    result: VoiceListVoicesResult;
+  };
+  'voice:getProviderConfig': {
+    params: VoiceGetProviderConfigParams;
+    result: VoiceGetProviderConfigResult;
+  };
+  'voice:setProviderConfig': {
+    params: VoiceSetProviderConfigParams;
+    result: VoiceSetProviderConfigResult;
+  };
+  'voice:setApiKey': {
+    params: VoiceSetApiKeyParams;
+    result: VoiceSetApiKeyResult;
+  };
+  'voice:testConnection': {
+    params: VoiceTestConnectionParams;
+    result: VoiceTestConnectionResult;
+  };
+
   'db:health': {
     params: { fullCheck?: boolean };
     result: DbHealthResult;
@@ -2153,7 +2179,16 @@ export interface VoiceTranscribeParams {
 
 export type VoiceTranscribeResult =
   | { ok: true; transcript: string }
-  | { ok: false; error: string; code?: string; remediation?: string };
+  | {
+      ok: false;
+      error: string;
+      code?: string;
+      remediation?: string;
+      /** FR-7: cloud provider error category (auth/quota/network/provider-error). */
+      category?: string;
+      /** FR-7: id of the provider that failed (e.g. 'elevenlabs'). */
+      providerId?: string;
+    };
 
 export interface VoiceConfigDto {
   whisperModel: string;
@@ -2169,6 +2204,10 @@ export type VoiceGetConfigResult =
 
 export interface VoiceSetConfigParams {
   whisperModel: string;
+  /** FR-4: user-selected model source for the local Whisper model. */
+  modelSource?: 'curated' | 'hf' | 'dir';
+  /** FR-4: HF repo id or absolute local dir (used when modelSource is hf/dir). */
+  customModel?: string;
 }
 
 export type VoiceSetConfigResult = { ok: true } | { ok: false; error: string };
@@ -2218,7 +2257,120 @@ export interface VoiceSynthesizeParams {
 
 export type VoiceSynthesizeResult =
   | { ok: true; audioBase64: string; mimeType: string }
-  | { ok: false; error: string; code?: string; remediation?: string };
+  | {
+      ok: false;
+      error: string;
+      code?: string;
+      remediation?: string;
+      /** FR-7: cloud provider error category (auth/quota/network/provider-error). */
+      category?: string;
+      /** FR-7: id of the provider that failed (e.g. 'elevenlabs'). */
+      providerId?: string;
+    };
+
+/**
+ * Provider-agnostic voice surface DTOs (FR-8). Mirrors
+ * `VoiceProviderCapability` / `VoiceInfo` in `voice-contracts` but stays a plain
+ * wire shape (ids as `string`) so `libs/shared` keeps zero backend deps.
+ */
+export interface VoiceProviderCapabilityDto {
+  id: string;
+  label: string;
+  kind: 'local' | 'cloud';
+  requiresDownload: boolean;
+  requiresApiKey: boolean;
+  supports: { tts: boolean; stt: boolean };
+  available: boolean;
+  unavailableReason?: string;
+}
+
+export type VoiceListProvidersParams = Record<string, never>;
+
+export type VoiceListProvidersResult =
+  | {
+      ok: true;
+      providers: VoiceProviderCapabilityDto[];
+      active: { tts: string; stt: string };
+    }
+  | { ok: false; error: string };
+
+export interface VoiceInfoDto {
+  id: string;
+  label: string;
+  category?: string;
+}
+
+export interface VoiceListVoicesParams {
+  providerId: 'local' | 'elevenlabs';
+}
+
+export type VoiceListVoicesResult =
+  | { ok: true; voices: VoiceInfoDto[] }
+  | { ok: false; error: string; category?: string };
+
+export interface VoiceProviderConfigLocalDto {
+  whisperModel: string;
+  modelSource: 'curated' | 'hf' | 'dir';
+  customModel?: string;
+  sttDownloaded: boolean;
+  ttsDownloaded: boolean;
+  ttsVoice: string;
+}
+
+export interface VoiceProviderConfigElevenLabsDto {
+  /** Whether an API key is stored — NEVER the key or its ciphertext. */
+  apiKeyConfigured: boolean;
+  voiceId?: string;
+  ttsModelId: string;
+  outputFormat: string;
+  sttModelId: string;
+}
+
+export interface VoiceProviderConfigDto {
+  ttsProvider: string;
+  sttProvider: string;
+  local: VoiceProviderConfigLocalDto;
+  elevenlabs: VoiceProviderConfigElevenLabsDto;
+}
+
+export type VoiceGetProviderConfigParams = Record<string, never>;
+
+export type VoiceGetProviderConfigResult =
+  | { ok: true; config: VoiceProviderConfigDto }
+  | { ok: false; error: string };
+
+export interface VoiceSetProviderConfigParams {
+  ttsProvider?: 'local' | 'elevenlabs';
+  sttProvider?: 'local' | 'elevenlabs';
+  elevenlabs?: {
+    voiceId?: string;
+    ttsModelId?: string;
+    outputFormat?: string;
+    sttModelId?: string;
+  };
+}
+
+export type VoiceSetProviderConfigResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export interface VoiceSetApiKeyParams {
+  providerId: 'elevenlabs';
+  /** Plaintext API key; an empty string clears the stored key. */
+  apiKey: string;
+}
+
+export type VoiceSetApiKeyResult = { ok: true } | { ok: false; error: string };
+
+export interface VoiceTestConnectionParams {
+  providerId: 'elevenlabs';
+  /** Optional unsaved key for a pre-save connectivity probe. */
+  apiKey?: string;
+}
+
+export type VoiceTestConnectionResult =
+  | { ok: true }
+  | { ok: false; error: string; category?: string };
 
 export interface ScheduledJobDto {
   id: string;
@@ -2637,6 +2789,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'voice:setTtsConfig': true,
   'voice:downloadTtsModel': true,
   'voice:synthesize': true,
+  'voice:listProviders': true,
+  'voice:listVoices': true,
+  'voice:getProviderConfig': true,
+  'voice:setProviderConfig': true,
+  'voice:setApiKey': true,
+  'voice:testConnection': true,
 
   'db:health': true,
   'db:reset': true,

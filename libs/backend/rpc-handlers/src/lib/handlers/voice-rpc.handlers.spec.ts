@@ -21,6 +21,10 @@ import {
   type VoiceEventDisposable,
   type VoiceProviderCapability,
 } from '@ptah-extension/voice-contracts';
+import type {
+  VoiceSecretStore,
+  ElevenLabsClient,
+} from '@ptah-extension/voice-providers';
 
 import { VoiceRpcHandlers } from './voice-rpc.handlers';
 
@@ -80,6 +84,8 @@ interface Suite {
   registry: jest.Mocked<IVoiceProviderRegistry>;
   downloadEvents: FakeDownloadEvents;
   webviewManager: { broadcastMessage: jest.Mock };
+  secretStore: jest.Mocked<VoiceSecretStore>;
+  elevenLabsClient: jest.Mocked<ElevenLabsClient>;
   workspace: jest.Mocked<IWorkspaceProvider> & {
     setConfiguration: jest.Mock;
   };
@@ -136,6 +142,20 @@ function buildSuite(initial: StoredSettings = {}): Suite {
     broadcastMessage: jest.fn().mockResolvedValue(undefined),
   };
 
+  const secretStore = {
+    isConfigured: jest.fn().mockReturnValue(false),
+    getKey: jest.fn().mockReturnValue(null),
+    setKey: jest.fn().mockResolvedValue(undefined),
+    clearKey: jest.fn().mockResolvedValue(undefined),
+  } as unknown as jest.Mocked<VoiceSecretStore>;
+
+  const elevenLabsClient = {
+    synthesize: jest.fn(),
+    listVoices: jest.fn(),
+    transcribe: jest.fn(),
+    testConnection: jest.fn().mockResolvedValue(undefined),
+  } as unknown as jest.Mocked<ElevenLabsClient>;
+
   const store: StoredSettings = { ...initial };
 
   const getConfiguration = jest.fn(
@@ -179,6 +199,8 @@ function buildSuite(initial: StoredSettings = {}): Suite {
     selector,
     registry,
     webviewManager,
+    secretStore,
+    elevenLabsClient,
   );
   handlers.register();
   return {
@@ -190,6 +212,8 @@ function buildSuite(initial: StoredSettings = {}): Suite {
     registry,
     downloadEvents,
     webviewManager,
+    secretStore,
+    elevenLabsClient,
     workspace,
     store,
   };
@@ -207,6 +231,20 @@ describe('VoiceRpcHandlers', () => {
       }
       expect(registered).toContain('voice:transcribe');
       expect(registered.length).toBe(VoiceRpcHandlers.METHODS.length);
+    });
+
+    it('registers exactly 14 methods (8 legacy + 6 provider-agnostic)', () => {
+      expect(VoiceRpcHandlers.METHODS.length).toBe(14);
+      for (const method of [
+        'voice:listProviders',
+        'voice:listVoices',
+        'voice:getProviderConfig',
+        'voice:setProviderConfig',
+        'voice:setApiKey',
+        'voice:testConnection',
+      ] as const) {
+        expect(VoiceRpcHandlers.METHODS).toContain(method);
+      }
     });
   });
 
@@ -739,9 +777,7 @@ describe('VoiceRpcHandlers', () => {
 
       expect(response.data).toEqual({
         ok: true,
-        audioBase64: Buffer.from(new Uint8Array([1, 2, 3])).toString(
-          'base64',
-        ),
+        audioBase64: Buffer.from(new Uint8Array([1, 2, 3])).toString('base64'),
         mimeType: 'audio/wav',
       });
       expect(selector.activeTts).toHaveBeenCalledTimes(1);
@@ -797,9 +833,7 @@ describe('VoiceRpcHandlers', () => {
 
     it('returns { ok: false } when the provider throws, without rejecting', async () => {
       const { rpc, tts } = buildSuite();
-      (tts.synthesize as jest.Mock).mockRejectedValue(
-        new Error('synth-boom'),
-      );
+      (tts.synthesize as jest.Mock).mockRejectedValue(new Error('synth-boom'));
 
       const response = await rpc.handleMessage({
         method: 'voice:synthesize',
@@ -831,6 +865,375 @@ describe('VoiceRpcHandlers', () => {
         code: VOICE_ASSETS_UNAVAILABLE,
         remediation: VOICE_ASSETS_REMEDIATION,
       });
+    });
+
+    it('broadcasts voice:providerError on a CLOUD-category synthesize failure and still returns the error', async () => {
+      const { rpc, tts, webviewManager } = buildSuite();
+      (tts.synthesize as jest.Mock).mockRejectedValue(
+        new VoiceProviderError(
+          'quota',
+          'elevenlabs',
+          'ElevenLabs quota exceeded. Check your plan usage and try again.',
+        ),
+      );
+
+      const response = await rpc.handleMessage({
+        method: 'voice:synthesize',
+        params: { text: 'hi' },
+        correlationId: 'tts-cloud-fail',
+      });
+
+      // Error still returns to the caller — no retry, no substitution.
+      expect(response.data).toMatchObject({
+        ok: false,
+        code: 'VOICE_PROVIDER_ERROR',
+        category: 'quota',
+        providerId: 'elevenlabs',
+      });
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'voice:providerError',
+        {
+          direction: 'tts',
+          providerId: 'elevenlabs',
+          category: 'quota',
+          message:
+            'ElevenLabs quota exceeded. Check your plan usage and try again.',
+        },
+      );
+    });
+
+    it('does NOT broadcast for a LOCAL-provider synthesize failure', async () => {
+      const { rpc, tts, webviewManager } = buildSuite();
+      (tts.synthesize as jest.Mock).mockRejectedValue(
+        new VoiceProviderError('process-crashed', 'local', 'worker died'),
+      );
+
+      const response = await rpc.handleMessage({
+        method: 'voice:synthesize',
+        params: { text: 'hi' },
+        correlationId: 'tts-local-fail',
+      });
+
+      expect(response.data).toEqual({ ok: false, error: 'worker died' });
+      expect(webviewManager.broadcastMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('voice:transcribe FR-7 broadcast', () => {
+    it('broadcasts voice:providerError on a CLOUD-category transcribe failure', async () => {
+      const { rpc, stt, webviewManager } = buildSuite();
+      (stt.transcribe as jest.Mock).mockRejectedValue(
+        new VoiceProviderError(
+          'auth',
+          'elevenlabs',
+          'ElevenLabs rejected the API key (authentication failed).',
+          'Re-enter your ElevenLabs API key in Voice settings.',
+        ),
+      );
+
+      const response = await rpc.handleMessage({
+        method: 'voice:transcribe',
+        params: { audioBase64: VALID_BASE64, mimeType: 'audio/webm' },
+        correlationId: 'stt-cloud-fail',
+      });
+
+      expect(response.data).toMatchObject({
+        ok: false,
+        code: 'VOICE_PROVIDER_ERROR',
+        category: 'auth',
+        providerId: 'elevenlabs',
+        remediation: 'Re-enter your ElevenLabs API key in Voice settings.',
+      });
+      expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'voice:providerError',
+        expect.objectContaining({
+          direction: 'stt',
+          providerId: 'elevenlabs',
+          category: 'auth',
+        }),
+      );
+    });
+
+    it('does NOT broadcast for a LOCAL assets-unavailable transcribe failure', async () => {
+      const { rpc, stt, webviewManager } = buildSuite();
+      (stt.transcribe as jest.Mock).mockRejectedValue(
+        new VoiceProviderError(
+          'assets-unavailable',
+          'local',
+          'Voice asset "ffmpeg-static" is not available.',
+        ),
+      );
+
+      await rpc.handleMessage({
+        method: 'voice:transcribe',
+        params: { audioBase64: VALID_BASE64, mimeType: 'audio/webm' },
+        correlationId: 'stt-assets-fail',
+      });
+
+      expect(webviewManager.broadcastMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('voice:listProviders', () => {
+    it('returns registry capabilities plus the active provider ids', async () => {
+      const { rpc, registry, selector } = buildSuite();
+      (registry.listProviders as jest.Mock).mockReturnValue([
+        makeCapability(),
+        makeCapability({
+          id: 'elevenlabs',
+          label: 'ElevenLabs',
+          kind: 'cloud',
+          requiresDownload: false,
+          requiresApiKey: true,
+          available: false,
+          unavailableReason: 'Add your ElevenLabs API key.',
+        }),
+      ]);
+      (selector.activeProviderId as jest.Mock).mockImplementation(
+        (dir: string) => (dir === 'tts' ? 'elevenlabs' : 'local'),
+      );
+
+      const response = await rpc.handleMessage({
+        method: 'voice:listProviders',
+        params: {},
+        correlationId: 'lp-1',
+      });
+
+      expect(response.data).toMatchObject({
+        ok: true,
+        active: { tts: 'elevenlabs', stt: 'local' },
+      });
+      const data = response.data as {
+        ok: true;
+        providers: Array<{ id: string; available: boolean }>;
+      };
+      expect(data.providers.map((p) => p.id)).toEqual(['local', 'elevenlabs']);
+    });
+  });
+
+  describe('voice:listVoices', () => {
+    it('lists voices from the requested provider via the registry TTS port', async () => {
+      const { rpc, tts, registry } = buildSuite();
+      (tts.listVoices as jest.Mock).mockResolvedValue([
+        { id: 'af_heart', label: 'Heart', category: 'kokoro' },
+      ]);
+
+      const response = await rpc.handleMessage({
+        method: 'voice:listVoices',
+        params: { providerId: 'local' },
+        correlationId: 'lv-1',
+      });
+
+      expect(response.data).toEqual({
+        ok: true,
+        voices: [{ id: 'af_heart', label: 'Heart', category: 'kokoro' }],
+      });
+      expect(registry.getTts).toHaveBeenCalledWith('local');
+    });
+
+    it('rejects an invalid providerId without calling the registry', async () => {
+      const { rpc, registry } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:listVoices',
+        params: { providerId: 'bogus' },
+        correlationId: 'lv-2',
+      });
+
+      expect(response.data).toMatchObject({ ok: false });
+      expect(registry.getTts).not.toHaveBeenCalled();
+    });
+
+    it('surfaces the error category when a cloud voice list fails', async () => {
+      const { rpc, tts } = buildSuite();
+      (tts.listVoices as jest.Mock).mockRejectedValue(
+        new VoiceProviderError('auth', 'elevenlabs', 'key rejected'),
+      );
+
+      const response = await rpc.handleMessage({
+        method: 'voice:listVoices',
+        params: { providerId: 'elevenlabs' },
+        correlationId: 'lv-3',
+      });
+
+      expect(response.data).toMatchObject({ ok: false, category: 'auth' });
+    });
+  });
+
+  describe('voice:getProviderConfig', () => {
+    it('returns config WITHOUT any key material (security regression)', async () => {
+      const { rpc, secretStore } = buildSuite({ voiceModel: 'small.en' });
+      (secretStore.isConfigured as jest.Mock).mockReturnValue(true);
+
+      const response = await rpc.handleMessage({
+        method: 'voice:getProviderConfig',
+        params: {},
+        correlationId: 'gpc-1',
+      });
+
+      expect(response.data).toMatchObject({ ok: true });
+      const serialized = JSON.stringify(response.data);
+      // No key, ciphertext, or raw-key field ever leaves the handler.
+      expect(serialized).not.toMatch(/apiKey"\s*:/i);
+      expect(serialized).not.toMatch(/cipher/i);
+      expect(serialized).not.toMatch(/apiKeyCipher/i);
+
+      const data = response.data as {
+        ok: true;
+        config: {
+          elevenlabs: { apiKeyConfigured: boolean };
+          local: { whisperModel: string };
+        };
+      };
+      // Only the boolean flag is exposed for the key.
+      expect(data.config.elevenlabs.apiKeyConfigured).toBe(true);
+      expect(data.config.elevenlabs).not.toHaveProperty('apiKey');
+      expect(data.config.elevenlabs).not.toHaveProperty('apiKeyCipher');
+      expect(data.config.local.whisperModel).toBe('small.en');
+    });
+
+    it('reports apiKeyConfigured=false when no key is stored', async () => {
+      const { rpc, secretStore } = buildSuite();
+      (secretStore.isConfigured as jest.Mock).mockReturnValue(false);
+
+      const response = await rpc.handleMessage({
+        method: 'voice:getProviderConfig',
+        params: {},
+        correlationId: 'gpc-2',
+      });
+
+      const data = response.data as {
+        ok: true;
+        config: { elevenlabs: { apiKeyConfigured: boolean } };
+      };
+      expect(data.config.elevenlabs.apiKeyConfigured).toBe(false);
+    });
+  });
+
+  describe('voice:setProviderConfig', () => {
+    it('persists provider switches via the selector', async () => {
+      const { rpc, selector } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:setProviderConfig',
+        params: { ttsProvider: 'elevenlabs', sttProvider: 'local' },
+        correlationId: 'spc-1',
+      });
+
+      expect(response.data).toEqual({ ok: true });
+      expect(selector.setProvider).toHaveBeenCalledWith('tts', 'elevenlabs');
+      expect(selector.setProvider).toHaveBeenCalledWith('stt', 'local');
+    });
+
+    it('writes non-secret elevenlabs config keys', async () => {
+      const { rpc, workspace } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:setProviderConfig',
+        params: {
+          elevenlabs: { voiceId: 'rachel', outputFormat: 'mp3_44100_128' },
+        },
+        correlationId: 'spc-2',
+      });
+
+      expect(response.data).toEqual({ ok: true });
+      expect(workspace.setConfiguration).toHaveBeenCalledWith(
+        'ptah',
+        'voice.elevenlabs.voiceId',
+        'rachel',
+      );
+      expect(workspace.setConfiguration).toHaveBeenCalledWith(
+        'ptah',
+        'voice.elevenlabs.outputFormat',
+        'mp3_44100_128',
+      );
+    });
+
+    it('rejects an invalid provider id without persisting', async () => {
+      const { rpc, selector } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:setProviderConfig',
+        params: { ttsProvider: 'nope' },
+        correlationId: 'spc-3',
+      });
+
+      expect(response.data).toMatchObject({ ok: false });
+      expect(selector.setProvider).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('voice:setApiKey', () => {
+    it('stores the key via the secret store', async () => {
+      const { rpc, secretStore } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:setApiKey',
+        params: { providerId: 'elevenlabs', apiKey: 'sk-secret-123' },
+        correlationId: 'sak-1',
+      });
+
+      expect(response.data).toEqual({ ok: true });
+      expect(secretStore.setKey).toHaveBeenCalledWith(
+        'elevenlabs',
+        'sk-secret-123',
+      );
+    });
+
+    it('clears the key when given an empty string', async () => {
+      const { rpc, secretStore } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:setApiKey',
+        params: { providerId: 'elevenlabs', apiKey: '' },
+        correlationId: 'sak-2',
+      });
+
+      expect(response.data).toEqual({ ok: true });
+      expect(secretStore.setKey).toHaveBeenCalledWith('elevenlabs', '');
+    });
+
+    it('rejects a non-cloud providerId without storing', async () => {
+      const { rpc, secretStore } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:setApiKey',
+        params: { providerId: 'local', apiKey: 'x' },
+        correlationId: 'sak-3',
+      });
+
+      expect(response.data).toMatchObject({ ok: false });
+      expect(secretStore.setKey).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('voice:testConnection', () => {
+    it('probes the provider and returns ok on success', async () => {
+      const { rpc, elevenLabsClient } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:testConnection',
+        params: { providerId: 'elevenlabs', apiKey: 'sk-probe' },
+        correlationId: 'tc-1',
+      });
+
+      expect(response.data).toEqual({ ok: true });
+      expect(elevenLabsClient.testConnection).toHaveBeenCalledWith('sk-probe');
+    });
+
+    it('returns the error category when the probe fails', async () => {
+      const { rpc, elevenLabsClient } = buildSuite();
+      (elevenLabsClient.testConnection as jest.Mock).mockRejectedValue(
+        new VoiceProviderError('auth', 'elevenlabs', 'key rejected'),
+      );
+
+      const response = await rpc.handleMessage({
+        method: 'voice:testConnection',
+        params: { providerId: 'elevenlabs' },
+        correlationId: 'tc-2',
+      });
+
+      expect(response.data).toMatchObject({ ok: false, category: 'auth' });
     });
   });
 });
