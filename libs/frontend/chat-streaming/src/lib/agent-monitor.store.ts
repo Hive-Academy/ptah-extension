@@ -131,6 +131,15 @@ export interface SubagentRecord {
   errorMessage?: string;
   /** Final output file path if completed */
   outputFile?: string;
+  /**
+   * Owning session id, captured from the pushed SDK event's `sessionId`
+   * (`FlatStreamEvent.sessionId`). This is the session that spawned the
+   * subagent — NOT necessarily the focused tab. Steer / stop / background
+   * RPCs must target THIS session, otherwise they resolve the wrong Query
+   * backend-side when multiple canvas tiles are live. Kept optional because a
+   * record can, in theory, be materialised before any event carries it.
+   */
+  parentSessionId?: string;
 }
 
 /**
@@ -944,6 +953,7 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: existing?.durationMs,
         errorMessage: existing?.errorMessage,
         outputFile: existing?.outputFile,
+        parentSessionId: event.sessionId ?? existing?.parentSessionId,
       };
       next.set(key, merged);
       return next;
@@ -969,6 +979,7 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: event.durationMs,
         errorMessage: existing?.errorMessage,
         outputFile: existing?.outputFile,
+        parentSessionId: event.sessionId ?? existing?.parentSessionId,
       };
       next.set(key, merged);
       return next;
@@ -994,6 +1005,7 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: existing?.durationMs,
         errorMessage: event.errorMessage ?? existing?.errorMessage,
         outputFile: existing?.outputFile,
+        parentSessionId: event.sessionId ?? existing?.parentSessionId,
       };
       next.set(key, merged);
       return next;
@@ -1019,6 +1031,7 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: event.durationMs ?? existing?.durationMs,
         errorMessage: existing?.errorMessage,
         outputFile: event.outputFile ?? existing?.outputFile,
+        parentSessionId: event.sessionId ?? existing?.parentSessionId,
       };
       next.set(key, merged);
       return next;
@@ -1045,12 +1058,22 @@ export class AgentMonitorStore implements OnDestroy {
     return { ok: result.isSuccess(), code: result.data?.code };
   }
 
+  /**
+   * Send a follow-up ("steer") message into a running subagent.
+   *
+   * `sessionId` is the session that OWNS the subagent. Callers that know it
+   * (e.g. the background-agent tray, which reads `SubagentRecord.parentSessionId`)
+   * must pass it so the RPC targets the right Query when multiple canvas tiles
+   * are live. It falls back to the active tab's session to preserve callers
+   * that render inside the focused session (e.g. inline-agent-bubble).
+   */
   async sendMessageToAgent(
     parentToolUseId: string,
     text: string,
+    sessionId?: string,
   ): Promise<boolean> {
-    const sessionId = this.tabManager.activeTabSessionId();
-    if (!sessionId) {
+    const sid = sessionId ?? this.tabManager.activeTabSessionId();
+    if (!sid) {
       this.recordSubagentRpcError({
         parentToolUseId,
         method: 'subagent:send-message',
@@ -1060,7 +1083,7 @@ export class AgentMonitorStore implements OnDestroy {
       return false;
     }
     const result = await this.rpc.call('subagent:send-message', {
-      sessionId,
+      sessionId: sid,
       parentToolUseId,
       text,
     });
@@ -1080,11 +1103,15 @@ export class AgentMonitorStore implements OnDestroy {
   /**
    * Stop a running subagent identified by SDK task_id. The matching
    * `parentToolUseId` is looked up so error reporting stays scoped.
+   *
+   * `sessionId` is the OWNING session; callers that know it (background-agent
+   * tray) pass it so the stop resolves the right Query when several tiles are
+   * live. Falls back to the active tab's session for focused-surface callers.
    */
-  async stopAgent(taskId: string): Promise<void> {
-    const sessionId = this.tabManager.activeTabSessionId();
+  async stopAgent(taskId: string, sessionId?: string): Promise<void> {
+    const sid = sessionId ?? this.tabManager.activeTabSessionId();
     const parentToolUseId = this.findParentToolUseIdByTaskId(taskId);
-    if (!sessionId) {
+    if (!sid) {
       this.recordSubagentRpcError({
         parentToolUseId: parentToolUseId ?? taskId,
         method: 'subagent:stop',
@@ -1094,7 +1121,7 @@ export class AgentMonitorStore implements OnDestroy {
       return;
     }
     const result = await this.rpc.call('subagent:stop', {
-      sessionId,
+      sessionId: sid,
       taskId,
     });
     if (!result.isSuccess()) {

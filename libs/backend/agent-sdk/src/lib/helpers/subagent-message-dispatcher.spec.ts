@@ -1,10 +1,14 @@
 /**
- * SubagentMessageDispatcher specs — Fix 3 error path coverage.
+ * SubagentMessageDispatcher specs.
  *
  * Verifies that:
  *   - stopSubagent wraps Query.stopTask failures in RpcUserError('TASK_NOT_FOUND')
  *   - sendToSubagent wraps streamInput failures in RpcUserError('SESSION_ENDED')
+ *     and shapes the coordinator-nudge payload (SendMessage instruction when
+ *     the registry record has an agentId, generic nudge otherwise)
  *   - interruptSession wraps Query.interrupt failures in RpcUserError('SESSION_ENDED')
+ *   - backgroundTask delegates to Query.backgroundTasks and surfaces
+ *     SESSION_NOT_FOUND / SESSION_ENDED
  */
 
 import 'reflect-metadata';

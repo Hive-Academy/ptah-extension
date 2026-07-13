@@ -3,11 +3,12 @@ import {
   ChangeDetectionStrategy,
   inject,
   computed,
-  output,
+  signal,
 } from '@angular/core';
 import {
   BackgroundAgentStripComponent,
   type BackgroundAgentStripEntry,
+  type BackgroundAgentSteerRequest,
 } from '@ptah-extension/chat-ui';
 import {
   AgentMonitorStore,
@@ -26,58 +27,64 @@ interface StripContext {
   readonly entry: BackgroundAgentStripEntry;
   /** SDK `task_id`, when known — required to stop the agent. */
   readonly taskId?: string;
-  /** Parent session that owns the agent — required to send it to background. */
+  /**
+   * Owning session id (the session that spawned the agent) — sourced from the
+   * subagent record's `parentSessionId` or the background entry's `sessionId`,
+   * NOT the focused tab. Every steer / stop / background RPC targets this.
+   */
   readonly sessionId?: string;
 }
 
 /**
- * BackgroundAgentStripContainerComponent — thin smart wrapper around the
- * presentational {@link BackgroundAgentStripComponent}.
+ * BackgroundAgentTrayComponent — thin smart wrapper around the presentational
+ * {@link BackgroundAgentStripComponent}.
  *
  * Composes the entry list from all running subagents plus all background
  * agents (deduped by `toolCallId`, background records winning since they are
  * the authoritative state once an agent is backgrounded) and wires the chip
- * actions:
- *   - focus / steer → bubbled up via {@link focusRequested} so the host opens
- *     the monitor panel (which hosts the steer input).
- *   - stop → {@link AgentMonitorStore.stopAgent} (by task id).
- *   - sendToBackground → {@link AgentMonitorStore.backgroundAgent}.
+ * actions to the stores. Every action resolves the agent's OWNING session
+ * (from the pushed events, via `SubagentRecord.parentSessionId` /
+ * `BackgroundAgentEntry.sessionId`) so it targets the correct Query even when
+ * several canvas tiles are live — never the focused tab.
+ *
+ *   - focus  → switch to the owning session's tab (lands on the agent's bubble).
+ *   - steer  → {@link AgentMonitorStore.sendMessageToAgent} (owning session).
+ *   - stop   → {@link AgentMonitorStore.stopAgent} by task id (owning session).
+ *   - background → {@link AgentMonitorStore.backgroundAgent} (owning session).
  *
  * State is never mutated optimistically — the stores update only from pushed
  * stream events, so this component just reads their signals and fires RPCs.
  */
 @Component({
-  selector: 'ptah-background-agent-strip-container',
+  selector: 'ptah-background-agent-tray',
   standalone: true,
   imports: [BackgroundAgentStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ptah-background-agent-strip
       [entries]="entries()"
-      (focusAgent)="focusRequested.emit($event)"
-      (steer)="focusRequested.emit($event)"
+      [pendingSteerId]="pendingSteerId()"
+      (focusAgent)="onFocus($event)"
+      (steer)="onSteer($event)"
       (stop)="onStop($event)"
       (sendToBackground)="onSendToBackground($event)"
     />
   `,
 })
-export class BackgroundAgentStripContainerComponent {
+export class BackgroundAgentTrayComponent {
   private readonly agentMonitor = inject(AgentMonitorStore);
   private readonly backgroundStore = inject(BackgroundAgentStore);
   private readonly tabManager = inject(TabManagerService);
 
-  /**
-   * Emits the entry id when a chip's focus or steer action fires. The host
-   * (chat view) opens the agents monitor panel in response — the panel hosts
-   * the per-agent steer input (Task 3).
-   */
-  readonly focusRequested = output<string>();
+  /** Id of the chip whose steer RPC is in flight (disables its inline input). */
+  protected readonly pendingSteerId = signal<string | null>(null);
 
   /**
    * Per-entry action context, keyed by `toolCallId`. Subagents are inserted
    * first; background records override them so a backgrounded agent renders as
    * its authoritative background state while still carrying the subagent's
-   * `taskId` (needed for stop).
+   * `taskId` (which survives in the store — records are never evicted — so
+   * Stop keeps working after an agent moves to the background).
    */
   private readonly context = computed<ReadonlyMap<string, StripContext>>(() => {
     const map = new Map<string, StripContext>();
@@ -118,7 +125,7 @@ export class BackgroundAgentStripContainerComponent {
         canBackground: true,
       },
       taskId: rec.taskId,
-      sessionId: this.tabManager.activeTabSessionId() ?? undefined,
+      sessionId: rec.parentSessionId,
     };
   }
 
@@ -146,14 +153,37 @@ export class BackgroundAgentStripContainerComponent {
         canBackground: false,
       },
       taskId,
-      sessionId: bg.sessionId as unknown as string,
+      sessionId: bg.sessionId,
     };
+  }
+
+  /** Switch to the tab that owns the agent's session, landing on its bubble. */
+  protected onFocus(id: string): void {
+    const sessionId = this.context().get(id)?.sessionId;
+    if (!sessionId) return;
+    const tab = this.tabManager.findTabBySessionId(sessionId);
+    if (tab) this.tabManager.switchTab(tab.id);
+  }
+
+  protected async onSteer(request: BackgroundAgentSteerRequest): Promise<void> {
+    const ctx = this.context().get(request.id);
+    if (!ctx) return;
+    this.pendingSteerId.set(request.id);
+    try {
+      await this.agentMonitor.sendMessageToAgent(
+        request.id,
+        request.text,
+        ctx.sessionId,
+      );
+    } finally {
+      this.pendingSteerId.set(null);
+    }
   }
 
   protected onStop(id: string): void {
     const ctx = this.context().get(id);
     if (ctx?.taskId) {
-      void this.agentMonitor.stopAgent(ctx.taskId);
+      void this.agentMonitor.stopAgent(ctx.taskId, ctx.sessionId);
     }
   }
 

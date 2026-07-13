@@ -14,9 +14,11 @@ import { LucideAngularModule, SendHorizontal } from 'lucide-angular';
  *
  * Purely presentational: it self-hides unless `steerable` is true, disables
  * itself while `pending`, and emits the trimmed text on Enter (or send-button
- * click). The smart parent owns the in-flight state and the actual RPC call
- * (`sendMessageToAgent`), keeping this component free of store coupling so it
- * can be reused from the monitor panel, a canvas tile, or the strip.
+ * click). The consumer owns the in-flight state and the actual RPC call
+ * (`sendMessageToAgent`), keeping this component free of store coupling.
+ *
+ * Consumed by {@link BackgroundAgentStripComponent}, which expands it inline
+ * beneath a chip when the user clicks that chip's steer icon.
  */
 @Component({
   selector: 'ptah-agent-steer-input',

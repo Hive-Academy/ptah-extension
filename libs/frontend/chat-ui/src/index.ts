@@ -33,6 +33,7 @@ export {
   BackgroundAgentStripComponent,
   type BackgroundAgentStripEntry,
   type BackgroundAgentStripStatus,
+  type BackgroundAgentSteerRequest,
 } from './lib/molecules/background-agent-strip.component';
 export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.component';
 export { CommunityUpgradeBannerComponent } from './lib/molecules/community-upgrade-banner.component';

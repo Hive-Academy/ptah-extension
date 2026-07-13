@@ -1,15 +1,17 @@
 /**
  * SubagentMessageDispatcher — bidirectional messaging for running subagents.
  *
- * Provides three operations:
- *   - `sendToSubagent` — push a user message into a running subagent via
- *     the session's streamInput channel, scoped by parentToolUseId.
+ * Provides four operations:
+ *   - `sendToSubagent` — relay a user message toward a running subagent via
+ *     a coordinator nudge on the session's streamInput channel.
  *   - `stopSubagent` — call Query.stopTask(taskId) to gracefully stop a
  *     running subagent and write its output file.
  *   - `interruptSession` — call Query.interrupt() to abort the entire
  *     session, stopping all subagents.
+ *   - `backgroundTask` — call Query.backgroundTasks(toolUseId) to move an
+ *     in-flight foreground task to the background.
  *
- * All three surface typed errors when the session is not active, ensuring
+ * All four surface typed errors when the session is not active, ensuring
  * the RPC boundary receives a clear, handleable error rather than an
  * untyped throw.
  *
