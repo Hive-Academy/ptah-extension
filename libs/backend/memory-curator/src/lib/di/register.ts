@@ -23,7 +23,10 @@ import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import { MEMORY_TOKENS } from './tokens';
-import { EmbedderWorkerClient } from '../embedder/embedder-worker-client';
+import {
+  EmbedderWorkerClient,
+  DEFAULT_EMBEDDER_IDLE_MS,
+} from '../embedder/embedder-worker-client';
 import { EmbedderStatusService } from '../embedder/embedder-status.service';
 import { SalienceScorer } from '../salience-scorer';
 import { MemoryStore } from '../memory.store';
@@ -46,6 +49,17 @@ export function registerMemoryCuratorServices(
   logger: Logger,
 ): void {
   logger.info('[memory-curator] registering services');
+
+  // Idle-teardown window for the embedder worker client. Injected
+  // `{ isOptional: true }` with the same default, but registered explicitly so
+  // the DI graph is fully resolvable (mirrors voice-providers). The
+  // EMBEDDER_WORKER_PROCESS_FACTORY is host-registered (Electron only); when
+  // absent the embedder degrades to unavailable and search falls back to BM25.
+  container.registerInstance(
+    MEMORY_TOKENS.EMBEDDER_WORKER_IDLE_MS,
+    DEFAULT_EMBEDDER_IDLE_MS,
+  );
+
   container.register(
     PERSISTENCE_TOKENS.EMBEDDER,
     { useClass: EmbedderWorkerClient },

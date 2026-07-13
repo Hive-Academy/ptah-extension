@@ -11,7 +11,10 @@ Letta-style tiered memory (core/recall/archival) curated automatically on SDK Pr
 **Belongs here**:
 
 - Memory store, search, salience scoring, decay job, curator service
-- Embedder worker client (registered under `PERSISTENCE_TOKENS.EMBEDDER`)
+- Embedder worker client (registered under `PERSISTENCE_TOKENS.EMBEDDER`) +
+  the host-implemented `IEmbedderWorkerProcessFactory` port
+- The `embedder-worker.ts` utilityProcess entry (bundled separately to
+  `embedder-worker.mjs`) + its id-correlated `embedder-worker-protocol.ts`
 - `IMemoryWriter` adapter (registered under `PLATFORM_TOKENS.MEMORY_WRITER`)
 - Workspace fingerprint derivation
 - `IndexingControlService` — user-controlled indexing pipeline
@@ -21,6 +24,7 @@ Letta-style tiered memory (core/recall/archival) curated automatically on SDK Pr
 - DB connection (use `persistence-sqlite`)
 - LLM calls (consume `ICuratorLLM` from `memory-contracts`; implementation lives in `agent-sdk`)
 - RPC surface (in `rpc-handlers`: `MemoryRpcHandlers`, `IndexingRpcHandlers`)
+- Electron `utilityProcess.fork` (host-implemented via `IEmbedderWorkerProcessFactory` — never `import 'electron'` here)
 
 ## Public API
 
@@ -39,7 +43,16 @@ Re-exports `ICuratorLLM`, `ExtractedMemoryDraft`, `ResolvedMemoryDraft` from `me
 - `src/lib/memory-curator.service.ts` — PreCompact reactor; runs draft extraction → dedup → upsert
 - `src/lib/memory-writer.adapter.ts` — `IMemoryWriter` implementation with prefix-line helpers
 - `src/lib/control/indexing-control.service.ts` — workspace indexing pipeline (start/pause/resume/status)
-- `src/lib/embedder/` — embedder worker process client
+- `src/lib/embedder/` — embedder worker process client (`EmbedderWorkerClient`,
+  main-side proxy: lazy spawn, idle-teardown, respawn-on-exit, crash-loop
+  guard), the host `IEmbedderWorkerProcessFactory` port, the `embedder-worker.ts`
+  utilityProcess entry, and the shared `embedder-worker-protocol.ts`. The worker
+  runs in a separate OS process (Electron `utilityProcess`), so a native ONNX
+  `abort()` kills only the child; the client rejects in-flight requests and
+  respawns on the next request — no permanent failed flag. Config
+  (`modelCacheDir`) arrives only via the `init` message. On VS Code / CLI no
+  factory is registered → the embedder is unavailable and search falls back to
+  BM25-only (mirrors the voice-providers degrade).
 - `src/lib/curator-llm/` — local copy of `ICuratorLLM` interface (re-exported)
 - `src/lib/workspace-fingerprint.ts`
 - `src/lib/di/{tokens,register}.ts`

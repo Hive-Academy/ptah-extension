@@ -44,7 +44,10 @@ import {
 } from '@ptah-extension/persistence-sqlite';
 import * as fs from 'node:fs';
 import { app } from 'electron';
-import { registerMemoryCuratorServices } from '@ptah-extension/memory-curator';
+import {
+  registerMemoryCuratorServices,
+  MEMORY_TOKENS,
+} from '@ptah-extension/memory-curator';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
@@ -65,6 +68,7 @@ import { VOICE_CONTRACT_TOKENS } from '@ptah-extension/voice-contracts';
 import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import { ElectronSafeStorageVault } from '../services/platform/electron-safe-storage-vault';
 import { ElectronVoiceWorkerFactory } from '../services/platform/electron-voice-worker-factory';
+import { ElectronEmbedderWorkerFactory } from '../services/platform/electron-embedder-worker-factory';
 import { MetadataGatewaySessionLister } from '../services/gateway/metadata-gateway-session-lister';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
@@ -117,9 +121,6 @@ export function registerPhase2Libraries(
       dirnameGlobal ?? path.join(os.homedir(), '.ptah'),
       'embedder-worker.mjs',
     );
-    container.register(PERSISTENCE_TOKENS.EMBEDDER_WORKER_PATH, {
-      useValue: workerEntry,
-    });
 
     const modelCacheDir = path.join(os.homedir(), '.ptah', 'models');
     try {
@@ -130,8 +131,13 @@ export function registerPhase2Libraries(
         { error: error instanceof Error ? error.message : String(error) },
       );
     }
-    container.register(PERSISTENCE_TOKENS.EMBEDDER_MODEL_CACHE_DIR, {
-      useValue: modelCacheDir,
+
+    // Embedder worker now runs in an Electron utilityProcess behind a
+    // host-implemented factory port (mirrors voice). The client owns respawn /
+    // idle-teardown / crash-loop; the factory owns fork + init config. Absent
+    // this factory (VS Code / CLI) the embedder degrades to unavailable.
+    container.register(MEMORY_TOKENS.EMBEDDER_WORKER_PROCESS_FACTORY, {
+      useValue: new ElectronEmbedderWorkerFactory(workerEntry, modelCacheDir),
     });
 
     registerPersistenceSqliteServices(container, logger);

@@ -13,6 +13,7 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', '.nx', 'coverage']);
 
 const INTENTIONAL_CROSS_LIB_MIRRORS = new Set<string>([
   'PtahCuratorLlm',
+  'PtahKnowledgeAgentService',
   'PtahUserLayerMirrorService',
   'SdkCompactionCallbackRegistry',
   'SdkInternalQueryService',

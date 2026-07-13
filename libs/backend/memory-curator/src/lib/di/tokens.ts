@@ -43,6 +43,12 @@ export const MEMORY_TOKENS = {
   KNOWLEDGE_AGENT_SERVICE: Symbol.for('PtahKnowledgeAgentService'),
   /** EmbedderStatusService — single source of truth for bge-small ONNX readiness + lazy download progress. */
   EMBEDDER_STATUS: Symbol.for('PtahEmbedderStatus'),
+  /** IEmbedderWorkerProcessFactory — host impl (Electron utilityProcess); absent on VS Code/CLI → embedder degrades to unavailable. */
+  EMBEDDER_WORKER_PROCESS_FACTORY: Symbol.for(
+    'PtahEmbedderWorkerProcessFactory',
+  ),
+  /** Optional idle-teardown override (ms) for the embedder worker — mainly a test seam. */
+  EMBEDDER_WORKER_IDLE_MS: Symbol.for('PtahEmbedderWorkerIdleMs'),
 } as const;
 
 export type MemoryDIToken = keyof typeof MEMORY_TOKENS;

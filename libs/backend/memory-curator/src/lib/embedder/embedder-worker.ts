@@ -1,36 +1,57 @@
 /**
- * Worker thread entry — runs `@huggingface/transformers` to embed text and
- * cross-encode (query, candidate) pairs for reranking.
+ * Embedder worker entry — runs inside an Electron `utilityProcess` (its own OS
+ * process, so a native ONNX `abort()` kills only the child; the main process
+ * gets an `exit` event and respawns). Bundled separately by ptah-electron's
+ * `build-embedder-worker` esbuild target to `embedder-worker.mjs`.
  *
- * Bundled separately by `apps/ptah-electron`'s `build-embedder-worker`
- * esbuild target. No imports from the rest of the workspace because it
- * runs in a fresh isolate.
+ * Runs `@huggingface/transformers` to embed text and cross-encode
+ * (query, candidate) pairs for reranking, keeping the heavy ONNX runtime off
+ * the Electron main thread.
  *
- * Protocol (matches `embedder-worker-client.ts`):
- *   request:  { id, type: 'embed',    texts: string[] }
+ * Communicates via `process.parentPort` (Electron utilityProcess MessagePort).
+ * No `electron` import — the global is provided by the runtime, keeping this
+ * file importable by the (electron-free) backend lib bundle. Config
+ * (`modelCacheDir`) arrives via the `init` message, not `workerData`.
+ *
+ * Protocol (matches `embedder-worker-protocol.ts`):
+ *   request:  { type: 'init', modelCacheDir }
+ *           | { id, type: 'embed',    texts: string[] }
  *           | { id, type: 'dispose' }
- *           | { id, type: 'rerank',   query: string, candidates: [{id,text}], topK: number }
+ *           | { id, type: 'rerank',   query, candidates: [{id,text}], topK }
  *           | { id, type: 'warmup' }
  *   response: { id, ok: true,  vectors: number[][] }
  *           | { id, ok: true,  ranked: [{id, score}] }
  *           | { id, ok: false, error: string }
+ *   stream:   { type: 'pipeline-progress', info }
  */
-import { parentPort, workerData } from 'node:worker_threads';
+import type {
+  EmbedderWorkerInbound,
+  PipelineProgressInfo,
+} from './embedder-worker-protocol';
+
+interface ParentPortLike {
+  on(event: 'message', cb: (e: { data: unknown }) => void): void;
+  postMessage(msg: unknown): void;
+}
+
+const parentPort = (process as unknown as { parentPort?: ParentPortLike })
+  .parentPort;
 
 if (!parentPort) {
-  throw new Error('embedder-worker.ts must be run as a worker_thread');
+  throw new Error(
+    'embedder-worker.ts must be run as an Electron utilityProcess (no parentPort)',
+  );
 }
 
 const port = parentPort;
 
 /**
- * Writable model-cache directory injected by the main thread. Required when
- * packaged: `@huggingface/transformers` defaults to `<pkg>/.cache`, which lives
- * inside `app.asar` (a file) and fails with `ENOTDIR`. When absent (tests /
- * unpackaged dev) the library default is used.
+ * Writable model-cache directory injected by the main process via the `init`
+ * message. Required when packaged: `@huggingface/transformers` defaults to
+ * `<pkg>/.cache`, which lives inside `app.asar` (a file) and fails with
+ * `ENOTDIR`. When absent (tests / unpackaged dev) the library default is used.
  */
-const modelCacheDir: string | null =
-  (workerData as { modelCacheDir?: string } | null)?.modelCacheDir ?? null;
+let modelCacheDir: string | null = null;
 
 interface TransformersEnv {
   cacheDir?: string;
@@ -55,15 +76,6 @@ interface PipelineFn {
 
 let pipelineSingleton: PipelineFn | null = null;
 let pipelineLoading: Promise<PipelineFn> | null = null;
-
-interface PipelineProgressInfo {
-  readonly status: 'initiate' | 'download' | 'progress' | 'done' | 'ready';
-  readonly name?: string;
-  readonly file?: string;
-  readonly progress?: number;
-  readonly loaded?: number;
-  readonly total?: number;
-}
 
 const PROGRESS_EMIT_THROTTLE_MS = 500;
 let lastProgressEmitAt = 0;
@@ -254,59 +266,58 @@ async function warmup(): Promise<void> {
   await rerank('warmup', [{ id: 'x', text: dummy.toString() }], 1);
 }
 
-port.on(
-  'message',
-  async (msg: {
-    id: number;
-    type: string;
-    texts?: string[];
-    query?: string;
-    candidates?: ReadonlyArray<{ id: string; text: string }>;
-    topK?: number;
-  }) => {
-    try {
-      if (msg.type === 'embed') {
-        const vectors = await embed(msg.texts ?? []);
-        port.postMessage({ id: msg.id, ok: true, vectors });
-        return;
-      }
+async function handleMessage(msg: EmbedderWorkerInbound): Promise<void> {
+  if (msg.type === 'init') {
+    modelCacheDir = msg.modelCacheDir;
+    return;
+  }
 
-      if (msg.type === 'dispose') {
-        pipelineSingleton = null;
-        pipelineLoading = null;
-        crossEncoderSingleton = null;
-        crossEncoderLoading = null;
-        port.postMessage({ id: msg.id, ok: true, vectors: [] });
-        return;
-      }
-
-      if (msg.type === 'rerank') {
-        const ranked = await rerank(
-          msg.query ?? '',
-          msg.candidates ?? [],
-          msg.topK ?? 10,
-        );
-        port.postMessage({ id: msg.id, ok: true, ranked });
-        return;
-      }
-
-      if (msg.type === 'warmup') {
-        await warmup();
-        port.postMessage({ id: msg.id, ok: true, ranked: [] });
-        return;
-      }
-
-      port.postMessage({
-        id: msg.id,
-        ok: false,
-        error: `unknown message type: ${msg.type}`,
-      });
-    } catch (err) {
-      port.postMessage({
-        id: msg.id,
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
+  try {
+    if (msg.type === 'embed') {
+      const vectors = await embed(msg.texts ?? []);
+      port.postMessage({ id: msg.id, ok: true, vectors });
+      return;
     }
-  },
-);
+
+    if (msg.type === 'dispose') {
+      pipelineSingleton = null;
+      pipelineLoading = null;
+      crossEncoderSingleton = null;
+      crossEncoderLoading = null;
+      port.postMessage({ id: msg.id, ok: true, vectors: [] });
+      return;
+    }
+
+    if (msg.type === 'rerank') {
+      const ranked = await rerank(
+        msg.query ?? '',
+        msg.candidates ?? [],
+        msg.topK ?? 10,
+      );
+      port.postMessage({ id: msg.id, ok: true, ranked });
+      return;
+    }
+
+    if (msg.type === 'warmup') {
+      await warmup();
+      port.postMessage({ id: msg.id, ok: true, ranked: [] });
+      return;
+    }
+
+    port.postMessage({
+      id: (msg as { id: number }).id,
+      ok: false,
+      error: `unknown message type: ${(msg as { type: string }).type}`,
+    });
+  } catch (err: unknown) {
+    port.postMessage({
+      id: msg.id,
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+port.on('message', (e) => {
+  void handleMessage(e.data as EmbedderWorkerInbound);
+});
