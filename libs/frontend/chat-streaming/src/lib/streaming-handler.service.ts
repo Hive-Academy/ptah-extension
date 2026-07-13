@@ -124,7 +124,16 @@ export class StreamingHandlerService {
         const bound = this.tabManager.findTabsBySessionId(
           SessionId.from(event.sessionId),
         );
-        primaryTab = bound.length > 0 ? bound[0] : undefined;
+        // `findTabsBySessionId` can resolve a tab that lives in a BACKGROUND
+        // workspace (via its cross-workspace fallback). The foreground
+        // `processEventForTab` path is only valid for tabs in the active
+        // `_tabs()` signal — a background tab writes the workspace PARTITION,
+        // not the active signal, so its streaming state never materializes and
+        // the accumulator dereferences a null state. Restrict to active-
+        // workspace membership; if none qualify, leave `primaryTab` undefined so
+        // the event falls through to `routeBackgroundEvent`.
+        const activeTabs = this.tabManager.tabs();
+        primaryTab = bound.find((t) => activeTabs.some((a) => a.id === t.id));
       }
       if (!primaryTab && !tabId) {
         const activeTab = this.tabManager.activeTab();
@@ -171,8 +180,16 @@ export class StreamingHandlerService {
         SessionId.from(event.sessionId),
       );
       if (allBoundTabs.length > 1) {
+        const activeTabs = this.tabManager.tabs();
         for (const otherTab of allBoundTabs) {
           if (otherTab.id === primaryTab.id) continue;
+          // Only fan out to tabs in the active `_tabs()` set. A background-
+          // workspace tab surfaced here would hit the same null streaming-state
+          // crash inside `processEventForTab`; its events reach it through the
+          // `routeBackgroundEvent` → `updateBackgroundTab` partition path
+          // instead. Canvas fan-out (multiple ACTIVE tabs bound to one session)
+          // is unaffected — those are active tabs and still receive the event.
+          if (!activeTabs.some((a) => a.id === otherTab.id)) continue;
           this.processEventForTab(otherTab, event, sessionId, isReplay);
         }
       }

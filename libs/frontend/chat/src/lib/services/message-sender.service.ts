@@ -118,6 +118,31 @@ export class MessageSenderService {
   }
 
   /**
+   * Guard against a stale model surviving a workspace switch (defense in depth).
+   *
+   * `ModelStateService.currentModel()` is a single global signal; after
+   * switching to a workspace on a different provider the previously-selected
+   * model may no longer be offered. Sending it verbatim makes the backend
+   * reject the turn ("Model X is not available for the configured provider").
+   * If `model` is not present in the freshly loaded `availableModels()`, fall
+   * back to the provider's selected / `default` / first model; return
+   * `undefined` (omit the field, let the backend default) only when the list is
+   * empty of a usable candidate.
+   */
+  private resolveValidModel(model: string | undefined): string | undefined {
+    if (!model) return undefined;
+    const available = this.modelState.availableModels();
+    // No list loaded yet — cannot validate, pass the model through unchanged.
+    if (available.length === 0) return model;
+    if (available.some((m) => m.id === model)) return model;
+    const fallback =
+      available.find((m) => m.isSelected) ??
+      available.find((m) => m.id === 'default') ??
+      available[0];
+    return fallback?.id;
+  }
+
+  /**
    * Wait for services to be ready with timeout
    * @param timeoutMs - Timeout in milliseconds (default: 5000)
    * @returns Promise<boolean> - true if ready, false if timeout
@@ -335,8 +360,9 @@ export class MessageSenderService {
         userMessage,
       ]);
       const ptahCliId = this.ptahCliState.selectedAgentId() ?? undefined;
-      const effectiveModel =
-        activeTab?.overrideModel ?? this.modelState.currentModel();
+      const effectiveModel = this.resolveValidModel(
+        activeTab?.overrideModel ?? this.modelState.currentModel(),
+      );
       const effectiveEffort = this.resolveEffort(
         effort,
         activeTab?.overrideEffort,
@@ -351,7 +377,7 @@ export class MessageSenderService {
           ...(workspacePath ? { workspacePath } : {}),
           ptahCliId, // Route to Ptah CLI agent adapter
           options: {
-            model: effectiveModel,
+            ...(effectiveModel ? { model: effectiveModel } : {}),
             ...(files ? { files } : {}),
             ...(images && images.length > 0 ? { images } : {}),
             ...(effectiveEffort ? { effort: effectiveEffort } : {}),
@@ -546,8 +572,9 @@ export class MessageSenderService {
         ...(activeTab?.messages ?? []),
         userMessage,
       ]);
-      const effectiveModel =
-        activeTab?.overrideModel ?? this.modelState.currentModel();
+      const effectiveModel = this.resolveValidModel(
+        activeTab?.overrideModel ?? this.modelState.currentModel(),
+      );
       const effectiveEffort = this.resolveEffort(
         effort,
         activeTab?.overrideEffort,
@@ -562,7 +589,7 @@ export class MessageSenderService {
           ...(resolvedWorkspacePath
             ? { workspacePath: resolvedWorkspacePath }
             : {}),
-          model: effectiveModel,
+          ...(effectiveModel ? { model: effectiveModel } : {}),
           files: files ?? [],
           ...(images && images.length > 0 ? { images } : {}),
           ...(effectiveEffort ? { effort: effectiveEffort } : {}),
