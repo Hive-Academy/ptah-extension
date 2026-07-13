@@ -7,6 +7,7 @@ import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
 import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 import { VOICE_TOKENS } from '@ptah-extension/voice-providers';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
 import { TOKENS, type SentryService } from '@ptah-extension/vscode-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -49,10 +50,26 @@ if (!gotLock) {
   let licenseReactivityDisposable: { dispose: () => void } | null = null;
   let statusBridgeDisposables: ReadonlyArray<{ dispose: () => void }> | null =
     null;
+  let providerProxyPool: { disposeAll: () => Promise<void> } | null = null;
 
   app.whenReady().then(async () => {
     const boot = await bootstrapElectron(() => mainWindow);
     flushWorkspacePersistence = boot.flushWorkspacePersistence;
+
+    // Phase 3: capture the per-workspace isolated provider-proxy pool so its
+    // proxy servers are torn down on app quit (per-workspace teardown runs on
+    // workspace:removeFolder; this is the shutdown-wide backstop).
+    try {
+      providerProxyPool = boot.container.resolve<{
+        disposeAll: () => Promise<void>;
+      }>(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_PROXY_POOL);
+    } catch (error: unknown) {
+      console.warn(
+        '[Ptah Electron] ProviderProxyPool resolve failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+      providerProxyPool = null;
+    }
 
     app.on('before-quit', (event) => {
       try {
@@ -151,6 +168,14 @@ if (!gotLock) {
   });
   app.on('will-quit', () => {
     flushWorkspacePersistence?.();
+    try {
+      void providerProxyPool?.disposeAll();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] ProviderProxyPool disposeAll failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     if (revalidationInterval !== null) {
       clearInterval(revalidationInterval);
       revalidationInterval = null;

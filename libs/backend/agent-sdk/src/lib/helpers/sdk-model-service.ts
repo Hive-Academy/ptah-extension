@@ -564,9 +564,15 @@ export class SdkModelService {
   /**
    * Resolve a model identifier to the actual model ID to use.
    * Delegates to ModelResolver.resolve() â€” the single source of truth.
+   *
+   * `envOverride` scopes tier-alias resolution to a per-session provider's
+   * AuthEnv (from a `ProviderProfile`) instead of the process-global AuthEnv.
+   * Without it, a profiled session's model (e.g. a tier alias or a Claude id
+   * that the global provider remaps) would be resolved against the wrong
+   * provider's tier env vars. Omitted callers keep the global behavior.
    */
-  resolveModelId(model: string): string {
-    const resolved = this.modelResolver.resolve(model);
+  resolveModelId(model: string, envOverride?: AuthEnv): string {
+    const resolved = this.modelResolver.resolve(model, envOverride);
     if (resolved !== model) {
       this.logger.debug(
         `[SdkModelService] Resolved '${model}' â†’ '${resolved}' via ModelResolver`,

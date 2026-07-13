@@ -14,6 +14,7 @@ import type { SessionId } from './branded.types';
 import type { FlatStreamEventUnion } from './execution';
 import type { McpHttpServerOverride } from './rpc/rpc-chat.types';
 import type { PermissionLevel } from './model-autopilot.types';
+import type { ProviderProfile } from './provider-profile.types';
 
 /**
  * Callback signatures — mirrored from agent-sdk's SdkAgentAdapter public API.
@@ -126,6 +127,16 @@ export interface AgentSessionStartConfig extends AISessionConfig {
    * `undefined` and the merge is a no-op.
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
+  /**
+   * Per-session provider profile (isolated `authEnv` snapshot + model + optional
+   * cli.js path) resolved for THIS session's workspace. When supplied, the
+   * adapter runs the session against the profile's provider instead of the
+   * process-global auth env — enabling concurrent workspaces to use different
+   * AI providers. `undefined` preserves the global-auth behavior. Sourced by the
+   * interactive-chat path from a per-workspace resolver and by the Ptah CLI path
+   * from its per-agent registry.
+   */
+  providerProfile?: ProviderProfile;
 }
 
 /**
@@ -148,6 +159,8 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
   prompt?: string;
   /** See {@link AgentSessionStartConfig.includePartialMessages}. */
   includePartialMessages?: boolean;
+  /** See {@link AgentSessionStartConfig.providerProfile}. */
+  providerProfile?: ProviderProfile;
 }
 
 /**

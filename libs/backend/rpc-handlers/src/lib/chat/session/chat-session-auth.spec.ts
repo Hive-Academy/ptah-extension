@@ -124,6 +124,11 @@ function makeService(
       deleteProviderKey: jest.fn().mockResolvedValue(undefined),
       hasProviderKey: jest.fn().mockResolvedValue(false),
     } as never,
+    {
+      resolveProviderProfileForWorkspace: jest
+        .fn()
+        .mockResolvedValue(undefined),
+    } as never,
   );
 }
 

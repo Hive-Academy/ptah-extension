@@ -11,6 +11,8 @@ import { ProviderModelsService } from '../provider-models.service';
 import { AuthManager } from '../auth/auth-manager';
 import { ModelResolver } from '../auth/model-resolver';
 import { ActiveProviderResolver } from '../auth/active-provider-resolver';
+import { WorkspaceProviderProfileResolver } from '../auth/workspace-provider-profile-resolver';
+import { ProviderProxyPool } from '../auth/provider-proxy-pool';
 import {
   ApiKeyStrategy,
   OAuthProxyStrategy,
@@ -75,6 +77,16 @@ export function registerAuthProvidersServices(
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER,
     { useClass: ActiveProviderResolver },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_PROXY_POOL,
+    { useClass: ProviderProxyPool },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER,
+    { useClass: WorkspaceProviderProfileResolver },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(

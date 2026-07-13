@@ -64,7 +64,24 @@ export class WorkspaceScopeResolver {
   }
 
   private candidateKeys(globalKey: string, appScopable: boolean): string[] {
-    const norm = this.activeNormalizedPath();
+    return this.candidateKeysForNorm(
+      globalKey,
+      appScopable,
+      this.activeNormalizedPath(),
+    );
+  }
+
+  /**
+   * Build the ordered candidate key list for an EXPLICIT normalized workspace
+   * path (rather than the ambient active path). Shared by {@link candidateKeys}
+   * (active path) and the path-scoped read helpers so per-workspace resolution
+   * is byte-identical to active-path resolution — only the path hash differs.
+   */
+  private candidateKeysForNorm(
+    globalKey: string,
+    appScopable: boolean,
+    norm: string | undefined,
+  ): string[] {
     const useApp = appScopable && this.appScope !== undefined;
     const candidates: string[] = [];
 
@@ -100,6 +117,48 @@ export class WorkspaceScopeResolver {
 
   hasOverride(globalKey: string, appScopable = false): boolean {
     const candidates = this.candidateKeys(globalKey, appScopable);
+    for (let i = 0; i < candidates.length - 1; i++) {
+      if (this.store.readGlobal(candidates[i]) !== undefined) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Read a setting resolved for an EXPLICIT workspace path instead of the
+   * ambient active path. Resolution order is identical to {@link read}
+   * (workspace-specific → app → global) but keyed on the supplied path's hash.
+   *
+   * Used by per-workspace provider isolation: a chat session belonging to
+   * workspace A must resolve A's provider even when a different workspace is
+   * currently active. Falls back to the global value when `workspacePath` is
+   * empty/unresolvable (mirrors the active-path branch).
+   */
+  readForPath<T>(
+    globalKey: string,
+    workspacePath: string,
+    appScopable = false,
+  ): T | undefined {
+    const norm = normalizeActivePath(workspacePath);
+    const candidates = this.candidateKeysForNorm(globalKey, appScopable, norm);
+    for (const candidate of candidates) {
+      const value = this.store.readGlobal<T>(candidate);
+      if (value !== undefined) return value;
+    }
+    return undefined;
+  }
+
+  /**
+   * Whether an EXPLICIT workspace path has a more-specific override (workspace
+   * or app scope) for `globalKey` — i.e. a value that would shadow the global
+   * default. Path-scoped counterpart of {@link hasOverride}.
+   */
+  hasOverrideForPath(
+    globalKey: string,
+    workspacePath: string,
+    appScopable = false,
+  ): boolean {
+    const norm = normalizeActivePath(workspacePath);
+    const candidates = this.candidateKeysForNorm(globalKey, appScopable, norm);
     for (let i = 0; i < candidates.length - 1; i++) {
       if (this.store.readGlobal(candidates[i]) !== undefined) return true;
     }

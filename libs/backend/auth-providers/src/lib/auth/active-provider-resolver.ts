@@ -40,4 +40,36 @@ export class ActiveProviderResolver {
       DEFAULT_PROVIDER_ID
     );
   }
+
+  /**
+   * Path-scoped counterpart of {@link resolveActiveAuth}. Resolves the auth
+   * method + provider id for an EXPLICIT workspace path rather than the ambient
+   * active workspace — the entry point for per-workspace provider isolation, so
+   * a chat session belonging to workspace A resolves A's provider regardless of
+   * which workspace is currently focused.
+   */
+  resolveActiveAuthForPath(workspacePath: string): ActiveAuth {
+    const authMethod = normalizeAuthMethod(
+      this.scope.readForPath<string>('authMethod', workspacePath, true),
+    );
+
+    if (authMethod === 'apiKey' || authMethod === 'claudeCli') {
+      return { authMethod, providerId: ANTHROPIC_DIRECT_PROVIDER_ID };
+    }
+
+    return {
+      authMethod,
+      providerId: this.resolveThirdPartyProviderIdForPath(workspacePath),
+    };
+  }
+
+  resolveThirdPartyProviderIdForPath(workspacePath: string): string {
+    return (
+      this.scope.readForPath<string>(
+        'anthropicProviderId',
+        workspacePath,
+        true,
+      ) ?? DEFAULT_PROVIDER_ID
+    );
+  }
 }

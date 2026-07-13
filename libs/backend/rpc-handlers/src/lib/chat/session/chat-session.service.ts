@@ -36,6 +36,10 @@ import {
 import { SMITHERY_API_KEY_SECRET_ID } from '../../handlers/mcp-directory-rpc.schema';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type WorkspaceProviderProfileResolver,
+} from '@ptah-extension/auth-providers';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SessionHistoryReaderService,
@@ -143,6 +147,8 @@ export class ChatSessionService {
     private readonly modelSettings: ModelSettings,
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
     private readonly authSecretsService: IAuthSecretsService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER)
+    private readonly workspaceProviderProfileResolver: WorkspaceProviderProfileResolver,
   ) {}
 
   /**
@@ -374,6 +380,15 @@ export class ChatSessionService {
       const mcpServersOverride = await this.buildMcpServersOverride(
         params.mcpServersOverride,
       );
+      // Resolve an isolated per-workspace provider profile so a session in
+      // workspace A runs against A's provider even when a different workspace's
+      // provider is currently the process-global active one. `undefined` → the
+      // session rides the global auth env (unchanged single-provider behavior).
+      const providerProfile =
+        await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+          workspacePath,
+          currentModel,
+        );
       const stream = await this.sdkAdapter.startChatSession({
         tabId,
         workspaceId: workspacePath,
@@ -392,6 +407,7 @@ export class ChatSessionService {
         effort: options?.effort,
         includePartialMessages: options?.includePartialMessages,
         mcpServersOverride,
+        providerProfile,
       });
       this.streamBroadcaster.streamEventsToWebview(
         tabId as SessionId,
@@ -904,6 +920,15 @@ export class ChatSessionService {
     const currentModel =
       params.model || this.modelSettings.selectedModel.get() || 'default';
 
+    // Same per-workspace isolation as chat:start — the resumed turn must run
+    // against the session's own workspace provider, not whichever provider is
+    // globally active after a workspace switch.
+    const providerProfile =
+      await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+        workspacePath,
+        currentModel,
+      );
+
     try {
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
         projectPath: workspacePath,
@@ -916,6 +941,7 @@ export class ChatSessionService {
         thinking: params.thinking,
         effort: params.effort,
         prompt,
+        providerProfile,
       });
       this.streamBroadcaster.streamEventsToWebview(
         sessionId,

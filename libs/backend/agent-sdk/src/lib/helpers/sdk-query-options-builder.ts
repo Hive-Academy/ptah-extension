@@ -524,7 +524,10 @@ export class SdkQueryOptionsBuilder {
       throw new SdkError('Model not provided - ensure SDK is initialized');
     }
     this.warnIfForkOptionsDroppedSilently(input);
-    const model = this.modelService.resolveModelId(sessionConfig.model);
+    const model = this.modelService.resolveModelId(
+      sessionConfig.model,
+      authEnvOverride,
+    );
     if (!sessionConfig?.projectPath) {
       throw new SdkError(
         'projectPath is required â€” cannot start an SDK session without a workspace folder. ' +
@@ -545,7 +548,11 @@ export class SdkQueryOptionsBuilder {
       baseUrl: effectiveAuthEnv.ANTHROPIC_BASE_URL || 'default',
     });
     this.validateBaseUrlForProvider(effectiveAuthEnv);
-    await this.validateModelAvailability(model, effectiveAuthEnv);
+    await this.validateModelAvailability(
+      model,
+      effectiveAuthEnv,
+      this.isProfiledCrossProvider(authEnvOverride),
+    );
     if (!model.startsWith('claude-')) {
       const claudeTiers = [envSonnet, envOpus, envHaiku].filter(
         (t) => t !== 'default' && t.startsWith('claude-'),
@@ -790,6 +797,27 @@ export class SdkQueryOptionsBuilder {
   }
 
   /**
+   * Whether a per-session `authEnvOverride` (from a `ProviderProfile`) points at
+   * a DIFFERENT provider than the process-global active provider — detected by
+   * comparing normalized `ANTHROPIC_BASE_URL`s. Base URL is the reliable signal
+   * across all provider families (direct Anthropic, native third-party like
+   * Ollama Cloud, and translation-proxy endpoints), whereas `getActiveProviderId`
+   * returns null for some direct/local endpoints. When true, the global model
+   * cache does not describe the session's provider and the pre-flight is skipped.
+   */
+  private isProfiledCrossProvider(authEnvOverride?: AuthEnv): boolean {
+    if (!authEnvOverride) {
+      return false;
+    }
+    const normalize = (url: string | undefined): string =>
+      (url ?? '').trim().replace(/\/+$/, '').toLowerCase();
+    return (
+      normalize(authEnvOverride.ANTHROPIC_BASE_URL) !==
+      normalize(this.authEnv.ANTHROPIC_BASE_URL)
+    );
+  }
+
+  /**
    * Cache-only pre-flight check that the resolved model ID is in the
    * third-party provider's advertised list. No-op for direct Anthropic connections.
    *
@@ -798,7 +826,22 @@ export class SdkQueryOptionsBuilder {
   private async validateModelAvailability(
     resolvedModel: string,
     authEnvOverride?: AuthEnv,
+    skipCrossProvider = false,
   ): Promise<void> {
+    // A profiled session whose provider differs from the process-global active
+    // provider must NOT be validated against the global provider's model cache
+    // — that cache belongs to a different provider and would spuriously reject
+    // a model that is valid for the session's own provider (the reported
+    // ModelNotAvailableError). Trust the model resolved from the profile's
+    // persisted tiers instead. The global (non-profiled) path keeps the
+    // pre-flight so stale-selection detection still works there.
+    if (skipCrossProvider) {
+      this.logger.debug(
+        '[SdkQueryOptionsBuilder] Skipping model pre-flight: profiled session targets a different provider than the global active provider',
+        { resolvedModel },
+      );
+      return;
+    }
     const env: AuthEnv = authEnvOverride ?? this.authEnv;
     const baseUrl = env.ANTHROPIC_BASE_URL?.trim();
     const isDirectAnthropic =
