@@ -25,7 +25,11 @@ import {
 import { EffortStateService, ModelStateService } from '@ptah-extension/core';
 import { LucideAngularModule, Minimize2, Maximize2 } from 'lucide-angular';
 import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
-import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
+import {
+  TileAgentMiniPanelComponent,
+  type TileAgentSteerRequest,
+} from './tile-agent-mini-panel.component';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 
 /**
  * CanvasTileComponent — renders a single chat session tile within the Orchestra Canvas.
@@ -100,6 +104,7 @@ import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
       @if (tileAgentIndicator()?.expanded()) {
         <ptah-tile-agent-mini-panel
           [agents]="tileAgentIndicator()?.agents() ?? []"
+          (steer)="onSteerAgent($event)"
         />
       }
 
@@ -150,6 +155,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   readonly tileAgentIndicator = viewChild(TileAgentIndicatorComponent);
 
   private readonly tabManager = inject(TabManagerService);
+  private readonly agentStore = inject(AgentMonitorStore);
   private readonly effortState = inject(EffortStateService);
   private readonly modelState = inject(ModelStateService);
   private readonly parentEnvInjector = inject(EnvironmentInjector);
@@ -258,6 +264,15 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    */
   onTileClick(): void {
     this.focusRequested.emit(this.tabId());
+  }
+
+  /**
+   * Fire a steer follow-up into a running agent from this tile's mini-panel.
+   * Routes through {@link AgentMonitorStore.sendMessageToAgent}; the store
+   * records any error and reflects SDK push events (no optimistic mutation).
+   */
+  onSteerAgent(request: TileAgentSteerRequest): void {
+    void this.agentStore.sendMessageToAgent(request.agentId, request.text);
   }
 
   /**

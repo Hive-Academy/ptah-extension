@@ -8,6 +8,7 @@
  * - subagent:send-message  — Push a user message into a running subagent
  * - subagent:stop          — Stop a specific subagent by taskId
  * - subagent:interrupt     — Interrupt the entire session
+ * - subagent:background    — Move in-flight foreground task(s) to background
  *
  * NOTE: The chat:subagent-resume RPC has been removed.
  * Subagent resumption is now handled via context injection in chat:continue,
@@ -29,6 +30,8 @@ import {
   SubagentSendMessageParams,
   SubagentStopParams,
   SubagentInterruptParams,
+  SubagentBackgroundParams,
+  SubagentBackgroundResult,
   SubagentCommandResult,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
@@ -38,6 +41,7 @@ import {
   SubagentSendMessageSchema,
   SubagentStopSchema,
   SubagentInterruptSchema,
+  SubagentBackgroundSchema,
 } from './subagent-rpc.schema';
 
 /**
@@ -56,6 +60,9 @@ import {
  *
  * // Frontend: Interrupt the whole session
  * await rpcService.call('subagent:interrupt', { sessionId });
+ *
+ * // Frontend: Push in-flight foreground task(s) to the background
+ * const { backgrounded } = await rpcService.call('subagent:background', { sessionId, toolUseId });
  * ```
  */
 @injectable()
@@ -65,6 +72,7 @@ export class SubagentRpcHandlers {
     'subagent:send-message',
     'subagent:stop',
     'subagent:interrupt',
+    'subagent:background',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -86,6 +94,7 @@ export class SubagentRpcHandlers {
     this.registerSendMessage();
     this.registerStop();
     this.registerInterrupt();
+    this.registerBackground();
 
     this.logger.debug('Subagent RPC handlers registered', {
       methods: SubagentRpcHandlers.METHODS,
@@ -227,6 +236,41 @@ export class SubagentRpcHandlers {
 
       await this.dispatcher.interruptSession(sessionId);
       return { ok: true };
+    });
+  }
+
+  /**
+   * subagent:background — Move in-flight foreground task(s) to the background.
+   *
+   * Calls Query.backgroundTasks(toolUseId) (Ctrl+B parity). With no toolUseId,
+   * all foreground tasks are backgrounded; with a toolUseId, only that task is
+   * targeted and `backgrounded` is false when the id matched no foreground task.
+   */
+  private registerBackground(): void {
+    this.rpcHandler.registerMethod<
+      SubagentBackgroundParams,
+      SubagentBackgroundResult
+    >('subagent:background', async (params) => {
+      const parsed = SubagentBackgroundSchema.safeParse(params);
+      if (!parsed.success) {
+        throw new RpcUserError(
+          `subagent:background: invalid params — ${parsed.error.message}`,
+          'INVALID_PARAMS',
+        );
+      }
+
+      const { sessionId, toolUseId } = parsed.data;
+
+      this.logger.debug('RPC: subagent:background called', {
+        sessionId,
+        toolUseId,
+      });
+
+      const backgrounded = await this.dispatcher.backgroundTask(
+        sessionId,
+        toolUseId,
+      );
+      return { backgrounded };
     });
   }
 }

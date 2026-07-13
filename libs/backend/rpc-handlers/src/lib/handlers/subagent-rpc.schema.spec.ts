@@ -1,8 +1,9 @@
 /**
  * SubagentRpcSchema — unit specs.
  *
- * Surface under test: Zod schemas for the three RPC methods
- * (`subagent:send-message`, `subagent:stop`, `subagent:interrupt`).
+ * Surface under test: Zod schemas for the four command RPC methods
+ * (`subagent:send-message`, `subagent:stop`, `subagent:interrupt`,
+ * `subagent:background`).
  *
  * Note: `chat:subagent-query` has no Zod schema (uses static TS types
  * with trivial presence checks — see SubagentRpcHandlers).
@@ -14,6 +15,7 @@ import {
   SubagentSendMessageSchema,
   SubagentStopSchema,
   SubagentInterruptSchema,
+  SubagentBackgroundSchema,
 } from './subagent-rpc.schema';
 
 describe('SubagentSendMessageSchema', () => {
@@ -100,6 +102,36 @@ describe('SubagentInterruptSchema', () => {
 
   it('rejects missing sessionId', () => {
     const result = SubagentInterruptSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('SubagentBackgroundSchema', () => {
+  it('accepts params with a toolUseId', () => {
+    const result = SubagentBackgroundSchema.safeParse({
+      sessionId: 'sess-abc',
+      toolUseId: 'toolu_fg',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts params without a toolUseId (optional)', () => {
+    const result = SubagentBackgroundSchema.safeParse({
+      sessionId: 'sess-abc',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects empty sessionId', () => {
+    const result = SubagentBackgroundSchema.safeParse({ sessionId: '' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an empty-string toolUseId', () => {
+    const result = SubagentBackgroundSchema.safeParse({
+      sessionId: 'sess-abc',
+      toolUseId: '',
+    });
     expect(result.success).toBe(false);
   });
 });

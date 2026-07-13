@@ -35,6 +35,8 @@ import type {
   SubagentSendMessageParams,
   SubagentStopParams,
   SubagentInterruptParams,
+  SubagentBackgroundParams,
+  SubagentBackgroundResult,
   SubagentCommandResult,
 } from './subagent-registry.types';
 import type { SavedAnalysisMetadata } from './wizard';
@@ -758,6 +760,10 @@ export interface RpcMethodRegistry {
   'subagent:interrupt': {
     params: SubagentInterruptParams;
     result: SubagentCommandResult;
+  };
+  'subagent:background': {
+    params: SubagentBackgroundParams;
+    result: SubagentBackgroundResult;
   };
   'enhancedPrompts:getStatus': {
     params: EnhancedPromptsGetStatusParams;
@@ -2582,6 +2588,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'subagent:send-message': true,
   'subagent:stop': true,
   'subagent:interrupt': true,
+  'subagent:background': true,
   'enhancedPrompts:getStatus': true,
   'enhancedPrompts:runWizard': true,
   'enhancedPrompts:setEnabled': true,

@@ -182,6 +182,30 @@ export interface SubagentInterruptParams {
 }
 
 /**
+ * Parameters for subagent:background RPC method
+ */
+export interface SubagentBackgroundParams {
+  /** Session that owns the running task(s) */
+  readonly sessionId: string;
+  /**
+   * Optional SDK tool_use ID of a single foreground task to background.
+   * When omitted, all in-flight foreground tasks are backgrounded (Ctrl+B parity).
+   */
+  readonly toolUseId?: string;
+}
+
+/**
+ * Result of the subagent:background RPC method
+ */
+export interface SubagentBackgroundResult {
+  /**
+   * Whether any foreground task was moved to the background.
+   * False when `toolUseId` was given but matched no foreground task.
+   */
+  readonly backgrounded: boolean;
+}
+
+/**
  * Result shape for command-type subagent RPC methods (send, stop, interrupt)
  */
 export interface SubagentCommandResult {

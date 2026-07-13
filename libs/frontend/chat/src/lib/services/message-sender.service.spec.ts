@@ -189,7 +189,12 @@ describe('MessageSenderService', () => {
         },
         {
           provide: ModelStateService,
-          useValue: { currentModel: jest.fn(() => 'claude-opus-4') },
+          useValue: {
+            currentModel: jest.fn(() => 'claude-opus-4'),
+            availableModels: jest.fn(() => [
+              { id: 'claude-opus-4', name: 'Claude Opus 4', isSelected: true },
+            ]),
+          },
         },
         {
           provide: EffortStateService,

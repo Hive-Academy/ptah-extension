@@ -31,3 +31,10 @@ export const SubagentInterruptSchema = z.object({
 });
 
 export type SubagentInterruptInput = z.infer<typeof SubagentInterruptSchema>;
+
+export const SubagentBackgroundSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+  toolUseId: z.string().min(1).optional(),
+});
+
+export type SubagentBackgroundInput = z.infer<typeof SubagentBackgroundSchema>;

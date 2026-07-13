@@ -20,6 +20,7 @@ import {
 import { ChatTranscriptComponent } from '../organisms/transcript/chat-transcript.component';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
+import { BackgroundAgentStripContainerComponent } from '../organisms/background-agent-strip-container.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
 import {
   PermissionBadgeComponent,
@@ -94,6 +95,7 @@ import type {
     ChatTranscriptComponent,
     ChatEmptyStateComponent,
     AgentMonitorPanelComponent,
+    BackgroundAgentStripContainerComponent,
     ChatInputComponent,
     PermissionBadgeComponent,
     QuestionCardComponent,
@@ -240,6 +242,23 @@ export class ChatViewComponent {
 
   /** Local panel open/close state */
   readonly agentPanelOpen = signal(false);
+
+  /**
+   * True only for the primary (non-tile) chat surface. Guards the persistent
+   * background-agent strip so it renders once at the app bottom rather than
+   * once per canvas tile (every tile mounts its own ChatViewComponent).
+   */
+  protected readonly showBackgroundStrip = !this._sessionContext;
+
+  /**
+   * Handle a focus / steer request from the background-agent strip. Opens the
+   * per-session agents panel (which hosts the steer input); the panel
+   * auto-selects the newest / active agent on open.
+   */
+  protected onStripFocus(_id: string): void {
+    this._userExplicitlyClosed = false;
+    this.agentPanelOpen.set(true);
+  }
 
   /** Session-scoped agents for the embedded panel */
   readonly sessionAgents = computed(() => {

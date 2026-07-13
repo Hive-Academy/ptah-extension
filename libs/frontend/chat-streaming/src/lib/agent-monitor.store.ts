@@ -143,7 +143,8 @@ export interface SubagentRpcError {
   readonly method:
     | 'subagent:send-message'
     | 'subagent:stop'
-    | 'subagent:interrupt';
+    | 'subagent:interrupt'
+    | 'subagent:background';
   readonly message: string;
   readonly code?: string;
   readonly timestamp: number;
@@ -1135,6 +1136,50 @@ export class AgentMonitorStore implements OnDestroy {
     } else {
       this._subagentRpcError.set(null);
     }
+  }
+
+  /**
+   * Move a running foreground subagent to the background. Follows the exact
+   * shape of {@link interruptSession}: fire-and-report the RPC, record any
+   * error on the shared channel, and never mutate state optimistically — the
+   * `background_agent_started` push event is the sole source of truth for the
+   * resulting background record.
+   *
+   * Unlike the other subagent commands, the session id is passed in explicitly
+   * (callers know which session owns the agent) rather than resolved from the
+   * active tab. Returns `true` when the backend acknowledges the switch.
+   *
+   * Contract (owned by the parallel backend task): RPC `subagent:background`
+   * with params `{ sessionId, toolUseId? }` → result `{ backgrounded: boolean }`.
+   */
+  async backgroundAgent(
+    sessionId: string,
+    toolUseId?: string,
+  ): Promise<boolean> {
+    if (!sessionId) {
+      this.recordSubagentRpcError({
+        parentToolUseId: toolUseId ?? '',
+        method: 'subagent:background',
+        message: 'No session — cannot background agent',
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+    const result = await this.rpc.call('subagent:background', {
+      sessionId,
+      toolUseId,
+    });
+    if (!result.isSuccess()) {
+      this.recordSubagentRpcError({
+        parentToolUseId: toolUseId ?? '',
+        method: 'subagent:background',
+        message: result.error ?? 'Unknown error',
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+    this._subagentRpcError.set(null);
+    return result.data?.backgrounded ?? true;
   }
 
   private findParentToolUseIdByTaskId(taskId: string): string | undefined {

@@ -35,6 +35,16 @@
         </div>
       }
 
+      <!-- Persistent background-agents strip (main panel only; tiles reuse this
+           same component so it must not render per-tile). Lives under the stats
+           summary so it never competes with the streamed output at the bottom. -->
+      @if (showBackgroundStrip) {
+        <ptah-background-agent-strip-container
+          class="flex-shrink-0"
+          (focusRequested)="onStripFocus($event)"
+        />
+      }
+
       <!-- Compaction Notification Banner -->
       <div class="px-2">
         <ptah-compaction-notification [isCompacting]="resolvedIsCompacting()" />

@@ -28,7 +28,9 @@ function makeLogger(): Logger {
 }
 
 function makeRegistry(
-  record: { agentType: string } | null = { agentType: 'Explore' },
+  record: { agentType: string; status?: string } | null = {
+    agentType: 'Explore',
+  },
 ): SubagentRegistryService {
   return {
     get: jest.fn().mockReturnValue(record),
@@ -177,6 +179,143 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
     expect(wireMessage.content).toBe(
       "Regarding the running 'unknown' subagent (toolUseId=toolu_missing): check on this",
     );
+  });
+
+  it('falls back to the coordinator nudge when the record is not live (interrupted)', async () => {
+    const msg = await captureStreamedMessage(
+      makeRegistry({ agentType: 'Explore', status: 'interrupted' }),
+      'toolu_dead',
+      'still there?',
+    );
+
+    expect(msg['parent_tool_use_id']).toBeNull();
+    const wireMessage = msg['message'] as { role: string; content: string };
+    expect(wireMessage.content).toBe(
+      "Regarding the running 'Explore' subagent (toolUseId=toolu_dead): still there?",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendToSubagent — direct routing into a live subagent
+// ---------------------------------------------------------------------------
+
+describe('SubagentMessageDispatcher.sendToSubagent — direct routing', () => {
+  async function captureStreamedMessage(
+    registry: SubagentRegistryService,
+    parentToolUseId: string,
+    text: string,
+  ): Promise<Record<string, unknown>> {
+    let captured: Record<string, unknown> | undefined;
+    const streamInput = jest.fn(
+      async (stream: AsyncIterable<Record<string, unknown>>) => {
+        for await (const msg of stream) {
+          captured = msg;
+        }
+      },
+    );
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ streamInput }),
+      registry,
+    );
+    await dispatcher.sendToSubagent('sess-1', parentToolUseId, text);
+    if (!captured) throw new Error('streamInput never received a message');
+    return captured;
+  }
+
+  it('routes with parent_tool_use_id set and no prefix when the subagent is running', async () => {
+    const msg = await captureStreamedMessage(
+      makeRegistry({ agentType: 'software-architect', status: 'running' }),
+      'toolu_live',
+      'focus on the auth module',
+    );
+
+    expect(msg['parent_tool_use_id']).toBe('toolu_live');
+    expect(msg['origin']).toEqual({ kind: 'human' });
+    const wireMessage = msg['message'] as { role: string; content: string };
+    expect(wireMessage.content).toBe('focus on the auth module');
+  });
+
+  it('routes directly for a background subagent as well', async () => {
+    const msg = await captureStreamedMessage(
+      makeRegistry({ agentType: 'Explore', status: 'background' }),
+      'toolu_bg',
+      'keep going',
+    );
+
+    expect(msg['parent_tool_use_id']).toBe('toolu_bg');
+    const wireMessage = msg['message'] as { role: string; content: string };
+    expect(wireMessage.content).toBe('keep going');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// backgroundTask — Query.backgroundTasks delegation + error paths
+// ---------------------------------------------------------------------------
+
+describe('SubagentMessageDispatcher.backgroundTask', () => {
+  it('returns the result of Query.backgroundTasks and forwards the toolUseId', async () => {
+    const backgroundTasks = jest.fn().mockResolvedValue(true);
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ backgroundTasks }),
+    );
+
+    await expect(dispatcher.backgroundTask('sess-1', 'toolu_fg')).resolves.toBe(
+      true,
+    );
+    expect(backgroundTasks).toHaveBeenCalledWith('toolu_fg');
+  });
+
+  it('backgrounds all foreground tasks when no toolUseId is given', async () => {
+    const backgroundTasks = jest.fn().mockResolvedValue(true);
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ backgroundTasks }),
+    );
+
+    await expect(dispatcher.backgroundTask('sess-1')).resolves.toBe(true);
+    expect(backgroundTasks).toHaveBeenCalledWith(undefined);
+  });
+
+  it('returns false when the toolUseId matched no foreground task', async () => {
+    const backgroundTasks = jest.fn().mockResolvedValue(false);
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ backgroundTasks }),
+    );
+
+    await expect(
+      dispatcher.backgroundTask('sess-1', 'toolu_none'),
+    ).resolves.toBe(false);
+  });
+
+  it('throws RpcUserError(SESSION_NOT_FOUND) when the session is not active', async () => {
+    const lifecycle = {
+      find: jest.fn().mockReturnValue(undefined),
+    } as unknown as SessionLifecycleManager;
+    const dispatcher = buildDispatcher(lifecycle);
+
+    const err = await dispatcher
+      .backgroundTask('sess-missing')
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RpcUserError);
+    expect((err as RpcUserError).errorCode).toBe('SESSION_NOT_FOUND');
+  });
+
+  it('throws RpcUserError(SESSION_ENDED) when backgroundTasks rejects', async () => {
+    const backgroundTasks = jest
+      .fn()
+      .mockRejectedValue(new Error('session already done'));
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ backgroundTasks }),
+    );
+
+    const err = await dispatcher
+      .backgroundTask('sess-1', 'toolu_fg')
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RpcUserError);
+    expect((err as RpcUserError).errorCode).toBe('SESSION_ENDED');
+    expect((err as RpcUserError).message).toContain('session already done');
   });
 });
 

@@ -13,6 +13,7 @@ import {
   ChangeDetectionStrategy,
   inject,
   input,
+  output,
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { LucideAngularModule, ShieldAlert } from 'lucide-angular';
@@ -20,14 +21,21 @@ import {
   AgentMonitorStore,
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
+import { AgentSteerInputComponent } from '@ptah-extension/chat-ui';
 import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { AgentPermissionRequest } from '@ptah-extension/shared';
 
+/** Payload emitted when the user steers a running agent from a canvas tile. */
+export interface TileAgentSteerRequest {
+  readonly agentId: string;
+  readonly text: string;
+}
+
 @Component({
   selector: 'ptah-tile-agent-mini-panel',
   standalone: true,
-  imports: [LucideAngularModule, SlicePipe],
+  imports: [LucideAngularModule, SlicePipe, AgentSteerInputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -105,6 +113,12 @@ import type { AgentPermissionRequest } from '@ptah-extension/shared';
               </div>
             </div>
           }
+
+          <!-- Steer input for running agents (dumb → smart parent handles RPC) -->
+          <ptah-agent-steer-input
+            [steerable]="agent.status === 'running'"
+            (steer)="steer.emit({ agentId: agent.agentId, text: $event })"
+          />
         </div>
       } @empty {
         <div
@@ -118,6 +132,8 @@ import type { AgentPermissionRequest } from '@ptah-extension/shared';
 })
 export class TileAgentMiniPanelComponent {
   readonly agents = input.required<MonitoredAgent[]>();
+  /** Emits when the user steers a running agent — parent tile fires the RPC. */
+  readonly steer = output<TileAgentSteerRequest>();
   private readonly vscode = inject(VSCodeService);
   private readonly agentStore = inject(AgentMonitorStore);
   readonly ShieldAlertIcon = ShieldAlert;

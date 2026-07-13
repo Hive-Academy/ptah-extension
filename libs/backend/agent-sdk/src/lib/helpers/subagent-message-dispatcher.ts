@@ -74,15 +74,22 @@ export class SubagentMessageDispatcher {
   ) {}
 
   /**
-   * Nudge the orchestrator about a running subagent.
+   * Push a user message into a running subagent.
    *
-   * The Claude Agent SDK does not expose a per-subagent input channel —
-   * `streamInput` delivers to the root coordinator regardless of
-   * `parent_tool_use_id`, and the official subagents guide states:
-   * "The only channel from parent to subagent is the Agent tool's prompt
-   * string." So we push the user's text into the root session as a normal
-   * `human` message, prefixed with a reference to the target subagent. The
-   * coordinator can then decide whether to relay, restart, or ignore it.
+   * The Claude Agent SDK (>= 0.3) routes a streamed `SDKUserMessage` INTO a
+   * running Task subagent when `parent_tool_use_id` is set to that subagent's
+   * tool_use ID — this is how the Claude CLI re-steers subagents. So the
+   * primary ("direct") path streams the user's text verbatim with
+   * `parent_tool_use_id: parentToolUseId`.
+   *
+   * Direct routing is only valid while the subagent is still live. When the
+   * registry has no record for `parentToolUseId`, or its record is not in a
+   * `running`/`background` status (e.g. it was interrupted, or the id is
+   * unknown), the target subagent can no longer receive input. In that case we
+   * fall back to a COORDINATOR NUDGE: the text is pushed to the root session as
+   * a normal `human` message (`parent_tool_use_id: null`) prefixed with a
+   * reference to the target subagent, so the coordinator can decide whether to
+   * relay, restart, or ignore it.
    *
    * Pushes are serialised per session to avoid races with other input.
    *
@@ -98,14 +105,14 @@ export class SubagentMessageDispatcher {
     const session = this.sessionLifecycle.find(sessionId as string);
     if (!session) {
       throw new RpcUserError(
-        `Session '${sessionId}' is not active — cannot deliver nudge`,
+        `Session '${sessionId}' is not active — cannot deliver message`,
         'SESSION_NOT_FOUND',
       );
     }
 
     if (!session.query) {
       throw new RpcUserError(
-        `Session '${sessionId}' query is not ready — cannot deliver nudge`,
+        `Session '${sessionId}' query is not ready — cannot deliver message`,
         'SESSION_NOT_FOUND',
       );
     }
@@ -113,22 +120,27 @@ export class SubagentMessageDispatcher {
     const query = session.query;
     const record = this.registry.get(parentToolUseId);
     const agentType = record?.agentType ?? 'unknown';
-    const prefixed = `Regarding the running '${agentType}' subagent (toolUseId=${parentToolUseId}): ${text}`;
+    // Direct routing is only possible while the subagent is live. A missing
+    // record (unknown/expired) or any non-live status falls back to the nudge.
+    const canRouteDirect =
+      record != null &&
+      (record.status === 'running' || record.status === 'background');
+    const content = canRouteDirect
+      ? text
+      : `Regarding the running '${agentType}' subagent (toolUseId=${parentToolUseId}): ${text}`;
 
     await serialisedPush(sessionId, async () => {
-      this.logger.debug(
-        '[SubagentMessageDispatcher] sendToSubagent: nudging coordinator',
-        {
-          sessionId,
-          parentToolUseId,
-          agentType,
-          textLength: text.length,
-        },
-      );
+      this.logger.debug('[SubagentMessageDispatcher] sendToSubagent', {
+        sessionId,
+        parentToolUseId,
+        agentType,
+        mode: canRouteDirect ? 'direct' : 'coordinator-nudge',
+        textLength: text.length,
+      });
       const msg: SDKUserMessage = {
         type: 'user',
-        message: { role: 'user', content: prefixed },
-        parent_tool_use_id: null,
+        message: { role: 'user', content },
+        parent_tool_use_id: canRouteDirect ? parentToolUseId : null,
         origin: { kind: 'human' } as unknown as SDKUserMessage['origin'],
         shouldQuery: true,
         uuid: randomUUID(),
@@ -143,7 +155,7 @@ export class SubagentMessageDispatcher {
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         throw new RpcUserError(
-          `Session ended before nudge could be delivered: ${message}`,
+          `Session ended before message could be delivered: ${message}`,
           'SESSION_ENDED',
         );
       }
@@ -187,6 +199,53 @@ export class SubagentMessageDispatcher {
       throw new RpcUserError(
         `Task already completed or not found: ${message}`,
         'TASK_NOT_FOUND',
+      );
+    }
+  }
+
+  /**
+   * Move in-flight foreground task(s) to the background (Ctrl+B parity).
+   *
+   * Calls `Query.backgroundTasks(toolUseId)`. With no `toolUseId`, all
+   * foreground tasks are backgrounded. With a `toolUseId`, only that task is
+   * targeted and the SDK resolves to `false` when the id matched no foreground
+   * task.
+   *
+   * @param sessionId - The session that owns the running task(s)
+   * @param toolUseId - Optional SDK tool_use ID of a single foreground task
+   * @returns Whether any foreground task was moved to the background
+   */
+  async backgroundTask(
+    sessionId: string,
+    toolUseId?: string,
+  ): Promise<boolean> {
+    const session = this.sessionLifecycle.find(sessionId as string);
+    if (!session) {
+      throw new RpcUserError(
+        `Session '${sessionId}' is not active — cannot background task`,
+        'SESSION_NOT_FOUND',
+      );
+    }
+
+    if (!session.query) {
+      throw new RpcUserError(
+        `Session '${sessionId}' query is not ready — cannot background task`,
+        'SESSION_NOT_FOUND',
+      );
+    }
+
+    this.logger.debug('[SubagentMessageDispatcher] backgroundTask', {
+      sessionId,
+      toolUseId,
+    });
+
+    try {
+      return await session.query.backgroundTasks(toolUseId);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new RpcUserError(
+        `Session ended before task could be backgrounded: ${message}`,
+        'SESSION_ENDED',
       );
     }
   }

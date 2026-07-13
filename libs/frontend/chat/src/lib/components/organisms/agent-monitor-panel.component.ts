@@ -41,6 +41,7 @@ import {
   AgentMonitorStore,
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
+import { AgentSteerInputComponent } from '@ptah-extension/chat-ui';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { AgentCardComponent } from '../molecules/agent-card/agent-card.component';
 import { AgentContinueInputComponent } from '../molecules/agent-continue-input/agent-continue-input.component';
@@ -53,6 +54,7 @@ import { AgentContinueInputComponent } from '../molecules/agent-continue-input/a
     LucideAngularModule,
     AgentCardComponent,
     AgentContinueInputComponent,
+    AgentSteerInputComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
@@ -237,6 +239,13 @@ import { AgentContinueInputComponent } from '../molecules/agent-continue-input/a
             </div>
 
             <ptah-agent-continue-input [agent]="agent" />
+
+            <!-- Steer input: send a follow-up into a running subagent -->
+            <ptah-agent-steer-input
+              [steerable]="agent.status === 'running'"
+              [pending]="steerPending()"
+              (steer)="onSteer(agent, $event)"
+            />
           } @else {
             <div
               class="flex flex-col items-center justify-center h-32 text-center"
@@ -274,6 +283,8 @@ export class AgentMonitorPanelComponent {
   readonly closed = output<void>();
 
   readonly selectedAgentId = signal<string | null>(null);
+  /** In-flight guard for the steer input while a send-message RPC is pending. */
+  protected readonly steerPending = signal(false);
   private prevAgentIds = new Set<string>();
 
   private readonly _scroll = viewChild<ElementRef<HTMLElement>>('agentScroll');
@@ -379,6 +390,21 @@ export class AgentMonitorPanelComponent {
     const agent = this.effectiveAgents().find((a) => a.agentId === agentId);
     if (agent && !agent.expanded) {
       this.store.toggleAgentExpanded(agentId);
+    }
+  }
+
+  /**
+   * Send a steer message into the selected running agent. Routes through
+   * {@link AgentMonitorStore.sendMessageToAgent}, using the agent's id as the
+   * subagent key. No optimistic state mutation — the store reflects the SDK
+   * push events only.
+   */
+  async onSteer(agent: MonitoredAgent, text: string): Promise<void> {
+    this.steerPending.set(true);
+    try {
+      await this.store.sendMessageToAgent(agent.agentId, text);
+    } finally {
+      this.steerPending.set(false);
     }
   }
 

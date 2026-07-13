@@ -44,4 +44,5 @@ export {
 export {
   AgentMonitorStore,
   type MonitoredAgent,
+  type SubagentRecord,
 } from './lib/agent-monitor.store';
