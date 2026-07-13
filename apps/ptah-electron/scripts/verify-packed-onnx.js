@@ -4,19 +4,22 @@
  *
  * Post-package gate. Inspects the onnxruntime-node that electron-builder
  * actually placed inside the packaged app (app.asar.unpacked/node_modules)
- * and fails the build unless it is the pinned 1.20.1.
+ * and fails the build unless it is the pinned 1.24.3.
  *
- * Why this exists: @huggingface/transformers 3.8.1 depends on
- * onnxruntime-node 1.21.0, whose native binding carries a cross-thread
- * HandleScope abort — a silent native crash (no JS error, the log just stops)
- * when the embedder and voice ONNX runtimes execute concurrently. The
- * onnxruntime-node@1.20.1 pin (root + generated dist overrides) is the
- * defense-in-depth fix; this verifier proves the pin survived the
- * electron-builder production install into the packaged app.
+ * Why this exists: the runtime was historically pinned to 1.20.1 to dodge the
+ * onnxruntime-node@1.21.0 cross-thread HandleScope native-abort crash (a silent
+ * native crash when two ONNX runtimes execute concurrently in one process).
+ * That precondition is now structurally gone — the embedder and voice pipelines
+ * each run in their own isolated OS process (utilityProcess) — and 1.24.2+ also
+ * fixes the underlying bug, so the pin moved forward to 1.24.3. We stay on
+ * @huggingface/transformers@3.8.1 (kokoro-js has no v4-compatible release);
+ * 3.8.1 declares onnxruntime-node 1.21.0, which the override forward-bumps to
+ * 1.24.3. This verifier proves the pin survived the electron-builder production
+ * install into the packaged app.
  *
- * Failing loudly here converts a silent "ships 1.21.0, then aborts on
- * concurrent inference" into a red build, exactly like verify-packed-native.js
- * does for the better-sqlite3 ABI.
+ * Failing loudly here converts a silent "ships the wrong onnxruntime" into a
+ * red build, exactly like verify-packed-native.js does for the better-sqlite3
+ * ABI.
  */
 
 'use strict';
@@ -26,7 +29,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '../../..');
 const RELEASE_DIR = path.join(ROOT, 'dist', 'release');
-const EXPECTED_VERSION = '1.20.1';
+const EXPECTED_VERSION = '1.24.3';
 const MANIFEST_SUFFIX = path.join('onnxruntime-node', 'package.json');
 
 /** Recursively collect every unpacked onnxruntime-node/package.json under dist/release. */

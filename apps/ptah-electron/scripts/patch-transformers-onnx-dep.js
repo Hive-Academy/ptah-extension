@@ -8,24 +8,26 @@
  * copying files:
  *
  *   ⨯ production dependency not found  parent=@huggingface/transformers
- *     dependency=onnxruntime-node version=1.21.0
+ *     dependency=onnxruntime-node version=<declared>
  *
- * Root cause: the root/apps `overrides.onnxruntime-node = "1.20.1"` pin
- * (defense-in-depth for the onnxruntime-node@1.21.0 cross-thread HandleScope
- * native-abort crash) rewrites the *resolved* onnxruntime-node install to
- * 1.20.1 everywhere — npm's own resolver (and `npm ls`) understands this
- * fine. But npm `overrides` never rewrites a dependent package's own
- * package.json text: node_modules/@huggingface/transformers/package.json
- * still literally declares `"onnxruntime-node": "1.21.0"` in its
- * `dependencies`. electron-builder falls back to its
+ * Root cause: the root/apps `overrides.onnxruntime-node = "1.24.3"` pin
+ * (forward-bumped past the 1.24.2 HandleScope fix while staying on
+ * @huggingface/transformers@3.8.1, which kokoro-js still requires) rewrites the
+ * *resolved* onnxruntime-node install to 1.24.3 everywhere — npm's own resolver
+ * (and `npm ls`) understands this fine. But npm `overrides` never rewrites a
+ * dependent package's own package.json text:
+ * node_modules/@huggingface/transformers/package.json still literally declares
+ * `"onnxruntime-node": "1.21.0"` in its `dependencies` (transformers@3.8.1's
+ * own declaration), so this reconcile to 1.24.3 is load-bearing, not a no-op.
+ * electron-builder falls back to its
  * `TraversalNodeModulesCollector` here (the generated dist project dir has
  * no local node_modules for the npm collector to find anything in), which
  * walks each package's OWN declared version string and requires a literal
- * matching install on disk — it has no concept of npm `overrides`. Since
- * only 1.20.1 physically exists (nested under transformers/node_modules,
- * because the override made it the sole version in the whole tree), the
- * collector reports "production dependency not found" and aborts packaging
- * entirely, before verify-packed-onnx.js ever gets a chance to run.
+ * matching install on disk — it has no concept of npm `overrides`. If only
+ * the pinned 1.24.3 physically exists but a dependent manifest declares a
+ * different version string, the collector reports "production dependency not
+ * found" and aborts packaging entirely, before verify-packed-onnx.js ever gets
+ * a chance to run.
  *
  * Fix: reconcile the DECLARED version in the installed manifest(s) to match
  * the pinned/physically-installed one, so the traversal collector's literal
@@ -55,7 +57,7 @@ const DEP_NAME = 'onnxruntime-node';
 /** Hardcoded fallback, kept in sync with the `overrides.onnxruntime-node`
  * entries in root package.json and apps/ptah-electron/package.json. Used
  * only if the root manifest can't be read/parsed for some reason. */
-const FALLBACK_PIN = '1.20.1';
+const FALLBACK_PIN = '1.24.3';
 
 /** Single source of truth for the pinned version: root package.json `overrides`. */
 function readPinVersion() {
@@ -82,12 +84,12 @@ const PIN_VERSION = readPinVersion();
  * Manifests whose declared `dependencies.onnxruntime-node` must be
  * reconciled to the pin. The first entry (the actual, hoisted install) is
  * required — packaging cannot proceed without it. Later entries are
- * optional: kokoro-js depends on @huggingface/transformers too, and if npm
- * ever nests a second physical copy under it (instead of hoisting to the
- * single root install, which is what happens today — verified: no
- * node_modules/kokoro-js/node_modules exists), that nested copy needs the
- * same reconciliation. No-op today; kept for resilience against future
- * install-tree changes.
+ * optional: kokoro-js depends on @huggingface/transformers too (a regular
+ * `^3.5.1` dependency). The root install stays on transformers@3.8.1, which
+ * satisfies kokoro's `^3.5.1`, so npm dedupes kokoro onto the SINGLE shared
+ * root copy — no nested kokoro-js/node_modules/@huggingface/transformers exists
+ * today (verified) and this second entry is a no-op. Kept load-bearing in case
+ * a future install tree ever nests a second physical copy under kokoro-js.
  */
 const TARGET_MANIFESTS = [
   {

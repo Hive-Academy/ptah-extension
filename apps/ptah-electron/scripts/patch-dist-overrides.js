@@ -5,10 +5,13 @@
  * Build-time gate. electron-builder installs the packaged app's production
  * dependencies from the GENERATED manifest at dist/apps/ptah-electron/package.json
  * (build-main runs with generatePackageJson: true). npm only applies an
- * `overrides` block from the install ROOT — so the onnxruntime-node@1.20.1 pin
+ * `overrides` block from the install ROOT — so the onnxruntime-node@1.24.3 pin
  * must physically exist in that generated manifest, otherwise the packaged app
- * silently reinstalls @huggingface/transformers' bundled onnxruntime-node@1.21.0
- * (the version carrying the cross-thread native-abort crash — Sentry HandleScope).
+ * could reinstall a different onnxruntime-node than the one validated in dev.
+ * We stay on @huggingface/transformers@3.8.1 (kokoro-js has no v4-compatible
+ * release) but forward-pin onnxruntime-node to 1.24.3 — >= the 1.24.2 fix for
+ * the cross-thread HandleScope native-abort crash. transformers@3.8.1 declares
+ * onnxruntime-node 1.21.0, which this override rewrites to 1.24.3.
  *
  * This asserts (and injects if absent) the pin into the generated manifest.
  * Exits non-zero if the manifest is missing (build-main must have run first),
@@ -33,7 +36,7 @@ const DIST_MANIFEST = path.join(
   'package.json',
 );
 
-const PIN = { name: 'onnxruntime-node', version: '1.20.1' };
+const PIN = { name: 'onnxruntime-node', version: '1.24.3' };
 
 function main() {
   if (!fs.existsSync(DIST_MANIFEST)) {
