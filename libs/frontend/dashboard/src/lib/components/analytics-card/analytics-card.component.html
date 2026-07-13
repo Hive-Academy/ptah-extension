@@ -70,9 +70,17 @@
 
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
         @for (session of displayedSessions(); track session.sessionId) {
-          <ptah-session-stats-card [session]="session" />
+          <ptah-session-stats-card
+            [session]="session"
+            (open)="openSession($event)"
+          />
         }
       </div>
     }
   </div>
+
+  <ptah-session-detail-modal
+    [session]="selectedSession()"
+    (closed)="closeSession()"
+  />
 </section>

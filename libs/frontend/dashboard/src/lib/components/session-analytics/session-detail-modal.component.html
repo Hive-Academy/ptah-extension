@@ -1,0 +1,205 @@
+<dialog class="modal" [class.modal-open]="!!session()">
+  @if (session(); as s) {
+    <div
+      class="modal-box max-w-2xl border border-base-content/10"
+      role="dialog"
+      [attr.aria-label]="'Session details: ' + s.name"
+    >
+      <!-- Header -->
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <h3 class="text-base font-semibold leading-snug break-words">
+            {{ s.name }}
+          </h3>
+          <div class="flex items-center flex-wrap gap-2 mt-1">
+            <span
+              class="text-[11px] text-base-content/50"
+              [title]="formatFullDate(s.lastActivityAt)"
+            >
+              {{ formatRelativeTime(s.lastActivityAt) || formatFullDate(s.lastActivityAt) }}
+            </span>
+            @if (s.model) {
+              <span
+                class="badge badge-sm border-purple-600/30 text-purple-400 bg-purple-600/10 whitespace-nowrap"
+              >
+                {{ s.modelDisplayName }}
+              </span>
+            }
+            @if (s.status === 'error') {
+              <span class="text-[11px] text-warning flex items-center gap-1">
+                <span aria-hidden="true">&#9888;</span> Stats unavailable
+              </span>
+            }
+          </div>
+        </div>
+        <button
+          class="btn btn-ghost btn-sm btn-square shrink-0"
+          (click)="onClose()"
+          aria-label="Close session details"
+        >
+          <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true"></lucide-angular>
+        </button>
+      </div>
+
+      <!-- Session id -->
+      <div class="mt-2 text-[10px] text-base-content/40 font-mono break-all">
+        {{ s.sessionId }}
+      </div>
+
+      <!-- Timeline -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-4">
+        <div class="bg-base-200/50 rounded-lg px-3 py-2 border border-base-content/10">
+          <div class="text-[10px] uppercase tracking-wider text-base-content/50 mb-0.5">
+            Created
+          </div>
+          <div class="text-xs font-medium">{{ formatFullDate(s.createdAt) }}</div>
+        </div>
+        <div class="bg-base-200/50 rounded-lg px-3 py-2 border border-base-content/10">
+          <div class="text-[10px] uppercase tracking-wider text-base-content/50 mb-0.5">
+            Last Activity
+          </div>
+          <div class="text-xs font-medium">{{ formatFullDate(s.lastActivityAt) }}</div>
+        </div>
+        <div class="bg-base-200/50 rounded-lg px-3 py-2 border border-base-content/10">
+          <div class="text-[10px] uppercase tracking-wider text-base-content/50 mb-0.5">
+            Active Duration
+          </div>
+          <div class="text-xs font-medium tabular-nums">{{ formatDuration(durationMs()) }}</div>
+        </div>
+      </div>
+
+      <!-- Primary metrics -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+        <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-success/20">
+          <div class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1">
+            Total Cost
+          </div>
+          <div class="text-lg font-semibold text-success tabular-nums">
+            {{ formatCost(s.totalCost) }}
+          </div>
+        </div>
+        <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-cyan-600/20">
+          <div class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1">
+            Total Tokens
+          </div>
+          <div class="text-lg font-semibold text-cyan-400 tabular-nums">
+            {{ formatTokenCount(totalTokens()) }}
+          </div>
+        </div>
+        <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-info/20">
+          <div class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1">
+            Messages
+          </div>
+          <div class="text-lg font-semibold text-info tabular-nums">
+            {{ s.messageCount }}
+          </div>
+        </div>
+        <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-base-content/15">
+          <div class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1">
+            Cost / Msg
+          </div>
+          <div class="text-lg font-semibold text-base-content/80 tabular-nums">
+            {{ formatCost(costPerMessage()) }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Token composition -->
+      @if (totalTokens() > 0) {
+        <div class="mt-4 space-y-2">
+          <div class="flex items-center justify-between text-[11px] text-base-content/50">
+            <span class="uppercase tracking-wider">Token Composition</span>
+            <span class="tabular-nums text-base-content/70">{{ formatTokenCount(totalTokens()) }}</span>
+          </div>
+          <div
+            class="flex h-2.5 w-full rounded-full overflow-hidden bg-base-300/40"
+            role="img"
+            aria-label="Token composition breakdown"
+          >
+            @for (seg of visibleSegments(); track seg.key) {
+              <div
+                [class]="seg.barClass"
+                [style.width.%]="seg.pct"
+                [attr.title]="seg.label + ': ' + formatTokenCount(seg.value)"
+              ></div>
+            }
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            @for (seg of visibleSegments(); track seg.key) {
+              <div class="flex flex-col gap-0.5">
+                <span class="flex items-center gap-1 text-[10px] text-base-content/60">
+                  <span class="w-2 h-2 rounded-full" [class]="seg.dotClass"></span>
+                  {{ seg.label }}
+                </span>
+                <span class="tabular-nums text-xs font-medium" [class]="seg.textClass">
+                  {{ formatTokenCount(seg.value) }}
+                  <span class="text-base-content/40 text-[10px]">({{ seg.pct | number: '1.0-0' }}%)</span>
+                </span>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      <!-- Per-model usage (always shown when present) -->
+      @if (s.modelUsageList.length > 0) {
+        <div class="mt-4 space-y-1.5 border-t border-base-300/60 pt-3">
+          <div class="text-[11px] uppercase tracking-wider text-base-content/50">
+            Per-Model Usage
+          </div>
+          @for (m of s.modelUsageList; track m.model) {
+            <div class="flex items-center justify-between gap-2 text-xs">
+              <span class="truncate text-base-content/80" [title]="m.model">{{ m.modelDisplayName }}</span>
+              <span class="flex items-center gap-3 shrink-0 tabular-nums text-base-content/50">
+                <span title="Input / Output tokens">
+                  {{ formatTokenCount(m.inputTokens) }} / {{ formatTokenCount(m.outputTokens) }}
+                </span>
+                <span class="text-success font-medium">{{ formatCost(m.costUSD) }}</span>
+              </span>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- Agents & cache -->
+      @if (
+        s.cliAgents.length > 0 ||
+        s.agentSessionCount > 0 ||
+        s.tokens.cacheRead > 0 ||
+        s.tokens.cacheCreation > 0
+      ) {
+        <div class="mt-4 flex items-center flex-wrap gap-2 border-t border-base-300/60 pt-3">
+          @if (s.agentSessionCount > 0) {
+            <span class="badge badge-sm gap-1 border-info/30 text-info bg-info/10">
+              <lucide-angular [img]="BotIcon" class="w-3 h-3" aria-hidden="true"></lucide-angular>
+              {{ s.agentSessionCount }}
+              {{ s.agentSessionCount === 1 ? 'subagent' : 'subagents' }}
+            </span>
+          }
+          @for (cli of s.cliAgents; track cli) {
+            <span class="badge badge-sm border-secondary/30 text-secondary bg-secondary/10">
+              {{ cli }}
+            </span>
+          }
+          @if (s.tokens.cacheRead > 0) {
+            <span class="text-[11px] text-base-content/50 ml-auto">
+              Cache read
+              <span class="text-base-content/70 tabular-nums">{{ formatTokenCount(s.tokens.cacheRead) }}</span>
+            </span>
+          }
+          @if (s.tokens.cacheCreation > 0) {
+            <span class="text-[11px] text-base-content/50" [class.ml-auto]="s.tokens.cacheRead === 0">
+              Cache write
+              <span class="text-base-content/70 tabular-nums">{{ formatTokenCount(s.tokens.cacheCreation) }}</span>
+            </span>
+          }
+        </div>
+      }
+    </div>
+
+    <!-- Backdrop: click to dismiss -->
+    <form method="dialog" class="modal-backdrop">
+      <button type="button" (click)="onClose()" aria-label="Close">close</button>
+    </form>
+  }
+</dialog>

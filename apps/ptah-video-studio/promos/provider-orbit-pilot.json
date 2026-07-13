@@ -1,0 +1,21 @@
+{
+  "title": "Provider Orbit — 3D pilot (one slide, silent)",
+  "format": "landscape",
+  "lang": "en",
+  "rtl": false,
+  "engine": "kokoro",
+  "music": null,
+  "slides": [
+    {
+      "kind": "scene",
+      "scene": "provider-orbit",
+      "holdMs": 16000,
+      "captions": [
+        "One hexagonal core",
+        "Every provider orbits it",
+        "An adapter docks — work flows",
+        "Hot-swap mid-flight. The orchestra never stops"
+      ]
+    }
+  ]
+}

@@ -15,6 +15,11 @@ import { PtahRoadmap } from './PtahRoadmap';
 import { PtahQuadrant } from './PtahQuadrant';
 import { PtahOrchestra } from './PtahOrchestra';
 import { DecisionTree } from './DecisionTree';
+import { ProviderOrbit } from '../concept3d/ProviderOrbit';
+import { McpRoundtrips } from '../concept3d/McpRoundtrips';
+import { McpOneTool } from '../concept3d/McpOneTool';
+import { McpSandbox } from '../concept3d/McpSandbox';
+import { McpResult } from '../concept3d/McpResult';
 
 export type ConceptScene = React.FC<ConceptSceneProps>;
 
@@ -29,4 +34,10 @@ export const CONCEPT_SCENES: Record<string, ConceptScene> = {
   'ptah-quadrant': PtahQuadrant,
   'ptah-orchestra': PtahOrchestra,
   'decision-tree': DecisionTree,
+  // 3D scenes (src/concept3d — R3F via @remotion/three, see three-kit).
+  'provider-orbit': ProviderOrbit,
+  'mcp-roundtrips': McpRoundtrips,
+  'mcp-one-tool': McpOneTool,
+  'mcp-sandbox': McpSandbox,
+  'mcp-result': McpResult,
 };

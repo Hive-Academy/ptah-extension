@@ -7,6 +7,7 @@
     "npm": ">=11.0.0"
   },
   "scripts": {
+    "studio": "cd apps/ptah-video-studio && npm run studio",
     "landing": "npx nx serve ptah-landing-page",
     "docker:up": "docker compose --profile webhook-testing up -d",
     "docker:down": "docker compose --profile webhook-testing down ",
@@ -204,7 +205,9 @@
     "@nx/web": "22.6.5",
     "@nx/workspace": "22.6.5",
     "@playwright/test": "^1.50.0",
+    "@react-three/fiber": "9.6.1",
     "@remotion/cli": "4.0.484",
+    "@remotion/three": "4.0.484",
     "@schematics/angular": "21.2.7",
     "@types/chrome-remote-interface": "^0.33.0",
     "@types/cookie-parser": "^1.4.8",
@@ -217,6 +220,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/sanitize-html": "^2.16.1",
+    "@types/three": "0.185.1",
     "@types/vscode": "^1.103.0",
     "@types/which": "^3.0.4",
     "@vscode/test-electron": "^2.5.2",
@@ -244,6 +248,7 @@
     "prettier": "^3.8.1",
     "prisma": "7.7.0",
     "tailwindcss": "^3.4.18",
+    "three": "0.185.1",
     "ts-jest": "^29.4.0",
     "ts-node": "^10.9.2",
     "tslib": "^2.3.0",
