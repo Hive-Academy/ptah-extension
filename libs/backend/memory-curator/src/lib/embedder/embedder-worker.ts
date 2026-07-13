@@ -1,17 +1,23 @@
 /**
- * Embedder worker entry — runs inside an Electron `utilityProcess` (its own OS
- * process, so a native ONNX `abort()` kills only the child; the main process
- * gets an `exit` event and respawns). Bundled separately by ptah-electron's
- * `build-embedder-worker` esbuild target to `embedder-worker.mjs`.
+ * Embedder worker entry — a single bundled `embedder-worker.mjs` driven by TWO
+ * runtimes:
+ *   - Electron `utilityProcess` (its own OS process, so a native ONNX `abort()`
+ *     kills only the child; the main process gets an `exit` event and respawns).
+ *     Bundled by ptah-electron's `build-embedder-worker` esbuild target.
+ *   - Plain Node `worker_threads` in the headless CLI, which has no Electron
+ *     `utilityProcess`. Bundled by ptah-cli's `build-embedder-worker` target.
  *
  * Runs `@huggingface/transformers` to embed text and cross-encode
  * (query, candidate) pairs for reranking, keeping the heavy ONNX runtime off
- * the Electron main thread.
+ * the host thread.
  *
- * Communicates via `process.parentPort` (Electron utilityProcess MessagePort).
- * No `electron` import — the global is provided by the runtime, keeping this
- * file importable by the (electron-free) backend lib bundle. Config
- * (`modelCacheDir`) arrives via the `init` message, not `workerData`.
+ * Transport is auto-detected at startup: if `process.parentPort` exists (the
+ * Electron utilityProcess global, whose 'message' events wrap the payload as
+ * `{ data }`) we use it; otherwise we fall back to `node:worker_threads`
+ * `parentPort` (raw payload). No `electron` import — the utilityProcess global
+ * is provided by the runtime, keeping this file importable by the
+ * (electron-free) backend lib bundle. Config (`modelCacheDir`) arrives via the
+ * `init` message in BOTH transports, never via `workerData`.
  *
  * Protocol (matches `embedder-worker-protocol.ts`):
  *   request:  { type: 'init', modelCacheDir }
@@ -24,26 +30,57 @@
  *           | { id, ok: false, error: string }
  *   stream:   { type: 'pipeline-progress', info }
  */
+import { parentPort as workerThreadsParentPort } from 'node:worker_threads';
 import type {
   EmbedderWorkerInbound,
   PipelineProgressInfo,
 } from './embedder-worker-protocol';
 
-interface ParentPortLike {
+/**
+ * Electron utilityProcess `process.parentPort` (a `MessagePortMain`): its
+ * 'message' events wrap the payload as `{ data }`. Typed structurally so this
+ * file needs no `electron` import.
+ */
+interface ElectronParentPortLike {
   on(event: 'message', cb: (e: { data: unknown }) => void): void;
   postMessage(msg: unknown): void;
 }
 
-const parentPort = (process as unknown as { parentPort?: ParentPortLike })
-  .parentPort;
+const electronParentPort = (
+  process as unknown as { parentPort?: ElectronParentPortLike }
+).parentPort;
 
-if (!parentPort) {
+/**
+ * Transport shim normalizing the two runtimes into a single `post(msg)` +
+ * `subscribe(handler)` pair. Everything below (embed/rerank/warmup/dispose
+ * dispatch and throttled `pipeline-progress` emission) is transport-agnostic.
+ *
+ * Electron delivers messages wrapped as `{ data }`; `node:worker_threads`
+ * delivers the raw payload — the crux the two branches normalize.
+ */
+type PostFn = (msg: unknown) => void;
+type MessageHandler = (msg: EmbedderWorkerInbound) => void;
+
+let post: PostFn;
+let subscribe: (handler: MessageHandler) => void;
+
+if (electronParentPort) {
+  const electronPort = electronParentPort;
+  post = (msg) => electronPort.postMessage(msg);
+  subscribe = (handler) =>
+    electronPort.on('message', (e) => handler(e.data as EmbedderWorkerInbound));
+} else if (workerThreadsParentPort) {
+  const threadPort = workerThreadsParentPort;
+  post = (msg) => threadPort.postMessage(msg);
+  subscribe = (handler) =>
+    threadPort.on('message', (payload: unknown) =>
+      handler(payload as EmbedderWorkerInbound),
+    );
+} else {
   throw new Error(
-    'embedder-worker.ts must be run as an Electron utilityProcess (no parentPort)',
+    'embedder-worker.ts must be run as a worker (no Electron parentPort and no worker_threads parentPort)',
   );
 }
-
-const port = parentPort;
 
 /**
  * Writable model-cache directory injected by the main process via the `init`
@@ -86,7 +123,7 @@ function emitPipelineProgress(info: PipelineProgressInfo): void {
     if (now - lastProgressEmitAt < PROGRESS_EMIT_THROTTLE_MS) return;
     lastProgressEmitAt = now;
   }
-  port.postMessage({
+  post({
     type: 'pipeline-progress',
     info,
   });
@@ -117,7 +154,9 @@ async function loadPipeline(): Promise<PipelineFn> {
       'feature-extraction',
       'Xenova/bge-small-en-v1.5',
       {
-        quantized: true,
+        // v4 removed the `quantized` boolean; `dtype: 'q8'` selects the same
+        // 8-bit quantized ONNX weights (equivalent to the old `quantized: true`).
+        dtype: 'q8',
         progress_callback: emitPipelineProgress,
       },
     );
@@ -190,7 +229,8 @@ async function loadCrossEncoder(): Promise<CrossEncoderFn> {
 
     const fn = await Promise.race([
       mod.pipeline('text-classification', 'Xenova/ms-marco-MiniLM-L-6-v2', {
-        quantized: true,
+        // v4 removed `quantized`; `dtype: 'q8'` selects the same q8 weights.
+        dtype: 'q8',
       }),
       new Promise<never>((_, reject) =>
         setTimeout(
@@ -275,7 +315,7 @@ async function handleMessage(msg: EmbedderWorkerInbound): Promise<void> {
   try {
     if (msg.type === 'embed') {
       const vectors = await embed(msg.texts ?? []);
-      port.postMessage({ id: msg.id, ok: true, vectors });
+      post({ id: msg.id, ok: true, vectors });
       return;
     }
 
@@ -284,7 +324,7 @@ async function handleMessage(msg: EmbedderWorkerInbound): Promise<void> {
       pipelineLoading = null;
       crossEncoderSingleton = null;
       crossEncoderLoading = null;
-      port.postMessage({ id: msg.id, ok: true, vectors: [] });
+      post({ id: msg.id, ok: true, vectors: [] });
       return;
     }
 
@@ -294,23 +334,23 @@ async function handleMessage(msg: EmbedderWorkerInbound): Promise<void> {
         msg.candidates ?? [],
         msg.topK ?? 10,
       );
-      port.postMessage({ id: msg.id, ok: true, ranked });
+      post({ id: msg.id, ok: true, ranked });
       return;
     }
 
     if (msg.type === 'warmup') {
       await warmup();
-      port.postMessage({ id: msg.id, ok: true, ranked: [] });
+      post({ id: msg.id, ok: true, ranked: [] });
       return;
     }
 
-    port.postMessage({
+    post({
       id: (msg as { id: number }).id,
       ok: false,
       error: `unknown message type: ${(msg as { type: string }).type}`,
     });
   } catch (err: unknown) {
-    port.postMessage({
+    post({
       id: msg.id,
       ok: false,
       error: err instanceof Error ? err.message : String(err),
@@ -318,6 +358,6 @@ async function handleMessage(msg: EmbedderWorkerInbound): Promise<void> {
   }
 }
 
-port.on('message', (e) => {
-  void handleMessage(e.data as EmbedderWorkerInbound);
+subscribe((msg) => {
+  void handleMessage(msg);
 });

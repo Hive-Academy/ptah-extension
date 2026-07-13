@@ -17,7 +17,10 @@ import {
   resolvePtahDbPath,
   type SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
-import { registerMemoryCuratorServices } from '@ptah-extension/memory-curator';
+import {
+  registerMemoryCuratorServices,
+  MEMORY_TOKENS,
+} from '@ptah-extension/memory-curator';
 import {
   registerSkillSynthesisServices,
   SKILL_REPROPAGATION_TOKEN,
@@ -37,6 +40,7 @@ import { registerGatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
 import { createCliVecPathResolver } from './cli-vec-path-resolver';
 import { CliTokenVault } from './cli-token-vault';
 import { CliSkillRepropagation } from './cli-skill-repropagation';
+import { CliEmbedderWorkerFactory } from './cli-embedder-worker-factory';
 
 export function registerThothLibraries(
   container: DependencyContainer,
@@ -47,9 +51,6 @@ export function registerThothLibraries(
     container.register(PERSISTENCE_TOKENS.SQLITE_DB_PATH, { useValue: dbPath });
 
     const workerEntry = path.join(__dirname, 'embedder-worker.mjs');
-    container.register(PERSISTENCE_TOKENS.EMBEDDER_WORKER_PATH, {
-      useValue: workerEntry,
-    });
 
     const modelCacheDir = path.join(os.homedir(), '.ptah', 'models');
     try {
@@ -60,8 +61,16 @@ export function registerThothLibraries(
         { error: error instanceof Error ? error.message : String(error) },
       );
     }
-    container.register(PERSISTENCE_TOKENS.EMBEDDER_MODEL_CACHE_DIR, {
-      useValue: modelCacheDir,
+
+    // Embedder worker runs in a node:worker_threads Worker behind the
+    // host-implemented factory port (the CLI has no Electron utilityProcess).
+    // The bundled `embedder-worker.mjs` auto-detects the transport; this
+    // factory owns Worker construction + init config, while EmbedderWorkerClient
+    // owns respawn / idle-teardown / crash-loop. Without this factory the
+    // embedder would degrade to unavailable and search would fall back to
+    // BM25-only (the regression this restores).
+    container.register(MEMORY_TOKENS.EMBEDDER_WORKER_PROCESS_FACTORY, {
+      useValue: new CliEmbedderWorkerFactory(workerEntry, modelCacheDir),
     });
 
     registerPersistenceSqliteServices(container, logger);
