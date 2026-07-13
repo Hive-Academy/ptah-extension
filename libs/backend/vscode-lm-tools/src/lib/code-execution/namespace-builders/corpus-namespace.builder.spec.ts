@@ -190,6 +190,26 @@ describe('buildCorpusNamespace — build', () => {
     expect(agent.buildCorpus).not.toHaveBeenCalled();
   });
 
+  it('invalid args: multiple invalid filter fields → { error } surfaces ALL Zod issues, not just the first', async () => {
+    const agent = makeAgent();
+    const ns = buildCorpusNamespace(
+      makeDeps({ getKnowledgeAgent: () => agent }),
+    );
+
+    const result = await ns.build('Valid Name', {
+      type: ['nope'],
+      limit: -1,
+    });
+
+    expect('error' in result).toBe(true);
+    const message = (result as { error: string }).error;
+    // zodMessage joins every issue with '; ' — a two-field-invalid filter
+    // must report at least two distinct segments, not only the first issue.
+    const segments = message.split('; ').filter((s) => s.length > 0);
+    expect(segments.length).toBeGreaterThanOrEqual(2);
+    expect(agent.buildCorpus).not.toHaveBeenCalled();
+  });
+
   it('service unavailable — getKnowledgeAgent() returns undefined → { error } mentions "not available"', async () => {
     const ns = buildCorpusNamespace(
       makeDeps({ getKnowledgeAgent: () => undefined }),

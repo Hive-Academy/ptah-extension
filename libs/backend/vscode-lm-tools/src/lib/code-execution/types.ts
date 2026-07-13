@@ -2,7 +2,7 @@
  * Code Execution API Type Definitions
  *
  * Provides type-safe interfaces for the Ptah Code Execution MCP server.
- * Supports 16 namespaces exposing VS Code extension capabilities to Claude CLI.
+ * Supports 21 namespaces exposing VS Code extension capabilities to Claude CLI.
  */
 
 import type {
@@ -26,7 +26,7 @@ import type { CodeNamespace } from './namespace-builders/code-namespace.builder'
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
- * Provides 16 namespaces for comprehensive workspace intelligence
+ * Provides 21 namespaces for comprehensive workspace intelligence
  */
 export interface PtahAPI {
   workspace: WorkspaceNamespace;

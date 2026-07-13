@@ -364,4 +364,122 @@ describe('CorpusSuggestionService (native-gated)', () => {
       service.close();
     }
   });
+
+  // ── Review-fix round: name guard + invariant + batched dedupe + tie-break ──
+
+  maybe(
+    'case 9 — invariant: filter.name === suggestedName for every suggestion (concept + type paths)',
+    async () => {
+      const { service, suggestions } = await bootstrap();
+      try {
+        // One concept cluster (feature) + a large single-type pool (refactor,
+        // no concepts) so both signal kinds are exercised in one pass.
+        seedCluster(service, 'concept-a', WS, ['widgets'], 6, 'feature');
+        seedCluster(service, 'type-fill', WS, [], 14, 'refactor');
+
+        const out = suggestions.suggestCorpora({ workspaceRoot: WS });
+        expect(out.some((s) => s.signal === 'concept')).toBe(true);
+        expect(out.some((s) => s.signal === 'type')).toBe(true);
+        for (const s of out) {
+          expect(s.filter.name).toBe(s.suggestedName);
+        }
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'case 10 — name guard: a concept longer than 200 chars is truncated to exactly 200',
+    async () => {
+      const { service, suggestions } = await bootstrap();
+      try {
+        const longConcept = 'x'.repeat(250);
+        seedCluster(service, 'long', WS, [longConcept], 5);
+
+        const out = suggestions.suggestCorpora({ workspaceRoot: WS });
+        expect(out).toHaveLength(1);
+        const s = out[0];
+        expect(s.suggestedName).toHaveLength(200);
+        expect(s.suggestedName).toBe('x'.repeat(200));
+        expect(s.filter.name).toBe(s.suggestedName);
+        // The search filter keeps the RAW (untruncated) concept — it is a
+        // query value, not a display name.
+        expect(s.filter.concepts).toEqual([longConcept]);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'case 11 — name guard: a whitespace-only concept yields NO suggestion for that cluster',
+    async () => {
+      const { service, suggestions } = await bootstrap();
+      try {
+        seedCluster(service, 'ws-concept', WS, ['   '], 5);
+        seedCluster(service, 'real', WS, ['realone'], 5);
+
+        const names = suggestions
+          .suggestCorpora({ workspaceRoot: WS })
+          .map((s) => s.suggestedName);
+        expect(names).toEqual(['realone']);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'case 12 — batched dedupe: a malformed existing corpus queryJson still contributes its NAME (read via listFilterRows)',
+    async () => {
+      const { service, store, suggestions } = await bootstrap();
+      try {
+        // Existing corpus whose persisted filter blob is corrupted. The
+        // batched `listFilterRows` read must still surface the row's NAME
+        // for dedupe even though its filter cannot be parsed.
+        const ref = store.create({
+          name: 'Zzzflag',
+          workspaceRoot: WS,
+          concepts: ['unrelated'],
+        });
+        service.db
+          .prepare(`UPDATE corpora SET query_json = ? WHERE id = ?`)
+          .run('not-json', ref.id);
+
+        seedCluster(service, 'zzzflag', WS, ['zzzflag'], 6);
+        seedCluster(service, 'freshtag', WS, ['freshtag'], 6);
+
+        const names = suggestions
+          .suggestCorpora({ workspaceRoot: WS })
+          .map((s) => s.suggestedName);
+        // Blocked by name collision (case-insensitive) despite the unparseable blob.
+        expect(names).not.toContain('zzzflag');
+        // A cluster unrelated to the malformed row is unaffected.
+        expect(names).toContain('freshtag');
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'case 13 — type fill deterministic tie-break: types outside MEMORY_TYPE_ORDER sort alphabetically on a count tie',
+    async () => {
+      const { service, suggestions } = await bootstrap();
+      try {
+        // Neither 'zulu-custom' nor 'alpha-custom' is in MEMORY_TYPE_ORDER, so
+        // both share the same enum-fallback index; equal counts (12 == 12)
+        // force the trailing alphabetical tie-break to decide order.
+        seedCluster(service, 'zulu', WS, [], 12, 'zulu-custom');
+        seedCluster(service, 'alpha', WS, [], 12, 'alpha-custom');
+
+        const out = suggestions.suggestCorpora({ workspaceRoot: WS });
+        const types = out.map((s) => s.filter.type?.[0]);
+        expect(types).toEqual(['alpha-custom', 'zulu-custom']);
+      } finally {
+        service.close();
+      }
+    },
+  );
 });

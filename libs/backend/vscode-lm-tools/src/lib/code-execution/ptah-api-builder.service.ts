@@ -1,7 +1,7 @@
 /**
  * Ptah API Builder Service
  *
- * Constructs the complete "ptah" API object with 16 namespaces for code execution context.
+ * Constructs the complete "ptah" API object with 21 namespaces for code execution context.
  * Delegates to specialized namespace builders for each domain:
  *
  * Core (workspace discovery):
@@ -374,7 +374,7 @@ export class PtahAPIBuilder {
     @inject(TOKENS.AUTH_SECRETS_SERVICE, { isOptional: true })
     private readonly authSecretsService: IAuthSecretsService | undefined,
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 16 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 21 namespaces');
   }
 
   /**
@@ -387,7 +387,7 @@ export class PtahAPIBuilder {
   }
 
   /**
-   * Build the complete Ptah API object with all 16 namespaces.
+   * Build the complete Ptah API object with all 21 namespaces.
    *
    * Each namespace builder is wrapped in try/catch so that one failing
    * namespace does not prevent the remaining namespaces (and their tools)
@@ -662,7 +662,7 @@ export class PtahAPIBuilder {
    * If a namespace builder throws (e.g., missing dependency, initialization error),
    * the failure is logged and a proxy is returned that throws descriptive errors
    * when any method is called. This prevents one broken namespace from killing
-   * all 16 MCP tools.
+   * all 21 MCP tools.
    *
    * @param name - Namespace name for logging (e.g., 'workspace', 'ide')
    * @param builder - Factory function that builds the namespace

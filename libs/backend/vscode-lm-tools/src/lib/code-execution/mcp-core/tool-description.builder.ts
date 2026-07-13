@@ -21,7 +21,7 @@ export function buildExecuteCodeTool(): MCPToolDefinition {
         code: {
           type: 'string',
           description:
-            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 16 namespaces. ' +
+            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 21 namespaces. ' +
             'All methods are async. Code is auto-wrapped for execution - all patterns work:\n' +
             '• Simple: `await ptah.workspace.getInfo()` or `ptah.workspace.getInfo()`\n' +
             '• With variables: `const info = await ptah.workspace.getInfo(); return info;`\n' +

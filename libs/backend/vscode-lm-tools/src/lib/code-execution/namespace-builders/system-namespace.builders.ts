@@ -30,7 +30,7 @@ export interface SystemNamespaceDependencies {
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah IDE Access - 15 Namespaces:
+  overview: `Ptah IDE Access - 21 Namespaces:
 
 WORKSPACE: workspace, search, files, diagnostics
 ANALYSIS: context, project, relevance, ast, dependencies

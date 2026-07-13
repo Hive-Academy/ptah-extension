@@ -12,7 +12,7 @@
  *   6. If short of `limit`, fill with broad single-`type` clusters
  *      (≥ TYPE_MIN_CLUSTER_SIZE), skipping types already covered.
  *
- * Read-only guarantee: issues only SELECTs + `corpusStore.list/getByName`,
+ * Read-only guarantee: issues only SELECTs + `corpusStore.listFilterRows`,
  * uses the shared `connection.db` (never a new handle), and makes no LLM/SDK
  * call. Fully deterministic — no RNG, stable tie-breaks.
  */
@@ -28,6 +28,7 @@ import type {
 } from '@ptah-extension/memory-contracts';
 import { MEMORY_TOKENS } from '../di/tokens';
 import type { CorpusStore } from './corpus.store';
+import { parseCorpusFilter } from './corpus-filter.util';
 
 /**
  * A single one-click corpus proposal. `filter` maps 1:1 onto `corpus:build`
@@ -61,6 +62,8 @@ const TOP_CONCEPTS = 3;
 const TYPE_MIN_CLUSTER_SIZE = 12;
 /** Matches the build dialog default + `searchIndex` hard cap. */
 const BOARD_LIMIT = 100;
+/** Mirrors `CorpusNameSchema` (min 1, max 200) on the `corpus:build` path. */
+const MAX_CORPUS_NAME = 200;
 
 /**
  * MemoryType enum order — used as the deterministic tie-break for the modal
@@ -135,6 +138,12 @@ export class CorpusSuggestionService {
         continue;
       }
 
+      // Guard the corpus name against the stricter build-path `CorpusNameSchema`
+      // (min 1, max 200) so this suggestion is guaranteed to build. One `name`
+      // feeds both `suggestedName` and `filter.name` — equal by construction.
+      const name = clampCorpusName(concept);
+      if (name === null) continue;
+
       const memberIds = [...ids];
       const topConcepts = this.deriveTopConcepts(
         concept,
@@ -151,9 +160,9 @@ export class CorpusSuggestionService {
         (share >= 0.5 ? ` (mostly ${dominantType})` : '');
 
       conceptSuggestions.push({
-        suggestedName: concept,
+        suggestedName: name,
         filter: {
-          name: concept,
+          name,
           workspaceRoot: scopedRoot,
           concepts: [concept],
           limit: BOARD_LIMIT,
@@ -221,32 +230,22 @@ export class CorpusSuggestionService {
     const existingNamesLc = new Set<string>();
     const existingSingleTypes = new Set<string>();
 
-    const corpora = hasWorkspaceFilter
-      ? this.corpusStore.list({ workspaceRoot: scopedRoot })
-      : this.corpusStore.list();
+    // Single batched read (id/name/workspace_root/query_json) — no per-row
+    // `getByName`/`countMembers` round trip. Parse each filter blob in JS.
+    const rows = hasWorkspaceFilter
+      ? this.corpusStore.listFilterRows({ workspaceRoot: scopedRoot })
+      : this.corpusStore.listFilterRows();
 
-    for (const corpus of corpora) {
-      existingNamesLc.add(corpus.name.toLowerCase());
-      const record = this.corpusStore.getByName(corpus.name);
-      if (!record) continue;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(record.queryJson);
-      } catch (error: unknown) {
+    for (const row of rows) {
+      existingNamesLc.add(row.name.toLowerCase());
+      const filter = parseCorpusFilter(row.queryJson);
+      if (!filter) {
         this.logger.warn(
           '[memory-curator] suggest — corpus filter unparseable',
-          {
-            name: corpus.name,
-            error: error instanceof Error ? error.message : String(error),
-          },
+          { name: row.name },
         );
         continue;
       }
-      if (typeof parsed !== 'object' || parsed === null) continue;
-      const filter = parsed as {
-        concepts?: unknown;
-        type?: unknown;
-      };
       if (Array.isArray(filter.concepts)) {
         for (const concept of filter.concepts) {
           if (typeof concept === 'string' && concept !== '') {
@@ -346,20 +345,29 @@ export class CorpusSuggestionService {
             .all(TYPE_MIN_CLUSTER_SIZE)
     ) as TypeCountRow[];
 
+    // Deterministic order: count desc, then enum position, then type name asc
+    // (the trailing alphabetical tie-break makes types outside
+    // `MEMORY_TYPE_ORDER` — which share the same fallback index — stable).
     const ordered = [...rows].sort(
-      (a, b) => b.n - a.n || typeOrderIndex(a.type) - typeOrderIndex(b.type),
+      (a, b) =>
+        b.n - a.n ||
+        typeOrderIndex(a.type) - typeOrderIndex(b.type) ||
+        compareStrings(a.type, b.type),
     );
 
     const suggestions: CorpusSuggestion[] = [];
     for (const row of ordered) {
       if (suggestions.length >= remaining) break;
       if (existingSingleTypes.has(row.type)) continue;
-      const suggestedName = `${capitalize(row.type)} memories`;
-      if (existingNamesLc.has(suggestedName.toLowerCase())) continue;
+      // Same build-path name guard as the concept path; `name` feeds both
+      // `suggestedName` and `filter.name` (equal by construction).
+      const name = clampCorpusName(`${capitalize(row.type)} memories`);
+      if (name === null) continue;
+      if (existingNamesLc.has(name.toLowerCase())) continue;
       suggestions.push({
-        suggestedName,
+        suggestedName: name,
         filter: {
-          name: suggestedName,
+          name,
           workspaceRoot: scopedRoot,
           type: [row.type as MemoryType],
           limit: BOARD_LIMIT,
@@ -398,4 +406,17 @@ function typeOrderIndex(type: string): number {
 
 function capitalize(value: string): string {
   return value.length === 0 ? value : value[0].toUpperCase() + value.slice(1);
+}
+
+/**
+ * Derive a corpus name guaranteed to satisfy the build-path `CorpusNameSchema`
+ * (min 1, max 200): trim, truncate to 200, re-trim. Returns null when nothing
+ * usable remains (empty after trimming) so the caller skips that cluster.
+ */
+function clampCorpusName(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed === '') return null;
+  if (trimmed.length <= MAX_CORPUS_NAME) return trimmed;
+  const truncated = trimmed.slice(0, MAX_CORPUS_NAME).trim();
+  return truncated === '' ? null : truncated;
 }

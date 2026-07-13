@@ -33,6 +33,7 @@ import { MEMORY_TOKENS } from '../di/tokens';
 import { CorpusStore } from './corpus.store';
 import { MemorySearchService } from '../memory-search.service';
 import { toSessionId } from './corpus-session-id';
+import { parseCorpusFilter } from './corpus-filter.util';
 import type {
   BuildCorpusParams,
   CorpusListEntry,
@@ -177,7 +178,9 @@ export class KnowledgeAgentService implements IKnowledgeAgent {
     if (!rec) {
       throw new Error(`Corpus '${name}' not found`);
     }
-    const params = parseQueryJson(rec.queryJson, name);
+    // Unparseable/non-object blob → degrade to a name-only filter (unchanged
+    // behavior); the shared parser keeps this in sync with the suggestion pass.
+    const params = parseCorpusFilter(rec.queryJson) ?? { name };
     const fresh = await this.runFilter(params);
     const current = this.corpusStore.getMemberIds(rec.id);
     const currentSet = new Set(current);
@@ -225,18 +228,6 @@ export class KnowledgeAgentService implements IKnowledgeAgent {
     }
     return null;
   }
-}
-
-function parseQueryJson(raw: string, name: string): BuildCorpusParams {
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      return parsed as BuildCorpusParams;
-    }
-  } catch {
-    /* fall through */
-  }
-  return { name };
 }
 
 function unique(values: readonly string[]): readonly string[] {

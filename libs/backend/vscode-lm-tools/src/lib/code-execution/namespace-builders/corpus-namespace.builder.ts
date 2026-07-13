@@ -101,6 +101,15 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * Surface every Zod issue (not just the first) so a multi-field-invalid filter
+ * reports all problems at once. Falls back to a generic message if empty.
+ */
+function zodMessage(error: z.ZodError, fallback: string): string {
+  const joined = error.issues.map((issue) => issue.message).join('; ');
+  return joined.length > 0 ? joined : fallback;
+}
+
 export function buildCorpusNamespace(
   deps: CorpusNamespaceDependencies,
 ): CorpusNamespace {
@@ -119,14 +128,14 @@ export function buildCorpusNamespace(
       const parsedName = CorpusNameSchema.safeParse(name);
       if (!parsedName.success) {
         return {
-          error: parsedName.error.issues[0]?.message ?? 'Invalid corpus name',
+          error: zodMessage(parsedName.error, 'Invalid corpus name'),
         };
       }
 
       const parsedFilter = CorpusFilterSchema.safeParse(filter ?? {});
       if (!parsedFilter.success) {
         return {
-          error: parsedFilter.error.issues[0]?.message ?? 'Invalid filter',
+          error: zodMessage(parsedFilter.error, 'Invalid filter'),
         };
       }
 
@@ -166,7 +175,7 @@ export function buildCorpusNamespace(
       const parsedName = CorpusNameSchema.safeParse(name);
       if (!parsedName.success) {
         return {
-          error: parsedName.error.issues[0]?.message ?? 'Invalid corpus name',
+          error: zodMessage(parsedName.error, 'Invalid corpus name'),
         };
       }
       try {
@@ -185,7 +194,7 @@ export function buildCorpusNamespace(
       const parsedName = CorpusNameSchema.safeParse(name);
       if (!parsedName.success) {
         return {
-          error: parsedName.error.issues[0]?.message ?? 'Invalid corpus name',
+          error: zodMessage(parsedName.error, 'Invalid corpus name'),
         };
       }
       try {
