@@ -14,6 +14,13 @@ import {
   OUTPUT_FPS,
   type ShowcaseVideoProps,
 } from './ShowcaseVideo';
+import {
+  PromoReel,
+  PROMO_FPS,
+  promoDims,
+  promoDurationInFrames,
+  type PromoReelProps,
+} from './PromoReel';
 
 // Fallback metadata used only when the composition is opened in the studio
 // without props (e.g. picking it from the sidebar before render-all wires
@@ -49,8 +56,46 @@ const calculateMetadata: CalculateMetadataFunction<ShowcaseVideoProps> = ({
   };
 };
 
+// Studio-only fallback so PromoReel can be opened without props. Loads the REAL
+// generated props (spec + actual Kokoro clip durations + narration wavs + music
+// + SFX, staged into public/ by scripts/stage-preview) so the studio previews
+// the full 10-scene video at true pacing WITH audio — matching the final render
+// exactly. Regenerate with: node scripts/render-promo.mjs (which rebuilds the
+// per-scene props at render time regardless of this fallback).
+import previewProps from '../preview.props.json';
+
+const FALLBACK_PROMO = previewProps as unknown as PromoReelProps;
+
+const calculatePromoMetadata: CalculateMetadataFunction<PromoReelProps> = ({
+  props,
+}) => {
+  const spec = props.spec ?? FALLBACK_PROMO.spec;
+  const { width, height } = promoDims(spec);
+  return {
+    width,
+    height,
+    fps: PROMO_FPS,
+    durationInFrames: promoDurationInFrames(spec, props.clipDurationsMs ?? []),
+  };
+};
+
 const RemotionRoot: React.FC = () => {
   return (
+    <>
+    {/* PromoReel registered first so the studio opens it by default — the
+        capture-based ShowcaseVideo below needs a real recording and throws a
+        MediaPlaybackError when opened with empty fallback props. */}
+    <Composition
+      id="PromoReel"
+      component={PromoReel}
+      width={promoDims(FALLBACK_PROMO.spec).width}
+      height={promoDims(FALLBACK_PROMO.spec).height}
+      fps={PROMO_FPS}
+      durationInFrames={promoDurationInFrames(FALLBACK_PROMO.spec)}
+      schema={undefined}
+      calculateMetadata={calculatePromoMetadata}
+      defaultProps={FALLBACK_PROMO}
+    />
     <Composition
       id="ShowcaseVideo"
       component={ShowcaseVideo}
@@ -77,6 +122,7 @@ const RemotionRoot: React.FC = () => {
         supersample: false,
       }}
     />
+    </>
   );
 };
 

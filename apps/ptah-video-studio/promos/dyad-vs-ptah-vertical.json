@@ -1,0 +1,125 @@
+{
+  "title": "Speed vs. Scale — Dyad vs. Ptah (Vertical)",
+  "format": "vertical",
+  "lang": "en",
+  "rtl": false,
+  "engine": "kokoro",
+  "speed": 1,
+  "slides": [
+    {
+      "kind": "scene",
+      "scene": "cold-start",
+      "captions": [
+        "Paste in your code…",
+        "…it hallucinates a variable",
+        "Forgets yesterday's decisions",
+        "It starts cold — every time"
+      ],
+      "vo": "You open a new chat, paste in your code, and your AI assistant immediately hallucinates a variable that doesn't exist. It doesn't remember yesterday's database decision. It starts cold, every single time. Standard AI coding tools are designed to finish the sentence you're currently typing. But finishing a line of code is very different from understanding how that line impacts a global authentication state or a multi-tenant database schema."
+    },
+    {
+      "kind": "scene",
+      "scene": "the-fork",
+      "captions": [
+        "A choice for every SaaS founder",
+        "Ship by Friday?",
+        "Or a foundation that lasts?",
+        "Clean repo → tangled technical debt"
+      ],
+      "vo": "This creates a choice for any SaaS founder. You can optimize for pushing a product out the door by Friday, or you can prioritize a foundation that supports your architecture long-term. When an agent makes a decision without knowing your global rules, it's adding a layer of unverified logic to the project. Over hundreds of sessions, these isolated, contextless choices turn a clean repo into a tangle of technical debt that eventually becomes impossible to manage."
+    },
+    {
+      "kind": "scene",
+      "scene": "contenders",
+      "captions": [
+        "Dyad — open-source, local-first",
+        "Generate & publish instantly",
+        "Ptah — an AI coding orchestra",
+        "A technical co-founder for your repo"
+      ],
+      "vo": "On one side of this divide, we have Dyad. It's an open-source, local-first app builder designed for maximum velocity, letting you generate and publish an interface almost instantly. On the other side is Ptah. It builds itself as an AI coding orchestra. Instead of a quick chat window, it acts like a technical co-founder that indexes your entire repository and enforces architectural rules."
+    },
+    {
+      "kind": "scene",
+      "scene": "philosophy",
+      "captions": [
+        "Two opposed philosophies",
+        "Dyad: visual momentum",
+        "Ptah: engineering discipline",
+        "Speed OR rigor — not both"
+      ],
+      "vo": "They represent entirely opposed philosophies. Dyad prioritizes visual momentum and rapid iteration. Ptah demands structured engineering discipline before a single pixel is drawn. Because both tools allow you to bring your own models from providers like Anthropic or OpenAI, the decision hinges on your project's intended lifecycle. You have to decide what you are willing to sacrifice. You can have early speed or early architectural rigor. You cannot have both."
+    },
+    {
+      "kind": "scene",
+      "scene": "dyad-arch",
+      "captions": [
+        "Download, plug in an API key",
+        "No heavy scaffolding",
+        "Supabase + Vercel, wired in",
+        "Skip the backend boilerplate"
+      ],
+      "vo": "Let's look at Dyad's approach to speed. You download the app, plug in an API key, and start building locally. There is no heavy framework scaffolding or complex environment setup to slow you down. This diagram shows how Dyad accelerates deployment. Notice the central node connecting directly to Supabase for authentication and database, and Vercel for hosting. By relying on these pre-built integrations, you can wire up live user logins and a functioning back-end database with a few clicks. You skip writing the back-end boilerplate entirely."
+    },
+    {
+      "kind": "scene",
+      "scene": "dyad-ceiling",
+      "captions": [
+        "Custom logic → a hard ceiling",
+        "Vibe coding, not architecture",
+        "Blank slate → live URL in days",
+        "Trading flexibility for validation"
+      ],
+      "vo": "But look closer at that tight coupling. When your application eventually requires complex, custom enterprise logic that doesn't fit neatly into a Supabase Edge function, you will hit a hard developmental ceiling. It relies on conversational vibe coding rather than formal architecture planning. The benefit here is that a solo founder can go from a blank slate to a live, functioning URL in a matter of days. Dyad delivers extreme initial momentum. You are deliberately trading future architectural flexibility in order to secure immediate market validation today."
+    },
+    {
+      "kind": "scene",
+      "scene": "ptah-roadmap",
+      "captions": [
+        "Ptah refuses to code first",
+        "It enters a discovery phase",
+        "A strict roadmap file",
+        "Off the roadmap? Agents won't run it."
+      ],
+      "vo": "Ptah takes the exact opposite route. If you ask it to start a new project, it refuses to write any feature code immediately. Instead, it enters a discovery phase to plan the system. It generates a strict roadmap file. This creates a mandatory phased checklist that governs every single piece of AI work that follows. If a task isn't on the roadmap, the agents won't execute it."
+    },
+    {
+      "kind": "scene",
+      "scene": "ptah-quadrant",
+      "captions": [
+        "Mapping the technical footprint",
+        "Ptah sits top-right",
+        "Nx monorepo · NestJS · Angular",
+        "DDD + multi-tenant from day one",
+        "Built to survive year two"
+      ],
+      "vo": "This quadrant chart maps out the difference in their technical footprint. Ptah sits in the top right. From day one, it scaffolds a heavy Nx monorepo, wiring together enterprise frameworks like NestJS and Angular. It builds out rigid, domain-driven design boundaries and native multi-tenant logic before a single user-facing button is created. It forces the code into strict modular libraries. The friction here is intentional, but it is steep. You are locked into a highly specific, complex enterprise stack, which increases the time it takes to see your first functioning interface. Ptah enforces serious engineering discipline from the start. You give up the dopamine hit of an instant launch to ensure the codebase can survive year two of operations."
+    },
+    {
+      "kind": "scene",
+      "scene": "ptah-orchestra",
+      "captions": [
+        "The secret is memory",
+        "Hybrid vector search over your codebase",
+        "Recalls decisions from weeks ago",
+        "Up to 9 subagents in parallel",
+        "Cron jobs run while you sleep",
+        "Approve sensitive calls from your phone",
+        "An automated engineering workforce"
+      ],
+      "vo": "The reason Ptah can maintain that architecture is its memory. It uses a hybrid vector search to index your codebase, meaning it actually recalls a bug fix or a database design decision from three weeks ago when you open a completely new session. It also scales the workload. You can assign a high-level goal to a primary agent, which then fans the work out across this grid, running up to nine concurrent subagents in parallel, each utilizing different models. Because it's a persistent desktop application, it operates without you. You can schedule cron jobs for the agents to run nightly dependency scans or security reviews while you sleep. When those background agents need to execute a sensitive command, they push an approval request to your phone. You review the planned tool calls via Slack or Discord and authorize the work remotely. But there is real overhead to this power. To get the most out of Ptah, you have to stop acting like a solo developer hacking together an app and start acting like a manager directing an engineering team. Persistent memory and parallel orchestration change the AI's role. It stops being a temporary autocomplete widget and starts functioning as an automated workforce that remembers your decisions and keeps shipping while you're away."
+    },
+    {
+      "kind": "scene",
+      "scene": "decision-tree",
+      "captions": [
+        "What is your primary goal?",
+        "MVP Speed → Dyad",
+        "Enterprise Scale → Ptah",
+        "Ship fast — or build permanent"
+      ],
+      "vo": "Dyad and Ptah represent a clear fork in the road for how to use AI to build software. One is built for those who prioritize immediate output. The other is for those who prioritize architectural longevity. This flowchart breaks down the decision based on your primary goal. The right choice depends entirely on your business timeline and how you plan to scale. Following the MVP speed branch, if your only immediate metric for success is proving that a customer will pay for your idea, Dyad is the better choice. It is purpose-built for solo founders and non-technical designers who cannot afford to spend weeks wrestling with boilerplate. It gets a live product in front of users in days. However, if you follow the enterprise scale branch where your project demands custom back-end logic, strict security protocols, and long-term maintainability, you need Ptah. It caters directly to technical founders and seasoned engineers who understand the cost of technical debt and are fully prepared to manage an AI workforce to enforce architectural standards. Use Dyad when your immediate survival depends on shipping fast. Choose Ptah when you are laying the concrete for a permanent engineering organization."
+    }
+  ],
+  "voice": "af_heart"
+}
