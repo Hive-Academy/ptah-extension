@@ -63,6 +63,12 @@
       ],
       "@ptah-extension/settings-core": [
         "../../libs/backend/settings-core/src/index.ts"
+      ],
+      "@ptah-extension/voice-contracts": [
+        "../../libs/backend/voice-contracts/src/index.ts"
+      ],
+      "@ptah-extension/voice-providers": [
+        "../../libs/backend/voice-providers/src/index.ts"
       ]
     }
   }
