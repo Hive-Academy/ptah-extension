@@ -28,20 +28,32 @@ const PREVIEW_TEXT = 'The quick brown fox jumps over the lazy dog.';
 const DOWNLOAD_MODEL_TIMEOUT_MS = 30 * 60 * 1000;
 const SYNTHESIZE_TIMEOUT_MS = 60 * 1000;
 
+/** `owner/name` HuggingFace repo id shape (letters, digits, `._-`). */
+const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
+
+type ModelSource = 'curated' | 'hf' | 'dir';
+
 interface VoiceGroup {
   readonly category: string;
   readonly voices: readonly VoiceInfoDto[];
 }
 
 /**
- * Local Kokoro (TTS) settings panel (FR-6.2). Extracted from the legacy
- * voice-config Kokoro section, but the voice list is now fetched from
- * `voice:listVoices {providerId:'local'}` (backend-owned) instead of the
- * previously hardcoded arrays. Preview + download are preserved and the TTS
- * download-progress sentinel `'tts'` is unchanged.
+ * Local Kokoro (TTS) settings panel (FR-4.1, FR-6.2). Extracted from the legacy
+ * voice-config Kokoro section; the voice list is fetched from
+ * `voice:listVoices {providerId:'local'}` (backend-owned).
  *
- * Persists the selected voice via `voice:setTtsConfig` and emits `changed` so
- * the container re-reads the backend config.
+ * Mirrors {@link LocalSttPanelComponent}: a source toggle (Curated / HF repo id
+ * / Local folder) with a validated text input lets the user point Kokoro at a
+ * custom HF repo id or an absolute local model folder. Unlike STT, the Kokoro
+ * model source is TTS-specific, so the initial `modelSource`/`customModel` are
+ * read from `voice:getTtsConfig` (the `config` input's `modelSource`/`customModel`
+ * are the Whisper/STT source and must not be reused here).
+ *
+ * Preview + download are preserved and the TTS download-progress sentinel
+ * `'tts'` is unchanged. Persists via `voice:setTtsConfig` (the current voice is
+ * always sent as the last-known-good value; `modelSource`/`customModel` carry the
+ * custom source) and emits `changed` so the container re-reads the backend config.
  */
 @Component({
   selector: 'ptah-local-tts-panel',
@@ -60,6 +72,74 @@ interface VoiceGroup {
     @if (errorMessage(); as message) {
       <div class="text-xs text-error mb-2" data-testid="local-tts-panel-error">
         {{ message }}
+      </div>
+    }
+
+    <!-- Source toggle -->
+    <div
+      class="flex items-center gap-1 mb-2"
+      role="radiogroup"
+      aria-label="Model source"
+    >
+      @for (opt of sourceOptions; track opt.value) {
+        <button
+          type="button"
+          class="btn btn-xs flex-1"
+          [class.btn-primary]="source() === opt.value"
+          [class.btn-ghost]="source() !== opt.value"
+          role="radio"
+          [attr.aria-checked]="source() === opt.value"
+          [disabled]="isSavingVoice()"
+          (click)="onSourceChange(opt.value)"
+          [attr.data-testid]="'local-tts-source-' + opt.value"
+        >
+          {{ opt.label }}
+        </button>
+      }
+    </div>
+
+    @if (source() !== 'curated') {
+      <div class="mb-2">
+        <div class="flex items-center gap-1">
+          <input
+            id="local-tts-custom"
+            type="text"
+            class="input input-bordered input-xs w-full"
+            [class.input-error]="
+              customModel().length > 0 && !customModelValid()
+            "
+            [value]="customModel()"
+            [disabled]="isSavingVoice()"
+            [placeholder]="
+              source() === 'hf'
+                ? 'owner/kokoro-model (HF repo id)'
+                : 'Absolute path to model folder'
+            "
+            (input)="onCustomModelInput($event)"
+            data-testid="local-tts-custom-input"
+          />
+          <button
+            type="button"
+            class="btn btn-primary btn-xs"
+            [disabled]="isSavingVoice() || !customModelValid()"
+            (click)="saveCustomSource()"
+            data-testid="local-tts-custom-save"
+          >
+            Save
+          </button>
+        </div>
+        @if (customModel().length > 0 && !customModelValid()) {
+          <p
+            class="text-[10px] text-error mt-1"
+            data-testid="local-tts-custom-hint"
+          >
+            {{
+              source() === 'hf'
+                ? 'Enter a valid HuggingFace repo id (owner/name).'
+                : 'Enter an absolute folder path.'
+            }}
+          </p>
+        }
       </div>
     }
 
@@ -166,7 +246,7 @@ interface VoiceGroup {
             </button>
             <button
               class="btn btn-outline btn-xs gap-1"
-              [disabled]="isSavingVoice() || downloaded()"
+              [disabled]="isSavingVoice() || !canDownload()"
               (click)="downloadTtsModel()"
               data-testid="local-tts-download-btn"
             >
@@ -190,8 +270,20 @@ export class LocalTtsPanelComponent implements OnInit {
   readonly CheckCircleIcon = CheckCircle;
   readonly DownloadIcon = Download;
 
+  readonly sourceOptions: readonly { value: ModelSource; label: string }[] = [
+    { value: 'curated', label: 'Curated' },
+    { value: 'hf', label: 'HF repo id' },
+    { value: 'dir', label: 'Local folder' },
+  ];
+
   readonly selectedVoice = linkedSignal(() => this.config().ttsVoice);
   readonly downloaded = computed(() => this.config().ttsDownloaded);
+
+  // TTS model source is not carried by the `config` input (that DTO's
+  // `modelSource`/`customModel` are the Whisper/STT source), so these are seeded
+  // from `voice:getTtsConfig` in `ngOnInit` and updated optimistically on save.
+  readonly source = signal<ModelSource>('curated');
+  readonly customModel = signal('');
 
   readonly voices = signal<VoiceInfoDto[]>([]);
   readonly isLoadingVoices = signal(true);
@@ -200,6 +292,18 @@ export class LocalTtsPanelComponent implements OnInit {
   readonly isTtsDownloading = signal(false);
   readonly isPreviewing = signal(false);
   readonly errorMessage = signal<string | null>(null);
+
+  /** True when the custom id/path passes basic shape validation. */
+  readonly customModelValid = computed(() => {
+    const value = this.customModel().trim();
+    if (value.length === 0) return false;
+    return this.source() === 'hf' ? HF_REPO_ID_RE.test(value) : true;
+  });
+
+  /** Download is only meaningful for the curated Kokoro model. */
+  readonly canDownload = computed(
+    () => this.source() === 'curated' && !this.downloaded(),
+  );
 
   /** Group the backend voice list by its optional `category` for `<optgroup>`s. */
   readonly voiceGroups = computed<VoiceGroup[]>(() => {
@@ -223,7 +327,7 @@ export class LocalTtsPanelComponent implements OnInit {
   });
 
   async ngOnInit(): Promise<void> {
-    await this.loadVoices();
+    await Promise.all([this.loadVoices(), this.loadTtsConfig()]);
   }
 
   async loadVoices(): Promise<void> {
@@ -250,33 +354,91 @@ export class LocalTtsPanelComponent implements OnInit {
     }
   }
 
+  /** Seed the source toggle + custom id/path from the backend TTS config. */
+  async loadTtsConfig(): Promise<void> {
+    try {
+      const result = await this.rpc.call(
+        'voice:getTtsConfig',
+        {} as Record<string, never>,
+      );
+      if (result.isSuccess() && result.data.ok && result.data.config) {
+        this.source.set(result.data.config.modelSource);
+        this.customModel.set(result.data.config.customModel ?? '');
+      }
+    } catch {
+      // Non-fatal: fall back to the 'curated' default; voice list still loads.
+    }
+  }
+
+  onSourceChange(source: ModelSource): void {
+    this.source.set(source);
+    this.savedRecently.set(false);
+    // Switching back to curated is an immediate, always-recoverable save.
+    if (source === 'curated')
+      void this.persist(this.selectedVoice(), 'curated');
+  }
+
+  onCustomModelInput(event: Event): void {
+    this.customModel.set((event.target as HTMLInputElement).value);
+    this.savedRecently.set(false);
+  }
+
+  saveCustomSource(): void {
+    if (!this.customModelValid()) return;
+    void this.persist(
+      this.selectedVoice(),
+      this.source(),
+      this.customModel().trim(),
+    );
+  }
+
   async onVoiceChange(event: Event): Promise<void> {
     const voice = (event.target as HTMLSelectElement).value;
+    const previous = this.selectedVoice();
+    this.selectedVoice.set(voice);
+    const customModel =
+      this.source() === 'curated' ? undefined : this.customModel().trim();
+    const ok = await this.persist(voice, this.source(), customModel);
+    if (!ok) this.selectedVoice.set(previous);
+  }
+
+  /**
+   * Persist the selected voice + model source via `voice:setTtsConfig`. The
+   * current voice is always sent so a source change never drops it. Returns
+   * `true` on success so callers can revert optimistic UI on failure.
+   */
+  private async persist(
+    voice: string,
+    modelSource: ModelSource,
+    customModel?: string,
+  ): Promise<boolean> {
     this.errorMessage.set(null);
     this.savedRecently.set(false);
     this.isSavingVoice.set(true);
-
-    const previous = this.selectedVoice();
-    this.selectedVoice.set(voice);
-
     try {
-      const result = await this.rpc.call('voice:setTtsConfig', { voice });
+      const result = await this.rpc.call('voice:setTtsConfig', {
+        voice,
+        modelSource,
+        ...(customModel !== undefined ? { customModel } : {}),
+      });
       if (result.isSuccess() && result.data.ok) {
         this.savedRecently.set(true);
         this.changed.emit();
-      } else {
-        this.selectedVoice.set(previous);
-        this.errorMessage.set(
-          result.isSuccess() && !result.data.ok
-            ? result.data.error
-            : (result.error ?? 'Failed to save TTS voice'),
-        );
+        return true;
       }
-    } catch (error: unknown) {
-      this.selectedVoice.set(previous);
       this.errorMessage.set(
-        error instanceof Error ? error.message : 'Failed to save TTS voice',
+        result.isSuccess() && !result.data.ok
+          ? result.data.error
+          : (result.error ?? 'Failed to save TTS configuration'),
       );
+      return false;
+    } catch (error: unknown) {
+      this.errorMessage.set(
+        error instanceof Error
+          ? error.message
+          : 'Failed to save TTS configuration',
+      );
+      return false;
     } finally {
       this.isSavingVoice.set(false);
     }

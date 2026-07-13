@@ -52,6 +52,7 @@ async function settle(
 ): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+  await Promise.resolve();
   fixture.detectChanges();
 }
 
@@ -87,7 +88,7 @@ describe('LocalTtsPanelComponent', () => {
     expect(groups.length).toBe(2);
   });
 
-  it('persists a voice change via voice:setTtsConfig', async () => {
+  it('persists a voice change via voice:setTtsConfig with the current model source', async () => {
     const rpc = createMockRpcService();
     routeRpc(rpc, {
       'voice:listVoices': () =>
@@ -113,7 +114,130 @@ describe('LocalTtsPanelComponent', () => {
 
     expect(rpc.call).toHaveBeenCalledWith('voice:setTtsConfig', {
       voice: 'bf_emma',
+      modelSource: 'curated',
     });
+  });
+
+  it('reads back the model source + custom id from voice:getTtsConfig on init', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, {
+      'voice:listVoices': () => rpcSuccess({ ok: true, voices: [] }),
+      'voice:getTtsConfig': () =>
+        rpcSuccess({
+          ok: true,
+          config: {
+            voice: 'af_heart',
+            downloaded: false,
+            modelSource: 'hf',
+            customModel: 'owner/kokoro-custom',
+          },
+        }),
+    });
+
+    const fixture = mount(rpc, localConfig());
+    await settle(fixture);
+    const component = fixture.componentInstance;
+
+    expect(rpc.call).toHaveBeenCalledWith('voice:getTtsConfig', {});
+    expect(component.source()).toBe('hf');
+    expect(component.customModel()).toBe('owner/kokoro-custom');
+
+    // The custom input is rendered (not the curated-only layout).
+    const input = fixture.nativeElement.querySelector(
+      '[data-testid="local-tts-custom-input"]',
+    ) as HTMLInputElement;
+    expect(input).not.toBeNull();
+    expect(input.value).toBe('owner/kokoro-custom');
+  });
+
+  it('shows the custom input for the HF source and validates repo id shape', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, {
+      'voice:listVoices': () => rpcSuccess({ ok: true, voices: [] }),
+      'voice:setTtsConfig': () => rpcSuccess({ ok: true }),
+    });
+
+    const fixture = mount(rpc, localConfig());
+    await settle(fixture);
+    const component = fixture.componentInstance;
+
+    // Switch to HF source.
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="local-tts-source-hf"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+
+    const input = fixture.nativeElement.querySelector(
+      '[data-testid="local-tts-custom-input"]',
+    ) as HTMLInputElement;
+    expect(input).not.toBeNull();
+
+    // Invalid (no slash) → validation fails.
+    input.value = 'not-a-repo';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(component.customModelValid()).toBe(false);
+
+    // Valid owner/name → validation passes.
+    input.value = 'owner/kokoro-model';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(component.customModelValid()).toBe(true);
+
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="local-tts-custom-save"]',
+      ) as HTMLButtonElement
+    ).click();
+    await settle(fixture);
+
+    expect(rpc.call).toHaveBeenCalledWith('voice:setTtsConfig', {
+      voice: 'af_heart',
+      modelSource: 'hf',
+      customModel: 'owner/kokoro-model',
+    });
+  });
+
+  it('switching back to curated persists immediately with modelSource:curated', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, {
+      'voice:listVoices': () => rpcSuccess({ ok: true, voices: [] }),
+      'voice:getTtsConfig': () =>
+        rpcSuccess({
+          ok: true,
+          config: {
+            voice: 'af_heart',
+            downloaded: false,
+            modelSource: 'dir',
+            customModel: '/models/kokoro',
+          },
+        }),
+      'voice:setTtsConfig': () => rpcSuccess({ ok: true }),
+    });
+
+    const fixture = mount(rpc, localConfig());
+    await settle(fixture);
+
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="local-tts-source-curated"]',
+      ) as HTMLButtonElement
+    ).click();
+    await settle(fixture);
+
+    expect(fixture.componentInstance.source()).toBe('curated');
+    expect(rpc.call).toHaveBeenCalledWith('voice:setTtsConfig', {
+      voice: 'af_heart',
+      modelSource: 'curated',
+    });
+    // Custom input disappears once curated is active.
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="local-tts-custom-input"]',
+      ),
+    ).toBeNull();
   });
 
   it('downloads the TTS model with the tts progress sentinel preserved', async () => {
@@ -139,5 +263,31 @@ describe('LocalTtsPanelComponent', () => {
       {},
       { timeout: expect.any(Number) },
     );
+  });
+
+  it('disables the download button for non-curated sources', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, {
+      'voice:listVoices': () => rpcSuccess({ ok: true, voices: [] }),
+      'voice:getTtsConfig': () =>
+        rpcSuccess({
+          ok: true,
+          config: {
+            voice: 'af_heart',
+            downloaded: false,
+            modelSource: 'hf',
+            customModel: 'owner/kokoro-model',
+          },
+        }),
+    });
+
+    const fixture = mount(rpc, localConfig());
+    await settle(fixture);
+
+    const btn = fixture.nativeElement.querySelector(
+      '[data-testid="local-tts-download-btn"]',
+    ) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(fixture.componentInstance.canDownload()).toBe(false);
   });
 });

@@ -70,6 +70,8 @@ import {
   VOICE_WHISPER_MODEL_SOURCE_KEY,
   VOICE_WHISPER_CUSTOM_MODEL_KEY,
   VOICE_TTS_VOICE_KEY,
+  VOICE_KOKORO_MODEL_SOURCE_KEY,
+  VOICE_KOKORO_CUSTOM_MODEL_KEY,
   VoiceSecretStore,
   ElevenLabsClient,
 } from '@ptah-extension/voice-providers';
@@ -369,7 +371,15 @@ export class VoiceRpcHandlers {
     try {
       const voice = resolveTtsVoice(this.workspace);
       const downloaded = (await this.registry.getTts('local').isReady()).ready;
-      return { ok: true, config: { voice, downloaded } };
+      return {
+        ok: true,
+        config: {
+          voice,
+          downloaded,
+          modelSource: this.readModelSource(VOICE_KOKORO_MODEL_SOURCE_KEY),
+          customModel: this.readOptionalConfig(VOICE_KOKORO_CUSTOM_MODEL_KEY),
+        },
+      };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error('[voice] getTtsConfig failed', { error: message });
@@ -391,8 +401,24 @@ export class VoiceRpcHandlers {
 
     try {
       await this.writeConfiguration(VOICE_TTS_VOICE_KEY, parsed.data.voice);
+      // FR-4.1: persist the user model source + custom id/path when supplied.
+      // Left untouched when absent so a bad custom source never clobbers the
+      // last-known-good curated config (FR-4.4 recoverability).
+      if (parsed.data.modelSource !== undefined) {
+        await this.writeConfiguration(
+          VOICE_KOKORO_MODEL_SOURCE_KEY,
+          parsed.data.modelSource,
+        );
+      }
+      if (parsed.data.customModel !== undefined) {
+        await this.writeConfiguration(
+          VOICE_KOKORO_CUSTOM_MODEL_KEY,
+          parsed.data.customModel,
+        );
+      }
       this.logger.info('[voice] tts voice updated', {
         voice: parsed.data.voice,
+        modelSource: parsed.data.modelSource,
       });
       return { ok: true };
     } catch (error: unknown) {

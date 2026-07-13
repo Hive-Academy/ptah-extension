@@ -80,6 +80,8 @@ const VOICE_ID = z
 
 export const VoiceSetTtsConfigParamsSchema = z.object({
   voice: VOICE_ID,
+  modelSource: MODEL_SOURCE.optional(),
+  customModel: CUSTOM_MODEL.optional(),
 });
 
 export type VoiceSetTtsConfigParamsParsed = z.infer<

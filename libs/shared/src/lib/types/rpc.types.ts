@@ -2226,6 +2226,10 @@ export interface TtsConfigDto {
   voice: string;
   /** Whether the Kokoro TTS model is already downloaded on disk. */
   downloaded: boolean;
+  /** FR-4.1: user-selected model source for the local Kokoro model. */
+  modelSource: 'curated' | 'hf' | 'dir';
+  /** FR-4.1: HF repo id or absolute local dir (set when modelSource is hf/dir). */
+  customModel?: string;
 }
 
 export type VoiceGetTtsConfigParams = Record<string, never>;
@@ -2236,6 +2240,10 @@ export type VoiceGetTtsConfigResult =
 
 export interface VoiceSetTtsConfigParams {
   voice: string;
+  /** FR-4.1: user-selected model source for the local Kokoro model. */
+  modelSource?: 'curated' | 'hf' | 'dir';
+  /** FR-4.1: HF repo id or absolute local dir (used when modelSource is hf/dir). */
+  customModel?: string;
 }
 
 export type VoiceSetTtsConfigResult =

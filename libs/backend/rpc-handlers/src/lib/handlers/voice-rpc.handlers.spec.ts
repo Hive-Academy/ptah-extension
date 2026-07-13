@@ -32,6 +32,8 @@ interface StoredSettings {
   voiceModel?: string;
   legacyGatewayModel?: string;
   ttsVoice?: string;
+  kokoroModelSource?: string;
+  kokoroCustomModel?: string;
 }
 
 /**
@@ -169,6 +171,12 @@ function buildSuite(initial: StoredSettings = {}): Suite {
       if (key === 'voice.ttsVoice') {
         return store.ttsVoice ?? defaultValue;
       }
+      if (key === 'voice.kokoroModelSource') {
+        return store.kokoroModelSource ?? defaultValue;
+      }
+      if (key === 'voice.kokoroCustomModel') {
+        return store.kokoroCustomModel ?? defaultValue;
+      }
       return defaultValue;
     },
   );
@@ -181,6 +189,10 @@ function buildSuite(initial: StoredSettings = {}): Suite {
         store.legacyGatewayModel = value as string;
       } else if (key === 'voice.ttsVoice') {
         store.ttsVoice = value as string;
+      } else if (key === 'voice.kokoroModelSource') {
+        store.kokoroModelSource = value as string;
+      } else if (key === 'voice.kokoroCustomModel') {
+        store.kokoroCustomModel = value as string;
       }
     },
   );
@@ -635,7 +647,11 @@ describe('VoiceRpcHandlers', () => {
       expect(response.success).toBe(true);
       expect(response.data).toEqual({
         ok: true,
-        config: { voice: 'am_michael', downloaded: true },
+        config: {
+          voice: 'am_michael',
+          downloaded: true,
+          modelSource: 'curated',
+        },
       });
       expect(registry.getTts).toHaveBeenCalledWith('local');
     });
@@ -653,6 +669,44 @@ describe('VoiceRpcHandlers', () => {
         ok: true,
         config: { voice: 'af_heart' },
       });
+    });
+
+    it('reads back the kokoro model source + custom model (FR-4.1)', async () => {
+      const { rpc } = buildSuite({
+        kokoroModelSource: 'hf',
+        kokoroCustomModel: 'onnx-community/Kokoro-82M-v1.0-ONNX',
+      });
+
+      const response = await rpc.handleMessage({
+        method: 'voice:getTtsConfig',
+        params: {},
+        correlationId: 'tts-cfg-source',
+      });
+
+      expect(response.data).toMatchObject({
+        ok: true,
+        config: {
+          modelSource: 'hf',
+          customModel: 'onnx-community/Kokoro-82M-v1.0-ONNX',
+        },
+      });
+    });
+
+    it('defaults modelSource to curated when unset', async () => {
+      const { rpc } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:getTtsConfig',
+        params: {},
+        correlationId: 'tts-cfg-default-source',
+      });
+
+      const data = response.data as {
+        ok: true;
+        config: { modelSource: string; customModel?: string };
+      };
+      expect(data.config.modelSource).toBe('curated');
+      expect(data.config.customModel).toBeUndefined();
     });
   });
 
@@ -675,6 +729,52 @@ describe('VoiceRpcHandlers', () => {
       expect(store.ttsVoice).toBe('bf_emma');
     });
 
+    it('leaves the kokoro source/custom keys untouched when absent (FR-4.4)', async () => {
+      const { rpc, workspace, store } = buildSuite();
+
+      await rpc.handleMessage({
+        method: 'voice:setTtsConfig',
+        params: { voice: 'bf_emma' },
+        correlationId: 'tts-set-no-source',
+      });
+
+      expect(workspace.setConfiguration).not.toHaveBeenCalledWith(
+        'ptah',
+        'voice.kokoroModelSource',
+        expect.anything(),
+      );
+      expect(store.kokoroModelSource).toBeUndefined();
+      expect(store.kokoroCustomModel).toBeUndefined();
+    });
+
+    it('persists the kokoro model source + custom model when supplied (FR-4.1)', async () => {
+      const { rpc, workspace, store } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:setTtsConfig',
+        params: {
+          voice: 'bf_emma',
+          modelSource: 'dir',
+          customModel: '/models/kokoro',
+        },
+        correlationId: 'tts-set-source',
+      });
+
+      expect(response.data).toEqual({ ok: true });
+      expect(workspace.setConfiguration).toHaveBeenCalledWith(
+        'ptah',
+        'voice.kokoroModelSource',
+        'dir',
+      );
+      expect(workspace.setConfiguration).toHaveBeenCalledWith(
+        'ptah',
+        'voice.kokoroCustomModel',
+        '/models/kokoro',
+      );
+      expect(store.kokoroModelSource).toBe('dir');
+      expect(store.kokoroCustomModel).toBe('/models/kokoro');
+    });
+
     it('rejects an invalid voice id without writing', async () => {
       const { rpc, workspace } = buildSuite();
 
@@ -682,6 +782,19 @@ describe('VoiceRpcHandlers', () => {
         method: 'voice:setTtsConfig',
         params: { voice: 'bad voice!' },
         correlationId: 'tts-set-2',
+      });
+
+      expect(response.data).toMatchObject({ ok: false });
+      expect(workspace.setConfiguration).not.toHaveBeenCalled();
+    });
+
+    it('rejects an invalid modelSource without writing (Zod boundary)', async () => {
+      const { rpc, workspace } = buildSuite();
+
+      const response = await rpc.handleMessage({
+        method: 'voice:setTtsConfig',
+        params: { voice: 'bf_emma', modelSource: 'bogus' },
+        correlationId: 'tts-set-bad-source',
       });
 
       expect(response.data).toMatchObject({ ok: false });
