@@ -36,9 +36,9 @@
  * Tags + OpenRouter responses are cached in-memory with a 1-hour TTL. The
  * service is resilient: network errors NEVER throw to callers — they degrade
  * to `[]` and log a warning with the HTTP status + body snippet so failures
- * are visible in the output channel. Inference is unaffected because it
- * always proxies through local Ollama at localhost:11434; the API key is
- * metadata-only.
+ * are visible in the output channel. Inference is unaffected: with a stored
+ * API key it goes direct to ollama.com (LocalNativeStrategy direct mode);
+ * without one it proxies through the local daemon at 127.0.0.1:11434.
  *
  * @see https://docs.ollama.com/cloud
  * @see https://docs.ollama.com/api/authentication
