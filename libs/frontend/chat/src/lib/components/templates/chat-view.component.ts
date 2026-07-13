@@ -31,6 +31,7 @@ import {
 } from '@ptah-extension/chat-ui';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
+import { VoiceProviderErrorToastComponent } from '../molecules/notifications/voice-provider-error-toast.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
@@ -99,6 +100,7 @@ import type {
     SessionStatsSummaryComponent,
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
+    VoiceProviderErrorToastComponent,
     CompactionNotificationComponent,
     CompactionMarkerComponent,
     SidebarTabComponent,
