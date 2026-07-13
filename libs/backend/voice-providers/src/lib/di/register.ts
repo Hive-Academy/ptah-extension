@@ -16,12 +16,18 @@ import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { VOICE_CONTRACT_TOKENS } from '@ptah-extension/voice-contracts';
 import { VOICE_TOKENS } from './tokens';
-import { VoiceWorkerClient } from '../local/voice-worker-client';
+import {
+  VoiceWorkerClient,
+  DEFAULT_IDLE_MS,
+} from '../local/voice-worker-client';
 import { LocalSttProvider } from '../local/local-stt-provider';
 import { LocalTtsProvider } from '../local/local-tts-provider';
 import { VoiceSecretStore } from '../voice-secret-store';
 import { VoiceProviderRegistry } from '../voice-provider-registry';
 import { VoiceProviderSelector } from '../voice-provider-selector';
+import { ElevenLabsClient } from '../elevenlabs/elevenlabs-client';
+import { ElevenLabsTtsProvider } from '../elevenlabs/elevenlabs-tts-provider';
+import { ElevenLabsSttProvider } from '../elevenlabs/elevenlabs-stt-provider';
 
 export function registerVoiceProviderServices(
   container: DependencyContainer,
@@ -46,6 +52,27 @@ export function registerVoiceProviderServices(
   container.registerSingleton(
     VOICE_TOKENS.VOICE_SECRET_STORE,
     VoiceSecretStore,
+  );
+
+  // Idle-teardown window for the worker client. Injected `{ isOptional: true }`
+  // with the same default, but registered explicitly so the DI graph is fully
+  // resolvable (di-lint does not honor optional injections).
+  container.registerInstance(
+    VOICE_TOKENS.VOICE_WORKER_IDLE_MS,
+    DEFAULT_IDLE_MS,
+  );
+
+  // ElevenLabs cloud adapters (fetch-based). Registered here but unreachable
+  // from the UI until Batch 5 — the selector defaults to `local`. The registry
+  // injects these two provider tokens `{ isOptional: true }`.
+  container.registerSingleton(VOICE_TOKENS.ELEVENLABS_CLIENT, ElevenLabsClient);
+  container.registerSingleton(
+    VOICE_TOKENS.ELEVENLABS_TTS_PROVIDER,
+    ElevenLabsTtsProvider,
+  );
+  container.registerSingleton(
+    VOICE_TOKENS.ELEVENLABS_STT_PROVIDER,
+    ElevenLabsSttProvider,
   );
 
   container.registerSingleton(

@@ -36,7 +36,8 @@ class FakeVoiceWorkerProcess implements IVoiceWorkerProcess {
 
   on(event: 'message', cb: (msg: unknown) => void): void;
   on(event: 'exit', cb: (code: number | null) => void): void;
-  on(event: 'message' | 'exit', cb: (arg: unknown) => void): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- overload implementation signature must accept both narrower callback shapes
+  on(event: 'message' | 'exit', cb: (arg: any) => void): void {
     if (event === 'message') {
       this.messageListeners.push(cb as (msg: unknown) => void);
     } else {
@@ -79,10 +80,12 @@ function buildFactory(): {
   return { factory, workers };
 }
 
-function buildClient(opts: {
-  factory?: IVoiceWorkerProcessFactory | null;
-  idleMs?: number;
-} = {}): {
+function buildClient(
+  opts: {
+    factory?: IVoiceWorkerProcessFactory | null;
+    idleMs?: number;
+  } = {},
+): {
   client: VoiceWorkerClient;
   workers: FakeVoiceWorkerProcess[];
   factory: IVoiceWorkerProcessFactory | null;
@@ -200,10 +203,19 @@ describe('VoiceWorkerClient', () => {
         percent: 42,
       });
       expect(events).toEqual([
-        { kind: 'download:progress', direction: 'stt', model: 'base.en', percent: 42 },
+        {
+          kind: 'download:progress',
+          direction: 'stt',
+          model: 'base.en',
+          percent: 42,
+        },
       ]);
 
-      worker.emitMessage({ id: worker.lastSent().id, ok: true, alreadyPresent: false });
+      worker.emitMessage({
+        id: worker.lastSent().id,
+        ok: true,
+        alreadyPresent: false,
+      });
       await promise;
     });
 
@@ -221,7 +233,11 @@ describe('VoiceWorkerClient', () => {
         model: 'base.en',
         kind: 'download:start',
       });
-      worker.emitMessage({ id: worker.lastSent().id, ok: true, alreadyPresent: false });
+      worker.emitMessage({
+        id: worker.lastSent().id,
+        ok: true,
+        alreadyPresent: false,
+      });
       await promise;
 
       expect(events).toEqual([]);
@@ -251,7 +267,9 @@ describe('VoiceWorkerClient', () => {
       const { client, workers } = buildClient();
       const promise = client.transcribe('/tmp/a.webm', SPEC);
       workers[0].emitExit(0);
-      await expect(promise).rejects.toMatchObject({ category: 'process-crashed' });
+      await expect(promise).rejects.toMatchObject({
+        category: 'process-crashed',
+      });
 
       client.transcribe('/tmp/b.webm', SPEC);
       expect(workers).toHaveLength(2);
@@ -308,18 +326,20 @@ describe('VoiceWorkerClient', () => {
       const { client, workers } = buildClient();
 
       for (let i = 0; i < 3; i++) {
-        const p = client.transcribe(`/tmp/${i}.webm`, SPEC).catch((e: unknown) => e);
+        const p = client
+          .transcribe(`/tmp/${i}.webm`, SPEC)
+          .catch((e: unknown) => e);
         workers[workers.length - 1].emitExit(1);
         await p;
       }
       expect(workers).toHaveLength(3);
 
-      await expect(client.transcribe('/tmp/refused.webm', SPEC)).rejects.toMatchObject(
-        {
-          category: 'process-crashed',
-          providerId: 'local',
-        },
-      );
+      await expect(
+        client.transcribe('/tmp/refused.webm', SPEC),
+      ).rejects.toMatchObject({
+        category: 'process-crashed',
+        providerId: 'local',
+      });
       // No new worker was spawned for the refused request.
       expect(workers).toHaveLength(3);
     });
@@ -328,7 +348,9 @@ describe('VoiceWorkerClient', () => {
   describe('dispose', () => {
     it('rejects pending requests, kills the worker, and is idempotent', async () => {
       const { client, workers } = buildClient();
-      const promise = client.transcribe('/tmp/a.webm', SPEC).catch((e: unknown) => e);
+      const promise = client
+        .transcribe('/tmp/a.webm', SPEC)
+        .catch((e: unknown) => e);
       const worker = workers[0];
 
       client.dispose();
@@ -343,7 +365,9 @@ describe('VoiceWorkerClient', () => {
   describe('unavailable runtime (no worker factory)', () => {
     it('throws assets-unavailable instead of attempting to spawn', async () => {
       const { client } = buildClient({ factory: null });
-      await expect(client.transcribe('/tmp/a.webm', SPEC)).rejects.toMatchObject({
+      await expect(
+        client.transcribe('/tmp/a.webm', SPEC),
+      ).rejects.toMatchObject({
         category: 'assets-unavailable',
         providerId: 'local',
       });

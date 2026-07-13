@@ -17,6 +17,8 @@ export const VOICE_TOKENS = {
   VOICE_MODEL_CACHE_DIR: Symbol.for('PtahVoiceModelCacheDir'),
   /** VoiceSecretStore — ElevenLabs key ciphertext store. */
   VOICE_SECRET_STORE: Symbol.for('PtahVoiceSecretStore'),
+  /** ElevenLabsClient — shared fetch HTTP core for the cloud adapters. */
+  ELEVENLABS_CLIENT: Symbol.for('PtahVoiceElevenLabsClient'),
   /** Local Whisper STT provider (concrete). */
   LOCAL_STT_PROVIDER: Symbol.for('PtahVoiceLocalSttProvider'),
   /** Local Kokoro TTS provider (concrete). */

@@ -22,6 +22,17 @@ export { VoiceSecretStore } from './lib/voice-secret-store';
 export { LocalSttProvider } from './lib/local/local-stt-provider';
 export { LocalTtsProvider } from './lib/local/local-tts-provider';
 export { VoiceWorkerClient } from './lib/local/voice-worker-client';
+
+// ElevenLabs cloud adapters
+export {
+  ElevenLabsClient,
+  mapElevenLabsError,
+} from './lib/elevenlabs/elevenlabs-client';
+export {
+  ElevenLabsTtsProvider,
+  mimeTypeForFormat,
+} from './lib/elevenlabs/elevenlabs-tts-provider';
+export { ElevenLabsSttProvider } from './lib/elevenlabs/elevenlabs-stt-provider';
 export type {
   IVoiceWorkerProcess,
   IVoiceWorkerProcessFactory,

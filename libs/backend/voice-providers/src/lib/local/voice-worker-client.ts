@@ -43,7 +43,8 @@ type VoiceWorkerRequestBody = VoiceWorkerRequest extends infer T
     : never
   : never;
 
-const DEFAULT_IDLE_MS = 5 * 60 * 1000;
+/** Default idle-teardown window (ms). Exported so DI can register the token. */
+export const DEFAULT_IDLE_MS = 5 * 60 * 1000;
 const CRASH_LOOP_MAX_EXITS = 3;
 const CRASH_LOOP_WINDOW_MS = 60_000;
 const CRASH_LOOP_BACKOFF_MS = 30_000;

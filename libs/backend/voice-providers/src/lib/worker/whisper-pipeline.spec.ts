@@ -34,7 +34,9 @@ describe('whisperModelIdFor', () => {
 
 describe('WhisperPipeline', () => {
   function buildPipeline(factory?: AsrPipelineFactory) {
-    const asr = jest.fn().mockResolvedValue({ text: '[BLANK_AUDIO] hello world ' });
+    const asr = jest
+      .fn()
+      .mockResolvedValue({ text: '[BLANK_AUDIO] hello world ' });
     const pipelineFactory: AsrPipelineFactory =
       factory ?? jest.fn().mockResolvedValue(asr);
     const pipeline = new WhisperPipeline({
@@ -47,15 +49,17 @@ describe('WhisperPipeline', () => {
   describe('transcribe', () => {
     it('strips bracketed tags and trims the transcript', async () => {
       const { pipeline } = buildPipeline();
-      const text = await pipeline.transcribe(
-        new Float32Array([0, 0.1]),
-        { kind: 'curated', name: 'base.en' },
-      );
+      const text = await pipeline.transcribe(new Float32Array([0, 0.1]), {
+        kind: 'curated',
+        name: 'base.en',
+      });
       expect(text).toBe('hello world');
     });
 
     it('handles a raw string pipeline result (no .text wrapper)', async () => {
-      const asr = jest.fn().mockResolvedValue('  [MUSIC] plain string result  ');
+      const asr = jest
+        .fn()
+        .mockResolvedValue('  [MUSIC] plain string result  ');
       const factory: AsrPipelineFactory = jest.fn().mockResolvedValue(asr);
       const { pipeline } = buildPipeline(factory);
       const text = await pipeline.transcribe(new Float32Array([0]), {
@@ -66,9 +70,9 @@ describe('WhisperPipeline', () => {
     });
 
     it('resolves an hf VoiceModelSpec to the repo id verbatim, no cache dir/local-models', async () => {
-      const factory: AsrPipelineFactory = jest.fn().mockResolvedValue(
-        jest.fn().mockResolvedValue({ text: 'ok' }),
-      );
+      const factory: AsrPipelineFactory = jest
+        .fn()
+        .mockResolvedValue(jest.fn().mockResolvedValue({ text: 'ok' }));
       const { pipeline } = buildPipeline(factory);
       await pipeline.transcribe(new Float32Array([0]), {
         kind: 'hf',
@@ -85,9 +89,9 @@ describe('WhisperPipeline', () => {
     });
 
     it('resolves a dir VoiceModelSpec to allowLocalModels + localModelPath', async () => {
-      const factory: AsrPipelineFactory = jest.fn().mockResolvedValue(
-        jest.fn().mockResolvedValue({ text: 'ok' }),
-      );
+      const factory: AsrPipelineFactory = jest
+        .fn()
+        .mockResolvedValue(jest.fn().mockResolvedValue({ text: 'ok' }));
       const { pipeline } = buildPipeline(factory);
       await pipeline.transcribe(new Float32Array([0]), {
         kind: 'dir',
@@ -167,7 +171,10 @@ describe('WhisperPipeline', () => {
     it('falls back to the raw progress field when byte counts are absent', async () => {
       const ticks: number[] = [];
       const factory: AsrPipelineFactory = jest.fn(async (_modelId, opts) => {
-        opts.progress_callback({ status: 'progress', progress: 55 } as PipelineProgressInfo);
+        opts.progress_callback({
+          status: 'progress',
+          progress: 55,
+        } as PipelineProgressInfo);
         return jest.fn().mockResolvedValue({ text: 'ok' });
       });
       const { pipeline } = buildPipeline(factory);
@@ -205,11 +212,19 @@ describe('WhisperPipeline', () => {
   });
 
   describe('error mapping', () => {
-    it('maps a MODULE_NOT_FOUND dynamic-import failure to assets-unavailable', async () => {
-      const moduleError = Object.assign(new Error('not found'), {
-        code: 'MODULE_NOT_FOUND',
-      });
-      const factory: AsrPipelineFactory = jest.fn().mockRejectedValue(moduleError);
+    it('propagates an assets-unavailable VoiceProviderError from the pipeline factory unchanged', async () => {
+      // The default pipeline factory maps a MODULE_NOT_FOUND dynamic-import
+      // failure (missing @huggingface/transformers) to this error; the
+      // injected-factory seam here asserts ensurePipeline() passes a
+      // VoiceProviderError through verbatim rather than re-wrapping it.
+      const assetsError = new VoiceProviderError(
+        'assets-unavailable',
+        'local',
+        'Voice asset "@huggingface/transformers" is not available.',
+      );
+      const factory: AsrPipelineFactory = jest
+        .fn()
+        .mockRejectedValue(assetsError);
       const { pipeline } = buildPipeline(factory);
 
       await expect(
@@ -217,10 +232,26 @@ describe('WhisperPipeline', () => {
           kind: 'curated',
           name: 'base.en',
         }),
-      ).rejects.toMatchObject({
-        category: 'assets-unavailable',
-        providerId: 'local',
-      });
+      ).rejects.toBe(assetsError);
+    });
+
+    it('does not re-wrap an assets-unavailable error even for hf/dir model specs', async () => {
+      const assetsError = new VoiceProviderError(
+        'assets-unavailable',
+        'local',
+        'Voice asset "@huggingface/transformers" is not available.',
+      );
+      const factory: AsrPipelineFactory = jest
+        .fn()
+        .mockRejectedValue(assetsError);
+      const { pipeline } = buildPipeline(factory);
+
+      await expect(
+        pipeline.transcribe(new Float32Array([0]), {
+          kind: 'hf',
+          repoId: 'my-org/whisper-custom',
+        }),
+      ).rejects.toBe(assetsError);
     });
 
     it('wraps an hf load failure as model-invalid, naming the failing repo', async () => {
@@ -281,9 +312,9 @@ describe('WhisperPipeline', () => {
       const { pipeline } = buildPipeline(factory);
       const model = { kind: 'curated' as const, name: 'base.en' };
 
-      await expect(pipeline.transcribe(new Float32Array([0]), model)).rejects.toThrow(
-        'transient',
-      );
+      await expect(
+        pipeline.transcribe(new Float32Array([0]), model),
+      ).rejects.toThrow('transient');
       await expect(
         pipeline.transcribe(new Float32Array([0]), model),
       ).resolves.toBe('ok');

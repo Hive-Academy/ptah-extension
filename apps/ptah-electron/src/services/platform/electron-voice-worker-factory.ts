@@ -4,7 +4,9 @@
  * OS process, so a native ONNX abort kills only the child) and sends the `init`
  * config (ffmpeg path + model cache dir) immediately, before any request.
  */
-import { utilityProcess, type UtilityProcess } from 'electron';
+import electron, { type UtilityProcess } from 'electron';
+
+const { utilityProcess } = electron;
 import type {
   IVoiceWorkerProcess,
   IVoiceWorkerProcessFactory,

@@ -4,6 +4,7 @@
  * factory is injected so these tests never load ONNX/kokoro-js or hit the
  * network.
  */
+import { VoiceProviderError } from '@ptah-extension/voice-contracts';
 import {
   KokoroPipeline,
   DEFAULT_KOKORO_MODEL_ID,
@@ -56,16 +57,21 @@ describe('KokoroPipeline', () => {
     });
 
     it('defaults an empty curated name to the default Kokoro repo id', async () => {
-      const factory: TtsPipelineFactory = jest
-        .fn()
-        .mockResolvedValue({ generate: jest.fn().mockResolvedValue({
+      const factory: TtsPipelineFactory = jest.fn().mockResolvedValue({
+        generate: jest.fn().mockResolvedValue({
           audio: new Float32Array([0]),
           sampling_rate: 24000,
           toWav: () => new ArrayBuffer(4),
-        }) });
+        }),
+      });
       const { pipeline } = buildPipeline(factory);
 
-      await pipeline.synthesize('hi', 'af_heart', { kind: 'curated', name: '' }, 'q8');
+      await pipeline.synthesize(
+        'hi',
+        'af_heart',
+        { kind: 'curated', name: '' },
+        'q8',
+      );
 
       expect(factory).toHaveBeenCalledWith(
         DEFAULT_KOKORO_MODEL_ID,
@@ -92,7 +98,10 @@ describe('KokoroPipeline', () => {
 
       expect(factory).toHaveBeenCalledWith(
         'my-org/kokoro-custom',
-        expect.objectContaining({ allowLocalModels: false, localModelPath: null }),
+        expect.objectContaining({
+          allowLocalModels: false,
+          localModelPath: null,
+        }),
       );
     });
 
@@ -145,8 +154,18 @@ describe('KokoroPipeline', () => {
     it('aggregates per-file byte progress into a monotonic percent', async () => {
       const ticks: number[] = [];
       const factory: TtsPipelineFactory = jest.fn(async (_modelId, opts) => {
-        opts.progress_callback({ status: 'download', file: 'a.bin', loaded: 40, total: 100 });
-        opts.progress_callback({ status: 'download', file: 'a.bin', loaded: 100, total: 100 });
+        opts.progress_callback({
+          status: 'download',
+          file: 'a.bin',
+          loaded: 40,
+          total: 100,
+        });
+        opts.progress_callback({
+          status: 'download',
+          file: 'a.bin',
+          loaded: 100,
+          total: 100,
+        });
         return {
           generate: jest.fn().mockResolvedValue({
             audio: new Float32Array([0]),
@@ -170,13 +189,19 @@ describe('KokoroPipeline', () => {
   });
 
   describe('error mapping', () => {
-    it('maps a @huggingface/transformers MODULE_NOT_FOUND to assets-unavailable', async () => {
-      const factory: TtsPipelineFactory = jest.fn(async () => {
-        const err = Object.assign(new Error('not found'), {
-          code: 'MODULE_NOT_FOUND',
-        });
-        throw err;
-      });
+    it('propagates an assets-unavailable VoiceProviderError from the pipeline factory unchanged', async () => {
+      // The default pipeline factory maps a MODULE_NOT_FOUND dynamic-import
+      // failure (missing @huggingface/transformers or kokoro-js) to this
+      // error; the injected-factory seam here asserts ensurePipeline() passes
+      // a VoiceProviderError through verbatim rather than re-wrapping it.
+      const assetsError = new VoiceProviderError(
+        'assets-unavailable',
+        'local',
+        'Voice asset "kokoro-js" is not available.',
+      );
+      const factory: TtsPipelineFactory = jest
+        .fn()
+        .mockRejectedValue(assetsError);
       const { pipeline } = buildPipeline(factory);
 
       await expect(
@@ -186,7 +211,7 @@ describe('KokoroPipeline', () => {
           { kind: 'curated', name: DEFAULT_KOKORO_MODEL_ID },
           'q8',
         ),
-      ).rejects.toMatchObject({ category: 'assets-unavailable', providerId: 'local' });
+      ).rejects.toBe(assetsError);
     });
 
     it('maps voices/<name>.bin ENOENT during generate to assets-unavailable naming the voice', async () => {
@@ -236,11 +261,18 @@ describe('KokoroPipeline', () => {
     });
 
     it('wraps an hf load failure as model-invalid, naming the failing repo', async () => {
-      const factory: TtsPipelineFactory = jest.fn().mockRejectedValue(new Error('boom'));
+      const factory: TtsPipelineFactory = jest
+        .fn()
+        .mockRejectedValue(new Error('boom'));
       const { pipeline } = buildPipeline(factory);
 
       await expect(
-        pipeline.synthesize('hi', 'af_heart', { kind: 'hf', repoId: 'bad/kokoro' }, 'q8'),
+        pipeline.synthesize(
+          'hi',
+          'af_heart',
+          { kind: 'hf', repoId: 'bad/kokoro' },
+          'q8',
+        ),
       ).rejects.toMatchObject({
         category: 'model-invalid',
         providerId: 'local',
@@ -249,11 +281,18 @@ describe('KokoroPipeline', () => {
     });
 
     it('wraps a dir load failure as model-invalid, naming the failing directory', async () => {
-      const factory: TtsPipelineFactory = jest.fn().mockRejectedValue(new Error('boom'));
+      const factory: TtsPipelineFactory = jest
+        .fn()
+        .mockRejectedValue(new Error('boom'));
       const { pipeline } = buildPipeline(factory);
 
       await expect(
-        pipeline.synthesize('hi', 'af_heart', { kind: 'dir', path: '/missing/kokoro-dir' }, 'q8'),
+        pipeline.synthesize(
+          'hi',
+          'af_heart',
+          { kind: 'dir', path: '/missing/kokoro-dir' },
+          'q8',
+        ),
       ).rejects.toMatchObject({
         category: 'model-invalid',
         providerId: 'local',
@@ -262,7 +301,9 @@ describe('KokoroPipeline', () => {
     });
 
     it('does NOT wrap a curated model load failure as model-invalid', async () => {
-      const factory: TtsPipelineFactory = jest.fn().mockRejectedValue(new Error('network down'));
+      const factory: TtsPipelineFactory = jest
+        .fn()
+        .mockRejectedValue(new Error('network down'));
       const { pipeline } = buildPipeline(factory);
 
       await expect(
