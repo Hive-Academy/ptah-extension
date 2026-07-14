@@ -138,12 +138,18 @@ import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-p
           </button>
         }
 
-        <!-- Terminal toggle -->
+        <!-- Terminal toggle (push button) -->
         <button
           type="button"
-          class="btn btn-ghost btn-xs px-1.5 ml-1
-                 text-base-content/60 hover:text-base-content"
-          [class.text-primary]="editorService.terminalVisible()"
+          class="flex items-center gap-1.5 h-5 px-2 ml-1 rounded
+                 border border-base-content/20 bg-base-100
+                 text-[11px] font-medium text-base-content/70
+                 hover:bg-base-content/5 hover:text-base-content
+                 active:translate-y-px transition-all"
+          [class.!bg-primary/15]="editorService.terminalVisible()"
+          [class.!border-primary/40]="editorService.terminalVisible()"
+          [class.!text-primary]="editorService.terminalVisible()"
+          [attr.aria-pressed]="editorService.terminalVisible()"
           [title]="
             editorService.terminalVisible() ? 'Hide terminal' : 'Show terminal'
           "
@@ -151,6 +157,7 @@ import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-p
           (click)="onTerminalToggle()"
         >
           <lucide-angular [img]="TerminalIcon" class="w-3.5 h-3.5" />
+          <span>Terminal</span>
         </button>
       </div>
 
