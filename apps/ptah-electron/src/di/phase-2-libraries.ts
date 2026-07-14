@@ -54,6 +54,7 @@ import {
   registerSkillSynthesisServices,
   SKILL_REPROPAGATION_TOKEN,
 } from '@ptah-extension/skill-synthesis';
+import { registerTaskSpecsServices } from '@ptah-extension/task-specs';
 import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
 import {
   registerMessagingGatewayServices,
@@ -170,6 +171,7 @@ export function registerPhase2Libraries(
     );
   }
   registerSkillSynthesisServices(container, logger);
+  registerTaskSpecsServices(container, logger);
   container.registerInstance(
     SKILL_REPROPAGATION_TOKEN,
     new ElectronSkillRepropagation(container),

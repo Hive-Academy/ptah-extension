@@ -25,6 +25,7 @@ import {
   registerSkillSynthesisServices,
   SKILL_REPROPAGATION_TOKEN,
 } from '@ptah-extension/skill-synthesis';
+import { registerTaskSpecsServices } from '@ptah-extension/task-specs';
 import {
   registerCronSchedulerServices,
   CRON_TOKENS,
@@ -114,6 +115,11 @@ export function registerThothLibraries(
       error: error instanceof Error ? error.message : String(error),
     });
   }
+
+  // task-specs registered independently (G1): the shared TasksRpcHandlers is
+  // fanned to all hosts via registerAllRpcHandlers, so its backing services
+  // must resolve even if the skill-synthesis block above degraded.
+  registerTaskSpecsServices(container, logger);
 
   try {
     container.register(CRON_TOKENS.CRON_POWER_MONITOR, {
