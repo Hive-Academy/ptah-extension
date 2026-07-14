@@ -1172,17 +1172,19 @@ export class AgentMonitorStore implements OnDestroy {
    * `background_agent_started` push event is the sole source of truth for the
    * resulting background record.
    *
-   * Unlike the other subagent commands, the session id is passed in explicitly
-   * (callers know which session owns the agent) rather than resolved from the
-   * active tab. Returns `true` when the backend acknowledges the switch.
+   * `sessionId` is the OWNING session; callers that know it (background-agent
+   * tray, inline bubble via `SubagentRecord.parentSessionId`) pass it, and it
+   * falls back to the active tab's session like the sibling commands. Returns
+   * `true` when the backend acknowledges the switch.
    *
-   * Contract (owned by the parallel backend task): RPC `subagent:background`
-   * with params `{ sessionId, toolUseId? }` → result `{ backgrounded: boolean }`.
+   * Contract: RPC `subagent:background` with params `{ sessionId, toolUseId? }`
+   * → result `{ backgrounded: boolean }`.
    */
   async backgroundAgent(
-    sessionId: string,
+    sessionId: string | undefined,
     toolUseId?: string,
   ): Promise<boolean> {
+    sessionId ??= this.tabManager.activeTabSessionId() ?? undefined;
     if (!sessionId) {
       this.recordSubagentRpcError({
         parentToolUseId: toolUseId ?? '',

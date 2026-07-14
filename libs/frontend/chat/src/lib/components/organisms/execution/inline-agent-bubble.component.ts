@@ -20,6 +20,7 @@ import {
   ChevronRight,
   ChevronUp,
   Loader2,
+  Moon,
   StopCircle,
   Square,
   Send,
@@ -271,6 +272,22 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
             </span>
           } @else {
             <span class="flex-1"></span>
+          }
+
+          <!-- Send-to-background: running foreground subagents only. The
+               task keeps running; the turn continues without blocking on it. -->
+          @if (canBackground()) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-info"
+              (click)="onBackgroundClick($event)"
+              [disabled]="backgroundPending()"
+              data-testid="subagent-background-button"
+              title="Send this subagent to the background"
+              aria-label="Send subagent to background"
+            >
+              <lucide-angular [img]="MoonIcon" class="w-3 h-3" />
+            </button>
           }
 
           <!-- Stop button: only when running and we have a taskId to stop. -->
@@ -642,6 +659,7 @@ export class InlineAgentBubbleComponent {
   readonly LoaderIcon = Loader2;
   readonly StopCircleIcon = StopCircle;
   readonly SquareIcon = Square;
+  readonly MoonIcon = Moon;
   readonly SendIcon = Send;
   readonly CheckIcon = CheckCircle2;
   readonly XIcon = XCircle;
@@ -903,10 +921,17 @@ export class InlineAgentBubbleComponent {
     const rec = this.subagentRecord();
     return !!rec && rec.status === 'running';
   });
+
+  /** Send-to-background applies to running foreground subagents only. */
+  readonly canBackground = computed(() => {
+    const rec = this.subagentRecord();
+    return !!rec && rec.status === 'running' && !this.isBackground();
+  });
   readonly sendInputExpanded = signal(false);
   readonly sendDraft = signal('');
   readonly sendPending = signal(false);
   readonly stopPending = signal(false);
+  readonly backgroundPending = signal(false);
   readonly showSentToast = signal(false);
   private sentToastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -970,6 +995,21 @@ export class InlineAgentBubbleComponent {
       await this.agentMonitorStore.stopAgent(rec.taskId, rec.parentSessionId);
     } finally {
       this.stopPending.set(false);
+    }
+  }
+
+  protected async onBackgroundClick(event: Event): Promise<void> {
+    event.stopPropagation();
+    const key = this.parentToolUseId();
+    if (!key || !this.canBackground()) return;
+    this.backgroundPending.set(true);
+    try {
+      await this.agentMonitorStore.backgroundAgent(
+        this.subagentRecord()?.parentSessionId,
+        key,
+      );
+    } finally {
+      this.backgroundPending.set(false);
     }
   }
 
