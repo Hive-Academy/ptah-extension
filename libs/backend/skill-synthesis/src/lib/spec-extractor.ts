@@ -1,17 +1,23 @@
 /**
  * spec-extractor — pure(ish) reader for a single `.ptah/specs/TASK_*` folder.
  *
- * The orchestration skill writes graded, attributed artifacts here:
+ * Task-level completion is driven ENTIRELY by the `task.md` frontmatter contract
+ * (shared `parseTaskFile` from `@ptah-extension/task-specs`): a folder with no
+ * valid `task.md` is skipped (returns `null`), and `completed` means the
+ * frontmatter `status` is `done` or `cancelled`. There is no legacy emoji /
+ * state-file / marker-file completion inference (TASK_2026_157, no-legacy).
+ *
+ * The orchestration skill still writes graded, attributed artifacts here:
  *  - `tasks.md`  — per-batch `**Recommended Executor**` (the subagent slug) plus
- *                  a COMPLETE/FAILED status marker.
+ *                  a word-token COMPLETE/FAILED status.
  *  - `*-review.md` / `test-report.md` — graded critique of the work produced.
- *  - `.orchestration-state.json` / `future-enhancements.md` — completion markers.
  *
  * The parse helpers (`parseBatchVerdicts`, `detectStatus`, `normalizeExecutor`)
  * are exported pure functions so they can be unit-tested without the filesystem.
  */
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { parseTaskFile } from '@ptah-extension/task-specs';
 
 export type SpecBatchStatus = 'COMPLETE' | 'FAILED';
 
@@ -41,8 +47,6 @@ const REVIEW_FILES = [
   'test-report.md',
 ] as const;
 
-const COMPLETION_MARKER_FILE = 'future-enhancements.md';
-const STATE_FILE = '.orchestration-state.json';
 const MAX_FINDINGS_CHARS = 6000;
 
 /**
@@ -63,9 +67,9 @@ export function normalizeExecutor(raw: string): string | null {
  * COMPLETE; an unresolved (pending/in-progress) chunk returns null.
  */
 export function detectStatus(text: string): SpecBatchStatus | null {
-  if (/\bFAILED\b|❌|✗/.test(text)) return 'FAILED';
-  if (/\b(PENDING|IN PROGRESS|IMPLEMENTED)\b|⏸️|🔄/.test(text)) return null;
-  if (/\bCOMPLETE\b|✅/.test(text)) return 'COMPLETE';
+  if (/\bFAILED\b/.test(text)) return 'FAILED';
+  if (/\b(PENDING|IN PROGRESS|IMPLEMENTED)\b/.test(text)) return null;
+  if (/\bCOMPLETE\b/.test(text)) return 'COMPLETE';
   return null;
 }
 
@@ -108,45 +112,27 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-function isComplete(
-  stateJson: string | null,
-  hasCompletionMarker: boolean,
-  batches: readonly SpecBatchVerdict[],
-  tasksMd: string | null,
-): boolean {
-  if (stateJson) {
-    try {
-      const parsed = JSON.parse(stateJson) as { phase?: unknown };
-      if (parsed.phase === 'complete') return true;
-    } catch {
-      // ignore malformed state
-    }
-  }
-  if (hasCompletionMarker) return true;
-  // Fallback: tasks.md exists, has batches, and none remain unresolved.
-  if (tasksMd && batches.length > 0) {
-    return !/\b(PENDING|IN PROGRESS)\b|⏸️/.test(tasksMd);
-  }
-  return false;
-}
-
-/** Read and classify a single TASK_* spec folder. Returns null if unreadable. */
+/**
+ * Read and classify a single TASK_* spec folder. Returns null when the folder
+ * has no valid `task.md` frontmatter carrier (no-legacy: legacy folders without
+ * a carrier are skipped, never inferred). `completed` is derived solely from the
+ * frontmatter `status` (`done` / `cancelled`).
+ */
 export async function extractSpec(dir: string): Promise<HarvestedSpec | null> {
   const taskId = basename(dir);
-  const tasksMd = await readFileSafe(join(dir, 'tasks.md'));
-  const stateJson = await readFileSafe(join(dir, STATE_FILE));
-  const hasCompletionMarker = await fileExists(
-    join(dir, COMPLETION_MARKER_FILE),
-  );
-  const harvested = await fileExists(join(dir, HARVEST_MARKER_FILE));
 
+  const taskMd = await readFileSafe(join(dir, 'task.md'));
+  if (taskMd === null) return null; // no carrier — folder skipped
+
+  const parsed = parseTaskFile(taskId, taskMd);
+  if (parsed.kind === 'excluded') return null; // no valid frontmatter — skipped
+
+  const completed =
+    parsed.task.status === 'done' || parsed.task.status === 'cancelled';
+
+  const tasksMd = await readFileSafe(join(dir, 'tasks.md'));
+  const harvested = await fileExists(join(dir, HARVEST_MARKER_FILE));
   const batches = tasksMd ? parseBatchVerdicts(tasksMd) : [];
-  const completed = isComplete(
-    stateJson,
-    hasCompletionMarker,
-    batches,
-    tasksMd,
-  );
 
   const findingsParts: string[] = [];
   for (const file of REVIEW_FILES) {

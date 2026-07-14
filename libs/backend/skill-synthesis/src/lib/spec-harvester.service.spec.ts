@@ -1,29 +1,39 @@
-import {
-  mkdtemp,
-  mkdir,
-  rm,
-  stat,
-  writeFile,
-  readFile,
-} from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SpecHarvesterService } from './spec-harvester.service';
 import { HARVEST_MARKER_FILE } from './spec-extractor';
 
-const COMPLETED_TASKS_MD = `## Batch 1: Backend [✅ COMPLETE]
+const COMPLETED_TASKS_MD = `## Batch 1: Backend — COMPLETE
 
 **Recommended Executor**: backend-developer
 
-## Batch 2: Frontend [❌ FAILED]
+## Batch 2: Frontend — FAILED
 
 **Recommended Executor**: frontend-developer
 `;
 
-const IN_PROGRESS_TASKS_MD = `## Batch 1: Backend [🔄 IN PROGRESS]
+const IN_PROGRESS_TASKS_MD = `## Batch 1: Backend — IN PROGRESS
 
 **Recommended Executor**: backend-developer
 `;
+
+/** Build a valid `task.md` frontmatter carrier for the given status. */
+function taskMd(id: string, status: string): string {
+  return `---
+id: ${id}
+status: ${status}
+type: FEATURE
+title: Example task ${id}
+created: 2026-07-14T10:00:00.000Z
+updated: 2026-07-14T10:00:00.000Z
+---
+
+## Description
+
+Example body for ${id}.
+`;
+}
 
 function makeLogger() {
   return {
@@ -77,13 +87,16 @@ describe('SpecHarvesterService', () => {
   ): Promise<string> {
     const dir = join(specsRoot, taskId);
     await mkdir(dir, { recursive: true });
+    const completed = opts.completed !== false;
+    // Completion is driven by the `task.md` frontmatter status (no-legacy).
+    await writeFile(
+      join(dir, 'task.md'),
+      taskMd(taskId, completed ? 'done' : 'in_progress'),
+      'utf8',
+    );
     const tasksMd =
-      opts.tasksMd ??
-      (opts.completed === false ? IN_PROGRESS_TASKS_MD : COMPLETED_TASKS_MD);
+      opts.tasksMd ?? (completed ? COMPLETED_TASKS_MD : IN_PROGRESS_TASKS_MD);
     await writeFile(join(dir, 'tasks.md'), tasksMd, 'utf8');
-    if (opts.completed !== false) {
-      await writeFile(join(dir, 'future-enhancements.md'), '#', 'utf8');
-    }
     if (opts.review) {
       await writeFile(join(dir, 'code-logic-review.md'), opts.review, 'utf8');
     }
