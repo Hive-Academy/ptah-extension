@@ -947,7 +947,11 @@ export class InlineAgentBubbleComponent {
     this.sendPending.set(true);
     let sent = false;
     try {
-      sent = await this.agentMonitorStore.sendMessageToAgent(key, text);
+      sent = await this.agentMonitorStore.sendMessageToAgent(
+        key,
+        text,
+        this.subagentRecord()?.parentSessionId,
+      );
     } finally {
       this.sendPending.set(false);
     }
@@ -963,7 +967,7 @@ export class InlineAgentBubbleComponent {
     if (!rec || !rec.taskId) return;
     this.stopPending.set(true);
     try {
-      await this.agentMonitorStore.stopAgent(rec.taskId);
+      await this.agentMonitorStore.stopAgent(rec.taskId, rec.parentSessionId);
     } finally {
       this.stopPending.set(false);
     }

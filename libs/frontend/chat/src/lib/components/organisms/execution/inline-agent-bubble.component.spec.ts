@@ -199,6 +199,7 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
         parentToolUseId: 'toolu_parent_abc',
         status: 'running',
         taskId: 't1',
+        parentSessionId: 'sess-owner',
       });
       cmp.sendDraft.set('hello');
       // Component preserves the draft on send failure (so the user can retry);
@@ -211,6 +212,7 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
       expect(storeMock.sendMessageToAgent).toHaveBeenCalledWith(
         'toolu_parent_abc',
         'hello',
+        'sess-owner',
       );
       expect(cmp.sendDraft()).toBe('');
       expect(cmp.showSentToast()).toBe(true);
@@ -232,6 +234,7 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
         parentToolUseId: 'toolu_parent_abc',
         status: 'running',
         taskId: 't1',
+        parentSessionId: 'sess-owner',
       });
       cmp.sendDraft.set('hi');
 
@@ -260,6 +263,7 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
       expect(storeMock.sendMessageToAgent).toHaveBeenCalledWith(
         'toolu_parent_abc',
         'hi',
+        'sess-owner',
       );
     });
   });
@@ -271,6 +275,7 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
         parentToolUseId: 'toolu_parent_abc',
         status: 'running',
         taskId: 't42',
+        parentSessionId: 'sess-owner',
       });
       const evt = { stopPropagation: jest.fn() } as unknown as Event;
       await (
@@ -278,7 +283,7 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
           onStopClick(e: Event): Promise<void>;
         }
       ).onStopClick(evt);
-      expect(storeMock.stopAgent).toHaveBeenCalledWith('t42');
+      expect(storeMock.stopAgent).toHaveBeenCalledWith('t42', 'sess-owner');
     });
 
     it('is a no-op when there is no taskId', async () => {
