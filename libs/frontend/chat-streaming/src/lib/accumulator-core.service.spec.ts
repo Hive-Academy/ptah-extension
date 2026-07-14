@@ -333,7 +333,11 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
   let backgroundAgentStore: jest.Mocked<
     Pick<
       BackgroundAgentStore,
-      'onStarted' | 'onProgress' | 'onCompleted' | 'onStopped'
+      | 'onStarted'
+      | 'onProgress'
+      | 'onCompleted'
+      | 'onStopped'
+      | 'isBackgroundAgent'
     >
   >;
   let agentMonitorStore: jest.Mocked<
@@ -345,6 +349,8 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       | 'onAgentProgress'
       | 'onAgentStatus'
       | 'onAgentCompleted'
+      | 'getSubagent'
+      | 'onTaskToolResult'
     >
   >;
   let state: StreamingState;
@@ -382,10 +388,15 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       onProgress: jest.fn(),
       onCompleted: jest.fn(),
       onStopped: jest.fn(),
+      isBackgroundAgent: jest.fn().mockReturnValue(false),
     } as jest.Mocked<
       Pick<
         BackgroundAgentStore,
-        'onStarted' | 'onProgress' | 'onCompleted' | 'onStopped'
+        | 'onStarted'
+        | 'onProgress'
+        | 'onCompleted'
+        | 'onStopped'
+        | 'isBackgroundAgent'
       >
     >;
     agentMonitorStore = {
@@ -395,6 +406,8 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       onAgentProgress: jest.fn(),
       onAgentStatus: jest.fn(),
       onAgentCompleted: jest.fn(),
+      getSubagent: jest.fn().mockReturnValue(undefined),
+      onTaskToolResult: jest.fn(),
     } as jest.Mocked<
       Pick<
         AgentMonitorStore,
@@ -404,6 +417,8 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
         | 'onAgentProgress'
         | 'onAgentStatus'
         | 'onAgentCompleted'
+        | 'getSubagent'
+        | 'onTaskToolResult'
       >
     >;
 
@@ -811,6 +826,68 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     it('background_agent_stopped → onStopped', () => {
       core.process(state, bgAgentStopped(), makeCtx());
       expect(backgroundAgentStore.onStopped).toHaveBeenCalled();
+    });
+  });
+
+  // ---- Foreground completion via Task tool_result ------------------------
+
+  describe('tool_result drives foreground subagent completion', () => {
+    const RUNNING_RECORD = {
+      parentToolUseId: 'tool-1',
+      status: 'running',
+    } as unknown as ReturnType<AgentMonitorStore['getSubagent']>;
+
+    it('forwards a Task tool_result to onTaskToolResult with the error flag', () => {
+      agentMonitorStore.getSubagent.mockReturnValue(RUNNING_RECORD);
+      core.process(state, toolResult({ isError: false }), makeCtx());
+      expect(agentMonitorStore.onTaskToolResult).toHaveBeenCalledWith(
+        'tool-1',
+        false,
+      );
+    });
+
+    it('propagates an error tool_result', () => {
+      agentMonitorStore.getSubagent.mockReturnValue(RUNNING_RECORD);
+      core.process(state, toolResult({ isError: true }), makeCtx());
+      expect(agentMonitorStore.onTaskToolResult).toHaveBeenCalledWith(
+        'tool-1',
+        true,
+      );
+    });
+
+    it('does NOT forward for an ordinary tool_result (no subagent record)', () => {
+      agentMonitorStore.getSubagent.mockReturnValue(undefined);
+      core.process(state, toolResult(), makeCtx());
+      expect(agentMonitorStore.onTaskToolResult).not.toHaveBeenCalled();
+    });
+
+    it('skips a task already registered as a background agent', () => {
+      agentMonitorStore.getSubagent.mockReturnValue(RUNNING_RECORD);
+      backgroundAgentStore.isBackgroundAgent.mockReturnValue(true);
+      core.process(state, toolResult(), makeCtx());
+      expect(agentMonitorStore.onTaskToolResult).not.toHaveBeenCalled();
+    });
+
+    it('skips the SDK "running in the background" placeholder tool_result', () => {
+      agentMonitorStore.getSubagent.mockReturnValue(RUNNING_RECORD);
+      core.process(
+        state,
+        toolResult({ output: 'Task is now running in the background.' }),
+        makeCtx(),
+      );
+      expect(agentMonitorStore.onTaskToolResult).not.toHaveBeenCalled();
+    });
+
+    it('forwards on the mutating occurrence but NOT behind a dedup skip', () => {
+      agentMonitorStore.getSubagent.mockReturnValue(RUNNING_RECORD);
+      // 'complete' is the definitive (mutating) occurrence — forwards.
+      core.process(state, toolResult({ source: 'complete' }), makeCtx());
+      // A lower-priority 'stream' duplicate is a dedup skip (returns early
+      // before the forward), so it must NOT re-fire. (Equal/higher-priority
+      // replacements would re-fire, but AgentMonitorStore.onTaskToolResult is
+      // idempotent — it no-ops once the record is terminal.)
+      core.process(state, toolResult({ source: 'stream' }), makeCtx());
+      expect(agentMonitorStore.onTaskToolResult).toHaveBeenCalledTimes(1);
     });
   });
 

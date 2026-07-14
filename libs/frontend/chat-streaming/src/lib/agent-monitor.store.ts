@@ -1059,6 +1059,43 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
+   * Terminalise a foreground subagent from its Task tool_use `tool_result`.
+   *
+   * This is the DEFINITIVE completion signal for a normally-finishing
+   * foreground subagent. The SDK's `task_notification` (→ `agent_completed`)
+   * is skipped when `skip_transcript` is set and, per the SDK docs, reliably
+   * fires only for stopped/backgrounded tasks — so a foreground Task that
+   * completes normally may never produce one, which previously left the
+   * subagent badge stuck on 'running' forever. The Task tool_use's
+   * `tool_result` always fires, so we drive completion from it.
+   *
+   * Invariant (documented in {@link StreamingAccumulatorCore} too): status
+   * transitions ONLY from a non-terminal ('pending'/'running') state to
+   * 'completed' (or 'failed' when the tool_result is an error). A terminal
+   * status already set by a real `agent_completed` / `agent_status` / stop
+   * wins and is never overridden (last-writer-wins is wrong here). An unknown
+   * `toolCallId` (no record ⇒ this tool_result did not spawn a subagent) is a
+   * no-op. The CALLER must NOT invoke this for a backgrounded task — a
+   * mid-run-backgrounded agent receives an early "running in the background"
+   * tool_result while it keeps working, which must not terminalise it.
+   */
+  onTaskToolResult(toolCallId: string, isError: boolean): void {
+    this._subagents.update((map) => {
+      const existing = map.get(toolCallId);
+      if (!existing) return map;
+      if (existing.status !== 'pending' && existing.status !== 'running') {
+        return map;
+      }
+      const next = new Map(map);
+      next.set(toolCallId, {
+        ...existing,
+        status: isError ? 'failed' : 'completed',
+      });
+      return next;
+    });
+  }
+
+  /**
    * Send a follow-up ("steer") message into a running subagent.
    *
    * `sessionId` is the session that OWNS the subagent. Callers that know it

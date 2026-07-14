@@ -58,6 +58,7 @@ import { TestBed } from '@angular/core/testing';
 import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import {
   AgentMonitorStore,
+  BackgroundAgentStore,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import type { ExecutionNode } from '@ptah-extension/shared';
@@ -87,7 +88,12 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
     sendMessageToAgent: jest.fn(async () => undefined),
     stopAgent: jest.fn(async () => undefined),
     interruptSession: jest.fn(async () => undefined),
+    backgroundAgent: jest.fn(async () => true),
   } as unknown as AgentMonitorStore;
+
+  const bgStoreMock = {
+    isBackgroundAgent: jest.fn(() => false),
+  } as unknown as BackgroundAgentStore;
 
   function setRecord(rec: SubagentRecord): void {
     const m = new Map<string, SubagentRecord>();
@@ -97,7 +103,10 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
 
   function build(node: ExecutionNode): InlineAgentBubbleComponent {
     TestBed.configureTestingModule({
-      providers: [{ provide: AgentMonitorStore, useValue: storeMock }],
+      providers: [
+        { provide: AgentMonitorStore, useValue: storeMock },
+        { provide: BackgroundAgentStore, useValue: bgStoreMock },
+      ],
     });
     const fixture = TestBed.createComponent(InlineAgentBubbleComponent);
     fixture.componentRef.setInput('node', node);
@@ -109,6 +118,8 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
     subagentMap.set(new Map());
     (storeMock.sendMessageToAgent as jest.Mock).mockClear();
     (storeMock.stopAgent as jest.Mock).mockClear();
+    (bgStoreMock.isBackgroundAgent as jest.Mock).mockReset();
+    (bgStoreMock.isBackgroundAgent as jest.Mock).mockReturnValue(false);
     TestBed.resetTestingModule();
   });
 
@@ -181,6 +192,38 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
         taskId: 't1',
       });
       expect(cmp.canStop()).toBe(false);
+    });
+  });
+
+  describe('canBackground (send-to-background gating)', () => {
+    it('is true for a running foreground subagent', () => {
+      const cmp = build(makeNode());
+      setRecord({ parentToolUseId: 'toolu_parent_abc', status: 'running' });
+      expect(cmp.canBackground()).toBe(true);
+    });
+
+    it('drops to false once the record completes (tool_result-driven)', () => {
+      const cmp = build(makeNode());
+      setRecord({ parentToolUseId: 'toolu_parent_abc', status: 'running' });
+      expect(cmp.canBackground()).toBe(true);
+      // FIX 1: a Task tool_result terminalises the record; the badge/actions
+      // react — the stuck-'running' moon button disappears.
+      setRecord({ parentToolUseId: 'toolu_parent_abc', status: 'completed' });
+      expect(cmp.canBackground()).toBe(false);
+      expect(cmp.canStop()).toBe(false);
+    });
+
+    it('is false when the agent is registered as a background agent', () => {
+      (bgStoreMock.isBackgroundAgent as jest.Mock).mockReturnValue(true);
+      const cmp = build(makeNode());
+      setRecord({ parentToolUseId: 'toolu_parent_abc', status: 'running' });
+      expect(cmp.canBackground()).toBe(false);
+    });
+
+    it('is false when the node itself is flagged background', () => {
+      const cmp = build(makeNode({ isBackground: true }));
+      setRecord({ parentToolUseId: 'toolu_parent_abc', status: 'running' });
+      expect(cmp.canBackground()).toBe(false);
     });
   });
 

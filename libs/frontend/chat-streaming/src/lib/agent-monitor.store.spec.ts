@@ -375,6 +375,33 @@ describe('AgentMonitorStore', () => {
       expect(store.subagents().get('toolu_a')?.status).toBe('completed');
       expect(store.subagents().get('toolu_b')?.status).toBe('running');
     });
+
+    describe('onTaskToolResult (foreground completion from Task tool_result)', () => {
+      it('transitions running → completed', () => {
+        store.onAgentStart(startEvent());
+        store.onTaskToolResult(PARENT, false);
+        expect(store.subagents().get(PARENT)?.status).toBe('completed');
+      });
+
+      it('transitions running → failed when the tool_result is an error', () => {
+        store.onAgentStart(startEvent());
+        store.onTaskToolResult(PARENT, true);
+        expect(store.subagents().get(PARENT)?.status).toBe('failed');
+      });
+
+      it('does NOT override a terminal status from a real agent_completed', () => {
+        store.onAgentStart(startEvent());
+        store.onAgentCompleted(completedEvent({ status: 'completed' }));
+        // A late tool_result with isError must not flip completed → failed.
+        store.onTaskToolResult(PARENT, true);
+        expect(store.subagents().get(PARENT)?.status).toBe('completed');
+      });
+
+      it('is a no-op for an unknown toolCallId (not a Task spawn)', () => {
+        store.onTaskToolResult('toolu_unknown', false);
+        expect(store.subagents().get('toolu_unknown')).toBeUndefined();
+      });
+    });
   });
 
   describe('Phase 3 — bidirectional messaging actions', () => {

@@ -36,7 +36,10 @@ import {
   formatOklch,
   isThemeFallbackColor,
 } from '@ptah-extension/chat-ui';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  BackgroundAgentStore,
+} from '@ptah-extension/chat-streaming';
 import type {
   ExecutionNode,
   PermissionRequest,
@@ -586,6 +589,7 @@ export class InlineAgentBubbleComponent {
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly modelState = inject(ModelStateService);
 
   /**
@@ -922,10 +926,24 @@ export class InlineAgentBubbleComponent {
     return !!rec && rec.status === 'running';
   });
 
-  /** Send-to-background applies to running foreground subagents only. */
+  /**
+   * Send-to-background applies to running FOREGROUND subagents only. Gated
+   * live on `BackgroundAgentStore.isBackgroundAgent` (not just the memoised
+   * `node.isBackground` flag) so the moon button disappears the moment the
+   * agent is registered as background — even before the node's tree flag is
+   * rebuilt. Combined with the tool_result-driven completion (FIX 1), a
+   * finished foreground agent also drops out because its record leaves the
+   * 'running' state.
+   */
   readonly canBackground = computed(() => {
     const rec = this.subagentRecord();
-    return !!rec && rec.status === 'running' && !this.isBackground();
+    const key = this.parentToolUseId();
+    return (
+      !!rec &&
+      rec.status === 'running' &&
+      !this.isBackground() &&
+      !(key !== null && this.backgroundAgentStore.isBackgroundAgent(key))
+    );
   });
   readonly sendInputExpanded = signal(false);
   readonly sendDraft = signal('');

@@ -157,6 +157,37 @@ function skip(eventType: FlatStreamEventUnion['eventType']): AccumulatorResult {
   };
 }
 
+/**
+ * The SDK's placeholder text returned in the EARLY tool_result of a task that
+ * has been backgrounded (Ctrl+B parity / mid-run `subagent:background`). See
+ * `@anthropic-ai/claude-agent-sdk` `backgroundTasks`: "Each blocking tool call
+ * returns immediately with a 'running in the background' tool_result and the
+ * turn continues; the task keeps running and emits a task_notification when it
+ * settles." Matching this marker lets us skip terminalising a still-working
+ * background agent even when it was never registered in BackgroundAgentStore
+ * (mid-run backgrounding currently arrives only as an `agent_status` patch,
+ * not a `background_agent_started` event).
+ */
+const BACKGROUNDED_TOOL_RESULT_MARKER = 'running in the background';
+
+/** Whether a tool_result payload is the SDK's "running in the background"
+ * placeholder. Only invoked for Task tool_results (guarded by a subagent-record
+ * hit), so the stringify cost is bounded to agent completions. */
+function isBackgroundedToolResult(output: unknown): boolean {
+  if (output == null) return false;
+  let text: string;
+  if (typeof output === 'string') {
+    text = output;
+  } else {
+    try {
+      text = JSON.stringify(output);
+    } catch {
+      return false;
+    }
+  }
+  return text.toLowerCase().includes(BACKGROUNDED_TOOL_RESULT_MARKER);
+}
+
 @Injectable({ providedIn: 'root' })
 export class StreamingAccumulatorCore {
   private readonly defaultSessionManager = inject(SessionManager);
@@ -385,6 +416,27 @@ export class StreamingAccumulatorCore {
 
         setStreamingEventCapped(state, event);
         this.indexEventByMessage(state, event);
+
+        // A Task tool_use's tool_result is the definitive foreground-completion
+        // signal for a subagent (agent_completed is unreliable — see
+        // AgentMonitorStore.onTaskToolResult). Only fire when this tool_use
+        // actually spawned a subagent (cheap O(1) record lookup — skips the
+        // work for ordinary Bash/Read/etc. results). This runs on the FIRST
+        // (mutating) occurrence, past the dedup skip above, so it is never lost
+        // behind a duplicate. Guard against backgrounding: an agent that is (or
+        // is being) moved to the background returns an early "running in the
+        // background" tool_result while it keeps working — detect BOTH the
+        // already-registered background case (isBackgroundAgent) AND the
+        // same-event placeholder marker so no ordering race can prematurely
+        // terminalise a background agent.
+        if (agentMonitorStore.getSubagent(event.toolCallId)) {
+          const backgrounded =
+            backgroundAgentStore.isBackgroundAgent(event.toolCallId) ||
+            isBackgroundedToolResult(event.output);
+          if (!backgrounded) {
+            agentMonitorStore.onTaskToolResult(event.toolCallId, event.isError);
+          }
+        }
 
         ctx.onStateChanged?.(state);
         return this.mutated(event.eventType);
