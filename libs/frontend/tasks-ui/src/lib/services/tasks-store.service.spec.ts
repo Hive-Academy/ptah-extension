@@ -214,6 +214,55 @@ describe('TasksStore', () => {
     expect(store.actionMessage()).toContain('3');
   });
 
+  describe('visibility/focus staleness reconcile', () => {
+    it('re-fetches the board on window focus after an initial load', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({})));
+      await store.loadBoard();
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(rpcCall).toHaveBeenCalledTimes(2);
+      expect(rpcCall).toHaveBeenLastCalledWith('tasks:board', {});
+    });
+
+    it('re-fetches on visibilitychange when the document becomes visible', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({})));
+      await store.loadBoard();
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+
+      document.dispatchEvent(new Event('visibilitychange'));
+      await Promise.resolve();
+
+      // jsdom default visibilityState is 'visible' → reconcile fires.
+      expect(rpcCall).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT reconcile on focus before the first load has completed', async () => {
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+
+      expect(rpcCall).not.toHaveBeenCalled();
+    });
+
+    it('stops reconciling once the injector is destroyed', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({})));
+      await store.loadBoard();
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+
+      TestBed.resetTestingModule();
+
+      window.dispatchEvent(new Event('focus'));
+      document.dispatchEvent(new Event('visibilitychange'));
+      await Promise.resolve();
+
+      // Listener was torn down with the root injector — no extra fetch.
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('openTask fetches and stores the detail', async () => {
     const detail = {
       ...makeTask('TASK_2026_200', 'backlog'),

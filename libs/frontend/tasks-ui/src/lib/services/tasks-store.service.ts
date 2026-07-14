@@ -1,4 +1,10 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import {
+  DestroyRef,
+  Injectable,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { ClaudeRpcService, type MessageHandler } from '@ptah-extension/core';
 import {
   TASK_STATUSES,
@@ -47,6 +53,7 @@ function emptyColumns(): Record<TaskStatus, TaskSpecSummary[]> {
 @Injectable({ providedIn: 'root' })
 export class TasksStore implements MessageHandler {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /** Consumed by `MessageRouterService` — refresh on backend index changes. */
   public readonly handledMessageTypes = [TASKS_CHANGED_MESSAGE_TYPE] as const;
@@ -102,6 +109,10 @@ export class TasksStore implements MessageHandler {
     () =>
       this._loaded() && (!this._specsDirExists() || this.totalCount() === 0),
   );
+
+  public constructor() {
+    this.setupVisibilityReconcile();
+  }
 
   public handleMessage(message: { type: string; payload?: unknown }): void {
     if (message.type !== TASKS_CHANGED_MESSAGE_TYPE) return;
@@ -248,6 +259,39 @@ export class TasksStore implements MessageHandler {
       value === 'SAAS_INIT' ||
       value === 'CREATIVE'
     );
+  }
+
+  /**
+   * Client-side staleness safety net (no optimistic state — R5.7). If a
+   * `tasks:changed` push is missed while the webview is backgrounded, the board
+   * could sit stale indefinitely. Re-fetch the authoritative board whenever the
+   * surface regains visibility/focus. Guarded so it never stacks or fires before
+   * the first load, and no-op-safe: an in-flight `loadBoard` (`_loading`) short-
+   * circuits re-entry, so back-to-back `focus` + `visibilitychange` collapse to
+   * one refetch. Listeners are torn down with the root injector.
+   */
+  private setupVisibilityReconcile(): void {
+    if (typeof document === 'undefined' || typeof window === 'undefined') {
+      return;
+    }
+
+    const reconcile = (): void => {
+      // Only refetch when actually visible, after an initial load, and when no
+      // load is already in flight — the guard doubles as the debounce.
+      if (document.visibilityState === 'hidden') return;
+      if (!this._loaded() || this._loading()) return;
+      void this.loadBoard();
+    };
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState === 'visible') reconcile();
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', reconcile);
+    this.destroyRef.onDestroy(() => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', reconcile);
+    });
   }
 
   private async refreshFromPush(): Promise<void> {
