@@ -29,6 +29,8 @@ export * from './rpc/rpc-update.types';
 
 export * from './rpc/rpc-skill-clone.types';
 
+export * from './rpc/rpc-tasks.types';
+
 import type {
   SubagentQueryParams,
   SubagentQueryResult,
@@ -461,6 +463,22 @@ import type {
   SkillGetTriggersParams,
   SkillGetTriggersResult,
 } from './rpc/rpc-curator-diagnostics.types';
+import type {
+  TasksListParams,
+  TasksListResult,
+  TasksGetParams,
+  TasksGetResult,
+  TasksCreateParams,
+  TasksCreateResult,
+  TasksUpdateStatusParams,
+  TasksUpdateStatusResult,
+  TasksGenerateRegistryParams,
+  TasksGenerateRegistryResult,
+  TasksBoardParams,
+  TasksBoardResult,
+  TasksReindexParams,
+  TasksReindexResult,
+} from './rpc/rpc-tasks.types';
 
 /**
  * RPC Method Registry
@@ -1700,6 +1718,19 @@ export interface RpcMethodRegistry {
     params: UpdateCheckNowParams;
     result: UpdateCheckNowResult;
   };
+  'tasks:list': { params: TasksListParams; result: TasksListResult };
+  'tasks:get': { params: TasksGetParams; result: TasksGetResult };
+  'tasks:create': { params: TasksCreateParams; result: TasksCreateResult };
+  'tasks:updateStatus': {
+    params: TasksUpdateStatusParams;
+    result: TasksUpdateStatusResult;
+  };
+  'tasks:generateRegistry': {
+    params: TasksGenerateRegistryParams;
+    result: TasksGenerateRegistryResult;
+  };
+  'tasks:board': { params: TasksBoardParams; result: TasksBoardResult };
+  'tasks:reindex': { params: TasksReindexParams; result: TasksReindexResult };
 }
 
 export interface SkillSynthesisCandidateSummary {
@@ -2830,6 +2861,14 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
 
   'update:get-state': true,
   'update:check-now': true,
+
+  'tasks:list': true,
+  'tasks:get': true,
+  'tasks:create': true,
+  'tasks:updateStatus': true,
+  'tasks:generateRegistry': true,
+  'tasks:board': true,
+  'tasks:reindex': true,
 };
 
 /**
