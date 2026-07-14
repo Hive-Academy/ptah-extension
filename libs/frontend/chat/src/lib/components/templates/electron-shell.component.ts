@@ -40,6 +40,7 @@ import {
   Store,
   RadioTower,
   Scale,
+  ClipboardList,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
@@ -240,6 +241,17 @@ import {
             >
               <lucide-angular [img]="ScaleIcon" class="w-3.5 h-3.5" />
               Tribunal
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'tasks'"
+              [attr.aria-selected]="appState.currentView() === 'tasks'"
+              title="Tasks — .ptah/specs board"
+              (click)="openTasks()"
+            >
+              <lucide-angular [img]="ClipboardListIcon" class="w-3.5 h-3.5" />
+              Tasks
             </button>
             <button
               role="tab"
@@ -574,6 +586,7 @@ export class ElectronShellComponent {
   readonly StoreIcon = Store;
   readonly RadioTowerIcon = RadioTower;
   readonly ScaleIcon = Scale;
+  readonly ClipboardListIcon = ClipboardList;
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
@@ -607,5 +620,9 @@ export class ElectronShellComponent {
 
   openTribunal(): void {
     this.appState.setCurrentView('tribunal');
+  }
+
+  openTasks(): void {
+    this.appState.setCurrentView('tasks');
   }
 }

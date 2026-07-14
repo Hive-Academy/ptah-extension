@@ -63,3 +63,12 @@ export const MARKETPLACE_COMPONENT = new InjectionToken<Type<unknown>>(
 export const TRIBUNAL_COMPONENT = new InjectionToken<Type<unknown>>(
   'TRIBUNAL_COMPONENT',
 );
+
+/**
+ * Token for TasksViewComponent — breaks circular dependency between
+ * @ptah-extension/tasks-ui and @ptah-extension/chat (AppShellComponent renders
+ * the view). Provided by the application bootstrapper (app.config.ts).
+ */
+export const TASKS_VIEW_COMPONENT = new InjectionToken<Type<unknown>>(
+  'TASKS_VIEW_COMPONENT',
+);

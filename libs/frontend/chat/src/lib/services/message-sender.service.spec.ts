@@ -350,6 +350,25 @@ describe('MessageSenderService', () => {
       expect(tabManager.markLoaded).toHaveBeenCalledWith('tab-1');
     });
 
+    it('returns { success: true } on a started conversation (F-D2 contract)', async () => {
+      rpcCall.mockResolvedValue({ success: true });
+      await expect(service.send('hello')).resolves.toEqual({ success: true });
+    });
+
+    it('returns { success: false } on a structural chat:start failure (F-D2 contract)', async () => {
+      // Transport OK, backend rejects the turn (data.success === false). The
+      // send must report failure so the Tasks Start-flow bridge does not flip a
+      // phantom `in_progress` transition.
+      rpcCall.mockResolvedValue({
+        success: true,
+        data: { success: false, error: 'AUTH_REQUIRED' },
+      });
+      await expect(service.send('hello')).resolves.toEqual({
+        success: false,
+        error: 'AUTH_REQUIRED',
+      });
+    });
+
     it('prepends a hidden first-message preamble to the backend prompt only', async () => {
       rpcCall.mockResolvedValue({ success: true });
       tabManager.consumeFirstMessagePreamble.mockReturnValueOnce(
