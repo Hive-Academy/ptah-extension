@@ -83,11 +83,6 @@ export interface PendingSettingsTab {
 export interface ChatPromptRequest {
   /** Prompt text submitted as the new session's first message. */
   prompt: string;
-  /**
-   * Working directory (git worktree path) when isolation was chosen. Carried
-   * for worktree/session association; may be undefined for a plain start.
-   */
-  cwd?: string;
   /** Optional session/tab display name (e.g. the originating task id). */
   sessionName?: string;
   /**

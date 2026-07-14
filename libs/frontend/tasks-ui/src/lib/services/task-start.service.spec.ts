@@ -1,10 +1,11 @@
 /**
- * TaskStartService — orchestration launch flow (R6 / §8).
+ * TaskStartService — orchestration launch flow (R6 / §8, F-D1).
  *
- * Stubs `ClaudeRpcService`, `AppStateManager`, and `TasksStore` to exercise the
- * sequence: optional worktree → `ChatPromptRequest` bridge → `updateStatus` on
- * success ONLY, plus each failure branch (worktree fail, session fail, 30s
- * guard timeout) leaving no phantom transition.
+ * Stubs `AppStateManager` and `TasksStore` to exercise the sequence:
+ * `ChatPromptRequest` bridge → `updateStatus` on resolved success ONLY, plus
+ * each non-success branch (structural failure, 30s guard timeout) leaving no
+ * phantom transition. The host no longer creates a worktree (F-D1): isolation
+ * is an agent-managed prompt directive, so NO `git:addWorktree` RPC is fired.
  */
 import { TestBed } from '@angular/core/testing';
 import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
@@ -12,17 +13,7 @@ import type { ChatPromptRequest } from '@ptah-extension/core';
 import { TasksStore } from './tasks-store.service';
 import { TaskStartService } from './task-start.service';
 
-const ok = <T>(data: T) => ({ success: true, isSuccess: () => true, data });
-
-/** Flush several microtask turns so awaited promise chains settle. */
-const tick = async (turns = 6): Promise<void> => {
-  for (let i = 0; i < turns; i++) await Promise.resolve();
-};
-const fail = (error: string) => ({
-  success: false,
-  isSuccess: () => false,
-  error,
-});
+const ISOLATION_HINT = 'Isolate all implementation for this task';
 
 describe('TaskStartService', () => {
   let service: TaskStartService;
@@ -42,6 +33,8 @@ describe('TaskStartService', () => {
     TestBed.configureTestingModule({
       providers: [
         TaskStartService,
+        // Provided purely as a regression guard: the launch flow must never
+        // touch the RPC layer (no host-side `git:addWorktree`, F-D1).
         {
           provide: ClaudeRpcService,
           useValue: { call: rpcCall as unknown as ClaudeRpcService['call'] },
@@ -56,17 +49,17 @@ describe('TaskStartService', () => {
     service = TestBed.inject(TaskStartService);
   });
 
-  it('happy path (no worktree): fires the prompt bridge and transitions to in_progress on success', async () => {
+  it('isolate=false: sends the plain prompt and transitions to in_progress on success', async () => {
     const pending = service.start('TASK_2026_200', false);
     await Promise.resolve();
 
-    expect(rpcCall).not.toHaveBeenCalled(); // no worktree call
+    expect(rpcCall).not.toHaveBeenCalled(); // no host-side worktree RPC
     expect(requestChatPrompt).toHaveBeenCalledTimes(1);
     expect(lastPromptRequest?.prompt).toBe(
       '/ptah-core:orchestrate TASK_2026_200',
     );
+    expect(lastPromptRequest?.prompt).not.toContain(ISOLATION_HINT);
     expect(lastPromptRequest?.sessionName).toBe('TASK_2026_200');
-    expect(lastPromptRequest?.cwd).toBeUndefined();
 
     lastPromptRequest?.resolve?.({ success: true });
     await pending;
@@ -76,71 +69,35 @@ describe('TaskStartService', () => {
     expect(service.busyTaskId()).toBeNull();
   });
 
-  it('worktree path: awaits the correlated push, passes cwd, then transitions', async () => {
-    rpcCall.mockImplementation(
-      (_method: string, params: { operationId: string }) =>
-        Promise.resolve(
-          ok({ success: true, pending: true, operationId: params.operationId }),
-        ),
-    );
-
+  it('isolate=true: appends the worktree-isolation directive and makes NO addWorktree RPC call', async () => {
     const pending = service.start('TASK_2026_201', true);
-    await tick();
+    await Promise.resolve();
 
-    const opId = (rpcCall.mock.calls[0][1] as { operationId: string })
-      .operationId;
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: {
-          type: 'git:worktreeChanged',
-          payload: {
-            action: 'created',
-            operationId: opId,
-            success: true,
-            path: '/wt/task-201',
-          },
-        },
-      }),
+    // The whole point of F-D1: no host-created worktree, no git RPC.
+    expect(rpcCall).not.toHaveBeenCalled();
+    expect(requestChatPrompt).toHaveBeenCalledTimes(1);
+    expect(lastPromptRequest?.prompt).toContain(
+      '/ptah-core:orchestrate TASK_2026_201',
     );
-    await tick();
+    expect(lastPromptRequest?.prompt).toContain(ISOLATION_HINT);
+    expect(lastPromptRequest?.prompt).toContain('worktree');
 
-    expect(lastPromptRequest?.cwd).toBe('/wt/task-201');
     lastPromptRequest?.resolve?.({ success: true });
     await pending;
 
-    expect(rpcCall).toHaveBeenCalledWith('git:addWorktree', {
-      branch: 'task/TASK_2026_201',
-      createBranch: true,
-      operationId: opId,
-    });
     expect(updateStatus).toHaveBeenCalledWith('TASK_2026_201', 'in_progress');
   });
 
-  it('worktree failure: no prompt, no status transition, error surfaced', async () => {
-    rpcCall.mockResolvedValue(fail('git exploded'));
+  it('structural session failure: status untouched, error surfaced', async () => {
+    const pending = service.start('TASK_2026_202', false);
+    await Promise.resolve();
 
-    await service.start('TASK_2026_202', true);
-
-    expect(requestChatPrompt).not.toHaveBeenCalled();
-    expect(updateStatus).not.toHaveBeenCalled();
-    expect(service.error()).toContain('Worktree for TASK_2026_202 failed');
-  });
-
-  it('session failure: status untouched, error mentions the worktree is left in place', async () => {
-    rpcCall.mockImplementation(() =>
-      Promise.resolve(
-        ok({ success: true, pending: false, worktreePath: '/wt/task-203' }),
-      ),
-    );
-
-    const pending = service.start('TASK_2026_203', true);
-    await tick();
-
-    lastPromptRequest?.resolve?.({ success: false, error: 'no session' });
+    lastPromptRequest?.resolve?.({ success: false, error: 'AUTH_REQUIRED' });
     await pending;
 
     expect(updateStatus).not.toHaveBeenCalled();
-    expect(service.error()).toContain('worktree left in place');
+    expect(service.error()).toContain('Could not start orchestration');
+    expect(service.error()).toContain('AUTH_REQUIRED');
   });
 
   it('30s resolve guard: a never-resolved bridge is treated as failure (no transition)', async () => {

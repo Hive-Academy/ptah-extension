@@ -23,10 +23,10 @@ import { MessageSenderService } from '../message-sender.service';
  *     `/ptah-core:orchestrate …` prompt to `executeSlashCommandQuery`),
  *  4. settles `request.resolve` and clears the bridge signal.
  *
- * `request.cwd` (worktree path) is carried for session/worktree association;
- * phase-1 sends run against the standard workspace root (the existing
- * `chat:start` mechanics), so the field is preserved but does not yet override
- * the send workspace — the worktree is created and left in place by the caller.
+ * Sends run against the standard workspace root (the existing `chat:start`
+ * mechanics). Worktree isolation is agent-managed (F-D1): the orchestrate
+ * prompt carries a natural-language directive so the agent isolates its own
+ * implementation work — no host-side worktree or `cwd` override is involved.
  */
 @Injectable({ providedIn: 'root' })
 export class TaskPromptBridgeService {

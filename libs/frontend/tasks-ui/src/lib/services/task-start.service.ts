@@ -1,62 +1,50 @@
-import { DestroyRef, Injectable, inject, signal } from '@angular/core';
-import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
-import type { GitWorktreeChangedNotification } from '@ptah-extension/shared';
+import { Injectable, inject, signal } from '@angular/core';
+import { AppStateManager } from '@ptah-extension/core';
 import { TasksStore } from './tasks-store.service';
-
-/** Raw webview push emitted by the backend git handler on worktree add/remove. */
-const GIT_WORKTREE_CHANGED_MESSAGE_TYPE = 'git:worktreeChanged';
 
 /** Guard for the `ChatPromptRequest.resolve` bridge (§8.3): treat as failure. */
 const RESOLVE_GUARD_TIMEOUT_MS = 30_000;
 
-/** Correlated `git:worktreeChanged` await ceiling — slow `git worktree add`. */
-const WORKTREE_TIMEOUT_MS = 5 * 60 * 1000;
-
-interface PendingWorktreeOp {
-  resolve: (result: {
-    success: boolean;
-    error?: string;
-    path?: string;
-  }) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
+/**
+ * Self-contained natural-language directive appended to the orchestrate prompt
+ * when the user asks for isolated implementation. Rather than the host creating
+ * a worktree up front (which the session can't be authorized into), the AGENT
+ * isolates its own file-editing work in a worktree: the SDK's `WorktreeCreate`
+ * hook creates `.claude-worktrees/<name>` INSIDE the authorized workspace root
+ * when a subagent runs isolated, so no cwd/authorization plumbing is needed.
+ */
+const ISOLATION_DIRECTIVE =
+  '\n\nIsolate all implementation for this task in a dedicated git worktree — ' +
+  'delegate file-editing work to worktree-isolated subagents so changes stay ' +
+  'off the main working tree until reviewed.';
 
 /**
  * TaskStartService — orchestration launch flow for a board task (R6).
  *
- * Sequence (all frontend; only `ClaudeRpcService` + `AppStateManager` +
- * `TasksStore` are touched — **no `chat` import**, NFR-11):
- *   1. (optional) `git:addWorktree` on branch `task/<TASK_ID>`, awaiting the
- *      correlated `git:worktreeChanged` push (WorktreeService semantics).
- *   2. `appState.requestChatPrompt('/ptah-core:orchestrate <TASK_ID>', cwd?)`
- *      behind a 30s resolve guard.
+ * Sequence (all frontend; only `AppStateManager` + `TasksStore` are touched —
+ * **no `chat` import**, NFR-11):
+ *   1. Build the prompt `/ptah-core:orchestrate <TASK_ID>`, appending an
+ *      agent-managed worktree-isolation directive when `isolate` is chosen (the
+ *      agent isolates its own work; the host never creates a worktree — F-D1).
+ *   2. `appState.requestChatPrompt(...)` behind a 30s resolve guard.
  *   3. on resolved success ONLY → `TasksStore.updateStatus(taskId, 'in_progress')`.
  *
- * Failure posture (§8.3): worktree fail → stop, surface error, no session, no
- * status change. Session fail / guard timeout → status untouched, worktree (if
- * created) left in place with a notice. `updateStatus` fail post-start →
+ * Failure posture (§8.3): a structural session failure / guard timeout leaves
+ * the status untouched (no phantom transition). `updateStatus` fail post-start →
  * `TasksStore.error` surfaces; the session keeps running (no phantom rollback).
  */
 @Injectable({ providedIn: 'root' })
 export class TaskStartService {
-  private readonly rpc = inject(ClaudeRpcService);
   private readonly appState = inject(AppStateManager);
   private readonly store = inject(TasksStore);
-  private readonly destroyRef = inject(DestroyRef);
 
   private readonly _busyTaskId = signal<string | null>(null);
   private readonly _error = signal<string | null>(null);
 
   /** The task currently launching (null when idle) — drives per-card busy UI. */
   public readonly busyTaskId = this._busyTaskId.asReadonly();
-  /** Last launch error (worktree / session), or null. */
+  /** Last launch error (session start), or null. */
   public readonly error = this._error.asReadonly();
-
-  private readonly pendingWorktreeOps = new Map<string, PendingWorktreeOp>();
-
-  public constructor() {
-    this.setupWorktreeListener();
-  }
 
   /** Dismiss the transient launch-error banner. */
   public clearError(): void {
@@ -64,34 +52,21 @@ export class TaskStartService {
   }
 
   /**
-   * Launch orchestration for `taskId`. When `useWorktree` is true, an isolated
-   * git worktree is created first and its path is passed as the session `cwd`.
-   * Guarded so a second click while a launch is in flight is a no-op.
+   * Launch orchestration for `taskId`. When `isolate` is true, an
+   * agent-managed worktree-isolation directive is appended to the prompt so the
+   * agent keeps its implementation off the main working tree — the host does
+   * NOT create a worktree. Guarded so a second click while a launch is in
+   * flight is a no-op.
    */
-  public async start(taskId: string, useWorktree: boolean): Promise<void> {
+  public async start(taskId: string, isolate: boolean): Promise<void> {
     if (this._busyTaskId()) return;
     this._error.set(null);
     this._busyTaskId.set(taskId);
     try {
-      let cwd: string | undefined;
-      if (useWorktree) {
-        const worktree = await this.addWorktree(taskId);
-        if (!worktree.success) {
-          this._error.set(
-            `Worktree for ${taskId} failed: ${worktree.error ?? 'unknown error'}`,
-          );
-          return; // no session, no status change (§8.3)
-        }
-        cwd = worktree.path;
-      }
-
-      const launch = await this.launchPrompt(taskId, cwd);
+      const launch = await this.launchPrompt(taskId, isolate);
       if (!launch.success) {
-        const worktreeNote = useWorktree
-          ? ' (worktree left in place — remove it from the editor if unused)'
-          : '';
         this._error.set(
-          `Could not start orchestration for ${taskId}: ${launch.error ?? 'unknown error'}${worktreeNote}`,
+          `Could not start orchestration for ${taskId}: ${launch.error ?? 'unknown error'}`,
         );
         return; // status untouched (§8.3)
       }
@@ -120,7 +95,7 @@ export class TaskStartService {
    */
   private launchPrompt(
     taskId: string,
-    cwd?: string,
+    isolate: boolean,
   ): Promise<{ success: boolean; error?: string }> {
     return new Promise((resolve) => {
       let settled = false;
@@ -139,111 +114,15 @@ export class TaskStartService {
         RESOLVE_GUARD_TIMEOUT_MS,
       );
 
+      const prompt = isolate
+        ? `/ptah-core:orchestrate ${taskId}${ISOLATION_DIRECTIVE}`
+        : `/ptah-core:orchestrate ${taskId}`;
+
       this.appState.requestChatPrompt({
-        prompt: `/ptah-core:orchestrate ${taskId}`,
+        prompt,
         sessionName: taskId,
-        ...(cwd ? { cwd } : {}),
         resolve: (result) => settle(result),
       });
-    });
-  }
-
-  /**
-   * Add a git worktree for the task, awaiting the correlated
-   * `git:worktreeChanged` push — mirrors `WorktreeService.addWorktree`'s
-   * async-pending contract so a slow subprocess never times the RPC out.
-   */
-  private async addWorktree(
-    taskId: string,
-  ): Promise<{ success: boolean; error?: string; path?: string }> {
-    const operationId = this.generateOperationId();
-    const pending = this.registerPendingWorktreeOp(operationId);
-
-    const ack = await this.rpc.call('git:addWorktree', {
-      branch: `task/${taskId}`,
-      createBranch: true,
-      operationId,
-    });
-
-    if (!ack.isSuccess() || !ack.data) {
-      this.cancelPendingWorktreeOp(operationId);
-      return { success: false, error: ack.error ?? 'Failed to add worktree' };
-    }
-
-    if (!ack.data.pending) {
-      this.cancelPendingWorktreeOp(operationId);
-      if (ack.data.success && ack.data.worktreePath) {
-        return { success: true, path: ack.data.worktreePath };
-      }
-      return {
-        success: false,
-        error: ack.data.error ?? 'Failed to add worktree',
-      };
-    }
-
-    return pending;
-  }
-
-  private registerPendingWorktreeOp(
-    operationId: string,
-  ): Promise<{ success: boolean; error?: string; path?: string }> {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        if (this.pendingWorktreeOps.delete(operationId)) {
-          resolve({
-            success: false,
-            error: 'Timed out waiting for the worktree to be created',
-          });
-        }
-      }, WORKTREE_TIMEOUT_MS);
-      this.pendingWorktreeOps.set(operationId, { resolve, timer });
-    });
-  }
-
-  private cancelPendingWorktreeOp(operationId: string): void {
-    const pending = this.pendingWorktreeOps.get(operationId);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    this.pendingWorktreeOps.delete(operationId);
-  }
-
-  private generateOperationId(): string {
-    const cryptoRef = globalThis.crypto as Crypto | undefined;
-    if (cryptoRef?.randomUUID) {
-      return cryptoRef.randomUUID();
-    }
-    return `task-wt-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  }
-
-  private setupWorktreeListener(): void {
-    const handler = (event: MessageEvent): void => {
-      const data = event.data;
-      if (!data || typeof data !== 'object') return;
-      if (data.type !== GIT_WORKTREE_CHANGED_MESSAGE_TYPE) return;
-
-      const payload = data.payload as
-        | GitWorktreeChangedNotification
-        | undefined;
-      if (!payload?.operationId) return;
-
-      const pending = this.pendingWorktreeOps.get(payload.operationId);
-      if (!pending) return;
-      clearTimeout(pending.timer);
-      this.pendingWorktreeOps.delete(payload.operationId);
-      pending.resolve({
-        success: payload.success !== false,
-        error: payload.error,
-        path: payload.path,
-      });
-    };
-
-    window.addEventListener('message', handler);
-    this.destroyRef.onDestroy(() => {
-      window.removeEventListener('message', handler);
-      for (const pending of this.pendingWorktreeOps.values()) {
-        clearTimeout(pending.timer);
-      }
-      this.pendingWorktreeOps.clear();
     });
   }
 }

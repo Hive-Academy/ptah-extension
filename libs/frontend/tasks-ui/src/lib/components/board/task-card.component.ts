@@ -21,7 +21,11 @@ import {
 } from '@ptah-extension/shared';
 import { TASK_STATUS_LABELS, taskTypeBadge } from '../../task-presentation';
 
-/** Payload emitted when the (placeholder) Start action fires. */
+/**
+ * Payload emitted when the Start action fires. `useWorktree` requests
+ * agent-managed worktree isolation (F-D1): the orchestrate prompt carries a
+ * directive so the agent isolates its own work — the host creates no worktree.
+ */
 export interface TaskStartRequest {
   taskId: string;
   useWorktree: boolean;
@@ -35,8 +39,8 @@ export interface TaskStatusChange {
 
 /**
  * Presentational task card. Pure `@Input`/`@Output`; owns only the local
- * worktree-toggle UI state. The Start action is a phase-1 placeholder — it emits
- * {@link start} but the real orchestration flow is wired in Batch D.
+ * worktree-isolation toggle UI state. The Start action emits {@link startTask};
+ * `TaskStartService` (wired by `TasksViewComponent`) runs the launch flow.
  */
 @Component({
   selector: 'ptah-task-card',
@@ -137,13 +141,13 @@ export interface TaskStatusChange {
           }
         </div>
 
-        <!-- Actions: worktree toggle + Start (placeholder for Batch D) -->
+        <!-- Actions: agent-managed worktree isolation toggle + Start -->
         <div
           class="flex items-center justify-between pt-1 mt-0.5 border-t border-base-content/10"
         >
           <label
             class="label cursor-pointer gap-1 p-0"
-            [title]="'Run in an isolated git worktree'"
+            [title]="'Run implementation in an isolated git worktree — the agent delegates file-editing work to worktree-isolated subagents, keeping changes off the main working tree until reviewed'"
           >
             <input
               type="checkbox"
@@ -151,9 +155,9 @@ export interface TaskStatusChange {
               [checked]="useWorktree()"
               (click)="$event.stopPropagation()"
               (change)="onWorktreeToggle($event)"
-              aria-label="Run in isolated worktree"
+              aria-label="Run implementation in an isolated git worktree"
             />
-            <span class="text-[10px] text-base-content/60">Worktree</span>
+            <span class="text-[10px] text-base-content/60">Isolate</span>
           </label>
           <button
             type="button"
@@ -166,12 +170,12 @@ export interface TaskStatusChange {
           </button>
         </div>
 
-        <!-- Worktree caveat (F-D1 pending): the worktree is created, but the
-             session still runs against the main workspace until association ships. -->
+        <!-- Isolation hint (F-D1): the agent isolates its own implementation
+             work in a worktree inside the workspace — the host creates nothing. -->
         @if (useWorktree()) {
-          <p class="text-[10px] leading-tight text-warning/80 mt-0.5">
-            Worktree is created, but the session runs against the main workspace
-            until association ships.
+          <p class="text-[10px] leading-tight text-base-content/50 mt-0.5">
+            The agent isolates implementation in a dedicated git worktree,
+            keeping changes off the main working tree until reviewed.
           </p>
         }
       </div>
