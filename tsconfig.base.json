@@ -72,6 +72,7 @@
       "@ptah-extension/skill-synthesis-ui": [
         "./libs/frontend/skill-synthesis-ui/src/index.ts"
       ],
+      "@ptah-extension/tasks-ui": ["./libs/frontend/tasks-ui/src/index.ts"],
       "@ptah-extension/core/testing": [
         "./libs/frontend/core/src/testing/index.ts"
       ],
@@ -116,6 +117,7 @@
       "@ptah-extension/skill-synthesis": [
         "./libs/backend/skill-synthesis/src/index.ts"
       ],
+      "@ptah-extension/task-specs": ["./libs/backend/task-specs/src/index.ts"],
       "@ptah-extension/platform-vscode": [
         "./libs/backend/platform-vscode/src/index.ts"
       ],
