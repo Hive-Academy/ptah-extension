@@ -66,6 +66,8 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_CLUSTERING_SERVICE: Symbol.for('PtahSkillClusteringService'),
   /** SpecHarvesterService — reconciles .ptah/specs verdicts into telemetry. */
   SPEC_HARVESTER_SERVICE: Symbol.for('PtahSpecHarvesterService'),
+  /** SubagentMetricsExtractor — transcript → per-invocation metrics + task_id. */
+  SUBAGENT_METRICS_EXTRACTOR: Symbol.for('PtahSubagentMetricsExtractor'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

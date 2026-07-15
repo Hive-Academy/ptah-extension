@@ -32,6 +32,11 @@ import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
 import { SkillSynthesisService } from '../skill-synthesis.service';
 import { SkillInvocationRecorder } from '../skill-invocation-recorder';
 import { SpecHarvesterService } from '../spec-harvester.service';
+import type {
+  SubagentMetricsExtractor,
+  ExtractedSubagentRun,
+} from '../subagent-metrics-extractor';
+import type { SubagentRunMetrics } from '../types';
 import {
   SKILL_TRIGGER_DEFAULTS,
   SKILL_TRIGGER_KEYS,
@@ -105,6 +110,8 @@ export class SkillTriggerService {
     private readonly stopRegistry: StopCallbackRegistry,
     @inject(SKILL_SYNTHESIS_TOKENS.SPEC_HARVESTER_SERVICE)
     private readonly harvester: SpecHarvesterService,
+    @inject(SKILL_SYNTHESIS_TOKENS.SUBAGENT_METRICS_EXTRACTOR)
+    private readonly metricsExtractor: SubagentMetricsExtractor,
   ) {}
 
   start(): void {
@@ -280,6 +287,7 @@ export class SkillTriggerService {
         succeeded: true,
         invokedAt: payload.timestamp,
         source: 'subagent',
+        transcriptPath: payload.transcriptPath,
       });
     }
 
@@ -454,6 +462,12 @@ export class SkillTriggerService {
     succeeded: boolean;
     invokedAt: number;
     source: 'tool-use' | 'prompt-expansion' | 'subagent';
+    /**
+     * Subagent transcript path (SubagentStop only). When present, per-invocation
+     * metrics + exact task_id are derived here — off the hot path. Extraction
+     * failure never aborts the invocation record (metrics stay all-null).
+     */
+    transcriptPath?: string;
   }): Promise<void> {
     try {
       let contextId: string | null = null;
@@ -470,6 +484,25 @@ export class SkillTriggerService {
           { source: input.source, error: message },
         );
       }
+
+      let metrics: SubagentRunMetrics | null = null;
+      let taskId: string | null = null;
+      if (input.transcriptPath) {
+        try {
+          const extracted: ExtractedSubagentRun =
+            await this.metricsExtractor.extract(input.transcriptPath);
+          metrics = extracted.metrics;
+          taskId = extracted.taskId;
+        } catch (error: unknown) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            '[skill-synthesis] subagent metrics extraction failed',
+            { source: input.source, error: message },
+          );
+        }
+      }
+
       this.recorder.recordSkillEvent({
         slug: input.slug,
         sessionId: input.sessionId,
@@ -478,6 +511,8 @@ export class SkillTriggerService {
         succeeded: input.succeeded,
         invokedAt: input.invokedAt,
         source: input.source,
+        metrics,
+        taskId,
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
