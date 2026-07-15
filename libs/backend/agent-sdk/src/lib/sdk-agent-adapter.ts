@@ -218,6 +218,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.logger.info(
       `[SdkAgentAdapter] Active auth changed on workspace switch → ${active.authMethod}/${active.providerId}, reconfiguring`,
     );
+    // The supported-model list and CLI detection are provider-specific and
+    // cached. A bare auth reconfigure (unlike the full config-change reset)
+    // would leave them populated with the PREVIOUS workspace's provider data,
+    // so `config:models-list` returns that provider's models and a send/resume
+    // can pick a model the newly-active provider rejects (ModelNotAvailable).
+    // Clear them so the new workspace's provider re-resolves its own models.
+    this.cliDetector.clearCache();
+    this.modelService.clearCache();
     const result = await this.authManager.configureAuthentication(
       active.authMethod,
     );

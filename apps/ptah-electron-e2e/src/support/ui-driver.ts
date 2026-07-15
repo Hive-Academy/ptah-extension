@@ -235,14 +235,23 @@ export class UiDriver {
   public async goto(view: ElectronView): Promise<void> {
     await this.syncWorkspace();
     if (view === 'chat' || view === 'canvas') {
+      // Electron has a single chat surface: the Orchestra Canvas. The old
+      // single-chat "Chat" tab was removed, so both 'chat' and 'canvas' land on
+      // the canvas grid. For 'chat' we additionally ensure one tile is open with
+      // a visible chat input (a tile hosts the full chat surface).
       await this.pushEvent({ type: 'switchView', payload: { view: 'chat' } });
-      const tabName = view === 'canvas' ? 'Canvas' : 'Chat';
       const tab = this.page
-        .getByRole('tab', { name: tabName })
-        .or(this.page.locator(`[title="${tabName}"]`))
+        .getByRole('tab', { name: 'Canvas' })
+        .or(this.page.locator('[title="Orchestra Canvas"]'))
         .first();
       await tab.waitFor({ state: 'visible' });
       await tab.click({ force: true });
+      await this.page
+        .locator('[data-testid="canvas-grid"]')
+        .waitFor({ state: 'visible' });
+      if (view === 'chat') {
+        await this.ensureCanvasChatTile();
+      }
       return;
     }
     if (view === 'editor') {
@@ -263,6 +272,40 @@ export class UiDriver {
     }
     const viewName = view === 'dashboard' ? 'analytics' : view;
     await this.pushEvent({ type: 'switchView', payload: { view: viewName } });
+  }
+
+  /**
+   * Ensure the canvas has a single open tile with a visible chat input. Reuses
+   * an existing tile when one is already present (so this never inflates the
+   * tile count); otherwise creates one from the empty-state CTA (or the FAB when
+   * tiles exist). Assumes the canvas grid is already visible.
+   */
+  private async ensureCanvasChatTile(): Promise<void> {
+    const input = this.page.locator(
+      'ptah-chat-input textarea[role="combobox"]',
+    );
+    if (
+      await input
+        .first()
+        .isVisible()
+        .catch(() => false)
+    ) {
+      return;
+    }
+
+    const fab = this.page.locator('[title="Add new session tile"]').first();
+    if (await fab.isVisible().catch(() => false)) {
+      await fab.click();
+    } else {
+      await this.page
+        .getByRole('button', { name: 'Create new session' })
+        .first()
+        .click();
+    }
+    await this.page
+      .getByRole('button', { name: 'Create', exact: true })
+      .click();
+    await input.first().waitFor({ state: 'visible' });
   }
 
   public async openTab(tab: ThothTab): Promise<void> {

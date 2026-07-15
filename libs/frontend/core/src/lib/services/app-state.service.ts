@@ -21,7 +21,8 @@ export type ViewType =
   | 'setup-hub'
   | 'thoth'
   | 'marketplace'
-  | 'tribunal';
+  | 'tribunal'
+  | 'tasks';
 
 /**
  * Active tab id within the Thoth hub. Mirrors the union exported from
@@ -70,6 +71,30 @@ export interface PendingSettingsTab {
   providerId?: string;
 }
 
+/**
+ * Request to launch a chat session seeded with an initial prompt — e.g. the
+ * standalone Tasks board firing `/ptah-core:orchestrate <TASK_ID>`. Consumed by
+ * the chat lib (a root-provided bridge service), which creates/focuses a
+ * session, submits the prompt through the normal send path, then settles
+ * `resolve`. Kept in `core` so `tasks-ui` never imports `chat` — the same
+ * signal-bridge inversion used by {@link CanvasSessionRequest} and
+ * {@link HarnessWorkflowRequest} (NFR-11 / D7).
+ */
+export interface ChatPromptRequest {
+  /** Prompt text submitted as the new session's first message. */
+  prompt: string;
+  /** Optional session/tab display name (e.g. the originating task id). */
+  sessionName?: string;
+  /**
+   * Internal: resolver wired by {@link AppStateManager.requestChatPrompt} so the
+   * caller can `await` the launch outcome. The chat consumer resolves
+   * `{ success: true }` once the prompt was submitted, or
+   * `{ success: false, error }` on failure. Optional so legacy callers / tests
+   * that fabricate the request shape still type-check.
+   */
+  resolve?: (result: { success: boolean; error?: string }) => void;
+}
+
 /** Request to open/focus a session in a canvas tile */
 export interface CanvasSessionRequest {
   sessionId: string;
@@ -83,6 +108,16 @@ export interface CanvasSessionRequest {
    * fabricate the request shape still type-check.
    */
   resolve?: (success: boolean) => void;
+}
+
+/**
+ * Request to adopt an existing chat tab as a canvas tile (F-D3). Fire-and-forget
+ * (no resolver): the canvas effect dedups and respects the tile cap, and nothing
+ * consumes it in single layout, so it is a harmless no-op there.
+ */
+export interface CanvasTabRequest {
+  tabId: string;
+  name?: string;
 }
 
 export interface AppState {
@@ -120,6 +155,7 @@ export class AppStateManager implements MessageHandler {
       'thoth',
       'marketplace',
       'tribunal',
+      'tasks',
     ];
     if (view && validViews.includes(view as ViewType)) {
       this.handleViewSwitch(view as ViewType);
@@ -145,9 +181,21 @@ export class AppStateManager implements MessageHandler {
   );
   /** Signal bridge: request to create a new session as a canvas tile (from "New Session" in grid mode) */
   private readonly _newCanvasSessionRequest = signal<string | null>(null);
+  /**
+   * Signal bridge: request to adopt an EXISTING tab as a canvas tile without
+   * creating a new tab/session. Fire-and-forget (mirrors
+   * {@link _newCanvasSessionRequest}): used by the Tasks-board launch path so an
+   * orchestration tab created while the canvas is ALREADY mounted becomes a tile
+   * (the one gap `restoreCanvasTilesFromTabs` — which only runs on canvas mount —
+   * doesn't cover). Nothing consumes it in single layout, so it's a harmless
+   * no-op there; `CanvasStore.adoptTab` dedups and respects the tile cap.
+   */
+  private readonly _canvasTabRequest = signal<CanvasTabRequest | null>(null);
   /** Signal bridge: request to open the harness surface and run a workflow */
   private readonly _harnessWorkflowRequest =
     signal<HarnessWorkflowRequest | null>(null);
+  /** Signal bridge: request to launch a chat session with a seed prompt (Tasks board → orchestrate) */
+  private readonly _chatPromptRequest = signal<ChatPromptRequest | null>(null);
   private readonly _pendingSettingsTab = signal<PendingSettingsTab | null>(
     null,
   );
@@ -205,8 +253,12 @@ export class AppStateManager implements MessageHandler {
   readonly canvasSessionRequest = this._canvasSessionRequest.asReadonly();
   /** Pending request to create a new canvas tile (consumed by OrchestraCanvasComponent) */
   readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
+  /** Pending request to adopt an existing tab as a canvas tile (consumed by OrchestraCanvasComponent) */
+  readonly canvasTabRequest = this._canvasTabRequest.asReadonly();
   /** Pending request to open the harness surface workflow (consumed by HarnessBuilderViewComponent) */
   readonly harnessWorkflowRequest = this._harnessWorkflowRequest.asReadonly();
+  /** Pending request to launch a chat session with a seed prompt (consumed by the chat-lib bridge) */
+  readonly chatPromptRequest = this._chatPromptRequest.asReadonly();
   readonly pendingSettingsTab = this._pendingSettingsTab.asReadonly();
   /** Active tab id inside the Thoth hub (memory / skills / cron / gateway). */
   readonly thothActiveTab = this._thothActiveTab.asReadonly();
@@ -500,9 +552,45 @@ export class AppStateManager implements MessageHandler {
     this._newCanvasSessionRequest.set(null);
   }
 
+  /**
+   * Request that the canvas adopts an already-existing tab as a tile (no new
+   * tab/session created). Fire-and-forget: the canvas effect calls
+   * `CanvasStore.adoptTab` (dedups, respects `MAX_TILES`) and focuses it. When
+   * the canvas isn't mounted (single layout) nothing consumes the signal — a
+   * harmless no-op, so callers need not gate on layout themselves.
+   */
+  requestCanvasTab(tabId: string, name?: string): void {
+    this._canvasTabRequest.set({ tabId, ...(name ? { name } : {}) });
+  }
+
+  /** Clear the canvas tab-adoption request after the canvas has processed it. */
+  clearCanvasTabRequest(): void {
+    this._canvasTabRequest.set(null);
+  }
+
   /** Request that the harness surface opens and runs the given workflow. */
   requestHarnessWorkflow(req: HarnessWorkflowRequest): void {
     this._harnessWorkflowRequest.set(req);
+  }
+
+  /**
+   * Request that the chat lib launches a session seeded with `request.prompt`.
+   * Mirrors {@link requestCanvasSession}: the chat-lib bridge consumes the
+   * signal, creates/focuses a session, submits the prompt, and settles
+   * `request.resolve`. Fire-and-forget for callers that don't need the outcome;
+   * awaiters wire a `resolve` callback (see the Tasks board Start flow).
+   */
+  requestChatPrompt(request: ChatPromptRequest): void {
+    this._chatPromptRequest.set(request);
+  }
+
+  /**
+   * Clear the chat-prompt request after the bridge has processed it. Callers
+   * should invoke `request.resolve(...)` BEFORE calling this so any awaiter
+   * unblocks; clearing alone does not settle the promise.
+   */
+  clearChatPromptRequest(): void {
+    this._chatPromptRequest.set(null);
   }
 
   /**

@@ -24,6 +24,11 @@ export {
   ActiveProviderResolver,
   type ActiveAuth,
 } from './lib/auth/active-provider-resolver';
+export { WorkspaceProviderProfileResolver } from './lib/auth/workspace-provider-profile-resolver';
+export {
+  ProviderProxyPool,
+  type AcquiredProxy,
+} from './lib/auth/provider-proxy-pool';
 export type {
   IAuthStrategy,
   AuthConfigureResult,

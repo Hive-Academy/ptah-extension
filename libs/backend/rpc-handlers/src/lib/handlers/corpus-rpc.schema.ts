@@ -62,3 +62,9 @@ export const CorpusRebuildParamsSchema = z.object({
 export const CorpusDeleteParamsSchema = z.object({
   name: CorpusNameSchema,
 });
+
+export const CorpusSuggestParamsSchema = z.object({
+  workspaceRoot: z.string().min(1).optional(),
+  minClusterSize: z.number().int().positive().max(100).optional(),
+  limit: z.number().int().positive().max(20).optional(),
+});

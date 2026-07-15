@@ -166,6 +166,7 @@ export * from './organisms/execution/agent-execution.component';
 export * from './organisms/message-bubble.component';
 export * from './organisms/transcript/chat-transcript.component';
 export * from './organisms/agent-monitor-panel.component';
+export * from './organisms/background-agent-tray.component';
 export * from './organisms/workspace-sidebar.component';
 export * from './templates/chat-view.component';
 export * from './templates/app-shell.component';

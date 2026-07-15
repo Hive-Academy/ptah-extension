@@ -30,3 +30,4 @@ export { MessageDispatchService } from './message-dispatch.service';
 export { SessionStatsAggregatorService } from './session-stats-aggregator.service';
 export { ChatLifecycleService } from './chat-lifecycle.service';
 export { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
+export { TaskPromptBridgeService } from './task-prompt-bridge.service';

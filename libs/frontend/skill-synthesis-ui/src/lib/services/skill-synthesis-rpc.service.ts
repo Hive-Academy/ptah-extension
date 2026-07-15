@@ -1,9 +1,11 @@
 import { Injectable, inject } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
+  AgentScorecard,
   CloneSummary,
   SkillCloneInvocationStats,
   SkillCloneKind,
+  SkillSynthesisGetScorecardDetailResult,
   SkillSuggestionDetail,
   SkillSuggestionSummary,
   SkillSynthesisCandidateDetail,
@@ -384,6 +386,46 @@ export class SkillSynthesisRpcService {
       return result.data.stats;
     }
     throw new Error(result.error || 'Failed to load invocation stats');
+  }
+
+  /**
+   * Batched per-subagent scorecards for the given agent-kind slugs. One RPC
+   * call powers every visible agent clone card (R6/NFR perf). Slugs absent
+   * from the result have no graded/usage data yet — the UI treats a missing
+   * entry as "no data yet".
+   */
+  public async getScorecards(
+    slugs: string[],
+  ): Promise<Record<string, AgentScorecard>> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:getScorecards',
+      { slugs },
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data.scorecards;
+    }
+    throw new Error(result.error || 'Failed to load scorecards');
+  }
+
+  /**
+   * Lazily-loaded scorecard detail (recent graded invocation rows + a bounded
+   * findings excerpt) for a single agent slug — fetched only on card
+   * expansion, never during the Library list render (R7/NFR perf).
+   */
+  public async getScorecardDetail(
+    slug: string,
+    limit?: number,
+  ): Promise<SkillSynthesisGetScorecardDetailResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:getScorecardDetail',
+      limit !== undefined ? { slug, limit } : { slug },
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to load scorecard detail');
   }
 
   /** List cluster-derived skill suggestions awaiting human decision. */

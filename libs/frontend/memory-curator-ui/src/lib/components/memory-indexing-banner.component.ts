@@ -18,7 +18,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
     @switch (banner.kind) {
       @case ('never-indexed') {
         <div
-          class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 mb-2"
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3"
           role="status"
           data-testid="memory-banner-never-indexed"
         >
@@ -47,7 +47,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
       }
       @case ('code-only-no-memory') {
         <div
-          class="flex flex-col gap-0.5 rounded-xl border border-info/40 bg-info/5 px-4 py-3"
+          class="flex flex-col gap-0.5 rounded-xl border border-info/40 bg-info/5 px-4 py-3 mb-2"
           role="status"
           data-testid="memory-banner-code-only"
         >
@@ -65,7 +65,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
       }
       @case ('indexing') {
         <div
-          class="flex flex-wrap items-center gap-3 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3"
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3 mb-2"
           role="status"
           data-testid="memory-banner-indexing"
         >
@@ -97,7 +97,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
       }
       @case ('paused') {
         <div
-          class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3"
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 mb-2"
           role="status"
           data-testid="memory-banner-paused"
         >
@@ -122,7 +122,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
       }
       @case ('stale') {
         <div
-          class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3"
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 mb-2"
           role="status"
           data-testid="memory-banner-stale"
         >
@@ -141,7 +141,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
       }
       @case ('error') {
         <div
-          class="flex flex-wrap items-center gap-3 rounded-xl border border-error/40 bg-error/5 px-4 py-3"
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-error/40 bg-error/5 px-4 py-3 mb-2"
           role="status"
           data-testid="memory-banner-error"
         >

@@ -17,3 +17,7 @@ Config.setConcurrency(null);
 // OffthreadVideo seeks the source webm via ffmpeg; keep the cache generous so
 // long scenes do not thrash on re-seeks during render.
 Config.setOffthreadVideoCacheSizeInBytes(2 * 1024 * 1024 * 1024);
+// The 3D concept scenes (src/concept3d) render through WebGL; headless
+// Chrome's default SwiftShader GL is slow and flaky for it — ANGLE is the
+// renderer Remotion recommends for @remotion/three.
+Config.setChromiumOpenGlRenderer('angle');

@@ -9,6 +9,7 @@ import {
   type ProviderProfile,
   createEmptyAuthEnv,
   SessionId,
+  OLLAMA_CLOUD_DIRECT_BASE_URL,
 } from '@ptah-extension/shared';
 import {
   Logger,
@@ -951,7 +952,13 @@ export class PtahCliRegistry {
       return authEnv;
     }
 
-    authEnv.ANTHROPIC_BASE_URL = provider.baseUrl;
+    // Ollama Cloud with a real stored key goes straight to ollama.com's
+    // Anthropic-compatible endpoint — no dependency on a local daemon owning
+    // port 11434. Placeholder key (signin-only setup) keeps the daemon path.
+    authEnv.ANTHROPIC_BASE_URL =
+      provider.id === 'ollama-cloud' && apiKey !== OLLAMA_AUTH_TOKEN_PLACEHOLDER
+        ? OLLAMA_CLOUD_DIRECT_BASE_URL
+        : provider.baseUrl;
     const authEnvVar = getProviderAuthEnvVar(agentConfig.providerId);
     authEnv[authEnvVar] = apiKey;
 

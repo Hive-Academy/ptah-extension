@@ -4,6 +4,10 @@ export const AUTH_PROVIDERS_TOKENS = {
   SDK_PROVIDER_MODELS: Symbol.for('SdkProviderModels'),
   SDK_MODEL_RESOLVER: Symbol.for('SdkModelResolver'),
   SDK_ACTIVE_PROVIDER_RESOLVER: Symbol.for('SdkActiveProviderResolver'),
+  SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER: Symbol.for(
+    'SdkWorkspaceProviderProfileResolver',
+  ),
+  SDK_PROVIDER_PROXY_POOL: Symbol.for('SdkProviderProxyPool'),
 
   SDK_API_KEY_STRATEGY: Symbol.for('SdkApiKeyStrategy'),
   SDK_OAUTH_PROXY_STRATEGY: Symbol.for('SdkOAuthProxyStrategy'),

@@ -19,9 +19,9 @@ Pure contracts (interfaces + tokens) for the Letta-style memory subsystem. Lets 
 
 ## Public API
 
-Types: `MemoryHit`, `MemoryHitPage`, `MemoryRecord`, `MemoryListPage`, `SymbolChunkInsert`, `ExtractedMemoryDraft`, `ResolvedMemoryDraft`.
-Interfaces: `IMemoryReader`, `IMemoryLister`, `ICuratorLLM`, `ICompactionCallbackRegistry`, `ISymbolSink`.
-Tokens: `MEMORY_CONTRACT_TOKENS`.
+Types: `MemoryHit`, `MemoryHitPage`, `MemoryRecord`, `MemoryListPage`, `SymbolChunkInsert`, `ExtractedMemoryDraft`, `ResolvedMemoryDraft`, `BuildCorpusParams`, `CorpusRef`, `CorpusListEntry`, `CorpusRebuildResult`, `CorpusPrimeResult`.
+Interfaces: `IMemoryReader`, `IMemoryLister`, `ICuratorLLM`, `ICompactionCallbackRegistry`, `ISymbolSink`, `IKnowledgeAgent`.
+Tokens: `MEMORY_CONTRACT_TOKENS`, `KNOWLEDGE_AGENT_TOKEN`.
 
 ## Internal Structure
 

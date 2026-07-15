@@ -28,9 +28,6 @@ import { GatewayService } from '../gateway.service';
 import { BindingStore } from '../binding.store';
 import { ConversationStore } from '../conversation.store';
 import { MessageStore } from '../message.store';
-import { FfmpegDecoder } from '../voice/ffmpeg-decoder';
-import { WhisperTranscriber } from '../voice/whisper-transcriber';
-import { KokoroSynthesizer } from '../voice/kokoro-synthesizer';
 import { GrammyTelegramAdapter } from '../adapters/telegram/grammy.adapter';
 import { DiscordAdapter } from '../adapters/discord/discord.adapter';
 import { BoltSlackAdapter } from '../adapters/slack/bolt.adapter';
@@ -58,18 +55,6 @@ export function registerMessagingGatewayServices(
   container.registerSingleton(
     GATEWAY_TOKENS.GATEWAY_MESSAGE_STORE,
     MessageStore,
-  );
-  container.registerSingleton(
-    GATEWAY_TOKENS.GATEWAY_FFMPEG_DECODER,
-    FfmpegDecoder,
-  );
-  container.registerSingleton(
-    GATEWAY_TOKENS.GATEWAY_WHISPER_TRANSCRIBER,
-    WhisperTranscriber,
-  );
-  container.registerSingleton(
-    GATEWAY_TOKENS.GATEWAY_KOKORO_SYNTHESIZER,
-    KokoroSynthesizer,
   );
   container.registerSingleton(GrammyTelegramAdapter);
   container.registerSingleton(DiscordAdapter);

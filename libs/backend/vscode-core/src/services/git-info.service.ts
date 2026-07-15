@@ -24,6 +24,7 @@ import {
   type GitDiscardResult,
   type GitCommitResult,
   type GitShowFileResult,
+  type GitPushResult,
   type BranchRef,
   type GitBranchesResult,
   type GitCheckoutResult,
@@ -362,6 +363,32 @@ export class GitInfoService {
         error: message_,
       } as unknown as Error);
       return { success: false, error: message_ };
+    }
+  }
+
+  /**
+   * Push the current branch to its upstream remote.
+   * Runs: git push
+   * Uses the longer worktree timeout since push is a network operation.
+   */
+  async push(workspacePath: string): Promise<GitPushResult> {
+    try {
+      const { exitCode, stderr } = await this.execGit(['push'], workspacePath, {
+        timeoutMs: WORKTREE_GIT_TIMEOUT_MS,
+      });
+
+      if (exitCode !== 0) {
+        return { success: false, error: stderr.trim() || 'git push failed' };
+      }
+
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[GitInfoService] push failed', {
+        workspacePath,
+        error: message,
+      } as unknown as Error);
+      return { success: false, error: message };
     }
   }
 

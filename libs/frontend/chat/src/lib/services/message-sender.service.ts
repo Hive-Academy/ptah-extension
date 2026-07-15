@@ -44,6 +44,22 @@ import { MessageValidationService } from './message-validation.service';
 import type { SendMessageOptions } from '@ptah-extension/chat-types';
 
 /**
+ * Structured outcome of a send attempt.
+ *
+ * `success: false` covers BOTH a thrown/transport failure AND a *structural*
+ * backend rejection — a `chat:start`/`chat:continue` round trip that succeeds at
+ * the transport layer but returns `data.success === false` (AUTH_REQUIRED,
+ * model-unavailable, license gate). Callers that only care about fire-and-forget
+ * ignore this; the Tasks Start-flow bridge branches on it so a structural
+ * failure no longer resolves as success (TASK_2026_157 F-D2 — a phantom
+ * `in_progress` transition on a session that never actually started).
+ */
+export interface SendOutcome {
+  success: boolean;
+  error?: string;
+}
+
+/**
  * Centralized service for sending messages
  *
  * Replaces callback-based message sending with direct method calls.
@@ -115,6 +131,31 @@ export class MessageSenderService {
     const record = this.conversationRegistry.getRecord(convId);
     if (!record || record.sessions.length === 0) return null;
     return record.sessions[record.sessions.length - 1] as string;
+  }
+
+  /**
+   * Guard against a stale model surviving a workspace switch (defense in depth).
+   *
+   * `ModelStateService.currentModel()` is a single global signal; after
+   * switching to a workspace on a different provider the previously-selected
+   * model may no longer be offered. Sending it verbatim makes the backend
+   * reject the turn ("Model X is not available for the configured provider").
+   * If `model` is not present in the freshly loaded `availableModels()`, fall
+   * back to the provider's selected / `default` / first model; return
+   * `undefined` (omit the field, let the backend default) only when the list is
+   * empty of a usable candidate.
+   */
+  private resolveValidModel(model: string | undefined): string | undefined {
+    if (!model) return undefined;
+    const available = this.modelState.availableModels();
+    // No list loaded yet — cannot validate, pass the model through unchanged.
+    if (available.length === 0) return model;
+    if (available.some((m) => m.id === model)) return model;
+    const fallback =
+      available.find((m) => m.isSelected) ??
+      available.find((m) => m.id === 'default') ??
+      available[0];
+    return fallback?.id;
   }
 
   /**
@@ -233,13 +274,19 @@ export class MessageSenderService {
    * @param content - Message content
    * @param options - Optional send options (files, images, effort)
    */
-  async send(content: string, options?: SendMessageOptions): Promise<void> {
+  async send(
+    content: string,
+    options?: SendMessageOptions,
+  ): Promise<SendOutcome> {
     const validation = this.validator.validate(content);
     if (!validation.valid) {
       console.warn(
         `[MessageSender] Invalid message content: ${validation.reason}`,
       );
-      return;
+      return {
+        success: false,
+        error: validation.reason ?? 'Invalid message content',
+      };
     }
     const sanitized = this.validator.sanitize(content);
     const targetTabId = options?.tabId;
@@ -252,10 +299,9 @@ export class MessageSenderService {
     const hasExistingSession = targetTab && sessionId != null;
 
     if (hasExistingSession && sessionId) {
-      await this.continueConversation(sanitized, sessionId, options);
-    } else {
-      await this.startNewConversation(sanitized, options);
+      return this.continueConversation(sanitized, sessionId, options);
     }
+    return this.startNewConversation(sanitized, options);
   }
 
   /**
@@ -270,7 +316,7 @@ export class MessageSenderService {
   private async startNewConversation(
     content: string,
     options?: SendMessageOptions,
-  ): Promise<void> {
+  ): Promise<SendOutcome> {
     const files = options?.files;
     const images = options?.images;
     const effort = options?.effort;
@@ -281,14 +327,14 @@ export class MessageSenderService {
         console.error(
           '[MessageSender] startNewConversation: Services initialization timeout',
         );
-        return;
+        return { success: false, error: 'Services initialization timeout' };
       }
 
       if (!this.claudeRpcService || !this.vscodeService) {
         console.error(
           '[MessageSender] Services not available after initialization',
         );
-        return;
+        return { success: false, error: 'Services not available' };
       }
       const workspacePath = this.vscodeService.config().workspaceRoot;
       if (!activeTabId) {
@@ -335,8 +381,9 @@ export class MessageSenderService {
         userMessage,
       ]);
       const ptahCliId = this.ptahCliState.selectedAgentId() ?? undefined;
-      const effectiveModel =
-        activeTab?.overrideModel ?? this.modelState.currentModel();
+      const effectiveModel = this.resolveValidModel(
+        activeTab?.overrideModel ?? this.modelState.currentModel(),
+      );
       const effectiveEffort = this.resolveEffort(
         effort,
         activeTab?.overrideEffort,
@@ -351,7 +398,7 @@ export class MessageSenderService {
           ...(workspacePath ? { workspacePath } : {}),
           ptahCliId, // Route to Ptah CLI agent adapter
           options: {
-            model: effectiveModel,
+            ...(effectiveModel ? { model: effectiveModel } : {}),
             ...(files ? { files } : {}),
             ...(images && images.length > 0 ? { images } : {}),
             ...(effectiveEffort ? { effort: effectiveEffort } : {}),
@@ -369,7 +416,15 @@ export class MessageSenderService {
         this.tabManager.markLoaded(activeTabId);
         this.sessionManager.setStatus('loaded');
         this.sessionManager.failSession();
+        // Structural failure: transport succeeded but the backend rejected the
+        // turn. Signal it so the Start-flow bridge does not treat it as a
+        // started session (F-D2). Callers ignoring the return are unaffected.
+        return {
+          success: false,
+          error: result.data?.error ?? result.error ?? 'Failed to start chat',
+        };
       }
+      return { success: true };
     } catch (error) {
       console.error('[MessageSender] Failed to start new conversation:', error);
 
@@ -397,7 +452,7 @@ export class MessageSenderService {
     content: string,
     sessionId: SessionId,
     options?: SendMessageOptions,
-  ): Promise<void> {
+  ): Promise<SendOutcome> {
     const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
     const abortSignal = activeTabId
       ? this.wireAbortDispatch(activeTabId)
@@ -433,7 +488,7 @@ export class MessageSenderService {
     content: string,
     sessionId: SessionId,
     options?: SendMessageOptions,
-  ): Promise<void> {
+  ): Promise<SendOutcome> {
     const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
     const abortSignal = activeTabId
       ? this.tabManager.getAbortSignal(activeTabId)
@@ -459,7 +514,7 @@ export class MessageSenderService {
     sessionId: SessionId,
     options: SendMessageOptions | undefined,
     abortSignal: AbortSignal | undefined,
-  ): Promise<void> {
+  ): Promise<SendOutcome> {
     const files = options?.files;
     const images = options?.images;
     const effort = options?.effort;
@@ -470,14 +525,14 @@ export class MessageSenderService {
         console.error(
           '[MessageSender] continueConversation: Services initialization timeout',
         );
-        return;
+        return { success: false, error: 'Services initialization timeout' };
       }
 
       if (!this.claudeRpcService || !this.vscodeService) {
         console.error(
           '[MessageSender] Services not available after initialization',
         );
-        return;
+        return { success: false, error: 'Services not available' };
       }
       const cachedWorkspacePath = this.vscodeService.config().workspaceRoot;
       let resolvedWorkspacePath = cachedWorkspacePath;
@@ -516,8 +571,7 @@ export class MessageSenderService {
             this.tabManager.detachSessionAndMarkLoaded(activeTabId);
           }
 
-          await this.startNewConversation(content, options);
-          return;
+          return this.startNewConversation(content, options);
         }
       }
 
@@ -525,8 +579,7 @@ export class MessageSenderService {
         console.warn(
           '[MessageSender] No active tab for continuing conversation â€” starting new',
         );
-        await this.startNewConversation(content, options);
-        return;
+        return this.startNewConversation(content, options);
       }
 
       const activeTab =
@@ -546,8 +599,9 @@ export class MessageSenderService {
         ...(activeTab?.messages ?? []),
         userMessage,
       ]);
-      const effectiveModel =
-        activeTab?.overrideModel ?? this.modelState.currentModel();
+      const effectiveModel = this.resolveValidModel(
+        activeTab?.overrideModel ?? this.modelState.currentModel(),
+      );
       const effectiveEffort = this.resolveEffort(
         effort,
         activeTab?.overrideEffort,
@@ -562,7 +616,7 @@ export class MessageSenderService {
           ...(resolvedWorkspacePath
             ? { workspacePath: resolvedWorkspacePath }
             : {}),
-          model: effectiveModel,
+          ...(effectiveModel ? { model: effectiveModel } : {}),
           files: files ?? [],
           ...(images && images.length > 0 ? { images } : {}),
           ...(effectiveEffort ? { effort: effectiveEffort } : {}),
@@ -579,11 +633,16 @@ export class MessageSenderService {
         this.tabManager.markLoaded(activeTabId);
         this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
-      } else {
-        this.sessionManager.setStatus('streaming');
-        this.tabManager.markStreaming(activeTabId);
-        this.tabManager.markTabStreaming(activeTabId);
+        return {
+          success: false,
+          error:
+            result.data?.error ?? result.error ?? 'Failed to continue chat',
+        };
       }
+      this.sessionManager.setStatus('streaming');
+      this.tabManager.markStreaming(activeTabId);
+      this.tabManager.markTabStreaming(activeTabId);
+      return { success: true };
     } catch (error) {
       console.error('[MessageSender] Failed to continue conversation:', error);
       if (activeTabId) {
@@ -591,6 +650,10 @@ export class MessageSenderService {
         this.tabManager.markTabIdle(activeTabId);
       }
       this.sessionManager.setStatus('loaded');
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 }

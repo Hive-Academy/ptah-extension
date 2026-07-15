@@ -1,11 +1,18 @@
 <div
-  role="article"
-  [attr.aria-label]="'Session: ' + session().name"
-  class="bg-base-200/50 rounded-lg p-3.5 border border-base-300 space-y-3"
+  role="button"
+  tabindex="0"
+  [attr.aria-label]="'View details for session: ' + session().name"
+  (click)="activate()"
+  (keydown.enter)="activate()"
+  (keydown.space)="$event.preventDefault(); activate()"
+  class="group bg-base-200/50 rounded-lg p-3.5 border border-base-300 space-y-3 cursor-pointer transition-colors hover:bg-base-200/80 hover:border-primary/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
 >
   <div class="flex items-start justify-between gap-2">
     <div class="min-w-0 flex-1">
-      <h3 class="text-sm font-semibold truncate" [title]="session().name">
+      <h3
+        class="text-sm font-semibold truncate group-hover:text-primary transition-colors"
+        [title]="session().name"
+      >
         {{ session().name }}
       </h3>
       <div class="flex items-center gap-2 mt-0.5">

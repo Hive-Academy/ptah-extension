@@ -155,6 +155,8 @@ export const MESSAGE_TYPES = {
   GATEWAY_SESSION_DETACHED: 'gateway:sessionDetached',
   /** Backend → Frontend: Whisper voice model download progress tick (Electron only). */
   VOICE_MODEL_DOWNLOAD_PROGRESS: 'voice:modelDownloadProgress',
+  /** Backend → Frontend: a cloud voice provider failed (auth/quota/network/provider-error). */
+  VOICE_PROVIDER_ERROR: 'voice:providerError',
   /** Backend → Frontend: update lifecycle state changed (Electron only). */
   UPDATE_STATUS_CHANGED: 'update:statusChanged',
   /** Backend → Frontend: workspace indexing progress tick. */

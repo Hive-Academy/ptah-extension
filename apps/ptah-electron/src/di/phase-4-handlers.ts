@@ -42,6 +42,7 @@ import {
   VoiceRpcHandlers,
   IndexingRpcHandlers,
   SkillsShRpcHandlers,
+  TasksRpcHandlers,
   registerHarnessServices,
   registerChatServices,
   registerSharedRpcHandlers,
@@ -109,6 +110,7 @@ export function registerPhase4Handlers(
   container.registerSingleton(GatewayRpcHandlers);
   container.registerSingleton(VoiceRpcHandlers);
   container.registerSingleton(IndexingRpcHandlers);
+  container.registerSingleton(TasksRpcHandlers);
 
   logger.info(
     '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',

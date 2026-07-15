@@ -2,6 +2,25 @@ import 'reflect-metadata';
 import { SkillEnhancerService } from './skill-enhancer.service';
 import type { SkillSynthesisSettings } from './types';
 import type { JudgeDecision } from './skill-judge.service';
+import type { AgentScorecard } from '@ptah-extension/shared';
+
+function emptyScorecard(slug: string): AgentScorecard {
+  return {
+    slug,
+    totalInvocations: 0,
+    gradedCount: 0,
+    gradedSuccessRate: null,
+    avgInputTokens: null,
+    avgOutputTokens: null,
+    avgCacheReadTokens: null,
+    totalInputTokens: null,
+    totalOutputTokens: null,
+    avgCostUsd: null,
+    avgDurationMs: null,
+    avgToolCount: null,
+    recentVerdicts: [],
+  };
+}
 
 function makeSettings(
   overrides: Partial<SkillSynthesisSettings> = {},
@@ -71,6 +90,7 @@ interface Harness {
   internalQuery: { execute: jest.Mock };
   repropagation: { repropagate: jest.Mock };
   specFindings: { getRecentFindings: jest.Mock };
+  scorecard: { getScorecards: jest.Mock };
 }
 
 function makeHarness(opts: {
@@ -85,6 +105,10 @@ function makeHarness(opts: {
   lastEnhancedAt?: number | null;
   workspaceRoot?: string;
   specFindings?: string | null;
+  /** Scorecard returned for the slug; defaults to a no-data empty card. */
+  scorecardCard?: AgentScorecard;
+  /** When true, the scorecard service is not injected (dependency absent). */
+  scorecardAbsent?: boolean;
 }): Harness {
   const workspaceProvider = {
     getConfiguration: jest.fn(() => ''),
@@ -151,6 +175,15 @@ function makeHarness(opts: {
   const specFindings = {
     getRecentFindings: jest.fn().mockResolvedValue(opts.specFindings ?? null),
   };
+  const scorecard = {
+    getScorecards: jest.fn((slugs: readonly string[]) => {
+      const record: Record<string, AgentScorecard> = {};
+      for (const s of slugs) {
+        record[s] = opts.scorecardCard ?? emptyScorecard(s);
+      }
+      return record;
+    }),
+  };
 
   const svc = new SkillEnhancerService(
     logger as never,
@@ -163,6 +196,7 @@ function makeHarness(opts: {
     internalQuery as never,
     repropagation as never,
     specFindings as never,
+    (opts.scorecardAbsent ? null : scorecard) as never,
   );
 
   return {
@@ -174,6 +208,7 @@ function makeHarness(opts: {
     internalQuery,
     repropagation,
     specFindings,
+    scorecard,
   };
 }
 
@@ -499,6 +534,148 @@ describe('SkillEnhancerService', () => {
       'deep-research',
       expect.any(String),
     );
+  });
+
+  // ─── Batch 6: metrics-aware agent enhancement (R8) ────────────────────────
+
+  const AGENT_CANDIDATE =
+    '---\nname: deep-research\ndescription: Research deeply\n---\nImproved agent body';
+
+  function scorecardWithData(): AgentScorecard {
+    return {
+      slug: 'deep-research',
+      totalInvocations: 12,
+      gradedCount: 7,
+      gradedSuccessRate: 5 / 7,
+      avgInputTokens: 48200,
+      avgOutputTokens: 6100,
+      avgCacheReadTokens: 210000,
+      totalInputTokens: 578400,
+      totalOutputTokens: 73200,
+      avgCostUsd: 0.41,
+      avgDurationMs: 252000,
+      avgToolCount: 23,
+      recentVerdicts: [
+        { taskId: 'TASK_2026_155', succeeded: false, reconciledAt: 3 },
+        { taskId: 'TASK_2026_154', succeeded: true, reconciledAt: 2 },
+      ],
+    };
+  }
+
+  it('agent + scorecard data: bounded block injected into prompt AND judge context', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText: AGENT_CANDIDATE,
+      scorecardCard: scorecardWithData(),
+    });
+    await h.svc.enhance('deep-research', makeSettings(), { kind: 'agent' });
+
+    const prompt = h.internalQuery.execute.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain('Measured scorecard for this agent');
+    expect(prompt).toContain('Reconciled success rate: 71% (5/7 graded runs');
+    expect(prompt).toContain('FAILED(TASK_2026_155)');
+    expect(prompt).toContain('COMPLETE(TASK_2026_154)');
+    expect(prompt).toContain(
+      "reduce token consumption and fix recurring failure patterns while preserving the agent's role, triggers, and frontmatter routing",
+    );
+
+    // The judge received the SAME block as trailing context (R9).
+    const judgeContext = h.judge.judge.mock.calls[0][3] as string;
+    expect(judgeContext).toContain('Measured scorecard for this agent');
+  });
+
+  it('agent + scorecard data: injected block is ≤1,200 chars (R8.3)', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText: AGENT_CANDIDATE,
+      scorecardCard: scorecardWithData(),
+    });
+    await h.svc.enhance('deep-research', makeSettings(), { kind: 'agent' });
+    const prompt = h.internalQuery.execute.mock.calls[0][0].prompt as string;
+    const block = prompt.slice(prompt.indexOf('Measured scorecard'));
+    expect(block.length).toBeLessThanOrEqual(1200);
+  });
+
+  it('agent + NO scorecard data: prompt byte-identical to scorecard-service-absent (R8.2)', async () => {
+    const withService = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText: AGENT_CANDIDATE,
+      // default emptyScorecard → no data
+    });
+    await withService.svc.enhance('deep-research', makeSettings(), {
+      kind: 'agent',
+    });
+    const promptNoData = withService.internalQuery.execute.mock.calls[0][0]
+      .prompt as string;
+
+    const absent = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText: AGENT_CANDIDATE,
+      scorecardAbsent: true,
+    });
+    await absent.svc.enhance('deep-research', makeSettings(), {
+      kind: 'agent',
+    });
+    const promptAbsent = absent.internalQuery.execute.mock.calls[0][0]
+      .prompt as string;
+
+    expect(promptNoData).toBe(promptAbsent);
+    expect(promptNoData).not.toContain('Measured scorecard');
+    // No block → judge context is undefined.
+    expect(withService.judge.judge.mock.calls[0][3]).toBeUndefined();
+  });
+
+  it('kind=skill: scorecard never consulted and no block injected', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText:
+        '---\nname: deep-research\ndescription: Research deeply\n---\nImproved body',
+      scorecardCard: scorecardWithData(),
+    });
+    await h.svc.enhance('deep-research', makeSettings());
+    expect(h.scorecard.getScorecards).not.toHaveBeenCalled();
+    const prompt = h.internalQuery.execute.mock.calls[0][0].prompt as string;
+    expect(prompt).not.toContain('Measured scorecard');
+  });
+
+  it('kind=command: scorecard never consulted and no block injected', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText: 'Improved command prompt',
+      scorecardCard: scorecardWithData(),
+    });
+    await h.svc.enhance('deep-research', makeSettings(), { kind: 'command' });
+    expect(h.scorecard.getScorecards).not.toHaveBeenCalled();
+  });
+
+  it('gates untouched: agent cooldown short-circuits before scorecard/LLM', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText: AGENT_CANDIDATE,
+      scorecardCard: scorecardWithData(),
+      lastEnhancedAt: Date.now(),
+    });
+    const result = await h.svc.enhance('deep-research', makeSettings(), {
+      kind: 'agent',
+    });
+    expect(result.skipReason).toBe('cooldown');
+    expect(h.scorecard.getScorecards).not.toHaveBeenCalled();
+    expect(h.internalQuery.execute).not.toHaveBeenCalled();
+  });
+
+  it('gates untouched: agent below-threshold short-circuits before scorecard/LLM', async () => {
+    const h = makeHarness({
+      judgeDecision: { passed: true, score: 8, reason: 'judge-verdict' },
+      candidateText: AGENT_CANDIDATE,
+      scorecardCard: scorecardWithData(),
+      stats: { total: 2, succeeded: 1, failed: 1, distinctContexts: 1 },
+    });
+    const result = await h.svc.enhance('deep-research', makeSettings(), {
+      kind: 'agent',
+    });
+    expect(result.skipReason).toBe('below-threshold');
+    expect(h.scorecard.getScorecards).not.toHaveBeenCalled();
+    expect(h.internalQuery.execute).not.toHaveBeenCalled();
   });
 
   it('revert kind=command restores the flat clone', async () => {

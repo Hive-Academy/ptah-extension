@@ -65,7 +65,10 @@ describe('migration 0028_gateway_conversation_workspace_root — registry entry'
   });
 
   it('is the highest bundled version', () => {
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(28);
+    // Bumped to 30 when TASK_2026_158 appended 0030_skill_event_metrics to the
+    // MIGRATIONS tuple. This assertion tracks the current highest version and
+    // moves forward with every appended migration (see 0027 → 0028 precedent).
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(30);
   });
 });
 

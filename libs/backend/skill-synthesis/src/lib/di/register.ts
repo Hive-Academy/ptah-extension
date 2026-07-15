@@ -36,6 +36,8 @@ import {
   SKILL_REPROPAGATION_TOKEN,
 } from '../skill-repropagation.port';
 import { SpecHarvesterService } from '../spec-harvester.service';
+import { SubagentMetricsExtractor } from '../subagent-metrics-extractor';
+import { SkillScorecardService } from '../skill-scorecard.service';
 import { SPEC_FINDINGS_TOKEN } from '../spec-findings.port';
 import { SKILL_SYNTHESIS_TOKENS } from './tokens';
 
@@ -63,6 +65,8 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillSuggestionStore);
   container.registerSingleton(SkillClusteringService);
   container.registerSingleton(SpecHarvesterService);
+  container.registerSingleton(SubagentMetricsExtractor);
+  container.registerSingleton(SkillScorecardService);
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
     useToken: SkillCandidateStore,
   });
@@ -113,6 +117,12 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SPEC_HARVESTER_SERVICE, {
     useToken: SpecHarvesterService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SUBAGENT_METRICS_EXTRACTOR, {
+    useToken: SubagentMetricsExtractor,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE, {
+    useToken: SkillScorecardService,
   });
   container.register(SKILL_REPROPAGATION_TOKEN, {
     useClass: NoOpSkillRepropagation,

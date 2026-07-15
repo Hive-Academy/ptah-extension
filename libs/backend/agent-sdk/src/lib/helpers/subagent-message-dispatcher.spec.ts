@@ -1,10 +1,14 @@
 /**
- * SubagentMessageDispatcher specs — Fix 3 error path coverage.
+ * SubagentMessageDispatcher specs.
  *
  * Verifies that:
  *   - stopSubagent wraps Query.stopTask failures in RpcUserError('TASK_NOT_FOUND')
  *   - sendToSubagent wraps streamInput failures in RpcUserError('SESSION_ENDED')
+ *     and shapes the coordinator-nudge payload (SendMessage instruction when
+ *     the registry record has an agentId, generic nudge otherwise)
  *   - interruptSession wraps Query.interrupt failures in RpcUserError('SESSION_ENDED')
+ *   - backgroundTask delegates to Query.backgroundTasks and surfaces
+ *     SESSION_NOT_FOUND / SESSION_ENDED
  */
 
 import 'reflect-metadata';
@@ -28,7 +32,9 @@ function makeLogger(): Logger {
 }
 
 function makeRegistry(
-  record: { agentType: string } | null = { agentType: 'Explore' },
+  record: { agentType: string; status?: string; agentId?: string } | null = {
+    agentType: 'Explore',
+  },
 ): SubagentRegistryService {
   return {
     get: jest.fn().mockReturnValue(record),
@@ -114,6 +120,12 @@ describe('SubagentMessageDispatcher.sendToSubagent — Fix 3', () => {
 
 // ---------------------------------------------------------------------------
 // sendToSubagent — coordinator-nudge payload shape
+//
+// There is NO direct parent→subagent input channel: the CLI ignores
+// `parent_tool_use_id` on incoming streamInput messages (verified against
+// claude.exe 2.1.150). Every message is always enqueued to the root
+// coordinator with `parent_tool_use_id: null`; the nudge text instructs the
+// coordinator to relay via the SendMessage tool keyed by agentId.
 // ---------------------------------------------------------------------------
 
 describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () => {
@@ -139,9 +151,9 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
     return captured;
   }
 
-  it('routes to the root coordinator with parent_tool_use_id=null and origin=human', async () => {
+  it('always routes to the root coordinator with parent_tool_use_id=null and origin=human', async () => {
     const msg = await captureStreamedMessage(
-      makeRegistry({ agentType: 'software-architect' }),
+      makeRegistry({ agentType: 'software-architect', agentId: 'a1b2c3d' }),
       'toolu_abc',
       'please pause and check the README',
     );
@@ -152,9 +164,13 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
     expect(msg['session_id']).toBe('sess-1');
   });
 
-  it('prefixes the user text with the agent type and toolUseId from the registry', async () => {
+  it('emits a SendMessage instruction keyed by agentId when a live record has an agentId', async () => {
     const msg = await captureStreamedMessage(
-      makeRegistry({ agentType: 'software-architect' }),
+      makeRegistry({
+        agentType: 'software-architect',
+        status: 'running',
+        agentId: 'a1b2c3d',
+      }),
       'toolu_abc',
       'please pause and check the README',
     );
@@ -162,11 +178,29 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
     const wireMessage = msg['message'] as { role: string; content: string };
     expect(wireMessage.role).toBe('user');
     expect(wireMessage.content).toBe(
-      "Regarding the running 'software-architect' subagent (toolUseId=toolu_abc): please pause and check the README",
+      "The user wants to steer the running 'software-architect' subagent (id: a1b2c3d). Use the SendMessage tool with to: 'a1b2c3d' to deliver this to it verbatim: please pause and check the README",
     );
   });
 
-  it("falls back to agentType='unknown' when the registry has no record", async () => {
+  it('routes a background subagent with an agentId via the SendMessage instruction too', async () => {
+    const msg = await captureStreamedMessage(
+      makeRegistry({
+        agentType: 'Explore',
+        status: 'background',
+        agentId: 'bg99999',
+      }),
+      'toolu_bg',
+      'keep going',
+    );
+
+    expect(msg['parent_tool_use_id']).toBeNull();
+    const wireMessage = msg['message'] as { role: string; content: string };
+    expect(wireMessage.content).toBe(
+      "The user wants to steer the running 'Explore' subagent (id: bg99999). Use the SendMessage tool with to: 'bg99999' to deliver this to it verbatim: keep going",
+    );
+  });
+
+  it('falls back to a generic nudge when the registry has no record', async () => {
     const msg = await captureStreamedMessage(
       makeRegistry(null),
       'toolu_missing',
@@ -175,8 +209,92 @@ describe('SubagentMessageDispatcher.sendToSubagent — coordinator nudge', () =>
 
     const wireMessage = msg['message'] as { role: string; content: string };
     expect(wireMessage.content).toBe(
-      "Regarding the running 'unknown' subagent (toolUseId=toolu_missing): check on this",
+      'Regarding the running subagent (toolUseId=toolu_missing): check on this',
     );
+  });
+
+  it('falls back to a generic nudge when the record has no agentId', async () => {
+    const msg = await captureStreamedMessage(
+      makeRegistry({ agentType: 'Explore', status: 'running' }),
+      'toolu_noid',
+      'still there?',
+    );
+
+    expect(msg['parent_tool_use_id']).toBeNull();
+    const wireMessage = msg['message'] as { role: string; content: string };
+    expect(wireMessage.content).toBe(
+      'Regarding the running subagent (toolUseId=toolu_noid): still there?',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// backgroundTask — Query.backgroundTasks delegation + error paths
+// ---------------------------------------------------------------------------
+
+describe('SubagentMessageDispatcher.backgroundTask', () => {
+  it('returns the result of Query.backgroundTasks and forwards the toolUseId', async () => {
+    const backgroundTasks = jest.fn().mockResolvedValue(true);
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ backgroundTasks }),
+    );
+
+    await expect(dispatcher.backgroundTask('sess-1', 'toolu_fg')).resolves.toBe(
+      true,
+    );
+    expect(backgroundTasks).toHaveBeenCalledWith('toolu_fg');
+  });
+
+  it('backgrounds all foreground tasks when no toolUseId is given', async () => {
+    const backgroundTasks = jest.fn().mockResolvedValue(true);
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ backgroundTasks }),
+    );
+
+    await expect(dispatcher.backgroundTask('sess-1')).resolves.toBe(true);
+    expect(backgroundTasks).toHaveBeenCalledWith(undefined);
+  });
+
+  it('returns false when the toolUseId matched no foreground task', async () => {
+    const backgroundTasks = jest.fn().mockResolvedValue(false);
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ backgroundTasks }),
+    );
+
+    await expect(
+      dispatcher.backgroundTask('sess-1', 'toolu_none'),
+    ).resolves.toBe(false);
+  });
+
+  it('throws RpcUserError(SESSION_NOT_FOUND) when the session is not active', async () => {
+    const lifecycle = {
+      find: jest.fn().mockReturnValue(undefined),
+    } as unknown as SessionLifecycleManager;
+    const dispatcher = buildDispatcher(lifecycle);
+
+    const err = await dispatcher
+      .backgroundTask('sess-missing')
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RpcUserError);
+    expect((err as RpcUserError).errorCode).toBe('SESSION_NOT_FOUND');
+  });
+
+  it('throws RpcUserError(SESSION_ENDED) when backgroundTasks rejects', async () => {
+    const backgroundTasks = jest
+      .fn()
+      .mockRejectedValue(new Error('session already done'));
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ backgroundTasks }),
+    );
+
+    const err = await dispatcher
+      .backgroundTask('sess-1', 'toolu_fg')
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RpcUserError);
+    expect((err as RpcUserError).errorCode).toBe('SESSION_ENDED');
+    expect((err as RpcUserError).message).toContain('session already done');
   });
 });
 

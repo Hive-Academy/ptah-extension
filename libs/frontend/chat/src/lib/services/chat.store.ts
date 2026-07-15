@@ -31,6 +31,7 @@ import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.se
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
 import { SessionStatsAggregatorService } from './chat-store/session-stats-aggregator.service';
 import { ChatLifecycleService } from './chat-store/chat-lifecycle.service';
+import { TaskPromptBridgeService } from './chat-store/task-prompt-bridge.service';
 import { TurnEndHandlerService } from './chat-store/turn-end-handler.service';
 import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
 
@@ -69,6 +70,13 @@ export class ChatStore {
   private readonly lifecycle = inject(ChatLifecycleService);
   private readonly turnEndHandler = inject(TurnEndHandlerService);
   private readonly streamRouter = inject(StreamRouter);
+  /**
+   * Eagerly constructed so its `chatPromptRequest` effect is live for the whole
+   * app run — lets the standalone Tasks board launch orchestration sessions
+   * without importing this lib (signal-bridge inversion, NFR-11). Not otherwise
+   * read by the facade.
+   */
+  private readonly taskPromptBridge = inject(TaskPromptBridgeService);
 
   private readonly _servicesReady = signal(false);
   readonly servicesReady = this._servicesReady.asReadonly();

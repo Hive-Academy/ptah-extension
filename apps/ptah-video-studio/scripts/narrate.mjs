@@ -32,7 +32,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
-import { KokoroTTS } from 'kokoro-js';
+import { KokoroTTS, TextSplitterStream } from 'kokoro-js';
 import {
   parseArgs,
   sceneDir,
@@ -334,15 +334,39 @@ function createKokoroEngine(opts) {
       });
     },
     async synthesize(text) {
-      const audio = await tts.generate(text, {
-        voice: opts.voice,
-        speed: opts.speed,
-      });
-      const wav = Buffer.from(audio.toWav()); // ArrayBuffer -> Buffer
-      const durationMs = Math.round(
-        (audio.audio.length / audio.sampling_rate) * 1000,
-      );
-      return { wav, sampleRate: audio.sampling_rate, durationMs };
+      // kokoro-js's single-shot `generate()` caps at ~510 tokens and silently
+      // TRUNCATES longer text — which cut the multi-paragraph beats off
+      // mid-sentence. Stream through TextSplitterStream instead: it splits the
+      // text into sentence-sized pieces, synthesizes each, and we concatenate
+      // the raw float samples into one continuous clip (converted to 16-bit PCM
+      // so it matches every other wav's layout via pcmToWav).
+      const splitter = new TextSplitterStream();
+      const stream = tts.stream(splitter, { voice: opts.voice, speed: opts.speed });
+      splitter.push(text);
+      splitter.close();
+
+      const parts = [];
+      let sampleRate = 24000;
+      let total = 0;
+      for await (const { audio } of stream) {
+        sampleRate = audio.sampling_rate;
+        parts.push(audio.audio); // Float32Array in [-1, 1]
+        total += audio.audio.length;
+      }
+
+      const pcm = Buffer.alloc(total * 2);
+      let off = 0;
+      for (const part of parts) {
+        for (let i = 0; i < part.length; i++) {
+          const s = Math.max(-1, Math.min(1, part[i]));
+          pcm.writeInt16LE(Math.round(s < 0 ? s * 0x8000 : s * 0x7fff), off);
+          off += 2;
+        }
+      }
+
+      const wav = pcmToWav(pcm, sampleRate);
+      const durationMs = Math.round((total / sampleRate) * 1000);
+      return { wav, sampleRate, durationMs };
     },
   };
 }

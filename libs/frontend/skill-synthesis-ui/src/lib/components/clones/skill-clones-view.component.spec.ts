@@ -2,8 +2,10 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import type {
+  AgentScorecard,
   CloneSummary,
   SkillCloneHistoryEntry,
+  SkillSynthesisGetScorecardDetailResult,
 } from '@ptah-extension/shared';
 
 import { SkillClonesViewComponent } from './skill-clones-view.component';
@@ -36,15 +38,45 @@ function clone(overrides: Partial<CloneSummary> = {}): CloneSummary {
   };
 }
 
+function scorecard(overrides: Partial<AgentScorecard> = {}): AgentScorecard {
+  return {
+    slug: 'planner',
+    totalInvocations: 3,
+    gradedCount: 2,
+    gradedSuccessRate: 0.5,
+    avgInputTokens: 100,
+    avgOutputTokens: 40,
+    avgCacheReadTokens: null,
+    totalInputTokens: 300,
+    totalOutputTokens: 120,
+    avgCostUsd: 0.012,
+    avgDurationMs: 4200,
+    avgToolCount: 5,
+    recentVerdicts: [
+      { taskId: 'TASK_2026_001', succeeded: true, reconciledAt: 1 },
+      { taskId: 'TASK_2026_002', succeeded: false, reconciledAt: 2 },
+    ],
+    ...overrides,
+  };
+}
+
 interface StateStub {
   readonly clones: ReturnType<typeof signal<CloneSummary[]>>;
   readonly loading: ReturnType<typeof signal<boolean>>;
   readonly error: ReturnType<typeof signal<string | null>>;
   readonly detailLoading: ReturnType<typeof signal<boolean>>;
   readonly detail: ReturnType<typeof signal<SkillCloneDetail | null>>;
+  readonly scorecards: ReturnType<
+    typeof signal<Record<string, AgentScorecard>>
+  >;
+  readonly scorecardDetails: ReturnType<
+    typeof signal<Record<string, SkillSynthesisGetScorecardDetailResult>>
+  >;
+  readonly scorecardDetailLoading: ReturnType<typeof signal<string | null>>;
   readonly refreshClones: jest.Mock<Promise<void>, []>;
   readonly loadDetail: jest.Mock<Promise<void>, [string, CloneSummary['kind']]>;
   readonly clearDetail: jest.Mock<void, []>;
+  readonly loadScorecardDetail: jest.Mock<Promise<void>, [string, number?]>;
 }
 
 function makeStateStub(initial: CloneSummary[] = []): StateStub {
@@ -54,9 +86,15 @@ function makeStateStub(initial: CloneSummary[] = []): StateStub {
     error: signal<string | null>(null),
     detailLoading: signal<boolean>(false),
     detail: signal<SkillCloneDetail | null>(null),
+    scorecards: signal<Record<string, AgentScorecard>>({}),
+    scorecardDetails: signal<
+      Record<string, SkillSynthesisGetScorecardDetailResult>
+    >({}),
+    scorecardDetailLoading: signal<string | null>(null),
     refreshClones: jest.fn(async () => undefined),
     loadDetail: jest.fn(async () => undefined),
     clearDetail: jest.fn(() => undefined),
+    loadScorecardDetail: jest.fn(async () => undefined),
   };
 }
 
@@ -423,5 +461,176 @@ describe('SkillClonesViewComponent', () => {
     const { fixture } = setup({ isElectron: true, state });
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('80%');
+  });
+
+  // ── Scorecard rendering (Batch 5, R6/R7) ──────────────────────────────
+
+  it('renders a scorecard badge only for agent-kind rows', () => {
+    const state = makeStateStub([
+      clone({ slug: 'planner', kind: 'agent' }),
+      clone({ slug: 'deep-research', kind: 'skill' }),
+    ]);
+    state.scorecards.set({ planner: scorecard() });
+    const { fixture } = setup({ isElectron: true, state });
+    const badges = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '[data-testid="scorecard-badge"]',
+    );
+    expect(badges.length).toBe(1);
+  });
+
+  it('shows an explicit "no data yet" state (never zeros) for an agent with no scorecard', () => {
+    const state = makeStateStub([clone({ slug: 'planner', kind: 'agent' })]);
+    // No entry in the scorecards map → scorecardFor() returns null.
+    const { fixture } = setup({ isElectron: true, state });
+    const success = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="scorecard-success"]',
+    ) as HTMLElement | null;
+    expect(success?.textContent?.trim()).toBe('no data yet');
+    const tokens = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="scorecard-tokens"]',
+    ) as HTMLElement | null;
+    expect(tokens?.textContent).toContain('no data yet');
+  });
+
+  it('renders usage-only metrics with no graded verdicts (spec-less runtime)', () => {
+    const state = makeStateStub([clone({ slug: 'planner', kind: 'agent' })]);
+    state.scorecards.set({
+      planner: scorecard({
+        gradedCount: 0,
+        gradedSuccessRate: null,
+        recentVerdicts: [],
+        avgInputTokens: 120,
+        avgOutputTokens: 30,
+        avgCostUsd: null,
+      }),
+    });
+    const { fixture } = setup({ isElectron: true, state });
+    const el = fixture.nativeElement as HTMLElement;
+    // Success degrades to "no data yet"; no verdict dots section.
+    expect(
+      el
+        .querySelector('[data-testid="scorecard-success"]')
+        ?.textContent?.trim(),
+    ).toBe('no data yet');
+    expect(
+      el.querySelector('[data-testid="scorecard-verdict-dots"]'),
+    ).toBeNull();
+    // Tokens still show (usage-only); cost degrades independently.
+    expect(
+      el.querySelector('[data-testid="scorecard-tokens"]')?.textContent,
+    ).toContain('tok');
+    expect(
+      el.querySelector('[data-testid="scorecard-cost"]')?.textContent,
+    ).toContain('no data yet');
+  });
+
+  it('expands an agent card and lazily loads its detail once', async () => {
+    const state = makeStateStub([clone({ slug: 'planner', kind: 'agent' })]);
+    state.scorecards.set({ planner: scorecard() });
+    const { fixture } = setup({ isElectron: true, state });
+    const el = fixture.nativeElement as HTMLElement;
+    expect(
+      el.querySelector('[data-testid="scorecard-detail-panel"]'),
+    ).toBeNull();
+    (
+      el.querySelector('[data-testid="scorecard-expand"]') as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+    expect(state.loadScorecardDetail).toHaveBeenCalledWith('planner');
+    expect(
+      el.querySelector('[data-testid="scorecard-detail-panel"]'),
+    ).toBeTruthy();
+  });
+
+  it('explains how data accrues when the expanded detail is empty (R7.3)', () => {
+    const state = makeStateStub([clone({ slug: 'planner', kind: 'agent' })]);
+    state.scorecards.set({ planner: scorecard() });
+    state.scorecardDetails.set({
+      planner: { slug: 'planner', rows: [], findingsExcerpt: null },
+    });
+    const { fixture } = setup({ isElectron: true, state });
+    (
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="scorecard-expand"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+    const empty = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="scorecard-detail-empty"]',
+    );
+    expect(empty?.textContent).toContain('.ptah/specs');
+  });
+
+  it('marks heuristically-attributed detail rows distinctly (R7.2)', () => {
+    const state = makeStateStub([clone({ slug: 'planner', kind: 'agent' })]);
+    state.scorecards.set({ planner: scorecard() });
+    state.scorecardDetails.set({
+      planner: {
+        slug: 'planner',
+        rows: [
+          {
+            taskId: 'TASK_2026_009',
+            succeeded: true,
+            exactAttribution: false,
+            inputTokens: 80,
+            outputTokens: 20,
+            costUsd: 0.01,
+            durationMs: 3000,
+            invokedAt: 1,
+            reconciledAt: 2,
+          },
+        ],
+        findingsExcerpt: null,
+      },
+    });
+    const { fixture } = setup({ isElectron: true, state });
+    (
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="scorecard-expand"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="scorecard-heuristic-marker"]',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('routes the findings excerpt through the markdown chokepoint (never raw innerHTML)', () => {
+    const state = makeStateStub([clone({ slug: 'planner', kind: 'agent' })]);
+    state.scorecards.set({ planner: scorecard() });
+    state.scorecardDetails.set({
+      planner: {
+        slug: 'planner',
+        rows: [
+          {
+            taskId: 'TASK_2026_001',
+            succeeded: true,
+            exactAttribution: true,
+            inputTokens: 100,
+            outputTokens: 40,
+            costUsd: 0.012,
+            durationMs: 4200,
+            invokedAt: 1,
+            reconciledAt: 2,
+          },
+        ],
+        findingsExcerpt: '## Findings\n- reduce tokens',
+      },
+    });
+    const { fixture } = setup({ isElectron: true, state });
+    (
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="scorecard-expand"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+    const findings = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="scorecard-findings"]',
+    );
+    expect(findings).toBeTruthy();
+    // Rendered via <ptah-markdown-block>, not a raw innerHTML sink.
+    expect(findings?.querySelector('ptah-markdown-block')).toBeTruthy();
   });
 });

@@ -1,5 +1,5 @@
 <section
-  class="card bg-base-200/40 border border-base-content/10 shadow-sm"
+  class="card bg-base-200/40 border border-base-content/10 shadow-sm mt-2"
   aria-label="Session analytics"
 >
   <div class="card-body p-4 space-y-4">
@@ -70,9 +70,17 @@
 
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
         @for (session of displayedSessions(); track session.sessionId) {
-          <ptah-session-stats-card [session]="session" />
+          <ptah-session-stats-card
+            [session]="session"
+            (open)="openSession($event)"
+          />
         }
       </div>
     }
   </div>
+
+  <ptah-session-detail-modal
+    [session]="selectedSession()"
+    (closed)="closeSession()"
+  />
 </section>

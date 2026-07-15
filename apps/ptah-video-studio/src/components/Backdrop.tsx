@@ -9,7 +9,11 @@ import React from 'react';
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion';
 import { THEME } from '../theme';
 
-export const Backdrop: React.FC = () => {
+export const Backdrop: React.FC<{ glow?: string }> = ({
+  // Default to the LEGACY blue so shipped scenes (dyad, ShowcaseVideo) keep
+  // their blue center; PromoReel passes the emerald bgGlow for new-stage reels.
+  glow = THEME.bgGlowLegacy,
+}) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   const t = durationInFrames > 0 ? frame / durationInFrames : 0;
@@ -19,7 +23,7 @@ export const Backdrop: React.FC = () => {
   return (
     <AbsoluteFill
       style={{
-        background: `radial-gradient(130% 95% at ${gx}% ${gy}%, ${THEME.bgGlow} 0%, ${THEME.bgDeep} 46%, ${THEME.bg} 100%)`,
+        background: `radial-gradient(130% 95% at ${gx}% ${gy}%, ${glow} 0%, ${THEME.bgDeep} 46%, ${THEME.bg} 100%)`,
       }}
     >
       <AbsoluteFill

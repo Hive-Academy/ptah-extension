@@ -133,6 +133,33 @@ function makeContentDownload() {
   };
 }
 
+function emptyScorecard(slug: string) {
+  return {
+    slug,
+    totalInvocations: 0,
+    gradedCount: 0,
+    gradedSuccessRate: null,
+    avgInputTokens: null,
+    avgOutputTokens: null,
+    avgCacheReadTokens: null,
+    totalInputTokens: null,
+    totalOutputTokens: null,
+    avgCostUsd: null,
+    avgDurationMs: null,
+    avgToolCount: null,
+    recentVerdicts: [],
+  };
+}
+
+function makeScorecard() {
+  return {
+    getScorecards: jest.fn().mockReturnValue({}),
+    getScorecardDetail: jest
+      .fn()
+      .mockResolvedValue({ slug: '', rows: [], findingsExcerpt: null }),
+  };
+}
+
 function makeDiagnostics() {
   return {
     getSnapshot: jest.fn().mockResolvedValue({
@@ -169,6 +196,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   const registry = makeRegistry();
   const mirror = makeMirror();
   const contentDownload = makeContentDownload();
+  const scorecard = makeScorecard();
   const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
     folders: workspaceFolders,
   });
@@ -193,6 +221,10 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, registry);
   child.registerInstance(USER_LAYER_MIRROR_SERVICE_TOKEN, mirror);
   child.registerInstance(PLATFORM_TOKENS.CONTENT_DOWNLOAD, contentDownload);
+  child.registerInstance(
+    SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE,
+    scorecard,
+  );
   child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
   child.register(SkillsSynthesisRpcHandlers, {
     useClass: SkillsSynthesisRpcHandlers,
@@ -212,6 +244,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
     registry,
     mirror,
     contentDownload,
+    scorecard,
     workspaceProvider,
     logger,
   };
@@ -1017,6 +1050,220 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     await expect(
       rpcHandler.call('skillSynthesis:invocationStats', { slug: '' }),
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecards', () => {
+  it('passes validated slugs to the scorecard service and returns the map', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecards.mockReturnValue({
+      'backend-developer': {
+        ...emptyScorecard('backend-developer'),
+        totalInvocations: 12,
+      },
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:getScorecards', {
+      slugs: ['backend-developer'],
+    })) as { scorecards: Record<string, { totalInvocations: number }> };
+
+    expect(scorecard.getScorecards).toHaveBeenCalledWith(['backend-developer']);
+    expect(result.scorecards['backend-developer'].totalInvocations).toBe(12);
+  });
+
+  it('returns a typed empty scorecard for a no-data slug', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecards.mockReturnValue({
+      'idle-agent': emptyScorecard('idle-agent'),
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:getScorecards', {
+      slugs: ['idle-agent'],
+    })) as {
+      scorecards: Record<
+        string,
+        { totalInvocations: number; gradedSuccessRate: number | null }
+      >;
+    };
+
+    expect(result.scorecards['idle-agent']).toMatchObject({
+      totalInvocations: 0,
+      gradedSuccessRate: null,
+    });
+  });
+
+  it('returns {} scorecards when the scorecard service is unbound', async () => {
+    const logger = makeLogger();
+    const rpcHandler = makeRpcHandler();
+    const child = container.createChildContainer();
+    child.registerInstance(TOKENS.LOGGER, logger);
+    child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
+    child.registerInstance(TOKENS.SENTRY_SERVICE, makeSentry());
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
+      makeSynthesis(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE,
+      makeStore(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
+      makeDiagnostics(),
+    );
+    child.registerInstance(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      createMockWorkspaceProvider({ folders: ['/workspace/project'] }),
+    );
+    child.register(SkillsSynthesisRpcHandlers, {
+      useClass: SkillsSynthesisRpcHandlers,
+    });
+    child.resolve(SkillsSynthesisRpcHandlers).register();
+
+    const result = await rpcHandler.call('skillSynthesis:getScorecards', {
+      slugs: ['a'],
+    });
+    expect(result).toEqual({ scorecards: {} });
+  });
+
+  it('rejects a non-array slugs param with INVALID_PARAMS', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:getScorecards', { slugs: 'nope' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(scorecard.getScorecards).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized slugs list (>500) with INVALID_PARAMS', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    const slugs = Array.from({ length: 501 }, (_, i) => `agent-${i}`);
+    await expect(
+      rpcHandler.call('skillSynthesis:getScorecards', { slugs }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(scorecard.getScorecards).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty-string slug entry with INVALID_PARAMS', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:getScorecards', { slugs: [''] }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(scorecard.getScorecards).not.toHaveBeenCalled();
+  });
+
+  it('wraps a scorecard-service throw without leaking the raw message', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecards.mockImplementation(() => {
+      throw new Error('SQLITE_CORRUPT: malformed disk image');
+    });
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('skillSynthesis:getScorecards', { slugs: ['a'] });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(RpcUserError);
+    expect((thrown as RpcUserError).message).not.toContain('SQLITE_CORRUPT');
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecardDetail', () => {
+  it('delegates to the scorecard service with slug + limit', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecardDetail.mockResolvedValue({
+      slug: 'backend-developer',
+      rows: [
+        {
+          taskId: 'TASK_2026_001',
+          succeeded: true,
+          exactAttribution: true,
+          inputTokens: 100,
+          outputTokens: 10,
+          costUsd: 0.2,
+          durationMs: 1000,
+          invokedAt: 1000,
+          reconciledAt: 5000,
+        },
+      ],
+      findingsExcerpt: 'findings',
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:getScorecardDetail', {
+      slug: 'backend-developer',
+      limit: 10,
+    })) as { slug: string; rows: unknown[]; findingsExcerpt: string | null };
+
+    expect(scorecard.getScorecardDetail).toHaveBeenCalledWith(
+      'backend-developer',
+      10,
+    );
+    expect(result.rows).toHaveLength(1);
+    expect(result.findingsExcerpt).toBe('findings');
+  });
+
+  it('returns a typed empty detail for a no-data slug', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecardDetail.mockResolvedValue({
+      slug: 'idle-agent',
+      rows: [],
+      findingsExcerpt: null,
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:getScorecardDetail', {
+      slug: 'idle-agent',
+    });
+    expect(result).toEqual({
+      slug: 'idle-agent',
+      rows: [],
+      findingsExcerpt: null,
+    });
+  });
+
+  it('rejects an empty slug with INVALID_PARAMS', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:getScorecardDetail', { slug: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(scorecard.getScorecardDetail).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-integer limit with INVALID_PARAMS', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:getScorecardDetail', {
+        slug: 'agent',
+        limit: 2.5,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(scorecard.getScorecardDetail).not.toHaveBeenCalled();
+  });
+
+  it('rejects a limit above 100 with INVALID_PARAMS', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    await expect(
+      rpcHandler.call('skillSynthesis:getScorecardDetail', {
+        slug: 'agent',
+        limit: 101,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(scorecard.getScorecardDetail).not.toHaveBeenCalled();
+  });
+
+  it('wraps a scorecard-service throw without leaking the raw message', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    scorecard.getScorecardDetail.mockRejectedValue(
+      new Error('EACCES: ~/.ptah/specs'),
+    );
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('skillSynthesis:getScorecardDetail', {
+        slug: 'agent',
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(RpcUserError);
+    expect((thrown as RpcUserError).message).not.toContain('EACCES');
   });
 });
 

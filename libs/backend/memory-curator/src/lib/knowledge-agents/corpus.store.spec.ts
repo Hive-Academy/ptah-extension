@@ -141,6 +141,45 @@ describe('CorpusStore (native-gated)', () => {
     }
   });
 
+  maybe(
+    'listFilterRows returns every row (id/name/workspaceRoot/queryJson) in one call, workspace-scoped, read-only',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        store.create({ ...baseParams, name: 'a', workspaceRoot: '/ws/A' });
+        store.create({ ...baseParams, name: 'b', workspaceRoot: '/ws/B' });
+        store.create({ ...baseParams, name: 'c', workspaceRoot: null });
+
+        const countCorpora = (): number =>
+          (
+            service.db.prepare('SELECT COUNT(*) AS n FROM corpora').get() as {
+              n: number;
+            }
+          ).n;
+        const before = countCorpora();
+
+        const scoped = store.listFilterRows({ workspaceRoot: '/ws/A' });
+        expect(scoped).toHaveLength(1);
+        expect(scoped[0].name).toBe('a');
+        expect(scoped[0].workspaceRoot).toBe('/ws/A');
+        const parsed = JSON.parse(scoped[0].queryJson);
+        expect(parsed.name).toBe('a');
+        expect(parsed.concepts).toEqual(baseParams.concepts);
+
+        const nullScoped = store.listFilterRows({ workspaceRoot: null });
+        expect(nullScoped.map((r) => r.name)).toEqual(['c']);
+
+        const all = store.listFilterRows();
+        expect(all.map((r) => r.name).sort()).toEqual(['a', 'b', 'c']);
+
+        // Read-only: no rows created/removed by any of the above reads.
+        expect(countCorpora()).toBe(before);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
   maybe('list filters by workspaceRoot via NULL-safe equality', async () => {
     const { service, store } = await bootstrap();
     try {

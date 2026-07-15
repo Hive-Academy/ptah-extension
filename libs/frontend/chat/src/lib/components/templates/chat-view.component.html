@@ -35,6 +35,15 @@
         </div>
       }
 
+      <!-- Persistent background-agents tray (main panel only; tiles reuse this
+           same component so it must not render per-tile). Lives under the stats
+           summary so it never competes with the streamed output at the bottom.
+           Focus/steer/stop/background are handled inside the tray against each
+           agent's owning session. -->
+      @if (showBackgroundStrip) {
+        <ptah-background-agent-tray class="flex-shrink-0" />
+      }
+
       <!-- Compaction Notification Banner -->
       <div class="px-2">
         <ptah-compaction-notification [isCompacting]="resolvedIsCompacting()" />
@@ -112,6 +121,9 @@
           />
         </div>
       }
+
+      <!-- Cloud voice-provider failure toast with switch-to-local action -->
+      <ptah-voice-provider-error-toast />
 
       <!-- Collapsed Permission Badge (doesn't block chat area) -->
       <ptah-permission-badge

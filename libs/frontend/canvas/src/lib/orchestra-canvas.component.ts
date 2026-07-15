@@ -64,13 +64,13 @@ import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
       data-testid="canvas-grid"
     >
       <!-- One Gridstack container per retained workspace; only the active
-           workspace's grid is visible, the rest stay mounted (keep-alive).
-           Rendered unconditionally so switching through an empty workspace
-           never tears down another workspace's tiles. -->
+           workspace's grid is visible (the grid drives its own display from the
+           [visible] input), the rest stay mounted (keep-alive). Rendered
+           unconditionally so switching through an empty workspace never tears
+           down another workspace's tiles. -->
       @for (path of canvasStore.workspacePaths(); track path) {
         <ptah-canvas-workspace-grid
           class="flex-1 overflow-auto w-[97%]"
-          [class.hidden]="path !== canvasStore.activeWorkspacePath()"
           [workspacePath]="path"
           [visible]="path === canvasStore.activeWorkspacePath()"
           [locked]="locked()"
@@ -292,6 +292,23 @@ export class OrchestraCanvasComponent implements OnDestroy {
       if (name !== null) {
         this.canvasStore.addTile(name);
         this.appState.clearNewCanvasSessionRequest();
+      }
+    });
+    // Adopt an already-existing tab as a tile (F-D3). The Tasks-board launch
+    // creates a tab then navigates to chat; when the canvas is ALREADY mounted
+    // (no remount / no workspace switch), `restoreCanvasTilesFromTabs` — which
+    // only runs on mount — never sees that new tab, so it would linger as a bare
+    // tab. This closes exactly that gap. `adoptTab` dedups (safe if a fresh
+    // mount already tiled it) and returns null at the 9-tile cap, in which case
+    // the tab simply stays in the tab list as the graceful fallback.
+    effect(() => {
+      const req = this.appState.canvasTabRequest();
+      if (req) {
+        const adopted = this.canvasStore.adoptTab(req.tabId);
+        if (adopted) {
+          this.canvasStore.focusTile(req.tabId);
+        }
+        this.appState.clearCanvasTabRequest();
       }
     });
     effect(() => {

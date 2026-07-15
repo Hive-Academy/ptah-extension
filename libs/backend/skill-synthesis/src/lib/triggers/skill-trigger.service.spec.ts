@@ -28,6 +28,36 @@ import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
 import { SkillTriggerService } from './skill-trigger.service';
 import type { SkillSynthesisService } from '../skill-synthesis.service';
 import type { SkillInvocationRecorder } from '../skill-invocation-recorder';
+import type {
+  SubagentMetricsExtractor,
+  ExtractedSubagentRun,
+} from '../subagent-metrics-extractor';
+
+const NULL_RUN: ExtractedSubagentRun = {
+  metrics: {
+    inputTokens: null,
+    outputTokens: null,
+    cacheReadTokens: null,
+    cacheCreationTokens: null,
+    costUsd: null,
+    durationMs: null,
+    toolCount: null,
+  },
+  taskId: null,
+};
+
+function makeExtractor(
+  run: ExtractedSubagentRun = NULL_RUN,
+): SubagentMetricsExtractor {
+  return {
+    extract: jest.fn().mockResolvedValue(run),
+  } as unknown as SubagentMetricsExtractor;
+}
+
+/** Drain the recordInvocation async chain (fingerprint + extract hops). */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+}
 
 function makeLogger(): Logger {
   return {
@@ -276,6 +306,7 @@ function buildService(opts?: {
   workspace?: IWorkspaceProvider;
   synthesis?: SkillSynthesisService;
   rateLimiter?: CuratorRateLimitService;
+  extractor?: SubagentMetricsExtractor;
 }): {
   service: SkillTriggerService;
   activity: ActivityHarness;
@@ -288,6 +319,7 @@ function buildService(opts?: {
   synthesis: SkillSynthesisService;
   workspace: IWorkspaceProvider;
   rateLimiter: CuratorRateLimitService;
+  extractor: SubagentMetricsExtractor;
 } {
   const activity = makeActivityRegistry();
   const sessionEnd = makeSessionEndRegistry();
@@ -300,6 +332,7 @@ function buildService(opts?: {
   const workspace = opts?.workspace ?? makeWorkspace();
   const rateLimiter =
     opts?.rateLimiter ?? new CuratorRateLimitService(makeLogger());
+  const extractor = opts?.extractor ?? makeExtractor();
   const service = new SkillTriggerService(
     makeLogger(),
     synthesis,
@@ -316,6 +349,7 @@ function buildService(opts?: {
     recorder,
     stop.registry,
     { harvest: jest.fn().mockResolvedValue(undefined) } as never,
+    extractor,
   );
   return {
     service,
@@ -329,6 +363,7 @@ function buildService(opts?: {
     synthesis,
     workspace,
     rateLimiter,
+    extractor,
   };
 }
 
@@ -632,9 +667,7 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
     subagentStop.fire(
       subagentStopPayload({ agentType: 'backend-developer', timestamp: 1000 }),
     );
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushMicrotasks();
     expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         slug: 'backend-developer',
@@ -642,6 +675,62 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
         succeeded: true,
         invokedAt: 1000,
         source: 'subagent',
+      }),
+    );
+  });
+
+  it('passes extracted metrics and taskId through to the recorder', async () => {
+    const run: ExtractedSubagentRun = {
+      metrics: {
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheReadTokens: 5,
+        cacheCreationTokens: 2,
+        costUsd: 0.01,
+        durationMs: 3000,
+        toolCount: 4,
+      },
+      taskId: 'TASK_2026_158',
+    };
+    const { service, subagentStop, recorder, extractor } = buildService({
+      extractor: makeExtractor(run),
+    });
+    service.start();
+    subagentStop.fire(subagentStopPayload({ agentType: 'backend-developer' }));
+    await flushMicrotasks();
+    expect(extractor.extract).toHaveBeenCalledWith(
+      '/tmp/agents/sub-aaaa-bbbb-cccc-dddd.jsonl',
+    );
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: 'backend-developer',
+        source: 'subagent',
+        metrics: run.metrics,
+        taskId: 'TASK_2026_158',
+      }),
+    );
+  });
+
+  it('still records the invocation metric-less when the extractor throws (R2.3)', async () => {
+    const extractor = {
+      extract: jest.fn().mockRejectedValue(new Error('transcript too large')),
+    } as unknown as SubagentMetricsExtractor;
+    const { service, subagentStop, recorder } = buildService({ extractor });
+    service.start();
+    subagentStop.fire(
+      subagentStopPayload({ agentType: 'backend-developer', timestamp: 1000 }),
+    );
+    await flushMicrotasks();
+    expect(extractor.extract).toHaveBeenCalledTimes(1);
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slug: 'backend-developer',
+        sessionId: 'parent-1',
+        source: 'subagent',
+        succeeded: true,
+        invokedAt: 1000,
+        metrics: null,
+        taskId: null,
       }),
     );
   });
@@ -654,9 +743,7 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
     });
     service.start();
     subagentStop.fire(subagentStopPayload({ agentType: 'frontend-developer' }));
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushMicrotasks();
     expect(synthesis.analyzeSession).not.toHaveBeenCalled();
     expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
       expect.objectContaining({

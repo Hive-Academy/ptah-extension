@@ -18,8 +18,7 @@ import type { OutboundRoute } from './stream-coalescer';
 import type { GrammyTelegramAdapter } from './adapters/telegram/grammy.adapter';
 import type { DiscordAdapter } from './adapters/discord/discord.adapter';
 import type { BoltSlackAdapter } from './adapters/slack/bolt.adapter';
-import type { FfmpegDecoder } from './voice/ffmpeg-decoder';
-import type { WhisperTranscriber } from './voice/whisper-transcriber';
+import type { IVoiceProviderSelector } from '@ptah-extension/voice-contracts';
 import type {
   IMessagingAdapter,
   InboundMessage,
@@ -263,11 +262,14 @@ function buildSuite(options?: SuiteOptions): Suite {
   const placeholderTelegram = {} as unknown as GrammyTelegramAdapter;
   const placeholderDiscord = {} as unknown as DiscordAdapter;
   const placeholderSlack = {} as unknown as BoltSlackAdapter;
-  const ffmpeg = {} as unknown as FfmpegDecoder;
-  const whisper = {
-    configure: jest.fn(),
-    on: jest.fn(),
-  } as unknown as WhisperTranscriber;
+  const voiceSelector = {
+    activeStt: jest.fn().mockReturnValue({
+      transcribe: jest.fn().mockResolvedValue({ text: '' }),
+    }),
+    downloadEvents: {
+      onDownload: jest.fn().mockReturnValue({ dispose: jest.fn() }),
+    },
+  } as unknown as IVoiceProviderSelector;
 
   const attachedSessionRegistry = new AttachedSessionRegistry();
   const resumability = {
@@ -288,8 +290,7 @@ function buildSuite(options?: SuiteOptions): Suite {
     placeholderTelegram,
     placeholderDiscord,
     placeholderSlack,
-    ffmpeg,
-    whisper,
+    voiceSelector,
     createMockGatewaySettings(options?.ciphers),
     attachedSessionRegistry,
     resumability,

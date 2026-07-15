@@ -11,9 +11,15 @@
     "noEmit": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "promos/**/*.json",
+    "preview.props.json"
+  ],
   "exclude": ["node_modules", "scripts", ".whisper", "out"]
 }

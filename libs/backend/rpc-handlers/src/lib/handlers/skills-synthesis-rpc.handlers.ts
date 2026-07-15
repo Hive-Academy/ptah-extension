@@ -42,6 +42,7 @@ import {
   type SkillSuggestionStore,
   type SkillSuggestionRow,
   type SpecHarvesterService,
+  type SkillScorecardService,
 } from '@ptah-extension/skill-synthesis';
 import type { UserLayerMirrorService } from '@ptah-extension/agent-generation';
 import type {
@@ -94,6 +95,10 @@ import type {
   SkillSynthesisKeepCloneResult,
   SkillSynthesisInvocationStatsParams,
   SkillSynthesisInvocationStatsResult,
+  SkillSynthesisGetScorecardsParams,
+  SkillSynthesisGetScorecardsResult,
+  SkillSynthesisGetScorecardDetailParams,
+  SkillSynthesisGetScorecardDetailResult,
   SkillSynthesisListSuggestionsParams,
   SkillSynthesisListSuggestionsResult,
   SkillSynthesisAcceptSuggestionParams,
@@ -148,6 +153,8 @@ import {
   PromoteBulkParamsSchema,
   RejectByPatternParamsSchema,
   ClearStaleSpecsParamsSchema,
+  getScorecardsParamsSchema,
+  getScorecardDetailParamsSchema,
 } from './skills-synthesis-rpc.schema';
 
 interface ICuratorService {
@@ -191,6 +198,8 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:rebaseClone',
     'skillSynthesis:keepClone',
     'skillSynthesis:invocationStats',
+    'skillSynthesis:getScorecards',
+    'skillSynthesis:getScorecardDetail',
     'skillSynthesis:listSuggestions',
     'skillSynthesis:acceptSuggestion',
     'skillSynthesis:dismissSuggestion',
@@ -231,6 +240,10 @@ export class SkillsSynthesisRpcHandlers {
     private readonly suggestionStore: SkillSuggestionStore | null,
     @inject(SKILL_SYNTHESIS_TOKENS.SPEC_HARVESTER_SERVICE, { isOptional: true })
     private readonly specHarvester: SpecHarvesterService | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE, {
+      isOptional: true,
+    })
+    private readonly scorecard: SkillScorecardService | null,
   ) {}
 
   register(): void {
@@ -256,6 +269,8 @@ export class SkillsSynthesisRpcHandlers {
     this.registerRebaseClone();
     this.registerKeepClone();
     this.registerInvocationStats();
+    this.registerGetScorecards();
+    this.registerGetScorecardDetail();
     this.registerListSuggestions();
     this.registerAcceptSuggestion();
     this.registerDismissSuggestion();
@@ -962,6 +977,61 @@ export class SkillsSynthesisRpcHandlers {
           'SkillsSynthesisRpcHandlers.registerInvocationStats',
         );
         throw this.toUserError('skillSynthesis:invocationStats');
+      }
+    });
+  }
+
+  private registerGetScorecards(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisGetScorecardsParams,
+      SkillSynthesisGetScorecardsResult
+    >('skillSynthesis:getScorecards', async (params) => {
+      const parsed = this.parseParams(
+        getScorecardsParamsSchema,
+        params,
+        'skillSynthesis:getScorecards',
+      );
+      try {
+        if (!this.scorecard) {
+          // Scorecard service unavailable (non-skill-synthesis runtime): return
+          // a typed empty map rather than throwing.
+          return { scorecards: {} };
+        }
+        const scorecards = this.scorecard.getScorecards(parsed.slugs);
+        return { scorecards };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerGetScorecards');
+        throw this.toUserError('skillSynthesis:getScorecards');
+      }
+    });
+  }
+
+  private registerGetScorecardDetail(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisGetScorecardDetailParams,
+      SkillSynthesisGetScorecardDetailResult
+    >('skillSynthesis:getScorecardDetail', async (params) => {
+      const parsed = this.parseParams(
+        getScorecardDetailParamsSchema,
+        params,
+        'skillSynthesis:getScorecardDetail',
+      );
+      try {
+        if (!this.scorecard) {
+          return { slug: parsed.slug, rows: [], findingsExcerpt: null };
+        }
+        return await this.scorecard.getScorecardDetail(
+          parsed.slug,
+          parsed.limit,
+        );
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerGetScorecardDetail',
+        );
+        throw this.toUserError('skillSynthesis:getScorecardDetail');
       }
     });
   }

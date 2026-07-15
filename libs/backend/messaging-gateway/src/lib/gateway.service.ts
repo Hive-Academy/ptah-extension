@@ -52,12 +52,11 @@ import {
   type FlushPayload,
   type OutboundRoute,
 } from './stream-coalescer';
-import { FfmpegDecoder } from './voice/ffmpeg-decoder';
 import {
-  WhisperTranscriber,
-  type WhisperDownloadEvent,
-} from './voice/whisper-transcriber';
-import { resolveWhisperModel } from './voice/resolve-whisper-model';
+  VOICE_CONTRACT_TOKENS,
+  type IVoiceProviderSelector,
+  type VoiceDownloadEvent,
+} from '@ptah-extension/voice-contracts';
 import {
   GrammyTelegramAdapter,
   type TelegramBotFactory,
@@ -186,8 +185,8 @@ export class GatewayService extends EventEmitter {
     private readonly telegram: GrammyTelegramAdapter,
     @inject(DiscordAdapter) private readonly discord: DiscordAdapter,
     @inject(BoltSlackAdapter) private readonly slack: BoltSlackAdapter,
-    @inject(FfmpegDecoder) private readonly ffmpeg: FfmpegDecoder,
-    @inject(WhisperTranscriber) private readonly whisper: WhisperTranscriber,
+    @inject(VOICE_CONTRACT_TOKENS.VOICE_PROVIDER_SELECTOR)
+    private readonly voiceSelector: IVoiceProviderSelector,
     @inject(SETTINGS_TOKENS.GATEWAY_SETTINGS)
     private readonly gatewaySettings: GatewaySettings,
     @inject(GATEWAY_TOKENS.GATEWAY_ATTACHED_SESSION_REGISTRY)
@@ -272,7 +271,7 @@ export class GatewayService extends EventEmitter {
     if (!this.coalescer) {
       this.coalescer = this.createCoalescer();
     }
-    this.bridgeWhisperEvents();
+    this.bridgeVoiceDownloadEvents();
 
     const masterEnabled =
       this.workspace.getConfiguration<boolean>(
@@ -872,8 +871,9 @@ export class GatewayService extends EventEmitter {
     let body = msg.body;
     if (msg.voicePath && this.cfgBool(SETTINGS_KEYS.voiceEnabled, true)) {
       try {
-        const pcm = await this.ffmpeg.decodeToPcm16(msg.voicePath);
-        const transcript = await this.whisper.transcribe(pcm);
+        const { text: transcript } = await this.voiceSelector
+          .activeStt()
+          .transcribe({ audioPath: msg.voicePath, mimeType: 'audio/ogg' });
         if (transcript) body = body ? `${body}\n${transcript}` : transcript;
       } catch (err) {
         this.logger.warn('[gateway] voice transcription failed', {
@@ -1119,18 +1119,16 @@ export class GatewayService extends EventEmitter {
   }
 
   /**
-   * Subscribe transcriber download events and re-emit them on `gateway:event`
-   * so the renderer's voice-model-download toast lights up. Public so the
-   * activation layer can wire this once after DI registration completes.
+   * Subscribe the voice provider's STT download events and re-emit them on
+   * `gateway:event` so the renderer's voice-model-download toast lights up.
+   * Public so the activation layer can wire this once after DI registration
+   * completes. (Renamed from `bridgeWhisperEvents` — same wire payloads.)
    */
-  bridgeWhisperEvents(): void {
-    if (this.whisperEventsBridged) return;
-    this.whisperEventsBridged = true;
-    const modelName = resolveWhisperModel(this.workspace);
-    if (modelName.length > 0) {
-      this.whisper.configure({ modelName });
-    }
-    this.whisper.on('download', (evt: WhisperDownloadEvent) => {
+  bridgeVoiceDownloadEvents(): void {
+    if (this.voiceEventsBridged) return;
+    this.voiceEventsBridged = true;
+    this.voiceSelector.downloadEvents.onDownload((evt: VoiceDownloadEvent) => {
+      if (evt.direction !== 'stt') return;
       switch (evt.kind) {
         case 'download:start':
           this.emit('event', {
@@ -1164,7 +1162,7 @@ export class GatewayService extends EventEmitter {
     });
   }
 
-  private whisperEventsBridged = false;
+  private voiceEventsBridged = false;
 }
 
 /**

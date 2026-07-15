@@ -21,4 +21,12 @@ export type { ICompactionCallbackRegistry } from './lib/compaction-callback.port
 export type { ISymbolSink, SymbolChunkInsert } from './lib/symbol-sink.port';
 export type { ITranscriptReader } from './lib/transcript-reader.port';
 export type { EmbedderDownloadPhase } from './lib/embedder-download.port';
-export { MEMORY_CONTRACT_TOKENS } from './lib/tokens';
+export type {
+  IKnowledgeAgent,
+  BuildCorpusParams,
+  CorpusRef,
+  CorpusListEntry,
+  CorpusRebuildResult,
+  CorpusPrimeResult,
+} from './lib/knowledge-agent.port';
+export { MEMORY_CONTRACT_TOKENS, KNOWLEDGE_AGENT_TOKEN } from './lib/tokens';

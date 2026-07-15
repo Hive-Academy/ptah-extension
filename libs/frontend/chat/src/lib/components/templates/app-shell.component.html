@@ -108,6 +108,19 @@
       }
     </div>
   }
+
+  <!-- Tasks: standalone .ptah/specs board (injected via DI token to break circular dep) -->
+  @case ('tasks') {
+    <div class="h-full w-full">
+      @if (tasksComponent) {
+        <ng-container *ngComponentOutlet="tasksComponent" />
+      } @else {
+        <div class="flex items-center justify-center h-full">
+          <span class="loading loading-spinner loading-md"></span>
+        </div>
+      }
+    </div>
+  }
 }
 
 <!-- 2. Shared chrome — ALWAYS rendered, hidden when standalone view is active -->
@@ -468,6 +481,18 @@
         >
           <lucide-angular [img]="ScaleIcon" class="w-4 h-4" />
           <span class="icon-btn-label text-xs">Tribunal</span>
+        </button>
+
+        <!-- Tasks nav button (VS Code only — Electron has it in global navbar) -->
+        <button
+          class="btn btn-ghost btn-xs gap-1"
+          [class.btn-active]="currentView() === 'tasks'"
+          aria-label="Tasks"
+          title="Tasks — .ptah/specs board"
+          (click)="openTasks()"
+        >
+          <lucide-angular [img]="ClipboardListIcon" class="w-4 h-4" />
+          <span class="icon-btn-label text-xs">Tasks</span>
         </button>
 
         <!-- Marketplace nav button (VS Code only — Electron has it in global navbar).

@@ -79,42 +79,6 @@ export type {
   SlackAppFactory,
 } from './lib/adapters/slack/bolt.adapter';
 
-export { FfmpegDecoder } from './lib/voice/ffmpeg-decoder';
-export type { FfmpegBinaryResolver } from './lib/voice/ffmpeg-decoder';
-export {
-  VoiceAssetsUnavailableError,
-  VOICE_ASSETS_UNAVAILABLE,
-  VOICE_ASSETS_REMEDIATION,
-  isVoiceAssetsUnavailable,
-} from './lib/voice/voice-assets-error';
-export { WhisperTranscriber } from './lib/voice/whisper-transcriber';
-export type {
-  AsrPipeline,
-  AsrPipelineFactory,
-  PipelineProgressInfo,
-  WhisperDownloadEvent,
-} from './lib/voice/whisper-transcriber';
-export {
-  KokoroSynthesizer,
-  DEFAULT_KOKORO_MODEL_ID,
-  DEFAULT_KOKORO_VOICE,
-  DEFAULT_KOKORO_DTYPE,
-} from './lib/voice/kokoro-synthesizer';
-export type {
-  KokoroAudio,
-  KokoroPipeline,
-  KokoroDownloadEvent,
-  SynthesisResult,
-  TtsPipelineFactory,
-} from './lib/voice/kokoro-synthesizer';
-export {
-  resolveWhisperModel,
-  VOICE_WHISPER_MODEL_KEY,
-  LEGACY_GATEWAY_WHISPER_MODEL_KEY,
-  DEFAULT_WHISPER_MODEL,
-} from './lib/voice/resolve-whisper-model';
-export type { WhisperModelConfigReader } from './lib/voice/resolve-whisper-model';
-
 export { BindingId, ConversationKey, GatewayMessageId } from './lib/types';
 export type {
   ApprovalStatus,
