@@ -248,6 +248,8 @@ import type {
   GitCommitResult,
   GitShowFileParams,
   GitShowFileResult,
+  GitPushParams,
+  GitPushResult,
   GitBranchesParams,
   GitBranchesResult,
   GitCheckoutParams,
@@ -1224,6 +1226,7 @@ export interface RpcMethodRegistry {
   'git:discard': { params: GitDiscardParams; result: GitDiscardResult };
   'git:commit': { params: GitCommitParams; result: GitCommitResult };
   'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
+  'git:push': { params: GitPushParams; result: GitPushResult };
   'git:branches': { params: GitBranchesParams; result: GitBranchesResult };
   'git:checkout': { params: GitCheckoutParams; result: GitCheckoutResult };
   'git:stashList': { params: GitStashListParams; result: GitStashListResult };
@@ -2722,6 +2725,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:discard': true,
   'git:commit': true,
   'git:showFile': true,
+  'git:push': true,
   'git:branches': true,
   'git:checkout': true,
   'git:stashList': true,

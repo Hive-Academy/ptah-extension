@@ -217,6 +217,15 @@ export interface GitShowFileResult {
   isBinary?: boolean;
 }
 
+/** Parameters for git:push RPC method */
+export type GitPushParams = GitWorkspaceScopedParams;
+
+/** Result from git:push RPC method */
+export interface GitPushResult {
+  success: boolean;
+  error?: string;
+}
+
 /** Single branch reference returned by git:branches */
 export interface BranchRef {
   /** Short branch name, e.g. "main" or "origin/main" for remotes */

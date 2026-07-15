@@ -86,6 +86,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fs: IFileSystemProvider,
+    @inject(TASK_SPECS_TOKENS.TASK_SCANNER)
     private readonly scanner: TaskScannerService,
     @inject(TASK_SPECS_TOKENS.TASK_INDEX_STORE)
     private readonly store: ITaskIndexStore,

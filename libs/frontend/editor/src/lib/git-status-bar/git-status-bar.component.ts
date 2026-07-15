@@ -1,43 +1,38 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  effect,
-  ElementRef,
   inject,
   signal,
 } from '@angular/core';
 import {
+  ArrowUpFromLine,
   GitBranch,
   LucideAngularModule,
-  Terminal as TermIcon,
 } from 'lucide-angular';
 import { GitStatusService } from '../services/git-status.service';
-import { EditorService } from '../services/editor.service';
 import { GitBranchesService } from '../services/git-branches.service';
-import { GitChangedFilesComponent } from './git-changed-files.component';
 import { BranchPickerDropdownComponent } from '../branch-picker/branch-picker-dropdown.component';
 import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-popover.component';
 
 /**
  * GitStatusBarComponent — VS Code-style status bar showing branch info,
- * stash indicator, changed-file count, and a terminal toggle.
+ * stash indicator, and a push button.
  *
  * Layout (left → right):
- *   [GitBranch icon] [branchName ↑N ↓N] [stash N]   …   [Δ changedCount] [Terminal]
+ *   [GitBranch icon] [branchName ↑N ↓N] [stash N]   …   [Push]
  *
  * Interactions:
  *   - Click on branch segment → opens {@link BranchPickerDropdownComponent}.
  *   - Right-click on branch segment → opens
  *     {@link BranchDetailsPopoverComponent}.
- *   - Click Δ count → toggles inline changed-files panel.
- *   - Click terminal icon → toggles `EditorService.terminalVisible`.
+ *   - Click Push → runs `git push` for the current branch; only shown when
+ *     there are unpushed commits (ahead > 0).
  */
 @Component({
   selector: 'ptah-git-status-bar',
   standalone: true,
   imports: [
     LucideAngularModule,
-    GitChangedFilesComponent,
     BranchPickerDropdownComponent,
     BranchDetailsPopoverComponent,
   ],
@@ -122,68 +117,40 @@ import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-p
         <!-- Spacer -->
         <span class="ml-auto"></span>
 
-        <!-- Changed files indicator -->
-        @if (gitStatus.hasChanges()) {
+        <!-- Push button (only when there are unpushed commits) -->
+        @if (gitStatus.branch().ahead > 0) {
           <button
             type="button"
-            class="flex items-center gap-1.5 px-2 py-0.5 rounded
-                   text-base-content/60 hover:text-base-content hover:bg-base-content/5
-                   transition-colors"
-            [class.text-primary]="showChangedFiles()"
-            [title]="gitStatus.changedFileCount() + ' changed file(s)'"
-            (click)="toggleChangedFiles()"
+            class="flex items-center gap-1.5 h-5 px-2 ml-1 rounded
+                   border border-base-content/20 bg-base-100
+                   text-[11px] font-medium text-base-content/70
+                   hover:bg-base-content/5 hover:text-base-content
+                   active:translate-y-px transition-all disabled:opacity-50"
+            [disabled]="isPushing()"
+            [title]="
+              'Push ' + gitStatus.branch().ahead + ' commit(s) to remote'
+            "
+            aria-label="Push to remote"
+            (click)="onPush()"
           >
-            <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
-            <span class="text-[11px]">{{ gitStatus.changedFileCount() }}</span>
+            <lucide-angular [img]="PushIcon" class="w-3.5 h-3.5" />
+            <span>Push</span>
           </button>
         }
-
-        <!-- Terminal toggle (push button) -->
-        <button
-          type="button"
-          class="flex items-center gap-1.5 h-5 px-2 ml-1 rounded
-                 border border-base-content/20 bg-base-100
-                 text-[11px] font-medium text-base-content/70
-                 hover:bg-base-content/5 hover:text-base-content
-                 active:translate-y-px transition-all"
-          [class.!bg-primary/15]="editorService.terminalVisible()"
-          [class.!border-primary/40]="editorService.terminalVisible()"
-          [class.!text-primary]="editorService.terminalVisible()"
-          [attr.aria-pressed]="editorService.terminalVisible()"
-          [title]="
-            editorService.terminalVisible() ? 'Hide terminal' : 'Show terminal'
-          "
-          aria-label="Toggle terminal"
-          (click)="onTerminalToggle()"
-        >
-          <lucide-angular [img]="TerminalIcon" class="w-3.5 h-3.5" />
-          <span>Terminal</span>
-        </button>
       </div>
-
-      <!-- Changed files panel (below status bar) -->
-      @if (showChangedFiles()) {
-        <ptah-git-changed-files
-          [files]="gitStatus.files()"
-          (fileClicked)="onChangedFileClick($event)"
-        />
-      }
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '(document:click)': 'onDocumentClick($event)' },
 })
 export class GitStatusBarComponent {
   protected readonly gitStatus = inject(GitStatusService);
   protected readonly gitBranches = inject(GitBranchesService);
-  protected readonly editorService = inject(EditorService);
-  private readonly elementRef = inject(ElementRef);
 
   protected readonly GitBranchIcon = GitBranch;
-  protected readonly TerminalIcon = TermIcon;
+  protected readonly PushIcon = ArrowUpFromLine;
 
-  /** Whether the changed files panel is visible. */
-  protected readonly showChangedFiles = signal(false);
+  /** Whether a `git:push` RPC is currently in flight. */
+  protected readonly isPushing = signal(false);
 
   /** Whether the branch picker dropdown is open. */
   protected readonly branchPickerOpen = signal(false);
@@ -194,30 +161,16 @@ export class GitStatusBarComponent {
   constructor() {
     this.gitBranches.startListening();
     void this.gitBranches.refreshBranches();
-    effect(() => {
-      if (!this.gitStatus.hasChanges()) {
-        this.showChangedFiles.set(false);
-      }
-    });
   }
 
-  /** Close inline panels when clicking outside the component. */
-  onDocumentClick(event: MouseEvent): void {
-    const target = event.target;
-    if (
-      target instanceof Node &&
-      !this.elementRef.nativeElement.contains(target)
-    ) {
-      if (this.showChangedFiles()) this.showChangedFiles.set(false);
+  protected async onPush(): Promise<void> {
+    if (this.isPushing()) return;
+    this.isPushing.set(true);
+    try {
+      await this.gitBranches.push();
+    } finally {
+      this.isPushing.set(false);
     }
-  }
-
-  protected toggleChangedFiles(): void {
-    this.showChangedFiles.update((v) => !v);
-  }
-
-  protected onTerminalToggle(): void {
-    this.editorService.toggleTerminal();
   }
 
   /**
@@ -239,26 +192,4 @@ export class GitStatusBarComponent {
   }
 
   protected onBranchCheckedOut(_branchName: string): void {}
-
-  /**
-   * Handle file click from the changed files panel.
-   * Converts relative git path to absolute path and opens in the editor.
-   */
-  protected onChangedFileClick(relativePath: string): void {
-    const workspaceRoot = this.gitStatus.activeWorkspacePath();
-    if (!workspaceRoot) return;
-    const normalized = relativePath.replace(/\\/g, '/');
-    const segments = normalized.split('/');
-    const isAbsolute =
-      normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized);
-    const hasTraversal = segments.some((s) => s === '..' || s === '.');
-    if (isAbsolute || hasTraversal || segments.length === 0) return;
-    const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
-    const root = normalizedRoot.endsWith('/')
-      ? normalizedRoot
-      : normalizedRoot + '/';
-    const absolutePath = root + normalized;
-
-    void this.editorService.openFile(absolutePath);
-  }
 }
