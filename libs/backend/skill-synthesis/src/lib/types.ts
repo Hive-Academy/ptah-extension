@@ -55,6 +55,23 @@ export interface SkillInvocationRow {
   contextId: string | null;
 }
 
+/**
+ * Per-invocation runtime metrics for a subagent run, extracted from the
+ * subagent transcript at SubagentStop (token classes, cost, duration, tool
+ * count). Every field is nullable: providers that report no usage
+ * (Copilot/Codex/ollama) yield all-null metrics, which SQL AVG()/SUM()
+ * exclude rather than count as zero.
+ */
+export interface SubagentRunMetrics {
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly cacheReadTokens: number | null;
+  readonly cacheCreationTokens: number | null;
+  readonly costUsd: number | null;
+  readonly durationMs: number | null;
+  readonly toolCount: number | null;
+}
+
 /** Settings projection used by the synthesis service. */
 export interface SkillSynthesisSettings {
   enabled: boolean;

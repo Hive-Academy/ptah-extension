@@ -132,6 +132,7 @@ export type {
   SkillResidency,
   SkillCandidateRow,
   SkillInvocationRow,
+  SubagentRunMetrics,
   SkillSynthesisSettings,
   NewCandidateInput,
   RegisterCandidateResult,

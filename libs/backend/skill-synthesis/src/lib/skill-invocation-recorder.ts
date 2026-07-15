@@ -2,6 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import { SkillCandidateStore } from './skill-candidate.store';
+import type { SubagentRunMetrics } from './types';
 
 const DEDUP_BUCKET_MS = 2000;
 const DEDUP_CAP = 500;
@@ -14,6 +15,10 @@ export interface RecordSkillEventInput {
   readonly succeeded: boolean;
   readonly invokedAt: number;
   readonly source: 'tool-use' | 'prompt-expansion' | 'subagent';
+  /** Subagent-source only; transcript-derived metrics (NULL when unavailable). */
+  readonly metrics?: SubagentRunMetrics | null;
+  /** Exact task attribution (TASK_YYYY_NNN) for subagent runs, else NULL. */
+  readonly taskId?: string | null;
 }
 
 @injectable()
@@ -45,6 +50,8 @@ export class SkillInvocationRecorder {
         succeeded: input.succeeded,
         isError: !input.succeeded,
         invokedAt: input.invokedAt,
+        metrics: input.metrics ?? null,
+        taskId: input.taskId ?? null,
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);

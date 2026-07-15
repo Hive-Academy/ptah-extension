@@ -93,8 +93,18 @@ function createInMemoryDb(): BetterSqliteDb {
       is_error INTEGER NOT NULL,
       invoked_at INTEGER NOT NULL,
       reconciled_at INTEGER,
-      verdict_source TEXT
+      verdict_source TEXT,
+      input_tokens INTEGER,
+      output_tokens INTEGER,
+      cache_read_tokens INTEGER,
+      cache_creation_tokens INTEGER,
+      cost_usd REAL,
+      duration_ms INTEGER,
+      tool_count INTEGER,
+      task_id TEXT
     );
+    CREATE INDEX idx_skill_inv_events_task
+      ON skill_invocation_events(skill_slug, task_id);
   `);
   return db;
 }
@@ -284,6 +294,7 @@ describe('SkillCandidateStore', () => {
 
       const did = store.reconcileSubagentEvent({
         slug: 'backend-developer',
+        taskId: 'TASK_2026_001',
         succeeded: false,
         isError: true,
         windowStart: 0,
@@ -308,6 +319,7 @@ describe('SkillCandidateStore', () => {
 
         const first = store.reconcileSubagentEvent({
           slug: 'frontend-developer',
+          taskId: 'TASK_2026_002',
           succeeded: false,
           isError: true,
           windowStart: 0,
@@ -317,6 +329,7 @@ describe('SkillCandidateStore', () => {
         });
         const second = store.reconcileSubagentEvent({
           slug: 'frontend-developer',
+          taskId: 'TASK_2026_002',
           succeeded: true,
           isError: false,
           windowStart: 0,
@@ -338,6 +351,7 @@ describe('SkillCandidateStore', () => {
 
       const did = store.reconcileSubagentEvent({
         slug: 'senior-tester',
+        taskId: 'TASK_2026_003',
         succeeded: false,
         isError: true,
         windowStart: 0,
@@ -348,6 +362,390 @@ describe('SkillCandidateStore', () => {
 
       expect(did).toBe(false);
       expect(store.getInvocationStats('senior-tester').succeeded).toBe(1);
+    });
+  });
+
+  describe('recordSkillEvent — metrics + task_id write path', () => {
+    const fullMetrics = {
+      inputTokens: 48200,
+      outputTokens: 6100,
+      cacheReadTokens: 210000,
+      cacheCreationTokens: 4200,
+      costUsd: 0.41,
+      durationMs: 252000,
+      toolCount: 23,
+    };
+
+    interface EventRow {
+      input_tokens: number | null;
+      output_tokens: number | null;
+      cache_read_tokens: number | null;
+      cache_creation_tokens: number | null;
+      cost_usd: number | null;
+      duration_ms: number | null;
+      tool_count: number | null;
+      task_id: string | null;
+    }
+
+    function readEvent(db: BetterSqliteDb, slug: string): EventRow {
+      return db
+        .prepare(
+          `SELECT input_tokens, output_tokens, cache_read_tokens,
+                  cache_creation_tokens, cost_usd, duration_ms, tool_count, task_id
+           FROM skill_invocation_events WHERE skill_slug = ? LIMIT 1`,
+        )
+        .get(slug) as EventRow;
+    }
+
+    maybe('round-trips metrics and task_id into the new columns', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      store.recordSkillEvent({
+        skillSlug: 'backend-developer',
+        sessionId: 's1',
+        contextId: null,
+        source: 'subagent',
+        succeeded: true,
+        isError: false,
+        invokedAt: 1000,
+        metrics: fullMetrics,
+        taskId: 'TASK_2026_158',
+      });
+
+      const row = readEvent(db, 'backend-developer');
+      expect(row.input_tokens).toBe(48200);
+      expect(row.output_tokens).toBe(6100);
+      expect(row.cache_read_tokens).toBe(210000);
+      expect(row.cache_creation_tokens).toBe(4200);
+      expect(row.cost_usd).toBeCloseTo(0.41);
+      expect(row.duration_ms).toBe(252000);
+      expect(row.tool_count).toBe(23);
+      expect(row.task_id).toBe('TASK_2026_158');
+    });
+
+    maybe('writes NULL metric/task columns when they are absent', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      // Pre-existing tool-use insert path: no metrics, no taskId.
+      store.recordSkillEvent({
+        skillSlug: 'caveman',
+        sessionId: 's1',
+        contextId: null,
+        source: 'tool-use',
+        succeeded: true,
+        isError: false,
+        invokedAt: 1000,
+      });
+
+      const row = readEvent(db, 'caveman');
+      expect(row.input_tokens).toBeNull();
+      expect(row.output_tokens).toBeNull();
+      expect(row.cache_read_tokens).toBeNull();
+      expect(row.cache_creation_tokens).toBeNull();
+      expect(row.cost_usd).toBeNull();
+      expect(row.duration_ms).toBeNull();
+      expect(row.tool_count).toBeNull();
+      expect(row.task_id).toBeNull();
+      // Existing invocation counting is unaffected by the widened INSERT.
+      expect(store.getInvocationStats('caveman').total).toBe(1);
+    });
+
+    maybe(
+      'passing metrics: null writes all-null columns (usage-less provider)',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        store.recordSkillEvent({
+          skillSlug: 'copilot-style',
+          sessionId: 's1',
+          contextId: null,
+          source: 'subagent',
+          succeeded: true,
+          isError: false,
+          invokedAt: 1000,
+          metrics: null,
+          taskId: 'TASK_2026_158',
+        });
+
+        const row = readEvent(db, 'copilot-style');
+        expect(row.input_tokens).toBeNull();
+        expect(row.cost_usd).toBeNull();
+        expect(row.task_id).toBe('TASK_2026_158');
+      },
+    );
+
+    maybe(
+      'NULL-excluding AVG ignores null-metric rows (not treated as 0)',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        const withTokens = {
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadTokens: null,
+          cacheCreationTokens: null,
+          costUsd: 0.2,
+          durationMs: 1000,
+          toolCount: 5,
+        };
+        const record = (invokedAt: number, metrics: unknown) =>
+          store.recordSkillEvent({
+            skillSlug: 'avg-agent',
+            sessionId: `s-${invokedAt}`,
+            contextId: null,
+            source: 'subagent',
+            succeeded: true,
+            isError: false,
+            invokedAt,
+            metrics: metrics as never,
+            taskId: null,
+          });
+        record(1000, withTokens); // input_tokens = 100
+        record(2000, null); // all-null metrics
+
+        const agg = db
+          .prepare(
+            `SELECT AVG(input_tokens) AS avg_input, COUNT(*) AS total,
+                  SUM(input_tokens) AS sum_input
+           FROM skill_invocation_events WHERE skill_slug = ?`,
+          )
+          .get('avg-agent') as {
+          avg_input: number | null;
+          total: number;
+          sum_input: number | null;
+        };
+        // AVG over {100, NULL} = 100 (NULL excluded), NOT 50.
+        expect(agg.total).toBe(2);
+        expect(agg.avg_input).toBe(100);
+        expect(agg.sum_input).toBe(100);
+      },
+    );
+  });
+
+  describe('reconcileSubagentEvent — exact task_id first, window fallback', () => {
+    interface VerdictRow {
+      succeeded: number;
+      is_error: number;
+      reconciled_at: number | null;
+      verdict_source: string | null;
+    }
+
+    function recordSubagent(
+      store: SkillCandidateStore,
+      slug: string,
+      invokedAt: number,
+      taskId: string | null,
+    ): void {
+      store.recordSkillEvent({
+        skillSlug: slug,
+        sessionId: `sess-${invokedAt}`,
+        contextId: null,
+        source: 'subagent',
+        succeeded: true,
+        isError: false,
+        invokedAt,
+        taskId,
+      });
+    }
+
+    function rowByTask(
+      db: BetterSqliteDb,
+      slug: string,
+      taskId: string,
+    ): VerdictRow {
+      return db
+        .prepare(
+          `SELECT succeeded, is_error, reconciled_at, verdict_source
+           FROM skill_invocation_events WHERE skill_slug = ? AND task_id = ?`,
+        )
+        .get(slug, taskId) as VerdictRow;
+    }
+
+    maybe(
+      'exact pass flips the (slug, task_id) row even when outside the window',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        // Recorded far outside the fallback window — only the exact task_id
+        // match should reach it.
+        recordSubagent(store, 'backend-developer', 999999, 'TASK_2026_001');
+
+        const did = store.reconcileSubagentEvent({
+          slug: 'backend-developer',
+          taskId: 'TASK_2026_001',
+          succeeded: false,
+          isError: true,
+          windowStart: 0,
+          windowEnd: 2000,
+          verdictSource: 'spec:TASK_2026_001',
+          reconciledAt: 5000,
+        });
+
+        expect(did).toBe(true);
+        const row = rowByTask(db, 'backend-developer', 'TASK_2026_001');
+        expect(row.succeeded).toBe(0);
+        expect(row.is_error).toBe(1);
+        expect(row.reconciled_at).toBe(5000);
+        expect(row.verdict_source).toBe('spec:TASK_2026_001');
+      },
+    );
+
+    maybe(
+      'window fallback only touches task_id IS NULL rows and stamps spec-window:',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        recordSubagent(store, 'frontend-developer', 1000, null); // legacy row
+
+        const did = store.reconcileSubagentEvent({
+          slug: 'frontend-developer',
+          taskId: 'TASK_2026_050',
+          succeeded: false,
+          isError: true,
+          windowStart: 0,
+          windowEnd: 2000,
+          verdictSource: 'spec:TASK_2026_050',
+          reconciledAt: 5000,
+        });
+
+        expect(did).toBe(true);
+        const row = db
+          .prepare(
+            `SELECT succeeded, verdict_source FROM skill_invocation_events
+             WHERE skill_slug = ? AND task_id IS NULL`,
+          )
+          .get('frontend-developer') as {
+          succeeded: number;
+          verdict_source: string;
+        };
+        expect(row.succeeded).toBe(0);
+        expect(row.verdict_source).toBe('spec-window:TASK_2026_050');
+      },
+    );
+
+    maybe(
+      'R4.3 concurrent same-slug tasks — each stamped row gets its OWN verdict',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        // Two runs of the SAME executor slug in overlapping mtime windows,
+        // distinct task ids — the exact bug the exact-pass reconcile fixes.
+        recordSubagent(store, 'backend-developer', 1000, 'TASK_2026_100');
+        recordSubagent(store, 'backend-developer', 1100, 'TASK_2026_200');
+        // Plus a legacy (unstamped) row inside the same window.
+        recordSubagent(store, 'backend-developer', 1200, null);
+
+        // Reconcile TASK_100 as COMPLETE and TASK_200 as FAILED — both windows
+        // fully overlap [0, 2000].
+        const a = store.reconcileSubagentEvent({
+          slug: 'backend-developer',
+          taskId: 'TASK_2026_100',
+          succeeded: true,
+          isError: false,
+          windowStart: 0,
+          windowEnd: 2000,
+          verdictSource: 'spec:TASK_2026_100',
+          reconciledAt: 5000,
+        });
+        const b = store.reconcileSubagentEvent({
+          slug: 'backend-developer',
+          taskId: 'TASK_2026_200',
+          succeeded: false,
+          isError: true,
+          windowStart: 0,
+          windowEnd: 2000,
+          verdictSource: 'spec:TASK_2026_200',
+          reconciledAt: 5001,
+        });
+
+        expect(a).toBe(true);
+        expect(b).toBe(true);
+
+        const rowA = rowByTask(db, 'backend-developer', 'TASK_2026_100');
+        const rowB = rowByTask(db, 'backend-developer', 'TASK_2026_200');
+        // No cross-attribution: each row carries exactly its own task's verdict.
+        expect(rowA.succeeded).toBe(1);
+        expect(rowA.verdict_source).toBe('spec:TASK_2026_100');
+        expect(rowB.succeeded).toBe(0);
+        expect(rowB.verdict_source).toBe('spec:TASK_2026_200');
+
+        // A window fallback for a third task must NOT steal a stamped row — it
+        // can only claim the legacy task_id IS NULL row.
+        const c = store.reconcileSubagentEvent({
+          slug: 'backend-developer',
+          taskId: 'TASK_2026_300',
+          succeeded: false,
+          isError: true,
+          windowStart: 0,
+          windowEnd: 2000,
+          verdictSource: 'spec:TASK_2026_300',
+          reconciledAt: 5002,
+        });
+        expect(c).toBe(true);
+        // Stamped rows are still owned by their tasks (unchanged).
+        expect(
+          rowByTask(db, 'backend-developer', 'TASK_2026_100').succeeded,
+        ).toBe(1);
+        expect(
+          rowByTask(db, 'backend-developer', 'TASK_2026_200').succeeded,
+        ).toBe(0);
+        const legacy = db
+          .prepare(
+            `SELECT verdict_source FROM skill_invocation_events
+             WHERE skill_slug = ? AND task_id IS NULL`,
+          )
+          .get('backend-developer') as { verdict_source: string };
+        expect(legacy.verdict_source).toBe('spec-window:TASK_2026_300');
+      },
+    );
+
+    maybe('is idempotent — re-reconciling the same task flips nothing', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      recordSubagent(store, 'senior-tester', 1000, 'TASK_2026_400');
+
+      const first = store.reconcileSubagentEvent({
+        slug: 'senior-tester',
+        taskId: 'TASK_2026_400',
+        succeeded: false,
+        isError: true,
+        windowStart: 0,
+        windowEnd: 2000,
+        verdictSource: 'spec:TASK_2026_400',
+        reconciledAt: 5000,
+      });
+      const second = store.reconcileSubagentEvent({
+        slug: 'senior-tester',
+        taskId: 'TASK_2026_400',
+        succeeded: true, // would flip back if not guarded
+        isError: false,
+        windowStart: 0,
+        windowEnd: 2000,
+        verdictSource: 'spec:TASK_2026_400',
+        reconciledAt: 6000,
+      });
+
+      expect(first).toBe(true);
+      expect(second).toBe(false);
+      const row = rowByTask(db, 'senior-tester', 'TASK_2026_400');
+      expect(row.succeeded).toBe(0); // stays FAILED, not re-flipped
+      expect(row.reconciled_at).toBe(5000);
+    });
+
+    maybe('returns false when telemetry never recorded the run', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const did = store.reconcileSubagentEvent({
+        slug: 'never-ran',
+        taskId: 'TASK_2026_500',
+        succeeded: true,
+        isError: false,
+        windowStart: 0,
+        windowEnd: 2000,
+        verdictSource: 'spec:TASK_2026_500',
+        reconciledAt: 5000,
+      });
+      expect(did).toBe(false);
     });
   });
 

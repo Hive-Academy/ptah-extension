@@ -99,6 +99,7 @@ export class SpecHarvesterService implements SpecFindingsPort {
       for (const batch of spec.batches) {
         const did = this.store.reconcileSubagentEvent({
           slug: batch.slug,
+          taskId: spec.taskId,
           succeeded: batch.status === 'COMPLETE',
           isError: batch.status === 'FAILED',
           windowStart: spec.windowStart,
