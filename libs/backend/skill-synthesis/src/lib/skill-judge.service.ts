@@ -50,6 +50,7 @@ export class SkillJudgeService {
     candidate: SkillCandidateRow,
     body: string,
     settings: SkillSynthesisSettings,
+    context?: string,
   ): Promise<JudgeDecision> {
     if (!settings.judgeEnabled || !this.internalQuery) {
       return { passed: true, score: 10, reason: 'judge-disabled' };
@@ -68,6 +69,15 @@ export class SkillJudgeService {
       body.slice(0, 3000),
       `---`,
       ``,
+      // Optional background material (e.g. the enhancer's measured-scorecard
+      // block). Informational only — the five scoring criteria are unchanged.
+      ...(context
+        ? [
+            `Background (measured usage signal for context only — do NOT add new scoring criteria):`,
+            context,
+            ``,
+          ]
+        : []),
       `Score each criterion 1-10 (be strict — score low when in doubt):`,
       `- novelty: How novel/non-obvious is this versus common knowledge an agent already has?`,
       `- actionability: How directly executable are the steps (imperative, concrete, ordered)?`,
