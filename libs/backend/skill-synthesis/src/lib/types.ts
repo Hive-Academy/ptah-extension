@@ -72,6 +72,47 @@ export interface SubagentRunMetrics {
   readonly toolCount: number | null;
 }
 
+/**
+ * Aggregated scorecard metrics for a single subagent slug, produced by ONE
+ * `GROUP BY skill_slug` pass over its `source='subagent'` invocation events.
+ * `total`/`graded`/`gradedSucceeded` are always concrete counts; every
+ * token/cost/duration/tool average or sum is nullable because SQL AVG()/SUM()
+ * return NULL when no row carries that metric (providers without usage). A slug
+ * with no rows yields a fully zeroed/nulled aggregate — never an error.
+ */
+export interface ScorecardAggregate {
+  slug: string;
+  total: number;
+  graded: number;
+  gradedSucceeded: number;
+  avgInputTokens: number | null;
+  avgOutputTokens: number | null;
+  avgCacheReadTokens: number | null;
+  totalInputTokens: number | null;
+  totalOutputTokens: number | null;
+  avgCostUsd: number | null;
+  avgDurationMs: number | null;
+  avgToolCount: number | null;
+}
+
+/**
+ * A single graded (reconciled) subagent invocation row for the detail view.
+ * `verdictSource` distinguishes exact (`spec:TASK_X`) from heuristic
+ * (`spec-window:TASK_X`) attribution; callers map it to an `exactAttribution`
+ * flag. All metric fields are nullable (usage-less providers).
+ */
+export interface GradedInvocationRow {
+  taskId: string | null;
+  succeeded: boolean;
+  verdictSource: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costUsd: number | null;
+  durationMs: number | null;
+  invokedAt: number;
+  reconciledAt: number;
+}
+
 /** Settings projection used by the synthesis service. */
 export interface SkillSynthesisSettings {
   enabled: boolean;

@@ -29,6 +29,8 @@ import {
   type SkillResidency,
   type SkillStatus,
   type SubagentRunMetrics,
+  type ScorecardAggregate,
+  type GradedInvocationRow,
 } from './types';
 import { cosineSimilarity } from './cosine-similarity';
 
@@ -59,6 +61,33 @@ interface RawInvocationRow {
   invoked_at: number;
   notes: string | null;
   context_id: string | null;
+}
+
+interface RawScorecardAggregateRow {
+  slug: string;
+  total: number | null;
+  graded: number | null;
+  graded_succeeded: number | null;
+  avg_input: number | null;
+  sum_input: number | null;
+  avg_output: number | null;
+  sum_output: number | null;
+  avg_cache_read: number | null;
+  avg_cost: number | null;
+  avg_duration: number | null;
+  avg_tools: number | null;
+}
+
+interface RawGradedInvocationRow {
+  task_id: string | null;
+  succeeded: number;
+  verdict_source: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
+  duration_ms: number | null;
+  invoked_at: number;
+  reconciled_at: number | null;
 }
 
 const LEGAL_TRANSITIONS: Record<SkillStatus, readonly SkillStatus[]> = {
@@ -572,6 +601,114 @@ export class SkillCandidateStore {
       succeeded: row?.succeeded ?? 0,
       failed: row?.failed ?? 0,
       distinctContexts: row?.distinctContexts ?? 0,
+    };
+  }
+
+  /**
+   * Batched scorecard aggregation for the Library view. ONE `GROUP BY
+   * skill_slug` pass over `source='subagent'` rows for the requested slugs.
+   * Returns a Map keyed by EVERY requested slug: slugs with no rows get a
+   * typed zero/null aggregate (never omitted, never an error). Token/cost/
+   * duration/tool averages and sums are NULL-excluding by SQL semantics — a
+   * usage-less provider's all-null row is ignored, not counted as zero (R1.2).
+   * Empty slug list → empty Map.
+   */
+  getScorecardAggregates(
+    slugs: readonly string[],
+  ): Map<string, ScorecardAggregate> {
+    const result = new Map<string, ScorecardAggregate>();
+    if (slugs.length === 0) return result;
+    // Seed every requested slug with a zero aggregate so no-data slugs are
+    // always present and well-typed.
+    for (const slug of slugs) {
+      result.set(slug, this.emptyScorecardAggregate(slug));
+    }
+    const placeholders = slugs.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(
+        `SELECT skill_slug AS slug,
+                COUNT(*)                                                   AS total,
+                SUM(CASE WHEN reconciled_at IS NOT NULL THEN 1 ELSE 0 END) AS graded,
+                SUM(CASE WHEN reconciled_at IS NOT NULL AND succeeded = 1
+                         THEN 1 ELSE 0 END)                               AS graded_succeeded,
+                AVG(input_tokens)       AS avg_input,
+                SUM(input_tokens)       AS sum_input,
+                AVG(output_tokens)      AS avg_output,
+                SUM(output_tokens)      AS sum_output,
+                AVG(cache_read_tokens)  AS avg_cache_read,
+                AVG(cost_usd)           AS avg_cost,
+                AVG(duration_ms)        AS avg_duration,
+                AVG(tool_count)         AS avg_tools
+         FROM skill_invocation_events
+         WHERE source = 'subagent' AND skill_slug IN (${placeholders})
+         GROUP BY skill_slug`,
+      )
+      .all(...slugs) as RawScorecardAggregateRow[];
+    for (const r of rows) {
+      result.set(r.slug, {
+        slug: r.slug,
+        total: r.total ?? 0,
+        graded: r.graded ?? 0,
+        gradedSucceeded: r.graded_succeeded ?? 0,
+        avgInputTokens: r.avg_input,
+        avgOutputTokens: r.avg_output,
+        avgCacheReadTokens: r.avg_cache_read,
+        totalInputTokens: r.sum_input,
+        totalOutputTokens: r.sum_output,
+        avgCostUsd: r.avg_cost,
+        avgDurationMs: r.avg_duration,
+        avgToolCount: r.avg_tools,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Recent graded (reconciled) subagent invocations for a slug, newest verdict
+   * first. Used by the lazy detail view. Only `reconciled_at IS NOT NULL` rows
+   * are returned so ungraded optimistic events never surface as verdicts.
+   */
+  listGradedInvocations(slug: string, limit: number): GradedInvocationRow[] {
+    if (!slug || limit <= 0) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT task_id, succeeded, verdict_source, input_tokens, output_tokens,
+                cost_usd, duration_ms, invoked_at, reconciled_at
+         FROM skill_invocation_events
+         WHERE skill_slug = ?
+           AND source = 'subagent'
+           AND reconciled_at IS NOT NULL
+         ORDER BY reconciled_at DESC
+         LIMIT ?`,
+      )
+      .all(slug, limit) as RawGradedInvocationRow[];
+    return rows.map((r) => ({
+      taskId: r.task_id ?? null,
+      succeeded: r.succeeded === 1,
+      verdictSource: r.verdict_source ?? null,
+      inputTokens: r.input_tokens ?? null,
+      outputTokens: r.output_tokens ?? null,
+      costUsd: r.cost_usd ?? null,
+      durationMs: r.duration_ms ?? null,
+      invokedAt: r.invoked_at,
+      reconciledAt: r.reconciled_at ?? 0,
+    }));
+  }
+
+  private emptyScorecardAggregate(slug: string): ScorecardAggregate {
+    return {
+      slug,
+      total: 0,
+      graded: 0,
+      gradedSucceeded: 0,
+      avgInputTokens: null,
+      avgOutputTokens: null,
+      avgCacheReadTokens: null,
+      totalInputTokens: null,
+      totalOutputTokens: null,
+      avgCostUsd: null,
+      avgDurationMs: null,
+      avgToolCount: null,
     };
   }
 

@@ -941,4 +941,220 @@ describe('SkillCandidateStore', () => {
       expect(store.getDominantSkillSlugForSessions(['s3'])).toBeNull();
     });
   });
+
+  describe('getScorecardAggregates', () => {
+    function recordSubagent(
+      store: SkillCandidateStore,
+      slug: string,
+      invokedAt: number,
+      metrics: unknown,
+      taskId: string | null = null,
+    ): void {
+      store.recordSkillEvent({
+        skillSlug: slug,
+        sessionId: `sess-${invokedAt}`,
+        contextId: null,
+        source: 'subagent',
+        succeeded: true,
+        isError: false,
+        invokedAt,
+        metrics: metrics as never,
+        taskId,
+      });
+    }
+
+    const tokensA = {
+      inputTokens: 100,
+      outputTokens: 10,
+      cacheReadTokens: 200,
+      cacheCreationTokens: 5,
+      costUsd: 0.2,
+      durationMs: 1000,
+      toolCount: 4,
+    };
+
+    maybe('returns an empty Map for an empty slug list', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const agg = store.getScorecardAggregates([]);
+      expect(agg.size).toBe(0);
+    });
+
+    maybe('returns a typed zero/null aggregate for a no-data slug', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const agg = store.getScorecardAggregates(['never-ran']);
+      const card = agg.get('never-ran');
+      expect(card).toBeDefined();
+      expect(card?.total).toBe(0);
+      expect(card?.graded).toBe(0);
+      expect(card?.gradedSucceeded).toBe(0);
+      expect(card?.avgInputTokens).toBeNull();
+      expect(card?.totalInputTokens).toBeNull();
+      expect(card?.avgCostUsd).toBeNull();
+    });
+
+    maybe(
+      'aggregates over mixed null/non-null rows with NULL-excluding AVG/SUM',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        recordSubagent(store, 'backend-developer', 1000, tokensA);
+        recordSubagent(store, 'backend-developer', 2000, null); // usage-less
+
+        const card = store
+          .getScorecardAggregates(['backend-developer'])
+          .get('backend-developer');
+        expect(card?.total).toBe(2);
+        // AVG over {100, NULL} = 100 (NULL excluded, NOT 50).
+        expect(card?.avgInputTokens).toBe(100);
+        expect(card?.totalInputTokens).toBe(100);
+        expect(card?.avgCostUsd).toBeCloseTo(0.2);
+      },
+    );
+
+    maybe('counts graded/graded_succeeded from reconciled rows only', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      // Two runs, distinct task ids: one graded COMPLETE, one graded FAILED.
+      recordSubagent(store, 'agent-x', 1000, tokensA, 'TASK_2026_001');
+      recordSubagent(store, 'agent-x', 1100, tokensA, 'TASK_2026_002');
+      // One un-reconciled (optimistic) run.
+      recordSubagent(store, 'agent-x', 1200, tokensA, 'TASK_2026_003');
+
+      store.reconcileSubagentEvent({
+        slug: 'agent-x',
+        taskId: 'TASK_2026_001',
+        succeeded: true,
+        isError: false,
+        windowStart: 0,
+        windowEnd: 5000,
+        verdictSource: 'spec:TASK_2026_001',
+        reconciledAt: 6000,
+      });
+      store.reconcileSubagentEvent({
+        slug: 'agent-x',
+        taskId: 'TASK_2026_002',
+        succeeded: false,
+        isError: true,
+        windowStart: 0,
+        windowEnd: 5000,
+        verdictSource: 'spec:TASK_2026_002',
+        reconciledAt: 6001,
+      });
+
+      const card = store.getScorecardAggregates(['agent-x']).get('agent-x');
+      expect(card?.total).toBe(3);
+      expect(card?.graded).toBe(2);
+      expect(card?.gradedSucceeded).toBe(1);
+    });
+
+    maybe('ignores non-subagent-source rows', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      store.recordSkillEvent({
+        skillSlug: 'agent-y',
+        sessionId: 's1',
+        contextId: null,
+        source: 'tool-use',
+        succeeded: true,
+        isError: false,
+        invokedAt: 1000,
+      });
+      recordSubagent(store, 'agent-y', 2000, tokensA);
+
+      const card = store.getScorecardAggregates(['agent-y']).get('agent-y');
+      expect(card?.total).toBe(1); // only the subagent row
+    });
+
+    maybe(
+      'returns an entry for every requested slug (present + absent)',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        recordSubagent(store, 'has-data', 1000, tokensA);
+        const agg = store.getScorecardAggregates(['has-data', 'no-data']);
+        expect(agg.get('has-data')?.total).toBe(1);
+        expect(agg.get('no-data')?.total).toBe(0);
+      },
+    );
+  });
+
+  describe('listGradedInvocations', () => {
+    function recordAndGrade(
+      store: SkillCandidateStore,
+      slug: string,
+      invokedAt: number,
+      taskId: string,
+      reconciledAt: number,
+      succeeded: boolean,
+    ): void {
+      store.recordSkillEvent({
+        skillSlug: slug,
+        sessionId: `sess-${invokedAt}`,
+        contextId: null,
+        source: 'subagent',
+        succeeded: true,
+        isError: false,
+        invokedAt,
+        taskId,
+      });
+      store.reconcileSubagentEvent({
+        slug,
+        taskId,
+        succeeded,
+        isError: !succeeded,
+        windowStart: 0,
+        windowEnd: 100000,
+        verdictSource: `spec:${taskId}`,
+        reconciledAt,
+      });
+    }
+
+    maybe('returns only reconciled rows, newest verdict first', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      recordAndGrade(store, 'agent-z', 1000, 'TASK_2026_001', 5000, true);
+      recordAndGrade(store, 'agent-z', 1100, 'TASK_2026_002', 6000, false);
+      // Un-reconciled optimistic run — must NOT appear.
+      store.recordSkillEvent({
+        skillSlug: 'agent-z',
+        sessionId: 's-ungraded',
+        contextId: null,
+        source: 'subagent',
+        succeeded: true,
+        isError: false,
+        invokedAt: 1200,
+        taskId: 'TASK_2026_003',
+      });
+
+      const rows = store.listGradedInvocations('agent-z', 10);
+      expect(rows).toHaveLength(2);
+      // Newest reconciled_at first.
+      expect(rows[0].taskId).toBe('TASK_2026_002');
+      expect(rows[0].succeeded).toBe(false);
+      expect(rows[0].verdictSource).toBe('spec:TASK_2026_002');
+      expect(rows[1].taskId).toBe('TASK_2026_001');
+    });
+
+    maybe('respects the limit', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      recordAndGrade(store, 'agent-lim', 1000, 'TASK_2026_001', 5000, true);
+      recordAndGrade(store, 'agent-lim', 1100, 'TASK_2026_002', 6000, true);
+      recordAndGrade(store, 'agent-lim', 1200, 'TASK_2026_003', 7000, true);
+
+      const rows = store.listGradedInvocations('agent-lim', 2);
+      expect(rows).toHaveLength(2);
+      expect(rows[0].taskId).toBe('TASK_2026_003');
+    });
+
+    maybe('returns [] for an unknown slug or non-positive limit', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      expect(store.listGradedInvocations('nope', 10)).toEqual([]);
+      recordAndGrade(store, 'agent-lim', 1000, 'TASK_2026_001', 5000, true);
+      expect(store.listGradedInvocations('agent-lim', 0)).toEqual([]);
+    });
+  });
 });

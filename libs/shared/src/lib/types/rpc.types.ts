@@ -361,6 +361,10 @@ import type {
   SkillSynthesisKeepCloneResult,
   SkillSynthesisInvocationStatsParams,
   SkillSynthesisInvocationStatsResult,
+  SkillSynthesisGetScorecardsParams,
+  SkillSynthesisGetScorecardsResult,
+  SkillSynthesisGetScorecardDetailParams,
+  SkillSynthesisGetScorecardDetailResult,
 } from './rpc/rpc-skill-clone.types';
 
 import type {
@@ -1472,6 +1476,14 @@ export interface RpcMethodRegistry {
   'skillSynthesis:invocationStats': {
     params: SkillSynthesisInvocationStatsParams;
     result: SkillSynthesisInvocationStatsResult;
+  };
+  'skillSynthesis:getScorecards': {
+    params: SkillSynthesisGetScorecardsParams;
+    result: SkillSynthesisGetScorecardsResult;
+  };
+  'skillSynthesis:getScorecardDetail': {
+    params: SkillSynthesisGetScorecardDetailParams;
+    result: SkillSynthesisGetScorecardDetailResult;
   };
   'skillSynthesis:listSuggestions': {
     params: SkillSynthesisListSuggestionsParams;
@@ -2787,6 +2799,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:rebaseClone': true,
   'skillSynthesis:keepClone': true,
   'skillSynthesis:invocationStats': true,
+  'skillSynthesis:getScorecards': true,
+  'skillSynthesis:getScorecardDetail': true,
   'skillSynthesis:listSuggestions': true,
   'skillSynthesis:acceptSuggestion': true,
   'skillSynthesis:dismissSuggestion': true,

@@ -157,6 +157,21 @@ export const SkillInvocationStatsParamsSchema = z.object({
   slug: SlugSchema,
 });
 
+export const getScorecardsParamsSchema = z.object({
+  slugs: z.array(z.string().min(1).max(200)).max(500),
+});
+
+export type GetScorecardsParams = z.infer<typeof getScorecardsParamsSchema>;
+
+export const getScorecardDetailParamsSchema = z.object({
+  slug: z.string().min(1).max(200),
+  limit: z.number().int().min(1).max(100).optional(),
+});
+
+export type GetScorecardDetailParams = z.infer<
+  typeof getScorecardDetailParamsSchema
+>;
+
 const SuggestionStatusSchema = z.enum(['pending', 'accepted', 'dismissed']);
 
 export const SkillListSuggestionsParamsSchema = z
