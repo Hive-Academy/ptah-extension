@@ -32,6 +32,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMOS_DIR = path.resolve(APP_ROOT, 'promos');
 const MUSIC_DIR = path.resolve(APP_ROOT, 'assets', 'music');
 const SFX_DIR = path.resolve(APP_ROOT, 'assets', 'sfx');
+// Shared 3D assets (GLB models, etc.) live under public/ so staticFile()
+// resolves them in Remotion Studio (default public dir). render() below sets
+// --public-dir to the per-scene recordings dir, so these must ALSO be copied
+// there or 3D scenes 404 on render. See stagePublicAssets().
+const PUBLIC_DIR = path.resolve(APP_ROOT, 'public');
 
 // Cut/accent SFX staged into every promo's public dir when present on disk —
 // see assets/sfx/SFX-CREDITS.md. Never fails on a missing file (PromoReel/
@@ -84,6 +89,30 @@ function resolveMusic(spec, dir) {
     musicFile: destName,
     musicVolume: typeof spec.musicVolume === 'number' ? spec.musicVolume : DEFAULT_MUSIC_VOLUME,
   };
+}
+
+/**
+ * Recursively copy a directory (Node >=16 has fs.cpSync). Used to mirror
+ * public/ subdirs (models/, hdri/, …) into the per-scene public dir so
+ * staticFile('models/x.glb') resolves under --public-dir=<sceneDir>.
+ */
+function copyDir(src, dest) {
+  fs.cpSync(src, dest, { recursive: true });
+}
+
+/**
+ * Stage shared 3D/static assets from apps/ptah-video-studio/public/ into the
+ * scene's public dir (which render() passes as --public-dir). Mirrors known
+ * asset subfolders so staticFile() paths line up between Studio (public/) and
+ * headless render (scene dir). Missing folders are skipped silently.
+ */
+function stagePublicAssets(dir) {
+  if (!fs.existsSync(PUBLIC_DIR)) return;
+  for (const sub of ['models', 'hdri']) {
+    const src = path.join(PUBLIC_DIR, sub);
+    if (!fs.existsSync(src)) continue;
+    copyDir(src, path.join(dir, sub));
+  }
 }
 
 function loadSpec(slug) {
@@ -174,6 +203,9 @@ function render(spec, dir) {
   const outDir = path.join(dir, 'out');
   fs.mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, `${spec.slug}.mp4`);
+
+  // Mirror public/ 3D assets into this scene's public dir before render.
+  stagePublicAssets(dir);
 
   const props = {
     spec,

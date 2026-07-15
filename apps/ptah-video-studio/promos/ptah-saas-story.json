@@ -1,0 +1,85 @@
+{
+  "title": "From Cold Clone to Scalable SaaS — master cut (landscape)",
+  "format": "landscape",
+  "lang": "en",
+  "rtl": false,
+  "engine": "kokoro",
+  "music": "rising-dawn.mp3",
+  "musicVolume": 0.2,
+  "slides": [
+    {
+      "kind": "scene",
+      "scene": "story-hook",
+      "holdMs": 6000,
+      "vo": "Most AI coding tools start cold. Every new chat, they forget yesterday's decisions and finish the line you're typing, not the system you're building.",
+      "captions": [
+        "Most AI coding tools start cold.",
+        "They forget. They autocomplete."
+      ]
+    },
+    {
+      "kind": "scene",
+      "scene": "story-positioning",
+      "holdMs": 5000,
+      "vo": "Ptah is different. It boots a project-aware orchestra that already knows your stack.",
+      "captions": ["Ptah boots a project-aware orchestra."]
+    },
+    {
+      "kind": "scene",
+      "scene": "story-wizard",
+      "holdMs": 9000,
+      "vo": "It opens by scanning your codebase, then generates fifteen specialist agents from a real analysis of your project, and mirrors them to Copilot, Codex, and Cursor.",
+      "captions": [
+        "Scan, analyze, generate",
+        "15 specialists, from your real code",
+        "Mirrored to every CLI"
+      ]
+    },
+    {
+      "kind": "scene",
+      "scene": "story-orchestration",
+      "holdMs": 12000,
+      "vo": "From then on, one conductor never writes code. It classifies the work, then delegates to specialist leads and up to three CLI agents in parallel. Nothing ships until an adversarial reviewer signs off.",
+      "captions": [
+        "A conductor that delegates",
+        "Specialists and CLI agents, in parallel",
+        "Reviewed before every commit"
+      ]
+    },
+    {
+      "kind": "scene",
+      "scene": "story-foundation",
+      "holdMs": 10000,
+      "vo": "Underneath is a hexagonal core. Sixteen ports, three adapters, so your monorepo's boundaries are enforced from day one, never retrofitted.",
+      "captions": [
+        "A hexagonal core",
+        "16 ports, 3 adapters",
+        "Boundaries enforced, day one"
+      ]
+    },
+    {
+      "kind": "scene",
+      "scene": "story-lifecycle",
+      "holdMs": 6000,
+      "vo": "Licensing, trials, and Paddle webhooks land alongside the domain that needs them. The whole SaaS lifecycle, scaffolded in order.",
+      "captions": ["Licensing, webhooks, trials", "Scaffolded in order"]
+    },
+    {
+      "kind": "scene",
+      "scene": "story-proof",
+      "holdMs": 5000,
+      "vo": "This isn't a demo. Ptah itself ships on this exact spine, a real NestJS, Prisma, and Paddle SaaS in production.",
+      "captions": [
+        "Ptah runs on this.",
+        "NestJS, Prisma, Paddle, in production"
+      ]
+    },
+    {
+      "kind": "scene",
+      "scene": "story-cta",
+      "holdMs": 5000,
+      "vo": "Build scalable SaaS from day one. Ptah, free to start.",
+      "captions": ["Build scalable SaaS from day one.", "ptah.live"]
+    }
+  ]
+}

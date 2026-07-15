@@ -20,6 +20,20 @@ import { McpRoundtrips } from '../concept3d/McpRoundtrips';
 import { McpOneTool } from '../concept3d/McpOneTool';
 import { McpSandbox } from '../concept3d/McpSandbox';
 import { McpResult } from '../concept3d/McpResult';
+import { AgentShowcase } from '../concept3d/AgentShowcase';
+import { AssetSheet } from '../concept3d/AssetSheet';
+import { StateOfArtProof } from './StateOfArtProof';
+import { GlassCoreScene } from './GlassCoreScene';
+import {
+  StoryHook,
+  StoryPositioning,
+  StoryWizard,
+  StoryOrchestration,
+  StoryFoundation,
+  StoryLifecycle,
+  StoryProof,
+  StoryCta,
+} from './story-scenes';
 
 export type ConceptScene = React.FC<ConceptSceneProps>;
 
@@ -40,4 +54,19 @@ export const CONCEPT_SCENES: Record<string, ConceptScene> = {
   'mcp-one-tool': McpOneTool,
   'mcp-sandbox': McpSandbox,
   'mcp-result': McpResult,
+  'agent-showcase': AgentShowcase,
+  'asset-sheet': AssetSheet,
+  // State-of-the-art proof — remocn motion-design + high-fidelity abstract 3D.
+  'state-of-art-proof': StateOfArtProof,
+  // Elevated crisp-crystal glass hero (checkpoint + beat-5 spine).
+  'glass-hero': GlassCoreScene,
+  // "From Cold Clone to Scalable SaaS" — the 8-beat master reel.
+  'story-hook': StoryHook,
+  'story-positioning': StoryPositioning,
+  'story-wizard': StoryWizard,
+  'story-orchestration': StoryOrchestration,
+  'story-foundation': StoryFoundation,
+  'story-lifecycle': StoryLifecycle,
+  'story-proof': StoryProof,
+  'story-cta': StoryCta,
 };

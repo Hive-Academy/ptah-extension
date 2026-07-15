@@ -23,10 +23,15 @@ import { THEME } from '../theme';
 
 export type Vec3 = [number, number, number];
 
-/** Brand accents lifted into 3D — mirrors the 2D scenes' palette discipline. */
+/** Brand accents lifted into 3D — mirrors the 2D scenes' palette discipline.
+ *  `indigo` stays for the shipped dyad scenes; NEW work uses amber + emerald. */
 export const PALETTE = {
   indigo: THEME.indigo,
   amber: THEME.amber,
+  amberLight: THEME.amberLight,
+  amberDeep: THEME.amberDeep,
+  emerald: THEME.emerald,
+  emeraldLight: THEME.emeraldLight,
 } as const;
 
 /**

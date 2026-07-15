@@ -15,6 +15,7 @@ import {
   type QueryMatch,
   type QueryCapture,
 } from '@ptah-extension/workspace-intelligence';
+import { FileType } from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
   IWorkspaceProvider,
@@ -199,6 +200,14 @@ async function readFileForAst(
   absolutePath: string;
 }> {
   const absolutePath = resolveFilePath(filePath, workspaceProvider);
+
+  const stat = await fileSystemProvider.stat(absolutePath);
+  if (stat.type === FileType.Directory) {
+    throw new Error(
+      `Path is a directory, not a file: ${absolutePath}. ` +
+        `AST tools operate on a single source file — pass a file path instead.`,
+    );
+  }
 
   const content = await fileSystemProvider.readFile(absolutePath);
 

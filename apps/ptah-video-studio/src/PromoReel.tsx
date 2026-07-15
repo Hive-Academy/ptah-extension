@@ -35,6 +35,23 @@ import { THEME } from './theme';
 
 export const PROMO_FPS = 30;
 
+/** Scenes built on the NEW amber/emerald operator stage — these get the calmed
+ *  emerald center glow; all others keep the legacy dim-blue backdrop. */
+const NEW_STAGE_SCENES = new Set<string>([
+  'asset-sheet',
+  'agent-showcase',
+  'state-of-art-proof',
+  'glass-hero',
+  'story-hook',
+  'story-positioning',
+  'story-wizard',
+  'story-orchestration',
+  'story-foundation',
+  'story-lifecycle',
+  'story-proof',
+  'story-cta',
+]);
+
 /** Extra on-screen breath after each scene's timeline ends. */
 const BREATH_MS = 420;
 /** Default scene hold when a slide sets no explicit holdMs. */
@@ -266,13 +283,23 @@ export const PromoReel: React.FC<PromoReelProps> = ({
   // Whoosh at every slide cut after the first.
   const slideWhooshFrames = windows.slice(1).map((w) => w.fromFrame);
 
+  // NEW operator-stage reels (amber/emerald ink) get the calmed emerald center
+  // glow; every other reel (incl. the shipped dyad-vs-ptah promo) keeps the
+  // legacy dim-blue center — no dyad scene file is touched.
+  const usesOperatorStage = slides.some(
+    (s) => s.scene && NEW_STAGE_SCENES.has(s.scene),
+  );
+  const backdropGlow = usesOperatorStage
+    ? THEME.bgGlow
+    : THEME.bgGlowLegacy;
+
   return (
     <SfxProvider tickSrc={tickSrc} chimeSrc={chimeSrc}>
       <AbsoluteFill style={{ backgroundColor: THEME.bg, direction: dir }}>
         {/* Shared cinematic backdrop, behind every scene. */}
-        <Backdrop />
+        <Backdrop glow={backdropGlow} />
         <AnimatedGridPattern opacity={0.04} />
-        <AmbientOrbs />
+        <AmbientOrbs glow={backdropGlow} />
         <Particles count={20} opacity={0.09} />
 
         <PromoSoundDesign

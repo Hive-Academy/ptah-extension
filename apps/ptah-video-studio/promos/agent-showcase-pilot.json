@@ -1,0 +1,20 @@
+{
+  "title": "Agent Showcase — 3D asset harness proof (one slide, silent)",
+  "format": "landscape",
+  "lang": "en",
+  "rtl": false,
+  "engine": "kokoro",
+  "music": null,
+  "slides": [
+    {
+      "kind": "scene",
+      "scene": "agent-showcase",
+      "holdMs": 7000,
+      "captions": [
+        "Real GLB props on a dark studio",
+        "PBR glass, metal and emissive glow",
+        "Extruded icon badges, cinematic depth"
+      ]
+    }
+  ]
+}

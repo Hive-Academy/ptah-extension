@@ -179,7 +179,7 @@ skills/
 !.claude/skills/video-showcase/
 !.claude/skills/video-showcase/**
 skills-lock.json
-
+.remocn-fetch
 
 apps/coverage/**
 
