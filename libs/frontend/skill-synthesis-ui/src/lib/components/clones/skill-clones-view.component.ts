@@ -8,10 +8,17 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { VSCodeService } from '@ptah-extension/core';
-import type { CloneSummary, SkillCloneStatus } from '@ptah-extension/shared';
+import type {
+  AgentScorecard,
+  CloneSummary,
+  ScorecardInvocationRow,
+  SkillCloneStatus,
+} from '@ptah-extension/shared';
 
 import { SkillSynthesisRpcService } from '../../services/skill-synthesis-rpc.service';
 import { SkillClonesStateService } from '../../services/skill-clones-state.service';
+import { ScorecardBadgeComponent } from './scorecard-badge.component';
+import { ScorecardDetailComponent } from './scorecard-detail.component';
 
 interface ClonesToast {
   readonly message: string;
@@ -22,7 +29,7 @@ interface ClonesToast {
   selector: 'ptah-skill-clones-view',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule],
+  imports: [CommonModule, ScorecardBadgeComponent, ScorecardDetailComponent],
   template: `
     @if (!isElectron()) {
       <div
@@ -122,7 +129,35 @@ interface ClonesToast {
             <tbody>
               @for (c of clones(); track c.kind + ':' + c.slug) {
                 <tr data-testid="clones-row" class="hover:bg-base-300/20">
-                  <td class="font-medium">{{ c.slug }}</td>
+                  <td class="font-medium">
+                    <div class="flex items-center gap-1.5">
+                      @if (c.kind === 'agent') {
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-xs px-1"
+                          data-testid="scorecard-expand"
+                          [attr.aria-expanded]="expandedSlug() === c.slug"
+                          [attr.aria-label]="
+                            expandedSlug() === c.slug
+                              ? 'Collapse scorecard for ' + c.slug
+                              : 'Expand scorecard for ' + c.slug
+                          "
+                          (click)="onToggleExpand(c)"
+                        >
+                          <span aria-hidden="true">{{
+                            expandedSlug() === c.slug ? '▾' : '▸'
+                          }}</span>
+                        </button>
+                      }
+                      <span>{{ c.slug }}</span>
+                    </div>
+                    @if (c.kind === 'agent') {
+                      <ptah-scorecard-badge
+                        class="mt-1 block"
+                        [scorecard]="scorecardFor(c.slug)"
+                      />
+                    }
+                  </td>
                   <td class="text-xs">{{ c.kind }}</td>
                   <td>
                     <span class="inline-flex items-center gap-1.5">
@@ -201,6 +236,17 @@ interface ClonesToast {
                     </div>
                   </td>
                 </tr>
+                @if (c.kind === 'agent' && expandedSlug() === c.slug) {
+                  <tr data-testid="scorecard-detail-panel">
+                    <td colspan="8" class="bg-base-300/10">
+                      <ptah-scorecard-detail
+                        [rows]="detailRows(c.slug)"
+                        [findingsExcerpt]="detailFindings(c.slug)"
+                        [loading]="detailLoadingFor(c.slug)"
+                      />
+                    </td>
+                  </tr>
+                }
               } @empty {
                 <tr>
                   <td
@@ -292,12 +338,15 @@ export class SkillClonesViewComponent implements OnInit {
   public readonly loading = this.state.loading;
   public readonly error = this.state.error;
   public readonly detailLoading = this.state.detailLoading;
+  public readonly scorecards = this.state.scorecards;
 
   public readonly history = computed(() => this.state.detail()?.history ?? []);
 
   public readonly revertTarget = signal<CloneSummary | null>(null);
   public readonly busySlug = signal<string | null>(null);
   public readonly toast = signal<ClonesToast | null>(null);
+  /** Slug of the currently expanded agent scorecard, or `null` when none. */
+  public readonly expandedSlug = signal<string | null>(null);
 
   public ngOnInit(): void {
     if (!this.isElectron()) return;
@@ -397,6 +446,37 @@ export class SkillClonesViewComponent implements OnInit {
     } finally {
       this.busySlug.set(null);
     }
+  }
+
+  /**
+   * Toggle the per-agent scorecard detail panel. On first expansion the detail
+   * (recent graded rows + findings excerpt) is lazily fetched — never during
+   * the Library list render (R7/NFR perf).
+   */
+  protected onToggleExpand(c: CloneSummary): void {
+    if (this.expandedSlug() === c.slug) {
+      this.expandedSlug.set(null);
+      return;
+    }
+    this.expandedSlug.set(c.slug);
+    void this.state.loadScorecardDetail(c.slug);
+  }
+
+  /** Batched scorecard for an agent slug; `null` when it has no data yet. */
+  protected scorecardFor(slug: string): AgentScorecard | null {
+    return this.scorecards()[slug] ?? null;
+  }
+
+  protected detailRows(slug: string): ScorecardInvocationRow[] {
+    return this.state.scorecardDetails()[slug]?.rows ?? [];
+  }
+
+  protected detailFindings(slug: string): string | null {
+    return this.state.scorecardDetails()[slug]?.findingsExcerpt ?? null;
+  }
+
+  protected detailLoadingFor(slug: string): boolean {
+    return this.state.scorecardDetailLoading() === slug;
   }
 
   protected statusLabel(c: CloneSummary): SkillCloneStatus {

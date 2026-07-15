@@ -37,6 +37,12 @@
         "command": "node apps/ptah-video-studio/scripts/render-all.mjs"
       }
     },
+    "promo": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node apps/ptah-video-studio/scripts/render-promo.mjs"
+      }
+    },
     "video": {
       "executor": "nx:run-commands",
       "dependsOn": [

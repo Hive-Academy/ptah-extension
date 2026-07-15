@@ -356,6 +356,16 @@ describe('AgentMonitorStore', () => {
       expect(rec?.latestSummary).toBe('Done');
     });
 
+    it('captures the owning session id from the event onto the record', () => {
+      store.onAgentStart(startEvent({ sessionId: 'sess-owner' }));
+      expect(store.subagents().get(PARENT)?.parentSessionId).toBe('sess-owner');
+      // Later events refresh it; a null-ish event preserves the prior value.
+      store.onAgentProgress(progressEvent({ sessionId: 'sess-owner-2' }));
+      expect(store.subagents().get(PARENT)?.parentSessionId).toBe(
+        'sess-owner-2',
+      );
+    });
+
     it('records are independent per parentToolUseId', () => {
       store.onAgentStart(startEvent({ toolCallId: 'toolu_a' }));
       store.onAgentStart(startEvent({ toolCallId: 'toolu_b' }));
@@ -364,6 +374,33 @@ describe('AgentMonitorStore', () => {
       );
       expect(store.subagents().get('toolu_a')?.status).toBe('completed');
       expect(store.subagents().get('toolu_b')?.status).toBe('running');
+    });
+
+    describe('onTaskToolResult (foreground completion from Task tool_result)', () => {
+      it('transitions running → completed', () => {
+        store.onAgentStart(startEvent());
+        store.onTaskToolResult(PARENT, false);
+        expect(store.subagents().get(PARENT)?.status).toBe('completed');
+      });
+
+      it('transitions running → failed when the tool_result is an error', () => {
+        store.onAgentStart(startEvent());
+        store.onTaskToolResult(PARENT, true);
+        expect(store.subagents().get(PARENT)?.status).toBe('failed');
+      });
+
+      it('does NOT override a terminal status from a real agent_completed', () => {
+        store.onAgentStart(startEvent());
+        store.onAgentCompleted(completedEvent({ status: 'completed' }));
+        // A late tool_result with isError must not flip completed → failed.
+        store.onTaskToolResult(PARENT, true);
+        expect(store.subagents().get(PARENT)?.status).toBe('completed');
+      });
+
+      it('is a no-op for an unknown toolCallId (not a Task spawn)', () => {
+        store.onTaskToolResult('toolu_unknown', false);
+        expect(store.subagents().get('toolu_unknown')).toBeUndefined();
+      });
     });
   });
 
@@ -414,6 +451,37 @@ describe('AgentMonitorStore', () => {
         sessionId: SESSION,
         taskId: TASK,
       });
+    });
+
+    it('sendMessageToAgent targets an explicit owning session over the active tab', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
+      await store.sendMessageToAgent(PARENT, 'hi', 'sess-owner');
+      expect(rpcMock.call).toHaveBeenCalledWith('subagent:send-message', {
+        sessionId: 'sess-owner',
+        parentToolUseId: PARENT,
+        text: 'hi',
+      });
+    });
+
+    it('stopAgent targets an explicit owning session over the active tab', async () => {
+      rpcMock.call.mockResolvedValueOnce(rpcSuccess({ ok: true } as const));
+      await store.stopAgent(TASK, 'sess-owner');
+      expect(rpcMock.call).toHaveBeenCalledWith('subagent:stop', {
+        sessionId: 'sess-owner',
+        taskId: TASK,
+      });
+    });
+
+    it('backgroundAgent dispatches subagent:background for the given session', async () => {
+      rpcMock.call.mockResolvedValueOnce(
+        rpcSuccess({ backgrounded: true } as const),
+      );
+      const ok = await store.backgroundAgent('sess-owner', PARENT);
+      expect(rpcMock.call).toHaveBeenCalledWith('subagent:background', {
+        sessionId: 'sess-owner',
+        toolUseId: PARENT,
+      });
+      expect(ok).toBe(true);
     });
 
     it('interruptSession dispatches subagent:interrupt for the active session', async () => {

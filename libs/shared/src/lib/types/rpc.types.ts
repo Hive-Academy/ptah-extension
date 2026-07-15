@@ -29,12 +29,16 @@ export * from './rpc/rpc-update.types';
 
 export * from './rpc/rpc-skill-clone.types';
 
+export * from './rpc/rpc-tasks.types';
+
 import type {
   SubagentQueryParams,
   SubagentQueryResult,
   SubagentSendMessageParams,
   SubagentStopParams,
   SubagentInterruptParams,
+  SubagentBackgroundParams,
+  SubagentBackgroundResult,
   SubagentCommandResult,
 } from './subagent-registry.types';
 import type { SavedAnalysisMetadata } from './wizard';
@@ -244,6 +248,8 @@ import type {
   GitCommitResult,
   GitShowFileParams,
   GitShowFileResult,
+  GitPushParams,
+  GitPushResult,
   GitBranchesParams,
   GitBranchesResult,
   GitCheckoutParams,
@@ -319,6 +325,8 @@ import type {
   CorpusRebuildResult,
   CorpusDeleteParams,
   CorpusDeleteResult,
+  CorpusSuggestParams,
+  CorpusSuggestResult,
 } from './rpc/rpc-corpus.types';
 
 import type {
@@ -355,6 +363,10 @@ import type {
   SkillSynthesisKeepCloneResult,
   SkillSynthesisInvocationStatsParams,
   SkillSynthesisInvocationStatsResult,
+  SkillSynthesisGetScorecardsParams,
+  SkillSynthesisGetScorecardsResult,
+  SkillSynthesisGetScorecardDetailParams,
+  SkillSynthesisGetScorecardDetailResult,
 } from './rpc/rpc-skill-clone.types';
 
 import type {
@@ -457,6 +469,22 @@ import type {
   SkillGetTriggersParams,
   SkillGetTriggersResult,
 } from './rpc/rpc-curator-diagnostics.types';
+import type {
+  TasksListParams,
+  TasksListResult,
+  TasksGetParams,
+  TasksGetResult,
+  TasksCreateParams,
+  TasksCreateResult,
+  TasksUpdateStatusParams,
+  TasksUpdateStatusResult,
+  TasksGenerateRegistryParams,
+  TasksGenerateRegistryResult,
+  TasksBoardParams,
+  TasksBoardResult,
+  TasksReindexParams,
+  TasksReindexResult,
+} from './rpc/rpc-tasks.types';
 
 /**
  * RPC Method Registry
@@ -756,6 +784,10 @@ export interface RpcMethodRegistry {
   'subagent:interrupt': {
     params: SubagentInterruptParams;
     result: SubagentCommandResult;
+  };
+  'subagent:background': {
+    params: SubagentBackgroundParams;
+    result: SubagentBackgroundResult;
   };
   'enhancedPrompts:getStatus': {
     params: EnhancedPromptsGetStatusParams;
@@ -1194,6 +1226,7 @@ export interface RpcMethodRegistry {
   'git:discard': { params: GitDiscardParams; result: GitDiscardResult };
   'git:commit': { params: GitCommitParams; result: GitCommitResult };
   'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
+  'git:push': { params: GitPushParams; result: GitPushResult };
   'git:branches': { params: GitBranchesParams; result: GitBranchesResult };
   'git:checkout': { params: GitCheckoutParams; result: GitCheckoutResult };
   'git:stashList': { params: GitStashListParams; result: GitStashListResult };
@@ -1355,6 +1388,10 @@ export interface RpcMethodRegistry {
     params: CorpusDeleteParams;
     result: CorpusDeleteResult;
   };
+  'corpus:suggest': {
+    params: CorpusSuggestParams;
+    result: CorpusSuggestResult;
+  };
   'skillSynthesis:listCandidates': {
     params: SkillSynthesisListCandidatesParams;
     result: SkillSynthesisListCandidatesResult;
@@ -1442,6 +1479,14 @@ export interface RpcMethodRegistry {
   'skillSynthesis:invocationStats': {
     params: SkillSynthesisInvocationStatsParams;
     result: SkillSynthesisInvocationStatsResult;
+  };
+  'skillSynthesis:getScorecards': {
+    params: SkillSynthesisGetScorecardsParams;
+    result: SkillSynthesisGetScorecardsResult;
+  };
+  'skillSynthesis:getScorecardDetail': {
+    params: SkillSynthesisGetScorecardDetailParams;
+    result: SkillSynthesisGetScorecardDetailResult;
   };
   'skillSynthesis:listSuggestions': {
     params: SkillSynthesisListSuggestionsParams;
@@ -1598,6 +1643,32 @@ export interface RpcMethodRegistry {
     result: VoiceSynthesizeResult;
   };
 
+  // Provider-agnostic voice surface (FR-8). Appended after the existing 8.
+  'voice:listProviders': {
+    params: VoiceListProvidersParams;
+    result: VoiceListProvidersResult;
+  };
+  'voice:listVoices': {
+    params: VoiceListVoicesParams;
+    result: VoiceListVoicesResult;
+  };
+  'voice:getProviderConfig': {
+    params: VoiceGetProviderConfigParams;
+    result: VoiceGetProviderConfigResult;
+  };
+  'voice:setProviderConfig': {
+    params: VoiceSetProviderConfigParams;
+    result: VoiceSetProviderConfigResult;
+  };
+  'voice:setApiKey': {
+    params: VoiceSetApiKeyParams;
+    result: VoiceSetApiKeyResult;
+  };
+  'voice:testConnection': {
+    params: VoiceTestConnectionParams;
+    result: VoiceTestConnectionResult;
+  };
+
   'db:health': {
     params: { fullCheck?: boolean };
     result: DbHealthResult;
@@ -1662,6 +1733,19 @@ export interface RpcMethodRegistry {
     params: UpdateCheckNowParams;
     result: UpdateCheckNowResult;
   };
+  'tasks:list': { params: TasksListParams; result: TasksListResult };
+  'tasks:get': { params: TasksGetParams; result: TasksGetResult };
+  'tasks:create': { params: TasksCreateParams; result: TasksCreateResult };
+  'tasks:updateStatus': {
+    params: TasksUpdateStatusParams;
+    result: TasksUpdateStatusResult;
+  };
+  'tasks:generateRegistry': {
+    params: TasksGenerateRegistryParams;
+    result: TasksGenerateRegistryResult;
+  };
+  'tasks:board': { params: TasksBoardParams; result: TasksBoardResult };
+  'tasks:reindex': { params: TasksReindexParams; result: TasksReindexResult };
 }
 
 export interface SkillSynthesisCandidateSummary {
@@ -2147,7 +2231,16 @@ export interface VoiceTranscribeParams {
 
 export type VoiceTranscribeResult =
   | { ok: true; transcript: string }
-  | { ok: false; error: string; code?: string; remediation?: string };
+  | {
+      ok: false;
+      error: string;
+      code?: string;
+      remediation?: string;
+      /** FR-7: cloud provider error category (auth/quota/network/provider-error). */
+      category?: string;
+      /** FR-7: id of the provider that failed (e.g. 'elevenlabs'). */
+      providerId?: string;
+    };
 
 export interface VoiceConfigDto {
   whisperModel: string;
@@ -2163,6 +2256,10 @@ export type VoiceGetConfigResult =
 
 export interface VoiceSetConfigParams {
   whisperModel: string;
+  /** FR-4: user-selected model source for the local Whisper model. */
+  modelSource?: 'curated' | 'hf' | 'dir';
+  /** FR-4: HF repo id or absolute local dir (used when modelSource is hf/dir). */
+  customModel?: string;
 }
 
 export type VoiceSetConfigResult = { ok: true } | { ok: false; error: string };
@@ -2181,6 +2278,10 @@ export interface TtsConfigDto {
   voice: string;
   /** Whether the Kokoro TTS model is already downloaded on disk. */
   downloaded: boolean;
+  /** FR-4.1: user-selected model source for the local Kokoro model. */
+  modelSource: 'curated' | 'hf' | 'dir';
+  /** FR-4.1: HF repo id or absolute local dir (set when modelSource is hf/dir). */
+  customModel?: string;
 }
 
 export type VoiceGetTtsConfigParams = Record<string, never>;
@@ -2191,6 +2292,10 @@ export type VoiceGetTtsConfigResult =
 
 export interface VoiceSetTtsConfigParams {
   voice: string;
+  /** FR-4.1: user-selected model source for the local Kokoro model. */
+  modelSource?: 'curated' | 'hf' | 'dir';
+  /** FR-4.1: HF repo id or absolute local dir (used when modelSource is hf/dir). */
+  customModel?: string;
 }
 
 export type VoiceSetTtsConfigResult =
@@ -2212,7 +2317,120 @@ export interface VoiceSynthesizeParams {
 
 export type VoiceSynthesizeResult =
   | { ok: true; audioBase64: string; mimeType: string }
-  | { ok: false; error: string; code?: string; remediation?: string };
+  | {
+      ok: false;
+      error: string;
+      code?: string;
+      remediation?: string;
+      /** FR-7: cloud provider error category (auth/quota/network/provider-error). */
+      category?: string;
+      /** FR-7: id of the provider that failed (e.g. 'elevenlabs'). */
+      providerId?: string;
+    };
+
+/**
+ * Provider-agnostic voice surface DTOs (FR-8). Mirrors
+ * `VoiceProviderCapability` / `VoiceInfo` in `voice-contracts` but stays a plain
+ * wire shape (ids as `string`) so `libs/shared` keeps zero backend deps.
+ */
+export interface VoiceProviderCapabilityDto {
+  id: string;
+  label: string;
+  kind: 'local' | 'cloud';
+  requiresDownload: boolean;
+  requiresApiKey: boolean;
+  supports: { tts: boolean; stt: boolean };
+  available: boolean;
+  unavailableReason?: string;
+}
+
+export type VoiceListProvidersParams = Record<string, never>;
+
+export type VoiceListProvidersResult =
+  | {
+      ok: true;
+      providers: VoiceProviderCapabilityDto[];
+      active: { tts: string; stt: string };
+    }
+  | { ok: false; error: string };
+
+export interface VoiceInfoDto {
+  id: string;
+  label: string;
+  category?: string;
+}
+
+export interface VoiceListVoicesParams {
+  providerId: 'local' | 'elevenlabs';
+}
+
+export type VoiceListVoicesResult =
+  | { ok: true; voices: VoiceInfoDto[] }
+  | { ok: false; error: string; category?: string };
+
+export interface VoiceProviderConfigLocalDto {
+  whisperModel: string;
+  modelSource: 'curated' | 'hf' | 'dir';
+  customModel?: string;
+  sttDownloaded: boolean;
+  ttsDownloaded: boolean;
+  ttsVoice: string;
+}
+
+export interface VoiceProviderConfigElevenLabsDto {
+  /** Whether an API key is stored — NEVER the key or its ciphertext. */
+  apiKeyConfigured: boolean;
+  voiceId?: string;
+  ttsModelId: string;
+  outputFormat: string;
+  sttModelId: string;
+}
+
+export interface VoiceProviderConfigDto {
+  ttsProvider: string;
+  sttProvider: string;
+  local: VoiceProviderConfigLocalDto;
+  elevenlabs: VoiceProviderConfigElevenLabsDto;
+}
+
+export type VoiceGetProviderConfigParams = Record<string, never>;
+
+export type VoiceGetProviderConfigResult =
+  | { ok: true; config: VoiceProviderConfigDto }
+  | { ok: false; error: string };
+
+export interface VoiceSetProviderConfigParams {
+  ttsProvider?: 'local' | 'elevenlabs';
+  sttProvider?: 'local' | 'elevenlabs';
+  elevenlabs?: {
+    voiceId?: string;
+    ttsModelId?: string;
+    outputFormat?: string;
+    sttModelId?: string;
+  };
+}
+
+export type VoiceSetProviderConfigResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export interface VoiceSetApiKeyParams {
+  providerId: 'elevenlabs';
+  /** Plaintext API key; an empty string clears the stored key. */
+  apiKey: string;
+}
+
+export type VoiceSetApiKeyResult = { ok: true } | { ok: false; error: string };
+
+export interface VoiceTestConnectionParams {
+  providerId: 'elevenlabs';
+  /** Optional unsaved key for a pre-save connectivity probe. */
+  apiKey?: string;
+}
+
+export type VoiceTestConnectionResult =
+  | { ok: true }
+  | { ok: false; error: string; category?: string };
 
 export interface ScheduledJobDto {
   id: string;
@@ -2416,6 +2634,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'subagent:send-message': true,
   'subagent:stop': true,
   'subagent:interrupt': true,
+  'subagent:background': true,
   'enhancedPrompts:getStatus': true,
   'enhancedPrompts:runWizard': true,
   'enhancedPrompts:setEnabled': true,
@@ -2506,6 +2725,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:discard': true,
   'git:commit': true,
   'git:showFile': true,
+  'git:push': true,
   'git:branches': true,
   'git:checkout': true,
   'git:stashList': true,
@@ -2559,6 +2779,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'corpus:reprime': true,
   'corpus:rebuild': true,
   'corpus:delete': true,
+  'corpus:suggest': true,
 
   'skillSynthesis:listCandidates': true,
   'skillSynthesis:getCandidate': true,
@@ -2582,6 +2803,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:rebaseClone': true,
   'skillSynthesis:keepClone': true,
   'skillSynthesis:invocationStats': true,
+  'skillSynthesis:getScorecards': true,
+  'skillSynthesis:getScorecardDetail': true,
   'skillSynthesis:listSuggestions': true,
   'skillSynthesis:acceptSuggestion': true,
   'skillSynthesis:dismissSuggestion': true,
@@ -2630,6 +2853,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'voice:setTtsConfig': true,
   'voice:downloadTtsModel': true,
   'voice:synthesize': true,
+  'voice:listProviders': true,
+  'voice:listVoices': true,
+  'voice:getProviderConfig': true,
+  'voice:setProviderConfig': true,
+  'voice:setApiKey': true,
+  'voice:testConnection': true,
 
   'db:health': true,
   'db:reset': true,
@@ -2650,6 +2879,14 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
 
   'update:get-state': true,
   'update:check-now': true,
+
+  'tasks:list': true,
+  'tasks:get': true,
+  'tasks:create': true,
+  'tasks:updateStatus': true,
+  'tasks:generateRegistry': true,
+  'tasks:board': true,
+  'tasks:reindex': true,
 };
 
 /**

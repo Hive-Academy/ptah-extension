@@ -20,6 +20,7 @@ import {
   ChevronRight,
   ChevronUp,
   Loader2,
+  Moon,
   StopCircle,
   Square,
   Send,
@@ -35,7 +36,10 @@ import {
   formatOklch,
   isThemeFallbackColor,
 } from '@ptah-extension/chat-ui';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  BackgroundAgentStore,
+} from '@ptah-extension/chat-streaming';
 import type {
   ExecutionNode,
   PermissionRequest,
@@ -271,6 +275,22 @@ import { AutoAnimateDirective } from '../../../directives/auto-animate.directive
             </span>
           } @else {
             <span class="flex-1"></span>
+          }
+
+          <!-- Send-to-background: running foreground subagents only. The
+               task keeps running; the turn continues without blocking on it. -->
+          @if (canBackground()) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content/60 hover:text-info"
+              (click)="onBackgroundClick($event)"
+              [disabled]="backgroundPending()"
+              data-testid="subagent-background-button"
+              title="Send this subagent to the background"
+              aria-label="Send subagent to background"
+            >
+              <lucide-angular [img]="MoonIcon" class="w-3 h-3" />
+            </button>
           }
 
           <!-- Stop button: only when running and we have a taskId to stop. -->
@@ -569,6 +589,7 @@ export class InlineAgentBubbleComponent {
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly modelState = inject(ModelStateService);
 
   /**
@@ -642,6 +663,7 @@ export class InlineAgentBubbleComponent {
   readonly LoaderIcon = Loader2;
   readonly StopCircleIcon = StopCircle;
   readonly SquareIcon = Square;
+  readonly MoonIcon = Moon;
   readonly SendIcon = Send;
   readonly CheckIcon = CheckCircle2;
   readonly XIcon = XCircle;
@@ -903,10 +925,31 @@ export class InlineAgentBubbleComponent {
     const rec = this.subagentRecord();
     return !!rec && rec.status === 'running';
   });
+
+  /**
+   * Send-to-background applies to running FOREGROUND subagents only. Gated
+   * live on `BackgroundAgentStore.isBackgroundAgent` (not just the memoised
+   * `node.isBackground` flag) so the moon button disappears the moment the
+   * agent is registered as background — even before the node's tree flag is
+   * rebuilt. Combined with the tool_result-driven completion (FIX 1), a
+   * finished foreground agent also drops out because its record leaves the
+   * 'running' state.
+   */
+  readonly canBackground = computed(() => {
+    const rec = this.subagentRecord();
+    const key = this.parentToolUseId();
+    return (
+      !!rec &&
+      rec.status === 'running' &&
+      !this.isBackground() &&
+      !(key !== null && this.backgroundAgentStore.isBackgroundAgent(key))
+    );
+  });
   readonly sendInputExpanded = signal(false);
   readonly sendDraft = signal('');
   readonly sendPending = signal(false);
   readonly stopPending = signal(false);
+  readonly backgroundPending = signal(false);
   readonly showSentToast = signal(false);
   private sentToastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -947,7 +990,11 @@ export class InlineAgentBubbleComponent {
     this.sendPending.set(true);
     let sent = false;
     try {
-      sent = await this.agentMonitorStore.sendMessageToAgent(key, text);
+      sent = await this.agentMonitorStore.sendMessageToAgent(
+        key,
+        text,
+        this.subagentRecord()?.parentSessionId,
+      );
     } finally {
       this.sendPending.set(false);
     }
@@ -963,9 +1010,24 @@ export class InlineAgentBubbleComponent {
     if (!rec || !rec.taskId) return;
     this.stopPending.set(true);
     try {
-      await this.agentMonitorStore.stopAgent(rec.taskId);
+      await this.agentMonitorStore.stopAgent(rec.taskId, rec.parentSessionId);
     } finally {
       this.stopPending.set(false);
+    }
+  }
+
+  protected async onBackgroundClick(event: Event): Promise<void> {
+    event.stopPropagation();
+    const key = this.parentToolUseId();
+    if (!key || !this.canBackground()) return;
+    this.backgroundPending.set(true);
+    try {
+      await this.agentMonitorStore.backgroundAgent(
+        this.subagentRecord()?.parentSessionId,
+        key,
+      );
+    } finally {
+      this.backgroundPending.set(false);
     }
   }
 

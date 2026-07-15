@@ -90,6 +90,11 @@ function buildSuite(): Suite {
     scanAndImport: jest.fn().mockResolvedValue(0),
   } as unknown as Mocked<SessionImporterService>;
 
+  const providerProxyPool = {
+    disposeForScope: jest.fn().mockResolvedValue(undefined),
+    disposeAll: jest.fn().mockResolvedValue(undefined),
+  } as unknown as import('@ptah-extension/auth-providers').ProviderProxyPool;
+
   const handlers = new WorkspaceRpcHandlers(
     logger as unknown as Logger,
     rpc as unknown as RpcHandler,
@@ -98,6 +103,7 @@ function buildSuite(): Suite {
     userInteraction,
     contextManager,
     sessionImporter,
+    providerProxyPool,
   );
   handlers.register();
 

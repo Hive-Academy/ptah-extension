@@ -138,6 +138,8 @@ describe('SkillInvocationRecorder', () => {
         succeeded: true,
         isError: false,
         invokedAt: 4242,
+        metrics: null,
+        taskId: null,
       });
     });
   });

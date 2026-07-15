@@ -38,8 +38,16 @@ import {
   SPEC_FINDINGS_TOKEN,
   type SpecFindingsPort,
 } from './spec-findings.port';
+import type { SkillScorecardService } from './skill-scorecard.service';
+import type { AgentScorecard } from '@ptah-extension/shared';
 
 const ENHANCE_TIMEOUT_MS = 30_000;
+/**
+ * Hard cap on the measured-scorecard block appended to the agent enhancement
+ * prompt (R8.3). Well inside the 4,000-char findings discipline so prompt bloat
+ * stays bounded.
+ */
+const MAX_SCORECARD_CHARS = 1200;
 /** Auto-enhancement cooldown after a successful enhancement. */
 export const ENHANCE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 /** Minimum recorded invocations before a clone is auto-enhance eligible. */
@@ -102,6 +110,10 @@ export class SkillEnhancerService {
     private readonly repropagation: SkillRepropagationPort | null,
     @inject(SPEC_FINDINGS_TOKEN, { isOptional: true })
     private readonly specFindings: SpecFindingsPort | null,
+    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE, {
+      isOptional: true,
+    })
+    private readonly scorecard: SkillScorecardService | null,
   ) {}
 
   isEligible(
@@ -149,12 +161,17 @@ export class SkillEnhancerService {
       }
 
       const cwd = this.resolveCwd();
+      // Measured-usage signal for agent clones only; null (byte-identical
+      // fallback) for skills/commands or when no graded/metric data exists.
+      const scorecardBlock =
+        kind === 'agent' ? this.buildAgentScorecardBlock(slug) : null;
       const candidateBody = await this.generateCandidate(
         slug,
         currentBody,
         settings,
         cwd,
         kind,
+        scorecardBlock,
       );
       if (!candidateBody) {
         return { ...base, skipReason: 'empty-candidate' };
@@ -175,6 +192,7 @@ export class SkillEnhancerService {
         this.synthRow(slug, currentBody),
         candidateBody,
         settings,
+        scorecardBlock ?? undefined,
       );
 
       const autoRequiresVerdict = !options.manual;
@@ -349,6 +367,7 @@ export class SkillEnhancerService {
     settings: SkillSynthesisSettings,
     cwd: string,
     kind: SkillRegistryKind = 'skill',
+    scorecardBlock: string | null = null,
   ): Promise<string | null> {
     if (!this.internalQuery) return null;
     const stats = this.candidates.getInvocationStats(slug);
@@ -391,6 +410,11 @@ export class SkillEnhancerService {
       currentBody.slice(0, 8000),
       `---`,
     );
+    // Agent clones only: append the bounded measured-scorecard block when
+    // graded/metric data exists. Absent → prompt byte-identical to today (R8.2).
+    if (scorecardBlock) {
+      promptLines.push(``, scorecardBlock);
+    }
     const prompt = promptLines.join('\n');
 
     const abortController = new AbortController();
@@ -507,6 +531,77 @@ export class SkillEnhancerService {
     }
   }
 
+  /**
+   * Build the bounded (≤{@link MAX_SCORECARD_CHARS}) measured-scorecard block
+   * for an agent clone, or `null` when the scorecard service is absent or the
+   * slug has no graded/metric data (byte-identical fallback, R8.2). Never
+   * throws — degrades to `null` so enhancement proceeds unchanged.
+   */
+  private buildAgentScorecardBlock(slug: string): string | null {
+    if (!this.scorecard) return null;
+    try {
+      const card = this.scorecard.getScorecards([slug])[slug];
+      if (!card || !this.hasScorecardData(card)) return null;
+      return this.formatScorecardBlock(card).slice(0, MAX_SCORECARD_CHARS);
+    } catch (error: unknown) {
+      this.logger.debug('[skill-enhancer] scorecard block build failed', {
+        slug,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /** Scorecard carries usable signal only if graded or any metric is non-null. */
+  private hasScorecardData(card: AgentScorecard): boolean {
+    if (card.gradedCount > 0) return true;
+    return [
+      card.avgInputTokens,
+      card.avgOutputTokens,
+      card.avgCacheReadTokens,
+      card.totalInputTokens,
+      card.totalOutputTokens,
+      card.avgCostUsd,
+      card.avgDurationMs,
+      card.avgToolCount,
+    ].some((v) => v !== null);
+  }
+
+  private formatScorecardBlock(card: AgentScorecard): string {
+    const successRate =
+      card.gradedSuccessRate !== null
+        ? `${Math.round(card.gradedSuccessRate * 100)}% (${Math.round(
+            card.gradedSuccessRate * card.gradedCount,
+          )}/${card.gradedCount} graded runs; ${card.totalInvocations} total invocations)`
+        : `n/a (0 graded runs; ${card.totalInvocations} total invocations)`;
+    const verdicts =
+      card.recentVerdicts.length > 0
+        ? card.recentVerdicts
+            .map(
+              (v) =>
+                `${v.succeeded ? 'COMPLETE' : 'FAILED'}${
+                  v.taskId ? `(${v.taskId})` : ''
+                }`,
+            )
+            .join(', ')
+        : '(none graded yet)';
+    return [
+      `Measured scorecard for this agent (from graded orchestration runs):`,
+      `- Reconciled success rate: ${successRate}`,
+      `- Avg tokens/run: in=${fmtCount(card.avgInputTokens)} out=${fmtCount(
+        card.avgOutputTokens,
+      )} cacheRead=${fmtCount(
+        card.avgCacheReadTokens,
+      )} | total in=${fmtCount(card.totalInputTokens)} out=${fmtCount(
+        card.totalOutputTokens,
+      )} | avg cost ${fmtCost(card.avgCostUsd)} | avg duration ${fmtDuration(
+        card.avgDurationMs,
+      )} | avg tools ${fmtCount(card.avgToolCount)}`,
+      `- Recent verdicts: ${verdicts}`,
+      `Optimize explicitly to reduce token consumption and fix recurring failure patterns while preserving the agent's role, triggers, and frontmatter routing.`,
+    ].join('\n');
+  }
+
   private synthRow(slug: string, body: string): SkillCandidateRow {
     return {
       id: slug as unknown as CandidateId,
@@ -574,4 +669,26 @@ export class SkillEnhancerService {
     const fence = /^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/.exec(text.trim());
     return fence ? fence[1] : text;
   }
+}
+
+/** Compact a nullable count/token average: `48.2k`, `210`, or `n/a`. */
+function fmtCount(n: number | null): string {
+  if (n === null || !Number.isFinite(n)) return 'n/a';
+  if (Math.abs(n) >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return `${Math.round(n)}`;
+}
+
+/** Format a nullable USD cost: `$0.41` or `n/a`. */
+function fmtCost(n: number | null): string {
+  if (n === null || !Number.isFinite(n)) return 'n/a';
+  return `$${n.toFixed(2)}`;
+}
+
+/** Format a nullable duration in ms as `4m12s`, `9s`, or `n/a`. */
+function fmtDuration(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return 'n/a';
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m${seconds}s` : `${seconds}s`;
 }

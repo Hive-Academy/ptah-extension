@@ -1,15 +1,17 @@
 /**
  * SubagentMessageDispatcher — bidirectional messaging for running subagents.
  *
- * Provides three operations:
- *   - `sendToSubagent` — push a user message into a running subagent via
- *     the session's streamInput channel, scoped by parentToolUseId.
+ * Provides four operations:
+ *   - `sendToSubagent` — relay a user message toward a running subagent via
+ *     a coordinator nudge on the session's streamInput channel.
  *   - `stopSubagent` — call Query.stopTask(taskId) to gracefully stop a
  *     running subagent and write its output file.
  *   - `interruptSession` — call Query.interrupt() to abort the entire
  *     session, stopping all subagents.
+ *   - `backgroundTask` — call Query.backgroundTasks(toolUseId) to move an
+ *     in-flight foreground task to the background.
  *
- * All three surface typed errors when the session is not active, ensuring
+ * All four surface typed errors when the session is not active, ensuring
  * the RPC boundary receives a clear, handleable error rather than an
  * untyped throw.
  *
@@ -74,15 +76,24 @@ export class SubagentMessageDispatcher {
   ) {}
 
   /**
-   * Nudge the orchestrator about a running subagent.
+   * Nudge the coordinator to re-steer a running subagent.
    *
-   * The Claude Agent SDK does not expose a per-subagent input channel —
-   * `streamInput` delivers to the root coordinator regardless of
-   * `parent_tool_use_id`, and the official subagents guide states:
-   * "The only channel from parent to subagent is the Agent tool's prompt
-   * string." So we push the user's text into the root session as a normal
-   * `human` message, prefixed with a reference to the target subagent. The
-   * coordinator can then decide whether to relay, restart, or ignore it.
+   * There is NO direct parent→subagent input channel over `streamInput`.
+   * `parent_tool_use_id` on an incoming `SDKUserMessage` is output-labeling
+   * only: verified against the vendored CLI (claude.exe 2.1.150 in
+   * `@anthropic-ai/claude-agent-sdk` 0.3.150), the stdin ingest handler copies
+   * `priority`/`shouldQuery`/`uuid`/`clientPlatform` off the incoming message
+   * but never reads `parent_tool_use_id` and never assigns an `agentId`, so
+   * every streamed message is enqueued into the ROOT coordinator conversation
+   * regardless of that field.
+   *
+   * The only real relay mechanism is the model-side `SendMessage` tool, keyed
+   * by the SDK short-hex `agentId` (the same value the SubagentStart hook
+   * stores in `SubagentRecord.agentId`). So we always push the user's text to
+   * the root session as a normal `human` message (`parent_tool_use_id: null`)
+   * and, when we know the live subagent's `agentId`, instruct the coordinator
+   * to relay it verbatim via `SendMessage`. Without a record or agentId we fall
+   * back to a generic reference the coordinator can act on.
    *
    * Pushes are serialised per session to avoid races with other input.
    *
@@ -98,14 +109,14 @@ export class SubagentMessageDispatcher {
     const session = this.sessionLifecycle.find(sessionId as string);
     if (!session) {
       throw new RpcUserError(
-        `Session '${sessionId}' is not active — cannot deliver nudge`,
+        `Session '${sessionId}' is not active — cannot deliver message`,
         'SESSION_NOT_FOUND',
       );
     }
 
     if (!session.query) {
       throw new RpcUserError(
-        `Session '${sessionId}' query is not ready — cannot deliver nudge`,
+        `Session '${sessionId}' query is not ready — cannot deliver message`,
         'SESSION_NOT_FOUND',
       );
     }
@@ -113,21 +124,26 @@ export class SubagentMessageDispatcher {
     const query = session.query;
     const record = this.registry.get(parentToolUseId);
     const agentType = record?.agentType ?? 'unknown';
-    const prefixed = `Regarding the running '${agentType}' subagent (toolUseId=${parentToolUseId}): ${text}`;
+    const agentId = record?.agentId;
+    // Prefer an explicit SendMessage instruction keyed by the live subagent's
+    // agentId — the only mechanism the CLI actually honours. Fall back to a
+    // generic reference when we have no record or no agentId to target.
+    const content = agentId
+      ? `The user wants to steer the running '${agentType}' subagent (id: ${agentId}). Use the SendMessage tool with to: '${agentId}' to deliver this to it verbatim: ${text}`
+      : `Regarding the running subagent (toolUseId=${parentToolUseId}): ${text}`;
 
     await serialisedPush(sessionId, async () => {
-      this.logger.debug(
-        '[SubagentMessageDispatcher] sendToSubagent: nudging coordinator',
-        {
-          sessionId,
-          parentToolUseId,
-          agentType,
-          textLength: text.length,
-        },
-      );
+      this.logger.debug('[SubagentMessageDispatcher] sendToSubagent', {
+        sessionId,
+        parentToolUseId,
+        agentType,
+        agentId,
+        mode: agentId ? 'sendmessage-instruction' : 'generic-nudge',
+        textLength: text.length,
+      });
       const msg: SDKUserMessage = {
         type: 'user',
-        message: { role: 'user', content: prefixed },
+        message: { role: 'user', content },
         parent_tool_use_id: null,
         origin: { kind: 'human' } as unknown as SDKUserMessage['origin'],
         shouldQuery: true,
@@ -143,7 +159,7 @@ export class SubagentMessageDispatcher {
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         throw new RpcUserError(
-          `Session ended before nudge could be delivered: ${message}`,
+          `Session ended before message could be delivered: ${message}`,
           'SESSION_ENDED',
         );
       }
@@ -187,6 +203,53 @@ export class SubagentMessageDispatcher {
       throw new RpcUserError(
         `Task already completed or not found: ${message}`,
         'TASK_NOT_FOUND',
+      );
+    }
+  }
+
+  /**
+   * Move in-flight foreground task(s) to the background (Ctrl+B parity).
+   *
+   * Calls `Query.backgroundTasks(toolUseId)`. With no `toolUseId`, all
+   * foreground tasks are backgrounded. With a `toolUseId`, only that task is
+   * targeted and the SDK resolves to `false` when the id matched no foreground
+   * task.
+   *
+   * @param sessionId - The session that owns the running task(s)
+   * @param toolUseId - Optional SDK tool_use ID of a single foreground task
+   * @returns Whether any foreground task was moved to the background
+   */
+  async backgroundTask(
+    sessionId: string,
+    toolUseId?: string,
+  ): Promise<boolean> {
+    const session = this.sessionLifecycle.find(sessionId as string);
+    if (!session) {
+      throw new RpcUserError(
+        `Session '${sessionId}' is not active — cannot background task`,
+        'SESSION_NOT_FOUND',
+      );
+    }
+
+    if (!session.query) {
+      throw new RpcUserError(
+        `Session '${sessionId}' query is not ready — cannot background task`,
+        'SESSION_NOT_FOUND',
+      );
+    }
+
+    this.logger.debug('[SubagentMessageDispatcher] backgroundTask', {
+      sessionId,
+      toolUseId,
+    });
+
+    try {
+      return await session.query.backgroundTasks(toolUseId);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new RpcUserError(
+        `Session ended before task could be backgrounded: ${message}`,
+        'SESSION_ENDED',
       );
     }
   }

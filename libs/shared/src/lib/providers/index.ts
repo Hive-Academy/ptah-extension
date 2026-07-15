@@ -21,6 +21,7 @@ export {
 export {
   OLLAMA_PROVIDER_ENTRY,
   OLLAMA_CLOUD_PROVIDER_ENTRY,
+  OLLAMA_CLOUD_DIRECT_BASE_URL,
   LM_STUDIO_PROVIDER_ENTRY,
 } from './entries/local-provider-entry';
 export {

@@ -139,6 +139,20 @@ function buildHarness(opts?: {
     recorder,
     stopRegistry,
     { harvest: jest.fn().mockResolvedValue(undefined) } as never,
+    {
+      extract: jest.fn().mockResolvedValue({
+        metrics: {
+          inputTokens: null,
+          outputTokens: null,
+          cacheReadTokens: null,
+          cacheCreationTokens: null,
+          costUsd: null,
+          durationMs: null,
+          toolCount: null,
+        },
+        taskId: null,
+      }),
+    } as never,
   );
   return {
     service,

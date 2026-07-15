@@ -25,6 +25,7 @@ export * from './lib/types/provider-profile.types';
 export * from './lib/types/ptah-cli.types';
 export * from './lib/types/agent-permission.types';
 export * from './lib/types/mcp-directory.types';
+export * from './lib/types/task-spec.types';
 export * from './lib/type-guards/guards';
 export * from './lib/utils/message-normalizer';
 export * from './lib/utils';

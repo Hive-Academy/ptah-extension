@@ -65,7 +65,10 @@ describe('migration 0028_gateway_conversation_workspace_root — registry entry'
   });
 
   it('is the highest bundled version', () => {
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(28);
+    // Bumped to 30 when TASK_2026_158 appended 0030_skill_event_metrics to the
+    // MIGRATIONS tuple. This assertion tracks the current highest version and
+    // moves forward with every appended migration (see 0027 → 0028 precedent).
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(30);
   });
 });
 
@@ -149,13 +152,13 @@ describe('migration 0028_gateway_conversation_workspace_root — behavior (skipp
       }>;
       expect(rows).toHaveLength(2);
       expect(rows.every((r) => r.workspace_root === null)).toBe(true);
-      expect(rows.find((r) => r.external_conversation_id === 'default')).toEqual(
-        {
-          external_conversation_id: 'default',
-          ptah_session_id: 'session-1',
-          workspace_root: null,
-        },
-      );
+      expect(
+        rows.find((r) => r.external_conversation_id === 'default'),
+      ).toEqual({
+        external_conversation_id: 'default',
+        ptah_session_id: 'session-1',
+        workspace_root: null,
+      });
     } finally {
       db.close();
     }

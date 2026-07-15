@@ -15,6 +15,7 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ClipboardList,
   ExternalLink,
   LayoutGrid,
   MessageSquare,
@@ -61,6 +62,7 @@ import {
   SETUP_HUB_COMPONENT,
   MARKETPLACE_COMPONENT,
   TRIBUNAL_COMPONENT,
+  TASKS_VIEW_COMPONENT,
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import type { ViewType } from '@ptah-extension/core';
@@ -133,6 +135,7 @@ export class AppShellComponent {
     'thoth',
     'marketplace',
     'tribunal',
+    'tasks',
   ] as const;
 
   readonly chatStore = inject(ChatStore);
@@ -195,6 +198,14 @@ export class AppShellComponent {
    */
   readonly tribunalComponent =
     inject(TRIBUNAL_COMPONENT, { optional: true }) ?? null;
+
+  /**
+   * TasksViewComponent provided via DI token — breaks circular dependency
+   * between @ptah-extension/tasks-ui and @ptah-extension/chat.
+   * Provided by the application bootstrapper (app.config.ts).
+   */
+  readonly tasksComponent =
+    inject(TASKS_VIEW_COMPONENT, { optional: true }) ?? null;
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
   readonly CalendarDaysIcon = CalendarDays;
@@ -213,6 +224,7 @@ export class AppShellComponent {
   readonly RadioTowerIcon = RadioTower;
   readonly StoreIcon = Store;
   readonly ScaleIcon = Scale;
+  readonly ClipboardListIcon = ClipboardList;
   readonly thothFirstRunDismissed = this.appState.thothFirstRunDismissed;
   readonly editingSessionId = signal<string | null>(null);
   readonly editingSessionName = signal('');
@@ -375,6 +387,10 @@ export class AppShellComponent {
 
   openTribunal(): void {
     this.appState.setCurrentView('tribunal');
+  }
+
+  openTasks(): void {
+    this.appState.setCurrentView('tasks');
   }
 
   /**

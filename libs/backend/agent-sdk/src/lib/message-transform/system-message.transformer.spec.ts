@@ -45,6 +45,8 @@ function makeHelpers(
       markPendingBackground: jest.fn(),
       setTaskId: jest.fn(),
       pruneSession: jest.fn(),
+      get: jest.fn().mockReturnValue(null),
+      update: jest.fn(),
     },
     modelResolver: { resolveForPricing: jest.fn() },
     sessionLifecycle: {
@@ -210,6 +212,105 @@ describe('SystemMessageTransformer', () => {
       const helpers = makeHelpers();
       const msg = { task_id: 'task-u2', patch: {} } as never;
       expect(transformer.transformTaskUpdated(msg, state, helpers)).toEqual([]);
+    });
+
+    it('emits both agent_status and background_agent_started when patch.is_backgrounded is true', () => {
+      state.getTaskParentToolUseId.mockReturnValue('toolu_bg');
+      const helpers = makeHelpers();
+      (helpers.subagentRegistry.get as jest.Mock).mockReturnValue({
+        toolCallId: 'toolu_bg',
+        agentType: 'software-architect',
+        agentId: 'a1b2c3d',
+        status: 'running',
+        outputFilePath: '/tmp/bg.txt',
+      });
+      const msg = {
+        task_id: 'task-bg',
+        patch: { status: 'running', is_backgrounded: true },
+        session_id: 'sess',
+      } as never;
+
+      const events = transformer.transformTaskUpdated(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(events.map((e) => e.eventType)).toEqual([
+        'agent_status',
+        'background_agent_started',
+      ]);
+      const bg = events.find(
+        (e) => e.eventType === 'background_agent_started',
+      ) as { toolCallId: string; agentType: string; agentId?: string };
+      expect(bg.toolCallId).toBe('toolu_bg');
+      expect(bg.agentType).toBe('software-architect');
+      expect(bg.agentId).toBe('a1b2c3d');
+
+      // Registry kept coherent with the run_in_background:true spawn path.
+      expect(helpers.subagentRegistry.update).toHaveBeenCalledWith(
+        'toolu_bg',
+        expect.objectContaining({ status: 'background', isBackground: true }),
+      );
+    });
+
+    it('emits background_agent_started even when patch has no status change', () => {
+      state.getTaskParentToolUseId.mockReturnValue('toolu_bg2');
+      const helpers = makeHelpers();
+      (helpers.subagentRegistry.get as jest.Mock).mockReturnValue({
+        toolCallId: 'toolu_bg2',
+        agentType: 'Explore',
+        agentId: 'bg99999',
+        status: 'running',
+      });
+      const msg = {
+        task_id: 'task-bg2',
+        patch: { is_backgrounded: true },
+      } as never;
+
+      const events = transformer.transformTaskUpdated(msg, state, helpers);
+
+      expect(events.map((e) => e.eventType)).toEqual([
+        'background_agent_started',
+      ]);
+    });
+
+    it('does not emit a duplicate background_agent_started when the record is already background', () => {
+      state.getTaskParentToolUseId.mockReturnValue('toolu_bg3');
+      const helpers = makeHelpers();
+      (helpers.subagentRegistry.get as jest.Mock).mockReturnValue({
+        toolCallId: 'toolu_bg3',
+        agentType: 'Explore',
+        agentId: 'bg33333',
+        status: 'background',
+        isBackground: true,
+      });
+      const msg = {
+        task_id: 'task-bg3',
+        patch: { status: 'running', is_backgrounded: true },
+      } as never;
+
+      const events = transformer.transformTaskUpdated(msg, state, helpers);
+
+      // Repeat patch: only the status event, no second background_agent_started.
+      expect(events.map((e) => e.eventType)).toEqual(['agent_status']);
+      expect(helpers.subagentRegistry.update).not.toHaveBeenCalled();
+    });
+
+    it('leaves a plain task_updated (no is_backgrounded) unchanged', () => {
+      state.getTaskParentToolUseId.mockReturnValue('tool-u');
+      const helpers = makeHelpers();
+      const msg = {
+        task_id: 'task-plain',
+        patch: { status: 'running' },
+      } as never;
+
+      const events = transformer.transformTaskUpdated(msg, state, helpers);
+
+      expect(events.map((e) => e.eventType)).toEqual(['agent_status']);
+      expect(helpers.subagentRegistry.get).not.toHaveBeenCalled();
+      expect(helpers.subagentRegistry.update).not.toHaveBeenCalled();
     });
   });
 

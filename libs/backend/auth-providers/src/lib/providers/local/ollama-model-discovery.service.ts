@@ -299,7 +299,7 @@ export class OllamaModelDiscoveryService {
 
     const provider = getAnthropicProvider(providerId);
     if (!provider?.baseUrl) {
-      return 'http://localhost:11434';
+      return 'http://127.0.0.1:11434';
     }
     return provider.baseUrl.replace(/\/+$/, '');
   }

@@ -408,6 +408,42 @@ describe('AppStateManager', () => {
       service.clearNewCanvasSessionRequest();
       expect(service.newCanvasSessionRequest()).toBeNull();
     });
+
+    it('requestCanvasTab sets the tab-adoption request and clearCanvasTabRequest nulls it (F-D3)', () => {
+      const service = createService();
+      service.requestCanvasTab('tab-7', 'TASK_2026_200');
+      expect(service.canvasTabRequest()).toEqual({
+        tabId: 'tab-7',
+        name: 'TASK_2026_200',
+      });
+
+      service.clearCanvasTabRequest();
+      expect(service.canvasTabRequest()).toBeNull();
+    });
+
+    it('requestCanvasTab omits name when not supplied', () => {
+      const service = createService();
+      service.requestCanvasTab('tab-8');
+      expect(service.canvasTabRequest()).toEqual({ tabId: 'tab-8' });
+    });
+
+    it('requestChatPrompt sets the request and clearChatPromptRequest nulls it (D.1)', () => {
+      const service = createService();
+      const resolve = jest.fn();
+      service.requestChatPrompt({
+        prompt: '/ptah-core:orchestrate TASK_2026_200',
+        sessionName: 'TASK_2026_200',
+        resolve,
+      });
+
+      const req = service.chatPromptRequest();
+      expect(req?.prompt).toBe('/ptah-core:orchestrate TASK_2026_200');
+      expect(req?.sessionName).toBe('TASK_2026_200');
+      expect(req?.resolve).toBe(resolve);
+
+      service.clearChatPromptRequest();
+      expect(service.chatPromptRequest()).toBeNull();
+    });
   });
 
   describe('Thoth first-run hint persistence (B6)', () => {

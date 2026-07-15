@@ -35,6 +35,17 @@ import { CanvasTileComponent } from './canvas-tile.component';
   selector: 'ptah-canvas-workspace-grid',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [GridstackComponent, GridstackItemComponent, CanvasTileComponent],
+  host: {
+    // Single source of truth for keep-alive visibility. An inline style binding
+    // beats Tailwind's `.hidden` utility AND any `:host { display }` rule no
+    // matter the stylesheet order. The previous mechanism ([class.hidden] on the
+    // parent fighting `:host { display: block }`) was an equal-specificity tie
+    // resolved by source order — it silently flipped in the production bundle,
+    // leaving every retained workspace grid visible at once (all workspaces'
+    // sessions shown, stacked). `display:none` hides the grid without unmounting
+    // its tiles/transcripts, so the keep-alive contract still holds.
+    '[style.display]': "visible() ? 'block' : 'none'",
+  },
   template: `
     <gridstack [options]="gsOptions" (changeCB)="onGridChange($event)">
       @for (tile of tiles(); track tile.tabId) {
@@ -62,7 +73,6 @@ import { CanvasTileComponent } from './canvas-tile.component';
   styles: [
     `
       :host {
-        display: block;
         height: 100%;
       }
 

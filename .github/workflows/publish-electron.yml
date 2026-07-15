@@ -3,7 +3,10 @@
 # Cross-platform Electron builds for Windows, macOS, and Linux.
 #
 # Workflow:
-#   1. Push to release/electron branch OR trigger manually with bump type
+#   1. Push to release/electron (release-only branch, fed by a single PR from
+#      main) OR trigger manually with a bump type. Each run signs ~2 files
+#      (Ptah.exe + installer), so a normal release cadence stays well inside
+#      the eSigner Tier 1 monthly allowance.
 #   2. Auto-bumps the version (computed in prepare, patched locally in build jobs)
 #   3. Checks if the version tag already exists (prevents duplicate releases)
 #   4. Builds for all 3 platforms in parallel
@@ -14,8 +17,16 @@
 # to release/electron (which would re-trigger this workflow in an infinite loop).
 # A commit message filter provides extra safety.
 #
-# Windows builds are signed with SSL.com eSigner (IV code signing certificate).
-# macOS and Linux builds are unsigned — macOS signing requires an Apple Developer account.
+# Windows builds are signed with SSL.com eSigner (IV code signing certificate):
+# ONLY the main app executable (Ptah.exe) and the outer NSIS installer are
+# signed — NOT every internal .dll/.node. That covers SmartScreen (which
+# evaluates the downloaded installer + the launched exe) at ~2 signatures per
+# release, keeping us inside the eSigner Tier 1 monthly allowance. Signing
+# internal modules only matters under Windows Smart App Control ENFORCEMENT (a
+# small minority of machines) and is not reliably satisfied by an IV cert
+# anyway — an EV code-signing cert is the real fix if SAC blocking is ever
+# actually reported. macOS and Linux builds are unsigned — macOS signing
+# requires an Apple Developer account.
 
 name: Publish Electron
 
@@ -243,12 +254,13 @@ jobs:
         run: node scripts/copy-wasm.js dist/apps/ptah-electron
 
       # macOS / Linux: single-shot package (build app + distributable together).
-      # Windows is split below into dir-build -> sign-internals -> repack-NSIS so
-      # every internal binary (Ptah.exe, *.dll, and the asarUnpacked
-      # better_sqlite3.node) carries the SSL.com IV signature, not just the
-      # outer installer. SAC/WDAC evaluate each native module at load time, so
-      # an unsigned better_sqlite3.node is blocked even when the installer is
-      # signed — taking SQLite (Memory/Skills/Schedules/Messaging) offline.
+      # Windows is split below into dir-build -> sign-exe -> repack-NSIS so the
+      # main app executable (Ptah.exe) carries the SSL.com IV signature INSIDE
+      # the installer, not just the outer installer itself. We intentionally do
+      # NOT sign internal .dll/.node modules: that only matters under Windows
+      # Smart App Control enforcement (rare) and would cost ~30-40 eSigner
+      # signatures per build — far over the Tier 1 monthly allowance. See the
+      # header comment for the full rationale.
       - name: Package for platform
         if: runner.os != 'Windows'
         run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never ${{ matrix.build-args }}
@@ -291,16 +303,17 @@ jobs:
         if: runner.os == 'Windows'
         run: node apps/ptah-electron/scripts/verify-packed-wasm.js
 
-      # Phase 2a: collect EVERY signable binary in win-unpacked and flat-stage it
-      # into dist/sign-stage. We sign via a single batch_sign call (one OTP for
-      # up to 100 files) instead of per-file `sign` (one OTP each — TOTP rate
-      # limits + N round-trips). CodeSignTool only recognizes Authenticode
-      # extensions (.exe/.dll/.sys/...) and does NOT recognize ".node", so each
-      # .node is staged with a ".dll" extension. Authenticode signatures live in
-      # the PE overlay, independent of extension, so the signature survives the
-      # rename back to .node and SAC/WDAC read it correctly at load time.
-      # A JSON manifest records staged-name -> original-path for copy-back.
-      - name: Stage Windows binaries for batch signing
+      # Phase 2a: stage ONLY the main app executable (Ptah.exe) for signing.
+      # We deliberately do NOT sign every internal .dll/.node: at eSigner Tier 1
+      # (20 signings/month) signing ~30-40 binaries per build guarantees overage,
+      # and internal-module signatures only matter under Windows Smart App
+      # Control enforcement — rare, and not reliably satisfied by an IV cert
+      # anyway. Signing Ptah.exe + the outer installer covers SmartScreen for
+      # ~all users at ~2 signatures per release. The batch_sign machinery below
+      # is retained (it now signs a single-file batch, so the retry path can no
+      # longer multiply the signature count) and a JSON manifest records
+      # staged-name -> original-path for copy-back.
+      - name: Stage main app executable for signing
         if: runner.os == 'Windows'
         id: stage-sign
         shell: pwsh
@@ -318,14 +331,11 @@ jobs:
           Remove-Item -Recurse -Force $signedDir -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $signedDir | Out-Null
 
-          # Extension alone is not enough: node_modules ships cross-platform native
-          # addons, so a Linux (.node = ELF) or macOS (.node = Mach-O) binary can
-          # carry a .node/.dll name yet not be a Windows PE. CodeSignTool's
-          # batch_sign hashes every file as a PE and aborts on the first one
-          # without an "MZ" DOS header ("DOS header signature not found"). Filter
-          # to real PE files by reading the first two magic bytes (0x4D 0x5A).
-          $candidates = Get-ChildItem -Path $unpacked -Recurse -File |
-            Where-Object { $_.Extension -in '.exe', '.dll', '.node' }
+          # Only the main app executable is signed. It sits at the ROOT of
+          # win-unpacked and is named after productName (Ptah.exe). The MZ-header
+          # PE check below is retained as a defensive guard.
+          $candidates = Get-ChildItem -Path $unpacked -File |
+            Where-Object { $_.Name -eq 'Ptah.exe' }
           $binaries = @()
           $skipped = @()
           foreach ($c in $candidates) {
@@ -375,7 +385,7 @@ jobs:
       # yet the action still exits 0. So: run with continue-on-error, count the
       # output, and retry the whole sign up to two more times. override: true
       # makes each retry re-sign the full batch cleanly.
-      - name: Batch-sign Windows internal binaries with SSL.com eSigner
+      - name: Sign main app executable with SSL.com eSigner
         if: runner.os == 'Windows'
         uses: sslcom/esigner-codesign@v1.3.2
         with: &batch_sign_with

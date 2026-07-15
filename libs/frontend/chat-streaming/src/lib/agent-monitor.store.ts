@@ -131,6 +131,15 @@ export interface SubagentRecord {
   errorMessage?: string;
   /** Final output file path if completed */
   outputFile?: string;
+  /**
+   * Owning session id, captured from the pushed SDK event's `sessionId`
+   * (`FlatStreamEvent.sessionId`). This is the session that spawned the
+   * subagent — NOT necessarily the focused tab. Steer / stop / background
+   * RPCs must target THIS session, otherwise they resolve the wrong Query
+   * backend-side when multiple canvas tiles are live. Kept optional because a
+   * record can, in theory, be materialised before any event carries it.
+   */
+  parentSessionId?: string;
 }
 
 /**
@@ -143,7 +152,8 @@ export interface SubagentRpcError {
   readonly method:
     | 'subagent:send-message'
     | 'subagent:stop'
-    | 'subagent:interrupt';
+    | 'subagent:interrupt'
+    | 'subagent:background';
   readonly message: string;
   readonly code?: string;
   readonly timestamp: number;
@@ -943,6 +953,7 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: existing?.durationMs,
         errorMessage: existing?.errorMessage,
         outputFile: existing?.outputFile,
+        parentSessionId: event.sessionId ?? existing?.parentSessionId,
       };
       next.set(key, merged);
       return next;
@@ -968,6 +979,7 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: event.durationMs,
         errorMessage: existing?.errorMessage,
         outputFile: existing?.outputFile,
+        parentSessionId: event.sessionId ?? existing?.parentSessionId,
       };
       next.set(key, merged);
       return next;
@@ -993,6 +1005,7 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: existing?.durationMs,
         errorMessage: event.errorMessage ?? existing?.errorMessage,
         outputFile: existing?.outputFile,
+        parentSessionId: event.sessionId ?? existing?.parentSessionId,
       };
       next.set(key, merged);
       return next;
@@ -1018,6 +1031,7 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: event.durationMs ?? existing?.durationMs,
         errorMessage: existing?.errorMessage,
         outputFile: event.outputFile ?? existing?.outputFile,
+        parentSessionId: event.sessionId ?? existing?.parentSessionId,
       };
       next.set(key, merged);
       return next;
@@ -1044,12 +1058,59 @@ export class AgentMonitorStore implements OnDestroy {
     return { ok: result.isSuccess(), code: result.data?.code };
   }
 
+  /**
+   * Terminalise a foreground subagent from its Task tool_use `tool_result`.
+   *
+   * This is the DEFINITIVE completion signal for a normally-finishing
+   * foreground subagent. The SDK's `task_notification` (→ `agent_completed`)
+   * is skipped when `skip_transcript` is set and, per the SDK docs, reliably
+   * fires only for stopped/backgrounded tasks — so a foreground Task that
+   * completes normally may never produce one, which previously left the
+   * subagent badge stuck on 'running' forever. The Task tool_use's
+   * `tool_result` always fires, so we drive completion from it.
+   *
+   * Invariant (documented in {@link StreamingAccumulatorCore} too): status
+   * transitions ONLY from a non-terminal ('pending'/'running') state to
+   * 'completed' (or 'failed' when the tool_result is an error). A terminal
+   * status already set by a real `agent_completed` / `agent_status` / stop
+   * wins and is never overridden (last-writer-wins is wrong here). An unknown
+   * `toolCallId` (no record ⇒ this tool_result did not spawn a subagent) is a
+   * no-op. The CALLER must NOT invoke this for a backgrounded task — a
+   * mid-run-backgrounded agent receives an early "running in the background"
+   * tool_result while it keeps working, which must not terminalise it.
+   */
+  onTaskToolResult(toolCallId: string, isError: boolean): void {
+    this._subagents.update((map) => {
+      const existing = map.get(toolCallId);
+      if (!existing) return map;
+      if (existing.status !== 'pending' && existing.status !== 'running') {
+        return map;
+      }
+      const next = new Map(map);
+      next.set(toolCallId, {
+        ...existing,
+        status: isError ? 'failed' : 'completed',
+      });
+      return next;
+    });
+  }
+
+  /**
+   * Send a follow-up ("steer") message into a running subagent.
+   *
+   * `sessionId` is the session that OWNS the subagent. Callers that know it
+   * (e.g. the background-agent tray, which reads `SubagentRecord.parentSessionId`)
+   * must pass it so the RPC targets the right Query when multiple canvas tiles
+   * are live. It falls back to the active tab's session to preserve callers
+   * that render inside the focused session (e.g. inline-agent-bubble).
+   */
   async sendMessageToAgent(
     parentToolUseId: string,
     text: string,
+    sessionId?: string,
   ): Promise<boolean> {
-    const sessionId = this.tabManager.activeTabSessionId();
-    if (!sessionId) {
+    const sid = sessionId ?? this.tabManager.activeTabSessionId();
+    if (!sid) {
       this.recordSubagentRpcError({
         parentToolUseId,
         method: 'subagent:send-message',
@@ -1059,7 +1120,7 @@ export class AgentMonitorStore implements OnDestroy {
       return false;
     }
     const result = await this.rpc.call('subagent:send-message', {
-      sessionId,
+      sessionId: sid,
       parentToolUseId,
       text,
     });
@@ -1079,11 +1140,15 @@ export class AgentMonitorStore implements OnDestroy {
   /**
    * Stop a running subagent identified by SDK task_id. The matching
    * `parentToolUseId` is looked up so error reporting stays scoped.
+   *
+   * `sessionId` is the OWNING session; callers that know it (background-agent
+   * tray) pass it so the stop resolves the right Query when several tiles are
+   * live. Falls back to the active tab's session for focused-surface callers.
    */
-  async stopAgent(taskId: string): Promise<void> {
-    const sessionId = this.tabManager.activeTabSessionId();
+  async stopAgent(taskId: string, sessionId?: string): Promise<void> {
+    const sid = sessionId ?? this.tabManager.activeTabSessionId();
     const parentToolUseId = this.findParentToolUseIdByTaskId(taskId);
-    if (!sessionId) {
+    if (!sid) {
       this.recordSubagentRpcError({
         parentToolUseId: parentToolUseId ?? taskId,
         method: 'subagent:stop',
@@ -1093,7 +1158,7 @@ export class AgentMonitorStore implements OnDestroy {
       return;
     }
     const result = await this.rpc.call('subagent:stop', {
-      sessionId,
+      sessionId: sid,
       taskId,
     });
     if (!result.isSuccess()) {
@@ -1135,6 +1200,52 @@ export class AgentMonitorStore implements OnDestroy {
     } else {
       this._subagentRpcError.set(null);
     }
+  }
+
+  /**
+   * Move a running foreground subagent to the background. Follows the exact
+   * shape of {@link interruptSession}: fire-and-report the RPC, record any
+   * error on the shared channel, and never mutate state optimistically — the
+   * `background_agent_started` push event is the sole source of truth for the
+   * resulting background record.
+   *
+   * `sessionId` is the OWNING session; callers that know it (background-agent
+   * tray, inline bubble via `SubagentRecord.parentSessionId`) pass it, and it
+   * falls back to the active tab's session like the sibling commands. Returns
+   * `true` when the backend acknowledges the switch.
+   *
+   * Contract: RPC `subagent:background` with params `{ sessionId, toolUseId? }`
+   * → result `{ backgrounded: boolean }`.
+   */
+  async backgroundAgent(
+    sessionId: string | undefined,
+    toolUseId?: string,
+  ): Promise<boolean> {
+    sessionId ??= this.tabManager.activeTabSessionId() ?? undefined;
+    if (!sessionId) {
+      this.recordSubagentRpcError({
+        parentToolUseId: toolUseId ?? '',
+        method: 'subagent:background',
+        message: 'No session — cannot background agent',
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+    const result = await this.rpc.call('subagent:background', {
+      sessionId,
+      toolUseId,
+    });
+    if (!result.isSuccess()) {
+      this.recordSubagentRpcError({
+        parentToolUseId: toolUseId ?? '',
+        method: 'subagent:background',
+        message: result.error ?? 'Unknown error',
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+    this._subagentRpcError.set(null);
+    return result.data?.backgrounded ?? true;
   }
 
   private findParentToolUseIdByTaskId(taskId: string): string | undefined {

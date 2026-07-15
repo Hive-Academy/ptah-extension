@@ -1,8 +1,11 @@
 /**
  * SpecHarvesterService — turns `.ptah/specs/TASK_*` orchestration artifacts into
- * skill telemetry. Three jobs:
+ * skill telemetry. A spec is eligible only once its `task.md` frontmatter status
+ * is `done`/`cancelled` (see `extractSpec`); legacy carrier-less folders are
+ * skipped. Three jobs:
  *  1. harvest()  — reconcile the optimistic `succeeded:true` subagent events
- *     against graded verdicts (tasks.md status), keyed by executor slug.
+ *     against graded per-batch verdicts (tasks.md word statuses), keyed by
+ *     executor slug.
  *  2. getRecentFindings() — feed review reports into the enhancer (SpecFindingsPort).
  *  3. listSpecs() / clearStaleSpecs() — classify and prune harvested specs.
  *
@@ -96,6 +99,7 @@ export class SpecHarvesterService implements SpecFindingsPort {
       for (const batch of spec.batches) {
         const did = this.store.reconcileSubagentEvent({
           slug: batch.slug,
+          taskId: spec.taskId,
           succeeded: batch.status === 'COMPLETE',
           isError: batch.status === 'FAILED',
           windowStart: spec.windowStart,

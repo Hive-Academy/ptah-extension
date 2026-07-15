@@ -114,6 +114,7 @@ export {
   type SpecBatchVerdict,
   type SpecBatchStatus,
 } from './lib/spec-extractor';
+export { SkillScorecardService } from './lib/skill-scorecard.service';
 export { SkillSynthesisDiagnosticsService } from './lib/diagnostics.service';
 export type {
   SkillSynthesisEvent,
@@ -132,6 +133,9 @@ export type {
   SkillResidency,
   SkillCandidateRow,
   SkillInvocationRow,
+  SubagentRunMetrics,
+  ScorecardAggregate,
+  GradedInvocationRow,
   SkillSynthesisSettings,
   NewCandidateInput,
   RegisterCandidateResult,

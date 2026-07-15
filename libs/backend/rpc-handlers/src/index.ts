@@ -41,6 +41,7 @@ export {
   PersistenceRpcHandlers,
   mintResetChallengeToken,
   IndexingRpcHandlers,
+  TasksRpcHandlers,
 } from './lib/handlers';
 export type {
   DbHealthResult,

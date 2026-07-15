@@ -111,3 +111,66 @@ export interface SkillSynthesisInvocationStatsResult {
   slug: string;
   stats: SkillCloneInvocationStats;
 }
+
+/**
+ * Batched per-subagent scorecard surfaced on agent clone cards in the Library
+ * tab. Composed from graded orchestration runs (reconciled spec verdicts) plus
+ * NULL-excluding metric aggregates. `gradedSuccessRate` is `null` (never a fake
+ * 0%) when nothing has been graded; token and cost fields are independently
+ * nullable so a usage-bearing-but-price-less provider still shows tokens.
+ */
+export interface AgentScorecard {
+  slug: string;
+  totalInvocations: number;
+  gradedCount: number;
+  gradedSuccessRate: number | null;
+  avgInputTokens: number | null;
+  avgOutputTokens: number | null;
+  avgCacheReadTokens: number | null;
+  totalInputTokens: number | null;
+  totalOutputTokens: number | null;
+  avgCostUsd: number | null;
+  avgDurationMs: number | null;
+  avgToolCount: number | null;
+  recentVerdicts: Array<{
+    taskId: string;
+    succeeded: boolean;
+    reconciledAt: number;
+  }>;
+}
+
+/**
+ * One graded invocation row in the lazily-loaded scorecard detail view.
+ * `exactAttribution` is `true` for `spec:` provenance (exact task_id match) and
+ * `false` for `spec-window:` (heuristic time-window fallback) so the UI can
+ * mark heuristically-attributed rows distinctly.
+ */
+export interface ScorecardInvocationRow {
+  taskId: string | null;
+  succeeded: boolean;
+  exactAttribution: boolean;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costUsd: number | null;
+  durationMs: number | null;
+  invokedAt: number;
+  reconciledAt: number;
+}
+
+export interface SkillSynthesisGetScorecardsParams {
+  slugs: string[];
+}
+export interface SkillSynthesisGetScorecardsResult {
+  scorecards: Record<string, AgentScorecard>;
+}
+
+export interface SkillSynthesisGetScorecardDetailParams {
+  slug: string;
+  limit?: number;
+}
+export interface SkillSynthesisGetScorecardDetailResult {
+  slug: string;
+  rows: ScorecardInvocationRow[];
+  /** MAX_FINDINGS_CHARS-bounded review excerpt, detail-only; null when absent. */
+  findingsExcerpt: string | null;
+}

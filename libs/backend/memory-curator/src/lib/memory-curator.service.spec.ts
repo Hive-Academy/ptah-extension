@@ -142,7 +142,7 @@ describe('MemoryCuratorService — event ring buffer', () => {
   it('recordDecayEvent pushes a decay-run event into the ring buffer', () => {
     const svc = buildService();
     svc.recordDecayEvent(
-      { scanned: 5, demoted: 1, archived: 2, expired: 0 },
+      { scanned: 5, promoted: 3, demoted: 1, archived: 2, expired: 0 },
       9999,
     );
     const events = svc.recentEvents(5);
@@ -151,6 +151,7 @@ describe('MemoryCuratorService — event ring buffer', () => {
     expect(decay?.timestamp).toBe(9999);
     expect(decay?.stats).toMatchObject({
       scanned: 5,
+      promoted: 3,
       demoted: 1,
       archived: 2,
       expired: 0,

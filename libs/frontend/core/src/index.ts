@@ -18,4 +18,5 @@ export {
   SETUP_HUB_COMPONENT,
   MARKETPLACE_COMPONENT,
   TRIBUNAL_COMPONENT,
+  TASKS_VIEW_COMPONENT,
 } from './lib/tokens/lazy-view-components.token';

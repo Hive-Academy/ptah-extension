@@ -21,10 +21,7 @@
           "sqlite-vec",
           "grammy",
           "discord.js",
-          "@slack/bolt",
-          "ffmpeg-static",
-          "@huggingface/transformers",
-          "onnxruntime-node"
+          "@slack/bolt"
         ]
       }
     },

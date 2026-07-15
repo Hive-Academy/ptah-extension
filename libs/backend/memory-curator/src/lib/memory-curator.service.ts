@@ -32,7 +32,7 @@ import type {
   ResolvedMemoryDraft,
 } from './curator-llm/curator-llm.interface';
 import { memoryId, type MemoryTier } from './memory.types';
-import type { MemoryCuratorEvent } from './diagnostics.types';
+import type { MemoryCuratorEvent, MemoryDecayStats } from './diagnostics.types';
 import type { CorpusStore } from './knowledge-agents/corpus.store';
 import type { KnowledgeAgentService } from './knowledge-agents/knowledge-agent.service';
 
@@ -177,11 +177,8 @@ export class MemoryCuratorService {
    * this service's ring buffer. Kept narrow so callers cannot forge other
    * event kinds via the public surface.
    */
-  recordDecayEvent(
-    stats: Readonly<Record<string, number | string | boolean | null>>,
-    timestamp = Date.now(),
-  ): void {
-    this.pushEvent({ kind: 'decay-run', timestamp, stats });
+  recordDecayEvent(stats: MemoryDecayStats, timestamp = Date.now()): void {
+    this.pushEvent({ kind: 'decay-run', timestamp, stats: { ...stats } });
   }
 
   /** Stop listening. Safe to call multiple times. */

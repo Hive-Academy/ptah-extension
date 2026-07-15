@@ -14,6 +14,7 @@ import type { DependencyContainer } from 'tsyringe';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
+import { registerTaskSpecsServices } from '@ptah-extension/task-specs';
 import {
   registerVsCodeLmToolsServices,
   IDE_CAPABILITIES_TOKEN,
@@ -51,6 +52,12 @@ export function registerPhase2Libraries(
   logger: Logger,
 ): void {
   registerWorkspaceIntelligenceServices(container, logger);
+  // task-specs registered in all three hosts (G1). The SQLite-backed index
+  // store is selected lazily inside registerTaskSpecsServices via
+  // isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION) — VS Code registers the
+  // connection later in wire-runtime, so the store choice is deferred to first
+  // resolution (wire-runtime.ts:176 precedent).
+  registerTaskSpecsServices(container, logger);
   registerVsCodeLmToolsServices(container, logger);
   container.register(IDE_CAPABILITIES_TOKEN, {
     useValue: new VscodeIDECapabilities(),

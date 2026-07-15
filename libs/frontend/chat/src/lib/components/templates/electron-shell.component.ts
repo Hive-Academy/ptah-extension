@@ -35,12 +35,12 @@ import {
   Bot,
   GitBranch,
   Sparkles,
-  MessageSquare,
   LayoutGrid,
   Wrench,
   Store,
   RadioTower,
   Scale,
+  ClipboardList,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
@@ -201,36 +201,13 @@ import {
             <button
               role="tab"
               class="tab gap-1.5 no-drag"
-              [class.tab-active]="
-                appState.currentView() === 'chat' &&
-                appState.layoutMode() === 'grid'
-              "
-              [attr.aria-selected]="
-                appState.currentView() === 'chat' &&
-                appState.layoutMode() === 'grid'
-              "
+              [class.tab-active]="appState.currentView() === 'chat'"
+              [attr.aria-selected]="appState.currentView() === 'chat'"
               title="Orchestra Canvas"
               (click)="onCanvasTab()"
             >
               <lucide-angular [img]="LayoutGridIcon" class="w-3.5 h-3.5" />
               Canvas
-            </button>
-            <button
-              role="tab"
-              class="tab gap-1.5 no-drag"
-              [class.tab-active]="
-                appState.currentView() === 'chat' &&
-                appState.layoutMode() === 'single'
-              "
-              [attr.aria-selected]="
-                appState.currentView() === 'chat' &&
-                appState.layoutMode() === 'single'
-              "
-              title="Chat"
-              (click)="onChatTab()"
-            >
-              <lucide-angular [img]="MessageSquareIcon" class="w-3.5 h-3.5" />
-              Chat
             </button>
             <button
               role="tab"
@@ -264,6 +241,17 @@ import {
             >
               <lucide-angular [img]="ScaleIcon" class="w-3.5 h-3.5" />
               Tribunal
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'tasks'"
+              [attr.aria-selected]="appState.currentView() === 'tasks'"
+              title="Tasks — .ptah/specs board"
+              (click)="openTasks()"
+            >
+              <lucide-angular [img]="ClipboardListIcon" class="w-3.5 h-3.5" />
+              Tasks
             </button>
             <button
               role="tab"
@@ -571,6 +559,11 @@ export class ElectronShellComponent {
   readonly editorComponent = signal<Type<unknown> | null>(null);
 
   constructor() {
+    // Electron uses the canvas as its sole chat surface — the single-chat
+    // layout was removed. Force grid mode so a returning user with a persisted
+    // 'single' layoutMode still lands on the canvas.
+    this.appState.setLayoutMode('grid');
+
     effect(() => {
       if (
         this.layout.editorPanelVisible() &&
@@ -588,22 +581,17 @@ export class ElectronShellComponent {
   readonly BotIcon = Bot;
   readonly GitBranchIcon = GitBranch;
   readonly SparklesIcon = Sparkles;
-  readonly MessageSquareIcon = MessageSquare;
   readonly LayoutGridIcon = LayoutGrid;
   readonly WrenchIcon = Wrench;
   readonly StoreIcon = Store;
   readonly RadioTowerIcon = RadioTower;
   readonly ScaleIcon = Scale;
+  readonly ClipboardListIcon = ClipboardList;
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
   onCanvasTab(): void {
     this.appState.setLayoutMode('grid');
-    this.appState.setCurrentView('chat');
-  }
-
-  onChatTab(): void {
-    this.appState.setLayoutMode('single');
     this.appState.setCurrentView('chat');
   }
 
@@ -632,5 +620,9 @@ export class ElectronShellComponent {
 
   openTribunal(): void {
     this.appState.setCurrentView('tribunal');
+  }
+
+  openTasks(): void {
+    this.appState.setCurrentView('tasks');
   }
 }

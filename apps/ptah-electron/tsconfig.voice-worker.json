@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.build.json",
+  "include": [
+    "../../libs/backend/voice-providers/src/lib/worker/voice-worker.ts",
+    "../../libs/backend/voice-providers/src/lib/worker/**/*.ts"
+  ],
+  "exclude": ["**/*.spec.ts"]
+}

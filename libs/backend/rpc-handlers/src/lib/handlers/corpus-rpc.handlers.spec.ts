@@ -1,8 +1,9 @@
 /**
- * Unit tests for `CorpusRpcHandlers` (8 `corpus:*` methods).
+ * Unit tests for `CorpusRpcHandlers` (9 `corpus:*` methods).
  *
  * Mocking posture: direct constructor injection with a fake
- * `KnowledgeAgentService`, mirroring the `MemRpcHandlers` spec layout.
+ * `KnowledgeAgentService` + `CorpusSuggestionService`, mirroring the
+ * `MemRpcHandlers` spec layout.
  */
 
 import 'reflect-metadata';
@@ -60,21 +61,32 @@ function makeKnowledgeAgent() {
   };
 }
 
+function makeSuggestionService() {
+  return {
+    suggestCorpora: jest.fn().mockReturnValue([]),
+  };
+}
+
 function buildHandlers() {
   const logger = makeLogger();
   const rpcHandler = makeRpcHandler();
   const knowledgeAgent = makeKnowledgeAgent();
+  const suggestionService = makeSuggestionService();
 
   const child = container.createChildContainer();
   child.registerInstance(TOKENS.LOGGER, logger);
   child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
   child.registerInstance(MEMORY_TOKENS.KNOWLEDGE_AGENT_SERVICE, knowledgeAgent);
+  child.registerInstance(
+    MEMORY_TOKENS.CORPUS_SUGGESTION_SERVICE,
+    suggestionService,
+  );
   child.register(CorpusRpcHandlers, { useClass: CorpusRpcHandlers });
 
   const handlers = child.resolve(CorpusRpcHandlers);
   handlers.register();
 
-  return { handlers, rpcHandler, knowledgeAgent, logger };
+  return { handlers, rpcHandler, knowledgeAgent, suggestionService, logger };
 }
 
 describe('CorpusRpcHandlers — runtime allowlist', () => {
@@ -84,7 +96,7 @@ describe('CorpusRpcHandlers — runtime allowlist', () => {
 });
 
 describe('CorpusRpcHandlers.register', () => {
-  it('registers all eight methods in order', () => {
+  it('registers all nine methods in order', () => {
     const { rpcHandler } = buildHandlers();
     const calls = (rpcHandler.registerMethod as jest.Mock).mock.calls.map(
       (c) => c[0],
@@ -98,6 +110,7 @@ describe('CorpusRpcHandlers.register', () => {
       'corpus:reprime',
       'corpus:rebuild',
       'corpus:delete',
+      'corpus:suggest',
     ]);
   });
 
@@ -111,7 +124,12 @@ describe('CorpusRpcHandlers.register', () => {
       'corpus:reprime',
       'corpus:rebuild',
       'corpus:delete',
+      'corpus:suggest',
     ]);
+  });
+
+  it("includes 'corpus:suggest' in static METHODS", () => {
+    expect(CorpusRpcHandlers.METHODS).toContain('corpus:suggest');
   });
 });
 
@@ -357,5 +375,129 @@ describe('CorpusRpcHandlers — corpus:delete', () => {
     })) as { deleted: boolean };
     expect(knowledgeAgent.deleteCorpus).toHaveBeenCalledWith('missing');
     expect(result.deleted).toBe(false);
+  });
+});
+
+describe('CorpusRpcHandlers — corpus:suggest', () => {
+  it('treats absent params as empty options', async () => {
+    const { rpcHandler, suggestionService } = buildHandlers();
+    await rpcHandler.call('corpus:suggest', undefined);
+    expect(suggestionService.suggestCorpora).toHaveBeenCalledWith({
+      workspaceRoot: undefined,
+      minClusterSize: undefined,
+      limit: undefined,
+    });
+  });
+
+  it('forwards validated options to the service', async () => {
+    const { rpcHandler, suggestionService } = buildHandlers();
+    await rpcHandler.call('corpus:suggest', {
+      workspaceRoot: '/ws',
+      minClusterSize: 3,
+      limit: 4,
+    });
+    expect(suggestionService.suggestCorpora).toHaveBeenCalledWith({
+      workspaceRoot: '/ws',
+      minClusterSize: 3,
+      limit: 4,
+    });
+  });
+
+  it('maps domain suggestions to the wire shape', async () => {
+    const { rpcHandler, suggestionService } = buildHandlers();
+    suggestionService.suggestCorpora.mockReturnValue([
+      {
+        suggestedName: 'auth',
+        filter: {
+          name: 'auth',
+          workspaceRoot: '/ws',
+          concepts: ['auth'],
+          limit: 100,
+        },
+        memberCount: 8,
+        topConcepts: ['auth', 'jwt'],
+        rationale: '8 memories tagged "auth"',
+        signal: 'concept',
+      },
+    ]);
+    const result = (await rpcHandler.call('corpus:suggest', {})) as {
+      suggestions: Array<Record<string, unknown>>;
+    };
+    expect(result.suggestions).toHaveLength(1);
+    expect(result.suggestions[0]).toEqual({
+      suggestedName: 'auth',
+      filter: {
+        name: 'auth',
+        workspaceRoot: '/ws',
+        type: undefined,
+        concepts: ['auth'],
+        files: undefined,
+        query: undefined,
+        dateRange: undefined,
+        limit: 100,
+      },
+      memberCount: 8,
+      topConcepts: ['auth', 'jwt'],
+      rationale: '8 memories tagged "auth"',
+      signal: 'concept',
+    });
+  });
+
+  it('preserves a type suggestion filter through the mapper', async () => {
+    const { rpcHandler, suggestionService } = buildHandlers();
+    suggestionService.suggestCorpora.mockReturnValue([
+      {
+        suggestedName: 'Bugfix memories',
+        filter: {
+          name: 'Bugfix memories',
+          workspaceRoot: null,
+          type: ['bugfix'],
+          limit: 100,
+        },
+        memberCount: 14,
+        topConcepts: [],
+        rationale: '14 bugfix memories',
+        signal: 'type',
+      },
+    ]);
+    const result = (await rpcHandler.call('corpus:suggest', {})) as {
+      suggestions: Array<{
+        filter: { type: readonly string[]; workspaceRoot: string | null };
+      }>;
+    };
+    expect(result.suggestions[0].filter.type).toEqual(['bugfix']);
+    expect(result.suggestions[0].filter.workspaceRoot).toBeNull();
+  });
+
+  it('rejects an empty workspaceRoot with INVALID_PARAMS', async () => {
+    const { rpcHandler, suggestionService } = buildHandlers();
+    await expect(
+      rpcHandler.call('corpus:suggest', { workspaceRoot: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(suggestionService.suggestCorpora).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-positive limit with INVALID_PARAMS', async () => {
+    const { rpcHandler, suggestionService } = buildHandlers();
+    await expect(
+      rpcHandler.call('corpus:suggest', { limit: -1 }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(suggestionService.suggestCorpora).not.toHaveBeenCalled();
+  });
+
+  it('wraps service errors in RpcUserError without leaking the message', async () => {
+    const { rpcHandler, suggestionService } = buildHandlers();
+    suggestionService.suggestCorpora.mockImplementationOnce(() => {
+      throw new Error('internal SQL trace');
+    });
+    let caught: unknown;
+    try {
+      await rpcHandler.call('corpus:suggest', {});
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RpcUserError);
+    expect((caught as RpcUserError).message).not.toMatch(/SQL/);
+    expect((caught as RpcUserError).errorCode).toBe('PERSISTENCE_UNAVAILABLE');
   });
 });

@@ -36,9 +36,10 @@ import type {
   AstAnalysisService,
   TreeSitterParserService,
 } from '@ptah-extension/workspace-intelligence';
-import type {
-  IFileSystemProvider,
-  IWorkspaceProvider,
+import {
+  FileType,
+  type IFileSystemProvider,
+  type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import {
   buildAstNamespace,
@@ -63,6 +64,7 @@ interface AnalysisMock {
 
 interface FsMock {
   readFile: jest.Mock;
+  stat: jest.Mock;
 }
 
 interface WsMock {
@@ -88,7 +90,10 @@ function makeDeps(): {
 } {
   const parser = createParser();
   const analysis: AnalysisMock = { analyzeSource: jest.fn() };
-  const fs: FsMock = { readFile: jest.fn().mockResolvedValue('code') };
+  const fs: FsMock = {
+    readFile: jest.fn().mockResolvedValue('code'),
+    stat: jest.fn().mockResolvedValue({ type: FileType.File }),
+  };
   const ws: WsMock = { getWorkspaceRoot: jest.fn().mockReturnValue('D:/ws') };
 
   const deps: AstNamespaceDependencies = {
@@ -152,6 +157,16 @@ describe('buildAstNamespace — analyze', () => {
       imports: [],
       exports: [],
     });
+  });
+
+  it('throws a clear error when the path is a directory instead of reading it', async () => {
+    const { deps, fs } = makeDeps();
+    fs.stat.mockResolvedValue({ type: FileType.Directory });
+
+    await expect(
+      buildAstNamespace(deps).analyze('src/some.dir'),
+    ).rejects.toThrow(/is a directory, not a file/);
+    expect(fs.readFile).not.toHaveBeenCalled();
   });
 
   it('throws when the file extension is not in EXTENSION_LANGUAGE_MAP', async () => {

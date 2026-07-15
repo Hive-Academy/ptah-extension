@@ -6,6 +6,12 @@
       "sourceType": "github",
       "computedHash": "ac5fb2168c653fa5d660b5f510a4688d210717c7e10eb8fd91ef0d9b59f4e96e"
     },
+    "ffmpeg-video-analysis": {
+      "source": "josiahsiegel/claude-plugin-marketplace",
+      "sourceType": "github",
+      "skillPath": "plugins/ffmpeg-core/skills/ffmpeg-video-analysis/SKILL.md",
+      "computedHash": "ef48fa20c70ac84670db2c6fd313e3163a7aacffaeefcaec5ecec3e058b38c5b"
+    },
     "frontend-design": {
       "source": "anthropics/skills",
       "sourceType": "github",
@@ -16,6 +22,12 @@
       "sourceType": "github",
       "skillPath": ".agents/skills/impeccable/SKILL.md",
       "computedHash": "ec3199f460c3a6fade94e753d5dfe2b46d0c770e64670a5954260d94b39311dd"
+    },
+    "remocn": {
+      "source": "kapishdima/remocn",
+      "sourceType": "github",
+      "skillPath": "skills/remocn/SKILL.md",
+      "computedHash": "d4c84895663d4fcfee7aa568efdb940671f23a036e5179f59f4a0af3e20adbf1"
     }
   }
 }

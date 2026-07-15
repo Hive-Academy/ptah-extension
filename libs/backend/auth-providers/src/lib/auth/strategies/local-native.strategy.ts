@@ -31,7 +31,10 @@ import type { ICopilotTranslationProxy } from '../../providers/copilot/copilot-p
 import type { ITranslationProxy } from '../../translation';
 import type { LocalModelTranslationProxy } from '../../providers/local/local-model-translation-proxy';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../../providers/local';
-import { getProviderBaseUrl } from '@ptah-extension/shared';
+import {
+  getProviderBaseUrl,
+  OLLAMA_CLOUD_DIRECT_BASE_URL,
+} from '@ptah-extension/shared';
 
 @injectable()
 export class LocalNativeStrategy implements IAuthStrategy {
@@ -69,6 +72,16 @@ export class LocalNativeStrategy implements IAuthStrategy {
     await this.stopProxyIfRunning(this.lmStudioProxy, 'LM Studio');
     const customUrl = this.config.get<string>(`provider.${providerId}.baseUrl`);
     const baseUrl = customUrl?.trim() || getProviderBaseUrl(providerId);
+
+    if (providerId === 'ollama-cloud' && !customUrl?.trim()) {
+      const apiKey = (
+        (await this.authSecrets.getProviderKey('ollama-cloud')) ?? ''
+      ).trim();
+      if (apiKey.length > 0) {
+        return this.configureCloudDirect(apiKey, authEnv);
+      }
+    }
+
     try {
       const { version, supported } =
         await this.ollamaDiscovery.checkVersion(providerId);
@@ -187,6 +200,55 @@ export class LocalNativeStrategy implements IAuthStrategy {
     return {
       configured: true,
       details: [`${providerName} (Anthropic-native at ${baseUrl})`],
+    };
+  }
+
+  /**
+   * Direct mode: an ollama.com API key is stored, so inference goes straight
+   * to the hosted Anthropic-compatible endpoint with the key as the auth
+   * token. No local daemon is involved, so the version/reachability checks
+   * are skipped. A custom `provider.ollama-cloud.baseUrl` override disables
+   * this branch (escape hatch back to a daemon-proxied setup).
+   */
+  private configureCloudDirect(
+    apiKey: string,
+    authEnv: AuthConfigureContext['authEnv'],
+  ): AuthConfigureResult {
+    authEnv.ANTHROPIC_BASE_URL = OLLAMA_CLOUD_DIRECT_BASE_URL;
+    authEnv.ANTHROPIC_AUTH_TOKEN = apiKey;
+    process.env['ANTHROPIC_BASE_URL'] = OLLAMA_CLOUD_DIRECT_BASE_URL;
+    process.env['ANTHROPIC_AUTH_TOKEN'] = apiKey;
+
+    this.providerModels.switchActiveProvider('ollama-cloud');
+    this.providerModels.registerDynamicFetcher('ollama-cloud', () =>
+      this.ollamaDiscovery.listCloudModels(),
+    );
+
+    this.cloudMetadata.refresh(apiKey).then(
+      () => {
+        this.logger.debug(
+          `[${this.name}] Ollama Cloud metadata refresh complete`,
+        );
+      },
+      (err) => {
+        this.logger.warn(
+          `[${this.name}] Ollama Cloud metadata refresh failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      },
+    );
+
+    this.logger.info(
+      `[${this.name}] Using Ollama Cloud (direct at ${OLLAMA_CLOUD_DIRECT_BASE_URL}, API key auth — local daemon bypassed)`,
+    );
+    this.logger.info(
+      `[${this.name}] Set ANTHROPIC_BASE_URL=${OLLAMA_CLOUD_DIRECT_BASE_URL}, ANTHROPIC_AUTH_TOKEN=<ollama.com API key>`,
+    );
+
+    return {
+      configured: true,
+      details: [`Ollama Cloud (direct at ${OLLAMA_CLOUD_DIRECT_BASE_URL})`],
     };
   }
 

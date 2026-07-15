@@ -78,6 +78,13 @@ export interface Query {
    */
   stopTask(taskId: string): Promise<void>;
   /**
+   * Move in-flight foreground task(s) to the background (Ctrl+B parity).
+   * With no argument, all foreground tasks are backgrounded. With a
+   * `toolUseId`, only that task is targeted — resolving to `false` when the
+   * id matched no foreground task.
+   */
+  backgroundTasks(toolUseId?: string): Promise<boolean>;
+  /**
    * Rewind tracked files to their state at a specific user message.
    * Requires the session to have been started with `enableFileCheckpointing: true`.
    * Throws if checkpointing is disabled.

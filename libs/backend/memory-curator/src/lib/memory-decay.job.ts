@@ -2,9 +2,13 @@
  * MemoryDecayJob — periodic salience recompute + tier transitions.
  *
  * Tier rules (architecture §8.5):
+ *   - recall → core     when hits >= 10 AND salience >= 0.9 (frequency-gated)
  *   - core   → recall   when pinned=0 AND salience < 0.5
  *   - recall → archival when salience < 0.1 AND age(last_used) > halflife
- *   - never auto-promotes; that's the curator's job at write-time.
+ *
+ * The `recall → core` rule is the ONE exception to "never auto-promotes":
+ * the decay job owns hit-based promotion for frequently-used memories, while
+ * the curator still owns tier assignment at write-time.
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -16,6 +20,11 @@ import type { MemoryTier } from './memory.types';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+/** Min hit count for a `recall` memory to be promoted back to `core`. */
+const PROMOTE_HITS_THRESHOLD = 10;
+/** Min recomputed salience for a `recall` memory to be promoted to `core`. */
+const PROMOTE_SALIENCE_THRESHOLD = 0.9;
+
 export interface DecayJobOptions {
   readonly halflifeDays: number;
   readonly nowMs?: number;
@@ -23,6 +32,7 @@ export interface DecayJobOptions {
 
 export interface DecayRunStats {
   readonly scanned: number;
+  readonly promoted: number;
   readonly demoted: number;
   readonly archived: number;
   readonly expired: number;
@@ -52,6 +62,7 @@ export class MemoryDecayJob {
   async run(options: DecayJobOptions): Promise<DecayRunStats> {
     const now = options.nowMs ?? Date.now();
     const halflifeMs = Math.max(1, options.halflifeDays) * MS_PER_DAY;
+    let promoted = 0;
     let demoted = 0;
     let archived = 0;
     let expired = 0;
@@ -72,6 +83,13 @@ export class MemoryDecayJob {
         demoted++;
       } else if (
         m.tier === 'recall' &&
+        m.hits >= PROMOTE_HITS_THRESHOLD &&
+        newSalience >= PROMOTE_SALIENCE_THRESHOLD
+      ) {
+        nextTier = 'core';
+        promoted++;
+      } else if (
+        m.tier === 'recall' &&
         newSalience < 0.1 &&
         ageMs > halflifeMs
       ) {
@@ -90,12 +108,14 @@ export class MemoryDecayJob {
 
     this.logger.info('[memory-curator] decay sweep complete', {
       scanned: memories.length,
+      promoted,
       demoted,
       archived,
       expired,
     });
     const stats: DecayRunStats = {
       scanned: memories.length,
+      promoted,
       demoted,
       archived,
       expired,
@@ -106,6 +126,7 @@ export class MemoryDecayJob {
       this.curator.recordDecayEvent(
         {
           scanned: stats.scanned,
+          promoted: stats.promoted,
           demoted: stats.demoted,
           archived: stats.archived,
           expired: stats.expired,

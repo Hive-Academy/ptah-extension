@@ -67,7 +67,7 @@ function createMockSubagentRegistry(): MockSubagentRegistry {
 type MockDispatcher = jest.Mocked<
   Pick<
     SubagentMessageDispatcher,
-    'sendToSubagent' | 'stopSubagent' | 'interruptSession'
+    'sendToSubagent' | 'stopSubagent' | 'interruptSession' | 'backgroundTask'
   >
 >;
 
@@ -76,6 +76,7 @@ function createMockDispatcher(): MockDispatcher {
     sendToSubagent: jest.fn().mockResolvedValue(undefined),
     stopSubagent: jest.fn().mockResolvedValue(undefined),
     interruptSession: jest.fn().mockResolvedValue(undefined),
+    backgroundTask: jest.fn().mockResolvedValue(true),
   };
 }
 
@@ -147,7 +148,7 @@ async function call<TResult>(
 
 describe('SubagentRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all four methods', () => {
+    it('registers all five methods', () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -156,7 +157,8 @@ describe('SubagentRpcHandlers', () => {
       expect(methods).toContain('subagent:send-message');
       expect(methods).toContain('subagent:stop');
       expect(methods).toContain('subagent:interrupt');
-      expect(methods).toHaveLength(4);
+      expect(methods).toContain('subagent:background');
+      expect(methods).toHaveLength(5);
     });
   });
 
@@ -424,6 +426,83 @@ describe('SubagentRpcHandlers', () => {
 
       await expect(
         call(h, 'subagent:interrupt', { sessionId: '' }),
+      ).rejects.toThrow();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // subagent:background
+  // -------------------------------------------------------------------------
+
+  describe('subagent:background', () => {
+    it('delegates to dispatcher.backgroundTask and returns { backgrounded }', async () => {
+      const h = makeHarness();
+      h.dispatcher.backgroundTask.mockResolvedValue(true);
+      h.handlers.register();
+
+      const result = await call<{ backgrounded: boolean }>(
+        h,
+        'subagent:background',
+        { sessionId: 'sess-abc', toolUseId: 'toolu_fg' },
+      );
+
+      expect(result).toEqual({ backgrounded: true });
+      expect(h.dispatcher.backgroundTask).toHaveBeenCalledWith(
+        'sess-abc',
+        'toolu_fg',
+      );
+    });
+
+    it('omits toolUseId (backgrounds all) when not provided', async () => {
+      const h = makeHarness();
+      h.dispatcher.backgroundTask.mockResolvedValue(true);
+      h.handlers.register();
+
+      const result = await call<{ backgrounded: boolean }>(
+        h,
+        'subagent:background',
+        { sessionId: 'sess-abc' },
+      );
+
+      expect(result).toEqual({ backgrounded: true });
+      expect(h.dispatcher.backgroundTask).toHaveBeenCalledWith(
+        'sess-abc',
+        undefined,
+      );
+    });
+
+    it('returns { backgrounded: false } when no foreground task matched', async () => {
+      const h = makeHarness();
+      h.dispatcher.backgroundTask.mockResolvedValue(false);
+      h.handlers.register();
+
+      const result = await call<{ backgrounded: boolean }>(
+        h,
+        'subagent:background',
+        { sessionId: 'sess-abc', toolUseId: 'toolu_none' },
+      );
+
+      expect(result).toEqual({ backgrounded: false });
+    });
+
+    it('rejects when sessionId is empty', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await expect(
+        call(h, 'subagent:background', { sessionId: '' }),
+      ).rejects.toThrow();
+    });
+
+    it('propagates dispatcher errors', async () => {
+      const h = makeHarness();
+      h.dispatcher.backgroundTask.mockRejectedValue(
+        new Error('session not active'),
+      );
+      h.handlers.register();
+
+      await expect(
+        call(h, 'subagent:background', { sessionId: 'sess-abc' }),
       ).rejects.toThrow();
     });
   });

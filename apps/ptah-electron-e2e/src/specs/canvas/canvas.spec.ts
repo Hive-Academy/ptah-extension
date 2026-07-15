@@ -26,7 +26,8 @@ test.describe('Canvas', () => {
     await tileShell.click();
     await expect(tileShell).toHaveAttribute('data-focused', 'true');
 
-    await ui.goto('chat');
+    // Navigate away to a different view and back — the tile must persist.
+    await ui.goto('dashboard');
     await ui.goto('canvas');
 
     await expect(page.locator('[data-testid="canvas-tile"]')).toHaveCount(1);

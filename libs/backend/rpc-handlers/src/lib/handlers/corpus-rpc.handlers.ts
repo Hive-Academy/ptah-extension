@@ -1,7 +1,7 @@
 /**
  * Knowledge Corpus RPC Handlers (`corpus:` namespace).
  *
- * Eight methods route through `KnowledgeAgentService`:
+ * Nine methods route through `KnowledgeAgentService` (+ `CorpusSuggestionService`):
  *   - `corpus:list`     — workspace-scoped lookup
  *   - `corpus:get`      — single corpus by name
  *   - `corpus:build`    — create + snapshot from persisted filter
@@ -10,6 +10,7 @@
  *   - `corpus:reprime`  — end existing primed sessions, open a fresh one
  *   - `corpus:rebuild`  — re-run filter, diff membership
  *   - `corpus:delete`   — drop the corpus row
+ *   - `corpus:suggest`  — read-only clustering pass → one-click corpus suggestions
  *
  * License gating: `corpus:` is NOT in `PRO_ONLY_METHOD_PREFIXES` — free tier.
  */
@@ -20,6 +21,8 @@ import {
   MEMORY_TOKENS,
   type KnowledgeAgentService,
   type CorpusListEntry,
+  type CorpusSuggestionService,
+  type CorpusSuggestion,
 } from '@ptah-extension/memory-curator';
 import type {
   CorpusEntry,
@@ -39,6 +42,9 @@ import type {
   CorpusRebuildResult,
   CorpusDeleteParams,
   CorpusDeleteResult,
+  CorpusSuggestParams,
+  CorpusSuggestResult,
+  CorpusSuggestion as CorpusSuggestionWire,
   RpcMethodName,
 } from '@ptah-extension/shared';
 import { z } from 'zod';
@@ -51,6 +57,7 @@ import {
   CorpusReprimeParamsSchema,
   CorpusRebuildParamsSchema,
   CorpusDeleteParamsSchema,
+  CorpusSuggestParamsSchema,
 } from './corpus-rpc.schema';
 
 function toWireEntry(entry: CorpusListEntry): CorpusEntry {
@@ -61,6 +68,32 @@ function toWireEntry(entry: CorpusListEntry): CorpusEntry {
     builtAt: entry.builtAt,
     rebuiltAt: entry.rebuiltAt,
     workspaceRoot: entry.workspaceRoot,
+  };
+}
+
+/**
+ * Map a domain {@link CorpusSuggestion} (memory-curator) to its wire shape
+ * (`@ptah-extension/shared`). Structural copy — the domain `filter`'s
+ * `MemoryType[]` and the wire `MemoryTypeWire[]` are the same string enum.
+ */
+function toWireSuggestion(suggestion: CorpusSuggestion): CorpusSuggestionWire {
+  const { filter } = suggestion;
+  return {
+    suggestedName: suggestion.suggestedName,
+    filter: {
+      name: filter.name,
+      workspaceRoot: filter.workspaceRoot,
+      type: filter.type,
+      concepts: filter.concepts,
+      files: filter.files,
+      query: filter.query,
+      dateRange: filter.dateRange,
+      limit: filter.limit,
+    },
+    memberCount: suggestion.memberCount,
+    topConcepts: suggestion.topConcepts,
+    rationale: suggestion.rationale,
+    signal: suggestion.signal,
   };
 }
 
@@ -75,6 +108,7 @@ export class CorpusRpcHandlers {
     'corpus:reprime',
     'corpus:rebuild',
     'corpus:delete',
+    'corpus:suggest',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -82,6 +116,8 @@ export class CorpusRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(MEMORY_TOKENS.KNOWLEDGE_AGENT_SERVICE)
     private readonly knowledgeAgent: KnowledgeAgentService,
+    @inject(MEMORY_TOKENS.CORPUS_SUGGESTION_SERVICE)
+    private readonly suggestions: CorpusSuggestionService,
   ) {}
 
   register(): void {
@@ -342,6 +378,41 @@ export class CorpusRpcHandlers {
           this.logger.error('[corpus] delete failed', { error: message });
           throw new RpcUserError(
             'corpus:delete failed; please try again.',
+            'PERSISTENCE_UNAVAILABLE',
+          );
+        }
+      },
+    );
+
+    this.rpcHandler.registerMethod(
+      'corpus:suggest',
+      async (
+        params: CorpusSuggestParams | undefined,
+      ): Promise<CorpusSuggestResult> => {
+        let validated: z.infer<typeof CorpusSuggestParamsSchema>;
+        try {
+          validated = CorpusSuggestParamsSchema.parse(params ?? {});
+        } catch (err: unknown) {
+          this.logger.warn('[corpus] suggest — invalid params', {
+            err: String(err),
+          });
+          throw new RpcUserError(
+            'Invalid parameters for corpus:suggest',
+            'INVALID_PARAMS',
+          );
+        }
+        try {
+          const suggestions = this.suggestions.suggestCorpora({
+            workspaceRoot: validated.workspaceRoot,
+            minClusterSize: validated.minClusterSize,
+            limit: validated.limit,
+          });
+          return { suggestions: suggestions.map(toWireSuggestion) };
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.error('[corpus] suggest failed', { error: message });
+          throw new RpcUserError(
+            'corpus:suggest failed; please try again.',
             'PERSISTENCE_UNAVAILABLE',
           );
         }

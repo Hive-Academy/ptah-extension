@@ -195,4 +195,79 @@ describe('SkillJudgeService', () => {
     expect(result.score).toBeCloseTo(7.0);
     expect(result.reason).toBe('judge-verdict');
   });
+
+  // ─── Batch 6: optional trailing context (R9) ──────────────────────────────
+
+  it('appends optional context to the verdict prompt as background material', async () => {
+    const query = makeInternalQuery(
+      '{"novelty":7,"actionability":7,"scope":7,"generalization":7,"triggerClarity":7}',
+    );
+    const svc = new SkillJudgeService(
+      noopLogger,
+      noopWorkspaceProvider,
+      query as never,
+    );
+    await svc.judge(
+      fakeCandidate(),
+      'body',
+      makeSettings(),
+      'Measured scorecard for this agent: success 71%',
+    );
+    const prompt = query.execute.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain('Background (measured usage signal');
+    expect(prompt).toContain('Measured scorecard for this agent: success 71%');
+  });
+
+  it('context does NOT change criteria/averaging — composite unchanged', async () => {
+    const query = makeInternalQuery(
+      '{"novelty":7,"actionability":7,"scope":7,"generalization":7,"triggerClarity":7}',
+    );
+    const svc = new SkillJudgeService(
+      noopLogger,
+      noopWorkspaceProvider,
+      query as never,
+    );
+    const result = await svc.judge(
+      fakeCandidate(),
+      'body',
+      makeSettings({ minJudgeScore: 6.0 }),
+      'some context',
+    );
+    expect(result.passed).toBe(true);
+    expect(result.score).toBeCloseTo(7.0);
+    expect(result.reason).toBe('judge-verdict');
+  });
+
+  it('omits the background section when no context is supplied', async () => {
+    const query = makeInternalQuery(
+      '{"novelty":7,"actionability":7,"scope":7,"generalization":7,"triggerClarity":7}',
+    );
+    const svc = new SkillJudgeService(
+      noopLogger,
+      noopWorkspaceProvider,
+      query as never,
+    );
+    await svc.judge(fakeCandidate(), 'body', makeSettings());
+    const prompt = query.execute.mock.calls[0][0].prompt as string;
+    expect(prompt).not.toContain('Background (measured usage signal');
+  });
+
+  it('still fails OPEN with context present when the LLM throws', async () => {
+    const badQuery = {
+      execute: jest.fn().mockRejectedValue(new Error('network error')),
+    };
+    const svc = new SkillJudgeService(
+      noopLogger,
+      noopWorkspaceProvider,
+      badQuery as never,
+    );
+    const result = await svc.judge(
+      fakeCandidate(),
+      'body',
+      makeSettings(),
+      'context that should not block promotion',
+    );
+    expect(result.passed).toBe(true);
+    expect(result.reason).toBe('judge-error-passthrough');
+  });
 });

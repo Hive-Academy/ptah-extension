@@ -22,6 +22,7 @@ import {
   SETUP_HUB_COMPONENT,
   MARKETPLACE_COMPONENT,
   TRIBUNAL_COMPONENT,
+  TASKS_VIEW_COMPONENT,
 } from '@ptah-extension/core';
 import {
   ChatMessageHandler,
@@ -30,6 +31,7 @@ import {
   UpdateBannerService,
   WorkspaceCoordinatorService,
   VoiceDownloadProgressService,
+  VoiceProviderErrorService,
   provideModelRefreshControl,
 } from '@ptah-extension/chat';
 import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
@@ -53,6 +55,7 @@ import {
 } from '@ptah-extension/harness-builder';
 import { MarketplaceHubComponent } from '@ptah-extension/marketplace';
 import { TribunalPageComponent } from '@ptah-extension/tribunal-panel';
+import { TasksViewComponent, TasksStore } from '@ptah-extension/tasks-ui';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
 class WebviewErrorHandler implements ErrorHandler {
@@ -118,6 +121,8 @@ export const appConfig: ApplicationConfig = {
     { provide: SETUP_HUB_COMPONENT, useValue: SetupHubComponent },
     { provide: MARKETPLACE_COMPONENT, useValue: MarketplaceHubComponent },
     { provide: TRIBUNAL_COMPONENT, useValue: TribunalPageComponent },
+    { provide: TASKS_VIEW_COMPONENT, useValue: TasksViewComponent },
+    { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
     ...provideEditorInternalState(),
@@ -145,6 +150,11 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: VoiceDownloadProgressService,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: VoiceProviderErrorService,
       multi: true,
     },
     {

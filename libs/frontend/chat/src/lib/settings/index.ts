@@ -13,3 +13,6 @@ export { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration
 export { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 export { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
 export { VoiceConfigComponent } from './ptah-ai/voice-config.component';
+export { LocalSttPanelComponent } from './ptah-ai/local-stt-panel.component';
+export { LocalTtsPanelComponent } from './ptah-ai/local-tts-panel.component';
+export { ElevenLabsPanelComponent } from './ptah-ai/elevenlabs-panel.component';

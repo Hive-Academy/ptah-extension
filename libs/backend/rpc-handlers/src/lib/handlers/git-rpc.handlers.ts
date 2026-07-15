@@ -11,6 +11,7 @@
  * - git:discard          - Discard working tree changes (destructive)
  * - git:commit           - Create a commit with the provided message
  * - git:showFile         - Show file content from HEAD revision
+ * - git:push             - Push the current branch to its upstream remote
  * - git:branches         - List local/remote branches with ahead/behind counts
  * - git:checkout         - Checkout a branch (with dirty-tree guard)
  * - git:stashList        - List all stash entries
@@ -53,6 +54,8 @@ import type {
   GitCommitResult,
   GitShowFileParams,
   GitShowFileResult,
+  GitPushParams,
+  GitPushResult,
   GitBranchesParams,
   GitBranchesResult,
   GitCheckoutParams,
@@ -84,6 +87,7 @@ export class GitRpcHandlers {
     'git:discard',
     'git:commit',
     'git:showFile',
+    'git:push',
     'git:branches',
     'git:checkout',
     'git:stashList',
@@ -113,6 +117,7 @@ export class GitRpcHandlers {
     this.registerGitDiscard();
     this.registerGitCommit();
     this.registerGitShowFile();
+    this.registerGitPush();
     this.registerGitBranches();
     this.registerGitCheckout();
     this.registerGitStashList();
@@ -454,6 +459,27 @@ export class GitRpcHandlers {
         }
 
         return this.gitInfo.showFile(wsRoot, params.path);
+      },
+    );
+  }
+
+  /**
+   * git:push - Push the current branch to its upstream remote.
+   */
+  private registerGitPush(): void {
+    this.rpcHandler.registerMethod<GitPushParams, GitPushResult>(
+      'git:push',
+      async (params) => {
+        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:push');
+        if (!wsRoot) {
+          return { success: false, error: 'No workspace folder open' };
+        }
+
+        this.logger.debug('[GitRpc] git:push', {
+          workspaceRoot: wsRoot,
+        } as unknown as Error);
+
+        return this.gitInfo.push(wsRoot);
       },
     );
   }

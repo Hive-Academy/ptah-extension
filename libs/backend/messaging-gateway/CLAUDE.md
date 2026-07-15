@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Track 4 of TASK_2026_HERMES. `GatewayService` façade routes inbound messages from Telegram / Discord / Slack into Ptah, with token-vault credential storage and FFmpeg/Whisper voice transcription.
+Track 4 of TASK_2026_HERMES. `GatewayService` façade routes inbound messages from Telegram / Discord / Slack into Ptah, with token-vault credential storage. Voice transcription/synthesis (formerly `FfmpegDecoder`/`WhisperTranscriber` here) moved to `@ptah-extension/voice-providers` (TASK_2026_VOICE_PROVIDERS) — this lib no longer owns any voice/ONNX code.
 
 ## Boundaries
 
@@ -17,7 +17,6 @@ Track 4 of TASK_2026_HERMES. `GatewayService` façade routes inbound messages fr
 - `ConversationTurnTracker` — per-conversation turn-in-flight signal (written by `gateway-chat-bridge`)
 - `workspace-resolution.ts` — shared effective-workspace resolver + exact-root allowlist check
 - `StreamCoalescer` (response chunk batching)
-- Voice: `FfmpegDecoder`, `WhisperTranscriber`
 - Consumer-side ports: `ITokenVault`, `IGatewaySessionLister`, `ISessionActivityProbe` (impls in `apps/ptah-electron`)
 
 **Does NOT belong**:
@@ -28,7 +27,7 @@ Track 4 of TASK_2026_HERMES. `GatewayService` façade routes inbound messages fr
 
 ## Public API
 
-Services: `GatewayService`, `BindingStore`, `MessageStore`, `ConversationStore`, `StreamCoalescer`, `FfmpegDecoder`, `WhisperTranscriber`, `ConversationTurnTracker`.
+Services: `GatewayService`, `BindingStore`, `MessageStore`, `ConversationStore`, `StreamCoalescer`, `ConversationTurnTracker`.
 Adapters: `GrammyTelegramAdapter`, `DiscordAdapter`, `BoltSlackAdapter` + their factory/client-like types.
 Interfaces: `ITokenVault`, `IMessagingAdapter` (incl. optional `setCommandHandler?(handler)`), `InboundListener`, `InboundMessage`, `SendResult`, `IGatewaySessionLister`/`GatewaySessionSummary`, `ISessionActivityProbe`.
 Command plane: `IGatewayCommandHandler`, `GatewayCommand`, `GatewayCommandInvocation`, `GatewayCommandOutcome`, `GatewayAutocompleteRequest`.
@@ -45,7 +44,6 @@ DI: `GATEWAY_TOKENS`, `GatewayDIToken`, `registerMessagingGatewayServices`.
 - `src/lib/turn-activity-tracker.ts` — counter-based `begin/end/isBusy` per `ConversationKey`; the bridge marks turns, the command service refuses mutations mid-turn
 - `src/lib/session-lister.interface.ts`, `session-activity.interface.ts` — host-implemented ports (Electron registers `GATEWAY_SESSION_LISTER` / `GATEWAY_SESSION_ACTIVITY_PROBE` before `registerMessagingGatewayServices`)
 - `src/lib/adapters/{telegram,discord,slack}/` — per-platform adapters behind `IMessagingAdapter`. Discord additionally owns the control-plane boundary: `discord-command.schema.ts` (Zod at the interaction boundary), autocomplete routing, ephemeral defer/editReply + one public audit message on successful mutations, and `discord-command-registration.ts` (bulk-overwrite PUT of all five commands + `/ptah`; global scope has a ~1h propagation caveat)
-- `src/lib/voice/` — `ffmpeg-decoder.ts`, `whisper-transcriber.ts`
 - `src/lib/stream-coalescer.ts` — buffers assistant token chunks per conversation; two modes: `'stream'` (timer-driven batched edits) and `'complete'` (accumulate-until-drain — flushes the full turn text as ONE message on explicit `drain()`, no streaming edits). `GatewayService` constructs it in `'complete'` mode so each agent turn emits exactly one outbound message.
 - `src/lib/token-vault.interface.ts`
 - `src/lib/di/{tokens,register}.ts` — includes `GATEWAY_COMMAND_SERVICE`, `GATEWAY_TURN_TRACKER`, and the two host-precondition tokens (`GATEWAY_SESSION_LISTER`, `GATEWAY_SESSION_ACTIVITY_PROBE`)
@@ -53,12 +51,11 @@ DI: `GATEWAY_TOKENS`, `GatewayDIToken`, `registerMessagingGatewayServices`.
 ## Dependencies
 
 **Internal**: `@ptah-extension/persistence-sqlite`, `@ptah-extension/platform-core`
-**External**: `grammy` (Telegram), `discord.js`, `@slack/bolt`, `@huggingface/transformers` (ASR, dynamic import — provided by the host runtime), FFmpeg binary resolver (`ffmpeg-static`), `tsyringe`
+**External**: `grammy` (Telegram), `discord.js`, `@slack/bolt`, `tsyringe`
 
 ## Guidelines
 
 - Adapter implementations stay behind `IMessagingAdapter` — handlers and `GatewayService` use only the interface.
-- Whisper/FFmpeg loaders are injected as factories so tests can stub them.
 - Credentials always come through `ITokenVault` — never accept raw secrets in code.
 - `StreamCoalescer` is the only path for streaming replies — handlers don't post chunks directly.
 - Control commands are a separate plane: they terminate in `GatewayCommandService` and must never reach `handleInbound`, `MessageStore`, or the agent. Every chat-supplied pick (session/workspace) is untrusted and re-validated by closed-set membership at execution time — never accept raw paths or session ids from chat.

@@ -8,6 +8,7 @@ import {
   AgentProgressEvent,
   AgentStatusEvent,
   AgentCompletedEvent,
+  BackgroundAgentStartedEvent,
   SessionId,
 } from '@ptah-extension/shared';
 
@@ -239,26 +240,74 @@ export class SystemMessageTransformer {
     }
 
     const patch = msg.patch;
-    if (!patch.status) {
-      return [];
+    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    const messageId = state.getMessageId('') ?? `task_${msg.task_id}`;
+    const events: FlatStreamEventUnion[] = [];
+
+    if (patch.status) {
+      const statusEvent: AgentStatusEvent = {
+        id: generateEventId(),
+        eventType: 'agent_status',
+        timestamp: Date.now(),
+        sessionId: resolvedSession,
+        messageId,
+        parentToolUseId,
+        taskId: msg.task_id,
+        status: patch.status,
+        description: patch.description,
+        errorMessage: patch.error,
+      };
+      events.push(statusEvent);
     }
 
-    const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    // Mid-run backgrounding (Ctrl+B / subagent:background RPC → Query.background
+    // Tasks): the SDK flips `patch.is_backgrounded` to true. Emit a
+    // background_agent_started ALONGSIDE the agent_status patch so the frontend
+    // BackgroundAgentStore registers the agent immediately — otherwise the
+    // Background badge only appears once the task settles. The registry is the
+    // dedup source: emit once per task, and keep the SubagentRecord coherent
+    // with the run_in_background:true spawn path (status 'background' +
+    // isBackground) so getBackgroundAgents and the SubagentStop hook's
+    // background_completed handling treat it the same.
+    if (patch.is_backgrounded === true) {
+      const record = helpers.subagentRegistry.get(parentToolUseId);
+      const alreadyBackground =
+        record?.status === 'background' || record?.isBackground === true;
 
-    const event: AgentStatusEvent = {
-      id: generateEventId(),
-      eventType: 'agent_status',
-      timestamp: Date.now(),
-      sessionId: resolvedSession,
-      messageId: state.getMessageId('') ?? `task_${msg.task_id}`,
-      parentToolUseId,
-      taskId: msg.task_id,
-      status: patch.status,
-      description: patch.description,
-      errorMessage: patch.error,
-    };
+      if (!alreadyBackground) {
+        helpers.subagentRegistry.update(parentToolUseId, {
+          status: 'background',
+          isBackground: true,
+          backgroundStartedAt: Date.now(),
+        });
 
-    return [event];
+        const bgEvent: BackgroundAgentStartedEvent = {
+          id: generateEventId(),
+          eventType: 'background_agent_started',
+          timestamp: Date.now(),
+          sessionId: resolvedSession,
+          messageId,
+          parentToolUseId,
+          toolCallId: parentToolUseId,
+          agentType: record?.agentType ?? 'unknown',
+          agentId: record?.agentId,
+          agentDescription: patch.description,
+          outputFilePath: record?.outputFilePath,
+        };
+        events.push(bgEvent);
+
+        helpers.logger.debug(
+          '[SdkMessageTransformer] task_updated → background_agent_started (mid-run backgrounding)',
+          {
+            taskId: msg.task_id,
+            toolCallId: parentToolUseId,
+            agentId: record?.agentId,
+          },
+        );
+      }
+    }
+
+    return events;
   }
 
   transformTaskNotification(

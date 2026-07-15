@@ -15,6 +15,8 @@ import {
   SkillRebaseCloneParamsSchema,
   SkillKeepCloneParamsSchema,
   SkillInvocationStatsParamsSchema,
+  getScorecardsParamsSchema,
+  getScorecardDetailParamsSchema,
 } from './skills-synthesis-rpc.schema';
 
 describe('SkillSynthesisSettingsSchema', () => {
@@ -489,6 +491,102 @@ describe('SkillInvocationStatsParamsSchema', () => {
   it('rejects an empty slug', () => {
     expect(() =>
       SkillInvocationStatsParamsSchema.parse({ slug: '' }),
+    ).toThrow();
+  });
+});
+
+describe('getScorecardsParamsSchema', () => {
+  it('accepts a valid slugs array', () => {
+    const result = getScorecardsParamsSchema.parse({
+      slugs: ['backend-developer', 'frontend-developer'],
+    });
+    expect(result.slugs).toHaveLength(2);
+  });
+
+  it('accepts an empty slugs array', () => {
+    expect(() => getScorecardsParamsSchema.parse({ slugs: [] })).not.toThrow();
+  });
+
+  it('accepts exactly 500 slugs (upper bound)', () => {
+    const slugs = Array.from({ length: 500 }, (_, i) => `agent-${i}`);
+    expect(() => getScorecardsParamsSchema.parse({ slugs })).not.toThrow();
+  });
+
+  it('rejects more than 500 slugs', () => {
+    const slugs = Array.from({ length: 501 }, (_, i) => `agent-${i}`);
+    expect(() => getScorecardsParamsSchema.parse({ slugs })).toThrow();
+  });
+
+  it('rejects an empty-string slug entry', () => {
+    expect(() => getScorecardsParamsSchema.parse({ slugs: [''] })).toThrow();
+  });
+
+  it('rejects a slug entry longer than 200 chars', () => {
+    expect(() =>
+      getScorecardsParamsSchema.parse({ slugs: ['x'.repeat(201)] }),
+    ).toThrow();
+  });
+
+  it('rejects a non-array slugs value', () => {
+    expect(() =>
+      getScorecardsParamsSchema.parse({ slugs: 'backend-developer' }),
+    ).toThrow();
+  });
+
+  it('rejects a missing slugs field', () => {
+    expect(() => getScorecardsParamsSchema.parse({})).toThrow();
+  });
+});
+
+describe('getScorecardDetailParamsSchema', () => {
+  it('accepts slug alone (limit optional)', () => {
+    const result = getScorecardDetailParamsSchema.parse({ slug: 'agent' });
+    expect(result.slug).toBe('agent');
+    expect(result.limit).toBeUndefined();
+  });
+
+  it('accepts slug + valid limit', () => {
+    const result = getScorecardDetailParamsSchema.parse({
+      slug: 'agent',
+      limit: 25,
+    });
+    expect(result.limit).toBe(25);
+  });
+
+  it('accepts limit=1 and limit=100 (bounds)', () => {
+    expect(() =>
+      getScorecardDetailParamsSchema.parse({ slug: 'a', limit: 1 }),
+    ).not.toThrow();
+    expect(() =>
+      getScorecardDetailParamsSchema.parse({ slug: 'a', limit: 100 }),
+    ).not.toThrow();
+  });
+
+  it('rejects an empty slug', () => {
+    expect(() => getScorecardDetailParamsSchema.parse({ slug: '' })).toThrow();
+  });
+
+  it('rejects a slug longer than 200 chars', () => {
+    expect(() =>
+      getScorecardDetailParamsSchema.parse({ slug: 'x'.repeat(201) }),
+    ).toThrow();
+  });
+
+  it('rejects a non-integer limit', () => {
+    expect(() =>
+      getScorecardDetailParamsSchema.parse({ slug: 'a', limit: 2.5 }),
+    ).toThrow();
+  });
+
+  it('rejects limit=0 (below min)', () => {
+    expect(() =>
+      getScorecardDetailParamsSchema.parse({ slug: 'a', limit: 0 }),
+    ).toThrow();
+  });
+
+  it('rejects limit=101 (above max)', () => {
+    expect(() =>
+      getScorecardDetailParamsSchema.parse({ slug: 'a', limit: 101 }),
     ).toThrow();
   });
 });

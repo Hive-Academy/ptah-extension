@@ -37,6 +37,10 @@ import { TOKENS, WorkspaceContextManager } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { SessionImporterService } from '@ptah-extension/agent-sdk';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type ProviderProxyPool,
+} from '@ptah-extension/auth-providers';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -109,6 +113,8 @@ export class WorkspaceRpcHandlers {
     private readonly workspaceContextManager: WorkspaceContextManager,
     @inject(SDK_TOKENS.SDK_SESSION_IMPORTER)
     private readonly sessionImporter: SessionImporterService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_PROXY_POOL)
+    private readonly providerProxyPool: ProviderProxyPool,
   ) {}
 
   register(): void {
@@ -255,6 +261,11 @@ export class WorkspaceRpcHandlers {
         try {
           this.workspaceContextManager.removeWorkspace(params.path);
           this.workspaceLifecycle.removeFolder(params.path);
+
+          // Phase 3: tear down any per-workspace isolated provider proxies so a
+          // removed/closed workspace does not leak its translation/OAuth proxy
+          // servers. Never throws (disposeForScope swallows per-entry errors).
+          await this.providerProxyPool.disposeForScope(params.path);
 
           this.logger.info('[RPC] workspace:removeFolder', {
             path: params.path,

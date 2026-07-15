@@ -20,6 +20,7 @@ import {
 import { ChatTranscriptComponent } from '../organisms/transcript/chat-transcript.component';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
+import { BackgroundAgentTrayComponent } from '../organisms/background-agent-tray.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
 import {
   PermissionBadgeComponent,
@@ -31,6 +32,7 @@ import {
 } from '@ptah-extension/chat-ui';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
+import { VoiceProviderErrorToastComponent } from '../molecules/notifications/voice-provider-error-toast.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
@@ -93,12 +95,14 @@ import type {
     ChatTranscriptComponent,
     ChatEmptyStateComponent,
     AgentMonitorPanelComponent,
+    BackgroundAgentTrayComponent,
     ChatInputComponent,
     PermissionBadgeComponent,
     QuestionCardComponent,
     SessionStatsSummaryComponent,
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
+    VoiceProviderErrorToastComponent,
     CompactionNotificationComponent,
     CompactionMarkerComponent,
     SidebarTabComponent,
@@ -238,6 +242,15 @@ export class ChatViewComponent {
 
   /** Local panel open/close state */
   readonly agentPanelOpen = signal(false);
+
+  /**
+   * True only for the primary (non-tile) chat surface. Guards the persistent
+   * background-agent tray so it renders once at the app top rather than once
+   * per canvas tile (every tile mounts its own ChatViewComponent). The tray
+   * shows all agents globally and handles its own focus/steer/stop actions
+   * against each agent's owning session — no wiring needed from this host.
+   */
+  protected readonly showBackgroundStrip = !this._sessionContext;
 
   /** Session-scoped agents for the embedded panel */
   readonly sessionAgents = computed(() => {

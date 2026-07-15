@@ -52,8 +52,17 @@
       "@ptah-extension/memory-contracts": [
         "../../libs/backend/memory-contracts/src/index.ts"
       ],
+      "@ptah-extension/voice-contracts": [
+        "../../libs/backend/voice-contracts/src/index.ts"
+      ],
+      "@ptah-extension/voice-providers": [
+        "../../libs/backend/voice-providers/src/index.ts"
+      ],
       "@ptah-extension/skill-synthesis": [
         "../../libs/backend/skill-synthesis/src/index.ts"
+      ],
+      "@ptah-extension/task-specs": [
+        "../../libs/backend/task-specs/src/index.ts"
       ],
       "@ptah-extension/cron-scheduler": [
         "../../libs/backend/cron-scheduler/src/index.ts"

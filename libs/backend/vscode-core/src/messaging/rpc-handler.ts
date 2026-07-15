@@ -85,6 +85,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'subagent:', // Bidirectional subagent messaging (send-message, stop, interrupt)
   'indexing:', // Workspace indexing control
   'update:', // Desktop update banner (get-state, check-now)
+  'tasks:', // Task specs board (list, get, create, updateStatus, generateRegistry, board, reindex)
 ] as const;
 
 /**

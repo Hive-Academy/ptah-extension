@@ -37,7 +37,7 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 ## Build & Run
 
 - `nx build ptah-electron` — chains `build-main` + `build-preload` + `build-embedder-worker` + `ptah-extension-webview:build`, then copies WASM.
-- `nx build-embedder-worker ptah-electron` — bundles `libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts` separately to `embedder-worker.mjs`.
+- `nx build-embedder-worker ptah-electron` — bundles `libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts` separately to `embedder-worker.mjs` (runs as an Electron `utilityProcess`, like the voice worker; `@huggingface/transformers` stays external). Spawned via `ElectronEmbedderWorkerFactory` (`src/services/platform/electron-embedder-worker-factory.ts`, alongside `electron-voice-worker-factory.ts`), registered under `MEMORY_TOKENS.EMBEDDER_WORKER_PROCESS_FACTORY` in `phase-2-libraries.ts`. The factory posts the `init` config (model cache dir) immediately after `utilityProcess.fork`.
 - `nx serve ptah-electron` — runs `rebuild-native.js` first (compiles `better-sqlite3` from source for the current Electron ABI via `@electron/rebuild`), then dev builds, copies renderer, launches via `scripts/launch.js`.
 - `nx serve:watch ptah-electron` — parallel watch on main/preload/embedder/webview.
 - `nx package ptah-electron` — depends on `rebuild-native`; runs `electron-builder` then `verify-packed-native.js` (asserts the packed `better-sqlite3` carries the Electron ABI).
