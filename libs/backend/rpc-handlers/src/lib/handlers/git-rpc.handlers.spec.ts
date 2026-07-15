@@ -2,9 +2,11 @@
  * GitRpcHandlers — unit specs.
  *
  * Coverage matrix:
- *   METHODS invariant  — all 15 entries present (9 original + 6 new)
+ *   METHODS invariant  — all 16 entries present (9 original + 6 + git:push)
  *   METHODS invariant  — each of the 6 new names explicitly asserted
- *   register()         — wires all 15 methods into the RpcHandler
+ *   register()         — wires all 16 methods into the RpcHandler
+ *   git:push           — workspace guard returns { success:false } when wsRoot is null
+ *   git:push           — delegates to gitInfo.push with the resolved workspace root
  *   git:branches       — workspace guard returns empty result when wsRoot is null
  *   git:branches       — delegates to gitInfo.getBranches with includeRemote
  *   git:checkout       — workspace guard returns { success:false } when wsRoot is null
@@ -60,6 +62,7 @@ type MockGitInfo = jest.Mocked<
     | 'getTags'
     | 'getRemotes'
     | 'getLastCommit'
+    | 'push'
   >
 >;
 
@@ -88,6 +91,7 @@ function createMockGitInfo(): MockGitInfo {
       authorEmail: '',
       time: 0,
     }),
+    push: jest.fn().mockResolvedValue({ success: true }),
   };
 }
 
@@ -155,8 +159,12 @@ function getHandler(
 // ===========================================================================
 
 describe('GitRpcHandlers.METHODS coverage invariant', () => {
-  it('contains exactly 15 entries (9 original + 6 new from TASK_2026_111)', () => {
-    expect(GitRpcHandlers.METHODS).toHaveLength(15);
+  it('contains exactly 16 entries (9 original + 6 from TASK_2026_111 + git:push)', () => {
+    expect(GitRpcHandlers.METHODS).toHaveLength(16);
+  });
+
+  it('contains git:push', () => {
+    expect(GitRpcHandlers.METHODS).toContain('git:push');
   });
 
   it('contains all 6 new method names from TASK_2026_111', () => {
@@ -194,7 +202,7 @@ describe('GitRpcHandlers.METHODS coverage invariant', () => {
 // ===========================================================================
 
 describe('GitRpcHandlers.register()', () => {
-  it('registers all 15 methods into the RpcHandler', () => {
+  it('registers all 16 methods into the RpcHandler', () => {
     const { handlers, rpc } = buildSuite();
     handlers.register();
 
@@ -275,6 +283,34 @@ describe('git:info handler', () => {
 // ===========================================================================
 // git:branches
 // ===========================================================================
+
+// ===========================================================================
+// git:push
+// ===========================================================================
+
+describe('git:push handler', () => {
+  it('returns { success: false, error } when workspace root is null', async () => {
+    const { handlers, rpc } = buildSuite(null);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:push');
+
+    const result = (await handler({})) as { success: boolean; error?: string };
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+  });
+
+  it('delegates to gitInfo.push with the resolved workspace root', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:push');
+
+    const result = (await handler({})) as { success: boolean };
+
+    expect(gitInfo.push).toHaveBeenCalledWith('/workspace');
+    expect(result.success).toBe(true);
+  });
+});
 
 describe('git:branches handler', () => {
   it('returns empty result when workspace root is null', async () => {

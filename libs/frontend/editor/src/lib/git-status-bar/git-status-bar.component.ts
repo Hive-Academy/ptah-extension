@@ -121,6 +121,7 @@ import { BranchDetailsPopoverComponent } from '../branch-picker/branch-details-p
         @if (gitStatus.branch().ahead > 0) {
           <button
             type="button"
+            data-testid="git-push-button"
             class="flex items-center gap-1.5 h-5 px-2 ml-1 rounded
                    border border-base-content/20 bg-base-100
                    text-[11px] font-medium text-base-content/70
