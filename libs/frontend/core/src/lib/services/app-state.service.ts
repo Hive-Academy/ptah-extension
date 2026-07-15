@@ -110,6 +110,16 @@ export interface CanvasSessionRequest {
   resolve?: (success: boolean) => void;
 }
 
+/**
+ * Request to adopt an existing chat tab as a canvas tile (F-D3). Fire-and-forget
+ * (no resolver): the canvas effect dedups and respects the tile cap, and nothing
+ * consumes it in single layout, so it is a harmless no-op there.
+ */
+export interface CanvasTabRequest {
+  tabId: string;
+  name?: string;
+}
+
 export interface AppState {
   currentView: ViewType;
   isLoading: boolean;
@@ -171,6 +181,16 @@ export class AppStateManager implements MessageHandler {
   );
   /** Signal bridge: request to create a new session as a canvas tile (from "New Session" in grid mode) */
   private readonly _newCanvasSessionRequest = signal<string | null>(null);
+  /**
+   * Signal bridge: request to adopt an EXISTING tab as a canvas tile without
+   * creating a new tab/session. Fire-and-forget (mirrors
+   * {@link _newCanvasSessionRequest}): used by the Tasks-board launch path so an
+   * orchestration tab created while the canvas is ALREADY mounted becomes a tile
+   * (the one gap `restoreCanvasTilesFromTabs` — which only runs on canvas mount —
+   * doesn't cover). Nothing consumes it in single layout, so it's a harmless
+   * no-op there; `CanvasStore.adoptTab` dedups and respects the tile cap.
+   */
+  private readonly _canvasTabRequest = signal<CanvasTabRequest | null>(null);
   /** Signal bridge: request to open the harness surface and run a workflow */
   private readonly _harnessWorkflowRequest =
     signal<HarnessWorkflowRequest | null>(null);
@@ -233,6 +253,8 @@ export class AppStateManager implements MessageHandler {
   readonly canvasSessionRequest = this._canvasSessionRequest.asReadonly();
   /** Pending request to create a new canvas tile (consumed by OrchestraCanvasComponent) */
   readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
+  /** Pending request to adopt an existing tab as a canvas tile (consumed by OrchestraCanvasComponent) */
+  readonly canvasTabRequest = this._canvasTabRequest.asReadonly();
   /** Pending request to open the harness surface workflow (consumed by HarnessBuilderViewComponent) */
   readonly harnessWorkflowRequest = this._harnessWorkflowRequest.asReadonly();
   /** Pending request to launch a chat session with a seed prompt (consumed by the chat-lib bridge) */
@@ -528,6 +550,22 @@ export class AppStateManager implements MessageHandler {
   /** Clear the new canvas session request after the canvas has processed it */
   clearNewCanvasSessionRequest(): void {
     this._newCanvasSessionRequest.set(null);
+  }
+
+  /**
+   * Request that the canvas adopts an already-existing tab as a tile (no new
+   * tab/session created). Fire-and-forget: the canvas effect calls
+   * `CanvasStore.adoptTab` (dedups, respects `MAX_TILES`) and focuses it. When
+   * the canvas isn't mounted (single layout) nothing consumes the signal — a
+   * harmless no-op, so callers need not gate on layout themselves.
+   */
+  requestCanvasTab(tabId: string, name?: string): void {
+    this._canvasTabRequest.set({ tabId, ...(name ? { name } : {}) });
+  }
+
+  /** Clear the canvas tab-adoption request after the canvas has processed it. */
+  clearCanvasTabRequest(): void {
+    this._canvasTabRequest.set(null);
   }
 
   /** Request that the harness surface opens and runs the given workflow. */

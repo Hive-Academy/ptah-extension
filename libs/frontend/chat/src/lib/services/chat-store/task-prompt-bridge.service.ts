@@ -14,10 +14,12 @@ import { MessageSenderService } from '../message-sender.service';
  * facade — reacts to it.
  *
  * On each request it:
- *  1. creates + activates a fresh tab (both single and grid layouts — in grid
- *     mode the canvas adopts the tab as a tile when it mounts on the view
- *     switch via `restoreCanvasTilesFromTabs`),
- *  2. navigates to the chat surface,
+ *  1. creates + activates a fresh tab,
+ *  2. navigates to the chat surface; in grid layout it also fires
+ *     {@link AppStateManager.requestCanvasTab} so an ALREADY-mounted canvas
+ *     adopts the new tab as a tile (F-D3) — a fresh mount is covered by the
+ *     canvas's own `restoreCanvasTilesFromTabs`, and `adoptTab` dedups the
+ *     overlap; single layout has no canvas so the request is skipped,
  *  3. submits the prompt through the normal send path (`MessageSenderService`
  *     → `chat:start`; the backend `SlashCommandInterceptor` routes a
  *     `/ptah-core:orchestrate …` prompt to `executeSlashCommandQuery`),
@@ -58,6 +60,15 @@ export class TaskPromptBridgeService {
       // Navigate to chat FIRST so a grid-layout canvas mounts and adopts the
       // freshly created tab as a tile before its stream starts.
       this.appState.setCurrentView('chat');
+      // In grid layout, ALSO ask the canvas to adopt this tab as a tile (F-D3).
+      // `restoreCanvasTilesFromTabs` covers a FRESH canvas mount, but when the
+      // canvas is already mounted (no remount / no workspace switch) nothing
+      // adopts a newly-created tab — this bridge closes that gap. The canvas
+      // effect's `adoptTab` dedups, so a double-adopt on a fresh mount is safe;
+      // single layout has no canvas mounted, so we skip the request there.
+      if (this.appState.layoutMode() === 'grid') {
+        this.appState.requestCanvasTab(tabId, name);
+      }
       // Adopt the send's structured outcome so a *structural* chat:start failure
       // (transport OK but `data.success === false` — AUTH_REQUIRED, model
       // unavailable, license gate) resolves as failure, not the default success

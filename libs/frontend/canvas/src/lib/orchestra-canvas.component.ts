@@ -294,6 +294,23 @@ export class OrchestraCanvasComponent implements OnDestroy {
         this.appState.clearNewCanvasSessionRequest();
       }
     });
+    // Adopt an already-existing tab as a tile (F-D3). The Tasks-board launch
+    // creates a tab then navigates to chat; when the canvas is ALREADY mounted
+    // (no remount / no workspace switch), `restoreCanvasTilesFromTabs` — which
+    // only runs on mount — never sees that new tab, so it would linger as a bare
+    // tab. This closes exactly that gap. `adoptTab` dedups (safe if a fresh
+    // mount already tiled it) and returns null at the 9-tile cap, in which case
+    // the tab simply stays in the tab list as the graceful fallback.
+    effect(() => {
+      const req = this.appState.canvasTabRequest();
+      if (req) {
+        const adopted = this.canvasStore.adoptTab(req.tabId);
+        if (adopted) {
+          this.canvasStore.focusTile(req.tabId);
+        }
+        this.appState.clearCanvasTabRequest();
+      }
+    });
     effect(() => {
       const newPath = this.tabManager.activeWorkspacePath$();
       if (!newPath) return;

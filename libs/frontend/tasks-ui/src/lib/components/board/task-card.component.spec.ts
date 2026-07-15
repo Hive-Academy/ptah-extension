@@ -70,13 +70,13 @@ describe('TaskCardComponent', () => {
     let emitted: TaskStartRequest | undefined;
     fixture.componentInstance.startTask.subscribe((r) => (emitted = r));
 
-    fixture.componentInstance.useWorktree.set(true);
+    fixture.componentInstance.isolate.set(true);
     const startBtn = (fixture.nativeElement as HTMLElement).querySelector(
       'button[aria-label="Start task TASK_2026_200"]',
     ) as HTMLButtonElement;
     startBtn.click();
 
-    expect(emitted).toEqual({ taskId: 'TASK_2026_200', useWorktree: true });
+    expect(emitted).toEqual({ taskId: 'TASK_2026_200', isolate: true });
   });
 
   it('emits statusChange when a different status is picked', () => {

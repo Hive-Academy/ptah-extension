@@ -1,19 +1,26 @@
 /**
  * TaskPromptBridgeService — consumes the AppStateManager `chatPromptRequest`
- * signal bridge: creates a tab, navigates to chat, sends the prompt, then
- * settles `resolve` and clears the request.
+ * signal bridge: creates a tab, navigates to chat, requests canvas-tile
+ * adoption in grid layout, sends the prompt, then settles `resolve` and clears
+ * the request.
  */
-import { signal } from '@angular/core';
+import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { AppStateManager, type ChatPromptRequest } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  type ChatPromptRequest,
+  type LayoutMode,
+} from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { MessageSenderService } from '../message-sender.service';
 import { TaskPromptBridgeService } from './task-prompt-bridge.service';
 
 describe('TaskPromptBridgeService', () => {
   const request = signal<ChatPromptRequest | null>(null);
+  let layoutMode: WritableSignal<LayoutMode>;
   let setCurrentView: jest.Mock;
   let clearChatPromptRequest: jest.Mock;
+  let requestCanvasTab: jest.Mock;
   let createTab: jest.Mock;
   let send: jest.Mock;
 
@@ -25,8 +32,10 @@ describe('TaskPromptBridgeService', () => {
 
   beforeEach(() => {
     request.set(null);
+    layoutMode = signal<LayoutMode>('single');
     setCurrentView = jest.fn();
     clearChatPromptRequest = jest.fn(() => request.set(null));
+    requestCanvasTab = jest.fn();
     createTab = jest.fn(() => 'tab-1');
     // send() now returns a structured SendOutcome; the bridge adopts it.
     send = jest.fn().mockResolvedValue({ success: true });
@@ -38,8 +47,10 @@ describe('TaskPromptBridgeService', () => {
           provide: AppStateManager,
           useValue: {
             chatPromptRequest: request.asReadonly(),
+            layoutMode: layoutMode.asReadonly(),
             setCurrentView,
             clearChatPromptRequest,
+            requestCanvasTab,
           },
         },
         { provide: TabManagerService, useValue: { createTab } },
@@ -66,6 +77,30 @@ describe('TaskPromptBridgeService', () => {
     });
     expect(resolve).toHaveBeenCalledWith({ success: true });
     expect(clearChatPromptRequest).toHaveBeenCalled();
+    // Single layout (default): no canvas mounted → no tile-adoption request.
+    expect(requestCanvasTab).not.toHaveBeenCalled();
+  });
+
+  it('requests canvas tile adoption for the created tab in grid layout (F-D3)', async () => {
+    layoutMode.set('grid');
+    request.set({
+      prompt: '/ptah-core:orchestrate TASK_2026_300',
+      sessionName: 'TASK_2026_300',
+    });
+
+    await flush();
+
+    expect(createTab).toHaveBeenCalledWith('TASK_2026_300');
+    expect(requestCanvasTab).toHaveBeenCalledWith('tab-1', 'TASK_2026_300');
+  });
+
+  it('does NOT request canvas tile adoption in single layout', async () => {
+    layoutMode.set('single');
+    request.set({ prompt: '/ptah-core:orchestrate TASK_2026_301' });
+
+    await flush();
+
+    expect(requestCanvasTab).not.toHaveBeenCalled();
   });
 
   it('derives a session name from the prompt when none is supplied', async () => {

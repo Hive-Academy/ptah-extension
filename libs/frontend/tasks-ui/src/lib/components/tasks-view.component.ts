@@ -32,9 +32,10 @@ import { TaskDetailComponent } from './detail/task-detail.component';
  * panel. All data flows through {@link TasksStore}; this component holds only
  * transient form / modal UI state.
  *
- * The Start action delegates to {@link TaskStartService} (optional worktree
- * then `ChatPromptRequest` bridge then `tasks:updateStatus` on success),
- * keeping this lib free of any `chat` import (NFR-11).
+ * The Start action delegates to {@link TaskStartService} (agent-managed
+ * worktree isolation via a prompt directive, the `ChatPromptRequest` bridge,
+ * then `tasks:updateStatus` on success), keeping this lib free of any `chat`
+ * import (NFR-11).
  */
 @Component({
   selector: 'ptah-tasks-view',
@@ -352,6 +353,6 @@ export class TasksViewComponent {
    * authoritative re-fetch inside `TasksStore.updateStatus` (no optimism).
    */
   protected onStartTask(request: TaskStartRequest): void {
-    void this.taskStart.start(request.taskId, request.useWorktree);
+    void this.taskStart.start(request.taskId, request.isolate);
   }
 }

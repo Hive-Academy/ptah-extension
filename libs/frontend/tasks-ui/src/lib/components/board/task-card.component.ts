@@ -22,13 +22,13 @@ import {
 import { TASK_STATUS_LABELS, taskTypeBadge } from '../../task-presentation';
 
 /**
- * Payload emitted when the Start action fires. `useWorktree` requests
+ * Payload emitted when the Start action fires. `isolate` requests
  * agent-managed worktree isolation (F-D1): the orchestrate prompt carries a
  * directive so the agent isolates its own work — the host creates no worktree.
  */
 export interface TaskStartRequest {
   taskId: string;
-  useWorktree: boolean;
+  isolate: boolean;
 }
 
 /** Payload emitted when the user picks a new status from the card menu. */
@@ -152,9 +152,9 @@ export interface TaskStatusChange {
             <input
               type="checkbox"
               class="toggle toggle-xs"
-              [checked]="useWorktree()"
+              [checked]="isolate()"
               (click)="$event.stopPropagation()"
-              (change)="onWorktreeToggle($event)"
+              (change)="onIsolateToggle($event)"
               aria-label="Run implementation in an isolated git worktree"
             />
             <span class="text-[10px] text-base-content/60">Isolate</span>
@@ -172,7 +172,7 @@ export interface TaskStatusChange {
 
         <!-- Isolation hint (F-D1): the agent isolates its own implementation
              work in a worktree inside the workspace — the host creates nothing. -->
-        @if (useWorktree()) {
+        @if (isolate()) {
           <p class="text-[10px] leading-tight text-base-content/50 mt-0.5">
             The agent isolates implementation in a dedicated git worktree,
             keeping changes off the main working tree until reviewed.
@@ -190,8 +190,8 @@ export class TaskCardComponent {
   public readonly statusChange = output<TaskStatusChange>();
   public readonly startTask = output<TaskStartRequest>();
 
-  /** Local UI state: whether the Start action should request a worktree. */
-  public readonly useWorktree = signal(false);
+  /** Local UI state: whether the Start action should request isolation. */
+  public readonly isolate = signal(false);
 
   protected readonly statusOptions = computed(() => TASK_STATUSES);
   protected readonly typeBadgeClass = computed(() =>
@@ -208,8 +208,8 @@ export class TaskCardComponent {
     return TASK_STATUS_LABELS[status];
   }
 
-  protected onWorktreeToggle(event: Event): void {
-    this.useWorktree.set((event.target as HTMLInputElement).checked);
+  protected onIsolateToggle(event: Event): void {
+    this.isolate.set((event.target as HTMLInputElement).checked);
   }
 
   protected onStatusPick(status: TaskStatus): void {
@@ -220,7 +220,7 @@ export class TaskCardComponent {
   protected onStart(): void {
     this.startTask.emit({
       taskId: this.task().id,
-      useWorktree: this.useWorktree(),
+      isolate: this.isolate(),
     });
   }
 }

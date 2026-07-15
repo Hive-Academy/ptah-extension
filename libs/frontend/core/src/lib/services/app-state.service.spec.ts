@@ -409,6 +409,24 @@ describe('AppStateManager', () => {
       expect(service.newCanvasSessionRequest()).toBeNull();
     });
 
+    it('requestCanvasTab sets the tab-adoption request and clearCanvasTabRequest nulls it (F-D3)', () => {
+      const service = createService();
+      service.requestCanvasTab('tab-7', 'TASK_2026_200');
+      expect(service.canvasTabRequest()).toEqual({
+        tabId: 'tab-7',
+        name: 'TASK_2026_200',
+      });
+
+      service.clearCanvasTabRequest();
+      expect(service.canvasTabRequest()).toBeNull();
+    });
+
+    it('requestCanvasTab omits name when not supplied', () => {
+      const service = createService();
+      service.requestCanvasTab('tab-8');
+      expect(service.canvasTabRequest()).toEqual({ tabId: 'tab-8' });
+    });
+
     it('requestChatPrompt sets the request and clearChatPromptRequest nulls it (D.1)', () => {
       const service = createService();
       const resolve = jest.fn();

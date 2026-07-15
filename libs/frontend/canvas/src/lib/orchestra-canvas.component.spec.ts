@@ -66,7 +66,7 @@ import { OrchestraCanvasComponent } from './orchestra-canvas.component';
 import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
-import { AppStateManager } from '@ptah-extension/core';
+import { AppStateManager, type CanvasTabRequest } from '@ptah-extension/core';
 
 describe('OrchestraCanvasComponent workspace effects', () => {
   let activeWorkspacePath$: ReturnType<typeof signal<string | null>>;
@@ -90,6 +90,8 @@ describe('OrchestraCanvasComponent workspace effects', () => {
   let allTabIdsMock: jest.Mock;
   let forceCloseTabMock: jest.Mock;
   let clearRemovedWorkspaceMock: jest.Mock;
+  let canvasTabRequest$: ReturnType<typeof signal<CanvasTabRequest | null>>;
+  let clearCanvasTabRequestMock: jest.Mock;
   let canvasStoreMock: CanvasStore;
 
   function mount() {
@@ -120,6 +122,8 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     allTabIdsMock = jest.fn(() => []);
     forceCloseTabMock = jest.fn();
     clearRemovedWorkspaceMock = jest.fn();
+    canvasTabRequest$ = signal<CanvasTabRequest | null>(null);
+    clearCanvasTabRequestMock = jest.fn(() => canvasTabRequest$.set(null));
 
     const tabManagerMock = {
       tabs: tabsSignal,
@@ -170,8 +174,10 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     const appStateMock = {
       canvasSessionRequest: signal<unknown>(null),
       newCanvasSessionRequest: signal<string | null>(null),
+      canvasTabRequest: canvasTabRequest$,
       clearCanvasSessionRequest: jest.fn(),
       clearNewCanvasSessionRequest: jest.fn(),
+      clearCanvasTabRequest: clearCanvasTabRequestMock,
     } as unknown as AppStateManager;
 
     TestBed.configureTestingModule({
@@ -257,6 +263,33 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     fixture.detectChanges();
 
     expect(removeTileFromAnyWorkspaceMock).not.toHaveBeenCalled();
+  });
+
+  it('canvasTabRequest effect adopts the tab as a tile, focuses it, and acks (F-D3)', () => {
+    (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue('tab-77');
+    const fixture = mount();
+
+    canvasTabRequest$.set({ tabId: 'tab-77', name: 'TASK_2026_300' });
+    flush();
+    fixture.detectChanges();
+
+    expect(canvasStoreMock.adoptTab).toHaveBeenCalledWith('tab-77');
+    expect(canvasStoreMock.focusTile).toHaveBeenCalledWith('tab-77');
+    expect(clearCanvasTabRequestMock).toHaveBeenCalled();
+  });
+
+  it('canvasTabRequest effect does NOT focus when adoptTab returns null (tile cap hit)', () => {
+    (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue(null);
+    const fixture = mount();
+
+    canvasTabRequest$.set({ tabId: 'tab-88' });
+    flush();
+    fixture.detectChanges();
+
+    expect(canvasStoreMock.adoptTab).toHaveBeenCalledWith('tab-88');
+    expect(canvasStoreMock.focusTile).not.toHaveBeenCalled();
+    // Still acked so a stale request never re-fires.
+    expect(clearCanvasTabRequestMock).toHaveBeenCalled();
   });
 
   it('ngOnDestroy force-closes tabs across ALL retained workspaces', () => {
@@ -365,8 +398,10 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
     const appStateMock = {
       canvasSessionRequest: signal<unknown>(null),
       newCanvasSessionRequest: signal<string | null>(null),
+      canvasTabRequest: signal<CanvasTabRequest | null>(null),
       clearCanvasSessionRequest: jest.fn(),
       clearNewCanvasSessionRequest: jest.fn(),
+      clearCanvasTabRequest: jest.fn(),
     } as unknown as AppStateManager;
 
     TestBed.configureTestingModule({
