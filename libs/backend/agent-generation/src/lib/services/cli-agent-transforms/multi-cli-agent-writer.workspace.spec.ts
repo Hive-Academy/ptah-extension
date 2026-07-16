@@ -82,6 +82,31 @@ describe('Workspace agent transformers (decision #4)', () => {
     expect(result.content).not.toContain('\n---\n');
   });
 
+  it('Codex TOML unquotes a YAML-quoted frontmatter description (no leaked `\"`)', () => {
+    // Mirrors the real orchestrator-emitted source: double-quoted YAML scalar,
+    // and the wizard path leaves variables.description unset.
+    const quotedAgent: GeneratedAgent = {
+      sourceTemplateId: 'backend-developer',
+      sourceTemplateVersion: 'unknown',
+      content:
+        '---\nname: backend-developer\ndescription: "Backend developer for Ptah\'s Nx monorepo: NestJS"\nmodel: opus\n---\n\nImplement the feature.',
+      variables: {},
+      customizations: [],
+      generatedAt: new Date(),
+      filePath: '/abs/.claude/agents/backend-developer.md',
+    } as unknown as GeneratedAgent;
+
+    const result = new CodexSubagentTransformer().transform(
+      quotedAgent,
+      '/work/space',
+    );
+    expect(result.content).toContain(
+      'description = "Backend developer for Ptah\'s Nx monorepo: NestJS"',
+    );
+    // The bug: surrounding quotes leaked as escaped `\"...\"`.
+    expect(result.content).not.toContain('description = "\\"');
+  });
+
   it('Codex reviewer agents run in the read-only sandbox', () => {
     const reviewer = new CodexSubagentTransformer().transform(
       agent('code-logic-reviewer'),

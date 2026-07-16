@@ -29,7 +29,10 @@ export {
 } from './lib/services/setup-status.service';
 export { AnalysisStorageService } from './lib/services/analysis-storage.service';
 export type { OrchestratorGenerationOptions } from './lib/services/orchestrator.service';
-export { MultiCliAgentWriterService } from './lib/services/cli-agent-transforms';
+export {
+  MultiCliAgentWriterService,
+  extractFrontmatterDescription,
+} from './lib/services/cli-agent-transforms';
 export type { ICliAgentTransformer } from './lib/services/cli-agent-transforms';
 export {
   WizardWebviewLifecycleService,

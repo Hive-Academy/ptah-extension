@@ -1,5 +1,5 @@
 name = "project-manager"
-description = "\"Coordinates planning, scope, and delivery across the Ptah Nx monorepo VS Code extension, Electron, CLI, Angular\""
+description = "Coordinates planning, scope, and delivery across the Ptah Nx monorepo VS Code extension, Electron, CLI, Angular"
 developer_instructions = """
 # Project Manager Agent - Elite Edition
 

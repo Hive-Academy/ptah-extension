@@ -15,7 +15,11 @@ import { join } from 'path';
 import type { CliAgentTransformResult } from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../../types/core.types';
 import type { ICliAgentTransformer } from './cli-agent-transformer.interface';
-import { transformAgentBody, extractAgentId } from './transform-rules';
+import {
+  transformAgentBody,
+  extractAgentId,
+  resolveAgentDescription,
+} from './transform-rules';
 
 /** Escape a value for a single-line TOML basic string. */
 function tomlBasicString(value: string): string {
@@ -65,7 +69,11 @@ export class CodexSubagentTransformer implements ICliAgentTransformer {
     workspaceRoot: string,
   ): CliAgentTransformResult {
     const agentId = extractAgentId(agent.filePath);
-    const description = agent.variables['description'] || `${agentId} agent`;
+    const description = resolveAgentDescription(
+      agent.content,
+      agent.variables,
+      agentId,
+    );
     const instructions = transformAgentBody(agent.content, 'codex');
 
     const lines = [

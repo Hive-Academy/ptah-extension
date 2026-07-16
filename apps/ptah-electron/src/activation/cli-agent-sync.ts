@@ -4,6 +4,7 @@ import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   AGENT_GENERATION_TOKENS,
+  extractFrontmatterDescription,
   type UserLayerMirrorService,
 } from '@ptah-extension/agent-generation';
 
@@ -100,7 +101,7 @@ export function syncCliAgentsOnActivation(
 
     const staleTargets = targetClis.filter(
       (cli) =>
-        agentSyncStateStorage.get<string>(`cli_agent_sync_hash_${cli}`) !==
+        agentSyncStateStorage.get<string>(`cli_agent_sync_hash_v2_${cli}`) !==
         contentHash,
     );
 
@@ -112,9 +113,8 @@ export function syncCliAgentsOnActivation(
     }
 
     const agents = agentFiles.map((f) => {
-      const descMatch = /^description:\s*(.+)$/m.exec(f.content);
-      const description =
-        descMatch?.[1]?.trim() ?? `${f.name.replace(/\.md$/, '')} agent`;
+      const fallback = `${f.name.replace(/\.md$/, '')} agent`;
+      const description = extractFrontmatterDescription(f.content) ?? fallback;
       return {
         sourceTemplateId: f.name.replace(/\.md$/, ''),
         sourceTemplateVersion: 'unknown',
@@ -149,7 +149,10 @@ export function syncCliAgentsOnActivation(
 
     await Promise.all(
       successfulClis.map((cli) =>
-        agentSyncStateStorage.update(`cli_agent_sync_hash_${cli}`, contentHash),
+        agentSyncStateStorage.update(
+          `cli_agent_sync_hash_v2_${cli}`,
+          contentHash,
+        ),
       ),
     );
 

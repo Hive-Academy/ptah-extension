@@ -1,5 +1,5 @@
 name = "frontend-developer"
-description = "\"Frontend developer specializing in Angular 21 Nx monorepos with custom store architecture and Tailwind,Material UI\""
+description = "Frontend developer specializing in Angular 21 Nx monorepos with custom store architecture and Tailwind,Material UI"
 developer_instructions = """
 ## Tooling Precedence (MANDATORY)
 

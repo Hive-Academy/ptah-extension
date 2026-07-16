@@ -10,7 +10,11 @@ import { join } from 'path';
 import type { CliAgentTransformResult } from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../../types/core.types';
 import type { ICliAgentTransformer } from './cli-agent-transformer.interface';
-import { transformAgentContent, extractAgentId } from './transform-rules';
+import {
+  transformAgentContent,
+  extractAgentId,
+  resolveAgentDescription,
+} from './transform-rules';
 
 /**
  * Transforms Claude-format agent markdown to Copilot CLI format.
@@ -31,7 +35,11 @@ export class CopilotAgentTransformer implements ICliAgentTransformer {
     workspaceRoot: string,
   ): CliAgentTransformResult {
     const agentId = extractAgentId(agent.filePath);
-    const description = agent.variables['description'] || `${agentId} agent`;
+    const description = resolveAgentDescription(
+      agent.content,
+      agent.variables,
+      agentId,
+    );
     const content = transformAgentContent(
       agent.content,
       'copilot',

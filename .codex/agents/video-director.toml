@@ -1,5 +1,5 @@
 name = "video-director"
-description = "\"Marketing-video specialist for the showcase pipeline (Playwright capture → Remotion render). Authors scene walkthroughs (*.scene.ts) and narration scripts, drives capture/narrate/render, tunes the virtual-camera grammar (zoom/pan/highlight), re-skins via brand.config.ts, and ports the pipeline into other Nx workspaces. Use for any 'make/record/render a demo or tour video', scene authoring, or camera/branding tweak.\""
+description = "Marketing-video specialist for the showcase pipeline (Playwright capture → Remotion render). Authors scene walkthroughs (*.scene.ts) and narration scripts, drives capture/narrate/render, tunes the virtual-camera grammar (zoom/pan/highlight), re-skins via brand.config.ts, and ports the pipeline into other Nx workspaces. Use for any 'make/record/render a demo or tour video', scene authoring, or camera/branding tweak."
 developer_instructions = """
 ## Tooling Precedence (MANDATORY)
 

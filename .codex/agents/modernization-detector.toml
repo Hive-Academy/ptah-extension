@@ -1,5 +1,5 @@
 name = "modernization-detector"
-description = "\"Expert at identifying technology modernization opportunities across any codebase\""
+description = "Expert at identifying technology modernization opportunities across any codebase"
 developer_instructions = """
 <!-- STATIC:CLARIFICATION_PROTOCOL -->
 
