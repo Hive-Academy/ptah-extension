@@ -34,6 +34,16 @@ import {
   StoryProof,
   StoryCta,
 } from './story-scenes';
+import {
+  StoryHookV2,
+  StoryPositioningV2,
+  StoryWizardV2,
+  StoryOrchestrationV2,
+  StoryFoundationV2,
+  StoryLifecycleV2,
+  StoryProofV2,
+  StoryCtaV2,
+} from './story-scenes-v2';
 
 export type ConceptScene = React.FC<ConceptSceneProps>;
 
@@ -69,4 +79,13 @@ export const CONCEPT_SCENES: Record<string, ConceptScene> = {
   'story-lifecycle': StoryLifecycle,
   'story-proof': StoryProof,
   'story-cta': StoryCta,
+  // v2 — 3D-enhanced visual upgrade of the 8-beat reel (story-scenes-v2).
+  'story-hook-v2': StoryHookV2,
+  'story-positioning-v2': StoryPositioningV2,
+  'story-wizard-v2': StoryWizardV2,
+  'story-orchestration-v2': StoryOrchestrationV2,
+  'story-foundation-v2': StoryFoundationV2,
+  'story-lifecycle-v2': StoryLifecycleV2,
+  'story-proof-v2': StoryProofV2,
+  'story-cta-v2': StoryCtaV2,
 };

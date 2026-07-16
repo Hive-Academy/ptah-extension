@@ -5,7 +5,11 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { ClaudeRpcService, type MessageHandler } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ClaudeRpcService,
+  type MessageHandler,
+} from '@ptah-extension/core';
 import {
   TASK_STATUSES,
   type TaskSpecDetail,
@@ -53,6 +57,7 @@ function emptyColumns(): Record<TaskStatus, TaskSpecSummary[]> {
 @Injectable({ providedIn: 'root' })
 export class TasksStore implements MessageHandler {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly appState = inject(AppStateManager);
   private readonly destroyRef = inject(DestroyRef);
 
   /** Consumed by `MessageRouterService` — refresh on backend index changes. */
@@ -98,6 +103,26 @@ export class TasksStore implements MessageHandler {
       (sum, status) => sum + this._columns()[status].length,
       0,
     ),
+  );
+
+  /** Per-status task counts (all six keys always present). */
+  public readonly statusCounts = computed<Record<TaskStatus, number>>(() => {
+    const columns = this._columns();
+    return TASK_STATUSES.reduce(
+      (acc, status) => {
+        acc[status] = columns[status].length;
+        return acc;
+      },
+      {} as Record<TaskStatus, number>,
+    );
+  });
+
+  /** Count of completed (done) tasks — surfaced in the header summary. */
+  public readonly doneCount = computed(() => this._columns().done.length);
+
+  /** Count of actively-worked tasks (in progress + in review). */
+  public readonly activeCount = computed(
+    () => this._columns().in_progress.length + this._columns().in_review.length,
   );
 
   /**
@@ -157,6 +182,33 @@ export class TasksStore implements MessageHandler {
   public closeTask(): void {
     this._selectedTaskId.set(null);
     this._taskDetail.set(null);
+  }
+
+  /**
+   * Open one of the currently-selected task's artifact files in the host editor
+   * (`file:open`). The absolute path is composed here from the webview's known
+   * workspace root plus the task folder — the backend never leaks abs paths
+   * (R4.4), and the filename is validated against the detail's artifact list to
+   * rule out traversal before it reaches the host.
+   */
+  public async openArtifact(file: string): Promise<void> {
+    const detail = this._taskDetail();
+    if (!detail || !detail.artifacts.includes(file)) return;
+
+    const root = this.appState.workspaceInfo()?.path;
+    if (!root) {
+      this._error.set('Cannot open file — no workspace root is available.');
+      return;
+    }
+
+    const base = root.replace(/[\\/]+$/, '');
+    const absPath = `${base}/.ptah/specs/${detail.folderName}/${file}`;
+    const result = await this.rpc.openFile(absPath);
+    if (!(result.isSuccess() && result.data?.success)) {
+      this._error.set(
+        result.data?.error ?? result.error ?? `Failed to open ${file}`,
+      );
+    }
   }
 
   /**

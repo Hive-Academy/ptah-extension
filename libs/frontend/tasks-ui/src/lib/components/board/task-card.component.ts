@@ -8,6 +8,8 @@ import {
 } from '@angular/core';
 import {
   AlertTriangle,
+  Ban,
+  CheckCircle2,
   GitBranch,
   LucideAngularModule,
   MoreVertical,
@@ -141,42 +143,56 @@ export interface TaskStatusChange {
           }
         </div>
 
-        <!-- Actions: agent-managed worktree isolation toggle + Start -->
-        <div
-          class="flex items-center justify-between pt-1 mt-0.5 border-t border-base-content/10"
-        >
-          <label
-            class="label cursor-pointer gap-1 p-0"
-            [title]="'Run implementation in an isolated git worktree — the agent delegates file-editing work to worktree-isolated subagents, keeping changes off the main working tree until reviewed'"
+        <!-- Actions: agent-managed worktree isolation toggle + Start.
+             Terminal tasks (done / cancelled) are not startable — show a
+             completed footer instead of the launch controls. -->
+        @if (!isTerminal()) {
+          <div
+            class="flex items-center justify-between pt-1 mt-0.5 border-t border-base-content/10"
           >
-            <input
-              type="checkbox"
-              class="toggle toggle-xs"
-              [checked]="isolate()"
-              (click)="$event.stopPropagation()"
-              (change)="onIsolateToggle($event)"
-              aria-label="Run implementation in an isolated git worktree"
-            />
-            <span class="text-[10px] text-base-content/60">Isolate</span>
-          </label>
-          <button
-            type="button"
-            class="btn btn-primary btn-xs gap-1"
-            (click)="$event.stopPropagation(); onStart()"
-            [attr.aria-label]="'Start task ' + task().id"
-          >
-            <lucide-angular [img]="PlayIcon" class="w-3 h-3" />
-            Start
-          </button>
-        </div>
+            <label
+              class="label cursor-pointer gap-1 p-0"
+              [title]="'Run implementation in an isolated git worktree — the agent delegates file-editing work to worktree-isolated subagents, keeping changes off the main working tree until reviewed'"
+            >
+              <input
+                type="checkbox"
+                class="toggle toggle-xs"
+                [checked]="isolate()"
+                (click)="$event.stopPropagation()"
+                (change)="onIsolateToggle($event)"
+                aria-label="Run implementation in an isolated git worktree"
+              />
+              <span class="text-[10px] text-base-content/60">Isolate</span>
+            </label>
+            <button
+              type="button"
+              class="btn btn-primary btn-xs gap-1"
+              (click)="$event.stopPropagation(); onStart()"
+              [attr.aria-label]="'Start task ' + task().id"
+            >
+              <lucide-angular [img]="PlayIcon" class="w-3 h-3" />
+              Start
+            </button>
+          </div>
 
-        <!-- Isolation hint (F-D1): the agent isolates its own implementation
-             work in a worktree inside the workspace — the host creates nothing. -->
-        @if (isolate()) {
-          <p class="text-[10px] leading-tight text-base-content/50 mt-0.5">
-            The agent isolates implementation in a dedicated git worktree,
-            keeping changes off the main working tree until reviewed.
-          </p>
+          <!-- Isolation hint (F-D1): the agent isolates its own implementation
+               work in a worktree inside the workspace — the host creates nothing. -->
+          @if (isolate()) {
+            <p class="text-[10px] leading-tight text-base-content/50 mt-0.5">
+              The agent isolates implementation in a dedicated git worktree,
+              keeping changes off the main working tree until reviewed.
+            </p>
+          }
+        } @else {
+          <div
+            class="flex items-center gap-1 pt-1 mt-0.5 border-t border-base-content/10 text-[10px]"
+            [class.text-success]="task().status === 'done'"
+            [class.text-base-content]="task().status !== 'done'"
+            [class.text-opacity-50]="task().status !== 'done'"
+          >
+            <lucide-angular [img]="terminalIcon()" class="w-3 h-3" />
+            {{ statusLabel(task().status) }}
+          </div>
         }
       </div>
     </div>
@@ -196,6 +212,15 @@ export class TaskCardComponent {
   protected readonly statusOptions = computed(() => TASK_STATUSES);
   protected readonly typeBadgeClass = computed(() =>
     taskTypeBadge(this.task().type),
+  );
+
+  /** Terminal tasks (done / cancelled) cannot be started. */
+  protected readonly isTerminal = computed(() => {
+    const status = this.task().status;
+    return status === 'done' || status === 'cancelled';
+  });
+  protected readonly terminalIcon = computed(() =>
+    this.task().status === 'done' ? CheckCircle2 : Ban,
   );
 
   protected readonly AlertTriangleIcon = AlertTriangle;

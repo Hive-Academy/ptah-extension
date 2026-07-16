@@ -18,8 +18,9 @@ import type { TaskBoardColumn } from '../../services/tasks-store.service';
   standalone: true,
   imports: [TaskColumnComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block h-full min-h-0' },
   template: `
-    <div class="flex gap-3 h-full overflow-x-auto p-3 items-start">
+    <div class="flex gap-3 h-full overflow-x-auto p-3 items-stretch">
       @for (column of columns(); track column.status) {
         <ptah-task-column
           [status]="column.status"
