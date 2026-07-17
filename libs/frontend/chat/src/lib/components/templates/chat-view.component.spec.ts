@@ -1035,3 +1035,44 @@ describe('ChatViewComponent — mainPanelShowing() / SESSION_VISIBLE gating', ()
     expect(h.component.mainPanelShowing()).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// showBackgroundStrip() / traySessionId() — tray-on-tiles gating.
+//
+// The main panel (no SESSION_CONTEXT) always renders the background-agent
+// tray, scoped to every session (traySessionId === null). A canvas tile only
+// renders it once its own session has resolved (resolvedSessionId() !== null)
+// — otherwise an unscoped tray would flash before the tile is bound to a real
+// session — and scopes the tray to exactly that session once resolved.
+// ---------------------------------------------------------------------------
+describe('ChatViewComponent — showBackgroundStrip() / traySessionId()', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('main panel (no SESSION_CONTEXT): always shows the strip, unscoped (null) session', () => {
+    const h = makeHarness();
+    expect(h.component.showBackgroundStrip()).toBe(true);
+    expect(h.component.traySessionId()).toBeNull();
+  });
+
+  it('tile mode: hides the strip while the tile session is unresolved', () => {
+    // 'tile-unresolved' has no matching entry in the stubbed tabs() array
+    // (which only contains 'tab-abc'), so resolvedSessionId() returns null —
+    // mirroring a canvas tile whose tab has not yet been bound to a session.
+    const h = makeHarness({ sessionContextTabId: 'tile-unresolved' });
+    expect(h.component.resolvedSessionId()).toBeNull();
+    expect(h.component.showBackgroundStrip()).toBe(false);
+    expect(h.component.traySessionId()).toBeNull();
+  });
+
+  it('tile mode: shows the strip scoped to the resolved session once resolvedSessionId() is non-null', () => {
+    // 'tab-abc' matches the default tabs() stub entry, whose claudeSessionId
+    // is the harness sessionId — simulates a tile already bound to a live session.
+    const h = makeHarness({ sessionContextTabId: 'tab-abc' });
+    expect(h.component.resolvedSessionId()).toBe(h.sessionId);
+    expect(h.component.showBackgroundStrip()).toBe(true);
+    expect(h.component.traySessionId()).toBe(h.sessionId);
+  });
+});

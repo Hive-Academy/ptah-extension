@@ -1,6 +1,11 @@
 <!-- Global confirmation dialog (replaces window.confirm) -->
 <ptah-confirmation-dialog />
 
+<!-- Global on-demand subagent transcript viewer (single host; driven by the
+     root SubagentTranscriptViewerService, opened from the inline agent bubble
+     and the background-agent tray) -->
+<ptah-subagent-transcript-overlay />
+
 <!-- Trial ended modal (shows when trial_ended reason); only rendered when not on welcome view to prevent invisible overlay stealing focus -->
 @if (currentView() !== 'welcome') {
   <ptah-trial-ended-modal [reason]="licenseReason()" />

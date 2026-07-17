@@ -260,6 +260,7 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     overrides: {
       enableFileCheckpointing?: boolean;
       permissionMode?: SdkQueryOptions['permissionMode'];
+      forwardSubagentText?: boolean;
     } = {},
   ) {
     const builder = makeFullBuilder();
@@ -306,6 +307,16 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
 
     const optsOff = await buildWith({ enableFileCheckpointing: false });
     expect(optsOff.agentProgressSummaries).toBeUndefined();
+  });
+
+  it('defaults forwardSubagentText to true when the caller does not specify it', async () => {
+    const opts = await buildWith();
+    expect(opts.forwardSubagentText).toBe(true);
+  });
+
+  it('honors forwardSubagentText: false (the chatty-subagent killswitch)', async () => {
+    const opts = await buildWith({ forwardSubagentText: false });
+    expect(opts.forwardSubagentText).toBe(false);
   });
 
   it('pairs allowDangerouslySkipPermissions with bypassPermissions (YOLO) so MCP tool calls do not self-deny', async () => {

@@ -366,6 +366,28 @@ describe('AgentMonitorStore', () => {
       );
     });
 
+    it('agentId captured on agent_start survives onAgentProgress/onAgentStatus/onAgentCompleted/onTaskToolResult merges', () => {
+      // agentId (the SDK short-hex id) is ONLY carried by agent_start — the
+      // sibling events never repeat it, so onAgentProgress/onAgentStatus/
+      // onAgentCompleted must preserve the existing value (`agentId: existing?.agentId`)
+      // rather than clobbering it with undefined. This is the id required to
+      // read the subagent's transcript via subagent:transcript.
+      store.onAgentStart(startEvent({ agentId: 'short-abc123' }));
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+
+      store.onAgentProgress(progressEvent());
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+
+      store.onAgentStatus(statusEvent());
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+
+      store.onAgentCompleted(completedEvent());
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+
+      store.onTaskToolResult(PARENT, false);
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+    });
+
     it('records are independent per parentToolUseId', () => {
       store.onAgentStart(startEvent({ toolCallId: 'toolu_a' }));
       store.onAgentStart(startEvent({ toolCallId: 'toolu_b' }));

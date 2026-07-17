@@ -244,13 +244,22 @@ export class ChatViewComponent {
   readonly agentPanelOpen = signal(false);
 
   /**
-   * True only for the primary (non-tile) chat surface. Guards the persistent
-   * background-agent tray so it renders once at the app top rather than once
-   * per canvas tile (every tile mounts its own ChatViewComponent). The tray
-   * shows all agents globally and handles its own focus/steer/stop actions
-   * against each agent's owning session — no wiring needed from this host.
+   * Whether to render the background-agent tray on this surface. The main panel
+   * (no session context) always shows it, scoped to ALL sessions. A canvas tile
+   * shows it only once its own session has resolved, scoped to that session via
+   * {@link traySessionId} so each tile manages exactly its own subagents.
    */
-  protected readonly showBackgroundStrip = !this._sessionContext;
+  protected readonly showBackgroundStrip = computed<boolean>(() =>
+    this._sessionContext ? this.resolvedSessionId() !== null : true,
+  );
+
+  /**
+   * Owning-session filter passed to the tray: the tile's resolved session in
+   * tile mode, or null on the main panel (which shows every session's agents).
+   */
+  protected readonly traySessionId = computed<string | null>(() =>
+    this._sessionContext ? this.resolvedSessionId() : null,
+  );
 
   /** Session-scoped agents for the embedded panel */
   readonly sessionAgents = computed(() => {

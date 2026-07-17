@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   inject,
   computed,
+  input,
   signal,
 } from '@angular/core';
 import {
@@ -17,6 +18,7 @@ import {
   type BackgroundAgentEntry,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { SubagentTranscriptViewerService } from '../../services/subagent-transcript-viewer.service';
 
 /**
  * Per-entry action context. Carried alongside each chip view-model so the
@@ -33,6 +35,11 @@ interface StripContext {
    * NOT the focused tab. Every steer / stop / background RPC targets this.
    */
   readonly sessionId?: string;
+  /**
+   * SDK short-hex agent id, when known. Required (with `sessionId`) to open the
+   * on-demand transcript viewer via `subagent:transcript`.
+   */
+  readonly agentId?: string;
 }
 
 /**
@@ -68,6 +75,7 @@ interface StripContext {
       (steer)="onSteer($event)"
       (stop)="onStop($event)"
       (sendToBackground)="onSendToBackground($event)"
+      (viewTranscript)="onViewTranscript($event)"
     />
   `,
 })
@@ -75,6 +83,14 @@ export class BackgroundAgentTrayComponent {
   private readonly agentMonitor = inject(AgentMonitorStore);
   private readonly backgroundStore = inject(BackgroundAgentStore);
   private readonly tabManager = inject(TabManagerService);
+  private readonly transcriptViewer = inject(SubagentTranscriptViewerService);
+
+  /**
+   * Owning-session filter. When set (canvas-tile mode), only agents spawned by
+   * that session are shown so each tile's tray is scoped to its own subagents.
+   * When null (main panel), every agent is shown across all sessions.
+   */
+  readonly sessionId = input<string | null>(null);
 
   /** Id of the chip whose steer RPC is in flight (disables its inline input). */
   protected readonly pendingSteerId = signal<string | null>(null);
@@ -89,13 +105,16 @@ export class BackgroundAgentTrayComponent {
   private readonly context = computed<ReadonlyMap<string, StripContext>>(() => {
     const map = new Map<string, StripContext>();
     const subagents = this.agentMonitor.subagents();
+    const scope = this.sessionId();
 
     for (const rec of subagents.values()) {
       if (!this.isActiveSubagent(rec.status)) continue;
+      if (scope && rec.parentSessionId !== scope) continue;
       map.set(rec.parentToolUseId, this.fromSubagent(rec));
     }
 
     for (const bg of this.backgroundStore.agents()) {
+      if (scope && bg.sessionId !== scope) continue;
       const taskId = subagents.get(bg.toolCallId)?.taskId;
       map.set(bg.toolCallId, this.fromBackground(bg, taskId));
     }
@@ -123,9 +142,11 @@ export class BackgroundAgentTrayComponent {
         steerable: true,
         stoppable: !!rec.taskId,
         canBackground: true,
+        canViewTranscript: !!rec.agentId && !!rec.parentSessionId,
       },
       taskId: rec.taskId,
       sessionId: rec.parentSessionId,
+      agentId: rec.agentId,
     };
   }
 
@@ -151,9 +172,11 @@ export class BackgroundAgentTrayComponent {
         steerable: isRunning,
         stoppable: isRunning && !!taskId,
         canBackground: false,
+        canViewTranscript: bg.hasRealAgentId && !!bg.sessionId,
       },
       taskId,
       sessionId: bg.sessionId,
+      agentId: bg.agentId,
     };
   }
 
@@ -192,5 +215,16 @@ export class BackgroundAgentTrayComponent {
     const sessionId = ctx?.sessionId;
     if (!sessionId) return;
     void this.agentMonitor.backgroundAgent(sessionId, id);
+  }
+
+  /** Open the on-demand transcript viewer for the chip's agent. */
+  protected onViewTranscript(id: string): void {
+    const ctx = this.context().get(id);
+    if (!ctx?.agentId || !ctx.sessionId) return;
+    void this.transcriptViewer.openFor(
+      ctx.entry.name,
+      ctx.sessionId,
+      ctx.agentId,
+    );
   }
 }

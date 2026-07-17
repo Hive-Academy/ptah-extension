@@ -366,6 +366,17 @@ export interface QueryOptionsInput {
    */
   includePartialMessages?: boolean;
   /**
+   * When true, the SDK forwards the full nested subagent conversation
+   * (assistant/user text + thinking) through the message stream so live
+   * subagent transcripts render in the execution tree. Mirrors
+   * `Options.forwardSubagentText`. Defaults to ON when unspecified. This is a
+   * deliberate killswitch: forwarded text shares the per-session capped event
+   * buffer with the root conversation, so a caller can pass `false` to fall
+   * back to the lighter task_* summary path if a chatty subagent is observed
+   * evicting root/sibling events under load.
+   */
+  forwardSubagentText?: boolean;
+  /**
    * Caller-supplied MCP HTTP server overrides â€” merged OVER the registry-
    * built map by `mergeMcpOverride` (caller wins on key collision). Reserved
    * for the Anthropic-compatible HTTP proxy. When `undefined` or an empty
@@ -400,13 +411,16 @@ export interface QueryOptionsInput {
 
 /**
  * SDK query options structure â€” directly aliased from the SDK's canonical
- * `Options` type. The hand-rolled `SdkQueryOptions` interface previously
- * masked phantom fields like `forwardSubagentText` that the SDK silently
- * ignored. Using `Options` directly surfaces compile errors when we attempt
- * to set properties that do not exist in the SDK.
+ * `Options` type. Aliasing `Options` directly surfaces compile errors when we
+ * attempt to set properties that do not exist in the SDK.
  *
- * Subagent visibility now flows via `agentProgressSummaries: true` Option
- * + task_* system messages handled by SdkMessageTransformer.
+ * Subagent visibility flows via two complementary channels, both handled by
+ * SdkMessageTransformer:
+ *  - the built-in task_* system message stream (task_started / task_progress /
+ *    task_updated / task_notification) for the collapsed task-node summary; and
+ *  - `forwardSubagentText: true` (a real Option in SDK 0.3.150) which forwards
+ *    the full nested subagent conversation (assistant/user text + thinking) as
+ *    messages carrying `parent_tool_use_id` = the spawning Task tool_use id.
  */
 export type SdkQueryOptions = Options;
 
@@ -513,6 +527,7 @@ export class SdkQueryOptionsBuilder {
       forkSession,
       enableFileCheckpointing,
       includePartialMessages,
+      forwardSubagentText,
       mcpServersOverride,
       initialUserQuery,
       authEnvOverride,
@@ -649,6 +664,18 @@ export class SdkQueryOptionsBuilder {
         allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
         canUseTool: canUseToolCallback,
         includePartialMessages: includePartialMessages ?? true,
+        // Forward the full nested subagent conversation (assistant/user text +
+        // thinking) through the message stream. Forwarded messages carry
+        // `parent_tool_use_id` = the spawning Task tool_use id, which the
+        // message-transform pipeline already propagates onto every emitted event
+        // (message_start / text_delta / thinking_delta / message_complete) via
+        // `parentToolUseId`, and the streaming transformer keys its per-message
+        // state by that same id — so forwarded text is attributed to the correct
+        // subagent node without any transform change. Defaults ON (additive to
+        // the task_* summary path; does not alter existing tool_use/tool_result
+        // subagent handling), but plumbed so a caller can disable it — see the
+        // QueryOptionsInput.forwardSubagentText killswitch note.
+        forwardSubagentText: forwardSubagentText ?? true,
         settingSources: /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(
           effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() ?? '',
         )

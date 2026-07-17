@@ -27,6 +27,7 @@ import type {
   AgentCompletedEvent,
   AgentStartEvent,
   CliSessionReference,
+  SubagentTranscriptMessage,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
@@ -106,6 +107,16 @@ export interface SubagentRecord {
   readonly parentToolUseId: string;
   /** SDK task_id, captured on `agent_start` (when present) or `agent_progress`/`agent_status` */
   taskId?: string;
+  /**
+   * Short SDK agent identifier (e.g. `"adcecb2"`), captured from `agent_start`
+   * (`AgentStartEvent.agentId`). Distinct from `taskId` (steer/stop routing) and
+   * from `parentToolUseId` (the Task tool_use id / primary key). This is the id
+   * required to read the agent's full historical transcript via the
+   * `subagent:transcript` RPC — see {@link AgentMonitorStore.getSubagentTranscript}.
+   * Only `agent_start` carries it, so it is set there and preserved (never
+   * downgraded to undefined) across later progress/status/completed merges.
+   */
+  agentId?: string;
   /** Latest description from progress/status events */
   description?: string;
   /** AI-generated rolling summary from progress events (most recent) */
@@ -939,6 +950,7 @@ export class AgentMonitorStore implements OnDestroy {
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
+        agentId: event.agentId ?? existing?.agentId,
         description: event.agentDescription ?? existing?.description,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -970,6 +982,7 @@ export class AgentMonitorStore implements OnDestroy {
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
+        agentId: existing?.agentId,
         description: event.description ?? existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: event.lastToolName ?? existing?.lastToolName,
@@ -996,6 +1009,7 @@ export class AgentMonitorStore implements OnDestroy {
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
+        agentId: existing?.agentId,
         description: event.description ?? existing?.description,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -1022,6 +1036,7 @@ export class AgentMonitorStore implements OnDestroy {
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
+        agentId: existing?.agentId,
         description: existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -1135,6 +1150,48 @@ export class AgentMonitorStore implements OnDestroy {
     }
     this._subagentRpcError.set(null);
     return true;
+  }
+
+  /**
+   * Read a subagent's full historical transcript on demand via the
+   * `subagent:transcript` RPC. Unlike the live execution tree (fed by streamed
+   * `forwardSubagentText` deltas), this returns the agent's COMPLETE saved
+   * conversation — usable after the agent has finished or to backfill output
+   * that was never streamed into the current tree.
+   *
+   * `agentId` is the SDK short-hex id (see `SubagentRecord.agentId`), NOT the
+   * Task `parentToolUseId`. `sessionId` is the OWNING parent session
+   * (`SubagentRecord.parentSessionId` / `BackgroundAgentEntry.sessionId`).
+   *
+   * Mirrors the RPC-call / error-handling shape of {@link sendMessageToAgent}:
+   * on `!result.isSuccess()` it returns `[]` rather than throwing. A missing or
+   * not-yet-flushed transcript ALSO comes back as `{ messages: [] }` from the
+   * backend (never a not-found error), so callers must treat an empty array as
+   * "no transcript yet", not as a failure. The shared `subagentRpcError`
+   * channel is deliberately NOT touched here — it is keyed by
+   * `parentToolUseId` for steer/stop/background toasts, and a read-only
+   * transcript fetch (agentId-scoped) is surfaced through the viewer's own
+   * empty/error state instead.
+   */
+  async getSubagentTranscript(
+    sessionId: string,
+    agentId: string,
+    opts?: { limit?: number; offset?: number },
+  ): Promise<SubagentTranscriptMessage[]> {
+    const result = await this.rpc.call('subagent:transcript', {
+      sessionId,
+      agentId,
+      limit: opts?.limit,
+      offset: opts?.offset,
+    });
+    if (!result.isSuccess()) {
+      console.warn(
+        '[AgentMonitorStore] subagent:transcript failed:',
+        result.error ?? 'Unknown error',
+      );
+      return [];
+    }
+    return result.data.messages;
   }
 
   /**

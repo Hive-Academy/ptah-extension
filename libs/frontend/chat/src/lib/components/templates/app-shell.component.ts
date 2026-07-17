@@ -33,6 +33,7 @@ import {
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
+import { SubagentTranscriptOverlayComponent } from '../organisms/subagent-transcript-overlay.component';
 import {
   TrialEndedModalComponent,
   SidebarTabComponent,
@@ -105,6 +106,7 @@ import type { ViewType } from '@ptah-extension/core';
     NgComponentOutlet,
     TabBarComponent,
     ConfirmationDialogComponent,
+    SubagentTranscriptOverlayComponent,
     TrialEndedModalComponent,
     ThemeToggleComponent,
     NotificationBellComponent,

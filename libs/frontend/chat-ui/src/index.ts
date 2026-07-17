@@ -36,6 +36,7 @@ export {
   type BackgroundAgentSteerRequest,
 } from './lib/molecules/background-agent-strip.component';
 export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.component';
+export { SubagentTranscriptViewerComponent } from './lib/molecules/subagent-transcript-viewer.component';
 export { CommunityUpgradeBannerComponent } from './lib/molecules/community-upgrade-banner.component';
 export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
