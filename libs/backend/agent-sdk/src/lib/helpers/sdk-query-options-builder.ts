@@ -674,11 +674,18 @@ export class SdkQueryOptionsBuilder {
         // (message_start / text_delta / thinking_delta / message_complete) via
         // `parentToolUseId`, and the streaming transformer keys its per-message
         // state by that same id — so forwarded text is attributed to the correct
-        // subagent node without any transform change. Defaults ON (additive to
-        // the task_* summary path; does not alter existing tool_use/tool_result
-        // subagent handling), but plumbed so a caller can disable it — see the
-        // QueryOptionsInput.forwardSubagentText killswitch note.
-        forwardSubagentText: forwardSubagentText ?? true,
+        // subagent node without any transform change.
+        //
+        // Defaults OFF (opt-in). On main this was a phantom field the SDK
+        // silently ignored; SDK 0.3.150 made it a real Option, and defaulting it
+        // ON caused turns that fail before producing any event (e.g. an auth
+        // error on a bad key) to hang instead of surfacing the error — the
+        // Claude subprocess emits 0 events and never settles, so the turn never
+        // completes (reproduced by the CLI bootstrap-regression "session start
+        // does not hang" e2e). Gating it opt-in restores main's fast-fail while
+        // callers that render live subagent transcripts pass `true` explicitly.
+        // The task_* summary path still drives the collapsed subagent node.
+        forwardSubagentText: forwardSubagentText ?? false,
         settingSources: /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(
           effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() ?? '',
         )
