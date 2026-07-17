@@ -80,6 +80,18 @@ export interface SubagentRecord {
   readonly agentId: string;
 
   /**
+   * Human-legible teammate name passed by the coordinator on the Agent/Task
+   * tool's `name` input (e.g. "backend-developer", "reviewer").
+   *
+   * Captured from the assistant `tool_use.input.name` BEFORE the SubagentStart
+   * hook fires and merged onto the record at registration. When present it is
+   * preferred over the opaque short-hex `agentId` in user-facing prose (e.g. the
+   * coordinator steering instruction). Optional — spawns without a `name` fall
+   * back to `agentId`.
+   */
+  readonly teammateName?: string;
+
+  /**
    * Whether this subagent is running in the background.
    * Background agents outlive the main agent's turn and continue
    * executing independently. Set when Task tool has run_in_background: true,

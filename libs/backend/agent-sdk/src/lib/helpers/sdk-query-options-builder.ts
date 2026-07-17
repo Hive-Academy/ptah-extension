@@ -48,6 +48,7 @@ import { UserPromptExpansionHookHandler } from './user-prompt-expansion-hook-han
 import { StopHookHandler } from './stop-hook-handler';
 import { StopFailureHookHandler } from './stop-failure-hook-handler';
 import { SubagentStopHookHandler } from './subagent-stop-hook-handler';
+import { TeammateLifecycleHookHandler } from './teammate-lifecycle-hook-handler';
 import { SessionEndHookHandler } from './session-end-hook-handler';
 import { ToolFailureHookHandler } from './tool-failure-hook-handler';
 import {
@@ -485,6 +486,8 @@ export class SdkQueryOptionsBuilder {
     private readonly sessionStartHookHandler: SessionStartHookHandler,
     @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_HOOK_HANDLER)
     private readonly subagentStopHookHandler: SubagentStopHookHandler,
+    @inject(SDK_TOKENS.SDK_TEAMMATE_LIFECYCLE_HOOK_HANDLER)
+    private readonly teammateLifecycleHookHandler: TeammateLifecycleHookHandler,
     @inject(SDK_TOKENS.SDK_CODE_SYMBOL_PROMPT_INJECTOR, { isOptional: true })
     private readonly codeSymbolPromptInjector?: CodeSymbolPromptInjector,
   ) {}
@@ -1193,6 +1196,8 @@ export class SdkQueryOptionsBuilder {
       sessionId ?? '',
       cwd,
     );
+    const teammateLifecycleHooks =
+      this.teammateLifecycleHookHandler.createHooks(sessionId ?? '', cwd);
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
     for (const hooks of [
       subagentHooks,
@@ -1208,6 +1213,7 @@ export class SdkQueryOptionsBuilder {
       preToolUseHooks,
       sessionStartHooks,
       subagentStopHooks,
+      teammateLifecycleHooks,
     ]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;
@@ -1220,6 +1226,9 @@ export class SdkQueryOptionsBuilder {
       hookEvents: Object.keys(mergedHooks),
       hasSubagentStart: !!mergedHooks.SubagentStart,
       hasSubagentStop: !!mergedHooks.SubagentStop,
+      hasTaskCreated: !!mergedHooks.TaskCreated,
+      hasTaskCompleted: !!mergedHooks.TaskCompleted,
+      hasTeammateIdle: !!mergedHooks.TeammateIdle,
       hasPreCompact: !!mergedHooks.PreCompact,
       hasWorktreeCreate: !!mergedHooks.WorktreeCreate,
       hasWorktreeRemove: !!mergedHooks.WorktreeRemove,

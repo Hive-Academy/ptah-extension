@@ -92,6 +92,11 @@ export class SubagentRegistryService {
     const isPendingBackground = this.store.consumePendingBackground(
       registration.toolCallId,
     );
+    // Prefer a name already on the registration (e.g. history replay); otherwise
+    // consume the pending name captured from the Task tool_use before the hook.
+    const teammateName =
+      registration.teammateName ??
+      this.store.consumePendingTeammateName(registration.toolCallId);
 
     const record: SubagentRecord = {
       ...registration,
@@ -102,6 +107,7 @@ export class SubagentRegistryService {
         isBackground: true,
         backgroundStartedAt: Date.now(),
       }),
+      ...(teammateName ? { teammateName } : {}),
     };
 
     this.store.set(registration.toolCallId, record);
@@ -111,9 +117,83 @@ export class SubagentRegistryService {
       sessionId: registration.sessionId,
       agentType: registration.agentType,
       agentId: registration.agentId,
+      teammateName,
       parentSessionId: registration.parentSessionId,
       registrySize: this.store.size,
     });
+  }
+
+  /**
+   * Pre-mark a human-legible teammate name for a not-yet-registered toolCallId.
+   *
+   * Called by SdkMessageTransformer when it observes the Agent/Task tool_use
+   * `name` input, which is present BEFORE the SubagentStart hook fires. The
+   * subsequent register() call consumes this name and stores it on the record
+   * as teammateName.
+   *
+   * @param toolCallId - The Task tool_use ID that will spawn a named teammate
+   * @param teammateName - The human-legible name from the tool_use input
+   */
+  markPendingTeammateName(toolCallId: string, teammateName: string): void {
+    this.store.markPendingTeammateName(toolCallId, teammateName);
+    this.logger.debug(
+      '[SubagentRegistryService.markPendingTeammateName] Marked toolCallId with teammate name',
+      { toolCallId, teammateName },
+    );
+  }
+
+  /**
+   * Look up a SubagentRecord by its human-legible teammate name.
+   *
+   * Returns the first running match (most relevant for live steering); if no
+   * running match exists, returns the first match of any status. Returns null
+   * when no record carries the name.
+   *
+   * @param teammateName - The human-legible teammate name to resolve
+   * @returns The matching SubagentRecord, or null if not found
+   */
+  getByName(teammateName: string): SubagentRecord | null {
+    let fallback: SubagentRecord | null = null;
+
+    for (const record of this.store.values()) {
+      if (record.teammateName === teammateName) {
+        if (record.status === 'running') {
+          return record;
+        }
+        if (!fallback) {
+          fallback = record;
+        }
+      }
+    }
+
+    return fallback;
+  }
+
+  /**
+   * Look up the Task tool's toolCallId by the teammate's human-legible name.
+   *
+   * Mirrors {@link getToolCallIdByAgentId} but keys on the coordinator-supplied
+   * name rather than the SDK short-hex agentId. Returns the first running match,
+   * else the first match of any status, else null.
+   *
+   * @param teammateName - The human-legible teammate name to resolve
+   * @returns The Task tool's toolCallId, or null if not found
+   */
+  getToolCallIdByName(teammateName: string): string | null {
+    let fallback: string | null = null;
+
+    for (const [toolCallId, record] of this.store.entries()) {
+      if (record.teammateName === teammateName) {
+        if (record.status === 'running') {
+          return toolCallId;
+        }
+        if (!fallback) {
+          fallback = toolCallId;
+        }
+      }
+    }
+
+    return fallback;
   }
 
   /**
@@ -121,7 +201,9 @@ export class SubagentRegistryService {
    * record, the interrupted agent is being resumed — drop the stale record
    * so it is no longer reported as resumable.
    */
-  private removeSupersededInterrupted(registration: SubagentRegistration): void {
+  private removeSupersededInterrupted(
+    registration: SubagentRegistration,
+  ): void {
     if (!registration.agentId) {
       return;
     }

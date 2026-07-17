@@ -122,6 +122,7 @@ export type {
   SubagentStopHookInput,
   SyncHookJSONOutput,
   TaskCompletedHookInput,
+  TaskCreatedHookInput,
   TeammateIdleHookInput,
   TerminalReason,
   ThinkingAdaptive,
@@ -173,6 +174,9 @@ import type {
   SessionStartHookInput,
   SessionEndHookInput,
   SetupHookInput,
+  TaskCreatedHookInput,
+  TaskCompletedHookInput,
+  TeammateIdleHookInput,
   UserPromptExpansionHookInput,
   UserPromptSubmitHookInput,
   WorktreeCreateHookInput,
@@ -595,6 +599,24 @@ export function isWorktreeRemoveHook(
   input: HookInput,
 ): input is WorktreeRemoveHookInput {
   return input.hook_event_name === 'WorktreeRemove';
+}
+
+export function isTaskCreatedHook(
+  input: HookInput,
+): input is TaskCreatedHookInput {
+  return input.hook_event_name === 'TaskCreated';
+}
+
+export function isTaskCompletedHook(
+  input: HookInput,
+): input is TaskCompletedHookInput {
+  return input.hook_event_name === 'TaskCompleted';
+}
+
+export function isTeammateIdleHook(
+  input: HookInput,
+): input is TeammateIdleHookInput {
+  return input.hook_event_name === 'TeammateIdle';
 }
 
 /**

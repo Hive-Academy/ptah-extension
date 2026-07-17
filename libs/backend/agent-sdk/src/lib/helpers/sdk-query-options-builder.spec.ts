@@ -253,6 +253,7 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
   }
 
@@ -384,6 +385,7 @@ describe('SdkQueryOptionsBuilder.build — context-window override', () => {
       noopHooks,
       noopHooks,
       noopHooks,
+      noopHooks,
     );
   }
 
@@ -499,6 +501,7 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       authEnv,
       modelService,
       injector,
+      { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
@@ -703,6 +706,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
   }
 
@@ -860,6 +864,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
 
     const sessionConfig = {
@@ -987,6 +992,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       memoryPromptInjector,
       postToolUseHookHandler,
       userPromptSubmitHookHandler,
+      { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
@@ -1169,6 +1175,7 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
       memoryPromptInjector,
       postToolUseHookHandler,
       userPromptSubmitHookHandler,
+      { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },

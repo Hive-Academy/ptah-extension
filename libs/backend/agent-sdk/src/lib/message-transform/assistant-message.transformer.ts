@@ -131,6 +131,17 @@ export class AssistantMessageTransformer {
               ? block.input['prompt']
               : undefined;
 
+          const teammateName =
+            'name' in block.input && typeof block.input['name'] === 'string'
+              ? block.input['name'].trim()
+              : undefined;
+          if (teammateName) {
+            helpers.subagentRegistry.markPendingTeammateName(
+              block.id,
+              teammateName,
+            );
+          }
+
           const isBackground =
             'run_in_background' in block.input &&
             block.input['run_in_background'] === true;

@@ -153,11 +153,18 @@ export class SubagentMessageDispatcher {
     const record = this.registry.get(parentToolUseId);
     const agentType = record?.agentType ?? 'unknown';
     const agentId = record?.agentId;
+    const teammateName = record?.teammateName;
     // Prefer an explicit SendMessage instruction keyed by the live subagent's
-    // agentId — the only mechanism the CLI actually honours. Fall back to a
+    // agentId — the only mechanism the CLI is PROVEN to honour, so it stays the
+    // literal `to:` target. When the coordinator gave the teammate a
+    // human-legible name we surface it in the prose so the instruction reads
+    // naturally, but the addressing target is still the agentId. Fall back to a
     // generic reference when we have no record or no agentId to target.
+    const humanRef = teammateName
+      ? `the '${teammateName}' teammate (the running '${agentType}' subagent, id: ${agentId})`
+      : `the running '${agentType}' subagent (id: ${agentId})`;
     const content = agentId
-      ? `The user wants to steer the running '${agentType}' subagent (id: ${agentId}). Use the SendMessage tool with to: '${agentId}' to deliver this to it verbatim: ${text}`
+      ? `The user wants to steer ${humanRef}. Use the SendMessage tool with to: '${agentId}' to deliver this to it verbatim: ${text}`
       : `Regarding the running subagent (toolUseId=${parentToolUseId}): ${text}`;
 
     await serialisedPush(sessionId, async () => {
@@ -166,6 +173,7 @@ export class SubagentMessageDispatcher {
         parentToolUseId,
         agentType,
         agentId,
+        teammateName,
         mode: agentId ? 'sendmessage-instruction' : 'generic-nudge',
         textLength: text.length,
       });

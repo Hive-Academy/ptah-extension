@@ -63,6 +63,14 @@ export class SubagentStateStore {
   private readonly pendingBackgroundToolCallIds = new Set<string>();
 
   /**
+   * Human-legible teammate names captured from the Agent/Task tool's `name`
+   * input by SdkMessageTransformer BEFORE the SubagentStart hook fires. Keyed
+   * by the Task tool_use id (toolCallId). Consumed at register() time and
+   * merged onto the SubagentRecord as `teammateName`.
+   */
+  private readonly pendingTeammateNames = new Map<string, string>();
+
+  /**
    * Parent session IDs currently inside endSession()/disposeAllSessions()
    * teardown. While a session is in this set, 'completed' transitions for its
    * already-interrupted records are ignored — the SDK's graceful interrupt
@@ -128,6 +136,7 @@ export class SubagentStateStore {
     this.registry.clear();
     this.clearedToolCallIds.clear();
     this.pendingBackgroundToolCallIds.clear();
+    this.pendingTeammateNames.clear();
     this.teardownSessionIds.clear();
     this.injectionAttempts.clear();
   }
@@ -184,6 +193,23 @@ export class SubagentStateStore {
       this.pendingBackgroundToolCallIds.delete(toolCallId);
     }
     return had;
+  }
+
+  /** Record a human-legible teammate name for a not-yet-registered toolCallId. */
+  markPendingTeammateName(toolCallId: string, teammateName: string): void {
+    this.pendingTeammateNames.set(toolCallId, teammateName);
+  }
+
+  /**
+   * Consume a pending teammate name — returns the name if one was pre-marked,
+   * and atomically removes it. Returns undefined when none was recorded.
+   */
+  consumePendingTeammateName(toolCallId: string): string | undefined {
+    const name = this.pendingTeammateNames.get(toolCallId);
+    if (name !== undefined) {
+      this.pendingTeammateNames.delete(toolCallId);
+    }
+    return name;
   }
 
   /** Remember that a toolCallId was injected into context and removed. */
