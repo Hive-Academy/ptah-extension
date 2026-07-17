@@ -174,6 +174,9 @@ export class SystemMessageTransformer {
       agentType: msg.task_type ?? 'Task',
       agentDescription: msg.description,
       agentPrompt: msg.prompt,
+      teammateName:
+        helpers.subagentRegistry.get(toolUseId)?.teammateName ??
+        helpers.subagentRegistry.peekPendingTeammateName(toolUseId),
       taskId: msg.task_id,
     };
 
@@ -291,6 +294,7 @@ export class SystemMessageTransformer {
           toolCallId: parentToolUseId,
           agentType: record?.agentType ?? 'unknown',
           agentId: record?.agentId,
+          teammateName: record?.teammateName,
           agentDescription: patch.description,
           outputFilePath: record?.outputFilePath,
         };

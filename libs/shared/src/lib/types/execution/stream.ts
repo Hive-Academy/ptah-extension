@@ -171,6 +171,11 @@ export interface AgentStartEvent extends FlatStreamEvent {
    */
   readonly agentId?: string;
   /**
+   * Human-legible name from the Agent/Task tool `name` input; falls back to
+   * agentId when absent.
+   */
+  readonly teammateName?: string;
+  /**
    * SDK task_id from SDKTaskStartedMessage. Populated when the SDK emits
    * task_started for this agent. Used by the dispatcher to route
    * subagent:stop calls.

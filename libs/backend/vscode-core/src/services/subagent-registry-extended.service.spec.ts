@@ -331,6 +331,107 @@ describe('SubagentRegistryService — extended methods', () => {
     });
   });
 
+  // TASK: teammates phase 1 (6c4733a02) — registry consume-side name-capture.
+  // markPendingTeammateName() is called by SdkMessageTransformer when it
+  // observes AgentInput.name on a Task tool_use, BEFORE the SubagentStart
+  // hook (and therefore register()) fires. These specs verify register()
+  // correctly consumes that pending name exactly once and that getByName /
+  // getToolCallIdByName mirror the existing agentId lookups.
+  describe('teammate name capture', () => {
+    it('register() merges a pending teammate name onto the record', () => {
+      service.markPendingTeammateName('tc-name-1', 'backend-developer');
+      service.register(makeReg({ toolCallId: 'tc-name-1' }));
+
+      expect(service.get('tc-name-1')?.teammateName).toBe('backend-developer');
+    });
+
+    it('register() without a pending name leaves teammateName undefined', () => {
+      service.register(makeReg({ toolCallId: 'tc-no-name' }));
+
+      expect(service.get('tc-no-name')?.teammateName).toBeUndefined();
+    });
+
+    it('prefers registration.teammateName already present (e.g. history replay) over the pending map', () => {
+      service.markPendingTeammateName('tc-replay', 'pending-name');
+      service.register(
+        makeReg({ toolCallId: 'tc-replay', teammateName: 'replay-name' }),
+      );
+
+      expect(service.get('tc-replay')?.teammateName).toBe('replay-name');
+    });
+
+    it('consumes the pending name exactly once — re-registering without re-marking drops it', () => {
+      service.markPendingTeammateName('tc-once', 'first-name');
+      service.register(makeReg({ toolCallId: 'tc-once' }));
+      expect(service.get('tc-once')?.teammateName).toBe('first-name');
+
+      // Simulate a re-register (e.g. resume) without a fresh
+      // markPendingTeammateName call — the pending map entry was already
+      // consumed by the first register(), so no name should be re-applied.
+      service.register(makeReg({ toolCallId: 'tc-once' }));
+      expect(service.get('tc-once')?.teammateName).toBeUndefined();
+    });
+
+    describe('getByName', () => {
+      it('returns the running record for a matching teammateName', () => {
+        service.markPendingTeammateName('tc-run', 'reviewer');
+        service.register(makeReg({ toolCallId: 'tc-run', agentId: 'a-run' }));
+
+        const record = service.getByName('reviewer');
+        expect(record?.toolCallId).toBe('tc-run');
+        expect(record?.status).toBe('running');
+      });
+
+      it('falls back to the first non-running match when no running match exists', () => {
+        service.markPendingTeammateName('tc-done', 'reviewer');
+        service.register(makeReg({ toolCallId: 'tc-done', agentId: 'a-done' }));
+        service.update('tc-done', { status: 'interrupted' });
+
+        const record = service.getByName('reviewer');
+        expect(record?.toolCallId).toBe('tc-done');
+        expect(record?.status).toBe('interrupted');
+      });
+
+      it('prefers a running match over an earlier non-running match with the same name', () => {
+        service.markPendingTeammateName('tc-old', 'worker');
+        service.register(makeReg({ toolCallId: 'tc-old', agentId: 'a-old' }));
+        service.update('tc-old', { status: 'interrupted' });
+
+        service.markPendingTeammateName('tc-new', 'worker');
+        service.register(makeReg({ toolCallId: 'tc-new', agentId: 'a-new' }));
+
+        const record = service.getByName('worker');
+        expect(record?.toolCallId).toBe('tc-new');
+        expect(record?.status).toBe('running');
+      });
+
+      it('returns null when no record carries the name', () => {
+        expect(service.getByName('nonexistent')).toBeNull();
+      });
+    });
+
+    describe('getToolCallIdByName', () => {
+      it('returns the toolCallId for a running teammateName match', () => {
+        service.markPendingTeammateName('tc-tid', 'planner');
+        service.register(makeReg({ toolCallId: 'tc-tid', agentId: 'a-tid' }));
+
+        expect(service.getToolCallIdByName('planner')).toBe('tc-tid');
+      });
+
+      it('falls back to the first non-running toolCallId when no running match exists', () => {
+        service.markPendingTeammateName('tc-tid2', 'planner');
+        service.register(makeReg({ toolCallId: 'tc-tid2', agentId: 'a-tid2' }));
+        service.update('tc-tid2', { status: 'interrupted' });
+
+        expect(service.getToolCallIdByName('planner')).toBe('tc-tid2');
+      });
+
+      it('returns null when teammateName is not found', () => {
+        expect(service.getToolCallIdByName('nonexistent')).toBeNull();
+      });
+    });
+  });
+
   describe('remove', () => {
     it('removes a registered agent', () => {
       service.register(makeReg({ toolCallId: 'tc-rm' }));

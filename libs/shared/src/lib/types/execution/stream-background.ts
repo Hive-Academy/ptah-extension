@@ -37,6 +37,11 @@ export interface BackgroundAgentStartedEvent extends FlatStreamEvent {
   readonly agentDescription?: string;
   /** Short agent identifier (e.g., "adcecb2") from SDK SubagentStart hook */
   readonly agentId?: string;
+  /**
+   * Human-legible name from the Agent/Task tool `name` input; falls back to
+   * agentId when absent.
+   */
+  readonly teammateName?: string;
   /** Path to background agent output file (from SDK placeholder tool_result) */
   readonly outputFilePath?: string;
   /** Tab ID for routing events to the correct webview tab */

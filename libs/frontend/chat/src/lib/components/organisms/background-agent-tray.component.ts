@@ -136,7 +136,7 @@ export class BackgroundAgentTrayComponent {
     return {
       entry: {
         id: rec.parentToolUseId,
-        name: rec.description || 'Subagent',
+        name: rec.teammateName ?? rec.description ?? 'Subagent',
         description: rec.latestSummary || rec.lastToolName,
         status: 'running',
         steerable: true,
@@ -166,7 +166,7 @@ export class BackgroundAgentTrayComponent {
     return {
       entry: {
         id: bg.toolCallId,
-        name: bg.agentType || 'Agent',
+        name: bg.teammateName ?? bg.agentType ?? 'Agent',
         description: bg.agentDescription || bg.summary || undefined,
         status,
         steerable: isRunning,

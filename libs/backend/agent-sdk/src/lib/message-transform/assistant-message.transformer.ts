@@ -114,6 +114,7 @@ export class AssistantMessageTransformer {
         let agentType: string | undefined;
         let agentDescription: string | undefined;
         let agentPrompt: string | undefined;
+        let teammateName: string | undefined;
 
         if (isTaskTool && block.input) {
           agentType =
@@ -131,7 +132,7 @@ export class AssistantMessageTransformer {
               ? block.input['prompt']
               : undefined;
 
-          const teammateName =
+          teammateName =
             'name' in block.input && typeof block.input['name'] === 'string'
               ? block.input['name'].trim()
               : undefined;
@@ -196,6 +197,7 @@ export class AssistantMessageTransformer {
             agentType: agentType || 'unknown',
             agentDescription,
             agentPrompt,
+            teammateName,
             parentToolUseId: block.id,
           };
           events.push(agentStartEvent);
@@ -237,6 +239,8 @@ export class AssistantMessageTransformer {
             messageId,
             toolCallId: block.tool_use_id,
             agentType: 'unknown',
+            teammateName: helpers.subagentRegistry.get(block.tool_use_id)
+              ?.teammateName,
             outputFilePath: outputFileMatch?.[1]?.trim(),
             parentToolUseId: parent_tool_use_id ?? undefined,
           };

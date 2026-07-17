@@ -129,7 +129,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
         <!-- Agent type + description (inline only when expanded) -->
         <div class="flex-1 min-w-0 flex items-center gap-2">
           <span class="text-[11px] font-semibold text-base-content/80">
-            {{ node().agentType }}
+            {{ displayName() }}
           </span>
           @if (!isCollapsed() && node().agentDescription) {
             <span
@@ -924,6 +924,15 @@ export class InlineAgentBubbleComponent {
     return this.agentMonitorStore.subagents().get(key);
   });
 
+  /**
+   * Human-legible name for the header. Prefers the teammate name captured on
+   * `agent_start`, falling back to the raw node `agentType` (the hex/tool id)
+   * when no name is available. Plain text interpolation only — never markdown.
+   */
+  readonly displayName = computed(
+    () => this.subagentRecord()?.teammateName ?? this.node().agentType,
+  );
+
   /** Single-line progress text shown next to the status badge. */
   readonly progressLine = computed(() => {
     const rec = this.subagentRecord();
@@ -963,7 +972,10 @@ export class InlineAgentBubbleComponent {
     const rec = this.subagentRecord();
     if (!rec?.agentId || !rec.parentSessionId) return;
     void this.transcriptViewer.openFor(
-      this.node().agentType || rec.description || 'Subagent',
+      rec.teammateName ??
+        this.node().agentType ??
+        rec.description ??
+        'Subagent',
       rec.parentSessionId,
       rec.agentId,
     );

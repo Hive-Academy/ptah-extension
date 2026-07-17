@@ -212,6 +212,15 @@ export class SubagentStateStore {
     return name;
   }
 
+  /**
+   * Peek at a pending teammate name WITHOUT consuming it. Used by emit sites
+   * that may fire before the SubagentStart hook has registered the record, so
+   * the name must remain available for the later consumePendingTeammateName().
+   */
+  peekPendingTeammateName(toolCallId: string): string | undefined {
+    return this.pendingTeammateNames.get(toolCallId);
+  }
+
   /** Remember that a toolCallId was injected into context and removed. */
   markInjected(toolCallId: string): void {
     this.clearedToolCallIds.set(toolCallId, Date.now());

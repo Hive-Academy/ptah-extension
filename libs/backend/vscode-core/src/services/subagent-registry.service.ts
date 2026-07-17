@@ -143,6 +143,20 @@ export class SubagentRegistryService {
   }
 
   /**
+   * Peek at a pending teammate name for a not-yet-registered toolCallId WITHOUT
+   * consuming it. Emit sites use this to populate `teammateName` on identity
+   * events during the window between observing the Task tool_use `name` input
+   * and the SubagentStart hook registering the record — without stealing the
+   * name from the eventual register() consumption.
+   *
+   * @param toolCallId - The Task tool_use ID to look up
+   * @returns The pending teammate name, or undefined when none was recorded
+   */
+  peekPendingTeammateName(toolCallId: string): string | undefined {
+    return this.store.peekPendingTeammateName(toolCallId);
+  }
+
+  /**
    * Look up a SubagentRecord by its human-legible teammate name.
    *
    * Returns the first running match (most relevant for live steering); if no

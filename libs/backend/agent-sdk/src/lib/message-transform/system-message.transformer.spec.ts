@@ -46,6 +46,7 @@ function makeHelpers(
       setTaskId: jest.fn(),
       pruneSession: jest.fn(),
       get: jest.fn().mockReturnValue(null),
+      peekPendingTeammateName: jest.fn().mockReturnValue(undefined),
       update: jest.fn(),
     },
     modelResolver: { resolveForPricing: jest.fn() },
@@ -158,6 +159,58 @@ describe('SystemMessageTransformer', () => {
       const events = transformer.transformTaskStarted(msg, state, helpers);
       expect(events).toEqual([]);
       expect(state.markTaskStartedEmitted).not.toHaveBeenCalled();
+    });
+
+    it('populates teammateName from a registered record', () => {
+      const helpers = makeHelpers();
+      (helpers.subagentRegistry.get as jest.Mock).mockReturnValue({
+        teammateName: 'backend-developer',
+      });
+      const msg = {
+        task_id: 'task-4',
+        tool_use_id: 'tool-4',
+        skip_transcript: false,
+        task_type: 'Task',
+      } as never;
+      const [event] = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+      expect(event).toMatchObject({
+        eventType: 'agent_start',
+        teammateName: 'backend-developer',
+      });
+    });
+
+    it('falls back to the non-consuming pending peek when the record is not yet registered', () => {
+      const helpers = makeHelpers();
+      // record does not exist yet (get → null), but the tool_use `name` was
+      // pre-marked before the SubagentStart hook fired.
+      (helpers.subagentRegistry.get as jest.Mock).mockReturnValue(null);
+      (
+        helpers.subagentRegistry.peekPendingTeammateName as jest.Mock
+      ).mockReturnValue('reviewer');
+      const msg = {
+        task_id: 'task-5',
+        tool_use_id: 'tool-5',
+        skip_transcript: false,
+        task_type: 'Task',
+      } as never;
+      const [event] = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+      expect(event).toMatchObject({
+        eventType: 'agent_start',
+        teammateName: 'reviewer',
+      });
+      expect(
+        helpers.subagentRegistry.peekPendingTeammateName,
+      ).toHaveBeenCalledWith('tool-5');
     });
   });
 

@@ -47,6 +47,8 @@ export interface BackgroundAgentEntry {
    */
   readonly hasRealAgentId: boolean;
   readonly agentType: string;
+  /** Human-legible subagent (teammate) name; preferred over `agentType` for display. */
+  readonly teammateName?: string;
   readonly agentDescription?: string;
   readonly sessionId: ClaudeSessionId;
   status: 'running' | 'completed' | 'error' | 'stopped';
@@ -234,6 +236,7 @@ export class BackgroundAgentStore implements OnDestroy {
         agentId: key,
         hasRealAgentId: !!(event.agentId && event.agentId.length > 0),
         agentType: event.agentType,
+        teammateName: event.teammateName,
         agentDescription: event.agentDescription,
         sessionId: event.sessionId as ClaudeSessionId,
         status: 'running',
