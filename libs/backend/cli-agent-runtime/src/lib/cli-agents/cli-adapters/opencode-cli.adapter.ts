@@ -22,9 +22,12 @@
  *   `step_finish`, `error`. `tool_use` lines arrive already completed
  *   (`state.status === "completed"`), so each is emitted as call + result in one
  *   shot; `tool: "bash"` becomes a `command` segment with an exit code.
- * - MCP is configured by read-merge-writing `<cwd>/opencode.json`'s `mcp.ptah`
- *   entry before each spawn and removing it after — the same shape Antigravity
- *   uses for its global config, but against the project-root file.
+ * - MCP is configured per-process via the `OPENCODE_CONFIG_CONTENT` env var:
+ *   an inline JSON string carrying the `mcp.ptah` remote entry, passed to the
+ *   child at spawn time. opencode deep-merges it (remeda `mergeDeep`, highest
+ *   precedence) on top of the untouched shared project config — so two agents in
+ *   the same working dir never race over a shared file, and there is nothing to
+ *   clean up after the run.
  * - Windows: `resolveCliPath('opencode')` + cross-spawn (`.cmd` wrapper) is the
  *   primary path. Upstream issues report the generated `.ps1` wrapper shelling
  *   out to `/bin/sh.exe`; as a fallback we resolve the bundled native binary
@@ -34,7 +37,7 @@
  * See: https://opencode.ai/docs/cli/ , https://opencode.ai/docs/config/
  */
 import { existsSync } from 'fs';
-import { readFile, writeFile } from 'fs/promises';
+import { readFile } from 'fs/promises';
 import { homedir } from 'os';
 import path, { join } from 'path';
 import type {
@@ -188,7 +191,7 @@ function resolveOpencodeNativeBinary(
 export class OpencodeCliAdapter implements CliAdapter {
   readonly name = 'opencode' as const;
   readonly displayName = 'opencode';
-  /** MCP is configured via <cwd>/opencode.json's `mcp.ptah` before each spawn. */
+  /** MCP is configured per-process via the `OPENCODE_CONFIG_CONTENT` env var. */
   readonly supportsMcp = true;
 
   async detect(): Promise<CliDetectionResult> {
@@ -318,73 +321,21 @@ export class OpencodeCliAdapter implements CliAdapter {
     return OPENCODE_PROVIDER_ENV_KEYS.some((key) => !!process.env[key]);
   }
 
-  /** Path to the project-root opencode config we manage the MCP entry in. */
-  private static mcpConfigPath(workingDirectory: string): string {
-    return join(workingDirectory, 'opencode.json');
-  }
-
   /**
-   * Configure the Ptah MCP server in `<cwd>/opencode.json`.
-   * opencode uses an `mcp` map; remote servers are declared with
-   * `{ type: 'remote', url, enabled: true }`. Read-merge-write: this touches the
-   * user's actual project-root config, so a concurrent user edit during a run
-   * could be clobbered (same class of risk Antigravity accepts). Non-fatal.
+   * Build the inline `OPENCODE_CONFIG_CONTENT` JSON registering the Ptah MCP
+   * server as a remote endpoint. opencode deep-merges this per-process at the
+   * highest precedence, so it never touches the shared project config on disk.
    */
-  private async configureMcpServer(
-    workingDirectory: string,
-    port: number,
-  ): Promise<void> {
-    try {
-      const configPath = OpencodeCliAdapter.mcpConfigPath(workingDirectory);
-
-      let config: Record<string, unknown> = {};
-      try {
-        const content = await readFile(configPath, 'utf8');
-        if (content.trim()) {
-          config = JSON.parse(content) as Record<string, unknown>;
-        }
-      } catch {
-        // Missing or malformed file — start fresh.
-      }
-
-      if (!config['$schema']) {
-        config['$schema'] = 'https://opencode.ai/config.json';
-      }
-      const mcp = (config['mcp'] as Record<string, unknown>) || {};
-      mcp['ptah'] = {
-        type: 'remote',
-        url: `http://localhost:${port}`,
-        enabled: true,
-      };
-      config['mcp'] = mcp;
-
-      await writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
-    } catch {
-      // MCP tools won't be available this run; CLI still functions.
-    }
-  }
-
-  /**
-   * Remove the ptah MCP entry from `<cwd>/opencode.json`.
-   * Called after the process exits to avoid stale port references. Drops the
-   * `mcp` key entirely when it becomes empty. Non-fatal.
-   */
-  private async cleanupMcpEntry(workingDirectory: string): Promise<void> {
-    try {
-      const configPath = OpencodeCliAdapter.mcpConfigPath(workingDirectory);
-      const content = await readFile(configPath, 'utf8');
-      const config = JSON.parse(content) as Record<string, unknown>;
-      const mcp = config['mcp'] as Record<string, unknown> | undefined;
-      if (!mcp?.['ptah']) return;
-
-      delete mcp['ptah'];
-      if (Object.keys(mcp).length === 0) {
-        delete config['mcp'];
-      }
-      await writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
-    } catch {
-      // Stale ptah entry will be overwritten on next configureMcpServer().
-    }
+  private buildMcpConfigContent(port: number): string {
+    return JSON.stringify({
+      mcp: {
+        ptah: {
+          type: 'remote',
+          url: `http://localhost:${port}`,
+          enabled: true,
+        },
+      },
+    });
   }
 
   /**
@@ -396,10 +347,6 @@ export class OpencodeCliAdapter implements CliAdapter {
    * event. stderr and non-zero exit surface as `error` segments.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
-    if (options.mcpPort && options.workingDirectory) {
-      await this.configureMcpServer(options.workingDirectory, options.mcpPort);
-    }
-
     const taskPrompt = buildTaskPrompt(options);
     const abortController = new AbortController();
     let capturedSessionId: string | undefined;
@@ -469,19 +416,28 @@ export class OpencodeCliAdapter implements CliAdapter {
       }
     };
 
-    // Primary: detected binary path (the `.cmd` shim on Windows). Fallback: the
-    // bundled native `.exe`, used only when no explicit path was provided and
-    // the `.ps1`/`.cmd` wrapper would otherwise be picked up (Windows only).
+    // Primary: detected binary path (the `.cmd` shim on Windows). We always
+    // attempt native-binary resolution (passing the detected path as a hint) and
+    // prefer the bundled native `.exe` when it exists — mirroring
+    // CodexCliAdapter.resolveCodexNativeBinary(). On Windows the wrapper's target
+    // binary can be wrong/missing/corrupt (open upstream #28920/#36737), so the
+    // native `.exe` bypasses it entirely. No-op off-Windows / when absent.
     let binary = options.binaryPath ?? 'opencode';
-    if (!options.binaryPath) {
-      const native = resolveOpencodeNativeBinary();
-      if (native) {
-        binary = native;
-      }
+    const native = resolveOpencodeNativeBinary(options.binaryPath);
+    if (native) {
+      binary = native;
+    }
+
+    const env: NodeJS.ProcessEnv = {};
+    if (options.mcpPort) {
+      env['OPENCODE_CONFIG_CONTENT'] = this.buildMcpConfigContent(
+        options.mcpPort,
+      );
     }
 
     const child = spawnCli(binary, args, {
       cwd: options.workingDirectory,
+      env,
     });
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
@@ -569,13 +525,6 @@ export class OpencodeCliAdapter implements CliAdapter {
         resolve(1);
       });
     });
-
-    if (options.mcpPort && options.workingDirectory) {
-      const workingDirectory = options.workingDirectory;
-      done.then(() => {
-        this.cleanupMcpEntry(workingDirectory);
-      });
-    }
 
     return {
       abort: abortController,
