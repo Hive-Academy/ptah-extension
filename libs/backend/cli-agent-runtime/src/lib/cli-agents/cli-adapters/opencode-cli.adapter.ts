@@ -55,7 +55,9 @@ import {
   buildTaskPrompt,
   probeCliVersion,
   resolveCliPath,
+  resolveDirectSpawn,
   spawnCli,
+  killProcessTree,
 } from './cli-adapter.utils';
 
 /**
@@ -435,18 +437,31 @@ export class OpencodeCliAdapter implements CliAdapter {
       );
     }
 
-    const child = spawnCli(binary, args, {
-      cwd: options.workingDirectory,
-      env,
-    });
+    // `binary` is already the native `.exe` (from resolveOpencodeNativeBinary) or
+    // the `.cmd` shim. resolveDirectSpawn returns the `.exe` unchanged and points
+    // a `.cmd` shim at its real node entrypoint/binary, so child.pid is the
+    // process taskkill /T should walk from (not the cmd.exe shim). No-op
+    // off-Windows / for a resolved `.exe`.
+    const spawnDescriptor = await resolveDirectSpawn(binary);
+    const child = spawnCli(
+      spawnDescriptor.command,
+      [...spawnDescriptor.prefixArgs, ...args],
+      {
+        cwd: options.workingDirectory,
+        env,
+        detached: true,
+      },
+    );
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     // Prompt is passed via argv; nothing is written to stdin.
     child.stdin?.end();
 
     const onAbort = (): void => {
-      if (!child.killed) {
-        child.kill('SIGTERM');
+      if (child.pid && !child.killed) {
+        // Tree-kill the whole process group — child.kill() alone orphans the
+        // real opencode process (and its bash subprocesses) on abort/timeout.
+        void killProcessTree(child.pid);
       }
     };
     abortController.signal.addEventListener('abort', onAbort);
@@ -532,6 +547,7 @@ export class OpencodeCliAdapter implements CliAdapter {
       onOutput,
       onSegment,
       getSessionId: () => capturedSessionId,
+      getPid: () => child.pid,
     };
   }
 

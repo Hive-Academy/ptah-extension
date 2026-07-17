@@ -9,8 +9,84 @@ import crossSpawn from 'cross-spawn';
 import whichLib from 'which';
 import { readFile } from 'fs/promises';
 import * as path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import type { ChildProcess } from 'child_process';
 import type { CliCommandOptions } from './cli-adapter.interface';
+import { KILL_GRACE_PERIOD } from '../agent-process-manager-helpers';
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Cross-platform best-effort process-tree kill.
+ * Windows: `taskkill /T /F` walks real Win32 PID ancestry (reaches the real
+ *   agent even when `pid` is a cross-spawn `cmd.exe` shim).
+ * POSIX: `process.kill(-pid)` group-kill (requires `detached:true` at spawn),
+ *   escalating to SIGKILL after KILL_GRACE_PERIOD; falls back to a single-process
+ *   kill if no process group exists (ESRCH).
+ *
+ * The helper is best-effort — "already exited" is the success case in disguise.
+ * Callers that need to record the failure (e.g. the manager's Sentry capture)
+ * pass an `onError` callback; the helper never throws.
+ */
+export async function killProcessTree(
+  pid: number,
+  signal: NodeJS.Signals = 'SIGTERM',
+  onError?: (err: unknown) => void,
+): Promise<void> {
+  if (process.platform === 'win32') {
+    try {
+      await execFileAsync('taskkill', ['/pid', String(pid), '/T', '/F']);
+    } catch (err) {
+      onError?.(err); // usually "already exited" — best-effort
+    }
+    return;
+  }
+
+  const killGroup = (sig: NodeJS.Signals): void => {
+    try {
+      process.kill(-pid, sig);
+    } catch {
+      try {
+        process.kill(pid, sig);
+      } catch {
+        /* already exited */
+      }
+    }
+  };
+
+  killGroup(signal);
+
+  // Poll liveness so we resolve near-instantly when the process dies (the common
+  // case) instead of always blocking the full grace period. The helper only has
+  // a pid, so it can't listen on a specific child's `exit` — `process.kill(pid, 0)`
+  // is the bare-pid equivalent (throws ESRCH once the process is gone). Escalate
+  // to SIGKILL only if it's still alive after KILL_GRACE_PERIOD.
+  await new Promise<void>((resolve) => {
+    const POLL_MS = 100;
+    let waited = 0;
+    const tick = (): void => {
+      try {
+        process.kill(pid, 0); // liveness probe — throws ESRCH once gone
+      } catch {
+        resolve();
+        return;
+      }
+      waited += POLL_MS;
+      if (waited >= KILL_GRACE_PERIOD) {
+        try {
+          killGroup('SIGKILL');
+        } catch (err) {
+          onError?.(err);
+        }
+        resolve();
+        return;
+      }
+      setTimeout(tick, POLL_MS).unref?.();
+    };
+    setTimeout(tick, POLL_MS).unref?.();
+  });
+}
 
 /**
  * Strip ANSI escape codes from CLI output.
@@ -48,12 +124,23 @@ export async function resolveCliPath(binary: string): Promise<string | null> {
 export function spawnCli(
   binary: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv; needsConsole?: boolean },
+  options: {
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    needsConsole?: boolean;
+    detached?: boolean;
+  },
 ): ChildProcess {
   return crossSpawn(binary, args, {
     cwd: options.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, ...CLI_CLEAN_ENV, ...options.env },
+    // POSIX: make the child a process-group leader so killProcessTree() can
+    // group-kill (process.kill(-pid)) its whole subtree. Opt-in — only the
+    // long-lived main-run spawns request it; short-lived probes omit it to
+    // avoid gaining orphan risk for no tree-kill benefit. No-op on Windows,
+    // where taskkill /T walks real Win32 PID ancestry instead.
+    detached: process.platform !== 'win32' && options.detached === true,
     ...(options.needsConsole && process.platform === 'win32'
       ? { windowsHide: false }
       : {}),

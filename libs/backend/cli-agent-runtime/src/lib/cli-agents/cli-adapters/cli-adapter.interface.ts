@@ -78,6 +78,9 @@ export interface SdkHandle {
    *  in preference to the legacy `tracked.process.stdin` path.
    *  No-op if the run no longer has a writable channel. */
   readonly steer?: (message: string) => void;
+  /** PID of the live child process, if this handle spawned one. Lets the
+   *  manager tree-kill the real process group on abort/timeout. */
+  readonly getPid?: () => number | undefined;
 }
 
 export interface ContinuationOutcome {

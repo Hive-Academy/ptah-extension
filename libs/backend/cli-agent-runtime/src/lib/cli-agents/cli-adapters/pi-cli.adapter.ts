@@ -81,7 +81,9 @@ import {
   buildTaskPrompt,
   probeCliVersion,
   resolveCliPath,
+  resolveDirectSpawn,
   spawnCli,
+  killProcessTree,
 } from './cli-adapter.utils';
 
 /**
@@ -340,11 +342,14 @@ export class PiCliAdapter implements CliAdapter {
       }
     };
 
-    /** Best-effort graceful stop then hard kill (settle-then-kill lifecycle). */
+    /** Best-effort graceful stop then hard tree-kill (settle-then-kill
+     *  lifecycle). The `{"type":"abort"}` write gives Pi a chance to unwind its
+     *  own tool subprocesses first; the tree-kill then reaps whatever survives
+     *  (bash grandchildren, dev servers) instead of orphaning them. */
     const killChild = (child: ReturnType<typeof spawnCli>): void => {
       writeRequest(child, { type: 'abort' });
-      if (!child.killed) {
-        child.kill('SIGTERM');
+      if (child.pid && !child.killed) {
+        void killProcessTree(child.pid);
       }
     };
 
@@ -357,6 +362,12 @@ export class PiCliAdapter implements CliAdapter {
       }
     };
     abortController.signal.addEventListener('abort', onAbort);
+
+    // On Windows, `pi` is typically an npm `.cmd` shim; cross-spawn would run it
+    // through cmd.exe, making child.pid the shim PID (killing it orphans the real
+    // agent). resolveDirectSpawn points spawn at the real node entrypoint/binary
+    // so child.pid is the process taskkill /T should walk from. No-op off-Windows.
+    const spawnDescriptor = await resolveDirectSpawn(binary);
 
     const runTurn = (
       message: string,
@@ -375,9 +386,14 @@ export class PiCliAdapter implements CliAdapter {
         args.push('--session', resumeSessionId);
       }
 
-      const child = spawnCli(binary, args, {
-        cwd: options.workingDirectory,
-      });
+      const child = spawnCli(
+        spawnDescriptor.command,
+        [...spawnDescriptor.prefixArgs, ...args],
+        {
+          cwd: options.workingDirectory,
+          detached: true,
+        },
+      );
       activeChild = child;
       child.stdout?.setEncoding('utf8');
       child.stderr?.setEncoding('utf8');
@@ -499,6 +515,7 @@ export class PiCliAdapter implements CliAdapter {
       onOutput,
       onSegment,
       getSessionId: () => capturedSessionId,
+      getPid: () => activeChild?.pid,
       steer: (message: string): void => {
         // Mid-run steering targets the CURRENT child's stdin. NEVER a bare
         // `prompt` (Pi errors on that mid-run) — the dedicated `steer` request.

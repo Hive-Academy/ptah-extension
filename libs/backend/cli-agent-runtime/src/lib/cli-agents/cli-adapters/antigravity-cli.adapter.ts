@@ -43,7 +43,9 @@ import {
   buildTaskPrompt,
   probeCliVersion,
   resolveCliPath,
+  resolveDirectSpawn,
   spawnCli,
+  killProcessTree,
 } from './cli-adapter.utils';
 
 /**
@@ -404,19 +406,30 @@ export class AntigravityCliAdapter implements CliAdapter {
 
     const spawnStartMs = Date.now();
     const binary = options.binaryPath ?? 'agy';
-    const child = spawnCli(binary, args, {
-      cwd: options.workingDirectory,
-      env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
-      needsConsole: true,
-    });
+    // On Windows `agy` is typically an npm `.cmd` shim; resolveDirectSpawn points
+    // spawn at the real node entrypoint/binary so child.pid is the process
+    // taskkill /T should walk from (not the cmd.exe shim). No-op off-Windows.
+    const spawnDescriptor = await resolveDirectSpawn(binary);
+    const child = spawnCli(
+      spawnDescriptor.command,
+      [...spawnDescriptor.prefixArgs, ...args],
+      {
+        cwd: options.workingDirectory,
+        env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
+        needsConsole: true,
+        detached: true,
+      },
+    );
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     // Prompt is passed via argv; nothing is written to stdin.
     child.stdin?.end();
 
     const onAbort = (): void => {
-      if (!child.killed) {
-        child.kill('SIGTERM');
+      if (child.pid && !child.killed) {
+        // Tree-kill the whole process group — child.kill() alone orphans the
+        // real `agy` process (and any shell subprocesses) when child is a shim.
+        void killProcessTree(child.pid);
       }
     };
     abortController.signal.addEventListener('abort', onAbort);
@@ -507,6 +520,7 @@ export class AntigravityCliAdapter implements CliAdapter {
       onOutput,
       onSegment,
       getSessionId: () => capturedSessionId,
+      getPid: () => child.pid,
     };
   }
 

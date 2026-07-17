@@ -9,9 +9,8 @@
  * - Cross-platform process termination (SIGTERM/taskkill)
  */
 import { injectable, inject } from 'tsyringe';
-import { execFile, ChildProcess } from 'child_process';
+import { ChildProcess } from 'child_process';
 import { promises as fsPromises } from 'fs';
-import { promisify } from 'util';
 import { EventEmitter } from 'eventemitter3';
 import axios from 'axios';
 import {
@@ -44,11 +43,11 @@ import type {
   CliCommandOptions,
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
+import { killProcessTree } from './cli-adapters/cli-adapter.utils';
 import {
   MAX_BUFFER_SIZE,
   DEFAULT_TIMEOUT,
   MAX_TIMEOUT,
-  KILL_GRACE_PERIOD,
   COMPLETED_AGENT_TTL,
   OUTPUT_FLUSH_INTERVAL,
   GRACEFUL_EXIT_DELAY_MS,
@@ -61,8 +60,6 @@ import {
   capStreamEvents,
   mergeConsecutiveTextSegments,
 } from './agent-process-manager-helpers';
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Shell metacharacters — kept for reference only.
@@ -1144,79 +1141,40 @@ export class AgentProcessManager {
   }
 
   private async killProcess(tracked: TrackedAgent): Promise<void> {
+    const captureTreeKillError = (err: unknown): void => {
+      this.sentryService.captureException(
+        err instanceof Error ? err : new Error(String(err)),
+        { errorSource: 'AgentProcessManager.killProcess.treeKill' },
+      );
+    };
+
     const child = tracked.process;
     if (!child) {
+      // SDK-handle branch (every current adapter). Abort fires the adapter's own
+      // best-effort graceful stop + tree-kill; we ALSO tree-kill the live child's
+      // process group here (defense in depth for handles whose abort path doesn't
+      // reap descendants), then wait for the run to actually settle.
       if (tracked.sdkAbortController) {
         tracked.sdkAbortController.abort();
-        await new Promise<void>((resolve) => setTimeout(resolve, 500));
+
+        const sdkPid = tracked.sdkHandle?.getPid?.();
+        if (sdkPid) {
+          // killProcessTree polls for real exit, so it already blocks until the
+          // process (and group) is gone — no separate settle wait needed.
+          await killProcessTree(sdkPid, 'SIGTERM', captureTreeKillError);
+        } else {
+          // No live child PID exposed — give the abort a brief moment to settle.
+          await new Promise<void>((resolve) => setTimeout(resolve, 500));
+        }
       }
       return;
     }
 
     if (!child.pid) return;
 
-    if (process.platform === 'win32') {
-      try {
-        await execFileAsync('taskkill', [
-          '/pid',
-          String(child.pid),
-          '/T',
-          '/F',
-        ]);
-      } catch (err) {
-        this.sentryService.captureException(
-          err instanceof Error ? err : new Error(String(err)),
-          { errorSource: 'AgentProcessManager.killProcess.taskkill' },
-        );
-        try {
-          child.kill();
-        } catch (killErr) {
-          this.sentryService.captureException(
-            killErr instanceof Error ? killErr : new Error(String(killErr)),
-            { errorSource: 'AgentProcessManager.killProcess.fallbackKill' },
-          );
-          /* already dead */
-        }
-      }
-    } else {
-      const childPid = child.pid;
-      const killGroup = (signal: NodeJS.Signals): boolean => {
-        try {
-          process.kill(-childPid, signal);
-          return true;
-        } catch {
-          child.kill(signal);
-          return false;
-        }
-      };
-
-      killGroup('SIGTERM');
-      await new Promise<void>((resolve) => {
-        let resolved = false;
-
-        const killTimeout = setTimeout(() => {
-          if (resolved) return;
-          resolved = true;
-          try {
-            killGroup('SIGKILL');
-          } catch (err) {
-            this.sentryService.captureException(
-              err instanceof Error ? err : new Error(String(err)),
-              { errorSource: 'AgentProcessManager.killProcess.SIGKILL' },
-            );
-            /* already dead */
-          }
-          resolve();
-        }, KILL_GRACE_PERIOD);
-
-        child.on('exit', () => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(killTimeout);
-          resolve();
-        });
-      });
-    }
+    // Legacy tracked-ChildProcess branch: single shared tree-kill implementation
+    // (Windows taskkill /T /F; POSIX process-group kill escalating to SIGKILL).
+    await killProcessTree(child.pid, 'SIGTERM', captureTreeKillError);
   }
 
   private getRunningCount(): number {
