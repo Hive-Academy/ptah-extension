@@ -20,6 +20,18 @@ import { CliRunner, createTmpHome, type TmpHome } from './_harness';
 
 jest.setTimeout(90_000);
 
+/**
+ * The two `session start does not hang` cases run a REAL agent turn
+ * (session start → Claude Agent SDK → the Anthropic API). With the placeholder
+ * key that means repeated `401`s fired at the live API from CI, which risks
+ * abuse flags / IP bans — and the turn's terminate-vs-hang behavior depends on
+ * external runtime behavior we don't control anyway. Skip them in CI (they
+ * still run locally against your own environment); the rest of this suite
+ * (doctor / set-key / license / init / stdout hygiene) exercises the bootstrap
+ * without any network turn.
+ */
+const describeSessionTurn = process.env['CI'] ? describe.skip : describe;
+
 /** Format-valid Anthropic placeholder — passes `sk-ant-` + length validation. */
 const PLACEHOLDER_ANTHROPIC_KEY = `sk-ant-api03-${'a'.repeat(95)}`;
 /** Format-valid Ptah license placeholder — `ptah_lic_` + 64 hex chars. */
@@ -281,64 +293,67 @@ describe('ptah-cli bootstrap regression', () => {
     }
   });
 
-  describe('session start does not hang (with a configured placeholder key)', () => {
-    beforeEach(async () => {
-      const setKey = await CliRunner.spawnOneshot({
-        home: tmp,
-        args: [
-          'provider',
-          'set-key',
-          '--provider',
-          'anthropic',
-          '--key',
-          PLACEHOLDER_ANTHROPIC_KEY,
-        ],
-        env: isolatedEnv(tmp),
-        timeoutMs: 60_000,
-      });
-      expect(setKey.exitCode).toBe(0);
+  describeSessionTurn(
+    'session start does not hang (with a configured placeholder key)',
+    () => {
+      beforeEach(async () => {
+        const setKey = await CliRunner.spawnOneshot({
+          home: tmp,
+          args: [
+            'provider',
+            'set-key',
+            '--provider',
+            'anthropic',
+            '--key',
+            PLACEHOLDER_ANTHROPIC_KEY,
+          ],
+          env: isolatedEnv(tmp),
+          timeoutMs: 60_000,
+        });
+        expect(setKey.exitCode).toBe(0);
 
-      const setDefault = await CliRunner.spawnOneshot({
-        home: tmp,
-        args: ['provider', 'default', 'set', 'anthropic'],
-        env: isolatedEnv(tmp),
-        timeoutMs: 60_000,
-      });
-      expect(setDefault.exitCode).toBe(0);
-    });
-
-    it('session start --task --once terminates and emits session.created', async () => {
-      const result = await CliRunner.spawnOneshot({
-        home: tmp,
-        args: ['session', 'start', '--task', 'say hi', '--once'],
-        env: isolatedEnv(tmp),
-        timeoutMs: 75_000,
+        const setDefault = await CliRunner.spawnOneshot({
+          home: tmp,
+          args: ['provider', 'default', 'set', 'anthropic'],
+          env: isolatedEnv(tmp),
+          timeoutMs: 60_000,
+        });
+        expect(setDefault.exitCode).toBe(0);
       });
 
-      expect(result.signal).toBeNull();
-      expect(result.exitCode).not.toBeNull();
-      expect(
-        firstNotification(result.stdoutLines, 'session.created'),
-      ).toBeDefined();
-      expect(result.stdoutRaw).not.toContain('Settings > Authentication tab');
-      expect(result.stderr).not.toContain('Settings > Authentication tab');
-    });
+      it('session start --task --once terminates and emits session.created', async () => {
+        const result = await CliRunner.spawnOneshot({
+          home: tmp,
+          args: ['session', 'start', '--task', 'say hi', '--once'],
+          env: isolatedEnv(tmp),
+          timeoutMs: 75_000,
+        });
 
-    it('session start --task (no --once) terminates and emits session.created', async () => {
-      const result = await CliRunner.spawnOneshot({
-        home: tmp,
-        args: ['session', 'start', '--task', 'say hi'],
-        env: isolatedEnv(tmp),
-        timeoutMs: 75_000,
+        expect(result.signal).toBeNull();
+        expect(result.exitCode).not.toBeNull();
+        expect(
+          firstNotification(result.stdoutLines, 'session.created'),
+        ).toBeDefined();
+        expect(result.stdoutRaw).not.toContain('Settings > Authentication tab');
+        expect(result.stderr).not.toContain('Settings > Authentication tab');
       });
 
-      expect(result.signal).toBeNull();
-      expect(result.exitCode).not.toBeNull();
-      expect(
-        firstNotification(result.stdoutLines, 'session.created'),
-      ).toBeDefined();
-      expect(result.stdoutRaw).not.toContain('Settings > Authentication tab');
-      expect(result.stderr).not.toContain('Settings > Authentication tab');
-    });
-  });
+      it('session start --task (no --once) terminates and emits session.created', async () => {
+        const result = await CliRunner.spawnOneshot({
+          home: tmp,
+          args: ['session', 'start', '--task', 'say hi'],
+          env: isolatedEnv(tmp),
+          timeoutMs: 75_000,
+        });
+
+        expect(result.signal).toBeNull();
+        expect(result.exitCode).not.toBeNull();
+        expect(
+          firstNotification(result.stdoutLines, 'session.created'),
+        ).toBeDefined();
+        expect(result.stdoutRaw).not.toContain('Settings > Authentication tab');
+        expect(result.stderr).not.toContain('Settings > Authentication tab');
+      });
+    },
+  );
 });
