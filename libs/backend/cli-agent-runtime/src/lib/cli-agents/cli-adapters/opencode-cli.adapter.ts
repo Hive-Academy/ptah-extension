@@ -58,6 +58,7 @@ import {
   resolveDirectSpawn,
   spawnCli,
   killProcessTree,
+  createBufferedEmitter,
 } from './cli-adapter.utils';
 
 /**
@@ -372,51 +373,8 @@ export class OpencodeCliAdapter implements CliAdapter {
     // Prompt is a positional arg; keep it LAST.
     args.push(taskPrompt);
 
-    const outputBuffer: string[] = [];
-    const outputCallbacks: Array<(data: string) => void> = [];
-
-    const onOutput = (callback: (data: string) => void): void => {
-      outputCallbacks.push(callback);
-      if (outputBuffer.length > 0) {
-        for (const buffered of outputBuffer) {
-          callback(buffered);
-        }
-        outputBuffer.length = 0;
-      }
-    };
-
-    const emitOutput = (data: string): void => {
-      if (outputCallbacks.length === 0) {
-        outputBuffer.push(data);
-      } else {
-        for (const cb of outputCallbacks) {
-          cb(data);
-        }
-      }
-    };
-
-    const segmentBuffer: CliOutputSegment[] = [];
-    const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
-
-    const onSegment = (callback: (segment: CliOutputSegment) => void): void => {
-      segmentCallbacks.push(callback);
-      if (segmentBuffer.length > 0) {
-        for (const buffered of segmentBuffer) {
-          callback(buffered);
-        }
-        segmentBuffer.length = 0;
-      }
-    };
-
-    const emitSegment = (segment: CliOutputSegment): void => {
-      if (segmentCallbacks.length === 0) {
-        segmentBuffer.push(segment);
-      } else {
-        for (const cb of segmentCallbacks) {
-          cb(segment);
-        }
-      }
-    };
+    const output = createBufferedEmitter<string>();
+    const segment = createBufferedEmitter<CliOutputSegment>();
 
     // Primary: detected binary path (the `.cmd` shim on Windows). We always
     // attempt native-binary resolution (passing the detected path as a hint) and
@@ -479,7 +437,7 @@ export class OpencodeCliAdapter implements CliAdapter {
       lineBuf = lines.pop() ?? '';
       const LINE_BUF_CAP = 1024 * 1024;
       if (lineBuf.length > LINE_BUF_CAP) {
-        emitSegment({
+        segment.emit({
           type: 'info',
           content: `Line buffer exceeded ${LINE_BUF_CAP} bytes without a newline; resetting.`,
         });
@@ -488,8 +446,8 @@ export class OpencodeCliAdapter implements CliAdapter {
       for (const line of lines) {
         this.handleLine(
           line,
-          emitOutput,
-          emitSegment,
+          output.emit,
+          segment.emit,
           textTracker,
           setSessionId,
         );
@@ -499,12 +457,12 @@ export class OpencodeCliAdapter implements CliAdapter {
     child.stderr?.on('data', (data: string) => {
       const cleaned = stripAnsiCodes(data).trim();
       if (!cleaned) return;
-      emitOutput(`[stderr] ${cleaned}\n`);
+      output.emit(`[stderr] ${cleaned}\n`);
       const isError =
         /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
           cleaned,
         );
-      emitSegment({ type: isError ? 'error' : 'info', content: cleaned });
+      segment.emit({ type: isError ? 'error' : 'info', content: cleaned });
     });
 
     const done = new Promise<number>((resolve) => {
@@ -513,8 +471,8 @@ export class OpencodeCliAdapter implements CliAdapter {
         if (lineBuf.trim()) {
           this.handleLine(
             lineBuf,
-            emitOutput,
-            emitSegment,
+            output.emit,
+            segment.emit,
             textTracker,
             setSessionId,
           );
@@ -522,7 +480,7 @@ export class OpencodeCliAdapter implements CliAdapter {
         }
         const exitCode = code ?? (signal ? 1 : 0);
         if (exitCode !== 0 && !abortController.signal.aborted) {
-          emitSegment({
+          segment.emit({
             type: 'error',
             content: `opencode CLI exited with code ${exitCode}`,
           });
@@ -532,8 +490,8 @@ export class OpencodeCliAdapter implements CliAdapter {
 
       child.on('error', (err) => {
         abortController.signal.removeEventListener('abort', onAbort);
-        emitOutput(`\n[opencode CLI Error] ${err.message}\n`);
-        emitSegment({
+        output.emit(`\n[opencode CLI Error] ${err.message}\n`);
+        segment.emit({
           type: 'error',
           content: `opencode CLI Error: ${err.message}`,
         });
@@ -544,8 +502,8 @@ export class OpencodeCliAdapter implements CliAdapter {
     return {
       abort: abortController,
       done,
-      onOutput,
-      onSegment,
+      onOutput: output.subscribe,
+      onSegment: segment.subscribe,
       getSessionId: () => capturedSessionId,
       getPid: () => child.pid,
     };

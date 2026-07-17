@@ -89,6 +89,36 @@ export async function killProcessTree(
 }
 
 /**
+ * A buffer-until-first-subscriber emitter. Items emitted before any
+ * subscriber attaches are buffered and flushed (in order) to the first
+ * subscriber; thereafter each emit fans out to all subscribers live. This is
+ * the shared shape every CLI adapter uses for its `onOutput`/`onSegment`
+ * channels so early output isn't dropped before the manager subscribes.
+ */
+export function createBufferedEmitter<T>(): {
+  subscribe: (callback: (item: T) => void) => void;
+  emit: (item: T) => void;
+} {
+  const buffer: T[] = [];
+  const callbacks: Array<(item: T) => void> = [];
+  const subscribe = (callback: (item: T) => void): void => {
+    callbacks.push(callback);
+    if (buffer.length > 0) {
+      for (const buffered of buffer) callback(buffered);
+      buffer.length = 0;
+    }
+  };
+  const emit = (item: T): void => {
+    if (callbacks.length === 0) {
+      buffer.push(item);
+    } else {
+      for (const cb of callbacks) cb(item);
+    }
+  };
+  return { subscribe, emit };
+}
+
+/**
  * Strip ANSI escape codes from CLI output.
  * Used by all CLI adapters to clean raw terminal output.
  */

@@ -25,6 +25,7 @@ import {
   buildTaskPrompt,
   probeCliVersion,
   resolveCliPath,
+  createBufferedEmitter,
 } from './cli-adapter.utils';
 
 /** Valid reasoning effort values for the Codex SDK. */
@@ -503,50 +504,8 @@ export class CodexCliAdapter implements CliAdapter {
     let capturedThreadId: string | undefined;
     const itemTextTracker = new Map<string, string>();
     const itemsWithDeltas = new Set<string>();
-    const outputBuffer: string[] = [];
-    const outputCallbacks: Array<(data: string) => void> = [];
-
-    const onOutput = (callback: (data: string) => void): void => {
-      outputCallbacks.push(callback);
-      if (outputBuffer.length > 0) {
-        for (const buffered of outputBuffer) {
-          callback(buffered);
-        }
-        outputBuffer.length = 0;
-      }
-    };
-
-    const emitOutput = (data: string): void => {
-      if (outputCallbacks.length === 0) {
-        outputBuffer.push(data);
-      } else {
-        for (const cb of outputCallbacks) {
-          cb(data);
-        }
-      }
-    };
-    const segmentBuffer: CliOutputSegment[] = [];
-    const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
-
-    const onSegment = (callback: (segment: CliOutputSegment) => void): void => {
-      segmentCallbacks.push(callback);
-      if (segmentBuffer.length > 0) {
-        for (const buffered of segmentBuffer) {
-          callback(buffered);
-        }
-        segmentBuffer.length = 0;
-      }
-    };
-
-    const emitSegment = (segment: CliOutputSegment): void => {
-      if (segmentCallbacks.length === 0) {
-        segmentBuffer.push(segment);
-      } else {
-        for (const cb of segmentCallbacks) {
-          cb(segment);
-        }
-      }
-    };
+    const output = createBufferedEmitter<string>();
+    const segment = createBufferedEmitter<CliOutputSegment>();
     const STARTUP_TIMEOUT_MS = 30_000;
     const runTurn = async (prompt: string): Promise<number> => {
       try {
@@ -572,8 +531,8 @@ export class CodexCliAdapter implements CliAdapter {
 
           this.handleStreamEvent(
             event,
-            emitOutput,
-            emitSegment,
+            output.emit,
+            segment.emit,
             itemTextTracker,
             itemsWithDeltas,
           );
@@ -590,8 +549,8 @@ export class CodexCliAdapter implements CliAdapter {
 
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        emitOutput(`\n[Codex SDK Error] ${errorMessage}\n`);
-        emitSegment({
+        output.emit(`\n[Codex SDK Error] ${errorMessage}\n`);
+        segment.emit({
           type: 'error',
           content: `Codex SDK Error: ${errorMessage}`,
         });
@@ -604,8 +563,8 @@ export class CodexCliAdapter implements CliAdapter {
     return {
       abort: abortController,
       done,
-      onOutput,
-      onSegment,
+      onOutput: output.subscribe,
+      onSegment: segment.subscribe,
       getSessionId: () => capturedThreadId,
       setAgentId: () => {},
       supportsContinuation: () => true,

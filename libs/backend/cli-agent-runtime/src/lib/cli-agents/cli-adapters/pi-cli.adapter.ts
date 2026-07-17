@@ -84,6 +84,7 @@ import {
   resolveDirectSpawn,
   spawnCli,
   killProcessTree,
+  createBufferedEmitter,
 } from './cli-adapter.utils';
 
 /**
@@ -282,51 +283,8 @@ export class PiCliAdapter implements CliAdapter {
     let capturedSessionFile: string | undefined;
     let activeChild: ReturnType<typeof spawnCli> | undefined;
 
-    const outputBuffer: string[] = [];
-    const outputCallbacks: Array<(data: string) => void> = [];
-
-    const onOutput = (callback: (data: string) => void): void => {
-      outputCallbacks.push(callback);
-      if (outputBuffer.length > 0) {
-        for (const buffered of outputBuffer) {
-          callback(buffered);
-        }
-        outputBuffer.length = 0;
-      }
-    };
-
-    const emitOutput = (data: string): void => {
-      if (outputCallbacks.length === 0) {
-        outputBuffer.push(data);
-      } else {
-        for (const cb of outputCallbacks) {
-          cb(data);
-        }
-      }
-    };
-
-    const segmentBuffer: CliOutputSegment[] = [];
-    const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
-
-    const onSegment = (callback: (segment: CliOutputSegment) => void): void => {
-      segmentCallbacks.push(callback);
-      if (segmentBuffer.length > 0) {
-        for (const buffered of segmentBuffer) {
-          callback(buffered);
-        }
-        segmentBuffer.length = 0;
-      }
-    };
-
-    const emitSegment = (segment: CliOutputSegment): void => {
-      if (segmentCallbacks.length === 0) {
-        segmentBuffer.push(segment);
-      } else {
-        for (const cb of segmentCallbacks) {
-          cb(segment);
-        }
-      }
-    };
+    const output = createBufferedEmitter<string>();
+    const segment = createBufferedEmitter<CliOutputSegment>();
 
     /** Write one JSONL request to a child's stdin, only if still writable. */
     const writeRequest = (
@@ -431,14 +389,14 @@ export class PiCliAdapter implements CliAdapter {
           const lines = lineBuf.split(/\r?\n/);
           lineBuf = lines.pop() ?? '';
           if (lineBuf.length > LINE_BUF_CAP) {
-            emitSegment({
+            segment.emit({
               type: 'info',
               content: `Line buffer exceeded ${LINE_BUF_CAP} bytes without a newline; resetting.`,
             });
             lineBuf = '';
           }
           for (const line of lines) {
-            const isSettled = this.handleLine(line, emitOutput, emitSegment, {
+            const isSettled = this.handleLine(line, output.emit, segment.emit, {
               onSessionId: (id) => {
                 if (id && !capturedSessionId) capturedSessionId = id;
               },
@@ -459,12 +417,12 @@ export class PiCliAdapter implements CliAdapter {
           for (const raw of lines) {
             const cleaned = raw.trim();
             if (!cleaned) continue;
-            emitOutput(`[stderr] ${cleaned}\n`);
+            output.emit(`[stderr] ${cleaned}\n`);
             const isError =
               /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
                 cleaned,
               );
-            emitSegment({
+            segment.emit({
               type: isError ? 'error' : 'info',
               content: cleaned,
             });
@@ -476,7 +434,7 @@ export class PiCliAdapter implements CliAdapter {
           // The process exited before an `agent_settled` — flush any trailing
           // line, then resolve with the exit code as a fallback.
           if (lineBuf.trim()) {
-            this.handleLine(lineBuf, emitOutput, emitSegment, {
+            this.handleLine(lineBuf, output.emit, segment.emit, {
               onSessionId: (id) => {
                 if (id && !capturedSessionId) capturedSessionId = id;
               },
@@ -488,7 +446,7 @@ export class PiCliAdapter implements CliAdapter {
           }
           const exitCode = code ?? (signal ? 1 : 0);
           if (exitCode !== 0 && !abortController.signal.aborted) {
-            emitSegment({
+            segment.emit({
               type: 'error',
               content: `Pi CLI exited with code ${exitCode}`,
             });
@@ -497,8 +455,8 @@ export class PiCliAdapter implements CliAdapter {
         });
 
         child.on('error', (err: Error) => {
-          emitOutput(`\n[Pi CLI Error] ${err.message}\n`);
-          emitSegment({
+          output.emit(`\n[Pi CLI Error] ${err.message}\n`);
+          segment.emit({
             type: 'error',
             content: `Pi CLI Error: ${err.message}`,
           });
@@ -512,8 +470,8 @@ export class PiCliAdapter implements CliAdapter {
     return {
       abort: abortController,
       done,
-      onOutput,
-      onSegment,
+      onOutput: output.subscribe,
+      onSegment: segment.subscribe,
       getSessionId: () => capturedSessionId,
       getPid: () => activeChild?.pid,
       steer: (message: string): void => {

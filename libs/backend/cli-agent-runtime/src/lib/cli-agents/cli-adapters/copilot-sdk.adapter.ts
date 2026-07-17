@@ -56,6 +56,7 @@ import {
   resolveDirectSpawn,
   spawnCli,
   killProcessTree,
+  createBufferedEmitter,
 } from './cli-adapter.utils';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';
 
@@ -214,51 +215,8 @@ export class CopilotSdkAdapter implements CliAdapter {
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
     const abortController = new AbortController();
-    const outputBuffer: string[] = [];
-    const outputCallbacks: Array<(data: string) => void> = [];
-
-    const onOutput = (callback: (data: string) => void): void => {
-      outputCallbacks.push(callback);
-      if (outputBuffer.length > 0) {
-        for (const buffered of outputBuffer) {
-          callback(buffered);
-        }
-        outputBuffer.length = 0;
-      }
-    };
-
-    const emitOutput = (data: string): void => {
-      if (outputCallbacks.length === 0) {
-        outputBuffer.push(data);
-      } else {
-        for (const cb of outputCallbacks) {
-          cb(data);
-        }
-      }
-    };
-
-    const segmentBuffer: CliOutputSegment[] = [];
-    const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
-
-    const onSegment = (callback: (segment: CliOutputSegment) => void): void => {
-      segmentCallbacks.push(callback);
-      if (segmentBuffer.length > 0) {
-        for (const buffered of segmentBuffer) {
-          callback(buffered);
-        }
-        segmentBuffer.length = 0;
-      }
-    };
-
-    const emitSegment = (segment: CliOutputSegment): void => {
-      if (segmentCallbacks.length === 0) {
-        segmentBuffer.push(segment);
-      } else {
-        for (const cb of segmentCallbacks) {
-          cb(segment);
-        }
-      }
-    };
+    const output = createBufferedEmitter<string>();
+    const segment = createBufferedEmitter<CliOutputSegment>();
     let binaryPath = options.binaryPath;
     if (!binaryPath) {
       const resolved = await resolveCliPath('copilot');
@@ -268,13 +226,13 @@ export class CopilotSdkAdapter implements CliAdapter {
     }
 
     if (!binaryPath) {
-      emitOutput(`${COPILOT_NOT_INSTALLED_MESSAGE}\n`);
-      emitSegment({ type: 'error', content: COPILOT_NOT_INSTALLED_MESSAGE });
+      output.emit(`${COPILOT_NOT_INSTALLED_MESSAGE}\n`);
+      segment.emit({ type: 'error', content: COPILOT_NOT_INSTALLED_MESSAGE });
       return {
         abort: abortController,
         done: Promise.resolve(1),
-        onOutput,
-        onSegment,
+        onOutput: output.subscribe,
+        onSegment: segment.subscribe,
         getSessionId: () => undefined,
         supportsContinuation: () => false,
       };
@@ -377,8 +335,8 @@ export class CopilotSdkAdapter implements CliAdapter {
           if (!trimmed) continue;
           const sessionId = this.handleJsonLine(
             trimmed,
-            emitOutput,
-            emitSegment,
+            output.emit,
+            segment.emit,
             {
               getReceivedDeltas: () => receivedDeltas,
               setReceivedDeltas: () => {
@@ -412,7 +370,7 @@ export class CopilotSdkAdapter implements CliAdapter {
             /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
               line,
             );
-          emitSegment({ type: isError ? 'error' : 'info', content: line });
+          segment.emit({ type: isError ? 'error' : 'info', content: line });
         }
       });
 
@@ -421,8 +379,8 @@ export class CopilotSdkAdapter implements CliAdapter {
           if (lineBuf.trim()) {
             const sessionId = this.handleJsonLine(
               lineBuf.trim(),
-              emitOutput,
-              emitSegment,
+              output.emit,
+              segment.emit,
               {
                 getReceivedDeltas: () => receivedDeltas,
                 setReceivedDeltas: () => {
@@ -447,8 +405,8 @@ export class CopilotSdkAdapter implements CliAdapter {
         });
 
         child.on('error', (err) => {
-          emitOutput(`\n[Copilot CLI Error] ${err.message}\n`);
-          emitSegment({
+          output.emit(`\n[Copilot CLI Error] ${err.message}\n`);
+          segment.emit({
             type: 'error',
             content: `Copilot CLI Error: ${err.message}`,
           });
@@ -463,8 +421,8 @@ export class CopilotSdkAdapter implements CliAdapter {
     return {
       abort: abortController,
       done,
-      onOutput,
-      onSegment,
+      onOutput: output.subscribe,
+      onSegment: segment.subscribe,
       getSessionId: () => capturedSessionId,
       getPid: () => activeChild?.pid,
       supportsContinuation: () => capturedSessionId != null,
