@@ -310,14 +310,14 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     expect(optsOff.agentProgressSummaries).toBeUndefined();
   });
 
-  it('defaults forwardSubagentText to false (opt-in) when the caller does not specify it', async () => {
+  it('defaults forwardSubagentText to true when the caller does not specify it', async () => {
     const opts = await buildWith();
-    expect(opts.forwardSubagentText).toBe(false);
+    expect(opts.forwardSubagentText).toBe(true);
   });
 
-  it('honors forwardSubagentText: true (explicit opt-in for live subagent transcripts)', async () => {
-    const opts = await buildWith({ forwardSubagentText: true });
-    expect(opts.forwardSubagentText).toBe(true);
+  it('honors forwardSubagentText: false (the chatty-subagent killswitch)', async () => {
+    const opts = await buildWith({ forwardSubagentText: false });
+    expect(opts.forwardSubagentText).toBe(false);
   });
 
   it('pairs allowDangerouslySkipPermissions with bypassPermissions (YOLO) so MCP tool calls do not self-deny', async () => {
