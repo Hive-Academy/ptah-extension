@@ -146,6 +146,9 @@ export class AgentRpcHandlers {
             codexModel: this.getAgentCfg<string>('codexModel', ''),
             copilotModel: this.getAgentCfg<string>('copilotModel', ''),
             cursorModel: this.getAgentCfg<string>('cursorModel', ''),
+            antigravityModel: this.getAgentCfg<string>('antigravityModel', ''),
+            opencodeModel: this.getAgentCfg<string>('opencodeModel', ''),
+            piModel: this.getAgentCfg<string>('piModel', ''),
             cursorApiKeyConfigured: this.isCursorApiKeyConfigured(),
             codexAutoApprove: this.getAgentCfg<boolean>(
               'codexAutoApprove',
@@ -161,6 +164,10 @@ export class AgentRpcHandlers {
             ),
             copilotReasoningEffort: this.getAgentCfg<string>(
               'copilotReasoningEffort',
+              '',
+            ),
+            piReasoningEffort: this.getAgentCfg<string>(
+              'piReasoningEffort',
               '',
             ),
             mcpPort:
@@ -226,6 +233,15 @@ export class AgentRpcHandlers {
         if (params.cursorModel !== undefined) {
           await this.setAgentCfg('cursorModel', params.cursorModel);
         }
+        if (params.antigravityModel !== undefined) {
+          await this.setAgentCfg('antigravityModel', params.antigravityModel);
+        }
+        if (params.opencodeModel !== undefined) {
+          await this.setAgentCfg('opencodeModel', params.opencodeModel);
+        }
+        if (params.piModel !== undefined) {
+          await this.setAgentCfg('piModel', params.piModel);
+        }
         if (params.cursorApiKey !== undefined) {
           await this.workspace.setConfiguration(
             'ptah',
@@ -258,6 +274,9 @@ export class AgentRpcHandlers {
             'copilotReasoningEffort',
             params.copilotReasoningEffort,
           );
+        }
+        if (params.piReasoningEffort !== undefined) {
+          await this.setAgentCfg('piReasoningEffort', params.piReasoningEffort);
         }
         if (params.mcpPort !== undefined) {
           await this.stateStorage.update(
@@ -334,17 +353,27 @@ export class AgentRpcHandlers {
           const codex = (modelMap['codex'] ?? []) as CliModelOption[];
           const copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
           const cursor = (modelMap['cursor'] ?? []) as CliModelOption[];
+          const antigravity = (modelMap['antigravity'] ??
+            []) as CliModelOption[];
+          const opencode = (modelMap['opencode'] ?? []) as CliModelOption[];
+          const pi = (modelMap['pi'] ?? []) as CliModelOption[];
 
           const result: AgentListCliModelsResult = {
             codex,
             copilot,
             cursor,
+            antigravity,
+            opencode,
+            pi,
           };
 
           this.logger.debug('RPC: agent:listCliModels success', {
             codexCount: result.codex.length,
             copilotCount: result.copilot.length,
             cursorCount: result.cursor.length,
+            antigravityCount: result.antigravity.length,
+            opencodeCount: result.opencode.length,
+            piCount: result.pi.length,
           });
 
           return result;

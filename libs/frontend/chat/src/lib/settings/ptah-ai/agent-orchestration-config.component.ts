@@ -68,8 +68,8 @@ import type {
         </div>
 
         <p class="text-xs text-base-content/70 mb-3">
-          Headless agents (Codex CLI, Copilot, Cursor) for parallel task
-          execution.
+          Headless agents (Codex CLI, Copilot, Cursor, Antigravity, opencode,
+          Pi) for parallel task execution.
         </p>
 
         <!-- Error display -->
@@ -538,6 +538,177 @@ import type {
                           </div>
                         </div>
                       }
+
+                      <!-- Antigravity model (model-only; reasoning effort is
+                           baked into the model labels, e.g. "… (High)") -->
+                      @if (cli.cli === 'antigravity') {
+                        <div class="mt-2">
+                          <label
+                            for="agent-antigravity-model"
+                            class="text-[10px] text-base-content/50 mb-0.5 block"
+                          >
+                            Model
+                          </label>
+                          <select
+                            id="agent-antigravity-model"
+                            class="select select-bordered select-xs w-full"
+                            (change)="onModelSelect('antigravity', $event)"
+                          >
+                            <option
+                              value=""
+                              [selected]="!agentConfig()?.antigravityModel"
+                            >
+                              Default
+                            </option>
+                            @for (
+                              model of antigravityModels();
+                              track model.id
+                            ) {
+                              <option
+                                [value]="model.id"
+                                [selected]="
+                                  model.id === agentConfig()?.antigravityModel
+                                "
+                              >
+                                {{ model.name }}
+                              </option>
+                            }
+                          </select>
+
+                          <div class="flex items-center justify-between mt-2">
+                            <div>
+                              <span class="text-[10px] text-base-content/50"
+                                >Permissions</span
+                              >
+                              <p class="text-[9px] text-base-content/30">
+                                Full auto — Antigravity runs headless with full
+                                access
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      }
+
+                      <!-- opencode model (model-only). Model id format is
+                           provider/model, e.g. anthropic/claude-sonnet-4-5 -->
+                      @if (cli.cli === 'opencode') {
+                        <div class="mt-2">
+                          <label
+                            for="agent-opencode-model"
+                            class="text-[10px] text-base-content/50 mb-0.5 block"
+                          >
+                            Model
+                          </label>
+                          <select
+                            id="agent-opencode-model"
+                            class="select select-bordered select-xs w-full"
+                            (change)="onModelSelect('opencode', $event)"
+                          >
+                            <option
+                              value=""
+                              [selected]="!agentConfig()?.opencodeModel"
+                            >
+                              Default
+                            </option>
+                            @for (model of opencodeModels(); track model.id) {
+                              <option
+                                [value]="model.id"
+                                [selected]="
+                                  model.id === agentConfig()?.opencodeModel
+                                "
+                              >
+                                {{ model.name }}
+                              </option>
+                            }
+                          </select>
+                          <p class="text-[9px] text-base-content/30 mt-1">
+                            Model id uses <code>provider/model</code> format
+                            (e.g. <code>anthropic/claude-sonnet-4-5</code>).
+                          </p>
+
+                          <div class="flex items-center justify-between mt-2">
+                            <div>
+                              <span class="text-[10px] text-base-content/50"
+                                >Permissions</span
+                              >
+                              <p class="text-[9px] text-base-content/30">
+                                Full auto — opencode runs headless with
+                                <code>--auto</code>
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      }
+
+                      <!-- Pi model (model-only) -->
+                      @if (cli.cli === 'pi') {
+                        <div class="mt-2">
+                          <label
+                            for="agent-pi-model"
+                            class="text-[10px] text-base-content/50 mb-0.5 block"
+                          >
+                            Model
+                          </label>
+                          <select
+                            id="agent-pi-model"
+                            class="select select-bordered select-xs w-full"
+                            (change)="onModelSelect('pi', $event)"
+                          >
+                            <option
+                              value=""
+                              [selected]="!agentConfig()?.piModel"
+                            >
+                              Default
+                            </option>
+                            @for (model of piModels(); track model.id) {
+                              <option
+                                [value]="model.id"
+                                [selected]="model.id === agentConfig()?.piModel"
+                              >
+                                {{ model.name }}
+                              </option>
+                            }
+                          </select>
+
+                          <label
+                            for="agent-pi-reasoning"
+                            class="text-[10px] text-base-content/50 mt-2 mb-0.5 block"
+                          >
+                            Reasoning Effort
+                          </label>
+                          <select
+                            id="agent-pi-reasoning"
+                            class="select select-bordered select-xs w-full"
+                            (change)="onReasoningEffortSelect('pi', $event)"
+                          >
+                            @for (
+                              opt of piReasoningEffortOptions;
+                              track opt.value
+                            ) {
+                              <option
+                                [value]="opt.value"
+                                [selected]="
+                                  opt.value === agentConfig()?.piReasoningEffort
+                                "
+                              >
+                                {{ opt.label }}
+                              </option>
+                            }
+                          </select>
+
+                          <div class="flex items-center justify-between mt-2">
+                            <div>
+                              <span class="text-[10px] text-base-content/50"
+                                >Permissions</span
+                              >
+                              <p class="text-[9px] text-base-content/30">
+                                No approval gate and no MCP support — Pi always
+                                runs tools with full process permissions.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      }
                     </div>
                   }
                 </div>
@@ -594,6 +765,22 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     { value: 'high', label: 'High' },
     { value: 'xhigh', label: 'Extra High' },
   ];
+  /**
+   * Pi's thinking scale is wider than Codex/Copilot's — the backend passes the
+   * value through raw to `--thinking` (no max→xhigh coercion), so the UI must be
+   * able to express `off` and `max`. Kept separate from `reasoningEffortOptions`
+   * because Codex/Copilot's `mapEffortToCli` only handles minimal..xhigh.
+   */
+  readonly piReasoningEffortOptions = [
+    { value: '', label: 'Default' },
+    { value: 'off', label: 'Off' },
+    { value: 'minimal', label: 'Minimal' },
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'xhigh', label: 'Extra High' },
+    { value: 'max', label: 'Max' },
+  ];
   readonly agentConfig = signal<AgentOrchestrationConfig | null>(null);
   readonly agentConfigLoading = signal(false);
   readonly agentConfigError = signal<string | null>(null);
@@ -602,6 +789,9 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   readonly codexModels = signal<CliModelOption[]>([]);
   readonly copilotModels = signal<CliModelOption[]>([]);
   readonly cursorModels = signal<CliModelOption[]>([]);
+  readonly antigravityModels = signal<CliModelOption[]>([]);
+  readonly opencodeModels = signal<CliModelOption[]>([]);
+  readonly piModels = signal<CliModelOption[]>([]);
   /** Draft value of the Cursor API key input (write-only; never prefilled from the backend). */
   readonly cursorApiKeyInput = signal('');
   readonly savingCursorApiKey = signal(false);
@@ -685,11 +875,14 @@ export class AgentOrchestrationConfigComponent implements OnInit {
       this.codexModels.set(result.data.codex);
       this.copilotModels.set(result.data.copilot);
       this.cursorModels.set(result.data.cursor);
+      this.antigravityModels.set(result.data.antigravity);
+      this.opencodeModels.set(result.data.opencode);
+      this.piModels.set(result.data.pi);
     }
   }
 
   public onModelSelect(
-    cli: 'codex' | 'copilot' | 'cursor',
+    cli: 'codex' | 'copilot' | 'cursor' | 'antigravity' | 'opencode' | 'pi',
     event: Event,
   ): void {
     const value = (event.target as HTMLSelectElement).value;
@@ -725,10 +918,17 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     }
   }
 
-  public onReasoningEffortSelect(cli: 'codex' | 'copilot', event: Event): void {
+  public onReasoningEffortSelect(
+    cli: 'codex' | 'copilot' | 'pi',
+    event: Event,
+  ): void {
     const value = (event.target as HTMLSelectElement).value;
     const key =
-      cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
+      cli === 'codex'
+        ? 'codexReasoningEffort'
+        : cli === 'copilot'
+          ? 'copilotReasoningEffort'
+          : 'piReasoningEffort';
     this.rpcService.call('agent:setConfig', { [key]: value }).then((result) => {
       if (result.isSuccess()) {
         this.agentConfig.update((c) => (c ? { ...c, [key]: value } : c));
@@ -795,7 +995,7 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   }
 
   async setAgentModel(
-    cli: 'codex' | 'copilot' | 'cursor',
+    cli: 'codex' | 'copilot' | 'cursor' | 'antigravity' | 'opencode' | 'pi',
     model: string,
   ): Promise<void> {
     const key =
@@ -803,7 +1003,13 @@ export class AgentOrchestrationConfigComponent implements OnInit {
         ? 'codexModel'
         : cli === 'cursor'
           ? 'cursorModel'
-          : 'copilotModel';
+          : cli === 'antigravity'
+            ? 'antigravityModel'
+            : cli === 'opencode'
+              ? 'opencodeModel'
+              : cli === 'pi'
+                ? 'piModel'
+                : 'copilotModel';
     const result = await this.rpcService.call('agent:setConfig', {
       [key]: model,
     });

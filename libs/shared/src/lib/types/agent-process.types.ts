@@ -46,7 +46,14 @@ export type AgentStatus =
   | 'timeout'
   | 'stopped';
 
-export type CliType = 'codex' | 'copilot' | 'cursor' | 'ptah-cli';
+export type CliType =
+  | 'codex'
+  | 'copilot'
+  | 'cursor'
+  | 'antigravity'
+  | 'opencode'
+  | 'pi'
+  | 'ptah-cli';
 
 export interface AgentProcessInfo {
   readonly agentId: AgentId;

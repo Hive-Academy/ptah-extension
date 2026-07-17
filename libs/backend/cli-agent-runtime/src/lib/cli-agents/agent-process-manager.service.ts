@@ -151,6 +151,18 @@ export class AgentProcessManager {
 
   /** UI reasoning-effort selection drives Codex/Copilot; per-CLI config is the fallback. */
   private resolveReasoningEffort(cli: CliType): string | undefined {
+    // Pi maps reasoning effort to `--thinking` and supports the full scale
+    // (off|minimal|low|medium|high|xhigh|max), so the configured value flows
+    // through raw — no in-chat driver and no `max`→`xhigh` coercion.
+    if (cli === 'pi') {
+      const piEffort =
+        this.workspace.getConfiguration<string>(
+          'ptah.agentOrchestration',
+          'piReasoningEffort',
+          '',
+        ) ?? '';
+      return piEffort || undefined;
+    }
     if (cli !== 'codex' && cli !== 'copilot') return undefined;
     const uiEffort = this.mapEffortToCli(this.reasoningSettings.effort.get());
     if (uiEffort) return uiEffort;
@@ -180,6 +192,9 @@ export class AgentProcessManager {
       codex: 'codexModel',
       copilot: 'copilotModel',
       cursor: 'cursorModel',
+      antigravity: 'antigravityModel',
+      opencode: 'opencodeModel',
+      pi: 'piModel',
     };
 
   private resolveConfiguredModel(
@@ -684,6 +699,15 @@ export class AgentProcessManager {
           `The agent will complete its task based on the original prompt.`,
       );
     }
+    // SDK-based agents that own a live input channel (e.g. Pi RPC mode) route
+    // steering through the handle, which writes to the current child's stdin.
+    // This is preferred over the legacy `tracked.process.stdin` path below.
+    const sdkSteer = tracked.sdkHandle?.steer;
+    if (sdkSteer) {
+      sdkSteer(instruction);
+      return;
+    }
+
     if (!tracked.process) {
       throw new Error(
         `Agent ${agentId} is an SDK-based agent and does not support stdin steering.`,

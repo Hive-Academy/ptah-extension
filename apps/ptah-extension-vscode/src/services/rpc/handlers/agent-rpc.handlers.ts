@@ -136,6 +136,9 @@ export class AgentRpcHandlers {
             codexModel: getCfg<string>('codexModel', ''),
             copilotModel: getCfg<string>('copilotModel', ''),
             cursorModel: getCfg<string>('cursorModel', ''),
+            antigravityModel: getCfg<string>('antigravityModel', ''),
+            opencodeModel: getCfg<string>('opencodeModel', ''),
+            piModel: getCfg<string>('piModel', ''),
             cursorApiKeyConfigured: this.isCursorApiKeyConfigured(),
             codexAutoApprove: getCfg<boolean>('codexAutoApprove', true),
             copilotAutoApprove: getCfg<boolean>('copilotAutoApprove', true),
@@ -144,6 +147,7 @@ export class AgentRpcHandlers {
               'copilotReasoningEffort',
               '',
             ),
+            piReasoningEffort: getCfg<string>('piReasoningEffort', ''),
             disabledClis: getCfg<string[]>('disabledClis', []),
             disabledMcpNamespaces: getCfg<string[]>(
               'disabledMcpNamespaces',
@@ -321,6 +325,18 @@ export class AgentRpcHandlers {
       await setCfg('cursorModel', params.cursorModel || undefined);
     }
 
+    if (params.antigravityModel !== undefined) {
+      await setCfg('antigravityModel', params.antigravityModel || undefined);
+    }
+
+    if (params.opencodeModel !== undefined) {
+      await setCfg('opencodeModel', params.opencodeModel || undefined);
+    }
+
+    if (params.piModel !== undefined) {
+      await setCfg('piModel', params.piModel || undefined);
+    }
+
     if (params.cursorApiKey !== undefined) {
       await this.workspaceProvider.setConfiguration(
         'ptah',
@@ -353,6 +369,10 @@ export class AgentRpcHandlers {
         'copilotReasoningEffort',
         params.copilotReasoningEffort || undefined,
       );
+    }
+
+    if (params.piReasoningEffort !== undefined) {
+      await setCfg('piReasoningEffort', params.piReasoningEffort || undefined);
     }
 
     if (params.disabledClis !== undefined) {
@@ -443,6 +463,10 @@ export class AgentRpcHandlers {
           const modelMap = await this.cliDetection.listModelsForAll();
           const codex = (modelMap['codex'] ?? []) as CliModelOption[];
           const cursor = (modelMap['cursor'] ?? []) as CliModelOption[];
+          const antigravity = (modelMap['antigravity'] ??
+            []) as CliModelOption[];
+          const opencode = (modelMap['opencode'] ?? []) as CliModelOption[];
+          const pi = (modelMap['pi'] ?? []) as CliModelOption[];
           let copilot = await this.getCopilotModelsFromVsCodeLm();
           if (copilot.length === 0) {
             copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
@@ -452,12 +476,18 @@ export class AgentRpcHandlers {
             codex,
             copilot,
             cursor,
+            antigravity,
+            opencode,
+            pi,
           };
 
           this.logger.debug('RPC: agent:listCliModels success', {
             codexCount: result.codex.length,
             copilotCount: result.copilot.length,
             cursorCount: result.cursor.length,
+            antigravityCount: result.antigravity.length,
+            opencodeCount: result.opencode.length,
+            piCount: result.pi.length,
           });
 
           return result;

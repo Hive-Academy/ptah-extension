@@ -146,6 +146,15 @@ export class TribunalRunService {
         return `cli: "copilot"${modelArg}`;
       case 'cursor':
         return 'cli: "cursor"';
+      case 'antigravity':
+        // agy takes a model label (e.g. "Gemini 3.5 Flash (High)"); no effort
+        // arg — reasoning effort is baked into the label. The adapter adds the
+        // --print / --dangerously-skip-permissions flags on spawn.
+        return `cli: "antigravity"${modelArg}`;
+      case 'opencode':
+        return `cli: "opencode"${modelArg}`;
+      case 'pi':
+        return `cli: "pi"${modelArg}`;
       case 'ptah-cli':
         return `ptahCliId: "${lane.ptahCliId ?? ''}"${modelArg}`;
     }

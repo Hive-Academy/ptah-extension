@@ -72,6 +72,12 @@ export interface SdkHandle {
   readonly onSessionResolved?: (callback: (sessionId: string) => void) => void;
   readonly supportsContinuation?: () => boolean;
   readonly continue?: (message: string) => Promise<ContinuationOutcome>;
+  /** Send a mid-run steering message to a still-running agent that owns a live
+   *  input channel (e.g. Pi RPC mode writes a {"type":"steer"} request to the
+   *  child's stdin). AgentProcessManager.steer() routes SDK-based agents here
+   *  in preference to the legacy `tracked.process.stdin` path.
+   *  No-op if the run no longer has a writable channel. */
+  readonly steer?: (message: string) => void;
 }
 
 export interface ContinuationOutcome {
