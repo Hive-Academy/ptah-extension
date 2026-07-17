@@ -26,6 +26,7 @@ interface FakeChildControls {
   killed: boolean;
   kill: jest.Mock;
   stdinWrite: jest.Mock;
+  pid: number;
   child: EventEmitter & {
     stdout: PassThrough;
     stderr: PassThrough;
@@ -37,8 +38,12 @@ interface FakeChildControls {
     };
     kill: jest.Mock;
     killed: boolean;
+    pid: number;
   };
 }
+
+/** Incrementing fake PIDs so each spawned child has a distinct tree-kill target. */
+let nextFakePid = 4242;
 
 function createFakeChild(): FakeChildControls {
   const stdout = new PassThrough();
@@ -46,6 +51,7 @@ function createFakeChild(): FakeChildControls {
   stdout.setEncoding('utf8');
   stderr.setEncoding('utf8');
 
+  const pid = nextFakePid++;
   const stdinWrite = jest.fn().mockReturnValue(true);
   const emitter = new EventEmitter() as EventEmitter & {
     stdout: PassThrough;
@@ -58,9 +64,11 @@ function createFakeChild(): FakeChildControls {
     };
     kill: jest.Mock;
     killed: boolean;
+    pid: number;
   };
   emitter.stdout = stdout;
   emitter.stderr = stderr;
+  emitter.pid = pid;
   // RPC mode keeps stdin open and writable for the whole run.
   emitter.stdin = {
     end: jest.fn(),
@@ -84,6 +92,7 @@ function createFakeChild(): FakeChildControls {
     },
     kill: emitter.kill,
     stdinWrite,
+    pid,
     child: emitter,
   };
 }
@@ -94,6 +103,7 @@ let spawnedChildren: FakeChildControls[] = [];
 const mockSpawnCli = jest.fn();
 const mockResolveCliPath = jest.fn();
 const mockProbeCliVersion = jest.fn();
+const mockKillProcessTree = jest.fn();
 
 jest.mock('./cli-adapter.utils', () => {
   const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
@@ -104,6 +114,9 @@ jest.mock('./cli-adapter.utils', () => {
     spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
     resolveCliPath: (...args: unknown[]) => mockResolveCliPath(...args),
     probeCliVersion: (...args: unknown[]) => mockProbeCliVersion(...args),
+    // Settle/abort teardown tree-kills the child by PID. Mock it so the test
+    // never issues a real process.kill(-pid) group-kill against the runner.
+    killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
   };
 });
 
@@ -563,7 +576,7 @@ describe('PiCliAdapter (RPC mode)', () => {
       const code = await handle.done;
 
       expect(code).toBe(0);
-      expect(currentChild?.killed).toBe(true);
+      expect(mockKillProcessTree).toHaveBeenCalledWith(currentChild?.pid);
       // Teardown writes a best-effort abort envelope before killing.
       const requests = writtenRequests(currentChild!);
       expect(requests.some((r) => r['type'] === 'abort')).toBe(true);
@@ -600,7 +613,7 @@ describe('PiCliAdapter (RPC mode)', () => {
       await handle.done;
 
       const firstChild = spawnedChildren[0];
-      expect(firstChild.killed).toBe(true);
+      expect(mockKillProcessTree).toHaveBeenCalledWith(firstChild.pid);
 
       // Continue: re-spawns with --session <captured id>.
       const outcome = await handle.continue!('now add tests');
@@ -629,7 +642,7 @@ describe('PiCliAdapter (RPC mode)', () => {
         JSON.stringify({ type: 'agent_settled' }) + '\n',
       );
       await outcome.done;
-      expect(secondChild.killed).toBe(true);
+      expect(mockKillProcessTree).toHaveBeenCalledWith(secondChild.pid);
     });
 
     it('writes an abort envelope and kills the child on abort', async () => {
@@ -640,7 +653,7 @@ describe('PiCliAdapter (RPC mode)', () => {
       currentChild?.emitClose(null, 'SIGTERM');
       const code = await handle.done;
 
-      expect(currentChild?.killed).toBe(true);
+      expect(mockKillProcessTree).toHaveBeenCalledWith(currentChild?.pid);
       const requests = writtenRequests(currentChild!);
       expect(requests.some((r) => r['type'] === 'abort')).toBe(true);
       expect(code).toBe(1);

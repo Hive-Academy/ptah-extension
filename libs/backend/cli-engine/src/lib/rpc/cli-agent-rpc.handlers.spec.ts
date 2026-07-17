@@ -313,9 +313,12 @@ describe('CliAgentRpcHandlers — per-method dispatch parity', () => {
     )(undefined);
     expect(cliResult).toEqual(eleResult);
     expect(cliResult).toEqual({
+      antigravity: [],
       codex: [],
       copilot: [],
       cursor: [],
+      opencode: [],
+      pi: [],
     });
   });
 

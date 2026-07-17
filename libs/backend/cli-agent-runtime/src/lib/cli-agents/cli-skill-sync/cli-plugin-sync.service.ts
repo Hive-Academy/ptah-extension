@@ -27,9 +27,15 @@ import type {
 import { CodexSkillInstaller } from './codex-skill-installer';
 import { CopilotSkillInstaller } from './copilot-skill-installer';
 import { CursorSkillInstaller } from './cursor-skill-installer';
+import { AntigravitySkillInstaller } from './antigravity-skill-installer';
 import { CliSkillManifestTracker } from './cli-skill-manifest-tracker';
 
-const SUPPORTED_CLIS: CliTarget[] = ['codex', 'copilot', 'cursor'];
+const SUPPORTED_CLIS: CliTarget[] = [
+  'codex',
+  'copilot',
+  'cursor',
+  'antigravity',
+];
 
 @injectable()
 export class CliPluginSyncService {
@@ -47,6 +53,7 @@ export class CliPluginSyncService {
     this.installers.set('codex', new CodexSkillInstaller());
     this.installers.set('copilot', new CopilotSkillInstaller());
     this.installers.set('cursor', new CursorSkillInstaller());
+    this.installers.set('antigravity', new AntigravitySkillInstaller());
 
     this.logger.debug('[CliPluginSync] Service created');
   }

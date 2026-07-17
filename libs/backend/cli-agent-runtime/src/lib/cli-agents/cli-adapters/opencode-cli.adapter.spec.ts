@@ -26,8 +26,12 @@ interface FakeChildControls {
     stdin: { end: jest.Mock; write: jest.Mock };
     kill: jest.Mock;
     killed: boolean;
+    pid: number;
   };
 }
+
+/** A stable fake PID so abort handlers route through killProcessTree(pid). */
+const FAKE_PID = 4242;
 
 function createFakeChild(): FakeChildControls {
   const stdout = new PassThrough();
@@ -41,10 +45,12 @@ function createFakeChild(): FakeChildControls {
     stdin: { end: jest.Mock; write: jest.Mock };
     kill: jest.Mock;
     killed: boolean;
+    pid: number;
   };
   emitter.stdout = stdout;
   emitter.stderr = stderr;
   emitter.stdin = { end: jest.fn(), write: jest.fn() };
+  emitter.pid = FAKE_PID;
   emitter.killed = false;
   emitter.kill = jest.fn((_signal?: string) => {
     emitter.killed = true;
@@ -69,6 +75,7 @@ let currentChild: FakeChildControls | null = null;
 const mockSpawnCli = jest.fn();
 const mockResolveCliPath = jest.fn();
 const mockProbeCliVersion = jest.fn();
+const mockKillProcessTree = jest.fn();
 
 jest.mock('./cli-adapter.utils', () => {
   const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
@@ -79,6 +86,9 @@ jest.mock('./cli-adapter.utils', () => {
     spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
     resolveCliPath: (...args: unknown[]) => mockResolveCliPath(...args),
     probeCliVersion: (...args: unknown[]) => mockProbeCliVersion(...args),
+    // Abort handlers tree-kill the child by PID. Mock it so the test never
+    // issues a real process.kill(-pid) group-kill against the runner.
+    killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
   };
 });
 
@@ -454,7 +464,7 @@ describe('OpencodeCliAdapter', () => {
       ).toBe(true);
     });
 
-    it('kills the child and resolves 1 on abort', async () => {
+    it('tree-kills the child process group and resolves 1 on abort', async () => {
       const handle = await adapter.runSdk(baseOptions);
       collect(handle);
 
@@ -462,13 +472,23 @@ describe('OpencodeCliAdapter', () => {
       currentChild?.emitClose(null, 'SIGTERM');
       const code = await handle.done;
 
-      expect(currentChild?.killed).toBe(true);
+      expect(mockKillProcessTree).toHaveBeenCalledWith(FAKE_PID);
       expect(code).toBe(1);
     });
   });
 
   describe('runSdk() — MCP config', () => {
-    it('writes mcp.ptah into <cwd>/opencode.json before spawn', async () => {
+    /** Read the env passed to spawnCli's options (3rd positional arg). */
+    function spawnEnv(): NodeJS.ProcessEnv | undefined {
+      const call = mockSpawnCli.mock.calls[0] as [
+        string,
+        string[],
+        { env?: NodeJS.ProcessEnv },
+      ];
+      return call?.[2]?.env;
+    }
+
+    it('passes the mcp.ptah config via the OPENCODE_CONFIG_CONTENT env at spawn', async () => {
       const handle = await adapter.runSdk({
         task: 'X',
         workingDirectory: '/proj',
@@ -476,17 +496,16 @@ describe('OpencodeCliAdapter', () => {
       });
       collect(handle);
 
-      // configureMcpServer runs (and writes) before spawnCli inside runSdk.
-      expect(mockWriteFile).toHaveBeenCalledTimes(1);
-      const [writtenPath, writtenContent] = mockWriteFile.mock.calls[0] as [
-        string,
-        string,
-      ];
-      expect(writtenPath).toContain('opencode.json');
-      const written = JSON.parse(writtenContent) as {
+      // MCP is configured per-process via an env var — opencode deep-merges it
+      // on top of the untouched shared project config, so nothing is written to
+      // disk (no opencode.json race between concurrent agents).
+      expect(mockWriteFile).not.toHaveBeenCalled();
+      const content = spawnEnv()?.['OPENCODE_CONFIG_CONTENT'];
+      expect(content).toBeDefined();
+      const parsed = JSON.parse(content as string) as {
         mcp: { ptah: { type: string; url: string; enabled: boolean } };
       };
-      expect(written.mcp.ptah).toEqual({
+      expect(parsed.mcp.ptah).toEqual({
         type: 'remote',
         url: 'http://localhost:51820',
         enabled: true,
@@ -496,31 +515,7 @@ describe('OpencodeCliAdapter', () => {
       await handle.done;
     });
 
-    it('merges into an existing opencode.json without dropping other keys', async () => {
-      mockReadFile.mockResolvedValue(
-        JSON.stringify({ model: 'anthropic/claude-sonnet-4-5' }),
-      );
-
-      const handle = await adapter.runSdk({
-        task: 'X',
-        workingDirectory: '/proj',
-        mcpPort: 4000,
-      });
-      collect(handle);
-
-      const [, writtenContent] = mockWriteFile.mock.calls[0] as [
-        string,
-        string,
-      ];
-      const written = JSON.parse(writtenContent) as Record<string, unknown>;
-      expect(written['model']).toBe('anthropic/claude-sonnet-4-5');
-      expect((written['mcp'] as Record<string, unknown>)['ptah']).toBeDefined();
-
-      currentChild?.emitClose(0);
-      await handle.done;
-    });
-
-    it('does not touch opencode.json when no mcpPort is provided', async () => {
+    it('does not set OPENCODE_CONFIG_CONTENT when no mcpPort is provided', async () => {
       const handle = await adapter.runSdk({
         task: 'X',
         workingDirectory: '/proj',
@@ -529,6 +524,7 @@ describe('OpencodeCliAdapter', () => {
       currentChild?.emitClose(0);
       await handle.done;
 
+      expect(spawnEnv()?.['OPENCODE_CONFIG_CONTENT']).toBeUndefined();
       expect(mockWriteFile).not.toHaveBeenCalled();
     });
   });

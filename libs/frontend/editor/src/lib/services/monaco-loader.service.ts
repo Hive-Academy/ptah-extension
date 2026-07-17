@@ -18,6 +18,27 @@ type WindowWithMonaco = Window & {
 };
 
 /**
+ * Minimal shape of Monaco's `languages.typescript` namespace that we use.
+ * Recent `monaco-editor` type bundles narrow this namespace to `{ deprecated: true }`,
+ * dropping the `*Defaults` handles from the public types even though they still
+ * exist at runtime. We reach them through this structural type (the call sites are
+ * guarded by optional chaining), consistent with this service's role of silencing
+ * Monaco's type-level false positives.
+ */
+interface MonacoTsDiagnosticsDefaults {
+  setDiagnosticsOptions(options: {
+    noSemanticValidation: boolean;
+    noSyntaxValidation: boolean;
+    noSuggestionDiagnostics: boolean;
+  }): void;
+}
+
+interface MonacoTypescriptLanguages {
+  typescriptDefaults?: MonacoTsDiagnosticsDefaults;
+  javascriptDefaults?: MonacoTsDiagnosticsDefaults;
+}
+
+/**
  * MonacoLoaderService — single coordination point for Monaco loading.
  *
  * Why this exists: `ngx-monaco-editor-v2` only loads Monaco when its
@@ -69,7 +90,9 @@ export class MonacoLoaderService {
    */
   private configureTypeScriptDefaults(m: MonacoApi): void {
     if (MonacoLoaderService.tsDefaultsConfigured) return;
-    const ts = m.languages?.typescript;
+    const ts = m.languages?.typescript as unknown as
+      | MonacoTypescriptLanguages
+      | undefined;
     if (!ts) return;
     const diagnostics = {
       noSemanticValidation: true,

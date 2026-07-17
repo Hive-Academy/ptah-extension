@@ -73,6 +73,15 @@ const CLI_TOOL_MAPPINGS: Record<
     slashPrefix: 'cursor',
     productName: 'Cursor Agent CLI',
   },
+  // Antigravity (agy) shares Codex's `.agents` root and has no slash-command
+  // surface; not a registered MultiCliAgentWriterService transform target, so
+  // these values are only exercised if agy is ever wired for agent transforms.
+  antigravity: {
+    askUser: 'ask the user directly in your response',
+    taskDelegate: 'agy exec',
+    slashPrefix: 'agy',
+    productName: 'Antigravity CLI',
+  },
 };
 
 /**
@@ -85,7 +94,11 @@ const CLI_TOOL_MAPPINGS: Record<
  * - '/path/to/.claude/agents/frontend-developer.md' -> 'frontend-developer'
  */
 export function extractAgentId(filePath: string): string {
-  return parse(basename(filePath)).name;
+  // Normalize Windows backslash separators to forward slashes first. On POSIX
+  // (CI runners) `basename`/`parse` don't treat `\` as a separator, so a
+  // Windows-style path would otherwise return the whole string as the "name".
+  const normalized = filePath.replace(/\\/g, '/');
+  return parse(basename(normalized)).name;
 }
 
 /**
