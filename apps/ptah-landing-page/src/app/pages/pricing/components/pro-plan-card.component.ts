@@ -139,7 +139,7 @@ import {
                      text-xs font-bold text-base-100 uppercase tracking-wider
                      shadow-lg shadow-amber-500/30"
             >
-              Most Popular
+              Founding Member
             </div>
           }
         }
@@ -198,7 +198,7 @@ import {
       <div class="mb-6">
         <div class="flex items-baseline gap-2">
           <span
-            class="text-5xl lg:text-6xl font-bold
+            class="text-4xl sm:text-5xl lg:text-6xl font-bold whitespace-nowrap
                    bg-gradient-to-r from-amber-300 to-secondary bg-clip-text text-transparent"
           >
             {{ activePlan().price }}
@@ -225,7 +225,7 @@ import {
         <h4
           class="text-xs font-semibold text-base-content/40 uppercase tracking-wider mb-3"
         >
-          Everything in Community, plus:
+          Everything free, plus:
         </h4>
         <ul class="space-y-2.5">
           @for (feature of proFeatures; track feature) {
@@ -340,12 +340,12 @@ export class ProPlanCardComponent {
 
   /** Pro features list (same for both monthly and yearly) */
   public readonly proFeatures = [
-    'Intelligent Setup Wizard',
-    'Code Execution MCP Server',
-    'Workspace Intelligence (13+ project types)',
-    'OpenRouter proxy (200+ models)',
-    'Project-adaptive agent generation',
-    'Real-time cost tracking',
+    'Everything in Ptah (it is free)',
+    'Weekly live build sessions',
+    'PRD-to-production curriculum',
+    'Member skill packs',
+    'Priority support',
+    'Founding-member pricing, locked in',
   ];
 
   /**

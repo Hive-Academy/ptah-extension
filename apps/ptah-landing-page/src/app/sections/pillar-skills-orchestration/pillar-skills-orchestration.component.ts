@@ -49,16 +49,18 @@ import { OrchestraGridMockComponent } from '../../components/console/orchestra-g
         >
           <span
             class="font-mono text-xs sm:text-sm uppercase tracking-[0.2em] text-amber-500/80 mb-4 inline-block"
-            >PILLAR 2 — LEARNS AND SCALES</span
+            >PILLAR 2 — A STAFFED TEAM, NOT A SOLO AGENT</span
           >
           <h2
             class="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white leading-tight mb-6"
           >
-            It Gets Better Every Session. Then It Multiplies Itself.
+            Delivery Patterns That Compound. A Staffed Team That Ships Them.
           </h2>
           <p class="text-lg sm:text-xl text-ink-400 leading-relaxed">
-            Repeat a workflow and Ptah turns it into a reusable skill. Then it
-            can run that skill nine times over, in parallel.
+            Ptah is not one generalist agent guessing at your stack — it is a
+            staffed team: architect, backend developer, frontend developer,
+            tester, and reviewer, each reusing the delivery pattern that worked
+            last time instead of relearning it from scratch.
           </p>
         </div>
 
@@ -108,7 +110,8 @@ import { OrchestraGridMockComponent } from '../../components/console/orchestra-g
         <p
           class="mt-14 max-w-2xl mx-auto text-center font-mono text-sm text-ink-400"
         >
-          Up to 9 concurrent agent tiles in one gridstack view, each with an
+          Up to 9 concurrent agent tiles — architect, backend, frontend, tester,
+          and reviewer among them — in one gridstack view, each with an
           independent provider and model.
         </p>
       </div>
@@ -127,22 +130,22 @@ export class PillarSkillsOrchestrationComponent {
     {
       icon: Sparkles,
       title: 'Auto-Learning Skills Curator',
-      body: 'When a workflow repeats successfully, Ptah extracts the trajectory, judges its quality, and promotes it to a permanent, shareable SKILL.md file — no manual authoring required.',
+      body: 'When a delivery pattern succeeds — a tenant-isolation guard, a billing webhook, a migration — Ptah extracts the trajectory, judges its quality, and promotes it to a permanent, shareable SKILL.md file. The tenth SaaS you ship reuses what the first one learned.',
     },
     {
       icon: Bot,
       title: 'Sub-Agent Orchestration',
-      body: 'A main agent fans work out to parallel sub-agents across a three-tier hierarchy, each with its own provider, model, and context window.',
+      body: 'A main agent fans work out to specialist sub-agents — architect, backend developer, frontend developer, tester, reviewer — across a three-tier hierarchy, each with its own provider, model, and context window.',
     },
     {
       icon: LayoutGrid,
       title: 'Orchestra Canvas',
-      body: 'Run up to nine concurrent agent sessions in one drag-and-resize grid. Background agents keep working while you focus on a single tile.',
+      body: 'Run up to nine concurrent agent sessions in one drag-and-resize grid — architecture in one tile, billing integration in another, tests in a third. Background agents keep working while you review a single tile.',
     },
     {
       icon: Workflow,
       title: 'Built-in Workflows & Skills Library',
-      body: 'Ship with pre-built skills for common stacks and browse more from the skills registry — install with one click.',
+      body: 'Ship with pre-built delivery patterns for common SaaS stacks — multi-tenant setup, billing integration, auth guards — and browse more from the skills registry, install with one click.',
     },
   ];
 

@@ -66,7 +66,7 @@ import {
   ],
   template: `
     <div
-      class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-16 mt-[-150px]"
+      class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-16 -mt-16 sm:-mt-24 lg:-mt-[150px]"
     >
       @if (paddleError()) {
         <div class="alert alert-warning mb-8 max-w-xl mx-auto">
@@ -404,23 +404,23 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * - CTA opens VS Code marketplace instead of checkout
    */
   public readonly communityPlan: PricingPlan = {
-    name: 'Community',
+    name: 'Ptah',
     tier: 'community',
     price: 'Free',
-    priceSubtext: 'forever',
+    priceSubtext: 'forever, open source',
     priceId: undefined, // No checkout - it's free
-    idealFor: 'Perfect for getting started',
+    idealFor: 'The full desktop app — no catch',
     trialDays: undefined, // No trial - always free
     features: [],
     standoutFeatures: [
-      'Beautiful visual interface',
-      'Use your Claude Pro/Max subscription',
+      'Memory, Skills, Cron, and Gateway suite',
+      'Bring any of 7 model providers',
       'Native VS Code integration',
       'Real-time streaming responses',
-      'Session history & management',
-      'Basic workspace context',
+      'Session history and management',
+      'Tree-sitter workspace intelligence',
     ],
-    ctaText: 'Install Free',
+    ctaText: 'Download Free',
     ctaAction: 'download', // Opens VS Code marketplace
   };
 
@@ -428,21 +428,21 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Pro Monthly plan data
    */
   public readonly proMonthlyPlan: PricingPlan = {
-    name: 'Pro',
+    name: 'Ptah Builders',
     tier: 'pro',
-    price: '$5',
-    priceSubtext: 'per month',
+    price: '$29-49',
+    priceSubtext: 'per month, founding-member pricing',
     priceId: this.paddleConfig.proPriceIdMonthly,
-    idealFor: 'For serious developers',
+    idealFor: 'Live training and curriculum for shipping SaaS',
     trialDays: 100,
     features: [],
     standoutFeatures: [
-      'All Community features included',
-      'Intelligent Setup Wizard',
-      'Code Execution MCP Server',
-      'Workspace Intelligence (13+ project types)',
-      'OpenRouter proxy (200+ models)',
-      'Project-adaptive agent generation',
+      'Everything in Ptah (it is free)',
+      'Weekly live build sessions',
+      'PRD-to-production curriculum',
+      'Member skill packs',
+      'Priority support',
+      'Founding-member pricing, locked in',
     ],
     ctaText: 'Start 100-Day Free Trial',
     ctaAction: 'checkout',
@@ -453,22 +453,22 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Pro Yearly plan data
    */
   public readonly proYearlyPlan: PricingPlan = {
-    name: 'Pro',
+    name: 'Ptah Builders',
     tier: 'pro',
     price: '$50',
     priceSubtext: 'per year',
     priceId: this.paddleConfig.proPriceIdYearly,
-    idealFor: 'For serious developers',
+    idealFor: 'Live training and curriculum for shipping SaaS',
     savings: 'Save ~17% vs monthly',
     trialDays: 100,
     features: [],
     standoutFeatures: [
-      'All Community features included',
-      'Intelligent Setup Wizard',
-      'Code Execution MCP Server',
-      'Workspace Intelligence (13+ project types)',
-      'OpenRouter proxy (200+ models)',
-      'Project-adaptive agent generation',
+      'Everything in Ptah (it is free)',
+      'Weekly live build sessions',
+      'PRD-to-production curriculum',
+      'Member skill packs',
+      'Priority support',
+      'Founding-member pricing, locked in',
     ],
     ctaText: 'Start 100-Day Free Trial',
     ctaAction: 'checkout',

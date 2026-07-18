@@ -72,7 +72,7 @@ export class HeroDeviceShowcaseComponent {
   public readonly stats = [
     { value: '9', label: 'concurrent agent tiles' },
     { value: '7', label: 'model providers, zero lock-in' },
-    { value: '100-day', label: 'free trial' },
+    { value: 'Free', label: 'and open source' },
     { value: '3', label: 'platforms: Windows, macOS, Linux' },
   ];
 

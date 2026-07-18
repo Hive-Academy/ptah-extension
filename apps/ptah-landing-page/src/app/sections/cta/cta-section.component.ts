@@ -48,7 +48,7 @@ import { ConsoleGridBackgroundComponent } from '../../components/console/console
           [viewportConfig]="subheadlineConfig"
           class="text-lg sm:text-xl text-ink-400 mb-10 max-w-xl mx-auto leading-relaxed"
         >
-          100 days free. No credit card. Windows, macOS, and Linux.
+          Free. Open source. Windows, macOS, and Linux.
         </p>
 
         <div viewportAnimation [viewportConfig]="primaryCtaConfig">
@@ -79,9 +79,7 @@ import { ConsoleGridBackgroundComponent } from '../../components/console/console
           </a>
         </div>
 
-        <div
-          class="mt-12 flex flex-wrap justify-center gap-x-8 gap-y-3"
-        >
+        <div class="mt-12 flex flex-wrap justify-center gap-x-8 gap-y-3">
           @for (signal of trustSignals; track signal; let i = $index) {
             <div
               viewportAnimation
@@ -106,8 +104,8 @@ export class CTASectionComponent {
   protected readonly downloadIcon = Download;
 
   protected readonly trustSignals = [
-    '100-Day Free Trial',
-    'No Credit Card Required',
+    'Free, Forever',
+    'No Credit Card, Ever',
     'Open Source (FSL-1.1-MIT)',
   ];
 

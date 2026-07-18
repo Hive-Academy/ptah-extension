@@ -33,17 +33,17 @@ import { ConsoleGridBackgroundComponent } from '../../components/console/console
         >
           <span
             class="font-mono text-xs sm:text-sm uppercase tracking-[0.2em] text-amber-500/80 mb-4 inline-block"
-            >ONE APP. YOUR CHOICE OF BRAIN.</span
+            >CROSS-VENDOR REVIEW, NOT SELF-GRADED HOMEWORK</span
           >
           <h2
             class="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white leading-tight mb-6"
           >
-            No Lock-In. Bring Any Model.
+            No Model Grades Its Own Homework.
           </h2>
           <p class="text-lg sm:text-xl text-ink-400 leading-relaxed">
             Claude, GitHub Copilot, OpenAI Codex, 200+ OpenRouter models, local
-            Ollama, Kimi K2, and GLM — switch providers mid-session without
-            losing context.
+            Ollama, Kimi K2, and GLM — mix vendors so the model reviewing a
+            security-sensitive diff is not the model that wrote it.
           </p>
         </div>
 
@@ -62,8 +62,9 @@ import { ConsoleGridBackgroundComponent } from '../../components/console/console
 
         <!-- Trust line -->
         <p class="text-sm text-ink-400 text-center mt-6 max-w-xl mx-auto">
-          Secure per-provider API key management. Real-time cost and token
-          tracking per session.
+          Run a review panel: one vendor implements, a different vendor reviews
+          the diff, a third judges the disagreement — before anything merges.
+          Per-provider API keys, real-time cost and token tracking.
         </p>
       </div>
     </section>

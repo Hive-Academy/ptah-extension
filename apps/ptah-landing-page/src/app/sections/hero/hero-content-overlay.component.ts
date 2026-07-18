@@ -44,18 +44,20 @@ const GLYPHS = '☥ΔΛΞΦϟ01▮▚';
         data-kicker
         class="font-mono text-xs sm:text-sm uppercase tracking-[0.22em] text-amber-500/90"
       >
-        Persistent · Multi-Agent · Always On
+        Multi-Tenant · Billing-Ready · Security-Reviewed
       </p>
 
       <h1
         data-headline
-        aria-label="It Remembers. It Learns. It Ships."
+        aria-label="It Knows Your Architecture. It Ships the SaaS."
         class="relative mt-6 font-extrabold tracking-tight text-white [text-wrap:balance] text-4xl sm:text-5xl lg:text-6xl xl:text-7xl leading-[1.06]"
       >
         <span aria-hidden="true" class="hl-stack relative overflow-hidden">
           <span data-plain class="block"
-            >It Remembers. It Learns.
-            <span data-glow class="text-amber-500">It Ships.</span></span
+            >It Knows Your Architecture.
+            <span data-glow class="text-amber-500"
+              >It Ships the SaaS.</span
+            ></span
           >
           <span
             data-stencil
@@ -68,9 +70,10 @@ const GLYPHS = '☥ΔΛΞΦϟ01▮▚';
         data-reveal
         class="mt-6 text-lg sm:text-xl text-ink-300 max-w-2xl mx-auto [text-wrap:balance]"
       >
-        Your AI employee on the desktop — persistent memory of your codebase,
-        skills that compound with every task, and up to nine agents shipping in
-        parallel while you're away. Bring any model.
+        Ptah is the AI dev team for SaaS you'll actually charge for —
+        multi-tenant data isolation, billing integration, cross-vendor security
+        review, and architecture that stays consistent past the first feature.
+        Up to nine agents shipping in parallel. Bring any model.
       </p>
 
       <div
@@ -91,7 +94,7 @@ const GLYPHS = '☥ΔΛΞΦϟ01▮▚';
             Download Ptah
           </a>
           <span class="text-xs text-ink-500 mt-2 text-center"
-            >100 days free. No credit card.</span
+            >Free. Open source. No credit card, ever.</span
           >
         </div>
 

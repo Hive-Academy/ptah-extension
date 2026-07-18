@@ -37,27 +37,33 @@ interface AxisRow {
         >
           <span
             class="font-mono text-xs sm:text-sm uppercase tracking-[0.2em] text-amber-500/80 mb-4 inline-block"
-            >THE PTAH DIFFERENCE</span
+            >DEMO VS. PRODUCTION</span
           >
           <h2
             class="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white leading-tight mb-6"
           >
-            Autocomplete Ends at the Cursor. Ptah Doesn't.
+            Vibe Coding Gets You a Demo. Ptah Ships the SaaS.
           </h2>
           <p class="text-lg sm:text-xl text-ink-400 leading-relaxed">
-            Cursor and Copilot are excellent at finishing your sentence. They
-            don't remember yesterday's decision, they don't work while you're
-            away from the keyboard, and they don't take a message from your
-            phone. That's a different job — the one Ptah does.
+            Vibe-coding tools are excellent at turning a prompt into a working
+            demo, fast. They don't isolate tenant data, they don't get billing
+            edge cases right, nothing reviews the code before it ships, and
+            nothing stays consistent past the first few features. That's a
+            different job — the one Ptah does.
           </p>
         </div>
 
         <!-- Two-column comparison -->
         <div class="grid md:grid-cols-2 gap-6 lg:gap-8">
-          <!-- Cursor / Copilot-class tools (recessed) -->
+          <!-- Vibe-coding tools (recessed) -->
           <div
             viewportAnimation
-            [viewportConfig]="{ animation: 'slideRight', duration: 0.6, threshold: 0.2, ease: 'power2.out' }"
+            [viewportConfig]="{
+              animation: 'slideRight',
+              duration: 0.6,
+              threshold: 0.2,
+              ease: 'power2.out',
+            }"
             class="rounded-xl border border-ink-800 bg-ink-900/50 p-8 md:p-10"
           >
             <h3
@@ -72,10 +78,10 @@ interface AxisRow {
                   aria-hidden="true"
                 />
               </span>
-              Cursor / Copilot-Class Tools
+              Vibe-Coding Tools
             </h3>
             <ul class="space-y-7" role="list">
-              @for (row of cursorRows; track row.axis; let i = $index) {
+              @for (row of vibeCodingRows; track row.axis; let i = $index) {
                 <li
                   viewportAnimation
                   [viewportConfig]="rowConfig('slideRight', i)"
@@ -102,7 +108,12 @@ interface AxisRow {
           <!-- Ptah Desktop (elevated) -->
           <div
             viewportAnimation
-            [viewportConfig]="{ animation: 'slideLeft', duration: 0.6, threshold: 0.2, ease: 'power2.out' }"
+            [viewportConfig]="{
+              animation: 'slideLeft',
+              duration: 0.6,
+              threshold: 0.2,
+              ease: 'power2.out',
+            }"
             class="rounded-xl border border-amber-500/20 bg-ink-850 p-8 md:p-10"
           >
             <h3
@@ -148,17 +159,21 @@ interface AxisRow {
         <!-- Honest framing, no FUD -->
         <p
           viewportAnimation
-          [viewportConfig]="{ animation: 'fadeIn', duration: 0.6, delay: 0.1, threshold: 0.2 }"
+          [viewportConfig]="{
+            animation: 'fadeIn',
+            duration: 0.6,
+            delay: 0.1,
+            threshold: 0.2,
+          }"
           class="text-base text-ink-400 max-w-3xl mx-auto text-center leading-relaxed pt-12"
         >
-          Cursor and Copilot remain the better choice if all you want is inline
-          completion inside an editor you already love — Ptah doesn't compete on
-          autocomplete latency inside a text buffer, and it doesn't pretend to.
-          Raw CLI agents remain the right call for a single scripted task in CI.
-          Ptah is for the fourth axis nobody else covers: an agent that
-          persists, works in parallel, runs unattended, and is reachable outside
-          the IDE. That's a different job description — "employee," not
-          "autocomplete."
+          Vibe-coding tools remain a fast way to get from an idea to a clickable
+          demo — Ptah doesn't compete on demo speed, and doesn't pretend to. A
+          raw CLI agent is still the right call for a single scripted task in
+          CI. Ptah is for the moment after the demo lands: a codebase that has
+          to isolate tenants, bill correctly, survive a review, and stay
+          consistent past the tenth feature. That's a different job description
+          — "production team," not "prototype generator."
         </p>
       </div>
     </section>
@@ -175,42 +190,49 @@ export class ComparisonSplitScrollComponent {
   public readonly XIcon = X;
   public readonly CheckIcon = Check;
 
-  public readonly cursorRows: readonly AxisRow[] = [
+  public readonly vibeCodingRows: readonly AxisRow[] = [
     {
-      axis: 'Persistence',
-      detail: 'No cross-session memory — each chat starts cold.',
+      axis: 'Multi-Tenant Isolation',
+      detail:
+        'Tenant data isolation is whatever the generated scaffold happened to include — often nothing, until someone finds the leak.',
     },
     {
-      axis: 'Multi-agent',
-      detail: 'One inline suggestion stream per editor tab.',
+      axis: 'Billing Correctness',
+      detail:
+        'Billing gets wired once. Webhook retries, edge cases, and reconciliation are rarely touched again after the demo works.',
     },
     {
-      axis: 'Schedulability',
-      detail: "Runs only while your editor is open and you're typing.",
+      axis: 'Security Review',
+      detail:
+        'No review step before the code ships — the model that wrote it is the only one that ever looked at it.',
     },
-    { axis: 'Reachability', detail: 'Desktop editor only.' },
+    {
+      axis: 'Architecture Consistency',
+      detail:
+        "Consistency degrades fast. Feature ten doesn't look like feature one, because nothing remembers feature one.",
+    },
   ];
 
   public readonly ptahRows: readonly AxisRow[] = [
     {
-      axis: 'Persistence',
+      axis: 'Multi-Tenant Isolation',
       detail:
-        'Hybrid BM25 + vector memory, auto-curated, recalled across every session.',
+        "Every tenant-isolation pattern that shipped before is recalled next session — an agent that already got it right doesn't re-guess it.",
     },
     {
-      axis: 'Multi-agent',
+      axis: 'Billing Correctness',
       detail:
-        'Up to 9 concurrent agents in one grid, each with independent provider, model, and context.',
+        'A staffed team — architect, backend, tester — builds and reviews the billing integration the way it would for a paying customer, not a demo.',
     },
     {
-      axis: 'Schedulability',
+      axis: 'Security Review',
       detail:
-        'SQLite-backed cron scheduler runs agents unattended on any cron expression.',
+        'Cross-vendor review: a different model reviews the diff than the one that wrote it, before anything merges.',
     },
     {
-      axis: 'Reachability',
+      axis: 'Architecture Consistency',
       detail:
-        'Telegram, Discord, and Slack — approve or trigger work from your phone, including voice.',
+        'The same architectural decisions recalled every session, from feature one through feature fifty — Ptah keeps what it learns instead of starting cold.',
     },
   ];
 

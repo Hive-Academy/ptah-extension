@@ -39,26 +39,29 @@ import { TerminalMockComponent } from '../../components/console/terminal-mock.co
         >
           <span
             class="font-mono text-xs sm:text-sm uppercase tracking-[0.2em] text-amber-500/80 mb-4 inline-block"
-            >THE PROBLEM</span
+            >THE GAP</span
           >
           <h2
             class="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white leading-tight mb-6"
           >
-            Your AI Agent Is the New Hire Nobody Onboarded
+            Vibe Coding Gets You a Demo. It Does Not Get You a Business.
           </h2>
           <div class="space-y-4 text-lg text-ink-300 leading-relaxed">
             <p>
-              An engineer who shows up on day one with no context ignores your
-              architecture — not out of malice, but because nobody told them the
-              rules. Most AI coding tools put your agent in exactly that
-              position, every single session. They don't know your patterns.
-              They don't remember yesterday's decision. They start from zero,
-              every time you open a new chat.
+              A prototype that impresses in a demo and a SaaS you can actually
+              charge customers on are different products. Multi-tenant data
+              isolation, billing webhooks that reconcile correctly, an auth
+              model that survives a pen test, architecture that stays consistent
+              past feature five — none of that shows up in a twenty-minute
+              vibe-coding session, and most of it does not surface until a
+              customer or an auditor finds it first.
             </p>
             <p>
-              Ptah onboards its agents the way you'd onboard an engineer: it
-              studies the codebase before the first message, keeps what it
-              learns, and gets better the longer it works with you.
+              Ptah is built for the second product. It studies your codebase
+              before the first message, keeps every architectural decision it
+              makes, and staffs the parts of the job a solo prototype skips —
+              security review, billing correctness, tenant isolation — the way a
+              founder would staff a real team.
             </p>
           </div>
         </div>

@@ -49,16 +49,18 @@ import { MemoryTimelineMockComponent } from '../../components/console/memory-tim
         >
           <span
             class="font-mono text-xs sm:text-sm uppercase tracking-[0.2em] text-amber-500/80 mb-4 inline-block"
-            >PILLAR 1 — REMEMBERS</span
+            >PILLAR 1 — KNOWS YOUR ARCHITECTURE</span
           >
           <h2
             class="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white leading-tight mb-6"
           >
-            It Remembers Your Codebase. Every Session.
+            It Knows Your Architecture. It Never Re-Learns It.
           </h2>
           <p class="text-lg sm:text-xl text-ink-400 leading-relaxed">
-            Most agents start cold. Ptah indexes your project before the first
-            message and keeps what it learns after the last one.
+            Vibe-coded prototypes forget every session — that is how duplicate
+            services and missing auth checks pile up. Ptah indexes your project
+            before the first message and keeps the decisions it makes after the
+            last one, so feature ten stays as consistent as feature one.
           </p>
         </div>
 
@@ -149,12 +151,12 @@ export class PillarMemoryComponent {
     {
       icon: Brain,
       title: 'Persistent Memory',
-      body: 'Hybrid BM25 and vector search, fused with Reciprocal Rank Fusion, recalls decisions, bug fixes, and project context across every session — auto-curated, no manual tagging.',
+      body: 'Hybrid BM25 and vector search, fused with Reciprocal Rank Fusion, recalls the architectural decisions, security fixes, and data-model conventions from session one — so the agent building feature five does not reinvent the auth pattern from feature one.',
     },
     {
       icon: Code,
       title: 'Tree-sitter Codebase Indexing',
-      body: 'Structural AST parsing across JavaScript, TypeScript, Python, and Go indexes every function, class, and import with exact file positions — not regex guesses.',
+      body: 'Structural AST parsing across JavaScript, TypeScript, Python, and Go indexes every function, class, and import with exact file positions — the same map every agent works from, not a fresh guess per session.',
     },
     {
       icon: Search,

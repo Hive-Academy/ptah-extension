@@ -47,15 +47,18 @@ import { GatewayMockComponent } from '../../components/console/gateway-mock.comp
         >
           <span
             class="font-mono text-xs sm:text-sm uppercase tracking-[0.2em] text-amber-500/80 mb-4 inline-block"
-            >PILLAR 3 — ALWAYS ON, REACHABLE ANYWHERE</span
+            >PILLAR 3 — SHIPS OVERNIGHT, APPROVED FROM YOUR PHONE</span
           >
           <h2
             class="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white leading-tight mb-6"
           >
-            It Works While You Sleep. It Answers Where You Already Are.
+            It Keeps Shipping Overnight. You Approve From Telegram.
           </h2>
           <p class="text-lg sm:text-xl text-ink-400 leading-relaxed">
-            Schedule agents like cron jobs. Approve their work from your phone.
+            Schedule the next migration, the nightly security scan, the
+            dependency bump like a cron job. Wake up to a diff waiting for your
+            approval — from Telegram, Discord, or Slack, not a laptop you have
+            to keep open.
           </p>
         </div>
 
@@ -105,8 +108,9 @@ import { GatewayMockComponent } from '../../components/console/gateway-mock.comp
         <p
           class="mt-14 max-w-2xl mx-auto text-center font-mono text-sm text-ink-400"
         >
-          Trigger and approve agent runs from Telegram, Discord, or Slack —
-          including per-thread sessions on Discord.
+          Trigger and approve agent runs — including production-sensitive diffs
+          — from Telegram, Discord, or Slack, including per-thread sessions on
+          Discord.
         </p>
       </div>
     </section>
@@ -124,7 +128,7 @@ export class PillarAlwaysOnComponent {
     {
       icon: Clock,
       title: 'Cron Scheduler',
-      body: 'SQLite-backed, slot-claimed scheduled runs. Nightly code reviews, Sunday dependency scans, daily standup summaries — no server to babysit.',
+      body: 'SQLite-backed, slot-claimed scheduled runs. Nightly security reviews, Sunday dependency scans, the next ticket in the backlog — no server to babysit, no laptop that has to stay open.',
     },
     {
       icon: MessageSquare,
@@ -134,7 +138,7 @@ export class PillarAlwaysOnComponent {
     {
       icon: ShieldCheck,
       title: 'Approval Relay',
-      body: "Review and approve tool calls before they execute, from any connected gateway — nothing runs unattended that you haven't authorized.",
+      body: "Review and approve every tool call and diff before it executes — including the ones that touch billing, auth, or tenant isolation — from any connected gateway. Nothing ships unattended that you haven't signed off on.",
     },
   ];
 
