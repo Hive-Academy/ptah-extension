@@ -1,5 +1,5 @@
 /**
- * `ptah prompts` command — Enhanced Prompts management (premium-gated).
+ * `ptah prompts` command — Enhanced Prompts management.
  *
  * Backed by the shared `EnhancedPromptsRpcHandlers` (registered globally via
  * `registerAllRpcHandlers()`).
@@ -9,8 +9,7 @@
  *   status                RPC `enhancedPrompts:getStatus`
  *   enable                RPC `enhancedPrompts:setEnabled` { enabled: true }
  *   disable               RPC `enhancedPrompts:setEnabled` { enabled: false }
- *   regenerate            RPC `enhancedPrompts:regenerate` (premium gate;
- *                                                          streams via
+ *   regenerate            RPC `enhancedPrompts:regenerate` (streams via
  *                                                          `setup-wizard:enhance-stream`)
  *   show <name>           RPC `enhancedPrompts:getPromptContent`
  *                         (the `<name>` argument is currently informational —

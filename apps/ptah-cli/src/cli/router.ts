@@ -1484,13 +1484,11 @@ export function buildRouter(): Command {
     });
 
   // -- ptah prompts ----------------------------------------------------------
-  // Backed by shared EnhancedPromptsRpcHandlers. The `regenerate`
-  // sub-subcommand is premium-gated (license_required is surfaced by the
-  // backend and converted to a task.error).
+  // Backed by shared EnhancedPromptsRpcHandlers.
   const prompts = program
     .command('prompts')
     .description(
-      'manage Enhanced Prompts (status / enable / disable / regenerate / show / download) — premium-gated',
+      'manage Enhanced Prompts (status / enable / disable / regenerate / show / download)',
     );
 
   prompts
@@ -1529,7 +1527,7 @@ export function buildRouter(): Command {
   prompts
     .command('regenerate')
     .description(
-      'regenerate the project prompt via enhancedPrompts:regenerate (premium-gated; streams via setup-wizard:enhance-stream)',
+      'regenerate the project prompt via enhancedPrompts:regenerate (streams via setup-wizard:enhance-stream)',
     )
     .option(
       '--no-force',

@@ -355,7 +355,9 @@ export function computeDoctorHints(input: {
   const hints: string[] = [];
 
   if (license.valid === false) {
-    hints.push('Set your Ptah license: `ptah license set --key ptah_lic_...`');
+    hints.push(
+      'Optional: link your Ptah Builders membership with `ptah license set --key ptah_lic_...`',
+    );
   }
 
   const claudeCli = providers.find((p) => p.id === 'claude-cli');
