@@ -124,7 +124,7 @@ export interface OrchestratorGenerationOptions {
   pluginPaths?: string[];
 
   /**
-   * Target CLI platforms for agent distribution (premium only).
+   * Target CLI platforms for agent distribution.
    * When provided, Phase 5 transforms and writes agents to these CLI directories.
    */
   targetClis?: CliTarget[];

@@ -6,7 +6,8 @@
  * (decision #4). Called from:
  * 1. Extension activation (syncOnActivation)
  * 2. Setup wizard completion (syncForce)
- * 3. Premium expiry (cleanupAll)
+ * `cleanupAll` removes all Ptah-managed skills/commands (currently unwired —
+ * no caller since the license-reactivity teardown was removed).
  *
  * Pattern: @injectable() singleton following CliDetectionService pattern.
  *
@@ -125,7 +126,8 @@ export class CliPluginSyncService {
 
   /**
    * Remove all Ptah-managed skills/commands from every CLI's workspace dirs.
-   * Called on premium expiry or extension deactivation.
+   * Currently unwired (no caller) — kept as a utility for a future
+   * deactivation/uninstall cleanup path.
    */
   async cleanupAll(workspaceRoot?: string): Promise<void> {
     this.logger.info('[CliPluginSync] Cleaning up all CLI skills');

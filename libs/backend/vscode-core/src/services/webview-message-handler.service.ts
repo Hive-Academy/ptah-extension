@@ -309,7 +309,7 @@ export class WebviewMessageHandlerService {
   }
 
   /**
-   * Handle MCP permission responses (Premium only - Code Execution MCP)
+   * Handle MCP permission responses (Code Execution MCP)
    *
    * SYSTEM 2: Code Execution MCP Permissions
    * - Triggered by: Ptah MCP Server's approval_prompt tool

@@ -174,15 +174,14 @@ export class EnhancedPromptsRpcHandlers {
   /**
    * enhancedPrompts:runWizard - Execute the Enhanced Prompts wizard
    *
-   * Requires premium license. Analyzes the workspace and generates
-   * project-specific guidance using the PromptDesignerAgent.
+   * Analyzes the workspace and generates project-specific guidance using
+   * the PromptDesignerAgent.
    *
    * Flow:
-   * 1. Verify premium license
-   * 2. Analyze workspace
-   * 3. Generate prompt via PromptDesignerAgent
-   * 4. Cache and enable Enhanced Prompts
-   * 5. Return success status
+   * 1. Analyze workspace
+   * 2. Generate prompt via PromptDesignerAgent
+   * 3. Cache and enable Enhanced Prompts
+   * 4. Return success status
    */
   private registerRunWizard(): void {
     this.rpcHandler.registerMethod<
@@ -405,8 +404,8 @@ export class EnhancedPromptsRpcHandlers {
   /**
    * enhancedPrompts:regenerate - Force regenerate the enhanced prompt
    *
-   * Requires premium license. Invalidates the existing cache and
-   * runs the wizard again to generate fresh guidance.
+   * Invalidates the existing cache and runs the wizard again to generate
+   * fresh guidance.
    *
    * Use cases:
    * - Project structure changed significantly

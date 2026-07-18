@@ -814,7 +814,7 @@ export class ChatSessionService {
    * already active. On a successful resume returns `{ resumed: true }`; on
    * failure returns `{ resumed: false, error }` so the caller can surface a
    * clean error and avoid an infinite resume-retry loop. Reuses the same
-   * premium-gated config + streaming code path as `chat:continue` auto-resume.
+   * config + streaming code path as `chat:continue` auto-resume.
    *
    * Public entry point — wraps the private `autoResumeIfInactive` helper.
    */
@@ -858,9 +858,9 @@ export class ChatSessionService {
   /**
    * Auto-resume an inactive SDK session before continuing. Returns
    * `{ justResumed: false }` when already active; otherwise resumes via
-   * premium-gated config and streams to the webview. `{ error }` carries a
-   * structured `ChatContinueResult` on failure. Log messages + payloads are
-   * byte-identical to the pre-extraction inline block.
+   * the resolved session config and streams to the webview. `{ error }`
+   * carries a structured `ChatContinueResult` on failure. Log messages +
+   * payloads are byte-identical to the pre-extraction inline block.
    */
   private async autoResumeIfInactive(
     sessionId: SessionId,

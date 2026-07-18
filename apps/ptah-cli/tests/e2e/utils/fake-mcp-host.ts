@@ -34,8 +34,9 @@
  *     right tier on cold start. This is the SAME mechanism the existing
  *     `license-cli.e2e.spec.ts` Bug 9 case uses — no new source-side
  *     hooks were introduced. Pass `'pro'` for the Pro tier, `'community'`
- *     for the Free tier, or `null` to leave the cache empty (so the gate
- *     denies all premium tools).
+ *     for the Free tier, or `null` to leave the cache empty. Ptah is fully
+ *     open source — there is no tool-call license gate — so this only
+ *     affects membership-status display, never tool availability.
  *
  * Env defaults: `FORCE_COLOR=0`, `NO_COLOR=1`, `PTAH_NO_TTY=1`,
  * `NX_TUI=false`, `PTAH_AUTO_APPROVE=true` (so the SDK permission gate
@@ -72,8 +73,9 @@ export interface FakeMcpHostOptions {
   env?: Record<string, string>;
   /**
    * License tier to inject. `'pro'` seeds a valid Pro license; `'community'`
-   * seeds a valid Free license; `null` (default) leaves the cache empty so
-   * the gate denies all premium tools.
+   * seeds a valid Free license; `null` (default) leaves the cache empty.
+   * Ptah is fully open source — there is no tool-call license gate — this
+   * only affects membership-status display.
    */
   licenseStatus?: LicenseStatus;
   /** Default 30_000ms (cold DI bootstrap headroom on slow CI). */

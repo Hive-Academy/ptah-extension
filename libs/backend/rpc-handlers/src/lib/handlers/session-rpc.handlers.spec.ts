@@ -1579,7 +1579,7 @@ describe('SessionRpcHandlers', () => {
       h.sdkAdapter.isSessionActive.mockReturnValue(false);
       h.chatSession.ensureSessionActiveForRewind.mockResolvedValue({
         resumed: false,
-        error: 'workspace not premium',
+        error: 'SDK process failed to start',
       });
       h.handlers.register();
 

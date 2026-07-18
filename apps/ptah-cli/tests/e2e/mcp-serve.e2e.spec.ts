@@ -225,15 +225,15 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     }
   });
 
-  it('mcp_agent_spawn_ptah_cli_denied', async () => {
+  it('mcp_agent_spawn_ptah_cli_community_allowed', async () => {
     const host = scope.register(
       await spawnPtahMcp({ home: tmp, licenseStatus: 'community' }),
     );
 
     const resp = await host.send<{
       content: Array<{ type: string; text: string }>;
-      isError: boolean;
-      structuredContent: { ptah_code?: string; mcpCode?: string };
+      isError?: boolean;
+      structuredContent?: { ptah_code?: string; mcpCode?: string };
     }>(
       'tools/call',
       {
@@ -245,32 +245,61 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
 
     expect(resp.error).toBeUndefined();
     expect(resp.result).toBeDefined();
-    expect(resp.result!.isError).toBe(true);
-    expect(resp.result!.structuredContent.ptah_code).toBe('license_required');
+    // Goal: prove the (removed) premium gate does NOT block this Ptah-CLI
+    // path for the Community tier. The sandbox likely lacks an OpenRouter
+    // provider key configured, so we accept either clean success or a
+    // clean non-license error code (provider_unavailable, cli_agent_unavailable,
+    // etc.). Anything with ptah_code === 'license_required' is a regression.
+    if (resp.result!.isError === true) {
+      const code = resp.result!.structuredContent?.ptah_code;
+      expect(code).not.toBe('license_required');
+    }
   });
 
-  it('mcp_session_submit_denied_community', async () => {
+  it('mcp_session_submit_community_streams', async () => {
     const host = scope.register(
       await spawnPtahMcp({ home: tmp, licenseStatus: 'community' }),
     );
 
-    const resp = await host.send<{
-      content: Array<{ type: string; text: string }>;
-      isError: boolean;
-      structuredContent: { ptah_code?: string };
-    }>(
-      'tools/call',
-      {
-        name: 'session_submit',
-        arguments: { task: 'do something', cwd: tmp.path },
-      },
-      30_000,
-    );
-
-    expect(resp.error).toBeUndefined();
-    expect(resp.result).toBeDefined();
-    expect(resp.result!.isError).toBe(true);
-    expect(resp.result!.structuredContent.ptah_code).toBe('license_required');
+    // Mirrors mcp_session_submit_pro_streams: the CI sandbox cannot reach the
+    // real Claude SDK, so this asserts ROUTING (the removed premium gate did
+    // NOT block the Community tier), not a real completion.
+    let resp: Awaited<ReturnType<FakeMcpHost['send']>>;
+    try {
+      resp = await host.send<{
+        content?: Array<{ type: string; text: string }>;
+        isError?: boolean;
+        structuredContent?: Record<string, unknown>;
+      }>(
+        'tools/call',
+        {
+          name: 'session_submit',
+          arguments: { task: 'do something', cwd: tmp.path },
+        },
+        30_000,
+      );
+    } catch (err) {
+      // A wire-level send timeout proves the call was ROUTED (accepted) but
+      // the SDK hung waiting for a real completion — still a routing-passed
+      // signal, which is all this smoke test cares about.
+      const message = err instanceof Error ? err.message : String(err);
+      expect(message).toMatch(/timed out/);
+      return;
+    }
+    if (resp.result !== undefined) {
+      const structured =
+        (resp.result as { structuredContent?: Record<string, unknown> })
+          .structuredContent ?? undefined;
+      if (
+        (resp.result as { isError?: boolean }).isError === true &&
+        structured !== undefined
+      ) {
+        expect(structured['ptah_code']).not.toBe('license_required');
+      }
+    } else if (resp.error !== undefined) {
+      const data = resp.error.data as { ptah_code?: string } | undefined;
+      expect(data?.ptah_code).not.toBe('license_required');
+    }
   });
 
   it('mcp_session_submit_pro_streams', async () => {

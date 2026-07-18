@@ -43,7 +43,7 @@ export class MultiCliAgentWriterService {
    * Transform and write agents for multiple CLI targets at the workspace level.
    *
    * @param agents - Claude-format GeneratedAgent[] from orchestrator Phase 3
-   * @param targetClis - CLI targets to write for (filtered by detection + premium)
+   * @param targetClis - CLI targets to write for (filtered by detection)
    * @param workspaceRoot - Workspace root the rival agent dirs are written under
    */
   async writeForClis(

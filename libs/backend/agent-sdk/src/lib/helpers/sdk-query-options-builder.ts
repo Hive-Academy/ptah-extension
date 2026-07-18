@@ -286,7 +286,7 @@ export interface QueryOptionsInput {
   mcpServerRunning?: boolean;
   /**
    * Enhanced prompts content.
-   * AI-generated project-specific guidance appended as a premium top-up
+   * AI-generated project-specific guidance appended as a top-up
    * alongside the base prompt (either claude_code preset or PTAH_CORE_SYSTEM_PROMPT).
    * Also triggers auto-selection of the Ptah harness path when no explicit preset is set.
    */

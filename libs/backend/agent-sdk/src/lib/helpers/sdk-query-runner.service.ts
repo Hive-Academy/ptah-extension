@@ -9,7 +9,7 @@
  *   - `oneShot`   â€” single-string prompt, bypassPermissions, no canUseTool,
  *                   maxTurns explicit, persistSession=false, subagent +
  *                   compaction hooks wired, identity prompt + PTAH_CORE
- *                   appended for premium. Used by `InternalQueryService`.
+ *                   appended. Used by `InternalQueryService`.
  *   - `interactive` â€” caller pre-builds `Options` via `SdkQueryOptionsBuilder`
  *                   and hands them in along with the iterable/string prompt.
  *                   The runner only owns `moduleLoader.getQueryFunction()` +

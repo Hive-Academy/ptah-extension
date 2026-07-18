@@ -1,7 +1,7 @@
 /**
  * Enhanced Prompts Service
  *
- * This premium feature:
+ * This feature:
  * 1. Analyzes the workspace to detect technology stack
  * 2. Uses PromptDesignerAgent to build prompts + InternalQueryService for SDK calls
  * 3. Caches the generated prompt with smart invalidation
@@ -9,7 +9,7 @@
  * 5. Provides toggle/regenerate functionality via settings
  *
  * Flow:
- * - User invokes "Setup Enhanced Prompts" from empty chat screen (premium feature)
+ * - User invokes "Setup Enhanced Prompts" from empty chat screen
  * - Wizard analyzes workspace and generates prompt via SDK (InternalQueryService)
  * - Generated prompt is cached and auto-applied to all future sessions
  * - Users can toggle on/off or regenerate via settings
