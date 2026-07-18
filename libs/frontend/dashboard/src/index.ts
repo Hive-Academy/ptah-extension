@@ -1,5 +1,6 @@
 export { DashboardGridComponent } from './lib/components/dashboard-grid/dashboard-grid.component';
 export { AnalyticsCardComponent } from './lib/components/analytics-card/analytics-card.component';
+export { BuildersCardComponent } from './lib/components/builders-card/builders-card.component';
 
 export {
   ThothStatusService,

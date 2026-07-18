@@ -1,0 +1,46 @@
+@if (!dismissed()) {
+  <section
+    class="card bg-base-200/40 border border-base-content/10 shadow-sm mt-2"
+    aria-label="Ptah Builders membership"
+  >
+    <div class="card-body p-4">
+      <div class="flex items-start gap-4">
+        <span
+          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
+        >
+          <lucide-angular
+            [img]="UsersIcon"
+            class="w-5 h-5"
+            aria-hidden="true"
+          ></lucide-angular>
+        </span>
+
+        <div class="flex flex-col gap-1 min-w-0">
+          <h3 class="card-title text-base">Ptah is open source</h3>
+          <p class="text-xs text-base-content/60">
+            Join Ptah Builders for a members-only community, hands-on training,
+            and priority support.
+          </p>
+        </div>
+      </div>
+
+      <div class="card-actions justify-end items-center mt-3 gap-2">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          (click)="dismiss()"
+          aria-label="Dismiss the Ptah Builders card"
+        >
+          Dismiss
+        </button>
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          (click)="exploreBuilders()"
+        >
+          Explore Ptah Builders
+        </button>
+      </div>
+    </div>
+  </section>
+}
