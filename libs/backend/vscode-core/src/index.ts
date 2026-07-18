@@ -66,7 +66,7 @@ export type {
   IAuthSecretsService,
   AuthCredentialType,
 } from './services/auth-secrets.service';
-export { LicenseService, isPremiumTier } from './services/license.service';
+export { LicenseService } from './services/license.service';
 export type {
   LicenseStatus,
   LicenseEvents,

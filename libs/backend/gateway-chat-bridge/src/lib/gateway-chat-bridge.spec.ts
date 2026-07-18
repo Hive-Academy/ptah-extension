@@ -233,7 +233,6 @@ interface Harness {
   >;
   turnTracker: ConversationTurnTracker;
   selectedModelGet: jest.Mock<string, []>;
-  licenseService: { verifyLicense: jest.Mock };
   codeExecutionMcp: {
     getPort: jest.Mock;
     ensureRegisteredForSubagents: jest.Mock;
@@ -249,7 +248,6 @@ function setup(options?: {
   workspaceRoot?: string | null;
   workspaceFolders?: string[];
   selectedModel?: string;
-  licenseStatus?: unknown;
   mcpPort?: number | null;
   enhancedPromptsContent?: string | null;
   enabledPluginIds?: string[];
@@ -288,11 +286,6 @@ function setup(options?: {
     selectedModel: { get: selectedModelGet },
   };
 
-  const licenseService = {
-    verifyLicense: jest
-      .fn()
-      .mockResolvedValue(options?.licenseStatus ?? { tier: 'free' }),
-  };
   const codeExecutionMcp = {
     getPort: jest.fn().mockReturnValue(options?.mcpPort ?? null),
     ensureRegisteredForSubagents: jest.fn(),
@@ -318,7 +311,6 @@ function setup(options?: {
     adapter as unknown as IAgentAdapter,
     workspace as unknown as IWorkspaceProvider,
     modelSettings,
-    licenseService,
     codeExecutionMcp,
     enhancedPromptsService,
     pluginLoader,
@@ -333,7 +325,6 @@ function setup(options?: {
     workspace,
     turnTracker,
     selectedModelGet,
-    licenseService,
     codeExecutionMcp,
     enhancedPromptsService,
     pluginLoader,
@@ -1128,7 +1119,8 @@ describe('GatewayChatBridge — turn watchdog (Task 2.3/3.3)', () => {
     expect(
       h.gateway.appendOutboundChunk.mock.calls.filter(
         ([, msg]) =>
-          msg === 'This request took too long and was stopped. Please try again.',
+          msg ===
+          'This request took too long and was stopped. Please try again.',
       ),
     ).toHaveLength(1);
 
@@ -1275,7 +1267,8 @@ describe('GatewayChatBridge — turn watchdog (Task 2.3/3.3)', () => {
     expect(
       h.gateway.appendOutboundChunk.mock.calls.some(
         ([, msg]) =>
-          msg === 'This request took too long and was stopped. Please try again.',
+          msg ===
+          'This request took too long and was stopped. Please try again.',
       ),
     ).toBe(false);
     expect(jest.getTimerCount()).toBe(0);
@@ -1283,12 +1276,17 @@ describe('GatewayChatBridge — turn watchdog (Task 2.3/3.3)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// F4 — premium parity (TASK_2026_155, Task 2.4/3.3)
+// F4 — SDK context wiring: MCP + prompts/plugins (TASK_2026_155, Task 2.4/3.3)
 // ---------------------------------------------------------------------------
-describe('GatewayChatBridge — premium parity (Task 2.4/3.3)', () => {
-  it('premium license + live MCP port: startChatSession receives isPremium true, mcpServerRunning true, and resolved prompts/plugins', async () => {
+//
+// Ptah is now fully open source: there is no premium/free tier and no
+// `isPremium` on the SDK config. The formerly premium-gated capabilities
+// (code-exec MCP, enhanced prompts, plugins) are unconditional — the ONLY
+// governor is the live MCP port + the resolved prompt/plugin wiring. These
+// specs prove that wiring drives the SDK config correctly.
+describe('GatewayChatBridge — SDK context wiring (MCP + prompts/plugins) (Task 2.4/3.3)', () => {
+  it('live MCP port + resolved prompts/plugins: startChatSession receives mcpServerRunning true, the enhanced prompt, and plugin paths, and registers the MCP for subagents', async () => {
     const h = setup({
-      licenseStatus: { valid: true, tier: 'pro' },
       mcpPort: 4319,
       enhancedPromptsContent: 'ENHANCED SYSTEM PROMPT',
       enabledPluginIds: ['plugin-a'],
@@ -1309,16 +1307,14 @@ describe('GatewayChatBridge — premium parity (Task 2.4/3.3)', () => {
     );
 
     const config = h.adapter.startChatSession.mock.calls[0][0];
-    expect(config.isPremium).toBe(true);
     expect(config.mcpServerRunning).toBe(true);
     expect(config.enhancedPromptsContent).toBe('ENHANCED SYSTEM PROMPT');
     expect(config.pluginPaths).toEqual(['/plugins/plugin-a']);
     expect(h.codeExecutionMcp.ensureRegisteredForSubagents).toHaveBeenCalled();
   });
 
-  it('non-premium license: startChatSession receives isPremium false, undefined prompts/plugins, and the turn still completes', async () => {
+  it('no MCP port and no prompts/plugins: startChatSession receives mcpServerRunning false, undefined prompts/plugins, does not register the MCP, and the turn still completes', async () => {
     const h = setup({
-      licenseStatus: { valid: false, tier: 'free' },
       mcpPort: null,
     });
     const binding = makeBinding({ workspaceRoot: '/ws/proj' });
@@ -1336,7 +1332,6 @@ describe('GatewayChatBridge — premium parity (Task 2.4/3.3)', () => {
     );
 
     const config = h.adapter.startChatSession.mock.calls[0][0];
-    expect(config.isPremium).toBe(false);
     expect(config.mcpServerRunning).toBe(false);
     expect(config.enhancedPromptsContent).toBeUndefined();
     expect(config.pluginPaths).toBeUndefined();

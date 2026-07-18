@@ -6,7 +6,7 @@ jest.mock('@ptah-extension/cli-agent-runtime', () => ({
   },
 }));
 
-import type { Logger, LicenseService } from '@ptah-extension/vscode-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type { PtahCliRegistry } from '@ptah-extension/cli-agent-runtime';
 import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 import type { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
@@ -23,7 +23,7 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import { ChatPtahCliService } from './chat-ptah-cli.service';
-import type { ChatPremiumContextService } from '../session/chat-premium-context.service';
+import type { ChatSdkContextService } from '../session/chat-sdk-context.service';
 
 const TAB_UUID = '11111111-2222-4333-8444-555555555555';
 const SESSION_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
@@ -32,7 +32,6 @@ const AGENT_ID = 'pc-test-001';
 interface Suite {
   service: ChatPtahCliService;
   logger: MockLogger;
-  licenseService: jest.Mocked<Pick<LicenseService, 'verifyLicense'>>;
   codeExecutionMcp: jest.Mocked<
     Pick<CodeExecutionMCP, 'ensureRegisteredForSubagents'>
   >;
@@ -46,9 +45,9 @@ interface Suite {
       | 'isSessionActive'
     >
   >;
-  premiumContext: jest.Mocked<
+  sdkContext: jest.Mocked<
     Pick<
-      ChatPremiumContextService,
+      ChatSdkContextService,
       | 'isMcpServerRunning'
       | 'resolveEnhancedPromptsContent'
       | 'resolvePluginPaths'
@@ -70,10 +69,6 @@ function makeSuite(): Suite {
     baseUrl: 'https://api.moonshot.ai/anthropic/',
     cliJsPath: '/tmp/cli.js',
   };
-
-  const licenseService = {
-    verifyLicense: jest.fn().mockResolvedValue({ valid: false, tier: 'free' }),
-  } as jest.Mocked<Pick<LicenseService, 'verifyLicense'>>;
 
   const codeExecutionMcp = {
     ensureRegisteredForSubagents: jest.fn(),
@@ -119,13 +114,13 @@ function makeSuite(): Suite {
     >
   >;
 
-  const premiumContext = {
+  const sdkContext = {
     isMcpServerRunning: jest.fn().mockReturnValue(false),
     resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
     resolvePluginPaths: jest.fn().mockReturnValue([]),
   } as jest.Mocked<
     Pick<
-      ChatPremiumContextService,
+      ChatSdkContextService,
       | 'isMcpServerRunning'
       | 'resolveEnhancedPromptsContent'
       | 'resolvePluginPaths'
@@ -134,21 +129,19 @@ function makeSuite(): Suite {
 
   const service = new ChatPtahCliService(
     logger as unknown as Logger,
-    licenseService as unknown as LicenseService,
     codeExecutionMcp as unknown as CodeExecutionMCP,
     registry as unknown as PtahCliRegistry,
     agentAdapter as unknown as SdkAgentAdapter,
-    premiumContext as unknown as ChatPremiumContextService,
+    sdkContext as unknown as ChatSdkContextService,
   );
 
   return {
     service,
     logger,
-    licenseService,
     codeExecutionMcp,
     registry,
     agentAdapter,
-    premiumContext,
+    sdkContext,
     profile,
   };
 }

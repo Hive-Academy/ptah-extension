@@ -10,12 +10,8 @@
  *   - Path resolution: `.` and `./` are resolved via `IWorkspaceProvider`;
  *     absolute paths pass through unchanged. Missing workspacePath returns a
  *     structured error (never throws).
- *   - License gating: `runWizard` and `regenerate` both verify the license
- *     with a timeout. A `null` (timeout) result produces a user-facing
- *     timeout message; a non-premium tier produces the "upgrade to Pro"
- *     message.
- *   - Premium pass-through: a `pro` tier status makes runWizard/regenerate
- *     dispatch into EnhancedPromptsService.
+ *   - Open access: `runWizard` and `regenerate` dispatch straight into
+ *     EnhancedPromptsService for every workspace (no license gating).
  *   - Download: missing content returns a "generate first" error; a real
  *     content buffer is handed to `ISaveDialogProvider.showSaveAndWrite`
  *     with the expected filename/filters/title; user-cancelled save
@@ -116,12 +112,7 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 }));
 
 import type { DependencyContainer } from 'tsyringe';
-import type {
-  Logger,
-  LicenseService,
-  LicenseStatus,
-  SentryService,
-} from '@ptah-extension/vscode-core';
+import type { Logger, SentryService } from '@ptah-extension/vscode-core';
 import {
   createMockRpcHandler,
   createMockSentryService,
@@ -170,12 +161,6 @@ function createMockEnhancedPromptsService(): MockEnhancedPromptsService {
   };
 }
 
-type MockLicenseService = jest.Mocked<Pick<LicenseService, 'verifyLicense'>>;
-
-function createMockLicenseService(): MockLicenseService {
-  return { verifyLicense: jest.fn() };
-}
-
 type MockPluginLoader = jest.Mocked<
   Pick<PluginLoaderService, 'getWorkspacePluginConfig' | 'resolvePluginPaths'>
 >;
@@ -213,20 +198,6 @@ function createMockContainer(): MockContainer {
 }
 
 // ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
-
-function makeLicenseStatus(
-  overrides: Partial<LicenseStatus> = {},
-): LicenseStatus {
-  return {
-    valid: true,
-    tier: 'community',
-    ...overrides,
-  } as LicenseStatus;
-}
-
-// ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
 
@@ -235,7 +206,6 @@ interface Harness {
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
   enhancedPrompts: MockEnhancedPromptsService;
-  license: MockLicenseService;
   pluginLoader: MockPluginLoader;
   workspace: MockWorkspaceProvider;
   saveDialog: MockSaveDialog;
@@ -247,7 +217,6 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
   const logger = createMockLogger();
   const rpcHandler = createMockRpcHandler();
   const enhancedPrompts = createMockEnhancedPromptsService();
-  const license = createMockLicenseService();
   const pluginLoader = createMockPluginLoader();
   const workspace = createMockWorkspaceProvider({
     folders: [opts.workspaceRoot ?? '/fake/workspace'],
@@ -260,7 +229,6 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
     enhancedPrompts as unknown as EnhancedPromptsService,
-    license as unknown as LicenseService,
     pluginLoader as unknown as PluginLoaderService,
     workspace as unknown as IWorkspaceProvider,
     saveDialog as unknown as ISaveDialogProvider,
@@ -274,7 +242,6 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
     logger,
     rpcHandler,
     enhancedPrompts,
-    license,
     pluginLoader,
     workspace,
     saveDialog,
@@ -414,82 +381,11 @@ describe('EnhancedPromptsRpcHandlers', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/workspace path is required/i);
-      expect(h.license.verifyLicense).not.toHaveBeenCalled();
-    });
-
-    it('surfaces a timeout error when license verification hangs past the timeout', async () => {
-      // Collapse the handler's 10-second verification timeout to a micro-task
-      // so the test stays under Jest's default 5s budget. The handler's
-      // verifyLicenseWithTimeout() is a `Promise.race` over a setTimeout,
-      // so replacing setTimeout with a 0-ms scheduler short-circuits it.
-      const realSetTimeout = global.setTimeout;
-      jest
-        .spyOn(global, 'setTimeout')
-        .mockImplementation(((fn: () => void) =>
-          realSetTimeout(fn, 0)) as unknown as typeof setTimeout);
-
-      // Late resolver wired to a Promise we can settle in `finally` so the
-      // Jest worker does not hold a dangling Promise between tests.
-      let resolveVerify: (() => void) | undefined;
-      const pendingVerify = new Promise<never>((_, reject) => {
-        resolveVerify = () => reject(new Error('teardown'));
-      });
-
-      try {
-        const h = makeHarness();
-        h.license.verifyLicense.mockReturnValue(
-          pendingVerify as unknown as Promise<
-            Awaited<
-              ReturnType<
-                import('@ptah-extension/vscode-core').LicenseService['verifyLicense']
-              >
-            >
-          >,
-        );
-        h.handlers.register();
-
-        const result = await call<{ success: boolean; error?: string }>(
-          h,
-          'enhancedPrompts:runWizard',
-          { workspacePath: '/x' },
-        );
-
-        expect(result.success).toBe(false);
-        expect(result.error).toMatch(/verification timed out/i);
-        expect(h.enhancedPrompts.runWizard).not.toHaveBeenCalled();
-      } finally {
-        // Settle the pending verify promise so Jest's unhandled-rejection
-        // detector doesn't flag the worker on teardown.
-        resolveVerify?.();
-        // Swallow the teardown rejection.
-        pendingVerify.catch(() => undefined);
-        jest.restoreAllMocks();
-      }
-    });
-
-    it('rejects non-premium tiers with an upgrade message', async () => {
-      const h = makeHarness();
-      h.license.verifyLicense.mockResolvedValue(
-        makeLicenseStatus({ tier: 'community' }),
-      );
-      h.handlers.register();
-
-      const result = await call<{ success: boolean; error?: string }>(
-        h,
-        'enhancedPrompts:runWizard',
-        { workspacePath: '/x' },
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/premium feature/i);
       expect(h.enhancedPrompts.runWizard).not.toHaveBeenCalled();
     });
 
-    it('dispatches to EnhancedPromptsService on pro tier and forwards the result', async () => {
+    it('dispatches to EnhancedPromptsService and forwards the result', async () => {
       const h = makeHarness();
-      h.license.verifyLicense.mockResolvedValue(
-        makeLicenseStatus({ tier: 'pro' }),
-      );
       h.enhancedPrompts.runWizard.mockResolvedValue({
         success: true,
         state: {
@@ -520,11 +416,8 @@ describe('EnhancedPromptsRpcHandlers', () => {
       expect(result).not.toHaveProperty('generatedPrompt');
     });
 
-    it('accepts trial_pro as premium', async () => {
+    it('forwards a service-level failure result', async () => {
       const h = makeHarness();
-      h.license.verifyLicense.mockResolvedValue(
-        makeLicenseStatus({ tier: 'trial_pro' }),
-      );
       h.enhancedPrompts.runWizard.mockResolvedValue({
         success: false,
         error: 'some internal error',
@@ -612,32 +505,11 @@ describe('EnhancedPromptsRpcHandlers', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/workspace path is required/i);
-      expect(h.license.verifyLicense).not.toHaveBeenCalled();
-    });
-
-    it('rejects non-premium tiers with an upgrade message', async () => {
-      const h = makeHarness();
-      h.license.verifyLicense.mockResolvedValue(
-        makeLicenseStatus({ tier: 'community' }),
-      );
-      h.handlers.register();
-
-      const result = await call<{ success: boolean; error?: string }>(
-        h,
-        'enhancedPrompts:regenerate',
-        { workspacePath: '/x' },
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/premium feature/i);
       expect(h.enhancedPrompts.regenerate).not.toHaveBeenCalled();
     });
 
     it('defaults force=true when omitted and forwards to the service', async () => {
       const h = makeHarness();
-      h.license.verifyLicense.mockResolvedValue(
-        makeLicenseStatus({ tier: 'pro' }),
-      );
       h.enhancedPrompts.regenerate.mockResolvedValue({
         success: true,
         status: {

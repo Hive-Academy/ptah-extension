@@ -515,7 +515,7 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
     );
   }
 
-  async function buildPremiumWith(
+  async function buildSystemPromptWith(
     injector: InjectorStub,
     initialQuery: string,
     extra: { corpusName?: string } = {},
@@ -533,7 +533,6 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       userMessageStream,
       abortController: new AbortController(),
       sessionConfig,
-      isPremium: true,
       initialUserQuery: initialQuery,
     });
     return cfg.options.systemPrompt;
@@ -547,9 +546,13 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue('CORPUS_PRIME_TOKEN'),
       buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
     };
-    const sp = await buildPremiumWith(injector, 'a long enough query string', {
-      corpusName: 'corpus-A',
-    });
+    const sp = await buildSystemPromptWith(
+      injector,
+      'a long enough query string',
+      {
+        corpusName: 'corpus-A',
+      },
+    );
     expect(sp).toBeDefined();
     const append = (sp as { append?: string }).append ?? '';
     const startIdx = append.indexOf('SESSION_START_TOKEN');
@@ -568,7 +571,10 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue('CORPUS_PRIME_TOKEN'),
       buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
     };
-    const sp = await buildPremiumWith(injector, 'a long enough query string');
+    const sp = await buildSystemPromptWith(
+      injector,
+      'a long enough query string',
+    );
     const append = (sp as { append?: string }).append ?? '';
     expect(append).not.toContain('CORPUS_PRIME_TOKEN');
     expect(injector.buildCorpusBlock).not.toHaveBeenCalled();
@@ -580,7 +586,10 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue(''),
       buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
     };
-    const sp = await buildPremiumWith(injector, 'a long enough query string');
+    const sp = await buildSystemPromptWith(
+      injector,
+      'a long enough query string',
+    );
     const append = (sp as { append?: string }).append ?? '';
     expect(append).toContain('MEMORY_RECALL_TOKEN');
   });
@@ -591,7 +600,7 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue(''),
       buildBlock: jest.fn().mockResolvedValue(''),
     };
-    await buildPremiumWith(injector, 'a long enough query string');
+    await buildSystemPromptWith(injector, 'a long enough query string');
     expect(injector.buildSessionStartBlock).toHaveBeenCalledWith('D:/tmp/ws');
   });
 
@@ -601,7 +610,7 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue('CORPUS_PRIME_TOKEN'),
       buildBlock: jest.fn().mockResolvedValue(''),
     };
-    await buildPremiumWith(injector, 'a long enough query string', {
+    await buildSystemPromptWith(injector, 'a long enough query string', {
       corpusName: 'corpus-XYZ',
     });
     expect(injector.buildCorpusBlock).toHaveBeenCalledWith('corpus-XYZ');

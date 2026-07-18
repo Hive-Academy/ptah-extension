@@ -858,7 +858,7 @@ describe('EnhancedPromptsService', () => {
         undefined,
         undefined,
         input,
-        { isPremium: true, mcpServerRunning: false, pluginPaths: ['/p1'] },
+        { mcpServerRunning: false, pluginPaths: ['/p1'] },
       );
       expect(result.success).toBe(true);
       expect(mocks.internalQueryService.execute).toHaveBeenCalledWith(
@@ -894,7 +894,6 @@ describe('EnhancedPromptsService', () => {
         devDependencies: [],
       };
       await service.runWizard(testWorkspacePath, undefined, undefined, input, {
-        isPremium: false,
         mcpServerRunning: false,
         pluginPaths: ['/p1'],
       });
@@ -962,7 +961,6 @@ describe('EnhancedPromptsService', () => {
         devDependencies: [],
       };
       await service.runWizard(testWorkspacePath, undefined, undefined, input, {
-        isPremium: true,
         mcpServerRunning: false,
         onStreamEvent,
       });

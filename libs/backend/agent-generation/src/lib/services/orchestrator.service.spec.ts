@@ -1291,7 +1291,6 @@ describe('AgentGenerationOrchestratorService', () => {
       await service.generateAgents({
         workspacePath: '/workspace/test-project',
         onStreamEvent,
-        isPremium: true,
         mcpServerRunning: true,
         mcpPort: 4242,
         model: 'claude-sonnet-4-7',
@@ -1301,7 +1300,6 @@ describe('AgentGenerationOrchestratorService', () => {
       const sdkConfig =
         mocks.contentGenerator.generateContent.mock.calls[0]![2];
       expect(sdkConfig).toMatchObject({
-        isPremium: true,
         mcpServerRunning: true,
         mcpPort: 4242,
         model: 'claude-sonnet-4-7',

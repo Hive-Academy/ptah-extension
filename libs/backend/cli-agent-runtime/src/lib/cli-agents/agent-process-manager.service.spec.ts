@@ -68,18 +68,16 @@ jest.mock('tsyringe', () => ({
 
 // Mock the Logger token + service classes that AgentProcessManager now
 // depends on after the god-service split-up. The source file
-// constructor-injects LicenseService, SubagentRegistryService, and
-// SentryService alongside the original logger/cliDetection.
+// constructor-injects SubagentRegistryService and SentryService alongside
+// the original logger/cliDetection.
 jest.mock('@ptah-extension/vscode-core', () => ({
   TOKENS: {
     LOGGER: Symbol('LOGGER'),
     CLI_DETECTION_SERVICE: Symbol('CLI_DETECTION_SERVICE'),
-    LICENSE_SERVICE: Symbol('LICENSE_SERVICE'),
     SUBAGENT_REGISTRY_SERVICE: Symbol('SUBAGENT_REGISTRY_SERVICE'),
     SENTRY_SERVICE: Symbol('SENTRY_SERVICE'),
   },
   Logger: class {},
-  LicenseService: class {},
   SubagentRegistryService: class {},
   SentryService: class {},
 }));
@@ -310,16 +308,6 @@ function createMockWorkspaceProvider(): Record<string, jest.Mock> {
   };
 }
 
-/** Build a LicenseService stub that reports premium so MCP resolution
- *  reaches the HTTP health check (mocked to fail above — no real network). */
-function createMockLicenseService(): Record<string, jest.Mock> {
-  const status = { tier: 'pro', plan: { isPremium: true } };
-  return {
-    getCachedStatus: jest.fn().mockReturnValue(status),
-    verifyLicense: jest.fn().mockResolvedValue(status),
-  };
-}
-
 /** Minimal SubagentRegistryService stub — spawn() only touches it when a
  *  parentSessionId is provided (none of these tests do). */
 function createMockSubagentRegistry(): Record<string, jest.Mock> {
@@ -356,9 +344,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     setupVscodeConfig();
 
     // Instantiate manager directly (tsyringe decorators are mocked to no-ops).
-    // The constructor takes 7 deps: logger, cliDetection, licenseService,
-    // subagentRegistry, workspaceProvider, sentryService, reasoningSettings.
-    const licenseService = createMockLicenseService();
+    // The constructor takes 6 deps: logger, cliDetection, subagentRegistry,
+    // workspaceProvider, sentryService, reasoningSettings.
     const subagentRegistry = createMockSubagentRegistry();
     const workspaceProvider = createMockWorkspaceProvider();
     const sentryService = createMockSentryService();
@@ -367,21 +354,18 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     manager = new AgentProcessManager(
       logger,
       cliDetection,
-      licenseService as unknown as ConstructorParameters<
-        typeof AgentProcessManager
-      >[2],
       subagentRegistry as unknown as ConstructorParameters<
         typeof AgentProcessManager
-      >[3],
+      >[2],
       workspaceProvider as unknown as ConstructorParameters<
         typeof AgentProcessManager
-      >[4],
+      >[3],
       sentryService as unknown as ConstructorParameters<
         typeof AgentProcessManager
-      >[5],
+      >[4],
       reasoningSettings as unknown as ConstructorParameters<
         typeof AgentProcessManager
-      >[6],
+      >[5],
     );
   });
 

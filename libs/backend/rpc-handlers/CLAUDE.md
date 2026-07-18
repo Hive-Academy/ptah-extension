@@ -66,7 +66,6 @@ Other: `HarnessRpcHandlers`, `McpDirectoryRpcHandlers`, `GitRpcHandlers`, `Works
 - **Platform-agnostic only** — never `import * from 'vscode'`. Use `platform-core` ports (`IUserInteraction`, `IFileSystemProvider`, `IPlatformCommands`, …) via DI.
 - **Catch unknown**: `catch (error: unknown)` and narrow before logging/returning.
 - **Workspace guard** — privileged operations call `isAuthorizedWorkspace` before acting.
-- Pro-only methods: also add prefix to `PRO_ONLY_METHOD_PREFIXES` in `vscode-core/.../rpc-handler.ts`.
 
 ## Cross-Lib Rules
 

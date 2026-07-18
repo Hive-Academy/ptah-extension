@@ -49,7 +49,6 @@ import type {
   Logger,
   ConfigManager,
   SentryService,
-  LicenseService,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -103,10 +102,7 @@ function makeService(params: {
   const sessionMetadataStore = {
     get: jest.fn().mockResolvedValue(null),
   };
-  const licenseService = {
-    verifyLicense: jest.fn().mockResolvedValue({ valid: false, tier: 'free' }),
-  } as unknown as LicenseService;
-  const premiumContext = {
+  const sdkContext = {
     isMcpServerRunning: jest.fn().mockReturnValue(false),
     resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
     resolvePluginPaths: jest.fn().mockReturnValue([]),
@@ -130,7 +126,6 @@ function makeService(params: {
     codeExecutionMcp as never,
     historyReader as never,
     subagentRegistry,
-    licenseService,
     {
       intercept: jest.fn().mockReturnValue({ action: 'passthrough' }),
     } as never,
@@ -142,7 +137,7 @@ function makeService(params: {
       globalStoragePath: '/tmp/ptah-storage',
       workspaceStoragePath: '/tmp/ptah-workspace-storage',
     } as never,
-    premiumContext as never,
+    sdkContext as never,
     {
       handleStart: jest.fn().mockResolvedValue({ result: { success: false } }),
       registerResumedSession: jest.fn(),

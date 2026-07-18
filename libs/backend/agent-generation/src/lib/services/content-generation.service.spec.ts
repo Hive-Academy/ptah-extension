@@ -632,7 +632,6 @@ Default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         enhancedPromptContent: 'EXTRA_GUIDANCE_BLOCK',
       });
@@ -659,7 +658,6 @@ Default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: true,
         mcpServerRunning: false,
         pluginPaths: ['/plugins/a', '/plugins/b'],
       });
@@ -673,7 +671,6 @@ Default
       expect(callArgs.systemPromptAppend).toContain('Available Plugin Skills');
       expect(callArgs.systemPromptAppend).toContain('FORMATTED_SKILLS_HERE');
       expect(callArgs.pluginPaths).toEqual(['/plugins/a', '/plugins/b']);
-      expect(callArgs.isPremium).toBe(true);
     });
 
     it('should NOT add skills section when discoverPluginSkills returns empty array', async () => {
@@ -687,7 +684,6 @@ Default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         pluginPaths: ['/plugins/empty'],
       });
@@ -723,7 +719,6 @@ Default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         model: 'claude-opus-explicit',
       });
@@ -798,7 +793,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent,
       });
@@ -840,7 +834,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent: jest.fn(),
       });
@@ -869,7 +862,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent: jest.fn(),
       });
@@ -920,7 +912,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent,
       });
@@ -988,7 +979,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent,
       });
@@ -1028,7 +1018,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent,
       });
@@ -1068,7 +1057,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent,
       });
@@ -1109,7 +1097,6 @@ default
       };
 
       await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent,
       });
@@ -1159,7 +1146,6 @@ fallback body
       };
 
       const result = await service.generateContent(template, mockContext, {
-        isPremium: false,
         mcpServerRunning: false,
         onStreamEvent: jest.fn(),
       });

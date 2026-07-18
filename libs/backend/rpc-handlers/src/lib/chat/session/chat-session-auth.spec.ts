@@ -53,7 +53,6 @@ import type {
   Logger,
   ConfigManager,
   SentryService,
-  LicenseService,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -94,11 +93,6 @@ function makeService(
     stub as never,
     stub as never,
     stub as unknown as SubagentRegistryService,
-    {
-      verifyLicense: jest
-        .fn()
-        .mockResolvedValue({ valid: false, tier: 'free' }),
-    } as unknown as LicenseService,
     {
       intercept: jest.fn().mockReturnValue({ action: 'passthrough' }),
     } as never,
