@@ -68,9 +68,8 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
  *    calls `mcpDirectory:resolveSmithery`. Resolve success/error is surfaced
  *    in-view — no blank screen / unhandled rejection.
  *
- * The hub already gates the whole view on premium; this surface only mounts for
- * premium users. As a defensive measure it still refuses to fire any browse RPC
- * unless key status has been resolved to `configured`.
+ * This surface refuses to fire any browse RPC unless key status has been
+ * resolved to `configured`.
  *
  * Complexity Level: 3 — key-gate state machine + paginated browse + category
  * chips + per-server config form + resolve flow. Patterns: signal state,

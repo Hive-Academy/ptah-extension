@@ -53,136 +53,139 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
 
       <!-- Multi-Phase Analysis Results (primary path) -->
       @if (multiPhaseResult(); as mp) {
-      <div class="space-y-3 mb-4">
-        <!-- Summary bar -->
-        <div class="flex items-center gap-2 text-xs text-base-content/60 mb-2">
-          <span
-            >Model:
-            <span class="font-semibold text-base-content">{{
-              mp.manifest.model
-            }}</span></span
+        <div class="space-y-3 mb-4">
+          <!-- Summary bar -->
+          <div
+            class="flex items-center gap-2 text-xs text-base-content/60 mb-2"
           >
-          <span class="text-base-content/30">|</span>
-          <span
-            >Duration:
-            <span class="font-semibold text-base-content">{{
-              formatDuration(mp.manifest.totalDurationMs)
-            }}</span></span
-          >
-          <span class="text-base-content/30">|</span>
-          <span
-            >Phases:
-            <span class="font-semibold text-base-content">{{
-              phaseEntries().length
-            }}</span></span
-          >
-        </div>
-
-        <!-- Phase cards -->
-        @for (phase of phaseEntries(); track phase.id) {
-        <div
-          class="collapse collapse-arrow border border-base-300 bg-base-200/50"
-        >
-          <input
-            type="checkbox"
-            [checked]="isPhaseExpanded(phase.id)"
-            (change)="togglePhase(phase.id)"
-          />
-          <div class="collapse-title flex items-center gap-2 min-h-0 py-2 px-3">
-            <!-- Status icon -->
-            @if (phase.status === 'completed') {
-            <lucide-angular
-              [img]="CheckCircleIcon"
-              class="h-4 w-4 text-success shrink-0"
-            />
-            } @else if (phase.status === 'failed') {
-            <lucide-angular
-              [img]="XCircleIcon"
-              class="h-4 w-4 text-error shrink-0"
-            />
-            } @else {
-            <lucide-angular
-              [img]="AlertTriangleIcon"
-              class="h-4 w-4 text-warning shrink-0"
-            />
-            }
-            <span class="text-sm font-semibold">{{
-              getPhaseLabel(phase.id)
-            }}</span>
-            @if (phase.durationMs > 0) {
-            <span class="text-xs text-base-content/50 ml-auto mr-6">
-              {{ formatDuration(phase.durationMs) }}
-            </span>
-            }
+            <span
+              >Model:
+              <span class="font-semibold text-base-content">{{
+                mp.manifest.model
+              }}</span></span
+            >
+            <span class="text-base-content/30">|</span>
+            <span
+              >Duration:
+              <span class="font-semibold text-base-content">{{
+                formatDuration(mp.manifest.totalDurationMs)
+              }}</span></span
+            >
+            <span class="text-base-content/30">|</span>
+            <span
+              >Phases:
+              <span class="font-semibold text-base-content">{{
+                phaseEntries().length
+              }}</span></span
+            >
           </div>
-          <div class="collapse-content px-3 pb-3">
-            @if (phase.content) {
-            <div class="prose prose-sm max-w-none text-xs">
-              <markdown [data]="phase.content" />
-            </div>
-            } @else if (phase.error) {
-            <div class="alert alert-error text-xs py-2">
-              <lucide-angular
-                [img]="XCircleIcon"
-                class="h-3.5 w-3.5 shrink-0"
+
+          <!-- Phase cards -->
+          @for (phase of phaseEntries(); track phase.id) {
+            <div
+              class="collapse collapse-arrow border border-base-300 bg-base-200/50"
+            >
+              <input
+                type="checkbox"
+                [checked]="isPhaseExpanded(phase.id)"
+                (change)="togglePhase(phase.id)"
               />
-              <span>{{ phase.error }}</span>
+              <div
+                class="collapse-title flex items-center gap-2 min-h-0 py-2 px-3"
+              >
+                <!-- Status icon -->
+                @if (phase.status === 'completed') {
+                  <lucide-angular
+                    [img]="CheckCircleIcon"
+                    class="h-4 w-4 text-success shrink-0"
+                  />
+                } @else if (phase.status === 'failed') {
+                  <lucide-angular
+                    [img]="XCircleIcon"
+                    class="h-4 w-4 text-error shrink-0"
+                  />
+                } @else {
+                  <lucide-angular
+                    [img]="AlertTriangleIcon"
+                    class="h-4 w-4 text-warning shrink-0"
+                  />
+                }
+                <span class="text-sm font-semibold">{{
+                  getPhaseLabel(phase.id)
+                }}</span>
+                @if (phase.durationMs > 0) {
+                  <span class="text-xs text-base-content/50 ml-auto mr-6">
+                    {{ formatDuration(phase.durationMs) }}
+                  </span>
+                }
+              </div>
+              <div class="collapse-content px-3 pb-3">
+                @if (phase.content) {
+                  <div class="prose prose-sm max-w-none text-xs">
+                    <markdown [data]="phase.content" />
+                  </div>
+                } @else if (phase.error) {
+                  <div class="alert alert-error text-xs py-2">
+                    <lucide-angular
+                      [img]="XCircleIcon"
+                      class="h-3.5 w-3.5 shrink-0"
+                    />
+                    <span>{{ phase.error }}</span>
+                  </div>
+                } @else {
+                  <p class="text-xs text-base-content/50 italic">
+                    No content available for this phase.
+                  </p>
+                }
+              </div>
             </div>
-            } @else {
-            <p class="text-xs text-base-content/50 italic">
-              No content available for this phase.
-            </p>
-            }
-          </div>
+          }
         </div>
-        }
-      </div>
 
-      <!-- Confirmation Warning -->
-      <div class="alert alert-warning text-xs mb-4">
-        <lucide-angular
-          [img]="TriangleAlertIcon"
-          class="stroke-current shrink-0 h-4 w-4"
-          aria-hidden="true"
-        />
-        <div>
-          <div class="font-semibold">Does this look correct?</div>
-          <div class="text-xs opacity-80">
-            The agents we generate will be tailored to these characteristics.
-          </div>
-        </div>
-      </div>
-
-      <!-- Action Buttons -->
-      <div class="flex gap-2 justify-center">
-        <button class="btn btn-ghost btn-sm" (click)="onManualAdjust()">
-          No, Let Me Adjust
-        </button>
-        <button class="btn btn-primary btn-sm" (click)="onContinue()">
-          Yes, Continue
-        </button>
-      </div>
-
-      } @else {
-      <!-- Skeleton loading state (no analysis available) -->
-      <div class="space-y-4">
-        <div class="border border-base-300 rounded-md bg-base-200/50">
-          <div class="p-4">
-            <div class="skeleton h-4 w-48 mb-2"></div>
-            <div class="flex flex-wrap gap-2 mb-2">
-              <div class="skeleton h-4 w-20 rounded-full"></div>
-              <div class="skeleton h-4 w-24 rounded-full"></div>
-              <div class="skeleton h-4 w-16 rounded-full"></div>
+        <!-- Confirmation Warning -->
+        <div class="alert alert-warning text-xs mb-4">
+          <lucide-angular
+            [img]="TriangleAlertIcon"
+            class="stroke-current shrink-0 h-4 w-4"
+            aria-hidden="true"
+          />
+          <div>
+            <div class="font-semibold">Does this look correct?</div>
+            <div class="text-xs opacity-80">
+              The agents we generate will be tailored to these characteristics.
             </div>
-            <div class="skeleton h-3 w-full mb-1"></div>
-            <div class="skeleton h-3 w-3/4"></div>
           </div>
         </div>
+
+        <!-- Action Buttons -->
         <div class="flex gap-2 justify-center">
-          <div class="skeleton h-8 w-28 rounded-lg"></div>
-          <div class="skeleton h-8 w-28 rounded-lg"></div>
+          <button class="btn btn-ghost btn-sm" (click)="onManualAdjust()">
+            No, Let Me Adjust
+          </button>
+          <button class="btn btn-primary btn-sm" (click)="onContinue()">
+            Yes, Continue
+          </button>
         </div>
-      </div>
+      } @else {
+        <!-- Skeleton loading state (no analysis available) -->
+        <div class="space-y-4">
+          <div class="border border-base-300 rounded-md bg-base-200/50">
+            <div class="p-4">
+              <div class="skeleton h-4 w-48 mb-2"></div>
+              <div class="flex flex-wrap gap-2 mb-2">
+                <div class="skeleton h-4 w-20 rounded-full"></div>
+                <div class="skeleton h-4 w-24 rounded-full"></div>
+                <div class="skeleton h-4 w-16 rounded-full"></div>
+              </div>
+              <div class="skeleton h-3 w-full mb-1"></div>
+              <div class="skeleton h-3 w-3/4"></div>
+            </div>
+          </div>
+          <div class="flex gap-2 justify-center">
+            <div class="skeleton h-8 w-28 rounded-lg"></div>
+            <div class="skeleton h-8 w-28 rounded-lg"></div>
+          </div>
+        </div>
       }
     </div>
 
@@ -215,11 +218,11 @@ For now, you can:
 
   /** Track which phase cards are expanded */
   private readonly expandedPhases = signal<Set<string>>(
-    new Set(['project-profile'])
+    new Set(['project-profile']),
   );
 
   /**
-   * Multi-phase analysis result (primary path for premium users).
+   * Multi-phase analysis result (primary analysis path).
    */
   protected readonly multiPhaseResult = computed(() => {
     return this.wizardState.multiPhaseResult();
@@ -311,6 +314,5 @@ For now, you can:
    * Handle alert modal OK button
    * - Modal auto-closes
    */
-  protected onAlertOk(): void {
-  }
+  protected onAlertOk(): void {}
 }

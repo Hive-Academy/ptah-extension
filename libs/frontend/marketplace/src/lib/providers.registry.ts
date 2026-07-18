@@ -15,7 +15,6 @@ export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
     status: 'live',
     kind: 'skills',
     tagline: 'Bundled skill packs for orchestration, frontend & backend',
-    proGated: true,
     surface: PluginsSurfaceComponent,
   },
   {
@@ -25,7 +24,6 @@ export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
     status: 'live',
     kind: 'mcp',
     tagline: 'Official Model Context Protocol server registry',
-    proGated: true,
     surface: McpDirectoryBrowserComponent,
   },
   {
@@ -35,7 +33,6 @@ export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
     status: 'live',
     kind: 'skills',
     tagline: 'Discover and install community skills',
-    proGated: true,
     surface: SkillShBrowserComponent,
   },
   {
@@ -45,7 +42,6 @@ export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
     status: 'live',
     kind: 'mcp',
     tagline: 'Hosted MCP servers with one-click setup',
-    proGated: true,
     surface: SmitherySurfaceComponent,
   },
   {
@@ -55,6 +51,5 @@ export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
     status: 'coming-soon',
     kind: 'mcp',
     tagline: 'Managed-auth MCP toolkits',
-    proGated: true,
   },
 ];
