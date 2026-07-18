@@ -5,11 +5,10 @@ import type { Locator, Page } from '@playwright/test';
 /**
  * Setup Wizard Tour — "personalize Ptah in minutes" (P7.1, 7-step onboarding).
  *
- * A marketing SCENE, not a test. It opens the premium-gated setup wizard and
- * pans the welcome experience: the value-prop hero, the four feature cards, the
- * analysis-model picker, and the 7-step progress rail (Welcome → Scan →
- * Analysis → Selection → Enhance → Generation → Completion). See
- * `docs/video-content-plan.md` P7.1.
+ * A marketing SCENE, not a test. It opens the setup wizard and pans the welcome
+ * experience: the value-prop hero, the four feature cards, the analysis-model
+ * picker, and the 7-step progress rail (Welcome → Scan → Analysis → Selection
+ * → Enhance → Generation → Completion). See `docs/video-content-plan.md` P7.1.
  *
  * AUDIO-FIRST: the voiceover script lives in `scripts/setup-wizard-tour.json`
  * and is narrated by `narrate.mjs` BEFORE capture. Each `director.say(i)`
@@ -23,8 +22,7 @@ import type { Locator, Page } from '@playwright/test';
  * authenticated workspace. So this tour DELIBERATELY STOPS on the welcome step.
  * It spotlights the forward progress rail (clicking ahead is a safe no-op while
  * prerequisites are unmet) but never fires the analysis CTA and never advances
- * past welcome. If the surface is premium-gated to the upsell, we narrate that
- * cleanly and exit.
+ * past welcome.
  *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
@@ -55,9 +53,9 @@ async function goToSetup(page: Page, director: Director): Promise<void> {
   ]);
   if (tab) await director.click(tab);
 
-  // The wizard view mounts either the step container (premium) or the upsell.
+  // The wizard view mounts the step container.
   await page
-    .locator('[data-testid="wizard-step"], ptah-premium-upsell')
+    .locator('[data-testid="wizard-step"]')
     .first()
     .waitFor({ state: 'visible', timeout: 15_000 })
     .catch(() => undefined);
@@ -67,17 +65,12 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
   page,
   director,
 }) => {
-  // Clear any blocking startup modal (license / trial dialog) before filming.
-  await director.dismissDialogs();
-
   // Navigate + clean up BEFORE the first beat: everything until the hook is
   // trimmed by render-all's lead-in trim, so this surface swap never airs — and
   // the hook lands on the setup wizard instead of the stale restored surface.
-  // Entering the wizard here also forces its first-mount (step container OR
-  // premium upsell); navigation-only, it never clicks the analysis CTA, so no
-  // separate pre-warm is needed.
+  // Entering the wizard here also forces its first-mount; navigation-only, it
+  // never clicks the analysis CTA, so no separate pre-warm is needed.
   await goToSetup(page, director);
-  await director.dismissDialogs();
   await director.hold();
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
@@ -85,20 +78,6 @@ test('Setup Wizard — personalize Ptah in minutes', async ({
 
   // WARMUP — one line of context before the tour starts.
   await director.say(1);
-
-  // --- Premium-gate fallback ---------------------------------------------
-  const upsell = page.locator('ptah-premium-upsell').first();
-  if (await upsell.isVisible().catch(() => false)) {
-    await director.say(2, {
-      target: upsell,
-      during: async () => {
-        await director.spotlight(upsell, 1700);
-        await director.scrollThrough(upsell, { steps: 3, dwellMs: 700 });
-      },
-    });
-    await director.hold(1600);
-    return;
-  }
 
   const step = page.locator('[data-testid="wizard-step"]').first();
   await step

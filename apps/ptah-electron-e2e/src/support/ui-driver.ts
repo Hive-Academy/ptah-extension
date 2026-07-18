@@ -22,7 +22,6 @@ interface RendererMessage {
 
 export interface StartupConfigSeed {
   initialView: string;
-  isLicensed: boolean;
   workspaceRoot: string;
   workspaceName: string;
 }
@@ -37,7 +36,6 @@ const NAMESPACE_EMPTY_DEFAULTS: Record<string, unknown> = {
 
 const DEFAULT_STARTUP_CONFIG: StartupConfigSeed = {
   initialView: 'chat',
-  isLicensed: true,
   workspaceRoot: 'C:\\ptah-e2e-ws',
   workspaceName: 'ptah-e2e-ws',
 };
@@ -115,7 +113,6 @@ export class UiDriver {
       ipcMain.on('get-startup-config', (event: Electron.IpcMainEvent) => {
         event.returnValue = {
           initialView: cfg.initialView,
-          isLicensed: cfg.isLicensed,
           workspaceRoot: cfg.workspaceRoot,
           workspaceName: cfg.workspaceName,
         };

@@ -55,9 +55,8 @@ const SEL = {
 
 /**
  * Navigate from wherever the shell opens into the Thoth → Memory tab and wait
- * for its panel to render. Dismisses the persistent "trial ended" startup modal
- * both on the way in and again once inside, since it can re-assert after a
- * navigation. Best-effort selectors so the scene survives minor chrome changes.
+ * for its panel to render. Best-effort selectors so the scene survives minor
+ * chrome changes.
  */
 async function goToMemory(page: Page, director: Director): Promise<void> {
   // Enter the desktop "cockpit" (Thoth shell) via the top nav tab.
@@ -70,15 +69,12 @@ async function goToMemory(page: Page, director: Director): Promise<void> {
   ) {
     await director.click(thothTab.first());
   }
-  // The trial modal frequently re-appears after entering Thoth — clear it.
-  await director.dismissDialogs();
 
   // Open the Memory inner tab and wait for its panel.
   const memoryTab = page.locator('#thoth-tab-memory');
   await memoryTab.waitFor({ state: 'visible' });
   await director.click(memoryTab);
   await page.locator('#thoth-panel-memory').waitFor({ state: 'visible' });
-  await director.dismissDialogs();
 }
 
 /**
@@ -120,9 +116,6 @@ test('P3.1 — Ptah remembers (persistent memory)', async ({
   page,
   director,
 }) => {
-  // Clear the persistent "Your Pro Trial Has Ended" startup modal before filming.
-  await director.dismissDialogs();
-
   // Navigate + settle BEFORE the first beat: enter the Memory tab (the subject
   // surface — the persistent brain) so the hook lands on it instead of the stale
   // restored surface. Everything until the hook is trimmed by render-all's

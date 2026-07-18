@@ -8,10 +8,9 @@ import { prewarmThoth } from './_harness/prewarm';
  *
  * A confident cockpit pan across the desktop app's Thoth shell: the four
  * Electron-only tabs — Memory, Skills, Schedules (cron) and Gateway. Unlike the
- * old quick-teaser cut, each tab now gets a real pan: enter the tab, dismiss any
- * re-asserting trial modal, slowly scroll THROUGH the panel so the camera
- * reveals the full surface, then spotlight that tab's hero element and narrate a
- * single confident line. This is still an OVERVIEW (the deep dives live in
+ * old quick-teaser cut, each tab now gets a real pan: enter the tab, slowly
+ * scroll THROUGH the panel so the camera reveals the full surface, then
+ * spotlight that tab's hero element and narrate a single confident line. This is still an OVERVIEW (the deep dives live in
  * `skills-tour` / `cron-tour`), but it lingers long enough to feel like a
  * cockpit, not a flashcard. This is a SCENE, not a test — it asserts almost
  * nothing and is tuned for how it looks on camera. See
@@ -146,9 +145,9 @@ async function resolveHero(
 }
 
 /**
- * Pan one inner tab: click `#thoth-tab-<id>`, wait for its panel, dismiss any
- * re-asserting trial modal, narrate, slowly scroll THROUGH the panel, then
- * spotlight the hero. A confident cockpit pan, not a flashcard.
+ * Pan one inner tab: click `#thoth-tab-<id>`, wait for its panel, narrate,
+ * slowly scroll THROUGH the panel, then spotlight the hero. A confident cockpit
+ * pan, not a flashcard.
  */
 async function tourTab(
   page: Page,
@@ -159,8 +158,6 @@ async function tourTab(
   await director.click(page.locator(`#thoth-tab-${beat.id}`));
   const panel = page.locator(`#thoth-panel-${beat.id}`);
   await panel.waitFor({ state: 'visible' });
-  // The trial modal can re-assert after a tab switch — keep it out of frame.
-  await director.dismissDialogs();
 
   // Target the panel so the camera frames this tab's surface as the VO names it.
   await director.say(scriptIndex, {
@@ -184,10 +181,6 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
   page,
   director,
 }) => {
-  // The persistent authed profile ALWAYS shows the "Pro Trial Has Ended"
-  // startup modal — clear it before filming so it stays out of frame.
-  await director.dismissDialogs();
-
   // PRE-WARM (kept — trimmed lead-in, before the first beat): this cockpit pan
   // visits all four Electron-only tabs mid-body, each of which pays a
   // SQLite/embedder-backed first-mount cost. `goToThoth` below only lands on the
@@ -202,10 +195,8 @@ test('P1.2 — desktop Thoth shell (4-tab cockpit tour)', async ({
   // Navigate + settle BEFORE the first beat: enter the Thoth cockpit (the
   // subject surface) so the hook lands on it instead of the stale restored
   // surface. Everything until the hook is trimmed by render-all's lead-in trim,
-  // so the surface swap never airs. The trial modal can re-assert after
-  // navigation, so dismiss again before we start panning the tabs.
+  // so the surface swap never airs.
   await goToThoth(page, director);
-  await director.dismissDialogs();
   await director.hold();
 
   // HOOK — fire immediately so the video opens on a claim, not dead air.

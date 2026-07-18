@@ -193,17 +193,12 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
   page,
   director,
 }) => {
-  // The persistent authed profile ALWAYS shows the "Pro Trial Has Ended"
-  // startup modal — clear it before filming so it stays out of frame.
-  await director.dismissDialogs();
-
   // Navigate + clean up BEFORE the first beat: everything until the hook is
   // trimmed by render-all's lead-in trim, so this surface swap never airs — and
   // the hook lands on Settings instead of the stale restored surface. Entering
   // Settings here also forces the shell's first-mount, so no separate pre-warm
-  // is needed. The trial modal can re-assert after navigation, so dismiss again.
+  // is needed.
   await goToSettings(page, director);
-  await director.dismissDialogs();
   await director.hold();
 
   // HOOK — fire immediately so the video opens on a question, not dead air.
