@@ -20,7 +20,6 @@
 
 import { TestBed } from '@angular/core/testing';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
-import { AppStateManager } from './app-state.service';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
 import { VSCodeService } from './vscode.service';
 
@@ -59,7 +58,6 @@ function installVsCodeApi(): jest.Mock<void, [unknown]> {
     baseUri: '',
     iconUri: '',
     userIconUri: '',
-    isLicensed: true,
   };
   return postMessage;
 }
@@ -89,7 +87,7 @@ describe('ClaudeRpcService', () => {
   beforeEach(() => {
     postMessage = installVsCodeApi();
     TestBed.configureTestingModule({
-      providers: [ClaudeRpcService, VSCodeService, AppStateManager],
+      providers: [ClaudeRpcService, VSCodeService],
     });
     service = TestBed.inject(ClaudeRpcService);
   });
@@ -281,7 +279,7 @@ describe('ClaudeRpcService', () => {
       expect(result.error).toBe('structured failure');
     });
 
-    it('propagates errorCode for license-related failures', async () => {
+    it('propagates errorCode through to the caller unchanged', async () => {
       const pending = service.call('session:list', { workspacePath: '/tmp' });
       const sent = lastPostedRpc(postMessage);
 
@@ -293,24 +291,8 @@ describe('ClaudeRpcService', () => {
       });
 
       const result = await pending;
-      expect(result.isLicenseError()).toBe(true);
-      expect(result.isProRequired()).toBe(true);
-    });
-
-    it('blocks unlicensed callers from non-whitelisted methods without posting anything', async () => {
-      const appState = TestBed.inject(AppStateManager);
-      (
-        appState as unknown as { _isLicensed: { set: (v: boolean) => void } }
-      )._isLicensed.set(false);
-
-      postMessage.mockClear();
-      const result = await service.call('session:list', {
-        workspacePath: '/tmp',
-      });
-
       expect(result.isError()).toBe(true);
-      expect(result.errorCode).toBe('LICENSE_REQUIRED');
-      expect(postMessage).not.toHaveBeenCalled();
+      expect(result.errorCode).toBe('PRO_TIER_REQUIRED');
     });
   });
 

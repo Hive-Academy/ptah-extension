@@ -45,7 +45,6 @@ import {
   WebviewNavigationService,
 } from '@ptah-extension/core';
 import { SettingsComponent } from './settings.component';
-import { ChatStore } from '../services/chat.store';
 
 describe('SettingsComponent deep-link', () => {
   let appState: AppStateManager;
@@ -55,10 +54,6 @@ describe('SettingsComponent deep-link', () => {
     hasAnyCredential: signal(false),
     showProviderModels: signal(false),
     loadAuthStatus: jest.fn().mockResolvedValue(undefined),
-  };
-
-  const chatStoreStub = {
-    licenseStatus: signal<{ isPremium: boolean } | null>({ isPremium: false }),
   };
 
   const vscodeServiceStub = {
@@ -75,7 +70,6 @@ describe('SettingsComponent deep-link', () => {
         AppStateManager,
         WebviewNavigationService,
         { provide: AuthStateService, useValue: authStateStub },
-        { provide: ChatStore, useValue: chatStoreStub },
         { provide: VSCodeService, useValue: vscodeServiceStub },
         { provide: ClaudeRpcService, useValue: claudeRpcStub },
       ],

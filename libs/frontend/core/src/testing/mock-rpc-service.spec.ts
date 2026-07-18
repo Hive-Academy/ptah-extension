@@ -59,6 +59,6 @@ describe('rpcSuccess / rpcError', () => {
     const result = rpcError<string>('boom', 'LICENSE_REQUIRED');
     expect(result.isError()).toBe(true);
     expect(result.error).toBe('boom');
-    expect(result.isLicenseError()).toBe(true);
+    expect(result.errorCode).toBe('LICENSE_REQUIRED');
   });
 });
