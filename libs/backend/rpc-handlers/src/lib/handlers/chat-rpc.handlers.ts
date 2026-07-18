@@ -4,7 +4,7 @@
  * Registers the six `chat:*` / `agent:backgroundList` RPC methods and delegates
  * each call to one of the extracted chat sub-services:
  *
- *   - `ChatPremiumContextService` — MCP-running probe + premium prompt/plugin resolution.
+ *   - `ChatSdkContextService`     — MCP-running probe + prompt/plugin resolution.
  *   - `ChatPtahCliService`        — Ptah CLI dispatch + the two private session maps.
  *   - `ChatStreamBroadcaster`     — webview event loop + background-agent subscription.
  *   - `ChatSessionService`        — SDK orchestration for the six chat methods.

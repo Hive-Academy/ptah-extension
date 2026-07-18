@@ -77,7 +77,7 @@ const WORKSPACE_UNAVAILABLE_MESSAGE =
  * config so gateway sessions reach parity with the webview chat path
  * (enhanced prompts, plugins, code-exec MCP).
  */
-interface PremiumSessionContext {
+interface SdkSessionContext {
   mcpServerRunning: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
@@ -199,7 +199,7 @@ export class GatewayChatBridge {
     const tabId = `gw-${conversation.id}`;
     let sessionToEnd: string | null = conversation.ptahSessionId ?? null;
 
-    const premium = await this.resolvePremiumContext(workspaceRoot);
+    const sdkContext = await this.resolveSdkContext(workspaceRoot);
 
     // Tripped by the watchdog below. `turnWork` and everything it calls check
     // this before touching shared per-conversation state, so a timed-out turn's
@@ -213,7 +213,7 @@ export class GatewayChatBridge {
           body,
           workspaceRoot,
           tabId,
-          premium,
+          sdkContext,
         );
         if (cancellation.cancelled) return;
         sessionToEnd =
@@ -232,7 +232,7 @@ export class GatewayChatBridge {
           workspaceRoot,
           tabId,
           route,
-          premium,
+          sdkContext,
           cancellation,
         );
         if (recovered.ok) {
@@ -310,13 +310,13 @@ export class GatewayChatBridge {
 
   /**
    * Resolve the session context for a turn, mirroring the webview chat path
-   * (`ChatSessionService` + `ChatPremiumContextService`). Every external call
+   * (`ChatSessionService` + `ChatSdkContextService`). Every external call
    * is guarded so a prompt/plugin/MCP failure degrades to safe defaults
    * rather than breaking the turn.
    */
-  private async resolvePremiumContext(
+  private async resolveSdkContext(
     workspaceRoot: string,
-  ): Promise<PremiumSessionContext> {
+  ): Promise<SdkSessionContext> {
     let mcpServerRunning = false;
     try {
       mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
@@ -407,7 +407,7 @@ export class GatewayChatBridge {
     body: string,
     workspaceRoot: string,
     tabId: string,
-    premium: PremiumSessionContext,
+    sdkContext: SdkSessionContext,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     const persistedId = conversation.ptahSessionId;
     const canResume =
@@ -421,9 +421,9 @@ export class GatewayChatBridge {
         projectPath: workspaceRoot,
         model,
         permissionLevel: 'yolo',
-        mcpServerRunning: premium.mcpServerRunning,
-        enhancedPromptsContent: premium.enhancedPromptsContent,
-        pluginPaths: premium.pluginPaths,
+        mcpServerRunning: sdkContext.mcpServerRunning,
+        enhancedPromptsContent: sdkContext.enhancedPromptsContent,
+        pluginPaths: sdkContext.pluginPaths,
       });
     }
     if (persistedId) {
@@ -436,9 +436,9 @@ export class GatewayChatBridge {
             projectPath: workspaceRoot,
             model,
             permissionLevel: 'yolo',
-            mcpServerRunning: premium.mcpServerRunning,
-            enhancedPromptsContent: premium.enhancedPromptsContent,
-            pluginPaths: premium.pluginPaths,
+            mcpServerRunning: sdkContext.mcpServerRunning,
+            enhancedPromptsContent: sdkContext.enhancedPromptsContent,
+            pluginPaths: sdkContext.pluginPaths,
           },
         );
       } catch (error: unknown) {
@@ -451,14 +451,14 @@ export class GatewayChatBridge {
         );
       }
     }
-    return this.startNew(body, workspaceRoot, tabId, premium);
+    return this.startNew(body, workspaceRoot, tabId, sdkContext);
   }
 
   private startNew(
     body: string,
     workspaceRoot: string,
     tabId: string,
-    premium: PremiumSessionContext,
+    sdkContext: SdkSessionContext,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     return this.agentAdapter.startChatSession({
       tabId,
@@ -468,9 +468,9 @@ export class GatewayChatBridge {
       model: this.resolveModel(),
       includePartialMessages: true,
       permissionLevel: 'yolo',
-      mcpServerRunning: premium.mcpServerRunning,
-      enhancedPromptsContent: premium.enhancedPromptsContent,
-      pluginPaths: premium.pluginPaths,
+      mcpServerRunning: sdkContext.mcpServerRunning,
+      enhancedPromptsContent: sdkContext.enhancedPromptsContent,
+      pluginPaths: sdkContext.pluginPaths,
     });
   }
 
@@ -528,7 +528,7 @@ export class GatewayChatBridge {
     workspaceRoot: string,
     tabId: string,
     route: OutboundRoute,
-    premium: PremiumSessionContext,
+    sdkContext: SdkSessionContext,
     cancellation: TurnCancellation,
   ): Promise<{ ok: boolean; sessionId: string | null }> {
     // Turn already watchdog-terminated — do not start a stray retry session or
@@ -543,7 +543,12 @@ export class GatewayChatBridge {
       },
     );
     try {
-      const stream = await this.startNew(body, workspaceRoot, tabId, premium);
+      const stream = await this.startNew(
+        body,
+        workspaceRoot,
+        tabId,
+        sdkContext,
+      );
       if (cancellation.cancelled) return { ok: false, sessionId: null };
       const sessionId = await this.pumpStream(
         stream,
