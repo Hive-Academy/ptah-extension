@@ -1,5 +1,5 @@
 name = "visual-reviewer"
-description = "Elite Visual Reviewer focusing on UI/UX visual quality, responsive design, and browser-based visual testing"
+description = "\"Elite Visual Reviewer focusing on UI/UX visual quality, responsive design, and browser-based visual testing\""
 sandbox_mode = "read-only"
 developer_instructions = """
 <!-- STATIC:MAIN_CONTENT -->

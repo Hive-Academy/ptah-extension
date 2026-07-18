@@ -1,5 +1,5 @@
 name = "code-logic-reviewer"
-description = "Elite Code Logic Reviewer ensuring business logic correctness, no stubs/placeholders, and complete implementations"
+description = "\"Elite Code Logic Reviewer ensuring business logic correctness, no stubs/placeholders, and complete implementations\""
 sandbox_mode = "read-only"
 developer_instructions = """
 ## Tooling Precedence (MANDATORY)

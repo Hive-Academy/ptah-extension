@@ -238,6 +238,29 @@ export class CompactionLifecycleService {
     const fanoutTabs = Array.from(fanoutMap.values()).filter(
       (t): t is NonNullable<typeof originatingTab> => t != null,
     );
+
+    // [compaction-diag] TEMPORARY — remove after the 2-tile stale-transcript
+    // repro is confirmed. Snapshots the fan-out DECISION: every open tab, the
+    // event's originating tab/session, and exactly which tabs were selected to
+    // clear + reload. If the visible-but-stale tile is missing from
+    // `fanoutTabs` here, the bug is in fan-out SELECTION; if it is present but
+    // still stale, the bug is in the RELOAD target (see session-loader diag).
+    console.warn('[compaction-diag] handleCompactionComplete decision', {
+      resultTabId: result.tabId,
+      compactionSessionId: result.compactionSessionId,
+      originatingTabFound: !!originatingTab,
+      allTabs: allTabs.map((t) => ({
+        id: t.id,
+        claudeSessionId: t.claudeSessionId ?? null,
+        messages: t.messages.length,
+      })),
+      fanoutTabs: fanoutTabs.map((t) => ({
+        id: t.id,
+        claudeSessionId: t.claudeSessionId ?? null,
+        messages: t.messages.length,
+      })),
+    });
+
     const completedAt = Date.now();
     for (const convId of this.collectConversationIdsForTabs(
       fanoutTabs.map((t) => t.id),
@@ -290,6 +313,18 @@ export class CompactionLifecycleService {
           t.claudeSessionId ?? SessionId.safeParse(result.compactionSessionId);
         if (id) reloadIds.add(id);
       }
+
+      // [compaction-diag] TEMPORARY — the reload is keyed by SESSION ID, not
+      // tab id. `switchSession(sid)` re-derives its target tab via
+      // `openSessionTab(sid)`, which with >1 open session can land on a
+      // DIFFERENT tab than the one just cleared. Log the session ids we are
+      // about to reload; cross-reference with the session-loader diag that
+      // reports which tab each reload actually wrote into.
+      console.warn('[compaction-diag] reload plan', {
+        reloadSessionIds: Array.from(reloadIds),
+        fanoutTabIds: fanoutTabs.map((t) => t.id),
+      });
+
       if (reloadIds.size === 0) {
         this.clearCompactionStateForFanout(fanoutTabs);
         return;

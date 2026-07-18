@@ -523,6 +523,24 @@ export class SessionLoaderService {
       const title =
         session?.name || existingTab?.name || sessionId.substring(0, 50);
       const activeTabId = this.tabManager.openSessionTab(sessionId, title);
+
+      // [compaction-diag] TEMPORARY — remove after the 2-tile stale-transcript
+      // repro is confirmed. Reveals the RELOAD TARGET: for a compaction reload,
+      // `openSessionTab(sessionId)` re-derives the tab from the session id. If
+      // `activeTabId` here does NOT equal the tile that was cleared in
+      // `handleCompactionComplete`, the reload is writing history into the
+      // wrong tab and the compacted tile stays stale.
+      if (opts?.reason === 'compaction') {
+        console.warn('[compaction-diag] switchSession reload target', {
+          requestedSessionId: sessionId,
+          resolvedTabId: activeTabId,
+          existingTabId: existingTab?.id ?? null,
+          openTabsForSession: this.tabManager
+            .tabs()
+            .filter((t) => t.claudeSessionId === sessionId)
+            .map((t) => t.id),
+        });
+      }
       this.tabManager.applyResumingSession(activeTabId, {
         sessionId,
         name: title,
