@@ -35,13 +35,10 @@ import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
 import { SubagentTranscriptOverlayComponent } from '../organisms/subagent-transcript-overlay.component';
 import {
-  TrialEndedModalComponent,
   SidebarTabComponent,
   ThemeToggleComponent,
-  NotificationBellComponent,
 } from '@ptah-extension/chat-ui';
 import { SettingsComponent } from '../../settings/settings.component';
-import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { DashboardGridComponent } from '@ptah-extension/dashboard';
 import { ThothShellComponent } from '@ptah-extension/thoth-shell';
@@ -102,14 +99,11 @@ import type { ViewType } from '@ptah-extension/core';
   imports: [
     ChatViewComponent,
     SettingsComponent,
-    WelcomeComponent,
     NgComponentOutlet,
     TabBarComponent,
     ConfirmationDialogComponent,
     SubagentTranscriptOverlayComponent,
-    TrialEndedModalComponent,
     ThemeToggleComponent,
-    NotificationBellComponent,
     LucideAngularModule,
     FormsModule,
     NativePopoverComponent,
@@ -130,7 +124,6 @@ export class AppShellComponent {
   private static readonly STANDALONE_VIEWS: readonly ViewType[] = [
     'setup-wizard',
     'settings',
-    'welcome',
     'analytics',
     'harness-builder',
     'setup-hub',
@@ -285,13 +278,6 @@ export class AppShellComponent {
       return true;
     });
   });
-  readonly licenseReason = computed(
-    () => this.chatStore.licenseStatus()?.reason,
-  );
-  /** Whether the user has Pro — gates the Marketplace nav entry (TASK_2026_131). */
-  readonly isPremium = computed(
-    () => this.chatStore.licenseStatus()?.isPremium ?? false,
-  );
   readonly sessionNameInputRef = viewChild<ElementRef<HTMLInputElement>>(
     'sessionNameInputRef',
   );

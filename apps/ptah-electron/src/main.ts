@@ -132,8 +132,6 @@ if (!gotLock) {
     const post = await registerPostWindow({
       container: boot.container,
       resolvedStateStorage,
-      startupIsLicensed: boot.startupIsLicensed,
-      startupInitialView: boot.startupInitialView,
       setMainWindow: (w) => {
         mainWindow = w;
       },

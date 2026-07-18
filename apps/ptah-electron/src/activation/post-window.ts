@@ -25,8 +25,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export interface PostWindowOptions {
   container: DependencyContainer;
   resolvedStateStorage: IStateStorage | undefined;
-  startupIsLicensed: boolean;
-  startupInitialView: string | null;
   /** Mutates caller's mainWindow slot; returned window is for ergonomic chaining. */
   setMainWindow: (win: BrowserWindow) => void;
   getMainWindow: () => BrowserWindow | null;
@@ -70,24 +68,14 @@ export interface PostWindowResult {
 export async function registerPostWindow(
   options: PostWindowOptions,
 ): Promise<PostWindowResult> {
-  const {
-    container,
-    resolvedStateStorage,
-    startupIsLicensed,
-    startupInitialView,
-    setMainWindow,
-    scheduleWarmup,
-  } = options;
+  const { container, resolvedStateStorage, setMainWindow, scheduleWarmup } =
+    options;
 
   let revalidationInterval: PostWindowResult['revalidationInterval'] = null;
   let updateCheckInterval: PostWindowResult['updateCheckInterval'] = null;
   let updateManager: UpdateManager | null = null;
   let messagingGateway: GatewayService | null = null;
   let chatBridge: GatewayChatBridge | null = null;
-  const baseStartupConfig = {
-    initialView: startupInitialView,
-    isLicensed: startupIsLicensed,
-  };
 
   ipcMain.on('get-startup-config', (event: Electron.IpcMainEvent) => {
     let workspaceRoot = '';
@@ -103,7 +91,7 @@ export async function registerPostWindow(
     }
 
     event.returnValue = {
-      ...baseStartupConfig,
+      initialView: null,
       workspaceRoot,
       workspaceName,
     };
@@ -116,11 +104,7 @@ export async function registerPostWindow(
     },
   );
 
-  console.log(
-    `[Ptah Electron] Startup config registered: initialView=${
-      baseStartupConfig.initialView
-    }, isLicensed=${baseStartupConfig.isLicensed}`,
-  );
+  console.log('[Ptah Electron] Startup config registered');
   const mainWindow = createMainWindow(resolvedStateStorage);
   setMainWindow(mainWindow);
 

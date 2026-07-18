@@ -34,8 +34,6 @@ import type { PtyManagerService } from '../services/pty-manager.service';
 export interface BootstrapResult {
   container: DependencyContainer;
   startupWorkspaceRoot: string | undefined;
-  startupIsLicensed: boolean;
-  startupInitialView: string | null;
   initialFolders: string[] | undefined;
   flushWorkspacePersistence: (() => void) | null;
   /** Mutable ref box so the workspace-change subscription can pick up the
@@ -200,8 +198,6 @@ export async function bootstrapElectron(
   if (!startupWorkspaceRoot && initialFolders?.[0]) {
     startupWorkspaceRoot = initialFolders[0];
   }
-  const startupIsLicensed = true;
-  const startupInitialView: string | null = null;
 
   // Resolve membership status once at startup to prime the license cache for
   // the membership card. This is identity only — it never gates activation or
@@ -311,8 +307,6 @@ export async function bootstrapElectron(
   return {
     container,
     startupWorkspaceRoot,
-    startupIsLicensed,
-    startupInitialView,
     initialFolders,
     flushWorkspacePersistence,
     gitWatcherRef,

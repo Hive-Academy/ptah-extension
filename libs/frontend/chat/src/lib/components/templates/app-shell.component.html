@@ -6,14 +6,9 @@
      and the background-agent tray) -->
 <ptah-subagent-transcript-overlay />
 
-<!-- Trial ended modal (shows when trial_ended reason); only rendered when not on welcome view to prevent invisible overlay stealing focus -->
-@if (currentView() !== 'welcome') {
-  <ptah-trial-ended-modal [reason]="licenseReason()" />
-}
-
 <!--
   Layout Architecture:
-  - Standalone views (setup-wizard, settings, welcome, analytics) render ON TOP via @switch
+  - Standalone views (setup-wizard, settings, analytics) render ON TOP via @switch
   - Shared chrome (sidebar, header, agent panel) is ALWAYS rendered but hidden when standalone view is active
   - Canvas state persists across standalone view navigation (components are hidden, not destroyed)
   - Content area switches between canvas grid and single chat via layoutMode signal
@@ -38,13 +33,6 @@
   @case ('settings') {
     <div class="h-full w-full">
       <ptah-settings />
-    </div>
-  }
-
-  <!-- Welcome: Full-width, standalone layout (no sidebar, no tabs) -->
-  @case ('welcome') {
-    <div class="h-full w-full">
-      <ptah-auth-welcome />
     </div>
   }
 
@@ -500,21 +488,17 @@
           <span class="icon-btn-label text-xs">Tasks</span>
         </button>
 
-        <!-- Marketplace nav button (VS Code only — Electron has it in global navbar).
-             Pro-gated (TASK_2026_131): hidden for non-premium users so the
-             view never mounts and no marketplace RPC is fired. -->
-        @if (isPremium()) {
-          <button
-            class="btn btn-ghost btn-xs gap-1"
-            [class.btn-active]="currentView() === 'marketplace'"
-            aria-label="Marketplace"
-            title="Marketplace — skills & MCP providers"
-            (click)="openMarketplace()"
-          >
-            <lucide-angular [img]="StoreIcon" class="w-4 h-4" />
-            <span class="icon-btn-label text-xs">Marketplace</span>
-          </button>
-        }
+        <!-- Marketplace nav button (VS Code only — Electron has it in global navbar). -->
+        <button
+          class="btn btn-ghost btn-xs gap-1"
+          [class.btn-active]="currentView() === 'marketplace'"
+          aria-label="Marketplace"
+          title="Marketplace — skills & MCP providers"
+          (click)="openMarketplace()"
+        >
+          <lucide-angular [img]="StoreIcon" class="w-4 h-4" />
+          <span class="icon-btn-label text-xs">Marketplace</span>
+        </button>
 
         <!-- Layout toggle button (replaces old Canvas navigation button) -->
         <button
@@ -570,18 +554,6 @@
         }
 
         <!-- Group 2: Session -->
-
-        <!-- Notification bell (VS Code only — in Electron this is in the global navbar) -->
-        @if (!isElectron) {
-          @if (chatStore.licenseStatus(); as license) {
-            <ptah-notification-bell
-              [trialActive]="license.trialActive"
-              [trialDaysRemaining]="license.trialDaysRemaining"
-              [isCommunity]="license.isCommunity"
-              [reason]="license.reason"
-            />
-          }
-        }
 
         <!-- New session popover -->
         <ptah-native-popover
