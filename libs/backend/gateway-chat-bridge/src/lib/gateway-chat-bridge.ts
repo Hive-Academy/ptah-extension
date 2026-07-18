@@ -19,12 +19,7 @@
  */
 import { access } from 'node:fs/promises';
 import { inject, injectable } from 'tsyringe';
-import {
-  TOKENS,
-  isPremiumTier,
-  type Logger,
-  type LicenseService,
-} from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
@@ -50,7 +45,10 @@ import {
   type ModelSettings,
 } from '@ptah-extension/settings-core';
 import { type CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
-import { SDK_TOKENS, type PluginLoaderService } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  type PluginLoaderService,
+} from '@ptah-extension/agent-sdk';
 import {
   AGENT_GENERATION_TOKENS,
   type EnhancedPromptsService,
@@ -75,12 +73,11 @@ const WORKSPACE_UNAVAILABLE_MESSAGE =
   "This thread's workspace is no longer available in Ptah. Run /workspace use to pick another.";
 
 /**
- * Premium/session context resolved once per turn and threaded into the
- * start/resume config so gateway sessions reach parity with the webview chat
- * path (enhanced prompts, plugins, code-exec MCP).
+ * Session context resolved once per turn and threaded into the start/resume
+ * config so gateway sessions reach parity with the webview chat path
+ * (enhanced prompts, plugins, code-exec MCP).
  */
 interface PremiumSessionContext {
-  isPremium: boolean;
   mcpServerRunning: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
@@ -116,8 +113,6 @@ export class GatewayChatBridge {
     private readonly workspace: IWorkspaceProvider,
     @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
     private readonly modelSettings: ModelSettings,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(TOKENS.CODE_EXECUTION_MCP)
     private readonly codeExecutionMcp: CodeExecutionMCP,
     @inject(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE)
@@ -314,66 +309,50 @@ export class GatewayChatBridge {
   }
 
   /**
-   * Resolve the premium/session context for a turn, mirroring the webview chat
-   * path (`ChatSessionService` + `ChatPremiumContextService`). Every external
-   * call is guarded so a license/prompt/plugin failure degrades to non-premium
-   * defaults rather than breaking the turn.
+   * Resolve the session context for a turn, mirroring the webview chat path
+   * (`ChatSessionService` + `ChatPremiumContextService`). Every external call
+   * is guarded so a prompt/plugin/MCP failure degrades to safe defaults
+   * rather than breaking the turn.
    */
   private async resolvePremiumContext(
     workspaceRoot: string,
   ): Promise<PremiumSessionContext> {
-    let isPremium = false;
-    try {
-      isPremium = isPremiumTier(await this.licenseService.verifyLicense());
-    } catch (error: unknown) {
-      this.logger.debug(
-        '[gateway-chat-bridge] license verification failed; treating as non-premium',
-        { error: error instanceof Error ? error.message : String(error) },
-      );
-    }
-
     let mcpServerRunning = false;
     try {
       mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
-      if (isPremium && mcpServerRunning) {
+      if (mcpServerRunning) {
         this.codeExecutionMcp.ensureRegisteredForSubagents();
       }
     } catch (error: unknown) {
       mcpServerRunning = false;
+      this.logger.debug('[gateway-chat-bridge] MCP availability check failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    let enhancedPromptsContent: string | undefined;
+    try {
+      enhancedPromptsContent =
+        (await this.enhancedPromptsService.getEnhancedPromptContent(
+          workspaceRoot,
+        )) ?? undefined;
+    } catch (error: unknown) {
       this.logger.debug(
-        '[gateway-chat-bridge] MCP availability check failed',
+        '[gateway-chat-bridge] enhanced prompt resolution failed',
         { error: error instanceof Error ? error.message : String(error) },
       );
     }
 
-    let enhancedPromptsContent: string | undefined;
-    if (isPremium) {
-      try {
-        enhancedPromptsContent =
-          (await this.enhancedPromptsService.getEnhancedPromptContent(
-            workspaceRoot,
-          )) ?? undefined;
-      } catch (error: unknown) {
-        this.logger.debug(
-          '[gateway-chat-bridge] enhanced prompt resolution failed',
-          { error: error instanceof Error ? error.message : String(error) },
-        );
-      }
-    }
-
     let pluginPaths: string[] | undefined;
-    if (isPremium) {
-      try {
-        pluginPaths = this.resolvePluginPaths();
-      } catch (error: unknown) {
-        this.logger.debug(
-          '[gateway-chat-bridge] plugin path resolution failed',
-          { error: error instanceof Error ? error.message : String(error) },
-        );
-      }
+    try {
+      pluginPaths = this.resolvePluginPaths();
+    } catch (error: unknown) {
+      this.logger.debug('[gateway-chat-bridge] plugin path resolution failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
-    return { isPremium, mcpServerRunning, enhancedPromptsContent, pluginPaths };
+    return { mcpServerRunning, enhancedPromptsContent, pluginPaths };
   }
 
   /**
@@ -442,7 +421,6 @@ export class GatewayChatBridge {
         projectPath: workspaceRoot,
         model,
         permissionLevel: 'yolo',
-        isPremium: premium.isPremium,
         mcpServerRunning: premium.mcpServerRunning,
         enhancedPromptsContent: premium.enhancedPromptsContent,
         pluginPaths: premium.pluginPaths,
@@ -458,7 +436,6 @@ export class GatewayChatBridge {
             projectPath: workspaceRoot,
             model,
             permissionLevel: 'yolo',
-            isPremium: premium.isPremium,
             mcpServerRunning: premium.mcpServerRunning,
             enhancedPromptsContent: premium.enhancedPromptsContent,
             pluginPaths: premium.pluginPaths,
@@ -491,7 +468,6 @@ export class GatewayChatBridge {
       model: this.resolveModel(),
       includePartialMessages: true,
       permissionLevel: 'yolo',
-      isPremium: premium.isPremium,
       mcpServerRunning: premium.mcpServerRunning,
       enhancedPromptsContent: premium.enhancedPromptsContent,
       pluginPaths: premium.pluginPaths,

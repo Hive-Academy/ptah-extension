@@ -13,7 +13,6 @@ export interface IInternalQuery {
     model: string;
     prompt: string;
     systemPromptAppend?: string;
-    isPremium: boolean;
     mcpServerRunning: boolean;
     maxTurns: number;
     abortController?: AbortController;

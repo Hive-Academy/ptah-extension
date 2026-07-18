@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, clipboard } from 'electron';
+import { BrowserWindow, ipcMain, clipboard } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { DependencyContainer } from 'tsyringe';
@@ -76,7 +76,6 @@ export async function registerPostWindow(
     startupIsLicensed,
     startupInitialView,
     setMainWindow,
-    getMainWindow,
     scheduleWarmup,
   } = options;
 
@@ -91,20 +90,6 @@ export async function registerPostWindow(
   };
 
   ipcMain.on('get-startup-config', (event: Electron.IpcMainEvent) => {
-    let isLicensed = baseStartupConfig.isLicensed;
-    let initialView = baseStartupConfig.initialView;
-
-    const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
-      getCachedStatus: () => {
-        valid: boolean;
-        tier?: string;
-      } | null;
-    };
-    const cached = licenseService.getCachedStatus();
-    if (cached) {
-      isLicensed = cached.valid;
-      initialView = cached.valid ? null : 'welcome';
-    }
     let workspaceRoot = '';
     let workspaceName = '';
 
@@ -119,8 +104,6 @@ export async function registerPostWindow(
 
     event.returnValue = {
       ...baseStartupConfig,
-      isLicensed,
-      initialView,
       workspaceRoot,
       workspaceName,
     };
@@ -239,38 +222,9 @@ export async function registerPostWindow(
   }
   try {
     const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
-      on: (event: string, handler: (...args: unknown[]) => void) => void;
       revalidate: () => Promise<void>;
     };
 
-    licenseService.on('license:verified', () => {
-      console.log('[Ptah Electron] License status changed: verified');
-      const win = getMainWindow();
-      if (win) {
-        dialog.showMessageBox(win, {
-          type: 'info',
-          title: 'License Activated',
-          message: 'Ptah premium features activated. No restart required.',
-          buttons: ['OK'],
-        });
-      }
-    });
-
-    licenseService.on('license:expired', () => {
-      console.warn(
-        '[Ptah Electron] License expired — premium features deactivated',
-      );
-      const win = getMainWindow();
-      if (win) {
-        dialog.showMessageBox(win, {
-          type: 'warning',
-          title: 'License Expired',
-          message:
-            'Your Ptah license has expired. Please renew your subscription to continue using premium features.',
-          buttons: ['OK'],
-        });
-      }
-    });
     revalidationInterval = setInterval(
       () => {
         licenseService.revalidate().catch((err) => {
@@ -283,10 +237,10 @@ export async function registerPostWindow(
       24 * 60 * 60 * 1000,
     );
 
-    console.log('[Ptah Electron] License status watcher initialized');
+    console.log('[Ptah Electron] Membership revalidation scheduled');
   } catch (error) {
     console.warn(
-      '[Ptah Electron] License status watcher setup failed (non-fatal):',
+      '[Ptah Electron] Membership revalidation setup failed (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
   }

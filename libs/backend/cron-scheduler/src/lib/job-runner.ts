@@ -213,7 +213,6 @@ export class JobRunner {
       cwd: job.workspaceRoot ?? process.cwd(),
       model: '',
       prompt: job.prompt,
-      isPremium: false,
       mcpServerRunning: false,
       abortController: ctl,
     });

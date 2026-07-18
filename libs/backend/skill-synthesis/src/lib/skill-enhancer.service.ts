@@ -427,7 +427,6 @@ export class SkillEnhancerService {
         cwd,
         model,
         prompt,
-        isPremium: false,
         mcpServerRunning: false,
         maxTurns: 1,
         abortController,

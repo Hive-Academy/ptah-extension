@@ -47,7 +47,6 @@ if (!gotLock) {
   let chatBridge: { stop: () => void } | null = null;
   let updateManager: UpdateManager | null = null;
   let symbolWatcher: { close: () => void } | null = null;
-  let licenseReactivityDisposable: { dispose: () => void } | null = null;
   let statusBridgeDisposables: ReadonlyArray<{ dispose: () => void }> | null =
     null;
   let providerProxyPool: { disposeAll: () => Promise<void> } | null = null;
@@ -127,7 +126,6 @@ if (!gotLock) {
     skillTrigger = wired.refs.skillTrigger;
     cronScheduler = wired.refs.cronScheduler;
     symbolWatcher = wired.refs.symbolWatcher;
-    licenseReactivityDisposable = wired.refs.licenseReactivityDisposable;
     statusBridgeDisposables = wired.refs.statusBridgeDisposables;
     boot.gitWatcherRef.current = gitWatcher;
 
@@ -198,14 +196,6 @@ if (!gotLock) {
     } catch (error) {
       console.warn(
         '[Ptah Electron] Symbol watcher close failed (non-fatal):',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
-      licenseReactivityDisposable?.dispose();
-    } catch (error) {
-      console.warn(
-        '[Ptah Electron] License reactivity binder dispose failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
     }

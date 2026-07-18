@@ -43,9 +43,6 @@ export interface InternalQueryConfig {
    */
   systemPromptAppend?: string;
 
-  /** Whether user has premium features (enables MCP server + enhanced prompts) */
-  isPremium: boolean;
-
   /** Whether the Ptah MCP server is currently running */
   mcpServerRunning: boolean;
 

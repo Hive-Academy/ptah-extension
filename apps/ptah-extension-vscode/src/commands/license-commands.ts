@@ -58,7 +58,7 @@ export class LicenseCommands {
    */
   async enterLicenseKey(): Promise<void> {
     const licenseKey = await vscode.window.showInputBox({
-      prompt: 'Enter your Ptah premium license key',
+      prompt: 'Enter your Ptah Builders key',
       placeHolder: 'ptah_lic_...',
       password: true,
       validateInput: (value) => {
@@ -84,7 +84,7 @@ export class LicenseCommands {
 
     if (status.valid) {
       const action = await vscode.window.showInformationMessage(
-        `License activated! Plan: ${status.plan?.name}. Reload window to enable premium features.`,
+        `Membership activated! Plan: ${status.plan?.name}. Reload window to refresh your Ptah Builders status.`,
         'Reload Window',
       );
       if (action === 'Reload Window') {

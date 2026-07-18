@@ -47,12 +47,7 @@ export type {
   WebviewHtmlOptions,
 } from './api-wrappers';
 export { RpcHandler, RpcUserError, ALLOWED_METHOD_PREFIXES } from './messaging';
-export type {
-  RpcMessage,
-  RpcResponse,
-  RpcMethodHandler,
-  RpcLicenseValidationResult,
-} from './messaging';
+export type { RpcMessage, RpcResponse, RpcMethodHandler } from './messaging';
 export {
   verifyRpcRegistration,
   assertRpcRegistration,
@@ -78,8 +73,6 @@ export type {
   LicenseTierValue,
 } from './services/license.service';
 export { PREVIOUS_USER_CONTEXT_KEY } from './services/license/license-cache';
-export { FeatureGateService } from './services/feature-gate.service';
-export type { Feature, ProOnlyFeature } from './services/feature-gate.service';
 export { SentryService } from './services/sentry.service';
 export type {
   SentryInitOptions,
@@ -98,12 +91,5 @@ export type { ExecGitOptions, ExecGitResult } from './utils/exec-git';
 export { WorkspaceContextManager } from './services/workspace-context-manager';
 export { WorkspaceAwareStateStorage } from './services/workspace-aware-state-storage';
 export type { StateStorageFactory } from './services/workspace-aware-state-storage';
-export {
-  bindLicenseReactivity,
-  bringUpPremiumSubsystems,
-  tearDownPremiumSubsystems,
-} from './services/license-reactivity';
-export type {
-  LicenseReactivityOptions,
-  PremiumSubsystemsDeps,
-} from './services/license-reactivity';
+export { bringUpSubsystems } from './services/subsystem-bringup';
+export type { SubsystemBringUpDeps } from './services/subsystem-bringup';

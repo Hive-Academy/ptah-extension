@@ -151,7 +151,6 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         model: this.resolveCuratorModel(),
         prompt,
         systemPromptAppend,
-        isPremium: false,
         mcpServerRunning: false,
         maxTurns: 1,
         abortController,

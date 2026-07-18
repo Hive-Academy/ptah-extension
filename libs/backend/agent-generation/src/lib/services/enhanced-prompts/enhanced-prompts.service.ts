@@ -64,7 +64,6 @@ import { EnhancedPromptsStateStore } from './enhanced-prompts-state-store';
  * SDK configuration for internal query execution
  */
 export interface EnhancedPromptsSdkConfig {
-  isPremium: boolean;
   mcpServerRunning: boolean;
   mcpPort?: number;
   /** Model to use for generation. Overrides the `model.selected` config when provided. */
@@ -293,7 +292,7 @@ export class EnhancedPromptsService {
    * @param config - Optional configuration overrides
    * @param onProgress - Optional progress callback
    * @param preComputedInput - Pre-computed PromptDesignerInput from wizard analysis
-   * @param sdkConfig - SDK configuration (isPremium, mcpServerRunning, mcpPort)
+   * @param sdkConfig - SDK configuration (mcpServerRunning, mcpPort)
    * @returns Wizard result with success status
    */
   async runWizard(
@@ -673,7 +672,6 @@ export class EnhancedPromptsService {
     sdkConfig?: EnhancedPromptsSdkConfig,
     onProgress?: (progress: PromptGenerationProgress) => void,
   ): Promise<PromptDesignerOutput | null> {
-    const isPremium = sdkConfig?.isPremium ?? false;
     const mcpServerRunning = false;
     const mcpPort = undefined;
 
@@ -707,7 +705,6 @@ export class EnhancedPromptsService {
         model,
         prompt: userPrompt,
         systemPromptAppend: systemPrompt,
-        isPremium,
         mcpServerRunning,
         mcpPort,
         maxTurns: 10,

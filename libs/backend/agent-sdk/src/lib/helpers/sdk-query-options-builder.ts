@@ -188,8 +188,6 @@ export interface AssembleSystemPromptInput {
   authEnv: AuthEnv;
   /** User's custom system prompt (from sessionConfig or UI) */
   userSystemPrompt?: string;
-  /** Whether the user has premium features */
-  isPremium: boolean;
   /** Whether the MCP server is currently running */
   mcpServerRunning: boolean;
   /** Enhanced prompts content (AI-generated guidance) */
@@ -217,15 +215,12 @@ export interface SystemPromptAssemblyResult {
  * built-in behavioral guidance, MCP server handling, tool routing, and environment
  * context that the agent needs to function correctly.
  *
- * **Premium users**: PTAH_CORE_SYSTEM_PROMPT is appended to the preset, providing
+ * PTAH_CORE_SYSTEM_PROMPT is always appended to the preset, providing
  * Ptah-specific MCP mandates, formatting rules, AskUserQuestion enforcement,
  * orchestration workflows, CLI agent hierarchy, and git/PR safety. Enhanced prompts
  * (project-specific guidance from the setup wizard) are also appended when available.
  * Some behavioral sections overlap with the preset â€” this is intentional as it
  * reinforces the instructions without contradicting them.
- *
- * **Free tier**: Only basic top-ups appended (identity, user prompt). No Ptah-specific
- * behavioral guidance.
  *
  * Shared function used by SdkQueryOptionsBuilder and PtahCliAdapter.
  *
@@ -235,25 +230,18 @@ export interface SystemPromptAssemblyResult {
 export function assembleSystemPrompt(
   input: AssembleSystemPromptInput,
 ): SystemPromptAssemblyResult {
-  const {
-    providerId,
-    authEnv,
-    userSystemPrompt,
-    isPremium,
-    enhancedPromptsContent,
-  } = input;
+  const { providerId, authEnv, userSystemPrompt, enhancedPromptsContent } =
+    input;
   const appendParts: string[] = [];
   const identityPrompt = buildModelIdentityPrompt(providerId, authEnv);
   if (identityPrompt) {
     appendParts.push(identityPrompt);
   }
-  if (isPremium) {
-    appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
-  }
+  appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
   if (userSystemPrompt) {
     appendParts.push(userSystemPrompt);
   }
-  if (isPremium && enhancedPromptsContent?.trim()) {
+  if (enhancedPromptsContent?.trim()) {
     appendParts.push(enhancedPromptsContent);
   }
 
@@ -290,14 +278,8 @@ export interface QueryOptionsInput {
   /** Callback when SDK removes a worktree */
   onWorktreeRemoved?: WorktreeRemovedCallback;
   /**
-   * Premium user flag - enables MCP server and Ptah system prompt
-   * When true, enables Ptah MCP server and appends PTAH_CORE_SYSTEM_PROMPT
-   * Defaults to false (free tier behavior)
-   */
-  isPremium?: boolean;
-  /**
    * Whether the MCP server is currently running.
-   * When false, MCP config will not be included even for premium users.
+   * When false, MCP config will not be included.
    * This prevents configuring Claude with a dead MCP endpoint.
    * Defaults to true for backward compatibility.
    */
@@ -312,7 +294,7 @@ export interface QueryOptionsInput {
   /**
    * Plugin paths to load for this session.
    * Absolute paths to plugin directories resolved by PluginLoaderService.
-   * Only populated for premium users with configured plugins.
+   * Only populated when plugins are configured.
    */
   pluginPaths?: string[];
   /**
@@ -388,8 +370,8 @@ export interface QueryOptionsInput {
   /**
    * The user's initial message text for this turn.
    * Used to drive a memory recall search so the top-K hits can be prepended to
-   * the system prompt. Only used when `isPremium === true` and the string is
-   * non-empty. Multi-turn sessions should pass the most recent user message.
+   * the system prompt. Only used when the string is non-empty. Multi-turn
+   * sessions should pass the most recent user message.
    */
   initialUserQuery?: string;
   /**
@@ -520,7 +502,6 @@ export class SdkQueryOptionsBuilder {
       onCompactionStart,
       onWorktreeCreated,
       onWorktreeRemoved,
-      isPremium = false,
       mcpServerRunning = true,
       enhancedPromptsContent,
       pluginPaths,
@@ -585,7 +566,6 @@ export class SdkQueryOptionsBuilder {
     }
     const systemPrompt = await this.buildSystemPrompt(
       sessionConfig,
-      isPremium,
       enhancedPromptsContent,
       mcpServerRunning,
       initialUserQuery,
@@ -635,8 +615,7 @@ export class SdkQueryOptionsBuilder {
       hasCanUseToolCallback: !!canUseToolCallback,
       compactionEnabled: compactionConfig.enabled,
       compactionThreshold: compactionConfig.contextTokenThreshold,
-      isPremium,
-      mcpEnabled: isPremium,
+      mcpEnabled: mcpServerRunning,
       hasEnhancedPrompts: !!enhancedPromptsContent,
       pluginCount: pluginPaths?.length ?? 0,
       mcpOverrideKeys: mcpServersOverride
@@ -660,7 +639,7 @@ export class SdkQueryOptionsBuilder {
           preset: 'claude_code' as const,
         },
         mcpServers: this.mergeMcpOverride(
-          this.buildMcpServers(isPremium, mcpServerRunning, sessionId),
+          this.buildMcpServers(mcpServerRunning, sessionId),
           mcpServersOverride,
         ),
         permissionMode,
@@ -954,13 +933,12 @@ export class SdkQueryOptionsBuilder {
    * Build system prompt configuration.
    *
    * Always uses SDK's `claude_code` preset as base (provides MCP handling, tool routing,
-   * environment context). For premium users, appends PTAH_CORE_SYSTEM_PROMPT with
-   * Ptah-specific MCP mandates, orchestration, and formatting rules. Enhanced prompts
+   * environment context). Always appends PTAH_CORE_SYSTEM_PROMPT with Ptah-specific
+   * MCP mandates, orchestration, and formatting rules. Enhanced prompts
    * (project-specific guidance) are also appended when available.
-   * Memory recall block injected for premium users with a non-empty initialUserQuery.
+   * Memory recall block injected whenever initialUserQuery is non-empty.
    *
    * @param sessionConfig - Session configuration with optional custom system prompt and preset selection
-   * @param isPremium - Whether user has premium features enabled
    * @param enhancedPromptsContent - Optional AI-generated guidance from EnhancedPromptsService
    * @param mcpServerRunning - Whether MCP server is running
    * @param initialUserQuery - First user message text for memory recall
@@ -969,7 +947,6 @@ export class SdkQueryOptionsBuilder {
    */
   private async buildSystemPrompt(
     sessionConfig?: AISessionConfig,
-    isPremium = false,
     enhancedPromptsContent?: string,
     mcpServerRunning = true,
     initialUserQuery?: string,
@@ -989,35 +966,30 @@ export class SdkQueryOptionsBuilder {
       providerId: activeProviderId,
       authEnv: effectiveAuthEnv,
       userSystemPrompt: sessionConfig?.systemPrompt,
-      isPremium,
       mcpServerRunning,
       enhancedPromptsContent,
       preset: sessionConfig?.preset,
     });
     let sessionStartBlock = '';
-    if (isPremium && cwd) {
+    if (cwd) {
       sessionStartBlock =
         await this.memoryPromptInjector.buildSessionStartBlock(cwd);
     }
     let corpusPrimeBlock = '';
     const corpusName = sessionConfig?.corpusName?.trim();
-    if (isPremium && corpusName) {
+    if (corpusName) {
       corpusPrimeBlock =
         await this.memoryPromptInjector.buildCorpusBlock(corpusName);
     }
     let memoryBlock = '';
-    if (isPremium && initialUserQuery?.trim()) {
+    if (initialUserQuery?.trim()) {
       memoryBlock = await this.memoryPromptInjector.buildBlock(
         initialUserQuery,
         cwd,
       );
     }
     let codeSymbolBlock = '';
-    if (
-      isPremium &&
-      initialUserQuery?.trim() &&
-      this.codeSymbolPromptInjector
-    ) {
+    if (initialUserQuery?.trim() && this.codeSymbolPromptInjector) {
       codeSymbolBlock = await this.codeSymbolPromptInjector.buildBlock(
         initialUserQuery,
         cwd,
@@ -1036,12 +1008,10 @@ export class SdkQueryOptionsBuilder {
       finalContentJoined.length > 0 ? finalContentJoined : undefined;
 
     this.logger.info('[SdkQueryOptionsBuilder] System prompt assembled', {
-      isPremium,
       mcpServerRunning,
       mode: 'preset-append',
       hasEnhancedPrompts: !!enhancedPromptsContent,
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-      hasPtahCorePrompt: isPremium,
       hasIdentityPrompt: !!activeProviderId,
       hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
       hasSessionStartBlock: !!sessionStartBlock,
@@ -1064,26 +1034,17 @@ export class SdkQueryOptionsBuilder {
   /**
    * Build MCP servers configuration.
    *
-   * For premium users, enables the Ptah HTTP MCP server (execute_code + 11 namespaces).
-   * Returns an empty object for free-tier users or when the server is not running.
+   * Enables the Ptah HTTP MCP server (execute_code + 11 namespaces).
+   * Returns an empty object when the server is not running.
    */
   private buildMcpServers(
-    isPremium: boolean,
     mcpServerRunning = true,
     sessionId?: string,
   ): Record<string, McpHttpServerConfig> {
-    if (!isPremium) {
-      this.logger.info(
-        '[SdkQueryOptionsBuilder] MCP servers disabled (not premium)',
-        { isPremium, mcpServerRunning },
-      );
-      return {};
-    }
-
     if (!mcpServerRunning) {
       this.logger.info(
         '[SdkQueryOptionsBuilder] MCP servers disabled (server not running)',
-        { isPremium, mcpServerRunning },
+        { mcpServerRunning },
       );
       return {};
     }
@@ -1096,7 +1057,6 @@ export class SdkQueryOptionsBuilder {
       },
     };
     this.logger.info('[SdkQueryOptionsBuilder] MCP servers ENABLED', {
-      isPremium,
       mcpServerRunning,
       mcpUrl: redactMcpUrl(mcpConfig.ptah.url),
     });

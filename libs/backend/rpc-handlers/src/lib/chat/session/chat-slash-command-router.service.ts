@@ -12,12 +12,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import {
-  Logger,
-  TOKENS,
-  LicenseService,
-  isPremiumTier,
-} from '@ptah-extension/vscode-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
 import { SDK_TOKENS, SlashCommandInterceptor } from '@ptah-extension/agent-sdk';
@@ -31,7 +26,7 @@ import type {
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
-import type { ChatPremiumContextService } from './chat-premium-context.service';
+import type { ChatSdkContextService } from './chat-sdk-context.service';
 import type {
   ChatStreamBroadcaster,
   WebviewManager,
@@ -47,12 +42,10 @@ export class ChatSlashCommandRouterService {
     private readonly modelSettings: ModelSettings,
     @inject(TOKENS.AGENT_ADAPTER)
     private readonly sdkAdapter: IAgentAdapter,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR)
     private readonly slashCommandInterceptor: SlashCommandInterceptor,
-    @inject(CHAT_TOKENS.PREMIUM_CONTEXT)
-    private readonly premiumContext: ChatPremiumContextService,
+    @inject(CHAT_TOKENS.SDK_CONTEXT)
+    private readonly sdkContext: ChatSdkContextService,
     @inject(CHAT_TOKENS.STREAM_BROADCASTER)
     private readonly streamBroadcaster: ChatStreamBroadcaster,
   ) {}
@@ -116,15 +109,10 @@ export class ChatSlashCommandRouterService {
           sessionId,
         },
       );
-      const licenseStatus = await this.licenseService.verifyLicense();
-      const isPremium = isPremiumTier(licenseStatus);
-      const mcpServerRunning = this.premiumContext.isMcpServerRunning();
+      const mcpServerRunning = this.sdkContext.isMcpServerRunning();
       const enhancedPromptsContent =
-        await this.premiumContext.resolveEnhancedPromptsContent(
-          workspacePath,
-          isPremium,
-        );
-      const pluginPaths = this.premiumContext.resolvePluginPaths(isPremium);
+        await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
+      const pluginPaths = this.sdkContext.resolvePluginPaths();
       const command = interceptResult.rawCommand ?? prompt;
       try {
         const stream = await this.sdkAdapter.executeSlashCommand(
@@ -138,7 +126,6 @@ export class ChatSlashCommandRouterService {
                 'default',
               projectPath: workspacePath,
             } as AISessionConfig,
-            isPremium,
             mcpServerRunning,
             enhancedPromptsContent,
             pluginPaths,

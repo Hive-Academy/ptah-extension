@@ -200,9 +200,12 @@ export async function bootstrapElectron(
   if (!startupWorkspaceRoot && initialFolders?.[0]) {
     startupWorkspaceRoot = initialFolders[0];
   }
-  let startupIsLicensed = true;
-  let startupInitialView: string | null = null;
+  const startupIsLicensed = true;
+  const startupInitialView: string | null = null;
 
+  // Resolve membership status once at startup to prime the license cache for
+  // the membership card. This is identity only — it never gates activation or
+  // the initial view; Ptah's local features are available to everyone.
   try {
     const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
       verifyLicense: () => Promise<{
@@ -212,23 +215,12 @@ export async function bootstrapElectron(
       }>;
     };
     const licenseStatus = await licenseService.verifyLicense();
-
-    if (!licenseStatus.valid) {
-      startupIsLicensed = false;
-      startupInitialView = 'welcome';
-      console.log(
-        `[Ptah Electron] License invalid (reason: ${
-          licenseStatus.reason ?? 'unknown'
-        }, tier: ${licenseStatus.tier ?? 'unknown'}), showing welcome screen`,
-      );
-    } else {
-      console.log(
-        `[Ptah Electron] License verified (tier: ${licenseStatus.tier})`,
-      );
-    }
+    console.log(
+      `[Ptah Electron] Membership status resolved (valid: ${licenseStatus.valid}, tier: ${licenseStatus.tier ?? 'none'})`,
+    );
   } catch (error) {
     console.warn(
-      '[Ptah Electron] License verification failed (non-fatal, defaulting to licensed):',
+      '[Ptah Electron] Membership status resolution failed (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
   }

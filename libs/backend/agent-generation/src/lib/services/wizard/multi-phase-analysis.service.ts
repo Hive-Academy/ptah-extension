@@ -123,7 +123,6 @@ export class MultiPhaseAnalysisService {
     workspacePath: string,
     options?: MultiPhaseAnalysisOptions,
   ): Promise<Result<MultiPhaseManifest, Error>> {
-    const isPremium = options?.isPremium ?? false;
     const mcpServerRunning = options?.mcpServerRunning ?? false;
     const mcpPort = options?.mcpPort;
     const pluginPaths = options?.pluginPaths;
@@ -133,13 +132,12 @@ export class MultiPhaseAnalysisService {
     this.logger.info(`${SERVICE_TAG} Starting multi-phase analysis`, {
       workspace: workspacePath,
       model,
-      isPremium,
       mcpServerRunning,
     });
-    if (!isPremium || !mcpServerRunning) {
+    if (!mcpServerRunning) {
       return Result.err(
         new Error(
-          `Multi-phase analysis requires premium license and MCP server. isPremium=${isPremium}, mcpRunning=${mcpServerRunning}`,
+          `Multi-phase analysis requires the MCP server. mcpRunning=${mcpServerRunning}`,
         ),
       );
     }
@@ -207,7 +205,6 @@ export class MultiPhaseAnalysisService {
             slugDir,
             workspacePath,
             model,
-            isPremium,
             mcpServerRunning,
             mcpPort,
             masterAbortController,
@@ -376,7 +373,6 @@ export class MultiPhaseAnalysisService {
     slugDir: string,
     cwd: string,
     model: string,
-    isPremium: boolean,
     mcpServerRunning: boolean,
     mcpPort: number | undefined,
     masterAbortController: AbortController,
@@ -407,7 +403,6 @@ export class MultiPhaseAnalysisService {
         phaseId: phaseConfig.id,
         model,
         cwd,
-        isPremium,
         mcpServerRunning,
         mcpPort,
         maxTurns: MAX_AGENT_TURNS,
@@ -430,7 +425,6 @@ export class MultiPhaseAnalysisService {
         model,
         prompt: userPrompt,
         systemPromptAppend: systemPrompt,
-        isPremium,
         mcpServerRunning,
         mcpPort,
         maxTurns: MAX_AGENT_TURNS,

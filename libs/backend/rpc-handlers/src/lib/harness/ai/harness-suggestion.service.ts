@@ -182,7 +182,6 @@ export class HarnessSuggestionService {
           availableSkills,
         }),
         systemPromptAppend: SUGGESTION_SYSTEM_PROMPT_APPEND,
-        isPremium: true,
         mcpServerRunning: true,
         maxTurns: 6,
         outputFormat: { type: 'json_schema', schema: SUGGESTION_OUTPUT_SCHEMA },
@@ -521,7 +520,6 @@ export class HarnessSuggestionService {
             workspaceContext,
           }),
           systemPromptAppend: INTENT_ANALYSIS_SYSTEM_PROMPT_APPEND,
-          isPremium: true,
           mcpServerRunning: true,
           maxTurns: 10,
           outputFormat: {

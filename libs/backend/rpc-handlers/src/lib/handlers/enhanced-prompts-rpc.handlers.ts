@@ -10,18 +10,8 @@
  * - enhancedPrompts:download - Download generated prompt as .md file
  */
 
-/**
- * Timeout for license verification to prevent hanging requests (10 seconds)
- */
-const LICENSE_VERIFICATION_TIMEOUT_MS = 10 * 1000;
-
 import { injectable, inject } from 'tsyringe';
-import {
-  Logger,
-  RpcHandler,
-  TOKENS,
-  LicenseService,
-} from '@ptah-extension/vscode-core';
+import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
@@ -61,7 +51,6 @@ import type { WebviewBroadcaster } from '../harness/streaming';
  *
  * Security:
  * - Generated prompt content is NEVER exposed (IP protection)
- * - Premium feature gating via LicenseService
  */
 
 @injectable()
@@ -80,8 +69,6 @@ export class EnhancedPromptsRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -217,25 +204,6 @@ export class EnhancedPromptsRpcHandlers {
           workspacePath,
           rawPath: rawPath !== workspacePath ? rawPath : undefined,
         });
-        const licenseStatus = await this.verifyLicenseWithTimeout();
-        if (!licenseStatus) {
-          return {
-            success: false,
-            error:
-              'License verification timed out. Please check your network connection and try again.',
-          };
-        }
-
-        const isPremium =
-          licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro';
-
-        if (!isPremium) {
-          return {
-            success: false,
-            error:
-              'Enhanced Prompts is a premium feature. Please upgrade to Pro.',
-          };
-        }
         let preComputedInput: PromptDesignerInput | undefined;
         if (params.analysisData) {
           preComputedInput = {
@@ -329,11 +297,7 @@ export class EnhancedPromptsRpcHandlers {
           );
         }
         const onStreamEvent = this.createEnhanceStreamBroadcaster();
-        const sdkConfig = this.resolveSdkConfig(
-          isPremium,
-          onStreamEvent,
-          params.model,
-        );
+        const sdkConfig = this.resolveSdkConfig(onStreamEvent, params.model);
         const result = await this.enhancedPromptsService.runWizard(
           workspacePath,
           params.config,
@@ -469,27 +433,8 @@ export class EnhancedPromptsRpcHandlers {
           workspacePath,
           force: params.force,
         });
-        const licenseStatus = await this.verifyLicenseWithTimeout();
-        if (!licenseStatus) {
-          return {
-            success: false,
-            error:
-              'License verification timed out. Please check your network connection and try again.',
-          };
-        }
-
-        const isPremium =
-          licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro';
-
-        if (!isPremium) {
-          return {
-            success: false,
-            error:
-              'Enhanced Prompts is a premium feature. Please upgrade to Pro.',
-          };
-        }
         const onStreamEvent = this.createEnhanceStreamBroadcaster();
-        const sdkConfig = this.resolveSdkConfig(isPremium, onStreamEvent);
+        const sdkConfig = this.resolveSdkConfig(onStreamEvent);
         const result = await this.enhancedPromptsService.regenerate(
           workspacePath,
           {
@@ -707,11 +652,9 @@ export class EnhancedPromptsRpcHandlers {
    * Resolve SDK config for internal query execution.
    * Resolves MCP server status from CodeExecutionMCP service.
    *
-   * @param isPremium - Whether user has premium license
    * @param onStreamEvent - Optional callback for real-time stream events
    */
   private resolveSdkConfig(
-    isPremium: boolean,
     onStreamEvent?: (event: AnalysisStreamPayload) => void,
     model?: string,
   ): EnhancedPromptsSdkConfig {
@@ -728,26 +671,21 @@ export class EnhancedPromptsRpcHandlers {
       this.logger.debug('Could not resolve CodeExecutionMCP for SDK config');
     }
     let pluginPaths: string[] | undefined;
-    if (isPremium) {
-      try {
-        const config = this.pluginLoader.getWorkspacePluginConfig();
-        if (config.enabledPluginIds && config.enabledPluginIds.length > 0) {
-          const paths = this.pluginLoader.resolvePluginPaths(
-            config.enabledPluginIds,
-          );
-          if (paths.length > 0) {
-            pluginPaths = paths;
-          }
-        }
-      } catch {
-        this.logger.debug(
-          'Failed to resolve plugin paths for enhanced prompts',
+    try {
+      const config = this.pluginLoader.getWorkspacePluginConfig();
+      if (config.enabledPluginIds && config.enabledPluginIds.length > 0) {
+        const paths = this.pluginLoader.resolvePluginPaths(
+          config.enabledPluginIds,
         );
+        if (paths.length > 0) {
+          pluginPaths = paths;
+        }
       }
+    } catch {
+      this.logger.debug('Failed to resolve plugin paths for enhanced prompts');
     }
 
     return {
-      isPremium,
       mcpServerRunning,
       mcpPort,
       onStreamEvent,
@@ -767,26 +705,5 @@ export class EnhancedPromptsRpcHandlers {
       return this.workspaceProvider.getWorkspaceRoot() ?? rawPath;
     }
     return rawPath;
-  }
-
-  /**
-   * Verify license with timeout to prevent hanging requests
-   *
-   * Uses Promise.race to enforce a timeout on license verification.
-   * Returns null if verification times out, allowing caller to handle gracefully.
-   */
-  private async verifyLicenseWithTimeout(): Promise<Awaited<
-    ReturnType<LicenseService['verifyLicense']>
-  > | null> {
-    const timeoutPromise = new Promise<null>((resolve) => {
-      setTimeout(() => {
-        this.logger.warn('RPC: License verification timed out', {
-          timeoutMs: LICENSE_VERIFICATION_TIMEOUT_MS,
-        });
-        resolve(null);
-      }, LICENSE_VERIFICATION_TIMEOUT_MS);
-    });
-
-    return Promise.race([this.licenseService.verifyLicense(), timeoutPromise]);
   }
 }

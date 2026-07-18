@@ -5,7 +5,7 @@ import {
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
-import { TOKENS, bindLicenseReactivity } from '@ptah-extension/vscode-core';
+import { TOKENS, bringUpSubsystems } from '@ptah-extension/vscode-core';
 import type {
   Logger,
   WebviewManager,
@@ -140,11 +140,6 @@ export interface WireRuntimeResult {
      */
     symbolWatcher: import('chokidar').FSWatcher | null;
     /**
-     * License reactivity binder disposable. Detaches license:verified and
-     * license:expired listeners. Must be disposed in will-quit LIFO chain.
-     */
-    licenseReactivityDisposable: { dispose: () => void } | null;
-    /**
      * Disposables for vec + embedder status push-event bridges. Null when
      * SQLite/memory-curator failed to register so the bridge could not
      * be wired. Must be disposed in will-quit LIFO chain.
@@ -169,7 +164,6 @@ export async function wireRuntime(
     cronScheduler: null,
     messagingGateway: null,
     symbolWatcher: null,
-    licenseReactivityDisposable: null,
     statusBridgeDisposables: null,
   };
 
@@ -839,20 +833,11 @@ export async function wireRuntime(
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
     const currentWorkspaceRoot = startupWorkspaceRoot;
 
-    refs.licenseReactivityDisposable = bindLicenseReactivity({
+    await bringUpSubsystems({
       container,
       logger,
       onMcpPortChange: (port) => {
         setPtahMcpPort(port ?? 0);
-      },
-      notify: (kind) => {
-        if (kind === 'verified') {
-          console.log('[Ptah Electron] Ptah premium features activated.');
-        } else {
-          console.log(
-            '[Ptah Electron] Ptah premium features deactivated (license expired).',
-          );
-        }
       },
       syncCliSkills: () => {
         syncCliSkillsOnActivation(container, currentWorkspaceRoot);
@@ -863,11 +848,13 @@ export async function wireRuntime(
         }
       },
     });
-    console.log('[Ptah Electron] License reactivity binder initialized');
-  } catch (binderError: unknown) {
+    console.log('[Ptah Electron] Subsystems brought up');
+  } catch (bringUpError: unknown) {
     console.warn(
-      '[Ptah Electron] License reactivity binder setup failed (non-fatal):',
-      binderError instanceof Error ? binderError.message : String(binderError),
+      '[Ptah Electron] Subsystem bring-up failed (non-fatal):',
+      bringUpError instanceof Error
+        ? bringUpError.message
+        : String(bringUpError),
     );
   }
 

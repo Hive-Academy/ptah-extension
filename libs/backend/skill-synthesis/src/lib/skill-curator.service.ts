@@ -256,7 +256,6 @@ export class SkillCuratorService {
         cwd: os.homedir(),
         model,
         prompt,
-        isPremium: false,
         mcpServerRunning: false,
         maxTurns: 1,
         abortController,

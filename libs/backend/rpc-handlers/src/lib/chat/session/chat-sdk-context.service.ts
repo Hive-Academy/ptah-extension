@@ -1,7 +1,7 @@
 /**
- * Chat premium-context resolution helpers.
+ * Chat SDK-context resolution helpers.
  *
- * Owns the three premium-config helpers that ChatSessionService and
+ * Owns the three SDK-config helpers that ChatSessionService and
  * ChatPtahCliService share: MCP-server availability check, enhanced
  * prompt resolution, and plugin-path resolution.
  */
@@ -16,7 +16,7 @@ import {
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 
 @injectable()
-export class ChatPremiumContextService {
+export class ChatSdkContextService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CODE_EXECUTION_MCP)
@@ -38,20 +38,18 @@ export class ChatPremiumContextService {
   }
 
   /**
-   * Resolve enhanced prompt content for premium users.
+   * Resolve enhanced prompt content for the session.
    *
    * Returns the AI-generated enhanced prompt content if available and enabled,
    * or undefined to fall back to default behavior.
    *
    * @param workspacePath - Workspace path to resolve prompt for
-   * @param isPremium - Whether the user has premium features
-   * @returns Enhanced prompt content string, or undefined on error/disabled/non-premium
+   * @returns Enhanced prompt content string, or undefined on error/disabled
    */
   async resolveEnhancedPromptsContent(
     workspacePath: string | undefined,
-    isPremium: boolean,
   ): Promise<string | undefined> {
-    if (!isPremium || !workspacePath) {
+    if (!workspacePath) {
       return undefined;
     }
 
@@ -73,19 +71,13 @@ export class ChatPremiumContextService {
   }
 
   /**
-   * Resolve plugin paths for premium users.
+   * Resolve plugin paths for the session.
    *
    * Reads workspace plugin configuration and resolves to absolute paths.
-   * Only returns paths for premium users. Non-premium users get no plugins.
    *
-   * @param isPremium - Whether the user has premium features
    * @returns Resolved plugin directory paths, or undefined if none
    */
-  resolvePluginPaths(isPremium: boolean): string[] | undefined {
-    if (!isPremium) {
-      return undefined;
-    }
-
+  resolvePluginPaths(): string[] | undefined {
     try {
       const config = this.pluginLoader.getWorkspacePluginConfig();
       if (!config.enabledPluginIds || config.enabledPluginIds.length === 0) {

@@ -18,24 +18,21 @@ import {
   type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
 import { DIContainer } from '../di/container';
-import { handleLicenseBlocking } from './license-gate';
 
 export interface BootstrapResult {
   logger: Logger;
   licenseStatus: LicenseStatus;
   authInitialized: boolean;
-  /** True if license was invalid and blocking path was taken — caller should return. */
-  blocked: boolean;
-  /** RPC registration verification result — undefined when blocked. */
+  /** RPC registration verification result. */
   rpcVerification?: RpcVerificationResult;
 }
 
 /**
- * Bootstraps the VS Code extension: minimal DI for the license gate,
- * Sentry initialization, blocking license verification (returns
- * `{ blocked: true }` when invalid), full DI setup for licensed users,
- * RPC method registration, autocomplete discovery watchers, and
- * fire-and-forget agent adapter initialization + SDK preload.
+ * Bootstraps the VS Code extension: minimal DI, Sentry initialization,
+ * membership status resolution (non-blocking), full DI setup, RPC method
+ * registration, autocomplete discovery watchers, and fire-and-forget agent
+ * adapter initialization + SDK preload. Activation always proceeds — Ptah's
+ * local features are available to everyone regardless of membership state.
  */
 export async function bootstrapVscode(
   context: vscode.ExtensionContext,
@@ -78,15 +75,6 @@ export async function bootstrapVscode(
     TOKENS.LICENSE_SERVICE,
   );
   const licenseStatus: LicenseStatus = await licenseService.verifyLicense();
-  if (!licenseStatus.valid) {
-    await handleLicenseBlocking(context, licenseService, licenseStatus);
-    return {
-      logger: DIContainer.resolve<Logger>(TOKENS.LOGGER),
-      licenseStatus,
-      authInitialized: false,
-      blocked: true,
-    };
-  }
   DIContainer.setup(context);
   try {
     const diContainer = DIContainer.getContainer();
@@ -115,7 +103,7 @@ export async function bootstrapVscode(
     );
   }
   const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
-  logger.info('Activating Ptah extension (licensed user)...', {
+  logger.info('Activating Ptah extension...', {
     tier: licenseStatus.tier,
     valid: licenseStatus.valid,
   });
@@ -155,7 +143,6 @@ export async function bootstrapVscode(
     logger,
     licenseStatus,
     authInitialized,
-    blocked: false,
     rpcVerification,
   };
 }

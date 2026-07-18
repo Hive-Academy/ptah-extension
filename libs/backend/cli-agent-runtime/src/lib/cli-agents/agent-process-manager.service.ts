@@ -16,7 +16,6 @@ import axios from 'axios';
 import {
   TOKENS,
   Logger,
-  LicenseService,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
@@ -221,8 +220,6 @@ export class AgentProcessManager {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -1337,31 +1334,14 @@ export class AgentProcessManager {
   }
 
   /**
-   * Resolve MCP server port for CLI agents, gated on premium status + server health.
-   * Returns the port number if both conditions are met, undefined otherwise.
-   * Mirrors the premium gating pattern from SdkQueryOptionsBuilder.buildMcpServers().
+   * Resolve MCP server port for CLI agents, gated on server health only.
+   * Returns the port number if the MCP server is reachable, undefined otherwise.
    *
    * Health check results are cached for 30 seconds to avoid repeated HTTP calls
    * when spawning multiple agents in rapid succession.
    */
   private async resolveMcpPort(): Promise<number | undefined> {
     try {
-      const cached = this.licenseService.getCachedStatus();
-      const status = cached ?? (await this.licenseService.verifyLicense());
-      const isPremium =
-        status.tier === 'pro' ||
-        status.tier === 'trial_pro' ||
-        status.plan?.isPremium === true;
-
-      if (!isPremium) {
-        this.logger.info(
-          '[AgentProcessManager] MCP disabled for CLI agent (not premium)',
-          {
-            tier: status.tier,
-          },
-        );
-        return undefined;
-      }
       const configuredPort =
         this.workspace.getConfiguration<number>('ptah', 'mcpPort', 51820) ??
         51820;
@@ -1400,9 +1380,7 @@ export class AgentProcessManager {
         err instanceof Error ? err : new Error(String(err)),
         { errorSource: 'AgentProcessManager.resolveMcpPort' },
       );
-      this.logger.info(
-        '[AgentProcessManager] MCP port resolution failed (license check error)',
-      );
+      this.logger.info('[AgentProcessManager] MCP port resolution failed');
       return undefined;
     }
   }

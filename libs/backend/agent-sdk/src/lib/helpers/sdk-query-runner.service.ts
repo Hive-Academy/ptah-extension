@@ -75,7 +75,6 @@ export interface OneShotRunInput {
   model: string;
   prompt: string;
   systemPromptAppend?: string;
-  isPremium: boolean;
   mcpServerRunning: boolean;
   mcpPort?: number;
   maxTurns?: number;
@@ -149,7 +148,6 @@ export class SdkQueryRunner {
     this.logger.info(`${SERVICE_TAG} Starting internal query`, {
       cwd: input.cwd,
       model: input.model,
-      isPremium: input.isPremium,
       mcpServerRunning: input.mcpServerRunning,
       mcpPort: input.mcpPort,
       maxTurns: input.maxTurns ?? DEFAULT_ONE_SHOT_MAX_TURNS,
@@ -253,7 +251,6 @@ export class SdkQueryRunner {
     const systemPrompt = this.buildOneShotSystemPrompt(input, authEnv);
 
     const mcpServers = this.buildOneShotMcpServers(
-      input.isPremium,
       input.mcpServerRunning,
       input.mcpPort,
     );
@@ -337,12 +334,10 @@ export class SdkQueryRunner {
       );
     }
 
-    if (input.isPremium) {
-      appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
-      this.logger.debug(
-        `${SERVICE_TAG} Using PTAH_CORE_SYSTEM_PROMPT for internal query`,
-      );
-    }
+    appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
+    this.logger.debug(
+      `${SERVICE_TAG} Using PTAH_CORE_SYSTEM_PROMPT for internal query`,
+    );
 
     if (input.systemPromptAppend) {
       appendParts.push(input.systemPromptAppend);
@@ -397,15 +392,9 @@ This clarification takes precedence over any other identity instructions in the 
   }
 
   private buildOneShotMcpServers(
-    isPremium: boolean,
     mcpServerRunning: boolean,
     mcpPort?: number,
   ): Record<string, McpHttpServerConfig> {
-    if (!isPremium) {
-      this.logger.debug(`${SERVICE_TAG} MCP disabled (not premium)`);
-      return {};
-    }
-
     if (!mcpServerRunning) {
       this.logger.warn(`${SERVICE_TAG} MCP disabled (server not running)`);
       return {};

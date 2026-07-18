@@ -127,13 +127,8 @@ export interface ExecuteQueryConfig {
   /** Callback when SDK removes a worktree */
   onWorktreeRemoved?: WorktreeRemovedCallback;
   /**
-   * Premium user flag - enables MCP server and Ptah system prompt.
-   * Passed through to SdkQueryOptionsBuilder for conditional feature enabling.
-   */
-  isPremium?: boolean;
-  /**
    * Whether the MCP server is currently running.
-   * When false, MCP config will not be included even for premium users.
+   * When false, MCP config will not be included.
    * This prevents configuring Claude with a dead MCP endpoint.
    * Defaults to true for backward compatibility.
    */
@@ -213,7 +208,6 @@ export interface ExecuteQueryConfig {
  */
 export interface SlashCommandConfig {
   sessionConfig?: AISessionConfig;
-  isPremium?: boolean;
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
@@ -498,7 +492,6 @@ export class SessionLifecycleManager {
       onCompactionStart: config.onCompactionStart,
       onWorktreeCreated: config.onWorktreeCreated,
       onWorktreeRemoved: config.onWorktreeRemoved,
-      isPremium: config.isPremium,
       mcpServerRunning: config.mcpServerRunning,
       enhancedPromptsContent: config.enhancedPromptsContent,
       pluginPaths: config.pluginPaths,

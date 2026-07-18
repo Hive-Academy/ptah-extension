@@ -19,8 +19,6 @@
  *     handler via {@link setSessionSubmitHandler} after `withEngine`
  *     resolves; the dispatcher is constructed once on first
  *     `tools/call` (lazy `PtahAPIBuilder.build()` to keep handshake cheap).
- *
- * Phase 4 will add the per-tool premium gate around the dispatcher.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -34,12 +32,6 @@ import type { IMcpServer } from '../mcp-core/types/mcp-transport.types';
 import type { PtahAPI } from '../types';
 import { PtahAPIBuilder } from '../ptah-api-builder.service';
 import { AgentToolDispatcher } from './agent-tool.dispatcher';
-import {
-  McpLicenseGate,
-  MCP_LICENSE_GATE_TOKEN,
-  PTAH_PRICING_URL,
-  type GateResult,
-} from './mcp-license-gate';
 import type {
   ISessionSubmitHandler,
   SessionSubmitCancellation,
@@ -90,8 +82,6 @@ export class StdioMcpServerService {
     private readonly logger: Logger,
     @inject(TOKENS.PTAH_API_BUILDER)
     private readonly apiBuilder: PtahAPIBuilder,
-    @inject(MCP_LICENSE_GATE_TOKEN)
-    private readonly licenseGate: McpLicenseGate,
   ) {}
 
   /**
@@ -194,11 +184,6 @@ export class StdioMcpServerService {
 
     const args = params?.arguments;
 
-    const gate = this.licenseGate.evaluate(name, args);
-    if (!gate.allowed) {
-      return this.buildLicenseDeniedResponse(request, name, gate);
-    }
-
     if (name === 'session_submit') {
       if (this.sessionSubmitHandler === null) {
         this.logger.warn(
@@ -282,48 +267,6 @@ export class StdioMcpServerService {
         requestId,
       });
     }
-  }
-
-  /**
-   * Build the MCP `result.isError: true` envelope used when the license gate
-   * denies a `tools/call`. Per MCP spec, tool-level errors travel inside
-   * `result`, NOT as JSON-RPC `error` objects. `structuredContent.ptah_code`
-   * stays `'license_required'` for backward compatibility with existing host
-   * code; the more specific `mcp_tool_denied` is added in
-   * `structuredContent.mcpCode` for hosts that opt into the new taxonomy.
-   */
-  private buildLicenseDeniedResponse(
-    request: MCPRequest,
-    tool: string,
-    gate: Exclude<GateResult, { allowed: true }>,
-  ): MCPResponse {
-    this.logger.info('[StdioMcpServer] tools/call denied by license gate', {
-      tool,
-      reason: gate.reason,
-    });
-    const upgradeHint =
-      'Run `ptah license set --key ptah_lic_…` to upgrade. ' +
-      `Pricing details: ${PTAH_PRICING_URL}`;
-    const summary =
-      gate.reason === 'pro_tier_required'
-        ? `Pro tier required: ${tool} is a premium MCP tool.`
-        : `License required: ${tool} requires a verified Ptah license.`;
-    return {
-      jsonrpc: '2.0',
-      id: request.id,
-      result: {
-        content: [{ type: 'text', text: `${summary} ${upgradeHint}` }],
-        isError: true,
-        structuredContent: {
-          ptah_code: 'license_required',
-          mcpCode: 'mcp_tool_denied',
-          tool,
-          requiredTier: 'pro',
-          reason: gate.reason,
-          helpUrl: PTAH_PRICING_URL,
-        },
-      },
-    };
   }
 
   /**
@@ -418,17 +361,11 @@ export class StdioMcpServerService {
 
 /**
  * Configuration helper used by `mcp-serve.ts` after `withEngine` resolves.
- * Phase 3 keeps construction explicit so tests can inject a fake builder.
- * Phase 4 adds the license gate as a required dep.
+ * Construction stays explicit so tests can inject a fake builder.
  */
 export function createStdioMcpServer(deps: {
   logger: Logger;
   apiBuilder: PtahAPIBuilder;
-  licenseGate: McpLicenseGate;
 }): StdioMcpServerService {
-  return new StdioMcpServerService(
-    deps.logger,
-    deps.apiBuilder,
-    deps.licenseGate,
-  );
+  return new StdioMcpServerService(deps.logger, deps.apiBuilder);
 }

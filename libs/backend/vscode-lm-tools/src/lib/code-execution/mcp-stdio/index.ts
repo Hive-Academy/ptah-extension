@@ -32,20 +32,7 @@ export {
   type StdioMcpServerInfo,
 } from './stdio-mcp-server.service';
 
-export {
-  registerMcpStdioServices,
-  STDIO_MCP_SERVER_TOKEN,
-  MCP_LICENSE_GATE_TOKEN,
-} from './register';
-
-export {
-  McpLicenseGate,
-  PRO_ONLY_MCP_TOOLS,
-  PTAH_PRICING_URL,
-  type GateResult,
-  type ProGate,
-  type ProGatePredicate,
-} from './mcp-license-gate';
+export { registerMcpStdioServices, STDIO_MCP_SERVER_TOKEN } from './register';
 
 export { AgentToolDispatcher } from './agent-tool.dispatcher';
 

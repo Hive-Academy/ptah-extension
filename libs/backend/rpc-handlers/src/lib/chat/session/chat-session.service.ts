@@ -21,8 +21,6 @@ import {
   TOKENS,
   ConfigManager,
   SubagentRegistryService,
-  LicenseService,
-  isPremiumTier,
   type SentryService,
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
@@ -73,7 +71,7 @@ import type {
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
-import type { ChatPremiumContextService } from './chat-premium-context.service';
+import type { ChatSdkContextService } from './chat-sdk-context.service';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
 import type {
   ChatStreamBroadcaster,
@@ -123,8 +121,6 @@ export class ChatSessionService {
     private readonly historyReader: SessionHistoryReaderService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR)
     private readonly slashCommandInterceptor: SlashCommandInterceptor,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
@@ -133,8 +129,8 @@ export class ChatSessionService {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
-    @inject(CHAT_TOKENS.PREMIUM_CONTEXT)
-    private readonly premiumContext: ChatPremiumContextService,
+    @inject(CHAT_TOKENS.SDK_CONTEXT)
+    private readonly sdkContext: ChatSdkContextService,
     @inject(CHAT_TOKENS.PTAH_CLI)
     private readonly ptahCli: ChatPtahCliService,
     @inject(CHAT_TOKENS.STREAM_BROADCASTER)
@@ -338,27 +334,20 @@ export class ChatSessionService {
         });
         return { success: true };
       }
-      const licenseStatus = await this.licenseService.verifyLicense();
-      const isPremium = isPremiumTier(licenseStatus);
-      const mcpServerRunning = this.premiumContext.isMcpServerRunning();
+      const mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
       this.logger.info('[ptah.main] chat:start - session config', {
-        tier: licenseStatus.tier,
-        isPremium,
         mcpServerRunning,
         mcpPort: this.codeExecutionMcp.getPort(),
       });
 
-      if (isPremium && mcpServerRunning) {
+      if (mcpServerRunning) {
         this.codeExecutionMcp.ensureRegisteredForSubagents();
       }
 
       const enhancedPromptsContent =
-        await this.premiumContext.resolveEnhancedPromptsContent(
-          workspacePath,
-          isPremium,
-        );
-      const pluginPaths = this.premiumContext.resolvePluginPaths(isPremium);
+        await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
+      const pluginPaths = this.sdkContext.resolvePluginPaths();
 
       this.logger.info('[ptah.main] chat:start - prompt config', {
         hasEnhancedPrompts: !!enhancedPromptsContent,
@@ -399,7 +388,6 @@ export class ChatSessionService {
         prompt,
         files,
         images, // inline pasted/dropped images
-        isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
@@ -472,11 +460,8 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
-      if (this.premiumContext.isMcpServerRunning()) {
-        const licenseCheck = await this.licenseService.verifyLicense();
-        if (isPremiumTier(licenseCheck)) {
-          this.codeExecutionMcp.ensureRegisteredForSubagents();
-        }
+      if (this.sdkContext.isMcpServerRunning()) {
+        this.codeExecutionMcp.ensureRegisteredForSubagents();
       }
       const resumeOutcome = await this.autoResumeIfInactive(
         sessionId,
@@ -892,24 +877,17 @@ export class ChatSessionService {
       `[RPC] Session ${sessionId} not active, attempting resume...`,
     );
 
-    const licenseStatus = await this.licenseService.verifyLicense();
-    const isPremium = isPremiumTier(licenseStatus);
-    const mcpServerRunning = this.premiumContext.isMcpServerRunning();
+    const mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
     this.logger.info('[ptah.main] chat:continue resume - session config', {
-      tier: licenseStatus.tier,
-      isPremium,
       mcpServerRunning,
       mcpPort: this.codeExecutionMcp.getPort(),
       sessionId,
     });
 
     const enhancedPromptsContent =
-      await this.premiumContext.resolveEnhancedPromptsContent(
-        workspacePath,
-        isPremium,
-      );
-    const pluginPaths = this.premiumContext.resolvePluginPaths(isPremium);
+      await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
+    const pluginPaths = this.sdkContext.resolvePluginPaths();
 
     this.logger.info('[ptah.main] chat:continue resume - prompt config', {
       hasEnhancedPrompts: !!enhancedPromptsContent,
@@ -933,7 +911,6 @@ export class ChatSessionService {
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
         projectPath: workspacePath,
         model: currentModel,
-        isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,

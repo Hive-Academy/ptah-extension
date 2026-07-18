@@ -13,7 +13,7 @@ const LEGACY_PREFIXES = ['ptah-', 'ptahsynth-'];
 
 /**
  * Distribute user-layer agents (~/.ptah/user/agents) to all installed rival
- * CLIs at the WORKSPACE level. Pro/trial_pro-only, fire-and-forget. Also runs a
+ * CLIs at the WORKSPACE level. Runs for everyone, fire-and-forget. Also runs a
  * one-time reap of stale Ptah-managed home copies so they don't shadow the new
  * workspace copies.
  */
