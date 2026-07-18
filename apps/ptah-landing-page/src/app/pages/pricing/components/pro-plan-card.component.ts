@@ -5,7 +5,6 @@ import {
   computed,
   input,
   output,
-  signal,
 } from '@angular/core';
 import {
   ArrowRight,
@@ -32,10 +31,10 @@ import {
 } from '../utils/plan-card-state.utils';
 
 /**
- * ProPlanCardComponent - Pro plan card with subscription awareness
+ * ProPlanCardComponent - Ptah Builders plan card with subscription awareness
  *
- * This component handles the Pro plan which has both monthly and yearly options.
- * The billing toggle is integrated directly into the card.
+ * The default (unauthenticated, no subscription) CTA links to the Builders
+ * waitlist anchor instead of launching Paddle checkout.
  *
  * Subscription-Aware Features:
  * - Shows "Current Plan" badge for active Pro subscribers
@@ -150,48 +149,9 @@ import {
         <h3
           class="font-display text-xl lg:text-2xl font-semibold text-base-content tracking-wide uppercase mb-1"
         >
-          {{ activePlan().name }}
+          {{ plan().name }}
         </h3>
-        <p class="text-sm text-base-content/50">{{ activePlan().idealFor }}</p>
-      </div>
-
-      <!-- Billing Toggle (inside card) -->
-      <div class="mb-6">
-        <div
-          class="inline-flex items-center p-1 rounded-full bg-base-100/50 border border-base-content/10"
-        >
-          <button
-            type="button"
-            class="px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-300"
-            [ngClass]="{
-              'bg-amber-500 text-base-100 shadow-md':
-                billingPeriod() === 'monthly',
-              'text-base-content/60 hover:text-base-content':
-                billingPeriod() !== 'monthly',
-            }"
-            (click)="setBillingPeriod('monthly')"
-          >
-            Monthly
-          </button>
-          <button
-            type="button"
-            class="px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-300 flex items-center gap-2"
-            [ngClass]="{
-              'bg-amber-500 text-base-100 shadow-md':
-                billingPeriod() === 'yearly',
-              'text-base-content/60 hover:text-base-content':
-                billingPeriod() !== 'yearly',
-            }"
-            (click)="setBillingPeriod('yearly')"
-          >
-            Yearly
-            <span
-              class="px-1.5 py-0.5 text-[10px] font-bold rounded bg-success text-success-content"
-            >
-              -17%
-            </span>
-          </button>
-        </div>
+        <p class="text-sm text-base-content/50">{{ plan().idealFor }}</p>
       </div>
 
       <!-- Price Section -->
@@ -201,18 +161,18 @@ import {
             class="text-4xl sm:text-5xl lg:text-6xl font-bold whitespace-nowrap
                    bg-gradient-to-r from-amber-300 to-secondary bg-clip-text text-transparent"
           >
-            {{ activePlan().price }}
+            {{ plan().price }}
           </span>
           <span class="text-base-content/50 text-sm">
-            / {{ activePlan().priceSubtext }}
+            / {{ plan().priceSubtext }}
           </span>
         </div>
-        @if (activePlan().savings) {
+        @if (plan().savings) {
           <div
             class="inline-block mt-2 px-3 py-1 rounded-full text-xs font-semibold
                    bg-success/20 text-success"
           >
-            {{ activePlan().savings }}
+            {{ plan().savings }}
           </div>
         }
       </div>
@@ -240,43 +200,60 @@ import {
         </ul>
       </div>
 
-      <!-- CTA Button - Subscription Aware -->
-      <button
-        class="mt-8 w-full py-3.5 px-6 rounded-xl font-semibold text-sm
-               flex items-center justify-center gap-2 transition-all duration-300
-               group-hover:gap-3"
-        [ngClass]="ctaButtonClass()"
-        [disabled]="isCtaDisabled()"
-        [attr.aria-busy]="isLoading() || isLoadingContext()"
-        (click)="handleClick()"
-      >
-        @if (isLoading() || isLoadingContext()) {
-          <span class="loading loading-spinner loading-sm"></span>
-          <span>Loading...</span>
-        } @else {
-          @if (ctaVariant() === 'current-plan') {
-            <lucide-angular
-              [img]="SettingsIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-          }
+      <!-- CTA - Subscription Aware -->
+      @if (ctaVariant() === 'start-trial') {
+        <a
+          href="#waitlist"
+          class="mt-8 w-full py-3.5 px-6 rounded-xl font-semibold text-sm
+                 flex items-center justify-center gap-2 transition-all duration-300
+                 group-hover:gap-3"
+          [ngClass]="ctaButtonClass()"
+        >
           <span>{{ ctaText() }}</span>
-          @if (ctaVariant() !== 'current-plan') {
-            <lucide-angular
-              [img]="ArrowRightIcon"
-              class="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1"
-              aria-hidden="true"
-            />
+          <lucide-angular
+            [img]="ArrowRightIcon"
+            class="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1"
+            aria-hidden="true"
+          />
+        </a>
+      } @else {
+        <button
+          class="mt-8 w-full py-3.5 px-6 rounded-xl font-semibold text-sm
+                 flex items-center justify-center gap-2 transition-all duration-300
+                 group-hover:gap-3"
+          [ngClass]="ctaButtonClass()"
+          [disabled]="isCtaDisabled()"
+          [attr.aria-busy]="isLoading() || isLoadingContext()"
+          (click)="handleClick()"
+        >
+          @if (isLoading() || isLoadingContext()) {
+            <span class="loading loading-spinner loading-sm"></span>
+            <span>Loading...</span>
+          } @else {
+            @if (ctaVariant() === 'current-plan') {
+              <lucide-angular
+                [img]="SettingsIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+            }
+            <span>{{ ctaText() }}</span>
+            @if (ctaVariant() !== 'current-plan') {
+              <lucide-angular
+                [img]="ArrowRightIcon"
+                class="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1"
+                aria-hidden="true"
+              />
+            }
           }
-        }
-      </button>
+        </button>
 
-      <!-- Disabled tooltip -->
-      @if (isCtaDisabled() && !isLoading() && !isLoadingContext()) {
-        <p class="text-center text-xs text-base-content/40 mt-2">
-          Checkout temporarily unavailable
-        </p>
+        <!-- Disabled tooltip -->
+        @if (isCtaDisabled() && !isLoading() && !isLoadingContext()) {
+          <p class="text-center text-xs text-base-content/40 mt-2">
+            Checkout temporarily unavailable
+          </p>
+        }
       }
     </div>
   `,
@@ -299,11 +276,8 @@ export class ProPlanCardComponent {
   public readonly CrownIcon = Crown;
   public readonly PauseIcon = Pause;
 
-  /** Monthly plan data */
-  public readonly monthlyPlan = input.required<PricingPlan>();
-
-  /** Yearly plan data */
-  public readonly yearlyPlan = input.required<PricingPlan>();
+  /** Pro plan data */
+  public readonly plan = input.required<PricingPlan>();
 
   /** Loading state for checkout operation */
   public readonly isLoading = input<boolean>(false);
@@ -322,23 +296,7 @@ export class ProPlanCardComponent {
   /** Manage subscription event - emits for portal navigation */
   public readonly manageSubscription = output<void>();
 
-  /** Internal billing period state (private with setter) */
-  private readonly _billingPeriod = signal<'monthly' | 'yearly'>('monthly');
-
-  /** Public readonly billing period for template */
-  public readonly billingPeriod = this._billingPeriod.asReadonly();
-
-  /** Set billing period */
-  public setBillingPeriod(period: 'monthly' | 'yearly'): void {
-    this._billingPeriod.set(period);
-  }
-
-  /** Computed active plan based on billing period */
-  public readonly activePlan = computed(() =>
-    this._billingPeriod() === 'yearly' ? this.yearlyPlan() : this.monthlyPlan(),
-  );
-
-  /** Pro features list (same for both monthly and yearly) */
+  /** Pro features list */
   public readonly proFeatures = [
     'Everything in Ptah (it is free)',
     'Weekly live build sessions',
@@ -438,14 +396,15 @@ export class ProPlanCardComponent {
    *
    * Pro card CTA is NEVER disabled due to subscription state
    * (no "included" variant - Pro is highest tier)
-   * Only disabled for loading states or invalid price IDs
+   * Only disabled for loading states or invalid price IDs.
+   * 'start-trial' renders as a waitlist link, not a checkout button, so it's excluded here.
    */
   public readonly isCtaDisabled = computed(() => {
     if (this.isLoading()) return true;
     if (this.isLoadingContext()) return true;
     const variant = this.ctaVariant();
-    if (['start-trial', 'upgrade-now', 'upgrade'].includes(variant)) {
-      return isPriceIdPlaceholder(this.activePlan().priceId);
+    if (['upgrade-now', 'upgrade'].includes(variant)) {
+      return isPriceIdPlaceholder(this.plan().priceId);
     }
 
     return false;
@@ -487,6 +446,6 @@ export class ProPlanCardComponent {
       this.manageSubscription.emit();
       return;
     }
-    this.ctaClick.emit(this.activePlan());
+    this.ctaClick.emit(this.plan());
   }
 }

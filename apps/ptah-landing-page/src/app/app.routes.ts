@@ -3,7 +3,6 @@ import { LandingPageComponent } from './pages/landing-page.component';
 import { AdminAuthGuard } from './guards/admin-auth.guard';
 import { AuthGuard } from './guards/auth.guard';
 import { GuestGuard } from './guards/guest.guard';
-import { TrialStatusGuard } from './guards/trial-status.guard';
 
 /**
  * Application Routes
@@ -18,7 +17,6 @@ import { TrialStatusGuard } from './guards/trial-status.guard';
  * Guards:
  * - AuthGuard: Protects authenticated routes, redirects guests to /login
  * - GuestGuard: Protects guest-only routes, redirects authenticated users to /profile
- * - TrialStatusGuard: Redirects users with expired trials to /trial-ended
  */
 export const routes: Routes = [
   {
@@ -50,7 +48,6 @@ export const routes: Routes = [
       import('./pages/pricing/pricing-page.component').then(
         (m) => m.PricingPageComponent,
       ),
-    canActivate: [TrialStatusGuard], // Redirect expired trials to /trial-ended
   },
   {
     path: 'login',
@@ -74,7 +71,7 @@ export const routes: Routes = [
       import('./pages/profile/profile-page.component').then(
         (m) => m.ProfilePageComponent,
       ),
-    canActivate: [AuthGuard, TrialStatusGuard], // Auth + trial status check
+    canActivate: [AuthGuard],
   },
   {
     path: 'contact',
@@ -104,14 +101,6 @@ export const routes: Routes = [
       import('./pages/legal/refund-page.component').then(
         (m) => m.RefundPageComponent,
       ),
-  },
-  {
-    path: 'trial-ended',
-    loadComponent: () =>
-      import('./pages/trial-ended/trial-ended-page.component').then(
-        (m) => m.TrialEndedPageComponent,
-      ),
-    canActivate: [AuthGuard], // Must be logged in, but no trial check
   },
   {
     path: 'admin',

@@ -22,9 +22,9 @@ export const environment = {
    *
    * TASK_2025_128: Freemium Model Conversion
    * - Community: FREE forever (no Paddle integration)
-   * - Pro: $5/month, $50/year (100-day trial)
+   * - Ptah Builders: founding-member monthly membership
    *
-   * Only Pro plan has price IDs - Community tier is FREE with no checkout.
+   * Only the Builders plan has price IDs - Community tier is FREE with no checkout.
    */
   paddle: {
     /** Paddle environment: 'sandbox' for testing, 'production' for live */
@@ -33,9 +33,9 @@ export const environment = {
     /** Client-side token for Paddle.js SDK (sandbox) */
     token: 'test_4cc7e17dbf1a71a998fa7e12e31',
 
-    /** Price ID for Pro Monthly ($5/month with 100-day trial) - Paddle sandbox */
+    /** Price ID for the Ptah Builders monthly membership - Paddle sandbox */
     proPriceIdMonthly: 'pri_01kfr72reygmkapd0vtynrswm4',
-    /** Price ID for Pro Yearly ($50/year with 100-day trial) - Paddle sandbox */
+    /** Legacy yearly price ID, no longer offered - Paddle sandbox */
     proPriceIdYearly: 'pri_01kfr76e7fz41sp05w74jy4fx6',
     /** Price ID for one-time session payment ($100 per 2-hour session) - Paddle sandbox */
     sessionPriceId: 'pri_SESSION_SANDBOX_PLACEHOLDER',

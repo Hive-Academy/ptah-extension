@@ -44,12 +44,8 @@ import {
 /**
  * PricingGridComponent - Grid of pricing plan cards
  *
- * TASK_2025_128: Freemium Model Conversion
  * - Community: FREE forever - Core visual editor features (no Paddle)
- * - Pro: $5/month, $50/year (100-day trial) - Community + MCP server + all premium features
- *
- * Community tier has no billing toggle (always free).
- * Pro plan has monthly/yearly toggle.
+ * - Ptah Builders: founding-member monthly membership - live training and curriculum
  *
  * Evidence: TASK_2025_121 - Two-Tier Paid Extension Model
  * Evidence: TASK_2025_128 - Freemium Model Conversion
@@ -233,8 +229,7 @@ import {
           [viewportConfig]="getCardAnimationConfig(1)"
         >
           <ptah-pro-plan-card
-            [monthlyPlan]="proMonthlyPlan"
-            [yearlyPlan]="proYearlyPlan"
+            [plan]="proPlan"
             [isLoading]="isPlanLoading('Pro')"
             [subscriptionContext]="subscriptionContext()"
             [isLoadingContext]="isLoadingSubscription()"
@@ -425,16 +420,15 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   };
 
   /**
-   * Pro Monthly plan data
+   * Ptah Builders plan data
    */
-  public readonly proMonthlyPlan: PricingPlan = {
+  public readonly proPlan: PricingPlan = {
     name: 'Ptah Builders',
     tier: 'pro',
     price: '$29-49',
     priceSubtext: 'per month, founding-member pricing',
     priceId: this.paddleConfig.proPriceIdMonthly,
     idealFor: 'Live training and curriculum for shipping SaaS',
-    trialDays: 100,
     features: [],
     standoutFeatures: [
       'Everything in Ptah (it is free)',
@@ -444,33 +438,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       'Priority support',
       'Founding-member pricing, locked in',
     ],
-    ctaText: 'Start 100-Day Free Trial',
-    ctaAction: 'checkout',
-    highlight: true,
-  };
-
-  /**
-   * Pro Yearly plan data
-   */
-  public readonly proYearlyPlan: PricingPlan = {
-    name: 'Ptah Builders',
-    tier: 'pro',
-    price: '$50',
-    priceSubtext: 'per year',
-    priceId: this.paddleConfig.proPriceIdYearly,
-    idealFor: 'Live training and curriculum for shipping SaaS',
-    savings: 'Save ~17% vs monthly',
-    trialDays: 100,
-    features: [],
-    standoutFeatures: [
-      'Everything in Ptah (it is free)',
-      'Weekly live build sessions',
-      'PRD-to-production curriculum',
-      'Member skill packs',
-      'Priority support',
-      'Founding-member pricing, locked in',
-    ],
-    ctaText: 'Start 100-Day Free Trial',
+    ctaText: 'Join the Builders Waitlist',
     ctaAction: 'checkout',
     highlight: true,
   };
@@ -517,10 +485,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Trigger auto-checkout after returning from login
    * Waits for Paddle to be ready, then opens checkout for the specified plan
    *
-   * TASK_2025_128: Only Pro plan keys exist - Community is free with no checkout
+   * TASK_2025_128: Only the Pro plan key exists - Community is free with no checkout
    */
   private triggerAutoCheckout(planKey: string): void {
-    const validPlanKeys = ['pro-monthly', 'pro-yearly'];
+    const validPlanKeys = ['pro-monthly'];
     if (!validPlanKeys.includes(planKey)) {
       this.autoCheckoutError.set(
         'Invalid checkout plan. Please select a plan manually.',
@@ -528,16 +496,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       return;
     }
     this.autoCheckoutError.set(null);
-    let plan: PricingPlan;
-    switch (planKey) {
-      case 'pro-yearly':
-        plan = this.proYearlyPlan;
-        break;
-      case 'pro-monthly':
-      default:
-        plan = this.proMonthlyPlan;
-        break;
-    }
+    const plan = this.proPlan;
     const startTime = Date.now();
     this.autoCheckoutIntervalId = setInterval(() => {
       if (this.isPaddleReady()) {
@@ -610,11 +569,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
         .subscribe({
           next: (isAuth) => {
             if (!isAuth) {
-              const planKey = this.getPlanKey(plan);
               this.router.navigate(['/login'], {
                 queryParams: {
                   returnUrl: '/pricing',
-                  plan: planKey,
+                  plan: 'pro-monthly',
                 },
               });
               return;
@@ -622,26 +580,15 @@ export class PricingGridComponent implements OnInit, OnDestroy {
             this.proceedWithCheckout(plan);
           },
           error: () => {
-            const planKey = this.getPlanKey(plan);
             this.router.navigate(['/login'], {
               queryParams: {
                 returnUrl: '/pricing',
-                plan: planKey,
+                plan: 'pro-monthly',
               },
             });
           },
         });
     }
-  }
-
-  /**
-   * Get the plan key for auto-checkout redirect
-   *
-   * TASK_2025_128: Only Pro plans have checkout (Community is free)
-   */
-  private getPlanKey(plan: PricingPlan): string {
-    const isYearly = plan.priceSubtext === 'per year';
-    return isYearly ? 'pro-yearly' : 'pro-monthly';
   }
 
   /**
