@@ -376,6 +376,16 @@ export class SessionLifecycleManager {
   }
 
   /**
+   * Get the workspace root (projectPath) for a specific session, by tabId or
+   * realSessionId. Returns undefined when the session is unknown or carries no
+   * projectPath. Lets MCP tools resolve a call against the exact session that
+   * issued it (concurrency-safe), not the most-recently-active one.
+   */
+  getSessionWorkspace(idOrTabId: string): string | undefined {
+    return this._registry.getSessionWorkspace(idOrTabId);
+  }
+
+  /**
    * Interrupt the current assistant turn without ending the session.
    *
    * Unlike endSession(), this does NOT abort the session or clean up resources.

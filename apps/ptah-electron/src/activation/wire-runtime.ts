@@ -43,6 +43,7 @@ import type {
 import {
   CODE_SYMBOL_INDEXER,
   type CodeSymbolIndexer,
+  type DependencyGraphService,
 } from '@ptah-extension/workspace-intelligence';
 import {
   MEMORY_TOKENS,
@@ -804,6 +805,22 @@ export async function wireRuntime(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
   workspaceProvider.onDidChangeWorkspaceFolders(() => {
+    // Drop cached dependency graphs for workspaces that are no longer open so
+    // their nodes/edges don't linger in memory after a folder is closed. The
+    // event carries no removed path, so retaining the currently-open set is the
+    // race-free way to evict closed workspaces. Non-fatal.
+    try {
+      const depGraph = container.resolve<DependencyGraphService>(
+        TOKENS.DEPENDENCY_GRAPH_SERVICE,
+      );
+      depGraph.retainOnly(workspaceProvider.getWorkspaceFolders());
+    } catch (err) {
+      console.warn(
+        '[Ptah Electron] Dependency graph eviction skipped (non-fatal):',
+        err,
+      );
+    }
+
     const active = workspaceProvider.getWorkspaceRoot();
     if (active) {
       bootHeavyServices(active).catch((err) => {

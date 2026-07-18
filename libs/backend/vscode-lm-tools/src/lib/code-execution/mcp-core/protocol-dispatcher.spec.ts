@@ -22,6 +22,7 @@
 
 import 'reflect-metadata';
 
+import * as path from 'path';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
   handleMCPRequest,
@@ -332,6 +333,80 @@ describe('protocol-handlers › tools/call individual tool routing', () => {
     expect(content[0].type).toBe('text');
     expect(content[0].text).toContain('a.ts');
     expect(content[0].text).toContain('b.ts');
+  });
+
+  it('builds the dependency graph from ABSOLUTE paths and resolves a relative query arg', async () => {
+    const root = path.resolve('/ws');
+    const isBuilt = jest.fn().mockResolvedValue(false);
+    const buildGraph = jest.fn().mockResolvedValue({ nodeCount: 2 });
+    const getDependents = jest.fn().mockResolvedValue([]);
+    const getInfo = jest.fn().mockResolvedValue({ path: root });
+    const findFiles = jest.fn().mockResolvedValue(['src/a.ts', 'src/b.ts']);
+
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        workspace: { getInfo } as unknown as PtahAPI['workspace'],
+        search: { findFiles } as unknown as PtahAPI['search'],
+        dependencies: {
+          isBuilt,
+          buildGraph,
+          getDependents,
+        } as unknown as PtahAPI['dependencies'],
+      }),
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 5,
+        method: 'tools/call',
+        params: {
+          name: 'ptah_get_dependents',
+          arguments: { file: 'src/a.ts' },
+        },
+      }),
+      deps,
+    );
+
+    // Graph built with absolute file paths (relative findFiles results joined to root).
+    expect(buildGraph).toHaveBeenCalledWith(
+      [path.join(root, 'src/a.ts'), path.join(root, 'src/b.ts')],
+      root,
+    );
+    // Relative query arg resolved to absolute before querying.
+    expect(getDependents).toHaveBeenCalledWith(path.join(root, 'src/a.ts'));
+  });
+
+  it('passes an absolute dependency query arg through unchanged', async () => {
+    const abs = path.resolve('/ws/src/a.ts');
+    const getDependencies = jest.fn().mockResolvedValue([]);
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        workspace: {
+          getInfo: jest.fn().mockResolvedValue({ path: path.resolve('/ws') }),
+        } as unknown as PtahAPI['workspace'],
+        search: {
+          findFiles: jest.fn().mockResolvedValue([]),
+        } as unknown as PtahAPI['search'],
+        dependencies: {
+          isBuilt: jest.fn().mockResolvedValue(true),
+          getDependencies,
+        } as unknown as PtahAPI['dependencies'],
+      }),
+    });
+
+    await handleMCPRequest(
+      makeRequest({
+        id: 6,
+        method: 'tools/call',
+        params: {
+          name: 'ptah_get_dependencies',
+          arguments: { file: abs },
+        },
+      }),
+      deps,
+    );
+
+    expect(getDependencies).toHaveBeenCalledWith(abs, undefined);
   });
 
   it('invokes onToolResult callback with request id and result text on success', async () => {
