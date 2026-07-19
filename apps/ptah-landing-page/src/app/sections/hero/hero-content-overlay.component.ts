@@ -38,7 +38,7 @@ const KEYWORDS = ['the SaaS.', 'the billing.', 'the auth.', 'the audit.'];
       <h1
         data-headline
         aria-label="It ships the SaaS."
-        class="font-bold tracking-tight text-white leading-[1.05] text-4xl sm:text-5xl lg:text-6xl"
+        class="font-bold uppercase tracking-tight text-white leading-[0.95] text-5xl sm:text-6xl lg:text-7xl"
       >
         It ships<br />
         <span data-keyword class="text-amber-500">the SaaS.</span>

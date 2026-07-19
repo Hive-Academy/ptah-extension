@@ -11,7 +11,7 @@ description: Terms used throughout the Ptah docs.
 
 **MCP** — Model Context Protocol. The standard Ptah uses to expose tools to agents. Ptah ships a built-in MCP server and can connect to external ones.
 
-**Orchestration** — A workflow mode where a lead agent breaks work into tasks and delegates to specialist sub-agents. Pro-tier.
+**Orchestration** — A workflow mode where a lead agent breaks work into tasks and delegates to specialist sub-agents.
 
 **Plugin** — A bundle of agents, skills, and tools that extend Ptah for a specific domain. Plugins live under `~/.ptah/plugins/` and are enabled per workspace via `.ptah/plugins.json`.
 

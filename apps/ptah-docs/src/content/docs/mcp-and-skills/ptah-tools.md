@@ -84,16 +84,12 @@ Keep experiments isolated without cluttering your main checkout.
 | `ptah_harness_search_mcp_registry` | Search the public MCP server registry                                     | Discover third-party tools to plug in   |
 | `harness_list_installed_mcp`       | List every MCP server configured in the harness                           | Audit what's connected                  |
 
-## Code Execution (Pro)
+## Code Execution
 
 | Tool              | Purpose                                                               | Typical use case                                    |
 | ----------------- | --------------------------------------------------------------------- | --------------------------------------------------- |
 | `execute_code`    | Run code in the sandboxed runtime with scoped file and network access | Transform data, verify a snippet, run quick scripts |
 | `approval_prompt` | Request explicit user approval mid-execution                          | Gate side-effectful steps                           |
-
-:::caution[Pro tier]
-`execute_code` requires the Pro subscription. See [Built-in MCP Server](/mcp-and-skills/built-in-mcp-server/) for details.
-:::
 
 ## Next steps
 

@@ -5,10 +5,6 @@ description: Extract HTML, text, and evaluated JavaScript results from the page.
 
 import { Aside } from '@astrojs/starlight/components';
 
-<Aside type="caution" title="Pro tier only">
-Browser Automation requires an active Pro license.
-</Aside>
-
 ## `ptah_browser_content`
 
 Return the rendered content of the current page. Use this when an agent needs to reason about the DOM or extract text.

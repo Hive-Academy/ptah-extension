@@ -9,14 +9,9 @@ sidebar:
 
 GitHub Copilot is integrated in Ptah via OAuth. If you already pay for Copilot, you can use its models inside Ptah at no additional API cost.
 
-:::caution[Pro tier]
-Copilot OAuth is a **Ptah Pro** feature. You still need an active GitHub Copilot subscription — Ptah Pro unlocks the integration, not the underlying service.
-:::
-
 ## What you need
 
 - A GitHub account with an active Copilot subscription (Individual, Business, or Enterprise).
-- Ptah Pro license, signed in.
 
 ## Configuration
 

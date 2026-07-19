@@ -5,14 +5,14 @@ description: Activation, offline use, and revalidation problems.
 
 import { Aside } from '@astrojs/starlight/components';
 
-Ptah's Pro tier uses an online license with a generous offline grace period.
+A **Ptah Builders** membership uses an online license with a generous offline grace period. Ptah itself is free and open source — a Builders key only attaches your membership perks, so licensing issues never block your local work.
 
 ## How licensing works
 
 - Activation validates your key with the license server and stores a signed receipt locally.
 - Every 24 hours the app revalidates in the background.
 - If validation fails (network outage, server down), the app keeps running on the cached receipt for up to **7 days**.
-- After 7 days with no successful revalidation, Pro features are disabled until the next successful check-in.
+- After 7 days with no successful revalidation, your Builders membership status falls back to Community until the next successful check-in. Your local features are unaffected.
 
 ## Common problems
 
@@ -28,9 +28,9 @@ Ptah's Pro tier uses an online license with a generous offline grace period.
 
 ---
 
-**Symptom:** Pro features grayed out after a week of air-gapped use.
+**Symptom:** Builders membership shows as inactive after a week of air-gapped use.
 **Likely cause:** The 7-day offline grace period has expired.
-**Fix:** Connect to the internet once. Validation happens automatically within a minute and Pro features re-enable immediately. No reactivation is needed.
+**Fix:** Connect to the internet once. Validation happens automatically within a minute and your membership status re-enables immediately. No reactivation is needed.
 
 ---
 

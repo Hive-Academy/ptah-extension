@@ -61,40 +61,17 @@ Because the host namespaces tools by server name (e.g. `ptah:agent_spawn`), the 
 
 `tools/list` advertises seven tools. Six are agent-process controls; `session_submit` delegates a full task to Ptah's Team Leader.
 
-| Tool             | What it does                                                                                       | Pro-gated     |
-| ---------------- | -------------------------------------------------------------------------------------------------- | ------------- |
-| `agent_list`     | List detected CLIs and configured Ptah CLI agents.                                                 | Free          |
-| `agent_spawn`    | Spawn a CLI agent and return its handle.                                                           | Conditional\* |
-| `agent_status`   | Report a spawned agent's status.                                                                   | Conditional\* |
-| `agent_read`     | Read a spawned agent's buffered stdout/stderr and exit code.                                       | Conditional\* |
-| `agent_steer`    | Push a steering message to a running agent.                                                        | Conditional\* |
-| `agent_stop`     | Terminate a running agent.                                                                         | Conditional\* |
-| `session_submit` | Delegate an entire task to Ptah's Team Leader, which fans out to sub-agents via the SDK Task tool. | Pro           |
-
-\* See [Premium gating](#premium-gating) below — these are Pro-gated only when targeting a Ptah-CLI agent.
+| Tool             | What it does                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------------- |
+| `agent_list`     | List detected CLIs and configured Ptah CLI agents.                                                 |
+| `agent_spawn`    | Spawn a CLI agent and return its handle.                                                           |
+| `agent_status`   | Report a spawned agent's status.                                                                   |
+| `agent_read`     | Read a spawned agent's buffered stdout/stderr and exit code.                                       |
+| `agent_steer`    | Push a steering message to a running agent.                                                        |
+| `agent_stop`     | Terminate a running agent.                                                                         |
+| `session_submit` | Delegate an entire task to Ptah's Team Leader, which fans out to sub-agents via the SDK Task tool. |
 
 `session_submit` accepts a free-form `task` (required), plus optional `cwd`, `allowSubagents` (default `true`), and a `profile` (`claude_code` or `enhanced`). With `allowSubagents` enabled, the Team Leader decomposes the task and fans work out to sub-agents, aggregating their results into a single MCP response.
-
-## Premium gating
-
-Pro-only tool calls are **not** rejected with JSON-RPC error codes. Per the MCP spec, the gate returns a normal `tools/call` result with `isError: true` and a structured upgrade hint:
-
-```json
-{
-  "content": [{ "type": "text", "text": "This tool requires a Ptah Pro subscription." }],
-  "isError": true,
-  "structuredContent": { "ptah_code": "license_required" }
-}
-```
-
-Gating policy:
-
-- **`session_submit`** always requires Pro — it drives the Team Leader harness.
-- **`agent_spawn`** requires Pro only when spawning a Ptah-CLI agent (the `ptahCliId` argument is set). Spawning a user-installed binary (Codex, Copilot, …) is free.
-- **`agent_status` / `agent_read` / `agent_steer` / `agent_stop`** require Pro when they target a Ptah-CLI agent; targeting your own rival-CLI binaries is free.
-- **`agent_list`** is always free.
-
-The gate fails closed: if a referenced agent can't be resolved, the call is treated as Pro-gated to prevent bypass via an unknown agent id.
 
 ## Cost attribution
 
@@ -121,13 +98,12 @@ In `mcp-serve` mode, `session.describe` reports `mode: "mcp-serve"`, `capabiliti
 
 ## Troubleshooting
 
-| Symptom                                                      | Cause / fix                                                                                                                                        |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A `tools/call` hangs, then the process exits `3`             | An approval-gated tool ran without `--auto-approve`. Add `--auto-approve` (or `PTAH_AUTO_APPROVE=true`) to the host config.                        |
-| `tools/call` returns `isError: true` with `license_required` | The tool is Pro-gated and no valid Pro license is present. See [Premium gating](#premium-gating).                                                  |
-| `tools/call` returns `isError: true` with `sdk_init_failed`  | The call arrived before the agent SDK finished bootstrapping. Retry after `notifications/initialized`.                                             |
-| The host's MCP parser reports garbage / extra lines          | Something wrote to stdout that isn't the MCP wire. Ptah keeps stdout pristine and logs to stderr — check a wrapper script isn't echoing to stdout. |
-| The host's handshake times out                               | `initialize` is answered eagerly before DI finishes, so this is rare. Confirm the host launches the binary directly and isn't buffering stdio.     |
+| Symptom                                                     | Cause / fix                                                                                                                                        |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A `tools/call` hangs, then the process exits `3`            | An approval-gated tool ran without `--auto-approve`. Add `--auto-approve` (or `PTAH_AUTO_APPROVE=true`) to the host config.                        |
+| `tools/call` returns `isError: true` with `sdk_init_failed` | The call arrived before the agent SDK finished bootstrapping. Retry after `notifications/initialized`.                                             |
+| The host's MCP parser reports garbage / extra lines         | Something wrote to stdout that isn't the MCP wire. Ptah keeps stdout pristine and logs to stderr — check a wrapper script isn't echoing to stdout. |
+| The host's handshake times out                              | `initialize` is answered eagerly before DI finishes, so this is rare. Confirm the host launches the binary directly and isn't buffering stdio.     |
 
 ## Related
 

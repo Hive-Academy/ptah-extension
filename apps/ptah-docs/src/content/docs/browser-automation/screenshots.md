@@ -5,10 +5,6 @@ description: Capture viewport or full-page screenshots in PNG, JPEG, or WebP.
 
 import { Aside } from '@astrojs/starlight/components';
 
-<Aside type="caution" title="Pro tier only">
-Browser Automation requires an active Pro license.
-</Aside>
-
 ## `ptah_browser_screenshot`
 
 Capture an image of the current page. Screenshots are saved to the workspace's `.ptah/screenshots/` folder by default and the saved path is returned along with inline image data.
