@@ -181,6 +181,18 @@ export interface AgentStartEvent extends FlatStreamEvent {
    * subagent:stop calls.
    */
   readonly taskId?: string;
+  /**
+   * Stable id grouping every agent that belongs to a single `Workflow` tool
+   * run. Set to the `Workflow` tool_use id on the run root and propagated to
+   * descendant agents so the UI can render a workflow's agents as one group.
+   * Undefined for agents that are not part of a workflow run.
+   */
+  readonly workflowRunId?: string;
+  /**
+   * Human-legible workflow name (SDK `task_started.workflow_name`, e.g.
+   * 'spec'). Present on the run root and propagated to descendants where known.
+   */
+  readonly workflowName?: string;
 }
 
 /**

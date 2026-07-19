@@ -137,6 +137,14 @@ export class SystemMessageTransformer {
     if (toolUseId) {
       state.setTaskParent(msg.task_id, toolUseId);
       helpers.subagentRegistry.setTaskId(toolUseId, msg.task_id);
+
+      // A `local_workflow` task_started is the root of a workflow run: its
+      // tool_use_id is the `Workflow` tool_use id and it carries the
+      // workflow_name. Register (or merge the name into) the run root so this
+      // event and every descendant agent share the same workflowRunId.
+      if (msg.task_type === 'local_workflow') {
+        state.registerWorkflowRunRoot(toolUseId, msg.workflow_name);
+      }
     }
 
     if (msg.skip_transcript) {
@@ -162,6 +170,7 @@ export class SystemMessageTransformer {
 
     const resolvedSession = sessionId ?? (msg.session_id as SessionId);
     const messageId = state.getMessageId('') ?? `task_${msg.task_id}`;
+    const workflowRun = state.getWorkflowRun(toolUseId);
 
     const event: AgentStartEvent = {
       id: generateEventId(),
@@ -178,6 +187,8 @@ export class SystemMessageTransformer {
         helpers.subagentRegistry.get(toolUseId)?.teammateName ??
         helpers.subagentRegistry.peekPendingTeammateName(toolUseId),
       taskId: msg.task_id,
+      workflowRunId: workflowRun?.runId,
+      workflowName: workflowRun?.name,
     };
 
     helpers.logger.debug('[SdkMessageTransformer] task_started → agent_start', {
@@ -206,6 +217,7 @@ export class SystemMessageTransformer {
     }
 
     const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    const workflowRun = state.getWorkflowRun(parentToolUseId);
 
     const event: AgentProgressEvent = {
       id: generateEventId(),
@@ -221,6 +233,8 @@ export class SystemMessageTransformer {
       totalTokens: msg.usage.total_tokens,
       toolUses: msg.usage.tool_uses,
       durationMs: msg.usage.duration_ms,
+      workflowRunId: workflowRun?.runId,
+      workflowName: workflowRun?.name,
     };
 
     return [event];
@@ -245,6 +259,7 @@ export class SystemMessageTransformer {
     const patch = msg.patch;
     const resolvedSession = sessionId ?? (msg.session_id as SessionId);
     const messageId = state.getMessageId('') ?? `task_${msg.task_id}`;
+    const workflowRun = state.getWorkflowRun(parentToolUseId);
     const events: FlatStreamEventUnion[] = [];
 
     if (patch.status) {
@@ -259,6 +274,8 @@ export class SystemMessageTransformer {
         status: patch.status,
         description: patch.description,
         errorMessage: patch.error,
+        workflowRunId: workflowRun?.runId,
+        workflowName: workflowRun?.name,
       };
       events.push(statusEvent);
     }
@@ -338,6 +355,7 @@ export class SystemMessageTransformer {
     }
 
     const resolvedSession = sessionId ?? (msg.session_id as SessionId);
+    const workflowRun = state.getWorkflowRun(parentToolUseId);
 
     const event: AgentCompletedEvent = {
       id: generateEventId(),
@@ -353,6 +371,8 @@ export class SystemMessageTransformer {
       totalTokens: msg.usage?.total_tokens,
       toolUses: msg.usage?.tool_uses,
       durationMs: msg.usage?.duration_ms,
+      workflowRunId: workflowRun?.runId,
+      workflowName: workflowRun?.name,
     };
 
     helpers.logger.debug(

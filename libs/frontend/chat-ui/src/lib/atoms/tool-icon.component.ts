@@ -6,6 +6,7 @@ import {
   Search,
   FileEdit,
   FolderSearch,
+  Workflow,
 } from 'lucide-angular';
 
 /**
@@ -39,6 +40,7 @@ export class ToolIconComponent {
   private readonly SearchIcon = Search;
   private readonly FileEditIcon = FileEdit;
   private readonly FolderSearchIcon = FolderSearch;
+  private readonly WorkflowIcon = Workflow;
 
   /**
    * Map tool name to lucide icon
@@ -57,6 +59,8 @@ export class ToolIconComponent {
         return this.FileEditIcon;
       case 'Glob':
         return this.FolderSearchIcon;
+      case 'Workflow':
+        return this.WorkflowIcon;
       default:
         return this.TerminalIcon;
     }
@@ -81,6 +85,8 @@ export class ToolIconComponent {
         return 'text-accent'; // accent - file modifications
       case 'Glob':
         return 'text-info'; // info - file pattern matching
+      case 'Workflow':
+        return 'text-primary'; // primary - workflow orchestration (distinct)
       default:
         return 'text-base-content/60';
     }

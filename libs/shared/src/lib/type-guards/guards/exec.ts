@@ -281,6 +281,19 @@ const AGENT_DISPATCH_TOOL_NAMES = new Set([
 export function isAgentDispatchTool(toolName: string): boolean {
   return AGENT_DISPATCH_TOOL_NAMES.has(toolName);
 }
+/**
+ * Checks if a tool name is the Claude Agent SDK `Workflow` tool.
+ *
+ * The `Workflow` tool launches a fire-and-forget local workflow run: the
+ * tool_use returns immediately (status 'async_launched') and the actual
+ * orchestration surfaces via `task_*` system messages. Its input shape is
+ * NOT `AgentInput` (it takes a workflow name + args, not subagent_type /
+ * prompt), so it is intentionally excluded from AGENT_DISPATCH_TOOL_NAMES —
+ * callers that need to detect a workflow launch use this dedicated guard.
+ */
+export function isWorkflowTool(toolName: string): boolean {
+  return toolName === 'Workflow';
+}
 /** Type guard for Task tool output */
 export function isTaskToolOutput(output: unknown): output is TaskToolOutput {
   return (

@@ -139,6 +139,14 @@ export interface AgentProgressEvent extends FlatStreamEvent {
   readonly toolUses: number;
   /** Elapsed time in milliseconds */
   readonly durationMs: number;
+  /**
+   * Stable id grouping every agent that belongs to a single `Workflow` tool
+   * run. Inherited from the workflow run root. Undefined when this agent is
+   * not part of a workflow run.
+   */
+  readonly workflowRunId?: string;
+  /** Human-legible workflow name, inherited from the workflow run root. */
+  readonly workflowName?: string;
 }
 
 /**
@@ -165,6 +173,14 @@ export interface AgentStatusEvent extends FlatStreamEvent {
   readonly description?: string;
   /** Error text if status is 'failed' */
   readonly errorMessage?: string;
+  /**
+   * Stable id grouping every agent that belongs to a single `Workflow` tool
+   * run. Inherited from the workflow run root. Undefined when this agent is
+   * not part of a workflow run.
+   */
+  readonly workflowRunId?: string;
+  /** Human-legible workflow name, inherited from the workflow run root. */
+  readonly workflowName?: string;
 }
 
 /**
@@ -192,6 +208,14 @@ export interface AgentCompletedEvent extends FlatStreamEvent {
   readonly toolUses?: number;
   /** Total elapsed time in milliseconds */
   readonly durationMs?: number;
+  /**
+   * Stable id grouping every agent that belongs to a single `Workflow` tool
+   * run. Inherited from the workflow run root. Undefined when this agent is
+   * not part of a workflow run.
+   */
+  readonly workflowRunId?: string;
+  /** Human-legible workflow name, inherited from the workflow run root. */
+  readonly workflowName?: string;
 }
 
 /**

@@ -544,3 +544,40 @@ describe('StreamTransformer — cost source inversion (TASK_2026_134 Batch C)', 
     expect(captured[0].cost).toBe(hitCost);
   });
 });
+
+describe('StreamTransformer — task_* forwarding (workflow watch gate)', () => {
+  function taskSystemMessage(subtype: string): SDKMessage {
+    return {
+      type: 'system',
+      subtype,
+      task_id: 'task-1',
+      tool_use_id: 'toolu_1',
+      session_id: 'sess-1',
+      patch: {},
+      usage: { total_tokens: 0, tool_uses: 0, duration_ms: 0 },
+    } as unknown as SDKMessage;
+  }
+
+  it.each([
+    'task_started',
+    'task_progress',
+    'task_updated',
+    'task_notification',
+  ])('forwards %s system messages to the message transformer', async (sub) => {
+    const { transformer, messageTransformer } = makeHarness();
+
+    const iter = transformer.transform({
+      sdkQuery: asAsyncIterable([taskSystemMessage(sub)]),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+    });
+    await drain(iter);
+
+    expect(messageTransformer.transform).toHaveBeenCalledTimes(1);
+    expect(messageTransformer.transform).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'system', subtype: sub }),
+      'sess-1',
+    );
+  });
+});

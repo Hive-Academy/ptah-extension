@@ -33,6 +33,10 @@ import {
   isMessageStart,
   isCompactBoundary,
   isLocalCommandOutput,
+  isTaskStarted,
+  isTaskProgress,
+  isTaskUpdated,
+  isTaskNotification,
 } from '../types/sdk-types/claude-sdk.types';
 import type { IModelResolver } from '../auth-env.port';
 import type { IPricingProvider } from '../pricing.port';
@@ -443,7 +447,11 @@ export class StreamTransformer {
               sdkMessage.type === 'assistant' ||
               sdkMessage.type === 'user' ||
               isCompactBoundary(sdkMessage) ||
-              isLocalCommandOutput(sdkMessage)
+              isLocalCommandOutput(sdkMessage) ||
+              isTaskStarted(sdkMessage) ||
+              isTaskProgress(sdkMessage) ||
+              isTaskUpdated(sdkMessage) ||
+              isTaskNotification(sdkMessage)
             ) {
               const flatEvents = messageTransformer.transform(
                 sdkMessage,

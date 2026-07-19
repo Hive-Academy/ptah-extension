@@ -11,6 +11,7 @@ import {
   calculateMessageCost,
   EventSource,
   isAgentDispatchTool,
+  isWorkflowTool,
 } from '@ptah-extension/shared';
 
 import {
@@ -78,6 +79,14 @@ export class AssistantMessageTransformer {
     };
     events.push(messageStartEvent);
 
+    // If this assistant turn is itself running inside a workflow run (its
+    // parent tool_use is a known run member), any subagent it dispatches
+    // belongs to the same run. Resolve the run once for the whole message so
+    // dispatched Task tool_use blocks can inherit it.
+    const messageWorkflowRun = parent_tool_use_id
+      ? state.getWorkflowRun(parent_tool_use_id)
+      : undefined;
+
     for (let contentIndex = 0; contentIndex < content.length; contentIndex++) {
       const block = content[contentIndex];
       if (isThinkingBlock(block)) {
@@ -110,6 +119,25 @@ export class AssistantMessageTransformer {
         events.push(textDeltaEvent);
       } else if (isToolUseBlock(block)) {
         const isTaskTool = isAgentDispatchTool(block.name);
+
+        // The Workflow tool launches a fire-and-forget local workflow run.
+        // Record its tool_use id as a run root so the eventual
+        // `local_workflow` task_started (whose tool_use_id equals this id) and
+        // any descendant agents can be correlated back to it. The name is not
+        // known yet — it arrives on the task_started.
+        if (isWorkflowTool(block.name)) {
+          state.registerWorkflowRunRoot(block.id);
+          helpers.logger.debug(
+            '[SdkMessageTransformer] Detected Workflow tool_use — registered workflow run root',
+            { workflowRunId: block.id },
+          );
+        }
+
+        // Propagate an active workflow run to a subagent dispatched from
+        // within it, so the child's task_started inherits the runId/name.
+        if (isTaskTool && messageWorkflowRun) {
+          state.associateWorkflowRunChild(block.id, parent_tool_use_id ?? '');
+        }
 
         let agentType: string | undefined;
         let agentDescription: string | undefined;
@@ -186,6 +214,7 @@ export class AssistantMessageTransformer {
         };
 
         if (isTaskTool && !state.isTaskStartedEmitted(block.id)) {
+          const workflowRun = state.getWorkflowRun(block.id);
           const agentStartEvent: AgentStartEvent = {
             id: generateEventId(),
             eventType: 'agent_start',
@@ -199,8 +228,14 @@ export class AssistantMessageTransformer {
             agentPrompt,
             teammateName,
             parentToolUseId: block.id,
+            workflowRunId: workflowRun?.runId,
+            workflowName: workflowRun?.name,
           };
           events.push(agentStartEvent);
+          // Mark emitted so the parallel task_started channel (now that the
+          // stream gate forwards task_* messages) does not double-emit
+          // agent_start for the same tool_use id.
+          state.markTaskStartedEmitted(block.id);
         }
 
         events.push(toolStartEvent);

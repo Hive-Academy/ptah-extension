@@ -39,7 +39,11 @@ import {
   isSkillOrMetaContent,
   userMessageHasToolResult,
 } from './message-transform';
-import type { TransformerState, TransformerHelpers } from './message-transform';
+import type {
+  TransformerState,
+  TransformerHelpers,
+  WorkflowRunInfo,
+} from './message-transform';
 
 export { isResultMessage as isSDKResultMessage };
 
@@ -52,6 +56,8 @@ export class SdkMessageTransformer implements TransformerState {
   private readonly taskIdToParentToolUseId: Map<string, string> = new Map();
   private readonly taskStartedEmitted: Set<string> = new Set();
   private readonly activeSkillToolUseIds: Set<string> = new Set();
+  private readonly workflowRunByToolUseId: Map<string, WorkflowRunInfo> =
+    new Map();
 
   private readonly assistantTransformer: AssistantMessageTransformer;
   private readonly userTransformer: UserMessageTransformer;
@@ -252,6 +258,7 @@ export class SdkMessageTransformer implements TransformerState {
     this.activeSkillToolUseIds.clear();
     this.taskIdToParentToolUseId.clear();
     this.taskStartedEmitted.clear();
+    this.workflowRunByToolUseId.clear();
   }
 
   getMessageId(contextKey: string): string | undefined {
@@ -352,5 +359,36 @@ export class SdkMessageTransformer implements TransformerState {
 
   clearActiveSkillToolUseIds(): void {
     this.activeSkillToolUseIds.clear();
+  }
+
+  getWorkflowRun(toolUseId: string): WorkflowRunInfo | undefined {
+    return this.workflowRunByToolUseId.get(toolUseId);
+  }
+
+  registerWorkflowRunRoot(toolUseId: string, name?: string): void {
+    const existing = this.workflowRunByToolUseId.get(toolUseId);
+    this.workflowRunByToolUseId.set(toolUseId, {
+      runId: toolUseId,
+      name: name ?? existing?.name,
+    });
+  }
+
+  associateWorkflowRunChild(
+    childToolUseId: string,
+    parentToolUseId: string,
+  ): void {
+    const parent = this.workflowRunByToolUseId.get(parentToolUseId);
+    if (!parent) {
+      return;
+    }
+    // Never clobber an existing entry (e.g. a run root that is itself a child
+    // of another run) — first-writer wins keeps the runId stable.
+    if (this.workflowRunByToolUseId.has(childToolUseId)) {
+      return;
+    }
+    this.workflowRunByToolUseId.set(childToolUseId, {
+      runId: parent.runId,
+      name: parent.name,
+    });
   }
 }

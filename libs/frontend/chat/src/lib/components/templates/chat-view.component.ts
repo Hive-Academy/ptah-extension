@@ -601,6 +601,19 @@ export class ChatViewComponent {
   });
 
   constructor() {
+    // Force the embedded agent panel open when a deep-tree caller (the
+    // "Workflow launched" chip) requests it via AgentMonitorStore. The store's
+    // monotonic counter re-triggers even after the user manually closed the
+    // panel. Counter starts at 0 (initial effect run is a no-op).
+    effect(() => {
+      const requests = this.agentMonitorStore.panelOpenRequests();
+      if (requests === 0) return;
+      untracked(() => {
+        this.agentPanelOpen.set(true);
+        this._userExplicitlyClosed = false;
+      });
+    });
+
     effect(() => {
       const agents = this.sessionAgents();
       const hasRunning = agents.some((a) => a.status === 'running');

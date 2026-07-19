@@ -13,6 +13,7 @@ import {
   ThinkingBlockComponent,
 } from '@ptah-extension/chat-ui';
 import { ToolCallItemComponent } from '../../molecules/tool-execution/tool-call-item.component';
+import { WorkflowCardComponent } from './workflow-card.component';
 import { AutoAnimateDirective } from '../../../directives/auto-animate.directive';
 import type {
   ExecutionNode,
@@ -48,6 +49,7 @@ import type {
     AgentSummaryComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
+    WorkflowCardComponent,
     AutoAnimateDirective,
   ],
   template: `
@@ -79,26 +81,35 @@ import type {
         <ptah-thinking-block [node]="node()" />
       }
       @case ('tool') {
-        <ptah-tool-call-item
-          [node]="node()"
-          [permission]="
-            getPermissionForTool()?.(node().toolCallId ?? '') ?? undefined
-          "
-          (permissionResponded)="permissionResponded.emit($event)"
-        >
-          <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
-          <div [auto-animate] class="exec-children">
-            @for (child of node().children; track child.id) {
-              <ptah-execution-node
-                [node]="child"
-                [isStreaming]="isStreaming()"
-                [isFinalizing]="isFinalizing()"
-                [getPermissionForTool]="getPermissionForTool()"
-                (permissionResponded)="permissionResponded.emit($event)"
-              />
-            }
+        @if (isWorkflowTool()) {
+          <!-- Workflow tool_use: render a compact "Workflow launched" chip that
+               opens the Agents monitor panel. Progress is watched there, never
+               inline in the transcript. -->
+          <div [class.exec-fade-in]="!isFinalizing()">
+            <ptah-workflow-card [node]="node()" />
           </div>
-        </ptah-tool-call-item>
+        } @else {
+          <ptah-tool-call-item
+            [node]="node()"
+            [permission]="
+              getPermissionForTool()?.(node().toolCallId ?? '') ?? undefined
+            "
+            (permissionResponded)="permissionResponded.emit($event)"
+          >
+            <!-- RECURSIVE: Render nested children (tool results, sub-tools) -->
+            <div [auto-animate] class="exec-children">
+              @for (child of node().children; track child.id) {
+                <ptah-execution-node
+                  [node]="child"
+                  [isStreaming]="isStreaming()"
+                  [isFinalizing]="isFinalizing()"
+                  [getPermissionForTool]="getPermissionForTool()"
+                  (permissionResponded)="permissionResponded.emit($event)"
+                />
+              }
+            </div>
+          </ptah-tool-call-item>
+        }
       }
       @case ('agent') {
         <!--
@@ -234,7 +245,14 @@ export class ExecutionNodeComponent {
     const tailStart = Math.max(0, len - 64);
     for (let i = tailStart; i < len; i++) {
       hash ^= s.charCodeAt(i);
-      hash = (hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24))) >>> 0;
+      hash =
+        (hash +
+          ((hash << 1) +
+            (hash << 4) +
+            (hash << 7) +
+            (hash << 8) +
+            (hash << 24))) >>>
+        0;
     }
     return `${len}:${hash.toString(16)}`;
   }
@@ -270,4 +288,13 @@ export class ExecutionNodeComponent {
       content.includes('<invoke name=')
     );
   });
+
+  /**
+   * Whether this tool node is the SDK `Workflow` tool. When true the transcript
+   * renders the compact {@link WorkflowCardComponent} chip instead of the full
+   * tool card — the workflow's agents are watched in the Agents monitor panel.
+   */
+  protected isWorkflowTool = computed(
+    () => this.node().toolName === 'Workflow',
+  );
 }
