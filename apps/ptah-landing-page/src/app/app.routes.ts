@@ -3,6 +3,27 @@ import { LandingPageComponent } from './pages/landing-page.component';
 import { AdminAuthGuard } from './guards/admin-auth.guard';
 import { AuthGuard } from './guards/auth.guard';
 import { GuestGuard } from './guards/guest.guard';
+import { environment } from '../environments/environment';
+
+/**
+ * Non-production sandbox routes (whole-page layout/experiment labs).
+ * Excluded from production builds via the spread below — kept working in dev
+ * (`nx serve`, `environment.production === false`) but never shipped.
+ *
+ * Add any other `*-lab` routes here (e.g. section-lab, comparison-lab,
+ * builders-lab) as they're introduced — none of those exist in this route
+ * table today.
+ */
+const sandboxRoutes: Routes = [
+  {
+    // Non-production sandbox: 3 whole-page pricing layout variations.
+    path: 'pricing-lab',
+    loadComponent: () =>
+      import('./pages/section-lab/pricing-lab-page.component').then(
+        (m) => m.PricingLabPageComponent,
+      ),
+  },
+];
 
 /**
  * Application Routes
@@ -42,14 +63,7 @@ export const routes: Routes = [
         (m) => m.DownloadPageComponent,
       ),
   },
-  {
-    // Non-production sandbox: 3 whole-page pricing layout variations.
-    path: 'pricing-lab',
-    loadComponent: () =>
-      import('./pages/section-lab/pricing-lab-page.component').then(
-        (m) => m.PricingLabPageComponent,
-      ),
-  },
+  ...(environment.production ? [] : sandboxRoutes),
   {
     path: 'pricing',
     loadComponent: () =>

@@ -257,9 +257,9 @@ import {
 
           <!-- Builders CTA + promo -->
           <div class="flex flex-col items-center gap-2">
-            @if (buildersCtaVariant() === 'start-trial') {
+            @if (buildersCtaIsWaitlistLink()) {
               <a
-                href="#waitlist"
+                [href]="buildersWaitlistHref"
                 class="cta-matrix"
                 [ngClass]="buildersCtaButtonClass()"
               >
@@ -501,7 +501,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    */
   public readonly proPlan: PricingPlan = {
     name: 'Ptah Builders',
-    tier: 'pro',
+    tier: 'builders',
     price: '$29-49',
     priceSubtext: 'per month, founding-member pricing',
     priceId: this.paddleConfig.proPriceIdMonthly,
@@ -536,19 +536,26 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     { label: 'Priority support', free: false },
   ];
 
-  /** Whether the viewer already holds the Builders (pro) plan. */
-  public readonly isProUser = computed(
-    () => this.subscriptionContext().currentPlanTier === 'pro',
-  );
+  /** Whether the viewer already holds the Builders plan (or legacy Pro). */
+  public readonly isProUser = computed(() => {
+    const tier = this.subscriptionContext().currentPlanTier;
+    return tier === 'builders' || tier === 'pro';
+  });
+
+  /** Fragment on the landing page where the Builders waitlist form is mounted. */
+  public readonly buildersWaitlistHref = '/#waitlist';
 
   /** Builders CTA variant derived from subscription context (shared util). */
   public readonly buildersCtaVariant = computed<PlanCtaVariant>(() =>
-    computeCtaVariant(this.subscriptionContext(), 'pro'),
+    computeCtaVariant(this.subscriptionContext()),
   );
 
   /** Builders CTA button label. */
   public readonly buildersCtaText = computed(() =>
-    computeCtaText(this.buildersCtaVariant()),
+    computeCtaText(
+      this.buildersCtaVariant(),
+      environment.buildersCheckoutEnabled,
+    ),
   );
 
   /** Builders checkout loading state (matches the plan name set on checkout). */
@@ -559,13 +566,30 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   );
 
   /**
+   * Whether the Builders CTA renders as a plain link to the waitlist instead
+   * of a button that opens checkout/portal. True whenever checkout is closed
+   * (`buildersCheckoutEnabled` false) AND the viewer doesn't already hold a
+   * subscription that needs portal management - portal actions always stay
+   * as buttons so `onBuildersCta` can route them to the customer portal.
+   */
+  public readonly buildersCtaIsWaitlistLink = computed(
+    () =>
+      !environment.buildersCheckoutEnabled &&
+      !isPortalAction(this.buildersCtaVariant()),
+  );
+
+  /**
    * Whether the Builders CTA button is disabled. Never disabled by subscription
-   * state (Builders is the highest tier); only for loading or an unconfigured
-   * price on a checkout variant. The 'start-trial' waitlist link is excluded.
+   * state (Builders is the highest tier); only for loading, or an unconfigured
+   * price when checkout is actually reachable (flag on, non-portal variant
+   * rendered as a button rather than the waitlist link).
    */
   public readonly isBuildersCtaDisabled = computed(() => {
     if (this.isBuildersLoading() || this.isLoadingSubscription()) return true;
-    if (['upgrade', 'upgrade-now'].includes(this.buildersCtaVariant())) {
+    if (
+      environment.buildersCheckoutEnabled &&
+      !isPortalAction(this.buildersCtaVariant())
+    ) {
       return isPriceIdPlaceholder(this.proPlan.priceId);
     }
     return false;
@@ -576,16 +600,18 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     computeCtaButtonClass(
       this.buildersCtaVariant(),
       this.isBuildersCtaDisabled(),
-      'pro',
     ),
   );
 
   /**
-   * Whether to surface the promo option. Hidden once the viewer already holds
-   * the subscription (portal states), where a discount no longer applies.
+   * Whether to surface the promo option. Hidden while Builders checkout is
+   * closed (no checkout to apply a discount to) and once the viewer already
+   * holds the subscription (portal states), where a discount no longer applies.
    */
   public readonly showPromoOption = computed(
-    () => !isPortalAction(this.buildersCtaVariant()),
+    () =>
+      environment.buildersCheckoutEnabled &&
+      !isPortalAction(this.buildersCtaVariant()),
   );
 
   /**
@@ -631,8 +657,18 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Waits for Paddle to be ready, then opens checkout for the specified plan
    *
    * TASK_2025_128: Only the Pro plan key exists - Community is free with no checkout
+   *
+   * Builders checkout is gated behind `environment.buildersCheckoutEnabled`:
+   * while closed, this bails out immediately rather than silently retrying -
+   * `proceedWithCheckout` also re-checks the flag as a backstop.
    */
   private triggerAutoCheckout(planKey: string): void {
+    if (!environment.buildersCheckoutEnabled) {
+      this.autoCheckoutError.set(
+        'Builders checkout is not open yet. Please join the waitlist.',
+      );
+      return;
+    }
     const validPlanKeys = ['pro-monthly'];
     if (!validPlanKeys.includes(planKey)) {
       this.autoCheckoutError.set(
@@ -647,7 +683,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       if (this.isPaddleReady()) {
         this.clearAutoCheckoutInterval();
         const ctx = this.subscriptionContext();
-        if (ctx.isAuthenticated && ctx.currentPlanTier === 'pro') {
+        if (
+          ctx.isAuthenticated &&
+          (ctx.currentPlanTier === 'builders' || ctx.currentPlanTier === 'pro')
+        ) {
           this.router.navigate([], {
             relativeTo: this.route,
             queryParams: { autoCheckout: null },
@@ -761,8 +800,18 @@ export class PricingGridComponent implements OnInit, OnDestroy {
 
   /**
    * Proceed with Paddle checkout (called after auth check passes)
+   *
+   * Backstop guard: Builders checkout must never run while
+   * `environment.buildersCheckoutEnabled` is false, however this was
+   * reached (button click, or the `autoCheckout` query-param flow).
    */
   private proceedWithCheckout(plan: PricingPlan): void {
+    if (!environment.buildersCheckoutEnabled) {
+      this.configError.set(
+        'Builders checkout is not open yet. Please join the waitlist instead.',
+      );
+      return;
+    }
     if (!plan.priceId) {
       this.configError.set(
         'Price configuration error. Please contact support.',

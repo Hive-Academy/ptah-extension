@@ -37,8 +37,12 @@ export class SubscriptionStateService {
   /**
    * Computed: Current plan tier (normalized)
    *
-   * TASK_2025_128: Freemium model (Community + Pro)
-   * - Maps trial_pro -> pro
+   * Open-source + Ptah Builders model:
+   * - Maps 'builders' AND the legacy 'pro'/'trial_pro' plans to 'pro' — this
+   *   service's public return shape is display-mapping only and stays
+   *   'community' | 'pro' | null for existing consumers (e.g. the pricing
+   *   page's "already subscribed" checks); 'pro' here means "holds any
+   *   Builders-equivalent membership", not literally the legacy Pro plan.
    * - Returns null when data hasn't been fetched yet (loading/unknown state)
    * - Returns 'community' only when explicitly determined (no subscription after auth check)
    *
@@ -49,8 +53,13 @@ export class SubscriptionStateService {
 
     const data = this._licenseData();
     if (!data?.plan) return 'community';
-    if (data.plan === 'pro' || data.plan === 'trial_pro') return 'pro';
-    if (data.plan === 'community') return 'community';
+    if (
+      data.plan === 'builders' ||
+      data.plan === 'pro' ||
+      data.plan === 'trial_pro'
+    ) {
+      return 'pro';
+    }
     return 'community';
   });
 
@@ -195,24 +204,24 @@ export class SubscriptionStateService {
             console.error(
               '[SubscriptionState] Failed to fetch license data:',
               err.message || err,
-              err.status ? `(HTTP ${err.status})` : ''
+              err.status ? `(HTTP ${err.status})` : '',
             );
             this._error.set('Unable to load subscription status');
             this._isLoading.set(false);
             this._isFetched.set(true);
             return of(null);
-          })
+          }),
         );
       }),
       catchError((err) => {
         console.error(
           '[SubscriptionState] Auth check failed:',
-          err.message || err
+          err.message || err,
         );
         this._isLoading.set(false);
         this._isFetched.set(true);
         return of(null);
-      })
+      }),
     );
   }
 

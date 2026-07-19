@@ -11,11 +11,15 @@
  * Evidence: TASK_2025_128 - Freemium Model Conversion
  */
 export interface PricingPlan {
-  /** Display name (e.g., "Community", "Pro") */
+  /** Display name (e.g., "Community", "Ptah Builders") */
   name: string;
 
-  /** Tier identifier for programmatic use */
-  tier: 'community' | 'pro';
+  /**
+   * Tier identifier for programmatic use.
+   * 'builders' is the current premium tier being sold; 'pro' is kept for
+   * typing legacy paying/trialing subscribers (drains naturally, never sold).
+   */
+  tier: 'community' | 'builders' | 'pro';
 
   /** Display price (e.g., "Free", "$5", "$50") */
   price: string;
@@ -59,12 +63,6 @@ export interface PricingPlan {
 }
 
 /**
- * Threshold in days for showing "trial ending" warning badge.
- * When trial days remaining is at or below this value, show warning.
- */
-export const TRIAL_WARNING_THRESHOLD_DAYS = 3;
-
-/**
  * Valid subscription statuses from Paddle API.
  * Used for runtime validation of subscription status values.
  */
@@ -89,10 +87,11 @@ export type ValidSubscriptionStatus =
  *
  * TASK_2025_128: Updated for freemium model
  * - Community tier is FREE (no subscription required)
- * - Pro tier requires Paddle subscription
+ * - Builders tier requires a Paddle subscription ('pro' is the legacy alias
+ *   for existing paying/trialing subscribers, draining naturally)
  *
  * @remarks
- * Used by: CommunityPlanCardComponent, ProPlanCardComponent
+ * Used by: PricingGridComponent (unified Free-vs-Builders capability matrix)
  * Source: SubscriptionStateService computed signals
  */
 export interface PlanSubscriptionContext {
@@ -105,12 +104,12 @@ export interface PlanSubscriptionContext {
   /**
    * User's current plan tier (null if unknown/loading).
    *
-   * TASK_2025_128: Freemium model
    * - 'community': Free tier (no subscription required)
-   * - 'pro': Active Pro subscription
+   * - 'builders': Active Ptah Builders subscription
+   * - 'pro': Legacy active Pro subscription (draining, treated as premium)
    * - null: Unknown/loading state
    */
-  currentPlanTier: 'community' | 'pro' | null;
+  currentPlanTier: 'community' | 'builders' | 'pro' | null;
 
   /**
    * Whether user is on trial.
@@ -157,25 +156,16 @@ export interface PlanSubscriptionContext {
  */
 export type PlanCtaVariant =
   /**
-   * Default for unauthenticated users - opens checkout flow
+   * No premium access yet (anonymous, Community-only, or an unconverted
+   * trial). Renders "Join the Builders Waitlist" while checkout is closed,
+   * or "Join Ptah Builders" (opens Paddle checkout) once it opens.
    */
   | 'start-trial'
   /**
-   * User has this plan active - opens subscription management portal
+   * User already has premium access (Builders or legacy Pro), active and in
+   * good standing - opens the subscription management portal.
    */
   | 'current-plan'
-  /**
-   * Lower tier user viewing higher tier - opens checkout for upgrade
-   */
-  | 'upgrade'
-  /**
-   * Higher tier user viewing lower tier (disabled or muted)
-   */
-  | 'downgrade'
-  /**
-   * Trial user - opens checkout to convert trial to paid
-   */
-  | 'upgrade-now'
   /**
    * Canceled subscription - opens portal to reactivate
    */
@@ -187,57 +177,4 @@ export type PlanCtaVariant =
   /**
    * Paused subscription - opens portal to resume subscription
    */
-  | 'resume'
-  /**
-   * Pro user viewing Community plan (disabled - Community is included in Pro)
-   */
-  | 'included';
-
-/**
- * Badge variant for plan cards
- *
- * Determines the appearance of the badge displayed on plan cards
- * based on subscription state and user context.
- *
- * @example
- * ```typescript
- * const badge: PlanBadgeVariant = 'current';
- * ```
- */
-export type PlanBadgeVariant =
-  /**
-   * Default trial badge (cyan)
-   */
-  | 'trial'
-  /**
-   * User's current plan (green) - "Current Plan"
-   */
-  | 'current'
-  /**
-   * Active trial with days left (blue) - "Trial - X days left"
-   */
-  | 'trial-active'
-  /**
-   * Trial ending soon <= TRIAL_WARNING_THRESHOLD_DAYS (amber) - "Trial ends in X days"
-   */
-  | 'trial-ending'
-  /**
-   * Canceled but still active (amber) - "Ends [date]"
-   */
-  | 'canceling'
-  /**
-   * Subscription is paused (amber) - "Subscription Paused"
-   */
-  | 'paused'
-  /**
-   * Payment issues (red) - "Payment Issue"
-   */
-  | 'past-due'
-  /**
-   * Marketing badge (amber gradient) - "Most Popular"
-   */
-  | 'popular'
-  /**
-   * Pro user viewing Community (muted) - "Included in Pro"
-   */
-  | 'included';
+  | 'resume';

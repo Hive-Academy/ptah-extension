@@ -10,6 +10,14 @@ export const environment = {
   production: false,
 
   /**
+   * Launch switch for Ptah Builders self-serve checkout.
+   * While false, every pricing CTA (except the customer portal for existing
+   * Builders/legacy Pro subscribers) routes to the Builders waitlist instead
+   * of Paddle checkout. Flip to true when checkout opens.
+   */
+  buildersCheckoutEnabled: false,
+
+  /**
    * API base URL
    * - Development: Empty string (same origin, proxy handles routing)
    * - Production: Full URL to license server (e.g., https://api.ptah.live)

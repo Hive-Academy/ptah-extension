@@ -54,8 +54,9 @@ interface ValueProp {
  * `afterNextRender`, with every ScrollTrigger + loop killed and the matchMedia
  * reverted on destroy. Every mechanic resolves to a fully-resolved RESTING state
  * (rail nodes lit, spine full, marquee list visible + wrapped) so the
- * prerendered HTML is correct with JS disabled. The CTA targets the #waitlist
- * placeholder anchor.
+ * prerendered HTML is correct with JS disabled. The CTA targets `#waitlist`,
+ * which `WaitlistFormComponent` (mounted directly below this section on the
+ * landing page) renders as the scroll target.
  */
 @Component({
   selector: 'ptah-builders-section',

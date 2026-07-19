@@ -29,7 +29,10 @@ import {
   ProfileFeaturesComponent,
   ProfileHeaderComponent,
 } from './components';
-import { LicenseData } from './models/license-data.interface';
+import {
+  hasActiveMembership,
+  LicenseData,
+} from './models/license-data.interface';
 import { SessionsGridComponent } from '../sessions/components/sessions-grid.component';
 import { ContactFormComponent } from '../contact/components/contact-form.component';
 
@@ -212,12 +215,7 @@ export type ProfileTab = 'account' | 'sessions' | 'contact';
                     class="w-4 h-4"
                     aria-hidden="true"
                   />
-                  {{
-                    license()?.plan === 'community' ||
-                    license()?.plan?.startsWith('trial_')
-                      ? 'View Pricing Plans'
-                      : 'Manage Subscription'
-                  }}
+                  {{ isActiveMember() ? 'View Plans' : 'View Pricing Plans' }}
                 </a>
                 <a
                   href="https://docs.ptah.live"
@@ -298,6 +296,11 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
   public ngOnInit(): void {
     this.loadLicense();
     this.setupSSEListeners();
+  }
+
+  /** Whether the viewer holds an active Ptah Builders membership. */
+  public isActiveMember(): boolean {
+    return hasActiveMembership(this.license());
   }
 
   public ngOnDestroy(): void {

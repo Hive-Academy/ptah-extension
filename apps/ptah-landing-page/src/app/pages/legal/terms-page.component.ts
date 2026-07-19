@@ -34,7 +34,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             >
               Terms of Service
             </h1>
-            <p class="text-white/40">Last Updated: March 2026</p>
+            <p class="text-white/40">Last Updated: July 2026</p>
           </div>
 
           <!-- 1. Acceptance of Terms -->
@@ -139,38 +139,39 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               4. Subscription Plans and Billing
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              Ptah offers the following plans:
+              Ptah is free and open source. The full coding orchestra -- every
+              agent, workspace-intelligence feature, and integration -- is
+              available at no cost under the
+              <strong class="text-white/90">Community</strong> plan. No license
+              key, trial, or payment is required to use it.
             </p>
-            <ul
-              class="list-disc list-inside text-white/70 space-y-2 ml-4 mb-4 leading-relaxed"
-            >
-              <li>
-                <strong class="text-white/90">Community (Free)</strong> -- Basic
-                features at no cost
-              </li>
-              <li>
-                <strong class="text-white/90"
-                  >Pro ($5/month or $50/year)</strong
-                >
-                -- Full access to all features, including a 100-day free trial
-              </li>
-            </ul>
             <p class="text-white/70 mb-4 leading-relaxed">
-              All payments are processed by
+              <strong class="text-white/90">Ptah Builders</strong> is a paid
+              membership for people who want to help fund development and get
+              early access to new capabilities. Builders is not yet open for
+              purchase; you can join the waitlist to be notified when it
+              launches, and pricing will be published here once checkout is
+              live.
+              <!-- LEGAL REVIEW: confirm final Builders pricing, benefits, and
+              billing terms before checkout opens; this section should be
+              expanded to match plans.config.ts at that time. -->
+            </p>
+            <p class="text-white/70 mb-4 leading-relaxed">
+              Any active paid subscription is processed by
               <strong class="text-white/90">Paddle</strong> (paddle.com), which
               serves as our merchant of record. Paddle handles all payment
               processing, invoicing, VAT, and sales tax on our behalf. By
               subscribing, you also agree to Paddle's terms of service.
             </p>
             <p class="text-white/70 leading-relaxed">
-              Subscriptions automatically renew at the end of each billing
+              Paid subscriptions automatically renew at the end of each billing
               period. You may cancel your subscription at any time through your
               account settings or by contacting us. Cancellation takes effect at
               the end of the current billing period.
             </p>
           </section>
 
-          <!-- 5. Free Trial -->
+          <!-- 5. Legacy Pro Subscriptions -->
           <section
             id="free-trial"
             viewportAnimation
@@ -178,24 +179,33 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              5. Free Trial
+              5. Legacy Pro Subscriptions
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              The Pro plan includes a 100-day free trial. No payment information
-              is required to start the trial. At the end of the trial period:
+              Ptah previously sold a Pro plan ($5/month or $50/year), including
+              a 100-day free trial. Pro is retired and is no longer offered to
+              new subscribers. If you subscribed to Pro, or are still within a
+              100-day trial that was already granted to you, your account keeps
+              working under the terms in effect when you signed up until you
+              cancel or the subscription otherwise ends -- we will not change
+              your price or downgrade your access unilaterally.
             </p>
             <ul
               class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
             >
               <li>
-                If you choose to subscribe, your selected payment method will be
-                charged
+                If your Pro trial ends without a paid subscription, your account
+                reverts to the Community (free) plan -- which remains fully
+                functional
               </li>
               <li>
-                If you do not subscribe, your account will revert to the
-                Community (free) plan
+                Legacy Pro subscribers may cancel at any time through their
+                account settings or by contacting support
               </li>
-              <li>Free trials are limited to one per user</li>
+              <li>
+                Legacy Pro terms do not carry forward into Ptah Builders;
+                Builders will have its own terms published when it launches
+              </li>
             </ul>
           </section>
 

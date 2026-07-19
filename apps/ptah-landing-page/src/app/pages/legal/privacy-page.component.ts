@@ -32,7 +32,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             >
               Privacy Policy
             </h1>
-            <p class="text-white/40">Last Updated: March 2026</p>
+            <p class="text-white/40">Last Updated: July 2026</p>
           </div>
 
           <!-- 1. Introduction -->
@@ -115,12 +115,26 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             </ul>
 
             <h3 class="text-lg font-semibold text-white/90 mb-3">
-              2.4 License Data
+              2.4 License and Membership Data
+            </h3>
+            <p class="text-white/70 mb-6 leading-relaxed">
+              Ptah is free and open source, and the extension works fully
+              without any key. We store license/membership keys and subscription
+              status to identify your account and, for legacy Pro subscribers
+              and Ptah Builders members, to mark that membership -- not to gate
+              access to the Service. This data is linked to your account and
+              managed through our license server.
+            </p>
+
+            <h3 class="text-lg font-semibold text-white/90 mb-3">
+              2.5 Waitlist Information
             </h3>
             <p class="text-white/70 leading-relaxed">
-              We store license keys and subscription status to validate your
-              access to Pro features. This data is linked to your account and
-              managed through our license server.
+              If you join the Ptah Builders waitlist, we collect your email
+              address, the time you joined, and where you joined from (e.g. the
+              landing page, pricing page, or your profile). We use this solely
+              to contact you about Ptah Builders availability and pricing. You
+              may request deletion of your waitlist entry at any time.
             </p>
           </section>
 
@@ -142,10 +156,17 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             >
               <li>Provide, maintain, and improve the Service</li>
               <li>Manage your account and process subscription transactions</li>
-              <li>Validate license keys and enforce subscription plans</li>
+              <li>
+                Identify legacy Pro subscribers and Ptah Builders members via
+                license/membership keys (the Service itself is never gated)
+              </li>
               <li>
                 Send important service notifications (security alerts, billing
-                updates, trial expiration reminders)
+                updates, legacy trial expiration reminders)
+              </li>
+              <li>
+                Contact you about Ptah Builders availability and pricing if you
+                joined the waitlist
               </li>
               <li>
                 Analyze usage patterns to improve features and performance
@@ -228,8 +249,15 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
                 retained as required by applicable tax and accounting laws
               </li>
               <li>
-                <strong class="text-white/90">License records</strong> are
-                deleted upon account deletion
+                <strong class="text-white/90"
+                  >License/membership records</strong
+                >
+                are deleted upon account deletion
+              </li>
+              <li>
+                <strong class="text-white/90">Waitlist entries</strong>
+                (email, timestamp, source) are retained until Ptah Builders
+                launches or you request deletion, whichever comes first
               </li>
             </ul>
           </section>

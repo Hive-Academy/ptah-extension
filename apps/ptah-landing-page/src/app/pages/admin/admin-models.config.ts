@@ -495,4 +495,35 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
       },
     ],
   },
+  {
+    key: 'waitlist',
+    label: 'Waitlist',
+    readOnly: false,
+    searchPlaceholder: 'Search email, source…',
+    fields: [
+      { key: 'id', label: 'ID', type: 'string', listColumn: false },
+      { key: 'email', label: 'Email', type: 'string', listColumn: true },
+      { key: 'source', label: 'Source', type: 'string', listColumn: true },
+      {
+        key: 'createdAt',
+        label: 'Joined',
+        type: 'datetime',
+        listColumn: true,
+      },
+      {
+        key: 'notifiedAt',
+        label: 'Notified',
+        type: 'datetime',
+        listColumn: true,
+        editable: true,
+      },
+      {
+        key: 'convertedAt',
+        label: 'Converted',
+        type: 'datetime',
+        listColumn: true,
+        editable: true,
+      },
+    ],
+  },
 ];

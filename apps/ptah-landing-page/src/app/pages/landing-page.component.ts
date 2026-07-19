@@ -10,6 +10,7 @@ import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcas
 import { PillarsSpineComponent } from '../sections/pillars/pillars-spine.component';
 import { ProviderStripComponent } from '../sections/provider-strip/provider-strip.component';
 import { BuildersSectionComponent } from '../sections/builders/builders-section.component';
+import { WaitlistFormComponent } from '../sections/builders/waitlist-form.component';
 import { AlsoAvailableComponent } from '../sections/also-available/also-available.component';
 
 @Component({
@@ -24,6 +25,7 @@ import { AlsoAvailableComponent } from '../sections/also-available/also-availabl
     ProviderStripComponent,
     ComparisonSectionComponent,
     BuildersSectionComponent,
+    WaitlistFormComponent,
     AlsoAvailableComponent,
     CTASectionComponent,
     FooterComponent,
@@ -57,6 +59,10 @@ import { AlsoAvailableComponent } from '../sections/also-available/also-availabl
 
         <!-- S8.5 Ptah Builders -->
         <ptah-builders-section />
+
+        <!-- Builders waitlist — scroll target for #waitlist (this page and
+             /#waitlist from any other page) -->
+        <ptah-waitlist-form source="landing" />
 
         <!-- S9 Also Available (single VS Code / CLI mention) -->
         <ptah-also-available />

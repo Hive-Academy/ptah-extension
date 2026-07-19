@@ -4,7 +4,7 @@ import {
   input,
   computed,
 } from '@angular/core';
-import { LucideAngularModule, Check, Crown, Zap, Star } from 'lucide-angular';
+import { LucideAngularModule, Check, Crown, Star } from 'lucide-angular';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -15,12 +15,15 @@ import {
 } from '../models/license-data.interface';
 
 /**
- * ProfileFeaturesComponent - Categorized features display
+ * ProfileFeaturesComponent - What's included, honestly framed
  *
- * Displays user's available features organized by category:
- * - Core Features (basic functionality)
- * - Advanced Features (pro capabilities)
- * - Premium Features (enterprise/pro exclusive)
+ * Splits the license's `features` array into two truthful groups instead of
+ * a "Premium Features" gating framing:
+ * - "Included — Free & Open Source": whatever's part of the free local
+ *   product that this license carries.
+ * - "Included — Ptah Builders": whatever's part of the paid membership that
+ *   this license carries (only ever populated for Builders/legacy Pro
+ *   members).
  *
  * @input features - Array of feature keys from license data
  */
@@ -30,120 +33,88 @@ import {
   imports: [ViewportAnimationDirective, LucideAngularModule],
   template: `
     @if (hasFeatures()) {
-    <div
-      viewportAnimation
-      [viewportConfig]="animationConfig"
-      class="bg-base-200/80 backdrop-blur-xl border border-secondary/20 rounded-2xl overflow-hidden"
-    >
       <div
-        class="px-6 py-4 border-b border-secondary/10 flex items-center gap-2"
+        viewportAnimation
+        [viewportConfig]="animationConfig"
+        class="bg-base-200/80 backdrop-blur-xl border border-secondary/20 rounded-2xl overflow-hidden"
       >
-        <lucide-angular
-          [img]="StarIcon"
-          class="w-5 h-5 text-secondary"
-          aria-hidden="true"
-        />
-        <h2 class="font-display text-lg font-semibold">Your Features</h2>
+        <div
+          class="px-6 py-4 border-b border-secondary/10 flex items-center gap-2"
+        >
+          <lucide-angular
+            [img]="StarIcon"
+            class="w-5 h-5 text-secondary"
+            aria-hidden="true"
+          />
+          <h2 class="font-display text-lg font-semibold">What's Included</h2>
+        </div>
+
+        <div class="p-6">
+          <!-- Free & Open Source -->
+          @if (coreFeatures().length > 0) {
+            <div class="mb-6">
+              <h3
+                class="text-sm font-semibold text-neutral-content uppercase tracking-wider mb-3"
+              >
+                Free &amp; Open Source
+              </h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                @for (feature of coreFeatures(); track feature.key) {
+                  <div
+                    class="flex items-start gap-3 p-3 bg-base-300/50 rounded-xl border border-secondary/10 hover:border-secondary/30 transition-colors"
+                  >
+                    <lucide-angular
+                      [img]="CheckIcon"
+                      class="w-5 h-5 text-success flex-shrink-0 mt-0.5"
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <p class="font-medium text-base-content">
+                        {{ feature.label }}
+                      </p>
+                      <p class="text-sm text-neutral-content">
+                        {{ feature.description }}
+                      </p>
+                    </div>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+
+          <!-- Ptah Builders membership -->
+          @if (builderFeatures().length > 0) {
+            <div>
+              <h3
+                class="text-sm font-semibold text-accent uppercase tracking-wider mb-3"
+              >
+                Ptah Builders Membership
+              </h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                @for (feature of builderFeatures(); track feature.key) {
+                  <div
+                    class="flex items-start gap-3 p-3 bg-gradient-to-r from-secondary/10 to-accent/10 rounded-xl border border-accent/20 hover:border-accent/40 transition-colors"
+                  >
+                    <lucide-angular
+                      [img]="CrownIcon"
+                      class="w-5 h-5 text-accent flex-shrink-0 mt-0.5"
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <p class="font-medium text-base-content">
+                        {{ feature.label }}
+                      </p>
+                      <p class="text-sm text-neutral-content">
+                        {{ feature.description }}
+                      </p>
+                    </div>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        </div>
       </div>
-
-      <div class="p-6">
-        <!-- Core Features -->
-        @if (coreFeatures().length > 0) {
-        <div class="mb-6">
-          <h3
-            class="text-sm font-semibold text-neutral-content uppercase tracking-wider mb-3"
-          >
-            Core Features
-          </h3>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            @for (feature of coreFeatures(); track feature.key) {
-            <div
-              class="flex items-start gap-3 p-3 bg-base-300/50 rounded-xl border border-secondary/10 hover:border-secondary/30 transition-colors"
-            >
-              <lucide-angular
-                [img]="CheckIcon"
-                class="w-5 h-5 text-success flex-shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <div>
-                <p class="font-medium text-base-content">
-                  {{ feature.label }}
-                </p>
-                <p class="text-sm text-neutral-content">
-                  {{ feature.description }}
-                </p>
-              </div>
-            </div>
-            }
-          </div>
-        </div>
-        }
-
-        <!-- Advanced Features -->
-        @if (advancedFeatures().length > 0) {
-        <div class="mb-6">
-          <h3
-            class="text-sm font-semibold text-secondary uppercase tracking-wider mb-3"
-          >
-            Advanced Features
-          </h3>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            @for (feature of advancedFeatures(); track feature.key) {
-            <div
-              class="flex items-start gap-3 p-3 bg-secondary/5 rounded-xl border border-secondary/20 hover:border-secondary/40 transition-colors"
-            >
-              <lucide-angular
-                [img]="ZapIcon"
-                class="w-5 h-5 text-secondary flex-shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <div>
-                <p class="font-medium text-base-content">
-                  {{ feature.label }}
-                </p>
-                <p class="text-sm text-neutral-content">
-                  {{ feature.description }}
-                </p>
-              </div>
-            </div>
-            }
-          </div>
-        </div>
-        }
-
-        <!-- Enterprise Features -->
-        @if (enterpriseFeatures().length > 0) {
-        <div>
-          <h3
-            class="text-sm font-semibold text-accent uppercase tracking-wider mb-3"
-          >
-            Premium Features
-          </h3>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            @for (feature of enterpriseFeatures(); track feature.key) {
-            <div
-              class="flex items-start gap-3 p-3 bg-gradient-to-r from-secondary/10 to-accent/10 rounded-xl border border-accent/20 hover:border-accent/40 transition-colors"
-            >
-              <lucide-angular
-                [img]="CrownIcon"
-                class="w-5 h-5 text-accent flex-shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <div>
-                <p class="font-medium text-base-content">
-                  {{ feature.label }}
-                </p>
-                <p class="text-sm text-neutral-content">
-                  {{ feature.description }}
-                </p>
-              </div>
-            </div>
-            }
-          </div>
-        </div>
-        }
-      </div>
-    </div>
     }
   `,
   styles: [
@@ -158,7 +129,6 @@ export class ProfileFeaturesComponent {
   /** Lucide icon references */
   public readonly CheckIcon = Check;
   public readonly CrownIcon = Crown;
-  public readonly ZapIcon = Zap;
   public readonly StarIcon = Star;
 
   /** Feature keys from license data */
@@ -177,28 +147,23 @@ export class ProfileFeaturesComponent {
     return this.features().length > 0;
   });
 
-  /** Core features (basic functionality) */
+  /** Free, open-source core features carried by this license */
   public readonly coreFeatures = computed(() => {
     return this.getFeaturesByCategory('core');
   });
 
-  /** Advanced features (pro capabilities) */
-  public readonly advancedFeatures = computed(() => {
-    return this.getFeaturesByCategory('advanced');
-  });
-
-  /** Enterprise/premium features */
-  public readonly enterpriseFeatures = computed(() => {
-    return this.getFeaturesByCategory('enterprise');
+  /** Paid Ptah Builders membership features carried by this license */
+  public readonly builderFeatures = computed(() => {
+    return this.getFeaturesByCategory('builders');
   });
 
   private getFeaturesByCategory(
-    category: 'core' | 'advanced' | 'enterprise'
+    category: 'core' | 'builders',
   ): FeatureDisplay[] {
     return this.features()
       .map((key) => FEATURE_DISPLAY_MAP[key])
       .filter(
-        (f): f is FeatureDisplay => f !== undefined && f.category === category
+        (f): f is FeatureDisplay => f !== undefined && f.category === category,
       );
   }
 }

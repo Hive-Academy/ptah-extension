@@ -14,13 +14,18 @@ export type OAuthProvider = 'github' | 'google';
 /**
  * User tier levels (matches backend tier system)
  *
- * TASK_2025_128: Freemium model conversion
- * - 'community': Free tier
- * - 'pro': Paid Pro tier ($5/mo or $50/year)
- * - 'trial_pro': Pro trial period (30 days)
+ * - 'community': Free, open-source tier — the full Ptah coding orchestra, no gating
+ * - 'builders': Paid Ptah Builders membership (current pricing lives in plans.config.ts)
+ * - 'pro' / 'trial_pro': LEGACY Pro tier ($5/mo or $50/year, incl. trials) — existing
+ *   subscribers keep working until they cancel; no longer sold
  * - 'expired': Subscription expired
  */
-export type UserTier = 'community' | 'pro' | 'trial_pro' | 'expired';
+export type UserTier =
+  | 'community'
+  | 'builders'
+  | 'pro'
+  | 'trial_pro'
+  | 'expired';
 
 /**
  * User response from authentication endpoints
