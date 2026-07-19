@@ -96,6 +96,14 @@ export const routes: Routes = [
     canActivate: [AuthGuard],
   },
   {
+    path: 'members',
+    loadComponent: () =>
+      import('./pages/members/members-page.component').then(
+        (m) => m.MembersPageComponent,
+      ),
+    canActivate: [AuthGuard],
+  },
+  {
     path: 'contact',
     redirectTo: 'profile',
   },

@@ -18,6 +18,9 @@ export type AdminAuditAction =
   | 'marketing.campaign.send'
   | 'circle.member.invite'
   | 'circle.member.remove'
+  | 'sessions.attendee.add'
+  | 'sessions.attendee.remove'
+  | 'discourse.group.sync'
   | 'waitlist.invite';
 
 /**

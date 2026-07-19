@@ -17,6 +17,7 @@ import { SocialLoginButtonsComponent } from './components/social-login-buttons.c
 import { VerificationCodeComponent } from './components/verification-code.component';
 import { AuthApiService } from './services/auth-api.service';
 import { AuthService } from '../../services/auth.service';
+import { environment } from '../../../environments/environment';
 import {
   AuthMode,
   AUTH_ERROR_MESSAGES,
@@ -421,10 +422,39 @@ export class AuthPageComponent implements OnInit {
     const plan = this.selectedPlan();
 
     if (returnUrl) {
+      // Absolute returnUrls come from cross-origin bounces (e.g. the license
+      // server's DiscourseConnect SSO endpoint on api.ptah.live). The Angular
+      // Router cannot navigate to them, and blindly following them would be an
+      // open redirect — only full-page-navigate to allowlisted origins.
+      if (/^https?:\/\//i.test(returnUrl)) {
+        if (this.isAllowedAbsoluteReturnUrl(returnUrl)) {
+          window.location.assign(returnUrl);
+        } else {
+          this.router.navigate(['/profile']);
+        }
+        return;
+      }
       const queryParams = plan ? { autoCheckout: plan } : {};
       this.router.navigate([returnUrl], { queryParams });
     } else {
       this.router.navigate(['/profile']);
+    }
+  }
+
+  /**
+   * An absolute returnUrl is only honored when its origin is the configured
+   * license-server API origin or this site's own origin.
+   */
+  private isAllowedAbsoluteReturnUrl(returnUrl: string): boolean {
+    try {
+      const target = new URL(returnUrl);
+      const allowed = new Set<string>([window.location.origin]);
+      if (environment.apiBaseUrl) {
+        allowed.add(new URL(environment.apiBaseUrl).origin);
+      }
+      return allowed.has(target.origin);
+    } catch {
+      return false;
     }
   }
 

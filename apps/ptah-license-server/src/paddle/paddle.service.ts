@@ -11,6 +11,8 @@ import {
   WAITLIST_CONVERSION_SINK,
   type WaitlistConversionSink,
 } from '../circle/waitlist-conversion.sink';
+import { SessionsService } from '../google-sessions/sessions.service';
+import { DiscourseProvisioningService } from '../discourse/discourse-provisioning.service';
 import { EmailService } from '../email/services/email.service';
 import { EventsService } from '../events/events.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -50,6 +52,17 @@ export class PaddleService {
     private readonly paddle: PaddleClient,
     @Inject(CircleProvisioningService)
     private readonly circleProvisioning: CircleProvisioningService,
+    // Optional: owned-community provisioning. Both are bound by their @Global()
+    // modules (GoogleSessionsModule / DiscourseModule); @Optional keeps the
+    // webhook path resilient if a module is ever unregistered in a test/build.
+    @Optional()
+    @Inject(SessionsService)
+    private readonly sessions: SessionsService | undefined,
+    @Optional()
+    @Inject(DiscourseProvisioningService)
+    private readonly discourseProvisioning:
+      | DiscourseProvisioningService
+      | undefined,
     // Optional: the waitlist conversion sink (WaitlistService.markConverted) is
     // bound by the invite-waves agent. When unbound this resolves to undefined
     // and the conversion stamp is skipped — see waitlist-conversion.sink.ts.
@@ -62,11 +75,13 @@ export class PaddleService {
 
   /**
    * Best-effort provisioning fan-out for a newly paid/renewed Builders member:
-   * (a) Circle community invite + circleMemberId persistence, and
-   * (b) waitlist conversion stamp (convertedAt) via the optional sink.
+   * (a) Circle community invite + circleMemberId persistence,
+   * (b) waitlist conversion stamp (convertedAt) via the optional sink,
+   * (c) Google Calendar Builders-session attendee add, and
+   * (d) Discourse `builders` group add.
    *
-   * Both steps are non-fatal — CircleProvisioningService never throws, and the
-   * waitlist call is wrapped so a missing/failing sink never disrupts the
+   * Every step is non-fatal — the underlying services never throw — and the
+   * calls are guarded so a missing/failing collaborator never disrupts the
    * webhook path.
    */
   private async fanOutBuildersProvisioning(
@@ -75,6 +90,63 @@ export class PaddleService {
   ): Promise<void> {
     await this.circleProvisioning.provisionBuildersMember(userId, email);
     await this.markWaitlistConverted(email);
+    await this.syncOwnedCommunity(userId, email, true);
+  }
+
+  /**
+   * Best-effort deprovisioning fan-out when a Builders member lapses:
+   * (a) Circle community removal, (b) Google session attendee removal, and
+   * (c) Discourse `builders` group removal. Non-fatal — never fails the webhook.
+   */
+  private async fanOutBuildersDeprovisioning(
+    userId: string,
+    email: string,
+  ): Promise<void> {
+    await this.circleProvisioning.deprovisionBuildersMember(userId);
+    await this.syncOwnedCommunity(userId, email, false);
+  }
+
+  /**
+   * Owned-community sync (Google session attendance + Discourse group). Both
+   * collaborators are optional and self-guarding; failures are swallowed here
+   * as an extra belt-and-braces so nothing escapes into the webhook path.
+   */
+  private async syncOwnedCommunity(
+    userId: string,
+    email: string,
+    isMember: boolean,
+  ): Promise<void> {
+    try {
+      if (this.sessions) {
+        if (isMember) {
+          await this.sessions.addMemberToSessions(email);
+        } else {
+          await this.sessions.removeMemberFromSessions(email);
+        }
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Session attendee sync failed for ${email}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      );
+    }
+
+    try {
+      if (this.discourseProvisioning) {
+        await this.discourseProvisioning.syncBuildersGroup(
+          userId,
+          email,
+          isMember,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Discourse group sync failed for ${email}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      );
+    }
   }
 
   /**
@@ -509,10 +581,11 @@ export class PaddleService {
       plan: currentLicense?.plan || 'unknown',
     });
 
-    // Deprovision the Circle community membership (best-effort, non-fatal).
-    // Safe to call unconditionally: it no-ops when the user has no
-    // circleMemberId on record (e.g. non-Builders users).
-    await this.circleProvisioning.deprovisionBuildersMember(user.id);
+    // Deprovision owned-community access (best-effort, non-fatal): Circle
+    // removal + Google session attendee removal + Discourse builders group
+    // removal. Safe to call unconditionally — each step no-ops when the user
+    // has nothing on record (e.g. non-Builders users).
+    await this.fanOutBuildersDeprovisioning(user.id, normalizedEmail);
 
     return { success: true };
   }

@@ -18,6 +18,8 @@ import { AdminModule } from '../admin/admin.module';
 import { AuditModule } from '../audit/audit.module';
 import { MarketingModule } from '../marketing/marketing.module';
 import { CircleModule } from '../circle/circle.module';
+import { GoogleSessionsModule } from '../google-sessions/google-sessions.module';
+import { DiscourseModule } from '../discourse/discourse.module';
 
 /**
  * AppModule - Root application module
@@ -56,6 +58,8 @@ import { CircleModule } from '../circle/circle.module';
     PrismaModule,
     AuditModule,
     CircleModule, // Circle community provisioning for paid Builders members
+    GoogleSessionsModule, // Google Calendar/Meet Builders sessions + members area
+    DiscourseModule, // DiscourseConnect SSO + builders group sync
     LicenseModule,
     AuthModule,
     PaddleModule,

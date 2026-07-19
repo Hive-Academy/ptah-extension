@@ -39,6 +39,8 @@ import { EmailService } from '../email/services/email.service';
 import { EventsService } from '../events/events.service';
 import { CircleProvisioningService } from '../circle/circle-provisioning.service';
 import { WAITLIST_CONVERSION_SINK } from '../circle/waitlist-conversion.sink';
+import { SessionsService } from '../google-sessions/sessions.service';
+import { DiscourseProvisioningService } from '../discourse/discourse-provisioning.service';
 
 // ---------------------------------------------------------------------------
 // Stub factories
@@ -67,6 +69,26 @@ function createCircleStub(): CircleStub {
     provisionBuildersMember: jest.fn().mockResolvedValue(undefined),
     deprovisionBuildersMember: jest.fn().mockResolvedValue(undefined),
   };
+}
+
+interface SessionsStub {
+  addMemberToSessions: jest.Mock;
+  removeMemberFromSessions: jest.Mock;
+}
+
+function createSessionsStub(): SessionsStub {
+  return {
+    addMemberToSessions: jest.fn().mockResolvedValue({ ok: true }),
+    removeMemberFromSessions: jest.fn().mockResolvedValue({ ok: true }),
+  };
+}
+
+interface DiscourseStub {
+  syncBuildersGroup: jest.Mock;
+}
+
+function createDiscourseStub(): DiscourseStub {
+  return { syncBuildersGroup: jest.fn().mockResolvedValue(undefined) };
 }
 
 interface WaitlistSinkStub {
@@ -99,6 +121,8 @@ async function buildService(params?: {
   events?: EventsStub;
   paddle?: PaddleClientStub;
   circle?: CircleStub;
+  sessions?: SessionsStub;
+  discourse?: DiscourseStub;
   waitlistSink?: WaitlistSinkStub;
 }): Promise<{
   service: PaddleService;
@@ -107,6 +131,8 @@ async function buildService(params?: {
   events: EventsStub;
   paddle: PaddleClientStub;
   circle: CircleStub;
+  sessions: SessionsStub;
+  discourse: DiscourseStub;
   waitlistSink: WaitlistSinkStub;
 }> {
   const prisma = params?.prisma ?? createMockPrisma();
@@ -114,6 +140,8 @@ async function buildService(params?: {
   const events = params?.events ?? createEventsStub();
   const paddle = params?.paddle ?? createPaddleClientStub();
   const circle = params?.circle ?? createCircleStub();
+  const sessions = params?.sessions ?? createSessionsStub();
+  const discourse = params?.discourse ?? createDiscourseStub();
   const waitlistSink = params?.waitlistSink ?? createWaitlistSinkStub();
 
   const { module } = await createTestingNestModule({
@@ -129,6 +157,8 @@ async function buildService(params?: {
       { provide: EventsService, useValue: events },
       { provide: PADDLE_CLIENT, useValue: paddle },
       { provide: CircleProvisioningService, useValue: circle },
+      { provide: SessionsService, useValue: sessions },
+      { provide: DiscourseProvisioningService, useValue: discourse },
       { provide: WAITLIST_CONVERSION_SINK, useValue: waitlistSink },
       PaddleService,
     ],
@@ -141,6 +171,8 @@ async function buildService(params?: {
     events,
     paddle,
     circle,
+    sessions,
+    discourse,
     waitlistSink,
   };
 }
@@ -250,8 +282,16 @@ describe('PaddleService — getCustomerEmail', () => {
 
 describe('PaddleService — handleSubscriptionCreatedEvent', () => {
   it('creates user + subscription + license, revokes prior active licenses, sends email, emits SSE', async () => {
-    const { service, prisma, email, events, circle, waitlistSink } =
-      await buildService();
+    const {
+      service,
+      prisma,
+      email,
+      events,
+      circle,
+      sessions,
+      discourse,
+      waitlistSink,
+    } = await buildService();
 
     // No existing subscription, no prior license with this eventId.
     prisma.subscription.findUnique.mockResolvedValue(null);
@@ -324,6 +364,16 @@ describe('PaddleService — handleSubscriptionCreatedEvent', () => {
     // ...and the optional waitlist conversion sink is stamped with the email.
     expect(waitlistSink.markConverted).toHaveBeenCalledWith(
       'buyer@example.com',
+    );
+
+    // Owned-community fan-out: Google session attendee add + Discourse group add.
+    expect(sessions.addMemberToSessions).toHaveBeenCalledWith(
+      'buyer@example.com',
+    );
+    expect(discourse.syncBuildersGroup).toHaveBeenCalledWith(
+      'usr_new',
+      'buyer@example.com',
+      true,
     );
   });
 
@@ -609,7 +659,8 @@ describe('PaddleService — handleSubscriptionUpdatedEvent', () => {
 
 describe('PaddleService — handleSubscriptionCanceledEvent', () => {
   it('preserves access until currentBillingPeriod.endsAt', async () => {
-    const { service, prisma, events, circle } = await buildService();
+    const { service, prisma, events, circle, sessions, discourse } =
+      await buildService();
     prisma.user.findUnique.mockResolvedValue({
       id: 'usr_cancel',
       email: 'c@e.com',
@@ -653,6 +704,13 @@ describe('PaddleService — handleSubscriptionCanceledEvent', () => {
 
     // Cancellation deprovisions the Circle membership (best-effort, non-fatal).
     expect(circle.deprovisionBuildersMember).toHaveBeenCalledWith('usr_cancel');
+    // ...plus the owned-community reversals: session attendee + Discourse group.
+    expect(sessions.removeMemberFromSessions).toHaveBeenCalledWith('c@e.com');
+    expect(discourse.syncBuildersGroup).toHaveBeenCalledWith(
+      'usr_cancel',
+      'c@e.com',
+      false,
+    );
   });
 
   it('returns error when user is unknown', async () => {
