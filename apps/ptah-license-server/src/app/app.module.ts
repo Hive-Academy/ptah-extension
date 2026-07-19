@@ -20,6 +20,7 @@ import { MarketingModule } from '../marketing/marketing.module';
 import { CircleModule } from '../circle/circle.module';
 import { GoogleSessionsModule } from '../google-sessions/google-sessions.module';
 import { DiscourseModule } from '../discourse/discourse.module';
+import { MemberGroupsModule } from '../member-groups/member-groups.module';
 
 /**
  * AppModule - Root application module
@@ -60,6 +61,7 @@ import { DiscourseModule } from '../discourse/discourse.module';
     CircleModule, // Circle community provisioning for paid Builders members
     GoogleSessionsModule, // Google Calendar/Meet Builders sessions + members area
     DiscourseModule, // DiscourseConnect SSO + builders group sync
+    MemberGroupsModule, // Member cohorts (groups) + assignment (@Global)
     LicenseModule,
     AuthModule,
     PaddleModule,

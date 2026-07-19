@@ -6,6 +6,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 import {
   AdminApiService,
@@ -24,7 +25,7 @@ import {
   selector: 'ptah-admin-overview',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, DecimalPipe],
+  imports: [DatePipe, DecimalPipe, RouterLink],
   templateUrl: './overview.html',
   styleUrls: ['./overview.css'],
 })

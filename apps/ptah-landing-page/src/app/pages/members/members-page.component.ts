@@ -22,6 +22,11 @@ import {
   isMembershipRequiredError,
   MembersApiService,
 } from '../../services/members-api.service';
+import {
+  getMemberGroupBadgeLabel,
+  isFoundingMemberGroup,
+  MemberGroupBadge,
+} from '../profile/models/license-data.interface';
 import { BuildersPitchComponent } from './components/builders-pitch.component';
 import { SessionCardComponent } from './components/session-card.component';
 
@@ -101,9 +106,25 @@ interface ArtifactPlaceholder {
             >
               Ptah Builders
             </p>
-            <h1 class="text-2xl sm:text-3xl font-bold tracking-tight">
-              Members' Area
-            </h1>
+            <div class="flex flex-wrap items-center gap-3">
+              <h1 class="text-2xl sm:text-3xl font-bold tracking-tight">
+                Members' Area
+              </h1>
+              @if (memberGroups().length > 0) {
+                <div class="flex flex-wrap gap-2">
+                  @for (group of memberGroups(); track group.key) {
+                    <span
+                      class="badge badge-lg gap-1"
+                      [class]="
+                        isFoundingGroup(group) ? 'badge-warning' : 'badge-ghost'
+                      "
+                    >
+                      {{ groupBadgeLabel(group) }}
+                    </span>
+                  }
+                </div>
+              }
+            </div>
             <p class="mt-2 text-neutral-content">
               Live sessions, the private community, and what's coming with the
               founding cohort.
@@ -245,6 +266,10 @@ export class MembersPageComponent implements OnInit {
   protected readonly UsersIcon = Users;
   protected readonly ExternalLinkIcon = ExternalLink;
 
+  /** Cohort chip helpers, shared with `ProfileHeaderComponent`. */
+  protected readonly isFoundingGroup = isFoundingMemberGroup;
+  protected readonly groupBadgeLabel = getMemberGroupBadgeLabel;
+
   private readonly membersApi = inject(MembersApiService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -253,6 +278,7 @@ export class MembersPageComponent implements OnInit {
   public readonly membershipRequired = signal(false);
   public readonly sessions = signal<BuildersSession[]>([]);
   public readonly communityUrl = signal<string | null>(null);
+  public readonly memberGroups = signal<MemberGroupBadge[]>([]);
 
   /** Honest, link-free placeholders — no fake URLs. */
   protected readonly artifactPlaceholders: readonly ArtifactPlaceholder[] = [
@@ -289,6 +315,7 @@ export class MembersPageComponent implements OnInit {
         next: (res) => {
           this.sessions.set(res.sessions);
           this.communityUrl.set(res.communityUrl);
+          this.memberGroups.set(res.memberGroups ?? []);
           this.isLoading.set(false);
         },
         error: (error: unknown) => {

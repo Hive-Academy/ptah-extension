@@ -21,7 +21,11 @@ export type AdminAuditAction =
   | 'sessions.attendee.add'
   | 'sessions.attendee.remove'
   | 'discourse.group.sync'
-  | 'waitlist.invite';
+  | 'waitlist.invite'
+  | 'group.create'
+  | 'group.update'
+  | 'group.assign'
+  | 'group.unassign';
 
 /**
  * Target type enum — the kind of entity an audit row describes.
@@ -32,7 +36,8 @@ export type AdminAuditTargetType =
   | 'License'
   | 'MarketingCampaign'
   | 'Subscription'
-  | 'Waitlist';
+  | 'Waitlist'
+  | 'MemberGroup';
 
 /**
  * Input shape for `AuditLogService.write`.

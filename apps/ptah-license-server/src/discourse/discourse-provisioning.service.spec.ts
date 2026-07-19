@@ -11,20 +11,29 @@
 import { DiscourseProvisioningService } from './discourse-provisioning.service';
 import type { DiscourseAdminProvider } from './discourse-admin.provider';
 import type { AuditLogService } from '../audit/audit-log.service';
+import type { MemberGroupsService } from '../member-groups/member-groups.service';
 
 interface AdminMock {
   isEnabled: jest.Mock<boolean, []>;
   syncGroupMembership: jest.Mock;
+  syncNamedGroupMembership: jest.Mock;
 }
 
 interface AuditMock {
   write: jest.Mock;
 }
 
+interface MemberGroupsMock {
+  getDiscourseGroupsForUser: jest.Mock;
+}
+
 function createAdminMock(enabled = true): AdminMock {
   return {
     isEnabled: jest.fn().mockReturnValue(enabled),
-    syncGroupMembership: jest.fn(),
+    syncGroupMembership: jest.fn().mockResolvedValue({ ok: true, status: 200 }),
+    syncNamedGroupMembership: jest
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200 }),
   };
 }
 
@@ -32,13 +41,21 @@ function createAuditMock(): AuditMock {
   return { write: jest.fn().mockResolvedValue('audit-id') };
 }
 
+function createMemberGroupsMock(groups: string[] = []): MemberGroupsMock {
+  return {
+    getDiscourseGroupsForUser: jest.fn().mockResolvedValue(groups),
+  };
+}
+
 function build(
   admin: AdminMock,
   audit: AuditMock,
+  memberGroups?: MemberGroupsMock,
 ): DiscourseProvisioningService {
   return new DiscourseProvisioningService(
     admin as unknown as DiscourseAdminProvider,
     audit as unknown as AuditLogService,
+    memberGroups as unknown as MemberGroupsService | undefined,
   );
 }
 
@@ -144,5 +161,130 @@ describe('DiscourseProvisioningService', () => {
 
     expect(admin.syncGroupMembership).not.toHaveBeenCalled();
     expect(audit.write).not.toHaveBeenCalled();
+  });
+
+  describe('cohort (per-group) sync', () => {
+    it('adds each cohort discourseGroup on provision, after the base builders sync', async () => {
+      const admin = createAdminMock(true);
+      const audit = createAuditMock();
+      const memberGroups = createMemberGroupsMock([
+        'builders-founding',
+        'builders-charter',
+      ]);
+
+      await build(admin, audit, memberGroups).syncBuildersGroup(
+        'usr_c1',
+        'Cohort@Example.com',
+        true,
+      );
+
+      // Base builders group sync still happened.
+      expect(admin.syncGroupMembership).toHaveBeenCalledWith(
+        'cohort@example.com',
+        'usr_c1',
+        true,
+      );
+      // Each cohort's Discourse group is added (email lowercased, isMember=true).
+      expect(memberGroups.getDiscourseGroupsForUser).toHaveBeenCalledWith(
+        'usr_c1',
+      );
+      expect(admin.syncNamedGroupMembership).toHaveBeenCalledWith(
+        'cohort@example.com',
+        'usr_c1',
+        true,
+        'builders-founding',
+      );
+      expect(admin.syncNamedGroupMembership).toHaveBeenCalledWith(
+        'cohort@example.com',
+        'usr_c1',
+        true,
+        'builders-charter',
+      );
+    });
+
+    it('does NOT touch cohort groups on deprovision (cohort identity survives churn)', async () => {
+      const admin = createAdminMock(true);
+      const audit = createAuditMock();
+      const memberGroups = createMemberGroupsMock(['builders-founding']);
+
+      await build(admin, audit, memberGroups).syncBuildersGroup(
+        'usr_c2',
+        'x@e.com',
+        false,
+      );
+
+      // Only the base builders group is removed; cohort groups are left intact.
+      expect(admin.syncGroupMembership).toHaveBeenCalledWith(
+        'x@e.com',
+        'usr_c2',
+        false,
+      );
+      expect(memberGroups.getDiscourseGroupsForUser).not.toHaveBeenCalled();
+      expect(admin.syncNamedGroupMembership).not.toHaveBeenCalled();
+    });
+
+    it('is non-fatal when the cohort lookup throws (base sync still succeeds)', async () => {
+      const admin = createAdminMock(true);
+      const audit = createAuditMock();
+      const memberGroups = createMemberGroupsMock();
+      memberGroups.getDiscourseGroupsForUser.mockRejectedValue(
+        new Error('db down'),
+      );
+
+      await expect(
+        build(admin, audit, memberGroups).syncBuildersGroup(
+          'usr_c3',
+          'y@e.com',
+          true,
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(admin.syncGroupMembership).toHaveBeenCalledTimes(1);
+    });
+
+    it('syncMemberGroup adds a user to a single named Discourse group and audits', async () => {
+      const admin = createAdminMock(true);
+      const audit = createAuditMock();
+
+      await build(admin, audit).syncMemberGroup(
+        'usr_c4',
+        'Named@Example.com',
+        'builders-founding',
+        true,
+      );
+
+      expect(admin.syncNamedGroupMembership).toHaveBeenCalledWith(
+        'named@example.com',
+        'usr_c4',
+        true,
+        'builders-founding',
+      );
+      expect(audit.write).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'discourse.group.sync',
+          targetId: 'usr_c4',
+          metadata: expect.objectContaining({
+            group: 'builders-founding',
+            isMember: true,
+            ok: true,
+          }),
+        }),
+      );
+    });
+
+    it('syncMemberGroup no-ops when Discourse is disabled', async () => {
+      const admin = createAdminMock(false);
+      const audit = createAuditMock();
+
+      await build(admin, audit).syncMemberGroup(
+        'usr_c5',
+        'z@e.com',
+        'builders-founding',
+        true,
+      );
+
+      expect(admin.syncNamedGroupMembership).not.toHaveBeenCalled();
+      expect(audit.write).not.toHaveBeenCalled();
+    });
   });
 });

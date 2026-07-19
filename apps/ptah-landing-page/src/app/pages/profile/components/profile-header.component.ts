@@ -16,9 +16,12 @@ import {
   Unlock,
 } from 'lucide-angular';
 import {
+  getMemberGroupBadgeLabel,
   hasActiveMembership,
   isBuildersTier,
+  isFoundingMemberGroup,
   LicenseData,
+  MemberGroupBadge,
 } from '../models/license-data.interface';
 
 /**
@@ -131,6 +134,16 @@ import {
                     Verified
                   </span>
                 }
+                @for (group of memberGroups(); track group.key) {
+                  <span
+                    class="badge badge-lg gap-1"
+                    [class]="
+                      isFoundingGroup(group) ? 'badge-warning' : 'badge-ghost'
+                    "
+                  >
+                    {{ groupBadgeLabel(group) }}
+                  </span>
+                }
               </div>
             </div>
           </div>
@@ -199,6 +212,15 @@ export class ProfileHeaderComponent {
 
   /** License data input */
   public readonly license = input<LicenseData | null>(null);
+
+  /** Cohort/group memberships to render as chips (empty when unassigned). */
+  public readonly memberGroups = computed<MemberGroupBadge[]>(
+    () => this.license()?.memberGroups ?? [],
+  );
+
+  /** Cohort chip helpers, shared with `MembersPageComponent`. */
+  protected readonly isFoundingGroup = isFoundingMemberGroup;
+  protected readonly groupBadgeLabel = getMemberGroupBadgeLabel;
   public readonly cardConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.6,

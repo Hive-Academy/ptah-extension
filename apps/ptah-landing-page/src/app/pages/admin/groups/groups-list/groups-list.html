@@ -1,0 +1,119 @@
+<section class="flex flex-col gap-4">
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <h2 class="text-xl font-semibold">Member Groups</h2>
+      <span class="text-sm opacity-60">({{ groups().length }} total)</span>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" (click)="openCreate()">
+      New Group
+    </button>
+  </header>
+
+  @if (error(); as errMsg) {
+    <div class="alert alert-error" role="alert">
+      <span>{{ errMsg }}</span>
+      <button type="button" class="btn btn-sm btn-ghost" (click)="fetch()">
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (loading() && groups().length === 0) {
+    <div class="flex flex-col gap-2">
+      @for (i of [1, 2, 3]; track i) {
+        <div class="h-14 animate-pulse rounded-lg bg-base-200"></div>
+      }
+    </div>
+  } @else if (groups().length === 0) {
+    <div class="alert">
+      <span>
+        No member groups yet. Create one to start assigning cohorts.
+      </span>
+    </div>
+  } @else {
+    <div class="overflow-x-auto rounded-lg border border-base-300">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Key</th>
+            <th>Discourse Group</th>
+            <th class="text-right">Members</th>
+            <th>Created</th>
+            <th class="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (g of groups(); track g.id) {
+            <tr>
+              <td>
+                <div class="flex items-center gap-2">
+                  <span class="font-medium">{{ g.name }}</span>
+                  @if (g.isDefault) {
+                    <span
+                      class="badge badge-primary badge-sm"
+                      title="New Builders members auto-join this group"
+                    >
+                      default
+                    </span>
+                  }
+                </div>
+                @if (g.description) {
+                  <div class="text-xs opacity-60">{{ g.description }}</div>
+                }
+              </td>
+              <td class="font-mono text-sm">{{ g.key }}</td>
+              <td class="font-mono text-sm">
+                {{ g.discourseGroup ?? '—' }}
+              </td>
+              <td class="text-right">{{ g.memberCount }}</td>
+              <td class="text-sm opacity-70">
+                {{ g.createdAt | date: 'mediumDate' }}
+              </td>
+              <td class="text-right">
+                <div class="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    (click)="openAssign(g)"
+                  >
+                    Assign Members
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    (click)="openEdit(g)"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+
+  @if (assignToast(); as t) {
+    <div class="toast toast-end z-50">
+      <div class="alert alert-success">
+        <span>Assigned {{ t.assigned }}, skipped {{ t.skipped }}.</span>
+      </div>
+    </div>
+  }
+</section>
+
+<ptah-admin-group-form-modal
+  [open]="formOpen()"
+  [group]="formTarget()"
+  (closeModal)="onFormClose()"
+  (saved)="onFormSaved()"
+/>
+
+<ptah-admin-assign-members-modal
+  [open]="assignOpen()"
+  [group]="assignTarget()"
+  (closeModal)="onAssignClose()"
+  (submitted)="onAssignSubmitted($event)"
+/>

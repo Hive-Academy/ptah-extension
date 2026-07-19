@@ -30,9 +30,19 @@ const buildersSessionSchema = z.object({
 });
 export type BuildersSession = z.infer<typeof buildersSessionSchema>;
 
+const memberGroupBadgeSchema = z.object({
+  key: z.string(),
+  name: z.string(),
+});
+
 const membersSessionsResponseSchema = z.object({
   sessions: z.array(buildersSessionSchema),
   communityUrl: z.string().nullable(),
+  /**
+   * Cohort/group memberships. Optional so older/mocked responses without the
+   * field still validate — callers should default to `[]`.
+   */
+  memberGroups: z.array(memberGroupBadgeSchema).optional(),
 });
 export type MembersSessionsResponse = z.infer<
   typeof membersSessionsResponseSchema

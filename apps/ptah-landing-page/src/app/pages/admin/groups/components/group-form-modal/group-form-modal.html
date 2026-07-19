@@ -1,0 +1,175 @@
+@if (open()) {
+  <dialog class="modal modal-open" aria-labelledby="group-form-title">
+    <div class="modal-box max-w-lg">
+      <header class="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h3 id="group-form-title" class="text-lg font-semibold">
+            {{ isEdit() ? 'Edit Group' : 'New Group' }}
+          </h3>
+          <p class="text-sm opacity-70">
+            @if (isEdit()) {
+              Cohort identity persists across churn — Discourse group sync
+              handles access changes only.
+            } @else {
+              Cohorts track membership history and drive Discourse group
+              sync.
+            }
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm btn-square"
+          aria-label="Close"
+          [disabled]="saving()"
+          (click)="onCloseClick()"
+        >
+          ✕
+        </button>
+      </header>
+
+      <form (submit)="onSubmit($event)" class="flex flex-col gap-4">
+        @if (errorMessage(); as msg) {
+          <div class="alert alert-error text-sm">
+            <span>{{ msg }}</span>
+          </div>
+        }
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Key</span>
+            @if (!isEdit()) {
+              <span class="label-text-alt">lowercase-slug</span>
+            }
+          </div>
+          <input
+            type="text"
+            class="input input-bordered input-sm font-mono"
+            [class.input-error]="!isEdit() && key().length > 0 && !keyValid()"
+            [value]="key()"
+            (input)="onKeyInput($event)"
+            [disabled]="isEdit() || saving()"
+            placeholder="e.g. founding"
+            maxlength="40"
+          />
+          @if (isEdit()) {
+            <div class="label">
+              <span class="label-text-alt opacity-60">
+                Immutable after creation.
+              </span>
+            </div>
+          } @else if (key().length > 0 && !keyValid()) {
+            <div class="label">
+              <span class="label-text-alt text-error">
+                2-40 chars of lowercase letters, digits, and hyphens.
+              </span>
+            </div>
+          }
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Name</span>
+          </div>
+          <input
+            type="text"
+            class="input input-bordered input-sm"
+            [value]="name()"
+            (input)="onNameInput($event)"
+            [disabled]="saving()"
+            placeholder="e.g. Founding Members"
+            maxlength="120"
+          />
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Description</span>
+            <span class="label-text-alt">optional</span>
+          </div>
+          <textarea
+            class="textarea textarea-bordered textarea-sm"
+            rows="2"
+            [value]="description()"
+            (input)="onDescriptionInput($event)"
+            [disabled]="saving()"
+            placeholder="What identifies this cohort?"
+            maxlength="500"
+          ></textarea>
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Discourse group</span>
+            <span class="label-text-alt">optional</span>
+          </div>
+          <input
+            type="text"
+            class="input input-bordered input-sm font-mono"
+            [value]="discourseGroup()"
+            (input)="onDiscourseGroupInput($event)"
+            [disabled]="saving()"
+            placeholder="e.g. builders-founding"
+            maxlength="120"
+          />
+          <div class="label">
+            <span class="label-text-alt opacity-60">
+              Discourse group name to sync on provisioning. Leave blank for
+              no sync.
+            </span>
+          </div>
+        </label>
+
+        <label
+          class="flex cursor-pointer items-start gap-3 rounded-lg border border-base-300 p-3"
+        >
+          <input
+            type="checkbox"
+            class="toggle toggle-primary toggle-sm mt-0.5"
+            [checked]="isDefault()"
+            (change)="onIsDefaultChange($event)"
+            [disabled]="saving()"
+          />
+          <span class="flex flex-col">
+            <span class="label-text font-medium">Default group</span>
+            <span class="text-xs opacity-70">
+              This becomes the group new members join automatically on
+              Builders signup. Enabling it clears the previous default.
+            </span>
+          </span>
+        </label>
+
+        <div class="modal-action">
+          <button
+            type="button"
+            class="btn btn-ghost"
+            [disabled]="saving()"
+            (click)="onCloseClick()"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary px-8"
+            [disabled]="!canSubmit()"
+          >
+            @if (saving()) {
+              <span class="loading loading-spinner loading-sm"></span>
+              Saving…
+            } @else {
+              {{ isEdit() ? 'Save Changes' : 'Create Group' }}
+            }
+          </button>
+        </div>
+      </form>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop"
+      aria-label="Close modal"
+      [disabled]="saving()"
+      (click)="onCloseClick()"
+    >
+      close
+    </button>
+  </dialog>
+}

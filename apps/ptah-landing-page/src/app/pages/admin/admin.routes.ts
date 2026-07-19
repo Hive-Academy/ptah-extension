@@ -9,6 +9,8 @@ import { AdminLayout } from './admin-layout/admin-layout';
  *   /admin                  → redirects to /admin/overview (stat-tile
  *                             dashboard — the default admin landing view)
  *   /admin/overview         → AdminOverview (GET /api/v1/admin/stats tiles)
+ *   /admin/groups           → GroupsList (member-cohort management —
+ *                             dedicated view, NOT the generic model CRUD)
  *   /admin/:model           → AdminList (table view for a single model)
  *   /admin/:model/:id       → AdminDetail (read / edit a single record)
  *
@@ -53,6 +55,11 @@ export const ADMIN_ROUTES: Routes = [
         path: 'marketing/campaigns',
         pathMatch: 'full',
         redirectTo: 'marketing-campaigns',
+      },
+      {
+        path: 'groups',
+        loadComponent: () =>
+          import('./groups/groups-list/groups-list').then((m) => m.GroupsList),
       },
       {
         path: ':model',

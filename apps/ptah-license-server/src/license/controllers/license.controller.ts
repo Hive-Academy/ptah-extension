@@ -1,6 +1,7 @@
 import {
   Controller,
   Inject,
+  Optional,
   Post,
   Body,
   Get,
@@ -17,6 +18,10 @@ import { JwtAuthGuard } from '../../app/auth/guards/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getPlanConfig, PlanName, PLANS } from '../../config/plans.config';
 import { isBuildersCheckoutEnabled } from '../../config/checkout.config';
+import {
+  MemberGroupsService,
+  type UserMemberGroup,
+} from '../../member-groups/member-groups.service';
 
 /**
  * LicenseController - Public license verification endpoint
@@ -34,7 +39,32 @@ export class LicenseController {
     @Inject(LicenseService) private readonly licenseService: LicenseService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ConfigService) private readonly configService: ConfigService,
+    // Optional: member-cohort lookup for the /me response. Bound by the
+    // @Global() MemberGroupsModule; @Optional + best-effort read means a
+    // groups failure never fails /me (empty-array fallback).
+    @Optional()
+    @Inject(MemberGroupsService)
+    private readonly memberGroups?: MemberGroupsService,
   ) {}
+
+  /**
+   * Best-effort member-group lookup for the /me response. A failure or an
+   * unbound collaborator yields an empty array — it must never fail /me.
+   */
+  private async safeMemberGroups(userId: string): Promise<UserMemberGroup[]> {
+    if (!this.memberGroups) {
+      return [];
+    }
+    try {
+      return await this.memberGroups.getGroupsForUser(userId);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(
+        `Failed to resolve member groups for user ${userId}: ${message}`,
+      );
+      return [];
+    }
+  }
 
   /**
    * Verify a license key
@@ -132,6 +162,7 @@ export class LicenseController {
       },
     });
     const subscription = fullUser.subscriptions[0] || null;
+    const memberGroups = await this.safeMemberGroups(user.id);
     if (!license) {
       return {
         user: {
@@ -149,6 +180,7 @@ export class LicenseController {
         message:
           'No active license found. Ptah Community is free and open source.',
         subscription: null,
+        memberGroups,
         checkoutEnabled,
       };
     }
@@ -183,6 +215,7 @@ export class LicenseController {
       licenseCreatedAt: license.createdAt.toISOString(),
       features: planConfig.features,
       reason,
+      memberGroups,
       checkoutEnabled,
       subscription:
         subscription && subscription.status !== 'expired'

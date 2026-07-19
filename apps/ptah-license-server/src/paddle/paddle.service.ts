@@ -13,6 +13,7 @@ import {
 } from '../circle/waitlist-conversion.sink';
 import { SessionsService } from '../google-sessions/sessions.service';
 import { DiscourseProvisioningService } from '../discourse/discourse-provisioning.service';
+import { MemberGroupsService } from '../member-groups/member-groups.service';
 import { EmailService } from '../email/services/email.service';
 import { EventsService } from '../events/events.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -69,6 +70,12 @@ export class PaddleService {
     @Optional()
     @Inject(WAITLIST_CONVERSION_SINK)
     private readonly waitlistSink: WaitlistConversionSink | undefined,
+    // Optional: member-cohort auto-assignment. Bound by the @Global()
+    // MemberGroupsModule; @Optional keeps the webhook path resilient if the
+    // module is ever unregistered in a test/build.
+    @Optional()
+    @Inject(MemberGroupsService)
+    private readonly memberGroups?: MemberGroupsService,
   ) {
     this.logger.log('Paddle service initialized');
   }
@@ -90,7 +97,31 @@ export class PaddleService {
   ): Promise<void> {
     await this.circleProvisioning.provisionBuildersMember(userId, email);
     await this.markWaitlistConverted(email);
+    // Assign the default member cohort BEFORE the Discourse sync so the
+    // owned-community sync sees the fresh assignment and can assert the
+    // cohort's Discourse group in the same pass.
+    await this.assignDefaultMemberGroup(userId);
     await this.syncOwnedCommunity(userId, email, true);
+  }
+
+  /**
+   * Best-effort default member-group assignment. The optional collaborator is
+   * self-guarding; failures are swallowed so nothing escapes into the webhook
+   * path (mirrors the other fan-out steps).
+   */
+  private async assignDefaultMemberGroup(userId: string): Promise<void> {
+    if (!this.memberGroups) {
+      return;
+    }
+    try {
+      await this.memberGroups.assignDefaultGroup(userId);
+    } catch (error) {
+      this.logger.warn(
+        `Default member-group assignment failed for user ${userId}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      );
+    }
   }
 
   /**

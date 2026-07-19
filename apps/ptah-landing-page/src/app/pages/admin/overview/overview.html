@@ -90,5 +90,28 @@
         </div>
       </div>
     </div>
+
+    <!-- Cohorts -->
+    @if (s.groups.length > 0) {
+      <div>
+        <div class="mb-2 flex items-center justify-between">
+          <h3 class="text-xs font-semibold uppercase tracking-wide opacity-60">
+            Cohorts
+          </h3>
+          <a routerLink="/admin/groups" class="link link-primary text-xs">
+            Manage groups →
+          </a>
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          @for (g of s.groups; track g.key) {
+            <div class="stat rounded-lg border border-base-300 bg-base-100">
+              <div class="stat-title">{{ g.name }}</div>
+              <div class="stat-value text-2xl">{{ g.memberCount }}</div>
+              <div class="stat-desc font-mono">{{ g.key }}</div>
+            </div>
+          }
+        </div>
+      </div>
+    }
   }
 </section>

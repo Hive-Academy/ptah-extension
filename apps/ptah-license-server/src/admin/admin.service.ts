@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '../generated-prisma-client/client';
@@ -19,6 +20,7 @@ import {
 } from './admin-models.config';
 import { BulkEmailDto, ListQueryDto } from './admin.dto';
 import { DeleteUserDto } from './dto/delete-user.dto';
+import { MemberGroupsService } from '../member-groups/member-groups.service';
 import type {
   AdminBulkEmailResponse,
   AdminListResponse,
@@ -80,6 +82,7 @@ export interface AdminStatsResponse {
     builders: number;
     community: number;
   };
+  groups: Array<{ key: string; name: string; memberCount: number }>;
   updatedAt: string;
 }
 
@@ -123,6 +126,12 @@ export class AdminService {
     @Inject(EmailService) private readonly email: EmailService,
     @Inject(AuditLogService) private readonly auditLog: AuditLogService,
     @Inject(ConfigService) private readonly config: ConfigService,
+    // Optional: member-cohort counts for the stats dashboard. Bound by the
+    // @Global() MemberGroupsModule; @Optional + best-effort read means a
+    // groups failure never fails /stats (empty-array fallback).
+    @Optional()
+    @Inject(MemberGroupsService)
+    private readonly memberGroups?: MemberGroupsService,
   ) {}
 
   /**
@@ -321,8 +330,34 @@ export class AdminService {
     return {
       waitlist: { total, notified, converted, last7Days },
       members: { builders, community },
+      groups: await this.getGroupStats(),
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Per-group member counts for the stats dashboard. Best-effort: an unbound
+   * collaborator or a lookup failure yields an empty array — never fails
+   * `/stats`.
+   */
+  private async getGroupStats(): Promise<
+    Array<{ key: string; name: string; memberCount: number }>
+  > {
+    if (!this.memberGroups) {
+      return [];
+    }
+    try {
+      const groups = await this.memberGroups.listWithCounts();
+      return groups.map((g) => ({
+        key: g.key,
+        name: g.name,
+        memberCount: g.memberCount,
+      }));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(`Failed to load member-group stats: ${message}`);
+      return [];
+    }
   }
 
   /**

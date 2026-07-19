@@ -79,6 +79,42 @@ export interface AdminInviteWaitlistRequest {
   batchSize?: number;
 }
 
+/**
+ * Lowercase slug regex for `MemberGroup.key` — MUST mirror the backend
+ * `GROUP_KEY_REGEX` at
+ * `apps/ptah-license-server/src/member-groups/dto/member-group.dto.ts`.
+ */
+export const MEMBER_GROUP_KEY_REGEX = /^[a-z0-9-]{2,40}$/;
+
+/** Body for POST /api/v1/admin/groups. `key` is immutable after create. */
+export interface CreateMemberGroupRequest {
+  key: string;
+  name: string;
+  description?: string;
+  discourseGroup?: string;
+  isDefault?: boolean;
+}
+
+/**
+ * Body for PATCH /api/v1/admin/groups/:id. `null` clears
+ * `description`/`discourseGroup`; `key` is not patchable.
+ */
+export interface UpdateMemberGroupRequest {
+  name?: string;
+  description?: string | null;
+  discourseGroup?: string | null;
+  isDefault?: boolean;
+}
+
+/**
+ * Body for POST /api/v1/admin/groups/:id/assign. Either or both of
+ * `userIds`/`emails` may be supplied; the server resolves + dedupes them.
+ */
+export interface AssignGroupMembersRequest {
+  userIds?: string[];
+  emails?: string[];
+}
+
 // --- Response schemas (inbound — runtime boundary validation) ---
 //
 // These Zod schemas are the single source of truth for every server response
@@ -226,13 +262,58 @@ const adminStatsMembersSchema = z.object({
   community: z.number(),
 });
 
+const adminStatsGroupSchema = z.object({
+  key: z.string(),
+  name: z.string(),
+  memberCount: z.number(),
+});
+
 /** Response for `GET /api/v1/admin/stats` — drives the Overview dashboard. */
 const adminStatsResponseSchema = z.object({
   waitlist: adminStatsWaitlistSchema,
   members: adminStatsMembersSchema,
+  groups: z.array(adminStatsGroupSchema),
   updatedAt: z.string(),
 });
 export type AdminStatsResponse = z.infer<typeof adminStatsResponseSchema>;
+
+/**
+ * A member cohort ("group") as surfaced by `/api/v1/admin/groups`. Mirrors
+ * backend `MemberGroupResponse` at
+ * `apps/ptah-license-server/src/member-groups/member-groups.controller.ts`.
+ */
+const memberGroupSchema = z.object({
+  id: z.string(),
+  key: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  discourseGroup: z.string().nullable(),
+  isDefault: z.boolean(),
+  memberCount: z.number(),
+  createdAt: z.string(),
+});
+export type MemberGroup = z.infer<typeof memberGroupSchema>;
+
+const memberGroupsEnvelopeSchema = z.object({
+  groups: z.array(memberGroupSchema),
+});
+
+/** Response for `POST /api/v1/admin/groups/:id/assign`. */
+const assignGroupMembersResponseSchema = z.object({
+  assigned: z.number(),
+  skipped: z.number(),
+});
+export type AssignGroupMembersResponse = z.infer<
+  typeof assignGroupMembersResponseSchema
+>;
+
+/** Response for `DELETE /api/v1/admin/groups/:id/members/:userId`. */
+const unassignGroupMemberResponseSchema = z.object({
+  removed: z.boolean(),
+});
+export type UnassignGroupMemberResponse = z.infer<
+  typeof unassignGroupMemberResponseSchema
+>;
 
 /**
  * Validates an HTTP response body against a Zod schema at the API boundary.
@@ -431,5 +512,71 @@ export class AdminApiService {
     return this.http
       .get<unknown>(`${this.base}/stats`)
       .pipe(map(validate(adminStatsResponseSchema, 'GET /stats')));
+  }
+
+  /** Lists every member cohort (group) with its current member count. */
+  public listGroups(): Observable<MemberGroup[]> {
+    return this.http.get<unknown>(`${this.base}/groups`).pipe(
+      map(validate(memberGroupsEnvelopeSchema, 'GET /groups')),
+      map((res) => res.groups),
+    );
+  }
+
+  /**
+   * Creates a member cohort. `isDefault: true` atomically clears the
+   * previous default group server-side.
+   */
+  public createGroup(body: CreateMemberGroupRequest): Observable<MemberGroup> {
+    return this.http
+      .post<unknown>(`${this.base}/groups`, body)
+      .pipe(map(validate(memberGroupSchema, 'POST /groups')));
+  }
+
+  /** Patches a member cohort's mutable fields (`key` is immutable). */
+  public updateGroup(
+    id: string,
+    body: UpdateMemberGroupRequest,
+  ): Observable<MemberGroup> {
+    return this.http
+      .patch<unknown>(`${this.base}/groups/${id}`, body)
+      .pipe(map(validate(memberGroupSchema, `PATCH /groups/${id}`)));
+  }
+
+  /**
+   * Bulk-assigns users (by id and/or pasted email) to a cohort. Skipped
+   * counts already-assigned or unresolved ids/emails — the server does not
+   * return per-item reasons.
+   */
+  public assignGroupMembers(
+    id: string,
+    body: AssignGroupMembersRequest,
+  ): Observable<AssignGroupMembersResponse> {
+    return this.http
+      .post<unknown>(`${this.base}/groups/${id}/assign`, body)
+      .pipe(
+        map(
+          validate(
+            assignGroupMembersResponseSchema,
+            `POST /groups/${id}/assign`,
+          ),
+        ),
+      );
+  }
+
+  /** Removes a single user from a cohort. Idempotent — a missing assignment is a no-op. */
+  public unassignGroupMember(
+    id: string,
+    userId: string,
+  ): Observable<UnassignGroupMemberResponse> {
+    return this.http
+      .delete<unknown>(`${this.base}/groups/${id}/members/${userId}`)
+      .pipe(
+        map(
+          validate(
+            unassignGroupMemberResponseSchema,
+            `DELETE /groups/${id}/members/${userId}`,
+          ),
+        ),
+      );
   }
 }

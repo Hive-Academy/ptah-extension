@@ -4,6 +4,7 @@ import {
   Get,
   Inject,
   Logger,
+  Optional,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -14,6 +15,10 @@ import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { SessionsService } from './sessions.service';
 import type { BuildersSession } from './google-sessions.types';
+import {
+  MemberGroupsService,
+  type UserMemberGroup,
+} from '../member-groups/member-groups.service';
 
 /**
  * MembersController — the paid Builders members' area backend.
@@ -37,6 +42,12 @@ export class MembersController {
     @Inject(SessionsService) private readonly sessions: SessionsService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ConfigService) private readonly configService: ConfigService,
+    // Optional: member-cohort lookup for the sessions response. Bound by the
+    // @Global() MemberGroupsModule; @Optional + best-effort read means a
+    // groups failure never fails the endpoint (empty-array fallback).
+    @Optional()
+    @Inject(MemberGroupsService)
+    private readonly memberGroups?: MemberGroupsService,
   ) {}
 
   @Get('sessions')
@@ -45,6 +56,7 @@ export class MembersController {
   async getSessions(@Req() req: Request): Promise<{
     sessions: BuildersSession[];
     communityUrl: string | null;
+    memberGroups: UserMemberGroup[];
   }> {
     const user = req.user as { id: string; email: string };
 
@@ -54,7 +66,27 @@ export class MembersController {
     }
 
     const sessions = await this.sessions.listUpcomingSessions();
-    return { sessions, communityUrl: this.communityUrl() };
+    const memberGroups = await this.safeMemberGroups(user.id);
+    return { sessions, communityUrl: this.communityUrl(), memberGroups };
+  }
+
+  /**
+   * Best-effort member-group lookup. A failure or an unbound collaborator
+   * yields an empty array — it must never fail the sessions endpoint.
+   */
+  private async safeMemberGroups(userId: string): Promise<UserMemberGroup[]> {
+    if (!this.memberGroups) {
+      return [];
+    }
+    try {
+      return await this.memberGroups.getGroupsForUser(userId);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(
+        `Failed to resolve member groups for user ${userId}: ${message}`,
+      );
+      return [];
+    }
   }
 
   /** DISCOURSE_URL (trimmed, no trailing slash) or null when unset. */

@@ -447,6 +447,51 @@ describe('AdminService.getStats', () => {
     expect(new Date(stats.updatedAt).toISOString()).toBe(stats.updatedAt);
   });
 
+  it('includes per-group member counts from MemberGroupsService', async () => {
+    const prisma = {
+      waitlist: { count: jest.fn().mockResolvedValue(0) },
+      license: { count: jest.fn().mockResolvedValue(0) },
+      $transaction: jest
+        .fn()
+        .mockImplementation((arg: Promise<unknown>[]) => Promise.all(arg)),
+    };
+    const memberGroups = {
+      listWithCounts: jest.fn().mockResolvedValue([
+        { key: 'founding', name: 'Founding Members', memberCount: 12 },
+        { key: 'charter', name: 'Charter', memberCount: 3 },
+      ]),
+    };
+    const service = new AdminService(
+      prisma as unknown as PrismaService,
+      {} as unknown as EmailService,
+      {} as unknown as AuditLogService,
+      {} as unknown as ConfigService,
+      memberGroups as unknown as import('../member-groups/member-groups.service').MemberGroupsService,
+    );
+
+    const stats = await service.getStats();
+
+    expect(stats.groups).toEqual([
+      { key: 'founding', name: 'Founding Members', memberCount: 12 },
+      { key: 'charter', name: 'Charter', memberCount: 3 },
+    ]);
+  });
+
+  it('falls back to empty groups when MemberGroupsService is unbound', async () => {
+    const { service } = build({
+      total: 0,
+      notified: 0,
+      converted: 0,
+      last7Days: 0,
+      builders: 0,
+      community: 0,
+    });
+
+    const stats = await service.getStats();
+
+    expect(stats.groups).toEqual([]);
+  });
+
   it('counts active members by plan and recent signups by a 7-day window', async () => {
     const { service, prisma } = build({
       total: 1,

@@ -34,6 +34,16 @@ export interface UserInfo {
   emailVerified: boolean;
 }
 
+/**
+ * A member's cohort/group membership, as surfaced by `/licenses/me` and
+ * `/members/sessions`. `key` is the immutable slug assigned by the admin
+ * (e.g. `'founding'`); `name` is the display name for that cohort.
+ */
+export interface MemberGroupBadge {
+  key: string;
+  name: string;
+}
+
 /** Subscription information for Builders members */
 export interface SubscriptionInfo {
   /** Subscription status: active, paused, canceled, past_due */
@@ -105,6 +115,13 @@ export interface LicenseData {
    * to the waitlist instead of Paddle checkout.
    */
   checkoutEnabled: boolean;
+
+  /**
+   * Cohort/group memberships (e.g. the founding cohort). Optional — absent
+   * on older cached responses; empty or missing for non-members and members
+   * with no group assignment.
+   */
+  memberGroups?: MemberGroupBadge[];
 }
 
 /** Whether a plan value is a Ptah Builders membership. */
@@ -120,6 +137,22 @@ export function hasActiveMembership(
   license: Pick<LicenseData, 'plan' | 'reason'> | null | undefined,
 ): boolean {
   return isBuildersTier(license?.plan) && !license?.reason;
+}
+
+/**
+ * Whether a {@link MemberGroupBadge} is the seeded founding cohort — gets the
+ * amber "Founding Member" chip treatment on `/members` and `/profile`.
+ */
+export function isFoundingMemberGroup(group: MemberGroupBadge): boolean {
+  return group.key === 'founding';
+}
+
+/**
+ * Display label for a cohort chip: `'Founding Member'` for the founding
+ * cohort, the group's own `name` for every other cohort.
+ */
+export function getMemberGroupBadgeLabel(group: MemberGroupBadge): string {
+  return isFoundingMemberGroup(group) ? 'Founding Member' : group.name;
 }
 
 /** Feature display configuration */

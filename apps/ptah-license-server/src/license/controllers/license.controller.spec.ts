@@ -8,6 +8,15 @@ import {
   MockPrisma,
 } from '../../testing/mock-prisma.factory';
 import { LicenseController } from './license.controller';
+import type { MemberGroupsService } from '../../member-groups/member-groups.service';
+
+function makeMemberGroups(
+  groups: Array<{ key: string; name: string }> = [],
+): jest.Mocked<Pick<MemberGroupsService, 'getGroupsForUser'>> {
+  return {
+    getGroupsForUser: jest.fn().mockResolvedValue(groups),
+  } as unknown as jest.Mocked<Pick<MemberGroupsService, 'getGroupsForUser'>>;
+}
 
 /**
  * Unit tests for LicenseController (TASK_2025_294 W1.B4).
@@ -78,12 +87,14 @@ describe('LicenseController', () => {
   let licenseService: jest.Mocked<LicenseService>;
   let prisma: MockPrisma;
   let controller: LicenseController;
+  let memberGroups: jest.Mocked<Pick<MemberGroupsService, 'getGroupsForUser'>>;
 
   beforeEach(() => {
     licenseService = {
       verifyLicense: jest.fn(),
     } as unknown as jest.Mocked<LicenseService>;
     prisma = createMockPrisma();
+    memberGroups = makeMemberGroups();
     // ConfigService stub: BUILDERS_CHECKOUT_ENABLED unset ⇒ checkoutEnabled=false.
     const configService = {
       get: jest.fn().mockReturnValue(undefined),
@@ -92,6 +103,7 @@ describe('LicenseController', () => {
       licenseService,
       prisma as unknown as PrismaService,
       configService,
+      memberGroups as unknown as MemberGroupsService,
     );
   });
 
@@ -211,6 +223,39 @@ describe('LicenseController', () => {
       expect(JSON.stringify(result)).not.toContain('ptah_lic_');
       // Subscription info for real Paddle sub should be present.
       expect(result['subscription']).toMatchObject({ status: 'active' });
+    });
+
+    it('surfaces memberGroups ({key,name}) on the active-license response', async () => {
+      memberGroups.getGroupsForUser.mockResolvedValueOnce([
+        { key: 'founding', name: 'Founding Members' },
+      ]);
+      prisma.user.findUnique.mockResolvedValueOnce(makeUser());
+      prisma.license.findFirst.mockResolvedValueOnce(
+        makeLicense({ plan: 'builders', expiresAt: null }),
+      );
+
+      const result = (await controller.getMyLicense(makeAuthedReq())) as Record<
+        string,
+        unknown
+      >;
+
+      expect(memberGroups.getGroupsForUser).toHaveBeenCalledWith('user-1');
+      expect(result['memberGroups']).toEqual([
+        { key: 'founding', name: 'Founding Members' },
+      ]);
+    });
+
+    it('falls back to an empty memberGroups array when the lookup throws', async () => {
+      memberGroups.getGroupsForUser.mockRejectedValueOnce(new Error('db down'));
+      prisma.user.findUnique.mockResolvedValueOnce(makeUser());
+      prisma.license.findFirst.mockResolvedValueOnce(null);
+
+      const result = (await controller.getMyLicense(makeAuthedReq())) as Record<
+        string,
+        unknown
+      >;
+
+      expect(result['memberGroups']).toEqual([]);
     });
 
     it('sets reason="expired" when license.expiresAt is in the past', async () => {

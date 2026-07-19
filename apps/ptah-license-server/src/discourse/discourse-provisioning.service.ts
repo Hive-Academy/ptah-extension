@@ -1,5 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { AuditLogService } from '../audit/audit-log.service';
+import { MemberGroupsService } from '../member-groups/member-groups.service';
 import { DiscourseAdminProvider } from './discourse-admin.provider';
 
 /**
@@ -22,6 +23,12 @@ export class DiscourseProvisioningService {
     @Inject(DiscourseAdminProvider)
     private readonly discourse: DiscourseAdminProvider,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
+    // Optional: member-cohort lookup for per-group Discourse sync. Bound by the
+    // @Global() MemberGroupsModule; @Optional keeps the base builders sync
+    // working if the module is ever unregistered (e.g. in a narrow test).
+    @Optional()
+    @Inject(MemberGroupsService)
+    private readonly memberGroups?: MemberGroupsService,
   ) {}
 
   /**
@@ -38,6 +45,102 @@ export class DiscourseProvisioningService {
       return;
     }
 
+    await this.syncBaseBuildersGroup(userId, email, isMember);
+
+    // On provision, ALSO add the user's cohort groups' Discourse groups. On
+    // deprovision we intentionally touch ONLY the base builders access group
+    // above — cohort membership (e.g. "founding") is durable identity that
+    // survives churn.
+    if (isMember) {
+      await this.syncCohortGroups(userId, email);
+    }
+  }
+
+  /**
+   * Add/remove a user to/from a SPECIFIC named Discourse group (a cohort
+   * group). Best-effort + audited, mirroring `syncBuildersGroup`. Used by the
+   * admin assign flow. No-ops when Discourse is disabled.
+   */
+  async syncMemberGroup(
+    userId: string,
+    email: string,
+    discourseGroupName: string,
+    isMember: boolean,
+  ): Promise<void> {
+    if (!this.isEnabledOrLogOnce(isMember)) {
+      return;
+    }
+    await this.syncOneNamedGroup(
+      userId,
+      email.toLowerCase(),
+      discourseGroupName,
+      isMember,
+    );
+  }
+
+  /**
+   * Add the user to every cohort group's Discourse group. Best-effort: a
+   * lookup or per-group failure is logged and never rethrown.
+   */
+  private async syncCohortGroups(userId: string, email: string): Promise<void> {
+    if (!this.memberGroups) {
+      return;
+    }
+    try {
+      const groupNames =
+        await this.memberGroups.getDiscourseGroupsForUser(userId);
+      const normalized = email.toLowerCase();
+      for (const groupName of groupNames) {
+        await this.syncOneNamedGroup(userId, normalized, groupName, true);
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(
+        `Failed to sync cohort Discourse groups for user ${userId}: ${message}`,
+      );
+    }
+  }
+
+  /** Single named-group add/remove with audit + non-fatal error handling. */
+  private async syncOneNamedGroup(
+    userId: string,
+    normalizedEmail: string,
+    groupName: string,
+    isMember: boolean,
+  ): Promise<void> {
+    try {
+      const result = await this.discourse.syncNamedGroupMembership(
+        normalizedEmail,
+        userId,
+        isMember,
+        groupName,
+      );
+      await this.safeAudit(userId, {
+        email: normalizedEmail,
+        group: groupName,
+        isMember,
+        ok: result.ok,
+        skipped: result.skipped ?? false,
+        status: result.status ?? null,
+        error: result.error ?? null,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Failed to sync Discourse group '${groupName}' for user ${userId}: ${message}`,
+      );
+    }
+  }
+
+  /**
+   * The original base `builders` group add/remove. Extracted so
+   * `syncBuildersGroup` can layer cohort-group sync on top.
+   */
+  private async syncBaseBuildersGroup(
+    userId: string,
+    email: string,
+    isMember: boolean,
+  ): Promise<void> {
     const normalized = email.toLowerCase();
     try {
       const result = await this.discourse.syncGroupMembership(

@@ -41,6 +41,7 @@ import { CircleProvisioningService } from '../circle/circle-provisioning.service
 import { WAITLIST_CONVERSION_SINK } from '../circle/waitlist-conversion.sink';
 import { SessionsService } from '../google-sessions/sessions.service';
 import { DiscourseProvisioningService } from '../discourse/discourse-provisioning.service';
+import { MemberGroupsService } from '../member-groups/member-groups.service';
 
 // ---------------------------------------------------------------------------
 // Stub factories
@@ -99,6 +100,14 @@ function createWaitlistSinkStub(): WaitlistSinkStub {
   return { markConverted: jest.fn().mockResolvedValue(undefined) };
 }
 
+interface MemberGroupsStub {
+  assignDefaultGroup: jest.Mock;
+}
+
+function createMemberGroupsStub(): MemberGroupsStub {
+  return { assignDefaultGroup: jest.fn().mockResolvedValue(undefined) };
+}
+
 function createEmailStub(): EmailStub {
   return { sendLicenseKey: jest.fn().mockResolvedValue(undefined) };
 }
@@ -124,6 +133,7 @@ async function buildService(params?: {
   sessions?: SessionsStub;
   discourse?: DiscourseStub;
   waitlistSink?: WaitlistSinkStub;
+  memberGroups?: MemberGroupsStub;
 }): Promise<{
   service: PaddleService;
   prisma: MockPrisma;
@@ -134,6 +144,7 @@ async function buildService(params?: {
   sessions: SessionsStub;
   discourse: DiscourseStub;
   waitlistSink: WaitlistSinkStub;
+  memberGroups: MemberGroupsStub;
 }> {
   const prisma = params?.prisma ?? createMockPrisma();
   const email = params?.email ?? createEmailStub();
@@ -143,6 +154,7 @@ async function buildService(params?: {
   const sessions = params?.sessions ?? createSessionsStub();
   const discourse = params?.discourse ?? createDiscourseStub();
   const waitlistSink = params?.waitlistSink ?? createWaitlistSinkStub();
+  const memberGroups = params?.memberGroups ?? createMemberGroupsStub();
 
   const { module } = await createTestingNestModule({
     prisma,
@@ -160,6 +172,7 @@ async function buildService(params?: {
       { provide: SessionsService, useValue: sessions },
       { provide: DiscourseProvisioningService, useValue: discourse },
       { provide: WAITLIST_CONVERSION_SINK, useValue: waitlistSink },
+      { provide: MemberGroupsService, useValue: memberGroups },
       PaddleService,
     ],
   });
@@ -174,6 +187,7 @@ async function buildService(params?: {
     sessions,
     discourse,
     waitlistSink,
+    memberGroups,
   };
 }
 
@@ -291,6 +305,7 @@ describe('PaddleService — handleSubscriptionCreatedEvent', () => {
       sessions,
       discourse,
       waitlistSink,
+      memberGroups,
     } = await buildService();
 
     // No existing subscription, no prior license with this eventId.
@@ -374,6 +389,40 @@ describe('PaddleService — handleSubscriptionCreatedEvent', () => {
       'usr_new',
       'buyer@example.com',
       true,
+    );
+
+    // Default member-group auto-assignment fires as part of the fan-out.
+    expect(memberGroups.assignDefaultGroup).toHaveBeenCalledWith('usr_new');
+  });
+
+  it('is non-fatal when default member-group assignment throws', async () => {
+    const memberGroups = createMemberGroupsStub();
+    memberGroups.assignDefaultGroup.mockRejectedValue(new Error('db down'));
+    const { service, prisma } = await buildService({ memberGroups });
+
+    prisma.subscription.findUnique.mockResolvedValue(null);
+    prisma.license.findFirst.mockResolvedValue(null);
+    prisma.user.findUnique.mockResolvedValue(null);
+    prisma.user.create.mockResolvedValue({
+      id: 'usr_grp_fail',
+      email: 'g@e.com',
+    });
+    prisma.license.updateMany.mockResolvedValue({ count: 0 });
+    prisma.subscription.updateMany.mockResolvedValue({ count: 0 });
+    prisma.license.create.mockResolvedValue({
+      id: 'lic_grp_fail',
+      userId: 'usr_grp_fail',
+      plan: 'builders',
+    });
+    prisma.subscription.create.mockResolvedValue({ id: 'sub_grp_fail' });
+
+    const data = buildSubscriptionNotification();
+    await expect(
+      service.handleSubscriptionCreatedEvent(data, 'g@e.com', 'evt_grp_fail'),
+    ).resolves.toEqual({ success: true, licenseId: 'lic_grp_fail' });
+
+    expect(memberGroups.assignDefaultGroup).toHaveBeenCalledWith(
+      'usr_grp_fail',
     );
   });
 

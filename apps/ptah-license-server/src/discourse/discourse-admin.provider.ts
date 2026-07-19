@@ -31,6 +31,9 @@ export class DiscourseAdminProvider {
   /** Resolved numeric group id for `groupName`, cached across calls. */
   private groupIdCache: number | undefined;
 
+  /** Resolved numeric group ids keyed by arbitrary group name, cached. */
+  private readonly namedGroupIdCache = new Map<string, number>();
+
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
   ) {
@@ -94,6 +97,71 @@ export class DiscourseAdminProvider {
       return { ok: false, status: res.status, error: res.error };
     }
     return { ok: true, status: res.status };
+  }
+
+  /**
+   * Add/remove a member to/from an ARBITRARY named Discourse group (cohort
+   * groups such as `builders-founding`). Same tolerated-no-op semantics as
+   * `syncGroupMembership`: feature-off or user-not-in-Discourse yields
+   * `{ ok:true, skipped:true }`.
+   */
+  async syncNamedGroupMembership(
+    email: string,
+    externalId: string,
+    isMember: boolean,
+    groupName: string,
+  ): Promise<DiscourseSyncResult> {
+    if (!this.isEnabled()) {
+      return { ok: false, skipped: true };
+    }
+    const trimmed = groupName?.trim();
+    if (!trimmed) {
+      return { ok: false, error: 'Empty Discourse group name' };
+    }
+
+    const username = await this.lookupUsername(email, externalId);
+    if (!username.ok) {
+      return { ok: false, status: username.status, error: username.error };
+    }
+    if (!username.username) {
+      return { ok: true, skipped: true };
+    }
+
+    const groupId = await this.resolveNamedGroupId(trimmed);
+    if (groupId === undefined) {
+      return { ok: false, error: `Discourse group '${trimmed}' not found` };
+    }
+
+    const path = `/groups/${groupId}/members.json`;
+    const res = isMember
+      ? await this.request('PUT', path, { usernames: username.username })
+      : await this.request('DELETE', path, { usernames: username.username });
+
+    if (!res.ok) {
+      return { ok: false, status: res.status, error: res.error };
+    }
+    return { ok: true, status: res.status };
+  }
+
+  /** Resolve (and cache) the numeric id of an arbitrary named group. */
+  private async resolveNamedGroupId(name: string): Promise<number | undefined> {
+    const cached = this.namedGroupIdCache.get(name);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const res = await this.request(
+      'GET',
+      `/groups/${encodeURIComponent(name)}.json`,
+    );
+    if (!res.ok || typeof res.json !== 'object' || res.json === null) {
+      return undefined;
+    }
+    const group = (res.json as { group?: { id?: unknown } }).group;
+    if (group && typeof group.id === 'number') {
+      this.namedGroupIdCache.set(name, group.id);
+      return group.id;
+    }
+    return undefined;
   }
 
   /**
