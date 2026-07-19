@@ -3,8 +3,7 @@
  * remove, check status) available via the VS Code Command Palette.
  *
  * Messaging is tailored to the open-access identity model (Community / Ptah
- * Builders), with legacy Pro / Trial Pro tiers still displayed for existing
- * subscribers who drain naturally.
+ * Builders).
  *
  * @packageDocumentation
  */
@@ -163,9 +162,7 @@ export class LicenseCommands {
           ? 'Community (Free)'
           : status.tier === 'builders'
             ? 'Ptah Builders member'
-            : status.tier === 'trial_pro'
-              ? 'Pro (Trial, legacy)'
-              : 'Pro (legacy)';
+            : 'Expired';
       const expiresText = status.expiresAt
         ? new Date(status.expiresAt).toLocaleDateString()
         : status.tier === 'community'

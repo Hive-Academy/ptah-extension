@@ -68,9 +68,7 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
           <!-- Membership key issue: key not found or inactive -->
           @if (
             isCommunity() &&
-            (licenseReason() === 'no_license' ||
-              licenseReason() === 'expired' ||
-              licenseReason() === 'trial_ended')
+            (licenseReason() === 'no_license' || licenseReason() === 'expired')
           ) {
             <div
               class="border border-warning rounded-md p-2.5 mb-2 bg-warning bg-opacity-5"

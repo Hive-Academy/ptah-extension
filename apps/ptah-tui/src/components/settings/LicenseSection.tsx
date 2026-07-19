@@ -38,17 +38,12 @@ interface LicenseClearKeyResult {
 const ACTIONS = ['Enter Membership Key', 'Clear Membership Key'] as const;
 
 function tierBadgeVariant(tier: string): BadgeVariant {
-  if (tier === 'builders' || tier === 'pro' || tier === 'trial_pro') {
-    return 'success';
-  }
-  if (tier === 'community') return 'ghost';
+  if (tier === 'builders') return 'success';
   return 'ghost';
 }
 
 function tierLabel(tier: string): string {
-  if (tier === 'builders') return 'Builders member';
-  if (tier === 'pro') return 'Builders member (legacy Pro)';
-  if (tier === 'trial_pro') return 'Builders trial (legacy)';
+  if (tier === 'builders') return 'Ptah Builders member';
   if (tier === 'community') return 'Community';
   return tier;
 }

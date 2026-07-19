@@ -113,7 +113,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
    * 2. Get license key from SecretStorage
    * 3. If no key: return { valid: false, reason: 'not_found' } to trigger registration prompt
    * 4. POST to server /api/v1/licenses/verify
-   * 5. If server says invalid (expired/trial_ended/not_found):
+   * 5. If server says invalid (expired/not_found):
    *    auto-clear key and fall back to Community tier
    * 6. ONLY admin revocation returns valid: false (blocks extension)
    * 7. Cache result and emit events
@@ -192,7 +192,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
             reason: status.reason,
           },
         );
-        if (status.reason === 'expired' || status.reason === 'trial_ended') {
+        if (status.reason === 'expired') {
           const previousContext: PreviousUserContext = {
             reason: status.reason,
             user: status.user,

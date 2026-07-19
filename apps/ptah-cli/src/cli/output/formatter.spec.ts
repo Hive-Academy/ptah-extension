@@ -203,13 +203,13 @@ describe('HumanFormatter', () => {
     const cap = makeCapture();
     const fmt = new HumanFormatter(cap.writer, { noColor: true });
     await fmt.writeNotification('license.status', {
-      tier: 'pro',
+      tier: 'builders',
       valid: true,
       daysRemaining: 30,
     });
     const text = await cap.read();
     expect(text).toContain('✓ license.status');
-    expect(text).toContain('tier:           pro');
+    expect(text).toContain('tier:           builders');
     expect(text).toContain('valid:          yes');
     expect(text).toContain('daysRemaining:  30');
   });

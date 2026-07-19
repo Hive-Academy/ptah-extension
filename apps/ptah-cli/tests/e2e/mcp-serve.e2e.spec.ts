@@ -13,7 +13,7 @@
  *     (license_required, fatal crash) flags a regression in the wire
  *     surface.
  *   - The CI sandbox cannot reach the real `@anthropic-ai/claude-agent-sdk`.
- *     The Pro `session_submit` test asserts ROUTING (the gate let it
+ *     The Builders `session_submit` test asserts ROUTING (the gate let it
  *     through; the handler accepted it) not a real chat completion. We
  *     match either a structured response shape OR a clean MCP `isError`
  *     envelope — either proves the wire passed the gate.
@@ -304,11 +304,11 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
 
   it('mcp_session_submit_pro_streams', async () => {
     const host = scope.register(
-      await spawnPtahMcp({ home: tmp, licenseStatus: 'pro' }),
+      await spawnPtahMcp({ home: tmp, licenseStatus: 'builders' }),
     );
 
     // The CI sandbox cannot reach the real Claude SDK; this test asserts
-    // ROUTING (the Pro gate accepted the call) not a real completion. We
+    // ROUTING (the Builders gate accepted the call) not a real completion. We
     // accept any of:
     //   - structured success result
     //   - clean MCP isError envelope with a non-license ptah_code
@@ -360,7 +360,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
 
   it('mcp_cancel_in_flight', async () => {
     const host = scope.register(
-      await spawnPtahMcp({ home: tmp, licenseStatus: 'pro' }),
+      await spawnPtahMcp({ home: tmp, licenseStatus: 'builders' }),
     );
 
     // Pick a unique request id we can match in `notifications/cancelled`.
@@ -466,7 +466,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
 
   it('mcp_sigterm_drains', async () => {
     const host = scope.register(
-      await spawnPtahMcp({ home: tmp, licenseStatus: 'pro' }),
+      await spawnPtahMcp({ home: tmp, licenseStatus: 'builders' }),
     );
 
     // Start a long-lived tool call but DO NOT await it — we want to SIGTERM
@@ -958,7 +958,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
 
   it('mcp_drain_aborts_outstanding_session_submit', async () => {
     const host = scope.register(
-      await spawnPtahMcp({ home: tmp, licenseStatus: 'pro' }),
+      await spawnPtahMcp({ home: tmp, licenseStatus: 'builders' }),
     );
 
     // Fire-and-await: start session_submit. In the sandbox the SDK leg
@@ -1050,7 +1050,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
 
   it('mcp_session_submit_emits_cost_notifications', async () => {
     const host = scope.register(
-      await spawnPtahMcp({ home: tmp, licenseStatus: 'pro' }),
+      await spawnPtahMcp({ home: tmp, licenseStatus: 'builders' }),
     );
 
     // The CI sandbox cannot reach the real Claude SDK, so a real
@@ -1081,7 +1081,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     // Fire the call but tolerate any settle path: a real completion in
     // the unlikely event the SDK answered, a clean error envelope, OR a
     // wire-level timeout (the SDK hung in the sandbox, which is the
-    // routinely-observed case for Pro `session_submit` tests). Use a
+    // routinely-observed case for Builders `session_submit` tests). Use a
     // tight wire timeout so the test exits quickly when the sandboxed
     // SDK never produces a summary.
     let settled = false;
