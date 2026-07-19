@@ -22,8 +22,7 @@ import {
  * - "Included — Free & Open Source": whatever's part of the free local
  *   product that this license carries.
  * - "Included — Ptah Builders": whatever's part of the paid membership that
- *   this license carries (only ever populated for Builders/legacy Pro
- *   members).
+ *   this license carries (only ever populated for Builders members).
  *
  * @input features - Array of feature keys from license data
  */

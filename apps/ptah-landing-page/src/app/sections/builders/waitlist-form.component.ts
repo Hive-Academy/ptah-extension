@@ -55,10 +55,12 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                   aria-hidden="true"
                 />
                 <h3 class="mt-4 text-xl font-bold text-white">
-                  You're in — watch your inbox
+                  You're a founding member — watch your inbox
                 </h3>
                 <p class="mt-2 text-sm text-ink-400 leading-relaxed">
-                  We'll email you the moment Ptah Builders opens.
+                  We'll email your founding invite the moment Ptah Builders
+                  opens: 35% off monthly (first 12 months) or 50% off yearly
+                  (first year), plus a 30-day money-back guarantee.
                 </p>
               </div>
             }
@@ -70,10 +72,11 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                   aria-hidden="true"
                 />
                 <h3 class="mt-4 text-xl font-bold text-white">
-                  You're already on the list
+                  You're already a founding member
                 </h3>
                 <p class="mt-2 text-sm text-ink-400 leading-relaxed">
-                  We'll email you the moment Ptah Builders opens.
+                  We'll email your founding invite the moment Ptah Builders
+                  opens.
                 </p>
               </div>
             }
@@ -81,14 +84,16 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
               <span
                 class="font-mono text-[11px] uppercase tracking-[0.2em] text-amber-500/80"
               >
-                Ptah Builders
+                Ptah Builders — Founding Waitlist
               </span>
               <h3 class="mt-3 text-xl sm:text-2xl font-bold text-white">
-                Be first when Builders opens
+                Claim a founding member spot
               </h3>
               <p class="mt-2 text-sm text-ink-400 leading-relaxed">
-                No spam, no community platform yet — just a single email when
-                membership opens.
+                Join now and lock in 35% off monthly (first 12 months) or 50%
+                off yearly (first year) at launch, plus early access. No spam —
+                membership isn't purchasable yet, just a single invite email
+                when it opens.
               </p>
 
               <form

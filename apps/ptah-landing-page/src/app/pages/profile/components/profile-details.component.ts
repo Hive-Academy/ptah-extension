@@ -41,7 +41,7 @@ import {
  * Displays:
  * - Email and membership status
  * - Plan description
- * - Billing status for Builders/legacy Pro subscribers
+ * - Billing status for Builders subscribers
  * - Unified Ptah Builders CTA for non-members (waitlist or checkout)
  * - Sync with Paddle button for subscription management
  * - Manage Subscription link to Paddle customer portal
@@ -63,7 +63,7 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ViewportAnimationDirective, RouterLink, LucideAngularModule],
   template: `
-    <!-- Unified Ptah Builders CTA (non-members only: community, or trial/subscription lapsed) -->
+    <!-- Unified Ptah Builders CTA (non-members only: community, or lapsed subscription) -->
     @if (!isActiveMember()) {
       <div
         viewportAnimation
@@ -149,13 +149,13 @@ import {
             />
             Membership
           </span>
-          <span class="font-medium" [class.text-error]="isTrialEnded()">
+          <span class="font-medium" [class.text-error]="isExpired()">
             {{ getMembershipLabel() }}
           </span>
         </div>
 
-        <!-- License Key - members only, hidden once trial/membership has lapsed -->
-        @if (isMember() && license()?.status !== 'none' && !isTrialEnded()) {
+        <!-- License Key - members only, hidden once membership has lapsed -->
+        @if (isMember() && license()?.status !== 'none' && !isExpired()) {
           <div class="px-6 py-4 flex justify-between items-center">
             <span class="text-neutral-content flex items-center gap-2">
               <lucide-angular
@@ -249,7 +249,7 @@ import {
           </div>
         }
 
-        <!-- Subscription Status (only for Builders/legacy Pro members with a Paddle subscription) -->
+        <!-- Subscription Status (only for Builders members with a Paddle subscription) -->
         @if (license()?.subscription && isMember()) {
           <div class="px-6 py-4 flex justify-between items-center">
             <span class="text-neutral-content flex items-center gap-2">
@@ -434,21 +434,15 @@ export class ProfileDetailsComponent {
   });
 
   /**
-   * Check if user has a real Paddle subscription (not trialing, not community, not expired)
-   * Only users with active paid Paddle subscriptions can:
+   * Check if user has a real Paddle subscription (Builders plan, not community).
+   * Only users with a Paddle subscription can:
    * - Sync with Paddle
    * - Open customer portal
    */
   public hasPaddleSubscription(): boolean {
     const licenseData = this.license();
     if (!licenseData?.subscription) return false;
-    if (!isBuildersTier(licenseData.plan)) return false;
-    const isTrialing =
-      licenseData.subscription.status === 'trialing' ||
-      licenseData.plan === 'trial_pro';
-    const isExpired = licenseData.subscription.status === 'expired';
-
-    return !isTrialing && !isExpired;
+    return isBuildersTier(licenseData.plan);
   }
 
   /**
@@ -473,20 +467,20 @@ export class ProfileDetailsComponent {
   };
 
   /**
-   * Check if trial has ended (even if DB still shows trialing status)
+   * Check if the membership has expired.
    */
-  public isTrialEnded(): boolean {
-    return this.license()?.reason === 'trial_ended';
+  public isExpired(): boolean {
+    return this.license()?.reason === 'expired';
   }
 
-  /** Whether the viewer holds a Builders (or legacy Pro/trial Pro) plan. */
+  /** Whether the viewer holds a Builders plan. */
   public isMember(): boolean {
     return isBuildersTier(this.license()?.plan);
   }
 
   /**
-   * Whether the viewer holds an active Builders membership, i.e. a
-   * Builders-equivalent plan with no trial-ended/expired reason.
+   * Whether the viewer holds an active Builders membership, i.e. a Builders
+   * plan with no expired reason.
    */
   public isActiveMember(): boolean {
     return hasActiveMembership(this.license());
@@ -501,27 +495,27 @@ export class ProfileDetailsComponent {
   public builderPromoMessage(): string {
     return (
       this.license()?.message ||
-      'Hosted perks, priority support and early access — on top of the open-source core you already have.'
+      'Join the founding waitlist: 35% off monthly (first 12 months) or 50% off yearly (first year) at launch, plus hosted perks, priority support and early access — on top of the open-source core you already have.'
     );
   }
 
   /** Get display value for the "Membership" row. */
   public getMembershipLabel(): string {
-    if (this.isTrialEnded()) return 'Trial Expired';
+    if (this.isExpired()) return 'Membership Expired';
     return this.isMember() ? 'Ptah Builders' : 'Community';
   }
 
   /**
    * Get billing status label
-   * Show "EXPIRED" when trial has ended
+   * Show "EXPIRED" when membership has expired
    */
   public getBillingStatusLabel(): string {
-    if (this.isTrialEnded()) return 'EXPIRED';
+    if (this.isExpired()) return 'EXPIRED';
     return this.license()?.subscription?.status?.toUpperCase() || 'UNKNOWN';
   }
 
   public getSubscriptionStatusClass(): string {
-    if (this.isTrialEnded()) return 'badge-error';
+    if (this.isExpired()) return 'badge-error';
 
     const status = this.license()?.subscription?.status;
     if (status === 'active') return 'badge-success';

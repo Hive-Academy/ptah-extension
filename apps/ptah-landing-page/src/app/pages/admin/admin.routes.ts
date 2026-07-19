@@ -6,8 +6,9 @@ import { AdminLayout } from './admin-layout/admin-layout';
  * Admin Routes — lazy-loaded child tree mounted at `/admin` by `app.routes.ts`.
  *
  * Shape:
- *   /admin                  → redirects to /admin/users (first model, always
- *                             safe because User is never read-only / empty)
+ *   /admin                  → redirects to /admin/overview (stat-tile
+ *                             dashboard — the default admin landing view)
+ *   /admin/overview         → AdminOverview (GET /api/v1/admin/stats tiles)
  *   /admin/:model           → AdminList (table view for a single model)
  *   /admin/:model/:id       → AdminDetail (read / edit a single record)
  *
@@ -27,7 +28,12 @@ export const ADMIN_ROUTES: Routes = [
       {
         path: '',
         pathMatch: 'full',
-        redirectTo: 'users',
+        redirectTo: 'overview',
+      },
+      {
+        path: 'overview',
+        loadComponent: () =>
+          import('./overview/overview').then((m) => m.AdminOverview),
       },
       {
         path: 'marketing/compose',

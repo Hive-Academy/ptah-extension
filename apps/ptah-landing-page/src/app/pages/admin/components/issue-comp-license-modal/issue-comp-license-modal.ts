@@ -86,7 +86,7 @@ export class IssueCompLicenseModalComponent {
         this.durationPreset() === 'custom'
           ? this.toApiValue(this.customExpiresAt())
           : undefined,
-      plan: 'pro' as const,
+      plan: 'builders' as const,
       reason: this.reason(),
       sendEmail: this.sendEmail(),
       stackOnTopOfPaid: this.stackOnTopOfPaid(),

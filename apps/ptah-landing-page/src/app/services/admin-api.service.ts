@@ -15,11 +15,11 @@ export type AdminModelKey =
   | 'licenses'
   | 'subscriptions'
   | 'failed-webhooks'
-  | 'trial-reminders'
   | 'session-requests'
   | 'admin-audit-log'
   | 'marketing-campaigns'
-  | 'marketing-campaign-templates';
+  | 'marketing-campaign-templates'
+  | 'waitlist';
 
 // --- Request shapes (outbound — not validated) ---
 
@@ -41,7 +41,7 @@ export interface IssueComplimentaryLicenseRequest {
   userId: string;
   durationPreset: '30d' | '1y' | '5y' | 'custom' | 'never';
   customExpiresAt?: string;
-  plan: 'pro';
+  plan: 'builders';
   reason: string;
   sendEmail?: boolean;
   stackOnTopOfPaid?: boolean;
@@ -49,9 +49,8 @@ export interface IssueComplimentaryLicenseRequest {
 
 export type MarketingSegmentKey =
   | 'all'
-  | 'proActive'
+  | 'buildersActive'
   | 'communityActive'
-  | 'trialing'
   | 'subscriptionPastDue';
 
 export interface SaveTemplateRequest {
@@ -68,6 +67,16 @@ export interface SendCampaignRequest {
   htmlBody?: string;
   segment?: MarketingSegmentKey;
   userIds?: string[];
+}
+
+/**
+ * POST /api/v1/admin/waitlist/invite — `ids` wins over `batchSize` when both
+ * are provided (server semantics per the founding-invite contract); at least
+ * one MUST be supplied.
+ */
+export interface AdminInviteWaitlistRequest {
+  ids?: string[];
+  batchSize?: number;
 }
 
 // --- Response schemas (inbound — runtime boundary validation) ---
@@ -108,7 +117,6 @@ export type AdminBulkEmailResponse = z.infer<
 const userCascadedCountsSchema = z.object({
   subscriptions: z.number(),
   licenses: z.number(),
-  trialReminders: z.number(),
   sessionRequests: z.number(),
 });
 
@@ -137,7 +145,7 @@ const issueComplimentaryLicenseResponseSchema = z.object({
     id: z.string(),
     userId: z.string(),
     licenseKey: z.string(),
-    plan: z.literal('pro'),
+    plan: z.literal('builders'),
     status: z.literal('active'),
     source: z.literal('complimentary'),
     expiresAt: z.string().nullable(),
@@ -162,9 +170,8 @@ export type MarketingSegmentCounts = z.infer<
 
 const marketingSegmentsResponseSchema = z.object({
   all: marketingSegmentCountsSchema,
-  proActive: marketingSegmentCountsSchema,
+  buildersActive: marketingSegmentCountsSchema,
   communityActive: marketingSegmentCountsSchema,
-  trialing: marketingSegmentCountsSchema,
   subscriptionPastDue: marketingSegmentCountsSchema,
 });
 export type MarketingSegmentsResponse = z.infer<
@@ -193,6 +200,39 @@ const sendCampaignResponseSchema = z.object({
   status: z.literal('in_progress'),
 });
 export type SendCampaignResponse = z.infer<typeof sendCampaignResponseSchema>;
+
+/**
+ * Response for `POST /api/v1/admin/waitlist/invite` — the founding-invite
+ * send. `skipped` counts rows already notified (or, in `ids` mode, ids that
+ * did not resolve to an un-notified waitlist row).
+ */
+const adminInviteWaitlistResponseSchema = z.object({
+  invited: z.number(),
+  skipped: z.number(),
+});
+export type AdminInviteWaitlistResponse = z.infer<
+  typeof adminInviteWaitlistResponseSchema
+>;
+
+const adminStatsWaitlistSchema = z.object({
+  total: z.number(),
+  notified: z.number(),
+  converted: z.number(),
+  last7Days: z.number(),
+});
+
+const adminStatsMembersSchema = z.object({
+  builders: z.number(),
+  community: z.number(),
+});
+
+/** Response for `GET /api/v1/admin/stats` — drives the Overview dashboard. */
+const adminStatsResponseSchema = z.object({
+  waitlist: adminStatsWaitlistSchema,
+  members: adminStatsMembersSchema,
+  updatedAt: z.string(),
+});
+export type AdminStatsResponse = z.infer<typeof adminStatsResponseSchema>;
 
 /**
  * Validates an HTTP response body against a Zod schema at the API boundary.
@@ -326,7 +366,7 @@ export class AdminApiService {
   }
 
   /**
-   * Issues a complimentary Pro license to a user.
+   * Issues a complimentary Builders license to a user.
    * POST /api/v1/admin/licenses/complimentary
    */
   public issueComplimentaryLicense(
@@ -367,5 +407,29 @@ export class AdminApiService {
     return this.http
       .post<unknown>(`${this.base}/marketing/send`, body)
       .pipe(map(validate(sendCampaignResponseSchema, 'POST /marketing/send')));
+  }
+
+  /**
+   * Sends the founding-invite email (checkout links carrying the discount
+   * env IDs) to explicit waitlist ids, or the N oldest un-notified rows when
+   * `batchSize` is used instead. `ids` wins when both are supplied.
+   */
+  public inviteWaitlist(
+    body: AdminInviteWaitlistRequest,
+  ): Observable<AdminInviteWaitlistResponse> {
+    return this.http
+      .post<unknown>(`${this.base}/waitlist/invite`, body)
+      .pipe(
+        map(
+          validate(adminInviteWaitlistResponseSchema, 'POST /waitlist/invite'),
+        ),
+      );
+  }
+
+  /** Overview dashboard stat tiles — waitlist funnel + member counts by tier. */
+  public getStats(): Observable<AdminStatsResponse> {
+    return this.http
+      .get<unknown>(`${this.base}/stats`)
+      .pipe(map(validate(adminStatsResponseSchema, 'GET /stats')));
   }
 }

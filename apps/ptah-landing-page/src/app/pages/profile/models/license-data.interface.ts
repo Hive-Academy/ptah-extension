@@ -7,16 +7,13 @@
  * Backend API: GET /api/v1/licenses/me
  * Evidence: apps/ptah-license-server/src/license/controllers/license.controller.ts
  *
- * Open-source + Ptah Builders model:
+ * Open-source + Ptah Builders model. There are no legacy tiers — zero
+ * paying subscribers exist pre-launch:
  * - Ptah itself (VS Code extension, Electron app, CLI) is free and open
  *   source — every user gets the 'community' plan with the full local
  *   product, forever.
  * - 'builders' is the paid Ptah Builders membership: hosted perks, priority
  *   support and community/early-access on top of the open-source core.
- * - 'pro' and 'trial_pro' are LEGACY plan values. Existing paying/trialing
- *   subscribers keep resolving on these while they drain naturally; nothing
- *   new is ever issued on them. Treat them as Builders-equivalent for
- *   display purposes.
  */
 
 /** User profile information */
@@ -37,7 +34,7 @@ export interface UserInfo {
   emailVerified: boolean;
 }
 
-/** Subscription information for Builders/legacy Pro users */
+/** Subscription information for Builders members */
 export interface SubscriptionInfo {
   /** Subscription status: active, paused, canceled, past_due */
   status: string;
@@ -53,11 +50,9 @@ export interface SubscriptionInfo {
  * License plan identifier.
  *
  * - 'community': Free and open source, always valid, no subscription.
- * - 'builders': Paid Ptah Builders membership (current premium tier).
- * - 'pro' / 'trial_pro': LEGACY paid/trialing plans, kept only so existing
- *   subscribers keep working. Display as Builders-equivalent.
+ * - 'builders': Paid Ptah Builders membership (the only paid tier).
  */
-export type LicensePlan = 'community' | 'builders' | 'pro' | 'trial_pro';
+export type LicensePlan = 'community' | 'builders';
 
 /** Complete license/account data from API */
 export interface LicenseData {
@@ -91,19 +86,18 @@ export interface LicenseData {
   /** Message for users without active license */
   message?: string;
 
-  /** Subscription info for Builders/legacy Pro users with a Paddle subscription */
+  /** Subscription info for Builders members with a Paddle subscription */
   subscription: SubscriptionInfo | null;
 
   /**
    * Reason for license status when not active
    *
-   * - 'trial_ended': Trial period has concluded
    * - 'expired': License/subscription has expired
    *
-   * Note: Only these two values are returned by the backend.
+   * Note: Only this value is returned by the backend.
    * Returns undefined for active licenses.
    */
-  reason?: 'trial_ended' | 'expired';
+  reason?: 'expired';
 
   /**
    * Whether Ptah Builders checkout is currently open (mirrors the server's
@@ -113,18 +107,14 @@ export interface LicenseData {
   checkoutEnabled: boolean;
 }
 
-/**
- * Whether a plan value is a Ptah Builders membership (current or legacy).
- * Legacy 'pro'/'trial_pro' subscribers are treated as Builders-equivalent
- * so paying members keep feeling first-class.
- */
+/** Whether a plan value is a Ptah Builders membership. */
 export function isBuildersTier(plan: LicensePlan | null | undefined): boolean {
-  return plan === 'builders' || plan === 'pro' || plan === 'trial_pro';
+  return plan === 'builders';
 }
 
 /**
  * Whether the given license reflects an active Builders membership, i.e. a
- * Builders-equivalent plan with no trial-ended/expired reason attached.
+ * Builders plan with no expired reason attached.
  */
 export function hasActiveMembership(
   license: Pick<LicenseData, 'plan' | 'reason'> | null | undefined,
@@ -155,8 +145,8 @@ export interface FeatureDisplay {
  * Feature display mapping.
  *
  * Keys mirror `PLANS[*].features` in
- * `apps/ptah-license-server/src/config/plans.config.ts` exactly (community,
- * builders and legacy pro all draw from this same map).
+ * `apps/ptah-license-server/src/config/plans.config.ts` exactly (community
+ * and builders draw from this same map).
  */
 export const FEATURE_DISPLAY_MAP: Record<string, FeatureDisplay> = {
   // --- Community (open-source core) ---

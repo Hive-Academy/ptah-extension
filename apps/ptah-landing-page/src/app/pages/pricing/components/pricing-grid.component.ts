@@ -187,10 +187,31 @@ import {
               {{ proPlan.price }}
             </div>
             <div class="font-mono text-[9px] text-amber-500/80 mt-1">
-              Builders / mo
+              or {{ proPlan.priceSubtext }}
             </div>
           </div>
         </div>
+
+        @if (isFoundingPromo()) {
+          <div
+            class="mx-5 sm:mx-7 mt-4 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 flex items-start gap-2.5"
+          >
+            <lucide-angular
+              [img]="TagIcon"
+              class="w-4 h-4 text-amber-400 shrink-0 mt-0.5"
+              aria-hidden="true"
+            />
+            <span class="text-xs text-amber-100/90 leading-relaxed">
+              @if (buildersCheckoutEnabled) {
+                Founding invite applied — your discount is ready at checkout.
+              } @else {
+                Founding invite detected. Builders checkout isn't open yet —
+                join the waitlist below and we'll honor your founding discount
+                when it launches.
+              }
+            </span>
+          </div>
+        }
 
         <!-- Capability rows -->
         @for (row of matrix; track row.label) {
@@ -231,7 +252,11 @@ import {
             <div
               class="font-mono text-[10px] uppercase tracking-[0.15em] text-ink-500"
             >
-              Founding-member pricing, locked in
+              List price {{ proPlan.price }} &middot; {{ proPlan.priceSubtext }}
+            </div>
+            <div class="mt-1 text-[10px] text-amber-500/70 leading-snug">
+              Founding waitlist: 35% off monthly &middot; 50% off yearly at
+              launch
             </div>
           </div>
 
@@ -384,6 +409,9 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   private readonly AUTO_CHECKOUT_TIMEOUT = 10000; // 10 seconds max wait for Paddle
 
   private readonly paddleConfig = environment.paddle;
+  /** Exposed for the template — the founding-offer callout renders differently once checkout opens. */
+  protected readonly buildersCheckoutEnabled =
+    environment.buildersCheckoutEnabled;
   private loadingTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private autoCheckoutIntervalId: ReturnType<typeof setInterval> | null = null;
   private portalWasOpened = false;
@@ -395,6 +423,16 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   public readonly showPromoInput = signal(false);
   public readonly promoCode = signal<string>('');
   public promoCodeValue = ''; // ngModel binding, synced to promoCode signal
+
+  /**
+   * Founding-invite promo wiring: `?promo=founding&cycle=monthly|yearly&d=<discountId>`
+   * from the waitlist launch invite email. `d` is a Paddle discount id, passed
+   * through verbatim as `discountCode` at checkout (never uppercased, unlike
+   * the manually-entered promo code above).
+   */
+  public readonly isFoundingPromo = signal(false);
+  public readonly foundingCycle = signal<'monthly' | 'yearly'>('monthly');
+  private readonly foundingDiscountId = signal<string | null>(null);
   public readonly paddleError = this.paddleService.error;
   public readonly isPaddleReady = this.paddleService.isReady;
   public readonly loadingPlanName = this.paddleService.loadingPlanName;
@@ -421,8 +459,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
           this.subscriptionService.isFetched() &&
           this.subscriptionService.licenseData() !== null,
         currentPlanTier: this.subscriptionService.currentPlanTier(),
-        isOnTrial: this.subscriptionService.isOnTrial(),
-        trialDaysRemaining: this.subscriptionService.trialDaysRemaining(),
         subscriptionStatus: validatedStatus,
         periodEndDate: this.subscriptionService.periodEndDate(),
         licenseReason: this.subscriptionService.licenseReason(),
@@ -502,8 +538,8 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   public readonly proPlan: PricingPlan = {
     name: 'Ptah Builders',
     tier: 'builders',
-    price: '$29-49',
-    priceSubtext: 'per month, founding-member pricing',
+    price: '$29/mo',
+    priceSubtext: '$290/yr',
     priceId: this.paddleConfig.proPriceIdMonthly,
     idealFor: 'Live training and curriculum for shipping SaaS',
     features: [],
@@ -536,11 +572,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     { label: 'Priority support', free: false },
   ];
 
-  /** Whether the viewer already holds the Builders plan (or legacy Pro). */
-  public readonly isProUser = computed(() => {
-    const tier = this.subscriptionContext().currentPlanTier;
-    return tier === 'builders' || tier === 'pro';
-  });
+  /** Whether the viewer already holds the Builders plan. */
+  public readonly isProUser = computed(
+    () => this.subscriptionContext().currentPlanTier === 'builders',
+  );
 
   /** Fragment on the landing page where the Builders waitlist form is mounted. */
   public readonly buildersWaitlistHref = '/#waitlist';
@@ -590,7 +625,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       environment.buildersCheckoutEnabled &&
       !isPortalAction(this.buildersCtaVariant())
     ) {
-      return isPriceIdPlaceholder(this.proPlan.priceId);
+      return isPriceIdPlaceholder(this.activeCheckoutPriceId());
     }
     return false;
   });
@@ -628,7 +663,20 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       .fetchSubscriptionState()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe();
-    const planKey = this.route.snapshot.queryParamMap.get('autoCheckout');
+
+    const params = this.route.snapshot.queryParamMap;
+    if (params.get('promo') === 'founding') {
+      this.isFoundingPromo.set(true);
+      if (params.get('cycle') === 'yearly') {
+        this.foundingCycle.set('yearly');
+      }
+      const discountId = params.get('d');
+      if (discountId) {
+        this.foundingDiscountId.set(discountId);
+      }
+    }
+
+    const planKey = params.get('autoCheckout');
     if (planKey) {
       this.triggerAutoCheckout(planKey);
     }
@@ -656,7 +704,9 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Trigger auto-checkout after returning from login
    * Waits for Paddle to be ready, then opens checkout for the specified plan
    *
-   * TASK_2025_128: Only the Pro plan key exists - Community is free with no checkout
+   * Only the Builders plan keys exist - Community is free with no checkout.
+   * Plan keys mirror the license-server's VALID_PLAN_KEYS
+   * (auth.controller.ts): 'builders-monthly' | 'builders-yearly'.
    *
    * Builders checkout is gated behind `environment.buildersCheckoutEnabled`:
    * while closed, this bails out immediately rather than silently retrying -
@@ -669,12 +719,15 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       );
       return;
     }
-    const validPlanKeys = ['pro-monthly'];
+    const validPlanKeys = ['builders-monthly', 'builders-yearly'];
     if (!validPlanKeys.includes(planKey)) {
       this.autoCheckoutError.set(
         'Invalid checkout plan. Please select a plan manually.',
       );
       return;
+    }
+    if (planKey === 'builders-yearly') {
+      this.foundingCycle.set('yearly');
     }
     this.autoCheckoutError.set(null);
     const plan = this.proPlan;
@@ -683,10 +736,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       if (this.isPaddleReady()) {
         this.clearAutoCheckoutInterval();
         const ctx = this.subscriptionContext();
-        if (
-          ctx.isAuthenticated &&
-          (ctx.currentPlanTier === 'builders' || ctx.currentPlanTier === 'pro')
-        ) {
+        if (ctx.isAuthenticated && ctx.currentPlanTier === 'builders') {
           this.router.navigate([], {
             relativeTo: this.route,
             queryParams: { autoCheckout: null },
@@ -758,8 +808,8 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   /**
    * Handle CTA button click from plan card
    *
-   * TASK_2025_128: Community plan uses 'download' action (opens VS Code marketplace).
-   * Pro plan uses 'checkout' action (opens Paddle checkout).
+   * Community plan uses 'download' action (opens VS Code marketplace).
+   * Builders plan uses 'checkout' action (opens Paddle checkout).
    */
   public handleCtaClick(plan: PricingPlan): void {
     this.clearAutoCheckoutInterval();
@@ -770,6 +820,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
         );
         return;
       }
+      const planKey =
+        this.foundingCycle() === 'yearly'
+          ? 'builders-yearly'
+          : 'builders-monthly';
       this.authService
         .isAuthenticated()
         .pipe(takeUntilDestroyed(this.destroyRef))
@@ -779,7 +833,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
               this.router.navigate(['/login'], {
                 queryParams: {
                   returnUrl: '/pricing',
-                  plan: 'pro-monthly',
+                  plan: planKey,
                 },
               });
               return;
@@ -790,13 +844,24 @@ export class PricingGridComponent implements OnInit, OnDestroy {
             this.router.navigate(['/login'], {
               queryParams: {
                 returnUrl: '/pricing',
-                plan: 'pro-monthly',
+                plan: planKey,
               },
             });
           },
         });
     }
   }
+
+  /**
+   * The Paddle price id to check out with: yearly when the founding-invite
+   * `?cycle=yearly` param was present, monthly otherwise (the only cadence
+   * reachable from the matrix's single CTA absent a promo link).
+   */
+  private readonly activeCheckoutPriceId = computed(() =>
+    this.foundingCycle() === 'yearly'
+      ? this.paddleConfig.proPriceIdYearly
+      : this.proPlan.priceId,
+  );
 
   /**
    * Proceed with Paddle checkout (called after auth check passes)
@@ -812,7 +877,8 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       );
       return;
     }
-    if (!plan.priceId) {
+    const priceId = this.activeCheckoutPriceId();
+    if (!priceId) {
       this.configError.set(
         'Price configuration error. Please contact support.',
       );
@@ -826,8 +892,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       this.paddleService.setLoadingPlan(null);
       this.loadingTimeoutId = null;
     }, this.CHECKOUT_TIMEOUT);
-    const priceId = plan.priceId;
-    const discountCode = this.promoCode() || undefined;
+    // A founding-invite discount id (from the `?d=` launch-email link) wins
+    // over a manually-entered promo code.
+    const discountCode =
+      this.foundingDiscountId() ?? (this.promoCode() || undefined);
 
     this.authService
       .getCurrentUser()

@@ -41,10 +41,10 @@ export const environment = {
     /** Client-side token for Paddle.js SDK (sandbox) */
     token: 'test_4cc7e17dbf1a71a998fa7e12e31',
 
-    /** Price ID for the Ptah Builders monthly membership - Paddle sandbox */
-    proPriceIdMonthly: 'pri_01kfr72reygmkapd0vtynrswm4',
-    /** Legacy yearly price ID, no longer offered - Paddle sandbox */
-    proPriceIdYearly: 'pri_01kfr76e7fz41sp05w74jy4fx6',
+    /** Ptah Builders monthly membership ($29/mo) - Paddle sandbox */
+    proPriceIdMonthly: 'pri_01kxx5bgmepb6w0y43sqk7szaz',
+    /** Ptah Builders yearly membership ($290/yr) - Paddle sandbox */
+    proPriceIdYearly: 'pri_01kxx5eb8m36kn6t3h1ss8dy0b',
     /** Price ID for one-time session payment ($100 per 2-hour session) - Paddle sandbox */
     sessionPriceId: 'pri_SESSION_SANDBOX_PLACEHOLDER',
   },

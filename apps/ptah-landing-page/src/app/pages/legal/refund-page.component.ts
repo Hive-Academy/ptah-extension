@@ -37,9 +37,9 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             <p class="text-white/40">Last Updated: July 2026</p>
           </div>
 
-          <!-- 1. Free Trial -->
+          <!-- 1. Scope of This Policy -->
           <section
-            id="free-trial"
+            id="scope"
             viewportAnimation
             [viewportConfig]="sectionConfig"
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
@@ -49,32 +49,11 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
               Ptah is free and open source -- the full coding orchestra works
-              without any payment. This Refund Policy only applies to money that
-              has actually been charged: legacy Pro subscriptions billed before
-              Pro was retired to new subscribers, and, once it launches, paid
+              without any payment, for free, forever. This Refund Policy only
+              applies to money actually charged for a paid
               <strong class="text-white/90">Ptah Builders</strong>
-              membership billing.
-              <!-- LEGAL REVIEW: define the specific refund window and terms
-              for Ptah Builders once checkout opens; today they default to
-              the same rules as legacy Pro below. -->
+              membership.
             </p>
-            <p class="text-white/70 mb-4 leading-relaxed">
-              Legacy Pro included a
-              <strong class="text-white/90">100-day free trial</strong>. Trials
-              already granted continue under their original terms:
-            </p>
-            <ul
-              class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
-            >
-              <li>No payment information was required to start the trial</li>
-              <li>Trial users have full access to all Pro features</li>
-              <li>
-                At the end of the trial, you can choose to subscribe or your
-                account will revert to the Community (free) plan, which remains
-                fully functional
-              </li>
-              <li>No charges are made during the trial period</li>
-            </ul>
           </section>
 
           <!-- 2. Refund Eligibility -->
@@ -88,28 +67,22 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               2. Refund Eligibility
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              We want you to be satisfied with Ptah. If a paid subscription
-              (legacy Pro today, or Ptah Builders once it launches) does not
-              meet your expectations, you may request a refund under the
-              following conditions:
+              We want you to be satisfied with Ptah Builders. Your
+              <strong class="text-white/90">first charge</strong> -- whether
+              monthly or yearly -- is covered by a
+              <strong class="text-white/90">30-day money-back guarantee</strong
+              >: if it doesn't meet your expectations, request a full refund
+              within 30 days of that first payment, no questions asked.
             </p>
-            <ul
-              class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
-            >
-              <li>
-                <strong class="text-white/90">Monthly plans:</strong> Refund
-                requests must be submitted within
-                <strong class="text-white/90">14 days</strong> of your first
-                payment
-              </li>
-              <li>
-                <strong class="text-white/90">Annual plans:</strong> Refund
-                requests must be submitted within
-                <strong class="text-white/90">14 days</strong> of your first
-                payment for a full refund, or a pro-rated refund may be issued
-                for unused months if requested within the first 3 months
-              </li>
-            </ul>
+            <p class="text-white/70 leading-relaxed">
+              <strong class="text-white/90"
+                >Renewals are non-refundable.</strong
+              >
+              Once your first 30-day window has passed, subsequent billing
+              cycles (monthly or annual renewals) are not eligible for a refund.
+              You can cancel at any time to stop future renewals -- see Section
+              5 below.
+            </p>
           </section>
 
           <!-- 3. How to Request -->
@@ -177,42 +150,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             </p>
           </section>
 
-          <!-- 5. Pro-Rated Refunds -->
-          <section
-            id="pro-rated-refunds"
-            viewportAnimation
-            [viewportConfig]="sectionConfig"
-            class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
-          >
-            <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              5. Pro-Rated Refunds for Annual Plans
-            </h2>
-            <p class="text-white/70 mb-4 leading-relaxed">
-              If you are on a legacy Pro annual plan and request a refund after
-              the initial 14-day window but within the first 3 months:
-            </p>
-            <ul
-              class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
-            >
-              <li>
-                A pro-rated refund will be calculated based on the remaining
-                unused months of your subscription
-              </li>
-              <li>
-                The refund amount will be the annual fee minus the cost of
-                months used at the legacy Pro monthly rate ($5/month)
-              </li>
-              <li>
-                Pro-rated refunds are issued at our discretion and evaluated on
-                a case-by-case basis
-              </li>
-            </ul>
-            <!-- LEGAL REVIEW: define pro-rated refund math for Ptah Builders
-            annual plans once its pricing is finalized; it will differ from
-            the legacy Pro $5/month rate above. -->
-          </section>
-
-          <!-- 6. Non-Refundable -->
+          <!-- 5. Non-Refundable -->
           <section
             id="non-refundable"
             viewportAnimation
@@ -220,7 +158,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              6. Non-Refundable Scenarios
+              5. Non-Refundable Scenarios
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
               Refunds will not be issued in the following cases:
@@ -228,9 +166,11 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             <ul
               class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
             >
+              <li>Requests made more than 30 days after your first payment</li>
               <li>
-                Requests made more than 14 days after payment (for monthly
-                plans) or more than 3 months after payment (for annual plans)
+                Any renewal charge (monthly or annual) after the first billing
+                cycle -- renewals are non-refundable, though you can cancel
+                anytime to stop future charges
               </li>
               <li>
                 Accounts terminated due to violations of our
@@ -241,14 +181,10 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
                 >
               </li>
               <li>Requests from users who have previously received a refund</li>
-              <li>
-                Failure to cancel before the next billing cycle (unused
-                subscription time after a billing renewal)
-              </li>
             </ul>
           </section>
 
-          <!-- 7. Processing Time -->
+          <!-- 6. Processing Time -->
           <section
             id="processing-time"
             viewportAnimation
@@ -256,7 +192,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              7. Processing Time
+              6. Processing Time
             </h2>
             <p class="text-white/70 leading-relaxed">
               Once a refund is approved, it typically takes
@@ -267,7 +203,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             </p>
           </section>
 
-          <!-- 8. Contact -->
+          <!-- 7. Contact -->
           <section
             id="contact"
             viewportAnimation
@@ -275,7 +211,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              8. Contact Information
+              7. Contact Information
             </h2>
             <p class="text-white/70 leading-relaxed">
               If you have questions about our refund policy, please contact us:
@@ -331,7 +267,7 @@ export class RefundPageComponent {
     inject(SeoService).setPage({
       title: 'Refund Policy — Ptah',
       description:
-        'Refund terms for legacy Ptah Pro subscriptions and Ptah Builders membership billing, processed through Paddle.',
+        'Refund terms for Ptah Builders membership billing: a 30-day money-back guarantee on your first charge, processed through Paddle.',
       url: 'https://ptah.live/refund',
     });
   }

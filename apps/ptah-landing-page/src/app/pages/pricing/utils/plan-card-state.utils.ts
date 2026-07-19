@@ -22,11 +22,11 @@ import {
  * context. The capability matrix only ever renders one premium column, so
  * this no longer takes a `planTier` parameter.
  *
- * - 'start-trial': No premium access yet (anonymous, Community, or an
- *   unconverted trial) - joins the waitlist or opens checkout depending on
- *   the `buildersCheckoutEnabled` flag.
+ * - 'join': No premium access yet (anonymous or Community) - joins the
+ *   waitlist or opens checkout depending on the `buildersCheckoutEnabled`
+ *   flag.
  * - 'current-plan' / 'reactivate' / 'update-payment' / 'resume': The viewer
- *   already holds Builders (or legacy Pro) access - always opens the
+ *   already holds an active Builders subscription - always opens the
  *   customer portal, never checkout, regardless of the flag.
  *
  * @param context - Subscription context from service
@@ -35,15 +35,10 @@ import {
 export function computeCtaVariant(
   context: PlanSubscriptionContext | null,
 ): PlanCtaVariant {
-  if (!context?.isAuthenticated) return 'start-trial';
+  if (!context?.isAuthenticated) return 'join';
 
-  const hasPremium =
-    context.currentPlanTier === 'builders' || context.currentPlanTier === 'pro';
-  if (!hasPremium) return 'start-trial';
-
-  // An unconverted trial still needs to acquire paid access, same flow as a
-  // brand-new signup (join waitlist / checkout), not the management portal.
-  if (context.isOnTrial) return 'start-trial';
+  const hasPremium = context.currentPlanTier === 'builders';
+  if (!hasPremium) return 'join';
 
   if (context.subscriptionStatus === 'paused') return 'resume';
   if (context.subscriptionStatus === 'canceled') return 'reactivate';
@@ -72,7 +67,7 @@ export function computeCtaText(
       return 'Update Payment';
     case 'resume':
       return 'Resume Subscription';
-    case 'start-trial':
+    case 'join':
     default:
       return checkoutEnabled
         ? 'Join Ptah Builders'
@@ -103,7 +98,7 @@ export function computeCtaButtonClass(
       return 'bg-warning/20 text-warning border border-warning/30 hover:bg-warning/30 cursor-pointer';
     case 'update-payment':
       return 'bg-error/20 text-error border border-error/30 hover:bg-error/30 cursor-pointer';
-    case 'start-trial':
+    case 'join':
     default:
       return 'bg-gradient-to-r from-amber-500 to-secondary text-base-100 shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40 cursor-pointer';
   }

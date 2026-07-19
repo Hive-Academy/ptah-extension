@@ -59,6 +59,23 @@
                   }
                 }
                 @case ('datetime') {
+                  @if (col.key === 'notifiedAt') {
+                    @let status = waitlistStatus(row);
+                    <span
+                      class="badge badge-sm mr-1"
+                      [class.badge-ghost]="status === 'new'"
+                      [class.badge-info]="status === 'invited'"
+                      [class.badge-success]="status === 'converted'"
+                    >
+                      {{
+                        status === 'new'
+                          ? 'New'
+                          : status === 'invited'
+                            ? 'Invited'
+                            : 'Converted'
+                      }}
+                    </span>
+                  }
                   @if (asDate(cellValue(row, col.key)); as v) {
                     <span class="whitespace-nowrap text-xs">{{
                       v | date: 'medium'

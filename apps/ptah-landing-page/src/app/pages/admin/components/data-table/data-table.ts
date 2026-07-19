@@ -46,7 +46,6 @@ export interface DataTablePageEvent {
   templateUrl: './data-table.html',
 })
 export class DataTable {
-
   /** Ordered column specs (full model field list — we filter `listColumn` internally). */
   public readonly columns = input.required<readonly FieldSpec[]>();
 
@@ -132,6 +131,18 @@ export class DataTable {
 
   protected isTruthy(value: unknown): boolean {
     return value === true || value === 'true' || value === 1 || value === '1';
+  }
+
+  /**
+   * Waitlist row lifecycle status, derived from `notifiedAt`/`convertedAt`.
+   * Only meaningful for the `waitlist` model — its `notifiedAt` column is
+   * the sole listColumn using this key, so the special case in the template
+   * is scoped there.
+   */
+  protected waitlistStatus(row: unknown): 'new' | 'invited' | 'converted' {
+    if (this.cellValue(row, 'convertedAt') != null) return 'converted';
+    if (this.cellValue(row, 'notifiedAt') != null) return 'invited';
+    return 'new';
   }
 
   /**

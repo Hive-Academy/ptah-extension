@@ -3,9 +3,11 @@
  *
  * Data model for pricing plan cards.
  *
- * TASK_2025_128: Freemium Model Conversion
  * - Community: FREE forever (no Paddle, install from VS Code marketplace)
- * - Ptah Builders: founding-member monthly membership (Paddle checkout)
+ * - Ptah Builders: paid membership (Paddle checkout), $29/mo or $290/yr list
+ *   price. Founding waitlist members get a launch discount (35% off monthly
+ *   for 12 cycles, 50% off yearly for the first year) applied via a Paddle
+ *   discount id passed through the `?promo=founding` checkout flow.
  *
  * Evidence: TASK_2025_121 - Two-Tier Paid Extension Model
  * Evidence: TASK_2025_128 - Freemium Model Conversion
@@ -14,12 +16,8 @@ export interface PricingPlan {
   /** Display name (e.g., "Community", "Ptah Builders") */
   name: string;
 
-  /**
-   * Tier identifier for programmatic use.
-   * 'builders' is the current premium tier being sold; 'pro' is kept for
-   * typing legacy paying/trialing subscribers (drains naturally, never sold).
-   */
-  tier: 'community' | 'builders' | 'pro';
+  /** Tier identifier for programmatic use. There are no legacy tiers. */
+  tier: 'community' | 'builders';
 
   /** Display price (e.g., "Free", "$5", "$50") */
   price: string;
@@ -47,7 +45,7 @@ export interface PricingPlan {
 
   /**
    * CTA action type
-   * - 'checkout': Opens Paddle checkout flow (Pro plan)
+   * - 'checkout': Opens Paddle checkout flow (Builders plan)
    * - 'download': Opens VS Code marketplace (Community plan)
    */
   ctaAction: 'checkout' | 'download';
@@ -55,11 +53,8 @@ export interface PricingPlan {
   /** Whether this plan should be highlighted (default: false) */
   highlight?: boolean;
 
-  /** Badge asset filename (e.g., "plan_badge_pro.png") */
+  /** Badge asset filename (e.g., "plan_badge_builders.png") */
   badge?: string;
-
-  /** Trial period in days (e.g., 14) - only for Pro plan */
-  trialDays?: number;
 }
 
 /**
@@ -85,10 +80,9 @@ export type ValidSubscriptionStatus =
  * Provides subscription state information to plan card components
  * for determining CTA button state and visual styling.
  *
- * TASK_2025_128: Updated for freemium model
  * - Community tier is FREE (no subscription required)
- * - Builders tier requires a Paddle subscription ('pro' is the legacy alias
- *   for existing paying/trialing subscribers, draining naturally)
+ * - Builders tier requires a Paddle subscription. There is no trial and no
+ *   legacy tier — zero paying subscribers exist pre-launch.
  *
  * @remarks
  * Used by: PricingGridComponent (unified Free-vs-Builders capability matrix)
@@ -106,26 +100,12 @@ export interface PlanSubscriptionContext {
    *
    * - 'community': Free tier (no subscription required)
    * - 'builders': Active Ptah Builders subscription
-   * - 'pro': Legacy active Pro subscription (draining, treated as premium)
    * - null: Unknown/loading state
    */
-  currentPlanTier: 'community' | 'builders' | 'pro' | null;
-
-  /**
-   * Whether user is on trial.
-   * True if plan starts with 'trial_' prefix.
-   */
-  isOnTrial: boolean;
-
-  /**
-   * Days remaining in trial (null if not on trial).
-   * Can be 0 or negative if trial has expired but data not yet updated.
-   */
-  trialDaysRemaining: number | null;
+  currentPlanTier: 'community' | 'builders' | null;
 
   /**
    * Subscription status from Paddle.
-   * Note: 'trialing' is a Paddle status but we detect trials via plan prefix instead.
    * Validated at runtime to ensure only known statuses are used.
    */
   subscriptionStatus: ValidSubscriptionStatus | null;
@@ -137,10 +117,9 @@ export interface PlanSubscriptionContext {
   periodEndDate: string | null;
 
   /**
-   * License reason from API (e.g., 'trial_ended').
-   * TASK_2025_143: Used to show trial ended message in Community card.
+   * License reason from API when access has lapsed.
    */
-  licenseReason?: string;
+  licenseReason?: 'expired';
 }
 
 /**
@@ -151,19 +130,19 @@ export interface PlanSubscriptionContext {
  *
  * @example
  * ```typescript
- * const variant: PlanCtaVariant = 'start-trial';
+ * const variant: PlanCtaVariant = 'join';
  * ```
  */
 export type PlanCtaVariant =
   /**
-   * No premium access yet (anonymous, Community-only, or an unconverted
-   * trial). Renders "Join the Builders Waitlist" while checkout is closed,
-   * or "Join Ptah Builders" (opens Paddle checkout) once it opens.
+   * No premium access yet (anonymous or Community-only). Renders "Join the
+   * Builders Waitlist" while checkout is closed, or "Join Ptah Builders"
+   * (opens Paddle checkout) once it opens.
    */
-  | 'start-trial'
+  | 'join'
   /**
-   * User already has premium access (Builders or legacy Pro), active and in
-   * good standing - opens the subscription management portal.
+   * User already has an active Builders subscription in good standing -
+   * opens the subscription management portal.
    */
   | 'current-plan'
   /**

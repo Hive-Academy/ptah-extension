@@ -147,14 +147,22 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             </p>
             <p class="text-white/70 mb-4 leading-relaxed">
               <strong class="text-white/90">Ptah Builders</strong> is a paid
-              membership for people who want to help fund development and get
-              early access to new capabilities. Builders is not yet open for
-              purchase; you can join the waitlist to be notified when it
-              launches, and pricing will be published here once checkout is
-              live.
-              <!-- LEGAL REVIEW: confirm final Builders pricing, benefits, and
-              billing terms before checkout opens; this section should be
-              expanded to match plans.config.ts at that time. -->
+              membership priced at
+              <strong class="text-white/90">$29 per month</strong> or
+              <strong class="text-white/90">$290 per year</strong>. Builders is
+              not yet open for self-serve purchase.
+            </p>
+            <p class="text-white/70 mb-4 leading-relaxed">
+              If you join the Ptah Builders waitlist before checkout opens, you
+              become a
+              <strong class="text-white/90">founding member</strong> and receive
+              a discount invite when Builders launches:
+              <strong class="text-white/90">35% off the monthly price</strong>
+              for your first 12 billing cycles, or
+              <strong class="text-white/90">50% off the yearly price</strong>
+              for your first year. The founding discount applies only to the
+              billing cycle(s) stated above; renewals after that period bill at
+              the then-current list price.
             </p>
             <p class="text-white/70 mb-4 leading-relaxed">
               Any active paid subscription is processed by
@@ -166,50 +174,13 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             <p class="text-white/70 leading-relaxed">
               Paid subscriptions automatically renew at the end of each billing
               period. You may cancel your subscription at any time through your
-              account settings or by contacting us. Cancellation takes effect at
-              the end of the current billing period.
+              account settings or by contacting us -- cancellation takes effect
+              at the end of the current billing period, and you retain access
+              until then.
             </p>
           </section>
 
-          <!-- 5. Legacy Pro Subscriptions -->
-          <section
-            id="free-trial"
-            viewportAnimation
-            [viewportConfig]="sectionConfig"
-            class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
-          >
-            <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              5. Legacy Pro Subscriptions
-            </h2>
-            <p class="text-white/70 mb-4 leading-relaxed">
-              Ptah previously sold a Pro plan ($5/month or $50/year), including
-              a 100-day free trial. Pro is retired and is no longer offered to
-              new subscribers. If you subscribed to Pro, or are still within a
-              100-day trial that was already granted to you, your account keeps
-              working under the terms in effect when you signed up until you
-              cancel or the subscription otherwise ends -- we will not change
-              your price or downgrade your access unilaterally.
-            </p>
-            <ul
-              class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
-            >
-              <li>
-                If your Pro trial ends without a paid subscription, your account
-                reverts to the Community (free) plan -- which remains fully
-                functional
-              </li>
-              <li>
-                Legacy Pro subscribers may cancel at any time through their
-                account settings or by contacting support
-              </li>
-              <li>
-                Legacy Pro terms do not carry forward into Ptah Builders;
-                Builders will have its own terms published when it launches
-              </li>
-            </ul>
-          </section>
-
-          <!-- 6. Acceptable Use -->
+          <!-- 5. Acceptable Use -->
           <section
             id="acceptable-use"
             viewportAnimation
@@ -217,7 +188,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              6. Acceptable Use Policy
+              5. Acceptable Use Policy
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
               You agree not to use the Service to:
@@ -253,7 +224,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              7. Intellectual Property Rights
+              6. Intellectual Property Rights
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
               The Service, including all software, design, text, graphics, and
@@ -277,7 +248,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              8. Limitation of Liability
+              7. Limitation of Liability
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
               To the maximum extent permitted by applicable law, Ptah Extension
@@ -304,7 +275,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              9. Termination
+              8. Termination
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
               We may suspend or terminate your access to the Service at any time
@@ -334,7 +305,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              10. Changes to Terms
+              9. Changes to Terms
             </h2>
             <p class="text-white/70 leading-relaxed">
               We reserve the right to modify these Terms at any time. We will
@@ -353,7 +324,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              11. Governing Law
+              10. Governing Law
             </h2>
             <p class="text-white/70 leading-relaxed">
               These Terms shall be governed by and construed in accordance with
@@ -372,7 +343,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              12. Contact Information
+              11. Contact Information
             </h2>
             <p class="text-white/70 leading-relaxed">
               If you have questions about these Terms, please contact us:

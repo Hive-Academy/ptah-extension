@@ -41,7 +41,7 @@ export class AuthApiService {
    * Login with email and password
    */
   public loginWithEmail(
-    request: LoginRequest
+    request: LoginRequest,
   ): Observable<AuthSuccessResponse> {
     return this.http
       .post<AuthSuccessResponse>(`${this.baseUrl}/login/email`, request)
@@ -62,7 +62,7 @@ export class AuthApiService {
    * Verify email with 6-digit code
    */
   public verifyEmail(
-    request: VerifyEmailRequest
+    request: VerifyEmailRequest,
   ): Observable<AuthSuccessResponse> {
     return this.http
       .post<AuthSuccessResponse>(`${this.baseUrl}/verify-email`, request)
@@ -73,12 +73,12 @@ export class AuthApiService {
    * Resend verification code
    */
   public resendVerificationCode(
-    request: ResendVerificationRequest
+    request: ResendVerificationRequest,
   ): Observable<ResendVerificationResponse> {
     return this.http
       .post<ResendVerificationResponse>(
         `${this.baseUrl}/resend-verification`,
-        request
+        request,
       )
       .pipe(catchError(this.handleError));
   }
@@ -87,7 +87,7 @@ export class AuthApiService {
    * Request magic link for passwordless login
    */
   public requestMagicLink(
-    request: MagicLinkRequest
+    request: MagicLinkRequest,
   ): Observable<MagicLinkResponse> {
     return this.http
       .post<MagicLinkResponse>(`${this.baseUrl}/magic-link`, request)
@@ -100,12 +100,12 @@ export class AuthApiService {
    *
    * @param provider - OAuth provider (github, google)
    * @param returnUrl - Optional URL path to redirect to after auth
-   * @param plan - Optional plan key for auto-checkout (e.g., 'pro-monthly', 'pro-yearly')
+   * @param plan - Optional plan key for auto-checkout (e.g., 'builders-monthly', 'builders-yearly')
    */
   public redirectToOAuth(
     provider: OAuthProvider,
     returnUrl?: string | null,
-    plan?: string | null
+    plan?: string | null,
   ): void {
     let url = `${environment.apiBaseUrl}${this.baseUrl}/oauth/${provider}`;
     const params = new URLSearchParams();
@@ -133,7 +133,7 @@ export class AuthApiService {
    */
   public loginWithGitHub(
     returnUrl?: string | null,
-    plan?: string | null
+    plan?: string | null,
   ): void {
     this.redirectToOAuth('github', returnUrl, plan);
   }
@@ -146,7 +146,7 @@ export class AuthApiService {
    */
   public loginWithGoogle(
     returnUrl?: string | null,
-    plan?: string | null
+    plan?: string | null,
   ): void {
     this.redirectToOAuth('google', returnUrl, plan);
   }

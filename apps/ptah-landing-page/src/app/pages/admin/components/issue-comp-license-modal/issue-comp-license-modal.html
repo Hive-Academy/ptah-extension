@@ -2,7 +2,7 @@
 <dialog class="modal modal-open">
   <div class="modal-box max-w-lg">
     <h3 class="font-bold text-lg">Issue Complimentary License</h3>
-    <p class="py-2 text-sm opacity-70">Give <strong>{{ userEmail() }}</strong> a Pro license for free.</p>
+    <p class="py-2 text-sm opacity-70">Give <strong>{{ userEmail() }}</strong> a complimentary Builders membership for free.</p>
 
     @if (!result()) {
       <div class="space-y-4 my-4">
@@ -41,7 +41,7 @@
         <div class="space-y-2 pt-2">
           <label class="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" [checked]="sendEmail()" (change)="sendEmail.set(!sendEmail())" />
-            <span>Send automated "Welcome to Pro" email</span>
+            <span>Send automated "Welcome to Builders" email</span>
           </label>
           <label class="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" [checked]="stackOnTopOfPaid()" (change)="stackOnTopOfPaid.set(!stackOnTopOfPaid())" />
@@ -71,7 +71,7 @@
         </div>
         <div>
           <h4 class="font-bold text-xl">License Issued!</h4>
-          <p class="text-sm opacity-70">A complimentary Pro license has been generated.</p>
+          <p class="text-sm opacity-70">A complimentary Builders license has been generated.</p>
         </div>
 
         <div class="w-full bg-base-200 p-4 rounded-lg font-mono text-sm break-all relative group">

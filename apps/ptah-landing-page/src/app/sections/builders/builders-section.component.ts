@@ -96,10 +96,11 @@ interface ValueProp {
               </p>
 
               <div
-                class="mt-6 rounded-xl border border-ink-800 bg-ink-950/50 p-4"
+                class="mt-6 rounded-xl border border-ink-800 bg-ink-950/50 p-4 space-y-1.5"
               >
-                <p class="font-mono text-sm text-amber-500">
-                  {{ foundingPrice }}
+                <p class="font-mono text-sm text-amber-500">{{ listPrice }}</p>
+                <p class="text-xs text-ink-400 leading-relaxed">
+                  {{ foundingOffer }}
                 </p>
               </div>
 
@@ -288,15 +289,18 @@ export class BuildersSectionComponent {
   protected readonly checkIcon = Check;
 
   /** Verbatim copy from the S8.5 "Ptah Builders" content spec. */
-  protected readonly eyebrow = 'PTAH BUILDERS';
+  protected readonly eyebrow = 'PTAH BUILDERS — FOUNDING WAITLIST';
   protected readonly headline =
     'Ship Production SaaS Faster — With Builders Who Have Already Done It.';
   protected readonly subhead =
     'Ptah the app is free and open source. Ptah Builders is where you go deeper: live build sessions, a PRD-to-production curriculum, and the delivery patterns other builders have already turned into skills.';
-  protected readonly foundingPrice =
-    'Founding-member pricing: $29 to $49 per month — locked in for early members.';
+  /** List pricing once Builders checkout opens. */
+  protected readonly listPrice = '$29/mo or $290/yr at launch.';
+  /** Founding-waitlist discount terms, applied automatically at launch invite. */
+  protected readonly foundingOffer =
+    'Join the waitlist now to lock in a founding-member spot: 35% off monthly (first 12 months) or 50% off yearly (first year) when Builders opens, plus early access.';
   protected readonly reassurance =
-    "We'll email you when Builders opens. No spam, no community platform yet — just the waitlist.";
+    "Membership isn't purchasable yet — join the waitlist and we'll email your founding invite (with a 30-day money-back guarantee) the moment it opens. No spam.";
   protected readonly ctaLabel = 'Join the Waitlist';
   protected readonly ctaHref = '#waitlist';
   protected readonly ctaAria = 'Join the Ptah Builders waitlist';

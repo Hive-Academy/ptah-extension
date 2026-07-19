@@ -19,7 +19,7 @@ import { AuthService } from './auth.service';
  * Usage:
  * - Inject into PricingGridComponent
  * - Call fetchSubscriptionState() and subscribe with takeUntilDestroyed
- * - Use computed signals (currentPlanTier, isOnTrial, etc.) for UI logic
+ * - Use computed signals (currentPlanTier, subscriptionStatus, etc.) for UI logic
  */
 @Injectable({ providedIn: 'root' })
 export class SubscriptionStateService {
@@ -37,60 +37,21 @@ export class SubscriptionStateService {
   /**
    * Computed: Current plan tier (normalized)
    *
-   * Open-source + Ptah Builders model:
-   * - Maps 'builders' AND the legacy 'pro'/'trial_pro' plans to 'pro' — this
-   *   service's public return shape is display-mapping only and stays
-   *   'community' | 'pro' | null for existing consumers (e.g. the pricing
-   *   page's "already subscribed" checks); 'pro' here means "holds any
-   *   Builders-equivalent membership", not literally the legacy Pro plan.
+   * Open-source + Ptah Builders model. There is no legacy tier and no
+   * trial — zero paying subscribers exist pre-launch.
    * - Returns null when data hasn't been fetched yet (loading/unknown state)
    * - Returns 'community' only when explicitly determined (no subscription after auth check)
    *
-   * @returns 'community' | 'pro' | null
+   * @returns 'community' | 'builders' | null
    */
-  public readonly currentPlanTier = computed<'community' | 'pro' | null>(() => {
-    if (!this._isFetched()) return null;
+  public readonly currentPlanTier = computed<'community' | 'builders' | null>(
+    () => {
+      if (!this._isFetched()) return null;
 
-    const data = this._licenseData();
-    if (!data?.plan) return 'community';
-    if (
-      data.plan === 'builders' ||
-      data.plan === 'pro' ||
-      data.plan === 'trial_pro'
-    ) {
-      return 'pro';
-    }
-    return 'community';
-  });
-
-  /**
-   * Computed: Is user on trial
-   *
-   * Returns true if user is actually on a trial, meaning:
-   * 1. Plan name starts with 'trial_' AND
-   * 2. Subscription status is NOT 'active' (active = paying customer)
-   *
-   * This prevents showing trial UI for users who have an active paid subscription
-   * even if their plan name wasn't updated from 'trial_pro' to 'pro'.
-   */
-  public readonly isOnTrial = computed(() => {
-    const data = this._licenseData();
-    const hasTrial = data?.plan?.startsWith('trial_') ?? false;
-    const isActiveSubscription = data?.subscription?.status === 'active';
-    return hasTrial && !isActiveSubscription;
-  });
-
-  /**
-   * Computed: Days remaining in trial
-   *
-   * Returns the number of days remaining in the trial period,
-   * or null if user is not on trial.
-   */
-  public readonly trialDaysRemaining = computed<number | null>(() => {
-    const data = this._licenseData();
-    if (!this.isOnTrial()) return null;
-    return data?.daysRemaining ?? null;
-  });
+      const data = this._licenseData();
+      return data?.plan === 'builders' ? 'builders' : 'community';
+    },
+  );
 
   /**
    * Computed: Subscription status
@@ -103,13 +64,13 @@ export class SubscriptionStateService {
   });
 
   /**
-   * Computed: Has active subscription (not trial)
+   * Computed: Has active subscription
    *
-   * Returns true if user has an active paid subscription (not on trial).
+   * Returns true if user has an active paid Builders subscription.
    */
   public readonly hasActiveSubscription = computed(() => {
     const data = this._licenseData();
-    return data?.subscription?.status === 'active' && !this.isOnTrial();
+    return data?.subscription?.status === 'active';
   });
 
   /**
@@ -152,17 +113,13 @@ export class SubscriptionStateService {
   /**
    * Computed: License reason
    *
-   * TASK_2025_143: Trial-ended notifications
    * Returns the reason for license status when not active:
-   * - 'trial_ended': Trial period has concluded
    * - 'expired': License/subscription has expired
    * - undefined: License is active
    *
-   * Note: Only these two values are returned by the backend.
+   * Note: Only this value is returned by the backend.
    */
-  public readonly licenseReason = computed<
-    'trial_ended' | 'expired' | undefined
-  >(() => {
+  public readonly licenseReason = computed<'expired' | undefined>(() => {
     return this._licenseData()?.reason;
   });
 

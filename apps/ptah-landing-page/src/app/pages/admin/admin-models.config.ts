@@ -51,6 +51,8 @@ export interface AdminModelSpec {
   searchPlaceholder: string;
   /** Enables the "Email Selected" bulk action on the list view. */
   supportsBulkEmail?: boolean;
+  /** Enables the "Send founding invites" bulk action on the list view. */
+  supportsWaitlistInvite?: boolean;
 }
 
 export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
@@ -277,34 +279,6 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
     ],
   },
   {
-    key: 'trial-reminders',
-    label: 'Trial Reminders',
-    readOnly: true,
-    searchPlaceholder: 'Search user ID, reminder type, email…',
-    fields: [
-      { key: 'id', label: 'ID', type: 'uuid', listColumn: false },
-      { key: 'userId', label: 'User ID', type: 'uuid', listColumn: true },
-      {
-        key: 'reminderType',
-        label: 'Type',
-        type: 'string',
-        listColumn: true,
-      },
-      {
-        key: 'emailSentTo',
-        label: 'Sent To',
-        type: 'string',
-        listColumn: true,
-      },
-      {
-        key: 'sentAt',
-        label: 'Sent At',
-        type: 'datetime',
-        listColumn: true,
-      },
-    ],
-  },
-  {
     key: 'session-requests',
     label: 'Session Requests',
     readOnly: false,
@@ -499,6 +473,7 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
     key: 'waitlist',
     label: 'Waitlist',
     readOnly: false,
+    supportsWaitlistInvite: true,
     searchPlaceholder: 'Search email, source…',
     fields: [
       { key: 'id', label: 'ID', type: 'string', listColumn: false },

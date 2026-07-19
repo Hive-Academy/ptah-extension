@@ -159,10 +159,12 @@ import {
 
           <!-- Membership Status -->
           <div class="p-6 text-center">
-            @if (isTrialEnded()) {
-              <div class="text-2xl font-bold text-error">Trial Ended</div>
+            @if (isExpired()) {
+              <div class="text-2xl font-bold text-error">
+                Membership Expired
+              </div>
               <p class="text-sm text-neutral-content mt-1">
-                Membership needs renewal
+                Renew to restore Builders access
               </p>
             } @else if (isActiveMember()) {
               <div class="text-2xl font-bold text-success">Active</div>
@@ -226,39 +228,37 @@ export class ProfileHeaderComponent {
   });
 
   /**
-   * Check if trial has ended (even if DB still shows trialing status)
+   * Check if the membership has expired.
    */
-  public isTrialEnded(): boolean {
-    return this.license()?.reason === 'trial_ended';
+  public isExpired(): boolean {
+    return this.license()?.reason === 'expired';
   }
 
   /**
-   * Whether the viewer holds an active Ptah Builders membership (current
-   * 'builders' plan, or a legacy 'pro'/'trial_pro' plan treated as
-   * Builders-equivalent), with no trial-ended/expired reason attached.
+   * Whether the viewer holds an active Ptah Builders membership, with no
+   * expired reason attached.
    */
   public isActiveMember(): boolean {
     return hasActiveMembership(this.license());
   }
 
   public getPlanBadgeClass(): string {
-    if (this.isTrialEnded()) return 'badge-error';
+    if (this.isExpired()) return 'badge-error';
     if (isBuildersTier(this.license()?.plan)) return 'badge-primary';
     return 'badge-secondary';
   }
 
   /**
-   * Get display name for the membership badge: 'Builder' for a Builders (or
-   * legacy Pro/trial Pro) plan, 'Community' otherwise, 'Trial Expired' once
-   * a trial has concluded.
+   * Get display name for the membership badge: 'Builder' for a Builders
+   * plan, 'Community' otherwise, 'Membership Expired' once it has lapsed.
    */
   public getPlanDisplayName(): string {
-    if (this.isTrialEnded()) return 'Trial Expired';
+    if (this.isExpired()) return 'Membership Expired';
     return isBuildersTier(this.license()?.plan) ? 'Builder' : 'Community';
   }
 
   public getStatusBadgeClass(): string {
-    if (this.isTrialEnded()) return 'badge-error';
+    if (this.isExpired()) return 'badge-error';
 
     const status = this.license()?.status;
     if (status === 'active') return 'badge-success';
@@ -267,7 +267,7 @@ export class ProfileHeaderComponent {
   }
 
   public getStatusLabel(): string {
-    if (this.isTrialEnded()) return 'Expired';
+    if (this.isExpired()) return 'Expired';
 
     const status = this.license()?.status;
     if (status === 'active') return 'Active';

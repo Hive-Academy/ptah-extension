@@ -120,10 +120,10 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             <p class="text-white/70 mb-6 leading-relaxed">
               Ptah is free and open source, and the extension works fully
               without any key. We store license/membership keys and subscription
-              status to identify your account and, for legacy Pro subscribers
-              and Ptah Builders members, to mark that membership -- not to gate
-              access to the Service. This data is linked to your account and
-              managed through our license server.
+              status to identify your account and, for Ptah Builders members, to
+              mark that membership -- not to gate access to the Service. This
+              data is linked to your account and managed through our license
+              server.
             </p>
 
             <h3 class="text-lg font-semibold text-white/90 mb-3">
@@ -157,12 +157,12 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               <li>Provide, maintain, and improve the Service</li>
               <li>Manage your account and process subscription transactions</li>
               <li>
-                Identify legacy Pro subscribers and Ptah Builders members via
-                license/membership keys (the Service itself is never gated)
+                Identify Ptah Builders members via license/membership keys (the
+                Service itself is never gated)
               </li>
               <li>
                 Send important service notifications (security alerts, billing
-                updates, legacy trial expiration reminders)
+                updates)
               </li>
               <li>
                 Contact you about Ptah Builders availability and pricing if you

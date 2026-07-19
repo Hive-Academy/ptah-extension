@@ -14,6 +14,7 @@ import { combineLatest, debounceTime, of, startWith, switchMap } from 'rxjs';
 import {
   AdminApiService,
   AdminBulkEmailResponse,
+  AdminInviteWaitlistResponse,
   AdminListQuery,
   AdminListResponse,
   AdminModelKey,
@@ -25,6 +26,7 @@ import {
   DataTablePageEvent,
   DataTableSortEvent,
 } from '../components/data-table/data-table';
+import { WaitlistInviteModal } from '../components/waitlist-invite-modal/waitlist-invite-modal';
 
 /**
  * AdminList — generic list page for any admin model.
@@ -43,7 +45,7 @@ import {
   selector: 'ptah-admin-list',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DataTable, BulkEmailModal],
+  imports: [DataTable, BulkEmailModal, WaitlistInviteModal],
   templateUrl: './admin-list.html',
   styleUrls: ['./admin-list.css'],
 })
@@ -81,7 +83,7 @@ export class AdminList {
   /** Raw search input (not debounced — the stream debounces it). */
   protected readonly search = signal<string>('');
 
-  /** Tracks the bulk-email selection for models with `supportsBulkEmail`. */
+  /** Tracks the row selection for models with `supportsBulkEmail` or `supportsWaitlistInvite`. */
   protected readonly selectedIds = signal<readonly string[]>([]);
 
   /** Whether the bulk-email modal is open. */
@@ -92,13 +94,23 @@ export class AdminList {
     null,
   );
 
+  /** Whether the waitlist founding-invite modal is open. */
+  protected readonly waitlistInviteOpen = signal<boolean>(false);
+
+  /** Most recent founding-invite result — drives the success toast. */
+  protected readonly waitlistInviteToast =
+    signal<AdminInviteWaitlistResponse | null>(null);
+
+  /** Bumped after a server-side mutation (e.g. waitlist invite) to force a re-fetch of the current page. */
+  private readonly refreshTick = signal<number>(0);
+
   /** Debounced search observable for use inside the list fetch chain. */
   private readonly search$ = toObservable(this.search).pipe(
     startWith(this.search()),
     debounceTime(300),
   );
 
-  /** Streams model + page + pageSize + sort + search → list API call. */
+  /** Streams model + page + pageSize + sort + search + refresh tick → list API call. */
   private readonly response$ = combineLatest([
     toObservable(this.modelKey),
     toObservable(this.page),
@@ -106,6 +118,7 @@ export class AdminList {
     toObservable(this.sortBy),
     toObservable(this.sortOrder),
     this.search$,
+    toObservable(this.refreshTick),
   ]).pipe(
     switchMap(([key, page, pageSize, sortBy, sortOrder, search]) => {
       if (!key) return of<AdminListResponse | null>(null);
@@ -143,6 +156,8 @@ export class AdminList {
       this.selectedIds.set([]);
       this.bulkEmailOpen.set(false);
       this.bulkEmailToast.set(null);
+      this.waitlistInviteOpen.set(false);
+      this.waitlistInviteToast.set(null);
       this.table()?.clearSelection();
     });
   }
@@ -215,6 +230,37 @@ export class AdminList {
     setTimeout(() => {
       if (this.bulkEmailToast() === result) {
         this.bulkEmailToast.set(null);
+      }
+    }, 6000);
+  }
+
+  /** Opens the waitlist founding-invite modal. */
+  protected onWaitlistInviteClick(): void {
+    this.waitlistInviteToast.set(null);
+    this.waitlistInviteOpen.set(true);
+  }
+
+  /** User dismissed the invite modal (X / Cancel / backdrop). */
+  protected onWaitlistInviteClose(): void {
+    this.waitlistInviteOpen.set(false);
+  }
+
+  /**
+   * Modal reported a successful invite send. Show a toast, clear the table
+   * selection, and refresh the current page so notifiedAt/status chips
+   * reflect the just-sent invites.
+   */
+  protected onWaitlistInviteSent(result: AdminInviteWaitlistResponse): void {
+    this.waitlistInviteToast.set(result);
+    this.selectedIds.set([]);
+    this.table()?.clearSelection();
+    this.refreshTick.update((v) => v + 1);
+    setTimeout(() => {
+      this.waitlistInviteOpen.set(false);
+    }, 1200);
+    setTimeout(() => {
+      if (this.waitlistInviteToast() === result) {
+        this.waitlistInviteToast.set(null);
       }
     }, 6000);
   }
