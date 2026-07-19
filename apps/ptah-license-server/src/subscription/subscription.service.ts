@@ -11,6 +11,11 @@ import {
 } from './dto';
 import { SubscriptionDbService } from './subscription-db.service';
 import {
+  isBuildersCheckoutEnabled,
+  getBuildersMonthlyPriceId,
+  getBuildersYearlyPriceId,
+} from '../config/checkout.config';
+import {
   PaddleSyncService,
   PaddleSubscriptionData,
 } from './paddle-sync.service';
@@ -109,6 +114,17 @@ export class SubscriptionService {
     this.logger.debug(
       `Validating checkout for user: ${userId}, priceId: ${priceId}`,
     );
+    if (!isBuildersCheckoutEnabled(this.configService)) {
+      this.logger.debug(
+        `Checkout disabled (BUILDERS_CHECKOUT_ENABLED=false) for user: ${userId}`,
+      );
+      return {
+        canCheckout: false,
+        reason: 'checkout_disabled',
+        message:
+          'Ptah Builders checkout is not open yet. Join the waitlist to get early access.',
+      };
+    }
 
     const status = await this.getStatus(userId);
     if (!status.hasSubscription || !status.subscription) {
@@ -424,9 +440,12 @@ export class SubscriptionService {
    * This allows the checkout to reuse the same customer,
    * preventing duplicate customers when re-subscribing.
    */
-  async getCheckoutInfo(
-    userId: string,
-  ): Promise<{ email: string; paddleCustomerId?: string }> {
+  async getCheckoutInfo(userId: string): Promise<{
+    email: string;
+    paddleCustomerId?: string;
+    checkoutEnabled: boolean;
+    reason?: 'checkout_disabled';
+  }> {
     this.logger.debug(`Getting checkout info for user: ${userId}`);
 
     const user = await this.dbService.findUserById(userId);
@@ -435,10 +454,18 @@ export class SubscriptionService {
       this.logger.warn(`User not found: ${userId}`);
       throw new Error('User not found');
     }
+    if (!isBuildersCheckoutEnabled(this.configService)) {
+      return {
+        email: user.email,
+        checkoutEnabled: false,
+        reason: 'checkout_disabled',
+      };
+    }
 
     return {
       email: user.email,
       paddleCustomerId: user.paddleCustomerId || undefined,
+      checkoutEnabled: true,
     };
   }
 
@@ -606,6 +633,15 @@ export class SubscriptionService {
     if (!priceId) return 'expired';
     if (priceId === 'auto_trial_pro') return 'pro';
 
+    const buildersMonthlyPriceId = getBuildersMonthlyPriceId(
+      this.configService,
+    );
+    const buildersYearlyPriceId = getBuildersYearlyPriceId(this.configService);
+
+    if (priceId === buildersMonthlyPriceId || priceId === buildersYearlyPriceId)
+      return 'builders';
+
+    // Legacy Pro price IDs — kept so existing subscribers still resolve.
     const proMonthlyPriceId = this.configService.get<string>(
       'PADDLE_PRICE_ID_PRO_MONTHLY',
     );
@@ -627,6 +663,7 @@ export class SubscriptionService {
     if (!priceId) return 'monthly';
 
     const yearlyPriceIds = [
+      getBuildersYearlyPriceId(this.configService),
       this.configService.get<string>('PADDLE_PRICE_ID_PRO_YEARLY'),
     ].filter(Boolean);
 

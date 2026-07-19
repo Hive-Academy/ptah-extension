@@ -69,7 +69,11 @@ export class ValidateCheckoutResponseDto {
   canCheckout!: boolean;
 
   /** Reason if checkout is blocked */
-  reason?: 'existing_subscription' | 'subscription_ending_soon' | 'none';
+  reason?:
+    | 'existing_subscription'
+    | 'subscription_ending_soon'
+    | 'checkout_disabled'
+    | 'none';
 
   /** Existing plan if blocking checkout */
   existingPlan?: string;

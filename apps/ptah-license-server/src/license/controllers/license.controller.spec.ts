@@ -1,4 +1,5 @@
 import type { Request } from 'express';
+import type { ConfigService } from '@nestjs/config';
 import { LicenseService } from '../services/license.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { VerifyLicenseDto } from '../dto/verify-license.dto';
@@ -89,9 +90,14 @@ describe('LicenseController', () => {
       downgradeToCommunity: jest.fn(),
     } as unknown as jest.Mocked<LicenseService>;
     prisma = createMockPrisma();
+    // ConfigService stub: BUILDERS_CHECKOUT_ENABLED unset ⇒ checkoutEnabled=false.
+    const configService = {
+      get: jest.fn().mockReturnValue(undefined),
+    } as unknown as ConfigService;
     controller = new LicenseController(
       licenseService,
       prisma as unknown as PrismaService,
+      configService,
     );
   });
 
@@ -154,6 +160,7 @@ describe('LicenseController', () => {
         plan: null,
         status: 'none',
         message: 'User not found',
+        checkoutEnabled: false,
       });
       // Must not even look up the license if user is missing.
       expect(prisma.license.findFirst).not.toHaveBeenCalled();
@@ -173,7 +180,8 @@ describe('LicenseController', () => {
       expect(result['features']).toEqual([]);
       expect(result['subscription']).toBeNull();
       expect(result['reason']).toBeUndefined();
-      expect(result['message']).toContain('Start your free trial');
+      expect(result['message']).toContain('free and open source');
+      expect(result['checkoutEnabled']).toBe(false);
     });
 
     it('flags trial_ended reason when subscription still "trialing" but past trialEnd', async () => {
@@ -309,6 +317,32 @@ describe('LicenseController', () => {
 
       // planName falls back to 'Community' (safe fallback for unknown plans).
       expect(result['planName']).toBe('Community');
+    });
+
+    it('resolves a Builders license and mirrors checkoutEnabled from the flag', async () => {
+      const configService = {
+        get: jest.fn((key: string) =>
+          key === 'BUILDERS_CHECKOUT_ENABLED' ? 'true' : undefined,
+        ),
+      } as unknown as ConfigService;
+      controller = new LicenseController(
+        licenseService,
+        prisma as unknown as PrismaService,
+        configService,
+      );
+      prisma.user.findUnique.mockResolvedValueOnce(makeUser());
+      prisma.license.findFirst.mockResolvedValueOnce(
+        makeLicense({ plan: 'builders' as unknown as 'pro', expiresAt: null }),
+      );
+
+      const result = (await controller.getMyLicense(makeAuthedReq())) as Record<
+        string,
+        unknown
+      >;
+
+      expect(result['plan']).toBe('builders');
+      expect(result['planName']).toBe('Ptah Builders');
+      expect(result['checkoutEnabled']).toBe(true);
     });
   });
 

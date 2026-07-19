@@ -204,3 +204,20 @@ model MarketingCampaign {
   @@index([createdAt])
   @@map("marketing_campaigns")
 }
+
+// Builders waitlist - captures leads for the new premium "Builders" tier.
+// Public, un-authenticated signups deduped by lowercased email.
+// notifiedAt / convertedAt are lifecycle timestamps the team fills in later
+// (notified when checkout opens, converted when they become a paying Builder).
+model Waitlist {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  source      String? // origin of the signup: 'landing' | 'pricing' | 'profile' | 'vscode' | ...
+  createdAt   DateTime  @default(now()) @map("created_at")
+  notifiedAt  DateTime? @map("notified_at")
+  convertedAt DateTime? @map("converted_at")
+
+  @@index([createdAt])
+  @@index([source])
+  @@map("waitlist")
+}

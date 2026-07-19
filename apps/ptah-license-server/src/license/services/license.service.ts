@@ -45,17 +45,24 @@ export interface ComplimentaryLicenseResult {
 }
 
 /**
- * License Tier type for TASK_2025_128: Freemium Model
+ * License Tier type — open-source + Builders model.
  *
  * Tier values:
- * - 'community': FREE forever - no subscription required
- * - 'pro': Paid Pro plan (active subscription)
- * - 'trial_pro': Pro plan in trial period
+ * - 'community': FREE and open source - no subscription required
+ * - 'builders': Paid Ptah Builders membership (active subscription)
+ * - 'pro': LEGACY paid plan (existing subscribers only, drains naturally)
+ * - 'trial_pro': LEGACY Pro plan in trial period (existing trials only)
  * - 'expired': License expired, revoked, or payment failed
  *
- * Note: Community tier has no trial - it's always free.
+ * Note: Community tier has no trial - it's always free. New premium signups go
+ * to 'builders'; 'pro'/'trial_pro' are retained for backward compatibility.
  */
-export type LicenseTier = 'community' | 'pro' | 'trial_pro' | 'expired';
+export type LicenseTier =
+  | 'community'
+  | 'builders'
+  | 'pro'
+  | 'trial_pro'
+  | 'expired';
 
 /**
  * License verification response structure
@@ -82,14 +89,18 @@ export interface LicenseVerificationResponse {
 /**
  * Map database plan to tier value with trial support
  *
- * TASK_2025_128: Freemium model (Community + Pro)
+ * Open-source + Builders model. 'builders' is the current premium tier;
+ * 'pro'/'trial_pro' are legacy and kept for existing subscribers.
  *
- * @param dbPlan - Plan value from database ('community' | 'pro' | 'trial_pro')
+ * @param dbPlan - Plan value from database ('community' | 'builders' | 'pro' | 'trial_pro')
  * @param isInTrial - Whether subscription is in trial period
  * @returns LicenseTier value
  */
 function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
   switch (dbPlan) {
+    case 'builders':
+      return 'builders';
+
     case 'pro':
       return isInTrial ? 'trial_pro' : 'pro';
 
@@ -319,7 +330,8 @@ export class LicenseService {
           )
         : undefined;
     const basePlan = tier.replace('trial_', '');
-    const isValidPlan = basePlan === 'community' || basePlan === 'pro';
+    const isValidPlan =
+      basePlan === 'community' || basePlan === 'builders' || basePlan === 'pro';
     const planConfig = isValidPlan
       ? getPlanConfig(basePlan as PlanName)
       : undefined;
@@ -355,14 +367,15 @@ export class LicenseService {
    * 4. Calculate expiration date from plan configuration
    * 5. Create license record in database
    *
-   * @param params - Email and plan for license creation
+   * @param params - Email, plan, and optional createdBy marker for license creation
    * @returns The generated license key and expiration date
    */
   async createLicense(params: {
     email: string;
     plan: PlanName;
+    createdBy?: string;
   }): Promise<{ licenseKey: string; expiresAt: Date | null }> {
-    const { email, plan } = params;
+    const { email, plan, createdBy = 'admin' } = params;
     let user = await this.prisma.user.findUnique({
       where: { email: email.toLowerCase() },
     });
@@ -396,7 +409,7 @@ export class LicenseService {
         plan,
         status: 'active',
         expiresAt,
-        createdBy: 'admin',
+        createdBy,
       },
     });
 

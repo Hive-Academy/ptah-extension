@@ -19,7 +19,8 @@ export type AdminModelKey =
   | 'session-requests'
   | 'admin-audit-log'
   | 'marketing-campaigns'
-  | 'marketing-campaign-templates';
+  | 'marketing-campaign-templates'
+  | 'waitlist';
 
 export interface AdminModelConfig {
   /** Prisma delegate name (the lower-case client property, e.g. prisma.user) */
@@ -32,7 +33,8 @@ export interface AdminModelConfig {
     | 'sessionRequest'
     | 'adminAuditLog'
     | 'marketingCampaign'
-    | 'marketingCampaignTemplate';
+    | 'marketingCampaignTemplate'
+    | 'waitlist';
   /** Columns shown on the list page */
   listFields: string[];
   /** Text-searchable string fields (contains, insensitive) */
@@ -228,6 +230,22 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
     searchFields: ['name', 'subject'],
     sortableFields: ['createdAt', 'updatedAt', 'name'],
     editableFields: ['name', 'subject', 'htmlBody'],
+    readOnly: false,
+    defaultSortBy: 'createdAt',
+  },
+  waitlist: {
+    prismaModel: 'waitlist',
+    listFields: [
+      'id',
+      'email',
+      'source',
+      'createdAt',
+      'notifiedAt',
+      'convertedAt',
+    ],
+    searchFields: ['email', 'source'],
+    sortableFields: ['createdAt', 'notifiedAt', 'convertedAt', 'source'],
+    editableFields: ['notifiedAt', 'convertedAt'],
     readOnly: false,
     defaultSortBy: 'createdAt',
   },

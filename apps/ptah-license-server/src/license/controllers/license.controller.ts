@@ -9,12 +9,14 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import { LicenseService } from '../services/license.service';
 import { VerifyLicenseDto } from '../dto/verify-license.dto';
 import { JwtAuthGuard } from '../../app/auth/guards/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getPlanConfig, PlanName, PLANS } from '../../config/plans.config';
+import { isBuildersCheckoutEnabled } from '../../config/checkout.config';
 
 /**
  * LicenseController - Public license verification endpoint
@@ -31,6 +33,7 @@ export class LicenseController {
   constructor(
     @Inject(LicenseService) private readonly licenseService: LicenseService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -100,6 +103,7 @@ export class LicenseController {
   @UseGuards(JwtAuthGuard)
   async getMyLicense(@Req() req: Request) {
     const user = req.user as { id: string; email: string };
+    const checkoutEnabled = isBuildersCheckoutEnabled(this.configService);
     const fullUser = await this.prisma.user.findUnique({
       where: { id: user.id },
       include: {
@@ -115,6 +119,7 @@ export class LicenseController {
         plan: null,
         status: 'none',
         message: 'User not found',
+        checkoutEnabled,
       };
     }
     const license = await this.prisma.license.findFirst({
@@ -143,14 +148,15 @@ export class LicenseController {
         },
         plan: null,
         planName: 'No Plan',
-        planDescription: 'Start a trial or subscribe to use Ptah Extension',
+        planDescription: 'Sign in to use the free, open-source Ptah orchestra',
         status: 'none',
         features: [],
         message: isTrialEnded
-          ? 'Your trial has ended. Upgrade to Pro to continue using all features!'
-          : 'No active license found. Start your free trial to get started!',
+          ? 'Your trial has ended. Ptah is free and open source — your Community plan is ready to use.'
+          : 'No active license found. Ptah Community is free and open source.',
         reason: isTrialEnded ? 'trial_ended' : undefined,
         subscription: null,
+        checkoutEnabled,
       };
     }
     let daysRemaining: number | undefined;
@@ -161,7 +167,7 @@ export class LicenseController {
     }
     const basePlan = (license.plan as string).replace('trial_', '');
     const planConfig =
-      basePlan === 'community' || basePlan === 'pro'
+      basePlan === 'community' || basePlan === 'builders' || basePlan === 'pro'
         ? getPlanConfig(basePlan as PlanName)
         : PLANS.community; // Safe fallback for unknown plans
     const isTrialEnded =
@@ -200,6 +206,7 @@ export class LicenseController {
       licenseCreatedAt: license.createdAt.toISOString(),
       features: planConfig.features,
       reason,
+      checkoutEnabled,
       subscription:
         subscription &&
         subscription.status !== 'expired' &&

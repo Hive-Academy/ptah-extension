@@ -748,17 +748,31 @@ export class PaddleService {
   /**
    * Map Paddle price ID to internal plan name
    *
-   * TASK_2025_128: Freemium model - only Pro plan has price IDs.
-   * Community tier is FREE and has no Paddle integration.
+   * Open-source + Builders model — 'builders' is the current premium plan.
+   * Legacy 'pro' price IDs are still mapped so existing subscribers keep
+   * resolving. Community tier is FREE and has no Paddle integration.
    *
    * @param priceId - Paddle price ID from SDK notification
-   * @returns Internal plan name ('pro' | 'expired')
+   * @returns Internal plan name ('builders' | 'pro' | 'expired')
    */
   private mapPriceIdToPlan(priceId: string | undefined): string {
     if (!priceId) {
       this.logger.warn('No price ID provided - returning expired tier');
       return 'expired';
     }
+    const buildersMonthlyPriceId = this.configService.get<string>(
+      'PADDLE_PRICE_ID_BUILDERS_MONTHLY',
+    );
+    const buildersYearlyPriceId = this.configService.get<string>(
+      'PADDLE_PRICE_ID_BUILDERS_YEARLY',
+    );
+    if (
+      priceId === buildersMonthlyPriceId ||
+      priceId === buildersYearlyPriceId
+    ) {
+      return 'builders';
+    }
+    // Legacy Pro price IDs — retained for existing subscribers.
     const proMonthlyPriceId = this.configService.get<string>(
       'PADDLE_PRICE_ID_PRO_MONTHLY',
     );
@@ -771,9 +785,10 @@ export class PaddleService {
 
     this.logger.warn(
       `Unknown price ID: ${priceId} - returning 'expired'. ` +
-        `Expected Pro price IDs: ${
-          [proMonthlyPriceId, proYearlyPriceId].filter(Boolean).join(', ') ||
-          'no Pro price IDs configured'
+        `Expected Builders price IDs: ${
+          [buildersMonthlyPriceId, buildersYearlyPriceId]
+            .filter(Boolean)
+            .join(', ') || 'no Builders price IDs configured'
         }`,
     );
     return 'expired';

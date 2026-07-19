@@ -118,6 +118,9 @@ const PRO_YEARLY = 'pri_pro_yearly';
 const DEFAULT_CONFIG: ConfigMockBacking = {
   PADDLE_PRICE_ID_PRO_MONTHLY: PRO_MONTHLY,
   PADDLE_PRICE_ID_PRO_YEARLY: PRO_YEARLY,
+  // Builders checkout is opt-in; the default fixture keeps it enabled so the
+  // existing checkout-flow tests exercise the real validation logic.
+  BUILDERS_CHECKOUT_ENABLED: 'true',
 };
 
 function makeLocalSubscription(
@@ -490,6 +493,17 @@ describe('SubscriptionService', () => {
       // The default allow-checkout branch is taken.
       expect(result.canCheckout).toBe(true);
       expect(result.reason).toBe('none');
+    });
+
+    it('blocks checkout with checkout_disabled when BUILDERS_CHECKOUT_ENABLED is off', async () => {
+      build({ ...DEFAULT_CONFIG, BUILDERS_CHECKOUT_ENABLED: 'false' });
+
+      const result = await service.validateCheckout('user-1', PRO_MONTHLY);
+
+      expect(result.canCheckout).toBe(false);
+      expect(result.reason).toBe('checkout_disabled');
+      // Must not touch the database / Paddle when checkout is closed.
+      expect(db.findUserWithSubscription).not.toHaveBeenCalled();
     });
   });
 
@@ -920,7 +934,7 @@ describe('SubscriptionService', () => {
       );
     });
 
-    it('returns email and paddleCustomerId when user has one', async () => {
+    it('returns email and paddleCustomerId when checkout is enabled', async () => {
       db.findUserById.mockResolvedValueOnce({
         id: 'user-1',
         email: 'alice@example.com',
@@ -932,6 +946,7 @@ describe('SubscriptionService', () => {
       expect(result).toEqual({
         email: 'alice@example.com',
         paddleCustomerId: 'pdl_cust_1',
+        checkoutEnabled: true,
       });
     });
 
@@ -947,6 +962,24 @@ describe('SubscriptionService', () => {
       expect(result).toEqual({
         email: 'alice@example.com',
         paddleCustomerId: undefined,
+        checkoutEnabled: true,
+      });
+    });
+
+    it('returns a checkout_disabled outcome when BUILDERS_CHECKOUT_ENABLED is off', async () => {
+      build({ ...DEFAULT_CONFIG, BUILDERS_CHECKOUT_ENABLED: 'false' });
+      db.findUserById.mockResolvedValueOnce({
+        id: 'user-1',
+        email: 'alice@example.com',
+        paddleCustomerId: 'pdl_cust_1',
+      });
+
+      const result = await service.getCheckoutInfo('user-1');
+
+      expect(result).toEqual({
+        email: 'alice@example.com',
+        checkoutEnabled: false,
+        reason: 'checkout_disabled',
       });
     });
   });
