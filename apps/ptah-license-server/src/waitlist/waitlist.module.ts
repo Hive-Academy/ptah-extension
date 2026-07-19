@@ -20,5 +20,6 @@ import { WaitlistService } from './waitlist.service';
   imports: [PrismaModule, EmailModule],
   controllers: [WaitlistController],
   providers: [WaitlistService],
+  exports: [WaitlistService],
 })
 export class WaitlistModule {}

@@ -7,12 +7,11 @@
  * side-effect services (Events / AuditLog / Email) stubbed.
  *
  * Coverage:
- *   - /verify — valid Pro license (wall-clock expiry > now)
- *   - /verify — trial license (subscription.status === 'trialing')
+ *   - /verify — valid Builders license (wall-clock expiry > now)
  *   - /verify — expired license (expiresAt < now) → tier=expired, reason=expired
  *   - /verify — revoked license → tier=expired, reason=revoked
  *   - /verify — not-found license → tier=expired, reason=not_found
- *   - /verify — trial_ended (subscription.trialEnd < now) → reason=trial_ended
+ *   - /verify — retired legacy 'pro' plan mapped to expired tier
  *   - /verify — unknown plan mapped to expired tier
  *   - /me — JwtAuthGuard attaches req.user; controller returns non-secret payload
  *   - /me — response NEVER includes the raw licenseKey (TASK_2025_129 invariant)
@@ -26,6 +25,7 @@
 
 import 'reflect-metadata';
 import type { Request } from 'express';
+import type { ConfigService } from '@nestjs/config';
 
 import { LicenseController } from '../../ptah-license-server/src/license/controllers/license.controller';
 import { LicenseService } from '../../ptah-license-server/src/license/services/license.service';
@@ -39,11 +39,10 @@ import {
 } from '../../ptah-license-server/src/testing/mock-prisma.factory';
 
 const VALID_KEY = 'ptah_lic_' + 'a'.repeat(64);
-const TRIAL_KEY = 'ptah_lic_' + 'b'.repeat(64);
+const LEGACY_PRO_KEY = 'ptah_lic_' + 'b'.repeat(64);
 const EXPIRED_KEY = 'ptah_lic_' + 'c'.repeat(64);
 const REVOKED_KEY = 'ptah_lic_' + 'd'.repeat(64);
 const UNKNOWN_KEY = 'ptah_lic_' + 'e'.repeat(64);
-const TRIAL_ENDED_KEY = 'ptah_lic_' + 'f'.repeat(64);
 const STRANGE_PLAN_KEY = 'ptah_lic_' + '9'.repeat(64);
 
 const USER = {
@@ -60,7 +59,7 @@ function makeLicense(overrides: Record<string, unknown> = {}) {
     id: 'license-1',
     userId: USER.id,
     licenseKey: VALID_KEY,
-    plan: 'pro',
+    plan: 'builders',
     status: 'active',
     expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // +30d
     createdAt: new Date('2025-12-01T00:00:00Z'),
@@ -112,9 +111,13 @@ function buildHarness() {
     audit,
     email,
   );
+  const config = {
+    get: jest.fn().mockReturnValue(undefined),
+  } as unknown as ConfigService;
   const controller = new LicenseController(
     service,
     prisma as unknown as PrismaService,
+    config,
   );
 
   const restoreEnv = () => {
@@ -144,7 +147,7 @@ describe('license-verify e2e :: POST /v1/licenses/verify', () => {
     jest.restoreAllMocks();
   });
 
-  it('returns {valid, tier: pro} for an active Pro license that has not expired', async () => {
+  it('returns {valid, tier: builders} for an active Builders license that has not expired', async () => {
     prisma.license.findUnique.mockResolvedValueOnce(
       makeLicense({ licenseKey: VALID_KEY }),
     );
@@ -152,8 +155,7 @@ describe('license-verify e2e :: POST /v1/licenses/verify', () => {
     const result = await harness.controller.verify({ licenseKey: VALID_KEY });
 
     expect(result.valid).toBe(true);
-    expect(result.tier).toBe('pro');
-    expect(result.trialActive).toBeFalsy();
+    expect(result.tier).toBe('builders');
     expect(result.user).toEqual({
       email: USER.email,
       firstName: USER.firstName,
@@ -166,29 +168,20 @@ describe('license-verify e2e :: POST /v1/licenses/verify', () => {
     });
   });
 
-  it('returns {valid, tier: trial_pro, trialActive: true} for an active trial', async () => {
-    const in50d = new Date(Date.now() + 50 * 24 * 60 * 60 * 1000);
+  it('treats a retired legacy pro plan as {valid:false, tier:expired}', async () => {
     prisma.license.findUnique.mockResolvedValueOnce(
-      makeLicense({
-        licenseKey: TRIAL_KEY,
-        plan: 'pro',
-        expiresAt: in50d,
-        user: {
-          ...USER,
-          subscriptions: [
-            makeSubscription({ status: 'trialing', trialEnd: in50d }),
-          ],
-        },
-      }),
+      makeLicense({ licenseKey: LEGACY_PRO_KEY, plan: 'pro' }),
     );
 
-    const result = await harness.controller.verify({ licenseKey: TRIAL_KEY });
+    const result = await harness.controller.verify({
+      licenseKey: LEGACY_PRO_KEY,
+    });
 
-    expect(result.valid).toBe(true);
-    expect(result.tier).toBe('trial_pro');
-    expect(result.trialActive).toBe(true);
-    expect(result.trialDaysRemaining).toBeGreaterThan(0);
-    expect(result.trialDaysRemaining).toBeLessThanOrEqual(50);
+    expect(result).toMatchObject({
+      valid: false,
+      tier: 'expired',
+      reason: 'expired',
+    });
   });
 
   it('rejects expired licenses with {valid:false, tier:expired, reason:expired}', async () => {
@@ -234,33 +227,6 @@ describe('license-verify e2e :: POST /v1/licenses/verify', () => {
     });
   });
 
-  it('rejects trials whose trialEnd has passed with reason:trial_ended', async () => {
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    prisma.license.findUnique.mockResolvedValueOnce(
-      makeLicense({
-        licenseKey: TRIAL_ENDED_KEY,
-        plan: 'pro',
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        user: {
-          ...USER,
-          subscriptions: [
-            makeSubscription({ status: 'trialing', trialEnd: yesterday }),
-          ],
-        },
-      }),
-    );
-
-    const result = await harness.controller.verify({
-      licenseKey: TRIAL_ENDED_KEY,
-    });
-
-    expect(result).toMatchObject({
-      valid: false,
-      tier: 'expired',
-      reason: 'trial_ended',
-    });
-  });
-
   it('maps unknown plan values to tier:expired (defensive fallback)', async () => {
     prisma.license.findUnique.mockResolvedValueOnce(
       makeLicense({
@@ -294,7 +260,7 @@ describe('license-verify e2e :: GET /v1/licenses/me (JWT-guarded)', () => {
     harness.restoreEnv();
   });
 
-  it('returns account details for an authenticated Pro user WITHOUT the raw licenseKey', async () => {
+  it('returns account details for an authenticated Builders member WITHOUT the raw licenseKey', async () => {
     prisma.user.findUnique.mockResolvedValueOnce({
       ...USER,
       subscriptions: [
@@ -308,7 +274,7 @@ describe('license-verify e2e :: GET /v1/licenses/me (JWT-guarded)', () => {
       id: 'license-1',
       userId: USER.id,
       licenseKey: VALID_KEY,
-      plan: 'pro',
+      plan: 'builders',
       status: 'active',
       expiresAt: new Date('2026-12-01T00:00:00Z'),
       createdAt: new Date('2025-12-01T00:00:00Z'),
@@ -318,7 +284,7 @@ describe('license-verify e2e :: GET /v1/licenses/me (JWT-guarded)', () => {
       makeAuthedReq(),
     )) as Record<string, unknown>;
 
-    expect(result['plan']).toBe('pro');
+    expect(result['plan']).toBe('builders');
     expect(result['status']).toBe('active');
     expect(JSON.stringify(result)).not.toContain(VALID_KEY);
     expect(result['licenseKey']).toBeUndefined();
@@ -338,23 +304,5 @@ describe('license-verify e2e :: GET /v1/licenses/me (JWT-guarded)', () => {
     expect(result['plan']).toBeNull();
     expect(result['status']).toBe('none');
     expect(result['features']).toEqual([]);
-  });
-
-  it('surfaces reason:trial_ended when the subscription trial window has elapsed', async () => {
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    prisma.user.findUnique.mockResolvedValueOnce({
-      ...USER,
-      subscriptions: [
-        makeSubscription({ status: 'trialing', trialEnd: yesterday }),
-      ],
-    });
-    prisma.license.findFirst.mockResolvedValueOnce(null);
-
-    const result = (await harness.controller.getMyLicense(
-      makeAuthedReq(),
-    )) as Record<string, unknown>;
-
-    expect(result['reason']).toBe('trial_ended');
-    expect(result['status']).toBe('none');
   });
 });

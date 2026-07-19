@@ -22,15 +22,10 @@ import { LicenseController } from './license.controller';
  *   - POST /v1/licenses/verify — public verification
  *   - GET /v1/licenses/me — authenticated account details
  *   - POST /v1/licenses/me/reveal-key — rate-limited key reveal
- *   - POST /v1/licenses/downgrade-to-community — trial-ended downgrade
  *
  * Security invariant tested on reveal-key AND getMyLicense: responses for
  * /me MUST NOT contain the raw license key.
  */
-
-interface AuthenticatedRequestStub {
-  user: { id: string; email: string };
-}
 
 function makeAuthedReq(
   user: { id: string; email: string } = {
@@ -59,7 +54,7 @@ function makeLicense(overrides: Record<string, unknown> = {}) {
     id: 'license-1',
     userId: 'user-1',
     licenseKey: 'ptah_lic_' + 'a'.repeat(64),
-    plan: 'pro',
+    plan: 'builders',
     status: 'active',
     expiresAt: null as Date | null,
     createdAt: new Date('2025-12-01T00:00:00Z'),
@@ -71,7 +66,7 @@ function makeSubscription(overrides: Record<string, unknown> = {}) {
   return {
     id: 'sub-1',
     status: 'active',
-    priceId: 'price_pro_monthly',
+    priceId: 'price_builders_monthly',
     trialEnd: null as Date | null,
     currentPeriodEnd: new Date('2026-06-01T00:00:00Z'),
     canceledAt: null as Date | null,
@@ -87,7 +82,6 @@ describe('LicenseController', () => {
   beforeEach(() => {
     licenseService = {
       verifyLicense: jest.fn(),
-      downgradeToCommunity: jest.fn(),
     } as unknown as jest.Mocked<LicenseService>;
     prisma = createMockPrisma();
     // ConfigService stub: BUILDERS_CHECKOUT_ENABLED unset ⇒ checkoutEnabled=false.
@@ -111,7 +105,7 @@ describe('LicenseController', () => {
       };
       const response = {
         valid: true as const,
-        tier: 'pro' as const,
+        tier: 'builders' as const,
       };
       // Cast: verifyLicense has a rich union return shape; test only cares
       // the response flows through untouched.
@@ -184,38 +178,20 @@ describe('LicenseController', () => {
       expect(result['checkoutEnabled']).toBe(false);
     });
 
-    it('flags trial_ended reason when subscription still "trialing" but past trialEnd', async () => {
-      const trialEnd = new Date('2025-11-01T00:00:00Z');
-      prisma.user.findUnique.mockResolvedValueOnce(
-        makeUser({
-          subscriptions: [makeSubscription({ status: 'trialing', trialEnd })],
-        }),
-      );
-      prisma.license.findFirst.mockResolvedValueOnce(null);
-
-      const result = (await controller.getMyLicense(makeAuthedReq())) as Record<
-        string,
-        unknown
-      >;
-
-      expect(result['reason']).toBe('trial_ended');
-      expect(result['message']).toContain('trial has ended');
-    });
-
-    it('returns full account details for active Pro license (NO licenseKey in response)', async () => {
+    it('returns full account details for an active Builders license (NO licenseKey in response)', async () => {
       prisma.user.findUnique.mockResolvedValueOnce(
         makeUser({
           subscriptions: [
             makeSubscription({
               status: 'active',
-              priceId: 'price_pro_monthly',
+              priceId: 'price_builders_monthly',
             }),
           ],
         }),
       );
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       prisma.license.findFirst.mockResolvedValueOnce(
-        makeLicense({ plan: 'pro', expiresAt }),
+        makeLicense({ plan: 'builders', expiresAt }),
       );
 
       const result = (await controller.getMyLicense(makeAuthedReq())) as Record<
@@ -223,13 +199,13 @@ describe('LicenseController', () => {
         unknown
       >;
 
-      expect(result['plan']).toBe('pro');
+      expect(result['plan']).toBe('builders');
       expect(result['status']).toBe('active');
       expect(result['daysRemaining']).toBeGreaterThan(0);
       expect(result['daysRemaining']).toBeLessThanOrEqual(31);
-      expect(result['planName']).toBe('Pro');
+      expect(result['planName']).toBe('Ptah Builders');
       expect(result['features']).toEqual(
-        expect.arrayContaining(['mcp_server', 'workspace_intelligence']),
+        expect.arrayContaining(['builders_membership']),
       );
       // SECURITY: license key MUST NOT be exposed.
       expect(JSON.stringify(result)).not.toContain('ptah_lic_');
@@ -237,27 +213,7 @@ describe('LicenseController', () => {
       expect(result['subscription']).toMatchObject({ status: 'active' });
     });
 
-    it('maps plan="pro" to "trial_pro" when subscription is in trialing state', async () => {
-      const trialEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-      prisma.user.findUnique.mockResolvedValueOnce(
-        makeUser({
-          subscriptions: [makeSubscription({ status: 'trialing', trialEnd })],
-        }),
-      );
-      prisma.license.findFirst.mockResolvedValueOnce(
-        makeLicense({ plan: 'pro', expiresAt: trialEnd }),
-      );
-
-      const result = (await controller.getMyLicense(makeAuthedReq())) as Record<
-        string,
-        unknown
-      >;
-
-      expect(result['plan']).toBe('trial_pro');
-      expect(result['reason']).toBeUndefined();
-    });
-
-    it('sets reason="expired" when license.expiresAt is in the past (no trial)', async () => {
+    it('sets reason="expired" when license.expiresAt is in the past', async () => {
       prisma.user.findUnique.mockResolvedValueOnce(
         makeUser({
           subscriptions: [makeSubscription({ status: 'active' })],
@@ -265,7 +221,7 @@ describe('LicenseController', () => {
       );
       prisma.license.findFirst.mockResolvedValueOnce(
         makeLicense({
-          plan: 'pro',
+          plan: 'builders',
           expiresAt: new Date('2024-01-01T00:00:00Z'),
         }),
       );
@@ -278,18 +234,10 @@ describe('LicenseController', () => {
       expect(result['reason']).toBe('expired');
     });
 
-    it('excludes internal/expired auto_trial_pro subscription from the response', async () => {
-      // Downgraded community users retain a historical trial subscription
-      // with priceId=auto_trial_pro — controller must hide it to avoid
-      // showing irrelevant billing UI.
+    it('excludes an expired subscription from the response', async () => {
       prisma.user.findUnique.mockResolvedValueOnce(
         makeUser({
-          subscriptions: [
-            makeSubscription({
-              status: 'expired',
-              priceId: 'auto_trial_pro',
-            }),
-          ],
+          subscriptions: [makeSubscription({ status: 'expired' })],
         }),
       );
       prisma.license.findFirst.mockResolvedValueOnce(
@@ -307,7 +255,7 @@ describe('LicenseController', () => {
     it('falls back to community plan config when license.plan is unknown', async () => {
       prisma.user.findUnique.mockResolvedValueOnce(makeUser());
       prisma.license.findFirst.mockResolvedValueOnce(
-        makeLicense({ plan: 'enterprise' as unknown as 'pro' }),
+        makeLicense({ plan: 'enterprise' }),
       );
 
       const result = (await controller.getMyLicense(makeAuthedReq())) as Record<
@@ -332,7 +280,7 @@ describe('LicenseController', () => {
       );
       prisma.user.findUnique.mockResolvedValueOnce(makeUser());
       prisma.license.findFirst.mockResolvedValueOnce(
-        makeLicense({ plan: 'builders' as unknown as 'pro', expiresAt: null }),
+        makeLicense({ plan: 'builders', expiresAt: null }),
       );
 
       const result = (await controller.getMyLicense(makeAuthedReq())) as Record<
@@ -354,7 +302,7 @@ describe('LicenseController', () => {
       prisma.license.findFirst.mockResolvedValueOnce({
         id: 'license-1',
         licenseKey: 'ptah_lic_' + 'x'.repeat(64),
-        plan: 'pro',
+        plan: 'builders',
       });
 
       const result = await controller.revealMyLicenseKey(makeAuthedReq());
@@ -362,7 +310,7 @@ describe('LicenseController', () => {
       expect(result).toEqual({
         success: true,
         licenseKey: 'ptah_lic_' + 'x'.repeat(64),
-        plan: 'pro',
+        plan: 'builders',
       });
 
       // The query must explicitly select only id/licenseKey/plan to avoid
@@ -400,165 +348,6 @@ describe('LicenseController', () => {
       };
       expect(call.where.userId).toBe('user-abc');
       expect(call.where.status).toBe('active');
-    });
-  });
-
-  // ───────────────────────────────────────────────────────────────
-  // POST /v1/licenses/downgrade-to-community
-  // ───────────────────────────────────────────────────────────────
-  describe('POST /downgrade-to-community (authenticated, rate limited)', () => {
-    it('returns "User not found" when user row is missing', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce(null);
-
-      const result = await controller.downgradeToCommunity(makeAuthedReq());
-
-      expect(result).toEqual({
-        success: false,
-        message: 'User not found',
-      });
-      expect(licenseService.downgradeToCommunity).not.toHaveBeenCalled();
-    });
-
-    it('refuses downgrade when trial is still active (status=trialing, trialEnd in future)', async () => {
-      const trialEnd = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
-      prisma.user.findUnique.mockResolvedValueOnce(
-        makeUser({
-          subscriptions: [makeSubscription({ status: 'trialing', trialEnd })],
-        }),
-      );
-
-      const result = (await controller.downgradeToCommunity(
-        makeAuthedReq(),
-      )) as { success: boolean; message: string };
-
-      expect(result.success).toBe(false);
-      expect(result.message).toMatch(
-        /Trial has not ended yet\. You have \d+ day/,
-      );
-      expect(licenseService.downgradeToCommunity).not.toHaveBeenCalled();
-    });
-
-    it('allows downgrade when subscription is "trialing" but past trialEnd (cron not yet run)', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce(
-        makeUser({
-          subscriptions: [
-            makeSubscription({
-              status: 'trialing',
-              trialEnd: new Date('2024-01-01T00:00:00Z'),
-            }),
-          ],
-        }),
-      );
-      licenseService.downgradeToCommunity.mockResolvedValueOnce({
-        success: true,
-        plan: 'community',
-        status: 'active',
-      });
-
-      const result = (await controller.downgradeToCommunity(
-        makeAuthedReq(),
-      )) as Record<string, unknown>;
-
-      expect(licenseService.downgradeToCommunity).toHaveBeenCalledWith(
-        'user-1',
-      );
-      expect(result['success']).toBe(true);
-      expect(result['plan']).toBe('community');
-      expect(result['message']).toBe(
-        'Successfully downgraded to Community plan',
-      );
-    });
-
-    it('allows downgrade when subscription is already "expired" (cron ran)', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce(
-        makeUser({
-          subscriptions: [makeSubscription({ status: 'expired' })],
-        }),
-      );
-      licenseService.downgradeToCommunity.mockResolvedValueOnce({
-        success: true,
-        plan: 'community',
-        status: 'active',
-      });
-
-      const result = (await controller.downgradeToCommunity(
-        makeAuthedReq(),
-      )) as Record<string, unknown>;
-
-      expect(result['success']).toBe(true);
-      expect(licenseService.downgradeToCommunity).toHaveBeenCalledTimes(1);
-    });
-
-    it('surfaces "No active license found" when LicenseService rejects with that message', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce(
-        makeUser({
-          subscriptions: [makeSubscription({ status: 'expired' })],
-        }),
-      );
-      licenseService.downgradeToCommunity.mockRejectedValueOnce(
-        new Error('No active license found'),
-      );
-
-      const result = await controller.downgradeToCommunity(makeAuthedReq());
-
-      expect(result).toEqual({
-        success: false,
-        message: 'No active license found',
-      });
-    });
-
-    it('returns generic error for unknown LicenseService failures', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce(
-        makeUser({
-          subscriptions: [makeSubscription({ status: 'expired' })],
-        }),
-      );
-      licenseService.downgradeToCommunity.mockRejectedValueOnce(
-        new Error('DB connection lost'),
-      );
-
-      const result = await controller.downgradeToCommunity(makeAuthedReq());
-
-      expect(result).toEqual({
-        success: false,
-        message: 'Failed to downgrade. Please try again or contact support.',
-      });
-    });
-
-    it('returns generic error when LicenseService rejects with a non-Error value', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce(
-        makeUser({
-          subscriptions: [makeSubscription({ status: 'expired' })],
-        }),
-      );
-      licenseService.downgradeToCommunity.mockRejectedValueOnce(
-        'string reject',
-      );
-
-      const result = await controller.downgradeToCommunity(makeAuthedReq());
-
-      expect(result).toEqual({
-        success: false,
-        message: 'Failed to downgrade. Please try again or contact support.',
-      });
-    });
-
-    it('refuses downgrade when trialEnd is missing and trial still flagged active', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce(
-        makeUser({
-          subscriptions: [
-            makeSubscription({ status: 'trialing', trialEnd: null }),
-          ],
-        }),
-      );
-
-      const result = (await controller.downgradeToCommunity(
-        makeAuthedReq(),
-      )) as { success: boolean; message: string };
-
-      expect(result.success).toBe(false);
-      expect(result.message).toBe('Trial has not ended yet');
-      expect(licenseService.downgradeToCommunity).not.toHaveBeenCalled();
     });
   });
 });

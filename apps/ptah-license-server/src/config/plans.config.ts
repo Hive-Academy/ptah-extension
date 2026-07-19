@@ -1,16 +1,16 @@
 /**
  * Plan Configuration for Ptah License Server
  *
- * Open-source + Builders model:
+ * Open-source + Builders model (exactly two tiers):
  * - community: FREE and open source. The full Ptah coding orchestra runs
  *   locally at no cost — every local capability is included.
  * - builders: "Ptah Builders" — the paid membership tier that layers hosted,
  *   community and priority perks on top of the open-source core. Billing is
  *   managed by Paddle; the Paddle price IDs are env-driven
  *   (PADDLE_PRICE_ID_BUILDERS_MONTHLY / PADDLE_PRICE_ID_BUILDERS_YEARLY).
- * - pro: LEGACY. Retained only so existing paying / trialing subscribers keep
- *   resolving on /licenses/me and /licenses/verify while they drain naturally.
- *   Nothing new is ever issued on this plan.
+ *
+ * Legacy 'pro' / 'trial_pro' plans have been removed entirely (zero paying
+ * subscribers existed). Nothing resolves on those plans anymore.
  *
  * Plans are hardcoded (not stored in database) to simplify the architecture.
  * Paddle manages billing cycles and promotional pricing for the Builders plan.
@@ -56,31 +56,11 @@ export const PLANS = {
     expiresAfterDays: null,
     // Display pricing only — actual charges are governed by the env-driven
     // Paddle price IDs (PADDLE_PRICE_ID_BUILDERS_MONTHLY / _YEARLY).
-    monthlyPrice: 20, // USD/month (display)
-    yearlyPrice: 200, // USD/year (display, ~17% discount)
+    monthlyPrice: 29, // USD/month (display)
+    yearlyPrice: 290, // USD/year (display, ~17% discount)
     isPremium: true,
     description:
       'The Ptah Builders membership — hosted perks, priority support and early access on top of the open-source core',
-  },
-  // LEGACY: kept only so existing Pro subscribers/trials still resolve.
-  // Do NOT issue new licenses on this plan. See file header.
-  pro: {
-    name: 'Pro',
-    features: [
-      'all_community_features',
-      'mcp_server',
-      'workspace_intelligence',
-      'openrouter_proxy',
-      'custom_tools',
-      'setup_wizard',
-      'cost_tracking',
-      'priority_support',
-    ],
-    expiresAfterDays: null, // Subscription-based (managed by Paddle)
-    monthlyPrice: 5, // USD/month
-    yearlyPrice: 50, // USD/year (~17% discount)
-    isPremium: true,
-    description: 'Full workspace intelligence suite (legacy)',
   },
 } as const;
 
@@ -92,7 +72,7 @@ export type PlanName = keyof typeof PLANS;
 /**
  * Get plan configuration by plan name
  *
- * @param plan - The plan name ('community' | 'builders' | 'pro')
+ * @param plan - The plan name ('community' | 'builders')
  * @returns The plan configuration object
  */
 export function getPlanConfig(plan: PlanName): (typeof PLANS)[PlanName] {
@@ -102,12 +82,12 @@ export function getPlanConfig(plan: PlanName): (typeof PLANS)[PlanName] {
 /**
  * Calculate expiration date for a plan
  *
- * Community is FREE forever, Builders/Pro are subscription-based (Paddle).
+ * Community is FREE forever, Builders is subscription-based (Paddle).
  * This function always returns null since:
  * - Community tier never expires (FREE forever)
  * - Builders/Pro tier expiration is determined by subscription billing cycle
  *
- * @param plan - The plan name ('community' | 'builders' | 'pro')
+ * @param plan - The plan name ('community' | 'builders')
  * @returns Always null (Community never expires, paid tiers managed by Paddle)
  *
  * @example

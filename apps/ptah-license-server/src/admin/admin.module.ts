@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from '../app/auth/auth.module';
 import { EmailModule } from '../email/email.module';
 import { LicenseModule } from '../license/license.module';
+import { WaitlistModule } from '../waitlist/waitlist.module';
 import { AdminController } from './admin.controller';
 import { AdminGuard } from './admin.guard';
 import { AdminThrottlerGuard } from './admin-throttler.guard';
@@ -25,6 +26,7 @@ import { AdminService } from './admin.service';
     ConfigModule,
     AuthModule,
     EmailModule,
+    WaitlistModule,
     forwardRef(() => LicenseModule),
   ],
   controllers: [AdminController],

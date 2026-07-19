@@ -15,7 +15,6 @@ export type AdminModelKey =
   | 'licenses'
   | 'subscriptions'
   | 'failed-webhooks'
-  | 'trial-reminders'
   | 'session-requests'
   | 'admin-audit-log'
   | 'marketing-campaigns'
@@ -29,7 +28,6 @@ export interface AdminModelConfig {
     | 'license'
     | 'subscription'
     | 'failedWebhook'
-    | 'trialReminder'
     | 'sessionRequest'
     | 'adminAuditLog'
     | 'marketingCampaign'
@@ -142,16 +140,6 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
     editableFields: ['resolved', 'resolvedAt'],
     readOnly: false,
     defaultSortBy: 'attemptedAt',
-  },
-  'trial-reminders': {
-    prismaModel: 'trialReminder',
-    listFields: ['id', 'userId', 'reminderType', 'sentAt', 'emailSentTo'],
-    searchFields: ['userId', 'reminderType', 'emailSentTo'],
-    sortableFields: ['sentAt', 'reminderType'],
-    editableFields: [], // read-only tracking records
-    readOnly: true,
-    defaultSortBy: 'sentAt',
-    include: { user: true },
   },
   'session-requests': {
     prismaModel: 'sessionRequest',

@@ -75,14 +75,6 @@ export class SubscriptionService {
     }
 
     const localSubscription = userData.subscription;
-    if (this.isInternalTrial(localSubscription)) {
-      this.logger.debug(
-        `Skipping Paddle API for internal trial user: ${userId}`,
-      );
-      const result = this.buildStatusFromLocal(localSubscription);
-      result.requiresSync = false;
-      return result;
-    }
     const paddleResult = localSubscription?.paddleCustomerId
       ? await this.paddleSync.findSubscriptionByCustomerId(
           localSubscription.paddleCustomerId,
@@ -216,22 +208,6 @@ export class SubscriptionService {
     const localLicense = userData.license;
     const statusBefore = localSubscription?.status || 'none';
     const planBefore = localLicense?.plan;
-    if (this.isInternalTrial(localSubscription)) {
-      this.logger.debug(
-        `Skipping reconcile for internal trial user: ${userId}`,
-      );
-      return {
-        success: true,
-        changes: {
-          subscriptionUpdated: false,
-          licenseUpdated: false,
-          statusBefore,
-          statusAfter: statusBefore,
-          planBefore,
-          planAfter: planBefore,
-        },
-      };
-    }
     const paddleResult = localSubscription?.paddleCustomerId
       ? await this.paddleSync.findSubscriptionByCustomerId(
           localSubscription.paddleCustomerId,
@@ -281,8 +257,8 @@ export class SubscriptionService {
     const paddleData = paddleResult.data;
     const newPlan = this.mapPriceIdToPlan(paddleData.priceId);
     const newStatus = paddleData.status;
-    const isInTrial = newStatus === 'trialing';
-    const licensePlan = isInTrial ? `trial_${newPlan}` : newPlan;
+    // No legacy trial plans: the license plan is always the resolved base plan.
+    const licensePlan = newPlan;
     const newPeriodEnd = paddleData.currentPeriodEnd
       ? new Date(paddleData.currentPeriodEnd)
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
@@ -402,13 +378,6 @@ export class SubscriptionService {
       return {
         error: 'no_customer_record',
         message: 'No Paddle customer record found for this user.',
-      };
-    }
-    if (this.isInternalTrial(subscription)) {
-      return {
-        error: 'no_customer_record',
-        message:
-          'Portal is not available during trial period. Use the pricing page to subscribe.',
       };
     }
 
@@ -608,30 +577,13 @@ export class SubscriptionService {
   }
 
   /**
-   * Check if a local subscription is an internal (API-managed) trial.
-   * Internal trials use synthetic Paddle IDs that should never be sent to Paddle API.
-   */
-  private isInternalTrial(
-    subscription: {
-      paddleCustomerId: string;
-      status: string;
-      priceId: string;
-    } | null,
-  ): boolean {
-    if (!subscription) return false;
-    return (
-      subscription.status === 'trialing' &&
-      (subscription.paddleCustomerId.startsWith('trial_customer_') ||
-        subscription.priceId === 'auto_trial_pro')
-    );
-  }
-
-  /**
    * Map Paddle price ID to plan name
+   *
+   * Open-source + Builders model — the two Builders price IDs map to
+   * 'builders', everything else is 'expired'.
    */
   private mapPriceIdToPlan(priceId: string | undefined): string {
     if (!priceId) return 'expired';
-    if (priceId === 'auto_trial_pro') return 'pro';
 
     const buildersMonthlyPriceId = getBuildersMonthlyPriceId(
       this.configService,
@@ -640,17 +592,6 @@ export class SubscriptionService {
 
     if (priceId === buildersMonthlyPriceId || priceId === buildersYearlyPriceId)
       return 'builders';
-
-    // Legacy Pro price IDs — kept so existing subscribers still resolve.
-    const proMonthlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_PRO_MONTHLY',
-    );
-    const proYearlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_PRO_YEARLY',
-    );
-
-    if (priceId === proMonthlyPriceId || priceId === proYearlyPriceId)
-      return 'pro';
 
     this.logger.warn(`Unknown price ID: ${priceId}`);
     return 'expired';
@@ -662,12 +603,9 @@ export class SubscriptionService {
   private getBillingCycle(priceId: string | undefined): 'monthly' | 'yearly' {
     if (!priceId) return 'monthly';
 
-    const yearlyPriceIds = [
-      getBuildersYearlyPriceId(this.configService),
-      this.configService.get<string>('PADDLE_PRICE_ID_PRO_YEARLY'),
-    ].filter(Boolean);
-
-    return yearlyPriceIds.includes(priceId) ? 'yearly' : 'monthly';
+    return priceId === getBuildersYearlyPriceId(this.configService)
+      ? 'yearly'
+      : 'monthly';
   }
 
   /**

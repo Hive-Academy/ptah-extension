@@ -6,6 +6,9 @@ import { PaddleWebhookService } from './paddle-webhook.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { EmailModule } from '../email/email.module';
 import { EventsModule } from '../events/events.module';
+import { WaitlistModule } from '../waitlist/waitlist.module';
+import { WaitlistService } from '../waitlist/waitlist.service';
+import { WAITLIST_CONVERSION_SINK } from '../circle/waitlist-conversion.sink';
 import {
   PaddleClientProvider,
   PADDLE_CLIENT,
@@ -50,13 +53,24 @@ import {
  * Configuration Required:
  * - PADDLE_API_KEY: Paddle API key (required)
  * - PADDLE_WEBHOOK_SECRET: Webhook signature secret (required)
- * - PADDLE_PRICE_ID_PRO_MONTHLY: Pro monthly price ID
- * - PADDLE_PRICE_ID_PRO_YEARLY: Pro yearly price ID
+ * - PADDLE_PRICE_ID_BUILDERS_MONTHLY: Builders monthly price ID
+ * - PADDLE_PRICE_ID_BUILDERS_YEARLY: Builders yearly price ID
  */
 @Module({
-  imports: [PrismaModule, EmailModule, ConfigModule, EventsModule],
+  imports: [
+    PrismaModule,
+    EmailModule,
+    ConfigModule,
+    EventsModule,
+    WaitlistModule,
+  ],
   controllers: [PaddleController],
-  providers: [PaddleClientProvider, PaddleService, PaddleWebhookService],
+  providers: [
+    PaddleClientProvider,
+    PaddleService,
+    PaddleWebhookService,
+    { provide: WAITLIST_CONVERSION_SINK, useExisting: WaitlistService },
+  ],
   exports: [PaddleService, PADDLE_CLIENT],
 })
 export class PaddleModule {}

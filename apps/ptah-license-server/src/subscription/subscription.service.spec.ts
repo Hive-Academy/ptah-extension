@@ -112,12 +112,12 @@ function createEventEmitter(): EventEmitterMock {
 // Fixture helpers
 // ---------------------------------------------------------------------------
 
-const PRO_MONTHLY = 'pri_pro_monthly';
-const PRO_YEARLY = 'pri_pro_yearly';
+const BUILDERS_MONTHLY = 'pri_builders_monthly';
+const BUILDERS_YEARLY = 'pri_builders_yearly';
 
 const DEFAULT_CONFIG: ConfigMockBacking = {
-  PADDLE_PRICE_ID_PRO_MONTHLY: PRO_MONTHLY,
-  PADDLE_PRICE_ID_PRO_YEARLY: PRO_YEARLY,
+  PADDLE_PRICE_ID_BUILDERS_MONTHLY: BUILDERS_MONTHLY,
+  PADDLE_PRICE_ID_BUILDERS_YEARLY: BUILDERS_YEARLY,
   // Builders checkout is opt-in; the default fixture keeps it enabled so the
   // existing checkout-flow tests exercise the real validation logic.
   BUILDERS_CHECKOUT_ENABLED: 'true',
@@ -131,7 +131,7 @@ function makeLocalSubscription(
     paddleSubscriptionId: 'pdl_sub_1',
     paddleCustomerId: 'pdl_cust_1',
     status: 'active',
-    priceId: PRO_MONTHLY,
+    priceId: BUILDERS_MONTHLY,
     currentPeriodEnd: new Date('2026-12-31T00:00:00Z'),
     canceledAt: null,
     trialEnd: null,
@@ -143,7 +143,7 @@ function makeLocalLicense(overrides: Partial<LocalLicense> = {}): LocalLicense {
   return {
     id: 'lic-1',
     licenseKey: 'ptah_lic_' + 'a'.repeat(64),
-    plan: 'pro',
+    plan: 'builders',
     status: 'active',
     expiresAt: new Date('2026-12-31T00:00:00Z'),
     ...overrides,
@@ -180,7 +180,7 @@ function makePaddleData(
     id: 'pdl_sub_1',
     customerId: 'pdl_cust_1',
     status: 'active',
-    priceId: PRO_MONTHLY,
+    priceId: BUILDERS_MONTHLY,
     currentPeriodEnd: '2026-12-31T00:00:00Z',
     canceledAt: null,
     trialEnd: null,
@@ -235,31 +235,6 @@ describe('SubscriptionService', () => {
       expect(paddle.findSubscriptionByCustomerId).not.toHaveBeenCalled();
     });
 
-    it('skips Paddle for internal trial (trial_customer_* synthetic id) and returns local data', async () => {
-      clock = freezeTime('2026-04-24T00:00:00Z');
-      db.findUserWithSubscription.mockResolvedValueOnce(
-        makeUserWithSub({
-          subscription: makeLocalSubscription({
-            status: 'trialing',
-            paddleCustomerId: 'trial_customer_abc',
-            priceId: 'auto_trial_pro',
-            currentPeriodEnd: new Date('2026-05-01T00:00:00Z'),
-            trialEnd: new Date('2026-05-01T00:00:00Z'),
-          }),
-        }),
-      );
-
-      const result = await service.getStatus('user-1');
-
-      expect(paddle.findSubscriptionByEmail).not.toHaveBeenCalled();
-      expect(paddle.findSubscriptionByCustomerId).not.toHaveBeenCalled();
-      expect(result.hasSubscription).toBe(true);
-      expect(result.source).toBe('local');
-      expect(result.requiresSync).toBe(false);
-      expect(result.subscription?.plan).toBe('pro');
-      expect(result.subscription?.status).toBe('trialing');
-    });
-
     it('uses paddleCustomerId when available (1-call path) and returns Paddle source', async () => {
       db.findUserWithSubscription.mockResolvedValueOnce(makeUserWithSub());
       paddle.findSubscriptionByCustomerId.mockResolvedValueOnce({
@@ -283,7 +258,7 @@ describe('SubscriptionService', () => {
       expect(result.source).toBe('paddle');
       expect(result.hasSubscription).toBe(true);
       expect(result.customerPortalUrl).toBe('https://paddle.com/portal/xyz');
-      expect(result.subscription?.plan).toBe('pro');
+      expect(result.subscription?.plan).toBe('builders');
       expect(result.subscription?.billingCycle).toBe('monthly');
     });
 
@@ -385,12 +360,12 @@ describe('SubscriptionService', () => {
     it('identifies yearly billing cycle from the configured yearly price ID', async () => {
       db.findUserWithSubscription.mockResolvedValueOnce(
         makeUserWithSub({
-          subscription: makeLocalSubscription({ priceId: PRO_YEARLY }),
+          subscription: makeLocalSubscription({ priceId: BUILDERS_YEARLY }),
         }),
       );
       paddle.findSubscriptionByCustomerId.mockResolvedValueOnce({
         status: 'found',
-        data: makePaddleData({ priceId: PRO_YEARLY }),
+        data: makePaddleData({ priceId: BUILDERS_YEARLY }),
       });
       db.findSubscriptionForPortal.mockResolvedValueOnce(null);
 
@@ -407,7 +382,10 @@ describe('SubscriptionService', () => {
     it('allows checkout when user has no subscription', async () => {
       db.findUserWithSubscription.mockResolvedValueOnce(null);
 
-      const result = await service.validateCheckout('missing', PRO_MONTHLY);
+      const result = await service.validateCheckout(
+        'missing',
+        BUILDERS_MONTHLY,
+      );
 
       expect(result.canCheckout).toBe(true);
       expect(result.reason).toBe('none');
@@ -426,33 +404,12 @@ describe('SubscriptionService', () => {
         url: 'https://portal.example/xyz',
       });
 
-      const result = await service.validateCheckout('user-1', PRO_MONTHLY);
+      const result = await service.validateCheckout('user-1', BUILDERS_MONTHLY);
 
       expect(result.canCheckout).toBe(false);
       expect(result.reason).toBe('existing_subscription');
-      expect(result.existingPlan).toBe('pro');
+      expect(result.existingPlan).toBe('builders');
       expect(result.customerPortalUrl).toBe('https://portal.example/xyz');
-    });
-
-    it('allows trial users to check out (trials are API-managed, not Paddle subscriptions)', async () => {
-      clock = freezeTime('2026-04-24T00:00:00Z');
-      db.findUserWithSubscription.mockResolvedValueOnce(
-        makeUserWithSub({
-          subscription: makeLocalSubscription({
-            status: 'trialing',
-            paddleCustomerId: 'trial_customer_abc',
-            priceId: 'auto_trial_pro',
-            currentPeriodEnd: new Date('2026-05-01T00:00:00Z'),
-          }),
-        }),
-      );
-
-      const result = await service.validateCheckout('user-1', PRO_MONTHLY);
-
-      // Internal trial ⇒ hasSubscription=true, but status='trialing' is not
-      // active|past_due|canceled-still-live|paused, so we fall through to
-      // the default allow-checkout branch.
-      expect(result.canCheckout).toBe(true);
     });
 
     it('blocks checkout when subscription is past_due and directs to portal', async () => {
@@ -468,7 +425,7 @@ describe('SubscriptionService', () => {
         url: 'https://portal.example/past-due',
       });
 
-      const result = await service.validateCheckout('user-1', PRO_MONTHLY);
+      const result = await service.validateCheckout('user-1', BUILDERS_MONTHLY);
 
       expect(result.canCheckout).toBe(false);
       expect(result.reason).toBe('existing_subscription');
@@ -486,7 +443,7 @@ describe('SubscriptionService', () => {
       });
       // `isActiveStatus('canceled')` returns false → no portal lookup.
 
-      const result = await service.validateCheckout('user-1', PRO_MONTHLY);
+      const result = await service.validateCheckout('user-1', BUILDERS_MONTHLY);
 
       // `canceled` is not in active-status set, so buildStatusFromPaddle
       // returns hasSubscription=false and getStatus returns no subscription.
@@ -498,7 +455,7 @@ describe('SubscriptionService', () => {
     it('blocks checkout with checkout_disabled when BUILDERS_CHECKOUT_ENABLED is off', async () => {
       build({ ...DEFAULT_CONFIG, BUILDERS_CHECKOUT_ENABLED: 'false' });
 
-      const result = await service.validateCheckout('user-1', PRO_MONTHLY);
+      const result = await service.validateCheckout('user-1', BUILDERS_MONTHLY);
 
       expect(result.canCheckout).toBe(false);
       expect(result.reason).toBe('checkout_disabled');
@@ -527,31 +484,6 @@ describe('SubscriptionService', () => {
         errors: ['User not found'],
       });
       expect(paddle.findSubscriptionByEmail).not.toHaveBeenCalled();
-    });
-
-    it('skips Paddle for internal trial and returns a no-op success', async () => {
-      db.findUserWithSubscriptionAndLicense.mockResolvedValueOnce(
-        makeUserWithSubAndLicense({
-          subscription: makeLocalSubscription({
-            status: 'trialing',
-            paddleCustomerId: 'trial_customer_abc',
-            priceId: 'auto_trial_pro',
-          }),
-          license: makeLocalLicense({ plan: 'trial_pro' }),
-        }),
-      );
-
-      const result = await service.reconcile('user-1', 'alice@example.com');
-
-      expect(paddle.findSubscriptionByCustomerId).not.toHaveBeenCalled();
-      expect(paddle.findSubscriptionByEmail).not.toHaveBeenCalled();
-      expect(result.success).toBe(true);
-      expect(result.changes.subscriptionUpdated).toBe(false);
-      expect(result.changes.licenseUpdated).toBe(false);
-      expect(result.changes.statusBefore).toBe('trialing');
-      expect(result.changes.statusAfter).toBe('trialing');
-      expect(result.changes.planBefore).toBe('trial_pro');
-      expect(result.changes.planAfter).toBe('trial_pro');
     });
 
     it('returns error when Paddle lookup fails', async () => {
@@ -625,7 +557,7 @@ describe('SubscriptionService', () => {
       const [subData, licData] = db.createSubscriptionAndLicense.mock.calls[0];
       expect(subData.paddleSubscriptionId).toBe('pdl_sub_1');
       expect(subData.status).toBe('active');
-      expect(licData.plan).toBe('pro');
+      expect(licData.plan).toBe('builders');
       expect(licData.createdBy).toBe('paddle_reconcile_pdl_sub_1');
 
       expect(result.success).toBe(true);
@@ -644,7 +576,7 @@ describe('SubscriptionService', () => {
       ]);
     });
 
-    it('trial_active → active: updates subscription + license and emits events', async () => {
+    it('trialing → active: updates subscription + license and emits events', async () => {
       const oldEnd = new Date('2026-05-01T00:00:00Z');
       const newEnd = new Date('2026-06-01T00:00:00Z');
 
@@ -652,12 +584,12 @@ describe('SubscriptionService', () => {
         makeUserWithSubAndLicense({
           subscription: makeLocalSubscription({
             status: 'trialing',
-            priceId: PRO_MONTHLY,
+            priceId: BUILDERS_MONTHLY,
             currentPeriodEnd: oldEnd,
             trialEnd: oldEnd,
           }),
           license: makeLocalLicense({
-            plan: 'trial_pro',
+            plan: 'builders',
             status: 'active',
             expiresAt: oldEnd,
           }),
@@ -667,7 +599,7 @@ describe('SubscriptionService', () => {
         status: 'found',
         data: makePaddleData({
           status: 'active',
-          priceId: PRO_MONTHLY,
+          priceId: BUILDERS_MONTHLY,
           currentPeriodEnd: newEnd.toISOString(),
           trialEnd: oldEnd.toISOString(),
         }),
@@ -678,7 +610,7 @@ describe('SubscriptionService', () => {
       expect(db.updateSubscription).toHaveBeenCalledTimes(1);
       expect(db.updateSubscription).toHaveBeenCalledWith('sub-1', {
         status: 'active',
-        priceId: PRO_MONTHLY,
+        priceId: BUILDERS_MONTHLY,
         currentPeriodEnd: newEnd,
         canceledAt: null,
         trialEnd: oldEnd,
@@ -686,15 +618,15 @@ describe('SubscriptionService', () => {
       expect(db.updateLicense).toHaveBeenCalledTimes(1);
       expect(db.updateLicense).toHaveBeenCalledWith('lic-1', {
         status: 'active',
-        plan: 'pro', // transitioned from trial_pro → pro since not trialing now
+        plan: 'builders',
         expiresAt: newEnd,
       });
 
       expect(result.success).toBe(true);
       expect(result.changes.statusBefore).toBe('trialing');
       expect(result.changes.statusAfter).toBe('active');
-      expect(result.changes.planBefore).toBe('trial_pro');
-      expect(result.changes.planAfter).toBe('pro');
+      expect(result.changes.planBefore).toBe('builders');
+      expect(result.changes.planAfter).toBe('builders');
 
       // Emission: first event is LicenseUpdatedEvent with status='active'.
       expect(events.emit).toHaveBeenCalledWith(
@@ -717,12 +649,12 @@ describe('SubscriptionService', () => {
         makeUserWithSubAndLicense({
           subscription: makeLocalSubscription({
             status: 'active',
-            priceId: PRO_MONTHLY,
+            priceId: BUILDERS_MONTHLY,
             currentPeriodEnd: end,
           }),
           license: makeLocalLicense({
             status: 'active',
-            plan: 'pro',
+            plan: 'builders',
             expiresAt: end,
           }),
         }),
@@ -731,7 +663,7 @@ describe('SubscriptionService', () => {
         status: 'found',
         data: makePaddleData({
           status: 'active',
-          priceId: PRO_MONTHLY,
+          priceId: BUILDERS_MONTHLY,
           currentPeriodEnd: end.toISOString(),
         }),
       });
@@ -752,18 +684,18 @@ describe('SubscriptionService', () => {
         makeUserWithSubAndLicense({
           subscription: makeLocalSubscription({
             status: 'trialing',
-            priceId: PRO_MONTHLY,
+            priceId: BUILDERS_MONTHLY,
             currentPeriodEnd: new Date('2026-05-01T00:00:00Z'),
           }),
           license: makeLocalLicense({
-            plan: 'trial_pro',
+            plan: 'builders',
             expiresAt: new Date('2026-05-01T00:00:00Z'),
           }),
         }),
       );
       const paddleData = makePaddleData({
         status: 'active',
-        priceId: PRO_MONTHLY,
+        priceId: BUILDERS_MONTHLY,
         currentPeriodEnd: '2026-06-01T00:00:00Z',
       });
       paddle.findSubscriptionByCustomerId.mockResolvedValueOnce({
@@ -782,11 +714,11 @@ describe('SubscriptionService', () => {
         makeUserWithSubAndLicense({
           subscription: makeLocalSubscription({
             status: 'active',
-            priceId: PRO_MONTHLY,
+            priceId: BUILDERS_MONTHLY,
             currentPeriodEnd: new Date('2026-06-01T00:00:00Z'),
           }),
           license: makeLocalLicense({
-            plan: 'pro',
+            plan: 'builders',
             status: 'active',
             expiresAt: new Date('2026-06-01T00:00:00Z'),
           }),
@@ -864,25 +796,6 @@ describe('SubscriptionService', () => {
       expect(result).toEqual({
         error: 'no_customer_record',
         message: 'No Paddle customer record found for this user.',
-      });
-      expect(paddle.createPortalSession).not.toHaveBeenCalled();
-    });
-
-    it('returns no_customer_record for internal trial users', async () => {
-      db.findSubscriptionForPortal.mockResolvedValueOnce(
-        makeLocalSubscription({
-          status: 'trialing',
-          paddleCustomerId: 'trial_customer_abc',
-          priceId: 'auto_trial_pro',
-        }),
-      );
-
-      const result = await service.createPortalSession('user-1');
-
-      expect(result).toEqual({
-        error: 'no_customer_record',
-        message:
-          'Portal is not available during trial period. Use the pricing page to subscribe.',
       });
       expect(paddle.createPortalSession).not.toHaveBeenCalled();
     });

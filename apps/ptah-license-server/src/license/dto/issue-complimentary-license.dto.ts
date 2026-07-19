@@ -34,9 +34,9 @@ export const COMPLIMENTARY_DURATION_PRESETS: readonly ComplimentaryDurationPrese
  * future, conflicting active license) live in
  * `LicenseService.createComplimentaryLicense`.
  *
- * `plan` is hard-constrained to `'pro'` for now — the architect's §6.3
- * leaves room for `'community'` later, but freeloader risk and lack of
- * use-case keep it out of scope today.
+ * `plan` is hard-constrained to `'builders'` (the only premium tier) — the
+ * architect's §6.3 leaves room for `'community'` later, but freeloader risk
+ * and lack of use-case keep it out of scope today.
  */
 export class IssueComplimentaryLicenseDto {
   @IsUUID('4')
@@ -56,8 +56,8 @@ export class IssueComplimentaryLicenseDto {
   @IsOptional()
   customExpiresAt?: string;
 
-  @IsIn(['pro'])
-  plan!: 'pro';
+  @IsIn(['builders'])
+  plan!: 'builders';
 
   @IsString()
   @Length(1, 500)

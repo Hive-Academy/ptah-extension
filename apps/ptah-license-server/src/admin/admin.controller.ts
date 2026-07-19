@@ -23,10 +23,18 @@ import { AdminGuard } from './admin.guard';
 import { AdminThrottlerGuard } from './admin-throttler.guard';
 import {
   AdminService,
+  AdminStatsResponse,
   UserDeletionPreview,
   UserDeletionResult,
 } from './admin.service';
-import { BulkEmailDto, ListQueryDto, UpdateRecordDto } from './admin.dto';
+import {
+  BulkEmailDto,
+  InviteWaitlistDto,
+  ListQueryDto,
+  UpdateRecordDto,
+} from './admin.dto';
+import { WaitlistService } from '../waitlist/waitlist.service';
+import { AuditLogService } from '../audit/audit-log.service';
 import { DeleteUserDto } from './dto/delete-user.dto';
 import { ADMIN_MODELS, AdminModelKey } from './admin-models.config';
 import { LicenseService } from '../license/services/license.service';
@@ -77,6 +85,8 @@ export class AdminController {
   constructor(
     @Inject(AdminService) private readonly admin: AdminService,
     @Inject(LicenseService) private readonly licenseService: LicenseService,
+    @Inject(WaitlistService) private readonly waitlist: WaitlistService,
+    @Inject(AuditLogService) private readonly auditLog: AuditLogService,
   ) {}
 
   @Post('users/bulk-email')
@@ -169,6 +179,78 @@ export class AdminController {
       ip: req.ip,
       userAgent: typeof userAgent === 'string' ? userAgent : undefined,
     });
+  }
+
+  /**
+   * GET /stats — founding-launch dashboard aggregates (waitlist funnel +
+   * active member counts by plan).
+   *
+   * Route ordering: MUST precede the `GET /:model` wildcard below, otherwise
+   * Nest matches `stats` against `:model` and `assertModel` 400s on the unknown
+   * slug.
+   */
+  @Get('stats')
+  async stats(): Promise<AdminStatsResponse> {
+    return this.admin.getStats();
+  }
+
+  /**
+   * POST /waitlist/invite — send the founding early-adopter invite wave.
+   *
+   * Body: `{ ids?: string[]; batchSize?: number }` — `ids` wins, else the N
+   * oldest un-notified rows. Sends the founding-discount email per row and
+   * stamps `notifiedAt`; already-notified rows are skipped. Records one
+   * `waitlist.invite` AdminAuditLog row per wave (best-effort — the invites
+   * have already been sent, so an audit failure must not fail the request).
+   *
+   * Guard chain: `JwtAuthGuard` → `AdminGuard` (class-level) → `AdminThrottlerGuard`
+   * (per-admin-email bucket). Throttle: 10/minute.
+   *
+   * Route ordering: literal-first, declared before the `:model` wildcards.
+   */
+  @Post('waitlist/invite')
+  @HttpCode(200)
+  @UseGuards(AdminThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async inviteWaitlist(
+    @Req() req: Request,
+    @Body() body: InviteWaitlistDto,
+  ): Promise<{ invited: number; skipped: number }> {
+    const actorEmail = req.user?.email ?? 'unknown';
+    const userAgent = req.headers['user-agent'];
+
+    const result = await this.waitlist.inviteBatch({
+      ids: body.ids,
+      batchSize: body.batchSize,
+    });
+
+    this.logger.log(
+      `Admin waitlist invite wave: actor=${actorEmail} invited=${result.invited} skipped=${result.skipped}`,
+    );
+
+    try {
+      await this.auditLog.write({
+        actorEmail,
+        action: 'waitlist.invite',
+        targetType: 'Waitlist',
+        metadata: {
+          invited: result.invited,
+          skipped: result.skipped,
+          invitedIds: result.invitedIds,
+          requestedIds: body.ids ?? null,
+          batchSize: body.batchSize ?? null,
+        },
+        ipAddress: req.ip,
+        userAgent: typeof userAgent === 'string' ? userAgent : undefined,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Failed to write waitlist.invite audit log: ${message}`,
+      );
+    }
+
+    return { invited: result.invited, skipped: result.skipped };
   }
 
   @Get(':model')

@@ -26,13 +26,12 @@ import type {
 
 /**
  * Per-user relation counts included in the deletion preview & result payloads.
- * Matches the 4 `User` relations in `schema.prisma` that cascade via `onDelete`.
+ * Matches the `User` relations in `schema.prisma` that cascade via `onDelete`.
  * `failed_webhooks` is intentionally omitted — that table has no FK to users.
  */
 export interface UserCascadedCounts {
   subscriptions: number;
   licenses: number;
-  trialReminders: number;
   sessionRequests: number;
 }
 
@@ -63,6 +62,29 @@ export interface DeleteUserActor {
   ip?: string;
   userAgent?: string;
 }
+
+/**
+ * Response shape for `GET /api/v1/admin/stats`.
+ *
+ * `waitlist.*` are counts over the `Waitlist` table; `members.*` count active
+ * licenses by plan (`builders` = paid membership, `community` = free tier).
+ */
+export interface AdminStatsResponse {
+  waitlist: {
+    total: number;
+    notified: number;
+    converted: number;
+    last7Days: number;
+  };
+  members: {
+    builders: number;
+    community: number;
+  };
+  updatedAt: string;
+}
+
+/** Window (ms) for the `waitlist.last7Days` recent-signup metric. */
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Subscription statuses that count as an "active paid" subscription for the
@@ -273,6 +295,37 @@ export class AdminService {
   }
 
   /**
+   * Aggregate the founding-launch dashboard stats (`GET /v1/admin/stats`).
+   *
+   * All six counts run in a single `$transaction([...])` round trip:
+   *   - waitlist total / notified / converted / last-7-day signups
+   *   - active `builders` and `community` license members
+   */
+  async getStats(): Promise<AdminStatsResponse> {
+    const since = new Date(Date.now() - SEVEN_DAYS_MS);
+
+    const [total, notified, converted, last7Days, builders, community] =
+      await this.prisma.$transaction([
+        this.prisma.waitlist.count(),
+        this.prisma.waitlist.count({ where: { notifiedAt: { not: null } } }),
+        this.prisma.waitlist.count({ where: { convertedAt: { not: null } } }),
+        this.prisma.waitlist.count({ where: { createdAt: { gte: since } } }),
+        this.prisma.license.count({
+          where: { plan: 'builders', status: 'active' },
+        }),
+        this.prisma.license.count({
+          where: { plan: 'community', status: 'active' },
+        }),
+      ]);
+
+    return {
+      waitlist: { total, notified, converted, last7Days },
+      members: { builders, community },
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
    * Build a case-insensitive `contains` OR clause across `cfg.searchFields`.
    * Returns `{}` (no filter) when `search` is empty/whitespace.
    */
@@ -322,8 +375,8 @@ export class AdminService {
   /**
    * Compute the impact preview for `DELETE /v1/admin/users/:id` (§5.1).
    *
-   * Counts every cascaded row per the 4 User relations in
-   * `schema.prisma` (subscriptions, licenses, trial_reminders, session_requests).
+   * Counts every cascaded row per the User relations in
+   * `schema.prisma` (subscriptions, licenses, session_requests).
    * Also flags:
    *   - `hasActivePaidSubscription` — any subscription row in
    *     ('active' | 'trialing' | 'past_due'), plus the paddleSubscriptionId
@@ -343,27 +396,21 @@ export class AdminService {
       throw new NotFoundException(`User ${id} not found`);
     }
 
-    const [
-      subscriptions,
-      licenses,
-      trialReminders,
-      sessionRequests,
-      activePaid,
-    ] = await this.prisma.$transaction([
-      this.prisma.subscription.count({ where: { userId: id } }),
-      this.prisma.license.count({ where: { userId: id } }),
-      this.prisma.trialReminder.count({ where: { userId: id } }),
-      this.prisma.sessionRequest.count({ where: { userId: id } }),
-      this.prisma.subscription.findFirst({
-        where: { userId: id, status: { in: [...ACTIVE_PAID_STATUSES] } },
-        select: { paddleSubscriptionId: true },
-      }),
-    ]);
+    const [subscriptions, licenses, sessionRequests, activePaid] =
+      await this.prisma.$transaction([
+        this.prisma.subscription.count({ where: { userId: id } }),
+        this.prisma.license.count({ where: { userId: id } }),
+        this.prisma.sessionRequest.count({ where: { userId: id } }),
+        this.prisma.subscription.findFirst({
+          where: { userId: id, status: { in: [...ACTIVE_PAID_STATUSES] } },
+          select: { paddleSubscriptionId: true },
+        }),
+      ]);
 
     return {
       userId: user.id,
       email: user.email,
-      cascaded: { subscriptions, licenses, trialReminders, sessionRequests },
+      cascaded: { subscriptions, licenses, sessionRequests },
       hasActivePaidSubscription: activePaid !== null,
       activePaddleSubscriptionId: activePaid?.paddleSubscriptionId,
       isAdminSelf: this.isAdminEmail(user.email),
@@ -434,18 +481,15 @@ export class AdminService {
               'User has an active paid Paddle subscription. Re-submit with acknowledgePaidSubscription: true to force-delete.',
           });
         }
-        const [subscriptions, licenses, trialReminders, sessionRequests] =
-          await Promise.all([
-            tx.subscription.count({ where: { userId: id } }),
-            tx.license.count({ where: { userId: id } }),
-            tx.trialReminder.count({ where: { userId: id } }),
-            tx.sessionRequest.count({ where: { userId: id } }),
-          ]);
+        const [subscriptions, licenses, sessionRequests] = await Promise.all([
+          tx.subscription.count({ where: { userId: id } }),
+          tx.license.count({ where: { userId: id } }),
+          tx.sessionRequest.count({ where: { userId: id } }),
+        ]);
 
         const cascadedCounts: UserCascadedCounts = {
           subscriptions,
           licenses,
-          trialReminders,
           sessionRequests,
         };
 

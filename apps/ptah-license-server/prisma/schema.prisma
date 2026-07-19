@@ -19,6 +19,9 @@ model User {
   id               String         @id @default(uuid()) @db.Uuid
   workosId         String?        @unique @map("workos_id") // WorkOS user ID for sync
   paddleCustomerId String?        @unique @map("paddle_customer_id") // Paddle customer ID for billing
+  // Circle community member ID for paid Builders members (headless Admin API v2).
+  // Populated when a Builders subscription is provisioned; cleared/ignored on cancel.
+  circleMemberId   String?        @map("circle_member_id")
   email            String         @unique
   firstName        String?        @map("first_name")
   lastName         String?        @map("last_name")
@@ -30,7 +33,6 @@ model User {
   updatedAt        DateTime       @updatedAt @map("updated_at")
   licenses         License[]
   subscriptions    Subscription[]
-  trialReminders   TrialReminder[]
   sessionRequests  SessionRequest[]
 
   @@index([workosId])
@@ -66,7 +68,7 @@ model License {
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @map("user_id") @db.Uuid
   licenseKey String    @unique @map("license_key")
-  plan       String // "community" | "pro"
+  plan       String // "community" | "builders"
   status     String    @default("active") // "active" | "expired" | "revoked" | "paused"
   // TASK_2025_292: License origin. "paddle" = paid subscription, "complimentary" = admin-issued gift, "manual" = admin-issued refund-in-kind.
   // NOTE: When MRR dashboards are built, they MUST filter `source = 'paddle'` (or join via `subscriptions` which is the correct source of truth).
@@ -102,22 +104,6 @@ model FailedWebhook {
   @@index([eventType])
   @@index([resolved])
   @@map("failed_webhooks")
-}
-
-// TrialReminder model - tracks trial reminder emails sent to users
-// TASK_2025_142: Trial reminder scheduler - tracks which reminders have been sent
-model TrialReminder {
-  id           String   @id @default(uuid()) @db.Uuid
-  userId       String   @map("user_id") @db.Uuid
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reminderType String   @map("reminder_type") // "7_day" | "3_day" | "1_day" | "expired"
-  sentAt       DateTime @default(now()) @map("sent_at")
-  emailSentTo  String   @map("email_sent_to")
-
-  @@unique([userId, reminderType])
-  @@index([userId])
-  @@index([reminderType])
-  @@map("trial_reminders")
 }
 
 // SessionRequest model - stores training session registration requests
@@ -186,7 +172,7 @@ model MarketingCampaign {
   name              String
   subject           String
   templateId        String?   @map("template_id") @db.Uuid
-  segment           String // 'all' | 'proActive' | 'communityActive' | 'trialing' | 'subscriptionPastDue' | 'custom'
+  segment           String // 'all' | 'buildersActive' | 'communityActive' | 'subscriptionPastDue' | 'custom'
   recipientCount    Int       @default(0) @map("recipient_count")
   sentCount         Int       @default(0) @map("sent_count")
   bouncedCount      Int       @default(0) @map("bounced_count")

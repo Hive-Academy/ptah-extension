@@ -79,7 +79,7 @@ export class LicenseController {
    *
    * Response (user with license):
    * {
-   *   plan: "pro",
+   *   plan: "builders",
    *   status: "active",
    *   expiresAt: "2026-02-15T00:00:00Z",
    *   daysRemaining: 45,
@@ -133,11 +133,6 @@ export class LicenseController {
     });
     const subscription = fullUser.subscriptions[0] || null;
     if (!license) {
-      const isTrialEnded =
-        subscription?.status === 'trialing' &&
-        subscription?.trialEnd &&
-        new Date() > subscription.trialEnd;
-
       return {
         user: {
           email: fullUser.email,
@@ -151,10 +146,8 @@ export class LicenseController {
         planDescription: 'Sign in to use the free, open-source Ptah orchestra',
         status: 'none',
         features: [],
-        message: isTrialEnded
-          ? 'Your trial has ended. Ptah is free and open source — your Community plan is ready to use.'
-          : 'No active license found. Ptah Community is free and open source.',
-        reason: isTrialEnded ? 'trial_ended' : undefined,
+        message:
+          'No active license found. Ptah Community is free and open source.',
         subscription: null,
         checkoutEnabled,
       };
@@ -165,30 +158,14 @@ export class LicenseController {
       const expiresAtMs = new Date(license.expiresAt).getTime();
       daysRemaining = Math.ceil((expiresAtMs - now) / (24 * 60 * 60 * 1000));
     }
-    const basePlan = (license.plan as string).replace('trial_', '');
     const planConfig =
-      basePlan === 'community' || basePlan === 'builders' || basePlan === 'pro'
-        ? getPlanConfig(basePlan as PlanName)
+      license.plan === 'community' || license.plan === 'builders'
+        ? getPlanConfig(license.plan as PlanName)
         : PLANS.community; // Safe fallback for unknown plans
-    const isTrialEnded =
-      (subscription?.status === 'trialing' &&
-        subscription?.trialEnd &&
-        new Date() > subscription.trialEnd) ||
-      (subscription?.status === 'expired' &&
-        license.plan === 'community' &&
-        license.expiresAt !== null);
     const isExpired =
       license.status === 'expired' ||
       (license.expiresAt && new Date() > license.expiresAt);
-    let reason: 'trial_ended' | 'expired' | undefined;
-    if (isTrialEnded) {
-      reason = 'trial_ended';
-    } else if (isExpired) {
-      reason = 'expired';
-    }
-    const isInTrial = subscription?.status === 'trialing';
-    const effectivePlan =
-      isInTrial && license.plan === 'pro' ? 'trial_pro' : license.plan;
+    const reason: 'expired' | undefined = isExpired ? 'expired' : undefined;
     return {
       user: {
         email: fullUser.email,
@@ -197,7 +174,7 @@ export class LicenseController {
         memberSince: fullUser.createdAt.toISOString(),
         emailVerified: fullUser.emailVerified,
       },
-      plan: effectivePlan,
+      plan: license.plan,
       planName: planConfig.name,
       planDescription: planConfig.description,
       status: license.status,
@@ -208,9 +185,7 @@ export class LicenseController {
       reason,
       checkoutEnabled,
       subscription:
-        subscription &&
-        subscription.status !== 'expired' &&
-        subscription.priceId !== 'auto_trial_pro'
+        subscription && subscription.status !== 'expired'
           ? {
               status: subscription.status,
               currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
@@ -236,7 +211,7 @@ export class LicenseController {
    * {
    *   success: true,
    *   licenseKey: "ptah_lic_abc123...",
-   *   plan: "pro"
+   *   plan: "builders"
    * }
    *
    * Response (no active license):
@@ -291,136 +266,5 @@ export class LicenseController {
       licenseKey: license.licenseKey,
       plan: license.plan,
     };
-  }
-
-  /**
-   * Downgrade to Community plan
-   *
-   * POST /api/v1/licenses/downgrade-to-community
-   *
-   * Authentication: Required (ptah_auth JWT cookie)
-   * Used by: Trial-ended modal when user clicks "Continue with Community"
-   * Rate Limit: 3 requests per minute (same as reveal-key)
-   *
-   * @param req - Express request with authenticated user
-   * @returns Downgrade result
-   *
-   * Response (success):
-   * {
-   *   success: true,
-   *   plan: "community",
-   *   status: "active",
-   *   message: "Successfully downgraded to Community plan"
-   * }
-   *
-   * Response (validation error):
-   * Status: 400 Bad Request
-   * {
-   *   success: false,
-   *   message: "Trial has not ended yet. You have 3 days remaining."
-   * }
-   *
-   * Response (no active license):
-   * Status: 404 Not Found
-   * {
-   *   success: false,
-   *   message: "No active license found"
-   * }
-   *
-   * Security:
-   * - Requires JWT authentication via JwtAuthGuard
-   * - Strict rate limiting (3 req/min) to prevent abuse
-   * - Validates trial has ended before allowing downgrade
-   * - All downgrade events logged for audit trail
-   *
-   * Real-Time Update:
-   * - Emits SSE event 'license.updated' for instant UI refresh
-   * - Frontend profile page auto-updates via SSE listener
-   */
-  @Throttle({ default: { limit: 3, ttl: 60000 } })
-  @Post('downgrade-to-community')
-  @UseGuards(JwtAuthGuard)
-  async downgradeToCommunity(@Req() req: Request) {
-    const user = req.user as { id: string; email: string };
-    const fullUser = await this.prisma.user.findUnique({
-      where: { id: user.id },
-      include: {
-        subscriptions: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-      },
-    });
-
-    if (!fullUser) {
-      this.logger.warn(
-        `Downgrade denied: userId=${user.id}, reason=user_not_found`,
-      );
-      return {
-        success: false,
-        message: 'User not found',
-      };
-    }
-
-    const subscription = fullUser.subscriptions[0];
-    const isTrialEnded =
-      (subscription?.status === 'trialing' &&
-        subscription?.trialEnd &&
-        new Date() > subscription.trialEnd) ||
-      subscription?.status === 'expired';
-
-    if (!isTrialEnded) {
-      let daysRemaining: number | undefined;
-      if (subscription?.trialEnd) {
-        const now = Date.now();
-        const trialEndMs = new Date(subscription.trialEnd).getTime();
-        daysRemaining = Math.ceil((trialEndMs - now) / (24 * 60 * 60 * 1000));
-      }
-
-      this.logger.warn(
-        `Downgrade denied: userId=${
-          user.id
-        }, reason=trial_not_ended, daysRemaining=${daysRemaining || 'N/A'}`,
-      );
-
-      return {
-        success: false,
-        message: daysRemaining
-          ? `Trial has not ended yet. You have ${daysRemaining} day${
-              daysRemaining !== 1 ? 's' : ''
-            } remaining.`
-          : 'Trial has not ended yet',
-      };
-    }
-    try {
-      const result = await this.licenseService.downgradeToCommunity(user.id);
-
-      this.logger.log(
-        `Downgrade successful: userId=${user.id}, email=${user.email}, plan=${result.plan}`,
-      );
-
-      return {
-        ...result,
-        message: 'Successfully downgraded to Community plan',
-      };
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-
-      this.logger.error(
-        `Downgrade failed: userId=${user.id}, error=${errorMessage}`,
-      );
-      if (errorMessage.includes('No active license')) {
-        return {
-          success: false,
-          message: 'No active license found',
-        };
-      }
-
-      return {
-        success: false,
-        message: 'Failed to downgrade. Please try again or contact support.',
-      };
-    }
   }
 }

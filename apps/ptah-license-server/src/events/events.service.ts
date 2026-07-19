@@ -27,7 +27,7 @@ interface InternalEvent {
  * ```typescript
  * this.eventsService.emitLicenseUpdated({
  *   email: 'user@example.com',
- *   plan: 'pro',
+ *   plan: 'builders',
  *   status: 'active',
  *   expiresAt: '2026-02-26T00:00:00Z',
  * });
@@ -60,7 +60,7 @@ export class EventsService {
           data: eventData,
           type: internal.event.type,
         } as MessageEvent<string>;
-      })
+      }),
     );
   }
 
@@ -71,7 +71,7 @@ export class EventsService {
     const count = this.connectedClients.get(email) || 0;
     this.connectedClients.set(email, count + 1);
     this.logger.log(
-      `Client connected: ${email} (${count + 1} active connections)`
+      `Client connected: ${email} (${count + 1} active connections)`,
     );
   }
 
@@ -88,8 +88,8 @@ export class EventsService {
     this.logger.log(
       `Client disconnected: ${email} (${Math.max(
         0,
-        count - 1
-      )} active connections)`
+        count - 1,
+      )} active connections)`,
     );
   }
 
@@ -110,7 +110,7 @@ export class EventsService {
 
     this.emit(data.email, event);
     this.logger.log(
-      `Emitted license.updated for ${data.email}: ${data.status} (${data.plan})`
+      `Emitted license.updated for ${data.email}: ${data.status} (${data.plan})`,
     );
   }
 
@@ -128,7 +128,7 @@ export class EventsService {
 
     this.emit(data.email, event);
     this.logger.log(
-      `Emitted subscription.status_changed for ${data.email}: ${data.status}`
+      `Emitted subscription.status_changed for ${data.email}: ${data.status}`,
     );
   }
 
@@ -153,7 +153,7 @@ export class EventsService {
    * after reconciliation finishes.
    */
   emitReconciliationCompleted(
-    data: ReconciliationCompletedEvent['data']
+    data: ReconciliationCompletedEvent['data'],
   ): void {
     const event: ReconciliationCompletedEvent = {
       type: 'reconciliation.completed',
@@ -163,7 +163,7 @@ export class EventsService {
 
     this.emit(data.email, event);
     this.logger.log(
-      `Emitted reconciliation.completed for ${data.email}: success=${data.success}, subscriptionUpdated=${data.changes.subscriptionUpdated}, licenseUpdated=${data.changes.licenseUpdated}`
+      `Emitted reconciliation.completed for ${data.email}: success=${data.success}, subscriptionUpdated=${data.changes.subscriptionUpdated}, licenseUpdated=${data.changes.licenseUpdated}`,
     );
   }
 

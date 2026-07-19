@@ -128,6 +128,43 @@ export class EmailService {
     this.logger.log(`Builders waitlist confirmation sent to ${email}`);
   }
 
+  /**
+   * Send the founding early-adopter invite to a waitlist member.
+   *
+   * Fired by an admin invite wave (POST /api/v1/admin/waitlist/invite). Carries
+   * BOTH checkout options with the founding discounts applied:
+   *   - Monthly at 35% off for the first 12 billing cycles
+   *   - Yearly at 50% off for the first year
+   *
+   * The CTA links point at the landing pricing page with `promo=founding`, the
+   * billing `cycle`, and a `d=<paddleDiscountId>` param so the landing checkout
+   * can pass the discount straight to Paddle. Discount IDs are read from
+   * `PADDLE_DISCOUNT_ID_BUILDERS_MONTHLY` / `_YEARLY` via ConfigService.
+   *
+   * Callers (WaitlistService.inviteBatch) treat a delivery failure as a signal
+   * NOT to stamp `notifiedAt`, so the row can be retried on the next wave.
+   *
+   * @param params - Email parameters (email)
+   * @throws Error after 3 failed retry attempts
+   */
+  async sendFoundingInvite(params: { email: string }): Promise<void> {
+    const { email } = params;
+
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [email],
+      subject: "You're invited — founding member pricing",
+      html: this.getFoundingInviteTemplate(),
+    };
+
+    this.logger.log(`Sending founding invite to ${email}`);
+    await this.sendWithRetry(msg, 3);
+    this.logger.log(`Founding invite sent to ${email}`);
+  }
+
   async sendMagicLink(params: {
     email: string;
     magicLink: string;
@@ -452,598 +489,6 @@ export class EmailService {
   }
 
   /**
-   * Send 7-day trial reminder email
-   *
-   * @param params - Email, firstName, trialEnd date
-   * @throws Error after 3 failed retry attempts
-   */
-  async sendTrialReminder7Day(params: {
-    email: string;
-    firstName: string | null;
-    trialEnd: Date;
-  }): Promise<void> {
-    const { email, firstName, trialEnd } = params;
-
-    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
-    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
-
-    const msg = {
-      from: `${fromName} <${fromEmail}>`,
-      to: [email],
-      subject: 'Your Ptah Pro trial ends in 7 days',
-      html: this.getTrialReminder7DayTemplate({ firstName, trialEnd }),
-    };
-
-    this.logger.log(`Sending 7-day trial reminder to ${email}`);
-    await this.sendWithRetry(msg, 3);
-    this.logger.log(`7-day trial reminder sent successfully to ${email}`);
-  }
-
-  /**
-   * Send 3-day trial reminder email
-   *
-   * @param params - Email, firstName, trialEnd date
-   * @throws Error after 3 failed retry attempts
-   */
-  async sendTrialReminder3Day(params: {
-    email: string;
-    firstName: string | null;
-    trialEnd: Date;
-  }): Promise<void> {
-    const { email, firstName, trialEnd } = params;
-
-    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
-    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
-
-    const msg = {
-      from: `${fromName} <${fromEmail}>`,
-      to: [email],
-      subject: '3 days left in your Ptah Pro trial',
-      html: this.getTrialReminder3DayTemplate({ firstName, trialEnd }),
-    };
-
-    this.logger.log(`Sending 3-day trial reminder to ${email}`);
-    await this.sendWithRetry(msg, 3);
-    this.logger.log(`3-day trial reminder sent successfully to ${email}`);
-  }
-
-  /**
-   * Send 1-day trial reminder email
-   *
-   * @param params - Email, firstName, trialEnd date
-   * @throws Error after 3 failed retry attempts
-   */
-  async sendTrialReminder1Day(params: {
-    email: string;
-    firstName: string | null;
-    trialEnd: Date;
-  }): Promise<void> {
-    const { email, firstName, trialEnd } = params;
-
-    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
-    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
-
-    const msg = {
-      from: `${fromName} <${fromEmail}>`,
-      to: [email],
-      subject: 'Your Ptah Pro trial ends tomorrow',
-      html: this.getTrialReminder1DayTemplate({ firstName, trialEnd }),
-    };
-
-    this.logger.log(`Sending 1-day trial reminder to ${email}`);
-    await this.sendWithRetry(msg, 3);
-    this.logger.log(`1-day trial reminder sent successfully to ${email}`);
-  }
-
-  /**
-   * Send trial expired notification email
-   *
-   * @param params - Email, firstName
-   * @throws Error after 3 failed retry attempts
-   */
-  async sendTrialExpired(params: {
-    email: string;
-    firstName: string | null;
-  }): Promise<void> {
-    const { email, firstName } = params;
-
-    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
-    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
-
-    const msg = {
-      from: `${fromName} <${fromEmail}>`,
-      to: [email],
-      subject: 'Your Ptah Pro trial has ended',
-      html: this.getTrialExpiredTemplate({ firstName }),
-    };
-
-    this.logger.log(`Sending trial expired notification to ${email}`);
-    await this.sendWithRetry(msg, 3);
-    this.logger.log(`Trial expired notification sent successfully to ${email}`);
-  }
-
-  /**
-   * Send notification that user has been downgraded to Community plan
-   *
-   * TASK_2025_143: Called when trial expires and user is auto-downgraded
-   *
-   * @param params - Email, firstName
-   * @throws Error after 3 failed retry attempts
-   */
-  async sendTrialDowngradedToCommunity(params: {
-    email: string;
-    firstName: string | null;
-  }): Promise<void> {
-    const { email, firstName } = params;
-
-    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
-    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
-
-    const msg = {
-      from: `${fromName} <${fromEmail}>`,
-      to: [email],
-      subject: "Welcome to Ptah Community - You're all set!",
-      html: this.getTrialDowngradedToCommunityTemplate({ firstName }),
-    };
-
-    this.logger.log(`Sending Community welcome email to ${email}`);
-    await this.sendWithRetry(msg, 3);
-    this.logger.log(`Community welcome email sent successfully to ${email}`);
-  }
-
-  /**
-   * 7-day trial reminder email template
-   *
-   * @private
-   * @param params - Template parameters (firstName, trialEnd)
-   * @returns HTML email content
-   */
-  private getTrialReminder7DayTemplate(params: {
-    firstName: string | null;
-    trialEnd: Date;
-  }): string {
-    const { firstName, trialEnd } = params;
-    const greeting = firstName ? `Hi ${firstName}` : 'Hi there';
-    const endDate = trialEnd.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-    const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
-
-    return `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Your Ptah Pro trial ends in 7 days</title>
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
-          .container { max-width: 600px; margin: 0 auto; }
-          .header { background: linear-gradient(135deg, #d4af37 0%, #8a6d10 100%); padding: 28px 24px; text-align: center; }
-          .header h1 { color: #0a0a0a; margin: 0; font-size: 24px; font-weight: 700; }
-          .content { background-color: #1e293b; padding: 32px 24px; }
-          .countdown-badge { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 5px 16px; border-radius: 12px; font-size: 13px; font-weight: 700; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
-          .feature-list { background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin: 24px 0; }
-          .feature-item { margin-bottom: 10px; color: #cbd5e1; }
-          .feature-icon { color: #d4af37; margin-right: 8px; }
-          .cta-button { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 14px 36px; border-radius: 6px; text-decoration: none; font-weight: 700; margin: 20px 0; font-size: 15px; }
-          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
-          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>7 Days Left in Your Trial</h1>
-          </div>
-          <div class="content">
-            <p>${greeting},</p>
-
-            <div class="countdown-badge">7 days remaining</div>
-
-            <p>Your Ptah Pro trial ends on <strong style="color: #f4d47c;">${endDate}</strong>.</p>
-
-            <p>Here's the orchestra you've been commanding:</p>
-
-            <div class="feature-list">
-              <div class="feature-item">
-                <span class="feature-icon">&#10003;</span>
-                <span>3 agent runtimes — Codex, Copilot, Ptah CLI</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">&#10003;</span>
-                <span>200+ LLM models via unified provider switching</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">&#10003;</span>
-                <span>14 MCP tools for workspace intelligence</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">&#10003;</span>
-                <span>Skill plugins from skills.sh registry</span>
-              </div>
-            </div>
-
-            <p>Upgrade now to keep the full orchestra after your trial ends.</p>
-
-            <a href="${frontendUrl}/pricing" class="cta-button">Upgrade to Pro</a>
-
-          </div>
-          <div class="footer">
-            <p>Questions? Reply to this email.</p>
-            <p>— The Ptah Team</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-  }
-
-  /**
-   * 3-day trial reminder email template
-   *
-   * @private
-   * @param params - Template parameters (firstName, trialEnd)
-   * @returns HTML email content
-   */
-  private getTrialReminder3DayTemplate(params: {
-    firstName: string | null;
-    trialEnd: Date;
-  }): string {
-    const { firstName, trialEnd } = params;
-    const greeting = firstName ? `Hi ${firstName}` : 'Hi there';
-    const endDate = trialEnd.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-    const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
-
-    return `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>3 days left in your Ptah Pro trial</title>
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
-          .container { max-width: 600px; margin: 0 auto; }
-          .header { background: linear-gradient(135deg, #d4af37 0%, #8a6d10 100%); padding: 28px 24px; text-align: center; }
-          .header h1 { color: #0a0a0a; margin: 0; font-size: 24px; font-weight: 700; }
-          .content { background-color: #1e293b; padding: 32px 24px; }
-          .countdown-badge { display: inline-block; background-color: #b45309; color: #fff; padding: 5px 16px; border-radius: 12px; font-size: 13px; font-weight: 700; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
-          .comparison-table { width: 100%; border-collapse: collapse; margin: 24px 0; }
-          .comparison-table th { padding: 12px; text-align: left; background-color: #0f172a; color: #f4d47c; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #d4af37; }
-          .comparison-table td { padding: 12px; text-align: left; border-bottom: 1px solid #334155; color: #cbd5e1; }
-          .check { color: #d4af37; font-weight: 600; }
-          .cross { color: #64748b; }
-          .cta-button { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 14px 36px; border-radius: 6px; text-decoration: none; font-weight: 700; margin: 20px 0; font-size: 15px; }
-          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
-          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>3 Days Left — Don't Lose the Orchestra</h1>
-          </div>
-          <div class="content">
-            <p>${greeting},</p>
-
-            <div class="countdown-badge">Only 3 days left</div>
-
-            <p>Your Ptah Pro trial ends on <strong style="color: #f4d47c;">${endDate}</strong>. Here's what changes:</p>
-
-            <table class="comparison-table">
-              <tr>
-                <th>Capability</th>
-                <th>Pro</th>
-                <th>Community</th>
-              </tr>
-              <tr>
-                <td>Agent orchestration</td>
-                <td class="check">3 runtimes (Codex, Copilot, Ptah CLI)</td>
-                <td class="cross">Single agent</td>
-              </tr>
-              <tr>
-                <td>LLM models</td>
-                <td class="check">200+ via unified providers</td>
-                <td class="cross">Limited selection</td>
-              </tr>
-              <tr>
-                <td>MCP tools</td>
-                <td class="check">14 workspace tools</td>
-                <td class="cross">Basic tools only</td>
-              </tr>
-              <tr>
-                <td>Skill plugins</td>
-                <td class="check">Full skills.sh access</td>
-                <td class="cross">None</td>
-              </tr>
-            </table>
-
-            <a href="${frontendUrl}/pricing" class="cta-button">Keep Full Access</a>
-
-          </div>
-          <div class="footer">
-            <p>Questions? Reply to this email.</p>
-            <p>— The Ptah Team</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-  }
-
-  /**
-   * 1-day trial reminder email template (urgent)
-   *
-   * @private
-   * @param params - Template parameters (firstName, trialEnd)
-   * @returns HTML email content
-   */
-  private getTrialReminder1DayTemplate(params: {
-    firstName: string | null;
-    trialEnd: Date;
-  }): string {
-    const { firstName, trialEnd } = params;
-    const greeting = firstName
-      ? `${firstName}, this is your last chance!`
-      : 'This is your last chance!';
-    const endDate = trialEnd.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-    const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
-
-    return `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Your Ptah Pro trial ends tomorrow</title>
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
-          .container { max-width: 600px; margin: 0 auto; }
-          .header { background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); padding: 28px 24px; text-align: center; }
-          .header h1 { color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; }
-          .content { background-color: #1e293b; padding: 32px 24px; }
-          .urgent-badge { display: inline-block; background-color: #dc2626; color: #fff; padding: 5px 16px; border-radius: 12px; font-size: 13px; font-weight: 700; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
-          .warning-box { background-color: #0f172a; border-left: 4px solid #dc2626; padding: 16px; margin: 24px 0; border-radius: 4px; }
-          .warning-box strong { color: #fca5a5; }
-          .cta-button { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 14px 40px; border-radius: 6px; text-decoration: none; font-weight: 700; margin: 24px 0; font-size: 16px; }
-          .soft-note { color: #64748b; font-size: 14px; margin-top: 20px; }
-          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
-          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>Your Trial Ends Tomorrow</h1>
-          </div>
-          <div class="content">
-            <p style="font-size: 18px; font-weight: 600;">${greeting}</p>
-
-            <div class="urgent-badge">Final day</div>
-
-            <p>Your Ptah Pro trial expires on <strong style="color: #fca5a5;">${endDate}</strong>.</p>
-
-            <div class="warning-box">
-              <strong>Tomorrow you lose access to:</strong><br>
-              <span style="color: #cbd5e1;">3 agent runtimes, 200+ LLM models, 14 MCP tools, skill plugins, and fire-and-check orchestration. You'll be moved to the Community tier with a single agent and basic tools.</span>
-            </div>
-
-            <div style="text-align: center;">
-              <a href="${frontendUrl}/pricing" class="cta-button">Keep the Full Orchestra</a>
-            </div>
-
-            <p class="soft-note">
-              Not ready? No worries — you can continue with the Community tier for free, and upgrade anytime to restore full access.
-            </p>
-
-          </div>
-          <div class="footer">
-            <p>Questions? Reply to this email.</p>
-            <p>— The Ptah Team</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-  }
-
-  /**
-   * Trial expired notification email template
-   *
-   * @private
-   * @param params - Template parameters (firstName)
-   * @returns HTML email content
-   */
-  private getTrialExpiredTemplate(params: {
-    firstName: string | null;
-  }): string {
-    const { firstName } = params;
-    const greeting = firstName ? `Hi ${firstName}` : 'Hi there';
-    const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
-
-    return `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Your Ptah Pro trial has ended</title>
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
-          .container { max-width: 600px; margin: 0 auto; }
-          .header { background: linear-gradient(135deg, #334155 0%, #1e293b 100%); padding: 28px 24px; text-align: center; }
-          .header h1 { color: #f1f5f9; margin: 0; font-size: 24px; font-weight: 700; }
-          .header p { color: #94a3b8; margin: 8px 0 0; font-size: 14px; }
-          .content { background-color: #1e293b; padding: 32px 24px; }
-          .community-info { background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin: 24px 0; }
-          .community-info strong { color: #94a3b8; }
-          .restore-section { margin-top: 28px; }
-          .restore-section h3 { color: #f4d47c; font-size: 16px; margin-bottom: 12px; }
-          .feature-item { margin-bottom: 8px; color: #cbd5e1; }
-          .feature-icon { color: #d4af37; margin-right: 8px; }
-          .cta-button { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 14px 36px; border-radius: 6px; text-decoration: none; font-weight: 700; margin: 20px 0; font-size: 15px; }
-          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
-          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>Your Pro Trial Has Ended</h1>
-            <p>You've been moved to the Community tier</p>
-          </div>
-          <div class="content">
-            <p>${greeting},</p>
-
-            <div class="community-info">
-              <strong>What's changed:</strong>
-              <p style="color: #cbd5e1;">You're now on the Community tier with single-agent access and basic tools. You can continue using Ptah for free.</p>
-            </div>
-
-            <div class="restore-section">
-              <h3>Restore the full orchestra anytime:</h3>
-              <div class="feature-item">
-                <span class="feature-icon">&#10003;</span>
-                <span>3 agent runtimes — spawn, delegate, conquer</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">&#10003;</span>
-                <span>200+ LLM models — one harness, every model</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">&#10003;</span>
-                <span>14 MCP tools & skill plugins from skills.sh</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">&#10003;</span>
-                <span>Setup Wizard — instant project awareness from day one</span>
-              </div>
-            </div>
-
-            <a href="${frontendUrl}/pricing" class="cta-button">View Pro Plans</a>
-
-          </div>
-          <div class="footer">
-            <p>Thank you for trying Ptah Pro. We'd love your feedback — just reply.</p>
-            <p>— The Ptah Team</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-  }
-
-  /**
-   * Template for trial downgraded to Community email
-   *
-   * TASK_2025_143: Positive messaging about Community tier
-   * Focus on what they CAN do, not what they lost
-   *
-   * @private
-   * @param params - Template parameters (firstName)
-   * @returns HTML email content
-   */
-  private getTrialDowngradedToCommunityTemplate(params: {
-    firstName: string | null;
-  }): string {
-    const { firstName } = params;
-    const greeting = firstName ? `Hi ${firstName}` : 'Hi there';
-    const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
-
-    return `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Welcome to Ptah Community</title>
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
-          .container { max-width: 600px; margin: 0 auto; }
-          .header { background: linear-gradient(135deg, #d4af37 0%, #8a6d10 100%); padding: 28px 24px; text-align: center; }
-          .header h1 { color: #0a0a0a; margin: 0; font-size: 24px; font-weight: 700; }
-          .header p { color: #0a0a0a; opacity: 0.8; margin: 8px 0 0; font-size: 14px; }
-          .content { background-color: #1e293b; padding: 32px 24px; }
-          .feature-list { background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin: 24px 0; }
-          .feature-item { margin-bottom: 10px; color: #cbd5e1; }
-          .feature-icon { color: #d4af37; margin-right: 8px; }
-          .upgrade-box { background-color: #0f172a; border: 1px solid #d4af37; border-radius: 8px; padding: 20px; margin: 24px 0; }
-          .upgrade-box strong { color: #f4d47c; }
-          .cta-button { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 14px 36px; border-radius: 6px; text-decoration: none; font-weight: 700; margin: 20px 8px 20px 0; font-size: 15px; }
-          .cta-secondary { display: inline-block; color: #f4d47c; text-decoration: none; font-weight: 600; font-size: 14px; }
-          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
-          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>Welcome to Ptah Community</h1>
-            <p>Your account is ready — keep coding for free</p>
-          </div>
-          <div class="content">
-            <p>${greeting},</p>
-
-            <p>Your Pro trial has ended, but the Community tier still gives you solid ground to build on:</p>
-
-            <div class="feature-list">
-              <div class="feature-item">
-                <span class="feature-icon">&#10003;</span>
-                <span>AI-powered code assistance in VS Code</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">&#10003;</span>
-                <span>Single-agent chat with Claude</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">&#10003;</span>
-                <span>Code generation, editing, and explanations</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">&#10003;</span>
-                <span>Session history and management</span>
-              </div>
-            </div>
-
-            <div class="upgrade-box">
-              <strong>Ready for the full orchestra?</strong>
-              <p style="color: #cbd5e1; margin: 8px 0 0;">Upgrade to Pro for 3 agent runtimes, 200+ LLM models, 14 MCP tools, skill plugins, and fire-and-check orchestration.</p>
-            </div>
-
-            <a href="${frontendUrl}/pricing" class="cta-button">Upgrade to Pro</a>
-            <a href="${frontendUrl}/profile" class="cta-secondary">View Your Account &#8594;</a>
-
-          </div>
-          <div class="footer">
-            <p>Thank you for being part of the Ptah community.</p>
-            <p>— The Ptah Team</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-  }
-
-  /**
    * Builders waitlist confirmation email template.
    *
    * @private
@@ -1085,6 +530,125 @@ export class EmailService {
             <p>Thanks for joining the waitlist for <strong style="color: #f4d47c;">Ptah Builders</strong> — the premium tier of the Ptah coding orchestra.</p>
             <p>The full Community edition of Ptah is free and open source, and you can keep building with it today. Builders adds the next layer on top, and we'll email you the moment early access opens up.</p>
             <p>No action needed for now — sit tight and keep orchestrating.</p>
+          </div>
+          <div class="footer">
+            <p>Questions? Just reply to this email.</p>
+            <p>— The Ptah Team &middot; <a href="${frontendUrl}">ptah.live</a></p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Build a founding-invite checkout link for the landing pricing page.
+   *
+   * Shape: `${frontendUrl}/pricing?promo=founding&cycle=<cycle>[&d=<discountId>]`.
+   * The `d` param is only appended when the corresponding Paddle discount ID is
+   * configured, so a missing env var degrades to a plain founding link rather
+   * than a broken `d=` query.
+   *
+   * @private
+   */
+  private buildFoundingCheckoutUrl(
+    frontendUrl: string,
+    cycle: 'monthly' | 'yearly',
+    discountId: string | undefined,
+  ): string {
+    const base = `${frontendUrl}/pricing?promo=founding&cycle=${cycle}`;
+    return discountId ? `${base}&d=${encodeURIComponent(discountId)}` : base;
+  }
+
+  /**
+   * Founding early-adopter invite email template (dark/gold).
+   *
+   * @private
+   * @returns HTML email content
+   */
+  private getFoundingInviteTemplate(): string {
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
+    const monthlyDiscountId = this.config.get<string>(
+      'PADDLE_DISCOUNT_ID_BUILDERS_MONTHLY',
+    );
+    const yearlyDiscountId = this.config.get<string>(
+      'PADDLE_DISCOUNT_ID_BUILDERS_YEARLY',
+    );
+    const monthlyUrl = this.buildFoundingCheckoutUrl(
+      frontendUrl,
+      'monthly',
+      monthlyDiscountId,
+    );
+    const yearlyUrl = this.buildFoundingCheckoutUrl(
+      frontendUrl,
+      'yearly',
+      yearlyDiscountId,
+    );
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>You're invited — founding member pricing</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #d4af37 0%, #8a6d10 100%); padding: 32px 24px; text-align: center; }
+          .header h1 { color: #0a0a0a; margin: 0; font-size: 26px; font-weight: 700; }
+          .header p { color: #0a0a0a; opacity: 0.8; margin: 8px 0 0; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; }
+          .content { background-color: #1e293b; padding: 32px 24px; }
+          .badge { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 4px 16px; border-radius: 12px; font-size: 13px; font-weight: 700; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+          .content p { color: #cbd5e1; }
+          .plans { margin: 24px 0; }
+          .plan { background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+          .plan.featured { border-color: #d4af37; }
+          .plan h3 { color: #f4d47c; margin: 0 0 4px; font-size: 18px; }
+          .plan .price { color: #f1f5f9; font-size: 15px; margin: 0 0 4px; }
+          .plan .price s { color: #64748b; }
+          .plan .save { color: #4ade80; font-size: 13px; font-weight: 600; margin: 0 0 16px; }
+          .cta { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 15px; }
+          .guarantee { background-color: #0f172a; border-left: 4px solid #d4af37; padding: 12px 16px; margin: 24px 0; border-radius: 4px; }
+          .guarantee strong { color: #f4d47c; }
+          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
+          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
+          .footer a { color: #d4af37; text-decoration: none; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>You're invited</h1>
+            <p>Founding Member Pricing</p>
+          </div>
+          <div class="content">
+            <div class="badge">Ptah Builders</div>
+            <p>You were one of the first to join the waitlist, so you get first access to <strong style="color: #f4d47c;">Ptah Builders</strong> — and a founding-member discount reserved for early adopters.</p>
+            <p>Pick the billing cycle that suits you:</p>
+
+            <div class="plans">
+              <div class="plan featured">
+                <h3>Yearly — best value</h3>
+                <p class="price"><s>$290/year</s> &nbsp; $145 for your first year</p>
+                <p class="save">50% off the first year</p>
+                <a href="${yearlyUrl}" class="cta">Claim yearly →</a>
+              </div>
+              <div class="plan">
+                <h3>Monthly</h3>
+                <p class="price"><s>$29/month</s> &nbsp; $18.85/month</p>
+                <p class="save">35% off for your first 12 billing cycles</p>
+                <a href="${monthlyUrl}" class="cta">Claim monthly →</a>
+              </div>
+            </div>
+
+            <div class="guarantee">
+              <strong>30-day money-back guarantee.</strong>
+              <span style="color: #94a3b8;"> Full refund on your first charge if Builders isn't for you. Renewals are cancel-anytime and non-refundable.</span>
+            </div>
+
+            <p style="color: #94a3b8; font-size: 14px;">The open-source Community edition stays free forever — Builders simply layers hosted perks, priority support and early access on top.</p>
           </div>
           <div class="footer">
             <p>Questions? Just reply to this email.</p>

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type {
   SubscriptionCreatedNotification,
@@ -6,6 +6,11 @@ import type {
   TransactionNotification,
 } from '@paddle/paddle-node-sdk';
 import { randomBytes } from 'crypto';
+import { CircleProvisioningService } from '../circle/circle-provisioning.service';
+import {
+  WAITLIST_CONVERSION_SINK,
+  type WaitlistConversionSink,
+} from '../circle/waitlist-conversion.sink';
 import { EmailService } from '../email/services/email.service';
 import { EventsService } from '../events/events.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -14,12 +19,12 @@ import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';
 /**
  * PaddleService - Paddle business logic and license provisioning
  *
- * TASK_2025_128: Freemium model - only Pro plan uses Paddle
+ * Open-source + Builders model - only the paid Builders plan uses Paddle.
  * Community tier is FREE and has no Paddle integration.
  *
  * Responsibilities:
  * - Handle subscription lifecycle events with SDK-typed data
- * - Provision licenses for new Pro subscriptions
+ * - Provision licenses for new Builders subscriptions
  * - Update licenses on plan changes or cancellations
  * - Send license key emails to customers
  * - Fetch customer details from Paddle API
@@ -29,8 +34,8 @@ import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';
  *
  * Configuration (environment variables):
  * - PADDLE_API_KEY: Paddle API key (required)
- * - PADDLE_PRICE_ID_PRO_MONTHLY: Price ID for pro monthly plan
- * - PADDLE_PRICE_ID_PRO_YEARLY: Price ID for pro yearly plan
+ * - PADDLE_PRICE_ID_BUILDERS_MONTHLY: Price ID for Builders monthly plan
+ * - PADDLE_PRICE_ID_BUILDERS_YEARLY: Price ID for Builders yearly plan
  */
 @Injectable()
 export class PaddleService {
@@ -43,8 +48,52 @@ export class PaddleService {
     @Inject(EventsService) private readonly eventsService: EventsService,
     @Inject(PADDLE_CLIENT)
     private readonly paddle: PaddleClient,
+    @Inject(CircleProvisioningService)
+    private readonly circleProvisioning: CircleProvisioningService,
+    // Optional: the waitlist conversion sink (WaitlistService.markConverted) is
+    // bound by the invite-waves agent. When unbound this resolves to undefined
+    // and the conversion stamp is skipped — see waitlist-conversion.sink.ts.
+    @Optional()
+    @Inject(WAITLIST_CONVERSION_SINK)
+    private readonly waitlistSink: WaitlistConversionSink | undefined,
   ) {
     this.logger.log('Paddle service initialized');
+  }
+
+  /**
+   * Best-effort provisioning fan-out for a newly paid/renewed Builders member:
+   * (a) Circle community invite + circleMemberId persistence, and
+   * (b) waitlist conversion stamp (convertedAt) via the optional sink.
+   *
+   * Both steps are non-fatal — CircleProvisioningService never throws, and the
+   * waitlist call is wrapped so a missing/failing sink never disrupts the
+   * webhook path.
+   */
+  private async fanOutBuildersProvisioning(
+    userId: string,
+    email: string,
+  ): Promise<void> {
+    await this.circleProvisioning.provisionBuildersMember(userId, email);
+    await this.markWaitlistConverted(email);
+  }
+
+  /**
+   * Stamp the waitlist row as converted, if the optional sink is bound.
+   * Best-effort: absence or failure is logged and swallowed.
+   */
+  private async markWaitlistConverted(email: string): Promise<void> {
+    if (!this.waitlistSink) {
+      return;
+    }
+    try {
+      await this.waitlistSink.markConverted(email);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to mark waitlist converted for ${email}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      );
+    }
   }
 
   /**
@@ -129,7 +178,8 @@ export class PaddleService {
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Default 30 days if missing
     const licenseKey = this.generateLicenseKey();
     const isInTrial = data.status === 'trialing';
-    const licensePlan = isInTrial ? `trial_${basePlan}` : basePlan;
+    // No legacy trial plans: the license plan is always the resolved base plan.
+    const licensePlan = basePlan;
     const trialDates = data.items[0]?.trialDates;
     const trialEnd = trialDates?.endsAt ? new Date(trialDates.endsAt) : null;
 
@@ -170,19 +220,6 @@ export class PaddleService {
       if (revokedCount.count > 0) {
         this.logger.log(
           `Revoked ${revokedCount.count} existing license(s) for user: ${normalizedEmail}`,
-        );
-      }
-      const expiredTrials = await tx.subscription.updateMany({
-        where: {
-          userId: user.id,
-          priceId: 'auto_trial_pro',
-          status: 'trialing',
-        },
-        data: { status: 'expired' },
-      });
-      if (expiredTrials.count > 0) {
-        this.logger.log(
-          `Expired ${expiredTrials.count} internal trial subscription(s) for user: ${normalizedEmail}`,
         );
       }
       const newLicense = await tx.license.create({
@@ -238,6 +275,13 @@ export class PaddleService {
       expiresAt: periodEnd.toISOString(),
     });
 
+    // Provisioning fan-out for paid Builders members (best-effort, non-fatal):
+    // Circle community invite + waitlist conversion stamp. Runs after license
+    // issuance so `license.userId` is available.
+    if (licensePlan === 'builders') {
+      await this.fanOutBuildersProvisioning(license.userId, normalizedEmail);
+    }
+
     return { success: true, licenseId: license.id };
   }
 
@@ -289,7 +333,6 @@ export class PaddleService {
         where: {
           userId: existingSubscription.userId,
           status: 'active',
-          plan: { startsWith: 'trial_' },
         },
         data: {
           plan: basePlan,
@@ -298,7 +341,7 @@ export class PaddleService {
       });
 
       this.logger.log(
-        `Updated ${updateResult.count} license(s) from trial to ${basePlan}`,
+        `Updated ${updateResult.count} license(s) to ${basePlan}`,
       );
       this.eventsService.emitLicenseUpdated({
         email: normalizedEmail,
@@ -312,6 +355,15 @@ export class PaddleService {
         status: 'active',
         plan: basePlan,
       });
+
+      // Trial/pending -> active transition for a Builders member: run the
+      // provisioning fan-out (Circle invite + waitlist conversion). Best-effort.
+      if (basePlan === 'builders') {
+        await this.fanOutBuildersProvisioning(
+          existingSubscription.userId,
+          normalizedEmail,
+        );
+      }
 
       return { success: true };
     }
@@ -456,6 +508,11 @@ export class PaddleService {
       status: 'canceled',
       plan: currentLicense?.plan || 'unknown',
     });
+
+    // Deprovision the Circle community membership (best-effort, non-fatal).
+    // Safe to call unconditionally: it no-ops when the user has no
+    // circleMemberId on record (e.g. non-Builders users).
+    await this.circleProvisioning.deprovisionBuildersMember(user.id);
 
     return { success: true };
   }
@@ -748,12 +805,11 @@ export class PaddleService {
   /**
    * Map Paddle price ID to internal plan name
    *
-   * Open-source + Builders model — 'builders' is the current premium plan.
-   * Legacy 'pro' price IDs are still mapped so existing subscribers keep
-   * resolving. Community tier is FREE and has no Paddle integration.
+   * Open-source + Builders model — 'builders' is the only premium plan.
+   * Community tier is FREE and has no Paddle integration.
    *
    * @param priceId - Paddle price ID from SDK notification
-   * @returns Internal plan name ('builders' | 'pro' | 'expired')
+   * @returns Internal plan name ('builders' | 'expired')
    */
   private mapPriceIdToPlan(priceId: string | undefined): string {
     if (!priceId) {
@@ -771,16 +827,6 @@ export class PaddleService {
       priceId === buildersYearlyPriceId
     ) {
       return 'builders';
-    }
-    // Legacy Pro price IDs — retained for existing subscribers.
-    const proMonthlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_PRO_MONTHLY',
-    );
-    const proYearlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_PRO_YEARLY',
-    );
-    if (priceId === proMonthlyPriceId || priceId === proYearlyPriceId) {
-      return 'pro';
     }
 
     this.logger.warn(

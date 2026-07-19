@@ -104,15 +104,9 @@ export class AuthController {
 
   /**
    * Valid plan keys for post-auth checkout redirect.
-   * 'builders-*' are the current premium keys; 'pro-*' are legacy and kept so
-   * older links for existing subscribers still resolve.
+   * Builders is the only premium tier (monthly + yearly).
    */
-  private readonly VALID_PLAN_KEYS = [
-    'builders-monthly',
-    'builders-yearly',
-    'pro-monthly',
-    'pro-yearly',
-  ];
+  private readonly VALID_PLAN_KEYS = ['builders-monthly', 'builders-yearly'];
 
   constructor(
     @Inject(AuthService) private readonly authService: AuthService,
@@ -421,7 +415,7 @@ export class AuthController {
    *
    * @example
    * POST /auth/magic-link
-   * Body: { "email": "user@example.com", "returnUrl": "/pricing", "plan": "pro-monthly" }
+   * Body: { "email": "user@example.com", "returnUrl": "/pricing", "plan": "builders-monthly" }
    * → Returns: { success: true, message: "Check your email for login link" }
    */
   @Throttle({ default: { limit: 3, ttl: 60000 } })
@@ -790,13 +784,13 @@ export class AuthController {
    *
    * Query Parameters:
    * - returnUrl: Optional URL path to redirect to after auth (e.g., '/pricing')
-   * - plan: Optional plan key for auto-checkout (e.g., 'pro-monthly', 'pro-yearly')
+   * - plan: Optional plan key for auto-checkout (e.g., 'builders-monthly', 'builders-yearly')
    *
    * @example
-   * GET /auth/oauth/github?returnUrl=/pricing&plan=pro-monthly
+   * GET /auth/oauth/github?returnUrl=/pricing&plan=builders-monthly
    * → Sets cookie: workos_state=<state>
    * → Redirect to: https://github.com/login/oauth/authorize?...
-   * → After auth: Redirect to /pricing?autoCheckout=pro-monthly
+   * → After auth: Redirect to /pricing?autoCheckout=builders-monthly
    *
    * @example
    * GET /auth/oauth/google

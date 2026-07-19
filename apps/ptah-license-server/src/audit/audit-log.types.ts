@@ -15,7 +15,10 @@ export type AdminAuditAction =
   | 'user.bounced'
   | 'user.complained'
   | 'license.complimentary.issue'
-  | 'marketing.campaign.send';
+  | 'marketing.campaign.send'
+  | 'circle.member.invite'
+  | 'circle.member.remove'
+  | 'waitlist.invite';
 
 /**
  * Target type enum — the kind of entity an audit row describes.
@@ -25,7 +28,8 @@ export type AdminAuditTargetType =
   | 'User'
   | 'License'
   | 'MarketingCampaign'
-  | 'Subscription';
+  | 'Subscription'
+  | 'Waitlist';
 
 /**
  * Input shape for `AuditLogService.write`.

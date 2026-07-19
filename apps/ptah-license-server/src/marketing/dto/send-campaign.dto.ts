@@ -31,18 +31,11 @@ export class SendCampaignDto {
 
   @IsString()
   @IsOptional()
-  @IsIn([
-    'all',
-    'proActive',
-    'communityActive',
-    'trialing',
-    'subscriptionPastDue',
-  ])
+  @IsIn(['all', 'buildersActive', 'communityActive', 'subscriptionPastDue'])
   segment?:
     | 'all'
-    | 'proActive'
+    | 'buildersActive'
     | 'communityActive'
-    | 'trialing'
     | 'subscriptionPastDue';
 
   @IsArray()

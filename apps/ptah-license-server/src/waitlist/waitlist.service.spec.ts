@@ -8,19 +8,29 @@ describe('WaitlistService', () => {
     waitlist: {
       findUnique: jest.Mock;
       create: jest.Mock;
+      findMany: jest.Mock;
+      update: jest.Mock;
+      updateMany: jest.Mock;
     };
   };
-  let mockEmail: { sendWaitlistConfirmation: jest.Mock };
+  let mockEmail: {
+    sendWaitlistConfirmation: jest.Mock;
+    sendFoundingInvite: jest.Mock;
+  };
 
   beforeEach(() => {
     mockPrisma = {
       waitlist: {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({ id: 'wl-1' }),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue({ id: 'wl-1' }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
     mockEmail = {
       sendWaitlistConfirmation: jest.fn().mockResolvedValue(undefined),
+      sendFoundingInvite: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new WaitlistService(
@@ -90,5 +100,95 @@ describe('WaitlistService', () => {
 
     expect(result).toEqual({ status: 'joined' });
     expect(mockPrisma.waitlist.create).toHaveBeenCalled();
+  });
+
+  describe('markConverted', () => {
+    it('stamps convertedAt on the matching un-converted row (lowercased)', async () => {
+      mockPrisma.waitlist.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.markConverted('  Buyer@Example.COM ');
+
+      expect(mockPrisma.waitlist.updateMany).toHaveBeenCalledWith({
+        where: { email: 'buyer@example.com', convertedAt: null },
+        data: { convertedAt: expect.any(Date) },
+      });
+    });
+
+    it('is a no-op (does not throw) when no matching row exists', async () => {
+      mockPrisma.waitlist.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.markConverted('nobody@example.com'),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('inviteBatch', () => {
+    it('invites the N oldest un-notified rows when only batchSize is given', async () => {
+      mockPrisma.waitlist.findMany.mockResolvedValue([
+        { id: 'a', email: 'a@x.com', notifiedAt: null },
+        { id: 'b', email: 'b@x.com', notifiedAt: null },
+      ]);
+
+      const result = await service.inviteBatch({ batchSize: 2 });
+
+      expect(mockPrisma.waitlist.findMany).toHaveBeenCalledWith({
+        where: { notifiedAt: null },
+        orderBy: { createdAt: 'asc' },
+        take: 2,
+        select: { id: true, email: true, notifiedAt: true },
+      });
+      expect(mockEmail.sendFoundingInvite).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.waitlist.update).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({
+        invited: 2,
+        skipped: 0,
+        invitedIds: ['a', 'b'],
+      });
+    });
+
+    it('lets ids override batchSize and skips already-notified rows', async () => {
+      mockPrisma.waitlist.findMany.mockResolvedValue([
+        { id: 'a', email: 'a@x.com', notifiedAt: null },
+        { id: 'b', email: 'b@x.com', notifiedAt: new Date('2026-01-01') },
+      ]);
+
+      const result = await service.inviteBatch({
+        ids: ['a', 'b'],
+        batchSize: 99,
+      });
+
+      expect(mockPrisma.waitlist.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['a', 'b'] } },
+        select: { id: true, email: true, notifiedAt: true },
+      });
+      // Only the un-notified row is emailed + stamped; the notified one is skipped.
+      expect(mockEmail.sendFoundingInvite).toHaveBeenCalledTimes(1);
+      expect(mockEmail.sendFoundingInvite).toHaveBeenCalledWith({
+        email: 'a@x.com',
+      });
+      expect(mockPrisma.waitlist.update).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ invited: 1, skipped: 1, invitedIds: ['a'] });
+    });
+
+    it('does NOT stamp notifiedAt when the invite email fails (retry-safe)', async () => {
+      mockPrisma.waitlist.findMany.mockResolvedValue([
+        { id: 'a', email: 'a@x.com', notifiedAt: null },
+        { id: 'b', email: 'b@x.com', notifiedAt: null },
+      ]);
+      mockEmail.sendFoundingInvite
+        .mockRejectedValueOnce(new Error('Resend down'))
+        .mockResolvedValueOnce(undefined);
+
+      const result = await service.inviteBatch({ batchSize: 2 });
+
+      // 'a' failed → not stamped, not invited; 'b' succeeded → stamped, invited.
+      expect(mockPrisma.waitlist.update).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.waitlist.update).toHaveBeenCalledWith({
+        where: { id: 'b' },
+        data: { notifiedAt: expect.any(Date) },
+      });
+      expect(result).toEqual({ invited: 1, skipped: 0, invitedIds: ['b'] });
+    });
   });
 });

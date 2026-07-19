@@ -73,6 +73,32 @@ export class UpdateRecordDto {
  *   - subject: up to 200 chars
  *   - html:    up to 50,000 chars
  */
+/**
+ * Body DTO for POST /api/v1/admin/waitlist/invite.
+ *
+ * Both fields optional; `ids` wins when non-empty (invites exactly those
+ * waitlist rows), otherwise `batchSize` invites the N oldest un-notified rows.
+ * When neither is supplied the service applies its own default batch size.
+ *
+ * `ids` are Waitlist primary keys (cuid, not uuid) so they are validated as
+ * plain strings with a length cap rather than `@IsUUID`.
+ */
+export class InviteWaitlistDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(1000)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  ids?: string[];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  batchSize?: number;
+}
+
 export class BulkEmailDto {
   @IsArray()
   @ArrayMinSize(1)
