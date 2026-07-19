@@ -1,13 +1,31 @@
 # Ptah — YouTube / Social Video Kit
 
-Paste-ready titles, descriptions, tags, and chapters for the 14 rendered showcase videos.
-Source MP4s: `dist/apps/ptah-electron-e2e/recordings/<scene>/out/<scene>.mp4`
+Paste-ready titles, descriptions, tags, and chapters — reusable metadata for the
+**re-recorded** versions of each video.
 
-**Copy for every description (shared footer):**
+> [!IMPORTANT]
+> **All Ptah marketing videos are being re-recorded with the founder's own voice
+> and face** (talk-to-camera, screen-share demos, or both — see
+> `apps/ptah-video-studio/RECORDING.md`). **No AI narration anywhere.**
+>
+> - The 14 AI-narrated tour MP4s under
+>   `dist/apps/ptah-electron-e2e/recordings/<scene>/out/<scene>.mp4` are now
+>   **B-ROLL ONLY**. **Do NOT upload them as standalone videos.** They can be cut
+>   into the self-shot videos as demo footage via the `broll` beat type.
+> - The **"100-day trial" CTA is DEAD.** Ptah is now **free & open source**;
+>   monetization is the **Ptah Builders** membership (waitlist-only, founding
+>   discounts). Every description below has had its footer replaced accordingly —
+>   if you copy older copy from anywhere else, swap the trial line for the footer
+>   block below.
+> - The **titles, short/X titles, tags, and chapters remain valid** and are meant
+>   to be reused for the re-recorded uploads.
+
+**Copy for every description (shared footer — free & open source + Builders waitlist):**
 
 ```
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -54,7 +72,8 @@ This is Ptah's Orchestra Canvas: three real agents working your real codebase si
 Ptah is the AI coding orchestra — persistent memory, compounding skills, and up to nine agents at once, on desktop, in VS Code, or headless CLI.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -78,7 +97,8 @@ Ptah is a chat that lives inside your codebase. Ask about your own code in plain
 Ptah is the AI coding orchestra — it reads your code, edits your files, and proves what it did.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -102,7 +122,8 @@ Inside Ptah there's a room built for exactly that: the Tribunal. Rival vendors s
 Because that disagreement is exactly the signal you need. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -126,7 +147,8 @@ Meet the Ptah Gateway — it puts your agents inside the chat apps you already u
 Kick off agent work from the couch, the train, anywhere. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -150,7 +172,8 @@ Ptah is different — it ships with a persistent memory shared across every agen
 Explain your codebase once. Ptah remembers — this session, the next, and every one after.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -174,7 +197,8 @@ On the Skills tab, every win is captured automatically — each successful sessi
 While other tools forget, Ptah remembers, distills, and gets better every single day. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -198,7 +222,8 @@ On the Schedules tab you put agents on a clock. At a glance you see what's autom
 Your agents work the night shift now — with no one at the keyboard. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -222,7 +247,8 @@ Ptah Desktop is the full cockpit for your AI coding orchestra: four tabs, all po
 Memory, skills, schedules, and the gateway — one app, one full brain.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -246,7 +272,8 @@ The Ptah Marketplace is one hub for everything you can bolt on: plugins, MCP ser
 When your workflow outgrows its tools, don't switch apps. Grow Ptah instead. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -270,7 +297,8 @@ Connect any provider you already pay for; your keys never leave your machine —
 You don't adapt to your tools. Ptah adapts to you. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -294,7 +322,8 @@ The Ptah dashboard is home base for every agent you run — and everything on it
 Now you know what your agents cost — down to the dollar. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -318,7 +347,8 @@ Ptah ships with a real editor built right in. Your whole project sits in a famil
 Read it, browse it, run it — your code and your agents, finally in one place.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -342,7 +372,8 @@ The Ptah Setup Wizard reads your project and builds your team of agents around i
 Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -371,9 +402,11 @@ Ptah is the AI coding orchestra — a persistent, multi-agent coding agent that 
 
 Autocomplete ends at the cursor. Ptah remembers yesterday, works while you're away, and answers from your phone.
 
-Start your 100-day free trial — no credit card required.
+Ptah is free & open source — install it today. Want to shape where it goes next and lock in founding-member pricing? Join the Ptah Builders waitlist (35% off monthly / 50% off yearly).
 
-🌐 https://ptah.live  •  📚 https://docs.ptah.live  •  💬 [DISCORD_LINK]
+✅ Free & open source: https://ptah.live
+🚀 Builders waitlist: https://ptah.live/?utm_source=youtube#waitlist
+📚 https://docs.ptah.live  •  💬 [DISCORD_LINK]
 ```
 
 **Tags:** ai coding orchestra, ai employee, persistent ai, multi agent ai, cursor alternative, copilot alternative
@@ -387,5 +420,5 @@ Start your 100-day free trial — no credit card required.
 1:25 Pillar 2 — Compounding skills + parallel agents
 1:59 Pillar 3 — Scheduled agents + drive from chat
 2:36 How it's different (vs Cursor & Copilot)
-2:51 VS Code, CLI & free trial
+2:51 VS Code, CLI & free / open source
 ```

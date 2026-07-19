@@ -8,3 +8,18 @@ build/
 
 # Headless Chromium download cache (Remotion render)
 .remotion/
+
+# Self-shot ingest: the founder's raw recordings + regenerable artifacts.
+# Manifests (beats.json), transcripts (words.json) and READMEs stay tracked.
+selfshot/**/_public/
+selfshot/**/out/
+selfshot/**/render-props.*.json
+selfshot/**/_voice16k.wav
+selfshot/**/*.mp4
+selfshot/**/*.mov
+selfshot/**/*.webm
+selfshot/**/*.mkv
+selfshot/**/*.m4v
+selfshot/**/*.wav
+selfshot/**/*.mp3
+selfshot/**/*.m4a
