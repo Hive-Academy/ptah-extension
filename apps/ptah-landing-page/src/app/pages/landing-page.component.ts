@@ -7,9 +7,7 @@ import { FooterComponent } from '../components/footer.component';
 import { HeroComponent } from '../sections/hero/hero.component';
 import { ProblemSectionComponent } from '../sections/problem/problem-section.component';
 import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcase.component';
-import { PillarMemoryComponent } from '../sections/pillar-memory/pillar-memory.component';
-import { PillarSkillsOrchestrationComponent } from '../sections/pillar-skills-orchestration/pillar-skills-orchestration.component';
-import { PillarAlwaysOnComponent } from '../sections/pillar-always-on/pillar-always-on.component';
+import { PillarsSpineComponent } from '../sections/pillars/pillars-spine.component';
 import { ProviderStripComponent } from '../sections/provider-strip/provider-strip.component';
 import { BuildersSectionComponent } from '../sections/builders/builders-section.component';
 import { AlsoAvailableComponent } from '../sections/also-available/also-available.component';
@@ -22,9 +20,7 @@ import { AlsoAvailableComponent } from '../sections/also-available/also-availabl
     HeroComponent,
     ProblemSectionComponent,
     VideoShowcaseComponent,
-    PillarMemoryComponent,
-    PillarSkillsOrchestrationComponent,
-    PillarAlwaysOnComponent,
+    PillarsSpineComponent,
     ProviderStripComponent,
     ComparisonSectionComponent,
     BuildersSectionComponent,
@@ -52,13 +48,7 @@ import { AlsoAvailableComponent } from '../sections/also-available/also-availabl
           coded DOM (no images), and their entrance animations are SSG-safe
           (final DOM state fully opaque; the from-state is applied post-hydration).
         -->
-        <div id="features">
-          <ptah-pillar-memory />
-        </div>
-
-        <ptah-pillar-skills-orchestration />
-
-        <ptah-pillar-always-on />
+        <ptah-pillars-spine />
 
         <ptah-provider-strip />
 

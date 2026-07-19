@@ -93,6 +93,16 @@ import { AuthService } from '../services/auth.service';
           Features
         </a>
 
+        <!-- Builders Anchor -->
+        <a
+          routerLink="/"
+          fragment="builders"
+          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          aria-label="Jump to Ptah Builders membership"
+        >
+          Builders
+        </a>
+
         <!-- Pricing Link -->
         <a
           routerLink="/pricing"
@@ -323,6 +333,17 @@ import { AuthService } from '../services/auth.service';
             (click)="closeMobileMenu()"
           >
             Features
+          </a>
+
+          <!-- Builders Anchor -->
+          <a
+            routerLink="/"
+            fragment="builders"
+            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+            role="menuitem"
+            (click)="closeMobileMenu()"
+          >
+            Builders
           </a>
 
           <!-- Pricing Link -->

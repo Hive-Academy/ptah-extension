@@ -43,6 +43,14 @@ export const routes: Routes = [
       ),
   },
   {
+    // Non-production sandbox: 3 whole-page pricing layout variations.
+    path: 'pricing-lab',
+    loadComponent: () =>
+      import('./pages/section-lab/pricing-lab-page.component').then(
+        (m) => m.PricingLabPageComponent,
+      ),
+  },
+  {
     path: 'pricing',
     loadComponent: () =>
       import('./pages/pricing/pricing-page.component').then(

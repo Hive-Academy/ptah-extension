@@ -14,14 +14,20 @@ import { isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { CommunityPlanCardComponent } from './community-plan-card.component';
-import { ProPlanCardComponent } from './pro-plan-card.component';
+import { NgClass } from '@angular/common';
 import {
   PricingPlan,
   PlanSubscriptionContext,
+  PlanCtaVariant,
   VALID_SUBSCRIPTION_STATUSES,
   ValidSubscriptionStatus,
 } from '../models/pricing-plan.interface';
+import {
+  computeCtaVariant,
+  computeCtaText,
+  computeCtaButtonClass,
+  isPortalAction,
+} from '../utils/plan-card-state.utils';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -39,6 +45,11 @@ import {
   ExternalLink,
   Tag,
   ChevronDown,
+  Check,
+  X,
+  Download,
+  ArrowRight,
+  Settings,
 } from 'lucide-angular';
 
 /**
@@ -54,11 +65,10 @@ import {
   selector: 'ptah-pricing-grid',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    CommunityPlanCardComponent,
-    ProPlanCardComponent,
+    NgClass,
+    FormsModule,
     ViewportAnimationDirective,
     LucideAngularModule,
-    FormsModule,
   ],
   template: `
     <div
@@ -149,93 +159,170 @@ import {
           </button>
         </div>
       }
-      <!-- Promo Code Input -->
-      <div class="flex justify-center mb-6">
-        <div class="flex flex-col items-center gap-2">
-          <button
-            type="button"
-            class="flex items-center gap-1.5 text-sm text-base-content/50 hover:text-base-content/80 transition-colors"
-            (click)="togglePromoInput()"
+      <!-- Capability Matrix: one unified Free-vs-Builders comparison table -->
+      <div
+        class="max-w-4xl mx-auto rounded-2xl border border-ink-700 overflow-hidden bg-ink-950/40"
+        viewportAnimation
+        [viewportConfig]="getCardAnimationConfig(0)"
+      >
+        <!-- Header row -->
+        <div
+          class="grid grid-cols-[1fr_5.5rem_7rem] sm:grid-cols-[1fr_9rem_11rem] items-end gap-2 px-5 sm:px-7 py-6 bg-ink-900/60 border-b border-ink-700"
+        >
+          <div
+            class="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-500 self-center"
           >
-            <lucide-angular
-              [img]="TagIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Have a promo code?
-            <lucide-angular
-              [img]="ChevronDownIcon"
-              class="w-3 h-3 transition-transform duration-200"
-              [class.rotate-180]="showPromoInput()"
-              aria-hidden="true"
-            />
-          </button>
-          @if (showPromoInput()) {
-            <div class="flex items-center gap-2 mt-1">
-              <input
-                type="text"
-                class="input input-sm input-bordered w-48 uppercase tracking-wider text-center font-mono"
-                placeholder="ENTER CODE"
-                [(ngModel)]="promoCodeValue"
-                (ngModelChange)="onPromoCodeChange($event)"
-                maxlength="50"
-                autocomplete="off"
-                aria-label="Promo code"
-              />
-              @if (promoCode()) {
-                <button
-                  type="button"
-                  class="btn btn-xs btn-ghost text-base-content/40"
-                  (click)="clearPromoCode()"
-                  aria-label="Clear promo code"
-                >
-                  ✕
-                </button>
-              }
+            Capability
+          </div>
+          <div class="text-center">
+            <div class="text-lg font-bold text-white leading-none">Free</div>
+            <div class="font-mono text-[9px] text-emerald-400/80 mt-1">
+              open source
             </div>
-            @if (promoCode()) {
-              <p class="text-xs text-success flex items-center gap-1">
+          </div>
+          <div class="text-center">
+            <div
+              class="text-lg font-bold leading-none whitespace-nowrap bg-gradient-to-r from-amber-300 to-secondary bg-clip-text text-transparent"
+            >
+              {{ proPlan.price }}
+            </div>
+            <div class="font-mono text-[9px] text-amber-500/80 mt-1">
+              Builders / mo
+            </div>
+          </div>
+        </div>
+
+        <!-- Capability rows -->
+        @for (row of matrix; track row.label) {
+          <div
+            class="grid grid-cols-[1fr_5.5rem_7rem] sm:grid-cols-[1fr_9rem_11rem] items-center gap-2 px-5 sm:px-7 py-3.5 border-b border-ink-800 last:border-0"
+          >
+            <span class="text-sm text-ink-200">{{ row.label }}</span>
+            <span class="flex justify-center">
+              @if (row.free) {
                 <lucide-angular
-                  [img]="TagIcon"
-                  class="w-3 h-3"
-                  aria-hidden="true"
+                  [img]="CheckIcon"
+                  class="w-4 h-4 text-emerald-400"
+                  aria-label="Included in Free"
                 />
-                Code
-                <span class="font-mono font-bold">{{ promoCode() }}</span> will
-                be applied at checkout
-              </p>
+              } @else {
+                <lucide-angular
+                  [img]="XIcon"
+                  class="w-4 h-4 text-ink-600"
+                  aria-label="Not in Free"
+                />
+              }
+            </span>
+            <span class="flex justify-center">
+              <lucide-angular
+                [img]="CheckIcon"
+                class="w-4 h-4 text-amber-400"
+                aria-label="Included in Builders"
+              />
+            </span>
+          </div>
+        }
+
+        <!-- CTA row -->
+        <div
+          class="grid grid-cols-[1fr_5.5rem_7rem] sm:grid-cols-[1fr_9rem_11rem] items-start gap-2 px-5 sm:px-7 py-6 bg-ink-950/60"
+        >
+          <div class="self-center">
+            <div
+              class="font-mono text-[10px] uppercase tracking-[0.15em] text-ink-500"
+            >
+              Founding-member pricing, locked in
+            </div>
+          </div>
+
+          <!-- Free CTA -->
+          <div class="flex justify-center">
+            @if (isProUser()) {
+              <span
+                class="text-center text-[11px] text-ink-500 leading-tight py-2"
+              >
+                Included in Builders
+              </span>
+            } @else {
+              <button
+                type="button"
+                class="cta-matrix bg-gradient-to-r from-emerald-600 to-emerald-500 text-white hover:brightness-110"
+                (click)="downloadFree()"
+              >
+                <lucide-angular [img]="DownloadIcon" class="w-3.5 h-3.5" />
+                Free
+              </button>
             }
-          }
-        </div>
-      </div>
+          </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8 items-stretch">
-        <!-- Community Plan Card (FREE - no billing toggle) -->
-        <div
-          class="h-full"
-          viewportAnimation
-          [viewportConfig]="getCardAnimationConfig(0)"
-        >
-          <ptah-community-plan-card
-            [plan]="communityPlan"
-            [subscriptionContext]="subscriptionContext()"
-          />
-        </div>
+          <!-- Builders CTA + promo -->
+          <div class="flex flex-col items-center gap-2">
+            @if (buildersCtaVariant() === 'start-trial') {
+              <a
+                href="#waitlist"
+                class="cta-matrix"
+                [ngClass]="buildersCtaButtonClass()"
+              >
+                <span>{{ buildersCtaText() }}</span>
+                <lucide-angular [img]="ArrowRightIcon" class="w-3.5 h-3.5" />
+              </a>
+            } @else {
+              <button
+                type="button"
+                class="cta-matrix"
+                [ngClass]="buildersCtaButtonClass()"
+                [disabled]="isBuildersCtaDisabled()"
+                [attr.aria-busy]="
+                  isBuildersLoading() || isLoadingSubscription()
+                "
+                (click)="onBuildersCta()"
+              >
+                @if (isBuildersLoading() || isLoadingSubscription()) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                } @else {
+                  @if (buildersCtaVariant() === 'current-plan') {
+                    <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
+                  }
+                  <span>{{ buildersCtaText() }}</span>
+                }
+              </button>
+            }
 
-        <!-- Pro Plan Card with integrated billing toggle -->
-        <div
-          class="h-full"
-          viewportAnimation
-          [viewportConfig]="getCardAnimationConfig(1)"
-        >
-          <ptah-pro-plan-card
-            [plan]="proPlan"
-            [isLoading]="isPlanLoading('Pro')"
-            [subscriptionContext]="subscriptionContext()"
-            [isLoadingContext]="isLoadingSubscription()"
-            (ctaClick)="handleCtaClick($event)"
-            (manageSubscription)="handleManageSubscription()"
-          />
+            <!-- Promo code (Builders column) -->
+            @if (showPromoOption()) {
+              <button
+                type="button"
+                class="flex items-center gap-1 text-[11px] text-ink-400 hover:text-ink-100 transition-colors"
+                (click)="togglePromoInput()"
+              >
+                <lucide-angular [img]="TagIcon" class="w-3 h-3" />
+                Promo code
+                <lucide-angular
+                  [img]="ChevronDownIcon"
+                  class="w-3 h-3 transition-transform duration-200"
+                  [class.rotate-180]="showPromoInput()"
+                />
+              </button>
+              @if (showPromoInput()) {
+                <input
+                  type="text"
+                  class="w-32 sm:w-36 rounded-md border border-ink-600 bg-ink-950 px-2 py-1 text-center font-mono text-xs uppercase tracking-wider text-ink-100 placeholder:text-ink-600 focus:border-amber-500/60 focus:outline-none"
+                  placeholder="ENTER CODE"
+                  [(ngModel)]="promoCodeValue"
+                  (ngModelChange)="onPromoCodeChange($event)"
+                  maxlength="50"
+                  autocomplete="off"
+                  aria-label="Promo code"
+                />
+                @if (promoCode()) {
+                  <p class="text-[10px] text-success text-center">
+                    <span class="font-mono font-bold">{{ promoCode() }}</span>
+                    applied at checkout
+                  </p>
+                }
+              }
+            }
+          </div>
         </div>
       </div>
     </div>
@@ -248,12 +335,24 @@ import {
         backface-visibility: hidden;
       }
 
-      /* Card containment for animation isolation */
-      ptah-community-plan-card,
-      ptah-pro-plan-card {
-        display: block;
-        contain: layout style;
-        backface-visibility: hidden;
+      .cta-matrix {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.375rem;
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.6rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        line-height: 1.15;
+        text-align: center;
+        transition:
+          filter 0.25s ease,
+          box-shadow 0.25s ease;
+      }
+      .cta-matrix:disabled {
+        cursor: not-allowed;
       }
     `,
   ],
@@ -266,6 +365,11 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   public readonly ExternalLinkIcon = ExternalLink;
   public readonly TagIcon = Tag;
   public readonly ChevronDownIcon = ChevronDown;
+  public readonly CheckIcon = Check;
+  public readonly XIcon = X;
+  public readonly DownloadIcon = Download;
+  public readonly ArrowRightIcon = ArrowRight;
+  public readonly SettingsIcon = Settings;
 
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -287,9 +391,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   public readonly portalError = signal<string | null>(null);
   public readonly isPortalLoading = signal(false);
   public readonly autoCheckoutError = signal<string | null>(null);
+  /** Promo code applied at checkout, entered in the Builders matrix column. */
   public readonly showPromoInput = signal(false);
   public readonly promoCode = signal<string>('');
-  public promoCodeValue = ''; // ngModel binding (two-way, synced to promoCode signal)
+  public promoCodeValue = ''; // ngModel binding, synced to promoCode signal
   public readonly paddleError = this.paddleService.error;
   public readonly isPaddleReady = this.paddleService.isReady;
   public readonly loadingPlanName = this.paddleService.loadingPlanName;
@@ -392,34 +497,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Community plan data (FREE - no Paddle checkout)
-   *
-   * TASK_2025_128: Freemium model conversion
-   * - Free forever, no trial period needed
-   * - CTA opens VS Code marketplace instead of checkout
-   */
-  public readonly communityPlan: PricingPlan = {
-    name: 'Ptah',
-    tier: 'community',
-    price: 'Free',
-    priceSubtext: 'forever, open source',
-    priceId: undefined, // No checkout - it's free
-    idealFor: 'The full desktop app — no catch',
-    trialDays: undefined, // No trial - always free
-    features: [],
-    standoutFeatures: [
-      'Memory, Skills, Cron, and Gateway suite',
-      'Bring any of 7 model providers',
-      'Native VS Code integration',
-      'Real-time streaming responses',
-      'Session history and management',
-      'Tree-sitter workspace intelligence',
-    ],
-    ctaText: 'Download Free',
-    ctaAction: 'download', // Opens VS Code marketplace
-  };
-
-  /**
    * Ptah Builders plan data
    */
   public readonly proPlan: PricingPlan = {
@@ -442,6 +519,74 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     ctaAction: 'checkout',
     highlight: true,
   };
+
+  /**
+   * Capability matrix rows. `free` marks whether the open-source app ships the
+   * capability; the Builders column always includes everything.
+   */
+  public readonly matrix: ReadonlyArray<{ label: string; free: boolean }> = [
+    { label: 'Memory, Skills, Cron & Gateway suite', free: true },
+    { label: 'Bring any of 7 model providers', free: true },
+    { label: 'Native VS Code integration', free: true },
+    { label: 'Real-time streaming responses', free: true },
+    { label: 'Tree-sitter workspace intelligence', free: true },
+    { label: 'Weekly live build sessions', free: false },
+    { label: 'PRD-to-production curriculum', free: false },
+    { label: 'Member skill packs', free: false },
+    { label: 'Priority support', free: false },
+  ];
+
+  /** Whether the viewer already holds the Builders (pro) plan. */
+  public readonly isProUser = computed(
+    () => this.subscriptionContext().currentPlanTier === 'pro',
+  );
+
+  /** Builders CTA variant derived from subscription context (shared util). */
+  public readonly buildersCtaVariant = computed<PlanCtaVariant>(() =>
+    computeCtaVariant(this.subscriptionContext(), 'pro'),
+  );
+
+  /** Builders CTA button label. */
+  public readonly buildersCtaText = computed(() =>
+    computeCtaText(this.buildersCtaVariant()),
+  );
+
+  /** Builders checkout loading state (matches the plan name set on checkout). */
+  public readonly isBuildersLoading = computed(
+    () =>
+      this.loadingPlanName() === this.proPlan.name &&
+      this.paddleService.isLoading(),
+  );
+
+  /**
+   * Whether the Builders CTA button is disabled. Never disabled by subscription
+   * state (Builders is the highest tier); only for loading or an unconfigured
+   * price on a checkout variant. The 'start-trial' waitlist link is excluded.
+   */
+  public readonly isBuildersCtaDisabled = computed(() => {
+    if (this.isBuildersLoading() || this.isLoadingSubscription()) return true;
+    if (['upgrade', 'upgrade-now'].includes(this.buildersCtaVariant())) {
+      return isPriceIdPlaceholder(this.proPlan.priceId);
+    }
+    return false;
+  });
+
+  /** Builders CTA styling from the shared util. */
+  public readonly buildersCtaButtonClass = computed(() =>
+    computeCtaButtonClass(
+      this.buildersCtaVariant(),
+      this.isBuildersCtaDisabled(),
+      'pro',
+    ),
+  );
+
+  /**
+   * Whether to surface the promo option. Hidden once the viewer already holds
+   * the subscription (portal states), where a discount no longer applies.
+   */
+  public readonly showPromoOption = computed(
+    () => !isPortalAction(this.buildersCtaVariant()),
+  );
 
   /**
    * ngOnInit - Initialize Paddle SDK when component loads
@@ -548,6 +693,29 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     this.promoCode.set('');
   }
 
+  /** Free column CTA: open the VS Code marketplace listing. */
+  public downloadFree(): void {
+    if (!this.isBrowser) return;
+    window.open(
+      'https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra',
+      '_blank',
+      'noopener,noreferrer',
+    );
+  }
+
+  /**
+   * Builders column CTA. Routes by variant: portal actions open the
+   * subscription portal, checkout variants run the Paddle flow.
+   */
+  public onBuildersCta(): void {
+    if (this.isBuildersCtaDisabled()) return;
+    if (isPortalAction(this.buildersCtaVariant())) {
+      this.handleManageSubscription();
+      return;
+    }
+    this.handleCtaClick(this.proPlan);
+  }
+
   /**
    * Handle CTA button click from plan card
    *
@@ -633,15 +801,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
           this.clearLoadingTimeout();
         },
       });
-  }
-
-  /**
-   * Check if a plan's checkout is currently loading
-   */
-  public isPlanLoading(planName: string): boolean {
-    return (
-      this.loadingPlanName() === planName && this.paddleService.isLoading()
-    );
   }
 
   /**
