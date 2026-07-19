@@ -43,6 +43,11 @@ interface SubagentRegistryLike {
 /** Minimal shape of SDK session metadata store used for persistence. */
 interface SdkSessionMetadataStoreLike {
   addCliSession(sessionId: string, ref: CliSessionReference): Promise<void>;
+  markChildSession(
+    sessionId: string,
+    workspaceId: string,
+    name?: string,
+  ): Promise<void>;
 }
 
 /** Minimal shape of the CLI detection service (for Copilot permission bridge). */
@@ -286,10 +291,22 @@ export function persistCliSessionReference(
       );
     }
 
+    // Resolve the child's real SDK session UUID. Prefer the ptahCliId→UUID map
+    // (populated on the chat path), but fall back to `info.cliSessionId` for
+    // ptah-cli agents: their `cliSessionId` IS the agent's own resolved SDK
+    // session UUID, so the reference always carries `sdkSessionId` even when
+    // the map is unpopulated (e.g. MCP-spawned agents). This keeps
+    // SessionImporter's `isReferencedAsChildSession` cross-reference functional
+    // so the child never resurfaces as a top-level sidebar entry. Note: use
+    // `info.cliSessionId` (a real UUID) here, NOT `effectiveCliSessionId`,
+    // which falls back to the non-session agentId.
     const sdkSessionId =
-      info.ptahCliId && getSdkSessionId
+      (info.ptahCliId && getSdkSessionId
         ? getSdkSessionId(info.ptahCliId)
-        : undefined;
+        : undefined) ??
+      (info.cli === 'ptah-cli' && info.cliSessionId
+        ? info.cliSessionId
+        : undefined);
 
     const ref: CliSessionReference = {
       cliSessionId: effectiveCliSessionId,
@@ -335,6 +352,27 @@ export function persistCliSessionReference(
           );
         }
       });
+
+    // Proactively flag the ptah-cli agent's own SDK session as a hidden child
+    // so it never surfaces as a top-level entry in the session sidebar. The
+    // resume path wires createChild-on-resolve, but the primary MCP spawn path
+    // does not — so without this, MCP-spawned Ptah CLI agents leak into the
+    // sidebar. `markChildSession` is non-destructive (preserves name/cost when
+    // the session was already imported) and idempotent.
+    if (
+      info.cli === 'ptah-cli' &&
+      sdkSessionId &&
+      sdkSessionId !== parentSessionId
+    ) {
+      metadataStore
+        .markChildSession(sdkSessionId, info.workingDirectory)
+        .catch((error) => {
+          logger.warn(
+            `${tag} Failed to flag ptah-cli child session hidden: ${sdkSessionId}`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        });
+    }
   } catch (error) {
     logger.warn(
       `${tag} Could not persist CLI session reference`,

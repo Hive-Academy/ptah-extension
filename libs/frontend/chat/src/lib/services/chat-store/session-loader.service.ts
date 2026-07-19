@@ -767,6 +767,18 @@ export class SessionLoaderService {
           { sessionId, count: resumableSubagents.length },
         );
       }
+
+      // Repopulate the agent-monitor sidebar for a restored session. The
+      // chat:resume payload carries the full (unfiltered) CLI session list,
+      // unlike the session:cli-sessions endpoint used by
+      // restoreCliSessionsForActiveTab() which drops ptah-cli refs lacking a
+      // ptahCliId. Without this, CLI agents spawned in a prior run never
+      // reappear in the sidebar after a webview/app reopen even though they
+      // are persisted and returned by the backend.
+      const cliSessions = result.data?.cliSessions;
+      if (cliSessions && cliSessions.length > 0) {
+        this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+      }
     } catch (error) {
       console.warn(
         '[SessionLoaderService] Failed to check resumable subagents for restored session',

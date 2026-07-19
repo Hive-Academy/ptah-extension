@@ -102,6 +102,45 @@ describe('SessionMetadataStore', () => {
   });
 
   // -------------------------------------------------------------------------
+  // markChildSession — non-destructive child flagging
+  // -------------------------------------------------------------------------
+
+  describe('markChildSession', () => {
+    it('creates a minimal hidden child record when none exists', async () => {
+      await store.markChildSession('child-x', WORKSPACE);
+      const md = await store.get('child-x');
+      expect(md?.isChildSession).toBe(true);
+      expect(md?.totalCost).toBe(0);
+      const visible = await store.getForWorkspace(WORKSPACE);
+      expect(visible.map((m) => m.sessionId)).not.toContain('child-x');
+    });
+
+    it('flags an already-imported top-level session WITHOUT clobbering name/cost', async () => {
+      await store.create('leaked-1', WORKSPACE, 'Real name');
+      await store.addStats('leaked-1', {
+        cost: 4.2,
+        tokens: { input: 10, output: 5 },
+      });
+
+      await store.markChildSession('leaked-1', WORKSPACE);
+
+      const md = await store.get('leaked-1');
+      expect(md?.isChildSession).toBe(true);
+      expect(md?.name).toBe('Real name');
+      expect(md?.totalCost).toBe(4.2);
+      const visible = await store.getForWorkspace(WORKSPACE);
+      expect(visible.map((m) => m.sessionId)).not.toContain('leaked-1');
+    });
+
+    it('is idempotent (no throw, stays hidden) on repeat calls', async () => {
+      await store.markChildSession('child-x', WORKSPACE);
+      await store.markChildSession('child-x', WORKSPACE);
+      const md = await store.get('child-x');
+      expect(md?.isChildSession).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // getForWorkspace — filtering
   // -------------------------------------------------------------------------
 

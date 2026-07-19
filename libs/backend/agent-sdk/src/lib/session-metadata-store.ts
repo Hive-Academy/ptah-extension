@@ -462,6 +462,50 @@ export class SessionMetadataStore {
   }
 
   /**
+   * Flag a session as a hidden child WITHOUT clobbering its existing name,
+   * cost, or timestamps.
+   *
+   * Unlike {@link createChild} (which writes a fresh zero-cost record and is
+   * meant to pre-empt import), this is safe to call on a session that may
+   * already have been imported as a top-level sidebar entry: it upgrades the
+   * existing record in place, or creates a minimal child record when none
+   * exists yet. Idempotent — a no-op once `isChildSession` is set.
+   *
+   * Used by the CLI-agent persist path so a spawned Ptah CLI agent's own SDK
+   * session is guaranteed to be hidden from the sidebar even when the live
+   * `createChild`-on-resolve hook was never wired (e.g. MCP-spawned agents).
+   */
+  async markChildSession(
+    sessionId: string,
+    workspaceId: string,
+    name = 'CLI Agent Session',
+  ): Promise<void> {
+    let emitKind: SessionMetadataChangeKind | null = null;
+    await this.enqueueWrite(async () => {
+      const existing = await this.get(sessionId);
+      if (existing?.isChildSession) return;
+      const now = Date.now();
+      const metadata: SessionMetadata = existing
+        ? { ...existing, isChildSession: true }
+        : {
+            sessionId,
+            name,
+            workspaceId,
+            createdAt: now,
+            lastActiveAt: now,
+            totalCost: 0,
+            totalTokens: { input: 0, output: 0 },
+            isChildSession: true,
+          };
+      await this._saveInternal(metadata);
+      emitKind = existing ? 'updated' : 'created';
+    });
+    if (emitKind) {
+      this.emitChange(emitKind, sessionId, workspaceId);
+    }
+  }
+
+  /**
    * Rename session.
    * Serialized through writeQueue to prevent lost updates from concurrent writes.
    */
