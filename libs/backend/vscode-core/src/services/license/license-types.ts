@@ -12,27 +12,30 @@
  * License tier values for the freemium model
  *
  * - 'community': FREE forever, always valid, no license required
- * - 'pro': Active Pro subscription ($5/month)
- * - 'trial_pro': Pro plan during 100-day trial
+ * - 'builders': Active Ptah Builders membership (current premium tier)
+ * - 'pro': LEGACY — active Pro subscription (drains naturally, no new signups)
+ * - 'trial_pro': LEGACY — Pro plan during trial (drains naturally, no new trials)
  * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
 export type LicenseTierValue =
   | 'community' // FREE tier, always valid
-  | 'pro'
-  | 'trial_pro'
+  | 'builders'
+  | 'pro' // LEGACY: existing subscribers only
+  | 'trial_pro' // LEGACY: existing trials only
   | 'expired'; // Only for revoked/explicitly expired
 
 /**
  * License verification status returned by the server
  *
  * - No license key: valid: false with reason 'not_found' (triggers registration prompt)
- * - Expired Pro (non-revoked): falls back to Community tier (valid: true)
- * - Revoked licenses: valid: false (blocks extension)
+ * - Expired Builders/legacy Pro (non-revoked): falls back to Community tier (valid: true)
+ * - Revoked licenses: valid: false — this is identity/status only; it does NOT
+ *   block extension activation or any local feature (no gating exists).
  */
 export interface LicenseStatus {
   /** Whether the license is valid (Community = always true) */
   valid: boolean;
-  /** Current license tier (community, pro, trial_pro, or expired) */
+  /** Current license tier (community, builders, legacy pro/trial_pro, or expired) */
   tier: LicenseTierValue;
   /** Plan details (if applicable) */
   plan?: {

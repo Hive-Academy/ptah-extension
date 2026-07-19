@@ -1,24 +1,19 @@
 /**
- * Trial Period Constants
+ * Trial Period Constants (LEGACY — server-side only)
  *
- * Centralized trial duration to avoid magic numbers across the codebase.
- * All components should import from here.
- *
- * Backend uses TRIAL_DURATION_DAYS env var for configurability.
- * This constant is the default value and is used for:
- * - Frontend UI messaging ("Your 100-day trial")
- * - Trial progress calculations in the UI
+ * The trial-banner / trial-progress UI that used to consume this constant
+ * has been removed from the frontend (open-access purge — licensing is
+ * identity-only now, no gating or countdown UI). This constant survives
+ * only as the default mirrored by the license server's TRIAL_DURATION_DAYS
+ * env var, kept for existing legacy 'trial_pro' subscribers whose trials
+ * are still draining server-side. Do not wire this back into new UI.
  */
 
 /**
- * Default duration of the Pro trial period in days.
- *
- * Used for:
- * - UI messaging ("Your 100-day trial")
- * - Trial progress calculations in frontend
+ * Default duration of the legacy Pro trial period in days.
  *
  * Note: The backend license server uses TRIAL_DURATION_DAYS env var
- * which defaults to this value. For testing, set the env var to
- * a shorter duration (e.g., 1 day).
+ * which defaults to this value. No frontend UI reads this constant
+ * anymore — it exists for legacy server-side reference only.
  */
 export const TRIAL_DURATION_DAYS = 100;

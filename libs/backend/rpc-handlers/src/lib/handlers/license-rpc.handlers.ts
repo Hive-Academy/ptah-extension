@@ -45,8 +45,9 @@ const LICENSE_REJECTION_REASONS: ReadonlySet<
  * the key).
  *
  * Accepted when the status is valid AND it is not a community tier carrying a
- * rejection reason. Premium tiers (pro/trial_pro) are always acceptances; a
- * plain valid community status with no rejection reason is also fine.
+ * rejection reason. Premium tiers ('builders', plus legacy 'pro'/'trial_pro')
+ * are always acceptances; a plain valid community status with no rejection
+ * reason is also fine.
  */
 function isAcceptedLicense(status: LicenseStatus): boolean {
   if (!status.valid) return false;
@@ -61,13 +62,15 @@ function isAcceptedLicense(status: LicenseStatus): boolean {
 }
 
 /**
- * RPC handlers for license operations (Freemium model: Community + Pro).
+ * RPC handlers for license operations (open-access identity model:
+ * Community + Ptah Builders; legacy Pro/Pro-trial subscribers drain
+ * naturally).
  *
  * Exposes license status to the frontend for:
- * - Conditional settings visibility (premium sections)
- * - Feature gating (MCP port, LLM configurations)
- * - UI indicators for license tier (Community vs Pro)
- * - Trial status display
+ * - Membership identity display (no feature gating — all local features
+ *   are free for everyone)
+ * - UI indicators for license tier (Community vs Builders)
+ * - Trial status display (legacy trial subscribers only)
  *
  * Security:
  * - License key is NEVER exposed (only tier/validity)
@@ -113,8 +116,8 @@ export class LicenseRpcHandlers {
    *
    * Response:
    * - valid: boolean - Whether license is valid (Community = always true)
-   * - tier: LicenseTier - Current tier (community, pro, trial_pro, expired)
-   * - isPremium: boolean - Convenience flag (Pro tier or Pro trial)
+   * - tier: LicenseTier - Current tier (community, builders, legacy pro/trial_pro, expired)
+   * - isPremium: boolean - Convenience flag (Builders tier, or legacy Pro/Pro trial)
    * - isCommunity: boolean - Convenience flag (Community tier)
    * - daysRemaining: number | null - Days until subscription expires
    * - trialActive: boolean - Whether in trial period
@@ -308,7 +311,8 @@ export class LicenseRpcHandlers {
    * to the LicenseGetStatusResponse format expected by the frontend.
    *
    * Tier mapping for convenience flags:
-   * - isPremium: true for 'pro' and 'trial_pro' (has Pro features)
+   * - isPremium: true for 'builders' (current premium tier) and the legacy
+   *   'pro'/'trial_pro' tiers (existing subscribers/trials only)
    * - isCommunity: true for 'community' (free tier)
    *
    * @param status - Internal license status from LicenseService
@@ -317,7 +321,10 @@ export class LicenseRpcHandlers {
   private mapLicenseStatusToResponse(
     status: LicenseStatus,
   ): LicenseGetStatusResponse {
-    const isPremium = status.tier === 'pro' || status.tier === 'trial_pro';
+    const isPremium =
+      status.tier === 'builders' ||
+      status.tier === 'pro' ||
+      status.tier === 'trial_pro';
     const isCommunity = status.tier === 'community';
     const trialActive = status.trialActive ?? status.tier === 'trial_pro';
     let reason: 'expired' | 'trial_ended' | 'no_license' | undefined;
@@ -338,7 +345,7 @@ export class LicenseRpcHandlers {
     const daysRemaining = status.daysRemaining ?? null;
     let expiryWarning: 'near_expiry' | 'critical' | null = null;
     if (
-      status.tier === 'pro' &&
+      (status.tier === 'builders' || status.tier === 'pro') &&
       typeof daysRemaining === 'number' &&
       daysRemaining < 30
     ) {

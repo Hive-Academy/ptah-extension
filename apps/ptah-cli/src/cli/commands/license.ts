@@ -125,7 +125,7 @@ async function runSet(
     if (status?.expiryWarning) {
       expiryWarning = status.expiryWarning;
     } else if (
-      status?.tier === 'pro' &&
+      (status?.tier === 'builders' || status?.tier === 'pro') &&
       typeof daysRemaining === 'number' &&
       daysRemaining < 30
     ) {

@@ -2,7 +2,9 @@
  * License Commands — command handlers for license key management (enter,
  * remove, check status) available via the VS Code Command Palette.
  *
- * Messaging is tailored to the freemium model (Community / Trial Pro / Pro).
+ * Messaging is tailored to the open-access identity model (Community / Ptah
+ * Builders), with legacy Pro / Trial Pro tiers still displayed for existing
+ * subscribers who drain naturally.
  *
  * @packageDocumentation
  */
@@ -159,9 +161,11 @@ export class LicenseCommands {
       const tierName =
         status.tier === 'community'
           ? 'Community (Free)'
-          : status.tier === 'trial_pro'
-            ? 'Pro (Trial)'
-            : 'Pro';
+          : status.tier === 'builders'
+            ? 'Ptah Builders member'
+            : status.tier === 'trial_pro'
+              ? 'Pro (Trial, legacy)'
+              : 'Pro (legacy)';
       const expiresText = status.expiresAt
         ? new Date(status.expiresAt).toLocaleDateString()
         : status.tier === 'community'

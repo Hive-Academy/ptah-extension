@@ -111,13 +111,19 @@ export type LicenseGetStatusParams = Record<string, never>;
 /**
  * License tier values for RPC communication.
  *
- * Freemium model:
- * - 'community': FREE forever - always valid, no license required
- * - 'pro': Active Pro subscription ($5/month)
- * - 'trial_pro': Pro plan during 100-day trial
+ * Open-source + Builders model:
+ * - 'community': FREE and open source - always valid, no license required
+ * - 'builders': Active Ptah Builders membership (current premium tier)
+ * - 'pro': LEGACY active Pro subscription (existing subscribers only)
+ * - 'trial_pro': LEGACY Pro plan during trial (existing trials only)
  * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
-export type LicenseTier = 'community' | 'pro' | 'trial_pro' | 'expired';
+export type LicenseTier =
+  | 'community'
+  | 'builders'
+  | 'pro'
+  | 'trial_pro'
+  | 'expired';
 
 /**
  * Response from license:getStatus RPC method.
