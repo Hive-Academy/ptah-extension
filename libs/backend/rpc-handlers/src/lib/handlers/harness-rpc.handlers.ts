@@ -85,7 +85,10 @@ import {
   WIZARD_VIEW_TYPE,
 } from '../harness/harness-constants';
 import type { WebviewBroadcaster } from '../harness/streaming';
-import { HarnessWorkflowPromptParamsSchema } from './harness-rpc.schema';
+import {
+  HarnessWorkflowPromptParamsSchema,
+  HarnessWorkspacePinParamsSchema,
+} from './harness-rpc.schema';
 import type { HarnessWorkspaceContextService } from '../harness/workspace/harness-workspace-context.service';
 import type { HarnessSuggestionService } from '../harness/ai/harness-suggestion.service';
 import type { HarnessSubagentDesignService } from '../harness/ai/harness-subagent-design.service';
@@ -249,11 +252,16 @@ export class HarnessRpcHandlers {
         ]);
         const availableAgents = this.workspaceContext.getAvailableAgents();
         const availableSkills = this.workspaceContext.discoverAvailableSkills();
+        // Return the resolved workspace root so the frontend can PIN it. Later
+        // `harness:apply` calls echo this back, keeping file writes bound to the
+        // workspace the build started in even after an Electron workspace switch.
+        const workspaceRoot = this.workspaceProvider.getWorkspaceRoot() ?? null;
         return {
           workspaceContext,
           availableAgents,
           availableSkills,
           existingPresets,
+          workspaceRoot,
         };
       },
     );
@@ -343,10 +351,15 @@ export class HarnessRpcHandlers {
       'harness:apply',
       'registerApply',
       async (params) => {
+        // Explicit pinned root wins; fall back to the active workspace when the
+        // frontend didn't pin one (mirrors tasks-rpc `resolveRoot`).
+        const { workspaceRoot: requestedRoot } =
+          HarnessWorkspacePinParamsSchema.parse(params);
         const config = this.configStore.normalizeHarnessConfig(params.config);
         const appliedPaths: string[] = [];
         const warnings: string[] = [];
-        const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+        const workspaceRoot =
+          requestedRoot ?? this.workspaceProvider.getWorkspaceRoot();
         const presetPath = await this.configStore.writePresetToDisk(
           config.name,
           config,

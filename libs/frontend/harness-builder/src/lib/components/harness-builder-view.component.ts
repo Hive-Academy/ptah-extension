@@ -107,6 +107,15 @@ interface UserBubble {
               {{ state.configSummary() }}
             </span>
           }
+          @if (state.workspaceSwitchedDuringBuild()) {
+            <span
+              class="badge badge-warning badge-sm gap-1"
+              role="status"
+              title="You switched workspaces mid-build. This configuration will still be applied to the workspace this build started in."
+            >
+              Targeting {{ pinnedWorkspaceName() }}
+            </span>
+          }
         </div>
         <div class="flex items-center gap-1">
           <button
@@ -391,6 +400,11 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
       : 'AI Team Builder',
   );
 
+  /** Name of the pinned (original) workspace, shown in the switch badge. */
+  protected readonly pinnedWorkspaceName = computed(
+    () => this.state.workspaceContext()?.projectName ?? 'original workspace',
+  );
+
   protected readonly executionNodes = computed(() => {
     const streamState = this.state.streamingState();
     if (streamState.events.size === 0) return [];
@@ -579,9 +593,11 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
         createdAt: partial.createdAt ?? now,
         updatedAt: now,
       };
+      const pinnedRoot = this.state.pinnedWorkspaceRoot();
       await this.rpc.apply({
         config: fullConfig,
         outputFormat: 'claude-md',
+        ...(pinnedRoot ? { workspaceRoot: pinnedRoot } : {}),
       });
     } catch (err) {
       this.initError.set(

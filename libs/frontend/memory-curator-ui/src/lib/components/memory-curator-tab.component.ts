@@ -6,6 +6,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -380,16 +381,53 @@ export class MemoryCuratorTabComponent implements OnInit {
       void this.state.loadSymbols();
     });
     effect(() => {
+      // Track ONLY indexing completion. Reading workspaceInfo/config inside the
+      // tracked context would make this effect ALSO fire on a workspace switch,
+      // double-fetching alongside the dedicated switch effect below — so the
+      // rest runs untracked.
       this.indexingService.completedAt();
-      if (!this.isElectron()) return;
-      void this.state.loadStats();
-      void this.state.refresh();
-      void this.state.loadSymbols();
-      const root = this.appState.workspaceInfo()?.path;
-      if (root) {
-        void this.indexingService.loadStatus(root).catch(() => undefined);
-      }
+      untracked(() => {
+        if (!this.isElectron()) return;
+        void this.state.loadStats();
+        void this.state.refresh();
+        void this.state.loadSymbols();
+        const root = this.appState.workspaceInfo()?.path;
+        if (root) {
+          void this.indexingService.loadStatus(root).catch(() => undefined);
+        }
+      });
     });
+    // Follow the active Electron workspace. Tracks ONLY the workspace path so it
+    // composes with (rather than duplicating) the tier/scope/completedAt effects
+    // above. First emission just records the value — `ngOnInit` owns the initial
+    // load; every subsequent switch reloads the list/stats for the new root.
+    effect(() => {
+      const path = this.appState.workspaceInfo()?.path ?? null;
+      const prev = this.lastWorkspacePath;
+      this.lastWorkspacePath = path;
+      if (prev === undefined || prev === path) return;
+      untracked(() => this.onWorkspaceSwitch(path));
+    });
+  }
+
+  /**
+   * The workspace path the switch effect last observed. `undefined` = "not yet
+   * observed" so the effect's initial run does not double-fetch alongside
+   * `ngOnInit`.
+   */
+  private lastWorkspacePath: string | null | undefined;
+
+  private onWorkspaceSwitch(path: string | null): void {
+    if (!this.isElectron()) return;
+    // In 'all' scope the data is cross-workspace and identical before/after a
+    // switch, so there is nothing new to fetch — skip the round trips.
+    if (this.state.scopeFilter() === 'all') return;
+    void this.state.loadStats();
+    void this.state.refresh();
+    void this.state.loadSymbols();
+    if (path) {
+      void this.indexingService.loadStatus(path).catch(() => undefined);
+    }
   }
 
   public ngOnInit(): void {

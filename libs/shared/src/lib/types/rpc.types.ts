@@ -2465,6 +2465,12 @@ export interface JobRunDto {
 
 export interface CronListParams {
   enabledOnly?: boolean;
+  /**
+   * When provided, restrict results to jobs whose `workspaceRoot` matches this
+   * absolute path exactly. Omit for a cross-workspace (global) listing. Kept
+   * optional for backward compatibility — existing callers pass `{}`.
+   */
+  workspaceRoot?: string;
 }
 export interface CronListResult {
   jobs: ScheduledJobDto[];

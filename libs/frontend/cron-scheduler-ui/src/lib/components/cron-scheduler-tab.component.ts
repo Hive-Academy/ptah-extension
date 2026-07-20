@@ -21,7 +21,7 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-angular';
-import { VSCodeService } from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import type {
   CronCreateParams,
   JobRunDto,
@@ -29,7 +29,10 @@ import type {
 } from '@ptah-extension/shared';
 
 import { CronExpressionService } from '../services/cron-expression.service';
-import { CronStateService } from '../services/cron-state.service';
+import {
+  CronStateService,
+  type CronScopeFilter,
+} from '../services/cron-state.service';
 
 interface CronJobFormState {
   id: string | null;
@@ -127,6 +130,34 @@ function emptyForm(timezone: string): CronJobFormState {
             </div>
           </div>
           <div class="flex items-center gap-2">
+            <div
+              class="join"
+              role="tablist"
+              aria-label="Schedule workspace scope"
+            >
+              <button
+                type="button"
+                role="tab"
+                class="join-item btn btn-sm"
+                data-testid="cron-scope-workspace"
+                [class.btn-primary]="scopeFilter() === 'workspace'"
+                [attr.aria-selected]="scopeFilter() === 'workspace'"
+                (click)="onScopeChange('workspace')"
+              >
+                This workspace
+              </button>
+              <button
+                type="button"
+                role="tab"
+                class="join-item btn btn-sm"
+                data-testid="cron-scope-all"
+                [class.btn-primary]="scopeFilter() === 'all'"
+                [attr.aria-selected]="scopeFilter() === 'all'"
+                (click)="onScopeChange('all')"
+              >
+                All workspaces
+              </button>
+            </div>
             <button
               type="button"
               class="btn btn-ghost btn-sm btn-square text-base-content/50 transition-colors duration-150 hover:text-base-content"
@@ -573,6 +604,7 @@ export class CronSchedulerTabComponent implements OnInit {
   private readonly vscodeService = inject(VSCodeService);
   private readonly state = inject(CronStateService);
   private readonly cronExpr = inject(CronExpressionService);
+  private readonly appState = inject(AppStateManager);
 
   protected readonly detectedTimezone = detectUserTimezone();
 
@@ -598,6 +630,7 @@ export class CronSchedulerTabComponent implements OnInit {
   public readonly selectedJobId = this.state.selectedJobId;
   public readonly selectedJob = this.state.selectedJob;
   public readonly stats = this.state.stats;
+  public readonly scopeFilter = this.state.scopeFilter;
 
   public readonly formOpen = signal<boolean>(false);
   public readonly form = signal<CronJobFormState>(
@@ -641,8 +674,17 @@ export class CronSchedulerTabComponent implements OnInit {
     void this.state.refresh();
   }
 
+  public onScopeChange(scope: CronScopeFilter): void {
+    this.state.setScopeFilter(scope);
+  }
+
   public newJob(): void {
-    this.form.set(emptyForm(this.detectedTimezone));
+    const form = emptyForm(this.detectedTimezone);
+    // Stamp new jobs with the active workspace so they surface under the
+    // default 'workspace' scope. The field stays editable for advanced users.
+    const activeRoot = this.appState.workspaceInfo()?.path;
+    if (activeRoot) form.workspaceRoot = activeRoot;
+    this.form.set(form);
     this.formOpen.set(true);
   }
 

@@ -147,6 +147,9 @@ export class CronRpcHandlers {
       async (params) => {
         const jobs = this.scheduler.list({
           enabledOnly: params?.enabledOnly,
+          ...(params?.workspaceRoot !== undefined
+            ? { workspaceRoot: params.workspaceRoot }
+            : {}),
         });
         return { jobs: jobs.map(toJobDto) };
       },

@@ -168,6 +168,13 @@ export interface HarnessInitializeResponse {
   availableAgents: AvailableAgent[];
   availableSkills: SkillSummary[];
   existingPresets: HarnessPreset[];
+  /**
+   * Absolute path of the workspace the backend resolved at initialize time,
+   * or `null` when no workspace folder is open. The frontend PINS this value
+   * so that a later `harness:apply` targets the workspace the build started in,
+   * even if the user switches the active workspace mid-build (Electron).
+   */
+  workspaceRoot: string | null;
 }
 
 /** harness:suggest-config — AI-generate config from persona description */
@@ -236,6 +243,14 @@ export interface HarnessGenerateClaudeMdResponse {
 export interface HarnessApplyParams {
   config: HarnessConfig;
   outputFormat: string;
+  /**
+   * Optional pinned workspace root the config should be written into. When
+   * omitted the backend falls back to the currently active workspace. Set by
+   * the frontend to the root captured at `harness:initialize`, so file writes
+   * land in the workspace the build started in rather than whichever workspace
+   * happens to be active at apply time.
+   */
+  workspaceRoot?: string;
 }
 export interface HarnessApplyResponse {
   appliedPaths: string[];

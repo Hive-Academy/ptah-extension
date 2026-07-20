@@ -169,12 +169,27 @@ class FakeScheduledJobsDatabase {
       };
     }
 
-    // ── SELECT * FROM scheduled_jobs ORDER BY ... ─────────────────────────
+    // ── SELECT * FROM scheduled_jobs [WHERE ...] ORDER BY ... ─────────────
     if (/SELECT \* FROM scheduled_jobs/i.test(sql)) {
+      const filterEnabled = /enabled = 1/i.test(sql);
+      const filterWorkspace = /workspace_root = \?/i.test(sql);
       return {
         run: () => ({ changes: 0, lastInsertRowid: 0 }),
         get: () => undefined,
-        all: () => Array.from(rows.values()),
+        all(...params: unknown[]) {
+          // `workspace_root = ?` is the only parameterized condition, so the
+          // workspace root (when present) is always the first bound param.
+          const wantedWorkspace = filterWorkspace
+            ? (params[0] as string)
+            : undefined;
+          return Array.from(rows.values()).filter((row) => {
+            if (filterEnabled && row.enabled !== 1) return false;
+            if (filterWorkspace && row.workspace_root !== wantedWorkspace) {
+              return false;
+            }
+            return true;
+          });
+        },
         iterate: () => rows.values(),
       };
     }
@@ -414,5 +429,89 @@ describe('JobStore.upsert', () => {
 
     const row = fakeDb.getRow('@ptah/daily-backup');
     expect(row?.enabled).toBe(1);
+  });
+});
+
+describe('JobStore.list', () => {
+  function seedThreeJobs(store: JobStore) {
+    store.create({
+      name: 'job-a',
+      cronExpr: '0 * * * *',
+      prompt: 'a',
+      workspaceRoot: '/ws-a',
+      enabled: true,
+      nextRunAt: null,
+    });
+    store.create({
+      name: 'job-b',
+      cronExpr: '0 * * * *',
+      prompt: 'b',
+      workspaceRoot: '/ws-b',
+      enabled: false,
+      nextRunAt: null,
+    });
+    store.create({
+      name: 'job-global',
+      cronExpr: '0 * * * *',
+      prompt: 'g',
+      workspaceRoot: null,
+      enabled: true,
+      nextRunAt: null,
+    });
+  }
+
+  it('returns every job when no filter is provided', () => {
+    const { store } = buildStore();
+    seedThreeJobs(store);
+
+    const jobs = store.list();
+    expect(jobs).toHaveLength(3);
+    expect(jobs.map((j) => j.name).sort()).toEqual([
+      'job-a',
+      'job-b',
+      'job-global',
+    ]);
+  });
+
+  it('filters to a single workspace when workspaceRoot is provided', () => {
+    const { store } = buildStore();
+    seedThreeJobs(store);
+
+    const jobs = store.list({ workspaceRoot: '/ws-a' });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].name).toBe('job-a');
+    expect(jobs[0].workspaceRoot).toBe('/ws-a');
+  });
+
+  it('returns an empty list when no job matches the workspaceRoot', () => {
+    const { store } = buildStore();
+    seedThreeJobs(store);
+
+    expect(store.list({ workspaceRoot: '/ws-unknown' })).toEqual([]);
+  });
+
+  it('combines enabledOnly with the workspaceRoot filter', () => {
+    const { store } = buildStore();
+    seedThreeJobs(store);
+
+    // job-b is in /ws-b but disabled → excluded by enabledOnly.
+    expect(store.list({ enabledOnly: true, workspaceRoot: '/ws-b' })).toEqual(
+      [],
+    );
+    // job-a is in /ws-a and enabled → included.
+    const enabledInA = store.list({
+      enabledOnly: true,
+      workspaceRoot: '/ws-a',
+    });
+    expect(enabledInA).toHaveLength(1);
+    expect(enabledInA[0].name).toBe('job-a');
+  });
+
+  it('still honors enabledOnly with no workspace filter', () => {
+    const { store } = buildStore();
+    seedThreeJobs(store);
+
+    const enabled = store.list({ enabledOnly: true });
+    expect(enabled.map((j) => j.name).sort()).toEqual(['job-a', 'job-global']);
   });
 });

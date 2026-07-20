@@ -41,7 +41,10 @@ interface ScheduledJobRow {
 export interface IJobStore {
   create(input: CreateJobInput): ScheduledJob;
   get(id: JobId): ScheduledJob | null;
-  list(filter?: { enabledOnly?: boolean }): ScheduledJob[];
+  list(filter?: {
+    enabledOnly?: boolean;
+    workspaceRoot?: string;
+  }): ScheduledJob[];
   update(id: JobId, patch: UpdateJobPatch): ScheduledJob;
   delete(id: JobId): boolean;
   /**
@@ -112,11 +115,25 @@ export class JobStore implements IJobStore {
     return row ? mapRow(row) : null;
   }
 
-  list(filter?: { enabledOnly?: boolean }): ScheduledJob[] {
-    const sql = filter?.enabledOnly
-      ? 'SELECT * FROM scheduled_jobs WHERE enabled = 1 ORDER BY created_at ASC'
-      : 'SELECT * FROM scheduled_jobs ORDER BY created_at ASC';
-    const rows = this.sqlite.db.prepare(sql).all() as ScheduledJobRow[];
+  list(filter?: {
+    enabledOnly?: boolean;
+    workspaceRoot?: string;
+  }): ScheduledJob[] {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filter?.enabledOnly) {
+      conditions.push('enabled = 1');
+    }
+    if (filter?.workspaceRoot !== undefined) {
+      conditions.push('workspace_root = ?');
+      params.push(filter.workspaceRoot);
+    }
+    const where =
+      conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+    const sql = `SELECT * FROM scheduled_jobs${where} ORDER BY created_at ASC`;
+    const rows = this.sqlite.db
+      .prepare(sql)
+      .all(...params) as ScheduledJobRow[];
     return rows.map(mapRow);
   }
 

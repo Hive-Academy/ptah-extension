@@ -13,6 +13,20 @@ import { z } from 'zod';
 
 export const HarnessStartNewProjectParamsSchema = z.object({}).passthrough();
 
+/**
+ * Boundary schema for the workspace-pinning param shared by file-mutating
+ * harness methods (currently `harness:apply`). Only the `workspaceRoot` field
+ * is validated here — the large `config` payload keeps its existing
+ * TS-type + `normalizeHarnessConfig` contract, so we `passthrough()` the rest.
+ * A supplied `workspaceRoot` must be a non-empty string; omission is valid and
+ * resolves to the active workspace at the handler.
+ */
+export const HarnessWorkspacePinParamsSchema = z
+  .object({
+    workspaceRoot: z.string().min(1).optional(),
+  })
+  .passthrough();
+
 export const HarnessWorkflowPromptParamsSchema = z.object({
   mode: z.literal('configure-harness'),
   intent: z.string().min(1),

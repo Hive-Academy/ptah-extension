@@ -1,10 +1,12 @@
 import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import {
   ClaudeSessionId,
   ConversationRegistry,
   TabId,
+  TabManagerService,
   TabSessionBinding,
 } from '@ptah-extension/chat-state';
 import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
@@ -13,6 +15,40 @@ import {
   TRIBUNAL_MAX_VENDOR_TILES,
 } from './tribunal-state.service';
 import type { VendorLane } from '../types/tribunal-ui.types';
+
+/**
+ * Minimal stub of the workspace-partition surface `TribunalStateService`
+ * consumes from TabManagerService. Backed by settable signals so tests can
+ * drive workspace switches (`activeWorkspacePath$`) and removals
+ * (`removedWorkspace$`), plus the non-reactive `activeWorkspacePath` getter the
+ * service reads once for its eager bootstrap seed.
+ */
+interface TabManagerStub {
+  tabManager: TabManagerService;
+  activeWorkspacePath$: ReturnType<typeof signal<string | null>>;
+  removedWorkspace$: ReturnType<typeof signal<string | null>>;
+  clearRemovedWorkspace: jest.Mock;
+}
+
+function makeTabManagerStub(initialPath: string | null = null): TabManagerStub {
+  const activeWorkspacePath$ = signal<string | null>(initialPath);
+  const removedWorkspace$ = signal<string | null>(null);
+  const clearRemovedWorkspace = jest.fn();
+  const tabManager = {
+    get activeWorkspacePath() {
+      return activeWorkspacePath$();
+    },
+    activeWorkspacePath$: activeWorkspacePath$.asReadonly(),
+    removedWorkspace$: removedWorkspace$.asReadonly(),
+    clearRemovedWorkspace,
+  } as unknown as TabManagerService;
+  return {
+    tabManager,
+    activeWorkspacePath$,
+    removedWorkspace$,
+    clearRemovedWorkspace,
+  };
+}
 
 function makeLane(overrides: Partial<VendorLane> = {}): VendorLane {
   return {
@@ -52,6 +88,7 @@ describe('TribunalStateService', () => {
   let mockTabBinding: jest.Mocked<Pick<TabSessionBinding, 'conversationFor'>>;
   let mockRegistry: jest.Mocked<Pick<ConversationRegistry, 'getRecord'>>;
   let mockClaims: jest.Mocked<Pick<WorkflowSessionClaimService, 'release'>>;
+  let tabManagerStub: TabManagerStub;
 
   beforeEach(() => {
     mockAgentMonitor = {
@@ -66,6 +103,7 @@ describe('TribunalStateService', () => {
     mockClaims = {
       release: jest.fn(),
     };
+    tabManagerStub = makeTabManagerStub();
 
     TestBed.configureTestingModule({
       providers: [
@@ -74,6 +112,7 @@ describe('TribunalStateService', () => {
         { provide: TabSessionBinding, useValue: mockTabBinding },
         { provide: ConversationRegistry, useValue: mockRegistry },
         { provide: WorkflowSessionClaimService, useValue: mockClaims },
+        { provide: TabManagerService, useValue: tabManagerStub.tabManager },
       ],
     });
 
@@ -508,6 +547,10 @@ describe('TribunalStateService', () => {
             provide: WorkflowSessionClaimService,
             useValue: { release: jest.fn() },
           },
+          {
+            provide: TabManagerService,
+            useValue: makeTabManagerStub().tabManager,
+          },
         ],
       });
       const svc = TestBed.inject(TribunalStateService);
@@ -553,6 +596,133 @@ describe('TribunalStateService', () => {
       service.endRun();
 
       expect(mockClaims.release).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('per-workspace state partitioning', () => {
+    function switchWorkspace(path: string | null): void {
+      tabManagerStub.activeWorkspacePath$.set(path);
+      TestBed.tick();
+    }
+
+    it('keeps each workspace run isolated in its own slice', () => {
+      switchWorkspace('/ws/a');
+      service.setMove('forge');
+      service.setLanes([makeLane({ laneId: 'a1' })]);
+      service.buildTilesForRun([makeLane({ laneId: 'a1' })]);
+      service.setCorrelationId('corr-a');
+
+      // Switching to a workspace with no run shows the empty state.
+      switchWorkspace('/ws/b');
+      expect(service.tiles()).toHaveLength(0);
+      expect(service.lanes()).toHaveLength(0);
+      expect(service.correlationId()).toBeNull();
+      expect(service.move()).toBe('council');
+
+      // A run staged in B must not leak into A's slice.
+      service.setMove('race');
+      service.setLanes([
+        makeLane({ laneId: 'b1' }),
+        makeLane({ laneId: 'b2', displayName: 'B2' }),
+      ]);
+      service.buildTilesForRun([
+        makeLane({ laneId: 'b1' }),
+        makeLane({ laneId: 'b2', displayName: 'B2' }),
+      ]);
+      service.setCorrelationId('corr-b');
+
+      expect(service.tiles()).toHaveLength(2);
+      expect(service.move()).toBe('race');
+      expect(service.correlationId()).toBe('corr-b');
+    });
+
+    it('switching back to a workspace instantly restores its in-flight run', () => {
+      switchWorkspace('/ws/a');
+      service.setMove('forge');
+      service.setLanes([makeLane({ laneId: 'a1' })]);
+      service.buildTilesForRun([makeLane({ laneId: 'a1' })]);
+      service.setCorrelationId('corr-a');
+
+      switchWorkspace('/ws/b');
+      expect(service.tiles()).toHaveLength(0);
+      expect(service.correlationId()).toBeNull();
+
+      switchWorkspace('/ws/a');
+      expect(service.tiles()).toHaveLength(1);
+      expect(service.move()).toBe('forge');
+      expect(service.correlationId()).toBe('corr-a');
+    });
+
+    it('removedWorkspace$ drops that workspace slice so a later revisit is empty', () => {
+      switchWorkspace('/ws/a');
+      service.buildTilesForRun([makeLane({ laneId: 'a1' })]);
+      service.setCorrelationId('corr-a');
+
+      // Switch away, then remove '/ws/a' from the layout.
+      switchWorkspace('/ws/b');
+      tabManagerStub.removedWorkspace$.set('/ws/a');
+      TestBed.tick();
+
+      // Revisiting the removed workspace shows the empty state (slice gone).
+      switchWorkspace('/ws/a');
+      expect(service.tiles()).toHaveLength(0);
+      expect(service.lanes()).toHaveLength(0);
+      expect(service.correlationId()).toBeNull();
+    });
+
+    it('reset() clears only the active workspace slice', () => {
+      switchWorkspace('/ws/a');
+      service.buildTilesForRun([makeLane({ laneId: 'a1' })]);
+      service.setCorrelationId('corr-a');
+
+      switchWorkspace('/ws/b');
+      service.buildTilesForRun([makeLane({ laneId: 'b1' })]);
+      service.setCorrelationId('corr-b');
+
+      service.reset();
+      expect(service.tiles()).toHaveLength(0);
+
+      // A's slice is untouched by resetting B.
+      switchWorkspace('/ws/a');
+      expect(service.tiles()).toHaveLength(1);
+      expect(service.correlationId()).toBe('corr-a');
+    });
+
+    it('endRun() releases only the active slice claim and leaves other slices intact', () => {
+      switchWorkspace('/ws/a');
+      service.buildTilesForRun([makeLane({ laneId: 'a1' })]);
+      service.setCorrelationId('corr-a');
+
+      switchWorkspace('/ws/b');
+      service.buildTilesForRun([makeLane({ laneId: 'b1' })]);
+      service.setCorrelationId('corr-b');
+
+      service.endRun();
+      expect(mockClaims.release).toHaveBeenCalledWith('corr-b');
+      expect(mockClaims.release).not.toHaveBeenCalledWith('corr-a');
+      expect(service.tiles()).toHaveLength(0);
+
+      switchWorkspace('/ws/a');
+      expect(service.tiles()).toHaveLength(1);
+      expect(service.correlationId()).toBe('corr-a');
+    });
+
+    it('migrates a run staged before the first workspace path onto that path', () => {
+      // beforeEach seeds the active slice at the bootstrap sentinel (null path).
+      // A run convened during that window must follow onto the first real path.
+      service.buildTilesForRun([makeLane({ laneId: 'boot' })]);
+      service.setCorrelationId('corr-boot');
+      expect(service.tiles()).toHaveLength(1);
+
+      switchWorkspace('/ws/a');
+
+      expect(service.tiles()).toHaveLength(1);
+      expect(service.correlationId()).toBe('corr-boot');
+
+      // The sentinel no longer shadows the real workspace: a second, distinct
+      // workspace still starts empty.
+      switchWorkspace('/ws/b');
+      expect(service.tiles()).toHaveLength(0);
     });
   });
 });

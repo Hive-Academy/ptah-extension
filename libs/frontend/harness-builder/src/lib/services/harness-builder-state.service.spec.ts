@@ -1,12 +1,35 @@
+import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
   StreamRouter,
   StreamingSurfaceRegistry,
 } from '@ptah-extension/chat-routing';
+import { AppStateManager } from '@ptah-extension/core';
+import type { HarnessInitializeResponse } from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from './harness-builder-state.service';
+
+/** Minimal HarnessInitializeResponse for pin/reset assertions. */
+function initResponse(
+  overrides: Partial<HarnessInitializeResponse> = {},
+): HarnessInitializeResponse {
+  return {
+    workspaceContext: {
+      projectName: 'workspace-a',
+      projectType: 'nx-monorepo',
+      frameworks: [],
+      languages: ['TypeScript'],
+    },
+    availableAgents: [],
+    availableSkills: [],
+    existingPresets: [],
+    workspaceRoot: '/workspace/A',
+    ...overrides,
+  };
+}
 
 describe('HarnessBuilderStateService', () => {
   let service: HarnessBuilderStateService;
+  let workspaceInfo: WritableSignal<{ path: string } | null>;
   let mockStreamRouter: jest.Mocked<
     Pick<
       StreamRouter,
@@ -18,6 +41,7 @@ describe('HarnessBuilderStateService', () => {
   >;
 
   beforeEach(() => {
+    workspaceInfo = signal<{ path: string } | null>({ path: '/workspace/A' });
     // HarnessBuilderStateService injects StreamRouter and
     // StreamingSurfaceRegistry to route per-operation stream events through
     // the canonical pipeline. Stub both with `jest.Mocked<Pick<...>>` to
@@ -39,10 +63,19 @@ describe('HarnessBuilderStateService', () => {
         HarnessBuilderStateService,
         { provide: StreamRouter, useValue: mockStreamRouter },
         { provide: StreamingSurfaceRegistry, useValue: mockSurfaceRegistry },
+        {
+          provide: AppStateManager,
+          useValue: {
+            workspaceInfo: workspaceInfo.asReadonly(),
+          } as unknown as AppStateManager,
+        },
       ],
     });
 
     service = TestBed.inject(HarnessBuilderStateService);
+    // Let the constructor effect record its baseline workspace root so a later
+    // signal change registers as a genuine switch.
+    TestBed.flushEffects();
   });
 
   it('should be created', () => {
@@ -381,6 +414,84 @@ describe('HarnessBuilderStateService', () => {
       service.stopStreaming();
       expect(service.isConversing()).toBe(false);
       expect(service.currentOperationId()).toBeNull();
+    });
+  });
+
+  // ===========================================================================
+  // Workspace-switch safety (pin + idle-reset + in-progress-keep).
+  // ===========================================================================
+  describe('Workspace pinning + switch safety', () => {
+    it('initialize() pins workspaceRoot from the response for apply to read', () => {
+      expect(service.pinnedWorkspaceRoot()).toBeNull();
+
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+
+      expect(service.pinnedWorkspaceRoot()).toBe('/workspace/A');
+      // This is exactly the value the view forwards as harness:apply's
+      // workspaceRoot param, keeping the write bound to the build's origin.
+    });
+
+    it('initialize() pins null when no workspace is open', () => {
+      service.initialize(initResponse({ workspaceRoot: null }));
+      expect(service.pinnedWorkspaceRoot()).toBeNull();
+    });
+
+    it('idle workspace switch resets state so the next initialize re-pins', () => {
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+      service.updatePrompt({ systemPrompt: 'hello', enhancedSections: {} });
+      expect(service.buildInProgress()).toBe(false);
+
+      // Switch active workspace while IDLE.
+      workspaceInfo.set({ path: '/workspace/B' });
+      TestBed.flushEffects();
+
+      // Idle → full reset: pin cleared, config cleared, no stale badge.
+      expect(service.pinnedWorkspaceRoot()).toBeNull();
+      expect(service.config()).toEqual({});
+      expect(service.workspaceSwitchedDuringBuild()).toBe(false);
+    });
+
+    it('in-progress workspace switch KEEPS the pin and flags the switch', () => {
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+      service.setBuildInProgress(true);
+      service.updatePrompt({ systemPrompt: 'building', enhancedSections: {} });
+
+      // Switch active workspace mid-build.
+      workspaceInfo.set({ path: '/workspace/B' });
+      TestBed.flushEffects();
+
+      // Pin preserved → apply still targets the original workspace.
+      expect(service.pinnedWorkspaceRoot()).toBe('/workspace/A');
+      // Config preserved (no reset).
+      expect(service.config().prompt?.systemPrompt).toBe('building');
+      // Non-blocking indicator raised for the view badge.
+      expect(service.workspaceSwitchedDuringBuild()).toBe(true);
+    });
+
+    it('setBuildInProgress(false) after a build lets a later switch reset again', () => {
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+      service.setBuildInProgress(true);
+      service.setBuildInProgress(false);
+
+      workspaceInfo.set({ path: '/workspace/B' });
+      TestBed.flushEffects();
+
+      expect(service.pinnedWorkspaceRoot()).toBeNull();
+      expect(service.workspaceSwitchedDuringBuild()).toBe(false);
+    });
+
+    it('reset() clears the pin, build flag, and switch indicator', () => {
+      service.initialize(initResponse({ workspaceRoot: '/workspace/A' }));
+      service.setBuildInProgress(true);
+      workspaceInfo.set({ path: '/workspace/B' });
+      TestBed.flushEffects();
+      expect(service.workspaceSwitchedDuringBuild()).toBe(true);
+
+      service.reset();
+
+      expect(service.pinnedWorkspaceRoot()).toBeNull();
+      expect(service.buildInProgress()).toBe(false);
+      expect(service.workspaceSwitchedDuringBuild()).toBe(false);
     });
   });
 });

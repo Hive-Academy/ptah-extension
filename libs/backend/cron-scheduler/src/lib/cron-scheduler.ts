@@ -128,7 +128,10 @@ export class CronScheduler {
     this.logger.info('[cron-scheduler] stopped');
   }
 
-  list(opts?: { enabledOnly?: boolean }): ScheduledJob[] {
+  list(opts?: {
+    enabledOnly?: boolean;
+    workspaceRoot?: string;
+  }): ScheduledJob[] {
     return this.jobs.list(opts);
   }
 
