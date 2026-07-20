@@ -220,6 +220,12 @@ export class CommandDiscoveryService {
         description: 'Show API cost for current session',
         scope: 'builtin',
       },
+      {
+        name: 'deep-research',
+        description: 'Deep multi-source research workflow → cited report',
+        argumentHint: '<question>',
+        scope: 'builtin',
+      },
     ];
   }
 

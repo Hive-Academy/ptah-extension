@@ -86,6 +86,7 @@ export type {
   SDKHookStartedMessage,
   SDKLocalCommandOutputMessage,
   SDKMessage,
+  SDKMessageOrigin,
   SDKPartialAssistantMessage,
   SDKPermissionDenial,
   SDKPromptSuggestionMessage,

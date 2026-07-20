@@ -52,6 +52,11 @@ Thumbs.db
 /.env
 .mcp.json
 
+# Ephemeral agent worktrees (tribunal skill, worktree isolation) — never track;
+# also excluded in .nxignore so they don't inject duplicate Nx project graphs
+.tribunal/
+.claude-worktrees/
+
 # ============================================
 # Docker Environment Files
 # ============================================

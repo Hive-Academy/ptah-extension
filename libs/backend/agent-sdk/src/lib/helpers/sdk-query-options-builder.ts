@@ -673,6 +673,13 @@ export class SdkQueryOptionsBuilder {
             model,
             effectiveAuthEnv.ANTHROPIC_BASE_URL,
           ),
+          // Kill switch: disable the SDK's built-in workflows (ultracode/workflow
+          // keyword) only when the persisted `workflows.disabled` config resolved
+          // to true at the session origination point (chat-session.service). When
+          // absent/false the env is untouched so workflows stay ON.
+          ...(sessionConfig?.workflowsDisabled
+            ? { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }
+            : {}),
         } as Record<string, string | undefined>,
         stderr: (data: string) => {
           if (data.includes('[ERROR]')) {

@@ -107,6 +107,8 @@ export interface AgentOrchestrationConfig {
   disabledMcpNamespaces: string[];
   /** Whether the browser automation tools can navigate to localhost URLs (default: false) */
   browserAllowLocalhost: boolean;
+  /** Kill switch for built-in SDK workflows (e.g. ultracode/workflow keywords). Default false = workflows ON. */
+  workflowsDisabled: boolean;
 }
 
 /** CLI model option for agent:listCliModels */
@@ -165,6 +167,8 @@ export interface AgentSetConfigParams {
   disabledMcpNamespaces?: string[];
   /** Whether the browser automation tools can navigate to localhost URLs */
   browserAllowLocalhost?: boolean;
+  /** Kill switch for built-in SDK workflows. true disables workflows; false (default) leaves them ON. */
+  workflowsDisabled?: boolean;
 }
 
 export type AgentContinueErrorCode =

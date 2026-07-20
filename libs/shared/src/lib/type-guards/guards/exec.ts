@@ -294,6 +294,54 @@ export function isAgentDispatchTool(toolName: string): boolean {
 export function isWorkflowTool(toolName: string): boolean {
   return toolName === 'Workflow';
 }
+/**
+ * Task-management tool names introduced by newer Claude Agent SDK builds
+ * (`@anthropic-ai/claude-agent-sdk`). These operate on the SDK's structured
+ * task list (create / update / query / stop), which is DISTINCT from the
+ * `Task`/`Agent` subagent-dispatch tool — that one spawns a subagent and is
+ * matched by {@link isAgentDispatchTool}. A `TaskCreate` input carries a
+ * `subject` + `description`; an `Agent`/`Task` dispatch carries
+ * `subagent_type` + `prompt`.
+ */
+const TASK_MANAGEMENT_TOOL_NAMES = new Set([
+  'TaskCreate',
+  'TaskUpdate',
+  'TaskList',
+  'TaskGet',
+  'TaskStop',
+  'TaskOutput',
+]);
+/**
+ * Checks if a tool name is one of the SDK task-management tools
+ * (TaskCreate / TaskUpdate / TaskList / TaskGet / TaskStop / TaskOutput).
+ *
+ * NOT the same as the `Task` subagent-dispatch tool — use
+ * {@link isAgentDispatchTool} to detect that.
+ */
+export function isTaskManagementTool(toolName: string): boolean {
+  return TASK_MANAGEMENT_TOOL_NAMES.has(toolName);
+}
+/**
+ * Checks if a tool name is the SDK `Monitor` tool, which starts a background
+ * event watch (each stdout line of its `command` becomes a chat event).
+ */
+export function isMonitorTool(toolName: string): boolean {
+  return toolName === 'Monitor';
+}
+/**
+ * Checks if a tool name is the SDK `SendMessage` tool used for agent-to-agent
+ * (teammate) messaging. Its input carries `{ to, message, summary? }`.
+ */
+export function isSendMessageTool(toolName: string): boolean {
+  return toolName === 'SendMessage';
+}
+/**
+ * Checks if a tool name is the SDK `ScheduleWakeup` tool used to pace an
+ * autonomous `/loop`. Its input carries `{ delaySeconds, reason, prompt }`.
+ */
+export function isScheduleWakeupTool(toolName: string): boolean {
+  return toolName === 'ScheduleWakeup';
+}
 /** Type guard for Task tool output */
 export function isTaskToolOutput(output: unknown): output is TaskToolOutput {
   return (

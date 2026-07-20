@@ -7,6 +7,10 @@ import {
   FileEdit,
   FolderSearch,
   Workflow,
+  ListTodo,
+  Radar,
+  Send,
+  AlarmClock,
 } from 'lucide-angular';
 
 /**
@@ -41,6 +45,10 @@ export class ToolIconComponent {
   private readonly FileEditIcon = FileEdit;
   private readonly FolderSearchIcon = FolderSearch;
   private readonly WorkflowIcon = Workflow;
+  private readonly ListTodoIcon = ListTodo;
+  private readonly RadarIcon = Radar;
+  private readonly SendIcon = Send;
+  private readonly AlarmClockIcon = AlarmClock;
 
   /**
    * Map tool name to lucide icon
@@ -61,6 +69,19 @@ export class ToolIconComponent {
         return this.FolderSearchIcon;
       case 'Workflow':
         return this.WorkflowIcon;
+      case 'TaskCreate':
+      case 'TaskUpdate':
+      case 'TaskList':
+      case 'TaskGet':
+      case 'TaskStop':
+      case 'TaskOutput':
+        return this.ListTodoIcon;
+      case 'Monitor':
+        return this.RadarIcon;
+      case 'SendMessage':
+        return this.SendIcon;
+      case 'ScheduleWakeup':
+        return this.AlarmClockIcon;
       default:
         return this.TerminalIcon;
     }
@@ -87,6 +108,19 @@ export class ToolIconComponent {
         return 'text-info'; // info - file pattern matching
       case 'Workflow':
         return 'text-primary'; // primary - workflow orchestration (distinct)
+      case 'TaskCreate':
+      case 'TaskUpdate':
+      case 'TaskList':
+      case 'TaskGet':
+      case 'TaskStop':
+      case 'TaskOutput':
+        return 'text-secondary'; // secondary - task-list management
+      case 'Monitor':
+        return 'text-accent'; // accent - background event watch
+      case 'SendMessage':
+        return 'text-info'; // info (blue) - agent-to-agent message
+      case 'ScheduleWakeup':
+        return 'text-warning'; // warning (amber) - scheduled loop wakeup
       default:
         return 'text-base-content/60';
     }

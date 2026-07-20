@@ -30,6 +30,7 @@ import {
   AuthStateService,
 } from '@ptah-extension/core';
 import { MessageSenderService } from './message-sender.service';
+import { UltracodeStateService } from './ultracode-state.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
@@ -198,7 +199,10 @@ describe('MessageSenderService', () => {
         },
         {
           provide: EffortStateService,
-          useValue: { currentEffort: jest.fn(() => 'medium') },
+          useValue: {
+            currentEffort: jest.fn(() => 'medium'),
+            setEffort: jest.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: PtahCliStateService,
@@ -716,6 +720,57 @@ describe('MessageSenderService', () => {
       await service.send('follow up', { tabId: 'tab-1' });
 
       expect(tabManager.createAbortController).toHaveBeenCalledWith('tab-1');
+    });
+  });
+
+  describe('ultracode keyword injection', () => {
+    // Ultracode mode stamps outgoing human input with the `ultracode` keyword
+    // so the backend SDK plans a workflow per task. The keyword rides on the
+    // sanitized content, so it reaches both the chat:start prompt and the
+    // visible user bubble. When off (default), messages are untouched.
+    let ultracode: UltracodeStateService;
+
+    beforeEach(() => {
+      ultracode = TestBed.inject(UltracodeStateService);
+    });
+
+    afterEach(async () => {
+      // Reset the session-scoped flag so it does not leak across specs.
+      await ultracode.disable();
+    });
+
+    it('does NOT modify the prompt when ultracode is off (default)', async () => {
+      rpcCall.mockResolvedValue({ success: true });
+      await service.send('plain message');
+
+      const [, payload] = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:start',
+      ) as [string, { prompt: string }];
+      expect(payload.prompt).toBe('plain message');
+    });
+
+    it('prefixes the outgoing prompt with `ultracode:` when enabled', async () => {
+      await ultracode.enable();
+      rpcCall.mockResolvedValue({ success: true });
+
+      await service.send('refactor the auth module');
+
+      const [, payload] = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:start',
+      ) as [string, { prompt: string }];
+      expect(payload.prompt).toBe('ultracode: refactor the auth module');
+    });
+
+    it('does not double-stamp content that already carries the keyword', async () => {
+      await ultracode.enable();
+      rpcCall.mockResolvedValue({ success: true });
+
+      await service.send('ultracode: already tagged');
+
+      const [, payload] = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:start',
+      ) as [string, { prompt: string }];
+      expect(payload.prompt).toBe('ultracode: already tagged');
     });
   });
 });

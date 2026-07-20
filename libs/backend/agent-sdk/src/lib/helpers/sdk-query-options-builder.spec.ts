@@ -1087,6 +1087,107 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
   });
 });
 
+// ---------------------------------------------------------------------------
+// build() — workflows.disabled kill switch → CLAUDE_CODE_DISABLE_WORKFLOWS env
+//
+// The persisted `workflows.disabled` ptah config is resolved at the session
+// origination point (chat-session.service) and threaded onto AISessionConfig as
+// `workflowsDisabled`. build() injects `CLAUDE_CODE_DISABLE_WORKFLOWS=1` into the
+// query env ONLY when that flag is true; absent/false leaves the env untouched so
+// the SDK's built-in workflows (ultracode/workflow keyword) stay ON.
+// ---------------------------------------------------------------------------
+
+describe('SdkQueryOptionsBuilder.build — workflows.disabled env injection', () => {
+  function makeBuilder(): SdkQueryOptionsBuilder {
+    const noopHooks = { createHooks: jest.fn().mockReturnValue({}) };
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    return new ctor(
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+      {
+        createCallback: jest
+          .fn()
+          .mockReturnValue(() => ({ behavior: 'allow' })),
+      },
+      noopHooks,
+      {
+        getConfig: jest
+          .fn()
+          .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+      },
+      noopHooks,
+      noopHooks,
+      {} as AuthEnv, // empty → Anthropic-direct, no model validation
+      { resolveModelId: jest.fn().mockImplementation((m: string) => m) },
+      {
+        buildBlock: jest.fn().mockResolvedValue(''),
+        buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+        buildCorpusBlock: jest.fn().mockResolvedValue(''),
+      },
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+    );
+  }
+
+  async function buildEnv(
+    workflowsDisabled?: boolean,
+  ): Promise<Record<string, string | undefined>> {
+    const userMessageStream = (async function* () {
+      // Intentionally empty.
+    })();
+    const sessionConfig = {
+      model: 'claude-sonnet-4',
+      projectPath: 'D:/tmp/ws',
+      ...(workflowsDisabled === undefined ? {} : { workflowsDisabled }),
+    } as AISessionConfig;
+    const cfg = await makeBuilder().build({
+      userMessageStream,
+      abortController: new AbortController(),
+      sessionConfig,
+    });
+    return cfg.options.env as Record<string, string | undefined>;
+  }
+
+  // The builder spreads `...process.env`; isolate from any ambient
+  // CLAUDE_CODE_DISABLE_WORKFLOWS so the injection is the only source.
+  const savedFlag = process.env['CLAUDE_CODE_DISABLE_WORKFLOWS'];
+  beforeEach(() => {
+    delete process.env['CLAUDE_CODE_DISABLE_WORKFLOWS'];
+  });
+  afterEach(() => {
+    if (savedFlag === undefined) {
+      delete process.env['CLAUDE_CODE_DISABLE_WORKFLOWS'];
+    } else {
+      process.env['CLAUDE_CODE_DISABLE_WORKFLOWS'] = savedFlag;
+    }
+  });
+
+  it('injects CLAUDE_CODE_DISABLE_WORKFLOWS=1 when workflowsDisabled is true', async () => {
+    const env = await buildEnv(true);
+    expect(env['CLAUDE_CODE_DISABLE_WORKFLOWS']).toBe('1');
+  });
+
+  it('leaves the env untouched when workflowsDisabled is false', async () => {
+    const env = await buildEnv(false);
+    expect(env['CLAUDE_CODE_DISABLE_WORKFLOWS']).toBeUndefined();
+  });
+
+  it('leaves the env untouched when workflowsDisabled is absent (default ON)', async () => {
+    const env = await buildEnv(undefined);
+    expect(env['CLAUDE_CODE_DISABLE_WORKFLOWS']).toBeUndefined();
+  });
+});
+
 describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit merger', () => {
   interface BuilderWithCreateHooks {
     createHooks(

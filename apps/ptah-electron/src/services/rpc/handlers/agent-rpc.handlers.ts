@@ -186,6 +186,12 @@ export class AgentRpcHandlers {
                 'browser.allowLocalhost',
                 false,
               ) ?? false,
+            workflowsDisabled:
+              this.workspace.getConfiguration<boolean>(
+                'ptah',
+                'workflows.disabled',
+                false,
+              ) ?? false,
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -298,6 +304,13 @@ export class AgentRpcHandlers {
             'ptah',
             'browser.allowLocalhost',
             params.browserAllowLocalhost,
+          );
+        }
+        if (params.workflowsDisabled !== undefined) {
+          await this.workspace.setConfiguration(
+            'ptah',
+            'workflows.disabled',
+            params.workflowsDisabled,
           );
         }
         this.logger.debug('RPC: agent:setConfig success');

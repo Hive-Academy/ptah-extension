@@ -393,6 +393,7 @@ export class ChatSessionService {
         pluginPaths,
         thinking: options?.thinking,
         effort: options?.effort,
+        workflowsDisabled: this.resolveWorkflowsDisabled(),
         includePartialMessages: options?.includePartialMessages,
         mcpServersOverride,
         providerProfile,
@@ -917,6 +918,7 @@ export class ChatSessionService {
         tabId,
         thinking: params.thinking,
         effort: params.effort,
+        workflowsDisabled: this.resolveWorkflowsDisabled(),
         prompt,
         providerProfile,
       });
@@ -951,5 +953,22 @@ export class ChatSessionService {
   private captureSentry(error: unknown, errorSource: string): void {
     const err = error instanceof Error ? error : new Error(String(error));
     this.sentryService.captureException(err, { errorSource });
+  }
+
+  /**
+   * Resolve the persisted `workflows.disabled` kill switch (default false =
+   * workflows ON). Threaded into the AISessionConfig so SdkQueryOptionsBuilder
+   * can inject `CLAUDE_CODE_DISABLE_WORKFLOWS=1` into the query env only when
+   * disabled. Read here (not in the builder) because this is where a workspace
+   * provider is available — the builder has no workspace-config access.
+   */
+  private resolveWorkflowsDisabled(): boolean {
+    return (
+      this.workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        'workflows.disabled',
+        false,
+      ) ?? false
+    );
   }
 }

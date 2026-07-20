@@ -41,6 +41,7 @@ import {
 } from '@ptah-extension/chat-state';
 import { SessionManager } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
+import { UltracodeStateService } from './ultracode-state.service';
 import type { SendMessageOptions } from '@ptah-extension/chat-types';
 
 /**
@@ -78,6 +79,7 @@ export class MessageSenderService {
   private readonly conversationRegistry = inject(ConversationRegistry);
   private readonly tabSessionBinding = inject(TabSessionBinding);
   private readonly authState = inject(AuthStateService);
+  private readonly ultracode = inject(UltracodeStateService);
 
   /**
    * Surface an inline re-auth banner when a chat RPC failed because the
@@ -288,7 +290,13 @@ export class MessageSenderService {
         error: validation.reason ?? 'Invalid message content',
       };
     }
-    const sanitized = this.validator.sanitize(content);
+    // Ultracode mode stamps the outgoing text with the `ultracode` keyword so
+    // the backend SDK plans a workflow per task. No-op (and idempotent) when
+    // ultracode is off. Applied to the sanitized text so it flows to both the
+    // visible bubble and the backend prompt.
+    const sanitized = this.ultracode.applyKeyword(
+      this.validator.sanitize(content),
+    );
     const targetTabId = options?.tabId;
     const targetTab = targetTabId
       ? (this.tabManager.tabs().find((t) => t.id === targetTabId) ??

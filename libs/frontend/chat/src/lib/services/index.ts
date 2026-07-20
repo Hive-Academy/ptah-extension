@@ -37,6 +37,7 @@ export {
   type ConfirmationDialogOptions,
 } from '@ptah-extension/chat-state';
 export { MessageSenderService } from './message-sender.service';
+export { UltracodeStateService } from './ultracode-state.service';
 export {
   MessageValidationService,
   type ValidationResult,
