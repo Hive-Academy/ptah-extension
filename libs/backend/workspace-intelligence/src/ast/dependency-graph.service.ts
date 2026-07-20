@@ -576,9 +576,10 @@ export class DependencyGraphService {
       }
       for (const mappingPath of mappings) {
         const resolvedMapping = mappingPath.replace('*', match);
-        const absolutePath = path
-          .resolve(workspaceRoot, resolvedMapping)
-          .replace(/\\/g, '/');
+        // POSIX join for platform-independent resolution — see the note in
+        // resolveRelativeImport. `workspaceRoot` is already forward-slashed, so
+        // `path.resolve` on Linux would treat a Windows-style root as relative.
+        const absolutePath = path.posix.join(workspaceRoot, resolvedMapping);
         if (knownFiles.has(absolutePath)) {
           return absolutePath;
         }
