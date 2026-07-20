@@ -54,6 +54,13 @@ const EMPTY_SLICE: TribunalSlice = {
   correlationId: null,
 };
 
+/**
+ * laneId prefix for a panelist tile synthesized from a spawned agent that has
+ * no pre-built lane (the conductor spawned it mid-run, beyond the chosen panel).
+ * Keyed by the agent id so reconciliation is idempotent across roster ticks.
+ */
+const DYNAMIC_LANE_PREFIX = 'tribunal-agent#';
+
 @Injectable({ providedIn: 'root' })
 export class TribunalStateService {
   private readonly agentMonitor = inject(AgentMonitorStore);
@@ -123,6 +130,19 @@ export class TribunalStateService {
       if (removed) {
         untracked(() => this.deleteSlice(removed));
       }
+    });
+
+    // Late panelists: the conductor can spawn more agents AFTER the run started
+    // (the user asks mid-run), beyond the pre-built lanes. Track the agent
+    // roster (and the active run's late-resolved session) and surface each
+    // unbound child of a run's conductor session as its own tile. Each new tile
+    // is written into ITS run's workspace slice — so a background spawn lands in
+    // the right slice even while another workspace is active — never blindly the
+    // active one.
+    effect(() => {
+      this.agentMonitor.agents();
+      this.tribunalSessionId();
+      untracked(() => this.reconcileRunTiles());
     });
   }
 
@@ -242,6 +262,100 @@ export class TribunalStateService {
       if (next === current) return map;
       return new Map(map).set(key, next);
     });
+  }
+
+  /**
+   * Apply a mutation to a SPECIFIC workspace's slice (no-op if it has no slice).
+   * Used by late-panelist reconciliation to write a new tile into the run's own
+   * workspace, which may not be the active one when a background run spawns.
+   */
+  private updateSliceFor(
+    path: string,
+    mutate: (slice: TribunalSlice) => TribunalSlice,
+  ): void {
+    this._slices.update((map) => {
+      const current = map.get(path);
+      if (!current) return map;
+      const next = mutate(current);
+      if (next === current) return map;
+      return new Map(map).set(path, next);
+    });
+  }
+
+  /**
+   * Reconcile every workspace slice that holds a run against its conductor's
+   * live agent roster, adding a panelist tile for each spawned child session
+   * not already bound to a lane. Idempotent: re-emitted rosters and status
+   * ticks add nothing because dynamic lanes carry the agent id.
+   */
+  private reconcileRunTiles(): void {
+    for (const [path, slice] of this._slices()) {
+      const next = this.reconcileSlice(slice);
+      if (next) {
+        this.updateSliceFor(path, () => next);
+      }
+    }
+  }
+
+  /**
+   * Return an updated slice with tiles/lanes added for late-spawned agents, or
+   * null when nothing changes (no run, unresolved session, or every agent is
+   * already represented / the vendor-tile cap is reached).
+   */
+  private reconcileSlice(slice: TribunalSlice): TribunalSlice | null {
+    if (!slice.correlationId) return null;
+    const sessionId = this.resolveTribunalSessionId(slice.correlationId);
+    if (!sessionId) return null;
+
+    const agents = this.agentMonitor.agentsForSession(sessionId);
+    if (agents.length === 0) return null;
+
+    // Agents already represented by an existing lane (pre-built or dynamic).
+    const bound = new Set<string>();
+    const claimed = new Set<string>();
+    for (const lane of slice.lanes) {
+      const match = this.matchLaneToAgent(lane, agents, claimed);
+      if (match) {
+        claimed.add(match.agentId);
+        bound.add(match.agentId);
+      }
+    }
+
+    const lanes = [...slice.lanes];
+    const tiles = [...slice.tiles];
+    let vendorCount = tiles.filter((t) => t.kind === 'vendor').length;
+    let added = false;
+
+    for (const agent of agents) {
+      if (bound.has(agent.agentId)) continue;
+      if (vendorCount >= TRIBUNAL_MAX_VENDOR_TILES) break;
+      const laneId = `${DYNAMIC_LANE_PREFIX}${agent.agentId}`;
+      if (lanes.some((l) => l.laneId === laneId)) continue;
+      lanes.push(this.laneFromAgent(laneId, agent));
+      tiles.push({
+        tileId: laneId,
+        kind: 'vendor',
+        laneId,
+        position: this.slotFor(vendorCount),
+      });
+      vendorCount += 1;
+      added = true;
+    }
+
+    return added ? { ...slice, lanes, tiles } : null;
+  }
+
+  /** Synthesize a vendor lane from a spawned agent so its tile renders a card. */
+  private laneFromAgent(laneId: string, agent: MonitoredAgent): VendorLane {
+    return {
+      laneId,
+      family: agent.cli,
+      displayName: agent.displayName ?? agent.cli,
+      cli: agent.cli,
+      agentId: agent.agentId,
+      ...(agent.model ? { model: agent.model } : {}),
+      ...(agent.ptahCliId ? { ptahCliId: agent.ptahCliId } : {}),
+    };
   }
 
   /**

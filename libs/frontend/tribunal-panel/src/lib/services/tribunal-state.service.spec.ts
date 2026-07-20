@@ -85,6 +85,8 @@ describe('TribunalStateService', () => {
   let mockAgentMonitor: jest.Mocked<
     Pick<AgentMonitorStore, 'agentsForSession'>
   >;
+  // Roster signal the reconcile effect tracks; tests bump it to fire the effect.
+  let agentRoster: ReturnType<typeof signal<readonly MonitoredAgent[]>>;
   let mockTabBinding: jest.Mocked<Pick<TabSessionBinding, 'conversationFor'>>;
   let mockRegistry: jest.Mocked<Pick<ConversationRegistry, 'getRecord'>>;
   let mockClaims: jest.Mocked<Pick<WorkflowSessionClaimService, 'release'>>;
@@ -94,6 +96,7 @@ describe('TribunalStateService', () => {
     mockAgentMonitor = {
       agentsForSession: jest.fn().mockReturnValue([]),
     };
+    agentRoster = signal<readonly MonitoredAgent[]>([]);
     mockTabBinding = {
       conversationFor: jest.fn().mockReturnValue(null),
     };
@@ -108,7 +111,10 @@ describe('TribunalStateService', () => {
     TestBed.configureTestingModule({
       providers: [
         TribunalStateService,
-        { provide: AgentMonitorStore, useValue: mockAgentMonitor },
+        {
+          provide: AgentMonitorStore,
+          useValue: { ...mockAgentMonitor, agents: agentRoster.asReadonly() },
+        },
         { provide: TabSessionBinding, useValue: mockTabBinding },
         { provide: ConversationRegistry, useValue: mockRegistry },
         { provide: WorkflowSessionClaimService, useValue: mockClaims },
@@ -118,6 +124,22 @@ describe('TribunalStateService', () => {
 
     service = TestBed.inject(TribunalStateService);
   });
+
+  /**
+   * Publish an agent roster for `sessionId` and flush effects, mirroring a
+   * spawn/status stream tick: `agentsForSession` returns the agents for that
+   * session and the tracked `agents` roster signal fires the reconcile effect.
+   */
+  function driveAgents(
+    agents: readonly MonitoredAgent[],
+    sessionId: string,
+  ): void {
+    mockAgentMonitor.agentsForSession.mockImplementation((sid: string) =>
+      sid === sessionId ? [...agents] : [],
+    );
+    agentRoster.set([...agents]);
+    TestBed.tick();
+  }
 
   describe('initial state', () => {
     it('starts with empty tiles', () => {
@@ -539,7 +561,10 @@ describe('TribunalStateService', () => {
           TribunalStateService,
           {
             provide: AgentMonitorStore,
-            useValue: { agentsForSession: jest.fn().mockReturnValue([]) },
+            useValue: {
+              agentsForSession: jest.fn().mockReturnValue([]),
+              agents: signal<readonly MonitoredAgent[]>([]).asReadonly(),
+            },
           },
           { provide: TabSessionBinding, useValue: binding },
           { provide: ConversationRegistry, useValue: registry },
@@ -723,6 +748,104 @@ describe('TribunalStateService', () => {
       // workspace still starts empty.
       switchWorkspace('/ws/b');
       expect(service.tiles()).toHaveLength(0);
+    });
+  });
+
+  describe('late panelist spawns — dynamic tiles', () => {
+    const SESSION = 'sess-1';
+
+    function switchWorkspace(path: string | null): void {
+      tabManagerStub.activeWorkspacePath$.set(path);
+      TestBed.tick();
+    }
+
+    /** Stage a 1-panelist run in the active workspace and resolve its session. */
+    function stageRun(): { tabId: string } {
+      const tabId = TabId.create();
+      mockTabBinding.conversationFor.mockReturnValue(
+        'conv-1' as unknown as ReturnType<TabSessionBinding['conversationFor']>,
+      );
+      mockRegistry.getRecord.mockReturnValue({
+        sessions: [SESSION],
+      } as unknown as ReturnType<ConversationRegistry['getRecord']>);
+      service.setLanes([makeLane({ laneId: 'lane-0' })]);
+      service.buildTilesForRun([makeLane({ laneId: 'lane-0' })]);
+      service.setCorrelationId(tabId);
+      return { tabId };
+    }
+
+    // The pre-built lane-0 binds to this agent via its [tribunal:lane-0] tag.
+    const boundAgent = makeAgent({
+      agentId: 'bound',
+      cli: 'codex',
+      displayName: 'Codex',
+      model: 'gpt-4o',
+      task: '[tribunal:lane-0] Vendor: Codex.',
+      parentSessionId: SESSION,
+    });
+    // An extra agent the conductor spawns mid-run — no matching pre-built lane.
+    const lateAgent = makeAgent({
+      agentId: 'late',
+      cli: 'ptah-cli',
+      displayName: 'Claude',
+      model: 'claude-opus',
+      task: 'do more work',
+      parentSessionId: SESSION,
+    });
+
+    it('adds a panelist tile when the conductor spawns a new agent mid-run', () => {
+      switchWorkspace('/ws/a');
+      stageRun();
+      expect(service.tiles()).toHaveLength(1);
+
+      driveAgents([boundAgent, lateAgent], SESSION);
+
+      expect(service.tiles()).toHaveLength(2);
+      const dynamicTile = service.tiles().find((t) => t.tileId !== 'lane-0');
+      expect(dynamicTile).toBeDefined();
+      const dynamicLane = service
+        .lanes()
+        .find((l) => l.laneId === dynamicTile?.laneId);
+      expect(dynamicLane?.agentId).toBe('late');
+      expect(dynamicLane?.displayName).toBe('Claude');
+    });
+
+    it("routes a late background spawn into the run's own workspace slice", () => {
+      switchWorkspace('/ws/a');
+      stageRun();
+
+      // Switch AWAY — the /ws/a run is now backgrounded, /ws/b is active.
+      switchWorkspace('/ws/b');
+      expect(service.tiles()).toHaveLength(0);
+
+      driveAgents([boundAgent, lateAgent], SESSION);
+
+      // The active workspace (/ws/b) must NOT receive the tile.
+      expect(service.tiles()).toHaveLength(0);
+
+      // Returning to /ws/a shows the original plus the late panelist.
+      switchWorkspace('/ws/a');
+      expect(service.tiles()).toHaveLength(2);
+      expect(service.lanes().some((l) => l.agentId === 'late')).toBe(true);
+    });
+
+    it('does not duplicate tiles when the same agent roster is re-emitted', () => {
+      switchWorkspace('/ws/a');
+      stageRun();
+
+      driveAgents([boundAgent, lateAgent], SESSION);
+      expect(service.tiles()).toHaveLength(2);
+
+      // Re-emit the identical roster (e.g., a poll tick) — no second tile.
+      driveAgents([boundAgent, lateAgent], SESSION);
+      expect(service.tiles()).toHaveLength(2);
+
+      // A status change on the late agent must not spawn a duplicate tile.
+      driveAgents([boundAgent, { ...lateAgent, status: 'completed' }], SESSION);
+      expect(service.tiles()).toHaveLength(2);
+      expect(service.lanes().filter((l) => l.agentId === 'late')).toHaveLength(
+        1,
+      );
     });
   });
 });
