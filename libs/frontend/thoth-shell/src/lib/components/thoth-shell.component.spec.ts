@@ -199,6 +199,7 @@ describe('ThothShellComponent', () => {
     const stateMock = {
       thothActiveTab: activeTabSignal.asReadonly(),
       setThothActiveTab: jest.fn(),
+      workspaceInfo: signal(null),
     };
 
     TestBed.configureTestingModule({

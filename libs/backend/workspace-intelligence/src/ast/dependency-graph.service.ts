@@ -535,8 +535,13 @@ export class DependencyGraphService {
     importingFilePath: string,
     knownFiles: Set<string>,
   ): string | null {
-    const importDir = path.dirname(importingFilePath);
-    const basePath = path.resolve(importDir, importSource).replace(/\\/g, '/');
+    // All internal paths are pre-normalized to forward slashes, so resolve with
+    // POSIX semantics. `path.resolve` would key off the host platform's notion
+    // of "absolute" — on Linux a Windows-style root like `D:/ws` is treated as
+    // relative and gets `process.cwd()` prepended, breaking resolution. `path.
+    // posix.join` joins deterministically on every platform.
+    const importDir = path.posix.dirname(importingFilePath);
+    const basePath = path.posix.join(importDir, importSource);
     if (knownFiles.has(basePath)) {
       return basePath;
     }

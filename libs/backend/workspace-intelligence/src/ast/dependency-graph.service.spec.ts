@@ -43,10 +43,12 @@ const INSIGHTS: Record<string, CodeInsights> = {
   'D:/ws-b/c.ts': insights([], [exp('C')]),
 };
 
-function makeService(): DependencyGraphService {
+function makeServiceWith(
+  insightMap: Record<string, CodeInsights>,
+): DependencyGraphService {
   const astAnalysis = {
     analyzeSource: jest.fn(async (_content, _lang, normalizedPath: string) =>
-      Result.ok(INSIGHTS[normalizedPath] ?? insights([], [])),
+      Result.ok(insightMap[normalizedPath] ?? insights([], [])),
     ),
   } as unknown as AstAnalysisService;
   const fileSystem = {
@@ -60,6 +62,10 @@ function makeService(): DependencyGraphService {
   } as unknown as Logger;
 
   return new DependencyGraphService(astAnalysis, fileSystem, logger);
+}
+
+function makeService(): DependencyGraphService {
+  return makeServiceWith(INSIGHTS);
 }
 
 const WS_A = 'D:/ws-a';
@@ -125,6 +131,80 @@ describe('DependencyGraphService — multiple workspaces', () => {
     const merged = svc.getSymbolIndex();
     expect(merged.has('D:/ws-a/b.ts')).toBe(true);
     expect(merged.has('D:/ws-b/c.ts')).toBe(true);
+  });
+});
+
+describe('DependencyGraphService — transitive dependencies', () => {
+  // a -> b -> c -> a (a cycle) exercises the depth-limited traversal and the
+  // cycle-detection guard in collectDependencies.
+  const CHAIN: Record<string, CodeInsights> = {
+    'D:/ws-a/a.ts': insights([imp('./b')], []),
+    'D:/ws-a/b.ts': insights([imp('./c')], []),
+    'D:/ws-a/c.ts': insights([imp('./a')], []),
+  };
+  const CHAIN_FILES = ['D:/ws-a/a.ts', 'D:/ws-a/b.ts', 'D:/ws-a/c.ts'];
+
+  it('returns only direct dependencies at depth 1', async () => {
+    const svc = makeServiceWith(CHAIN);
+    await svc.buildGraph(CHAIN_FILES, WS_A);
+    expect(svc.getDependencies('D:/ws-a/a.ts')).toEqual(['D:/ws-a/b.ts']);
+  });
+
+  it('walks transitively up to the requested depth, breaking cycles', async () => {
+    const svc = makeServiceWith(CHAIN);
+    await svc.buildGraph(CHAIN_FILES, WS_A);
+    // depth 3: a -> b -> c -> (a already visited, skipped)
+    const deps = svc.getDependencies('D:/ws-a/a.ts', 3);
+    expect(deps).toEqual(['D:/ws-a/b.ts', 'D:/ws-a/c.ts']);
+  });
+
+  it('returns [] for a file with no outgoing edges', async () => {
+    const svc = makeServiceWith(CHAIN);
+    await svc.buildGraph(CHAIN_FILES, WS_A);
+    // Unknown file routes to the sole graph but has no edge entry.
+    expect(svc.getDependencies('D:/ws-a/missing.ts', 2)).toEqual([]);
+  });
+});
+
+describe('DependencyGraphService — tsconfig path aliases', () => {
+  // a.ts imports '@app/util', resolved via tsconfig paths to src/util.ts.
+  const ALIAS: Record<string, CodeInsights> = {
+    'D:/ws-a/a.ts': insights([imp('@app/util')], []),
+    'D:/ws-a/src/util.ts': insights([], [exp('util')]),
+  };
+  const ALIAS_FILES = ['D:/ws-a/a.ts', 'D:/ws-a/src/util.ts'];
+
+  it('resolves an alias import to a workspace file', async () => {
+    const svc = makeServiceWith(ALIAS);
+    await svc.buildGraph(ALIAS_FILES, WS_A, { '@app/*': ['src/*'] });
+    expect(svc.getDependents('D:/ws-a/src/util.ts')).toEqual(['D:/ws-a/a.ts']);
+  });
+
+  it('leaves an import unresolved when no alias matches', async () => {
+    const svc = makeServiceWith(ALIAS);
+    await svc.buildGraph(ALIAS_FILES, WS_A, { '@other/*': ['lib/*'] });
+    expect(svc.getDependents('D:/ws-a/src/util.ts')).toEqual([]);
+  });
+});
+
+describe('DependencyGraphService — invalidateFile', () => {
+  it('drops a file node and unlinks it from both edge directions', async () => {
+    const svc = makeService();
+    await svc.buildGraph(A_FILES, WS_A);
+
+    expect(svc.getDependents('D:/ws-a/b.ts')).toEqual(['D:/ws-a/a.ts']);
+
+    svc.invalidateFile('D:/ws-a/a.ts');
+
+    // a.ts is gone, so b.ts no longer has a dependent.
+    expect(svc.getDependents('D:/ws-a/b.ts')).toEqual([]);
+    expect(svc.getDependencies('D:/ws-a/a.ts')).toEqual([]);
+  });
+
+  it('is a no-op for a file that belongs to no graph', async () => {
+    const svc = makeService();
+    await svc.buildGraph(A_FILES, WS_A);
+    expect(() => svc.invalidateFile('D:/ws-a/nope.ts')).not.toThrow();
   });
 });
 

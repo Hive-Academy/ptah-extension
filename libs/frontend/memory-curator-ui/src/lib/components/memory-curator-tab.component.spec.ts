@@ -435,7 +435,12 @@ describe('MemoryCuratorTabComponent — purge toolbar', () => {
     try {
       const btn = getPurgeButton(fixture.nativeElement as HTMLElement);
       btn.click();
-      await fixture.whenStable();
+      // The confirm=false path returns synchronously; flush microtasks rather
+      // than awaiting zone stability (WorkspaceIndexingService is unstubbed here
+      // and keeps the zone busy, so whenStable() never resolves).
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
 
       expect(rpcMock.purgeBySubjectPattern).not.toHaveBeenCalled();
     } finally {
