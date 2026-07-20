@@ -399,23 +399,27 @@ export class MemoryCuratorTabComponent implements OnInit {
     });
     // Follow the active Electron workspace. Tracks ONLY the workspace path so it
     // composes with (rather than duplicating) the tier/scope/completedAt effects
-    // above. First emission just records the value — `ngOnInit` owns the initial
-    // load; every subsequent switch reloads the list/stats for the new root.
+    // above. The baseline is seeded synchronously below with the same path
+    // `ngOnInit` loads, so a switch that lands between construction and the
+    // effect's first flush is treated as a real switch (fetch) rather than
+    // silently recorded; every subsequent switch reloads for the new root.
+    this.lastWorkspacePath = this.appState.workspaceInfo()?.path ?? null;
     effect(() => {
       const path = this.appState.workspaceInfo()?.path ?? null;
       const prev = this.lastWorkspacePath;
       this.lastWorkspacePath = path;
-      if (prev === undefined || prev === path) return;
+      if (prev === path) return;
       untracked(() => this.onWorkspaceSwitch(path));
     });
   }
 
   /**
-   * The workspace path the switch effect last observed. `undefined` = "not yet
-   * observed" so the effect's initial run does not double-fetch alongside
-   * `ngOnInit`.
+   * The workspace path the switch effect last observed. Seeded synchronously at
+   * construction with the path `ngOnInit` loads, so the effect's first flush
+   * neither double-fetches (when unchanged) nor swallows a switch that raced
+   * construction (Issue 7).
    */
-  private lastWorkspacePath: string | null | undefined;
+  private lastWorkspacePath: string | null = null;
 
   private onWorkspaceSwitch(path: string | null): void {
     if (!this.isElectron()) return;

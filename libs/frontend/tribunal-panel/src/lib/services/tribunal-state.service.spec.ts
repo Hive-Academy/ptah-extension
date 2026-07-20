@@ -26,27 +26,25 @@ import type { VendorLane } from '../types/tribunal-ui.types';
 interface TabManagerStub {
   tabManager: TabManagerService;
   activeWorkspacePath$: ReturnType<typeof signal<string | null>>;
-  removedWorkspace$: ReturnType<typeof signal<string | null>>;
-  clearRemovedWorkspace: jest.Mock;
+  removedWorkspace$: ReturnType<
+    typeof signal<{ path: string; seq: number } | null>
+  >;
 }
 
 function makeTabManagerStub(initialPath: string | null = null): TabManagerStub {
   const activeWorkspacePath$ = signal<string | null>(initialPath);
-  const removedWorkspace$ = signal<string | null>(null);
-  const clearRemovedWorkspace = jest.fn();
+  const removedWorkspace$ = signal<{ path: string; seq: number } | null>(null);
   const tabManager = {
     get activeWorkspacePath() {
       return activeWorkspacePath$();
     },
     activeWorkspacePath$: activeWorkspacePath$.asReadonly(),
     removedWorkspace$: removedWorkspace$.asReadonly(),
-    clearRemovedWorkspace,
   } as unknown as TabManagerService;
   return {
     tabManager,
     activeWorkspacePath$,
     removedWorkspace$,
-    clearRemovedWorkspace,
   };
 }
 
@@ -683,9 +681,10 @@ describe('TribunalStateService', () => {
       service.buildTilesForRun([makeLane({ laneId: 'a1' })]);
       service.setCorrelationId('corr-a');
 
-      // Switch away, then remove '/ws/a' from the layout.
+      // Switch away, then remove '/ws/a' from the layout via an append-only
+      // emission (seq-stamped, never cleared — no shared single-shot ack).
       switchWorkspace('/ws/b');
-      tabManagerStub.removedWorkspace$.set('/ws/a');
+      tabManagerStub.removedWorkspace$.set({ path: '/ws/a', seq: 1 });
       TestBed.tick();
 
       // Revisiting the removed workspace shows the empty state (slice gone).

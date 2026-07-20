@@ -705,6 +705,26 @@ describe('MemoryCuratorTabComponent — workspace switch', () => {
     expect(state.refresh).not.toHaveBeenCalled();
     expect(state.loadStats).not.toHaveBeenCalled();
   });
+
+  // Issue 7 — baseline-mismatch-at-first-flush. A switch that lands between
+  // component construction and the effect's first flush must be treated as a
+  // real switch (extra fetch), not silently recorded as the baseline. The
+  // switch effect's onWorkspaceSwitch adds one more load pass on top of
+  // ngOnInit + the scope/completedAt effects, so loadSymbols fires 4× here vs
+  // the 3× it would if the racing switch were swallowed.
+  it('fetches for the post-switch workspace when a switch races the first flush', () => {
+    scope = 'workspace';
+    const state = buildStateMock();
+    const fixture = render(state); // constructs, seeding the baseline as '/ws-a'
+
+    // Switch BEFORE the first change detection (which runs ngOnInit + every
+    // constructor effect's first flush together).
+    workspaceInfoSignal.set({ name: 'b', path: '/ws-b', type: 'workspace' });
+
+    fixture.detectChanges();
+
+    expect(state.loadSymbols).toHaveBeenCalledTimes(4);
+  });
 });
 
 describe('MemoryCuratorTabComponent — indexing banner three-state predicate', () => {

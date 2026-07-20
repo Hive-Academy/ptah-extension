@@ -119,6 +119,36 @@ describe('CronStateService', () => {
     expect(rpc.list).toHaveBeenLastCalledWith({ workspaceRoot: '/ws-b' });
   });
 
+  it('fetches on first flush when the workspace switched during construction', async () => {
+    // Baseline captured at construction is /ws-a...
+    appState.workspaceInfo.set({ path: '/ws-a' });
+    TestBed.inject(CronStateService);
+
+    // ...but the active workspace changes BEFORE the effect's first flush.
+    appState.workspaceInfo.set({ path: '/ws-b' });
+    TestBed.tick();
+    await Promise.resolve();
+
+    // The first observation must detect the drift and fetch for /ws-b rather
+    // than silently recording it as the baseline (Issue 7).
+    expect(rpc.list).toHaveBeenCalledTimes(1);
+    expect(rpc.list).toHaveBeenCalledWith({ workspaceRoot: '/ws-b' });
+  });
+
+  it('does not fetch on first flush when the workspace is unchanged since construction', async () => {
+    appState.workspaceInfo.set({ path: '/ws-a' });
+    const service = TestBed.inject(CronStateService);
+
+    TestBed.tick();
+    await Promise.resolve();
+
+    // No drift during construction → first flush only records the baseline,
+    // leaving the initial load to the tab's ngOnInit refresh.
+    expect(rpc.list).not.toHaveBeenCalled();
+    // Referenced to keep the injected service alive for the effect.
+    expect(service.scopeFilter()).toBe('workspace');
+  });
+
   it('does not re-list on workspace change under "all" scope', async () => {
     appState.workspaceInfo.set({ path: '/ws-a' });
 

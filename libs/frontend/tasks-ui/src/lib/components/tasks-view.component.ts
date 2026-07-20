@@ -154,7 +154,7 @@ import { TaskDetailComponent } from './detail/task-detail.component';
 
       <!-- Body -->
       <div class="flex flex-1 min-h-0">
-        @if (store.loading() && !store.specsDirExists()) {
+        @if (store.loading() && !store.loaded()) {
           <div class="flex items-center justify-center flex-1">
             <span class="loading loading-spinner loading-md"></span>
           </div>

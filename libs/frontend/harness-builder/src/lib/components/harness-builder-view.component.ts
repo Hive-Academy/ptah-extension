@@ -72,7 +72,7 @@ interface UserBubble {
     `,
   ],
   template: `
-    @if (isInitializing()) {
+    @if (showInitializing()) {
       <div class="flex items-center justify-center h-full">
         <div class="text-center">
           <lucide-angular
@@ -85,10 +85,10 @@ interface UserBubble {
           </p>
         </div>
       </div>
-    } @else if (initError()) {
+    } @else if (displayInitError()) {
       <div class="flex items-center justify-center h-full">
         <div class="alert alert-error max-w-md">
-          <span>{{ initError() }}</span>
+          <span>{{ displayInitError() }}</span>
           <button class="btn btn-sm" (click)="initializeBuilder()">
             Retry
           </button>
@@ -392,6 +392,25 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
 
   protected readonly isProcessing = computed(() =>
     this.workflow.isProcessing(),
+  );
+
+  /**
+   * Show the initializing spinner for the component's own initial load AND
+   * while the state service re-initializes after an idle workspace switch, so
+   * the view is never left silently empty during a follow-the-workspace
+   * re-init (review Issue 1).
+   */
+  protected readonly showInitializing = computed(
+    () => this.isInitializing() || this.state.isLoading(),
+  );
+
+  /**
+   * Surface either the component's own init error OR a service-level re-init
+   * failure so the Retry button appears in both cases. Retry calls
+   * `initializeBuilder()`, which clears both on success.
+   */
+  protected readonly displayInitError = computed(
+    () => this.initError() ?? this.state.error(),
   );
 
   protected readonly headerTitle = computed(() =>

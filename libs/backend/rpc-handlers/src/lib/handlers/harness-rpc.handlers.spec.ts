@@ -778,6 +778,59 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       ).rejects.toThrow();
     });
 
+    it('rejects a relative workspaceRoot at the boundary', async () => {
+      const suite = buildSuite();
+      const config = normalizedConfig();
+      suite.configStore.normalizeHarnessConfig.mockReturnValue(config as never);
+      suite.handlers.register();
+
+      await expect(
+        getHandler(
+          suite.rpc,
+          'harness:apply',
+        )({ config, outputFormat: 'json', workspaceRoot: 'relative/dir' }),
+      ).rejects.toThrow(/absolute/i);
+      // Parse fails before any file-write path is touched.
+      expect(suite.configStore.writeClaudeMdToWorkspace).not.toHaveBeenCalled();
+    });
+
+    it("rejects a workspaceRoot containing '..' traversal segments", async () => {
+      const suite = buildSuite();
+      const config = normalizedConfig();
+      suite.configStore.normalizeHarnessConfig.mockReturnValue(config as never);
+      suite.handlers.register();
+
+      await expect(
+        getHandler(
+          suite.rpc,
+          'harness:apply',
+        )({ config, outputFormat: 'json', workspaceRoot: '/ws/../etc' }),
+      ).rejects.toThrow(/\.\./);
+      expect(suite.configStore.writeClaudeMdToWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('accepts a clean absolute workspaceRoot', async () => {
+      const suite = buildSuite();
+      const config = normalizedConfig();
+      suite.configStore.normalizeHarnessConfig.mockReturnValue(config as never);
+      suite.handlers.register();
+
+      await expect(
+        getHandler(
+          suite.rpc,
+          'harness:apply',
+        )({
+          config,
+          outputFormat: 'json',
+          workspaceRoot: '/pinned/workspace',
+        }),
+      ).resolves.toBeDefined();
+      expect(suite.configStore.writeClaudeMdToWorkspace).toHaveBeenCalledWith(
+        '/pinned/workspace',
+        config,
+      );
+    });
+
     it('junctions harness plugin skills when created skills exist', async () => {
       const suite = buildSuite();
       suite.pluginLoader.resolveCurrentPluginPaths.mockReturnValue([

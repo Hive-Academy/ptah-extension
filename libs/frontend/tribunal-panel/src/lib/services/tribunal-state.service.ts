@@ -78,6 +78,10 @@ export class TribunalStateService {
     IMPLICIT_WORKSPACE_PATH,
   );
 
+  /** Last workspace-removal `seq` processed by the cleanup effect, so each
+   *  append-only `removedWorkspace$` emission deletes its slice exactly once. */
+  private _lastRemovedWorkspaceSeq = 0;
+
   /** The active workspace's run slice (empty when it has no staged run). */
   private readonly activeSlice = computed<TribunalSlice>(
     () => this._slices().get(this._activeWorkspacePath()) ?? EMPTY_SLICE,
@@ -122,13 +126,15 @@ export class TribunalStateService {
       untracked(() => this.setActiveWorkspace(path));
     });
 
-    // A removed workspace's run is dead — drop its slice. Tolerates a null
-    // (already-acked) value; `OrchestraCanvasComponent` owns the shared
-    // single-shot ack, so this never competes for `clearRemovedWorkspace()`.
+    // A removed workspace's run is dead — drop its slice. `removedWorkspace$`
+    // is append-only (never cleared): we track our own last-seen `seq` and act
+    // on each removal exactly once, so cleanup can never be skipped because
+    // another consumer (e.g. OrchestraCanvasComponent) observed it first.
     effect(() => {
       const removed = this.tabManager.removedWorkspace$();
-      if (removed) {
-        untracked(() => this.deleteSlice(removed));
+      if (removed && removed.seq > this._lastRemovedWorkspaceSeq) {
+        this._lastRemovedWorkspaceSeq = removed.seq;
+        untracked(() => this.deleteSlice(removed.path));
       }
     });
 

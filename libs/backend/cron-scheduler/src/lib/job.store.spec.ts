@@ -10,6 +10,7 @@
  * verify the upsert idempotency contract without needing a real SQLite file.
  */
 import 'reflect-metadata';
+import * as path from 'node:path';
 import { JobStore } from './job.store';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
@@ -514,4 +515,65 @@ describe('JobStore.list', () => {
     const enabled = store.list({ enabledOnly: true });
     expect(enabled.map((j) => j.name).sort()).toEqual(['job-a', 'job-global']);
   });
+});
+
+describe('JobStore.list workspaceRoot normalization', () => {
+  const winIt = process.platform === 'win32' ? it : it.skip;
+
+  it('matches a stored root that differs only by a trailing separator', () => {
+    const { store } = buildStore();
+    // Portable absolute base; stored WITH a trailing separator (as a renderer
+    // that appended `path.sep` would produce), queried WITHOUT one.
+    const base = path.resolve('trailing-sep-ws');
+    store.create({
+      name: 'job-trailing',
+      cronExpr: '0 * * * *',
+      prompt: 'p',
+      workspaceRoot: base + path.sep,
+      enabled: true,
+      nextRunAt: null,
+    });
+
+    const jobs = store.list({ workspaceRoot: base });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].name).toBe('job-trailing');
+  });
+
+  it('matches legacy rows holding an un-normalized workspace_root', () => {
+    const { store } = buildStore();
+    const base = path.resolve('legacy-ws');
+    // Simulate a legacy row written before normalization existed: raw value
+    // with a redundant `.` segment + trailing separator. path.resolve collapses
+    // the `.` so the query below is still the same logical workspace.
+    store.create({
+      name: 'job-legacy',
+      cronExpr: '0 * * * *',
+      prompt: 'p',
+      workspaceRoot: path.join(base, '.') + path.sep,
+      enabled: true,
+      nextRunAt: null,
+    });
+
+    expect(store.list({ workspaceRoot: base })).toHaveLength(1);
+  });
+
+  winIt(
+    'folds drive-letter case + separator drift but preserves segment case (D:\\Foo\\ ↔ d:/Foo)',
+    () => {
+      const { store } = buildStore();
+      store.create({
+        name: 'job-win',
+        cronExpr: '0 * * * *',
+        prompt: 'p',
+        workspaceRoot: 'D:\\Foo\\',
+        enabled: true,
+        nextRunAt: null,
+      });
+
+      // Different drive case + forward slashes + trailing slash → same root.
+      expect(store.list({ workspaceRoot: 'd:/Foo' })).toHaveLength(1);
+      // Path-segment case is NOT folded — only the drive letter is.
+      expect(store.list({ workspaceRoot: 'd:/foo' })).toHaveLength(0);
+    },
+  );
 });

@@ -2467,8 +2467,10 @@ export interface CronListParams {
   enabledOnly?: boolean;
   /**
    * When provided, restrict results to jobs whose `workspaceRoot` matches this
-   * absolute path exactly. Omit for a cross-workspace (global) listing. Kept
-   * optional for backward compatibility — existing callers pass `{}`.
+   * absolute path after normalization (trailing-separator strip, drive-letter
+   * case fold, separator canonicalization) — not a byte-exact match. Omit for a
+   * cross-workspace (global) listing. Optional so existing callers (which pass
+   * `{}`) are unaffected.
    */
   workspaceRoot?: string;
 }

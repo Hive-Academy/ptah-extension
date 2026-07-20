@@ -20,6 +20,17 @@ export interface TabLookupResult {
 }
 
 /**
+ * A single workspace-removal emission. Append-only and never cleared: `seq`
+ * increments monotonically per removal so every independent consumer can
+ * process each removal exactly once by tracking its own last-seen `seq`,
+ * regardless of Angular effect-flush ordering (no shared single-shot ack).
+ */
+export interface WorkspaceRemovalEvent {
+  readonly path: string;
+  readonly seq: number;
+}
+
+/**
  * TabWorkspacePartitionService - Manages workspace-partitioned tab state
  *
  * Isolates workspace partitioning concerns from core tab CRUD operations.
@@ -65,10 +76,16 @@ export class TabWorkspacePartitionService {
   private readonly _activeWorkspacePath = signal<string | null>(null);
 
   /**
-   * Consume-and-clear signal that emits the workspace path just removed
-   * via removeWorkspaceState(); paired with clearRemovedWorkspace().
+   * Append-only signal carrying the most recent workspace removal, stamped with
+   * a monotonic `seq`. Never cleared: each consumer tracks its own last-seen
+   * `seq` and processes an emission exactly once, so no consumer can miss a
+   * removal because another consumer "acked" it first (the old single-shot
+   * clear-on-read contract was racy across independent effects).
    */
-  private readonly _removedWorkspace = signal<string | null>(null);
+  private readonly _removedWorkspace = signal<WorkspaceRemovalEvent | null>(
+    null,
+  );
+  private _removedSeq = 0;
 
   readonly activeWorkspacePath$ = this._activeWorkspacePath.asReadonly();
   readonly removedWorkspace$ = this._removedWorkspace.asReadonly();
@@ -109,11 +126,6 @@ export class TabWorkspacePartitionService {
    */
   get activeWorkspacePath(): string | null {
     return this._activeWorkspacePath();
-  }
-
-  /** Acknowledge the removedWorkspace$ signal after consumption. */
-  clearRemovedWorkspace(): void {
-    this._removedWorkspace.set(null);
   }
 
   /**
@@ -362,7 +374,10 @@ export class TabWorkspacePartitionService {
     if (wasActive) {
       this._activeWorkspacePath.set(null);
     }
-    this._removedWorkspace.set(workspacePath);
+    this._removedWorkspace.set({
+      path: workspacePath,
+      seq: ++this._removedSeq,
+    });
 
     return wasActive;
   }

@@ -242,6 +242,11 @@ export class OrchestraCanvasComponent implements OnDestroy {
   /** When locked, drag/resize is disabled and the auto-layout is frozen. */
   protected readonly locked = signal(false);
 
+  /** Last workspace-removal `seq` this component has processed (see
+   *  `removedWorkspace$`). Guarantees each removal is handled exactly once
+   *  without depending on effect-flush order across independent consumers. */
+  private _lastRemovedWorkspaceSeq = 0;
+
   protected readonly sessionPopoverOpen = signal(false);
   protected readonly sessionNameInput = signal('');
   private readonly sessionNameInputRef = viewChild<
@@ -319,9 +324,9 @@ export class OrchestraCanvasComponent implements OnDestroy {
     });
     effect(() => {
       const removed = this.tabManager.removedWorkspace$();
-      if (!removed) return;
-      this.canvasStore.removeWorkspaceTileState(removed);
-      this.tabManager.clearRemovedWorkspace();
+      if (!removed || removed.seq <= this._lastRemovedWorkspaceSeq) return;
+      this._lastRemovedWorkspaceSeq = removed.seq;
+      this.canvasStore.removeWorkspaceTileState(removed.path);
     });
     // Active-workspace prune: drop tiles whose tab was removed from the active
     // workspace externally (e.g. session deleted from the sidebar). Both

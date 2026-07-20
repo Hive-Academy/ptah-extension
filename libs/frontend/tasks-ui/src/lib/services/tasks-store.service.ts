@@ -75,7 +75,7 @@ function emptyColumns(): Record<TaskStatus, TaskSpecSummary[]> {
  * backend re-normalizes it on receipt). The empty string is the "no workspace"
  * key (RPC falls back to the backend's active workspace).
  */
-function normalizeRootKey(root: string): string {
+export function normalizeRootKey(root: string): string {
   return root
     .replace(/[\\/]+/g, '/')
     .replace(/\/+$/, '')
@@ -125,21 +125,55 @@ export class TasksStore implements MessageHandler {
    * Last-known board per workspace, keyed by {@link normalizeRootKey}. Used to
    * repaint the target board instantly on switch and to update background
    * workspaces from `tasks:changed` pushes without touching the visible board.
+   *
+   * Insertion-ordered (LRU): {@link cacheBoard} re-inserts the touched key so
+   * the oldest non-active entry is the first eviction candidate once the map
+   * exceeds {@link BOARD_CACHE_CAP}. This bounds retained workspaces without
+   * coupling to `TabManagerService` (mirrors canvas's `RETAINED_WORKSPACE_CAP`).
    */
   private readonly boardCache = new Map<string, BoardSlice>();
 
+  /** Max retained per-workspace board slices before LRU eviction kicks in. */
+  private static readonly BOARD_CACHE_CAP = 8;
+
   /**
-   * Workspace key the switch effect last observed. `undefined` means "no
-   * emission seen yet" — the first observation only records the value so the
-   * effect's initial run doesn't duplicate the component's initial `loadBoard()`.
+   * Per-key monotonic board-request stamps. Each {@link fetchBoard} bumps its
+   * key's counter before firing; on resolve only the latest stamp for that key
+   * may write the cache slice or the visible board — so two in-flight fetches
+   * for the *same* workspace (switch-revalidate racing a manual reload, or an
+   * A→B→A double fetch) can never let the older response win (Issue 4).
    */
-  private lastWorkspaceKey: string | undefined;
+  private readonly boardReqSeq = new Map<string, number>();
+
+  /**
+   * Monotonic detail-request stamp. {@link openTask} bumps it before firing and
+   * re-checks it after the await so a slower `tasks:get` for an earlier-clicked
+   * task (double-click) can never overwrite a fresher selection's detail;
+   * {@link closeTask} bumps it too so a late response after a workspace switch
+   * (which clears the selection) can never repopulate the detail panel (Issue 2).
+   */
+  private detailReqSeq = 0;
+
+  /**
+   * Workspace key the switch effect last observed. Seeded synchronously at
+   * construction with the same key the component's initial `loadBoard()` uses,
+   * so a switch that lands between construction and the effect's first flush is
+   * treated as a real switch (fetch) rather than silently recorded (Issue 7).
+   */
+  private lastWorkspaceKey = '';
 
   /** Board columns keyed by status (all six keys always present). */
   public readonly columns = this._columns.asReadonly();
   public readonly excludedCount = this._excludedCount.asReadonly();
   public readonly specsDirExists = this._specsDirExists.asReadonly();
   public readonly loading = this._loading.asReadonly();
+  /**
+   * True once at least one board load has resolved for the *current* visible
+   * board. The template gates its neutral loading spinner on `loading && !loaded`
+   * so a cache-miss switch shows a spinner (not a transient empty board) until
+   * the authoritative fetch lands (Issue 8).
+   */
+  public readonly loaded = this._loaded.asReadonly();
   public readonly busy = this._busy.asReadonly();
   public readonly error = this._error.asReadonly();
   public readonly actionMessage = this._actionMessage.asReadonly();
@@ -232,8 +266,17 @@ export class TasksStore implements MessageHandler {
     await this.fetchBoard(this.activeKey(), this.activeRoot());
   }
 
-  /** Fetch and select a single task's detail (frontmatter + markdown body). */
+  /**
+   * Fetch and select a single task's detail (frontmatter + markdown body).
+   *
+   * Stamped with a monotonic {@link detailReqSeq}: after the await resolves the
+   * result is applied ONLY if this call is still the newest detail request — a
+   * slower response for an earlier-clicked task (double-click) or one that lands
+   * after a workspace switch cleared the selection can never clobber a fresher
+   * detail (Issue 2).
+   */
   public async openTask(taskId: string): Promise<void> {
+    const seq = ++this.detailReqSeq;
     this._selectedTaskId.set(taskId);
     this._detailLoading.set(true);
     try {
@@ -241,6 +284,7 @@ export class TasksStore implements MessageHandler {
         taskId,
         ...this.workspaceParam(),
       });
+      if (seq !== this.detailReqSeq) return;
       if (result.isSuccess() && result.data) {
         this._taskDetail.set(result.data.task);
       } else {
@@ -248,14 +292,19 @@ export class TasksStore implements MessageHandler {
         this._error.set(result.error ?? 'Failed to load task detail');
       }
     } finally {
-      this._detailLoading.set(false);
+      if (seq === this.detailReqSeq) this._detailLoading.set(false);
     }
   }
 
   /** Clear the selected task / detail panel. */
   public closeTask(): void {
+    // Invalidate any in-flight `openTask` so a late `tasks:get` response cannot
+    // repopulate the detail after the panel was closed (e.g. on a workspace
+    // switch, which funnels through here).
+    this.detailReqSeq++;
     this._selectedTaskId.set(null);
     this._taskDetail.set(null);
+    this._detailLoading.set(false);
   }
 
   /**
@@ -421,11 +470,16 @@ export class TasksStore implements MessageHandler {
    * subsequent change repaints from cache (if present) and revalidates.
    */
   private setupWorkspaceSwitch(): void {
+    // Seed the baseline synchronously with the key the component's initial
+    // `loadBoard()` uses. If the workspace changes before the effect's first
+    // flush, `prev !== key` there and we treat it as a real switch (fetch)
+    // rather than silently recording the new key without loading it (Issue 7).
+    this.lastWorkspaceKey = this.activeKey();
     effect(() => {
       const key = this.activeKey();
       const prev = this.lastWorkspaceKey;
       this.lastWorkspaceKey = key;
-      if (prev === undefined || prev === key) return;
+      if (prev === key) return;
       untracked(() => this.onWorkspaceSwitch(key));
     });
   }
@@ -452,24 +506,33 @@ export class TasksStore implements MessageHandler {
   }
 
   /**
-   * Single board fetch. Results are stamped with the workspace `key` they were
-   * issued for: the slice cache is always updated, but the *visible* board only
-   * moves when `key` is still the active workspace — a response that arrives
-   * after the user switched away can never clobber the newly-active board (R5.5).
+   * Single board fetch. Two guards decide whether a response may write state:
+   *
+   *  - `isLatest()` — the per-key monotonic {@link boardReqSeq}: only the newest
+   *    in-flight fetch for `key` may write that key's cache slice or the visible
+   *    board, so an older same-workspace response can never overwrite a fresher
+   *    one already applied (Issue 4).
+   *  - `isActive()` — the workspace `key` is still the visible one, so a response
+   *    for a workspace the user switched away from can never paint the visible
+   *    board (it still refreshes its own cache slice for a later switch-back).
    */
   private async fetchBoard(
     key: string,
     root: string | undefined,
   ): Promise<void> {
+    const seq = (this.boardReqSeq.get(key) ?? 0) + 1;
+    this.boardReqSeq.set(key, seq);
+    const isLatest = (): boolean => this.boardReqSeq.get(key) === seq;
     const isActive = (): boolean => key === this.activeKey();
     try {
       const result = await this.rpc.call(
         'tasks:board',
         root !== undefined ? { workspaceRoot: root } : {},
       );
+      if (!isLatest()) return;
       if (result.isSuccess() && result.data) {
         const slice = this.toSlice(result.data);
-        this.boardCache.set(key, slice);
+        this.cacheBoard(key, slice);
         if (isActive()) {
           this.applySlice(slice);
           this._error.set(null);
@@ -478,10 +541,28 @@ export class TasksStore implements MessageHandler {
         this._error.set(result.error ?? 'Failed to load tasks');
       }
     } finally {
-      if (isActive()) {
+      if (isLatest() && isActive()) {
         this._loading.set(false);
         this._loaded.set(true);
       }
+    }
+  }
+
+  /**
+   * Write a board slice into the LRU cache. Re-inserts the key so it becomes the
+   * newest (most-recently-used) entry, then evicts the oldest non-active keys
+   * until the map is back within {@link BOARD_CACHE_CAP}. The active workspace's
+   * slice is never evicted — it backs the visible board.
+   */
+  private cacheBoard(key: string, slice: BoardSlice): void {
+    this.boardCache.delete(key);
+    this.boardCache.set(key, slice);
+    if (this.boardCache.size <= TasksStore.BOARD_CACHE_CAP) return;
+    const activeKey = this.activeKey();
+    for (const candidate of this.boardCache.keys()) {
+      if (this.boardCache.size <= TasksStore.BOARD_CACHE_CAP) break;
+      if (candidate === activeKey) continue;
+      this.boardCache.delete(candidate);
     }
   }
 

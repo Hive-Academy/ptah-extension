@@ -69,6 +69,17 @@ export class CronStateService {
    */
   private lastWorkspaceRoot: string | null | undefined;
 
+  /**
+   * Workspace root captured synchronously at construction, before the effect's
+   * first (deferred) flush. If the active workspace changes in that window —
+   * construction → first effect flush — the effect's first observation would
+   * otherwise silently record the post-switch root as the baseline and never
+   * fetch for it, leaving the tab showing the old workspace's jobs. Comparing
+   * the first-flush value against this baseline closes that hole (Issue 7).
+   */
+  private readonly initialWorkspaceRoot: string | null =
+    this.appState.workspaceInfo()?.path ?? null;
+
   public constructor() {
     // Mirrors ThothStatusService: re-list when the active workspace changes
     // while scoped to 'workspace', so the tab tracks the workspace switcher.
@@ -77,7 +88,13 @@ export class CronStateService {
       untracked(() => {
         const prev = this.lastWorkspaceRoot;
         this.lastWorkspaceRoot = root;
-        if (prev === undefined || prev === root) return;
+        if (prev === undefined) {
+          // First flush: a real switch happened during construction if the
+          // now-observed root differs from the construction-time baseline.
+          if (root === this.initialWorkspaceRoot) return;
+        } else if (prev === root) {
+          return;
+        }
         if (this._scopeFilter() !== 'workspace') return;
         void this.refresh();
       });

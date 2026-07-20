@@ -14,7 +14,11 @@ import {
   type TaskStatus,
   type TasksBoardResult,
 } from '@ptah-extension/shared';
-import { TasksStore, TASKS_CHANGED_MESSAGE_TYPE } from './tasks-store.service';
+import {
+  TasksStore,
+  TASKS_CHANGED_MESSAGE_TYPE,
+  normalizeRootKey,
+} from './tasks-store.service';
 
 function makeTask(
   id: string,
@@ -507,5 +511,150 @@ describe('TasksStore — workspace awareness', () => {
     expect(rpcCall).toHaveBeenCalledWith('tasks:board', {
       workspaceRoot: 'D:/ws-a',
     });
+  });
+
+  // Issue 4 — same-workspace out-of-order board responses: the older one loses.
+  it('drops an older same-workspace board response so it cannot overwrite a newer one', async () => {
+    configure();
+    TestBed.tick(); // first effect flush only records the baseline
+
+    // Two concurrent fetches for the SAME workspace (ws-a) — capture both
+    // resolvers so we can settle the newer one first, then the older late.
+    const resolvers: ((v: unknown) => void)[] = [];
+    rpcCall.mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolvers.push(r);
+        }),
+    );
+
+    const first = store.loadBoard(); // ws-a seq 1
+    const second = store.loadBoard(); // ws-a seq 2
+    expect(resolvers).toHaveLength(2);
+
+    // The NEWER (second) request resolves first with board B.
+    resolvers[1](ok(makeBoard({ done: [makeTask('B', 'done')] })));
+    await second;
+    expect(store.columns().done).toHaveLength(1);
+
+    // The OLDER (first) request resolves late with board A — must be ignored.
+    resolvers[0](ok(makeBoard({ backlog: [makeTask('A', 'backlog')] })));
+    await first;
+    expect(store.columns().done).toHaveLength(1);
+    expect(store.columns().backlog).toHaveLength(0);
+  });
+
+  // Issue 2 — double-click openTask: the slower (earlier) response is dropped.
+  it('drops a slower detail response when a newer task was opened (double-click)', async () => {
+    configure();
+    const resolvers: Record<string, (v: unknown) => void> = {};
+    rpcCall.mockImplementation(
+      (method: string, params: { taskId?: string }) => {
+        if (method === 'tasks:get' && params.taskId) {
+          return new Promise((r) => {
+            resolvers[params.taskId as string] = r;
+          });
+        }
+        return Promise.resolve(ok(makeBoard({})));
+      },
+    );
+
+    const p1 = store.openTask('T1');
+    const p2 = store.openTask('T2');
+    expect(store.selectedTaskId()).toBe('T2');
+
+    // Resolve the newer request (T2) first — its detail must land.
+    resolvers['T2'](
+      ok({ task: { ...makeTask('T2', 'backlog'), body: 'B2', artifacts: [] } }),
+    );
+    await p2;
+    expect(store.taskDetail()?.body).toBe('B2');
+
+    // The older request (T1) resolves late — it must NOT clobber T2's detail.
+    resolvers['T1'](
+      ok({ task: { ...makeTask('T1', 'backlog'), body: 'B1', artifacts: [] } }),
+    );
+    await p1;
+    expect(store.selectedTaskId()).toBe('T2');
+    expect(store.taskDetail()?.body).toBe('B2');
+  });
+
+  // Issue 2 — a detail response that lands after closeTask() must be dropped
+  // (covers the workspace-switch-mid-fetch case: onWorkspaceSwitch → closeTask).
+  it('drops a detail response that resolves after closeTask()', async () => {
+    configure();
+    let resolveGet: (v: unknown) => void = () => undefined;
+    rpcCall.mockImplementation((method: string) => {
+      if (method === 'tasks:get') {
+        return new Promise((r) => {
+          resolveGet = r;
+        });
+      }
+      return Promise.resolve(ok(makeBoard({})));
+    });
+
+    const p = store.openTask('T1');
+    store.closeTask();
+    expect(store.selectedTaskId()).toBeNull();
+
+    resolveGet(
+      ok({ task: { ...makeTask('T1', 'backlog'), body: 'B1', artifacts: [] } }),
+    );
+    await p;
+    expect(store.taskDetail()).toBeNull();
+    expect(store.selectedTaskId()).toBeNull();
+  });
+
+  // Issue 7 — baseline-mismatch-at-first-flush: a switch that lands between
+  // construction and the effect's first flush is a real switch, not a silent
+  // baseline recording.
+  it('fetches for the post-switch workspace when a switch races the first flush', async () => {
+    configure(); // constructs the store, seeding the baseline key from ws-a
+
+    // Switch BEFORE the effect's first flush. The pre-fix code recorded the new
+    // key on first emission and returned (no fetch); the fix seeds the baseline
+    // at construction so the mismatch is treated as a switch.
+    workspaceInfo.set(wsB);
+    rpcCall.mockClear();
+    rpcCall.mockResolvedValue(ok(makeBoard({ done: [makeTask('B', 'done')] })));
+
+    TestBed.tick();
+    await flush();
+
+    expect(rpcCall).toHaveBeenCalledWith('tasks:board', {
+      workspaceRoot: 'D:/ws-b',
+    });
+    expect(store.columns().done).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeRootKey — backend parity (Issue 6)
+//
+// The frontend key mirrors the *equivalence classes* of the backend
+// `normalizeWorkspaceRoot`
+// (libs/backend/task-specs/src/lib/normalize-workspace-root.ts): the same
+// workspace, however its path string arrives, must collapse to one key. It is
+// NOT a byte-identical string — the backend keeps the OS-native separator via
+// `path.resolve`, while the frontend cannot import node `path`, so it unifies
+// separators to `/`. Only the grouping must stay in parity; if the backend
+// normalization changes, update these expectations to match.
+// ---------------------------------------------------------------------------
+describe('normalizeRootKey — backend parity', () => {
+  const CANONICAL = 'd:/projects/ws';
+
+  it.each([
+    ['D:\\projects\\ws', 'back-slashed, upper drive'],
+    ['D:\\projects\\ws\\', 'trailing separator'],
+    ['D:/projects/ws', 'forward slashes'],
+    ['d:\\projects\\ws', 'lower drive'],
+    ['d:/projects/ws/', 'lower drive + trailing'],
+    ['D:\\projects/ws', 'mixed separators'],
+  ])('collapses "%s" (%s) to the shared workspace key', (input) => {
+    expect(normalizeRootKey(input)).toBe(CANONICAL);
+  });
+
+  it('is idempotent on an already-canonical key', () => {
+    expect(normalizeRootKey(CANONICAL)).toBe(CANONICAL);
   });
 });
