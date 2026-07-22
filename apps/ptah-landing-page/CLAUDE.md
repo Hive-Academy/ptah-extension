@@ -17,7 +17,7 @@ Angular 21 marketing site that doubles as the licensed-user portal: login/signup
   - `provideMarkdownRendering({ extensions: 'basic' })` (basic — needed by `ExecutionNodeComponent` from `@ptah-extension/chat`)
   - `providePaddleConfig({...})` from `environment.paddle`
   - `provideGsap({ defaults: { ease: 'power2.out', duration: 0.8 } })`
-- `src/app/app.routes.ts` — `/`, `/download`, `/pricing-lab` (non-production sandbox), `/pricing`, `/login`/`/signup` (GuestGuard), `/profile` (AuthGuard), redirects for `/contact`, `/sessions` -> `/profile`, `/docs` -> `https://docs.ptah.live`, legal pages (`/terms-and-conditions`, `/privacy`, `/refund`), lazy `/admin` (AdminAuthGuard, hidden from nav), `**` -> `/`. No trial gating remains: `TrialStatusGuard` and the `/trial-ended` route were removed when the product became fully functional without a license key (commit `e349b7f2b`); `/pricing` now points signups at the Ptah Builders waitlist (`POST /api/v1/waitlist`) instead of a paywall.
+- `src/app/app.routes.ts` — `/`, `/download`, `/pricing`, `/login`/`/signup` (GuestGuard), `/profile` (AuthGuard), redirects for `/contact`, `/sessions` -> `/profile`, `/docs` -> `https://docs.ptah.live`, legal pages (`/terms-and-conditions`, `/privacy`, `/refund`), lazy `/admin` (AdminAuthGuard, hidden from nav), `**` -> `/`. No trial gating remains: `TrialStatusGuard` and the `/trial-ended` route were removed when the product became fully functional without a license key (commit `e349b7f2b`); `/pricing` now points signups at the Ptah Builders waitlist (`POST /api/v1/waitlist`) instead of a paywall.
 
 ## Key Wiring
 
