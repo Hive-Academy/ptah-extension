@@ -44,12 +44,16 @@ export const Uri = {
     scheme: 'file',
     toString: () => `file://${path}`,
   }),
-  parse: (value: string) => ({
-    fsPath: value,
-    path: value,
-    scheme: value.includes('://') ? value.split('://')[0] : 'file',
-    toString: () => value,
-  }),
+  parse: (value: string) => {
+    const qIndex = value.indexOf('?');
+    return {
+      fsPath: value,
+      path: value,
+      scheme: value.includes('://') ? value.split('://')[0] : 'file',
+      query: qIndex >= 0 ? value.slice(qIndex + 1) : '',
+      toString: () => value,
+    };
+  },
 };
 
 export enum FileType {
@@ -242,6 +246,8 @@ const createdWatchers: Array<{
 }> = [];
 
 const commandHandlers = new Map<string, (...args: unknown[]) => unknown>();
+
+let uriHandlerState: { handleUri: (uri: any) => void } | undefined;
 
 interface MockOutputChannel {
   name: string;
@@ -494,6 +500,16 @@ export const window = {
   onDidChangeActiveTextEditor: jest.fn((listener: Listener<any>) =>
     activeEditorEmitter.event(listener),
   ),
+  registerUriHandler: jest.fn((handler: { handleUri: (uri: any) => void }) => {
+    uriHandlerState = handler;
+    return {
+      dispose: jest.fn(() => {
+        if (uriHandlerState === handler) {
+          uriHandlerState = undefined;
+        }
+      }),
+    };
+  }),
 };
 
 export const commands = {
@@ -534,11 +550,14 @@ export const env = {
   language: 'en',
   machineId: 'mock-machine-id',
   sessionId: 'mock-session-id',
+  uriScheme: 'vscode',
   clipboard: {
     readText: jest.fn(() => Promise.resolve('')),
     writeText: jest.fn(() => Promise.resolve()),
   },
   openExternal: jest.fn(async (_uri: any) => true),
+  // Default: identity resolve (local host). Specs override to simulate remote.
+  asExternalUri: jest.fn(async (uri: any) => uri),
 };
 
 export const EventEmitter = class<T> {
@@ -586,6 +605,14 @@ export const __vscodeState = {
   activeEditorEmitter,
   openDocumentEmitter,
   scripted,
+  /** The currently-registered URI handler (via window.registerUriHandler). */
+  getUriHandler(): { handleUri: (uri: any) => void } | undefined {
+    return uriHandlerState;
+  },
+  /** Simulate an inbound deep link by invoking the registered URI handler. */
+  fireUri(query: string): void {
+    uriHandlerState?.handleUri({ query, toString: () => `vscode://?${query}` });
+  },
   setWorkspaceFolders(paths: string[]): void {
     workspaceFoldersState = paths.map((p, index) => ({
       uri: { fsPath: p, path: p },
@@ -655,6 +682,9 @@ export function __resetVscodeTestDouble(): void {
   scripted.nextAction = undefined;
   scripted.nextInput = undefined;
   scripted.nextQuickPick = undefined;
+  uriHandlerState = undefined;
+  (env.asExternalUri as jest.Mock).mockReset();
+  (env.asExternalUri as jest.Mock).mockImplementation(async (uri: any) => uri);
   (workspace.updateWorkspaceFolders as jest.Mock).mockReset();
   (workspace.updateWorkspaceFolders as jest.Mock).mockReturnValue(true);
 }

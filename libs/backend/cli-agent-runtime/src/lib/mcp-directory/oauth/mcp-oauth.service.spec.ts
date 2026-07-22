@@ -1,10 +1,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-import type {
-  IHttpServerProvider,
-  HttpServerRequestHandler,
-} from '@ptah-extension/platform-core';
+import type { IOAuthCallbackListener } from '@ptah-extension/platform-core';
 import { McpOAuthService, deriveMcpOAuthServerKey } from './mcp-oauth.service';
 import { createMcpOAuthTokenStore } from './mcp-oauth-token-store';
 import { McpOAuthInstalledManifestStore } from './mcp-oauth-installed-manifest';
@@ -73,23 +70,24 @@ function makeSecrets() {
   };
 }
 
-/** Fake loopback provider that captures the handler and lets the test invoke it. */
-function makeFakeHttpProvider() {
-  let handler: HttpServerRequestHandler | undefined;
-  const provider: IHttpServerProvider = {
-    async listen(_host, _port, h) {
-      handler = h;
-      return { port: 51820, host: '127.0.0.1', close: async () => undefined };
+/**
+ * Fake `IOAuthCallbackListener` returning a canned redirect URI + code. The
+ * loopback (and the VS Code URI handler) are exercised by their own specs;
+ * here the connect() seam is tested independent of the redirect mechanism.
+ */
+function makeFakeCallbackListener(opts?: {
+  redirectUri?: string;
+  code?: string;
+}): IOAuthCallbackListener {
+  return {
+    async start(_state: string) {
+      return {
+        redirectUri: opts?.redirectUri ?? 'http://127.0.0.1:51820/callback',
+        waitForCode: async () => opts?.code ?? 'CODE123',
+        close: async () => undefined,
+      };
     },
   };
-  const invoke = (url: string): void => {
-    const res = {
-      writeHead: () => res,
-      end: () => undefined,
-    } as unknown as Parameters<HttpServerRequestHandler>[1];
-    void handler?.({ url } as Parameters<HttpServerRequestHandler>[0], res);
-  };
-  return { provider, invoke };
 }
 
 function makeService(overrides?: {
@@ -105,19 +103,15 @@ function makeService(overrides?: {
       `mcp-oauth-test-${process.pid}-${Math.random().toString(36).slice(2)}.json`,
     );
   const manifest = new McpOAuthInstalledManifestStore(manifestPath);
-  const { provider, invoke } = makeFakeHttpProvider();
 
-  // Simulate the browser redirect hitting the loopback with the real state.
+  const capture: { authorizeUrl?: string } = {};
   const openExternal = async (url: string): Promise<boolean> => {
-    const state = new URL(url).searchParams.get('state');
-    setImmediate(() =>
-      invoke(`http://127.0.0.1:51820/callback?code=CODE123&state=${state}`),
-    );
+    capture.authorizeUrl = url;
     return true;
   };
 
   const service = new McpOAuthService({
-    httpServerProvider: provider,
+    callbackListener: makeFakeCallbackListener(),
     openExternal,
     tokenStore,
     manifest,
@@ -125,7 +119,7 @@ function makeService(overrides?: {
     now: overrides?.now ?? (() => 1_000_000),
     callbackTimeoutMs: 5000,
   });
-  return { service, tokenStore, manifest, manifestPath };
+  return { service, tokenStore, manifest, manifestPath, capture };
 }
 
 describe('McpOAuthService', () => {
@@ -155,6 +149,27 @@ describe('McpOAuthService', () => {
     );
   });
 
+  it('connect() requires a callbackListener or an httpServerProvider', async () => {
+    const secrets = makeSecrets();
+    const tokenStore = createMcpOAuthTokenStore(secrets);
+    const manifestPath = path.join(
+      os.tmpdir(),
+      `mcp-oauth-nolistener-${process.pid}-${Math.random().toString(36).slice(2)}.json`,
+    );
+    cleanup.push(manifestPath);
+    const service = new McpOAuthService({
+      // Neither callbackListener nor httpServerProvider supplied.
+      openExternal: async () => true,
+      tokenStore,
+      manifest: new McpOAuthInstalledManifestStore(manifestPath),
+      fetchImpl,
+    });
+
+    await expect(
+      service.connect({ serverUrl: 'https://mcp.example.com/mcp' }),
+    ).rejects.toThrow(/callbackListener or an httpServerProvider/i);
+  });
+
   it('status() reflects connected / disconnected across disconnect()', async () => {
     const { service, manifestPath } = makeService();
     cleanup.push(manifestPath);
@@ -180,36 +195,6 @@ describe('McpOAuthService', () => {
     t = 1_000_000 + 3600 * 1000 + 1;
     const fresh = await service.getFreshAccessToken(serverKey);
     expect(fresh).toBe('AT2');
-  });
-
-  it('rejects a callback whose state does not match', async () => {
-    const secrets = makeSecrets();
-    const tokenStore = createMcpOAuthTokenStore(secrets);
-    const manifestPath = path.join(
-      os.tmpdir(),
-      `mcp-oauth-badstate-${process.pid}-${Math.random().toString(36).slice(2)}.json`,
-    );
-    cleanup.push(manifestPath);
-    const manifest = new McpOAuthInstalledManifestStore(manifestPath);
-    const { provider, invoke } = makeFakeHttpProvider();
-    const openExternal = async (): Promise<boolean> => {
-      setImmediate(() =>
-        invoke('http://127.0.0.1:51820/callback?code=X&state=WRONG'),
-      );
-      return true;
-    };
-    const service = new McpOAuthService({
-      httpServerProvider: provider,
-      openExternal,
-      tokenStore,
-      manifest,
-      fetchImpl,
-      callbackTimeoutMs: 3000,
-    });
-
-    await expect(
-      service.connect({ serverUrl: 'https://mcp.example.com/mcp' }),
-    ).rejects.toThrow(/state mismatch/i);
   });
 
   /**
@@ -252,18 +237,13 @@ describe('McpOAuthService', () => {
     );
     cleanup.push(manifestPath);
     const manifest = new McpOAuthInstalledManifestStore(manifestPath);
-    const { provider, invoke } = makeFakeHttpProvider();
     const capture: { tokenBody?: URLSearchParams; authorizeUrl?: string } = {};
     const openExternal = async (url: string): Promise<boolean> => {
       capture.authorizeUrl = url;
-      const state = new URL(url).searchParams.get('state');
-      setImmediate(() =>
-        invoke(`http://127.0.0.1:51820/callback?code=CODE123&state=${state}`),
-      );
       return true;
     };
     const service = new McpOAuthService({
-      httpServerProvider: provider,
+      callbackListener: makeFakeCallbackListener(),
       openExternal,
       tokenStore,
       manifest,
@@ -301,9 +281,8 @@ describe('McpOAuthService', () => {
     );
     cleanup.push(manifestPath);
     const manifest = new McpOAuthInstalledManifestStore(manifestPath);
-    const { provider } = makeFakeHttpProvider();
     const service = new McpOAuthService({
-      httpServerProvider: provider,
+      callbackListener: makeFakeCallbackListener(),
       openExternal: async () => true,
       tokenStore,
       manifest,

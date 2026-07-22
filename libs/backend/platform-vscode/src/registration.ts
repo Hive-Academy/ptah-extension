@@ -23,6 +23,7 @@ import { VscodeEditorProvider } from './implementations/vscode-editor-provider';
 import { VscodeTokenCounter } from './implementations/vscode-token-counter';
 import { VscodeDiagnosticsProvider } from './implementations/vscode-diagnostics-provider';
 import { VscodeHttpServerProvider } from './implementations/vscode-http-server-provider';
+import { VscodeUriOAuthCallbackListener } from './implementations/vscode-uri-oauth-callback-listener';
 
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
@@ -106,4 +107,15 @@ export function registerPlatformVscodeServices(
   container.register(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER, {
     useValue: new VscodeHttpServerProvider(),
   });
+
+  // OAuth redirect capture: the VS Code host prefers a native URI handler
+  // (works over Remote-SSH / Codespaces) over the loopback. Registering this
+  // token is what makes McpOAuthService pick the URI handler; Electron / CLI
+  // never register it and fall back to the loopback. It owns a shared
+  // registerUriHandler disposable, so it goes on context.subscriptions.
+  const oauthCallbackListener = new VscodeUriOAuthCallbackListener();
+  container.register(PLATFORM_TOKENS.OAUTH_CALLBACK_LISTENER, {
+    useValue: oauthCallbackListener,
+  });
+  context.subscriptions.push(oauthCallbackListener);
 }

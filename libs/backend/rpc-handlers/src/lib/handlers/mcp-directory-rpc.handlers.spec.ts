@@ -62,7 +62,21 @@ import {
   createMockHttpServerProvider,
 } from '@ptah-extension/platform-core/testing';
 
+import type { DependencyContainer } from 'tsyringe';
 import { McpDirectoryRpcHandlers } from './mcp-directory-rpc.handlers';
+
+/**
+ * Minimal DI container stub: the handler only calls `isRegistered` /`resolve`
+ * for the optional OAUTH_CALLBACK_LISTENER. Returning `false` exercises the
+ * loopback fallback path (Electron / CLI behaviour).
+ */
+const makeContainerStub = (): DependencyContainer =>
+  ({
+    isRegistered: () => false,
+    resolve: () => {
+      throw new Error('not registered');
+    },
+  }) as unknown as DependencyContainer;
 
 describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
   let logger: MockLogger;
@@ -80,6 +94,7 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
       authSecrets,
       createMockUserInteraction(),
       createMockHttpServerProvider(),
+      makeContainerStub(),
     );
     handlers.register();
     return handlers;

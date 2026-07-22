@@ -17,6 +17,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import type { DependencyContainer } from 'tsyringe';
 import {
   Logger,
   RpcHandler,
@@ -29,6 +30,7 @@ import type {
   IWorkspaceProvider,
   IUserInteraction,
   IHttpServerProvider,
+  IOAuthCallbackListener,
 } from '@ptah-extension/platform-core';
 import {
   McpRegistryProvider,
@@ -136,6 +138,8 @@ export class McpDirectoryRpcHandlers {
     private readonly userInteraction: IUserInteraction,
     @inject(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER)
     private readonly httpServerProvider: IHttpServerProvider,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER)
+    container: DependencyContainer,
   ) {
     this.registryProvider = new McpRegistryProvider(this.logger);
     this.sourceRegistry.register(this.registryProvider);
@@ -171,11 +175,26 @@ export class McpDirectoryRpcHandlers {
       }),
     );
 
-    // Interactive OAuth service — carries the loopback listener + browser opener
-    // so `connect()` can run the authorization-code flow. Tokens are stored via
-    // the encrypted provider-key slots, never on disk.
+    // Optional host-native redirect capture. Selection is purely DI: the VS
+    // Code host registers OAUTH_CALLBACK_LISTENER (its URI handler); Electron /
+    // CLI leave it unregistered → resolves undefined → McpOAuthService falls
+    // back to the loopback. No branching on the host.
+    const oauthCallbackListener = container.isRegistered(
+      PLATFORM_TOKENS.OAUTH_CALLBACK_LISTENER,
+    )
+      ? container.resolve<IOAuthCallbackListener>(
+          PLATFORM_TOKENS.OAUTH_CALLBACK_LISTENER,
+        )
+      : undefined;
+
+    // Interactive OAuth service — carries the redirect capture + browser opener
+    // so `connect()` can run the authorization-code flow. When the host
+    // registers a native callback listener (VS Code URI handler), it overrides
+    // the loopback; otherwise the loopback httpServerProvider is used. Tokens
+    // are stored via the encrypted provider-key slots, never on disk.
     this.oauthService = new McpOAuthService({
       httpServerProvider: this.httpServerProvider,
+      callbackListener: oauthCallbackListener,
       openExternal: (url) => this.userInteraction.openExternal(url),
       tokenStore: createMcpOAuthTokenStore({
         getProviderKey: (id) => this.authSecretsService.getProviderKey(id),

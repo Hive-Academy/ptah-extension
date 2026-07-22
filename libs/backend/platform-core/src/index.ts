@@ -37,6 +37,10 @@ export type {
   IHttpServerHandle,
   HttpServerRequestHandler,
 } from './interfaces/http-server-provider.interface';
+export type {
+  IOAuthCallbackListener,
+  OAuthCallbackHandle,
+} from './interfaces/oauth-callback-listener.interface';
 export type { IMasterKeyProvider } from './interfaces/master-key-provider.interface';
 export type { IMcpServerStatus } from './interfaces/mcp-server-status.interface';
 export type { ITracer } from './interfaces/tracer.interface';
