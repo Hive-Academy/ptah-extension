@@ -81,6 +81,10 @@ export const ConnectOAuthSchema = z.object({
   name: z.string().min(1).optional(),
   serverKey: z.string().min(1).optional(),
   scope: z.string().min(1).optional(),
+  // Pre-registered client credentials for auth servers without DCR. Secret is
+  // used only in-memory during the flow and stored in the encrypted token record.
+  clientId: z.string().optional(),
+  clientSecret: z.string().optional(),
 });
 
 export type ConnectOAuthInput = z.infer<typeof ConnectOAuthSchema>;

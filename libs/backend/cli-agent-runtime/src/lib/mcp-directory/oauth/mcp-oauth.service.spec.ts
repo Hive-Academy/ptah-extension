@@ -211,6 +211,110 @@ describe('McpOAuthService', () => {
       service.connect({ serverUrl: 'https://mcp.example.com/mcp' }),
     ).rejects.toThrow(/state mismatch/i);
   });
+
+  /**
+   * Fake fetch for an authorization server that does NOT advertise a
+   * `registration_endpoint` (no dynamic client registration). Captures the token
+   * exchange body so the test can assert the pre-registered client_id was used.
+   */
+  function makeNoDcrFetch(capture: { tokenBody?: URLSearchParams }): FetchLike {
+    return async (url, init) => {
+      if (url.includes('.well-known/oauth-protected-resource')) {
+        return jsonResp({
+          authorization_servers: ['https://auth.example.com'],
+        });
+      }
+      if (url.endsWith('/.well-known/oauth-authorization-server')) {
+        return jsonResp({
+          authorization_endpoint: 'https://auth.example.com/authorize',
+          token_endpoint: 'https://auth.example.com/token',
+          // No registration_endpoint — server requires a pre-registered client.
+        });
+      }
+      if (url === 'https://auth.example.com/token') {
+        capture.tokenBody = new URLSearchParams(init?.body ?? '');
+        return jsonResp({
+          access_token: 'AT',
+          refresh_token: 'RT',
+          expires_in: 3600,
+        });
+      }
+      return notFound();
+    };
+  }
+
+  it('connect() uses a supplied clientId when the server has no registration endpoint', async () => {
+    const secrets = makeSecrets();
+    const tokenStore = createMcpOAuthTokenStore(secrets);
+    const manifestPath = path.join(
+      os.tmpdir(),
+      `mcp-oauth-prereg-${process.pid}-${Math.random().toString(36).slice(2)}.json`,
+    );
+    cleanup.push(manifestPath);
+    const manifest = new McpOAuthInstalledManifestStore(manifestPath);
+    const { provider, invoke } = makeFakeHttpProvider();
+    const capture: { tokenBody?: URLSearchParams; authorizeUrl?: string } = {};
+    const openExternal = async (url: string): Promise<boolean> => {
+      capture.authorizeUrl = url;
+      const state = new URL(url).searchParams.get('state');
+      setImmediate(() =>
+        invoke(`http://127.0.0.1:51820/callback?code=CODE123&state=${state}`),
+      );
+      return true;
+    };
+    const service = new McpOAuthService({
+      httpServerProvider: provider,
+      openExternal,
+      tokenStore,
+      manifest,
+      fetchImpl: makeNoDcrFetch(capture),
+      now: () => 1_000_000,
+      callbackTimeoutMs: 5000,
+    });
+
+    const { serverKey } = await service.connect({
+      serverUrl: 'https://mcp.example.com/mcp',
+      clientId: 'preregistered-abc',
+      clientSecret: 'shhh',
+    });
+
+    // The authorize URL and token request both carry the supplied client_id.
+    expect(
+      new URL(capture.authorizeUrl ?? '').searchParams.get('client_id'),
+    ).toBe('preregistered-abc');
+    expect(capture.tokenBody?.get('client_id')).toBe('preregistered-abc');
+    expect(capture.tokenBody?.get('client_secret')).toBe('shhh');
+
+    // The token record persists the client credentials so refresh keeps working.
+    const stored = await tokenStore.getToken(serverKey);
+    expect(stored?.accessToken).toBe('AT');
+    expect(stored?.clientId).toBe('preregistered-abc');
+    expect(stored?.clientSecret).toBe('shhh');
+  });
+
+  it('connect() throws a pre-registered-required error when the server has no registration endpoint and no clientId is supplied', async () => {
+    const secrets = makeSecrets();
+    const tokenStore = createMcpOAuthTokenStore(secrets);
+    const manifestPath = path.join(
+      os.tmpdir(),
+      `mcp-oauth-noreg-${process.pid}-${Math.random().toString(36).slice(2)}.json`,
+    );
+    cleanup.push(manifestPath);
+    const manifest = new McpOAuthInstalledManifestStore(manifestPath);
+    const { provider } = makeFakeHttpProvider();
+    const service = new McpOAuthService({
+      httpServerProvider: provider,
+      openExternal: async () => true,
+      tokenStore,
+      manifest,
+      fetchImpl: makeNoDcrFetch({}),
+      callbackTimeoutMs: 3000,
+    });
+
+    await expect(
+      service.connect({ serverUrl: 'https://mcp.example.com/mcp' }),
+    ).rejects.toThrow(/pre-registered client ID/i);
+  });
 });
 
 describe('deriveMcpOAuthServerKey', () => {

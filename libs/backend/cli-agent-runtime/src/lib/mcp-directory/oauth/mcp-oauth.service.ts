@@ -67,6 +67,16 @@ export interface ConnectOptions {
   name?: string;
   serverKey?: string;
   scope?: string;
+  /**
+   * Pre-registered OAuth client id, used when the authorization server does not
+   * support dynamic client registration (no `registration_endpoint`).
+   */
+  clientId?: string;
+  /**
+   * Optional pre-registered client secret for confidential clients. Kept
+   * in-memory during the flow and persisted only in the encrypted token record.
+   */
+  clientSecret?: string;
 }
 
 /** Build a stable, filesystem/config-safe key from a server URL. */
@@ -139,6 +149,7 @@ export class McpOAuthService {
 
       let clientId: string;
       let clientSecret: string | undefined;
+      const preRegisteredClientId = options.clientId?.trim();
       if (meta.registrationEndpoint) {
         const registered = await registerClient(
           meta.registrationEndpoint,
@@ -147,9 +158,13 @@ export class McpOAuthService {
         );
         clientId = registered.clientId;
         clientSecret = registered.clientSecret;
+      } else if (preRegisteredClientId) {
+        // Pre-registered client path (RFC 7591 not supported by this server).
+        clientId = preRegisteredClientId;
+        clientSecret = options.clientSecret;
       } else {
         throw new Error(
-          'The authorization server does not support dynamic client registration; a pre-registered client is required (not yet supported).',
+          'This authorization server requires a pre-registered client ID (it does not support dynamic client registration). Provide a Client ID to continue.',
         );
       }
 

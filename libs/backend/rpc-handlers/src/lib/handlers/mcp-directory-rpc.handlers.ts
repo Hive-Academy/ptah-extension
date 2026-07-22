@@ -710,6 +710,8 @@ export class McpDirectoryRpcHandlers {
           name: input.name,
           serverKey: input.serverKey,
           scope: input.scope,
+          clientId: input.clientId,
+          clientSecret: input.clientSecret,
         });
         return { success: true, serverKey };
       } catch (error: unknown) {

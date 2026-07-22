@@ -372,6 +372,17 @@ export interface McpDirectoryConnectOAuthParams {
   serverKey?: string;
   /** Optional space-delimited scope string requested from the auth server. */
   scope?: string;
+  /**
+   * Pre-registered OAuth client credentials, used when the authorization server
+   * does not support dynamic client registration (no `registration_endpoint`).
+   *
+   * SECURITY: `clientSecret` is a secret supplied by the user for confidential
+   * pre-registered clients; it is used only in-memory during the flow and stored
+   * in the encrypted token record — never in the plaintext manifest.
+   */
+  clientId?: string;
+  /** Pre-registered client secret (confidential clients only). See `clientId`. */
+  clientSecret?: string;
 }
 
 /** Result for mcpDirectory:connectOAuth. */
