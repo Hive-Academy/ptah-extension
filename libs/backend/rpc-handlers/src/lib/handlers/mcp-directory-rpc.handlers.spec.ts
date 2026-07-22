@@ -56,7 +56,11 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
-import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
+import {
+  createMockWorkspaceProvider,
+  createMockUserInteraction,
+  createMockHttpServerProvider,
+} from '@ptah-extension/platform-core/testing';
 
 import { McpDirectoryRpcHandlers } from './mcp-directory-rpc.handlers';
 
@@ -74,6 +78,8 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
       createMockWorkspaceProvider(),
       sentry as unknown as SentryService,
       authSecrets,
+      createMockUserInteraction(),
+      createMockHttpServerProvider(),
     );
     handlers.register();
     return handlers;

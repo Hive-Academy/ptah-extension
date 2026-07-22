@@ -25,7 +25,11 @@ import {
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IUserInteraction,
+  IHttpServerProvider,
+} from '@ptah-extension/platform-core';
 import {
   McpRegistryProvider,
   McpRegistrySourceRegistry,
@@ -36,6 +40,9 @@ import {
   SmitheryKeyMissingError,
   SmitheryInstalledManifestStore,
   createSmitheryConfigSecretStore,
+  McpOAuthService,
+  McpOAuthInstalledManifestStore,
+  createMcpOAuthTokenStore,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
   McpDirectorySearchParams,
@@ -62,6 +69,14 @@ import type {
   McpDirectoryUninstallSmitheryResult,
   McpDirectoryListSmitheryInstalledParams,
   McpDirectoryListSmitheryInstalledResult,
+  McpDirectoryConnectOAuthParams,
+  McpDirectoryConnectOAuthResult,
+  McpDirectoryOAuthStatusParams,
+  McpDirectoryOAuthStatusResult,
+  McpDirectoryDisconnectOAuthParams,
+  McpDirectoryDisconnectOAuthResult,
+  McpDirectoryListOAuthConnectedParams,
+  McpDirectoryListOAuthConnectedResult,
   McpRegistrySourceKind,
   RpcMethodName,
 } from '@ptah-extension/shared';
@@ -70,6 +85,9 @@ import {
   ResolveSmitherySchema,
   InstallSmitherySchema,
   UninstallSmitherySchema,
+  ConnectOAuthSchema,
+  OAuthStatusSchema,
+  DisconnectOAuthSchema,
   deriveSmitheryServerKey,
   SMITHERY_API_KEY_SECRET_ID,
 } from './mcp-directory-rpc.schema';
@@ -89,6 +107,10 @@ export class McpDirectoryRpcHandlers {
     'mcpDirectory:installSmithery',
     'mcpDirectory:uninstallSmithery',
     'mcpDirectory:listSmitheryInstalled',
+    'mcpDirectory:connectOAuth',
+    'mcpDirectory:oauthStatus',
+    'mcpDirectory:disconnectOAuth',
+    'mcpDirectory:listOAuthConnected',
   ] as const satisfies readonly RpcMethodName[];
 
   private readonly registryProvider: McpRegistryProvider;
@@ -98,6 +120,8 @@ export class McpDirectoryRpcHandlers {
   private readonly smitheryManifest: SmitheryInstalledManifestStore;
   private readonly sourceRegistry = new McpRegistrySourceRegistry();
   private readonly installService = new McpInstallService();
+  private readonly oauthManifest = new McpOAuthInstalledManifestStore();
+  private readonly oauthService: McpOAuthService;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -108,6 +132,10 @@ export class McpDirectoryRpcHandlers {
     private readonly sentryService: SentryService,
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
     private readonly authSecretsService: IAuthSecretsService,
+    @inject(PLATFORM_TOKENS.USER_INTERACTION)
+    private readonly userInteraction: IUserInteraction,
+    @inject(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER)
+    private readonly httpServerProvider: IHttpServerProvider,
   ) {
     this.registryProvider = new McpRegistryProvider(this.logger);
     this.sourceRegistry.register(this.registryProvider);
@@ -142,6 +170,23 @@ export class McpDirectoryRpcHandlers {
           this.authSecretsService.deleteProviderKey(id),
       }),
     );
+
+    // Interactive OAuth service — carries the loopback listener + browser opener
+    // so `connect()` can run the authorization-code flow. Tokens are stored via
+    // the encrypted provider-key slots, never on disk.
+    this.oauthService = new McpOAuthService({
+      httpServerProvider: this.httpServerProvider,
+      openExternal: (url) => this.userInteraction.openExternal(url),
+      tokenStore: createMcpOAuthTokenStore({
+        getProviderKey: (id) => this.authSecretsService.getProviderKey(id),
+        setProviderKey: (id, value) =>
+          this.authSecretsService.setProviderKey(id, value),
+        deleteProviderKey: (id) =>
+          this.authSecretsService.deleteProviderKey(id),
+      }),
+      manifest: this.oauthManifest,
+      logger: this.logger,
+    });
   }
 
   /** Resolve the requested source, defaulting to the official registry. */
@@ -167,6 +212,10 @@ export class McpDirectoryRpcHandlers {
     this.registerInstallSmithery();
     this.registerUninstallSmithery();
     this.registerListSmitheryInstalled();
+    this.registerConnectOAuth();
+    this.registerOAuthStatus();
+    this.registerDisconnectOAuth();
+    this.registerListOAuthConnected();
 
     this.logger.debug('MCP Directory RPC handlers registered', {
       methods: [
@@ -182,6 +231,10 @@ export class McpDirectoryRpcHandlers {
         'mcpDirectory:installSmithery',
         'mcpDirectory:uninstallSmithery',
         'mcpDirectory:listSmitheryInstalled',
+        'mcpDirectory:connectOAuth',
+        'mcpDirectory:oauthStatus',
+        'mcpDirectory:disconnectOAuth',
+        'mcpDirectory:listOAuthConnected',
       ],
     });
   }
@@ -629,6 +682,112 @@ export class McpDirectoryRpcHandlers {
           'RPC: mcpDirectory:listSmitheryInstalled failed',
           err,
         );
+        return { servers: [] };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:connectOAuth — run the interactive OAuth 2.0 + PKCE flow to
+   * connect a remote MCP server. Opens the system browser, catches the loopback
+   * redirect, exchanges the code, and stores the tokens encrypted.
+   *
+   * SECURITY: no token crosses this boundary; only a sanitized error message is
+   * returned on failure.
+   */
+  private registerConnectOAuth(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryConnectOAuthParams,
+      McpDirectoryConnectOAuthResult
+    >('mcpDirectory:connectOAuth', async (params) => {
+      try {
+        const input = ConnectOAuthSchema.parse(params);
+        this.logger.info('RPC: mcpDirectory:connectOAuth', {
+          serverUrl: input.serverUrl,
+        });
+        const { serverKey } = await this.oauthService.connect({
+          serverUrl: input.serverUrl,
+          name: input.name,
+          serverKey: input.serverKey,
+          scope: input.scope,
+        });
+        return { success: true, serverKey };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerConnectOAuth',
+        });
+        this.logger.error('RPC: mcpDirectory:connectOAuth failed', err);
+        return { success: false, error: err.message };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:oauthStatus — report the connection state for a server.
+   *
+   * SECURITY: returns a state enum only — never a token.
+   */
+  private registerOAuthStatus(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryOAuthStatusParams,
+      McpDirectoryOAuthStatusResult
+    >('mcpDirectory:oauthStatus', async (params) => {
+      try {
+        const { serverKey } = OAuthStatusSchema.parse(params);
+        const state = await this.oauthService.status(serverKey);
+        return { state };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerOAuthStatus',
+        });
+        this.logger.error('RPC: mcpDirectory:oauthStatus failed', err);
+        return { state: 'disconnected' };
+      }
+    });
+  }
+
+  /** mcpDirectory:disconnectOAuth — delete tokens + manifest record. */
+  private registerDisconnectOAuth(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryDisconnectOAuthParams,
+      McpDirectoryDisconnectOAuthResult
+    >('mcpDirectory:disconnectOAuth', async (params) => {
+      try {
+        const { serverKey } = DisconnectOAuthSchema.parse(params);
+        this.logger.info('RPC: mcpDirectory:disconnectOAuth', { serverKey });
+        await this.oauthService.disconnect(serverKey);
+        return { success: true };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerDisconnectOAuth',
+        });
+        this.logger.error('RPC: mcpDirectory:disconnectOAuth failed', err);
+        return { success: false, error: err.message };
+      }
+    });
+  }
+
+  /**
+   * mcpDirectory:listOAuthConnected — list connected servers.
+   *
+   * SECURITY: returns non-secret metadata only (never tokens).
+   */
+  private registerListOAuthConnected(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryListOAuthConnectedParams,
+      McpDirectoryListOAuthConnectedResult
+    >('mcpDirectory:listOAuthConnected', async () => {
+      try {
+        return { servers: this.oauthManifest.list() };
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerListOAuthConnected',
+        });
+        this.logger.error('RPC: mcpDirectory:listOAuthConnected failed', err);
         return { servers: [] };
       }
     });

@@ -30,6 +30,10 @@ import {
   SmitheryInstalledManifestStore,
   SmitheryOverrideResolver,
   createSmitheryConfigSecretStore,
+  McpOAuthService,
+  McpOAuthInstalledManifestStore,
+  McpOAuthOverrideResolver,
+  createMcpOAuthTokenStore,
 } from '@ptah-extension/cli-agent-runtime';
 import { SMITHERY_API_KEY_SECRET_ID } from '../../handlers/mcp-directory-rpc.schema';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
@@ -189,6 +193,41 @@ export class ChatSessionService {
   }
 
   /**
+   * Lazily-built resolver that rebuilds session-time OAuth MCP overrides from
+   * the connected manifest, refreshing near-expiry tokens. Built once and
+   * reused; reads the manifest + token store on each `buildOverrides()` so new
+   * connections take effect on the next session start without restarting.
+   *
+   * Constructed WITHOUT the interactive `connect()` deps (loopback server /
+   * browser opener) — only the token paths are exercised here.
+   */
+  private oauthOverrideResolver?: McpOAuthOverrideResolver;
+
+  private getOAuthOverrideResolver(): McpOAuthOverrideResolver {
+    if (!this.oauthOverrideResolver) {
+      const tokenStore = createMcpOAuthTokenStore({
+        getProviderKey: (id) => this.authSecretsService.getProviderKey(id),
+        setProviderKey: (id, value) =>
+          this.authSecretsService.setProviderKey(id, value),
+        deleteProviderKey: (id) =>
+          this.authSecretsService.deleteProviderKey(id),
+      });
+      const manifest = new McpOAuthInstalledManifestStore();
+      const service = new McpOAuthService({
+        tokenStore,
+        manifest,
+        logger: this.logger,
+      });
+      this.oauthOverrideResolver = new McpOAuthOverrideResolver({
+        manifest,
+        service,
+        logger: this.logger,
+      });
+    }
+    return this.oauthOverrideResolver;
+  }
+
+  /**
    * Merge manifest-resolved Smithery overrides UNDER any caller-supplied
    * overrides (caller wins on key collision, matching the builder's
    * `mergeMcpOverride` contract). Never throws — Smithery contributes nothing on
@@ -206,13 +245,23 @@ export class ChatSessionService {
       });
     }
 
+    let oauth: Record<string, McpHttpServerOverride> = {};
+    try {
+      oauth = await this.getOAuthOverrideResolver().buildOverrides();
+    } catch (error: unknown) {
+      this.logger.warn('[RPC] chat:start - OAuth override build failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     const hasSmithery = Object.keys(smithery).length > 0;
+    const hasOAuth = Object.keys(oauth).length > 0;
     const hasCaller =
       !!callerOverride && Object.keys(callerOverride).length > 0;
-    if (!hasSmithery && !hasCaller) {
+    if (!hasSmithery && !hasOAuth && !hasCaller) {
       return callerOverride;
     }
-    return { ...smithery, ...(callerOverride ?? {}) };
+    return { ...smithery, ...oauth, ...(callerOverride ?? {}) };
   }
 
   /**
