@@ -22,6 +22,7 @@ import { VscodeCommandRegistry } from './implementations/vscode-command-registry
 import { VscodeEditorProvider } from './implementations/vscode-editor-provider';
 import { VscodeTokenCounter } from './implementations/vscode-token-counter';
 import { VscodeDiagnosticsProvider } from './implementations/vscode-diagnostics-provider';
+import { VscodeHttpServerProvider } from './implementations/vscode-http-server-provider';
 
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
@@ -101,5 +102,8 @@ export function registerPlatformVscodeServices(
   });
   container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
     useValue: new ContentDownloadService(),
+  });
+  container.register(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER, {
+    useValue: new VscodeHttpServerProvider(),
   });
 }

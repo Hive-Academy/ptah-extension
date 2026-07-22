@@ -34,6 +34,7 @@ import { ElectronCommandRegistry } from './implementations/electron-command-regi
 import { ElectronEditorProvider } from './implementations/electron-editor-provider';
 import { ElectronTokenCounter } from './implementations/electron-token-counter';
 import { ElectronDiagnosticsProvider } from './implementations/electron-diagnostics-provider';
+import { ElectronHttpServerProvider } from './implementations/electron-http-server-provider';
 
 /**
  * Options for Electron platform registration.
@@ -148,6 +149,9 @@ export function registerPlatformElectronServices(
   });
   container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
     useValue: new ContentDownloadService(),
+  });
+  container.register(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER, {
+    useValue: new ElectronHttpServerProvider(),
   });
 }
 
