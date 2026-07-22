@@ -1,4 +1,7 @@
-const ipcMainListeners = new Map<string, Array<(...args: unknown[]) => unknown>>();
+const ipcMainListeners = new Map<
+  string,
+  Array<(...args: unknown[]) => unknown>
+>();
 
 jest.mock('electron', () => {
   return {
@@ -186,6 +189,7 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
 
     const event = {
       sender: {
+        isDestroyed: () => false,
         send: jest.fn((channel: string, message: unknown) => {
           win.sent.push({ channel, message });
         }),
@@ -201,9 +205,7 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
 
     await rpcListeners[0](event, rpcMessage);
 
-    const types = win.sent.map(
-      (s) => (s.message as { type: string }).type,
-    );
+    const types = win.sent.map((s) => (s.message as { type: string }).type);
     expect(types[0]).toBe(MESSAGE_TYPES.BATCH);
     expect(types[types.length - 1]).toBe(MESSAGE_TYPES.RPC_RESPONSE);
   });
@@ -246,5 +248,47 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
     };
     expect(msg.type).toBe(MESSAGE_TYPES.BATCH);
     expect(msg.payload.events.length).toBe(batchable.length);
+  });
+
+  it('suppresses the RPC response when the renderer sender is already destroyed', async () => {
+    // Regression guard: during app teardown a late RPC can arrive after the
+    // renderer's webContents is destroyed. Sending to it throws "Object has
+    // been destroyed"; the bridge must skip the reply instead.
+    const handleMessageMock = jest.fn().mockResolvedValue({
+      success: true,
+      data: { ok: true },
+    });
+    const containerStub = {
+      resolve: jest.fn(() => ({
+        handleMessage: handleMessageMock,
+        get: jest.fn(),
+        update: jest.fn(),
+      })),
+      isRegistered: jest.fn(() => false),
+    } as unknown as DependencyContainer;
+
+    bridge.dispose();
+    ipcMainListeners.clear();
+    bridge = new IpcBridge(containerStub, () => win);
+    bridge.initialize();
+
+    const rpcListeners = ipcMainListeners.get('rpc') ?? [];
+    const sendSpy = jest.fn();
+    const event = {
+      sender: {
+        isDestroyed: () => true,
+        send: sendSpy,
+      },
+    };
+
+    await rpcListeners[0](event, {
+      payload: { method: 'chat:resume', params: {}, correlationId: 'corr-x' },
+    });
+
+    // The handler still ran, but no reply was sent to the destroyed sender —
+    // and crucially no exception escaped (the test would fail otherwise).
+    expect(handleMessageMock).toHaveBeenCalledTimes(1);
+    expect(sendSpy).not.toHaveBeenCalled();
+    expect(win.sent.length).toBe(0);
   });
 });
