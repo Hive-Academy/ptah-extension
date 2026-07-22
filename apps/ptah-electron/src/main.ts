@@ -5,7 +5,6 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
-import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 import { VOICE_TOKENS } from '@ptah-extension/voice-providers';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
 import { TOKENS, type SentryService } from '@ptah-extension/vscode-core';
@@ -50,6 +49,7 @@ if (!gotLock) {
   let statusBridgeDisposables: ReadonlyArray<{ dispose: () => void }> | null =
     null;
   let providerProxyPool: { disposeAll: () => Promise<void> } | null = null;
+  let cliRegistry: { disposeAll: () => void } | null = null;
 
   app.whenReady().then(async () => {
     const boot = await bootstrapElectron(() => mainWindow);
@@ -127,6 +127,7 @@ if (!gotLock) {
     cronScheduler = wired.refs.cronScheduler;
     symbolWatcher = wired.refs.symbolWatcher;
     statusBridgeDisposables = wired.refs.statusBridgeDisposables;
+    cliRegistry = wired.refs.cliRegistry;
     boot.gitWatcherRef.current = gitWatcher;
 
     const post = await registerPostWindow({
@@ -297,13 +298,19 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error),
       );
     }
-    if (
-      diContainer.isRegistered(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
-    ) {
-      const cliRegistry = diContainer.resolve<{ disposeAll(): void }>(
-        CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
+    // Dispose the Ptah CLI registry ONLY if it was actually instantiated during
+    // the app's lifetime (captured as a ref in wireRuntime). Resolving it from
+    // the container here would force first-time construction of its dependency
+    // graph mid-teardown, which races with the DI/subsystem shutdown and can
+    // hang or throw (see auto-updater e2e: production + blocked network). When
+    // the registry was never used there are no per-agent proxies to stop.
+    try {
+      cliRegistry?.disposeAll();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] CLI registry dispose failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
       );
-      cliRegistry.disposeAll();
     }
   });
 } // end of gotLock guard

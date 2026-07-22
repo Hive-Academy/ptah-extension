@@ -69,6 +69,7 @@ import {
 import type { IBackupService } from '@ptah-extension/persistence-sqlite';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { GatewayService } from '@ptah-extension/messaging-gateway';
+import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 
 export interface WireRuntimeOptions {
   container: DependencyContainer;
@@ -145,6 +146,14 @@ export interface WireRuntimeResult {
      * be wired. Must be disposed in will-quit LIFO chain.
      */
     statusBridgeDisposables: ReadonlyArray<{ dispose: () => void }> | null;
+    /**
+     * Ptah CLI registry handle for orderly shutdown. Resolved eagerly here
+     * (while the container is healthy) so `will-quit` can dispose the captured
+     * instance instead of resolving it from the container mid-teardown — a
+     * first-time lazy construction during shutdown races with DI teardown and
+     * can hang or throw. Null when the CLI agent runtime is not registered.
+     */
+    cliRegistry: { disposeAll: () => void } | null;
   };
 }
 
@@ -165,6 +174,7 @@ export async function wireRuntime(
     messagingGateway: null,
     symbolWatcher: null,
     statusBridgeDisposables: null,
+    cliRegistry: null,
   };
 
   let resolvedStateStorage: IStateStorage | undefined;
@@ -856,6 +866,26 @@ export async function wireRuntime(
         ? bringUpError.message
         : String(bringUpError),
     );
+  }
+
+  // Eagerly construct the Ptah CLI registry now that all subsystems (including
+  // the SDK singletons it injects) are wired, and capture it for orderly
+  // shutdown. Deferring this to will-quit forces a first-time lazy build of its
+  // dependency graph mid-teardown, which races with DI shutdown and can hang or
+  // throw (blocked-network production case). Non-fatal: a null ref simply means
+  // will-quit has nothing to dispose.
+  try {
+    refs.cliRegistry = container.resolve<{ disposeAll: () => void }>(
+      CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
+    );
+  } catch (cliRegistryError) {
+    console.warn(
+      '[Ptah Electron] CLI registry eager resolve failed (non-fatal):',
+      cliRegistryError instanceof Error
+        ? cliRegistryError.message
+        : String(cliRegistryError),
+    );
+    refs.cliRegistry = null;
   }
 
   /**
