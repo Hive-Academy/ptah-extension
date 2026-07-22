@@ -23,7 +23,10 @@ const BASE_URL = process.env['E2E_BASE_URL'] || 'http://localhost:4200';
 export default defineConfig({
   testDir: './src/specs',
   testMatch: ['**/*.spec.ts'],
-  workers: isCI ? 1 : undefined,
+  // Cap parallelism: the suite mixes stubbed-fast specs with real-backend ones
+  // (auth/profile/guards/admin) against a single HMR dev server + license server,
+  // so too many concurrent workers cause contention/OOM flakiness.
+  workers: isCI ? 1 : 2,
   fullyParallel: false,
   forbidOnly: isCI,
   retries: isCI ? 1 : 0,
