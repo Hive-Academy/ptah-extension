@@ -5,6 +5,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
@@ -148,17 +149,23 @@ export class AdminList {
 
   public constructor() {
     effect(() => {
+      // Reset list state ONLY when the model (route param) changes. The reads
+      // below (esp. the `table()` viewChild) must be untracked — otherwise the
+      // effect re-runs on unrelated view refreshes and wipes the user's row
+      // selection on every change-detection cycle (breaking bulk actions).
       this.modelKey();
-      this.page.set(1);
-      this.sortBy.set(undefined);
-      this.sortOrder.set('desc');
-      this.search.set('');
-      this.selectedIds.set([]);
-      this.bulkEmailOpen.set(false);
-      this.bulkEmailToast.set(null);
-      this.waitlistInviteOpen.set(false);
-      this.waitlistInviteToast.set(null);
-      this.table()?.clearSelection();
+      untracked(() => {
+        this.page.set(1);
+        this.sortBy.set(undefined);
+        this.sortOrder.set('desc');
+        this.search.set('');
+        this.selectedIds.set([]);
+        this.bulkEmailOpen.set(false);
+        this.bulkEmailToast.set(null);
+        this.waitlistInviteOpen.set(false);
+        this.waitlistInviteToast.set(null);
+        this.table()?.clearSelection();
+      });
     });
   }
 
