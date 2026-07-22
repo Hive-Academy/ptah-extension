@@ -72,5 +72,4 @@ Multiple auth methods supported:
 
 ## License
 
-Functional Source License, Version 1.1, MIT Future License (FSL-1.1-MIT).
-Every version converts to the full MIT license two years after release.
+[MIT License](LICENSE.md).

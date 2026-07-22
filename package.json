@@ -1,7 +1,7 @@
 {
   "name": "@ptah-extension/source",
   "version": "0.0.0",
-  "license": "FSL-1.1-MIT",
+  "license": "MIT",
   "engines": {
     "node": ">=22.9.0",
     "npm": ">=11.0.0"

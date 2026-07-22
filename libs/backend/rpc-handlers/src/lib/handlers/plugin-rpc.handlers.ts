@@ -78,7 +78,7 @@ export class PluginRpcHandlers {
   /**
    * plugins:list-available - List all bundled plugins with metadata
    *
-   * Returns the full list of available Hive Academy plugins with their
+   * Returns the full list of available Ptah Orchestra plugins with their
    * names, descriptions, categories, skill/command counts, and keywords.
    * This data is used by the Plugin Browser modal for display and search.
    */

@@ -11,7 +11,7 @@ import { ConsoleGridBackgroundComponent } from '../../components/console/console
  * CTASectionComponent — S10 Final CTA (design spec §4 S10, copy deck S10).
  *
  * Repeats the single primary action (Download) with trial framing, and absorbs
- * the "Open Source (FSL-1.1-MIT)" fact from the retired open-source section into
+ * the "Open Source (MIT)" fact from the retired open-source section into
  * its trust row. Bookends the page on the same ConsoleGridBackground + amber
  * glow treatment as the hero.
  */
@@ -106,7 +106,7 @@ export class CTASectionComponent {
   protected readonly trustSignals = [
     'Free, Forever',
     'No Credit Card, Ever',
-    'Open Source (FSL-1.1-MIT)',
+    'Open Source (MIT)',
   ];
 
   protected readonly headlineConfig: ViewportAnimationConfig = {
