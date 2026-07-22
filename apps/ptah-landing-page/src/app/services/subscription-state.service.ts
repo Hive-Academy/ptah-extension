@@ -74,6 +74,18 @@ export class SubscriptionStateService {
   });
 
   /**
+   * Computed: Has a real Paddle subscription
+   *
+   * Returns true when `LicenseData.subscription` is present (any status).
+   * Complimentary "Early Adopter" Builders grants have no subscription, so
+   * this is false for them — the pricing CTA uses it to render the
+   * non-portal `'member'` badge instead of "Manage Subscription".
+   */
+  public readonly hasPaddleSubscription = computed(() => {
+    return this._licenseData()?.subscription != null;
+  });
+
+  /**
    * Computed: Is subscription canceled but still active
    *
    * Returns true if user canceled but subscription is still active

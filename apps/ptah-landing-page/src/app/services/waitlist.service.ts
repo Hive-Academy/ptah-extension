@@ -9,8 +9,17 @@ export interface WaitlistJoinResponse {
   readonly status: WaitlistJoinStatus;
 }
 
-/** Where on the site the visitor joined from — mirrors the license-server `source` field. */
-export type WaitlistSource = 'landing' | 'pricing' | 'profile' | 'vscode';
+/**
+ * Where on the site the visitor applied from — mirrors the license-server
+ * `source` field. `'early-adopter'` tags applications to the Early Adopter
+ * program (approved contributors get a free first year of Builders).
+ */
+export type WaitlistSource =
+  | 'landing'
+  | 'pricing'
+  | 'profile'
+  | 'vscode'
+  | 'early-adopter';
 
 export interface WaitlistJoinRequest {
   readonly email: string;

@@ -102,7 +102,7 @@ import {
               class="w-4 h-4"
               aria-hidden="true"
             />
-            Join the Waitlist
+            Apply for Early Adopter
           </a>
         }
       </div>

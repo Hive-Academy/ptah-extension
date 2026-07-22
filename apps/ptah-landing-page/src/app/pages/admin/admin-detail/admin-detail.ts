@@ -96,6 +96,9 @@ export class AdminDetail {
   protected readonly saveError = signal<string | null>(null);
   protected readonly savedAt = signal<number | null>(null);
 
+  /** Set briefly after an Early Adopter approval grants the comp Builders license. */
+  protected readonly earlyAdopterApprovedAt = signal<number | null>(null);
+
   /** Fields rendered in the edit form (only `editable: true`). */
   protected readonly editableFields = computed<FieldSpec[]>(() => {
     const s = this.spec();
@@ -244,6 +247,21 @@ export class AdminDetail {
   protected onLicenseIssued(): void {
     const key = this.modelKey();
     const id = this.id();
+    if (key && id) this.loadRecord(key, id);
+  }
+
+  /**
+   * Early Adopter approval succeeded — the waitlist row's email was granted a
+   * complimentary Builders license. Flash a toast and reload the record so the
+   * `convertedAt` stamp reflects the grant.
+   */
+  protected onEarlyAdopterApproved(): void {
+    const key = this.modelKey();
+    const id = this.id();
+    this.earlyAdopterApprovedAt.set(Date.now());
+    setTimeout(() => {
+      this.earlyAdopterApprovedAt.set(null);
+    }, 6000);
     if (key && id) this.loadRecord(key, id);
   }
 

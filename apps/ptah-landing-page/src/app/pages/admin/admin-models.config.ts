@@ -53,6 +53,12 @@ export interface AdminModelSpec {
   supportsBulkEmail?: boolean;
   /** Enables the "Send founding invites" bulk action on the list view. */
   supportsWaitlistInvite?: boolean;
+  /**
+   * Enables the "Approve (grant Builders)" action on the detail view — issues
+   * a complimentary Builders license to the row's email (Early Adopter
+   * approval). Waitlist rows only.
+   */
+  supportsEarlyAdopterApprove?: boolean;
 }
 
 export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
@@ -474,6 +480,7 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
     label: 'Waitlist',
     readOnly: false,
     supportsWaitlistInvite: true,
+    supportsEarlyAdopterApprove: true,
     searchPlaceholder: 'Search email, source…',
     fields: [
       { key: 'id', label: 'ID', type: 'string', listColumn: false },

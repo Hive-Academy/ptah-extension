@@ -111,6 +111,16 @@ export interface PlanSubscriptionContext {
   subscriptionStatus: ValidSubscriptionStatus | null;
 
   /**
+   * Whether the viewer holds a real Paddle subscription (as opposed to a
+   * complimentary "Early Adopter" Builders grant, which has none).
+   *
+   * A comp Builders license has `subscription === null`, so there is nothing
+   * for the customer portal to manage — the CTA must render the non-portal
+   * `'member'` badge rather than "Manage Subscription".
+   */
+  hasPaddleSubscription: boolean;
+
+  /**
    * Cancellation period end date (for canceled subscriptions).
    * ISO date string or null if not applicable.
    */
@@ -140,6 +150,12 @@ export type PlanCtaVariant =
    * (opens Paddle checkout) once it opens.
    */
   | 'join'
+  /**
+   * Complimentary "Early Adopter" Builders member — holds the Builders tier
+   * with NO Paddle subscription. Renders a non-interactive success badge
+   * ("Early Adopter — active"); never a portal action (nothing to manage).
+   */
+  | 'member'
   /**
    * User already has an active Builders subscription in good standing -
    * opens the subscription management portal.

@@ -2,7 +2,7 @@
 <dialog class="modal modal-open">
   <div class="modal-box max-w-lg">
     <h3 class="font-bold text-lg">Issue Complimentary License</h3>
-    <p class="py-2 text-sm opacity-70">Give <strong>{{ userEmail() }}</strong> a complimentary Builders membership for free.</p>
+    <p class="py-2 text-sm opacity-70">Give <strong>{{ displayEmail() }}</strong> a complimentary Builders membership for free.</p>
 
     @if (!result()) {
       <div class="space-y-4 my-4">
@@ -89,7 +89,7 @@
         @if (emailSent()) {
           <p class="text-xs text-success flex items-center gap-1 justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-            Email notification sent to {{ userEmail() }}
+            Email notification sent to {{ displayEmail() }}
           </p>
         } @else if (emailError(); as emailError) {
           <p class="text-xs text-warning flex items-center gap-1 justify-center">

@@ -51,7 +51,34 @@
           />
         }
       }
+
+      @if (s.supportsEarlyAdopterApprove && id()) {
+        @if (record(); as rec) {
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="btn btn-primary btn-outline btn-sm"
+              (click)="compLicenseModal()?.open()"
+            >
+              Approve (grant Builders)
+            </button>
+          </div>
+
+          <app-issue-comp-license-modal
+            [email]="$any(rec).email"
+            (issued)="onEarlyAdopterApproved()"
+          />
+        }
+      }
     </header>
+
+    @if (earlyAdopterApprovedAt()) {
+      <div class="toast toast-end z-50">
+        <div class="alert alert-success">
+          <span>Early Adopter approved — Builders license granted.</span>
+        </div>
+      </div>
+    }
 
     @if (loading()) {
       <div class="flex items-center gap-2 text-sm opacity-70">

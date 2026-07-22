@@ -7,6 +7,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { EmailModule } from '../email/email.module';
 import { AuthModule } from '../app/auth/auth.module';
 import { EventsModule } from '../events/events.module';
+import { WaitlistModule } from '../waitlist/waitlist.module';
 
 /**
  * LicenseModule - License verification and management
@@ -27,6 +28,7 @@ import { EventsModule } from '../events/events.module';
     EmailModule,
     ConfigModule,
     EventsModule,
+    WaitlistModule,
     forwardRef(() => AuthModule),
   ],
   controllers: [LicenseController, AdminController],

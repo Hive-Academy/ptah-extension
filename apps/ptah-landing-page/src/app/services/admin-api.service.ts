@@ -37,8 +37,17 @@ export interface AdminBulkEmailRequest {
   html: string;
 }
 
+/**
+ * Body for `POST /api/v1/admin/licenses/complimentary`.
+ *
+ * Target the recipient by EITHER `userId` (user-detail path) OR `email`
+ * (Early Adopter approval from a waitlist row, which has no `userId`). Both
+ * are optional at the type level; the server enforces that exactly one is
+ * supplied and resolves/creates the user from the email when needed.
+ */
 export interface IssueComplimentaryLicenseRequest {
-  userId: string;
+  userId?: string;
+  email?: string;
   durationPreset: '30d' | '1y' | '5y' | 'custom' | 'never';
   customExpiresAt?: string;
   plan: 'builders';

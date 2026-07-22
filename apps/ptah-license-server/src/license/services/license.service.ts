@@ -10,9 +10,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { EventsService } from '../../events/events.service';
 import { PLANS, getPlanConfig, PlanName } from '../../config/plans.config';
 import { randomBytes, createPrivateKey, sign, KeyObject } from 'crypto';
-import { Prisma, License } from '../../generated-prisma-client/client';
+import { Prisma, License, User } from '../../generated-prisma-client/client';
 import { AuditLogService } from '../../audit/audit-log.service';
 import { EmailService } from '../../email/services/email.service';
+import { WaitlistService } from '../../waitlist/waitlist.service';
 import {
   ComplimentaryDurationPreset,
   IssueComplimentaryLicenseDto,
@@ -121,6 +122,7 @@ export class LicenseService {
     @Inject(EventsService) private readonly eventsService: EventsService,
     @Inject(AuditLogService) private readonly auditLog: AuditLogService,
     @Inject(EmailService) private readonly emailService: EmailService,
+    @Inject(WaitlistService) private readonly waitlist: WaitlistService,
   ) {}
 
   /**
@@ -314,15 +316,7 @@ export class LicenseService {
     createdBy?: string;
   }): Promise<{ licenseKey: string; expiresAt: Date | null }> {
     const { email, plan, createdBy = 'admin' } = params;
-    let user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-    });
-
-    if (!user) {
-      user = await this.prisma.user.create({
-        data: { email: email.toLowerCase() },
-      });
-    }
+    const user = await this.findOrCreateUserByEmail(email);
     await this.prisma.license.updateMany({
       where: {
         userId: user.id,
@@ -366,6 +360,27 @@ export class LicenseService {
   private generateLicenseKey(): string {
     const random = randomBytes(32).toString('hex'); // 32 bytes = 64 hex chars
     return `ptah_lic_${random}`;
+  }
+
+  /**
+   * Find an existing user by (lowercased) email or create a bare one.
+   *
+   * Shared by `createLicense` (admin gift-by-email) and
+   * `createComplimentaryLicense` (Early-Adopter approval that starts from a
+   * waitlist email with no `User` yet). Kept identical to the original inline
+   * `createLicense` logic so behavior is unchanged.
+   */
+  private async findOrCreateUserByEmail(email: string): Promise<User> {
+    const normalized = email.toLowerCase();
+    const existing = await this.prisma.user.findUnique({
+      where: { email: normalized },
+    });
+    if (existing) {
+      return existing;
+    }
+    return this.prisma.user.create({
+      data: { email: normalized },
+    });
   }
 
   /**
@@ -439,9 +454,24 @@ export class LicenseService {
     actor: AdminActor,
   ): Promise<ComplimentaryLicenseResult> {
     const now = new Date();
-    const user = await this.prisma.user.findUnique({
-      where: { id: dto.userId },
-    });
+
+    // Resolve the recipient. The DTO guarantees EXACTLY ONE of userId / email,
+    // but resolution differs: userId must point at an existing User (404 if
+    // not), while the Early-Adopter email path find-or-creates by lowercased
+    // email (approval starts from a waitlist row that may have no User yet).
+    let user: User | null;
+    if (dto.userId) {
+      user = await this.prisma.user.findUnique({
+        where: { id: dto.userId },
+      });
+    } else if (dto.email) {
+      user = await this.findOrCreateUserByEmail(dto.email);
+    } else {
+      throw new BadRequestException({
+        code: 'MISSING_RECIPIENT',
+        message: 'Provide exactly one of userId or email',
+      });
+    }
     if (!user) {
       throw new NotFoundException({
         code: 'USER_NOT_FOUND',
@@ -541,6 +571,20 @@ export class LicenseService {
     this.logger.log(
       `Complimentary license ${createdLicense.id} issued to ${user.email} by ${actor.email} (preset=${dto.durationPreset}, stacked=${dto.stackOnTopOfPaid === true})`,
     );
+
+    // Best-effort: stamp the founding waitlist lead as converted. The
+    // Early-Adopter approval starts from a waitlist email, but we stamp for both
+    // paths — markConverted is idempotent and a no-op when no un-converted row
+    // matches. A failure here must NEVER fail an already-persisted grant.
+    try {
+      await this.waitlist.markConverted(user.email);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Complimentary license ${createdLicense.id} persisted but waitlist markConverted failed for ${user.email}: ${message}`,
+      );
+    }
+
     if (dto.sendEmail !== false) {
       try {
         await this.emailService.sendLicenseKey({

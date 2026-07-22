@@ -40,7 +40,7 @@ interface ValueProp {
  * membership that is the product's moat + revenue stream, placed after the
  * Comparison section and before Also Available. Two beats:
  *
- * 1. Offer + Value Rail — a founding-membership card (price, inclusions, CTA)
+ * 1. Offer + Value Rail — an Early Adopter offer card (price, inclusions, CTA)
  *    that stays with you (`lg:sticky`) while, beside it, each value prop ignites
  *    in turn as a scrubbed progress spine draws down the rail.
  * 2. The Compounding Moat — a stacked, auto-scrolling "skill library" wall of
@@ -288,22 +288,23 @@ export class BuildersSectionComponent {
   protected readonly arrowRight = ArrowRight;
   protected readonly checkIcon = Check;
 
-  /** Verbatim copy from the S8.5 "Ptah Builders" content spec. */
-  protected readonly eyebrow = 'PTAH BUILDERS — FOUNDING WAITLIST';
+  /** Copy for the S8.5 "Ptah Builders" Early Adopter offer. */
+  protected readonly eyebrow = 'PTAH BUILDERS — EARLY ADOPTER';
   protected readonly headline =
     'Ship Production SaaS Faster — With Builders Who Have Already Done It.';
   protected readonly subhead =
     'Ptah the app is free and open source. Ptah Builders is where you go deeper: live build sessions, a PRD-to-production curriculum, and the delivery patterns other builders have already turned into skills.';
   /** List pricing once Builders checkout opens. */
   protected readonly listPrice = '$29/mo or $290/yr at launch.';
-  /** Founding-waitlist discount terms, applied automatically at launch invite. */
+  /** Early Adopter offer — approved contributors get their first year free. */
   protected readonly foundingOffer =
-    'Join the waitlist now to lock in a founding-member spot: 35% off monthly (first 12 months) or 50% off yearly (first year) when Builders opens, plus early access.';
+    'Early Adopters get their first year of Builders free. Apply now — approved contributors get Builders granted straight to their account, no checkout required, plus early access.';
   protected readonly reassurance =
-    "Membership isn't purchasable yet — join the waitlist and we'll email your founding invite (with a 30-day money-back guarantee) the moment it opens. No spam.";
-  protected readonly ctaLabel = 'Join the Waitlist';
+    "Membership isn't on sale yet — apply to the Early Adopter program and we'll review your request and email you the moment your free first year is live. No spam.";
+  protected readonly ctaLabel = 'Apply';
   protected readonly ctaHref = '#waitlist';
-  protected readonly ctaAria = 'Join the Ptah Builders waitlist';
+  protected readonly ctaAria =
+    'Apply to the Ptah Builders Early Adopter program';
 
   /** Shared amber CTA button styling. */
   protected readonly ctaClass =

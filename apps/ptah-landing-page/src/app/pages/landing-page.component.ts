@@ -60,9 +60,9 @@ import { AlsoAvailableComponent } from '../sections/also-available/also-availabl
         <!-- S8.5 Ptah Builders -->
         <ptah-builders-section />
 
-        <!-- Builders waitlist — scroll target for #waitlist (this page and
-             /#waitlist from any other page) -->
-        <ptah-waitlist-form source="landing" />
+        <!-- Early Adopter apply form — scroll target for #waitlist (this page
+             and /#waitlist from any other page, incl. the pricing CTA) -->
+        <ptah-waitlist-form source="early-adopter" />
 
         <!-- S9 Also Available (single VS Code / CLI mention) -->
         <ptah-also-available />

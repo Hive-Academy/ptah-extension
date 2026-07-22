@@ -205,9 +205,9 @@ import {
               @if (buildersCheckoutEnabled) {
                 Founding invite applied — your discount is ready at checkout.
               } @else {
-                Founding invite detected. Builders checkout isn't open yet —
-                join the waitlist below and we'll honor your founding discount
-                when it launches.
+                Early Adopter program — approved contributors get their first
+                year of Builders free. Apply below and we'll review your
+                request.
               }
             </span>
           </div>
@@ -255,8 +255,7 @@ import {
               List price {{ proPlan.price }} &middot; {{ proPlan.priceSubtext }}
             </div>
             <div class="mt-1 text-[10px] text-amber-500/70 leading-snug">
-              Founding waitlist: 35% off monthly &middot; 50% off yearly at
-              launch
+              Early adopters: first year of Builders free
             </div>
           </div>
 
@@ -282,9 +281,18 @@ import {
 
           <!-- Builders CTA + promo -->
           <div class="flex flex-col items-center gap-2">
-            @if (buildersCtaIsWaitlistLink()) {
+            @if (buildersCtaIsMember()) {
+              <span
+                class="cta-matrix"
+                [ngClass]="buildersCtaButtonClass()"
+                role="status"
+              >
+                <lucide-angular [img]="CheckIcon" class="w-3.5 h-3.5" />
+                <span>{{ buildersCtaText() }}</span>
+              </span>
+            } @else if (buildersCtaIsWaitlistLink()) {
               <a
-                [href]="buildersWaitlistHref"
+                [href]="buildersWaitlistHref()"
                 class="cta-matrix"
                 [ngClass]="buildersCtaButtonClass()"
               >
@@ -460,6 +468,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
           this.subscriptionService.licenseData() !== null,
         currentPlanTier: this.subscriptionService.currentPlanTier(),
         subscriptionStatus: validatedStatus,
+        hasPaddleSubscription: this.subscriptionService.hasPaddleSubscription(),
         periodEndDate: this.subscriptionService.periodEndDate(),
         licenseReason: this.subscriptionService.licenseReason(),
       };
@@ -551,7 +560,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       'Priority support',
       'Founding-member pricing, locked in',
     ],
-    ctaText: 'Join the Builders Waitlist',
+    ctaText: 'Apply for Early Adopter',
     ctaAction: 'checkout',
     highlight: true,
   };
@@ -577,12 +586,32 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     () => this.subscriptionContext().currentPlanTier === 'builders',
   );
 
-  /** Fragment on the landing page where the Builders waitlist form is mounted. */
-  public readonly buildersWaitlistHref = '/#waitlist';
+  /**
+   * Target for the "Apply for Early Adopter" CTA link.
+   *
+   * The apply form lives at the landing-page `#waitlist` fragment. An
+   * authenticated non-member goes straight there. An anonymous viewer is
+   * first routed through login (carrying `returnUrl=/#waitlist`) so they
+   * land back on the apply form already signed in — mirrors the
+   * `returnUrl` bounce that `auth-page.component.ts` honors after auth.
+   */
+  public readonly buildersWaitlistHref = computed<string>(() =>
+    this.subscriptionContext().isAuthenticated
+      ? '/#waitlist'
+      : `/login?returnUrl=${encodeURIComponent('/#waitlist')}`,
+  );
 
   /** Builders CTA variant derived from subscription context (shared util). */
   public readonly buildersCtaVariant = computed<PlanCtaVariant>(() =>
     computeCtaVariant(this.subscriptionContext()),
+  );
+
+  /**
+   * Whether the Builders CTA is the complimentary "Early Adopter" member
+   * badge — a non-interactive status pill, not a link or button.
+   */
+  public readonly buildersCtaIsMember = computed(
+    () => this.buildersCtaVariant() === 'member',
   );
 
   /** Builders CTA button label. */
@@ -601,15 +630,17 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   );
 
   /**
-   * Whether the Builders CTA renders as a plain link to the waitlist instead
+   * Whether the Builders CTA renders as a plain link to the apply form instead
    * of a button that opens checkout/portal. True whenever checkout is closed
-   * (`buildersCheckoutEnabled` false) AND the viewer doesn't already hold a
-   * subscription that needs portal management - portal actions always stay
-   * as buttons so `onBuildersCta` can route them to the customer portal.
+   * (`buildersCheckoutEnabled` false) AND the viewer is neither a portal-managed
+   * subscriber nor a complimentary member - portal actions stay as buttons so
+   * `onBuildersCta` can route them to the customer portal, and the 'member'
+   * variant renders as a non-interactive badge.
    */
   public readonly buildersCtaIsWaitlistLink = computed(
     () =>
       !environment.buildersCheckoutEnabled &&
+      !this.buildersCtaIsMember() &&
       !isPortalAction(this.buildersCtaVariant()),
   );
 
@@ -798,6 +829,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    */
   public onBuildersCta(): void {
     if (this.isBuildersCtaDisabled()) return;
+    // The 'member' badge is non-interactive — it renders as a <span> with no
+    // click handler, but guard here so no code path reaches checkout/portal
+    // for a complimentary member (they have no subscription to manage).
+    if (this.buildersCtaIsMember()) return;
     if (isPortalAction(this.buildersCtaVariant())) {
       this.handleManageSubscription();
       return;

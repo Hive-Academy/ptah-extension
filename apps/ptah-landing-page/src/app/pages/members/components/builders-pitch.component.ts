@@ -82,10 +82,10 @@ interface ValueProp {
           routerLink="/"
           fragment="waitlist"
           class="btn btn-secondary"
-          aria-label="Join the Ptah Builders waitlist"
+          aria-label="Apply to the Ptah Builders Early Adopter program"
         >
           <lucide-angular [img]="ZapIcon" class="w-4 h-4" aria-hidden="true" />
-          Join the Waitlist
+          Apply for Early Adopter
         </a>
         <a
           routerLink="/"

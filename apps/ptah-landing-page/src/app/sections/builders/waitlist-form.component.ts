@@ -23,14 +23,14 @@ type WaitlistFormState =
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * WaitlistFormComponent — the live "Join the Waitlist" scroll target for the
- * `#waitlist` anchor used by the Builders section CTA (and any other page
- * linking to `/#waitlist`). POSTs to `POST /api/v1/waitlist` via
- * {@link WaitlistService}.
+ * WaitlistFormComponent — the live "Apply for Early Adopter" scroll target for
+ * the `#waitlist` anchor used by the Builders section CTA (and any other page
+ * linking to `/#waitlist`, incl. the pricing apply CTA). POSTs to
+ * `POST /api/v1/waitlist` via {@link WaitlistService}.
  *
  * States (signals): idle → submitting → joined | already_joined | error.
- * `source` is an input so each mount (landing, pricing, profile, ...) tags
- * where the lead came from per the license-server contract.
+ * `source` is an input so each mount (early-adopter, pricing, profile, ...)
+ * tags where the application came from per the license-server contract.
  */
 @Component({
   selector: 'ptah-waitlist-form',
@@ -39,7 +39,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   template: `
     <section
       id="waitlist"
-      aria-label="Join the Ptah Builders waitlist"
+      aria-label="Apply to the Ptah Builders Early Adopter program"
       class="relative scroll-mt-24 bg-ink-950 pb-24 sm:pb-32"
     >
       <div class="relative z-10 max-w-7xl mx-auto px-6 sm:px-10 lg:px-16">
@@ -55,12 +55,13 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                   aria-hidden="true"
                 />
                 <h3 class="mt-4 text-xl font-bold text-white">
-                  You're a founding member — watch your inbox
+                  Application received — we'll review and email you
                 </h3>
                 <p class="mt-2 text-sm text-ink-400 leading-relaxed">
-                  We'll email your founding invite the moment Ptah Builders
-                  opens: 35% off monthly (first 12 months) or 50% off yearly
-                  (first year), plus a 30-day money-back guarantee.
+                  Thanks for applying to the Early Adopter program. We review
+                  applications from contributors and, once approved, grant your
+                  first year of Ptah Builders free — you'll get an email the
+                  moment it's live on your account.
                 </p>
               </div>
             }
@@ -72,11 +73,11 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                   aria-hidden="true"
                 />
                 <h3 class="mt-4 text-xl font-bold text-white">
-                  You're already a founding member
+                  Your application is already in
                 </h3>
                 <p class="mt-2 text-sm text-ink-400 leading-relaxed">
-                  We'll email your founding invite the moment Ptah Builders
-                  opens.
+                  You've already applied to the Early Adopter program. We'll
+                  email you as soon as it's reviewed.
                 </p>
               </div>
             }
@@ -84,16 +85,15 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
               <span
                 class="font-mono text-[11px] uppercase tracking-[0.2em] text-amber-500/80"
               >
-                Ptah Builders — Founding Waitlist
+                Ptah Builders — Early Adopter
               </span>
               <h3 class="mt-3 text-xl sm:text-2xl font-bold text-white">
-                Claim a founding member spot
+                Apply to the Early Adopter program
               </h3>
               <p class="mt-2 text-sm text-ink-400 leading-relaxed">
-                Join now and lock in 35% off monthly (first 12 months) or 50%
-                off yearly (first year) at launch, plus early access. No spam —
-                membership isn't purchasable yet, just a single invite email
-                when it opens.
+                Approved contributors get their first year of Ptah Builders free
+                — no checkout, granted straight to your account. Apply below and
+                we'll review your request and email you. No spam.
               </p>
 
               <form
@@ -135,9 +135,9 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                       class="w-4 h-4 rounded-full border-2 border-ink-950/40 border-t-ink-950 animate-spin"
                       aria-hidden="true"
                     ></span>
-                    Joining…
+                    Applying…
                   } @else {
-                    Join the Waitlist
+                    Apply
                   }
                 </button>
               </form>

@@ -434,8 +434,17 @@ export class AuthPageComponent implements OnInit {
         }
         return;
       }
+      // A returnUrl may carry a scroll fragment (e.g. `/#waitlist` from the
+      // Early Adopter apply CTA). Router.navigate treats the whole string as a
+      // path segment, so split the fragment out and pass it via `fragment` —
+      // `withInMemoryScrolling({ anchorScrolling: 'enabled' })` then scrolls to
+      // the target element after navigation.
+      const [returnPath, fragment] = returnUrl.split('#');
       const queryParams = plan ? { autoCheckout: plan } : {};
-      this.router.navigate([returnUrl], { queryParams });
+      this.router.navigate([returnPath || '/'], {
+        queryParams,
+        ...(fragment ? { fragment } : {}),
+      });
     } else {
       this.router.navigate(['/profile']);
     }

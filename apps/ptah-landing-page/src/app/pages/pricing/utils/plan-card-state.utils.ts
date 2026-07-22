@@ -22,9 +22,11 @@ import {
  * context. The capability matrix only ever renders one premium column, so
  * this no longer takes a `planTier` parameter.
  *
- * - 'join': No premium access yet (anonymous or Community) - joins the
- *   waitlist or opens checkout depending on the `buildersCheckoutEnabled`
- *   flag.
+ * - 'join': No premium access yet (anonymous or Community) - applies for the
+ *   Early Adopter program or opens checkout depending on the
+ *   `buildersCheckoutEnabled` flag.
+ * - 'member': Complimentary "Early Adopter" Builders member (Builders tier,
+ *   NO Paddle subscription) - a non-interactive badge, never a portal action.
  * - 'current-plan' / 'reactivate' / 'update-payment' / 'resume': The viewer
  *   already holds an active Builders subscription - always opens the
  *   customer portal, never checkout, regardless of the flag.
@@ -39,6 +41,11 @@ export function computeCtaVariant(
 
   const hasPremium = context.currentPlanTier === 'builders';
   if (!hasPremium) return 'join';
+
+  // A comp Builders grant has no Paddle subscription to manage, so the portal
+  // variants below (which open the customer portal) would 404. Render the
+  // non-interactive "Early Adopter" badge instead.
+  if (!context.hasPaddleSubscription) return 'member';
 
   if (context.subscriptionStatus === 'paused') return 'resume';
   if (context.subscriptionStatus === 'canceled') return 'reactivate';
@@ -59,6 +66,8 @@ export function computeCtaText(
   checkoutEnabled: boolean,
 ): string {
   switch (variant) {
+    case 'member':
+      return 'Early Adopter — active';
     case 'current-plan':
       return 'Manage Subscription';
     case 'reactivate':
@@ -69,9 +78,7 @@ export function computeCtaText(
       return 'Resume Subscription';
     case 'join':
     default:
-      return checkoutEnabled
-        ? 'Join Ptah Builders'
-        : 'Join the Builders Waitlist';
+      return checkoutEnabled ? 'Join Ptah Builders' : 'Apply for Early Adopter';
   }
 }
 
@@ -91,6 +98,9 @@ export function computeCtaButtonClass(
   }
 
   switch (variant) {
+    case 'member':
+      // Non-interactive success badge — the member has nothing to manage.
+      return 'bg-success/20 text-success border border-success/30 cursor-default';
     case 'current-plan':
       return 'bg-success/20 text-success border border-success/30 hover:bg-success/30 cursor-pointer';
     case 'reactivate':

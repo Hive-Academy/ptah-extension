@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { EventsService } from '../../events/events.service';
 import { AuditLogService } from '../../audit/audit-log.service';
 import { EmailService } from '../../email/services/email.service';
+import { WaitlistService } from '../../waitlist/waitlist.service';
 import type { IssueComplimentaryLicenseDto } from '../dto/issue-complimentary-license.dto';
 
 /**
@@ -27,7 +28,7 @@ import type { IssueComplimentaryLicenseDto } from '../dto/issue-complimentary-li
  */
 
 interface MockPrisma {
-  user: { findUnique: jest.Mock };
+  user: { findUnique: jest.Mock; create: jest.Mock };
   license: {
     findFirst: jest.Mock;
     create: jest.Mock;
@@ -37,7 +38,7 @@ interface MockPrisma {
 
 function createMockPrisma(): MockPrisma {
   const prisma: MockPrisma = {
-    user: { findUnique: jest.fn() },
+    user: { findUnique: jest.fn(), create: jest.fn() },
     license: {
       findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn(),
@@ -72,6 +73,7 @@ describe('LicenseService.createComplimentaryLicense', () => {
   let events: jest.Mocked<EventsService>;
   let auditLog: jest.Mocked<AuditLogService>;
   let emailService: jest.Mocked<EmailService>;
+  let waitlist: jest.Mocked<WaitlistService>;
   let service: LicenseService;
 
   beforeEach(() => {
@@ -85,6 +87,9 @@ describe('LicenseService.createComplimentaryLicense', () => {
     emailService = {
       sendLicenseKey: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<EmailService>;
+    waitlist = {
+      markConverted: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<WaitlistService>;
 
     prisma.user.findUnique.mockResolvedValue(TEST_USER);
     prisma.license.create.mockImplementation(({ data }) =>
@@ -99,6 +104,7 @@ describe('LicenseService.createComplimentaryLicense', () => {
       events,
       auditLog,
       emailService,
+      waitlist,
     );
   });
 
@@ -369,6 +375,93 @@ describe('LicenseService.createComplimentaryLicense', () => {
       expect(prisma.license.create).toHaveBeenCalledTimes(1);
       const writeArg = auditLog.write.mock.calls[0][0];
       expect(writeArg.metadata).toMatchObject({ stacked: true });
+    });
+  });
+
+  // ===========================================================================
+  // Email recipient path (Early-Adopter approval) + waitlist conversion
+  // ===========================================================================
+
+  describe('email recipient path', () => {
+    it('find-or-creates the user by lowercased email when no userId is supplied', async () => {
+      // No existing user for this email → create is exercised.
+      prisma.user.findUnique.mockResolvedValueOnce(null);
+      prisma.user.create.mockResolvedValueOnce({
+        ...TEST_USER,
+        email: 'new-lead@example.com',
+      });
+
+      await service.createComplimentaryLicense(
+        makeDto({ userId: undefined, email: 'new-lead@example.com' }),
+        ACTOR,
+      );
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'new-lead@example.com' },
+      });
+      expect(prisma.user.create).toHaveBeenCalledWith({
+        data: { email: 'new-lead@example.com' },
+      });
+      expect(prisma.license.create).toHaveBeenCalledTimes(1);
+      const createArg = prisma.license.create.mock.calls[0][0];
+      expect(createArg.data.userId).toBe(USER_ID);
+      expect(createArg.data.source).toBe('complimentary');
+    });
+
+    it('reuses the existing user (no create) when the email already resolves', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce(TEST_USER);
+
+      await service.createComplimentaryLicense(
+        makeDto({ userId: undefined, email: 'gift-recipient@example.com' }),
+        ACTOR,
+      );
+
+      expect(prisma.user.create).not.toHaveBeenCalled();
+      expect(prisma.license.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT touch user.create on the userId path', async () => {
+      await service.createComplimentaryLicense(makeDto(), ACTOR);
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: USER_ID },
+      });
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ===========================================================================
+  // Waitlist conversion stamping (best-effort, never fails the grant)
+  // ===========================================================================
+
+  describe('waitlist conversion', () => {
+    it('stamps the waitlist lead converted with the resolved user email after persist', async () => {
+      await service.createComplimentaryLicense(
+        makeDto({ userId: undefined, email: 'gift-recipient@example.com' }),
+        ACTOR,
+      );
+
+      expect(waitlist.markConverted).toHaveBeenCalledTimes(1);
+      expect(waitlist.markConverted).toHaveBeenCalledWith(
+        'gift-recipient@example.com',
+      );
+    });
+
+    it('stamps conversion on the userId path too (idempotent no-op if not on waitlist)', async () => {
+      await service.createComplimentaryLicense(makeDto(), ACTOR);
+
+      expect(waitlist.markConverted).toHaveBeenCalledWith(
+        'gift-recipient@example.com',
+      );
+    });
+
+    it('swallows a markConverted failure — the persisted grant is still returned', async () => {
+      waitlist.markConverted.mockRejectedValueOnce(new Error('db down'));
+
+      const result = await service.createComplimentaryLicense(makeDto(), ACTOR);
+
+      expect(result.license.id).toBe('license-1');
+      expect(result.warning).toBeUndefined();
     });
   });
 });
