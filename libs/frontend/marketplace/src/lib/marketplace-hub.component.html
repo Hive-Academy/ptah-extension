@@ -64,6 +64,12 @@
             (skillInstalled)="onContentChanged()"
             (skillUninstalled)="onContentChanged()"
           />
+        } @else if (provider.surface === OAuthSurface) {
+          <ptah-oauth-surface
+            [refreshTrigger]="refreshTrigger()"
+            (serverConnected)="onContentChanged()"
+            (serverDisconnected)="onContentChanged()"
+          />
         } @else if (isGenericSurface(provider.surface)) {
           <ng-container
             *ngComponentOutlet="

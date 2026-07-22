@@ -23,6 +23,7 @@ import { MARKETPLACE_PROVIDERS } from './providers.registry';
 import { MarketplaceProviderSpec } from './provider-spec';
 import { MarketplaceStateService } from './marketplace-state.service';
 import { ComingSoonPlaceholderComponent } from './coming-soon-placeholder.component';
+import { OAuthSurfaceComponent } from './oauth-surface.component';
 
 /**
  * Marketplace hub — the `'marketplace'` top-level view.
@@ -41,6 +42,7 @@ import { ComingSoonPlaceholderComponent } from './coming-soon-placeholder.compon
     NgComponentOutlet,
     McpDirectoryBrowserComponent,
     SkillShBrowserComponent,
+    OAuthSurfaceComponent,
     ComingSoonPlaceholderComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -55,9 +57,10 @@ export class MarketplaceHubComponent {
   protected readonly StoreIcon = Store;
   protected readonly ArrowLeftIcon = ArrowLeft;
 
-  /** Surface refs used to bind install side-effects on the two live surfaces. */
+  /** Surface refs used to bind install side-effects on the live surfaces. */
   protected readonly McpSurface = McpDirectoryBrowserComponent;
   protected readonly SkillsSurface = SkillShBrowserComponent;
+  protected readonly OAuthSurface = OAuthSurfaceComponent;
 
   public readonly selectedProvider = this.state.selectedProvider;
   public readonly selectedProviderId = this.state.selectedProviderId;
@@ -94,7 +97,10 @@ export class MarketplaceHubComponent {
   /** Whether the selected provider has a generic (non-special-cased) surface. */
   public isGenericSurface(surface: Type<unknown> | undefined): boolean {
     return (
-      !!surface && surface !== this.McpSurface && surface !== this.SkillsSurface
+      !!surface &&
+      surface !== this.McpSurface &&
+      surface !== this.SkillsSurface &&
+      surface !== this.OAuthSurface
     );
   }
 }

@@ -1,4 +1,11 @@
-import { Server, Sparkles, Blocks, Boxes, Puzzle } from 'lucide-angular';
+import {
+  Server,
+  Sparkles,
+  Blocks,
+  Boxes,
+  Puzzle,
+  KeyRound,
+} from 'lucide-angular';
 import {
   McpDirectoryBrowserComponent,
   SkillShBrowserComponent,
@@ -6,6 +13,7 @@ import {
 import { MarketplaceProviderSpec } from './provider-spec';
 import { SmitherySurfaceComponent } from './smithery-surface.component';
 import { PluginsSurfaceComponent } from './plugins-surface.component';
+import { OAuthSurfaceComponent } from './oauth-surface.component';
 
 export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
   {
@@ -43,6 +51,15 @@ export const MARKETPLACE_PROVIDERS: readonly MarketplaceProviderSpec[] = [
     kind: 'mcp',
     tagline: 'Hosted MCP servers with one-click setup',
     surface: SmitherySurfaceComponent,
+  },
+  {
+    id: 'oauth-mcp',
+    name: 'Connected Apps',
+    icon: KeyRound,
+    status: 'live',
+    kind: 'mcp',
+    tagline: 'Connect OAuth-secured remote MCP servers',
+    surface: OAuthSurfaceComponent,
   },
   {
     id: 'composio',
