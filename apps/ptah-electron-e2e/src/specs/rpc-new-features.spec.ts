@@ -3,7 +3,8 @@ import { test, expect } from '../support/fixtures';
 /**
  * RPC contract specs for the namespaces added by the recent Electron
  * enhancements: task specs (`tasks:*`), the messaging gateway (`gateway:*`),
- * and voice providers (`voice:*`).
+ * voice providers (`voice:*`), and the read-only in-app MCP OAuth methods
+ * (`mcpDirectory:listOAuthConnected`, `mcpDirectory:oauthStatus`).
  *
  * These complement rpc.spec.ts (envelope mechanics) by asserting each NEW
  * read-only method is wired end-to-end in the Electron host. A namespace
@@ -54,6 +55,7 @@ const SUCCESS_METHODS = [
   'voice:listProviders',
   'voice:getConfig',
   'voice:getTtsConfig',
+  'mcpDirectory:listOAuthConnected',
 ] as const;
 
 /**
@@ -155,5 +157,38 @@ test.describe('new-feature RPC contracts', () => {
       ? data
       : (data as { providers?: unknown }).providers;
     expect(Array.isArray(providers)).toBe(true);
+  });
+
+  test('mcpDirectory:listOAuthConnected returns an empty servers array on a fresh launch', async ({
+    rpcBridge,
+    mainWindow,
+  }) => {
+    await mainWindow.waitForLoadState('domcontentloaded');
+    const res = (await rpcBridge.sendRpc(
+      'rpc',
+      rpcCall('mcpDirectory:listOAuthConnected'),
+    )) as RpcResponseEnvelope;
+
+    expect(res.success).toBe(true);
+    const data = res.data as { servers?: unknown };
+    expect(Array.isArray(data.servers)).toBe(true);
+    expect((data.servers as unknown[]).length).toBe(0);
+  });
+
+  test('mcpDirectory:oauthStatus reports disconnected for an unknown serverKey', async ({
+    rpcBridge,
+    mainWindow,
+  }) => {
+    await mainWindow.waitForLoadState('domcontentloaded');
+    const res = (await rpcBridge.sendRpc(
+      'rpc',
+      rpcCall('mcpDirectory:oauthStatus', {
+        serverKey: 'oauth-nonexistent-e2e',
+      }),
+    )) as RpcResponseEnvelope;
+
+    expect(res.success).toBe(true);
+    const data = res.data as { state?: string };
+    expect(data.state).toBe('disconnected');
   });
 });
