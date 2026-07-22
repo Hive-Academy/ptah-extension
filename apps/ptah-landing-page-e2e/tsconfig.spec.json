@@ -6,5 +6,9 @@
     "moduleResolution": "node",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "playwright.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "playwright.config.ts",
+    "playwright.checkout.config.ts"
+  ]
 }

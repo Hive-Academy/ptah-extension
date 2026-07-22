@@ -25,6 +25,13 @@
         "command": "npx playwright test --config=playwright.config.ts --grep @p0"
       }
     },
+    "e2e:checkout": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ptah-landing-page-e2e",
+        "command": "npx playwright test --config=playwright.checkout.config.ts"
+      }
+    },
     "lint": {
       "executor": "@nx/eslint:lint"
     },

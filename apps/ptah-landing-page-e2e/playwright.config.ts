@@ -47,7 +47,15 @@ export default defineConfig({
     baseURL: BASE_URL,
     actionTimeout: 10_000,
     trace: isCI ? 'retain-on-failure' : 'off',
-    video: 'off',
+    // Record a webm of every run locally so the flows are watchable (and reusable
+    // as raw capture for promo videos). CI keeps failures only. Set E2E_VIDEO=off
+    // to disable locally. 720p @ the Desktop Chrome viewport.
+    video:
+      process.env['E2E_VIDEO'] === 'off'
+        ? 'off'
+        : isCI
+          ? 'retain-on-failure'
+          : { mode: 'on', size: { width: 1280, height: 720 } },
     screenshot: 'only-on-failure',
   },
   projects: [
