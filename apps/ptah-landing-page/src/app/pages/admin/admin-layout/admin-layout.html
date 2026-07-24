@@ -3,15 +3,25 @@
   DO NOT add /admin* links to NavigationComponent, FooterComponent, or any
   future sitemap.xml. This dashboard is gated by ADMIN_EMAILS allowlist and
   must remain invisible to public crawlers and unauthenticated users.
+
+  Scoped to the `operator-admin` daisyUI theme (stepped surface elevation) so
+  admin cards/panels read as raised against the page canvas WITHOUT affecting
+  the public marketing site, which stays on `operator`.
+
+  Surface roles: canvas = base-100 (darkest), chrome (header + sidebar) +
+  cards = base-200 (raised), hover/active + borders = base-300.
 -->
-<div class="drawer lg:drawer-open min-h-screen bg-base-200">
+<div
+  data-theme="operator-admin"
+  class="drawer lg:drawer-open min-h-screen bg-base-100"
+>
   <input id="admin-drawer" type="checkbox" class="drawer-toggle" />
 
   <!-- MAIN CONTENT -->
   <div class="drawer-content flex flex-col">
     <!-- Top bar -->
     <header
-      class="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-4 py-3 lg:px-6"
+      class="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-base-300 bg-base-200 px-4 py-3 lg:px-6"
     >
       <div class="flex items-center gap-3">
         <label
@@ -59,101 +69,109 @@
       aria-label="Close admin menu"
       class="drawer-overlay"
     ></label>
-    <nav class="flex min-h-full w-64 flex-col gap-1 bg-base-100 p-4">
-      @for (group of navGroups; track group.label) {
-        <div class="mt-6 first:mt-0">
-          <!-- Group header (collapsible when it has secondary items) -->
-          @if (hasSecondary(group)) {
+    <nav
+      class="flex min-h-full w-64 flex-col gap-0.5 border-r border-base-300 bg-base-200 p-3"
+    >
+      @for (group of navGroups; track group.label; let first = $first) {
+        @if (group.flat) {
+          <!-- Flat group: a headerless standalone link (no group chrome) -->
+          <ul class="flex flex-col gap-0.5" [class.mt-3]="!first">
+            @for (item of group.items; track item.route) {
+              <ng-container
+                [ngTemplateOutlet]="navLink"
+                [ngTemplateOutletContext]="{ item: item, forcePrimary: true }"
+              />
+            }
+          </ul>
+        } @else {
+          <div class="mt-5 first:mt-0">
+            <!-- Lighter group header (label only, no icon) — collapsible -->
             <button
               type="button"
-              class="mb-2 flex w-full items-center gap-2 px-2"
+              class="mb-1 flex w-full items-center gap-2 rounded px-2.5 py-1 hover:bg-base-300/50"
               (click)="toggleGroup(group.label)"
               [attr.aria-expanded]="!isCollapsed(group.label)"
             >
-              <lucide-angular
-                [img]="group.icon"
-                class="h-5 w-5 shrink-0 text-ink-500"
-                aria-hidden="true"
-              />
               <span
-                class="flex-1 text-left text-xs font-semibold uppercase tracking-wide text-ink-500"
+                class="flex-1 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-500"
               >
                 {{ group.label }}
               </span>
               <lucide-angular
                 [img]="ChevronDownIcon"
-                class="h-3.5 w-3.5 shrink-0 text-ink-500 transition-transform"
+                class="h-3.5 w-3.5 shrink-0 text-ink-600 transition-transform"
                 [class.-rotate-90]="isCollapsed(group.label)"
                 aria-hidden="true"
               />
             </button>
-          } @else {
-            <div class="mb-2 flex items-center gap-2 px-2">
-              <lucide-angular
-                [img]="group.icon"
-                class="h-5 w-5 shrink-0 text-ink-500"
-                aria-hidden="true"
-              />
-              <span
-                class="text-xs font-semibold uppercase tracking-wide text-ink-500"
-              >
-                {{ group.label }}
-              </span>
-            </div>
-          }
 
-          <ul class="flex flex-col gap-0.5">
-            @for (item of group.items; track item.route) {
-              @if (item.primary) {
-                <!-- Primary item — always visible, icon + medium weight -->
-                <li>
-                  <a
-                    [routerLink]="item.route"
-                    [routerLinkActive]="primaryActiveClass"
-                    class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium text-base-content hover:bg-base-200"
-                  >
-                    @if (item.icon) {
-                      <lucide-angular
-                        [img]="item.icon"
-                        class="h-[18px] w-[18px] shrink-0"
-                        aria-hidden="true"
-                      />
-                    }
-                    <span class="flex-1">{{ item.label }}</span>
-                    @if (item.readOnly) {
-                      <span
-                        class="badge badge-ghost badge-xs text-ink-500"
-                        title="Read-only"
-                      >
-                        ro
-                      </span>
-                    }
-                  </a>
-                </li>
-              } @else if (!isCollapsed(group.label)) {
-                <!-- Secondary item — indented, hidden when group collapsed -->
-                <li>
-                  <a
-                    [routerLink]="item.route"
-                    [routerLinkActive]="secondaryActiveClass"
-                    class="flex items-center justify-between rounded-md py-1.5 pl-8 pr-2.5 text-[13px] font-normal text-ink-400 hover:bg-base-200"
-                  >
-                    <span>{{ item.label }}</span>
-                    @if (item.readOnly) {
-                      <span
-                        class="badge badge-ghost badge-xs text-ink-500"
-                        title="Read-only"
-                      >
-                        ro
-                      </span>
-                    }
-                  </a>
-                </li>
+            <ul class="flex flex-col gap-0.5">
+              @for (item of group.items; track item.route) {
+                @if (item.primary || !isCollapsed(group.label)) {
+                  <ng-container
+                    [ngTemplateOutlet]="navLink"
+                    [ngTemplateOutletContext]="{ item: item, forcePrimary: false }"
+                  />
+                }
               }
-            }
-          </ul>
-        </div>
+            </ul>
+          </div>
+        }
       }
     </nav>
   </aside>
 </div>
+
+<!--
+  Shared nav link. Inactive links are calm (ink-300/ink-400); ONLY the active
+  route gets the amber highlight, so the current page is unambiguous. Primary
+  (or flat) items carry an icon + left rail; secondary items are indented.
+-->
+<ng-template #navLink let-item="item" let-forcePrimary="forcePrimary">
+  @if (item.primary || forcePrimary) {
+    <li>
+      <a
+        [routerLink]="item.route"
+        [routerLinkActive]="primaryActiveClass"
+        [routerLinkActiveOptions]="{ exact: !!item.exact }"
+        class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-normal text-ink-300 transition-colors hover:bg-base-300 hover:text-ink-100"
+      >
+        @if (item.icon) {
+          <lucide-angular
+            [img]="item.icon"
+            class="h-[18px] w-[18px] shrink-0"
+            aria-hidden="true"
+          />
+        }
+        <span class="flex-1">{{ item.label }}</span>
+        @if (item.readOnly) {
+          <span
+            class="badge badge-ghost badge-xs text-ink-500"
+            title="Read-only"
+          >
+            ro
+          </span>
+        }
+      </a>
+    </li>
+  } @else {
+    <li>
+      <a
+        [routerLink]="item.route"
+        [routerLinkActive]="secondaryActiveClass"
+        [routerLinkActiveOptions]="{ exact: !!item.exact }"
+        class="flex items-center justify-between rounded-md py-1.5 pl-8 pr-2.5 text-[13px] font-normal text-ink-400 transition-colors hover:bg-base-300 hover:text-ink-200"
+      >
+        <span>{{ item.label }}</span>
+        @if (item.readOnly) {
+          <span
+            class="badge badge-ghost badge-xs text-ink-500"
+            title="Read-only"
+          >
+            ro
+          </span>
+        }
+      </a>
+    </li>
+  }
+</ng-template>

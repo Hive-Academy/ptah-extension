@@ -18,8 +18,8 @@ import {
   KeyRound,
   LayoutDashboard,
   type LucideIconData,
+  Megaphone,
   ScrollText,
-  Send,
   TrendingUp,
   UserCircle,
   UserPlus,
@@ -42,6 +42,13 @@ export interface AdminNavItem {
   icon?: LucideIconData;
   /** Mirrors backend `readOnly` — renders the muted `ro` badge (§2.3). */
   readOnly?: boolean;
+  /**
+   * When true, the active highlight requires an EXACT route match (no prefix).
+   * Used for hub-style items whose slug is a prefix of a sibling's route (e.g.
+   * `/admin/marketing` vs `/admin/marketing/compose`) so the parent doesn't
+   * stay lit while a child page is open.
+   */
+  exact?: boolean;
 }
 
 export interface AdminNavGroup {
@@ -70,6 +77,7 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
         route: '/admin/overview',
         primary: true,
         icon: LayoutDashboard,
+        exact: true,
       },
     ],
   },
@@ -84,10 +92,16 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
         icon: UserPlus,
       },
       {
+        label: 'Marketing',
+        route: '/admin/marketing',
+        primary: true,
+        icon: Megaphone,
+        exact: true,
+      },
+      {
         label: 'Compose Campaign',
         route: '/admin/marketing/compose',
-        primary: true,
-        icon: Send,
+        primary: false,
       },
       {
         label: 'Campaign History',

@@ -13,6 +13,7 @@ import {
   MarketingSegmentKey,
 } from '../../../../services/admin-api.service';
 import { CommonModule } from '@angular/common';
+import { segmentLabel } from '../../marketing/marketing-segment-labels';
 
 @Component({
   selector: 'ptah-segment-picker',
@@ -55,17 +56,6 @@ export class SegmentPicker implements OnInit {
   }
 
   protected getSegmentLabel(key: string): string {
-    switch (key) {
-      case 'all':
-        return 'All Users';
-      case 'buildersActive':
-        return 'Builders Active';
-      case 'communityActive':
-        return 'Community Active';
-      case 'subscriptionPastDue':
-        return 'Past Due';
-      default:
-        return key;
-    }
+    return segmentLabel(key);
   }
 }

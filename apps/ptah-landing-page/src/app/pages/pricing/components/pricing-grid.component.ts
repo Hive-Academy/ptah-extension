@@ -50,7 +50,10 @@ import {
   Download,
   ArrowRight,
   Settings,
+  Timer,
 } from 'lucide-angular';
+import { CountdownTimerComponent } from '../../../components/countdown-timer.component';
+import { EARLY_ADOPTER_DEADLINE } from '../../../config/early-adopter.config';
 
 /**
  * PricingGridComponent - Grid of pricing plan cards
@@ -69,10 +72,11 @@ import {
     FormsModule,
     ViewportAnimationDirective,
     LucideAngularModule,
+    CountdownTimerComponent,
   ],
   template: `
     <div
-      class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-16 -mt-16 sm:-mt-24 lg:-mt-[150px]"
+      class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-16 -mt-8 sm:-mt-10 lg:-mt-16"
     >
       @if (paddleError()) {
         <div class="alert alert-warning mb-8 max-w-xl mx-auto">
@@ -159,11 +163,52 @@ import {
           </button>
         </div>
       }
+      <!-- Early Adopter urgency countdown -->
+      @if (showEarlyAdopterCountdown()) {
+        <div
+          class="max-w-2xl mx-auto mb-8 sm:mb-10 rounded-2xl border border-amber-500/25 bg-gradient-to-b from-amber-500/[0.08] to-transparent px-6 py-7 text-center"
+          viewportAnimation
+          [viewportConfig]="getCardAnimationConfig(0)"
+        >
+          <span
+            class="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-amber-500/90"
+          >
+            <lucide-angular
+              [img]="TimerIcon"
+              class="w-3.5 h-3.5"
+              aria-hidden="true"
+            />
+            Early Adopter offer closes Aug 15
+          </span>
+
+          <div class="mt-5">
+            <ptah-countdown-timer [target]="earlyAdopterDeadline" />
+          </div>
+
+          <p class="mt-5 max-w-md mx-auto text-sm text-ink-300 leading-relaxed">
+            Approved contributors get their
+            <span class="text-amber-400 font-semibold"
+              >first year of Builders free</span
+            >
+            — no checkout. Apply before the window closes.
+          </p>
+
+          <a [href]="buildersWaitlistHref()" class="cta-urgency mt-6">
+            <span>Apply for Early Adopter</span>
+            <lucide-angular
+              [img]="ArrowRightIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+          </a>
+        </div>
+      }
+
       <!-- Capability Matrix: one unified Free-vs-Builders comparison table -->
       <div
         class="max-w-4xl mx-auto rounded-2xl border border-ink-700 overflow-hidden bg-ink-950/40"
         viewportAnimation
-        [viewportConfig]="getCardAnimationConfig(0)"
+        [viewportConfig]="getCardAnimationConfig(1)"
       >
         <!-- Header row -->
         <div
@@ -246,7 +291,7 @@ import {
 
         <!-- CTA row -->
         <div
-          class="grid grid-cols-[1fr_5.5rem_7rem] sm:grid-cols-[1fr_9rem_11rem] items-start gap-2 px-5 sm:px-7 py-6 bg-ink-950/60"
+          class="grid grid-cols-[1fr_5.5rem_7rem] sm:grid-cols-[1fr_9rem_11rem] items-center gap-2 px-5 sm:px-7 py-6 bg-ink-950/60"
         >
           <div class="self-center">
             <div
@@ -374,6 +419,7 @@ import {
         justify-content: center;
         gap: 0.375rem;
         width: 100%;
+        min-height: 3.25rem;
         padding: 0.5rem 0.75rem;
         border-radius: 0.6rem;
         font-size: 0.8rem;
@@ -386,6 +432,42 @@ import {
       }
       .cta-matrix:disabled {
         cursor: not-allowed;
+      }
+
+      .cta-urgency {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.7rem 1.6rem;
+        border-radius: 0.7rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #0a0a0a;
+        background: linear-gradient(to right, #f5a524, #e08e00);
+        transition:
+          transform 0.2s ease,
+          box-shadow 0.2s ease,
+          filter 0.2s ease;
+      }
+      .cta-urgency:hover {
+        transform: translateY(-2px);
+        filter: brightness(1.05);
+        box-shadow: 0 8px 24px rgba(245, 165, 36, 0.35);
+      }
+
+      @media (prefers-reduced-motion: no-preference) {
+        .cta-urgency {
+          animation: cta-glow 2.4s ease-in-out infinite;
+        }
+        @keyframes cta-glow {
+          0%,
+          100% {
+            box-shadow: 0 0 0 0 rgba(245, 165, 36, 0);
+          }
+          50% {
+            box-shadow: 0 0 22px 2px rgba(245, 165, 36, 0.35);
+          }
+        }
       }
     `,
   ],
@@ -403,6 +485,10 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   public readonly DownloadIcon = Download;
   public readonly ArrowRightIcon = ArrowRight;
   public readonly SettingsIcon = Settings;
+  public readonly TimerIcon = Timer;
+
+  /** Early Adopter application window close — shared single source of truth. */
+  protected readonly earlyAdopterDeadline = EARLY_ADOPTER_DEADLINE;
 
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -584,6 +670,15 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   /** Whether the viewer already holds the Builders plan. */
   public readonly isProUser = computed(
     () => this.subscriptionContext().currentPlanTier === 'builders',
+  );
+
+  /**
+   * Show the Early Adopter urgency countdown only during the pre-checkout
+   * phase (self-serve Paddle checkout still closed) and only to viewers who
+   * aren't already Builders — an existing member has nothing left to hurry for.
+   */
+  public readonly showEarlyAdopterCountdown = computed(
+    () => !this.buildersCheckoutEnabled && !this.isProUser(),
   );
 
   /**

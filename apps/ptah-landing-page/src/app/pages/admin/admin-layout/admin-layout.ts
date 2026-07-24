@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -30,7 +31,13 @@ import { ADMIN_NAV_GROUPS, type AdminNavGroup } from './admin-nav.config';
   selector: 'ptah-admin-layout',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, LucideAngularModule],
+  imports: [
+    RouterOutlet,
+    RouterLink,
+    RouterLinkActive,
+    LucideAngularModule,
+    NgTemplateOutlet,
+  ],
   templateUrl: './admin-layout.html',
   styleUrls: ['./admin-layout.css'],
 })
@@ -47,8 +54,9 @@ export class AdminLayout {
    * Tailwind's content scanner preserves every modifier.
    */
   protected readonly primaryActiveClass =
-    'bg-amber-500/10 text-amber-400 border-l-2 border-amber-500 -ml-0.5 pl-3';
-  protected readonly secondaryActiveClass = 'bg-base-200 text-amber-400';
+    'bg-amber-500/10 text-amber-400 font-semibold border-l-2 border-amber-500 -ml-0.5 pl-3';
+  protected readonly secondaryActiveClass =
+    'bg-base-300 text-amber-400 font-medium';
 
   /** Group labels whose secondary-item disclosure is currently collapsed. */
   private readonly collapsedGroups = signal<ReadonlySet<string>>(new Set());

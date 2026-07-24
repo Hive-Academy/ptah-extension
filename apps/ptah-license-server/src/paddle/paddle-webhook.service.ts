@@ -392,8 +392,15 @@ export class PaddleWebhookService {
   /**
    * Resolve customer email from subscription notification data
    *
-   * Paddle webhooks include customerId but not email directly.
-   * This method fetches the customer email from Paddle API.
+   * Paddle webhooks include customerId but not email directly. We resolve the
+   * email DB-first: for a customer we already track locally, the email is read
+   * straight from our `User` row keyed by `paddleCustomerId`. This avoids an
+   * unnecessary Paddle API round-trip and keeps lifecycle events (updated,
+   * canceled, past_due, …) working even when the Paddle `GET /customers` call
+   * would fail (e.g. a 403 from a mis-scoped API key).
+   *
+   * Only when the customer is unknown locally (e.g. a fresh subscription, or a
+   * cleared local DB) do we fall back to the Paddle API.
    *
    * @param data - Subscription notification data from SDK
    * @returns Customer email address or null if not found
@@ -406,6 +413,14 @@ export class PaddleWebhookService {
     if (!customerId) {
       this.logger.warn('No customerId in subscription data');
       return null;
+    }
+
+    const localUser = await this.prisma.user.findUnique({
+      where: { paddleCustomerId: customerId },
+      select: { email: true },
+    });
+    if (localUser?.email) {
+      return localUser.email;
     }
 
     return this.paddleService.getCustomerEmail(customerId);

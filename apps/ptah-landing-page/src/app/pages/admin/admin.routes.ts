@@ -95,6 +95,39 @@ export const ADMIN_ROUTES: Routes = [
             (m) => m.UserProfile,
           ),
       },
+      // Bespoke Marketing & Campaigns views (TASK_2026_166) — also precede the
+      // generic ':model' / ':model/:id' catch-all. 'marketing-campaigns' and
+      // 'marketing-campaign-templates' move off the generic table onto bespoke
+      // components; 'marketing-campaign-templates/:id' intentionally stays on
+      // the generic AdminDetail edit form (handled by the ':model/:id' route).
+      {
+        path: 'marketing',
+        loadComponent: () =>
+          import('./marketing/marketing-hub/marketing-hub').then(
+            (m) => m.MarketingHub,
+          ),
+      },
+      {
+        path: 'marketing-campaigns',
+        loadComponent: () =>
+          import('./marketing/campaign-history/campaign-history-list').then(
+            (m) => m.CampaignHistoryList,
+          ),
+      },
+      {
+        path: 'marketing-campaigns/:id',
+        loadComponent: () =>
+          import('./marketing/campaign-history/campaign-detail/campaign-detail').then(
+            (m) => m.CampaignDetail,
+          ),
+      },
+      {
+        path: 'marketing-campaign-templates',
+        loadComponent: () =>
+          import('./marketing/templates/templates-gallery').then(
+            (m) => m.TemplatesGallery,
+          ),
+      },
       {
         path: ':model',
         loadComponent: () =>

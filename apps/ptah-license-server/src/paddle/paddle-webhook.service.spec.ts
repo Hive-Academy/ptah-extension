@@ -418,6 +418,51 @@ describe('PaddleWebhookService — idempotency', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Customer email resolution (DB-first, Paddle API fallback)
+// ---------------------------------------------------------------------------
+
+describe('PaddleWebhookService — customer email resolution', () => {
+  it('resolves email from the local User row and skips the Paddle API', async () => {
+    const { service, paddleService, prisma } = await buildWebhookService();
+    prisma.user.findUnique.mockResolvedValue({
+      email: 'local@example.com',
+    } as unknown as never);
+    paddleService.handleSubscriptionUpdatedEvent.mockResolvedValue({
+      success: true,
+    });
+
+    const fixture = loadPaddleFixture('subscription-updated');
+    await service.processWebhook(fixture.body, fixture.signatureHeader);
+
+    expect(paddleService.getCustomerEmail).not.toHaveBeenCalled();
+    expect(paddleService.handleSubscriptionUpdatedEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      'local@example.com',
+      expect.any(String),
+    );
+  });
+
+  it('falls back to the Paddle API when the customer is unknown locally', async () => {
+    const { service, paddleService, prisma } = await buildWebhookService();
+    prisma.user.findUnique.mockResolvedValue(null as unknown as never);
+    paddleService.getCustomerEmail.mockResolvedValue('remote@example.com');
+    paddleService.handleSubscriptionUpdatedEvent.mockResolvedValue({
+      success: true,
+    });
+
+    const fixture = loadPaddleFixture('subscription-updated');
+    await service.processWebhook(fixture.body, fixture.signatureHeader);
+
+    expect(paddleService.getCustomerEmail).toHaveBeenCalledTimes(1);
+    expect(paddleService.handleSubscriptionUpdatedEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      'remote@example.com',
+      expect.any(String),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // FailedWebhook retry path
 // ---------------------------------------------------------------------------
 

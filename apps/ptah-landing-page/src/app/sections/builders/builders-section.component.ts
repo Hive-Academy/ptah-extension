@@ -22,6 +22,8 @@ import {
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { ConsoleGridBackgroundComponent } from '../../components/console/console-grid-background.component';
+import { CountdownTimerComponent } from '../../components/countdown-timer.component';
+import { EARLY_ADOPTER_DEADLINE } from '../../config/early-adopter.config';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -65,6 +67,7 @@ interface ValueProp {
     LucideAngularModule,
     ViewportAnimationDirective,
     ConsoleGridBackgroundComponent,
+    CountdownTimerComponent,
   ],
   template: `
     <section
@@ -117,9 +120,21 @@ interface ValueProp {
                 }
               </ul>
 
+              <div
+                class="mt-7 rounded-xl border border-amber-500/20 bg-amber-500/[0.04] px-4 py-4 text-center"
+              >
+                <span
+                  class="font-mono text-[10px] uppercase tracking-[0.2em] text-amber-500/90"
+                  >Offer closes Aug 15</span
+                >
+                <div class="mt-3">
+                  <ptah-countdown-timer [target]="earlyAdopterDeadline" />
+                </div>
+              </div>
+
               <a
                 [href]="ctaHref"
-                [class]="ctaClass + ' mt-7 w-full'"
+                [class]="ctaClass + ' mt-5 w-full'"
                 [attr.aria-label]="ctaAria"
               >
                 <lucide-angular
@@ -287,6 +302,9 @@ interface ValueProp {
 export class BuildersSectionComponent {
   protected readonly arrowRight = ArrowRight;
   protected readonly checkIcon = Check;
+
+  /** Early Adopter application window close — shared single source of truth. */
+  protected readonly earlyAdopterDeadline = EARLY_ADOPTER_DEADLINE;
 
   /** Copy for the S8.5 "Ptah Builders" Early Adopter offer. */
   protected readonly eyebrow = 'PTAH BUILDERS — EARLY ADOPTER';

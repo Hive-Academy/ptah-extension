@@ -1,0 +1,188 @@
+<section class="flex flex-col gap-6 p-4 lg:p-6">
+  <!-- Header -->
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <lucide-angular
+        [img]="FileTextIcon"
+        class="h-5 w-5 text-ink-500"
+        aria-hidden="true"
+      />
+      <h2 class="text-xl font-semibold text-base-content">Email Templates</h2>
+      <span class="text-sm text-ink-400">({{ total() }} total)</span>
+    </div>
+
+    <a
+      class="btn btn-primary btn-sm"
+      [routerLink]="['/admin/marketing/templates/new']"
+    >
+      <lucide-angular [img]="PlusIcon" class="h-4 w-4" aria-hidden="true" />
+      New Template
+    </a>
+  </header>
+
+  @if (loadError(); as msg) {
+    <div class="alert alert-error">
+      <span>{{ msg }}</span>
+      <button type="button" class="btn btn-sm" (click)="retry()">Retry</button>
+    </div>
+  }
+
+  <!-- Loading skeleton -->
+  @if (loading()) {
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      @for (s of skeletonCards; track $index) {
+        <div
+          class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-200 p-4"
+        >
+          <div class="h-4 w-2/3 animate-pulse rounded bg-base-300"></div>
+          <div class="h-3 w-full animate-pulse rounded bg-base-300"></div>
+          <div class="mt-2 flex gap-2">
+            <div class="h-4 w-12 animate-pulse rounded bg-base-300"></div>
+            <div class="h-4 w-12 animate-pulse rounded bg-base-300"></div>
+          </div>
+          <div class="mt-3 h-6 w-full animate-pulse rounded bg-base-300"></div>
+        </div>
+      }
+    </div>
+  } @else if (isEmpty()) {
+    <ptah-admin-empty-state
+      [icon]="FileTextIcon"
+      message="No templates yet"
+      hint="Create a reusable email template to speed up your campaigns."
+    >
+      <a
+        class="btn btn-primary btn-sm"
+        [routerLink]="['/admin/marketing/templates/new']"
+      >
+        Create a template
+      </a>
+    </ptah-admin-empty-state>
+  } @else {
+    <!-- Card grid -->
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      @for (t of templates(); track t.id) {
+        <div
+          class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-200 p-4"
+        >
+          <h3 class="truncate text-sm font-medium text-base-content" [title]="t.name">
+            {{ t.name }}
+          </h3>
+          <p class="truncate text-xs text-ink-400" [title]="t.subject">
+            {{ t.subject || '(no subject)' }}
+          </p>
+
+          @if (t.variables.length > 0) {
+            <div class="flex flex-wrap gap-1">
+              @for (v of visibleChips(t); track v) {
+                <span class="badge badge-ghost badge-xs">{{ v }}</span>
+              }
+              @if (extraChipCount(t) > 0) {
+                <span class="badge badge-ghost badge-xs"
+                  >+{{ extraChipCount(t) }} more</span
+                >
+              }
+            </div>
+          }
+
+          <span class="text-xs text-ink-500">
+            Updated {{ relativeUpdated(t) }}
+          </span>
+
+          <!-- Action row -->
+          <div
+            class="mt-auto flex flex-wrap gap-2 border-t border-base-300 pt-2"
+          >
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              (click)="openPreview(t)"
+            >
+              <lucide-angular
+                [img]="EyeIcon"
+                class="h-3.5 w-3.5"
+                aria-hidden="true"
+              />
+              Preview
+            </button>
+            <a
+              class="btn btn-ghost btn-xs"
+              [routerLink]="['/admin/marketing/templates/new']"
+              [queryParams]="{ duplicateFrom: t.id }"
+            >
+              <lucide-angular
+                [img]="CopyIcon"
+                class="h-3.5 w-3.5"
+                aria-hidden="true"
+              />
+              Duplicate
+            </a>
+            <a
+              class="btn btn-ghost btn-xs"
+              [routerLink]="['/admin/marketing/compose']"
+              [queryParams]="{ templateId: t.id }"
+            >
+              <lucide-angular
+                [img]="SendHorizontalIcon"
+                class="h-3.5 w-3.5"
+                aria-hidden="true"
+              />
+              Use in campaign
+            </a>
+            <a
+              class="btn btn-ghost btn-xs"
+              [routerLink]="['/admin/marketing-campaign-templates', t.id]"
+            >
+              <lucide-angular
+                [img]="FileTextIcon"
+                class="h-3.5 w-3.5"
+                aria-hidden="true"
+              />
+              Edit
+            </a>
+          </div>
+        </div>
+      }
+    </div>
+
+    <!-- Pagination -->
+    @if (totalPages() > 1) {
+      <div class="flex items-center justify-end gap-3 text-sm">
+        <span class="tabular-nums text-ink-400">
+          Page {{ page() }} of {{ totalPages() }}
+        </span>
+        <div class="join">
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="page() <= 1"
+            (click)="onPrev()"
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="page() >= totalPages()"
+            (click)="onNext()"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    }
+  }
+
+  <!-- Preview drawer (sandboxed EmailPreviewFrame — never [innerHTML]) -->
+  <ptah-admin-detail-drawer
+    [open]="previewOpen()"
+    [title]="previewTitle()"
+    (closed)="closePreview()"
+  >
+    @if (preview(); as t) {
+      <ptah-marketing-email-preview
+        [subject]="previewSubject()"
+        [htmlBody]="previewBody()"
+      />
+    }
+  </ptah-admin-detail-drawer>
+</section>
