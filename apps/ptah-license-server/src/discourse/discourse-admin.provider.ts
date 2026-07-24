@@ -1,6 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { DiscourseSyncResult } from './discourse.types';
+import {
+  communityTopicsSchema,
+  type CommunityTopic,
+  type DiscourseSyncResult,
+} from './discourse.types';
 
 /**
  * DiscourseAdminProvider — thin, non-throwing client for the Discourse admin
@@ -33,6 +37,9 @@ export class DiscourseAdminProvider {
 
   /** Resolved numeric group ids keyed by arbitrary group name, cached. */
   private readonly namedGroupIdCache = new Map<string, number>();
+
+  /** Resolved category id → name map, cached across calls (like groupIdCache). */
+  private categoryNameCache: Map<number, string> | undefined;
 
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
@@ -141,6 +148,142 @@ export class DiscourseAdminProvider {
       return { ok: false, status: res.status, error: res.error };
     }
     return { ok: true, status: res.status };
+  }
+
+  /**
+   * Fetch the latest forum topics for the read-only in-app community surface.
+   * Reads Discourse `GET /latest.json`, maps the newest `limit` topics to the
+   * outbound contract shape, and resolves `categoryName` from a cached
+   * `GET /categories.json` id→name map.
+   *
+   * Fully tolerant: feature-off, any transport/parse error, or a shape drift
+   * that fails Zod validation folds into `[]` — this NEVER throws, so the
+   * controller can hand the browser a stable contract without a 500.
+   */
+  async getLatestTopics(limit = 5): Promise<CommunityTopic[]> {
+    if (!this.isEnabled()) {
+      return [];
+    }
+
+    const res = await this.request('GET', '/latest.json');
+    if (!res.ok || typeof res.json !== 'object' || res.json === null) {
+      return [];
+    }
+
+    const rawTopics = (res.json as { topic_list?: { topics?: unknown } })
+      .topic_list?.topics;
+    if (!Array.isArray(rawTopics)) {
+      return [];
+    }
+
+    const categories = await this.resolveCategoryNames();
+    const mappedAll: CommunityTopic[] = [];
+    for (const raw of rawTopics) {
+      const topic = this.mapTopic(raw, categories);
+      if (topic) {
+        mappedAll.push(topic);
+      }
+    }
+
+    // Guarantee "newest first" server-side rather than trusting Discourse's
+    // default order: sort by lastPostedAt descending (nulls last), THEN cap to
+    // the limit. ISO-8601 strings compare chronologically, so a lexical compare
+    // is correct here.
+    mappedAll.sort((a, b) => {
+      if (a.lastPostedAt === b.lastPostedAt) {
+        return 0;
+      }
+      if (a.lastPostedAt === null) {
+        return 1;
+      }
+      if (b.lastPostedAt === null) {
+        return -1;
+      }
+      return b.lastPostedAt.localeCompare(a.lastPostedAt);
+    });
+    const mapped = mappedAll.slice(0, limit);
+
+    // Validate the OUTBOUND mapping at the boundary — a drift degrades to [].
+    const parsed = communityTopicsSchema.safeParse(mapped);
+    if (!parsed.success) {
+      this.logger.warn(
+        'Discourse /latest.json mapping failed contract validation',
+      );
+      return [];
+    }
+    return parsed.data;
+  }
+
+  /** Map a raw Discourse topic to the contract shape, or null when malformed. */
+  private mapTopic(
+    raw: unknown,
+    categories: Map<number, string>,
+  ): CommunityTopic | null {
+    if (typeof raw !== 'object' || raw === null) {
+      return null;
+    }
+    const t = raw as {
+      id?: unknown;
+      title?: unknown;
+      slug?: unknown;
+      posts_count?: unknown;
+      last_posted_at?: unknown;
+      category_id?: unknown;
+    };
+    if (
+      typeof t.id !== 'number' ||
+      typeof t.title !== 'string' ||
+      typeof t.slug !== 'string'
+    ) {
+      return null;
+    }
+    const categoryName =
+      typeof t.category_id === 'number'
+        ? (categories.get(t.category_id) ?? null)
+        : null;
+    return {
+      id: t.id,
+      title: t.title,
+      slug: t.slug,
+      postsCount: typeof t.posts_count === 'number' ? t.posts_count : 0,
+      lastPostedAt:
+        typeof t.last_posted_at === 'string' ? t.last_posted_at : null,
+      categoryName,
+    };
+  }
+
+  /**
+   * Resolve (and cache) the Discourse category id → name map from
+   * `GET /categories.json`. Mirrors `resolveGroupId`: only a successful fetch
+   * is cached, so a transient failure is retried on the next call (categories
+   * simply resolve to `null` in the meantime — never fatal).
+   */
+  private async resolveCategoryNames(): Promise<Map<number, string>> {
+    if (this.categoryNameCache !== undefined) {
+      return this.categoryNameCache;
+    }
+    const res = await this.request('GET', '/categories.json');
+    if (!res.ok || typeof res.json !== 'object' || res.json === null) {
+      return new Map();
+    }
+    const categories = (
+      res.json as { category_list?: { categories?: unknown } }
+    ).category_list?.categories;
+    const map = new Map<number, string>();
+    if (Array.isArray(categories)) {
+      for (const c of categories) {
+        if (
+          typeof c === 'object' &&
+          c !== null &&
+          typeof (c as { id?: unknown }).id === 'number' &&
+          typeof (c as { name?: unknown }).name === 'string'
+        ) {
+          map.set((c as { id: number }).id, (c as { name: string }).name);
+        }
+      }
+    }
+    this.categoryNameCache = map;
+    return map;
   }
 
   /** Resolve (and cache) the numeric id of an arbitrary named group. */

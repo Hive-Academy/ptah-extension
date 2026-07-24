@@ -1,0 +1,20 @@
+<!--
+  Slim Ptah brand bar rendered above Discourse's standard header.
+  Styling lives in common/common.scss (.ptah-brand-bar*).
+
+  Static HTML by design (no {{#if}}/{{settings.*}} interpolation) — Discourse's
+  HTML theme-field templating support was an unverified assumption in an
+  earlier draft and could render as literal text in production. The
+  ptah.live link is hardcoded below instead.
+-->
+<div class="ptah-brand-bar">
+  <a
+    class="ptah-brand-bar__link"
+    href="https://ptah.live"
+    rel="noopener noreferrer"
+  >
+    <span class="ptah-brand-bar__logo"></span>
+    <span class="ptah-brand-bar__wordmark">Ptah</span>
+    <span>&middot; Community</span>
+  </a>
+</div>

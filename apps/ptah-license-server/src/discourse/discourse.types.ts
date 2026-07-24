@@ -8,6 +8,8 @@
  * Discourse admin API (best-effort, non-fatal, audited).
  */
 
+import { z } from 'zod';
+
 /**
  * A validated inbound DiscourseConnect payload (the `sso`/`sig` pair Discourse
  * sends to the provider). Only `nonce` is load-bearing for the response.
@@ -48,4 +50,30 @@ export interface DiscourseSyncResult {
   skipped?: boolean;
   status?: number;
   error?: string;
+}
+
+/**
+ * Outbound contract for the read-only in-app community surface
+ * (`GET /api/v1/community/summary`). The Discourse REST responses are an
+ * external boundary, so the server-side mapping is Zod-validated before it
+ * reaches the browser — a shape drift on Discourse's side degrades to `[]`
+ * rather than leaking an untyped payload.
+ */
+export const communityTopicSchema = z.object({
+  id: z.number(),
+  title: z.string(),
+  slug: z.string(),
+  postsCount: z.number(),
+  lastPostedAt: z.string().nullable(),
+  categoryName: z.string().nullable(),
+});
+
+export type CommunityTopic = z.infer<typeof communityTopicSchema>;
+
+export const communityTopicsSchema = z.array(communityTopicSchema);
+
+/** Response body for `GET /api/v1/community/summary`. */
+export interface CommunitySummary {
+  communityUrl: string | null;
+  topics: CommunityTopic[];
 }

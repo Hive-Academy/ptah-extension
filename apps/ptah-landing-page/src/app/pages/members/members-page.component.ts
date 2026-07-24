@@ -20,6 +20,7 @@ import {
 import { NavigationComponent } from '../../components/navigation.component';
 import {
   BuildersSession,
+  CommunityTopic,
   isMembershipRequiredError,
   MembersApiService,
 } from '../../services/members-api.service';
@@ -29,6 +30,7 @@ import {
   MemberGroupBadge,
 } from '../profile/models/license-data.interface';
 import { BuildersPitchComponent } from './components/builders-pitch.component';
+import { CommunityTopicListComponent } from './components/community-topic-list.component';
 import { SessionCardComponent } from './components/session-card.component';
 
 /** One honest, link-free placeholder for the "Course & artifacts" section. */
@@ -57,6 +59,7 @@ interface ArtifactPlaceholder {
     NavigationComponent,
     SessionCardComponent,
     BuildersPitchComponent,
+    CommunityTopicListComponent,
   ],
   template: `
     <div class="min-h-screen bg-base-100">
@@ -212,6 +215,26 @@ interface ArtifactPlaceholder {
                       Open Community
                     </a>
                   </div>
+
+                  <!-- Latest forum activity (empty list simply shows the CTA) -->
+                  @if (topicsLoading()) {
+                    <div
+                      class="mt-4 border-t border-secondary/10 pt-4 space-y-3"
+                      aria-hidden="true"
+                    >
+                      @for (row of [1, 2, 3]; track row) {
+                        <div class="animate-pulse flex flex-col gap-2">
+                          <div class="h-4 w-3/4 rounded bg-base-300/50"></div>
+                          <div class="h-3 w-1/2 rounded bg-base-300/40"></div>
+                        </div>
+                      }
+                    </div>
+                  } @else if (topics().length > 0) {
+                    <ptah-community-topic-list
+                      [communityUrl]="communityUrl()!"
+                      [topics]="topics()"
+                    />
+                  }
                 } @else {
                   <p class="text-sm text-neutral-content">
                     Your community space is being set up — check back soon.
@@ -281,6 +304,10 @@ export class MembersPageComponent implements OnInit {
   public readonly communityUrl = signal<string | null>(null);
   public readonly memberGroups = signal<MemberGroupBadge[]>([]);
 
+  /** Latest forum topics for the Community card; `[]` = nothing to show. */
+  public readonly topics = signal<CommunityTopic[]>([]);
+  public readonly topicsLoading = signal(false);
+
   /**
    * One-click Discourse SSO login URL — deep-links into the DiscourseConnect
    * handshake so an authenticated Builder lands already logged into the forum
@@ -329,6 +356,8 @@ export class MembersPageComponent implements OnInit {
           this.communityUrl.set(res.communityUrl);
           this.memberGroups.set(res.memberGroups ?? []);
           this.isLoading.set(false);
+          // Only members reach a 200 here — fetch community activity alongside.
+          this.loadCommunitySummary();
         },
         error: (error: unknown) => {
           this.isLoading.set(false);
@@ -341,6 +370,29 @@ export class MembersPageComponent implements OnInit {
               ? error.message
               : 'Failed to load the members area. Please try again.';
           this.errorMessage.set(message);
+        },
+      });
+  }
+
+  /**
+   * Loads the latest forum topics for the Community card. Best-effort and
+   * non-blocking: any failure (or the integration being off) collapses to an
+   * empty list so the card falls back to the plain "Open Community" CTA —
+   * never an error state.
+   */
+  private loadCommunitySummary(): void {
+    this.topicsLoading.set(true);
+    this.membersApi
+      .getCommunitySummary()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.topics.set(res.topics);
+          this.topicsLoading.set(false);
+        },
+        error: () => {
+          this.topics.set([]);
+          this.topicsLoading.set(false);
         },
       });
   }

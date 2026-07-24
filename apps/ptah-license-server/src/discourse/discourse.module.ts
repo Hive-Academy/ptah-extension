@@ -3,9 +3,11 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../app/auth/auth.module';
 import { DiscourseController } from './discourse.controller';
+import { CommunityController } from './community.controller';
 import { DiscourseSsoService } from './discourse-sso.service';
 import { DiscourseAdminProvider } from './discourse-admin.provider';
 import { DiscourseProvisioningService } from './discourse-provisioning.service';
+import { BuildersMembershipService } from './builders-membership.service';
 
 /**
  * DiscourseModule — DiscourseConnect SSO provider + admin group-sync for the
@@ -29,12 +31,17 @@ import { DiscourseProvisioningService } from './discourse-provisioning.service';
 @Global()
 @Module({
   imports: [ConfigModule, PrismaModule, AuthModule],
-  controllers: [DiscourseController],
+  controllers: [DiscourseController, CommunityController],
   providers: [
     DiscourseSsoService,
     DiscourseAdminProvider,
     DiscourseProvisioningService,
+    BuildersMembershipService,
   ],
-  exports: [DiscourseProvisioningService, DiscourseSsoService],
+  exports: [
+    DiscourseProvisioningService,
+    DiscourseSsoService,
+    BuildersMembershipService,
+  ],
 })
 export class DiscourseModule {}

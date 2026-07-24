@@ -98,6 +98,10 @@ export class DiscourseSsoService {
     }
     params.set('admin', payload.isAdmin ? 'true' : 'false');
     params.set('moderator', payload.isAdmin ? 'true' : 'false');
+    // Skip Discourse's onboarding welcome PM on first login — Ptah already
+    // onboards Builders in-app, so the default welcome message is noise. No
+    // avatar_url is asserted: the user model has no avatar/profile-picture field.
+    params.set('suppress_welcome_message', 'true');
 
     const encoded = Buffer.from(params.toString(), 'utf8').toString('base64');
     const sig = this.hmacHex(encoded);

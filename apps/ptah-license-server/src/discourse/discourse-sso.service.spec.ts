@@ -191,6 +191,24 @@ describe('DiscourseSsoService', () => {
       expect(decoded.get('moderator')).toBe('false');
     });
 
+    it('suppresses the Discourse onboarding welcome PM on first login', () => {
+      const svc = buildService();
+      const { sso } = svc.buildResponse({
+        nonce: 'n',
+        externalId: 'u',
+        email: 'e@x.com',
+        name: 'E',
+        isBuilders: true,
+        isAdmin: false,
+      });
+      const decoded = new URLSearchParams(
+        Buffer.from(sso, 'base64').toString('utf8'),
+      );
+      expect(decoded.get('suppress_welcome_message')).toBe('true');
+      // No avatar_url is asserted — the user model has no avatar field.
+      expect(decoded.get('avatar_url')).toBeNull();
+    });
+
     it('produces a hex HMAC sig of the base64 sso payload', () => {
       const svc = buildService();
       const { sso, sig } = svc.buildResponse({

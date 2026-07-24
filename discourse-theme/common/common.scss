@@ -1,0 +1,317 @@
+// =============================================================================
+// Ptah Community — core theme skin
+// =============================================================================
+// Brand tokens sourced from apps/ptah-landing-page/tailwind.config.js (`ink` /
+// `amber` scales) and .ptah/specs/TASK_2026_167/context.md. Dark theme only —
+// this theme is paired 1:1 with the "Ptah" color scheme defined in about.json
+// (see color_schemes.Ptah), so $primary/$secondary/$tertiary/etc below already
+// resolve to the correct brand hex values at compile time. Anything NOT part
+// of Discourse's 10-color scheme (extra neutrals, info/warning) is declared as
+// a plain CSS custom property below instead of invented as a fake Discourse
+// SCSS variable.
+// =============================================================================
+
+// -- Webfonts -----------------------------------------------------------------
+// NOTE (tradeoff, documented per task constraints): this pulls Inter and
+// JetBrains Mono from Google Fonts at page-load time rather than bundling
+// woff2 files inside the theme package. That is one external network request
+// per font family (cached aggressively by browsers/Google's CDN) — no assets
+// are fetched at *theme-build* time, so the package itself stays self-
+// contained/importable offline. If a stricter no-external-requests policy is
+// ever required, replace this @import with self-hosted `@font-face` rules
+// pointing at theme `assets/` files instead.
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+:root {
+  // Extra neutrals beyond Discourse's primary/secondary pair (ink scale).
+  --ptah-bg-950: #08090c; // == $secondary
+  --ptah-bg-900: #0e1015; // == $header_background
+  --ptah-bg-850: #12141a; // card / raised surface
+  --ptah-border: #171a21; // hairline borders
+  --ptah-border-strong: #262a33; // hover / focus borders
+  --ptah-text-muted: #b7bdc9; // secondary text
+
+  // Semantic colors not covered by Discourse's danger/success/love triad.
+  --ptah-warning: #eab308;
+  --ptah-info: #38bdf8;
+
+  // Accent states (amber scale).
+  --ptah-amber: #f5a524; // == $tertiary / $highlight
+  --ptah-amber-hover: #c97e0e;
+  --ptah-amber-bright: #ffbb4d; // == $quaternary
+
+  --ptah-radius-sm: 0.5rem;
+  --ptah-radius-lg: 0.75rem;
+
+  --ptah-font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --ptah-font-mono: "JetBrains Mono", "Fira Code", Menlo, monospace;
+}
+
+// -- Base typography ------------------------------------------------------
+body,
+button,
+input,
+select,
+textarea {
+  font-family: var(--ptah-font-sans);
+}
+
+body {
+  background-color: $secondary;
+  color: $primary;
+}
+
+a {
+  color: $tertiary;
+
+  &:hover {
+    color: var(--ptah-amber-bright);
+  }
+}
+
+pre,
+code,
+.d-editor-textarea-wrapper textarea,
+.hljs {
+  font-family: var(--ptah-font-mono);
+}
+
+pre,
+pre[class*="lang-"],
+.codeblock-buttons {
+  background-color: var(--ptah-bg-850);
+  border: 1px solid var(--ptah-border);
+  border-radius: var(--ptah-radius-sm);
+}
+
+code {
+  background-color: var(--ptah-bg-850);
+  border-radius: 0.25rem;
+}
+
+// -- Surfaces / cards -------------------------------------------------------
+.topic-list,
+.category-boxes,
+.category-boxes-with-topics,
+.user-main,
+.user-preferences,
+.about,
+.admin-container,
+.d-modal .modal-inner-container,
+.boxed .contents,
+.card,
+.topic-map,
+.topic-map__additional-options,
+.user-card,
+.group-card,
+.search-menu-panel,
+.dropdown-menu,
+.select-kit-body {
+  background-color: var(--ptah-bg-850);
+  border-color: var(--ptah-border);
+  border-radius: var(--ptah-radius-lg);
+}
+
+.category-box,
+.badge-category,
+.topic-list .badge-wrapper,
+.category-boxes .category-box-inner {
+  border-radius: var(--ptah-radius-sm);
+}
+
+hr,
+.topic-list tr,
+.topic-list th,
+table.topic-list,
+.user-main .about,
+.container.list-container {
+  border-color: var(--ptah-border);
+}
+
+// -- Buttons ---------------------------------------------------------------
+// Amber is the ONE accent — reserved for primary CTAs/links, not decoration.
+.btn-primary,
+#reply-control .save-or-cancel .btn-primary,
+.btn-primary.create,
+button.btn-primary {
+  background: $tertiary;
+  border-color: $tertiary;
+  color: $secondary;
+  border-radius: var(--ptah-radius-sm);
+
+  &:hover,
+  &:focus {
+    background: var(--ptah-amber-hover);
+    border-color: var(--ptah-amber-hover);
+  }
+
+  &:not(.no-text):not(.btn-hashtag) .d-icon,
+  .d-icon {
+    color: $secondary;
+  }
+}
+
+.btn.btn-default,
+button.btn.btn-icon-text,
+.select-kit.combo-box .select-kit-header,
+.select-kit.dropdown-select-box .select-kit-header {
+  background-color: var(--ptah-bg-900);
+  border: 1px solid var(--ptah-border-strong);
+  color: $primary;
+  border-radius: var(--ptah-radius-sm);
+
+  &:hover {
+    border-color: $tertiary;
+    color: $primary;
+  }
+}
+
+// -- Header ------------------------------------------------------------------
+.d-header,
+#main-outlet-wrapper .d-header-wrap {
+  background-color: $header_background;
+  border-bottom: 1px solid var(--ptah-border);
+}
+
+.d-header .title,
+.d-header a,
+.d-header .icon {
+  color: $header_primary;
+}
+
+.d-header .search-dropdown .search-icon,
+.d-header .icon-button:hover {
+  color: $tertiary;
+}
+
+#site-logo,
+.title .d-icon {
+  border-radius: var(--ptah-radius-sm);
+}
+
+// Slim Ptah brand bar injected via common/header.html (static markup, always
+// on) — sits above the standard Discourse header.
+.ptah-brand-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  background-color: var(--ptah-bg-950);
+  border-bottom: 1px solid var(--ptah-border);
+  font-family: var(--ptah-font-sans);
+  font-size: 0.8125rem;
+  line-height: 1;
+
+  a.ptah-brand-bar__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--ptah-text-muted);
+    text-decoration: none;
+
+    &:hover {
+      color: $tertiary;
+    }
+  }
+
+  .ptah-brand-bar__logo {
+    width: 16px;
+    height: 16px;
+    background-image: url($ptah-logo);
+    background-size: contain;
+    background-repeat: no-repeat;
+  }
+
+  .ptah-brand-bar__wordmark {
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: $primary;
+  }
+}
+
+// -- Topic list ---------------------------------------------------------------
+.topic-list-item,
+tr.topic-list-item {
+  border-bottom: 1px solid var(--ptah-border);
+
+  &:hover {
+    background-color: var(--ptah-bg-850);
+  }
+}
+
+.topic-list-item.visited td.main-link .link-top-line a.title:not(.badge-notification) {
+  color: var(--ptah-text-muted);
+}
+
+.topic-list .main-link a.title,
+.topic-list-item .main-link a.title {
+  color: $primary;
+
+  &:hover {
+    color: $tertiary;
+  }
+}
+
+.topic-list .posts-map .badge-posts,
+.topic-list-item .posts-map .badge-posts {
+  color: var(--ptah-text-muted);
+}
+
+.badge-notification.unread-posts,
+.badge-notification.new-topic {
+  background-color: $tertiary;
+  color: $secondary;
+}
+
+// -- Category badges ----------------------------------------------------------
+.badge-category-bg {
+  border-radius: 0.2rem;
+}
+
+.badge-category {
+  border-radius: var(--ptah-radius-sm);
+  color: $secondary;
+
+  &.--large {
+    border-radius: var(--ptah-radius-sm);
+  }
+}
+
+// -- Semantic alerts / callouts (info + warning aren't part of Discourse's
+// core 10-color scheme, so they're wired to the custom properties above) ----
+.alert.alert-info,
+.d-icon-circle-info {
+  border-left: 3px solid var(--ptah-info);
+}
+
+.alert.alert-warning {
+  border-left: 3px solid var(--ptah-warning);
+}
+
+.alert.alert-error,
+.alert.alert-danger {
+  border-left: 3px solid $danger;
+}
+
+.alert.alert-success {
+  border-left: 3px solid $success;
+}
+
+// -- Scrollbars (WebKit) — keep them dark/on-brand instead of stock gray ------
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--ptah-bg-950);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ptah-border-strong);
+  border-radius: var(--ptah-radius-sm);
+
+  &:hover {
+    background: $tertiary;
+  }
+}
