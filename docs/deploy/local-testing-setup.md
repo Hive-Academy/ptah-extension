@@ -26,15 +26,16 @@ driven by those scripts, not plain compose.
 ```
 Your machine
 ├── docker-compose.yml (this repo)   postgres + license-server + ngrok   :3000
-│      └── extra_hosts: community.localhost → host-gateway  (reaches Discourse)
-└── ~/discourse  (github.com/discourse/discourse)   its own stack        :4200
-       booted with `d/boot_dev`  — side-by-side, talk over localhost
+│      └── extra_hosts: host.docker.internal → host-gateway  (reaches Discourse)
+└── /root/discourse (WSL Ubuntu-24.04, github.com/discourse/discourse)   :3001
+       booted with `d/boot_dev` (Rails remapped :3001→:3000) — talk over localhost
 ```
 
 Because DiscourseConnect SSO is a chain of **browser 302 redirects**, the browser
-only needs to reach `license-server` (`:3000`) and `Discourse` (`:4200`). The one
+only needs to reach `license-server` (`:3000`) and `Discourse` (`:3001`). The one
 server-to-server path is the license server calling Discourse's admin API for
-group-sync — handled by the `community.localhost` host alias below.
+group-sync — the container reaches Discourse at `host.docker.internal:3001`
+(see the localhost-vs-host.docker.internal note in Workstream A).
 
 ---
 
@@ -320,15 +321,15 @@ Revert the two flags to `false` when done so local mirrors the waitlist default.
 Once all three workstreams pass locally, prod is the **same config with real
 values**. Follow `founder-setup-checklist.md` §2 in order; the deltas from local:
 
-| Local                                           | Production                                                            |
-| ----------------------------------------------- | --------------------------------------------------------------------- |
-| Discourse dev container (`d/boot_dev`)          | `discourse_docker` on a DO droplet (`discourse-digitalocean.md` §1–6) |
-| `DISCOURSE_URL=http://community.localhost:4200` | `https://community.ptah.live` + DNS A record + Resend SMTP            |
-| Paddle **sandbox** ids                          | Paddle **live** product/prices/discounts (checklist §2.1)             |
-| `.env` (dev secrets)                            | `.env.prod` (add the Discourse block — see runbook §4)                |
-| local Postgres (migrated)                       | `prisma migrate deploy` against the prod DB (checklist §2.4)          |
-| Google OAuth (same client)                      | **reuse the same client/token**                                       |
-| `BUILDERS_CHECKOUT_ENABLED=false`               | flip to `true` at launch (checklist §2.5)                             |
+| Local                                  | Production                                                            |
+| -------------------------------------- | --------------------------------------------------------------------- |
+| Discourse dev container (`d/boot_dev`) | `discourse_docker` on a DO droplet (`discourse-digitalocean.md` §1–6) |
+| `DISCOURSE_URL=http://localhost:3001`  | `https://community.ptah.live` + DNS A record + Resend SMTP            |
+| Paddle **sandbox** ids                 | Paddle **live** product/prices/discounts (checklist §2.1)             |
+| `.env` (dev secrets)                   | `.env.prod` (add the Discourse block — see runbook §4)                |
+| local Postgres (migrated)              | `prisma migrate deploy` against the prod DB (checklist §2.4)          |
+| Google OAuth (same client)             | **reuse the same client/token**                                       |
+| `BUILDERS_CHECKOUT_ENABLED=false`      | flip to `true` at launch (checklist §2.5)                             |
 
 Is it hard? No — the code is done and you've already proven the wiring locally.
 Prod is provisioning a droplet, one DNS record, mirroring the Paddle product, and
