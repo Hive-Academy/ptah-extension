@@ -122,6 +122,15 @@ export interface LicenseData {
    * with no group assignment.
    */
   memberGroups?: MemberGroupBadge[];
+
+  /**
+   * Base URL of the Discourse community forum (mirrors the server's
+   * DISCOURSE_URL). `null` when the Discourse integration is disabled — the
+   * one-click "Community" entry must be hidden in that case. Optional so
+   * older/cached `/licenses/me` responses without the field still parse;
+   * callers should default a missing value to `null`.
+   */
+  communityUrl?: string | null;
 }
 
 /** Whether a plan value is a Ptah Builders membership. */

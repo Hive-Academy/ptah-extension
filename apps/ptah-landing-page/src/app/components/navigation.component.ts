@@ -5,6 +5,7 @@ import {
   inject,
   DestroyRef,
   afterNextRender,
+  computed,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
@@ -18,8 +19,10 @@ import {
   X,
   MoreHorizontal,
   Download,
+  MessagesSquare,
 } from 'lucide-angular';
 import { AuthService } from '../services/auth.service';
+import { SubscriptionStateService } from '../services/subscription-state.service';
 
 /**
  * NavigationComponent - Fixed navigation bar with branding and CTAs
@@ -262,6 +265,23 @@ import { AuthService } from '../services/auth.service';
               role="menu"
               aria-label="Community links"
             >
+              @if (isAuthenticated() && forumSsoUrl(); as forumUrl) {
+                <a
+                  [href]="forumUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium"
+                  role="menuitem"
+                  (click)="closeCommunityMenu()"
+                >
+                  <lucide-angular
+                    [img]="MessagesSquareIcon"
+                    class="w-4 h-4"
+                    aria-hidden="true"
+                  />
+                  Community Forum
+                </a>
+              }
               <a
                 href="https://www.reddit.com/r/ptah_coding/"
                 target="_blank"
@@ -507,6 +527,25 @@ import { AuthService } from '../services/auth.service';
             GitHub
           </a>
 
+          <!-- Community Forum Link (Authenticated) -->
+          @if (isAuthenticated() && forumSsoUrl(); as forumUrl) {
+            <a
+              [href]="forumUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="flex items-center gap-2 px-4 py-3 text-white/70 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+              role="menuitem"
+              (click)="closeMobileMenu()"
+            >
+              <lucide-angular
+                [img]="MessagesSquareIcon"
+                class="w-5 h-5"
+                aria-hidden="true"
+              />
+              Community Forum
+            </a>
+          }
+
           <!-- Reddit Link -->
           <a
             href="https://www.reddit.com/r/ptah_coding/"
@@ -602,9 +641,22 @@ export class NavigationComponent {
   public readonly XIcon = X;
   public readonly MoreIcon = MoreHorizontal;
   public readonly DownloadIcon = Download;
+  public readonly MessagesSquareIcon = MessagesSquare;
 
   private readonly authService = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly subscriptionState = inject(SubscriptionStateService);
+
+  /**
+   * One-click Discourse SSO login URL, derived from `communityUrl` on
+   * `/licenses/me`. Deep-links into the DiscourseConnect handshake so the
+   * `ptah_auth` cookie logs the user straight into the forum. `null` when the
+   * integration is off — the Community Forum entry is hidden in that case.
+   */
+  public readonly forumSsoUrl = computed<string | null>(() => {
+    const base = this.subscriptionState.communityUrl();
+    return base ? `${base}/session/sso?return_path=%2F` : null;
+  });
 
   /**
    * Signal tracking scroll position
@@ -634,7 +686,13 @@ export class NavigationComponent {
   public readonly isAuthenticated = signal<boolean | null>(null);
 
   constructor() {
-    afterNextRender(() => this.checkAuthState());
+    afterNextRender(() => {
+      this.checkAuthState();
+      this.subscriptionState
+        .fetchSubscriptionState()
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe();
+    });
   }
 
   /**

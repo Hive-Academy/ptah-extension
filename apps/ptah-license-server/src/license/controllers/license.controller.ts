@@ -66,6 +66,12 @@ export class LicenseController {
     }
   }
 
+  /** DISCOURSE_URL (trimmed, no trailing slash) or null when unset. */
+  private communityUrl(): string | null {
+    const url = this.configService.get<string>('DISCOURSE_URL')?.trim();
+    return url ? url.replace(/\/+$/, '') : null;
+  }
+
   /**
    * Verify a license key
    *
@@ -150,6 +156,7 @@ export class LicenseController {
         status: 'none',
         message: 'User not found',
         checkoutEnabled,
+        communityUrl: this.communityUrl(),
       };
     }
     const license = await this.prisma.license.findFirst({
@@ -182,6 +189,7 @@ export class LicenseController {
         subscription: null,
         memberGroups,
         checkoutEnabled,
+        communityUrl: this.communityUrl(),
       };
     }
     let daysRemaining: number | undefined;
@@ -217,6 +225,7 @@ export class LicenseController {
       reason,
       memberGroups,
       checkoutEnabled,
+      communityUrl: this.communityUrl(),
       subscription:
         subscription && subscription.status !== 'expired'
           ? {

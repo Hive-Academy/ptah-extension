@@ -107,6 +107,7 @@ describe('DiscourseSsoService', () => {
         email: 'buyer@example.com',
         name: 'Buyer Example',
         isBuilders: true,
+        isAdmin: false,
       });
 
       const back = svc.parseAndValidate(sso, sig);
@@ -128,6 +129,7 @@ describe('DiscourseSsoService', () => {
         email: 'e@x.com',
         name: 'E',
         isBuilders: true,
+        isAdmin: false,
       });
       const decoded = new URLSearchParams(
         Buffer.from(sso, 'base64').toString('utf8'),
@@ -144,12 +146,49 @@ describe('DiscourseSsoService', () => {
         email: 'e@x.com',
         name: 'E',
         isBuilders: false,
+        isAdmin: false,
       });
       const decoded = new URLSearchParams(
         Buffer.from(sso, 'base64').toString('utf8'),
       );
       expect(decoded.get('remove_groups')).toBe('builders');
       expect(decoded.get('add_groups')).toBeNull();
+    });
+
+    it('asserts admin=true and moderator=true for allowlisted admins', () => {
+      const svc = buildService();
+      const { sso } = svc.buildResponse({
+        nonce: 'n',
+        externalId: 'u',
+        email: 'admin@x.com',
+        name: 'Admin',
+        isBuilders: true,
+        isAdmin: true,
+      });
+      const decoded = new URLSearchParams(
+        Buffer.from(sso, 'base64').toString('utf8'),
+      );
+      expect(decoded.get('admin')).toBe('true');
+      expect(decoded.get('moderator')).toBe('true');
+    });
+
+    it('asserts admin=false and moderator=false for non-admins (auto-demote next login)', () => {
+      const svc = buildService();
+      const { sso } = svc.buildResponse({
+        nonce: 'n',
+        externalId: 'u',
+        email: 'e@x.com',
+        name: 'E',
+        isBuilders: false,
+        isAdmin: false,
+      });
+      const decoded = new URLSearchParams(
+        Buffer.from(sso, 'base64').toString('utf8'),
+      );
+      // Emitted on EVERY login — never absent — so ADMIN_EMAILS is the single
+      // source of truth and a manually-promoted account is demoted next login.
+      expect(decoded.get('admin')).toBe('false');
+      expect(decoded.get('moderator')).toBe('false');
     });
 
     it('produces a hex HMAC sig of the base64 sso payload', () => {
@@ -160,6 +199,7 @@ describe('DiscourseSsoService', () => {
         email: 'e@x.com',
         name: 'E',
         isBuilders: true,
+        isAdmin: false,
       });
       const expected = createHmac('sha256', SECRET).update(sso).digest('hex');
       expect(sig).toBe(expected);

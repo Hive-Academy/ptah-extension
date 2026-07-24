@@ -26,6 +26,9 @@ export interface DiscourseSsoResponse {
 /**
  * Identity + entitlement we assert to Discourse for the logged-in user.
  * `isBuilders` decides `add_groups` vs `remove_groups: 'builders'`.
+ * `isAdmin` drives the DiscourseConnect `admin`/`moderator` booleans (asserted
+ * on every login from the `ADMIN_EMAILS` allowlist — the single source of
+ * truth, so a manually-promoted account is auto-demoted next login).
  */
 export interface DiscourseSsoPayload {
   nonce: string;
@@ -33,6 +36,7 @@ export interface DiscourseSsoPayload {
   email: string;
   name: string;
   isBuilders: boolean;
+  isAdmin: boolean;
 }
 
 /**

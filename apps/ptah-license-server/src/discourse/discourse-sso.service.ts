@@ -74,10 +74,16 @@ export class DiscourseSsoService {
 
   /**
    * Build a signed DiscourseConnect response asserting identity + the
-   * `builders` group entitlement.
+   * `builders` group entitlement + admin/moderator status.
    *
    * `add_groups: 'builders'` for members, `remove_groups: 'builders'` otherwise
    * — so a lapsed member is actively pulled out of the group on next login.
+   *
+   * `admin`/`moderator` are emitted on EVERY login (both `true` for allowlisted
+   * admins, both `false` otherwise) so `ADMIN_EMAILS` is the single source of
+   * truth — a manually-promoted account is auto-demoted next login, mirroring
+   * how `remove_groups=builders` demotes lapsed members. `isAdmin` is computed
+   * in the controller and passed in; this codec stays pure (no DB/HTTP).
    */
   buildResponse(payload: DiscourseSsoPayload): DiscourseSsoResponse {
     const params = new URLSearchParams();
@@ -90,6 +96,8 @@ export class DiscourseSsoService {
     } else {
       params.set('remove_groups', 'builders');
     }
+    params.set('admin', payload.isAdmin ? 'true' : 'false');
+    params.set('moderator', payload.isAdmin ? 'true' : 'false');
 
     const encoded = Buffer.from(params.toString(), 'utf8').toString('base64');
     const sig = this.hmacHex(encoded);

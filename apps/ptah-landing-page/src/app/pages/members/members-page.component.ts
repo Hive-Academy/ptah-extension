@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   inject,
   OnInit,
@@ -188,7 +189,7 @@ interface ArtifactPlaceholder {
               </div>
 
               <div class="px-6 py-5">
-                @if (communityUrl(); as url) {
+                @if (communitySsoUrl(); as url) {
                   <div
                     class="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                   >
@@ -279,6 +280,17 @@ export class MembersPageComponent implements OnInit {
   public readonly sessions = signal<BuildersSession[]>([]);
   public readonly communityUrl = signal<string | null>(null);
   public readonly memberGroups = signal<MemberGroupBadge[]>([]);
+
+  /**
+   * One-click Discourse SSO login URL — deep-links into the DiscourseConnect
+   * handshake so an authenticated Builder lands already logged into the forum
+   * (no second click). `null` exactly when `communityUrl` is null, preserving
+   * the existing "being set up" fallback.
+   */
+  public readonly communitySsoUrl = computed<string | null>(() => {
+    const base = this.communityUrl();
+    return base ? `${base}/session/sso?return_path=%2F` : null;
+  });
 
   /** Honest, link-free placeholders — no fake URLs. */
   protected readonly artifactPlaceholders: readonly ArtifactPlaceholder[] = [

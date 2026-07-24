@@ -76,6 +76,7 @@ export class DiscourseController {
     //    to Discourse.
     const isBuilders = await this.isBuildersMember(user.id);
     const name = await this.resolveName(user.id, user.email);
+    const isAdmin = this.isAdminEmail(user.email);
 
     const response = this.ssoService.buildResponse({
       nonce: request.nonce,
@@ -83,6 +84,7 @@ export class DiscourseController {
       email: user.email,
       name,
       isBuilders,
+      isAdmin,
     });
 
     const target = new URL(`${this.discourseBaseUrl()}/session/sso_login`);
@@ -125,6 +127,31 @@ export class DiscourseController {
     return (this.configService.get<string>('DISCOURSE_URL') || '')
       .trim()
       .replace(/\/+$/, '');
+  }
+
+  /**
+   * True when `email` is in the comma-separated ADMIN_EMAILS allowlist
+   * (split on `,`, `trim().toLowerCase()`, empties filtered — the exact parse
+   * semantics of AdminGuard). Unlike the guard this fails CLOSED *silently*
+   * when ADMIN_EMAILS is unset (→ false, no throw): SSO must still succeed for
+   * non-admins, just without admin/moderator asserted.
+   */
+  private isAdminEmail(email: string): boolean {
+    const raw = this.configService.get<string>('ADMIN_EMAILS');
+    if (!raw || raw.trim().length === 0) {
+      // Fail closed, but leave an operator breadcrumb: on a deploy where the
+      // allowlist is accidentally dropped, every admin is silently demoted to a
+      // regular Discourse user on next login — this line makes that greppable.
+      this.logger.warn(
+        'ADMIN_EMAILS is not configured — Discourse SSO asserting admin=false for all users',
+      );
+      return false;
+    }
+    const allowlist = raw
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    return allowlist.includes(email.trim().toLowerCase());
   }
 
   /** Build a display name from the DB profile, falling back to the email local part. */

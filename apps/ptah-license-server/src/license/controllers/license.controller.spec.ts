@@ -167,6 +167,7 @@ describe('LicenseController', () => {
         status: 'none',
         message: 'User not found',
         checkoutEnabled: false,
+        communityUrl: null,
       });
       // Must not even look up the license if user is missing.
       expect(prisma.license.findFirst).not.toHaveBeenCalled();
@@ -336,6 +337,59 @@ describe('LicenseController', () => {
       expect(result['plan']).toBe('builders');
       expect(result['planName']).toBe('Ptah Builders');
       expect(result['checkoutEnabled']).toBe(true);
+    });
+
+    it('returns communityUrl=null when DISCOURSE_URL is unset (all branches)', async () => {
+      // Default beforeEach ConfigService.get returns undefined for every key.
+      // user-not-found branch:
+      prisma.user.findUnique.mockResolvedValueOnce(null);
+      const notFound = (await controller.getMyLicense(
+        makeAuthedReq(),
+      )) as Record<string, unknown>;
+      expect(notFound['communityUrl']).toBeNull();
+
+      // no-active-license branch:
+      prisma.user.findUnique.mockResolvedValueOnce(makeUser());
+      prisma.license.findFirst.mockResolvedValueOnce(null);
+      const noLicense = (await controller.getMyLicense(
+        makeAuthedReq(),
+      )) as Record<string, unknown>;
+      expect(noLicense['communityUrl']).toBeNull();
+
+      // has-license branch:
+      prisma.user.findUnique.mockResolvedValueOnce(makeUser());
+      prisma.license.findFirst.mockResolvedValueOnce(
+        makeLicense({ plan: 'builders', expiresAt: null }),
+      );
+      const hasLicense = (await controller.getMyLicense(
+        makeAuthedReq(),
+      )) as Record<string, unknown>;
+      expect(hasLicense['communityUrl']).toBeNull();
+    });
+
+    it('returns DISCOURSE_URL trimmed (no trailing slash) as communityUrl when set', async () => {
+      const configService = {
+        get: jest.fn((key: string) =>
+          key === 'DISCOURSE_URL' ? '  https://forum.ptah.live/  ' : undefined,
+        ),
+      } as unknown as ConfigService;
+      controller = new LicenseController(
+        licenseService,
+        prisma as unknown as PrismaService,
+        configService,
+        memberGroups as unknown as MemberGroupsService,
+      );
+      prisma.user.findUnique.mockResolvedValueOnce(makeUser());
+      prisma.license.findFirst.mockResolvedValueOnce(
+        makeLicense({ plan: 'builders', expiresAt: null }),
+      );
+
+      const result = (await controller.getMyLicense(makeAuthedReq())) as Record<
+        string,
+        unknown
+      >;
+
+      expect(result['communityUrl']).toBe('https://forum.ptah.live');
     });
   });
 
