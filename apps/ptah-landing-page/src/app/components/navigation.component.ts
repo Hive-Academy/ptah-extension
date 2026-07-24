@@ -6,10 +6,11 @@ import {
   DestroyRef,
   afterNextRender,
   computed,
+  ElementRef,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { RouterLink, RouterLinkActive, Router } from '@angular/router';
 import {
   LucideAngularModule,
   User,
@@ -17,7 +18,7 @@ import {
   LogOut,
   Menu,
   X,
-  MoreHorizontal,
+  ChevronDown,
   Download,
   MessagesSquare,
 } from 'lucide-angular';
@@ -27,20 +28,30 @@ import { SubscriptionStateService } from '../services/subscription-state.service
 /**
  * NavigationComponent - Fixed navigation bar with branding and CTAs
  *
- * Features:
- * - Fully transparent at top, solid on scroll
- * - Backdrop blur effect
- * - Ptah logo and branding
- * - Navigation links: Pricing, Login/Profile (based on auth state)
- * - Discord link with icon
- * - Primary "Download Ptah" desktop-app CTA button
- * - Auth-aware: Shows Profile when logged in, Login/Sign Up when not
+ * Declutter & consolidate redesign (TASK_2026_168):
+ * - Top row consolidated to: Product ▾ (Features, Builders), Pricing, Docs,
+ *   Community ▾ (Community Forum-gated, Discord, GitHub, Reddit, LinkedIn),
+ *   Download Ptah CTA, and — authenticated only — a User ▾ avatar menu
+ *   (Members, Profile, divider, Logout). Unauthenticated keeps Login + Sign Up
+ *   inline before the CTA.
+ * - Three disclosure menus are driven by a single tri-state `openMenu` signal
+ *   guaranteeing mutual exclusion. Escape closes the open menu (and returns
+ *   focus to its trigger); outside-click closes it (host listeners).
+ * - Fully transparent at top, solid on scroll; backdrop blur; auth-aware.
  */
 @Component({
   selector: 'ptah-navigation',
-  imports: [CommonModule, NgOptimizedImage, RouterLink, LucideAngularModule],
+  imports: [
+    CommonModule,
+    NgOptimizedImage,
+    RouterLink,
+    RouterLinkActive,
+    LucideAngularModule,
+  ],
   host: {
     '(window:scroll)': 'onScroll()',
+    '(document:keydown.escape)': 'closeMenuAndRefocus()',
+    '(document:click)': 'onDocumentClick($event)',
   },
   template: `
     <nav
@@ -87,29 +98,65 @@ import { SubscriptionStateService } from '../services/subscription-state.service
 
       <!-- Desktop Navigation Links + CTAs -->
       <div class="hidden md:flex items-center gap-6">
-        <!-- Features Anchor -->
-        <a
-          routerLink="/"
-          fragment="features"
-          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
-          aria-label="Jump to features"
-        >
-          Features
-        </a>
+        <!-- Product Disclosure Menu (Features, Builders) -->
+        <div class="relative">
+          <button
+            type="button"
+            id="product-menu-trigger"
+            class="flex items-center gap-1 text-sm font-medium transition-colors rounded-md px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+            [ngClass]="
+              openMenu() === 'product'
+                ? 'text-amber-500'
+                : 'text-white/80 hover:text-amber-500'
+            "
+            aria-haspopup="menu"
+            [attr.aria-expanded]="openMenu() === 'product'"
+            aria-controls="product-menu"
+            (click)="toggleMenu('product')"
+          >
+            Product
+            <lucide-angular
+              [img]="ChevronDownIcon"
+              class="w-4 h-4 transition-transform duration-200"
+              [class.rotate-180]="openMenu() === 'product'"
+              aria-hidden="true"
+            />
+          </button>
 
-        <!-- Builders Anchor -->
-        <a
-          routerLink="/"
-          fragment="builders"
-          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
-          aria-label="Jump to Ptah Builders membership"
-        >
-          Builders
-        </a>
+          @if (openMenu() === 'product') {
+            <div
+              id="product-menu"
+              class="absolute left-0 top-full mt-2 w-40 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
+              role="menu"
+              aria-labelledby="product-menu-trigger"
+            >
+              <a
+                routerLink="/"
+                fragment="features"
+                class="flex items-center px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                role="menuitem"
+                (click)="closeMenu()"
+              >
+                Features
+              </a>
+              <a
+                routerLink="/"
+                fragment="builders"
+                class="flex items-center px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                role="menuitem"
+                (click)="closeMenu()"
+              >
+                Builders
+              </a>
+            </div>
+          }
+        </div>
 
         <!-- Pricing Link -->
         <a
           routerLink="/pricing"
+          routerLinkActive="text-amber-500"
+          [routerLinkActiveOptions]="{ exact: true }"
           class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
           aria-label="View pricing plans"
         >
@@ -127,59 +174,149 @@ import { SubscriptionStateService } from '../services/subscription-state.service
           Docs
         </a>
 
-        <!-- Download Link -->
-        <a
-          routerLink="/download"
-          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
-          aria-label="Download desktop app"
-        >
-          Download
-        </a>
-
-        @if (isAuthenticated()) {
-          <!-- Members Link (Authenticated) -->
-          <a
-            routerLink="/members"
-            class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1 flex items-center gap-1.5"
-            aria-label="View the Builders members area"
-          >
-            <lucide-angular
-              [img]="UsersIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Members
-          </a>
-
-          <!-- Profile Link (Authenticated) -->
-          <a
-            routerLink="/profile"
-            class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1 flex items-center gap-1.5"
-            aria-label="View your profile"
-          >
-            <lucide-angular
-              [img]="UserIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Profile
-          </a>
-
-          <!-- Logout Button (Authenticated) -->
+        <!-- Community Disclosure Menu (Forum-gated, Discord, GitHub, Reddit, LinkedIn) -->
+        <div class="relative">
           <button
             type="button"
-            class="text-white/60 hover:text-red-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1 flex items-center gap-1.5"
-            aria-label="Sign out of your account"
-            (click)="handleLogout()"
+            id="community-menu-trigger"
+            class="flex items-center gap-1 text-sm font-medium transition-colors rounded-md px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+            [ngClass]="
+              openMenu() === 'community'
+                ? 'text-amber-500'
+                : 'text-white/80 hover:text-amber-500'
+            "
+            aria-haspopup="menu"
+            [attr.aria-expanded]="openMenu() === 'community'"
+            aria-controls="community-menu"
+            (click)="toggleMenu('community')"
           >
+            Community
             <lucide-angular
-              [img]="LogOutIcon"
-              class="w-4 h-4"
+              [img]="ChevronDownIcon"
+              class="w-4 h-4 transition-transform duration-200"
+              [class.rotate-180]="openMenu() === 'community'"
               aria-hidden="true"
             />
-            Logout
           </button>
-        } @else {
+
+          @if (openMenu() === 'community') {
+            <div
+              id="community-menu"
+              class="absolute right-0 top-full mt-2 w-48 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
+              role="menu"
+              aria-labelledby="community-menu-trigger"
+            >
+              <!-- Community Forum (one-click SSO deep-link, authenticated only) -->
+              @if (isAuthenticated() && forumSsoUrl(); as forumUrl) {
+                <a
+                  [href]="forumUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                  role="menuitem"
+                  (click)="closeMenu()"
+                >
+                  <lucide-angular
+                    [img]="MessagesSquareIcon"
+                    class="w-4 h-4"
+                    aria-hidden="true"
+                  />
+                  Community Forum
+                </a>
+              }
+
+              <!-- Discord Link -->
+              <a
+                href="https://discord.gg/pZcbrqNRzq"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                role="menuitem"
+                (click)="closeMenu()"
+              >
+                <svg
+                  class="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.947 2.418-2.157 2.418z"
+                  />
+                </svg>
+                Discord
+              </a>
+
+              <!-- GitHub Link -->
+              <a
+                href="https://github.com/Hive-Academy/ptah-extension"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                role="menuitem"
+                (click)="closeMenu()"
+              >
+                <svg
+                  class="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"
+                  />
+                </svg>
+                GitHub
+              </a>
+
+              <!-- Reddit Link -->
+              <a
+                href="https://www.reddit.com/r/ptah_coding/"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                role="menuitem"
+                (click)="closeMenu()"
+              >
+                <svg
+                  class="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.249-.561 1.249-1.249 0-.688-.562-1.249-1.25-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 0-.463.327.327 0 0 0-.231-.094.33.33 0 0 0-.232.094c-.53.53-1.563.764-2.498.764-.935 0-1.982-.234-2.498-.764a.326.326 0 0 0-.232-.094z"
+                  />
+                </svg>
+                Reddit
+              </a>
+
+              <!-- LinkedIn Link -->
+              <a
+                href="https://www.linkedin.com/showcase/ptah-coding-orchestra/"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                role="menuitem"
+                (click)="closeMenu()"
+              >
+                <svg
+                  class="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"
+                  />
+                </svg>
+                LinkedIn
+              </a>
+            </div>
+          }
+        </div>
+
+        @if (!isAuthenticated()) {
           <!-- Login Link (Not Authenticated) -->
           <a
             routerLink="/login"
@@ -199,136 +336,10 @@ import { SubscriptionStateService } from '../services/subscription-state.service
           </a>
         }
 
-        <!-- Divider -->
-        <div class="h-6 w-px bg-white/10" aria-hidden="true"></div>
-
-        <!-- Discord Link -->
-        <a
-          href="https://discord.gg/pZcbrqNRzq"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-white/70 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md p-1"
-          aria-label="Join Discord server"
-        >
-          <svg
-            class="w-5 h-5"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path
-              d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.947 2.418-2.157 2.418z"
-            />
-          </svg>
-        </a>
-
-        <!-- GitHub Link -->
-        <a
-          href="https://github.com/Hive-Academy/ptah-extension"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-white/70 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md p-1"
-          aria-label="View on GitHub"
-        >
-          <svg
-            class="w-5 h-5"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path
-              d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"
-            />
-          </svg>
-        </a>
-
-        <!-- Community Overflow Dropdown -->
-        <div class="relative">
-          <button
-            type="button"
-            class="text-white/70 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md p-1 flex items-center"
-            [attr.aria-expanded]="communityMenuOpen()"
-            aria-haspopup="true"
-            aria-label="More community links"
-            (click)="toggleCommunityMenu()"
-          >
-            <lucide-angular
-              [img]="MoreIcon"
-              class="w-5 h-5"
-              aria-hidden="true"
-            />
-          </button>
-
-          @if (communityMenuOpen()) {
-            <div
-              class="absolute right-0 top-full mt-2 w-44 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
-              role="menu"
-              aria-label="Community links"
-            >
-              @if (isAuthenticated() && forumSsoUrl(); as forumUrl) {
-                <a
-                  [href]="forumUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium"
-                  role="menuitem"
-                  (click)="closeCommunityMenu()"
-                >
-                  <lucide-angular
-                    [img]="MessagesSquareIcon"
-                    class="w-4 h-4"
-                    aria-hidden="true"
-                  />
-                  Community Forum
-                </a>
-              }
-              <a
-                href="https://www.reddit.com/r/ptah_coding/"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium"
-                role="menuitem"
-                (click)="closeCommunityMenu()"
-              >
-                <svg
-                  class="w-4 h-4"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.249-.561 1.249-1.249 0-.688-.562-1.249-1.25-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 0-.463.327.327 0 0 0-.231-.094.33.33 0 0 0-.232.094c-.53.53-1.563.764-2.498.764-.935 0-1.982-.234-2.498-.764a.326.326 0 0 0-.232-.094z"
-                  />
-                </svg>
-                Reddit
-              </a>
-              <a
-                href="https://www.linkedin.com/showcase/ptah-coding-orchestra/"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium"
-                role="menuitem"
-                (click)="closeCommunityMenu()"
-              >
-                <svg
-                  class="w-4 h-4"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"
-                  />
-                </svg>
-                LinkedIn
-              </a>
-            </div>
-          }
-        </div>
-
-        <!-- Primary Download CTA -->
+        <!-- Primary Download CTA (always visible) -->
         <a
           routerLink="/download"
+          routerLinkActive="bg-amber-400"
           class="inline-flex items-center justify-center gap-2 bg-amber-500 text-ink-950 px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
           aria-label="Download the Ptah desktop app"
         >
@@ -339,6 +350,107 @@ import { SubscriptionStateService } from '../services/subscription-state.service
           />
           Download Ptah
         </a>
+
+        @if (isAuthenticated()) {
+          <!-- User Disclosure Menu (Members, Profile, divider, Logout) -->
+          <div class="relative">
+            <button
+              type="button"
+              id="user-menu-trigger"
+              class="flex items-center gap-1 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+              aria-haspopup="menu"
+              [attr.aria-expanded]="openMenu() === 'user'"
+              aria-controls="user-menu"
+              aria-label="Account menu"
+              (click)="toggleMenu('user')"
+            >
+              <!--
+                Avatar = Option A (recommended for this pass): generic circular
+                badge with the User lucide icon, zero new HTTP calls / signals.
+                Option B (future upgrade): derive email-initials from
+                authService.getCurrentUser() and render them as text instead of
+                the icon — flagged as a follow-up, out of scope for declutter.
+              -->
+              <span
+                class="w-9 h-9 rounded-full bg-ink-800 border border-white/10 text-white/80 hover:border-amber-500/40 hover:text-amber-500 transition-colors flex items-center justify-center"
+                [ngClass]="{
+                  'ring-2 ring-amber-400': accountSectionActive(),
+                  'ring-1 ring-amber-500/30':
+                    openMenu() === 'user' && !accountSectionActive(),
+                }"
+              >
+                <lucide-angular
+                  [img]="UserIcon"
+                  class="w-5 h-5"
+                  aria-hidden="true"
+                />
+              </span>
+              <lucide-angular
+                [img]="ChevronDownIcon"
+                class="w-4 h-4 text-white/80 transition-transform duration-200"
+                [class.rotate-180]="openMenu() === 'user'"
+                aria-hidden="true"
+              />
+            </button>
+
+            @if (openMenu() === 'user') {
+              <div
+                id="user-menu"
+                class="absolute right-0 top-full mt-2 w-48 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
+                role="menu"
+                aria-labelledby="user-menu-trigger"
+              >
+                <!-- Members Link -->
+                <a
+                  routerLink="/members"
+                  class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                  role="menuitem"
+                  (click)="closeMenu()"
+                >
+                  <lucide-angular
+                    [img]="UsersIcon"
+                    class="w-4 h-4"
+                    aria-hidden="true"
+                  />
+                  Members
+                </a>
+
+                <!-- Profile Link -->
+                <a
+                  routerLink="/profile"
+                  class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                  role="menuitem"
+                  (click)="closeMenu()"
+                >
+                  <lucide-angular
+                    [img]="UserIcon"
+                    class="w-4 h-4"
+                    aria-hidden="true"
+                  />
+                  Profile
+                </a>
+
+                <!-- Divider -->
+                <div class="h-px bg-white/10 my-1" aria-hidden="true"></div>
+
+                <!-- Logout Button -->
+                <button
+                  type="button"
+                  class="flex items-center gap-2.5 px-4 py-2 w-full text-left text-white/70 hover:text-red-400 hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                  role="menuitem"
+                  (click)="handleLogout(); closeMenu()"
+                >
+                  <lucide-angular
+                    [img]="LogOutIcon"
+                    class="w-4 h-4"
+                    aria-hidden="true"
+                  />
+                  Logout
+                </button>
+              </div>
+            }
+          </div>
+        }
       </div>
     </nav>
 
@@ -359,6 +471,7 @@ import { SubscriptionStateService } from '../services/subscription-state.service
         aria-label="Mobile navigation menu"
       >
         <div class="flex flex-col py-4 px-4 space-y-1">
+          <!-- Primary nav (ungrouped) -->
           <!-- Features Anchor -->
           <a
             routerLink="/"
@@ -403,18 +516,18 @@ import { SubscriptionStateService } from '../services/subscription-state.service
             Docs
           </a>
 
-          <!-- Download Link -->
-          <a
-            routerLink="/download"
-            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
-            role="menuitem"
-            (click)="closeMobileMenu()"
-          >
-            Download
-          </a>
+          <!-- Divider -->
+          <div class="h-px bg-white/10 my-2" aria-hidden="true"></div>
 
           @if (isAuthenticated()) {
-            <!-- Members Link (Authenticated) -->
+            <!-- ACCOUNT section -->
+            <div
+              class="px-4 pt-1 pb-1 text-xs font-semibold uppercase tracking-wide text-white/40"
+            >
+              Account
+            </div>
+
+            <!-- Members Link -->
             <a
               routerLink="/members"
               class="flex items-center gap-2 px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
@@ -429,7 +542,7 @@ import { SubscriptionStateService } from '../services/subscription-state.service
               Members
             </a>
 
-            <!-- Profile Link (Authenticated) -->
+            <!-- Profile Link -->
             <a
               routerLink="/profile"
               class="flex items-center gap-2 px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
@@ -444,7 +557,7 @@ import { SubscriptionStateService } from '../services/subscription-state.service
               Profile
             </a>
 
-            <!-- Logout Button (Authenticated) -->
+            <!-- Logout Button -->
             <button
               type="button"
               class="flex items-center gap-2 px-4 py-3 text-white/60 hover:text-red-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium w-full text-left"
@@ -482,6 +595,32 @@ import { SubscriptionStateService } from '../services/subscription-state.service
 
           <!-- Divider -->
           <div class="h-px bg-white/10 my-2" aria-hidden="true"></div>
+
+          <!-- COMMUNITY section -->
+          <div
+            class="px-4 pt-1 pb-1 text-xs font-semibold uppercase tracking-wide text-white/40"
+          >
+            Community
+          </div>
+
+          <!-- Community Forum Link (Authenticated) -->
+          @if (isAuthenticated() && forumSsoUrl(); as forumUrl) {
+            <a
+              [href]="forumUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="flex items-center gap-2 px-4 py-3 text-white/70 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+              role="menuitem"
+              (click)="closeMobileMenu()"
+            >
+              <lucide-angular
+                [img]="MessagesSquareIcon"
+                class="w-5 h-5"
+                aria-hidden="true"
+              />
+              Community Forum
+            </a>
+          }
 
           <!-- Discord Link -->
           <a
@@ -527,25 +666,6 @@ import { SubscriptionStateService } from '../services/subscription-state.service
             GitHub
           </a>
 
-          <!-- Community Forum Link (Authenticated) -->
-          @if (isAuthenticated() && forumSsoUrl(); as forumUrl) {
-            <a
-              [href]="forumUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="flex items-center gap-2 px-4 py-3 text-white/70 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
-              role="menuitem"
-              (click)="closeMobileMenu()"
-            >
-              <lucide-angular
-                [img]="MessagesSquareIcon"
-                class="w-5 h-5"
-                aria-hidden="true"
-              />
-              Community Forum
-            </a>
-          }
-
           <!-- Reddit Link -->
           <a
             href="https://www.reddit.com/r/ptah_coding/"
@@ -589,6 +709,9 @@ import { SubscriptionStateService } from '../services/subscription-state.service
             </svg>
             LinkedIn
           </a>
+
+          <!-- Divider -->
+          <div class="h-px bg-white/10 my-2" aria-hidden="true"></div>
 
           <!-- Primary Download CTA -->
           <a
@@ -639,13 +762,15 @@ export class NavigationComponent {
   public readonly LogOutIcon = LogOut;
   public readonly MenuIcon = Menu;
   public readonly XIcon = X;
-  public readonly MoreIcon = MoreHorizontal;
+  public readonly ChevronDownIcon = ChevronDown;
   public readonly DownloadIcon = Download;
   public readonly MessagesSquareIcon = MessagesSquare;
 
   private readonly authService = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly subscriptionState = inject(SubscriptionStateService);
+  private readonly router = inject(Router);
+  private readonly elementRef = inject(ElementRef);
 
   /**
    * One-click Discourse SSO login URL, derived from `communityUrl` on
@@ -673,9 +798,13 @@ export class NavigationComponent {
   public readonly mobileMenuOpen = signal(false);
 
   /**
-   * Signal tracking the desktop community overflow menu open state
+   * Single tri-state signal driving all three desktop disclosure menus
+   * (Product / Community / User). Only one may be open at a time — mutual
+   * exclusion is guaranteed for free by a single source of truth.
    */
-  public readonly communityMenuOpen = signal(false);
+  public readonly openMenu = signal<'product' | 'community' | 'user' | null>(
+    null,
+  );
 
   /**
    * Signal tracking authentication state
@@ -684,6 +813,16 @@ export class NavigationComponent {
    * - false: User is not authenticated
    */
   public readonly isAuthenticated = signal<boolean | null>(null);
+
+  /**
+   * True when the current route is inside an account-scoped section
+   * (`/profile` or `/members`) — rings the avatar trigger to signal
+   * "you are here" for the User menu.
+   */
+  public readonly accountSectionActive = computed<boolean>(() => {
+    const url = this.router.url;
+    return url.startsWith('/profile') || url.startsWith('/members');
+  });
 
   constructor() {
     afterNextRender(() => {
@@ -754,16 +893,51 @@ export class NavigationComponent {
   }
 
   /**
-   * Toggle the desktop community overflow menu
+   * Toggle a desktop disclosure menu. Opening a menu implicitly closes any
+   * other open menu (mutual exclusion via the single tri-state signal).
    */
-  public toggleCommunityMenu(): void {
-    this.communityMenuOpen.update((open) => !open);
+  public toggleMenu(menu: 'product' | 'community' | 'user'): void {
+    this.openMenu.update((current) => (current === menu ? null : menu));
   }
 
   /**
-   * Close the desktop community overflow menu
+   * Close whichever desktop disclosure menu is open. Used by menu-item clicks:
+   * activating an item either navigates (focus moves to the new content) or
+   * opens an external tab, so we deliberately do NOT force focus back onto the
+   * trigger here — that would snap a keyboard user away from the destination.
+   * The Escape path uses `closeMenuAndRefocus()` instead.
    */
-  public closeCommunityMenu(): void {
-    this.communityMenuOpen.set(false);
+  public closeMenu(): void {
+    this.openMenu.set(null);
+  }
+
+  /**
+   * Close the open desktop disclosure menu AND return keyboard focus to its
+   * trigger button. Bound to the `document:keydown.escape` host listener — the
+   * standard menu-button pattern where Escape returns focus to the trigger.
+   */
+  public closeMenuAndRefocus(): void {
+    const menu = this.openMenu();
+    if (menu === null) {
+      return;
+    }
+    this.openMenu.set(null);
+    const trigger = this.elementRef.nativeElement.querySelector(
+      `#${menu}-menu-trigger`,
+    ) as HTMLElement | null;
+    trigger?.focus();
+  }
+
+  /**
+   * Close any open desktop disclosure menu when the user clicks outside the
+   * navigation. Because `:host { display: contents }` keeps the host element a
+   * real DOM node wrapping both the nav bar and the mobile overlay, a
+   * `.contains()` check treats clicks anywhere inside the nav as "inside" —
+   * only clicks elsewhere on the page close the menu.
+   */
+  public onDocumentClick(event: Event): void {
+    if (!this.elementRef.nativeElement.contains(event.target as Node)) {
+      this.openMenu.set(null);
+    }
   }
 }
