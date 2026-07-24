@@ -1,7 +1,7 @@
 /**
  * Ptah CLI Spawn Options Service
  *
- * Injectable singleton that assembles premium feature options for spawnAgent().
+ * Injectable singleton that assembles spawn options for spawnAgent().
  * Handles MCP server detection, enhanced prompts, plugin resolution,
  * hooks, and compaction configuration.
  *
@@ -9,12 +9,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import type { AuthEnv } from '@ptah-extension/shared';
-import {
-  Logger,
-  TOKENS,
-  isPremiumTier,
-  type LicenseService,
-} from '@ptah-extension/vscode-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IMcpServerStatus,
@@ -40,7 +35,6 @@ import type { EnhancedPromptsService } from '@ptah-extension/agent-generation';
  * Assembled spawn options returned by assembleSpawnOptions()
  */
 export interface PtahSpawnAssembly {
-  readonly isPremium: boolean;
   /** System prompt mode: 'preset-append' uses claude_code base, 'standalone' uses Ptah harness */
   readonly systemPromptMode: 'preset-append' | 'standalone';
   readonly systemPromptContent: string | undefined;
@@ -56,8 +50,6 @@ export interface PtahSpawnAssembly {
 export class PtahCliSpawnOptions {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER)
     private readonly subagentHookHandler: SubagentHookHandler,
     @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
@@ -73,7 +65,7 @@ export class PtahCliSpawnOptions {
   ) {}
 
   /**
-   * Assemble all premium spawn options for a headless agent.
+   * Assemble all spawn options for a headless agent.
    *
    * @param authEnv - Isolated auth environment for the agent
    * @param cwd - Working directory
@@ -85,28 +77,13 @@ export class PtahCliSpawnOptions {
     cwd: string,
     projectGuidance?: string,
   ): Promise<PtahSpawnAssembly> {
-    let isPremium = false;
-    try {
-      const licenseStatus = await this.licenseService.verifyLicense();
-      isPremium = isPremiumTier(licenseStatus);
-    } catch (error) {
-      this.logger.warn(
-        `[PtahCliSpawnOptions] License verification failed, defaulting to non-premium: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
-
     const mcpServerRunning = this.isMcpServerRunning();
-    const enhancedPromptsContent = await this.resolveEnhancedPromptsContent(
-      cwd,
-      isPremium,
-    );
+    const enhancedPromptsContent =
+      await this.resolveEnhancedPromptsContent(cwd);
     const activeProviderId = getActiveProviderId(authEnv);
     const promptResult = assembleSystemPrompt({
       providerId: activeProviderId,
       authEnv,
-      isPremium,
       mcpServerRunning,
       enhancedPromptsContent,
     });
@@ -119,15 +96,14 @@ export class PtahCliSpawnOptions {
       ]
         .filter(Boolean)
         .join('\n\n') || undefined;
-    const mcpServers: Record<string, McpHttpServerConfig> =
-      isPremium && mcpServerRunning
-        ? {
-            ptah: {
-              type: 'http' as const,
-              url: `http://localhost:${PTAH_MCP_PORT}`,
-            },
-          }
-        : {};
+    const mcpServers: Record<string, McpHttpServerConfig> = mcpServerRunning
+      ? {
+          ptah: {
+            type: 'http' as const,
+            url: `http://localhost:${PTAH_MCP_PORT}`,
+          },
+        }
+      : {};
     let hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined;
     if (this.subagentHookHandler || this.compactionHookHandler) {
       hooks = {};
@@ -150,7 +126,6 @@ export class PtahCliSpawnOptions {
 
     this.logger.info('[PtahCliSpawnOptions] Assembled spawn options', {
       cwd,
-      isPremium,
       mcpServerRunning,
       mcpEnabled: Object.keys(mcpServers).length > 0,
       hasEnhancedPrompts: !!enhancedPromptsContent,
@@ -160,7 +135,6 @@ export class PtahCliSpawnOptions {
     });
 
     return {
-      isPremium,
       systemPromptMode: promptResult.mode,
       systemPromptContent: fullSystemPromptContent,
       mcpServers,
@@ -184,13 +158,12 @@ export class PtahCliSpawnOptions {
   }
 
   /**
-   * Resolve project-specific guidance content for premium users.
+   * Resolve project-specific guidance content.
    */
   private async resolveEnhancedPromptsContent(
     workspacePath: string | undefined,
-    isPremium: boolean,
   ): Promise<string | undefined> {
-    if (!isPremium || !workspacePath) {
+    if (!workspacePath) {
       return undefined;
     }
     try {
@@ -210,12 +183,9 @@ export class PtahCliSpawnOptions {
   }
 
   /**
-   * Resolve plugin paths for premium users.
+   * Resolve plugin paths.
    */
-  private resolvePluginPaths(isPremium: boolean): string[] | undefined {
-    if (!isPremium) {
-      return undefined;
-    }
+  private resolvePluginPaths(): string[] | undefined {
     try {
       const config = this.pluginLoader.getWorkspacePluginConfig();
       if (!config.enabledPluginIds || config.enabledPluginIds.length === 0) {

@@ -268,7 +268,6 @@ OUTPUT FORMAT:
         model,
         prompt,
         systemPromptAppend: systemPrompt,
-        isPremium: sdkConfig?.isPremium ?? false,
         mcpServerRunning: false,
         maxTurns: 25,
         outputFormat: { type: 'json_schema', schema: outputSchema },

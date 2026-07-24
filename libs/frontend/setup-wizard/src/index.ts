@@ -16,7 +16,6 @@ export { PromptEnhancementComponent } from './lib/components/prompt-enhancement.
 export { GenerationProgressComponent } from './lib/components/generation-progress.component';
 export { CompletionComponent } from './lib/components/completion.component';
 export { ConfirmationModalComponent } from './lib/components/confirmation-modal.component';
-export { PremiumUpsellComponent } from './lib/components/premium-upsell.component';
 export { AnalysisTranscriptComponent } from './lib/components/analysis-transcript.component';
 export { AnalysisStatsDashboardComponent } from './lib/components/analysis-stats-dashboard.component';
 export { EnhancedPromptsSummaryCardComponent } from './lib/components/cards/enhanced-prompts-summary-card.component';

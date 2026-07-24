@@ -81,12 +81,20 @@ export interface AgentOrchestrationConfig {
   copilotModel: string;
   /** Per-CLI model: Cursor model (empty string = SDK default) */
   cursorModel: string;
+  /** Per-CLI model: Antigravity model (empty string = SDK default). No reasoning-effort control — effort is baked into agy's model labels. */
+  antigravityModel?: string;
+  /** Per-CLI model: opencode model (empty string = CLI default). Format is `provider/model`, e.g. `anthropic/claude-sonnet-4-5`. */
+  opencodeModel?: string;
+  /** Per-CLI model: Pi model (empty string = CLI default). Format is `provider/model`, e.g. `openai/gpt-4o`. */
+  piModel?: string;
   /** Whether a Cursor API key is configured (CURSOR_API_KEY or provider.cursor.apiKey). The raw key is never returned to the UI. */
   cursorApiKeyConfigured: boolean;
   /** Codex reasoning effort (empty string = SDK default) */
   codexReasoningEffort: string;
   /** Copilot reasoning effort (empty string = SDK default) */
   copilotReasoningEffort: string;
+  /** Pi reasoning effort mapped to `--thinking` (empty string = CLI default). Scale: off|minimal|low|medium|high|xhigh|max. */
+  piReasoningEffort?: string;
   /** @deprecated Codex always runs in full-auto headless mode. Kept for backward compat. */
   codexAutoApprove: boolean;
   /** Auto-approve all Copilot tool calls without user prompt (default: true) */
@@ -99,6 +107,8 @@ export interface AgentOrchestrationConfig {
   disabledMcpNamespaces: string[];
   /** Whether the browser automation tools can navigate to localhost URLs (default: false) */
   browserAllowLocalhost: boolean;
+  /** Kill switch for built-in SDK workflows (e.g. ultracode/workflow keywords). Default false = workflows ON. */
+  workflowsDisabled: boolean;
 }
 
 /** CLI model option for agent:listCliModels */
@@ -114,6 +124,9 @@ export interface AgentListCliModelsResult {
   codex: CliModelOption[];
   copilot: CliModelOption[];
   cursor: CliModelOption[];
+  antigravity: CliModelOption[];
+  opencode: CliModelOption[];
+  pi: CliModelOption[];
 }
 
 /** Parameters for agent:setConfig RPC method */
@@ -128,6 +141,12 @@ export interface AgentSetConfigParams {
   copilotModel?: string;
   /** Cursor model override (empty string = SDK default) */
   cursorModel?: string;
+  /** Antigravity model override (empty string = SDK default). No reasoning-effort control — effort is baked into agy's model labels. */
+  antigravityModel?: string;
+  /** opencode model override (empty string = CLI default). Format is `provider/model`. */
+  opencodeModel?: string;
+  /** Pi model override (empty string = CLI default). Format is `provider/model`. */
+  piModel?: string;
   /** Cursor API key. Written to provider.cursor.apiKey in ~/.ptah/settings.json. Empty string clears it. */
   cursorApiKey?: string;
   /** @deprecated Codex always runs in full-auto headless mode. No-op, kept for backward compat. */
@@ -138,6 +157,8 @@ export interface AgentSetConfigParams {
   codexReasoningEffort?: string;
   /** Copilot reasoning effort override */
   copilotReasoningEffort?: string;
+  /** Pi reasoning effort override, mapped to `--thinking` (off|minimal|low|medium|high|xhigh|max) */
+  piReasoningEffort?: string;
   /** MCP server port (1024-65535, default: 51820) */
   mcpPort?: number;
   /** CLI types to disable (e.g., ['copilot']). Empty array enables all. */
@@ -146,6 +167,8 @@ export interface AgentSetConfigParams {
   disabledMcpNamespaces?: string[];
   /** Whether the browser automation tools can navigate to localhost URLs */
   browserAllowLocalhost?: boolean;
+  /** Kill switch for built-in SDK workflows. true disables workflows; false (default) leaves them ON. */
+  workflowsDisabled?: boolean;
 }
 
 export type AgentContinueErrorCode =

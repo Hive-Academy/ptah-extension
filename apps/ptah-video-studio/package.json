@@ -9,6 +9,10 @@
     "render": "node scripts/render-all.mjs",
     "narrate": "node scripts/narrate.mjs",
     "caption": "node scripts/caption.mjs",
-    "polish": "node scripts/polish.mjs"
+    "polish": "node scripts/polish.mjs",
+    "gen:qr": "node scripts/gen-qr.mjs",
+    "selfshot:transcribe": "node scripts/selfshot-transcribe.mjs",
+    "selfshot:draft": "node scripts/selfshot-draft-beats.mjs",
+    "selfshot:render": "node scripts/selfshot-render.mjs"
   }
 }

@@ -9,7 +9,7 @@ import {
   provideClientHydration,
   withEventReplay,
 } from '@angular/platform-browser';
-import { provideRouter } from '@angular/router';
+import { provideRouter, withInMemoryScrolling } from '@angular/router';
 import { provideGsap } from '@hive-academy/angular-gsap';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
 import { environment } from '../environments/environment';
@@ -27,7 +27,13 @@ export const appConfig: ApplicationConfig = {
       deps: [AuthInitializerService],
       multi: true,
     },
-    provideRouter(routes),
+    provideRouter(
+      routes,
+      withInMemoryScrolling({
+        anchorScrolling: 'enabled',
+        scrollPositionRestoration: 'enabled',
+      }),
+    ),
     provideClientHydration(withEventReplay()),
     provideHttpClient(withInterceptors([apiInterceptor])),
     provideBrowserGlobalErrorListeners(),

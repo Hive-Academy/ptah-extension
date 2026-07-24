@@ -77,4 +77,11 @@ export const PLATFORM_TOKENS = {
    * NullSessionAttachmentGuard (vscode-core default, VS Code host).
    */
   SESSION_ATTACHMENT_GUARD: Symbol.for('PlatformSessionAttachmentGuard'),
+
+  /**
+   * IOAuthCallbackListener — optional OAuth redirect-capture override. Adapter:
+   * VscodeUriOAuthCallbackListener (platform-vscode, VS Code host only). When
+   * unregistered (Electron / CLI), McpOAuthService falls back to the loopback.
+   */
+  OAUTH_CALLBACK_LISTENER: Symbol.for('PlatformOAuthCallbackListener'),
 } as const;

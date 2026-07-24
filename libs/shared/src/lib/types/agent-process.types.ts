@@ -46,7 +46,14 @@ export type AgentStatus =
   | 'timeout'
   | 'stopped';
 
-export type CliType = 'codex' | 'copilot' | 'cursor' | 'ptah-cli';
+export type CliType =
+  | 'codex'
+  | 'copilot'
+  | 'cursor'
+  | 'antigravity'
+  | 'opencode'
+  | 'pi'
+  | 'ptah-cli';
 
 export interface AgentProcessInfo {
   readonly agentId: AgentId;
@@ -101,10 +108,10 @@ export interface SpawnAgentRequest {
   readonly parentSessionId?: string;
   /** Project-specific guidance (enhanced prompts). Injected by MCP server, NOT set by callers. */
   readonly projectGuidance?: string;
-  /** Full system prompt content (prompt harness). Replaces projectGuidance for premium users.
+  /** Full system prompt content (prompt harness). Replaces projectGuidance when available.
    *  Includes core prompt, enhanced prompts, skill catalog. Injected by MCP server, NOT set by callers. */
   readonly systemPrompt?: string;
-  /** Absolute paths to enabled plugin directories. Premium-gated.
+  /** Absolute paths to enabled plugin directories.
    *  Each directory contains skills/ subdirectory with SKILL.md files.
    *  Injected by MCP server, NOT set by callers. */
   readonly pluginPaths?: string[];

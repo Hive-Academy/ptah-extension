@@ -82,12 +82,14 @@ export class ChatLifecycleService {
   }
 
   /**
-   * Fetch the current license status from the backend with retry logic
-   * Called during initialization to populate license information for trial banners
+   * Fetch the current license status from the backend with retry logic.
+   * Called during initialization to populate the membership card (settings
+   * panel) with license/membership identity — there are no trial banners or
+   * gating UI; that surface was removed (licensing is identity-only).
    *
    * Linear backoff retry (3 attempts) to handle transient network failures.
-   * Without retry, users see no trial banner for the entire session if the
-   * initial fetch fails.
+   * Without retry, the membership card would show stale/loading state for
+   * the entire session if the initial fetch fails.
    *
    * @param retries - Number of retry attempts (default: 3)
    */

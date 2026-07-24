@@ -56,13 +56,13 @@ import { PricingGridComponent } from './components/pricing-grid.component';
 export class PricingPageComponent {
   constructor() {
     inject(SeoService).setPage({
-      title: 'Ptah Pricing — Free Community Tier or Pro at $5/Month',
+      title: 'Ptah Pricing — Free, Open Source, Plus Ptah Builders Membership',
       description:
-        'Start free with the Community tier, or unlock the full desktop suite with Pro: $5/month or $50/year after a 100-day free trial. No credit card required.',
+        'Ptah is free and open source — download the full desktop suite today. Join Ptah Builders for live training, a PRD-to-production curriculum, and member skill packs.',
       url: 'https://ptah.live/pricing',
-      ogTitle: 'Ptah Pricing — Community (Free) or Pro ($5/mo)',
+      ogTitle: 'Ptah Pricing — Free and Open Source, Plus Ptah Builders',
       ogDescription:
-        'Free forever on Community. Unlock Memory, Skills, Cron, and Gateways with Pro — $5/month or $50/year after a 100-day free trial.',
+        'The Ptah desktop app — Memory, Skills, Cron, and Gateways — is free and open source. Ptah Builders adds live training, curriculum, and member skill packs.',
     });
   }
 }

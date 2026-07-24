@@ -157,7 +157,6 @@ describe('SdkQueryRunner', () => {
           cwd: '/work',
           model: 'claude-sonnet-4-20250514',
           prompt: 'hi',
-          isPremium: false,
           mcpServerRunning: false,
         }),
       ).rejects.toBeInstanceOf(SdkError);
@@ -173,7 +172,6 @@ describe('SdkQueryRunner', () => {
         cwd: '/work',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
       });
 
@@ -197,7 +195,6 @@ describe('SdkQueryRunner', () => {
         cwd: installCwd,
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
       });
       const [params] = h.queryFn.mock.calls[0] as [
@@ -220,7 +217,6 @@ describe('SdkQueryRunner', () => {
         cwd: '/work/project',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
       });
       const [params] = h.queryFn.mock.calls[0] as [
@@ -236,7 +232,6 @@ describe('SdkQueryRunner', () => {
         cwd: '',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
       });
       const [params] = h.queryFn.mock.calls[0] as [
@@ -272,7 +267,6 @@ describe('SdkQueryRunner', () => {
         cwd: '/work',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
       });
 
@@ -288,7 +282,6 @@ describe('SdkQueryRunner', () => {
         cwd: '/work',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
       });
 
@@ -329,7 +322,6 @@ describe('SdkQueryRunner', () => {
         cwd: '/work',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
         auth,
       });
@@ -462,7 +454,6 @@ describe('SdkQueryRunner', () => {
         cwd: '/work',
         model: 'claude-sonnet-4-20250514',
         prompt: 'hi',
-        isPremium: false,
         mcpServerRunning: false,
         auth,
       });

@@ -533,11 +533,9 @@ describe('SdkAgentAdapter', () => {
       const cfg = {
         ...makeSessionConfig(),
         prompt: 'Write a spec',
-        isPremium: true,
       } as AISessionConfig & {
         tabId: string;
         prompt: string;
-        isPremium: boolean;
       };
       await h.adapter.startChatSession(cfg);
 
@@ -545,7 +543,6 @@ describe('SdkAgentAdapter', () => {
       const callArg = h.sessionLifecycle.executeQuery.mock.calls[0][0];
       expect(callArg).toMatchObject({
         sessionId: 'tab_1',
-        isPremium: true,
         mcpServerRunning: true,
       });
       expect(callArg.initialPrompt).toMatchObject({

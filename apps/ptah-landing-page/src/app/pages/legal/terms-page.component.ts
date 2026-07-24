@@ -34,7 +34,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             >
               Terms of Service
             </h1>
-            <p class="text-white/40">Last Updated: March 2026</p>
+            <p class="text-white/40">Last Updated: July 2026</p>
           </div>
 
           <!-- 1. Acceptance of Terms -->
@@ -139,67 +139,48 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               4. Subscription Plans and Billing
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              Ptah offers the following plans:
+              Ptah is free and open source. The full coding orchestra -- every
+              agent, workspace-intelligence feature, and integration -- is
+              available at no cost under the
+              <strong class="text-white/90">Community</strong> plan. No license
+              key, trial, or payment is required to use it.
             </p>
-            <ul
-              class="list-disc list-inside text-white/70 space-y-2 ml-4 mb-4 leading-relaxed"
-            >
-              <li>
-                <strong class="text-white/90">Community (Free)</strong> -- Basic
-                features at no cost
-              </li>
-              <li>
-                <strong class="text-white/90"
-                  >Pro ($5/month or $50/year)</strong
-                >
-                -- Full access to all features, including a 100-day free trial
-              </li>
-            </ul>
             <p class="text-white/70 mb-4 leading-relaxed">
-              All payments are processed by
+              <strong class="text-white/90">Ptah Builders</strong> is a paid
+              membership priced at
+              <strong class="text-white/90">$29 per month</strong> or
+              <strong class="text-white/90">$290 per year</strong>. Builders is
+              not yet open for self-serve purchase.
+            </p>
+            <p class="text-white/70 mb-4 leading-relaxed">
+              If you join the Ptah Builders waitlist before checkout opens, you
+              become a
+              <strong class="text-white/90">founding member</strong> and receive
+              a discount invite when Builders launches:
+              <strong class="text-white/90">35% off the monthly price</strong>
+              for your first 12 billing cycles, or
+              <strong class="text-white/90">50% off the yearly price</strong>
+              for your first year. The founding discount applies only to the
+              billing cycle(s) stated above; renewals after that period bill at
+              the then-current list price.
+            </p>
+            <p class="text-white/70 mb-4 leading-relaxed">
+              Any active paid subscription is processed by
               <strong class="text-white/90">Paddle</strong> (paddle.com), which
               serves as our merchant of record. Paddle handles all payment
               processing, invoicing, VAT, and sales tax on our behalf. By
               subscribing, you also agree to Paddle's terms of service.
             </p>
             <p class="text-white/70 leading-relaxed">
-              Subscriptions automatically renew at the end of each billing
+              Paid subscriptions automatically renew at the end of each billing
               period. You may cancel your subscription at any time through your
-              account settings or by contacting us. Cancellation takes effect at
-              the end of the current billing period.
+              account settings or by contacting us -- cancellation takes effect
+              at the end of the current billing period, and you retain access
+              until then.
             </p>
           </section>
 
-          <!-- 5. Free Trial -->
-          <section
-            id="free-trial"
-            viewportAnimation
-            [viewportConfig]="sectionConfig"
-            class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
-          >
-            <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              5. Free Trial
-            </h2>
-            <p class="text-white/70 mb-4 leading-relaxed">
-              The Pro plan includes a 100-day free trial. No payment information
-              is required to start the trial. At the end of the trial period:
-            </p>
-            <ul
-              class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
-            >
-              <li>
-                If you choose to subscribe, your selected payment method will be
-                charged
-              </li>
-              <li>
-                If you do not subscribe, your account will revert to the
-                Community (free) plan
-              </li>
-              <li>Free trials are limited to one per user</li>
-            </ul>
-          </section>
-
-          <!-- 6. Acceptable Use -->
+          <!-- 5. Acceptable Use -->
           <section
             id="acceptable-use"
             viewportAnimation
@@ -207,7 +188,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              6. Acceptable Use Policy
+              5. Acceptable Use Policy
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
               You agree not to use the Service to:
@@ -243,7 +224,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              7. Intellectual Property Rights
+              6. Intellectual Property Rights
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
               The Service, including all software, design, text, graphics, and
@@ -267,7 +248,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              8. Limitation of Liability
+              7. Limitation of Liability
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
               To the maximum extent permitted by applicable law, Ptah Extension
@@ -294,7 +275,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              9. Termination
+              8. Termination
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
               We may suspend or terminate your access to the Service at any time
@@ -324,7 +305,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              10. Changes to Terms
+              9. Changes to Terms
             </h2>
             <p class="text-white/70 leading-relaxed">
               We reserve the right to modify these Terms at any time. We will
@@ -343,7 +324,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              11. Governing Law
+              10. Governing Law
             </h2>
             <p class="text-white/70 leading-relaxed">
               These Terms shall be governed by and construed in accordance with
@@ -362,7 +343,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              12. Contact Information
+              11. Contact Information
             </h2>
             <p class="text-white/70 leading-relaxed">
               If you have questions about these Terms, please contact us:

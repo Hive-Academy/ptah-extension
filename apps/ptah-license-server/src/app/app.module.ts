@@ -10,13 +10,17 @@ import { AuthModule } from './auth/auth.module';
 import { PaddleModule } from '../paddle/paddle.module';
 import { EventsModule } from '../events/events.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
-import { TrialReminderModule } from '../trial-reminder/trial-reminder.module';
 import { ContactModule } from '../contact/contact.module';
+import { WaitlistModule } from '../waitlist/waitlist.module';
 import { SessionModule } from '../session/session.module';
 import { HealthModule } from '../health/health.module';
 import { AdminModule } from '../admin/admin.module';
 import { AuditModule } from '../audit/audit.module';
 import { MarketingModule } from '../marketing/marketing.module';
+import { CircleModule } from '../circle/circle.module';
+import { GoogleSessionsModule } from '../google-sessions/google-sessions.module';
+import { DiscourseModule } from '../discourse/discourse.module';
+import { MemberGroupsModule } from '../member-groups/member-groups.module';
 
 /**
  * AppModule - Root application module
@@ -54,13 +58,17 @@ import { MarketingModule } from '../marketing/marketing.module';
     EventEmitterModule.forRoot(),
     PrismaModule,
     AuditModule,
+    CircleModule, // Circle community provisioning for paid Builders members
+    GoogleSessionsModule, // Google Calendar/Meet Builders sessions + members area
+    DiscourseModule, // DiscourseConnect SSO + builders group sync
+    MemberGroupsModule, // Member cohorts (groups) + assignment (@Global)
     LicenseModule,
     AuthModule,
     PaddleModule,
     EventsModule,
     SubscriptionModule, // TASK_2025_123: Subscription management APIs
-    TrialReminderModule, // TASK_2025_142: Trial reminder email notifications
     ContactModule, // Contact form message handling
+    WaitlistModule, // Builders premium-tier waitlist signup
     SessionModule, // Training session request handling
     HealthModule, // Health check with DB validation (TASK_2025_180)
     MarketingModule, // TASK_2025_292: marketing backend foundation

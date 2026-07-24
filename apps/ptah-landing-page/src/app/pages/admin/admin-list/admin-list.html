@@ -33,6 +33,19 @@
             }
           </button>
         }
+
+        @if (s.supportsWaitlistInvite) {
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            (click)="onWaitlistInviteClick()"
+          >
+            Send Founding Invites
+            @if (selectedIds().length > 0) {
+              <span class="badge badge-sm">{{ selectedIds().length }}</span>
+            }
+          </button>
+        }
       </div>
     </header>
 
@@ -46,7 +59,7 @@
       [pageSize]="pageSize()"
       [sortBy]="sortBy()"
       [sortOrder]="sortOrder()"
-      [selectable]="!!s.supportsBulkEmail"
+      [selectable]="!!(s.supportsBulkEmail || s.supportsWaitlistInvite)"
       [loading]="response() === null"
       (sortChange)="onSortChange($event)"
       (pageChange)="onPageChange($event)"
@@ -63,6 +76,15 @@
       />
     }
 
+    @if (s.supportsWaitlistInvite) {
+      <ptah-admin-waitlist-invite-modal
+        [open]="waitlistInviteOpen()"
+        [selectedIds]="selectedIds()"
+        (closeModal)="onWaitlistInviteClose()"
+        (submitted)="onWaitlistInviteSent($event)"
+      />
+    }
+
     @if (bulkEmailToast(); as t) {
       <div class="toast toast-end z-50">
         <div class="alert alert-success">
@@ -70,6 +92,16 @@
             Bulk email sent to {{ t.sent }} user(s)@if (t.failed.length > 0) {
               , {{ t.failed.length }} failed
             }.
+          </span>
+        </div>
+      </div>
+    }
+
+    @if (waitlistInviteToast(); as t) {
+      <div class="toast toast-end z-50">
+        <div class="alert alert-success">
+          <span>
+            Invited {{ t.invited }}, skipped {{ t.skipped }}.
           </span>
         </div>
       </div>

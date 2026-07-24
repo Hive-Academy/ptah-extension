@@ -102,6 +102,45 @@ describe('SubagentStateStore', () => {
     });
   });
 
+  describe('pending teammate name', () => {
+    it('markPendingTeammateName and consumePendingTeammateName round-trip', () => {
+      store.markPendingTeammateName('tc-name', 'backend-developer');
+
+      const consumed = store.consumePendingTeammateName('tc-name');
+      expect(consumed).toBe('backend-developer');
+    });
+
+    it('consumePendingTeammateName returns undefined for unknown id', () => {
+      expect(store.consumePendingTeammateName('no-such')).toBeUndefined();
+    });
+
+    it('consumePendingTeammateName is single-consume — a second call returns undefined', () => {
+      store.markPendingTeammateName('tc-once', 'reviewer');
+      expect(store.consumePendingTeammateName('tc-once')).toBe('reviewer');
+      expect(store.consumePendingTeammateName('tc-once')).toBeUndefined();
+    });
+
+    it('clear() wipes pending teammate names', () => {
+      store.markPendingTeammateName('tc-cleared', 'planner');
+      store.clear();
+
+      expect(store.consumePendingTeammateName('tc-cleared')).toBeUndefined();
+    });
+
+    it('peekPendingTeammateName is non-consuming — repeated peeks return the name', () => {
+      store.markPendingTeammateName('tc-peek', 'architect');
+
+      expect(store.peekPendingTeammateName('tc-peek')).toBe('architect');
+      expect(store.peekPendingTeammateName('tc-peek')).toBe('architect');
+      // consume still works after peeking
+      expect(store.consumePendingTeammateName('tc-peek')).toBe('architect');
+    });
+
+    it('peekPendingTeammateName returns undefined for unknown id', () => {
+      expect(store.peekPendingTeammateName('no-such')).toBeUndefined();
+    });
+  });
+
   describe('injected tracking', () => {
     it('markInjected and wasInjected', () => {
       expect(store.wasInjected('tc-inj')).toBe(false);

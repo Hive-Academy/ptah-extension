@@ -12,7 +12,6 @@ describe('RpcHandler.handleMessage — RpcUserError handling', () => {
     warn: jest.Mock;
     error: jest.Mock;
   };
-  let licenseService: { getCachedStatus: jest.Mock };
   let handler: RpcHandler;
 
   beforeEach(() => {
@@ -23,11 +22,6 @@ describe('RpcHandler.handleMessage — RpcUserError handling', () => {
       warn: jest.fn(),
       error: jest.fn(),
     };
-    licenseService = {
-      getCachedStatus: jest
-        .fn()
-        .mockReturnValue({ valid: true, tier: 'pro', reason: null }),
-    };
 
     container.registerInstance(TOKENS.SENTRY_SERVICE, {
       captureException,
@@ -35,10 +29,9 @@ describe('RpcHandler.handleMessage — RpcUserError handling', () => {
 
     handler = new RpcHandler(
       logger as unknown as ConstructorParameters<typeof RpcHandler>[0],
-      licenseService as unknown as ConstructorParameters<typeof RpcHandler>[1],
       {
         captureException,
-      } as unknown as ConstructorParameters<typeof RpcHandler>[2],
+      } as unknown as ConstructorParameters<typeof RpcHandler>[1],
     );
   });
 
@@ -125,28 +118,17 @@ describe('RpcHandler.handleMessage — RpcUserError handling', () => {
     }).not.toThrow();
   });
 
-  it("exempts 'db:' methods from license check (TASK_2026_THOTH_PERSISTENCE_HARDENING)", async () => {
-    // Replace license service with one that returns no cached status (would
-    // normally block all non-exempt methods).
-    const unlicensedHandler = new RpcHandler(
-      logger as unknown as ConstructorParameters<typeof RpcHandler>[0],
-      {
-        getCachedStatus: jest.fn().mockReturnValue(null),
-      } as unknown as ConstructorParameters<typeof RpcHandler>[1],
-      undefined,
-    );
-
-    unlicensedHandler.registerMethod('db:health', async () => ({
+  it("handles 'db:' prefixed methods (TASK_2026_THOTH_PERSISTENCE_HARDENING)", async () => {
+    handler.registerMethod('db:health', async () => ({
       isOpen: false,
     }));
 
-    const response = await unlicensedHandler.handleMessage({
+    const response = await handler.handleMessage({
       method: 'db:health',
       params: {},
-      correlationId: 'db-health-unlicensed',
+      correlationId: 'db-health',
     });
 
-    // Must NOT return LICENSE_REQUIRED — db: methods are exempt
     expect(response.success).toBe(true);
     expect(response.errorCode).toBeUndefined();
   });

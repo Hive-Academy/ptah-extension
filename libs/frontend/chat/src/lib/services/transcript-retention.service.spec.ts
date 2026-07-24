@@ -23,7 +23,9 @@ interface Harness {
   service: TranscriptRetentionService;
   activeTabId: ReturnType<typeof signal<string | null>>;
   closedTab: ReturnType<typeof signal<ClosedTabEvent | null>>;
-  removedWorkspace$: ReturnType<typeof signal<string | null>>;
+  removedWorkspace$: ReturnType<
+    typeof signal<{ path: string; seq: number } | null>
+  >;
   findMock: jest.Mock;
   clearForTabMock: jest.Mock;
 }
@@ -31,7 +33,7 @@ interface Harness {
 function makeHarness(opts: { tileMode?: boolean } = {}): Harness {
   const activeTabId = signal<string | null>(null);
   const closedTab = signal<ClosedTabEvent | null>(null);
-  const removedWorkspace$ = signal<string | null>(null);
+  const removedWorkspace$ = signal<{ path: string; seq: number } | null>(null);
   // Default: every id resolves (nothing pruned by the removed-workspace effect).
   const findMock = jest.fn((id: string) => ({
     tab: { id },
@@ -187,21 +189,21 @@ describe('TranscriptRetentionService', () => {
     h.findMock.mockImplementation((id: string) =>
       id === 'gone' ? null : { tab: { id }, workspacePath: '/ws' },
     );
-    h.removedWorkspace$.set('/ws/removed');
+    h.removedWorkspace$.set({ path: '/ws/removed', seq: 1 });
     TestBed.tick();
 
     expect(h.service.retainedTabIds()).toEqual(['keep']);
     expect(h.clearForTabMock).toHaveBeenCalledWith('gone');
   });
 
-  it('disposes stale unresolvable ids on activeTabId change even when removedWorkspace$ was already acked by another consumer', () => {
+  it('disposes stale unresolvable ids on activeTabId change even when the removed-workspace emission is never seen by this effect', () => {
     const h = makeHarness();
     h.service.touch('keep');
     h.service.touch('gone');
 
-    // 'gone' no longer resolves, but the shared single-shot removedWorkspace$
-    // signal stays null — a competing consumer (OrchestraCanvasComponent) won
-    // the ack race and cleared it before this instance's effect could run.
+    // 'gone' no longer resolves, but the removedWorkspace$ emission is not
+    // driven here — the activeTabId effect is the race-proof backstop that
+    // prunes stale ids regardless of the append-only removal stream.
     h.findMock.mockImplementation((id: string) =>
       id === 'gone' ? null : { tab: { id }, workspacePath: '/ws' },
     );
@@ -223,7 +225,7 @@ describe('TranscriptRetentionService', () => {
     h.activeTabId.set('tab-1');
     h.closedTab.set({ tabId: 'tab-1', sessionId: null, kind: 'close' });
     h.findMock.mockImplementation(() => null);
-    h.removedWorkspace$.set('/ws/removed');
+    h.removedWorkspace$.set({ path: '/ws/removed', seq: 1 });
     TestBed.tick();
 
     expect(h.service.retainedTabIds()).toEqual([]);

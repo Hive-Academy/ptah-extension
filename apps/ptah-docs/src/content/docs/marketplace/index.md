@@ -11,10 +11,6 @@ The **Marketplace** is Ptah's in-app hub for extending any workspace with new ca
 
 In the Ptah desktop app, click the **Marketplace** entry in the navigation rail. Pick a provider from the list and its catalog mounts on the right.
 
-:::note
-The Marketplace is a **Pro feature**. Free-tier users see the hub with an upgrade prompt; no catalog loads until the license resolves.
-:::
-
 ## Providers
 
 | Provider         | Adds                                                      | Status      |

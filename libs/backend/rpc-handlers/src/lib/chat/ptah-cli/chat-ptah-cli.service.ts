@@ -2,12 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { injectable, inject } from 'tsyringe';
-import {
-  Logger,
-  TOKENS,
-  LicenseService,
-  isPremiumTier,
-} from '@ptah-extension/vscode-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
@@ -24,7 +19,7 @@ import type {
 } from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
-import type { ChatPremiumContextService } from '../session/chat-premium-context.service';
+import type { ChatSdkContextService } from '../session/chat-sdk-context.service';
 
 interface PtahCliSessionEntry {
   readonly agentId: string;
@@ -38,16 +33,14 @@ export class ChatPtahCliService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(TOKENS.CODE_EXECUTION_MCP)
     private readonly codeExecutionMcp: CodeExecutionMCP,
     @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
     private readonly ptahCliRegistry: PtahCliRegistry,
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly agentAdapter: SdkAgentAdapter,
-    @inject(CHAT_TOKENS.PREMIUM_CONTEXT)
-    private readonly premiumContext: ChatPremiumContextService,
+    @inject(CHAT_TOKENS.SDK_CONTEXT)
+    private readonly sdkContext: ChatSdkContextService,
   ) {}
 
   async handleStart(params: ChatStartParams): Promise<{
@@ -79,27 +72,21 @@ export class ChatPtahCliService {
     const summary = summaries.find((s) => s.id === agentId);
     const agentName = summary?.name ?? agentId;
 
-    const licenseStatus = await this.licenseService.verifyLicense();
-    const isPremium = isPremiumTier(licenseStatus);
-    const mcpServerRunning = this.premiumContext.isMcpServerRunning();
+    const mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
-    this.logger.info('[RPC] chat:start - Ptah CLI premium config', {
+    this.logger.info('[RPC] chat:start - Ptah CLI sdk config', {
       tabId,
       ptahCliId: agentId,
-      isPremium,
       mcpServerRunning,
     });
 
-    if (isPremium && mcpServerRunning) {
+    if (mcpServerRunning) {
       this.codeExecutionMcp.ensureRegisteredForSubagents();
     }
 
     const enhancedPromptsContent =
-      await this.premiumContext.resolveEnhancedPromptsContent(
-        workspacePath,
-        isPremium,
-      );
-    const pluginPaths = this.premiumContext.resolvePluginPaths(isPremium);
+      await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
+    const pluginPaths = this.sdkContext.resolvePluginPaths();
 
     const stream = await this.agentAdapter.startChatSession({
       tabId,
@@ -109,7 +96,6 @@ export class ChatPtahCliService {
       name,
       prompt,
       files: options?.files,
-      isPremium,
       mcpServerRunning,
       enhancedPromptsContent,
       pluginPaths,
@@ -149,11 +135,8 @@ export class ChatPtahCliService {
       ptahCliAgentId: entry.agentId,
     });
 
-    if (this.premiumContext.isMcpServerRunning()) {
-      const licenseCheck = await this.licenseService.verifyLicense();
-      if (isPremiumTier(licenseCheck)) {
-        this.codeExecutionMcp.ensureRegisteredForSubagents();
-      }
+    if (this.sdkContext.isMcpServerRunning()) {
+      this.codeExecutionMcp.ensureRegisteredForSubagents();
     }
 
     if (!this.agentAdapter.isSessionActive(sessionId)) {

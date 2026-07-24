@@ -28,7 +28,7 @@ describe('AdminController', () => {
 
   const baseDto: CreateLicenseDto = {
     email: 'user@example.com',
-    plan: 'pro',
+    plan: 'builders',
   };
 
   beforeEach(() => {
@@ -55,14 +55,14 @@ describe('AdminController', () => {
       // LicenseService invoked with DTO shape (no extra fields).
       expect(licenseService.createLicense).toHaveBeenCalledWith({
         email: 'user@example.com',
-        plan: 'pro',
+        plan: 'builders',
       });
 
       // Email delivered with the generated key (internal), not the DTO's absent key.
       expect(emailService.sendLicenseKey).toHaveBeenCalledWith({
         email: 'user@example.com',
         licenseKey: 'ptah_lic_' + 'a'.repeat(64),
-        plan: 'pro',
+        plan: 'builders',
         expiresAt,
       });
 
@@ -71,7 +71,7 @@ describe('AdminController', () => {
         success: true,
         license: {
           email: 'user@example.com',
-          plan: 'pro',
+          plan: 'builders',
           status: 'active',
           expiresAt: expiresAt.toISOString(),
           createdAt: expect.any(String),

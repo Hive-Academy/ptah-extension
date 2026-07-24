@@ -435,7 +435,12 @@ describe('MemoryCuratorTabComponent — purge toolbar', () => {
     try {
       const btn = getPurgeButton(fixture.nativeElement as HTMLElement);
       btn.click();
-      await fixture.whenStable();
+      // The confirm=false path returns synchronously; flush microtasks rather
+      // than awaiting zone stability (WorkspaceIndexingService is unstubbed here
+      // and keeps the zone busy, so whenStable() never resolves).
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
 
       expect(rpcMock.purgeBySubjectPattern).not.toHaveBeenCalled();
     } finally {
@@ -591,6 +596,139 @@ describe('MemoryCuratorTabComponent — purge toolbar', () => {
     } finally {
       confirmSpy.mockRestore();
     }
+  });
+});
+
+describe('MemoryCuratorTabComponent — workspace switch', () => {
+  let workspaceInfoSignal: ReturnType<
+    typeof signal<{ name: string; path: string; type: string } | null>
+  >;
+  let scope: 'workspace' | 'all';
+
+  function buildStateMock(): jest.Mocked<MemoryStateService> {
+    return {
+      entries: jest.fn(() => []),
+      query: jest.fn(() => ''),
+      tierFilter: jest.fn(() => 'all'),
+      scopeFilter: jest.fn(() => scope),
+      stats: jest.fn(() => null),
+      loading: jest.fn(() => false),
+      error: jest.fn(() => null),
+      filteredEntries: jest.fn(() => []),
+      totalsByTier: jest.fn(() => ({
+        core: 0,
+        recall: 0,
+        archival: 0,
+        codeIndex: 0,
+        total: 0,
+      })),
+      setQuery: jest.fn(),
+      setTierFilter: jest.fn(),
+      setScopeFilter: jest.fn(),
+      refresh: jest.fn(() => Promise.resolve()),
+      search: jest.fn(() => Promise.resolve()),
+      pin: jest.fn(() => Promise.resolve()),
+      unpin: jest.fn(() => Promise.resolve()),
+      forget: jest.fn(() => Promise.resolve()),
+      rebuildIndex: jest.fn(() => Promise.resolve()),
+      loadStats: jest.fn(() => Promise.resolve()),
+      symbolQuery: jest.fn(() => ''),
+      symbolItems: jest.fn(() => []),
+      symbolTotal: jest.fn(() => 0),
+      symbolLoading: jest.fn(() => false),
+      symbolError: jest.fn(() => null),
+      symbolOffset: jest.fn(() => 0),
+      symbolLimit: jest.fn(() => 50),
+      setSymbolQuery: jest.fn(),
+      setSymbolPage: jest.fn(),
+      loadSymbols: jest.fn(() => Promise.resolve()),
+    } as unknown as jest.Mocked<MemoryStateService>;
+  }
+
+  function render(state: jest.Mocked<MemoryStateService>) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [MemoryCuratorTabComponent],
+      providers: [
+        { provide: MemoryStateService, useValue: state },
+        {
+          provide: MemoryRpcService,
+          useValue: { purgeBySubjectPattern: jest.fn() },
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        {
+          provide: AppStateManager,
+          useValue: { workspaceInfo: workspaceInfoSignal },
+        },
+        {
+          provide: WorkspaceIndexingService,
+          useValue: indexingServiceStub({ kind: 'never-indexed' }),
+        },
+      ],
+    });
+    return TestBed.createComponent(MemoryCuratorTabComponent);
+  }
+
+  beforeEach(() => {
+    workspaceInfoSignal = signal<{
+      name: string;
+      path: string;
+      type: string;
+    } | null>({ name: 'a', path: '/ws-a', type: 'workspace' });
+  });
+
+  it('reloads list + stats when the active workspace switches (workspace scope)', () => {
+    scope = 'workspace';
+    const state = buildStateMock();
+    const fixture = render(state);
+    fixture.detectChanges(); // ngOnInit + first effect run (records /ws-a)
+
+    state.refresh.mockClear();
+    state.loadStats.mockClear();
+    state.loadSymbols.mockClear();
+
+    workspaceInfoSignal.set({ name: 'b', path: '/ws-b', type: 'workspace' });
+    fixture.detectChanges(); // flush the workspace-switch effect
+
+    expect(state.refresh).toHaveBeenCalled();
+    expect(state.loadStats).toHaveBeenCalled();
+    expect(state.loadSymbols).toHaveBeenCalled();
+  });
+
+  it('skips the refetch on switch when scope is "all" (data is identical)', () => {
+    scope = 'all';
+    const state = buildStateMock();
+    const fixture = render(state);
+    fixture.detectChanges();
+
+    state.refresh.mockClear();
+    state.loadStats.mockClear();
+
+    workspaceInfoSignal.set({ name: 'b', path: '/ws-b', type: 'workspace' });
+    fixture.detectChanges();
+
+    expect(state.refresh).not.toHaveBeenCalled();
+    expect(state.loadStats).not.toHaveBeenCalled();
+  });
+
+  // Issue 7 — baseline-mismatch-at-first-flush. A switch that lands between
+  // component construction and the effect's first flush must be treated as a
+  // real switch (extra fetch), not silently recorded as the baseline. The
+  // switch effect's onWorkspaceSwitch adds one more load pass on top of
+  // ngOnInit + the scope/completedAt effects, so loadSymbols fires 4× here vs
+  // the 3× it would if the racing switch were swallowed.
+  it('fetches for the post-switch workspace when a switch races the first flush', () => {
+    scope = 'workspace';
+    const state = buildStateMock();
+    const fixture = render(state); // constructs, seeding the baseline as '/ws-a'
+
+    // Switch BEFORE the first change detection (which runs ngOnInit + every
+    // constructor effect's first flush together).
+    workspaceInfoSignal.set({ name: 'b', path: '/ws-b', type: 'workspace' });
+
+    fixture.detectChanges();
+
+    expect(state.loadSymbols).toHaveBeenCalledTimes(4);
   });
 });
 

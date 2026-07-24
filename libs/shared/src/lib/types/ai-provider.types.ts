@@ -133,8 +133,8 @@ export interface AISessionConfig {
    * If not specified, defaults to 'enhanced' if enhanced prompts are generated,
    * otherwise falls back to 'claude_code'.
    *
-   * For premium users, PTAH_SYSTEM_PROMPT (MCP documentation) is always injected
-   * regardless of preset selection when MCP server is running.
+   * PTAH_SYSTEM_PROMPT (MCP documentation) is always injected regardless of
+   * preset selection when the MCP server is running.
    */
   readonly preset?: 'claude_code' | 'enhanced';
   /**
@@ -169,6 +169,14 @@ export interface AISessionConfig {
    * track which sessions are kept alive for follow-up `corpus:query` calls.
    */
   readonly isCorpusPrimingSession?: boolean;
+  /**
+   * Kill switch for the SDK's built-in workflows (ultracode/workflow keyword).
+   * Resolved from the persisted `workflows.disabled` ptah config at the session
+   * origination point (chat-session.service) and threaded through to
+   * `SdkQueryOptionsBuilder`, which injects `CLAUDE_CODE_DISABLE_WORKFLOWS=1`
+   * into the query env only when `true`. Absent/false leaves workflows ON.
+   */
+  readonly workflowsDisabled?: boolean;
 }
 
 /**

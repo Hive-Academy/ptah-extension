@@ -258,6 +258,17 @@ export class SessionRegistry {
   }
 
   /**
+   * Get the workspace root (projectPath) for a specific session, by tabId or
+   * realSessionId. Returns undefined when the session is unknown or has no
+   * projectPath. Used to resolve an MCP tool call against the exact session
+   * that issued it, rather than the most-recently-active one — the precise,
+   * concurrency-safe form of {@link getActiveSessionWorkspace}.
+   */
+  getSessionWorkspace(idOrTabId: string): string | undefined {
+    return this.find(idOrTabId)?.config?.projectPath;
+  }
+
+  /**
    * Get session count.
    */
   getActiveSessionCount(): number {

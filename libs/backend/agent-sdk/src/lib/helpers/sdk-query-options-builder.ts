@@ -48,6 +48,7 @@ import { UserPromptExpansionHookHandler } from './user-prompt-expansion-hook-han
 import { StopHookHandler } from './stop-hook-handler';
 import { StopFailureHookHandler } from './stop-failure-hook-handler';
 import { SubagentStopHookHandler } from './subagent-stop-hook-handler';
+import { TeammateLifecycleHookHandler } from './teammate-lifecycle-hook-handler';
 import { SessionEndHookHandler } from './session-end-hook-handler';
 import { ToolFailureHookHandler } from './tool-failure-hook-handler';
 import {
@@ -187,8 +188,6 @@ export interface AssembleSystemPromptInput {
   authEnv: AuthEnv;
   /** User's custom system prompt (from sessionConfig or UI) */
   userSystemPrompt?: string;
-  /** Whether the user has premium features */
-  isPremium: boolean;
   /** Whether the MCP server is currently running */
   mcpServerRunning: boolean;
   /** Enhanced prompts content (AI-generated guidance) */
@@ -216,15 +215,12 @@ export interface SystemPromptAssemblyResult {
  * built-in behavioral guidance, MCP server handling, tool routing, and environment
  * context that the agent needs to function correctly.
  *
- * **Premium users**: PTAH_CORE_SYSTEM_PROMPT is appended to the preset, providing
+ * PTAH_CORE_SYSTEM_PROMPT is always appended to the preset, providing
  * Ptah-specific MCP mandates, formatting rules, AskUserQuestion enforcement,
  * orchestration workflows, CLI agent hierarchy, and git/PR safety. Enhanced prompts
  * (project-specific guidance from the setup wizard) are also appended when available.
  * Some behavioral sections overlap with the preset â€” this is intentional as it
  * reinforces the instructions without contradicting them.
- *
- * **Free tier**: Only basic top-ups appended (identity, user prompt). No Ptah-specific
- * behavioral guidance.
  *
  * Shared function used by SdkQueryOptionsBuilder and PtahCliAdapter.
  *
@@ -234,25 +230,18 @@ export interface SystemPromptAssemblyResult {
 export function assembleSystemPrompt(
   input: AssembleSystemPromptInput,
 ): SystemPromptAssemblyResult {
-  const {
-    providerId,
-    authEnv,
-    userSystemPrompt,
-    isPremium,
-    enhancedPromptsContent,
-  } = input;
+  const { providerId, authEnv, userSystemPrompt, enhancedPromptsContent } =
+    input;
   const appendParts: string[] = [];
   const identityPrompt = buildModelIdentityPrompt(providerId, authEnv);
   if (identityPrompt) {
     appendParts.push(identityPrompt);
   }
-  if (isPremium) {
-    appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
-  }
+  appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
   if (userSystemPrompt) {
     appendParts.push(userSystemPrompt);
   }
-  if (isPremium && enhancedPromptsContent?.trim()) {
+  if (enhancedPromptsContent?.trim()) {
     appendParts.push(enhancedPromptsContent);
   }
 
@@ -289,21 +278,15 @@ export interface QueryOptionsInput {
   /** Callback when SDK removes a worktree */
   onWorktreeRemoved?: WorktreeRemovedCallback;
   /**
-   * Premium user flag - enables MCP server and Ptah system prompt
-   * When true, enables Ptah MCP server and appends PTAH_CORE_SYSTEM_PROMPT
-   * Defaults to false (free tier behavior)
-   */
-  isPremium?: boolean;
-  /**
    * Whether the MCP server is currently running.
-   * When false, MCP config will not be included even for premium users.
+   * When false, MCP config will not be included.
    * This prevents configuring Claude with a dead MCP endpoint.
    * Defaults to true for backward compatibility.
    */
   mcpServerRunning?: boolean;
   /**
    * Enhanced prompts content.
-   * AI-generated project-specific guidance appended as a premium top-up
+   * AI-generated project-specific guidance appended as a top-up
    * alongside the base prompt (either claude_code preset or PTAH_CORE_SYSTEM_PROMPT).
    * Also triggers auto-selection of the Ptah harness path when no explicit preset is set.
    */
@@ -311,7 +294,7 @@ export interface QueryOptionsInput {
   /**
    * Plugin paths to load for this session.
    * Absolute paths to plugin directories resolved by PluginLoaderService.
-   * Only populated for premium users with configured plugins.
+   * Only populated when plugins are configured.
    */
   pluginPaths?: string[];
   /**
@@ -366,6 +349,17 @@ export interface QueryOptionsInput {
    */
   includePartialMessages?: boolean;
   /**
+   * When true, the SDK forwards the full nested subagent conversation
+   * (assistant/user text + thinking) through the message stream so live
+   * subagent transcripts render in the execution tree. Mirrors
+   * `Options.forwardSubagentText`. Defaults to ON when unspecified. This is a
+   * deliberate killswitch: forwarded text shares the per-session capped event
+   * buffer with the root conversation, so a caller can pass `false` to fall
+   * back to the lighter task_* summary path if a chatty subagent is observed
+   * evicting root/sibling events under load.
+   */
+  forwardSubagentText?: boolean;
+  /**
    * Caller-supplied MCP HTTP server overrides â€” merged OVER the registry-
    * built map by `mergeMcpOverride` (caller wins on key collision). Reserved
    * for the Anthropic-compatible HTTP proxy. When `undefined` or an empty
@@ -376,8 +370,8 @@ export interface QueryOptionsInput {
   /**
    * The user's initial message text for this turn.
    * Used to drive a memory recall search so the top-K hits can be prepended to
-   * the system prompt. Only used when `isPremium === true` and the string is
-   * non-empty. Multi-turn sessions should pass the most recent user message.
+   * the system prompt. Only used when the string is non-empty. Multi-turn
+   * sessions should pass the most recent user message.
    */
   initialUserQuery?: string;
   /**
@@ -400,13 +394,16 @@ export interface QueryOptionsInput {
 
 /**
  * SDK query options structure â€” directly aliased from the SDK's canonical
- * `Options` type. The hand-rolled `SdkQueryOptions` interface previously
- * masked phantom fields like `forwardSubagentText` that the SDK silently
- * ignored. Using `Options` directly surfaces compile errors when we attempt
- * to set properties that do not exist in the SDK.
+ * `Options` type. Aliasing `Options` directly surfaces compile errors when we
+ * attempt to set properties that do not exist in the SDK.
  *
- * Subagent visibility now flows via `agentProgressSummaries: true` Option
- * + task_* system messages handled by SdkMessageTransformer.
+ * Subagent visibility flows via two complementary channels, both handled by
+ * SdkMessageTransformer:
+ *  - the built-in task_* system message stream (task_started / task_progress /
+ *    task_updated / task_notification) for the collapsed task-node summary; and
+ *  - `forwardSubagentText: true` (a real Option in SDK 0.3.150) which forwards
+ *    the full nested subagent conversation (assistant/user text + thinking) as
+ *    messages carrying `parent_tool_use_id` = the spawning Task tool_use id.
  */
 export type SdkQueryOptions = Options;
 
@@ -471,6 +468,8 @@ export class SdkQueryOptionsBuilder {
     private readonly sessionStartHookHandler: SessionStartHookHandler,
     @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_HOOK_HANDLER)
     private readonly subagentStopHookHandler: SubagentStopHookHandler,
+    @inject(SDK_TOKENS.SDK_TEAMMATE_LIFECYCLE_HOOK_HANDLER)
+    private readonly teammateLifecycleHookHandler: TeammateLifecycleHookHandler,
     @inject(SDK_TOKENS.SDK_CODE_SYMBOL_PROMPT_INJECTOR, { isOptional: true })
     private readonly codeSymbolPromptInjector?: CodeSymbolPromptInjector,
   ) {}
@@ -503,7 +502,6 @@ export class SdkQueryOptionsBuilder {
       onCompactionStart,
       onWorktreeCreated,
       onWorktreeRemoved,
-      isPremium = false,
       mcpServerRunning = true,
       enhancedPromptsContent,
       pluginPaths,
@@ -513,6 +511,7 @@ export class SdkQueryOptionsBuilder {
       forkSession,
       enableFileCheckpointing,
       includePartialMessages,
+      forwardSubagentText,
       mcpServersOverride,
       initialUserQuery,
       authEnvOverride,
@@ -567,7 +566,6 @@ export class SdkQueryOptionsBuilder {
     }
     const systemPrompt = await this.buildSystemPrompt(
       sessionConfig,
-      isPremium,
       enhancedPromptsContent,
       mcpServerRunning,
       initialUserQuery,
@@ -617,8 +615,7 @@ export class SdkQueryOptionsBuilder {
       hasCanUseToolCallback: !!canUseToolCallback,
       compactionEnabled: compactionConfig.enabled,
       compactionThreshold: compactionConfig.contextTokenThreshold,
-      isPremium,
-      mcpEnabled: isPremium,
+      mcpEnabled: mcpServerRunning,
       hasEnhancedPrompts: !!enhancedPromptsContent,
       pluginCount: pluginPaths?.length ?? 0,
       mcpOverrideKeys: mcpServersOverride
@@ -642,13 +639,25 @@ export class SdkQueryOptionsBuilder {
           preset: 'claude_code' as const,
         },
         mcpServers: this.mergeMcpOverride(
-          this.buildMcpServers(isPremium, mcpServerRunning, sessionId),
+          this.buildMcpServers(mcpServerRunning, sessionId),
           mcpServersOverride,
         ),
         permissionMode,
         allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
         canUseTool: canUseToolCallback,
         includePartialMessages: includePartialMessages ?? true,
+        // Forward the full nested subagent conversation (assistant/user text +
+        // thinking) through the message stream. Forwarded messages carry
+        // `parent_tool_use_id` = the spawning Task tool_use id, which the
+        // message-transform pipeline already propagates onto every emitted event
+        // (message_start / text_delta / thinking_delta / message_complete) via
+        // `parentToolUseId`, and the streaming transformer keys its per-message
+        // state by that same id — so forwarded text is attributed to the correct
+        // subagent node without any transform change. Defaults ON (additive to
+        // the task_* summary path; does not alter existing tool_use/tool_result
+        // subagent handling), but plumbed so a caller can disable it — see the
+        // QueryOptionsInput.forwardSubagentText killswitch note.
+        forwardSubagentText: forwardSubagentText ?? true,
         settingSources: /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(
           effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() ?? '',
         )
@@ -664,6 +673,13 @@ export class SdkQueryOptionsBuilder {
             model,
             effectiveAuthEnv.ANTHROPIC_BASE_URL,
           ),
+          // Kill switch: disable the SDK's built-in workflows (ultracode/workflow
+          // keyword) only when the persisted `workflows.disabled` config resolved
+          // to true at the session origination point (chat-session.service). When
+          // absent/false the env is untouched so workflows stay ON.
+          ...(sessionConfig?.workflowsDisabled
+            ? { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }
+            : {}),
         } as Record<string, string | undefined>,
         stderr: (data: string) => {
           if (data.includes('[ERROR]')) {
@@ -924,13 +940,12 @@ export class SdkQueryOptionsBuilder {
    * Build system prompt configuration.
    *
    * Always uses SDK's `claude_code` preset as base (provides MCP handling, tool routing,
-   * environment context). For premium users, appends PTAH_CORE_SYSTEM_PROMPT with
-   * Ptah-specific MCP mandates, orchestration, and formatting rules. Enhanced prompts
+   * environment context). Always appends PTAH_CORE_SYSTEM_PROMPT with Ptah-specific
+   * MCP mandates, orchestration, and formatting rules. Enhanced prompts
    * (project-specific guidance) are also appended when available.
-   * Memory recall block injected for premium users with a non-empty initialUserQuery.
+   * Memory recall block injected whenever initialUserQuery is non-empty.
    *
    * @param sessionConfig - Session configuration with optional custom system prompt and preset selection
-   * @param isPremium - Whether user has premium features enabled
    * @param enhancedPromptsContent - Optional AI-generated guidance from EnhancedPromptsService
    * @param mcpServerRunning - Whether MCP server is running
    * @param initialUserQuery - First user message text for memory recall
@@ -939,7 +954,6 @@ export class SdkQueryOptionsBuilder {
    */
   private async buildSystemPrompt(
     sessionConfig?: AISessionConfig,
-    isPremium = false,
     enhancedPromptsContent?: string,
     mcpServerRunning = true,
     initialUserQuery?: string,
@@ -959,35 +973,30 @@ export class SdkQueryOptionsBuilder {
       providerId: activeProviderId,
       authEnv: effectiveAuthEnv,
       userSystemPrompt: sessionConfig?.systemPrompt,
-      isPremium,
       mcpServerRunning,
       enhancedPromptsContent,
       preset: sessionConfig?.preset,
     });
     let sessionStartBlock = '';
-    if (isPremium && cwd) {
+    if (cwd) {
       sessionStartBlock =
         await this.memoryPromptInjector.buildSessionStartBlock(cwd);
     }
     let corpusPrimeBlock = '';
     const corpusName = sessionConfig?.corpusName?.trim();
-    if (isPremium && corpusName) {
+    if (corpusName) {
       corpusPrimeBlock =
         await this.memoryPromptInjector.buildCorpusBlock(corpusName);
     }
     let memoryBlock = '';
-    if (isPremium && initialUserQuery?.trim()) {
+    if (initialUserQuery?.trim()) {
       memoryBlock = await this.memoryPromptInjector.buildBlock(
         initialUserQuery,
         cwd,
       );
     }
     let codeSymbolBlock = '';
-    if (
-      isPremium &&
-      initialUserQuery?.trim() &&
-      this.codeSymbolPromptInjector
-    ) {
+    if (initialUserQuery?.trim() && this.codeSymbolPromptInjector) {
       codeSymbolBlock = await this.codeSymbolPromptInjector.buildBlock(
         initialUserQuery,
         cwd,
@@ -1006,12 +1015,10 @@ export class SdkQueryOptionsBuilder {
       finalContentJoined.length > 0 ? finalContentJoined : undefined;
 
     this.logger.info('[SdkQueryOptionsBuilder] System prompt assembled', {
-      isPremium,
       mcpServerRunning,
       mode: 'preset-append',
       hasEnhancedPrompts: !!enhancedPromptsContent,
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-      hasPtahCorePrompt: isPremium,
       hasIdentityPrompt: !!activeProviderId,
       hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
       hasSessionStartBlock: !!sessionStartBlock,
@@ -1034,26 +1041,17 @@ export class SdkQueryOptionsBuilder {
   /**
    * Build MCP servers configuration.
    *
-   * For premium users, enables the Ptah HTTP MCP server (execute_code + 11 namespaces).
-   * Returns an empty object for free-tier users or when the server is not running.
+   * Enables the Ptah HTTP MCP server (execute_code + 11 namespaces).
+   * Returns an empty object when the server is not running.
    */
   private buildMcpServers(
-    isPremium: boolean,
     mcpServerRunning = true,
     sessionId?: string,
   ): Record<string, McpHttpServerConfig> {
-    if (!isPremium) {
-      this.logger.info(
-        '[SdkQueryOptionsBuilder] MCP servers disabled (not premium)',
-        { isPremium, mcpServerRunning },
-      );
-      return {};
-    }
-
     if (!mcpServerRunning) {
       this.logger.info(
         '[SdkQueryOptionsBuilder] MCP servers disabled (server not running)',
-        { isPremium, mcpServerRunning },
+        { mcpServerRunning },
       );
       return {};
     }
@@ -1066,7 +1064,6 @@ export class SdkQueryOptionsBuilder {
       },
     };
     this.logger.info('[SdkQueryOptionsBuilder] MCP servers ENABLED', {
-      isPremium,
       mcpServerRunning,
       mcpUrl: redactMcpUrl(mcpConfig.ptah.url),
     });
@@ -1166,6 +1163,8 @@ export class SdkQueryOptionsBuilder {
       sessionId ?? '',
       cwd,
     );
+    const teammateLifecycleHooks =
+      this.teammateLifecycleHookHandler.createHooks(sessionId ?? '', cwd);
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
     for (const hooks of [
       subagentHooks,
@@ -1181,6 +1180,7 @@ export class SdkQueryOptionsBuilder {
       preToolUseHooks,
       sessionStartHooks,
       subagentStopHooks,
+      teammateLifecycleHooks,
     ]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;
@@ -1193,6 +1193,9 @@ export class SdkQueryOptionsBuilder {
       hookEvents: Object.keys(mergedHooks),
       hasSubagentStart: !!mergedHooks.SubagentStart,
       hasSubagentStop: !!mergedHooks.SubagentStop,
+      hasTaskCreated: !!mergedHooks.TaskCreated,
+      hasTaskCompleted: !!mergedHooks.TaskCompleted,
+      hasTeammateIdle: !!mergedHooks.TeammateIdle,
       hasPreCompact: !!mergedHooks.PreCompact,
       hasWorktreeCreate: !!mergedHooks.WorktreeCreate,
       hasWorktreeRemove: !!mergedHooks.WorktreeRemove,

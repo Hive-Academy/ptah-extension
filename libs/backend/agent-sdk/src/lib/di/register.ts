@@ -61,6 +61,7 @@ import {
   StopHookHandler,
   StopFailureHookHandler,
   SubagentStopHookHandler,
+  TeammateLifecycleHookHandler,
   SessionEndHookCallbackRegistry,
   SessionEndHookHandler,
   ToolFailureCallbackRegistry,
@@ -271,6 +272,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_STOP_HOOK_HANDLER,
     { useClass: SubagentStopHookHandler },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_TEAMMATE_LIFECYCLE_HOOK_HANDLER,
+    { useClass: TeammateLifecycleHookHandler },
     { lifecycle: Lifecycle.Singleton },
   );
 

@@ -1,6 +1,5 @@
 import { Injectable, inject } from '@angular/core';
 import { VSCodeService } from './vscode.service';
-import { AppStateManager } from './app-state.service';
 import { MessageHandler } from './message-router.types';
 import {
   SessionId,
@@ -64,23 +63,6 @@ export class RpcResult<T> {
   isError(): this is RpcResult<T> & { success: false; error: string } {
     return !this.success;
   }
-
-  /**
-   * Check if error is license-related
-   */
-  isLicenseError(): boolean {
-    return (
-      this.errorCode === 'LICENSE_REQUIRED' ||
-      this.errorCode === 'PRO_TIER_REQUIRED'
-    );
-  }
-
-  /**
-   * Check if Pro tier is required
-   */
-  isProRequired(): boolean {
-    return this.errorCode === 'PRO_TIER_REQUIRED';
-  }
 }
 
 /**
@@ -108,35 +90,9 @@ interface RpcResponse<T = unknown> {
  *   // Using typed method wrappers
  *   const result = await claudeRpc.listSessions(workspacePath);
  */
-/**
- * RPC methods allowed for unlicensed users.
- * All other methods will be blocked when isLicensed=false.
- *
- * settings:import is allowed so users can import their license key
- * and credentials from another platform (e.g., VS Code → Electron)
- * directly from the welcome screen.
- */
-const UNLICENSED_ALLOWED_METHODS: readonly string[] = [
-  'license:getStatus',
-  'license:setKey',
-  'command:execute',
-  'settings:import',
-  'config:autopilot-get',
-  'config:models-list',
-  'indexing:getStatus',
-  'indexing:start',
-  'indexing:pause',
-  'indexing:resume',
-  'indexing:cancel',
-  'indexing:setPipelineEnabled',
-  'indexing:dismissStale',
-  'indexing:acknowledgeDisclosure',
-] as const;
-
 @Injectable({ providedIn: 'root' })
 export class ClaudeRpcService implements MessageHandler {
   private readonly vscode = inject(VSCodeService);
-  private readonly appState = inject(AppStateManager);
   private pendingCalls = new Map<
     string,
     (response: RpcResponse<unknown>) => void
@@ -145,17 +101,6 @@ export class ClaudeRpcService implements MessageHandler {
 
   handleMessage(message: { type: string; payload?: unknown }): void {
     this.handleResponse(message as unknown as RpcResponse);
-  }
-
-  /**
-   * Check if the given RPC method is allowed based on license status.
-   * Unlicensed users can only call methods in UNLICENSED_ALLOWED_METHODS.
-   */
-  private isMethodAllowed(method: string): boolean {
-    if (this.appState.isLicensed()) {
-      return true; // Licensed users can call any method
-    }
-    return UNLICENSED_ALLOWED_METHODS.includes(method);
   }
 
   /**
@@ -187,18 +132,6 @@ export class ClaudeRpcService implements MessageHandler {
     params: RpcMethodParams<T>,
     options?: RpcCallOptions,
   ): Promise<RpcResult<RpcMethodResult<T>>> {
-    if (!this.isMethodAllowed(method)) {
-      console.warn(
-        `[ClaudeRpcService] RPC blocked - method "${method}" requires license`,
-      );
-      return new RpcResult<RpcMethodResult<T>>(
-        false,
-        undefined,
-        `License required: ${method}`,
-        'LICENSE_REQUIRED',
-      );
-    }
-
     const correlationId = CorrelationId.create();
     const timeout = options?.timeout ?? 30000;
     const signal = options?.signal;

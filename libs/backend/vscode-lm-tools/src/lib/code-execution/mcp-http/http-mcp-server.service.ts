@@ -121,8 +121,8 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
 
   /**
    * Register the Ptah MCP server in the workspace's .mcp.json for subagent discovery.
-   * Call this ONLY after confirming premium status — free/community users must not
-   * have Ptah MCP tools injected into their subagents.
+   * Callers gate this on the MCP server actually being up (`mcpServerRunning`) —
+   * Ptah's local features, including MCP tool access, are available to everyone.
    *
    * Idempotent: safe to call multiple times (registers only once).
    */

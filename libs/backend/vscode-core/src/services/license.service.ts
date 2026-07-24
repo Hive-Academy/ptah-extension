@@ -37,26 +37,6 @@ export type {
 } from './license/license-types';
 
 /**
- * Determine if a license status represents a premium tier (Pro or Trial Pro).
- *
- * Single source of truth for premium gating logic. Use this function
- * instead of duplicating tier checks across the codebase.
- *
- * Premium = valid license AND (plan.isPremium OR tier is 'pro'/'trial_pro')
- *
- * @param licenseStatus - The license status from verification
- * @returns true if the user has premium features enabled
- */
-export function isPremiumTier(licenseStatus: LicenseStatus): boolean {
-  return (
-    licenseStatus.valid &&
-    (licenseStatus.plan?.isPremium === true ||
-      licenseStatus.tier === 'pro' ||
-      licenseStatus.tier === 'trial_pro')
-  );
-}
-
-/**
  * License Service Implementation (coordinator)
  *
  * Responsibilities:
@@ -133,7 +113,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
    * 2. Get license key from SecretStorage
    * 3. If no key: return { valid: false, reason: 'not_found' } to trigger registration prompt
    * 4. POST to server /api/v1/licenses/verify
-   * 5. If server says invalid (expired/trial_ended/not_found):
+   * 5. If server says invalid (expired/not_found):
    *    auto-clear key and fall back to Community tier
    * 6. ONLY admin revocation returns valid: false (blocks extension)
    * 7. Cache result and emit events
@@ -212,7 +192,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
             reason: status.reason,
           },
         );
-        if (status.reason === 'expired' || status.reason === 'trial_ended') {
+        if (status.reason === 'expired') {
           const previousContext: PreviousUserContext = {
             reason: status.reason,
             user: status.user,

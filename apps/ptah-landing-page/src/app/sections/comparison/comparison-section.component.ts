@@ -1,25 +1,25 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { ComparisonSplitScrollComponent } from './comparison-split-scroll.component';
+import { ComparisonTugMeterComponent } from './comparison-tug-meter.component';
 
 /**
- * ComparisonSectionComponent - Wrapper for Comparison Split Scroll
+ * ComparisonSectionComponent - Wrapper for the Comparison Tug-of-War Meter
  *
  * Complexity Level: 1 (Simple wrapper)
  * Patterns: Composition, delegates to specialized component
  *
- * This component serves as the public-facing section component for the comparison.
- * It delegates all rendering to ComparisonSplitScrollComponent which implements
- * the ParallaxSplitScrollComponent pattern.
+ * This component serves as the public-facing section component for the
+ * comparison. It delegates all rendering to ComparisonTugMeterComponent, which
+ * renders the per-axis demo→production "tug-of-war" meters.
  *
  * SOLID Principles:
  * - Single Responsibility: Wrapper that exposes comparison section to parent
- * - Composition: Delegates to ComparisonSplitScrollComponent
+ * - Composition: Delegates to ComparisonTugMeterComponent
  */
 @Component({
   selector: 'ptah-comparison-section',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ComparisonSplitScrollComponent],
-  template: ` <ptah-comparison-split-scroll /> `,
+  imports: [ComparisonTugMeterComponent],
+  template: ` <ptah-comparison-tug-meter /> `,
   styles: [
     `
       :host {

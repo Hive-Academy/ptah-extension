@@ -12,9 +12,8 @@
   } @else if (segments(); as s) {
     @for (item of [
       { key: 'all', data: s.all },
-      { key: 'proActive', data: s.proActive },
+      { key: 'buildersActive', data: s.buildersActive },
       { key: 'communityActive', data: s.communityActive },
-      { key: 'trialing', data: s.trialing },
       { key: 'subscriptionPastDue', data: s.subscriptionPastDue }
     ]; track item.key) {
       <div

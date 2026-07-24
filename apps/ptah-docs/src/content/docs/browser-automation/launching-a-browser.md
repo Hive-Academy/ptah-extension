@@ -5,10 +5,6 @@ description: Start, inspect, and close Chrome/Chromium instances managed by Ptah
 
 import { Aside } from '@astrojs/starlight/components';
 
-<Aside type="caution" title="Pro tier only">
-Browser Automation requires an active Pro license.
-</Aside>
-
 Ptah manages a single browser instance per workspace. A browser is launched on demand the first time an agent calls a browser tool, and stays alive across tool calls so agents can work across multiple steps without losing page state.
 
 ## Checking status

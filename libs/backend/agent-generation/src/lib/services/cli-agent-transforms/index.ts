@@ -5,6 +5,7 @@
  */
 
 export type { ICliAgentTransformer } from './cli-agent-transformer.interface';
+export { extractFrontmatterDescription } from './transform-rules';
 export { CopilotAgentTransformer } from './copilot-agent-transformer';
 export { MultiCliAgentWriterService } from './multi-cli-agent-writer.service';
 export { CursorAgentTransformer } from './cursor-agent-transformer';

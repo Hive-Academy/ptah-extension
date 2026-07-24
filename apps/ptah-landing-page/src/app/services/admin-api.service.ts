@@ -15,11 +15,11 @@ export type AdminModelKey =
   | 'licenses'
   | 'subscriptions'
   | 'failed-webhooks'
-  | 'trial-reminders'
   | 'session-requests'
   | 'admin-audit-log'
   | 'marketing-campaigns'
-  | 'marketing-campaign-templates';
+  | 'marketing-campaign-templates'
+  | 'waitlist';
 
 // --- Request shapes (outbound — not validated) ---
 
@@ -37,11 +37,20 @@ export interface AdminBulkEmailRequest {
   html: string;
 }
 
+/**
+ * Body for `POST /api/v1/admin/licenses/complimentary`.
+ *
+ * Target the recipient by EITHER `userId` (user-detail path) OR `email`
+ * (Early Adopter approval from a waitlist row, which has no `userId`). Both
+ * are optional at the type level; the server enforces that exactly one is
+ * supplied and resolves/creates the user from the email when needed.
+ */
 export interface IssueComplimentaryLicenseRequest {
-  userId: string;
+  userId?: string;
+  email?: string;
   durationPreset: '30d' | '1y' | '5y' | 'custom' | 'never';
   customExpiresAt?: string;
-  plan: 'pro';
+  plan: 'builders';
   reason: string;
   sendEmail?: boolean;
   stackOnTopOfPaid?: boolean;
@@ -49,9 +58,8 @@ export interface IssueComplimentaryLicenseRequest {
 
 export type MarketingSegmentKey =
   | 'all'
-  | 'proActive'
+  | 'buildersActive'
   | 'communityActive'
-  | 'trialing'
   | 'subscriptionPastDue';
 
 export interface SaveTemplateRequest {
@@ -68,6 +76,52 @@ export interface SendCampaignRequest {
   htmlBody?: string;
   segment?: MarketingSegmentKey;
   userIds?: string[];
+}
+
+/**
+ * POST /api/v1/admin/waitlist/invite — `ids` wins over `batchSize` when both
+ * are provided (server semantics per the founding-invite contract); at least
+ * one MUST be supplied.
+ */
+export interface AdminInviteWaitlistRequest {
+  ids?: string[];
+  batchSize?: number;
+}
+
+/**
+ * Lowercase slug regex for `MemberGroup.key` — MUST mirror the backend
+ * `GROUP_KEY_REGEX` at
+ * `apps/ptah-license-server/src/member-groups/dto/member-group.dto.ts`.
+ */
+export const MEMBER_GROUP_KEY_REGEX = /^[a-z0-9-]{2,40}$/;
+
+/** Body for POST /api/v1/admin/groups. `key` is immutable after create. */
+export interface CreateMemberGroupRequest {
+  key: string;
+  name: string;
+  description?: string;
+  discourseGroup?: string;
+  isDefault?: boolean;
+}
+
+/**
+ * Body for PATCH /api/v1/admin/groups/:id. `null` clears
+ * `description`/`discourseGroup`; `key` is not patchable.
+ */
+export interface UpdateMemberGroupRequest {
+  name?: string;
+  description?: string | null;
+  discourseGroup?: string | null;
+  isDefault?: boolean;
+}
+
+/**
+ * Body for POST /api/v1/admin/groups/:id/assign. Either or both of
+ * `userIds`/`emails` may be supplied; the server resolves + dedupes them.
+ */
+export interface AssignGroupMembersRequest {
+  userIds?: string[];
+  emails?: string[];
 }
 
 // --- Response schemas (inbound — runtime boundary validation) ---
@@ -108,7 +162,6 @@ export type AdminBulkEmailResponse = z.infer<
 const userCascadedCountsSchema = z.object({
   subscriptions: z.number(),
   licenses: z.number(),
-  trialReminders: z.number(),
   sessionRequests: z.number(),
 });
 
@@ -137,7 +190,7 @@ const issueComplimentaryLicenseResponseSchema = z.object({
     id: z.string(),
     userId: z.string(),
     licenseKey: z.string(),
-    plan: z.literal('pro'),
+    plan: z.literal('builders'),
     status: z.literal('active'),
     source: z.literal('complimentary'),
     expiresAt: z.string().nullable(),
@@ -162,9 +215,8 @@ export type MarketingSegmentCounts = z.infer<
 
 const marketingSegmentsResponseSchema = z.object({
   all: marketingSegmentCountsSchema,
-  proActive: marketingSegmentCountsSchema,
+  buildersActive: marketingSegmentCountsSchema,
   communityActive: marketingSegmentCountsSchema,
-  trialing: marketingSegmentCountsSchema,
   subscriptionPastDue: marketingSegmentCountsSchema,
 });
 export type MarketingSegmentsResponse = z.infer<
@@ -193,6 +245,84 @@ const sendCampaignResponseSchema = z.object({
   status: z.literal('in_progress'),
 });
 export type SendCampaignResponse = z.infer<typeof sendCampaignResponseSchema>;
+
+/**
+ * Response for `POST /api/v1/admin/waitlist/invite` — the founding-invite
+ * send. `skipped` counts rows already notified (or, in `ids` mode, ids that
+ * did not resolve to an un-notified waitlist row).
+ */
+const adminInviteWaitlistResponseSchema = z.object({
+  invited: z.number(),
+  skipped: z.number(),
+});
+export type AdminInviteWaitlistResponse = z.infer<
+  typeof adminInviteWaitlistResponseSchema
+>;
+
+const adminStatsWaitlistSchema = z.object({
+  total: z.number(),
+  notified: z.number(),
+  converted: z.number(),
+  last7Days: z.number(),
+});
+
+const adminStatsMembersSchema = z.object({
+  builders: z.number(),
+  community: z.number(),
+});
+
+const adminStatsGroupSchema = z.object({
+  key: z.string(),
+  name: z.string(),
+  memberCount: z.number(),
+});
+
+/** Response for `GET /api/v1/admin/stats` — drives the Overview dashboard. */
+const adminStatsResponseSchema = z.object({
+  waitlist: adminStatsWaitlistSchema,
+  members: adminStatsMembersSchema,
+  groups: z.array(adminStatsGroupSchema),
+  updatedAt: z.string(),
+});
+export type AdminStatsResponse = z.infer<typeof adminStatsResponseSchema>;
+
+/**
+ * A member cohort ("group") as surfaced by `/api/v1/admin/groups`. Mirrors
+ * backend `MemberGroupResponse` at
+ * `apps/ptah-license-server/src/member-groups/member-groups.controller.ts`.
+ */
+const memberGroupSchema = z.object({
+  id: z.string(),
+  key: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  discourseGroup: z.string().nullable(),
+  isDefault: z.boolean(),
+  memberCount: z.number(),
+  createdAt: z.string(),
+});
+export type MemberGroup = z.infer<typeof memberGroupSchema>;
+
+const memberGroupsEnvelopeSchema = z.object({
+  groups: z.array(memberGroupSchema),
+});
+
+/** Response for `POST /api/v1/admin/groups/:id/assign`. */
+const assignGroupMembersResponseSchema = z.object({
+  assigned: z.number(),
+  skipped: z.number(),
+});
+export type AssignGroupMembersResponse = z.infer<
+  typeof assignGroupMembersResponseSchema
+>;
+
+/** Response for `DELETE /api/v1/admin/groups/:id/members/:userId`. */
+const unassignGroupMemberResponseSchema = z.object({
+  removed: z.boolean(),
+});
+export type UnassignGroupMemberResponse = z.infer<
+  typeof unassignGroupMemberResponseSchema
+>;
 
 /**
  * Validates an HTTP response body against a Zod schema at the API boundary.
@@ -326,7 +456,7 @@ export class AdminApiService {
   }
 
   /**
-   * Issues a complimentary Pro license to a user.
+   * Issues a complimentary Builders license to a user.
    * POST /api/v1/admin/licenses/complimentary
    */
   public issueComplimentaryLicense(
@@ -367,5 +497,95 @@ export class AdminApiService {
     return this.http
       .post<unknown>(`${this.base}/marketing/send`, body)
       .pipe(map(validate(sendCampaignResponseSchema, 'POST /marketing/send')));
+  }
+
+  /**
+   * Sends the founding-invite email (checkout links carrying the discount
+   * env IDs) to explicit waitlist ids, or the N oldest un-notified rows when
+   * `batchSize` is used instead. `ids` wins when both are supplied.
+   */
+  public inviteWaitlist(
+    body: AdminInviteWaitlistRequest,
+  ): Observable<AdminInviteWaitlistResponse> {
+    return this.http
+      .post<unknown>(`${this.base}/waitlist/invite`, body)
+      .pipe(
+        map(
+          validate(adminInviteWaitlistResponseSchema, 'POST /waitlist/invite'),
+        ),
+      );
+  }
+
+  /** Overview dashboard stat tiles — waitlist funnel + member counts by tier. */
+  public getStats(): Observable<AdminStatsResponse> {
+    return this.http
+      .get<unknown>(`${this.base}/stats`)
+      .pipe(map(validate(adminStatsResponseSchema, 'GET /stats')));
+  }
+
+  /** Lists every member cohort (group) with its current member count. */
+  public listGroups(): Observable<MemberGroup[]> {
+    return this.http.get<unknown>(`${this.base}/groups`).pipe(
+      map(validate(memberGroupsEnvelopeSchema, 'GET /groups')),
+      map((res) => res.groups),
+    );
+  }
+
+  /**
+   * Creates a member cohort. `isDefault: true` atomically clears the
+   * previous default group server-side.
+   */
+  public createGroup(body: CreateMemberGroupRequest): Observable<MemberGroup> {
+    return this.http
+      .post<unknown>(`${this.base}/groups`, body)
+      .pipe(map(validate(memberGroupSchema, 'POST /groups')));
+  }
+
+  /** Patches a member cohort's mutable fields (`key` is immutable). */
+  public updateGroup(
+    id: string,
+    body: UpdateMemberGroupRequest,
+  ): Observable<MemberGroup> {
+    return this.http
+      .patch<unknown>(`${this.base}/groups/${id}`, body)
+      .pipe(map(validate(memberGroupSchema, `PATCH /groups/${id}`)));
+  }
+
+  /**
+   * Bulk-assigns users (by id and/or pasted email) to a cohort. Skipped
+   * counts already-assigned or unresolved ids/emails — the server does not
+   * return per-item reasons.
+   */
+  public assignGroupMembers(
+    id: string,
+    body: AssignGroupMembersRequest,
+  ): Observable<AssignGroupMembersResponse> {
+    return this.http
+      .post<unknown>(`${this.base}/groups/${id}/assign`, body)
+      .pipe(
+        map(
+          validate(
+            assignGroupMembersResponseSchema,
+            `POST /groups/${id}/assign`,
+          ),
+        ),
+      );
+  }
+
+  /** Removes a single user from a cohort. Idempotent — a missing assignment is a no-op. */
+  public unassignGroupMember(
+    id: string,
+    userId: string,
+  ): Observable<UnassignGroupMemberResponse> {
+    return this.http
+      .delete<unknown>(`${this.base}/groups/${id}/members/${userId}`)
+      .pipe(
+        map(
+          validate(
+            unassignGroupMemberResponseSchema,
+            `DELETE /groups/${id}/members/${userId}`,
+          ),
+        ),
+      );
   }
 }

@@ -17,7 +17,6 @@ import { contextBridge, ipcRenderer } from 'electron';
  */
 const startupConfig = ipcRenderer.sendSync('get-startup-config') as {
   initialView?: string | null;
-  isLicensed?: boolean;
   workspaceRoot?: string;
   workspaceName?: string;
 } | null;
@@ -45,7 +44,6 @@ contextBridge.exposeInMainWorld('ptahConfig', {
   panelId: 'electron-main',
   platform: process.platform, // 'darwin', 'win32', 'linux' — reliable in preload context
   initialView: startupConfig?.initialView || 'chat',
-  isLicensed: startupConfig?.isLicensed ?? true,
 });
 contextBridge.exposeInMainWorld('ptahClipboard', {
   readText: (): Promise<string> => ipcRenderer.invoke('clipboard:read-text'),

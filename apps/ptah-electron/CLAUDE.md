@@ -18,7 +18,7 @@ Standalone Electron 40 desktop build of Ptah. Reuses the Angular webview from `a
 
 ## Key Wiring
 
-- `src/activation/bootstrap.ts` — minimal DI, license verify, full DI, workspace restore, SDK auth.
+- `src/activation/bootstrap.ts` — minimal DI, license/membership verify (non-blocking, identity-only — never gates bootstrap), full DI, workspace restore, SDK auth.
 - `src/activation/wire-runtime.ts` — `IpcBridge`, RPC registration, plugin loader, skill junctions, CLI sync, MCP code execution, git watcher, memory curator, cron scheduler, messaging gateway, symbol watcher.
 - `src/activation/post-window.ts` — startup config IPC handler, `BrowserWindow` creation, auto-updater (production only).
 - `src/di/container.ts` — `ElectronDIContainer`, same phased pattern as VS Code.

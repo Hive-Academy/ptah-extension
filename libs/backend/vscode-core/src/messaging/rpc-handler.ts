@@ -22,10 +22,6 @@
 import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '../di/tokens';
 import type { Logger } from '../logging/logger';
-import type {
-  LicenseService,
-  LicenseStatus,
-} from '../services/license.service';
 import type { SentryService } from '../services/sentry.service';
 import {
   RpcUserError,
@@ -56,7 +52,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'setup-status:',
   'setup-wizard:',
   'llm:', // LLM provider management (API keys, provider status)
-  'license:', // License status for premium feature gating
+  'license:', // Ptah Builders membership status and key entry
   'wizard:', // Setup wizard deep analysis and agent recommendations
   'command:', // Webview command execution (ptah.* commands only)
   'enhancedPrompts:', // Enhanced Prompts system (status, wizard, regenerate)
@@ -89,87 +85,8 @@ export const ALLOWED_METHOD_PREFIXES = [
 ] as const;
 
 /**
- * RPC methods requiring Pro tier subscription.
- *
- * Prefix matching: 'setup-status:' matches 'setup-status:get-status'
- *
- * Mapping from PRO_ONLY_FEATURES (FeatureGateService) to RPC prefixes:
- * - setup_wizard      -> setup-status:, setup-wizard:, wizard:
- *
- * Community features with RPC endpoints (available to ALL users):
- * - openrouter_proxy  -> openrouter: (un-gated)
- *
- * Other Pro features WITHOUT RPC endpoints (gated via FeatureGateService):
- * - mcp_server            -> Backend-only, no RPC (uses MCP protocol)
- * - workspace_intelligence -> Internal service, no direct RPC
- * - custom_tools          -> Not yet implemented
- * - cost_tracking         -> Backend analytics, no direct RPC
- *
- * IMPORTANT: When adding new Pro features with RPC endpoints, add their
- * prefixes here to enforce Pro tier gating at the RPC layer.
- */
-const PRO_ONLY_METHOD_PREFIXES = [
-  'setup-status:', // setup_wizard feature
-  'setup-wizard:', // setup_wizard feature
-  'wizard:', // setup_wizard feature (deep-analyze, recommend-agents)
-  'enhancedPrompts:', // Enhanced Prompts (Pro-only intelligent prompt generation)
-  'ptahCli:', // Ptah CLI agent management (Pro-only)
-  'mcpDirectory:', // MCP marketplace (official + Smithery) — Pro-only (TASK_2026_131)
-  'skillsSh:', // Skills marketplace — Pro-only (TASK_2026_131)
-] as const;
-
-/**
- * Explicit allowlist of Pro-only agent:* methods.
- *
- * The coarse `agent:` prefix gate was removed because `agent:permissionResponse`
- * must work for Community users during tool permission dialogs. Only truly
- * Pro-only agent methods belong in this list.
- */
-const PRO_ONLY_METHODS: readonly string[] = [] as const;
-
-/**
- * RPC methods that bypass license check entirely.
- *
- * Required for license management and authentication flows.
- * These methods must work without a valid license to allow users to:
- * - View their license status
- * - Enter a license key
- * - Authenticate/login
- */
-const LICENSE_EXEMPT_PREFIXES = [
-  'license:', // Must work to show license status and enter keys
-  'auth:', // Must work for login/authentication flow
-  'command:', // Must work for unlicensed users (welcome page actions)
-  'settings:', // Must work for settings import on welcome page (cross-platform onboarding)
-  'db:', // DB health + reset are maintenance/recovery commands; must work without a license
-] as const;
-
-/**
- * Result of license validation for an RPC method.
- *
- * Used by validateLicense() to indicate whether a method is allowed
- * and provide structured error information for the frontend.
- */
-export interface RpcLicenseValidationResult {
-  /** Whether the RPC method is allowed to proceed */
-  allowed: boolean;
-  /** Error details if not allowed */
-  error?: {
-    /** Error code for programmatic handling */
-    code: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED';
-    /** Human-readable error message */
-    message: string;
-  };
-}
-
-/**
  * RPC Handler service for routing RPC method calls
  * Manages registration and execution of RPC methods with security validation
- *
- * License middleware (centralized license validation):
- * - All RPC methods (except license:*, auth:*) require valid license
- * - Pro-only methods (setup-*, wizard:*) require Pro tier
- * - Uses getCachedStatus() only - NO server calls per request
  */
 @injectable()
 export class RpcHandler {
@@ -177,12 +94,10 @@ export class RpcHandler {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(TOKENS.SENTRY_SERVICE, { isOptional: true })
     private readonly sentryService: SentryService | undefined,
   ) {
-    this.logger.debug('RpcHandler: Initialized with license middleware');
+    this.logger.debug('RpcHandler: Initialized');
   }
 
   /**
@@ -253,15 +168,6 @@ export class RpcHandler {
     this.logger.debug(`RpcHandler: Handling method "${method}"`, {
       correlationId,
     });
-    const validation = this.validateLicense(method);
-    if (!validation.allowed) {
-      return {
-        success: false,
-        error: validation.error?.message ?? 'License validation failed',
-        errorCode: validation.error?.code ?? 'LICENSE_REQUIRED',
-        correlationId,
-      };
-    }
 
     const handler = this.handlers.get(method);
     if (!handler) {
@@ -367,113 +273,5 @@ export class RpcHandler {
   ): void {
     if (!this.sentryService) return;
     this.sentryService.captureException(error, context);
-  }
-
-  /**
-   * Validate license before allowing RPC method execution.
-   *
-   * Uses CACHED status only - NO server calls per request.
-   * This ensures zero latency impact on RPC method execution.
-   *
-   * Validation flow:
-   * 1. Check if method is exempt (license:*, auth:*) - always allowed
-   * 2. Check if cached license status exists
-   * 3. Check if license is valid (not expired)
-   * 4. Check if Pro tier required and user has Pro tier
-   *
-   * Edge cases handled:
-   * - No cached status: LICENSE_REQUIRED (user must restart extension)
-   * - Invalid license: LICENSE_REQUIRED (subscription expired)
-   * - Pro-only method with Community tier: PRO_TIER_REQUIRED
-   * - Exempt methods: Always allowed (needed for login flow)
-   *
-   * @param method - RPC method name (e.g., 'session:list', 'setup-wizard:start')
-   * @returns Validation result with allowed flag and optional error
-   */
-  private validateLicense(method: string): RpcLicenseValidationResult {
-    if (LICENSE_EXEMPT_PREFIXES.some((prefix) => method.startsWith(prefix))) {
-      return { allowed: true };
-    }
-    try {
-      const status: LicenseStatus | null =
-        this.licenseService.getCachedStatus();
-      if (!status) {
-        this.logger.info(
-          'RpcHandler: No cached license status, rejecting RPC',
-          {
-            method,
-          },
-        );
-        return {
-          allowed: false,
-          error: {
-            code: 'LICENSE_REQUIRED',
-            message:
-              'License verification required. Please restart the extension.',
-          },
-        };
-      }
-      if (!status.valid) {
-        this.logger.info('RpcHandler: Invalid license, blocking RPC', {
-          method,
-          tier: status.tier,
-          reason: status.reason,
-        });
-        return {
-          allowed: false,
-          error: {
-            code: 'LICENSE_REQUIRED',
-            message:
-              'Valid subscription required. Please subscribe to use this feature.',
-          },
-        };
-      }
-      if (this.isProOnlyMethod(method)) {
-        const isPro = status.tier === 'pro' || status.tier === 'trial_pro';
-        if (!isPro) {
-          this.logger.info('RpcHandler: Pro tier required, blocking RPC', {
-            method,
-            tier: status.tier,
-          });
-          return {
-            allowed: false,
-            error: {
-              code: 'PRO_TIER_REQUIRED',
-              message:
-                'Pro subscription required for this feature. Please upgrade to Pro.',
-            },
-          };
-        }
-      }
-      return { allowed: true };
-    } catch (error) {
-      this.logger.error('RpcHandler: License validation error', {
-        method,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return {
-        allowed: false,
-        error: {
-          code: 'LICENSE_REQUIRED',
-          message: 'License verification failed. Please restart the extension.',
-        },
-      };
-    }
-  }
-
-  /**
-   * Check if RPC method requires Pro tier subscription.
-   *
-   * Pro-only methods are derived from PRO_ONLY_FEATURES in FeatureGateService:
-   * - setup_wizard feature: setup-status:*, setup-wizard:*, wizard:*
-   *
-   * @param method - RPC method name to check
-   * @returns True if method requires Pro tier
-   */
-  private isProOnlyMethod(method: string): boolean {
-    if (PRO_ONLY_METHOD_PREFIXES.some((prefix) => method.startsWith(prefix))) {
-      return true;
-    }
-    return PRO_ONLY_METHODS.includes(method);
   }
 }

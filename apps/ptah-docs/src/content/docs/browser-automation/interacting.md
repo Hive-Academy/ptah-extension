@@ -5,10 +5,6 @@ description: Simulate user interactions on the page.
 
 import { Aside } from '@astrojs/starlight/components';
 
-<Aside type="caution" title="Pro tier only">
-Browser Automation requires an active Pro license.
-</Aside>
-
 ## `ptah_browser_click`
 
 Click an element selected by CSS selector, text, or absolute coordinates.

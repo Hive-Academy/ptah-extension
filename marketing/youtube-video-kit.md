@@ -1,13 +1,31 @@
 # Ptah — YouTube / Social Video Kit
 
-Paste-ready titles, descriptions, tags, and chapters for the 14 rendered showcase videos.
-Source MP4s: `dist/apps/ptah-electron-e2e/recordings/<scene>/out/<scene>.mp4`
+Paste-ready titles, descriptions, tags, and chapters — reusable metadata for the
+**re-recorded** versions of each video.
 
-**Copy for every description (shared footer):**
+> [!IMPORTANT]
+> **All Ptah marketing videos are being re-recorded with the founder's own voice
+> and face** (talk-to-camera, screen-share demos, or both — see
+> `apps/ptah-video-studio/RECORDING.md`). **No AI narration anywhere.**
+>
+> - The 14 AI-narrated tour MP4s under
+>   `dist/apps/ptah-electron-e2e/recordings/<scene>/out/<scene>.mp4` are now
+>   **B-ROLL ONLY**. **Do NOT upload them as standalone videos.** They can be cut
+>   into the self-shot videos as demo footage via the `broll` beat type.
+> - The **"100-day trial" CTA is DEAD.** Ptah is now **free & open source**;
+>   monetization is the **Ptah Builders** membership (waitlist-only, founding
+>   discounts). Every description below has had its footer replaced accordingly —
+>   if you copy older copy from anywhere else, swap the trial line for the footer
+>   block below.
+> - The **titles, short/X titles, tags, and chapters remain valid** and are meant
+>   to be reused for the re-recorded uploads.
+
+**Copy for every description (shared footer — free & open source + Builders waitlist):**
 
 ```
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -41,20 +59,21 @@ Source MP4s: `dist/apps/ptah-electron-e2e/recordings/<scene>/out/<scene>.mp4`
 
 ## 1. canvas-orchestra — 1:33
 
-**Title:** Conduct 3 AI coding agents at once — Ptah Orchestra Canvas
-**Short/X title:** I ran 3 AI agents on one codebase, at the same time 🎻
+**Title:** Running three agents on one codebase — Ptah Orchestra Canvas
+**Short/X title:** Three AI agents, one codebase, running in parallel
 
 **Description:**
 
 ```
-What if you could stop chatting with one AI — and start conducting three, live, on one screen?
+Ptah's Orchestra Canvas runs three agents against the same codebase at once, each in its own session.
 
-This is Ptah's Orchestra Canvas: three real agents working your real codebase side by side, each with its own session, its own thread, and a live token + cost readout on every tile. Hand out three different jobs, run them in parallel — no queue, no turn-taking — then review exactly what each one did. Lock the layout when you like it and your orchestra stays put.
+Each agent gets its own session, its own thread, and a live token + cost readout on every tile. Hand out three different jobs, run them in parallel — no queue, no turn-taking — then review exactly what each one did. Lock the layout when you like it and your orchestra stays put.
 
 Ptah is the AI coding orchestra — persistent memory, compounding skills, and up to nine agents at once, on desktop, in VS Code, or headless CLI.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -65,20 +84,21 @@ Ptah is the AI coding orchestra — persistent memory, compounding skills, and u
 
 ## 2. chat-code-edit — 1:05
 
-**Title:** Stop copy-pasting into ChatGPT — Ptah edits your files directly
-**Short/X title:** Stop being the clipboard. Just say "make the change." ✏️
+**Title:** Editing your files directly from chat — Ptah Chat
+**Short/X title:** Editing files directly from chat, not copy-paste
 
 **Description:**
 
 ```
-Be honest — how much of your day goes to copy-pasting code into a chatbot? Here's how that ends.
+Ptah is a chat that lives inside your codebase, so you don't copy-paste code into a separate chatbot.
 
-Ptah is a chat that lives inside your codebase. Ask about your own code in plain English — no context to paste — and get an answer you can trust, because it reads your actual repository: real files, real line numbers. Like the answer? Just say "make the change." Ptah edits the file itself and shows you the exact diff, right in the chat. Every turn shows its work — nothing runs off screen.
+Ask about your own code in plain English — no context to paste — and get an answer you can trust, because it reads your actual repository: real files, real line numbers. Like the answer? Just say "make the change." Ptah edits the file itself and shows you the exact diff, right in the chat. Every turn shows its work — nothing runs off screen.
 
 Ptah is the AI coding orchestra — it reads your code, edits your files, and proves what it did.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -89,20 +109,21 @@ Ptah is the AI coding orchestra — it reads your code, edits your files, and pr
 
 ## 3. tribunal-tour — 1:12
 
-**Title:** Make rival AI models debate your code — Ptah Tribunal
-**Short/X title:** What if your AI models disagreed… on purpose? ⚖️
+**Title:** Running a panel of AI models against your code — Ptah Tribunal
+**Short/X title:** A panel of AI models reviewing the same code
 
 **Description:**
 
 ```
-What if your AI models disagreed — on purpose?
+Ptah Tribunal puts rival AI models on one bench so they check each other's work.
 
-Inside Ptah there's a room built for exactly that: the Tribunal. Rival vendors sit on one bench and check each other, so you don't have to. Three moves: Council — every vendor weighs in and you get one cited verdict. Forge — each model builds in its own isolated git worktree and the best diff wins. Race — every model competes and a rubric crowns the winner. Effort, model, and cost are shown up front, so there are no surprise bills.
+Three moves: Council — every vendor weighs in and you get one cited verdict. Forge — each model builds in its own isolated git worktree and the best diff wins. Race — every model competes and a rubric crowns the winner. Effort, model, and cost are shown up front, so there are no surprise bills.
 
 Because that disagreement is exactly the signal you need. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -113,20 +134,21 @@ Because that disagreement is exactly the signal you need. Ptah is the AI coding 
 
 ## 4. gateway-tour — 1:32
 
-**Title:** Drive your AI coding agents from your phone — Telegram, Discord & Slack
-**Short/X title:** My coding agents now live in my pocket 📱
+**Title:** Driving AI coding agents from Telegram, Discord, and Slack — Ptah Gateway
+**Short/X title:** Driving coding agents from a phone
 
 **Description:**
 
 ```
-What if your agents lived right in your pocket?
+The Ptah Gateway puts your agents inside the chat apps you already use: Telegram, Discord, and Slack.
 
-Meet the Ptah Gateway — it puts your agents inside the chat apps you already use every day: Telegram, Discord, and Slack. No new habits. Setup is two moves: paste a bot token, approve a one-time pairing code, and you're driving Ptah from a chat window. Kick off work from Telegram, hand the same power to your team in Discord, or slot it into Slack at the office. You stay in control — every new device needs your one-time approval code before it can do a thing.
+No new habits. Setup is two moves: paste a bot token, approve a one-time pairing code, and you're driving Ptah from a chat window. Kick off work from Telegram, hand the same power to your team in Discord, or slot it into Slack at the office. You stay in control — every new device needs your one-time approval code before it can do a thing.
 
 Kick off agent work from the couch, the train, anywhere. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -137,20 +159,21 @@ Kick off agent work from the couch, the train, anywhere. Ptah is the AI coding o
 
 ## 5. memory-recall — 1:16
 
-**Title:** An AI that remembers your codebase — every session — Ptah Memory
-**Short/X title:** Explain your codebase once. It never forgets. 🧠
+**Title:** Persistent memory across every session — Ptah Memory
+**Short/X title:** Explain your codebase once. Ptah keeps it.
 
 **Description:**
 
 ```
-How many times have you explained the same codebase to an AI that forgot you by the next session?
+Ptah ships with a persistent memory shared across every agent, so you don't re-explain your codebase each session.
 
-Ptah is different — it ships with a persistent memory shared across every agent. Everything it learns stays with you: facts and decisions saved in a local brain and carried across every session. Three tiers — Core (always-on facts about you and your project), Recall (recent working context), and Archival (the deep, searchable long-term store). Ask it what it knows and it finds the right memory even when your words don't match — keyword and meaning, searched together — showing you the fact, its tier, and why it was kept.
+Everything it learns stays with you: facts and decisions saved in a local brain and carried across every session. Three tiers — Core (always-on facts about you and your project), Recall (recent working context), and Archival (the deep, searchable long-term store). Ask it what it knows and it finds the right memory even when your words don't match — keyword and meaning, searched together — showing you the fact, its tier, and why it was kept.
 
 Explain your codebase once. Ptah remembers — this session, the next, and every one after.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -161,20 +184,21 @@ Explain your codebase once. Ptah remembers — this session, the next, and every
 
 ## 6. skills-tour — 0:56
 
-**Title:** An AI that learns reusable skills from its own work — Ptah Skills
-**Short/X title:** Most AI forgets after every session. This one gets better. 📈
+**Title:** Turning finished sessions into reusable skills — Ptah Skills
+**Short/X title:** Turning finished sessions into reusable skills
 
 **Description:**
 
 ```
-Most AI tools forget everything the moment a session ends. Ptah learns from its own work.
+Most AI tools forget everything once a session ends. Ptah's Skills tab captures what worked and turns it into a reusable skill.
 
 On the Skills tab, every win is captured automatically — each successful session becomes a skill candidate. You curate nothing: Thoth clusters similar wins into one reusable skill on its own, and recommendations start appearing after a few sessions. And there's no black box — inspect every captured session, click any one, and see exactly what it learned and why.
 
 While other tools forget, Ptah remembers, distills, and gets better every single day. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -185,20 +209,21 @@ While other tools forget, Ptah remembers, distills, and gets better every single
 
 ## 7. cron-tour — 0:44
 
-**Title:** Schedule AI agents to run while you sleep — Ptah Cron
-**Short/X title:** My agents work the night shift now 🌙
+**Title:** Running AI agents on a schedule — Ptah Cron
+**Short/X title:** Agents that run on a schedule
 
 **Description:**
 
 ```
-Set it once, and forget it. What if your agents kept working long after you logged off?
+Ptah's Schedules tab lets you put agents on a clock, so they keep working after you log off.
 
-On the Schedules tab you put agents on a clock. At a glance you see what's automated — how many jobs and when the next one fires. Write one line of cron and Ptah runs a full headless agent session on repeat: nightly code reviews, dependency scans, standup summaries. Every row is a task you never have to remember again, and every job keeps its full run history so you never wonder if it ran.
+At a glance you see what's automated — how many jobs and when the next one fires. Write one line of cron and Ptah runs a full headless agent session on repeat: nightly code reviews, dependency scans, standup summaries. Every row is a task you never have to remember again, and every job keeps its full run history so you never wonder if it ran.
 
 Your agents work the night shift now — with no one at the keyboard. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -209,20 +234,21 @@ Your agents work the night shift now — with no one at the keyboard. Ptah is th
 
 ## 8. thoth-tour — 0:59
 
-**Title:** The full AI coding cockpit — Ptah Desktop (Memory, Skills, Schedules, Gateway)
-**Short/X title:** VS Code was the tip. This is the whole iceberg. 🧊
+**Title:** Memory, skills, schedules, and gateway in one app — Ptah Desktop
+**Short/X title:** The desktop app: memory, skills, schedules, gateway
 
 **Description:**
 
 ```
-You've seen Ptah inside VS Code. That was just the tip — the desktop app is the whole iceberg.
+Ptah Desktop is the full cockpit for the four capabilities you've seen in VS Code: memory, skills, schedules, and gateway.
 
-Ptah Desktop is the full cockpit for your AI coding orchestra: four tabs, all powered by a local brain. Memory — your context survives every restart. Skills — solve a problem once and your agents keep that ability forever. Schedules — cron-driven agents that wake up and work while you sleep. Gateway — drive Ptah from Telegram, Discord, or Slack.
+Four tabs, all powered by a local brain. Memory — your context survives every restart. Skills — solve a problem once and your agents keep that ability forever. Schedules — cron-driven agents that wake up and work while you sleep. Gateway — drive Ptah from Telegram, Discord, or Slack.
 
 Memory, skills, schedules, and the gateway — one app, one full brain.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -233,20 +259,21 @@ Memory, skills, schedules, and the gateway — one app, one full brain.
 
 ## 9. marketplace-tour — 1:04
 
-**Title:** Extend your AI agents with plugins, MCP servers & skills — Ptah Marketplace
-**Short/X title:** Don't switch apps — grow your AI, one click at a time 🧩
+**Title:** Installing plugins, MCP servers, and skills — Ptah Marketplace
+**Short/X title:** Plugins, MCP servers, and skills in one hub
 
 **Description:**
 
 ```
-Every workflow eventually outgrows its tools. What if your workspace could just grow with you?
+The Ptah Marketplace is one hub for everything you can add to your agents: plugins, MCP servers, and community skills.
 
-The Ptah Marketplace is one hub for everything you can bolt on: plugins, MCP servers, and community skills that extend your agents. Browse the official Model Context Protocol registry without leaving Ptah, hover to size up any item, and install in one click. Community skills arrive hand-picked and matched to your project — no digging.
+Browse the official Model Context Protocol registry without leaving Ptah, hover to size up any item, and install in one click. Community skills arrive hand-picked and matched to your project — no digging.
 
 When your workflow outgrows its tools, don't switch apps. Grow Ptah instead. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -257,20 +284,21 @@ When your workflow outgrows its tools, don't switch apps. Grow Ptah instead. Pta
 
 ## 10. settings-tour — 1:20
 
-**Title:** Bring your own AI model — 100% local keys — Ptah Settings
-**Short/X title:** Your keys never leave your machine 🔒
+**Title:** Connecting your own AI provider with local keys — Ptah Settings
+**Short/X title:** Your API keys stay on your machine
 
 **Description:**
 
 ```
-What if your AI workspace adapted to you — instead of the other way around?
+Ptah connects to any AI provider you already pay for, and your keys never leave your machine.
 
-Connect any provider you already pay for; your keys never leave your machine — everything stays 100% local. Wire up command-line agents for the heavy lifting, add MCP servers and language-model tools, and pick a web-search provider plus a voice for hands-free spoken chat. Swap providers on the fly with no restart, export your entire configuration to take anywhere, and re-skin the whole app live with a single click.
+Everything stays 100% local. Wire up command-line agents for the heavy lifting, add MCP servers and language-model tools, and pick a web-search provider plus a voice for hands-free spoken chat. Swap providers on the fly with no restart, export your entire configuration to take anywhere, and re-skin the whole app live with a single click.
 
 You don't adapt to your tools. Ptah adapts to you. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -281,20 +309,21 @@ You don't adapt to your tools. Ptah adapts to you. Ptah is the AI coding orchest
 
 ## 11. dashboard-tour — 0:55
 
-**Title:** See exactly what your AI agents cost — Ptah Dashboard
-**Short/X title:** What did your AI agents cost you this week? 💸
+**Title:** Tracking what your AI agents cost — Ptah Dashboard
+**Short/X title:** What your AI agents actually cost
 
 **Description:**
 
 ```
-How much did your AI agents cost you this week? If you don't know, keep watching.
+The Ptah dashboard shows what every agent session actually costs, pulled from your real usage data.
 
 The Ptah dashboard is home base for every agent you run — and everything on it is live: real cards, real data, not one mock number. Convene a Tribunal for a second opinion, then open Session Analytics, which reads your real usage straight from disk: every token, every dollar, every turn, totaled across all your sessions. When one session looks off, drill in for the full story.
 
 Now you know what your agents cost — down to the dollar. Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -305,20 +334,21 @@ Now you know what your agents cost — down to the dollar. Ptah is the AI coding
 
 ## 12. editor-tour — 0:52
 
-**Title:** A real Monaco editor + terminal, built in — Ptah Editor
-**Short/X title:** Your agents write code all day. Read it right here. </>
+**Title:** A Monaco editor and terminal built into the app — Ptah Editor
+**Short/X title:** A real editor and terminal, built in
 
 **Description:**
 
 ```
-Your AI agents write code all day. But where do you actually read it?
+Ptah ships with a real editor built in, so you can read and run the code your agents write without leaving the app.
 
-Ptah ships with a real editor built right in. Your whole project sits in a familiar file tree; click any file and it opens straight into Monaco — the same engine that powers VS Code, so this is the real thing, not a preview pane. Real source, real highlighting, right where your agents work. Need to run something? There's a full terminal built in too — a real shell beside your code, no window-hopping, no lost context.
+Your whole project sits in a familiar file tree; click any file and it opens straight into Monaco — the same engine that powers VS Code, so this is the real thing, not a preview pane. Real source, real highlighting, right where your agents work. Need to run something? There's a full terminal built in too — a real shell beside your code, no window-hopping, no lost context.
 
 Read it, browse it, run it — your code and your agents, finally in one place.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -329,20 +359,21 @@ Read it, browse it, run it — your code and your agents, finally in one place.
 
 ## 13. setup-wizard-tour — 0:36
 
-**Title:** AI agents that actually know your codebase — Ptah Setup Wizard
-**Short/X title:** Generic AI gives generic answers. Fix that in minutes. ⚙️
+**Title:** Scanning your codebase to configure your agents — Ptah Setup Wizard
+**Short/X title:** Agents configured from a scan of your codebase
 
 **Description:**
 
 ```
-Generic AI agents give generic answers. What if yours actually knew your codebase?
+The Ptah Setup Wizard scans your project and builds a team of agents shaped around it.
 
-The Ptah Setup Wizard reads your project and builds your team of agents around it. You configure nothing by hand — seven guided steps (scan, analyze, generate) start with a four-phase AI scan of your whole project. The payoff: agents that aren't generic at all, because they were born from your own codebase.
+You configure nothing by hand — seven guided steps (scan, analyze, generate) start with a four-phase AI scan of your whole project. The payoff: agents that aren't generic at all, because they were born from your own codebase.
 
 Ptah is the AI coding orchestra.
 
 ▶ More Ptah tours: [PLAYLIST_LINK]
-🌐 Try Ptah free (100-day trial, no card): https://ptah.live
+✅ Ptah is free & open source: https://ptah.live
+🚀 Join the Ptah Builders waitlist — founding members get 35% off monthly / 50% off yearly: https://ptah.live/?utm_source=youtube#waitlist
 📚 Docs: https://docs.ptah.live
 💬 Community: [DISCORD_LINK]
 ```
@@ -353,13 +384,13 @@ Ptah is the AI coding orchestra.
 
 ## 14. landing-page-tour — 3:06 _(channel trailer / pinned overview)_
 
-**Title:** Ptah — the AI coding orchestra that remembers, learns & ships
-**Short/X title:** Give your codebase an AI employee that finally remembers
+**Title:** Ptah: an AI coding orchestra with memory, skills, and multi-agent orchestration
+**Short/X title:** An AI coding assistant built to remember your codebase
 
 **Description:**
 
 ```
-Your AI coding assistant forgets everything the moment you close the chat. Ptah doesn't.
+Most AI coding assistants forget everything once you close the chat. Ptah is built to remember.
 
 Ptah is the AI coding orchestra — a persistent, multi-agent coding agent that lives on your desktop, in VS Code, or as a headless CLI. It remembers, it learns, it ships:
 
@@ -371,9 +402,11 @@ Ptah is the AI coding orchestra — a persistent, multi-agent coding agent that 
 
 Autocomplete ends at the cursor. Ptah remembers yesterday, works while you're away, and answers from your phone.
 
-Start your 100-day free trial — no credit card required.
+Ptah is free & open source — install it today. Want to shape where it goes next and lock in founding-member pricing? Join the Ptah Builders waitlist (35% off monthly / 50% off yearly).
 
-🌐 https://ptah.live  •  📚 https://docs.ptah.live  •  💬 [DISCORD_LINK]
+✅ Free & open source: https://ptah.live
+🚀 Builders waitlist: https://ptah.live/?utm_source=youtube#waitlist
+📚 https://docs.ptah.live  •  💬 [DISCORD_LINK]
 ```
 
 **Tags:** ai coding orchestra, ai employee, persistent ai, multi agent ai, cursor alternative, copilot alternative
@@ -387,5 +420,5 @@ Start your 100-day free trial — no credit card required.
 1:25 Pillar 2 — Compounding skills + parallel agents
 1:59 Pillar 3 — Scheduled agents + drive from chat
 2:36 How it's different (vs Cursor & Copilot)
-2:51 VS Code, CLI & free trial
+2:51 VS Code, CLI & free / open source
 ```

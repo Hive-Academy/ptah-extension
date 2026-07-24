@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Premium-gated multi-step wizard that scans a workspace, analyzes the project, lets the user pick agents, generates them, and enhances prompts — driven by streamed backend events routed through the canonical streaming pipeline.
+Multi-step wizard that scans a workspace, analyzes the project, lets the user pick agents, generates them, and enhances prompts — driven by streamed backend events routed through the canonical streaming pipeline.
 
 ## Boundaries
 
@@ -19,12 +19,12 @@ From `src/index.ts`:
 - DI contract: `WIZARD_INTERNAL_STATE` injection token, `WizardInternalState` type, `provideWizardInternalState()` provider (TASK_2026_103 Wave F1 — mirrors B1's `STREAMING_CONTROL` inverted-dependency pattern).
 - Container: `WizardViewComponent`.
 - Step components: `WelcomeComponent`, `ScanProgressComponent`, `AnalysisResultsComponent`, `AgentSelectionComponent`, `PromptEnhancementComponent`, `GenerationProgressComponent`, `CompletionComponent`.
-- Utility components: `ConfirmationModalComponent`, `PremiumUpsellComponent`, `AnalysisTranscriptComponent`, `AnalysisStatsDashboardComponent`, `EnhancedPromptsSummaryCardComponent`.
+- Utility components: `ConfirmationModalComponent`, `AnalysisTranscriptComponent`, `AnalysisStatsDashboardComponent`, `EnhancedPromptsSummaryCardComponent`.
 - Types: `WizardStep`, `ProjectContext`, `AgentSelection`, `GenerationProgress`, `AgentProgress`, `ScanProgress`, `AnalysisResults`, `CompletionData`, `ErrorState`, `EnhancedPromptsWizardStatus`.
 
 ## Step Order
 
-1. `welcome` → 2. `scan` → 3. `analysis` → 4. `agent-selection` → 5. `prompt-enhancement` → 6. `generation` → 7. `completion`. The container gates on premium license before rendering any step (shows `PremiumUpsellComponent` when invalid).
+1. `welcome` → 2. `scan` → 3. `analysis` → 4. `agent-selection` → 5. `prompt-enhancement` → 6. `generation` → 7. `completion`. The container always renders the current step directly.
 
 ## Internal Structure
 
@@ -34,7 +34,7 @@ From `src/index.ts`:
 
 ## Key Files
 
-- `src/lib/components/wizard-view.component.ts:62` — container; license check (`'checking' | 'valid' | 'invalid'`), step routing, progress indicator.
+- `src/lib/components/wizard-view.component.ts:62` — container; step routing, progress indicator.
 - `src/lib/services/setup-wizard-state.service.ts:1` — orchestrator; composes the eight collaborators in `setup-wizard/`; exposes a façade to `WizardPhaseAnalysis`/`WizardPhaseGeneration` so they route flat events through `StreamRouter`/`StreamingSurfaceRegistry` (TASK_2026_107 Phase 3 — replaces deleted `WizardStreamAccumulator`). On analysis-complete, phase surfaces unregister but accumulated `StreamingState` remains visible.
 - `src/lib/services/wizard-internal-state.provider.ts` — composition-root binding for `WIZARD_INTERNAL_STATE`.
 
@@ -55,7 +55,6 @@ Standalone, OnPush, signals + `inject()`, fade-in keyframe animations, decomposi
 
 ## Guidelines
 
-- Premium gate is enforced in the container — never bypass it in individual step components.
 - Stream accumulation must go through `StreamRouter` / `StreamingSurfaceRegistry` — do not reintroduce a hand-rolled accumulator (removed in TASK_2026_107 Phase 3).
 - `WIZARD_INTERNAL_STATE` must be bound by the composition root via `provideWizardInternalState()`; never construct it ad-hoc.
 - All wizard types originate from `setup-wizard-state.types.ts` (re-exported via barrel) or `@ptah-extension/shared`'s `wizard/` subfolder.

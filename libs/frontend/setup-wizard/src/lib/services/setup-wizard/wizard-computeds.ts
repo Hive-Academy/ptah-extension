@@ -48,7 +48,6 @@ export class WizardComputeds {
 
   /**
    * Current step index (0-based) for the UI progress indicator.
-   * Excludes 'premium-check' since it's not displayed in the stepper.
    */
   public readonly stepIndex: Signal<number>;
 
@@ -113,8 +112,6 @@ export class WizardComputeds {
     this.canProceed = computed(() => {
       const step = state.currentStep();
       switch (step) {
-        case 'premium-check':
-          return false;
         case 'welcome':
           return true;
         case 'scan':
@@ -138,7 +135,6 @@ export class WizardComputeds {
       const step = state.currentStep();
       const progress = state.generationProgress();
       const stepProgress: Record<WizardStep, number> = {
-        'premium-check': 0,
         welcome: 5,
         scan: 20,
         analysis: 35,

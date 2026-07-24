@@ -12,12 +12,8 @@ Ptah runs a **local MCP server** inside the desktop app. It is the bridge that e
 ## What it does
 
 - Serves the entire `ptah_*` tool catalog — workspace analysis, diagnostics, browser automation, git worktrees, agent spawning, etc.
-- Hosts the **Code Execution** sandbox (Pro tier) for safe code execution with file and network access.
+- Hosts the **Code Execution** sandbox for safe code execution with file and network access.
 - Advertises itself over HTTP/SSE on a local loopback port so models can discover it.
-
-:::caution[Pro tier]
-**Code Execution** is gated behind the Pro subscription. The `ptah_*` catalog itself is available on every tier; only the sandboxed execution runtime requires Pro.
-:::
 
 ## Dynamic port assignment
 

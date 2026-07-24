@@ -11,7 +11,6 @@ import {
   RpcHandler,
   TOKENS,
   ConfigManager,
-  FeatureGateService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
@@ -82,8 +81,6 @@ export class ConfigRpcHandlers {
     private readonly modelResolver: ModelResolver,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
-    @inject(TOKENS.FEATURE_GATE_SERVICE)
-    private readonly featureGate: FeatureGateService,
     @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
     private readonly modelSettings: ModelSettings,
     @inject(SETTINGS_TOKENS.REASONING_SETTINGS)
@@ -298,12 +295,6 @@ export class ConfigRpcHandlers {
           sessionId,
         });
         if (enabled && permissionLevel === 'yolo') {
-          const isPro = await this.featureGate.isProTier();
-          if (!isPro) {
-            throw new Error(
-              'YOLO mode requires a Pro subscription. Upgrade to enable unattended execution.',
-            );
-          }
           this.logger.warn(
             'YOLO mode enabled - DANGEROUS: All permission prompts will be skipped',
             { enabled, permissionLevel },

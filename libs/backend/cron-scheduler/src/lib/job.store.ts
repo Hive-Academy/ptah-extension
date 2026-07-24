@@ -17,6 +17,7 @@ import {
 } from '@ptah-extension/persistence-sqlite';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { JobId } from '@ptah-extension/shared';
+import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import type {
   CreateJobInput,
   ScheduledJob,
@@ -41,7 +42,10 @@ interface ScheduledJobRow {
 export interface IJobStore {
   create(input: CreateJobInput): ScheduledJob;
   get(id: JobId): ScheduledJob | null;
-  list(filter?: { enabledOnly?: boolean }): ScheduledJob[];
+  list(filter?: {
+    enabledOnly?: boolean;
+    workspaceRoot?: string;
+  }): ScheduledJob[];
   update(id: JobId, patch: UpdateJobPatch): ScheduledJob;
   delete(id: JobId): boolean;
   /**
@@ -112,12 +116,29 @@ export class JobStore implements IJobStore {
     return row ? mapRow(row) : null;
   }
 
-  list(filter?: { enabledOnly?: boolean }): ScheduledJob[] {
-    const sql = filter?.enabledOnly
-      ? 'SELECT * FROM scheduled_jobs WHERE enabled = 1 ORDER BY created_at ASC'
-      : 'SELECT * FROM scheduled_jobs ORDER BY created_at ASC';
+  list(filter?: {
+    enabledOnly?: boolean;
+    workspaceRoot?: string;
+  }): ScheduledJob[] {
+    // `enabledOnly` stays a parameterized-free SQL predicate (bounded, cheap).
+    // The `workspaceRoot` filter is applied in JS rather than SQL: the match
+    // must be against a *normalized* key (trailing-separator strip, drive-case
+    // fold) that SQLite cannot reproduce, and legacy rows hold un-normalized
+    // `workspace_root` values written before this normalization existed.
+    // Comparing normalized values on both sides in TypeScript fixes those
+    // legacy rows without a migration; the scheduled_jobs table is small
+    // (user-authored jobs), so the full scan is negligible.
+    const where = filter?.enabledOnly ? ' WHERE enabled = 1' : '';
+    const sql = `SELECT * FROM scheduled_jobs${where} ORDER BY created_at ASC`;
     const rows = this.sqlite.db.prepare(sql).all() as ScheduledJobRow[];
-    return rows.map(mapRow);
+    const jobs = rows.map(mapRow);
+    if (filter?.workspaceRoot === undefined) return jobs;
+    const wanted = normalizeWorkspaceRoot(filter.workspaceRoot);
+    return jobs.filter(
+      (job) =>
+        job.workspaceRoot !== null &&
+        normalizeWorkspaceRoot(job.workspaceRoot) === wanted,
+    );
   }
 
   update(id: JobId, patch: UpdateJobPatch): ScheduledJob {

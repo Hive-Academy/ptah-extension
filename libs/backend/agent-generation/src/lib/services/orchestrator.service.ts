@@ -92,11 +92,6 @@ export interface OrchestratorGenerationOptions {
   preComputedAnalysis?: ProjectAnalysisResult;
 
   /**
-   * Whether user has premium features (enables MCP server + enhanced prompts in SDK calls).
-   */
-  isPremium?: boolean;
-
-  /**
    * Whether the Ptah MCP server is currently running.
    */
   mcpServerRunning?: boolean;
@@ -129,7 +124,7 @@ export interface OrchestratorGenerationOptions {
   pluginPaths?: string[];
 
   /**
-   * Target CLI platforms for agent distribution (premium only).
+   * Target CLI platforms for agent distribution.
    * When provided, Phase 5 transforms and writes agents to these CLI directories.
    */
   targetClis?: CliTarget[];
@@ -190,7 +185,7 @@ export interface GenerationProgress {
  * ```typescript
  * const orchestrator = container.resolve(AgentGenerationOrchestratorService);
  * const result = await orchestrator.generateAgents(
- *   { workspaceUri, threshold: 70, isPremium: true, mcpServerRunning: true },
+ *   { workspaceUri, threshold: 70, mcpServerRunning: true },
  *   (progress) => console.log(`${progress.phase}: ${progress.percentComplete}%`)
  * );
  * if (result.isOk()) {
@@ -254,7 +249,6 @@ export class AgentGenerationOrchestratorService {
         workspace: options.workspacePath,
         threshold: options.threshold ?? 50,
         hasOverrides: !!options.userOverrides,
-        isPremium: options.isPremium,
         mcpServerRunning: options.mcpServerRunning,
       });
       let projectContext: AgentProjectContext;
@@ -727,7 +721,6 @@ export class AgentGenerationOrchestratorService {
     try {
       const rendered: GeneratedAgent[] = [];
       const sdkConfig = {
-        isPremium: options.isPremium ?? false,
         mcpServerRunning: options.mcpServerRunning ?? false,
         mcpPort: options.mcpPort,
         onStreamEvent: options.onStreamEvent,

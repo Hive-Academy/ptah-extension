@@ -3,9 +3,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 export type SegmentKey =
   | 'all'
-  | 'proActive'
+  | 'buildersActive'
   | 'communityActive'
-  | 'trialing'
   | 'subscriptionPastDue';
 
 export interface SegmentCount {
@@ -72,9 +71,8 @@ export class SegmentResolverService {
   async getSegmentCounts(): Promise<Record<SegmentKey, SegmentCount>> {
     const keys: SegmentKey[] = [
       'all',
-      'proActive',
+      'buildersActive',
       'communityActive',
-      'trialing',
       'subscriptionPastDue',
     ];
     const results = {} as Record<SegmentKey, SegmentCount>;
@@ -98,11 +96,11 @@ export class SegmentResolverService {
     switch (segment) {
       case 'all':
         return {};
-      case 'proActive':
+      case 'buildersActive':
         return {
           licenses: {
             some: {
-              plan: 'pro',
+              plan: 'builders',
               status: 'active',
               source: 'paddle',
             },
@@ -114,14 +112,6 @@ export class SegmentResolverService {
             some: {
               plan: 'community',
               status: 'active',
-            },
-          },
-        };
-      case 'trialing':
-        return {
-          subscriptions: {
-            some: {
-              status: 'trialing',
             },
           },
         };

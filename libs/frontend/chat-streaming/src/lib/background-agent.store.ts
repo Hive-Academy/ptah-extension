@@ -39,7 +39,16 @@ import {
 export interface BackgroundAgentEntry {
   readonly toolCallId: string;
   readonly agentId: BackgroundAgentId;
+  /**
+   * True only when `agentId` is a genuine SDK-issued id. False when the
+   * `background_agent` event omitted it and `resolveKey` substituted the
+   * `toolCallId` as the storage key — in that case `agentId` cannot address
+   * a real subagent transcript, so transcript reads must be gated off it.
+   */
+  readonly hasRealAgentId: boolean;
   readonly agentType: string;
+  /** Human-legible subagent (teammate) name; preferred over `agentType` for display. */
+  readonly teammateName?: string;
   readonly agentDescription?: string;
   readonly sessionId: ClaudeSessionId;
   status: 'running' | 'completed' | 'error' | 'stopped';
@@ -225,7 +234,9 @@ export class BackgroundAgentStore implements OnDestroy {
       next.set(key, {
         toolCallId: event.toolCallId,
         agentId: key,
+        hasRealAgentId: !!(event.agentId && event.agentId.length > 0),
         agentType: event.agentType,
+        teammateName: event.teammateName,
         agentDescription: event.agentDescription,
         sessionId: event.sessionId as ClaudeSessionId,
         status: 'running',
@@ -272,6 +283,7 @@ export class BackgroundAgentStore implements OnDestroy {
         next.set(key, {
           toolCallId: event.toolCallId,
           agentId: key,
+          hasRealAgentId: !!(event.agentId && event.agentId.length > 0),
           agentType: event.agentType || 'unknown',
           sessionId: event.sessionId as ClaudeSessionId,
           status: 'completed',
@@ -305,6 +317,7 @@ export class BackgroundAgentStore implements OnDestroy {
         next.set(key, {
           toolCallId: event.toolCallId,
           agentId: key,
+          hasRealAgentId: !!(event.agentId && event.agentId.length > 0),
           agentType: event.agentType || 'unknown',
           sessionId: event.sessionId as ClaudeSessionId,
           status: 'stopped',

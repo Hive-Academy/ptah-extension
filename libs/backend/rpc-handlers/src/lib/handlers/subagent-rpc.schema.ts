@@ -2,9 +2,10 @@
  * Zod schemas for {@link SubagentRpcHandlers}.
  *
  * The original `chat:subagent-query` handler uses static TypeScript types
- * and trivial presence checks (no Zod). The three methods
- * (`subagent:send-message`, `subagent:stop`, `subagent:interrupt`) each
- * validate their params with Zod schemas defined here.
+ * and trivial presence checks (no Zod). The remaining methods
+ * (`subagent:send-message`, `subagent:stop`, `subagent:interrupt`,
+ * `subagent:background`, `subagent:transcript`) each validate their params
+ * with Zod schemas defined here.
  */
 
 import { z } from 'zod';
@@ -38,3 +39,14 @@ export const SubagentBackgroundSchema = z.object({
 });
 
 export type SubagentBackgroundInput = z.infer<typeof SubagentBackgroundSchema>;
+
+export const SubagentTranscriptSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+  agentId: z.string().min(1, 'agentId is required'),
+  // Cap the page size so one call can't pull an unbounded transcript into
+  // memory / over the wire (matches the paginated sibling schemas' convention).
+  limit: z.number().int().positive().max(500).optional(),
+  offset: z.number().int().nonnegative().optional(),
+});
+
+export type SubagentTranscriptInput = z.infer<typeof SubagentTranscriptSchema>;

@@ -78,12 +78,10 @@ async function goToCron(page: Page, director: Director): Promise<Locator> {
     }
   }
   await page.locator('#thoth-tab-cron').waitFor({ state: 'visible' });
-  await director.dismissDialogs();
 
   await director.click(page.locator('#thoth-tab-cron'));
   const panel = page.locator('#thoth-panel-cron');
   await panel.waitFor({ state: 'visible' });
-  await director.dismissDialogs();
   return panel;
 }
 
@@ -91,9 +89,6 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
   page,
   director,
 }) => {
-  // The persistent authed profile ALWAYS shows the trial modal on boot.
-  await director.dismissDialogs();
-
   // Navigate + settle BEFORE the first beat: enter the Schedules (cron) tab (the
   // subject surface) so the hook lands on it instead of the stale restored
   // surface. Everything until the hook is trimmed by render-all's lead-in trim,
@@ -178,8 +173,6 @@ test('P1.4 — nightly agents on a schedule (deep dive)', async ({
       await director.say(6);
     }
   }
-
-  await director.dismissDialogs();
 
   // 5) Payoff.
   await director.say(7);

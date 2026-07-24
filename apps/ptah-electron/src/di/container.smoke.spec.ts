@@ -59,7 +59,7 @@ function buildMinimalContainer(): DependencyContainer {
     useValue: { captureException: jest.fn(), captureMessage: jest.fn() },
   });
   c.register(TOKENS.LICENSE_SERVICE, {
-    useValue: { getStatus: jest.fn(), isPremium: jest.fn(() => false) },
+    useValue: { getStatus: jest.fn() },
   });
   c.register(TOKENS.SAVE_DIALOG_PROVIDER, {
     useValue: { showSaveDialog: jest.fn() },

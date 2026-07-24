@@ -7,10 +7,10 @@ import { FooterComponent } from '../components/footer.component';
 import { HeroComponent } from '../sections/hero/hero.component';
 import { ProblemSectionComponent } from '../sections/problem/problem-section.component';
 import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcase.component';
-import { PillarMemoryComponent } from '../sections/pillar-memory/pillar-memory.component';
-import { PillarSkillsOrchestrationComponent } from '../sections/pillar-skills-orchestration/pillar-skills-orchestration.component';
-import { PillarAlwaysOnComponent } from '../sections/pillar-always-on/pillar-always-on.component';
+import { PillarsSpineComponent } from '../sections/pillars/pillars-spine.component';
 import { ProviderStripComponent } from '../sections/provider-strip/provider-strip.component';
+import { BuildersSectionComponent } from '../sections/builders/builders-section.component';
+import { WaitlistFormComponent } from '../sections/builders/waitlist-form.component';
 import { AlsoAvailableComponent } from '../sections/also-available/also-available.component';
 
 @Component({
@@ -21,11 +21,11 @@ import { AlsoAvailableComponent } from '../sections/also-available/also-availabl
     HeroComponent,
     ProblemSectionComponent,
     VideoShowcaseComponent,
-    PillarMemoryComponent,
-    PillarSkillsOrchestrationComponent,
-    PillarAlwaysOnComponent,
+    PillarsSpineComponent,
     ProviderStripComponent,
     ComparisonSectionComponent,
+    BuildersSectionComponent,
+    WaitlistFormComponent,
     AlsoAvailableComponent,
     CTASectionComponent,
     FooterComponent,
@@ -50,18 +50,19 @@ import { AlsoAvailableComponent } from '../sections/also-available/also-availabl
           coded DOM (no images), and their entrance animations are SSG-safe
           (final DOM state fully opaque; the from-state is applied post-hydration).
         -->
-        <div id="features">
-          <ptah-pillar-memory />
-        </div>
-
-        <ptah-pillar-skills-orchestration />
-
-        <ptah-pillar-always-on />
+        <ptah-pillars-spine />
 
         <ptah-provider-strip />
 
         <!-- S8 Comparison -->
         <ptah-comparison-section />
+
+        <!-- S8.5 Ptah Builders -->
+        <ptah-builders-section />
+
+        <!-- Early Adopter apply form — scroll target for #waitlist (this page
+             and /#waitlist from any other page, incl. the pricing CTA) -->
+        <ptah-waitlist-form source="early-adopter" />
 
         <!-- S9 Also Available (single VS Code / CLI mention) -->
         <ptah-also-available />
@@ -87,13 +88,13 @@ import { AlsoAvailableComponent } from '../sections/also-available/also-availabl
 export class LandingPageComponent {
   constructor() {
     inject(SeoService).setPage({
-      title: 'Ptah — Persistent, Multi-Agent AI Coding Agent for Your Desktop',
+      title: 'Ptah — It Knows Your Architecture. It Ships the SaaS.',
       description:
-        'A desktop AI coding agent that remembers your codebase, runs agents in parallel, and works on a schedule. Reachable from Telegram & Slack. Free trial.',
+        'The AI dev team that ships production-shaped SaaS — multi-tenant, billing-integrated, security-reviewed, and architecturally consistent from the first commit. Free and open source.',
       url: 'https://ptah.live',
-      ogTitle: 'Ptah — It Remembers. It Learns. It Ships.',
+      ogTitle: 'Ptah — It Knows Your Architecture. It Ships the SaaS.',
       ogDescription:
-        'A persistent, multi-agent AI coding desktop app. Remembers your codebase, works in parallel, runs on a schedule, and answers from Telegram, Discord, or Slack.',
+        'The AI dev team that ships production-shaped SaaS — multi-tenant, billing-integrated, security-reviewed, and architecturally consistent from the first commit. Free and open source.',
     });
   }
 }

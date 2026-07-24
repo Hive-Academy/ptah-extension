@@ -8,8 +8,21 @@ import {
   ViewportAnimationConfig,
   ViewportAnimationDirective,
 } from '@hive-academy/angular-gsap';
-import { Calendar, Check, Crown, LucideAngularModule } from 'lucide-angular';
-import { LicenseData } from '../models/license-data.interface';
+import {
+  Calendar,
+  Check,
+  Crown,
+  LucideAngularModule,
+  Unlock,
+} from 'lucide-angular';
+import {
+  getMemberGroupBadgeLabel,
+  hasActiveMembership,
+  isBuildersTier,
+  isFoundingMemberGroup,
+  LicenseData,
+  MemberGroupBadge,
+} from '../models/license-data.interface';
 
 /**
  * ProfileHeaderComponent - User profile header with avatar, stats, and badges
@@ -18,8 +31,8 @@ import { LicenseData } from '../models/license-data.interface';
  * - Gradient hero background with decorative pattern
  * - User avatar with initials
  * - User name and member since date
- * - Plan and status badges
- * - Stats grid (features, days remaining, next billing)
+ * - Membership badge + status badge
+ * - Stats grid (open-source framing, membership status)
  *
  * @input license - User license data
  * @output logout - Emits when user clicks logout
@@ -112,14 +125,24 @@ import { LicenseData } from '../models/license-data.interface';
                   {{ getStatusLabel() }}
                 </span>
                 @if (license()?.user?.emailVerified) {
-                <span class="badge badge-lg badge-success gap-1">
-                  <lucide-angular
-                    [img]="CheckIcon"
-                    class="w-3 h-3"
-                    aria-hidden="true"
-                  />
-                  Verified
-                </span>
+                  <span class="badge badge-lg badge-success gap-1">
+                    <lucide-angular
+                      [img]="CheckIcon"
+                      class="w-3 h-3"
+                      aria-hidden="true"
+                    />
+                    Verified
+                  </span>
+                }
+                @for (group of memberGroups(); track group.key) {
+                  <span
+                    class="badge badge-lg gap-1"
+                    [class]="
+                      isFoundingGroup(group) ? 'badge-warning' : 'badge-ghost'
+                    "
+                  >
+                    {{ groupBadgeLabel(group) }}
+                  </span>
                 }
               </div>
             </div>
@@ -128,59 +151,44 @@ import { LicenseData } from '../models/license-data.interface';
 
         <!-- Stats Grid -->
         <div
-          class="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-secondary/10"
+          class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-secondary/10"
         >
-          <!-- Plan Stats -->
+          <!-- Open Source -->
           <div class="p-6 text-center">
             <div
-              class="text-3xl font-bold bg-gradient-to-r from-secondary to-accent bg-clip-text text-transparent"
+              class="flex items-center justify-center gap-2 text-2xl font-bold bg-gradient-to-r from-secondary to-accent bg-clip-text text-transparent"
             >
-              {{ featureCount() }}
+              <lucide-angular
+                [img]="UnlockIcon"
+                class="w-5 h-5 text-secondary"
+                aria-hidden="true"
+              />
+              Open Source
             </div>
-            <p class="text-sm text-neutral-content mt-1">Features Included</p>
+            <p class="text-sm text-neutral-content mt-1">
+              Full product, free forever
+            </p>
           </div>
 
-          <!-- Days/Status -->
+          <!-- Membership Status -->
           <div class="p-6 text-center">
-            @if (license()?.plan === 'community') {
-            <div class="text-3xl font-bold text-secondary">Free</div>
-            <p class="text-sm text-neutral-content mt-1">Forever</p>
-            } @else if (license()?.daysRemaining !== undefined) {
-            <div class="text-3xl font-bold" [class]="getExpiryClass()">
-              {{ license()?.daysRemaining }}
-            </div>
-            <p class="text-sm text-neutral-content mt-1">Days Remaining</p>
-            } @else if (license()?.subscription) {
-            <div class="text-3xl font-bold text-success">Active</div>
-            <p class="text-sm text-neutral-content mt-1">Subscription</p>
+            @if (isExpired()) {
+              <div class="text-2xl font-bold text-error">
+                Membership Expired
+              </div>
+              <p class="text-sm text-neutral-content mt-1">
+                Renew to restore Builders access
+              </p>
+            } @else if (isActiveMember()) {
+              <div class="text-2xl font-bold text-success">Active</div>
+              <p class="text-sm text-neutral-content mt-1">
+                Builder Membership
+              </p>
             } @else {
-            <div class="text-3xl font-bold text-secondary">∞</div>
-            <p class="text-sm text-neutral-content mt-1">Lifetime Access</p>
-            }
-          </div>
-
-          <!-- Next Billing / Expiry -->
-          <div class="p-6 text-center">
-            @if (license()?.plan === 'community') {
-            <div class="text-lg font-bold text-secondary">Never</div>
-            <p class="text-sm text-neutral-content mt-1">Expires</p>
-            } @else if (license()?.subscription?.currentPeriodEnd) {
-            <div class="text-lg font-bold text-base-content">
-              {{
-                formatDateShort(
-                  license()?.subscription?.currentPeriodEnd ?? null
-                )
-              }}
-            </div>
-            <p class="text-sm text-neutral-content mt-1">Next Billing</p>
-            } @else if (license()?.expiresAt) {
-            <div class="text-lg font-bold" [class]="getExpiryClass()">
-              {{ formatDateShort(license()?.expiresAt ?? null) }}
-            </div>
-            <p class="text-sm text-neutral-content mt-1">Expires On</p>
-            } @else {
-            <div class="text-lg font-bold text-secondary">Never</div>
-            <p class="text-sm text-neutral-content mt-1">Expires</p>
+              <div class="text-2xl font-bold text-secondary">Community</div>
+              <p class="text-sm text-neutral-content mt-1">
+                No subscription needed
+              </p>
             }
           </div>
         </div>
@@ -200,9 +208,19 @@ export class ProfileHeaderComponent {
   public readonly CheckIcon = Check;
   public readonly CrownIcon = Crown;
   public readonly CalendarIcon = Calendar;
+  public readonly UnlockIcon = Unlock;
 
   /** License data input */
   public readonly license = input<LicenseData | null>(null);
+
+  /** Cohort/group memberships to render as chips (empty when unassigned). */
+  public readonly memberGroups = computed<MemberGroupBadge[]>(
+    () => this.license()?.memberGroups ?? [],
+  );
+
+  /** Cohort chip helpers, shared with `MembersPageComponent`. */
+  protected readonly isFoundingGroup = isFoundingMemberGroup;
+  protected readonly groupBadgeLabel = getMemberGroupBadgeLabel;
   public readonly cardConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
     duration: 0.6,
@@ -231,38 +249,38 @@ export class ProfileHeaderComponent {
     return user?.email?.split('@')[0] || 'User';
   });
 
-  public readonly featureCount = computed(() => {
-    return this.license()?.features?.length || 0;
-  });
+  /**
+   * Check if the membership has expired.
+   */
+  public isExpired(): boolean {
+    return this.license()?.reason === 'expired';
+  }
 
   /**
-   * Check if trial has ended (even if DB still shows trialing status)
-   * TASK_2025_143: Use reason field to detect trial expiration
+   * Whether the viewer holds an active Ptah Builders membership, with no
+   * expired reason attached.
    */
-  public isTrialEnded(): boolean {
-    return this.license()?.reason === 'trial_ended';
+  public isActiveMember(): boolean {
+    return hasActiveMembership(this.license());
   }
 
   public getPlanBadgeClass(): string {
-    if (this.isTrialEnded()) return 'badge-error';
-
-    const plan = this.license()?.plan;
-    if (plan === 'pro' || plan === 'trial_pro') return 'badge-primary';
-    if (plan === 'community') return 'badge-secondary';
-    return 'badge-ghost';
+    if (this.isExpired()) return 'badge-error';
+    if (isBuildersTier(this.license()?.plan)) return 'badge-primary';
+    return 'badge-secondary';
   }
 
   /**
-   * Get display name for plan badge
-   * TASK_2025_143: Show "Trial Expired" when trial has ended
+   * Get display name for the membership badge: 'Builder' for a Builders
+   * plan, 'Community' otherwise, 'Membership Expired' once it has lapsed.
    */
   public getPlanDisplayName(): string {
-    if (this.isTrialEnded()) return 'Trial Expired';
-    return this.license()?.planName || 'Unknown';
+    if (this.isExpired()) return 'Membership Expired';
+    return isBuildersTier(this.license()?.plan) ? 'Builder' : 'Community';
   }
 
   public getStatusBadgeClass(): string {
-    if (this.isTrialEnded()) return 'badge-error';
+    if (this.isExpired()) return 'badge-error';
 
     const status = this.license()?.status;
     if (status === 'active') return 'badge-success';
@@ -271,7 +289,7 @@ export class ProfileHeaderComponent {
   }
 
   public getStatusLabel(): string {
-    if (this.isTrialEnded()) return 'Expired';
+    if (this.isExpired()) return 'Expired';
 
     const status = this.license()?.status;
     if (status === 'active') return 'Active';
@@ -280,29 +298,12 @@ export class ProfileHeaderComponent {
     return (status && (status as string).toUpperCase()) || 'Unknown';
   }
 
-  public getExpiryClass(): string {
-    const days = this.license()?.daysRemaining;
-    if (days === undefined) return 'text-base-content';
-    if (days <= 7) return 'text-error';
-    if (days <= 30) return 'text-warning';
-    return 'text-success';
-  }
-
   public formatDate(isoDate: string | null): string {
     if (!isoDate) return 'N/A';
     return new Date(isoDate).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
-    });
-  }
-
-  public formatDateShort(isoDate: string | null): string {
-    if (!isoDate) return 'N/A';
-    return new Date(isoDate).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
     });
   }
 }

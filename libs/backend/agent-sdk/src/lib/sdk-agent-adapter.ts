@@ -427,7 +427,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       prompt?: string;
       files?: string[];
       images?: { data: string; mediaType: string }[];
-      isPremium?: boolean;
       mcpServerRunning?: boolean;
       enhancedPromptsContent?: string;
       pluginPaths?: string[];
@@ -443,7 +442,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
     const {
       tabId,
-      isPremium = false,
       mcpServerRunning = true,
       enhancedPromptsContent,
       pluginPaths,
@@ -462,7 +460,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
     this.logger.info(
       `[SdkAgentAdapter] Starting NEW chat session for tab: ${tabId}`,
-      { isPremium, mcpServerRunning, providerId: providerProfile?.providerId },
+      { mcpServerRunning, providerId: providerProfile?.providerId },
     );
 
     const { sdkQuery, initialModel, abortController } =
@@ -481,7 +479,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
         onCompactionStart: this.callbacks.getCompactionStart(),
         onWorktreeCreated: this.callbacks.getWorktreeCreated(),
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
-        isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
@@ -529,7 +526,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
   async resumeSession(
     sessionId: SessionId,
     config?: AISessionConfig & {
-      isPremium?: boolean;
       mcpServerRunning?: boolean;
       enhancedPromptsContent?: string;
       pluginPaths?: string[];
@@ -561,7 +557,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       });
     }
 
-    const isPremium = config?.isPremium ?? false;
     const mcpServerRunning = config?.mcpServerRunning ?? true;
     const enhancedPromptsContent = config?.enhancedPromptsContent;
     const pluginPaths = config?.pluginPaths;
@@ -576,7 +571,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       : config;
 
     this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`, {
-      isPremium,
       mcpServerRunning,
       providerId: providerProfile?.providerId,
     });
@@ -589,7 +583,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
         onCompactionStart: this.callbacks.getCompactionStart(),
         onWorktreeCreated: this.callbacks.getWorktreeCreated(),
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
-        isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
@@ -704,7 +697,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const { sdkQuery, initialModel, abortController } =
       await this.sessionLifecycle.executeSlashCommandQuery(sessionId, command, {
         sessionConfig: config.sessionConfig,
-        isPremium: config.isPremium,
         mcpServerRunning: config.mcpServerRunning,
         enhancedPromptsContent: config.enhancedPromptsContent,
         pluginPaths: config.pluginPaths,

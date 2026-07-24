@@ -4,16 +4,17 @@ import {
   ViewportAnimationDirective,
 } from '@hive-academy/angular-gsap';
 import { DeviceFrameComponent } from '../../components/console/device-frame.component';
-import { OrchestraGridMockComponent } from '../../components/console/orchestra-grid-mock.component';
+import { CouncilDemoComponent } from '../../components/console/council-demo.component';
 
 /**
  * HeroDeviceShowcaseComponent — the hero's proof-of-life visual (design spec §4 S1).
  *
- * Thin composition: a `DeviceFrameComponent` ("Ptah — Orchestra Canvas", live
- * "9 agents active") wrapping the reused `OrchestraGridMockComponent`. Carries
- * the page's single resting `shadow-glow-amber` signature (design §2.4 reserves
- * the amber glow for exactly the hero frame + primary CTA hover). Entrance is a
- * `scaleIn` — SSG-safe, since the resting state is fully visible.
+ * Thin composition: a `DeviceFrameComponent` ("Ptah — Tribunal · Council", live
+ * "4 vendors") wrapping the animated `CouncilDemoComponent` — a looping
+ * deliberation demo (vendors decode their stances, then a verdict resolves).
+ * Carries the page's single resting `shadow-glow-amber` signature (design §2.4
+ * reserves the amber glow for exactly the hero frame + primary CTA hover).
+ * Entrance is a `scaleIn` — SSG-safe, since the resting state is fully visible.
  */
 @Component({
   selector: 'ptah-hero-device-showcase',
@@ -21,7 +22,7 @@ import { OrchestraGridMockComponent } from '../../components/console/orchestra-g
   imports: [
     ViewportAnimationDirective,
     DeviceFrameComponent,
-    OrchestraGridMockComponent,
+    CouncilDemoComponent,
   ],
   template: `
     <div class="px-4 sm:px-6 pb-20 sm:pb-28">
@@ -31,11 +32,11 @@ import { OrchestraGridMockComponent } from '../../components/console/orchestra-g
         class="max-w-5xl mx-auto rounded-xl shadow-glow-amber"
       >
         <ptah-device-frame
-          title="Ptah — Orchestra Canvas"
-          liveLabel="9 agents active"
+          title="Ptah — Tribunal · Council"
+          liveLabel="4 vendors"
           aspect="16/10"
         >
-          <ptah-orchestra-grid-mock />
+          <ptah-council-demo />
         </ptah-device-frame>
       </div>
 
@@ -72,7 +73,7 @@ export class HeroDeviceShowcaseComponent {
   public readonly stats = [
     { value: '9', label: 'concurrent agent tiles' },
     { value: '7', label: 'model providers, zero lock-in' },
-    { value: '100-day', label: 'free trial' },
+    { value: 'Free', label: 'and open source' },
     { value: '3', label: 'platforms: Windows, macOS, Linux' },
   ];
 

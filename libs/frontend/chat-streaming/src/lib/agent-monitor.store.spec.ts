@@ -366,6 +366,28 @@ describe('AgentMonitorStore', () => {
       );
     });
 
+    it('agentId captured on agent_start survives onAgentProgress/onAgentStatus/onAgentCompleted/onTaskToolResult merges', () => {
+      // agentId (the SDK short-hex id) is ONLY carried by agent_start — the
+      // sibling events never repeat it, so onAgentProgress/onAgentStatus/
+      // onAgentCompleted must preserve the existing value (`agentId: existing?.agentId`)
+      // rather than clobbering it with undefined. This is the id required to
+      // read the subagent's transcript via subagent:transcript.
+      store.onAgentStart(startEvent({ agentId: 'short-abc123' }));
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+
+      store.onAgentProgress(progressEvent());
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+
+      store.onAgentStatus(statusEvent());
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+
+      store.onAgentCompleted(completedEvent());
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+
+      store.onTaskToolResult(PARENT, false);
+      expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
+    });
+
     it('records are independent per parentToolUseId', () => {
       store.onAgentStart(startEvent({ toolCallId: 'toolu_a' }));
       store.onAgentStart(startEvent({ toolCallId: 'toolu_b' }));
@@ -401,6 +423,158 @@ describe('AgentMonitorStore', () => {
         store.onTaskToolResult('toolu_unknown', false);
         expect(store.subagents().get('toolu_unknown')).toBeUndefined();
       });
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Workflow run grouping fields (workflowRunId / workflowName)
+  // ─────────────────────────────────────────────────────────────────────
+  describe('workflow run fields', () => {
+    it('copies workflowRunId/workflowName from spawn info onto the MonitoredAgent', () => {
+      store.onAgentSpawned({
+        agentId: 'wf-agent',
+        cli: 'ptah-cli',
+        task: 'build step',
+        status: 'running',
+        startedAt: Date.now(),
+        workflowRunId: 'run-1',
+        workflowName: 'Release Build',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const agent = store.agents().find((a) => a.agentId === 'wf-agent');
+      expect(agent?.workflowRunId).toBe('run-1');
+      expect(agent?.workflowName).toBe('Release Build');
+    });
+
+    it('leaves workflow fields undefined for ordinary (non-workflow) agents', () => {
+      store.onAgentSpawned({
+        agentId: 'plain-agent',
+        cli: 'codex',
+        task: 'do a thing',
+        status: 'running',
+        startedAt: Date.now(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const agent = store.agents().find((a) => a.agentId === 'plain-agent');
+      expect(agent?.workflowRunId).toBeUndefined();
+      expect(agent?.workflowName).toBeUndefined();
+    });
+
+    it('copies workflowRunId/workflowName from agent_start onto the SubagentRecord', () => {
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: 'a',
+        timestamp: 1,
+        toolCallId: 'toolu_wf',
+        agentType: 'Explore',
+        agentDescription: 'explore',
+        agentId: 'short-wf',
+        source: 'hook',
+        workflowRunId: 'run-9',
+        workflowName: 'Migration',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const rec = store.subagents().get('toolu_wf');
+      expect(rec?.workflowRunId).toBe('run-9');
+      expect(rec?.workflowName).toBe('Migration');
+    });
+
+    it('preserves workflow fields across progress/completed merges', () => {
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: 'a',
+        timestamp: 1,
+        toolCallId: 'toolu_wf2',
+        agentType: 'Explore',
+        agentDescription: 'explore',
+        agentId: 'short-wf2',
+        source: 'hook',
+        workflowRunId: 'run-keep',
+        workflowName: 'Keep Me',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      // A later progress event WITHOUT the workflow fields must not clobber them.
+      store.onAgentProgress({
+        eventType: 'agent_progress',
+        id: 'p',
+        timestamp: 2,
+        parentToolUseId: 'toolu_wf2',
+        summary: 'progressing',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const rec = store.subagents().get('toolu_wf2');
+      expect(rec?.workflowRunId).toBe('run-keep');
+      expect(rec?.workflowName).toBe('Keep Me');
+    });
+
+    function startWorkflowSubagent(
+      toolCallId: string,
+      workflowRunId: string,
+      sessionId?: string,
+    ): void {
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: `id-${toolCallId}`,
+        timestamp: 1,
+        toolCallId,
+        agentType: 'Explore',
+        agentDescription: 'explore',
+        agentId: `short-${toolCallId}`,
+        source: 'hook',
+        sessionId,
+        workflowRunId,
+        workflowName: 'WF',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+    }
+
+    it('activeWorkflowSubagents returns only records carrying a workflowRunId', () => {
+      startWorkflowSubagent('toolu_wf_a', 'run-1');
+      // A non-workflow subagent must be excluded.
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: 'id-plain',
+        timestamp: 1,
+        toolCallId: 'toolu_plain',
+        agentType: 'Explore',
+        agentDescription: 'explore',
+        agentId: 'short-plain',
+        source: 'hook',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      mockActiveTab.set(null);
+      const workflow = store.activeWorkflowSubagents();
+      expect(workflow.map((r) => r.parentToolUseId)).toEqual(['toolu_wf_a']);
+    });
+
+    it('activeWorkflowSubagents scopes by active session (records w/o session shown)', () => {
+      startWorkflowSubagent('toolu_owned', 'run-1', 'sess-A');
+      startWorkflowSubagent('toolu_other', 'run-2', 'sess-B');
+      startWorkflowSubagent('toolu_global', 'run-3'); // no session → shown in all
+
+      mockActiveTab.set({ claudeSessionId: 'sess-A' });
+      const ids = store
+        .activeWorkflowSubagents()
+        .map((r) => r.parentToolUseId)
+        .sort();
+      expect(ids).toEqual(['toolu_global', 'toolu_owned']);
+    });
+
+    it('workflowSubagentsForSession filters by exact parentSessionId', () => {
+      startWorkflowSubagent('toolu_a', 'run-1', 'sess-A');
+      startWorkflowSubagent('toolu_b', 'run-2', 'sess-B');
+
+      expect(
+        store
+          .workflowSubagentsForSession('sess-A')
+          .map((r) => r.parentToolUseId),
+      ).toEqual(['toolu_a']);
     });
   });
 

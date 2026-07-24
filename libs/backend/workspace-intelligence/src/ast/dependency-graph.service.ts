@@ -65,11 +65,16 @@ const MAX_DEPTH = 3;
  */
 @injectable()
 export class DependencyGraphService {
-  /** The cached dependency graph */
-  private graph: DependencyGraph | null = null;
+  /**
+   * Cached dependency graphs, keyed by normalized workspace root. One entry per
+   * open workspace so multiple workspaces (e.g. Electron with several folders)
+   * never share a graph. Evicted when a workspace closes — see {@link evict} /
+   * {@link retainOnly}.
+   */
+  private readonly graphs = new Map<string, DependencyGraph>();
 
-  /** Cached symbol index derived from graph nodes */
-  private symbolIndex: SymbolIndex | null = null;
+  /** Symbol index per workspace root, derived lazily from that graph's nodes. */
+  private readonly symbolIndexes = new Map<string, SymbolIndex>();
 
   constructor(
     @inject(TOKENS.AST_ANALYSIS_SERVICE)
@@ -198,8 +203,9 @@ export class DependencyGraphService {
       unresolvedCount,
     };
 
-    this.graph = graph;
-    this.symbolIndex = null; // Invalidate cached symbol index
+    const key = this.normalizeRoot(workspaceRoot);
+    this.graphs.set(key, graph);
+    this.symbolIndexes.delete(key); // Invalidate cached symbol index for this root
 
     const elapsed = Date.now() - startTime;
     this.logger.info(
@@ -221,22 +227,29 @@ export class DependencyGraphService {
    * @returns Array of resolved dependency file paths
    */
   getDependencies(filePath: string, depth = 1): string[] {
-    if (!this.graph) {
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    const graph = this.findGraphForFile(normalizedPath);
+    if (!graph) {
       return [];
     }
 
     const clampedDepth = Math.min(Math.max(depth, 1), MAX_DEPTH);
-    const normalizedPath = filePath.replace(/\\/g, '/');
 
     if (clampedDepth === 1) {
-      const directEdges = this.graph.edges.get(normalizedPath);
+      const directEdges = graph.edges.get(normalizedPath);
       return directEdges ? Array.from(directEdges) : [];
     }
     const result: string[] = [];
     const visited = new Set<string>();
     visited.add(normalizedPath); // Mark origin as visited to prevent self-cycles
 
-    this.collectDependencies(normalizedPath, clampedDepth, visited, result);
+    this.collectDependencies(
+      graph,
+      normalizedPath,
+      clampedDepth,
+      visited,
+      result,
+    );
 
     return result;
   }
@@ -248,12 +261,13 @@ export class DependencyGraphService {
    * @returns Array of dependent file paths
    */
   getDependents(filePath: string): string[] {
-    if (!this.graph) {
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    const graph = this.findGraphForFile(normalizedPath);
+    if (!graph) {
       return [];
     }
 
-    const normalizedPath = filePath.replace(/\\/g, '/');
-    const dependents = this.graph.reverseEdges.get(normalizedPath);
+    const dependents = graph.reverseEdges.get(normalizedPath);
     return dependents ? Array.from(dependents) : [];
   }
 
@@ -264,22 +278,43 @@ export class DependencyGraphService {
    *
    * @returns SymbolIndex map
    */
-  getSymbolIndex(): SymbolIndex {
-    if (this.symbolIndex) {
-      return this.symbolIndex;
+  getSymbolIndex(workspaceRoot?: string): SymbolIndex {
+    if (workspaceRoot) {
+      return this.symbolIndexForKey(this.normalizeRoot(workspaceRoot));
+    }
+    // No root specified: return the sole graph's index (the common single-
+    // workspace case), or a merged union across all open workspaces.
+    if (this.graphs.size === 1) {
+      const [onlyKey] = this.graphs.keys();
+      return this.symbolIndexForKey(onlyKey);
+    }
+    const merged: SymbolIndex = new Map();
+    for (const key of this.graphs.keys()) {
+      for (const [filePath, exports] of this.symbolIndexForKey(key)) {
+        merged.set(filePath, exports);
+      }
+    }
+    return merged;
+  }
+
+  /** Build (and cache) the symbol index for a single graph, keyed by root. */
+  private symbolIndexForKey(key: string): SymbolIndex {
+    const cached = this.symbolIndexes.get(key);
+    if (cached) {
+      return cached;
     }
 
     const index: SymbolIndex = new Map();
-
-    if (this.graph) {
-      for (const [filePath, node] of this.graph.nodes) {
+    const graph = this.graphs.get(key);
+    if (graph) {
+      for (const [filePath, node] of graph.nodes) {
         if (node.exports.length > 0) {
           index.set(filePath, node.exports);
         }
       }
     }
 
-    this.symbolIndex = index;
+    this.symbolIndexes.set(key, index);
     return index;
   }
 
@@ -290,36 +325,38 @@ export class DependencyGraphService {
    * @param filePath - Absolute file path to invalidate
    */
   invalidateFile(filePath: string): void {
-    if (!this.graph) {
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    const entry = this.findGraphEntryForFile(normalizedPath);
+    if (!entry) {
       return;
     }
+    const [key, graph] = entry;
 
-    const normalizedPath = filePath.replace(/\\/g, '/');
-    const forwardDeps = this.graph.edges.get(normalizedPath);
+    const forwardDeps = graph.edges.get(normalizedPath);
     if (forwardDeps) {
       for (const dep of forwardDeps) {
-        const reverseDeps = this.graph.reverseEdges.get(dep);
+        const reverseDeps = graph.reverseEdges.get(dep);
         if (reverseDeps) {
           reverseDeps.delete(normalizedPath);
           if (reverseDeps.size === 0) {
-            this.graph.reverseEdges.delete(dep);
+            graph.reverseEdges.delete(dep);
           }
         }
       }
-      this.graph.edges.delete(normalizedPath);
+      graph.edges.delete(normalizedPath);
     }
-    const reverseDeps = this.graph.reverseEdges.get(normalizedPath);
+    const reverseDeps = graph.reverseEdges.get(normalizedPath);
     if (reverseDeps) {
       for (const dependent of reverseDeps) {
-        const fwdDeps = this.graph.edges.get(dependent);
+        const fwdDeps = graph.edges.get(dependent);
         if (fwdDeps) {
           fwdDeps.delete(normalizedPath);
         }
       }
-      this.graph.reverseEdges.delete(normalizedPath);
+      graph.reverseEdges.delete(normalizedPath);
     }
-    this.graph.nodes.delete(normalizedPath);
-    this.symbolIndex = null;
+    graph.nodes.delete(normalizedPath);
+    this.symbolIndexes.delete(key);
 
     this.logger.debug(
       `DependencyGraphService.invalidateFile() - Invalidated ${normalizedPath}`,
@@ -327,26 +364,113 @@ export class DependencyGraphService {
   }
 
   /**
-   * Check if the graph has been built.
+   * Check whether a graph has been built.
+   * @param workspaceRoot - When provided, checks that specific workspace's
+   *   graph; otherwise returns true if any workspace graph exists.
    */
-  isBuilt(): boolean {
-    return this.graph !== null;
+  isBuilt(workspaceRoot?: string): boolean {
+    if (workspaceRoot) {
+      return this.graphs.has(this.normalizeRoot(workspaceRoot));
+    }
+    return this.graphs.size > 0;
+  }
+
+  /**
+   * Evict a single workspace's cached graph and symbol index. Call when a
+   * workspace folder is closed so its graph does not linger in memory.
+   */
+  evict(workspaceRoot: string): void {
+    const key = this.normalizeRoot(workspaceRoot);
+    if (this.graphs.delete(key)) {
+      this.symbolIndexes.delete(key);
+      this.logger.debug(
+        `DependencyGraphService.evict() - Evicted graph for ${key}`,
+      );
+    }
+  }
+
+  /**
+   * Retain only the graphs whose workspace root is in `activeRoots`, evicting
+   * all others. Driven by `onDidChangeWorkspaceFolders`: because that event
+   * carries no removed path, retaining the current set is the race-free way to
+   * drop graphs for closed workspaces.
+   */
+  retainOnly(activeRoots: string[]): void {
+    const keep = new Set(activeRoots.map((root) => this.normalizeRoot(root)));
+    for (const key of [...this.graphs.keys()]) {
+      if (!keep.has(key)) {
+        this.graphs.delete(key);
+        this.symbolIndexes.delete(key);
+        this.logger.debug(
+          `DependencyGraphService.retainOnly() - Evicted graph for ${key}`,
+        );
+      }
+    }
+  }
+
+  /** Evict every cached graph (e.g. on shutdown). */
+  clear(): void {
+    this.graphs.clear();
+    this.symbolIndexes.clear();
+  }
+
+  /** Normalize a workspace root to the map-key form (forward slashes, no trailing slash). */
+  private normalizeRoot(root: string): string {
+    return root.replace(/\\/g, '/').replace(/\/+$/, '');
+  }
+
+  /**
+   * Find the graph a file belongs to. With a single open workspace the sole
+   * graph answers every query (identical to the pre-multi-workspace behavior).
+   * With several open, the file is routed to the graph whose root is the
+   * longest prefix of the file path.
+   */
+  private findGraphForFile(
+    normalizedPath: string,
+  ): DependencyGraph | undefined {
+    return this.findGraphEntryForFile(normalizedPath)?.[1];
+  }
+
+  private findGraphEntryForFile(
+    normalizedPath: string,
+  ): [string, DependencyGraph] | undefined {
+    if (this.graphs.size === 0) {
+      return undefined;
+    }
+    if (this.graphs.size === 1) {
+      const [entry] = this.graphs.entries();
+      return entry;
+    }
+    let best: [string, DependencyGraph] | undefined;
+    for (const entry of this.graphs.entries()) {
+      const root = entry[0];
+      if (
+        normalizedPath === root ||
+        normalizedPath.startsWith(root.endsWith('/') ? root : root + '/')
+      ) {
+        if (!best || root.length > best[0].length) {
+          best = entry;
+        }
+      }
+    }
+    return best;
   }
 
   /**
    * Recursively collect transitive dependencies with cycle detection.
    */
   private collectDependencies(
+    graph: DependencyGraph,
     filePath: string,
     remainingDepth: number,
     visited: Set<string>,
     result: string[],
   ): void {
-    if (remainingDepth <= 0 || !this.graph) {
+    if (remainingDepth <= 0) {
       return;
     }
 
-    const directDeps = this.graph.edges.get(filePath);
+    const directDeps = graph.edges.get(filePath);
     if (!directDeps) {
       return;
     }
@@ -359,7 +483,13 @@ export class DependencyGraphService {
       visited.add(dep);
       result.push(dep);
       if (remainingDepth > 1) {
-        this.collectDependencies(dep, remainingDepth - 1, visited, result);
+        this.collectDependencies(
+          graph,
+          dep,
+          remainingDepth - 1,
+          visited,
+          result,
+        );
       }
     }
   }
@@ -405,8 +535,13 @@ export class DependencyGraphService {
     importingFilePath: string,
     knownFiles: Set<string>,
   ): string | null {
-    const importDir = path.dirname(importingFilePath);
-    const basePath = path.resolve(importDir, importSource).replace(/\\/g, '/');
+    // All internal paths are pre-normalized to forward slashes, so resolve with
+    // POSIX semantics. `path.resolve` would key off the host platform's notion
+    // of "absolute" — on Linux a Windows-style root like `D:/ws` is treated as
+    // relative and gets `process.cwd()` prepended, breaking resolution. `path.
+    // posix.join` joins deterministically on every platform.
+    const importDir = path.posix.dirname(importingFilePath);
+    const basePath = path.posix.join(importDir, importSource);
     if (knownFiles.has(basePath)) {
       return basePath;
     }
@@ -441,9 +576,10 @@ export class DependencyGraphService {
       }
       for (const mappingPath of mappings) {
         const resolvedMapping = mappingPath.replace('*', match);
-        const absolutePath = path
-          .resolve(workspaceRoot, resolvedMapping)
-          .replace(/\\/g, '/');
+        // POSIX join for platform-independent resolution — see the note in
+        // resolveRelativeImport. `workspaceRoot` is already forward-slashed, so
+        // `path.resolve` on Linux would treat a Windows-style root as relative.
+        const absolutePath = path.posix.join(workspaceRoot, resolvedMapping);
         if (knownFiles.has(absolutePath)) {
           return absolutePath;
         }

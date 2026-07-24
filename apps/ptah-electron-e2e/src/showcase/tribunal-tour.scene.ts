@@ -62,9 +62,6 @@ async function goToTribunal(page: Page, director: Director): Promise<void> {
 }
 
 test('Tribunal — a panel of rival models', async ({ page, director }) => {
-  // Clear any blocking startup modal (license / trial dialog) before filming.
-  await director.dismissDialogs();
-
   // Navigate + clean up BEFORE the first beat: everything until the opening is
   // trimmed by render-all's lead-in trim, so this surface swap never airs — and
   // the opening lands on the Tribunal grid instead of the stale restored
@@ -72,7 +69,6 @@ test('Tribunal — a panel of rival models', async ({ page, director }) => {
   // navigation-only — it NEVER convenes a panel (no paid agents) — so no
   // separate pre-warm is needed.
   await goToTribunal(page, director);
-  await director.dismissDialogs();
   await director.hold();
 
   // OPENING — fire immediately so the video opens on a question, not dead air.
@@ -162,7 +158,6 @@ test('Tribunal — a panel of rival models', async ({ page, director }) => {
     during: async () => {
       await director.spotlight(conveneCta, 1400);
       await director.click(conveneCta);
-      await director.dismissDialogs();
       await director.hold();
     },
   });
@@ -219,7 +214,6 @@ test('Tribunal — a panel of rival models', async ({ page, director }) => {
   const nextBtn = page.getByRole('button', { name: 'Next step' }).first();
   if (await nextBtn.isVisible().catch(() => false)) {
     await director.click(nextBtn);
-    await director.dismissDialogs();
     await director.hold();
   }
 

@@ -40,6 +40,8 @@ import type {
   SubagentBackgroundParams,
   SubagentBackgroundResult,
   SubagentCommandResult,
+  SubagentTranscriptParams,
+  SubagentTranscriptResult,
 } from './subagent-registry.types';
 import type { SavedAnalysisMetadata } from './wizard';
 import type {
@@ -227,6 +229,14 @@ import type {
   McpDirectoryUninstallSmitheryResult,
   McpDirectoryListSmitheryInstalledParams,
   McpDirectoryListSmitheryInstalledResult,
+  McpDirectoryConnectOAuthParams,
+  McpDirectoryConnectOAuthResult,
+  McpDirectoryOAuthStatusParams,
+  McpDirectoryOAuthStatusResult,
+  McpDirectoryDisconnectOAuthParams,
+  McpDirectoryDisconnectOAuthResult,
+  McpDirectoryListOAuthConnectedParams,
+  McpDirectoryListOAuthConnectedResult,
 } from './mcp-directory.types';
 
 import type {
@@ -789,6 +799,10 @@ export interface RpcMethodRegistry {
     params: SubagentBackgroundParams;
     result: SubagentBackgroundResult;
   };
+  'subagent:transcript': {
+    params: SubagentTranscriptParams;
+    result: SubagentTranscriptResult;
+  };
   'enhancedPrompts:getStatus': {
     params: EnhancedPromptsGetStatusParams;
     result: EnhancedPromptsGetStatusResponse;
@@ -1002,6 +1016,22 @@ export interface RpcMethodRegistry {
   'mcpDirectory:listSmitheryInstalled': {
     params: McpDirectoryListSmitheryInstalledParams;
     result: McpDirectoryListSmitheryInstalledResult;
+  };
+  'mcpDirectory:connectOAuth': {
+    params: McpDirectoryConnectOAuthParams;
+    result: McpDirectoryConnectOAuthResult;
+  };
+  'mcpDirectory:oauthStatus': {
+    params: McpDirectoryOAuthStatusParams;
+    result: McpDirectoryOAuthStatusResult;
+  };
+  'mcpDirectory:disconnectOAuth': {
+    params: McpDirectoryDisconnectOAuthParams;
+    result: McpDirectoryDisconnectOAuthResult;
+  };
+  'mcpDirectory:listOAuthConnected': {
+    params: McpDirectoryListOAuthConnectedParams;
+    result: McpDirectoryListOAuthConnectedResult;
   };
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -2459,6 +2489,14 @@ export interface JobRunDto {
 
 export interface CronListParams {
   enabledOnly?: boolean;
+  /**
+   * When provided, restrict results to jobs whose `workspaceRoot` matches this
+   * absolute path after normalization (trailing-separator strip, drive-letter
+   * case fold, separator canonicalization) — not a byte-exact match. Omit for a
+   * cross-workspace (global) listing. Optional so existing callers (which pass
+   * `{}`) are unaffected.
+   */
+  workspaceRoot?: string;
 }
 export interface CronListResult {
   jobs: ScheduledJobDto[];
@@ -2635,6 +2673,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'subagent:stop': true,
   'subagent:interrupt': true,
   'subagent:background': true,
+  'subagent:transcript': true,
   'enhancedPrompts:getStatus': true,
   'enhancedPrompts:runWizard': true,
   'enhancedPrompts:setEnabled': true,
@@ -2681,6 +2720,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:installSmithery': true,
   'mcpDirectory:uninstallSmithery': true,
   'mcpDirectory:listSmitheryInstalled': true,
+  'mcpDirectory:connectOAuth': true,
+  'mcpDirectory:oauthStatus': true,
+  'mcpDirectory:disconnectOAuth': true,
+  'mcpDirectory:listOAuthConnected': true,
   'workspace:getInfo': true,
   'workspace:addFolder': true,
   'workspace:removeFolder': true,

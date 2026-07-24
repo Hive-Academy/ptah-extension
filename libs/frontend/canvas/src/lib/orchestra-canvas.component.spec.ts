@@ -70,7 +70,9 @@ import { AppStateManager, type CanvasTabRequest } from '@ptah-extension/core';
 
 describe('OrchestraCanvasComponent workspace effects', () => {
   let activeWorkspacePath$: ReturnType<typeof signal<string | null>>;
-  let removedWorkspace$: ReturnType<typeof signal<string | null>>;
+  let removedWorkspace$: ReturnType<
+    typeof signal<{ path: string; seq: number } | null>
+  >;
   let tabsSignal: ReturnType<
     typeof signal<
       Array<{ id: string; claudeSessionId: string | null; name: string }>
@@ -89,7 +91,6 @@ describe('OrchestraCanvasComponent workspace effects', () => {
   let removeTileFromAnyWorkspaceMock: jest.Mock;
   let allTabIdsMock: jest.Mock;
   let forceCloseTabMock: jest.Mock;
-  let clearRemovedWorkspaceMock: jest.Mock;
   let canvasTabRequest$: ReturnType<typeof signal<CanvasTabRequest | null>>;
   let clearCanvasTabRequestMock: jest.Mock;
   let canvasStoreMock: CanvasStore;
@@ -106,7 +107,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
 
   beforeEach(() => {
     activeWorkspacePath$ = signal<string | null>(null);
-    removedWorkspace$ = signal<string | null>(null);
+    removedWorkspace$ = signal<{ path: string; seq: number } | null>(null);
     closedTab$ = signal<{
       tabId: string;
       sessionId: string | null;
@@ -121,7 +122,6 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     removeTileFromAnyWorkspaceMock = jest.fn();
     allTabIdsMock = jest.fn(() => []);
     forceCloseTabMock = jest.fn();
-    clearRemovedWorkspaceMock = jest.fn();
     canvasTabRequest$ = signal<CanvasTabRequest | null>(null);
     clearCanvasTabRequestMock = jest.fn(() => canvasTabRequest$.set(null));
 
@@ -131,7 +131,6 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       activeWorkspacePath$,
       removedWorkspace$,
       closedTab: closedTab$,
-      clearRemovedWorkspace: clearRemovedWorkspaceMock,
       forceCloseTab: forceCloseTabMock,
     } as unknown as TabManagerService;
 
@@ -216,15 +215,27 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     expect(switchWorkspaceTilesMock).toHaveBeenCalledWith('/ws/a', tabs);
   });
 
-  it('removed-workspace effect calls removeWorkspaceTileState and acks via clearRemovedWorkspace', () => {
+  it('removed-workspace effect calls removeWorkspaceTileState once per append-only emission', () => {
     const fixture = mount();
 
-    removedWorkspace$.set('/ws/gone');
+    removedWorkspace$.set({ path: '/ws/gone', seq: 1 });
     flush();
     fixture.detectChanges();
 
     expect(removeWorkspaceTileStateMock).toHaveBeenCalledWith('/ws/gone');
-    expect(clearRemovedWorkspaceMock).toHaveBeenCalled();
+    expect(removeWorkspaceTileStateMock).toHaveBeenCalledTimes(1);
+
+    // Re-flushing the same (never-cleared) emission must not re-process it.
+    flush();
+    fixture.detectChanges();
+    expect(removeWorkspaceTileStateMock).toHaveBeenCalledTimes(1);
+
+    // A new removal (higher seq) is processed exactly once more.
+    removedWorkspace$.set({ path: '/ws/other', seq: 2 });
+    flush();
+    fixture.detectChanges();
+    expect(removeWorkspaceTileStateMock).toHaveBeenCalledWith('/ws/other');
+    expect(removeWorkspaceTileStateMock).toHaveBeenCalledTimes(2);
   });
 
   it('workspace-swap effect runs before tab-removal effect on the same tick', () => {
@@ -366,9 +377,8 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
       tabs: tabsSignal,
       activeTabId: signal<string | null>(null),
       activeWorkspacePath$,
-      removedWorkspace$: signal<string | null>(null),
+      removedWorkspace$: signal<{ path: string; seq: number } | null>(null),
       closedTab: signal<unknown>(null),
-      clearRemovedWorkspace: jest.fn(),
       forceCloseTab: jest.fn(),
       switchTab: jest.fn(),
       openSessionTab: jest.fn(),

@@ -15,7 +15,6 @@ export type ViewType =
   | 'context-tree'
   | 'settings'
   | 'setup-wizard'
-  | 'welcome'
   | 'orchestra-canvas'
   | 'harness-builder'
   | 'setup-hub'
@@ -126,8 +125,6 @@ export interface AppState {
   statusMessage: string;
   workspaceInfo: WorkspaceInfo | null;
   isConnected: boolean;
-  /** Whether the user has a valid license */
-  isLicensed: boolean;
 }
 
 /**
@@ -148,7 +145,6 @@ export class AppStateManager implements MessageHandler {
       'context-tree',
       'settings',
       'setup-wizard',
-      'welcome',
       'orchestra-canvas',
       'harness-builder',
       'setup-hub',
@@ -170,8 +166,6 @@ export class AppStateManager implements MessageHandler {
   private readonly _statusMessage = signal('Ready');
   private readonly _workspaceInfo = signal<WorkspaceInfo | null>(null);
   private readonly _isConnected = signal(true);
-  /** License status - controls access to premium features and RPC calls */
-  private readonly _isLicensed = signal(true);
   /** Tracks which views are currently "open" as tab pills (Electron navbar). Chat is always present. */
   private readonly _openViews = signal<Set<ViewType>>(new Set(['chat']));
   private readonly _layoutMode = signal<LayoutMode>('grid');
@@ -241,12 +235,8 @@ export class AppStateManager implements MessageHandler {
   readonly statusMessage = this._statusMessage.asReadonly();
   readonly workspaceInfo = this._workspaceInfo.asReadonly();
   readonly isConnected = this._isConnected.asReadonly();
-  /** Whether the user has a valid license - controls RPC access */
-  readonly isLicensed = this._isLicensed.asReadonly();
-  /** Open views as an array for template iteration. Excludes 'welcome' (license gate, not a tab). */
-  readonly openViews = computed(() =>
-    Array.from(this._openViews()).filter((v) => v !== 'welcome'),
-  );
+  /** Open views as an array for template iteration. */
+  readonly openViews = computed(() => Array.from(this._openViews()));
   /** Current layout mode: 'single' (tab view) or 'grid' (canvas view) */
   readonly layoutMode = this._layoutMode.asReadonly();
   /** Pending request to open a session in a canvas tile (consumed by OrchestraCanvasComponent) */
@@ -268,10 +258,6 @@ export class AppStateManager implements MessageHandler {
   /** Whether the Thoth first-run hint has been dismissed. */
   readonly thothFirstRunDismissed = this._thothFirstRunDismissed.asReadonly();
   readonly canSwitchViews = computed(() => {
-    const onWelcomeView = this._currentView() === 'welcome';
-    if (onWelcomeView) {
-      return false;
-    }
     return !this._isLoading() && this._isConnected();
   });
   readonly appTitle = computed(() => {
@@ -315,14 +301,11 @@ export class AppStateManager implements MessageHandler {
     const windowWithState = window as Window & {
       initialView?: ViewType;
       ptahConfig?: {
-        isLicensed?: boolean;
         initialView?: string;
         workspaceRoot?: string;
         workspaceName?: string;
       };
     };
-    const isLicensed = windowWithState.ptahConfig?.isLicensed ?? true;
-    this._isLicensed.set(isLicensed);
     const workspaceRoot = windowWithState.ptahConfig?.workspaceRoot;
     const workspaceName = windowWithState.ptahConfig?.workspaceName;
     if (
@@ -369,7 +352,7 @@ export class AppStateManager implements MessageHandler {
     initialView = this.normalizeView(initialView);
 
     this._currentView.set(initialView);
-    if (initialView !== 'chat' && initialView !== 'welcome') {
+    if (initialView !== 'chat') {
       this._openViews.update((views) => {
         const next = new Set(views);
         next.add(initialView);
@@ -482,7 +465,6 @@ export class AppStateManager implements MessageHandler {
       statusMessage: this._statusMessage(),
       workspaceInfo: this._workspaceInfo(),
       isConnected: this._isConnected(),
-      isLicensed: this._isLicensed(),
     };
   }
 

@@ -66,6 +66,20 @@ export interface SdkAdapterSubagentEndedEvent {
   readonly timestamp: number;
 }
 
+/**
+ * Emitted when the SDK fires the `TeammateIdle` hook — a named in-SDK teammate
+ * has gone idle and is awaiting steering. Keyed on the human-legible
+ * `teammateName` (never on `team_name`, which the SDK is deprecating toward a
+ * single implicit team). A future UI can use this to show "agent idle, awaiting
+ * steering" affordances.
+ */
+export interface SdkAdapterTeammateIdleEvent {
+  readonly sessionId: string;
+  readonly cwd: string;
+  readonly teammateName: string;
+  readonly timestamp: number;
+}
+
 interface SdkAdapterEventMap {
   initialized: (event: SdkAdapterInitializedEvent) => void;
   disposed: (event: SdkAdapterDisposedEvent) => void;
@@ -75,6 +89,7 @@ interface SdkAdapterEventMap {
   turnEnded: (event: SdkAdapterTurnEndedEvent) => void;
   turnFailed: (event: SdkAdapterTurnFailedEvent) => void;
   subagentEnded: (event: SdkAdapterSubagentEndedEvent) => void;
+  teammateIdle: (event: SdkAdapterTeammateIdleEvent) => void;
 }
 
 export type SdkAdapterEventName = keyof SdkAdapterEventMap;
@@ -115,6 +130,10 @@ export class SdkAdapterEvents {
 
   emitSubagentEnded(event: SdkAdapterSubagentEndedEvent): void {
     this.safeEmit('subagentEnded', event);
+  }
+
+  emitTeammateIdle(event: SdkAdapterTeammateIdleEvent): void {
+    this.safeEmit('teammateIdle', event);
   }
 
   onInitialized(
@@ -169,6 +188,13 @@ export class SdkAdapterEvents {
     return () => this.emitter.off('subagentEnded', listener);
   }
 
+  onTeammateIdle(
+    listener: (event: SdkAdapterTeammateIdleEvent) => void,
+  ): () => void {
+    this.emitter.on('teammateIdle', listener);
+    return () => this.emitter.off('teammateIdle', listener);
+  }
+
   removeAllListeners(): void {
     this.emitter.removeAllListeners();
   }
@@ -191,7 +217,8 @@ export class SdkAdapterEvents {
           SdkAdapterCompactionCompleteEvent &
           SdkAdapterTurnEndedEvent &
           SdkAdapterTurnFailedEvent &
-          SdkAdapterSubagentEndedEvent,
+          SdkAdapterSubagentEndedEvent &
+          SdkAdapterTeammateIdleEvent,
       );
     } catch (err) {
       this.logger.warn(

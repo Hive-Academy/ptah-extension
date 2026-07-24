@@ -59,8 +59,6 @@ export interface MultiPhaseAnalysisOptions {
   timeout?: number;
   /** LLM model to use for phases 1-4 */
   model?: string;
-  /** Whether the user has a premium license (required for multi-phase) */
-  isPremium?: boolean;
   /** Whether the MCP server is running (required for file access in phases 2-4) */
   mcpServerRunning?: boolean;
   /** Port the MCP server is listening on */

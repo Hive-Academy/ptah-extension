@@ -122,6 +122,7 @@ describe('BackgroundAgentStore', () => {
         agentType: 'general-purpose',
         status: 'running',
         summary: '',
+        hasRealAgentId: true,
       });
       expect(store.hasRunningAgents()).toBe(true);
       expect(store.runningCount()).toBe(1);
@@ -136,6 +137,9 @@ describe('BackgroundAgentStore', () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation();
       store.onStarted(startEvent({ agentId: '', toolCallId: 'only-tc' }));
       expect(store.agents()[0].agentId).toBe('only-tc');
+      // hasRealAgentId is false on the fallback path — the id addresses no
+      // real subagent transcript, so transcript reads must be gated off it.
+      expect(store.agents()[0].hasRealAgentId).toBe(false);
       // Warn fires exactly once for the missing-agentId fallback.
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0][0]).toContain(
@@ -268,6 +272,42 @@ describe('BackgroundAgentStore', () => {
       expect(agent.agentId).toBe('ghost-a');
       expect(agent.status).toBe('stopped');
       expect(agent.agentType).toBe('unknown');
+    });
+  });
+
+  describe('hasRealAgentId — synthetic-insert branches (onCompleted/onStopped)', () => {
+    it('onCompleted synthetic insert is true when the event carries a real agentId', () => {
+      store.onCompleted(
+        completedEvent({ agentId: 'late-real', toolCallId: 'late-tc' }),
+      );
+      expect(store.agents()[0].hasRealAgentId).toBe(true);
+    });
+
+    it('onCompleted synthetic insert is false on the toolCallId-fallback path', () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation();
+      store.onCompleted(
+        completedEvent({ agentId: '', toolCallId: 'late-fallback' }),
+      );
+      expect(store.agents()[0].agentId).toBe('late-fallback');
+      expect(store.agents()[0].hasRealAgentId).toBe(false);
+      warn.mockRestore();
+    });
+
+    it('onStopped synthetic insert is true when the event carries a real agentId', () => {
+      store.onStopped(
+        stoppedEvent({ agentId: 'ghost-real', toolCallId: 'ghost-tc' }),
+      );
+      expect(store.agents()[0].hasRealAgentId).toBe(true);
+    });
+
+    it('onStopped synthetic insert is false on the toolCallId-fallback path', () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation();
+      store.onStopped(
+        stoppedEvent({ agentId: '', toolCallId: 'ghost-fallback' }),
+      );
+      expect(store.agents()[0].agentId).toBe('ghost-fallback');
+      expect(store.agents()[0].hasRealAgentId).toBe(false);
+      warn.mockRestore();
     });
   });
 

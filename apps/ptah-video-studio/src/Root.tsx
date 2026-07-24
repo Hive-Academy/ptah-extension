@@ -21,6 +21,11 @@ import {
   promoDurationInFrames,
   type PromoReelProps,
 } from './PromoReel';
+import { TalkingHead } from './selfshot/TalkingHead';
+import { ScreenDemo } from './selfshot/ScreenDemo';
+import { Hybrid } from './selfshot/Hybrid';
+import { totalSelfShotFrames } from './selfshot/metadata';
+import type { ResolvedSelfShotProps } from './selfshot/resolved';
 
 // Fallback metadata used only when the composition is opened in the studio
 // without props (e.g. picking it from the sidebar before render-all wires
@@ -111,6 +116,38 @@ const calculatePromoMetadata: CalculateMetadataFunction<PromoReelProps> = ({
   };
 };
 
+// ── Self-shot compositions (TalkingHead / ScreenDemo / Hybrid) ──────────────
+// These render the FOUNDER's own recording amplified with captions/overlays/
+// virtual-camera + a branded waitlist end card. Real props come from
+// scripts/selfshot-render.mjs (resolved from a beats manifest + words.json).
+// This fallback (no media) lets the studio open them showing just the backdrop
+// + end card — cameraSrc/screenSrc are optional and guarded in the components.
+const FALLBACK_SELFSHOT: ResolvedSelfShotProps = {
+  slug: 'preview',
+  mode: 'talking-head',
+  fps: 30,
+  res: { width: 1920, height: 1080 },
+  bodyMs: 4000,
+  durationMs: 10000,
+  captions: [],
+  shots: [{ fromMs: 0 }],
+  overlays: [],
+  layouts: [],
+  endCard: { atMs: 4000, durationMs: 6000 },
+};
+
+const calculateSelfShotMetadata: CalculateMetadataFunction<ResolvedSelfShotProps> = ({
+  props,
+}) => {
+  const p = props ?? FALLBACK_SELFSHOT;
+  return {
+    width: p.res.width,
+    height: p.res.height,
+    fps: p.fps || 30,
+    durationInFrames: totalSelfShotFrames(p),
+  };
+};
+
 const RemotionRoot: React.FC = () => {
   return (
     <>
@@ -177,6 +214,43 @@ const RemotionRoot: React.FC = () => {
       calculateMetadata={calculatePromoMetadata}
       defaultProps={PTAH_SAAS_STORY_PROMO}
     />
+    {/* Self-shot: founder camera footage full-frame + captions/overlays. */}
+    <Composition
+      id="TalkingHead"
+      component={TalkingHead}
+      width={FALLBACK_SELFSHOT.res.width}
+      height={FALLBACK_SELFSHOT.res.height}
+      fps={FALLBACK_SELFSHOT.fps}
+      durationInFrames={totalSelfShotFrames(FALLBACK_SELFSHOT)}
+      schema={undefined}
+      calculateMetadata={calculateSelfShotMetadata}
+      defaultProps={FALLBACK_SELFSHOT}
+    />
+    {/* Self-shot: founder screen recording + virtual camera + camera bubble. */}
+    <Composition
+      id="ScreenDemo"
+      component={ScreenDemo}
+      width={FALLBACK_SELFSHOT.res.width}
+      height={FALLBACK_SELFSHOT.res.height}
+      fps={FALLBACK_SELFSHOT.fps}
+      durationInFrames={totalSelfShotFrames(FALLBACK_SELFSHOT)}
+      schema={undefined}
+      calculateMetadata={calculateSelfShotMetadata}
+      defaultProps={{ ...FALLBACK_SELFSHOT, mode: 'screen-demo' }}
+    />
+    {/* Self-shot: camera + screen layout state machine. */}
+    <Composition
+      id="Hybrid"
+      component={Hybrid}
+      width={FALLBACK_SELFSHOT.res.width}
+      height={FALLBACK_SELFSHOT.res.height}
+      fps={FALLBACK_SELFSHOT.fps}
+      durationInFrames={totalSelfShotFrames(FALLBACK_SELFSHOT)}
+      schema={undefined}
+      calculateMetadata={calculateSelfShotMetadata}
+      defaultProps={{ ...FALLBACK_SELFSHOT, mode: 'hybrid', layouts: [{ atMs: 0, layout: 'camera-full' }] }}
+    />
+
     <Composition
       id="ShowcaseVideo"
       component={ShowcaseVideo}

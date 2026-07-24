@@ -11,6 +11,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   AdminApiService,
+  IssueComplimentaryLicenseRequest,
   IssueComplimentaryLicenseResponse,
 } from '../../../../services/admin-api.service';
 
@@ -22,11 +23,32 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class IssueCompLicenseModalComponent {
-  public readonly userId = input.required<string>();
-  public readonly userEmail = input.required<string>();
+  /**
+   * Target user id — the user-detail path. Optional so the modal can also be
+   * opened from a waitlist row (which has no user id) via {@link email}.
+   */
+  public readonly userId = input<string>('');
+  /** Display email for the user-detail path. */
+  public readonly userEmail = input<string>('');
+  /**
+   * Target email — the Early Adopter approval path (opened from a waitlist
+   * row). When set, the request is sent as `{ email }` and defaults are
+   * pre-filled (1-year duration, "Early adopter approval" reason).
+   */
+  public readonly email = input<string>('');
   public issued = output<IssueComplimentaryLicenseResponse>();
 
   private adminApi = inject(AdminApiService);
+
+  /** True when opened from a waitlist row (email-targeted). */
+  public readonly isWaitlistMode = computed(
+    () => this.email().trim().length > 0,
+  );
+
+  /** Email shown in the header/success copy, whichever path opened the modal. */
+  public readonly displayEmail = computed(
+    () => this.email().trim() || this.userEmail(),
+  );
 
   public readonly isOpen = signal(false);
   public readonly isLoading = signal(false);
@@ -62,9 +84,12 @@ export class IssueCompLicenseModalComponent {
     this.isOpen.set(true);
     this.error.set(null);
     this.result.set(null);
-    this.durationPreset.set('30d');
+    // Early Adopter approvals default to a 1-year grant with a stock reason;
+    // the user-detail path keeps the original 30-day / blank-reason defaults.
+    const waitlist = this.isWaitlistMode();
+    this.durationPreset.set(waitlist ? '1y' : '30d');
     this.customExpiresAt.set('');
-    this.reason.set('');
+    this.reason.set(waitlist ? 'Early adopter approval' : '');
     this.sendEmail.set(true);
     this.stackOnTopOfPaid.set(false);
     this.isLoading.set(false);
@@ -79,14 +104,16 @@ export class IssueCompLicenseModalComponent {
     this.isLoading.set(true);
     this.error.set(null);
 
-    const body = {
-      userId: this.userId(),
+    const emailTarget = this.email().trim();
+    const body: IssueComplimentaryLicenseRequest = {
+      // Target by email (waitlist approval) or userId (user-detail path).
+      ...(emailTarget ? { email: emailTarget } : { userId: this.userId() }),
       durationPreset: this.durationPreset(),
       customExpiresAt:
         this.durationPreset() === 'custom'
           ? this.toApiValue(this.customExpiresAt())
           : undefined,
-      plan: 'pro' as const,
+      plan: 'builders' as const,
       reason: this.reason(),
       sendEmail: this.sendEmail(),
       stackOnTopOfPaid: this.stackOnTopOfPaid(),

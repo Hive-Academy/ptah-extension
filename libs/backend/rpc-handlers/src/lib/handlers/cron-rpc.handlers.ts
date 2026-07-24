@@ -22,6 +22,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   CRON_TOKENS,
+  normalizeWorkspaceRoot,
   type CronScheduler,
   type JobRun,
   type ScheduledJob,
@@ -53,42 +54,59 @@ import { JobId } from '@ptah-extension/shared';
 import * as path from 'node:path';
 
 /**
- * SECURITY: validate user-supplied prompt + workspaceRoot before they reach
- * the scheduler.
+ * SECURITY: reject `handler:NAME` prompts at the RPC surface.
  *
- *   - `handler:NAME` prompts dispatch to in-process handlers registered by
- *     trusted libraries (memory:decay, etc.). We reject them at the RPC
- *     surface so a UI-driven cron:create cannot invoke arbitrary internal
- *     handlers — those jobs must be created from within the host process.
- *   - `workspaceRoot` becomes the `cwd` for the SDK query when the job runs.
- *     Any non-absolute or `..`-bearing path is rejected — never trust the
- *     renderer to produce a clean path.
+ * `handler:NAME` prompts dispatch to in-process handlers registered by trusted
+ * libraries (memory:decay, etc.). A UI-driven cron:create must not be able to
+ * invoke arbitrary internal handlers — those jobs must be created from within
+ * the host process.
  */
-function assertSafeCronUserInput(args: {
-  prompt?: string;
-  workspaceRoot?: string | null;
-}): void {
+function assertSafePrompt(prompt?: string): void {
   if (
-    typeof args.prompt === 'string' &&
-    args.prompt.trim().toLowerCase().startsWith('handler:')
+    typeof prompt === 'string' &&
+    prompt.trim().toLowerCase().startsWith('handler:')
   ) {
     throw new Error(
       "cron RPC: prompts starting with 'handler:' are reserved for internal jobs and cannot be created via RPC",
     );
   }
-  if (args.workspaceRoot !== undefined && args.workspaceRoot !== null) {
-    const wr = args.workspaceRoot;
-    if (typeof wr !== 'string' || wr.length === 0) {
-      throw new Error('cron RPC: workspaceRoot must be a non-empty string');
-    }
-    if (!path.isAbsolute(wr)) {
-      throw new Error('cron RPC: workspaceRoot must be an absolute path');
-    }
-    const normalized = path.normalize(wr);
-    if (normalized.split(path.sep).some((seg) => seg === '..')) {
-      throw new Error("cron RPC: workspaceRoot must not contain '..' segments");
-    }
+}
+
+/**
+ * Validate a user-supplied `workspaceRoot` at the RPC boundary and return its
+ * canonical form.
+ *
+ *   - `undefined` / `null` pass through unchanged (no workspace supplied /
+ *     cleared) — the caller decides how to persist the empty case.
+ *   - Any present value must be a non-empty, absolute, `..`-free string.
+ *     `workspaceRoot` becomes the `cwd` for the SDK query when a job runs and
+ *     the scope key for the "This workspace" list filter — never trust the
+ *     renderer to produce a clean path. The param is typed `unknown` because it
+ *     arrives across the JSON-RPC boundary and may not actually be a string.
+ *   - The returned value is {@link normalizeWorkspaceRoot}-canonical so the
+ *     stored root (write) and the list filter (read) compare on the same key
+ *     regardless of trailing-separator / drive-case / separator drift.
+ */
+function validateAndNormalizeWorkspaceRoot(
+  wr: unknown,
+): string | null | undefined {
+  if (wr === undefined) return undefined;
+  if (wr === null) return null;
+  if (typeof wr !== 'string' || wr.length === 0) {
+    throw new Error('cron RPC: workspaceRoot must be a non-empty string');
   }
+  if (!path.isAbsolute(wr)) {
+    throw new Error('cron RPC: workspaceRoot must be an absolute path');
+  }
+  if (
+    path
+      .normalize(wr)
+      .split(path.sep)
+      .some((seg) => seg === '..')
+  ) {
+    throw new Error("cron RPC: workspaceRoot must not contain '..' segments");
+  }
+  return normalizeWorkspaceRoot(wr);
 }
 
 function toJobDto(job: ScheduledJob): ScheduledJobDto {
@@ -145,8 +163,14 @@ export class CronRpcHandlers {
     this.rpcHandler.registerMethod<CronListParams, CronListResult>(
       'cron:list',
       async (params) => {
+        // Validate + canonicalize the filter so it compares against jobs'
+        // normalized `workspace_root` (JobStore.list normalizes both sides).
+        // `null`/`undefined` collapse to "no filter" (global listing).
+        const workspaceRoot =
+          validateAndNormalizeWorkspaceRoot(params?.workspaceRoot) ?? undefined;
         const jobs = this.scheduler.list({
           enabledOnly: params?.enabledOnly,
+          workspaceRoot,
         });
         return { jobs: jobs.map(toJobDto) };
       },
@@ -169,16 +193,17 @@ export class CronRpcHandlers {
         if (!params) {
           throw new Error('cron:create requires params');
         }
-        assertSafeCronUserInput({
-          prompt: params.prompt,
-          workspaceRoot: params.workspaceRoot ?? null,
-        });
+        assertSafePrompt(params.prompt);
+        // Store the canonical form so the "This workspace" filter always
+        // matches, regardless of how the renderer stringified the path.
+        const workspaceRoot =
+          validateAndNormalizeWorkspaceRoot(params.workspaceRoot) ?? null;
         const job = this.scheduler.create({
           name: params.name,
           cronExpr: params.cronExpr,
           timezone: params.timezone,
           prompt: params.prompt,
-          workspaceRoot: params.workspaceRoot ?? null,
+          workspaceRoot,
           enabled: params.enabled,
         });
         return { job: toJobDto(job) };
@@ -192,11 +217,19 @@ export class CronRpcHandlers {
           throw new Error('cron:update requires id');
         }
         const id = JobId.from(params.id);
-        const patch = params.patch ?? {};
-        assertSafeCronUserInput({
-          prompt: patch.prompt,
-          workspaceRoot: patch.workspaceRoot ?? null,
-        });
+        const rawPatch = params.patch ?? {};
+        assertSafePrompt(rawPatch.prompt);
+        // Only rewrite workspaceRoot when the caller actually supplied it
+        // (absent = leave unchanged; explicit null = clear; string = normalize).
+        const patch =
+          rawPatch.workspaceRoot === undefined
+            ? rawPatch
+            : {
+                ...rawPatch,
+                workspaceRoot: validateAndNormalizeWorkspaceRoot(
+                  rawPatch.workspaceRoot,
+                ),
+              };
         const job = this.scheduler.update(id, patch);
         return { job: toJobDto(job) };
       },

@@ -3,9 +3,9 @@ import { IsEmail, IsIn, IsOptional, IsBoolean } from 'class-validator';
 /**
  * DTO for admin license creation requests
  *
- * TASK_2025_128: Freemium model conversion
+ * Open-source + Builders model:
  * - 'community': Community plan (free forever)
- * - 'pro': Pro plan ($5/month)
+ * - 'builders': Ptah Builders plan ($29/month, $290/year)
  *
  * Validates email format and plan name against allowed values
  */
@@ -13,10 +13,10 @@ export class CreateLicenseDto {
   @IsEmail({}, { message: 'Invalid email format' })
   email!: string;
 
-  @IsIn(['community', 'pro'], {
-    message: 'Plan must be either "community" or "pro"',
+  @IsIn(['community', 'builders'], {
+    message: 'Plan must be either "community" or "builders"',
   })
-  plan!: 'community' | 'pro';
+  plan!: 'community' | 'builders';
 
   @IsBoolean()
   @IsOptional()

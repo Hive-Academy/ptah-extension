@@ -93,14 +93,20 @@ test.describe('Update detection', () => {
 
     try {
       // Block network from the default session as soon as the app is up.
-      // This is best-effort -- the detector's fetch() lives in node land and
-      // may bypass session.webRequest. The check runs right after start().
-      await app.evaluate(({ session }) => {
-        session.defaultSession.webRequest.onBeforeRequest(
-          { urls: ['*://*/*'] },
-          (_details, cb) => cb({ cancel: true }),
-        );
-      });
+      // This is best-effort on two counts: (1) the detector's fetch() lives in
+      // node land and may bypass session.webRequest; (2) evaluating against the
+      // main process this early races with startup and can transiently reject
+      // with "Execution context was destroyed". Either way the check still fails
+      // in CI (no network egress), so a rejection here must not fail the test —
+      // the contract under test is "the app does not crash", asserted below.
+      await app
+        .evaluate(({ session }) => {
+          session.defaultSession.webRequest.onBeforeRequest(
+            { urls: ['*://*/*'] },
+            (_details, cb) => cb({ cancel: true }),
+          );
+        })
+        .catch(() => undefined);
 
       const win = await app.firstWindow();
       await win.waitForLoadState('domcontentloaded');
@@ -139,6 +145,11 @@ test.describe('Update detection', () => {
       await win.waitForTimeout(1_500);
       // If a modal dialog were blocking, close() would hang past timeout.
     } finally {
+      // A blocking native dialog hangs close() indefinitely, so any finite
+      // budget catches it. Production shutdown legitimately takes ~10s (gateway
+      // + subsystem teardown) and runs slower under full-suite resource
+      // pressure, so the budget is generous enough to avoid timing flakes while
+      // still failing on a genuine indefinite block.
       const closed = app
         .close()
         .then(() => true)
@@ -146,7 +157,7 @@ test.describe('Update detection', () => {
       const result = await Promise.race([
         closed,
         new Promise<boolean>((resolve) =>
-          setTimeout(() => resolve(false), 8_000),
+          setTimeout(() => resolve(false), 20_000),
         ),
       ]);
       expect(result).toBe(true);

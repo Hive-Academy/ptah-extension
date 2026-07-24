@@ -1,7 +1,7 @@
 {
   "name": "@ptah-extension/source",
   "version": "0.0.0",
-  "license": "FSL-1.1-MIT",
+  "license": "MIT",
   "engines": {
     "node": ">=22.9.0",
     "npm": ">=11.0.0"
@@ -9,6 +9,7 @@
   "scripts": {
     "studio": "cd apps/ptah-video-studio && npm run studio",
     "landing": "npx nx serve ptah-landing-page",
+    "docs": "npx nx dev ptah-docs",
     "docker:up": "docker compose --profile webhook-testing up -d",
     "docker:down": "docker compose --profile webhook-testing down ",
     "docker:logs": "docker compose logs -f license-server",

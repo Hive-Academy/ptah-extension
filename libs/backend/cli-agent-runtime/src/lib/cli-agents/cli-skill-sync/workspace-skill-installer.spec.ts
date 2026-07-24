@@ -12,6 +12,7 @@ import { join } from 'path';
 import { CursorSkillInstaller } from './cursor-skill-installer';
 import { CodexSkillInstaller } from './codex-skill-installer';
 import { CopilotSkillInstaller } from './copilot-skill-installer';
+import { AntigravitySkillInstaller } from './antigravity-skill-installer';
 import {
   mergeAgentsRegion,
   reapPrefixedHomeEntries,
@@ -120,6 +121,27 @@ describe('Workspace skill installers (decision #4)', () => {
 
     expect(await exists(join(ws, '.agents', 'skills', 'caveman'))).toBe(true);
     expect(await exists(join(ws, '.codex', 'skills'))).toBe(false);
+    expect(await exists(join(ws, '.agents', 'commands'))).toBe(false);
+  });
+
+  it('Antigravity: skills under .agents/skills (shared w/ Codex); commands SKIPPED', async () => {
+    const layer = await makeUserLayer();
+    cleanups.push(layer.root);
+    const ws = await workspace();
+    const installer = new AntigravitySkillInstaller();
+
+    expect(installer.target).toBe('antigravity');
+    expect(installer.resolveSkillsTarget(ws)).toBe(
+      join(ws, '.agents', 'skills'),
+    );
+    expect(installer.resolveCommandsTarget()).toBeNull();
+
+    await installer.install(
+      { skillsRoot: layer.skillsRoot, commandsRoot: layer.commandsRoot },
+      { workspaceRoot: ws },
+    );
+
+    expect(await exists(join(ws, '.agents', 'skills', 'caveman'))).toBe(true);
     expect(await exists(join(ws, '.agents', 'commands'))).toBe(false);
   });
 

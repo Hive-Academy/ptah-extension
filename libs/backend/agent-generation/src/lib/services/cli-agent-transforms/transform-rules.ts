@@ -73,6 +73,15 @@ const CLI_TOOL_MAPPINGS: Record<
     slashPrefix: 'cursor',
     productName: 'Cursor Agent CLI',
   },
+  // Antigravity (agy) shares Codex's `.agents` root and has no slash-command
+  // surface; not a registered MultiCliAgentWriterService transform target, so
+  // these values are only exercised if agy is ever wired for agent transforms.
+  antigravity: {
+    askUser: 'ask the user directly in your response',
+    taskDelegate: 'agy exec',
+    slashPrefix: 'agy',
+    productName: 'Antigravity CLI',
+  },
 };
 
 /**
@@ -85,7 +94,11 @@ const CLI_TOOL_MAPPINGS: Record<
  * - '/path/to/.claude/agents/frontend-developer.md' -> 'frontend-developer'
  */
 export function extractAgentId(filePath: string): string {
-  return parse(basename(filePath)).name;
+  // Normalize Windows backslash separators to forward slashes first. On POSIX
+  // (CI runners) `basename`/`parse` don't treat `\` as a separator, so a
+  // Windows-style path would otherwise return the whole string as the "name".
+  const normalized = filePath.replace(/\\/g, '/');
+  return parse(basename(normalized)).name;
 }
 
 /**
@@ -107,6 +120,114 @@ export function stripInternalReferences(content: string): string {
 }
 
 /**
+ * Unescape a YAML double-quoted scalar body.
+ * Handles the escape sequences the orchestrator can emit (`\"`, `\\`, plus
+ * the standard `\n`/`\t`/`\r`/`\/`). Unknown escapes drop the backslash.
+ */
+function unescapeYamlDoubleQuoted(value: string): string {
+  return value.replace(/\\(.)/g, (_match, ch: string) => {
+    switch (ch) {
+      case 'n':
+        return '\n';
+      case 't':
+        return '\t';
+      case 'r':
+        return '\r';
+      case '"':
+        return '"';
+      case '\\':
+        return '\\';
+      case '/':
+        return '/';
+      default:
+        return ch;
+    }
+  });
+}
+
+/**
+ * Unescape a YAML single-quoted scalar body (`''` -> `'`).
+ */
+function unescapeYamlSingleQuoted(value: string): string {
+  return value.replace(/''/g, "'");
+}
+
+/**
+ * Extract and properly unquote the `description` field from agent frontmatter.
+ *
+ * The orchestrator writes `description: "..."` as a YAML double-quoted scalar
+ * (with inner quotes escaped as `\"`). Reading the raw line value preserves the
+ * surrounding quotes and leaks them into downstream formats (e.g. Codex TOML,
+ * where `tomlBasicString` then escapes them again into `\"...\"`). This parser
+ * strips the YAML quoting and unescapes the body so consumers receive the plain
+ * string.
+ *
+ * Returns `undefined` when no frontmatter or no `description` field is present,
+ * so callers can fall back to a default.
+ */
+export function extractFrontmatterDescription(
+  content: string,
+): string | undefined {
+  const normalized = normalizeCrlf(content);
+  const frontmatterMatch = normalized.match(/^---\n([\s\S]*?)\n---/);
+  if (!frontmatterMatch) {
+    return undefined;
+  }
+  const descriptionMatch = /^description:\s*(.*)$/m.exec(frontmatterMatch[1]);
+  if (!descriptionMatch) {
+    return undefined;
+  }
+  const raw = descriptionMatch[1].trim();
+  if (raw === '') {
+    return undefined;
+  }
+  if (raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"')) {
+    return unescapeYamlDoubleQuoted(raw.slice(1, -1)).trim();
+  }
+  if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'")) {
+    return unescapeYamlSingleQuoted(raw.slice(1, -1)).trim();
+  }
+  return raw;
+}
+
+/**
+ * Quote a string as a YAML double-quoted scalar.
+ * Escapes backslashes and double-quotes and collapses newlines to spaces so
+ * the emitted `description: "..."` is valid YAML regardless of the value's
+ * content (colons, quotes, apostrophes, etc. are all safe inside quotes).
+ */
+export function yamlDoubleQuoted(value: string): string {
+  const safe = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '')
+    .replace(/\n/g, ' ');
+  return `"${safe}"`;
+}
+
+/**
+ * Resolve the description for a CLI-transformed agent.
+ *
+ * The frontmatter is the source of truth (the orchestrator writes the real
+ * description there as a YAML-quoted scalar). Producers may also pass a
+ * pre-parsed `variables.description`; we fall back to it, then to a default.
+ * Reading from the frontmatter guarantees the unquoted, unescaped value
+ * reaches every CLI format (Codex TOML, Copilot/Cursor YAML) and fixes paths
+ * where the producer omits `variables.description` entirely.
+ */
+export function resolveAgentDescription(
+  content: string,
+  variables: Record<string, string> | undefined,
+  agentId: string,
+): string {
+  return (
+    extractFrontmatterDescription(content) ??
+    variables?.['description'] ??
+    `${agentId} agent`
+  );
+}
+
+/**
  * Strip the leading YAML frontmatter block from agent content.
  * Returns the body only — used by targets (e.g. Codex TOML) that carry
  * name/description in their own structured format instead of frontmatter.
@@ -125,9 +246,12 @@ export function stripFrontmatter(content: string): string {
  * ```yaml
  * ---
  * name: agent-name
- * description: Agent description
+ * description: "Agent description"
  * ---
  * ```
+ *
+ * The description is emitted as a YAML double-quoted scalar so values
+ * containing colons, apostrophes, or embedded quotes stay valid YAML.
  *
  * Normalizes CRLF line endings before regex matching for Windows compatibility.
  */
@@ -137,12 +261,13 @@ export function rewriteFrontmatter(
   agentId: string,
   description: string,
 ): string {
+  const quotedDescription = yamlDoubleQuoted(description);
   const normalized = normalizeCrlf(content);
   const frontmatterMatch = normalized.match(/^---\n([\s\S]*?)\n---/);
   if (!frontmatterMatch) {
-    return `---\nname: ${agentId}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---\n\n${normalized}`;
+    return `---\nname: ${agentId}\ndescription: ${quotedDescription}\nsource: ptah\ntarget-cli: ${cli}\n---\n\n${normalized}`;
   }
-  const newFrontmatter = `---\nname: ${agentId}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---`;
+  const newFrontmatter = `---\nname: ${agentId}\ndescription: ${quotedDescription}\nsource: ptah\ntarget-cli: ${cli}\n---`;
   return normalized.replace(frontmatterMatch[0], newFrontmatter);
 }
 

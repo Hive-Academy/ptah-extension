@@ -58,12 +58,10 @@ export class SegmentPicker implements OnInit {
     switch (key) {
       case 'all':
         return 'All Users';
-      case 'proActive':
-        return 'Pro Active';
+      case 'buildersActive':
+        return 'Builders Active';
       case 'communityActive':
         return 'Community Active';
-      case 'trialing':
-        return 'Trialing';
       case 'subscriptionPastDue':
         return 'Past Due';
       default:

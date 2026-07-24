@@ -7,10 +7,6 @@ import { Aside } from '@astrojs/starlight/components';
 
 Ptah's browser automation suite lets agents drive a real Chrome or Chromium instance on your machine. It is built on top of Playwright and exposed through a dedicated set of MCP tools, so any agent — local or remote — can use it through the same uniform interface.
 
-<Aside type="caution" title="Pro tier only">
-Browser Automation is a **Pro-tier** feature. Free-tier users can see the tools in the catalog but cannot launch a browser. Upgrade from **Settings → License** to unlock the full suite.
-</Aside>
-
 ## What you can do
 
 - Launch a headed or headless Chromium instance under Ptah's control

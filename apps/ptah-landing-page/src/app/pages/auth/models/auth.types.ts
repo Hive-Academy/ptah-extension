@@ -12,15 +12,14 @@ export type AuthMode = 'signin' | 'signup';
 export type OAuthProvider = 'github' | 'google';
 
 /**
- * User tier levels (matches backend tier system)
+ * User tier levels (matches backend tier system). There is no legacy tier —
+ * zero paying subscribers exist pre-launch.
  *
- * TASK_2025_128: Freemium model conversion
- * - 'community': Free tier
- * - 'pro': Paid Pro tier ($5/mo or $50/year)
- * - 'trial_pro': Pro trial period (30 days)
- * - 'expired': Subscription expired
+ * - 'community': Free, open-source tier — the full Ptah coding orchestra, no gating
+ * - 'builders': Paid Ptah Builders membership (current pricing lives in plans.config.ts)
+ * - 'expired': Builders subscription expired
  */
-export type UserTier = 'community' | 'pro' | 'trial_pro' | 'expired';
+export type UserTier = 'community' | 'builders' | 'expired';
 
 /**
  * User response from authentication endpoints
@@ -69,7 +68,7 @@ export interface MagicLinkRequest {
   email: string;
   /** Optional return URL for post-auth redirect */
   returnUrl?: string;
-  /** Optional plan key for auto-checkout (e.g., 'pro-monthly', 'pro-yearly') */
+  /** Optional plan key for auto-checkout (e.g., 'builders-monthly', 'builders-yearly') */
   plan?: string;
 }
 

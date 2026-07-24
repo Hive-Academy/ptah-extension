@@ -98,6 +98,7 @@ export {
 export { StopHookHandler } from './stop-hook-handler';
 export { StopFailureHookHandler } from './stop-failure-hook-handler';
 export { SubagentStopHookHandler } from './subagent-stop-hook-handler';
+export { TeammateLifecycleHookHandler } from './teammate-lifecycle-hook-handler';
 export {
   isStopFailureHook,
   isSubagentStopHook,
@@ -201,4 +202,5 @@ export {
   type SdkAdapterTurnEndedEvent,
   type SdkAdapterTurnFailedEvent,
   type SdkAdapterSubagentEndedEvent,
+  type SdkAdapterTeammateIdleEvent,
 } from './sdk-adapter-events.service';

@@ -195,6 +195,45 @@ describe('buildAstNamespace — analyze', () => {
       /No workspace folder/,
     );
   });
+
+  it('resolves a relative path against the explicit workspaceRoot instead of the active workspace', async () => {
+    const { deps, analysis, fs, ws } = makeDeps();
+    analysis.analyzeSource.mockResolvedValue(
+      Result.ok({ functions: [], classes: [], imports: [], exports: [] }),
+    );
+
+    await buildAstNamespace(deps).analyze('src/a.ts', 'D:/other-ws');
+
+    // The active-workspace root must be bypassed entirely.
+    expect(ws.getWorkspaceRoot).not.toHaveBeenCalled();
+    const readPath = fs.readFile.mock.calls[0][0] as string;
+    expect(readPath.replace(/\\/g, '/')).toBe('D:/other-ws/src/a.ts');
+  });
+
+  it('falls back to the active workspace root when workspaceRoot is blank', async () => {
+    const { deps, analysis, fs, ws } = makeDeps();
+    analysis.analyzeSource.mockResolvedValue(
+      Result.ok({ functions: [], classes: [], imports: [], exports: [] }),
+    );
+
+    await buildAstNamespace(deps).analyze('src/a.ts', '   ');
+
+    expect(ws.getWorkspaceRoot).toHaveBeenCalled();
+    const readPath = fs.readFile.mock.calls[0][0] as string;
+    expect(readPath.replace(/\\/g, '/')).toBe('D:/ws/src/a.ts');
+  });
+
+  it('ignores workspaceRoot when the file path is already absolute', async () => {
+    const { deps, analysis, fs, ws } = makeDeps();
+    analysis.analyzeSource.mockResolvedValue(
+      Result.ok({ functions: [], classes: [], imports: [], exports: [] }),
+    );
+
+    await buildAstNamespace(deps).analyze('D:/abs/a.ts', 'D:/other-ws');
+
+    expect(ws.getWorkspaceRoot).not.toHaveBeenCalled();
+    expect(fs.readFile).toHaveBeenCalledWith('D:/abs/a.ts');
+  });
 });
 
 // ---------------------------------------------------------------------------

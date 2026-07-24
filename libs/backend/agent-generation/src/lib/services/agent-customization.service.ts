@@ -38,7 +38,7 @@ export class AgentCustomizationFallbackError extends Error {
   constructor(
     message: string,
     public readonly attempts: number,
-    public readonly lastValidationScore?: number
+    public readonly lastValidationScore?: number,
   ) {
     super(message);
     this.name = 'AgentCustomizationFallbackError';
@@ -99,7 +99,7 @@ export class AgentCustomizationService implements IAgentCustomizationService {
     @inject(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE)
     private readonly templateStorage: ITemplateStorageService,
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger
+    private readonly logger: Logger,
   ) {
     this.logger.debug('AgentCustomizationService initialized');
   }
@@ -145,7 +145,7 @@ export class AgentCustomizationService implements IAgentCustomizationService {
   async customizeSection(
     sectionTopic: string,
     templateId: string,
-    projectContext: AgentProjectContext
+    projectContext: AgentProjectContext,
   ): Promise<Result<string, Error>> {
     this.logger.info('Customizing template section', {
       sectionTopic,
@@ -156,31 +156,30 @@ export class AgentCustomizationService implements IAgentCustomizationService {
     if (templateResult.isErr()) {
       this.logger.error(
         `Failed to load template: ${templateId}`,
-        templateResult.error!
+        templateResult.error!,
       );
       return Result.err(
         new Error(
-          `Template not found: ${templateId} - ${templateResult.error!.message}`
-        )
+          `Template not found: ${templateId} - ${templateResult.error!.message}`,
+        ),
       );
     }
     for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt++) {
       try {
         this.logger.debug(
           `Customization attempt ${attempt + 1}/${this.MAX_RETRIES + 1}`,
-          { sectionTopic, templateId }
+          { sectionTopic, templateId },
         );
         const task = this.buildCustomizationTask(
           sectionTopic,
           projectContext,
-          attempt > 0 // Simplify task on retry
+          attempt > 0, // Simplify task on retry
         );
         const handle = await this.internalQueryService.execute({
           cwd: projectContext.rootPath ?? '.',
           model: this.DEFAULT_MODEL,
           prompt: task,
           systemPromptAppend: `You are customizing the "${sectionTopic}" section of the "${templateId}" agent template.`,
-          isPremium: false,
           mcpServerRunning: false,
           maxTurns: 1,
         });
@@ -194,28 +193,28 @@ export class AgentCustomizationService implements IAgentCustomizationService {
         try {
           validationResult = await this.validator.validate(
             response,
-            projectContext
+            projectContext,
           );
         } catch (error) {
           this.logger.error(
             'Validation service threw unexpected error',
-            error as Error
+            error as Error,
           );
           return Result.err(
-            new Error(`Validation service error: ${(error as Error).message}`)
+            new Error(`Validation service error: ${(error as Error).message}`),
           );
         }
         if (validationResult.isErr()) {
           this.logger.error(
             'Validation service unavailable',
-            validationResult.error!
+            validationResult.error!,
           );
           return Result.err(
             new Error(
               `Validation service unavailable: ${
                 validationResult.error!.message
-              }`
-            )
+              }`,
+            ),
           );
         }
         const validation = validationResult.value!;
@@ -251,15 +250,15 @@ export class AgentCustomizationService implements IAgentCustomizationService {
                   this.MAX_RETRIES + 1
                 } validation attempts failed. Caller should use generic content.`,
                 this.MAX_RETRIES + 1,
-                validation.score
-              )
+                validation.score,
+              ),
             );
           }
         }
       } catch (error) {
         this.logger.error(
           `LLM invocation error (attempt ${attempt + 1})`,
-          error as Error
+          error as Error,
         );
 
         if (attempt < this.MAX_RETRIES) {
@@ -272,21 +271,21 @@ export class AgentCustomizationService implements IAgentCustomizationService {
             new Error(
               `LLM invocation failed after ${this.MAX_RETRIES + 1} attempts: ${
                 (error as Error).message
-              }`
-            )
+              }`,
+            ),
           );
         }
       }
     }
     this.logger.error(
       'Unexpected: reached end of retry loop without returning',
-      { sectionTopic }
+      { sectionTopic },
     );
     return Result.err(
       new AgentCustomizationFallbackError(
         `Unexpected retry loop exit. Caller should use generic content.`,
-        this.MAX_RETRIES + 1
-      )
+        this.MAX_RETRIES + 1,
+      ),
     );
   }
 
@@ -331,10 +330,10 @@ export class AgentCustomizationService implements IAgentCustomizationService {
    */
   async batchCustomize(
     sections: CustomizationRequest[],
-    concurrency = 5
+    concurrency = 5,
   ): Promise<Map<string, Result<string, Error>>> {
     this.logger.info(
-      `Batch customizing ${sections.length} sections with concurrency ${concurrency}`
+      `Batch customizing ${sections.length} sections with concurrency ${concurrency}`,
     );
 
     const results = new Map<string, Result<string, Error>>();
@@ -345,13 +344,13 @@ export class AgentCustomizationService implements IAgentCustomizationService {
       this.logger.debug(
         `Processing chunk ${chunkIndex + 1}/${chunks.length} (${
           chunk.length
-        } sections)...`
+        } sections)...`,
       );
       const promises = chunk.map(async (section) => {
         const result = await this.customizeSection(
           section.sectionTopic,
           section.templateId,
-          section.projectContext
+          section.projectContext,
         );
         return { sectionId: section.sectionId, result };
       });
@@ -368,13 +367,13 @@ export class AgentCustomizationService implements IAgentCustomizationService {
     }
 
     const successCount = Array.from(results.values()).filter((r) =>
-      r.isOk()
+      r.isOk(),
     ).length;
     const failureCount = Array.from(results.values()).filter((r) =>
-      r.isErr()
+      r.isErr(),
     ).length;
     const fallbackCount = Array.from(results.values()).filter(
-      (r) => r.isOk() && r.value === ''
+      (r) => r.isOk() && r.value === '',
     ).length;
 
     this.logger.info('Batch customization complete', {
@@ -415,7 +414,7 @@ export class AgentCustomizationService implements IAgentCustomizationService {
   private buildCustomizationTask(
     sectionTopic: string,
     projectContext: AgentProjectContext,
-    isRetry: boolean
+    isRetry: boolean,
   ): string {
     const frameworks = projectContext.frameworks.join(', ') || 'this project';
     const languages = projectContext.techStack.languages.join(', ');
@@ -447,8 +446,8 @@ Tech Stack:
 
 Code Conventions:
   - Indentation: ${projectContext.codeConventions.indentation} (${
-      projectContext.codeConventions.indentSize
-    } spaces)
+    projectContext.codeConventions.indentSize
+  } spaces)
   - Quotes: ${projectContext.codeConventions.quoteStyle}
   - Semicolons: ${projectContext.codeConventions.semicolons ? 'yes' : 'no'}
 
@@ -486,7 +485,7 @@ Return ONLY markdown content. NO section headers. NO code fences around the enti
    * @private
    */
   private async collectStreamResponse(
-    stream: AsyncIterable<SDKMessage>
+    stream: AsyncIterable<SDKMessage>,
   ): Promise<string> {
     let response = '';
     for await (const message of stream) {

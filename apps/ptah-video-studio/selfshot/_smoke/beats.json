@@ -1,0 +1,32 @@
+{
+  "slug": "_smoke",
+  "mode": "talking-head",
+  "input": {
+    "cameraVideo": "camera.mp4",
+    "audio": "audio.wav"
+  },
+  "endCard": { "enabled": true, "durationMs": 6000 },
+  "beats": [
+    {
+      "type": "lower-third",
+      "at": 0.5,
+      "title": "Ptah",
+      "subtitle": "open source",
+      "durationMs": 3000
+    },
+    {
+      "type": "keyword",
+      "at": { "word": "agents", "occurrence": 1 },
+      "text": "agents",
+      "corner": "tr"
+    },
+    {
+      "type": "broll",
+      "at": 2.0,
+      "until": 3.4,
+      "src": "dashboard-tour",
+      "layout": "pip",
+      "corner": "bl"
+    }
+  ]
+}

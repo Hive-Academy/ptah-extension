@@ -1,6 +1,6 @@
 /**
  * Behavioral system prompt for Ptah MCP Server
- * Appended to AI agent context for premium+MCP users
+ * Appended to AI agent context when the MCP server is running
  *
  * Design: Directive mandates (not passive docs) to ensure agents
  * actually call ptah_* tools instead of defaulting to Bash/Grep/Glob.

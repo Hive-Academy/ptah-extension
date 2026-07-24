@@ -300,19 +300,10 @@ export class PromptEnhancementComponent {
           this.wizardState.setEnhancedPromptsSummary(result.summary);
         }
       } else {
-        const isPremiumError =
-          result.error?.toLowerCase().includes('premium') ||
-          result.error?.toLowerCase().includes('upgrade');
-
-        if (isPremiumError) {
-          this.wizardState.setEnhancedPromptsStatus('skipped');
-          this.wizardState.setEnhancedPromptsError(null);
-        } else {
-          this.wizardState.setEnhancedPromptsStatus('error');
-          this.wizardState.setEnhancedPromptsError(
-            result.error ?? 'Failed to generate Enhanced Prompts',
-          );
-        }
+        this.wizardState.setEnhancedPromptsStatus('error');
+        this.wizardState.setEnhancedPromptsError(
+          result.error ?? 'Failed to generate Enhanced Prompts',
+        );
       }
     } catch (error) {
       this.wizardState.setEnhancedPromptsStatus('error');

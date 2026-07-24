@@ -56,14 +56,18 @@ export class TranscriptRetentionService {
   private readonly _recency = new Map<string, number>();
   private _clock = 0;
 
+  /** Last workspace-removal `seq` processed by this instance's removed-workspace
+   *  effect, so each append-only emission is handled exactly once. */
+  private _lastRemovedWorkspaceSeq = 0;
+
   constructor() {
     if (this._sessionContext) return;
 
     // Active-tab change → retain + refresh recency, and opportunistically prune
     // any retained id that no longer resolves. Piggybacking `disposeUnresolvable`
-    // here means workspace-removal cleanup never depends on winning a race for
-    // the shared, single-shot `removedWorkspace$` ack that
-    // `OrchestraCanvasComponent` also reads and clears.
+    // here keeps a race-proof backstop even if the append-only `removedWorkspace$`
+    // emission is missed (e.g. a switch lands in the same flush before this
+    // instance's removed-workspace effect first runs).
     effect(() => {
       const activeId = this._tabManager.activeTabId();
       untracked(() => {
@@ -81,12 +85,15 @@ export class TranscriptRetentionService {
       untracked(() => this.dispose(closed.tabId));
     });
 
-    // Workspace removed → best-effort immediate prune of every retained id that
-    // no longer resolves in any partition. Tolerates a null (already-acked)
-    // value; the `activeTabId` effect above is the race-proof backstop.
+    // Workspace removed → prune every retained id that no longer resolves in
+    // any partition. `removedWorkspace$` is append-only (never cleared), so we
+    // track our own last-seen `seq` and handle each removal exactly once,
+    // independent of effect-flush order across the other consumers. The
+    // `activeTabId` effect above remains a backstop for the null-baseline case.
     effect(() => {
       const removed = this._tabManager.removedWorkspace$();
-      if (removed) {
+      if (removed && removed.seq > this._lastRemovedWorkspaceSeq) {
+        this._lastRemovedWorkspaceSeq = removed.seq;
         untracked(() => this.disposeUnresolvable());
       }
     });

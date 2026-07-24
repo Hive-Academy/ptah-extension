@@ -60,7 +60,19 @@
       class="drawer-overlay"
     ></label>
     <div class="flex min-h-full w-64 flex-col bg-base-100 p-4">
-      <div class="mb-2 mt-4 px-2">
+      <ul class="menu menu-sm gap-1">
+        <li>
+          <a
+            routerLink="/admin/overview"
+            routerLinkActive="active"
+            class="flex items-center"
+          >
+            <span>Overview</span>
+          </a>
+        </li>
+      </ul>
+
+      <div class="mb-2 mt-4 px-2 border-t border-base-200 pt-4">
         <div class="text-xs uppercase tracking-wide text-base-content/50">
           Marketing
         </div>
@@ -91,6 +103,23 @@
             class="flex items-center"
           >
             <span>New Template</span>
+          </a>
+        </li>
+      </ul>
+
+      <div class="mb-2 mt-4 px-2 border-t border-base-200 pt-4">
+        <div class="text-xs uppercase tracking-wide text-base-content/50">
+          Community
+        </div>
+      </div>
+      <ul class="menu menu-sm gap-1">
+        <li>
+          <a
+            routerLink="/admin/groups"
+            routerLinkActive="active"
+            class="flex items-center"
+          >
+            <span>Groups</span>
           </a>
         </li>
       </ul>

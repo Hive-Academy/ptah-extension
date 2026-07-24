@@ -80,6 +80,18 @@ export interface SubagentRecord {
   readonly agentId: string;
 
   /**
+   * Human-legible teammate name passed by the coordinator on the Agent/Task
+   * tool's `name` input (e.g. "backend-developer", "reviewer").
+   *
+   * Captured from the assistant `tool_use.input.name` BEFORE the SubagentStart
+   * hook fires and merged onto the record at registration. When present it is
+   * preferred over the opaque short-hex `agentId` in user-facing prose (e.g. the
+   * coordinator steering instruction). Optional — spawns without a `name` fall
+   * back to `agentId`.
+   */
+  readonly teammateName?: string;
+
+  /**
    * Whether this subagent is running in the background.
    * Background agents outlive the main agent's turn and continue
    * executing independently. Set when Task tool has run_in_background: true,
@@ -210,4 +222,45 @@ export interface SubagentBackgroundResult {
  */
 export interface SubagentCommandResult {
   readonly ok: true;
+}
+
+/**
+ * A single UI-friendly message from a subagent's historical transcript.
+ *
+ * Normalized down from the SDK's `SessionMessage` shape: text content blocks are
+ * concatenated into `text`, tool noise is dropped, and only user/assistant turns
+ * are surfaced. Consumed by the subagent transcript viewer.
+ */
+export interface SubagentTranscriptMessage {
+  /** The turn author. System messages are filtered out during normalization. */
+  readonly role: 'user' | 'assistant';
+  /** Rendered text content (text blocks concatenated). */
+  readonly text: string;
+  /** ISO-8601 timestamp when available on the transcript line; omitted otherwise. */
+  readonly timestamp?: string;
+}
+
+/**
+ * Parameters for the subagent:transcript RPC method.
+ *
+ * Reads a subagent's full historical transcript on demand via the SDK's
+ * `getSubagentMessages(sessionId, agentId, { limit, offset })`.
+ */
+export interface SubagentTranscriptParams {
+  /** Parent session UUID that owns the subagent. */
+  readonly sessionId: string;
+  /** SDK subagent id (the short-hex `agentId`). */
+  readonly agentId: string;
+  /** Maximum number of messages to return. */
+  readonly limit?: number;
+  /** Number of messages to skip from the start. */
+  readonly offset?: number;
+}
+
+/**
+ * Result of the subagent:transcript RPC method.
+ */
+export interface SubagentTranscriptResult {
+  /** Normalized transcript messages in chronological order. */
+  readonly messages: SubagentTranscriptMessage[];
 }

@@ -39,7 +39,6 @@ interface MockPrisma {
   user: MockUserDelegate;
   subscription: MockCountOnlyDelegate;
   license: { count: jest.Mock };
-  trialReminder: { count: jest.Mock };
   sessionRequest: { count: jest.Mock };
   $transaction: jest.Mock;
 }
@@ -56,7 +55,6 @@ function createMockPrisma(): MockPrisma {
       findFirst: jest.fn().mockResolvedValue(null),
     },
     license: { count: jest.fn().mockResolvedValue(0) },
-    trialReminder: { count: jest.fn().mockResolvedValue(0) },
     sessionRequest: { count: jest.fn().mockResolvedValue(0) },
     $transaction: jest.fn(),
   };
@@ -137,7 +135,6 @@ describe('AdminService.deleteUserCascade', () => {
     expect(result.cascaded).toEqual({
       subscriptions: 0,
       licenses: 0,
-      trialReminders: 0,
       sessionRequests: 0,
     });
     expect(result.auditLogId).toBe('audit-row-1');
@@ -155,7 +152,6 @@ describe('AdminService.deleteUserCascade', () => {
       cascadedCounts: {
         subscriptions: 0,
         licenses: 0,
-        trialReminders: 0,
         sessionRequests: 0,
       },
       acknowledgedPaidSubscription: false,
@@ -287,7 +283,6 @@ describe('AdminService.deleteUserCascade', () => {
       expect(result.cascaded).toEqual({
         subscriptions: 0,
         licenses: 0,
-        trialReminders: 0,
         sessionRequests: 0,
       });
       expect(prisma.user.delete).toHaveBeenCalledTimes(1);
@@ -297,7 +292,6 @@ describe('AdminService.deleteUserCascade', () => {
         cascadedCounts: {
           subscriptions: 0,
           licenses: 0,
-          trialReminders: 0,
           sessionRequests: 0,
         },
       });
@@ -310,7 +304,6 @@ describe('AdminService.deleteUserCascade', () => {
       // Promise.all. The other three count() calls map 1:1.
       prisma.subscription.count.mockResolvedValueOnce(1);
       prisma.license.count.mockResolvedValueOnce(1);
-      prisma.trialReminder.count.mockResolvedValueOnce(1);
       prisma.sessionRequest.count.mockResolvedValueOnce(1);
 
       const result = await service.deleteUserCascade('user-1', baseDto, actor);
@@ -318,7 +311,6 @@ describe('AdminService.deleteUserCascade', () => {
       expect(result.cascaded).toEqual({
         subscriptions: 1,
         licenses: 1,
-        trialReminders: 1,
         sessionRequests: 1,
       });
 
@@ -327,7 +319,6 @@ describe('AdminService.deleteUserCascade', () => {
         cascadedCounts: {
           subscriptions: 1,
           licenses: 1,
-          trialReminders: 1,
           sessionRequests: 1,
         },
       });
@@ -337,7 +328,6 @@ describe('AdminService.deleteUserCascade', () => {
       prisma.user.findUnique.mockResolvedValueOnce(makeUser());
       prisma.subscription.count.mockResolvedValueOnce(100);
       prisma.license.count.mockResolvedValueOnce(100);
-      prisma.trialReminder.count.mockResolvedValueOnce(100);
       prisma.sessionRequest.count.mockResolvedValueOnce(100);
 
       const start = Date.now();
@@ -347,7 +337,6 @@ describe('AdminService.deleteUserCascade', () => {
       expect(result.cascaded).toEqual({
         subscriptions: 100,
         licenses: 100,
-        trialReminders: 100,
         sessionRequests: 100,
       });
       // p95 perf target — service-layer logic (no real DB) must stay tiny.
@@ -389,5 +378,145 @@ describe('AdminService.deleteUserCascade', () => {
       const writeArg = auditLog.write.mock.calls[0][0];
       expect(writeArg.tx).toBe(prisma);
     });
+  });
+});
+
+describe('AdminService.getStats', () => {
+  interface StatsMockPrisma {
+    waitlist: { count: jest.Mock };
+    license: { count: jest.Mock };
+    $transaction: jest.Mock;
+  }
+
+  function build(counts: {
+    total: number;
+    notified: number;
+    converted: number;
+    last7Days: number;
+    builders: number;
+    community: number;
+  }): { service: AdminService; prisma: StatsMockPrisma } {
+    const prisma: StatsMockPrisma = {
+      waitlist: { count: jest.fn() },
+      license: { count: jest.fn() },
+      // Array-form $transaction: resolve the eagerly-created count promises.
+      $transaction: jest
+        .fn()
+        .mockImplementation((arg: Promise<unknown>[]) => Promise.all(arg)),
+    };
+    // Call order matches getStats(): total, notified, converted, last7Days.
+    prisma.waitlist.count
+      .mockResolvedValueOnce(counts.total)
+      .mockResolvedValueOnce(counts.notified)
+      .mockResolvedValueOnce(counts.converted)
+      .mockResolvedValueOnce(counts.last7Days);
+    // Then builders, community.
+    prisma.license.count
+      .mockResolvedValueOnce(counts.builders)
+      .mockResolvedValueOnce(counts.community);
+
+    const service = new AdminService(
+      prisma as unknown as PrismaService,
+      {} as unknown as EmailService,
+      {} as unknown as AuditLogService,
+      {} as unknown as ConfigService,
+    );
+    return { service, prisma };
+  }
+
+  it('returns the waitlist funnel + member counts with an ISO updatedAt', async () => {
+    const { service } = build({
+      total: 42,
+      notified: 10,
+      converted: 3,
+      last7Days: 7,
+      builders: 5,
+      community: 100,
+    });
+
+    const stats = await service.getStats();
+
+    expect(stats.waitlist).toEqual({
+      total: 42,
+      notified: 10,
+      converted: 3,
+      last7Days: 7,
+    });
+    expect(stats.members).toEqual({ builders: 5, community: 100 });
+    expect(typeof stats.updatedAt).toBe('string');
+    expect(new Date(stats.updatedAt).toISOString()).toBe(stats.updatedAt);
+  });
+
+  it('includes per-group member counts from MemberGroupsService', async () => {
+    const prisma = {
+      waitlist: { count: jest.fn().mockResolvedValue(0) },
+      license: { count: jest.fn().mockResolvedValue(0) },
+      $transaction: jest
+        .fn()
+        .mockImplementation((arg: Promise<unknown>[]) => Promise.all(arg)),
+    };
+    const memberGroups = {
+      listWithCounts: jest.fn().mockResolvedValue([
+        { key: 'founding', name: 'Founding Members', memberCount: 12 },
+        { key: 'charter', name: 'Charter', memberCount: 3 },
+      ]),
+    };
+    const service = new AdminService(
+      prisma as unknown as PrismaService,
+      {} as unknown as EmailService,
+      {} as unknown as AuditLogService,
+      {} as unknown as ConfigService,
+      memberGroups as unknown as import('../member-groups/member-groups.service').MemberGroupsService,
+    );
+
+    const stats = await service.getStats();
+
+    expect(stats.groups).toEqual([
+      { key: 'founding', name: 'Founding Members', memberCount: 12 },
+      { key: 'charter', name: 'Charter', memberCount: 3 },
+    ]);
+  });
+
+  it('falls back to empty groups when MemberGroupsService is unbound', async () => {
+    const { service } = build({
+      total: 0,
+      notified: 0,
+      converted: 0,
+      last7Days: 0,
+      builders: 0,
+      community: 0,
+    });
+
+    const stats = await service.getStats();
+
+    expect(stats.groups).toEqual([]);
+  });
+
+  it('counts active members by plan and recent signups by a 7-day window', async () => {
+    const { service, prisma } = build({
+      total: 1,
+      notified: 0,
+      converted: 0,
+      last7Days: 1,
+      builders: 0,
+      community: 0,
+    });
+
+    await service.getStats();
+
+    expect(prisma.license.count).toHaveBeenCalledWith({
+      where: { plan: 'builders', status: 'active' },
+    });
+    expect(prisma.license.count).toHaveBeenCalledWith({
+      where: { plan: 'community', status: 'active' },
+    });
+    // last7Days uses a gte Date lower bound roughly 7 days back.
+    const last7DaysCall = prisma.waitlist.count.mock.calls[3][0] as {
+      where: { createdAt: { gte: Date } };
+    };
+    const gte = last7DaysCall.where.createdAt.gte;
+    const deltaMs = Date.now() - gte.getTime();
+    expect(deltaMs).toBeGreaterThan(6.9 * 24 * 60 * 60 * 1000);
+    expect(deltaMs).toBeLessThan(7.1 * 24 * 60 * 60 * 1000);
   });
 });

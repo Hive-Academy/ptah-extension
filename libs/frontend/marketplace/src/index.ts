@@ -2,6 +2,7 @@ export { MarketplaceHubComponent } from './lib/marketplace-hub.component';
 export { ComingSoonPlaceholderComponent } from './lib/coming-soon-placeholder.component';
 export { SmitherySurfaceComponent } from './lib/smithery-surface.component';
 export { PluginsSurfaceComponent } from './lib/plugins-surface.component';
+export { OAuthSurfaceComponent } from './lib/oauth-surface.component';
 export { MarketplaceStateService } from './lib/marketplace-state.service';
 export { MARKETPLACE_PROVIDERS } from './lib/providers.registry';
 export type {

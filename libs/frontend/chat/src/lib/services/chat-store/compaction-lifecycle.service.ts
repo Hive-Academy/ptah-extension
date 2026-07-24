@@ -187,20 +187,80 @@ export class CompactionLifecycleService {
       this.compactionTimeoutId = null;
     }
     this.treeBuilder.clearCache();
-    const originatingTab = this.tabManager
-      .tabs()
-      .find((t) => t.id === result.tabId);
-    const sessionTabs = this.tabManager.findTabsBySessionId(
-      SessionId.from(result.compactionSessionId),
-    );
+    const compactionSid = SessionId.from(result.compactionSessionId);
+    const allTabs = this.tabManager.tabs();
+    const originatingTab = allTabs.find((t) => t.id === result.tabId);
+    const sessionTabs = this.tabManager.findTabsBySessionId(compactionSid);
     const fanoutMap = new Map<string, typeof originatingTab>();
     for (const t of sessionTabs) fanoutMap.set(t.id, t);
     if (originatingTab && !fanoutMap.has(originatingTab.id)) {
       fanoutMap.set(originatingTab.id, originatingTab);
     }
+
+    // Widen the fan-out so EVERY tab representing the compacting
+    // session/conversation is refreshed — robust to (a) canvas tiles that are
+    // not bound in `TabSessionBinding` and (b) SDK session-id rotation. The
+    // registry-driven `findTabsBySessionId` path can silently exclude such a
+    // tile, leaving its `messages` frozen at the pre-compaction transcript
+    // until the user closes + reopens it. Each addition below is idempotent.
+
+    // (1) Direct claudeSessionId match. Catches unbound tiles whose live
+    //     session equals the compacting session but which never entered the
+    //     conversation registry.
+    for (const t of allTabs) {
+      if (t.claudeSessionId === compactionSid && !fanoutMap.has(t.id)) {
+        fanoutMap.set(t.id, t);
+      }
+    }
+
+    // (2) Conversation expansion. Resolve the conversation ids for the tabs
+    //     collected so far plus the conversation that contains the compacting
+    //     session, then expand each conversation back to all of its bound tabs.
+    //     Catches tiles whose `claudeSessionId` has rotated away from
+    //     `compactionSessionId` but that still belong to the same conversation.
+    const convIds = new Set<ConversationId>();
+    for (const t of fanoutMap.values()) {
+      if (!t) continue;
+      const convId = this.tabSessionBinding.conversationFor(t.id);
+      if (convId) convIds.add(convId);
+    }
+    const containingConv =
+      this.conversationRegistry.findContainingSession(compactionSid);
+    if (containingConv) convIds.add(containingConv.id);
+    for (const convId of convIds) {
+      for (const boundTabId of this.tabSessionBinding.tabsFor(convId)) {
+        if (fanoutMap.has(boundTabId)) continue;
+        const boundTab = allTabs.find((t) => t.id === boundTabId);
+        if (boundTab) fanoutMap.set(boundTabId, boundTab);
+      }
+    }
+
     const fanoutTabs = Array.from(fanoutMap.values()).filter(
       (t): t is NonNullable<typeof originatingTab> => t != null,
     );
+
+    // [compaction-diag] TEMPORARY — remove after the 2-tile stale-transcript
+    // repro is confirmed. Snapshots the fan-out DECISION: every open tab, the
+    // event's originating tab/session, and exactly which tabs were selected to
+    // clear + reload. If the visible-but-stale tile is missing from
+    // `fanoutTabs` here, the bug is in fan-out SELECTION; if it is present but
+    // still stale, the bug is in the RELOAD target (see session-loader diag).
+    console.warn('[compaction-diag] handleCompactionComplete decision', {
+      resultTabId: result.tabId,
+      compactionSessionId: result.compactionSessionId,
+      originatingTabFound: !!originatingTab,
+      allTabs: allTabs.map((t) => ({
+        id: t.id,
+        claudeSessionId: t.claudeSessionId ?? null,
+        messages: t.messages.length,
+      })),
+      fanoutTabs: fanoutTabs.map((t) => ({
+        id: t.id,
+        claudeSessionId: t.claudeSessionId ?? null,
+        messages: t.messages.length,
+      })),
+    });
+
     const completedAt = Date.now();
     for (const convId of this.collectConversationIdsForTabs(
       fanoutTabs.map((t) => t.id),
@@ -253,6 +313,18 @@ export class CompactionLifecycleService {
           t.claudeSessionId ?? SessionId.safeParse(result.compactionSessionId);
         if (id) reloadIds.add(id);
       }
+
+      // [compaction-diag] TEMPORARY — the reload is keyed by SESSION ID, not
+      // tab id. `switchSession(sid)` re-derives its target tab via
+      // `openSessionTab(sid)`, which with >1 open session can land on a
+      // DIFFERENT tab than the one just cleared. Log the session ids we are
+      // about to reload; cross-reference with the session-loader diag that
+      // reports which tab each reload actually wrote into.
+      console.warn('[compaction-diag] reload plan', {
+        reloadSessionIds: Array.from(reloadIds),
+        fanoutTabIds: fanoutTabs.map((t) => t.id),
+      });
+
       if (reloadIds.size === 0) {
         this.clearCompactionStateForFanout(fanoutTabs);
         return;

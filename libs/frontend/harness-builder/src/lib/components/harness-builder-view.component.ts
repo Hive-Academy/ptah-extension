@@ -72,7 +72,7 @@ interface UserBubble {
     `,
   ],
   template: `
-    @if (isInitializing()) {
+    @if (showInitializing()) {
       <div class="flex items-center justify-center h-full">
         <div class="text-center">
           <lucide-angular
@@ -85,10 +85,10 @@ interface UserBubble {
           </p>
         </div>
       </div>
-    } @else if (initError()) {
+    } @else if (displayInitError()) {
       <div class="flex items-center justify-center h-full">
         <div class="alert alert-error max-w-md">
-          <span>{{ initError() }}</span>
+          <span>{{ displayInitError() }}</span>
           <button class="btn btn-sm" (click)="initializeBuilder()">
             Retry
           </button>
@@ -105,6 +105,15 @@ interface UserBubble {
           @if (state.configSummary() !== 'No configuration yet') {
             <span class="text-xs text-base-content/40 hidden sm:inline">
               {{ state.configSummary() }}
+            </span>
+          }
+          @if (state.workspaceSwitchedDuringBuild()) {
+            <span
+              class="badge badge-warning badge-sm gap-1"
+              role="status"
+              title="You switched workspaces mid-build. This configuration will still be applied to the workspace this build started in."
+            >
+              Targeting {{ pinnedWorkspaceName() }}
             </span>
           }
         </div>
@@ -385,10 +394,34 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
     this.workflow.isProcessing(),
   );
 
+  /**
+   * Show the initializing spinner for the component's own initial load AND
+   * while the state service re-initializes after an idle workspace switch, so
+   * the view is never left silently empty during a follow-the-workspace
+   * re-init (review Issue 1).
+   */
+  protected readonly showInitializing = computed(
+    () => this.isInitializing() || this.state.isLoading(),
+  );
+
+  /**
+   * Surface either the component's own init error OR a service-level re-init
+   * failure so the Retry button appears in both cases. Retry calls
+   * `initializeBuilder()`, which clears both on success.
+   */
+  protected readonly displayInitError = computed(
+    () => this.initError() ?? this.state.error(),
+  );
+
   protected readonly headerTitle = computed(() =>
     this._viewMode() === 'new-project'
       ? 'New Project Setup'
       : 'AI Team Builder',
+  );
+
+  /** Name of the pinned (original) workspace, shown in the switch badge. */
+  protected readonly pinnedWorkspaceName = computed(
+    () => this.state.workspaceContext()?.projectName ?? 'original workspace',
   );
 
   protected readonly executionNodes = computed(() => {
@@ -579,9 +612,11 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
         createdAt: partial.createdAt ?? now,
         updatedAt: now,
       };
+      const pinnedRoot = this.state.pinnedWorkspaceRoot();
       await this.rpc.apply({
         config: fullConfig,
         outputFormat: 'claude-md',
+        ...(pinnedRoot ? { workspaceRoot: pinnedRoot } : {}),
       });
     } catch (err) {
       this.initError.set(

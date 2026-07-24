@@ -1,0 +1,117 @@
+<section class="flex flex-col gap-6">
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <h2 class="text-xl font-semibold">Overview</h2>
+    @if (stats(); as s) {
+      <span class="text-xs opacity-60">
+        Updated {{ s.updatedAt | date: 'medium' }}
+      </span>
+    }
+  </header>
+
+  @if (error(); as errMsg) {
+    <div class="alert alert-error" role="alert">
+      <span>{{ errMsg }}</span>
+      <button type="button" class="btn btn-sm btn-ghost" (click)="fetch()">
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (loading() && !stats()) {
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      @for (i of [1, 2, 3, 4]; track i) {
+        <div class="h-28 animate-pulse rounded-lg bg-base-200"></div>
+      }
+    </div>
+  } @else if (stats(); as s) {
+    <!-- Waitlist funnel -->
+    <div>
+      <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide opacity-60">
+        Builders Waitlist
+      </h3>
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="stat rounded-lg border border-base-300 bg-base-100">
+          <div class="stat-title">Total Signups</div>
+          <div class="stat-value text-2xl">{{ s.waitlist.total }}</div>
+          <div class="stat-desc">+{{ s.waitlist.last7Days }} in last 7 days</div>
+        </div>
+        <div class="stat rounded-lg border border-base-300 bg-base-100">
+          <div class="stat-title">Notified</div>
+          <div class="stat-value text-2xl">{{ s.waitlist.notified }}</div>
+          <div class="stat-desc">Sent a founding invite</div>
+        </div>
+        <div class="stat rounded-lg border border-base-300 bg-base-100">
+          <div class="stat-title">Converted</div>
+          <div class="stat-value text-2xl">{{ s.waitlist.converted }}</div>
+          <div class="stat-desc">
+            @if (conversionPct(); as pct) {
+              {{ pct | number: '1.0-1' }}% of waitlist
+            } @else {
+              No signups yet
+            }
+          </div>
+        </div>
+        <div class="stat rounded-lg border border-base-300 bg-base-100">
+          <div class="stat-title">Not Yet Invited</div>
+          <div class="stat-value text-2xl">
+            {{ s.waitlist.total - s.waitlist.notified }}
+          </div>
+          <div class="stat-desc">Eligible for next invite batch</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Members -->
+    <div>
+      <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide opacity-60">
+        Members
+      </h3>
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="stat rounded-lg border border-base-300 bg-base-100">
+          <div class="stat-title">Builders</div>
+          <div class="stat-value text-2xl">{{ s.members.builders }}</div>
+          <div class="stat-desc">
+            @if (buildersSharePct(); as pct) {
+              {{ pct | number: '1.0-1' }}% of members
+            } @else {
+              No members yet
+            }
+          </div>
+        </div>
+        <div class="stat rounded-lg border border-base-300 bg-base-100">
+          <div class="stat-title">Community</div>
+          <div class="stat-value text-2xl">{{ s.members.community }}</div>
+          <div class="stat-desc">Free tier</div>
+        </div>
+        <div class="stat rounded-lg border border-base-300 bg-base-100">
+          <div class="stat-title">Total Members</div>
+          <div class="stat-value text-2xl">{{ totalMembers() }}</div>
+          <div class="stat-desc">Builders + Community</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cohorts -->
+    @if (s.groups.length > 0) {
+      <div>
+        <div class="mb-2 flex items-center justify-between">
+          <h3 class="text-xs font-semibold uppercase tracking-wide opacity-60">
+            Cohorts
+          </h3>
+          <a routerLink="/admin/groups" class="link link-primary text-xs">
+            Manage groups →
+          </a>
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          @for (g of s.groups; track g.key) {
+            <div class="stat rounded-lg border border-base-300 bg-base-100">
+              <div class="stat-title">{{ g.name }}</div>
+              <div class="stat-value text-2xl">{{ g.memberCount }}</div>
+              <div class="stat-desc font-mono">{{ g.key }}</div>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  }
+</section>

@@ -68,19 +68,12 @@ test.describe('License watcher', () => {
         },
       } as unknown as Electron.IpcMainEvent;
       ipcMain.emit('get-startup-config', fakeEvent);
-      return captured as
-        | { isLicensed?: boolean; initialView?: string | null }
-        | undefined;
-    })) as { isLicensed?: boolean; initialView?: string | null } | undefined;
+      return captured as { initialView?: string | null } | undefined;
+    })) as { initialView?: string | null } | undefined;
 
     expect(config).toBeDefined();
-    expect(typeof config?.isLicensed).toBe('boolean');
-    // Unlicensed harness launch: initialView should route to 'welcome'
-    // when isLicensed === false (per the dynamic resolver), or be
-    // null when no cached status exists yet (base config path).
-    if (config?.isLicensed === false) {
-      expect(['welcome', null]).toContain(config.initialView ?? null);
-    }
+    // Open-access boot: initialView is always the chat default.
+    expect(config?.initialView ?? null).toBeNull();
   });
 
   test('LicenseService is registered in the DI container at runtime', async ({
@@ -161,24 +154,22 @@ test.describe('License watcher', () => {
     expect(typeof sample.ts).toBe('number');
   });
 
-  test('license state is revalidated via license:getStatus and reports an unlicensed tier', async ({
+  test('license:getStatus answers with a structured status', async ({
     rpcBridge,
     electronApp,
     mainWindow,
   }) => {
     await mainWindow.waitForLoadState('domcontentloaded');
 
-    // The real revalidation path: license:getStatus -> LicenseService.verifyLicense().
+    // The license RPC family still exists and answers membership identity.
     // With no key in SecretStorage, verifyLicense() short-circuits to a
-    // not_found/Community status WITHOUT a network call, so this is deterministic
-    // in the e2e harness (no mock license server required).
+    // deterministic status WITHOUT a network call.
     const res = (await rpcBridge.sendRpc(
       'rpc',
       rpcCall('license:getStatus'),
     )) as RpcResponseEnvelope<{
       valid?: boolean;
       tier?: string;
-      isPremium?: boolean;
     }>;
 
     expect(res.type).toBe('rpc:response');
@@ -186,8 +177,6 @@ test.describe('License watcher', () => {
     expect(res.data).toBeDefined();
     expect(typeof res.data?.valid).toBe('boolean');
     expect(typeof res.data?.tier).toBe('string');
-    // An unlicensed app can never report a premium tier.
-    expect(res.data?.isPremium).toBe(false);
 
     // The main process stayed responsive through the revalidation.
     const alive = await electronApp.evaluate(() => 'alive');

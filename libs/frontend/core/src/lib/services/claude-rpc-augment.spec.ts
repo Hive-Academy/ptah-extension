@@ -8,7 +8,6 @@
 
 import { TestBed } from '@angular/core/testing';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
-import { AppStateManager } from './app-state.service';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
 import { VSCodeService } from './vscode.service';
 
@@ -38,7 +37,6 @@ function installVsCodeApi(): jest.Mock<void, [unknown]> {
     baseUri: '',
     iconUri: '',
     userIconUri: '',
-    isLicensed: true,
   };
   return postMessage;
 }
@@ -73,7 +71,7 @@ describe('ClaudeRpcService — AbortSignal branches', () => {
   beforeEach(() => {
     postMessage = installVsCodeApi();
     TestBed.configureTestingModule({
-      providers: [ClaudeRpcService, VSCodeService, AppStateManager],
+      providers: [ClaudeRpcService, VSCodeService],
     });
     service = TestBed.inject(ClaudeRpcService);
   });
@@ -174,7 +172,7 @@ describe('ClaudeRpcService — typed method wrappers', () => {
   beforeEach(() => {
     postMessage = installVsCodeApi();
     TestBed.configureTestingModule({
-      providers: [ClaudeRpcService, VSCodeService, AppStateManager],
+      providers: [ClaudeRpcService, VSCodeService],
     });
     service = TestBed.inject(ClaudeRpcService);
   });

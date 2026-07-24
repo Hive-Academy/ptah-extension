@@ -37,6 +37,11 @@ export interface BackgroundAgentStartedEvent extends FlatStreamEvent {
   readonly agentDescription?: string;
   /** Short agent identifier (e.g., "adcecb2") from SDK SubagentStart hook */
   readonly agentId?: string;
+  /**
+   * Human-legible name from the Agent/Task tool `name` input; falls back to
+   * agentId when absent.
+   */
+  readonly teammateName?: string;
   /** Path to background agent output file (from SDK placeholder tool_result) */
   readonly outputFilePath?: string;
   /** Tab ID for routing events to the correct webview tab */
@@ -134,6 +139,14 @@ export interface AgentProgressEvent extends FlatStreamEvent {
   readonly toolUses: number;
   /** Elapsed time in milliseconds */
   readonly durationMs: number;
+  /**
+   * Stable id grouping every agent that belongs to a single `Workflow` tool
+   * run. Inherited from the workflow run root. Undefined when this agent is
+   * not part of a workflow run.
+   */
+  readonly workflowRunId?: string;
+  /** Human-legible workflow name, inherited from the workflow run root. */
+  readonly workflowName?: string;
 }
 
 /**
@@ -160,6 +173,14 @@ export interface AgentStatusEvent extends FlatStreamEvent {
   readonly description?: string;
   /** Error text if status is 'failed' */
   readonly errorMessage?: string;
+  /**
+   * Stable id grouping every agent that belongs to a single `Workflow` tool
+   * run. Inherited from the workflow run root. Undefined when this agent is
+   * not part of a workflow run.
+   */
+  readonly workflowRunId?: string;
+  /** Human-legible workflow name, inherited from the workflow run root. */
+  readonly workflowName?: string;
 }
 
 /**
@@ -187,6 +208,14 @@ export interface AgentCompletedEvent extends FlatStreamEvent {
   readonly toolUses?: number;
   /** Total elapsed time in milliseconds */
   readonly durationMs?: number;
+  /**
+   * Stable id grouping every agent that belongs to a single `Workflow` tool
+   * run. Inherited from the workflow run root. Undefined when this agent is
+   * not part of a workflow run.
+   */
+  readonly workflowRunId?: string;
+  /** Human-legible workflow name, inherited from the workflow run root. */
+  readonly workflowName?: string;
 }
 
 /**

@@ -54,6 +54,13 @@ services:
         condition: service_healthy
     env_file:
       - .env
+    # Lets the container reach a local Discourse dev container running on the
+    # host (DISCOURSE_URL=http://community.localhost:4200) for admin group-sync.
+    # `community.localhost` must also be mapped to 127.0.0.1 in the host's hosts
+    # file so the browser resolves the same name during the SSO redirect.
+    # See docs/deploy/local-testing-setup.md (Workstream A).
+    extra_hosts:
+      - 'community.localhost:host-gateway'
     environment:
       DATABASE_URL: postgresql://ptah:ptah_dev_password@postgres:5432/ptah_db
       NODE_ENV: development

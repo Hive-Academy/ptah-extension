@@ -2,7 +2,6 @@ import {
   Component,
   inject,
   ChangeDetectionStrategy,
-  computed,
   signal,
   OnInit,
   viewChild,
@@ -11,7 +10,6 @@ import {
   LucideAngularModule,
   ArrowLeft,
   Sparkles,
-  Lock,
   Key,
   Cpu,
   Download,
@@ -25,6 +23,7 @@ import { LicenseStatusCardComponent } from './license/license-status-card.compon
 import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
+import { WorkflowsConfigComponent } from './pro-features/workflows-config.component';
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
@@ -35,12 +34,11 @@ import {
   AuthStateService,
   VSCodeService,
 } from '@ptah-extension/core';
-import { ChatStore } from '../services/chat.store';
 
 /**
  * SettingsComponent - Main settings page container
  *
- * Complexity Level: 2 (Container with visibility logic based on auth and license status)
+ * Complexity Level: 2 (Container with visibility logic based on auth status)
  * Patterns: Signal-based navigation, conditional rendering
  *
  * Responsibilities:
@@ -48,10 +46,9 @@ import { ChatStore } from '../services/chat.store';
  * - Container for settings sections (authentication, model selection, autopilot)
  * - Navigate back to chat view on back button click
  * - Conditional visibility: Show additional sections only after auth configured
- * - Premium gating: Show MCP port and LLM settings only for premium users
  *
  * Child Components:
- * - LicenseStatusCardComponent: License tier, trial status, user profile, actions
+ * - LicenseStatusCardComponent: Membership status, user profile, actions
  * - EnhancedPromptsConfigComponent: System prompt mode, preview, regenerate
  * - AgentOrchestrationConfigComponent: CLI detection, model selectors, concurrency
  */
@@ -65,6 +62,7 @@ import { ChatStore } from '../services/chat.store';
     EnhancedPromptsConfigComponent,
     VscodeLmConfigComponent,
     McpPortConfigComponent,
+    WorkflowsConfigComponent,
     AgentOrchestrationConfigComponent,
     PtahCliConfigComponent,
     WebSearchConfigComponent,
@@ -79,13 +77,11 @@ export class SettingsComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
   readonly authState = inject(AuthStateService);
-  private readonly chatStore = inject(ChatStore);
   readonly agentOrchestrationConfig = viewChild(
     AgentOrchestrationConfigComponent,
   );
   readonly ArrowLeftIcon = ArrowLeft;
   readonly SparklesIcon = Sparkles;
-  readonly LockIcon = Lock;
   readonly KeyIcon = Key;
   readonly CpuIcon = Cpu;
   readonly DownloadIcon = Download;
@@ -107,14 +103,6 @@ export class SettingsComponent implements OnInit {
 
   readonly isElectron = this.vscodeService.isElectron;
 
-  readonly isPremium = computed(
-    () => this.chatStore.licenseStatus()?.isPremium ?? false,
-  );
-
-  readonly isLoadingLicenseStatus = computed(
-    () => this.chatStore.licenseStatus() === null,
-  );
-
   /**
    * Computed: Whether provider model mapping section should be shown
    * Delegates to AuthStateService which checks authMethod + hasProviderKey
@@ -122,24 +110,8 @@ export class SettingsComponent implements OnInit {
   readonly showProviderModels = this.authState.showProviderModels;
 
   /**
-   * Computed: Whether the user is fully authenticated (has credential + not loading)
-   */
-  readonly isAuthenticated = computed(
-    () => !this.authState.isLoading() && this.authState.hasAnyCredential(),
-  );
-
-  /**
-   * Computed: Whether to show premium-only sections
-   * Requires: authenticated + premium license
-   */
-  readonly showPremiumSections = computed(
-    () => this.isAuthenticated() && this.isPremium(),
-  );
-
-  /**
    * Initialize: Load auth status on component mount.
-   * Auth status is loaded via AuthStateService; license status comes from
-   * ChatStore (already fetched at app init).
+   * Auth status is loaded via AuthStateService.
    */
   async ngOnInit(): Promise<void> {
     const pending = this.appState.consumePendingSettingsTab();
@@ -207,7 +179,9 @@ export class SettingsComponent implements OnInit {
   }
 
   /**
-   * Open pricing page in browser (used by upsell sections)
+   * Open an external page (Ptah Builders / community) in the browser.
+   * Uses the `command:execute` RPC to run the host `ptah.openPricing` command;
+   * the target URL is resolved host-side. Reused by the Builders promotion card.
    */
   async openPricing(): Promise<void> {
     await this.rpcService.call('command:execute', {

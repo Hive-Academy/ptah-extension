@@ -61,6 +61,17 @@ import { TaskDetailComponent } from './detail/task-detail.component';
           <h1 class="text-sm font-semibold">Tasks</h1>
         </div>
 
+        @if (store.totalCount() > 0) {
+          <span
+            class="text-xs text-base-content/50 tabular-nums"
+            title="Board totals — active = In Progress + In Review"
+          >
+            {{ store.totalCount() }} total ·
+            <span class="text-info">{{ store.activeCount() }} active</span> ·
+            <span class="text-success">{{ store.doneCount() }} done</span>
+          </span>
+        }
+
         @if (store.excludedCount() > 0) {
           <span
             class="badge badge-sm badge-ghost"
@@ -143,7 +154,7 @@ import { TaskDetailComponent } from './detail/task-detail.component';
 
       <!-- Body -->
       <div class="flex flex-1 min-h-0">
-        @if (store.loading() && !store.specsDirExists()) {
+        @if (store.loading() && !store.loaded()) {
           <div class="flex items-center justify-center flex-1">
             <span class="loading loading-spinner loading-md"></span>
           </div>
@@ -195,6 +206,7 @@ import { TaskDetailComponent } from './detail/task-detail.component';
               [detail]="store.taskDetail()"
               [loading]="store.detailLoading()"
               (closed)="store.closeTask()"
+              (openArtifact)="store.openArtifact($event)"
             />
           }
         }

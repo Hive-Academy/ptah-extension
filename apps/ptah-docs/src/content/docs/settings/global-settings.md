@@ -97,7 +97,7 @@ The built-in MCP server listens on `mcp.port` (default `51820`) bound to `mcp.ho
 
 ### Browser
 
-Controls the Pro-tier browser automation suite. See **Browser Automation → Launching a Browser** for details.
+Controls the browser automation suite. See **Browser Automation → Launching a Browser** for details.
 
 ### Autopilot
 

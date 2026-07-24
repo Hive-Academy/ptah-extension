@@ -24,7 +24,7 @@ import { TASK_STATUS_BADGE, TASK_STATUS_LABELS } from '../../task-presentation';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
-      class="flex flex-col w-64 flex-shrink-0 rounded-lg bg-base-200/60"
+      class="flex flex-col w-64 flex-shrink-0 min-h-0 rounded-lg bg-base-200/60"
       [attr.aria-label]="label() + ' column'"
     >
       <header
@@ -40,7 +40,7 @@ import { TASK_STATUS_BADGE, TASK_STATUS_LABELS } from '../../task-presentation';
         </span>
       </header>
 
-      <div class="flex flex-col gap-2 px-2 pb-2 overflow-y-auto">
+      <div class="flex flex-col gap-2 px-2 pb-2 overflow-y-auto flex-1 min-h-0">
         @for (task of tasks(); track task.id) {
           <ptah-task-card
             [task]="task"

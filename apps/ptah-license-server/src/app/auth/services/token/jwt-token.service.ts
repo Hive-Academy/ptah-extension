@@ -187,15 +187,14 @@ export class JwtTokenService {
    * SECURITY FIX (TASK_2025_188): Looks up the user's actual license and
    * subscription records instead of hardcoding tier based on organizationId.
    *
-   * TASK_2025_128: Freemium model (Community + Pro)
+   * Open-source + Builders model (Community + Builders)
    * - 'community': Free tier (always valid, no active license)
-   * - 'pro': Active Pro subscription
-   * - 'trial_pro': Pro plan during 100-day trial
+   * - 'builders': Active Ptah Builders subscription
    * - 'expired': License revoked or subscription past_due/canceled
    */
   private async determineTier(
     databaseUserId: string,
-  ): Promise<'community' | 'pro' | 'trial_pro' | 'expired'> {
+  ): Promise<'community' | 'builders' | 'expired'> {
     const subscription = await this.prisma.subscription.findFirst({
       where: {
         userId: databaseUserId,
@@ -205,13 +204,11 @@ export class JwtTokenService {
     });
 
     if (subscription) {
-      if (subscription.status === 'trialing') {
-        return 'trial_pro';
-      }
       if (subscription.status === 'past_due') {
         return 'expired';
       }
-      return 'pro';
+      // 'active' or 'trialing' Paddle subscription = active Builders membership.
+      return 'builders';
     }
     const license = await this.prisma.license.findFirst({
       where: {
@@ -221,11 +218,11 @@ export class JwtTokenService {
     });
 
     if (license) {
-      if (license.status === 'active' && license.plan === 'pro') {
+      if (license.status === 'active' && license.plan === 'builders') {
         if (license.expiresAt && license.expiresAt < new Date()) {
           return 'expired';
         }
-        return 'pro';
+        return 'builders';
       }
       if (
         license.status === 'revoked' ||

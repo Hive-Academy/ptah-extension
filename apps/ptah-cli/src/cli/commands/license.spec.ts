@@ -117,7 +117,7 @@ describe('ptah license status', () => {
     const { formatterTrace, engine, hooks } = buildHooks();
     engine.scripted.set('license:getStatus', {
       success: true,
-      data: { tier: 'pro', valid: true },
+      data: { tier: 'builders', valid: true },
     });
 
     const exit = await execute(
@@ -130,7 +130,7 @@ describe('ptah license status', () => {
     expect(engine.rpcCalls[0]?.method).toBe('license:getStatus');
     expect(formatterTrace.notifications[0]?.method).toBe('license.status');
     expect(formatterTrace.notifications[0]?.params).toMatchObject({
-      tier: 'pro',
+      tier: 'builders',
       valid: true,
     });
   });
@@ -152,7 +152,7 @@ describe('ptah license set', () => {
     const { formatterTrace, engine, hooks } = buildHooks();
     engine.scripted.set('license:setKey', {
       success: true,
-      data: { success: true, tier: 'pro', plan: { name: 'Pro' } },
+      data: { success: true, tier: 'builders', plan: { name: 'Builders' } },
     });
 
     const exit = await execute(

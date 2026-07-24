@@ -13,7 +13,7 @@ Core infrastructure layer for the VS Code host and shared backend services: logg
 - VS Code API wrappers (`CommandManager`, `WebviewManager`, `OutputManager`, `StatusBarManager`, `FileSystemManager`)
 - Cross-cutting services: `Logger`, `ErrorHandler`, `ConfigManager`, `MessageValidatorService`
 - RPC transport: `RpcHandler`, `RpcUserError`, RPC verification helpers
-- License + feature gates: `LicenseService`, `FeatureGateService`, `AuthSecretsService`
+- Membership identity: `LicenseService`, `AuthSecretsService`
 - Webview message handler and subagent registry
 - The `TOKENS` DI namespace
 
@@ -30,8 +30,8 @@ DI: `TOKENS`, `registerVsCodeCoreServices`, `registerVsCodeCorePlatformAgnostic`
 Core: `Logger`, `ErrorHandler`, `ConfigManager`, `MessageValidatorService`, `ValidationError`, `MessageValidationError`, `PtahError`.
 API wrappers: `CommandManager`, `WebviewManager`, `OutputManager`, `StatusBarManager`, `FileSystemManager`.
 Messaging: `RpcHandler`, `RpcUserError`, `verifyRpcRegistration`, `assertRpcRegistration`.
-Services: `SubagentRegistryService`, `WebviewMessageHandlerService`, `AuthSecretsService`, `LicenseService` (+ `isPremiumTier`), `FeatureGateService`.
-License reactivity: `bindLicenseReactivity` (+ `LicenseReactivityOptions`), `bringUpPremiumSubsystems`, `tearDownPremiumSubsystems` (+ `PremiumSubsystemsDeps`) — reactive premium subsystem bring-up/tear-down on `license:verified` / `license:expired`.
+Services: `SubagentRegistryService`, `WebviewMessageHandlerService`, `AuthSecretsService`, `LicenseService`.
+Subsystem bring-up: `bringUpSubsystems` (+ `SubsystemBringUpDeps`) — unconditional MCP server + CLI skill/agent sync at activation (no license gate).
 
 ## Internal Structure
 
@@ -41,17 +41,15 @@ License reactivity: `bindLicenseReactivity` (+ `LicenseReactivityOptions`), `bri
 - `src/config/` — `ConfigManager`, file-settings store interface
 - `src/validation/` — `MessageValidatorService` + error types
 - `src/messaging/` — `rpc-handler.ts` (transport), `rpc-verification.ts`
-- `src/services/` — license, feature gate, auth secrets, subagent registry, webview message handler
-- `src/services/license-reactivity/` — `bindLicenseReactivity`, `bringUpPremiumSubsystems`, `tearDownPremiumSubsystems`
+- `src/services/` — license, auth secrets, subagent registry, webview message handler
+- `src/services/subsystem-bringup.ts` — `bringUpSubsystems` (unconditional MCP + CLI sync)
 - `src/di/tokens.ts` — `TOKENS` namespace; `di/index.ts` — registration; `di/register-platform-agnostic.ts` — non-VS-Code hosts
 
 ## Key Files
 
-- `src/messaging/rpc-handler.ts:46` — **`ALLOWED_METHOD_PREFIXES`** (runtime RPC namespace allowlist — must be kept in sync with `RpcMethodName` in `libs/shared`)
-- `src/messaging/rpc-handler.ts:107` — `PRO_ONLY_METHOD_PREFIXES` for license gating
+- `src/messaging/rpc-handler.ts:44` — **`ALLOWED_METHOD_PREFIXES`** (runtime RPC namespace allowlist — must be kept in sync with `RpcMethodName` in `libs/shared`)
 - `src/di/tokens.ts` — canonical `TOKENS`
-- `src/services/license.service.ts` — tier values + `isPremiumTier`
-- `src/services/feature-gate.service.ts` — Pro-only feature predicate
+- `src/services/license.service.ts` — tier values + license verification/cache coordinator
 - `src/di/register-platform-agnostic.ts` — used by Electron/CLI hosts
 
 ## Dependencies

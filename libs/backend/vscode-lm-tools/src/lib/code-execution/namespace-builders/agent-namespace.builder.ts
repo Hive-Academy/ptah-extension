@@ -90,9 +90,9 @@ export interface AgentNamespaceDependencies {
   getActiveSessionId?: () => string | undefined;
   /** Returns project-specific guidance from enhanced prompts (async). Called at spawn time to inject project context into CLI agents. */
   getProjectGuidance?: () => Promise<string | undefined>;
-  /** Returns full system prompt (prompt harness) for premium users (async). Replaces projectGuidance when available. */
+  /** Returns full system prompt (prompt harness) (async). Replaces projectGuidance when available. */
   getSystemPrompt?: () => Promise<string | undefined>;
-  /** Returns absolute paths to enabled plugin directories for premium users (async). */
+  /** Returns absolute paths to enabled plugin directories (async). */
   getPluginPaths?: () => Promise<string[] | undefined>;
   /** Lazy resolver for PtahCliRegistry (avoids hard dependency on agent-sdk) */
   getPtahCliRegistry?: () => PtahCliRegistryLike | undefined;

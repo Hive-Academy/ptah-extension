@@ -99,7 +99,7 @@ export class CliSkillManifestTracker {
   }
 
   /**
-   * Clear sync hash for a CLI (called on premium expiry or uninstall).
+   * Clear sync hash for a CLI (called on uninstall/cleanup).
    */
   async clearSyncHash(cli: CliTarget): Promise<void> {
     const state = this.getState();

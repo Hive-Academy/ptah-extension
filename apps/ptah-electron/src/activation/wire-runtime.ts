@@ -5,7 +5,7 @@ import {
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
-import { TOKENS, bindLicenseReactivity } from '@ptah-extension/vscode-core';
+import { TOKENS, bringUpSubsystems } from '@ptah-extension/vscode-core';
 import type {
   Logger,
   WebviewManager,
@@ -43,6 +43,7 @@ import type {
 import {
   CODE_SYMBOL_INDEXER,
   type CodeSymbolIndexer,
+  type DependencyGraphService,
 } from '@ptah-extension/workspace-intelligence';
 import {
   MEMORY_TOKENS,
@@ -68,6 +69,7 @@ import {
 import type { IBackupService } from '@ptah-extension/persistence-sqlite';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { GatewayService } from '@ptah-extension/messaging-gateway';
+import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 
 export interface WireRuntimeOptions {
   container: DependencyContainer;
@@ -139,16 +141,19 @@ export interface WireRuntimeResult {
      */
     symbolWatcher: import('chokidar').FSWatcher | null;
     /**
-     * License reactivity binder disposable. Detaches license:verified and
-     * license:expired listeners. Must be disposed in will-quit LIFO chain.
-     */
-    licenseReactivityDisposable: { dispose: () => void } | null;
-    /**
      * Disposables for vec + embedder status push-event bridges. Null when
      * SQLite/memory-curator failed to register so the bridge could not
      * be wired. Must be disposed in will-quit LIFO chain.
      */
     statusBridgeDisposables: ReadonlyArray<{ dispose: () => void }> | null;
+    /**
+     * Ptah CLI registry handle for orderly shutdown. Resolved eagerly here
+     * (while the container is healthy) so `will-quit` can dispose the captured
+     * instance instead of resolving it from the container mid-teardown — a
+     * first-time lazy construction during shutdown races with DI teardown and
+     * can hang or throw. Null when the CLI agent runtime is not registered.
+     */
+    cliRegistry: { disposeAll: () => void } | null;
   };
 }
 
@@ -168,8 +173,8 @@ export async function wireRuntime(
     cronScheduler: null,
     messagingGateway: null,
     symbolWatcher: null,
-    licenseReactivityDisposable: null,
     statusBridgeDisposables: null,
+    cliRegistry: null,
   };
 
   let resolvedStateStorage: IStateStorage | undefined;
@@ -804,6 +809,22 @@ export async function wireRuntime(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
   workspaceProvider.onDidChangeWorkspaceFolders(() => {
+    // Drop cached dependency graphs for workspaces that are no longer open so
+    // their nodes/edges don't linger in memory after a folder is closed. The
+    // event carries no removed path, so retaining the currently-open set is the
+    // race-free way to evict closed workspaces. Non-fatal.
+    try {
+      const depGraph = container.resolve<DependencyGraphService>(
+        TOKENS.DEPENDENCY_GRAPH_SERVICE,
+      );
+      depGraph.retainOnly(workspaceProvider.getWorkspaceFolders());
+    } catch (err) {
+      console.warn(
+        '[Ptah Electron] Dependency graph eviction skipped (non-fatal):',
+        err,
+      );
+    }
+
     const active = workspaceProvider.getWorkspaceRoot();
     if (active) {
       bootHeavyServices(active).catch((err) => {
@@ -822,20 +843,11 @@ export async function wireRuntime(
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
     const currentWorkspaceRoot = startupWorkspaceRoot;
 
-    refs.licenseReactivityDisposable = bindLicenseReactivity({
+    await bringUpSubsystems({
       container,
       logger,
       onMcpPortChange: (port) => {
         setPtahMcpPort(port ?? 0);
-      },
-      notify: (kind) => {
-        if (kind === 'verified') {
-          console.log('[Ptah Electron] Ptah premium features activated.');
-        } else {
-          console.log(
-            '[Ptah Electron] Ptah premium features deactivated (license expired).',
-          );
-        }
       },
       syncCliSkills: () => {
         syncCliSkillsOnActivation(container, currentWorkspaceRoot);
@@ -846,12 +858,34 @@ export async function wireRuntime(
         }
       },
     });
-    console.log('[Ptah Electron] License reactivity binder initialized');
-  } catch (binderError: unknown) {
+    console.log('[Ptah Electron] Subsystems brought up');
+  } catch (bringUpError: unknown) {
     console.warn(
-      '[Ptah Electron] License reactivity binder setup failed (non-fatal):',
-      binderError instanceof Error ? binderError.message : String(binderError),
+      '[Ptah Electron] Subsystem bring-up failed (non-fatal):',
+      bringUpError instanceof Error
+        ? bringUpError.message
+        : String(bringUpError),
     );
+  }
+
+  // Eagerly construct the Ptah CLI registry now that all subsystems (including
+  // the SDK singletons it injects) are wired, and capture it for orderly
+  // shutdown. Deferring this to will-quit forces a first-time lazy build of its
+  // dependency graph mid-teardown, which races with DI shutdown and can hang or
+  // throw (blocked-network production case). Non-fatal: a null ref simply means
+  // will-quit has nothing to dispose.
+  try {
+    refs.cliRegistry = container.resolve<{ disposeAll: () => void }>(
+      CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY,
+    );
+  } catch (cliRegistryError) {
+    console.warn(
+      '[Ptah Electron] CLI registry eager resolve failed (non-fatal):',
+      cliRegistryError instanceof Error
+        ? cliRegistryError.message
+        : String(cliRegistryError),
+    );
+    refs.cliRegistry = null;
   }
 
   /**

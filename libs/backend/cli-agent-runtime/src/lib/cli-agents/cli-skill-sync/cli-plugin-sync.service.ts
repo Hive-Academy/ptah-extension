@@ -6,7 +6,8 @@
  * (decision #4). Called from:
  * 1. Extension activation (syncOnActivation)
  * 2. Setup wizard completion (syncForce)
- * 3. Premium expiry (cleanupAll)
+ * `cleanupAll` removes all Ptah-managed skills/commands (currently unwired —
+ * no caller since the license-reactivity teardown was removed).
  *
  * Pattern: @injectable() singleton following CliDetectionService pattern.
  *
@@ -27,9 +28,15 @@ import type {
 import { CodexSkillInstaller } from './codex-skill-installer';
 import { CopilotSkillInstaller } from './copilot-skill-installer';
 import { CursorSkillInstaller } from './cursor-skill-installer';
+import { AntigravitySkillInstaller } from './antigravity-skill-installer';
 import { CliSkillManifestTracker } from './cli-skill-manifest-tracker';
 
-const SUPPORTED_CLIS: CliTarget[] = ['codex', 'copilot', 'cursor'];
+const SUPPORTED_CLIS: CliTarget[] = [
+  'codex',
+  'copilot',
+  'cursor',
+  'antigravity',
+];
 
 @injectable()
 export class CliPluginSyncService {
@@ -47,6 +54,7 @@ export class CliPluginSyncService {
     this.installers.set('codex', new CodexSkillInstaller());
     this.installers.set('copilot', new CopilotSkillInstaller());
     this.installers.set('cursor', new CursorSkillInstaller());
+    this.installers.set('antigravity', new AntigravitySkillInstaller());
 
     this.logger.debug('[CliPluginSync] Service created');
   }
@@ -118,7 +126,8 @@ export class CliPluginSyncService {
 
   /**
    * Remove all Ptah-managed skills/commands from every CLI's workspace dirs.
-   * Called on premium expiry or extension deactivation.
+   * Currently unwired (no caller) — kept as a utility for a future
+   * deactivation/uninstall cleanup path.
    */
   async cleanupAll(workspaceRoot?: string): Promise<void> {
     this.logger.info('[CliPluginSync] Cleaning up all CLI skills');

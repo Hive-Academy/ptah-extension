@@ -253,6 +253,7 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
   }
 
@@ -260,6 +261,7 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     overrides: {
       enableFileCheckpointing?: boolean;
       permissionMode?: SdkQueryOptions['permissionMode'];
+      forwardSubagentText?: boolean;
     } = {},
   ) {
     const builder = makeFullBuilder();
@@ -306,6 +308,16 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
 
     const optsOff = await buildWith({ enableFileCheckpointing: false });
     expect(optsOff.agentProgressSummaries).toBeUndefined();
+  });
+
+  it('defaults forwardSubagentText to true when the caller does not specify it', async () => {
+    const opts = await buildWith();
+    expect(opts.forwardSubagentText).toBe(true);
+  });
+
+  it('honors forwardSubagentText: false (the chatty-subagent killswitch)', async () => {
+    const opts = await buildWith({ forwardSubagentText: false });
+    expect(opts.forwardSubagentText).toBe(false);
   });
 
   it('pairs allowDangerouslySkipPermissions with bypassPermissions (YOLO) so MCP tool calls do not self-deny', async () => {
@@ -362,6 +374,7 @@ describe('SdkQueryOptionsBuilder.build — context-window override', () => {
         buildSessionStartBlock: jest.fn().mockResolvedValue(''),
         buildCorpusBlock: jest.fn().mockResolvedValue(''),
       },
+      noopHooks,
       noopHooks,
       noopHooks,
       noopHooks,
@@ -498,10 +511,11 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
   }
 
-  async function buildPremiumWith(
+  async function buildSystemPromptWith(
     injector: InjectorStub,
     initialQuery: string,
     extra: { corpusName?: string } = {},
@@ -519,7 +533,6 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       userMessageStream,
       abortController: new AbortController(),
       sessionConfig,
-      isPremium: true,
       initialUserQuery: initialQuery,
     });
     return cfg.options.systemPrompt;
@@ -533,9 +546,13 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue('CORPUS_PRIME_TOKEN'),
       buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
     };
-    const sp = await buildPremiumWith(injector, 'a long enough query string', {
-      corpusName: 'corpus-A',
-    });
+    const sp = await buildSystemPromptWith(
+      injector,
+      'a long enough query string',
+      {
+        corpusName: 'corpus-A',
+      },
+    );
     expect(sp).toBeDefined();
     const append = (sp as { append?: string }).append ?? '';
     const startIdx = append.indexOf('SESSION_START_TOKEN');
@@ -554,7 +571,10 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue('CORPUS_PRIME_TOKEN'),
       buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
     };
-    const sp = await buildPremiumWith(injector, 'a long enough query string');
+    const sp = await buildSystemPromptWith(
+      injector,
+      'a long enough query string',
+    );
     const append = (sp as { append?: string }).append ?? '';
     expect(append).not.toContain('CORPUS_PRIME_TOKEN');
     expect(injector.buildCorpusBlock).not.toHaveBeenCalled();
@@ -566,7 +586,10 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue(''),
       buildBlock: jest.fn().mockResolvedValue('MEMORY_RECALL_TOKEN'),
     };
-    const sp = await buildPremiumWith(injector, 'a long enough query string');
+    const sp = await buildSystemPromptWith(
+      injector,
+      'a long enough query string',
+    );
     const append = (sp as { append?: string }).append ?? '';
     expect(append).toContain('MEMORY_RECALL_TOKEN');
   });
@@ -577,7 +600,7 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue(''),
       buildBlock: jest.fn().mockResolvedValue(''),
     };
-    await buildPremiumWith(injector, 'a long enough query string');
+    await buildSystemPromptWith(injector, 'a long enough query string');
     expect(injector.buildSessionStartBlock).toHaveBeenCalledWith('D:/tmp/ws');
   });
 
@@ -587,7 +610,7 @@ describe('SdkQueryOptionsBuilder.buildSystemPrompt — prepend order', () => {
       buildCorpusBlock: jest.fn().mockResolvedValue('CORPUS_PRIME_TOKEN'),
       buildBlock: jest.fn().mockResolvedValue(''),
     };
-    await buildPremiumWith(injector, 'a long enough query string', {
+    await buildSystemPromptWith(injector, 'a long enough query string', {
       corpusName: 'corpus-XYZ',
     });
     expect(injector.buildCorpusBlock).toHaveBeenCalledWith('corpus-XYZ');
@@ -684,6 +707,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       memoryPromptInjector,
       postToolUseHookHandler,
       userPromptSubmitHookHandler,
+      { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
@@ -849,6 +873,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
 
     const sessionConfig = {
@@ -984,6 +1009,7 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
+      { createHooks: jest.fn().mockReturnValue({}) },
     );
     return { builder, logger, permissionHandler };
   }
@@ -1058,6 +1084,107 @@ describe('SdkQueryOptionsBuilder.build — permission routing safeParse fallback
     );
     expect(warnedAboutRouting).toBe(true);
     expect(warnedAboutTabId).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// build() — workflows.disabled kill switch → CLAUDE_CODE_DISABLE_WORKFLOWS env
+//
+// The persisted `workflows.disabled` ptah config is resolved at the session
+// origination point (chat-session.service) and threaded onto AISessionConfig as
+// `workflowsDisabled`. build() injects `CLAUDE_CODE_DISABLE_WORKFLOWS=1` into the
+// query env ONLY when that flag is true; absent/false leaves the env untouched so
+// the SDK's built-in workflows (ultracode/workflow keyword) stay ON.
+// ---------------------------------------------------------------------------
+
+describe('SdkQueryOptionsBuilder.build — workflows.disabled env injection', () => {
+  function makeBuilder(): SdkQueryOptionsBuilder {
+    const noopHooks = { createHooks: jest.fn().mockReturnValue({}) };
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    return new ctor(
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+      {
+        createCallback: jest
+          .fn()
+          .mockReturnValue(() => ({ behavior: 'allow' })),
+      },
+      noopHooks,
+      {
+        getConfig: jest
+          .fn()
+          .mockReturnValue({ enabled: false, contextTokenThreshold: 200_000 }),
+      },
+      noopHooks,
+      noopHooks,
+      {} as AuthEnv, // empty → Anthropic-direct, no model validation
+      { resolveModelId: jest.fn().mockImplementation((m: string) => m) },
+      {
+        buildBlock: jest.fn().mockResolvedValue(''),
+        buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+        buildCorpusBlock: jest.fn().mockResolvedValue(''),
+      },
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+    );
+  }
+
+  async function buildEnv(
+    workflowsDisabled?: boolean,
+  ): Promise<Record<string, string | undefined>> {
+    const userMessageStream = (async function* () {
+      // Intentionally empty.
+    })();
+    const sessionConfig = {
+      model: 'claude-sonnet-4',
+      projectPath: 'D:/tmp/ws',
+      ...(workflowsDisabled === undefined ? {} : { workflowsDisabled }),
+    } as AISessionConfig;
+    const cfg = await makeBuilder().build({
+      userMessageStream,
+      abortController: new AbortController(),
+      sessionConfig,
+    });
+    return cfg.options.env as Record<string, string | undefined>;
+  }
+
+  // The builder spreads `...process.env`; isolate from any ambient
+  // CLAUDE_CODE_DISABLE_WORKFLOWS so the injection is the only source.
+  const savedFlag = process.env['CLAUDE_CODE_DISABLE_WORKFLOWS'];
+  beforeEach(() => {
+    delete process.env['CLAUDE_CODE_DISABLE_WORKFLOWS'];
+  });
+  afterEach(() => {
+    if (savedFlag === undefined) {
+      delete process.env['CLAUDE_CODE_DISABLE_WORKFLOWS'];
+    } else {
+      process.env['CLAUDE_CODE_DISABLE_WORKFLOWS'] = savedFlag;
+    }
+  });
+
+  it('injects CLAUDE_CODE_DISABLE_WORKFLOWS=1 when workflowsDisabled is true', async () => {
+    const env = await buildEnv(true);
+    expect(env['CLAUDE_CODE_DISABLE_WORKFLOWS']).toBe('1');
+  });
+
+  it('leaves the env untouched when workflowsDisabled is false', async () => {
+    const env = await buildEnv(false);
+    expect(env['CLAUDE_CODE_DISABLE_WORKFLOWS']).toBeUndefined();
+  });
+
+  it('leaves the env untouched when workflowsDisabled is absent (default ON)', async () => {
+    const env = await buildEnv(undefined);
+    expect(env['CLAUDE_CODE_DISABLE_WORKFLOWS']).toBeUndefined();
   });
 });
 
@@ -1158,6 +1285,7 @@ describe('SdkQueryOptionsBuilder.createHooks — PostToolUse + UserPromptSubmit 
       memoryPromptInjector,
       postToolUseHookHandler,
       userPromptSubmitHookHandler,
+      { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },
       { createHooks: jest.fn().mockReturnValue({}) },

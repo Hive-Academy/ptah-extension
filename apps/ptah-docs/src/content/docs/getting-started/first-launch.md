@@ -7,13 +7,9 @@ The first time you open Ptah, the app guides you through selecting a workspace, 
 
 ## Welcome screen
 
-Unlicensed users see a welcome screen on first launch with three options:
+Ptah is free and fully open source, so first launch goes straight into the app — there's no gate, license prompt, or lockout to clear. Every local capability is available immediately.
 
-- **Start free trial** — unlocks Pro features for a limited period. See [Signing in](/getting-started/signing-in/) for trial details.
-- **Enter license key** — if you already purchased Ptah Pro.
-- **Continue with Free tier** — skip licensing and use the core chat, agent, and plugin features.
-
-You can change your mind later from **Settings → License**.
+Signing in is optional: it connects you to a **Ptah Builders** membership for hosted perks (hosted gateway, priority support, early access, and community access). You can sign in — or attach a Builders license key — any time from **Settings → License**. See [Signing in](/getting-started/signing-in/) for details.
 
 ![Welcome screen](/screenshots/welcome.png)
 
@@ -92,4 +88,4 @@ If the analysis missed something — a nested subproject, a custom tech stack �
 
 ## Next step
 
-Continue to [Signing in](/getting-started/signing-in/) to activate a license and configure your AI providers.
+Continue to [Signing in](/getting-started/signing-in/) to configure your AI providers, and optionally sign in for a Ptah Builders membership.

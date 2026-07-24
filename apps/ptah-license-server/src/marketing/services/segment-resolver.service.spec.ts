@@ -37,7 +37,7 @@ describe('SegmentResolverService', () => {
         return [];
       });
 
-      const result = await service.resolve('proActive', ['u3']);
+      const result = await service.resolve('buildersActive', ['u3']);
 
       expect(result.optedInUserIds).toEqual(['u1', 'u3']);
       expect(result.skippedUserIds).toEqual([]); // u2 was skipped before union, u3 is opted in
@@ -67,7 +67,7 @@ describe('SegmentResolverService', () => {
       const counts = await service.getSegmentCounts();
 
       expect(counts.all).toEqual({ total: 10, optedIn: 10 });
-      expect(mockPrisma.user.count).toHaveBeenCalledTimes(10); // 5 segments * 2 counts each
+      expect(mockPrisma.user.count).toHaveBeenCalledTimes(8); // 4 segments * 2 counts each
     });
   });
 });

@@ -73,7 +73,7 @@ import { DeviceFrameComponent } from '../../components/console/device-frame.comp
           >
             <div class="video-wrapper absolute inset-0">
               <youtube-player
-                videoId="cRrwNahaEas"
+                videoId="lMRFI0BrYvI"
                 [disableCookies]="true"
                 placeholderImageQuality="high"
               />

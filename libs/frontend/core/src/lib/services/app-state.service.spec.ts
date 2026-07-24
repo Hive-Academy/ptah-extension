@@ -1,10 +1,10 @@
 /**
  * AppStateManager specs — global webview state (view, workspace, connection,
- * license, layout mode, canvas-session signal bridge).
+ * layout mode, canvas-session signal bridge).
  *
  * Coverage:
- *   - Constructor `initializeState` reads `window.ptahConfig` (license,
- *     workspace, initialView) and `localStorage` (layout mode).
+ *   - Constructor `initializeState` reads `window.ptahConfig` (workspace,
+ *     initialView) and `localStorage` (layout mode).
  *   - `normalizeView` maps legacy 'orchestra-canvas' → 'chat' + grid layout.
  *   - `setCurrentView` / `openView` / `closeView` mutate `openViews` set and
  *     respect the `canSwitchViews` guard.
@@ -40,7 +40,6 @@ interface AppStoreState {
   statusMessage: string;
   workspaceInfo: WorkspaceInfo | null;
   isConnected: boolean;
-  isLicensed: boolean;
   openViews: readonly ViewType[];
   layoutMode: LayoutMode;
   canvasSessionRequest: CanvasSessionRequest | null;
@@ -51,7 +50,6 @@ interface AppStoreState {
 
 interface PtahTestWindow {
   ptahConfig?: {
-    isLicensed?: boolean;
     initialView?: string;
     workspaceRoot?: string;
     workspaceName?: string;
@@ -97,22 +95,20 @@ describe('AppStateManager', () => {
   });
 
   describe('initializeState from window.ptahConfig', () => {
-    it('defaults to view="chat", licensed=true, layoutMode="grid" when no globals are injected', () => {
+    it('defaults to view="chat", layoutMode="grid" when no globals are injected', () => {
       const service = createService();
       const harness = makeSignalStoreHarness<AppStoreState>(service);
 
       expect(harness.read()).toMatchObject({
         currentView: 'chat',
-        isLicensed: true,
         layoutMode: 'grid',
         workspaceInfo: null,
       });
     });
 
-    it('reads license status and workspace info from window.ptahConfig', () => {
+    it('reads workspace info from window.ptahConfig', () => {
       setupGlobals({
         ptahConfig: {
-          isLicensed: false,
           workspaceRoot: '/tmp/demo',
           workspaceName: 'demo',
           initialView: 'analytics',
@@ -122,7 +118,6 @@ describe('AppStateManager', () => {
       const service = createService();
       const harness = makeSignalStoreHarness<AppStoreState>(service);
 
-      expect(harness.signal('isLicensed')).toBe(false);
       expect(harness.signal('workspaceInfo')).toEqual({
         name: 'demo',
         path: '/tmp/demo',
@@ -197,15 +192,6 @@ describe('AppStateManager', () => {
       expect(service.openViews()).toContain('chat');
     });
 
-    it('blocks view switches when on "welcome" (license-gate enforcement)', () => {
-      setupGlobals({ ptahConfig: { initialView: 'welcome' } });
-      const service = createService();
-      expect(service.canSwitchViews()).toBe(false);
-
-      service.setCurrentView('settings');
-      expect(service.currentView()).toBe('welcome');
-    });
-
     it('blocks view switches while loading', () => {
       const service = createService();
       service.setLoading(true);
@@ -220,12 +206,6 @@ describe('AppStateManager', () => {
       expect(service.canSwitchViews()).toBe(false);
       service.setCurrentView('settings');
       expect(service.currentView()).toBe('chat');
-    });
-
-    it('openViews computed excludes the "welcome" view', () => {
-      setupGlobals({ ptahConfig: { initialView: 'welcome' } });
-      const service = createService();
-      expect(service.openViews()).not.toContain('welcome');
     });
   });
 
@@ -350,7 +330,6 @@ describe('AppStateManager', () => {
         statusMessage: 'hello',
         workspaceInfo: null,
         isConnected: true,
-        isLicensed: true,
       });
     });
   });

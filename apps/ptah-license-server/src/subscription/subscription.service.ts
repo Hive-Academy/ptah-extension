@@ -11,6 +11,11 @@ import {
 } from './dto';
 import { SubscriptionDbService } from './subscription-db.service';
 import {
+  isBuildersCheckoutEnabled,
+  getBuildersMonthlyPriceId,
+  getBuildersYearlyPriceId,
+} from '../config/checkout.config';
+import {
   PaddleSyncService,
   PaddleSubscriptionData,
 } from './paddle-sync.service';
@@ -70,14 +75,6 @@ export class SubscriptionService {
     }
 
     const localSubscription = userData.subscription;
-    if (this.isInternalTrial(localSubscription)) {
-      this.logger.debug(
-        `Skipping Paddle API for internal trial user: ${userId}`,
-      );
-      const result = this.buildStatusFromLocal(localSubscription);
-      result.requiresSync = false;
-      return result;
-    }
     const paddleResult = localSubscription?.paddleCustomerId
       ? await this.paddleSync.findSubscriptionByCustomerId(
           localSubscription.paddleCustomerId,
@@ -109,6 +106,17 @@ export class SubscriptionService {
     this.logger.debug(
       `Validating checkout for user: ${userId}, priceId: ${priceId}`,
     );
+    if (!isBuildersCheckoutEnabled(this.configService)) {
+      this.logger.debug(
+        `Checkout disabled (BUILDERS_CHECKOUT_ENABLED=false) for user: ${userId}`,
+      );
+      return {
+        canCheckout: false,
+        reason: 'checkout_disabled',
+        message:
+          'Ptah Builders checkout is not open yet. Join the waitlist to get early access.',
+      };
+    }
 
     const status = await this.getStatus(userId);
     if (!status.hasSubscription || !status.subscription) {
@@ -200,22 +208,6 @@ export class SubscriptionService {
     const localLicense = userData.license;
     const statusBefore = localSubscription?.status || 'none';
     const planBefore = localLicense?.plan;
-    if (this.isInternalTrial(localSubscription)) {
-      this.logger.debug(
-        `Skipping reconcile for internal trial user: ${userId}`,
-      );
-      return {
-        success: true,
-        changes: {
-          subscriptionUpdated: false,
-          licenseUpdated: false,
-          statusBefore,
-          statusAfter: statusBefore,
-          planBefore,
-          planAfter: planBefore,
-        },
-      };
-    }
     const paddleResult = localSubscription?.paddleCustomerId
       ? await this.paddleSync.findSubscriptionByCustomerId(
           localSubscription.paddleCustomerId,
@@ -265,8 +257,8 @@ export class SubscriptionService {
     const paddleData = paddleResult.data;
     const newPlan = this.mapPriceIdToPlan(paddleData.priceId);
     const newStatus = paddleData.status;
-    const isInTrial = newStatus === 'trialing';
-    const licensePlan = isInTrial ? `trial_${newPlan}` : newPlan;
+    // No legacy trial plans: the license plan is always the resolved base plan.
+    const licensePlan = newPlan;
     const newPeriodEnd = paddleData.currentPeriodEnd
       ? new Date(paddleData.currentPeriodEnd)
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
@@ -388,13 +380,6 @@ export class SubscriptionService {
         message: 'No Paddle customer record found for this user.',
       };
     }
-    if (this.isInternalTrial(subscription)) {
-      return {
-        error: 'no_customer_record',
-        message:
-          'Portal is not available during trial period. Use the pricing page to subscribe.',
-      };
-    }
 
     const result = await this.paddleSync.createPortalSession(
       subscription.paddleCustomerId,
@@ -424,9 +409,12 @@ export class SubscriptionService {
    * This allows the checkout to reuse the same customer,
    * preventing duplicate customers when re-subscribing.
    */
-  async getCheckoutInfo(
-    userId: string,
-  ): Promise<{ email: string; paddleCustomerId?: string }> {
+  async getCheckoutInfo(userId: string): Promise<{
+    email: string;
+    paddleCustomerId?: string;
+    checkoutEnabled: boolean;
+    reason?: 'checkout_disabled';
+  }> {
     this.logger.debug(`Getting checkout info for user: ${userId}`);
 
     const user = await this.dbService.findUserById(userId);
@@ -435,10 +423,18 @@ export class SubscriptionService {
       this.logger.warn(`User not found: ${userId}`);
       throw new Error('User not found');
     }
+    if (!isBuildersCheckoutEnabled(this.configService)) {
+      return {
+        email: user.email,
+        checkoutEnabled: false,
+        reason: 'checkout_disabled',
+      };
+    }
 
     return {
       email: user.email,
       paddleCustomerId: user.paddleCustomerId || undefined,
+      checkoutEnabled: true,
     };
   }
 
@@ -581,40 +577,21 @@ export class SubscriptionService {
   }
 
   /**
-   * Check if a local subscription is an internal (API-managed) trial.
-   * Internal trials use synthetic Paddle IDs that should never be sent to Paddle API.
-   */
-  private isInternalTrial(
-    subscription: {
-      paddleCustomerId: string;
-      status: string;
-      priceId: string;
-    } | null,
-  ): boolean {
-    if (!subscription) return false;
-    return (
-      subscription.status === 'trialing' &&
-      (subscription.paddleCustomerId.startsWith('trial_customer_') ||
-        subscription.priceId === 'auto_trial_pro')
-    );
-  }
-
-  /**
    * Map Paddle price ID to plan name
+   *
+   * Open-source + Builders model — the two Builders price IDs map to
+   * 'builders', everything else is 'expired'.
    */
   private mapPriceIdToPlan(priceId: string | undefined): string {
     if (!priceId) return 'expired';
-    if (priceId === 'auto_trial_pro') return 'pro';
 
-    const proMonthlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_PRO_MONTHLY',
+    const buildersMonthlyPriceId = getBuildersMonthlyPriceId(
+      this.configService,
     );
-    const proYearlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_PRO_YEARLY',
-    );
+    const buildersYearlyPriceId = getBuildersYearlyPriceId(this.configService);
 
-    if (priceId === proMonthlyPriceId || priceId === proYearlyPriceId)
-      return 'pro';
+    if (priceId === buildersMonthlyPriceId || priceId === buildersYearlyPriceId)
+      return 'builders';
 
     this.logger.warn(`Unknown price ID: ${priceId}`);
     return 'expired';
@@ -626,11 +603,9 @@ export class SubscriptionService {
   private getBillingCycle(priceId: string | undefined): 'monthly' | 'yearly' {
     if (!priceId) return 'monthly';
 
-    const yearlyPriceIds = [
-      this.configService.get<string>('PADDLE_PRICE_ID_PRO_YEARLY'),
-    ].filter(Boolean);
-
-    return yearlyPriceIds.includes(priceId) ? 'yearly' : 'monthly';
+    return priceId === getBuildersYearlyPriceId(this.configService)
+      ? 'yearly'
+      : 'monthly';
   }
 
   /**

@@ -11,8 +11,6 @@ export interface WebviewHtmlOptions {
   workspaceInfo?: Record<string, unknown>;
   /** Initial view to navigate to (e.g., 'chat', 'setup-wizard') */
   initialView?: string;
-  /** Whether the user has a valid license (default: true for licensed activation) */
-  isLicensed?: boolean;
   /** Unique panel identifier for multi-webview support. */
   panelId?: string;
 }
@@ -39,7 +37,6 @@ export class WebviewHtmlGenerator {
       | {
           workspaceInfo?: WorkspaceInfo | Record<string, unknown> | null;
           initialView?: string;
-          isLicensed?: boolean;
           panelId?: string;
           initialSessionId?: string;
           initialSessionName?: string;
@@ -51,7 +48,6 @@ export class WebviewHtmlGenerator {
     try {
       let workspaceInfo: Record<string, unknown> | undefined;
       let initialView: string | undefined;
-      let isLicensed = true; // Default to licensed for normal activation
       let panelId: string | undefined;
       let initialSessionId: string | undefined;
       let initialSessionName: string | undefined;
@@ -60,7 +56,6 @@ export class WebviewHtmlGenerator {
         if (
           'initialView' in options ||
           'workspaceInfo' in options ||
-          'isLicensed' in options ||
           'panelId' in options ||
           'initialSessionId' in options
         ) {
@@ -68,7 +63,6 @@ export class WebviewHtmlGenerator {
             options as { workspaceInfo?: Record<string, unknown> }
           ).workspaceInfo;
           initialView = (options as { initialView?: string }).initialView;
-          isLicensed = (options as { isLicensed?: boolean }).isLicensed ?? true;
           panelId = (options as { panelId?: string }).panelId;
           initialSessionId = (options as { initialSessionId?: string })
             .initialSessionId;
@@ -83,7 +77,6 @@ export class WebviewHtmlGenerator {
         webview,
         workspaceInfo,
         initialView,
-        isLicensed,
         panelId,
         initialSessionId,
         initialSessionName,
@@ -106,7 +99,6 @@ export class WebviewHtmlGenerator {
     webview: vscode.Webview,
     workspaceInfo?: Record<string, unknown>,
     initialView?: string,
-    isLicensed = true,
     panelId?: string,
     initialSessionId?: string,
     initialSessionName?: string,
@@ -118,7 +110,6 @@ export class WebviewHtmlGenerator {
       'context-tree',
       'settings',
       'setup-wizard',
-      'welcome',
     ];
 
     if (initialView && !VALID_VIEWS.includes(initialView)) {
@@ -154,7 +145,6 @@ export class WebviewHtmlGenerator {
       workspaceInfo,
       webview,
       initialView,
-      isLicensed,
       panelId,
       initialSessionId,
       initialSessionName,
@@ -381,7 +371,6 @@ export class WebviewHtmlGenerator {
     workspaceInfo?: Record<string, unknown>,
     webview?: vscode.Webview,
     initialView?: string,
-    isLicensed = true,
     panelId?: string,
     initialSessionId?: string,
     initialSessionName?: string,
@@ -411,7 +400,6 @@ export class WebviewHtmlGenerator {
       window.vscode = vscode;
       window.ptahConfig = {
         isVSCode: true,
-        isLicensed: ${isLicensed},
         theme: '${this.getThemeString(theme)}',
         workspaceRoot: '${this.escapeJsString(
           String(workspaceInfo?.['path'] || ''),

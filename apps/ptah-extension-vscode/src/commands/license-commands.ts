@@ -2,7 +2,8 @@
  * License Commands — command handlers for license key management (enter,
  * remove, check status) available via the VS Code Command Palette.
  *
- * Messaging is tailored to the freemium model (Community / Trial Pro / Pro).
+ * Messaging is tailored to the open-access identity model (Community / Ptah
+ * Builders).
  *
  * @packageDocumentation
  */
@@ -58,7 +59,7 @@ export class LicenseCommands {
    */
   async enterLicenseKey(): Promise<void> {
     const licenseKey = await vscode.window.showInputBox({
-      prompt: 'Enter your Ptah premium license key',
+      prompt: 'Enter your Ptah Builders key',
       placeHolder: 'ptah_lic_...',
       password: true,
       validateInput: (value) => {
@@ -84,7 +85,7 @@ export class LicenseCommands {
 
     if (status.valid) {
       const action = await vscode.window.showInformationMessage(
-        `License activated! Plan: ${status.plan?.name}. Reload window to enable premium features.`,
+        `Membership activated! Plan: ${status.plan?.name}. Reload window to refresh your Ptah Builders status.`,
         'Reload Window',
       );
       if (action === 'Reload Window') {
@@ -159,9 +160,9 @@ export class LicenseCommands {
       const tierName =
         status.tier === 'community'
           ? 'Community (Free)'
-          : status.tier === 'trial_pro'
-            ? 'Pro (Trial)'
-            : 'Pro';
+          : status.tier === 'builders'
+            ? 'Ptah Builders member'
+            : 'Expired';
       const expiresText = status.expiresAt
         ? new Date(status.expiresAt).toLocaleDateString()
         : status.tier === 'community'

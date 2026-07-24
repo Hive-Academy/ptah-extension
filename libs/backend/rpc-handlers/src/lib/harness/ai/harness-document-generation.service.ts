@@ -139,7 +139,6 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
             '\n\nReturn a JSON object with a single "document" field containing the full markdown PRD as a string.',
           systemPromptAppend:
             'You are a technical product manager writing a PRD. Be thorough, specific, and professional. The document should be 800-1500 words. Use the available ptah.harness tools to enhance your document: searchSkills(query?) to find existing skills relevant to the project, searchMcpRegistry(query, limit?) to search the MCP Registry for relevant servers, listInstalledMcpServers() to check what MCP servers are already installed. After using tools, return valid JSON with the markdown document.',
-          isPremium: true,
           mcpServerRunning: true,
           maxTurns: 6,
           outputFormat: { type: 'json_schema', schema: docOutputSchema },

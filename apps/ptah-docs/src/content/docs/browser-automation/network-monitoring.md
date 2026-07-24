@@ -5,10 +5,6 @@ description: Inspect every HTTP request and response the page makes.
 
 import { Aside } from '@astrojs/starlight/components';
 
-<Aside type="caution" title="Pro tier only">
-Browser Automation requires an active Pro license.
-</Aside>
-
 ## `ptah_browser_network`
 
 Return a structured log of HTTP requests and responses observed since the browser was launched (or since the last reset).

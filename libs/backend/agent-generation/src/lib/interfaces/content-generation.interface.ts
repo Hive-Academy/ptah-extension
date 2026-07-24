@@ -19,7 +19,6 @@ import {
  * SDK configuration for internal query execution during content generation.
  */
 export interface ContentGenerationSdkConfig {
-  isPremium: boolean;
   mcpServerRunning: boolean;
   mcpPort?: number;
   model?: string;

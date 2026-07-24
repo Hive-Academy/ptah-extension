@@ -47,40 +47,7 @@
 
   <!-- Content -->
   <main class="flex-1 overflow-y-auto p-6">
-    @if (!isLicenseResolved()) {
-      <!-- License not yet resolved: neutral loading, no RPC fired here -->
-      <div class="flex items-center justify-center h-full">
-        <span class="loading loading-spinner loading-md"></span>
-      </div>
-    } @else if (!isPremium()) {
-      <!-- Pro gate: non-premium users see an upgrade affordance. NO marketplace RPC fires. -->
-      <div class="max-w-md mx-auto mt-12 text-center">
-        <div
-          class="w-14 h-14 rounded-2xl bg-warning/10 border border-warning/20 flex items-center justify-center mx-auto"
-        >
-          <lucide-angular
-            [img]="LockIcon"
-            class="w-7 h-7 text-warning"
-            aria-hidden="true"
-          />
-        </div>
-        <h2 class="text-lg font-bold text-base-content mt-4">
-          Marketplace is a Pro feature
-        </h2>
-        <p class="text-sm text-base-content/50 mt-2 leading-relaxed">
-          Upgrade to Pro to browse and install skills and MCP servers from
-          multiple providers directly inside Ptah.
-        </p>
-        <button class="btn btn-primary btn-sm gap-1.5 mt-5" (click)="goBack()">
-          <lucide-angular
-            [img]="SparklesIcon"
-            class="w-4 h-4"
-            aria-hidden="true"
-          />
-          Back to chat
-        </button>
-      </div>
-    } @else if (selectedProvider(); as provider) {
+    @if (selectedProvider(); as provider) {
       <!-- Selected provider content surface (only the active surface mounts) -->
       <div class="max-w-3xl mx-auto">
         @if (provider.status === 'coming-soon' || !provider.surface) {
@@ -97,6 +64,12 @@
             (skillInstalled)="onContentChanged()"
             (skillUninstalled)="onContentChanged()"
           />
+        } @else if (provider.surface === OAuthSurface) {
+          <ptah-oauth-surface
+            [refreshTrigger]="refreshTrigger()"
+            (serverConnected)="onContentChanged()"
+            (serverDisconnected)="onContentChanged()"
+          />
         } @else if (isGenericSurface(provider.surface)) {
           <ng-container
             *ngComponentOutlet="
@@ -107,7 +80,7 @@
         }
       </div>
     } @else {
-      <!-- Provider overview list (premium, no provider selected) -->
+      <!-- Provider overview list (no provider selected) -->
       <div class="max-w-4xl mx-auto">
         <p class="text-sm text-base-content/50 mb-6 leading-relaxed">
           Browse and install skills and MCP servers from multiple providers.
@@ -134,18 +107,6 @@
                   />
                 </div>
                 <div class="flex items-center gap-1.5">
-                  @if (provider.proGated) {
-                    <span
-                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-[10px] font-medium text-warning"
-                    >
-                      <lucide-angular
-                        [img]="LockIcon"
-                        class="w-3 h-3"
-                        aria-hidden="true"
-                      />
-                      Pro
-                    </span>
-                  }
                   @if (provider.status === 'coming-soon') {
                     <span
                       class="px-2 py-0.5 rounded-full bg-base-300/60 text-[10px] font-medium text-base-content/50"

@@ -61,7 +61,7 @@ export class SubscriptionController {
    *   subscription?: {
    *     id: string,
    *     status: 'active' | 'trialing' | 'canceled' | 'past_due' | 'paused',
-   *     plan: 'pro' | 'community',
+   *     plan: 'builders' | 'community',
    *     billingCycle: 'monthly' | 'yearly',
    *     currentPeriodEnd: string,
    *     canceledAt?: string,
@@ -196,17 +196,31 @@ export class SubscriptionController {
    * @param req - Express request with authenticated user
    * @returns Checkout info with optional customerId
    *
-   * Response:
+   * When BUILDERS_CHECKOUT_ENABLED is false, returns a clean disabled outcome
+   * (HTTP 200, no paddleCustomerId) instead of checkout details.
+   *
+   * Response (checkout open):
    * {
    *   email: string,
-   *   paddleCustomerId?: string
+   *   paddleCustomerId?: string,
+   *   checkoutEnabled: true
+   * }
+   *
+   * Response (checkout disabled):
+   * {
+   *   email: string,
+   *   checkoutEnabled: false,
+   *   reason: 'checkout_disabled'
    * }
    */
   @Get('checkout-info')
   @UseGuards(JwtAuthGuard)
-  async getCheckoutInfo(
-    @Req() req: Request,
-  ): Promise<{ email: string; paddleCustomerId?: string }> {
+  async getCheckoutInfo(@Req() req: Request): Promise<{
+    email: string;
+    paddleCustomerId?: string;
+    checkoutEnabled: boolean;
+    reason?: 'checkout_disabled';
+  }> {
     const user = req.user as { id: string; email: string };
     return this.subscriptionService.getCheckoutInfo(user.id);
   }

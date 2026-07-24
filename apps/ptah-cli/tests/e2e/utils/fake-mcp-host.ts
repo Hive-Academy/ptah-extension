@@ -33,9 +33,11 @@
  *     the in-process `LicenseCache.loadPersistedCache()` hydrates the
  *     right tier on cold start. This is the SAME mechanism the existing
  *     `license-cli.e2e.spec.ts` Bug 9 case uses — no new source-side
- *     hooks were introduced. Pass `'pro'` for the Pro tier, `'community'`
- *     for the Free tier, or `null` to leave the cache empty (so the gate
- *     denies all premium tools).
+ *     hooks were introduced. Pass `'builders'` for the Builders tier,
+ *     `'community'` for the Community tier, or `null` to leave the cache
+ *     empty. Ptah is fully open source — there is no tool-call license
+ *     gate — so this only affects membership-status display, never tool
+ *     availability.
  *
  * Env defaults: `FORCE_COLOR=0`, `NO_COLOR=1`, `PTAH_NO_TTY=1`,
  * `NX_TUI=false`, `PTAH_AUTO_APPROVE=true` (so the SDK permission gate
@@ -58,7 +60,7 @@ const treeKill: (
   cb: (err?: Error) => void,
 ) => void = require('tree-kill');
 
-export type LicenseStatus = 'community' | 'pro' | null;
+export type LicenseStatus = 'community' | 'builders' | null;
 
 export interface FakeMcpHostOptions {
   /**
@@ -71,9 +73,10 @@ export interface FakeMcpHostOptions {
   /** Env additions merged on top of cleaned process.env. */
   env?: Record<string, string>;
   /**
-   * License tier to inject. `'pro'` seeds a valid Pro license; `'community'`
-   * seeds a valid Free license; `null` (default) leaves the cache empty so
-   * the gate denies all premium tools.
+   * License tier to inject. `'builders'` seeds a valid Builders license;
+   * `'community'` seeds a valid Community license; `null` (default) leaves
+   * the cache empty. Ptah is fully open source — there is no tool-call
+   * license gate — this only affects membership-status display.
    */
   licenseStatus?: LicenseStatus;
   /** Default 30_000ms (cold DI bootstrap headroom on slow CI). */
@@ -192,8 +195,8 @@ function buildEnv(
  * requested tier on cold start. Matches the persisted envelope shape from
  * `libs/backend/vscode-core/src/services/license/license-types.ts` exactly.
  * The community variant carries `valid:true,tier:'community'` (same shape
- * `LicenseService.seedCommunityStatus()` writes); the pro variant carries
- * `valid:true,tier:'pro'` + a plan + a far-future `expiresAt`.
+ * `LicenseService.seedCommunityStatus()` writes); the builders variant
+ * carries `valid:true,tier:'builders'` + a plan + a far-future `expiresAt`.
  */
 async function seedLicenseCache(
   home: TmpHome,
@@ -202,13 +205,13 @@ async function seedLicenseCache(
   const stateFile = path.join(home.ptahDir, 'global-state.json');
   const now = Date.now();
   const persisted =
-    status === 'pro'
+    status === 'builders'
       ? {
           'ptah.licenseCache': {
             status: {
               valid: true,
-              tier: 'pro',
-              plan: { name: 'Pro' },
+              tier: 'builders',
+              plan: { name: 'Builders' },
               expiresAt: new Date(now + 365 * 86_400_000).toISOString(),
             },
             persistedAt: now,

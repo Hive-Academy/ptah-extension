@@ -274,6 +274,49 @@ describe('CliAgentRpcHandlers — per-method dispatch parity', () => {
     );
   });
 
+  it('workflows.disabled — round-trips through set/getConfig identically', async () => {
+    const cli = buildHandler(
+      CliAgentRpcHandlers as unknown as new (
+        ...args: never[]
+      ) => CliAgentRpcHandlers,
+    );
+    const ele = buildHandler(
+      AgentRpcHandlers as unknown as new (...args: never[]) => AgentRpcHandlers,
+    );
+    (cli.instance as unknown as { register(): void }).register();
+    (ele.instance as unknown as { register(): void }).register();
+
+    // Default (unset) resolves to false on both handlers.
+    const cliBefore = await findHandler(cli.rpc, 'agent:getConfig')(undefined);
+    const eleBefore = await findHandler(ele.rpc, 'agent:getConfig')(undefined);
+    expect(
+      (cliBefore as { workflowsDisabled: boolean }).workflowsDisabled,
+    ).toBe(false);
+    expect(cliBefore).toEqual(eleBefore);
+
+    // Persist the kill switch via setConfig on both.
+    await findHandler(cli.rpc, 'agent:setConfig')({ workflowsDisabled: true });
+    await findHandler(ele.rpc, 'agent:setConfig')({ workflowsDisabled: true });
+    expect(cli.workspace.setConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'workflows.disabled',
+      true,
+    );
+    expect(ele.workspace.setConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'workflows.disabled',
+      true,
+    );
+
+    // Read-back reflects the persisted value on both.
+    const cliAfter = await findHandler(cli.rpc, 'agent:getConfig')(undefined);
+    const eleAfter = await findHandler(ele.rpc, 'agent:getConfig')(undefined);
+    expect((cliAfter as { workflowsDisabled: boolean }).workflowsDisabled).toBe(
+      true,
+    );
+    expect(cliAfter).toEqual(eleAfter);
+  });
+
   it('agent:detectClis — returns identical empty payload', async () => {
     const cli = buildHandler(
       CliAgentRpcHandlers as unknown as new (
@@ -313,9 +356,12 @@ describe('CliAgentRpcHandlers — per-method dispatch parity', () => {
     )(undefined);
     expect(cliResult).toEqual(eleResult);
     expect(cliResult).toEqual({
+      antigravity: [],
       codex: [],
       copilot: [],
       cursor: [],
+      opencode: [],
+      pi: [],
     });
   });
 

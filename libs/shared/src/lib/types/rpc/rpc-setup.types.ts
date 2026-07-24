@@ -75,7 +75,7 @@ export function isMultiPhaseResponse(
 
 /**
  * Response from wizard:deep-analyze RPC method
- * Always returns MultiPhaseAnalysisResponse (premium + MCP required).
+ * Always returns MultiPhaseAnalysisResponse (MCP server required).
  */
 export type WizardDeepAnalyzeResponse = MultiPhaseAnalysisResponse;
 

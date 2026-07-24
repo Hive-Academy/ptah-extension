@@ -1,0 +1,126 @@
+@if (open()) {
+  <dialog class="modal modal-open" aria-labelledby="waitlist-invite-title">
+    <div class="modal-box max-w-lg">
+      <header class="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h3 id="waitlist-invite-title" class="text-lg font-semibold">
+            Send Founding Invites
+          </h3>
+          <p class="text-sm opacity-70">
+            Sends the founding-invite email (35% off monthly / 50% off yearly)
+            and stamps <code class="text-xs">notifiedAt</code>.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm btn-square"
+          aria-label="Close"
+          [disabled]="sending()"
+          (click)="onCloseClick()"
+        >
+          ✕
+        </button>
+      </header>
+
+      @if (result(); as r) {
+        <div class="alert alert-success mb-4">
+          <div>
+            <div class="font-semibold">
+              Invited {{ r.invited }}, skipped {{ r.skipped }}
+            </div>
+            <div class="text-sm">
+              Skipped rows were already notified.
+            </div>
+          </div>
+        </div>
+        <div class="modal-action">
+          <button type="button" class="btn btn-primary" (click)="onCloseClick()">
+            Close
+          </button>
+        </div>
+      } @else {
+        <form (submit)="onSubmit($event)" class="flex flex-col gap-4">
+          @if (errorMessage(); as msg) {
+            <div class="alert alert-error text-sm">
+              <span>{{ msg }}</span>
+            </div>
+          }
+
+          <div class="flex gap-4">
+            <label class="label cursor-pointer gap-2">
+              <input
+                type="radio"
+                name="waitlist-invite-mode"
+                class="radio radio-primary radio-sm"
+                [checked]="mode() === 'selected'"
+                [disabled]="selectedIds().length === 0"
+                (change)="mode.set('selected')"
+              />
+              <span class="label-text">
+                Selected rows ({{ selectedIds().length }})
+              </span>
+            </label>
+            <label class="label cursor-pointer gap-2">
+              <input
+                type="radio"
+                name="waitlist-invite-mode"
+                class="radio radio-primary radio-sm"
+                [checked]="mode() === 'oldest'"
+                (change)="mode.set('oldest')"
+              />
+              <span class="label-text">Invite oldest N</span>
+            </label>
+          </div>
+
+          @if (mode() === 'oldest') {
+            <label class="form-control w-full max-w-xs">
+              <div class="label">
+                <span class="label-text">Batch size</span>
+              </div>
+              <input
+                type="number"
+                min="1"
+                class="input input-bordered input-sm"
+                [value]="batchSize()"
+                (input)="onBatchSizeInput($event)"
+                [disabled]="sending()"
+              />
+            </label>
+          }
+
+          <div class="modal-action">
+            <button
+              type="button"
+              class="btn btn-ghost"
+              [disabled]="sending()"
+              (click)="onCloseClick()"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="btn btn-primary px-8"
+              [disabled]="!canSubmit()"
+            >
+              @if (sending()) {
+                <span class="loading loading-spinner loading-sm"></span>
+                Sending…
+              } @else {
+                Send Invites
+              }
+            </button>
+          </div>
+        </form>
+      }
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop"
+      aria-label="Close modal"
+      [disabled]="sending()"
+      (click)="onCloseClick()"
+    >
+      close
+    </button>
+  </dialog>
+}

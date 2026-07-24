@@ -88,7 +88,6 @@ export const CLI_PLUGIN_SYNC_SERVICE = Symbol.for('CliPluginSyncService');
 export const AUTH_SECRETS_SERVICE = Symbol.for('AuthSecretsService');
 export const LICENSE_SERVICE = Symbol.for('LicenseService');
 export const LICENSE_COMMANDS = Symbol.for('LicenseCommands');
-export const FEATURE_GATE_SERVICE = Symbol.for('FeatureGateService');
 
 export const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
 export const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
@@ -223,7 +222,6 @@ export const TOKENS = {
   AUTH_SECRETS_SERVICE,
   LICENSE_SERVICE,
   LICENSE_COMMANDS,
-  FEATURE_GATE_SERVICE,
   PTAH_API_BUILDER,
   CODE_EXECUTION_MCP,
   PERMISSION_PROMPT_SERVICE,

@@ -503,4 +503,4 @@ The CLI runs the agent backend in-process — there is no IPC boundary. The JSON
 
 ## License
 
-FSL-1.1-MIT.
+MIT.

@@ -16,12 +16,7 @@
  */
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';
-import {
-  Logger,
-  RpcHandler,
-  TOKENS,
-  LicenseService,
-} from '@ptah-extension/vscode-core';
+import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
@@ -144,10 +139,9 @@ export class WizardGenerationRpcHandlers {
   ) {}
 
   /**
-   * Resolve plugin paths for premium users.
+   * Resolve plugin paths for the generation run.
    */
-  private resolvePluginPaths(isPremium: boolean): string[] | undefined {
-    if (!isPremium) return undefined;
+  private resolvePluginPaths(): string[] | undefined {
     try {
       const config = this.pluginLoader.getWorkspacePluginConfig();
       if (!config.enabledPluginIds || config.enabledPluginIds.length === 0) {
@@ -332,18 +326,9 @@ export class WizardGenerationRpcHandlers {
             },
           );
         }
-        let isPremium = false;
         let mcpServerRunning = false;
         let mcpPort: number | undefined;
         try {
-          const licenseService = this.resolveService<LicenseService>(
-            TOKENS.LICENSE_SERVICE,
-            'LicenseService',
-          );
-          const licenseStatus = await licenseService.verifyLicense();
-          isPremium =
-            licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro';
-
           const codeExecutionMcp = this.resolveService<CodeExecutionMCP>(
             TOKENS.CODE_EXECUTION_MCP,
             'CodeExecutionMCP',
@@ -352,48 +337,37 @@ export class WizardGenerationRpcHandlers {
           mcpServerRunning = actualPort !== null;
           mcpPort = actualPort ?? undefined;
         } catch (error) {
-          this.logger.debug(
-            'Could not resolve license/MCP services for generation',
-            {
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
+          this.logger.debug('Could not resolve MCP service for generation', {
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
         let targetClis: CliTarget[] | undefined;
-        if (isPremium) {
-          try {
-            const cliDetection = this.resolveService<CliDetectionService>(
-              TOKENS.CLI_DETECTION_SERVICE,
-              'CliDetectionService',
-            );
-            const installedClis = await cliDetection.detectAll();
-            const cliTargets = installedClis
-              .filter(
-                (c) =>
-                  (c.cli === 'copilot' ||
-                    c.cli === 'codex' ||
-                    c.cli === 'cursor') &&
-                  c.installed,
-              )
-              .map((c) => c.cli as CliTarget);
-            if (cliTargets.length > 0) {
-              targetClis = cliTargets;
-              this.logger.info(
-                'CLI targets detected for multi-CLI generation',
-                { targetClis },
-              );
-            }
-          } catch (cliError) {
-            this.logger.debug(
-              'CLI detection failed for generation (non-fatal)',
-              {
-                error:
-                  cliError instanceof Error
-                    ? cliError.message
-                    : String(cliError),
-              },
-            );
+        try {
+          const cliDetection = this.resolveService<CliDetectionService>(
+            TOKENS.CLI_DETECTION_SERVICE,
+            'CliDetectionService',
+          );
+          const installedClis = await cliDetection.detectAll();
+          const cliTargets = installedClis
+            .filter(
+              (c) =>
+                (c.cli === 'copilot' ||
+                  c.cli === 'codex' ||
+                  c.cli === 'cursor') &&
+                c.installed,
+            )
+            .map((c) => c.cli as CliTarget);
+          if (cliTargets.length > 0) {
+            targetClis = cliTargets;
+            this.logger.info('CLI targets detected for multi-CLI generation', {
+              targetClis,
+            });
           }
+        } catch (cliError) {
+          this.logger.debug('CLI detection failed for generation (non-fatal)', {
+            error:
+              cliError instanceof Error ? cliError.message : String(cliError),
+          });
         }
         const onStreamEvent = (event: GenerationStreamPayload): void => {
           if (!webviewManager) return;
@@ -409,7 +383,7 @@ export class WizardGenerationRpcHandlers {
             });
         };
         const currentModel = params.model || undefined;
-        const pluginPaths = this.resolvePluginPaths(isPremium);
+        const pluginPaths = this.resolvePluginPaths();
         const options: OrchestratorGenerationOptions = {
           workspacePath: workspaceRoot,
           userOverrides: params.selectedAgentIds,
@@ -417,7 +391,6 @@ export class WizardGenerationRpcHandlers {
           variableOverrides: params.variableOverrides,
           enhancedPromptContent,
           preComputedAnalysis,
-          isPremium,
           mcpServerRunning,
           mcpPort,
           onStreamEvent,

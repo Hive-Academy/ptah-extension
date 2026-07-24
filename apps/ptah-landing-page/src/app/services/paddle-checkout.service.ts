@@ -491,7 +491,7 @@ export class PaddleCheckoutService {
               count: this.LICENSE_VERIFY_RETRIES,
               delay: this.LICENSE_VERIFY_DELAY,
             }),
-            catchError(() => of({ plan: 'trial', status: 'none' })),
+            catchError(() => of({ plan: null, status: 'none' })),
           ),
       );
 

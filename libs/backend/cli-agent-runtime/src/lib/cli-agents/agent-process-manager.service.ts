@@ -9,15 +9,13 @@
  * - Cross-platform process termination (SIGTERM/taskkill)
  */
 import { injectable, inject } from 'tsyringe';
-import { execFile, ChildProcess } from 'child_process';
+import { ChildProcess } from 'child_process';
 import { promises as fsPromises } from 'fs';
-import { promisify } from 'util';
 import { EventEmitter } from 'eventemitter3';
 import axios from 'axios';
 import {
   TOKENS,
   Logger,
-  LicenseService,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
@@ -44,11 +42,11 @@ import type {
   CliCommandOptions,
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
+import { killProcessTree } from './cli-adapters/cli-adapter.utils';
 import {
   MAX_BUFFER_SIZE,
   DEFAULT_TIMEOUT,
   MAX_TIMEOUT,
-  KILL_GRACE_PERIOD,
   COMPLETED_AGENT_TTL,
   OUTPUT_FLUSH_INTERVAL,
   GRACEFUL_EXIT_DELAY_MS,
@@ -61,8 +59,6 @@ import {
   capStreamEvents,
   mergeConsecutiveTextSegments,
 } from './agent-process-manager-helpers';
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Shell metacharacters — kept for reference only.
@@ -151,6 +147,18 @@ export class AgentProcessManager {
 
   /** UI reasoning-effort selection drives Codex/Copilot; per-CLI config is the fallback. */
   private resolveReasoningEffort(cli: CliType): string | undefined {
+    // Pi maps reasoning effort to `--thinking` and supports the full scale
+    // (off|minimal|low|medium|high|xhigh|max), so the configured value flows
+    // through raw — no in-chat driver and no `max`→`xhigh` coercion.
+    if (cli === 'pi') {
+      const piEffort =
+        this.workspace.getConfiguration<string>(
+          'ptah.agentOrchestration',
+          'piReasoningEffort',
+          '',
+        ) ?? '';
+      return piEffort || undefined;
+    }
     if (cli !== 'codex' && cli !== 'copilot') return undefined;
     const uiEffort = this.mapEffortToCli(this.reasoningSettings.effort.get());
     if (uiEffort) return uiEffort;
@@ -180,6 +188,9 @@ export class AgentProcessManager {
       codex: 'codexModel',
       copilot: 'copilotModel',
       cursor: 'cursorModel',
+      antigravity: 'antigravityModel',
+      opencode: 'opencodeModel',
+      pi: 'piModel',
     };
 
   private resolveConfiguredModel(
@@ -209,8 +220,6 @@ export class AgentProcessManager {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
-    @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -684,6 +693,15 @@ export class AgentProcessManager {
           `The agent will complete its task based on the original prompt.`,
       );
     }
+    // SDK-based agents that own a live input channel (e.g. Pi RPC mode) route
+    // steering through the handle, which writes to the current child's stdin.
+    // This is preferred over the legacy `tracked.process.stdin` path below.
+    const sdkSteer = tracked.sdkHandle?.steer;
+    if (sdkSteer) {
+      sdkSteer(instruction);
+      return;
+    }
+
     if (!tracked.process) {
       throw new Error(
         `Agent ${agentId} is an SDK-based agent and does not support stdin steering.`,
@@ -1120,79 +1138,40 @@ export class AgentProcessManager {
   }
 
   private async killProcess(tracked: TrackedAgent): Promise<void> {
+    const captureTreeKillError = (err: unknown): void => {
+      this.sentryService.captureException(
+        err instanceof Error ? err : new Error(String(err)),
+        { errorSource: 'AgentProcessManager.killProcess.treeKill' },
+      );
+    };
+
     const child = tracked.process;
     if (!child) {
+      // SDK-handle branch (every current adapter). Abort fires the adapter's own
+      // best-effort graceful stop + tree-kill; we ALSO tree-kill the live child's
+      // process group here (defense in depth for handles whose abort path doesn't
+      // reap descendants), then wait for the run to actually settle.
       if (tracked.sdkAbortController) {
         tracked.sdkAbortController.abort();
-        await new Promise<void>((resolve) => setTimeout(resolve, 500));
+
+        const sdkPid = tracked.sdkHandle?.getPid?.();
+        if (sdkPid) {
+          // killProcessTree polls for real exit, so it already blocks until the
+          // process (and group) is gone — no separate settle wait needed.
+          await killProcessTree(sdkPid, 'SIGTERM', captureTreeKillError);
+        } else {
+          // No live child PID exposed — give the abort a brief moment to settle.
+          await new Promise<void>((resolve) => setTimeout(resolve, 500));
+        }
       }
       return;
     }
 
     if (!child.pid) return;
 
-    if (process.platform === 'win32') {
-      try {
-        await execFileAsync('taskkill', [
-          '/pid',
-          String(child.pid),
-          '/T',
-          '/F',
-        ]);
-      } catch (err) {
-        this.sentryService.captureException(
-          err instanceof Error ? err : new Error(String(err)),
-          { errorSource: 'AgentProcessManager.killProcess.taskkill' },
-        );
-        try {
-          child.kill();
-        } catch (killErr) {
-          this.sentryService.captureException(
-            killErr instanceof Error ? killErr : new Error(String(killErr)),
-            { errorSource: 'AgentProcessManager.killProcess.fallbackKill' },
-          );
-          /* already dead */
-        }
-      }
-    } else {
-      const childPid = child.pid;
-      const killGroup = (signal: NodeJS.Signals): boolean => {
-        try {
-          process.kill(-childPid, signal);
-          return true;
-        } catch {
-          child.kill(signal);
-          return false;
-        }
-      };
-
-      killGroup('SIGTERM');
-      await new Promise<void>((resolve) => {
-        let resolved = false;
-
-        const killTimeout = setTimeout(() => {
-          if (resolved) return;
-          resolved = true;
-          try {
-            killGroup('SIGKILL');
-          } catch (err) {
-            this.sentryService.captureException(
-              err instanceof Error ? err : new Error(String(err)),
-              { errorSource: 'AgentProcessManager.killProcess.SIGKILL' },
-            );
-            /* already dead */
-          }
-          resolve();
-        }, KILL_GRACE_PERIOD);
-
-        child.on('exit', () => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(killTimeout);
-          resolve();
-        });
-      });
-    }
+    // Legacy tracked-ChildProcess branch: single shared tree-kill implementation
+    // (Windows taskkill /T /F; POSIX process-group kill escalating to SIGKILL).
+    await killProcessTree(child.pid, 'SIGTERM', captureTreeKillError);
   }
 
   private getRunningCount(): number {
@@ -1355,31 +1334,14 @@ export class AgentProcessManager {
   }
 
   /**
-   * Resolve MCP server port for CLI agents, gated on premium status + server health.
-   * Returns the port number if both conditions are met, undefined otherwise.
-   * Mirrors the premium gating pattern from SdkQueryOptionsBuilder.buildMcpServers().
+   * Resolve MCP server port for CLI agents, gated on server health only.
+   * Returns the port number if the MCP server is reachable, undefined otherwise.
    *
    * Health check results are cached for 30 seconds to avoid repeated HTTP calls
    * when spawning multiple agents in rapid succession.
    */
   private async resolveMcpPort(): Promise<number | undefined> {
     try {
-      const cached = this.licenseService.getCachedStatus();
-      const status = cached ?? (await this.licenseService.verifyLicense());
-      const isPremium =
-        status.tier === 'pro' ||
-        status.tier === 'trial_pro' ||
-        status.plan?.isPremium === true;
-
-      if (!isPremium) {
-        this.logger.info(
-          '[AgentProcessManager] MCP disabled for CLI agent (not premium)',
-          {
-            tier: status.tier,
-          },
-        );
-        return undefined;
-      }
       const configuredPort =
         this.workspace.getConfiguration<number>('ptah', 'mcpPort', 51820) ??
         51820;
@@ -1418,9 +1380,7 @@ export class AgentProcessManager {
         err instanceof Error ? err : new Error(String(err)),
         { errorSource: 'AgentProcessManager.resolveMcpPort' },
       );
-      this.logger.info(
-        '[AgentProcessManager] MCP port resolution failed (license check error)',
-      );
+      this.logger.info('[AgentProcessManager] MCP port resolution failed');
       return undefined;
     }
   }

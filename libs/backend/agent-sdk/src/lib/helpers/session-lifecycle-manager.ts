@@ -127,13 +127,8 @@ export interface ExecuteQueryConfig {
   /** Callback when SDK removes a worktree */
   onWorktreeRemoved?: WorktreeRemovedCallback;
   /**
-   * Premium user flag - enables MCP server and Ptah system prompt.
-   * Passed through to SdkQueryOptionsBuilder for conditional feature enabling.
-   */
-  isPremium?: boolean;
-  /**
    * Whether the MCP server is currently running.
-   * When false, MCP config will not be included even for premium users.
+   * When false, MCP config will not be included.
    * This prevents configuring Claude with a dead MCP endpoint.
    * Defaults to true for backward compatibility.
    */
@@ -195,8 +190,7 @@ export interface ExecuteQueryConfig {
   /**
    * The user's initial message text for this turn.
    * Used by SdkQueryOptionsBuilder to drive a memory recall search so the
-   * top-K hits are prepended to the system prompt. Only used for premium users
-   * with a non-empty query.
+   * top-K hits are prepended to the system prompt. Only used when non-empty.
    */
   initialUserQuery?: string;
   /**
@@ -213,7 +207,6 @@ export interface ExecuteQueryConfig {
  */
 export interface SlashCommandConfig {
   sessionConfig?: AISessionConfig;
-  isPremium?: boolean;
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
@@ -376,6 +369,16 @@ export class SessionLifecycleManager {
   }
 
   /**
+   * Get the workspace root (projectPath) for a specific session, by tabId or
+   * realSessionId. Returns undefined when the session is unknown or carries no
+   * projectPath. Lets MCP tools resolve a call against the exact session that
+   * issued it (concurrency-safe), not the most-recently-active one.
+   */
+  getSessionWorkspace(idOrTabId: string): string | undefined {
+    return this._registry.getSessionWorkspace(idOrTabId);
+  }
+
+  /**
    * Interrupt the current assistant turn without ending the session.
    *
    * Unlike endSession(), this does NOT abort the session or clean up resources.
@@ -488,7 +491,6 @@ export class SessionLifecycleManager {
       onCompactionStart: config.onCompactionStart,
       onWorktreeCreated: config.onWorktreeCreated,
       onWorktreeRemoved: config.onWorktreeRemoved,
-      isPremium: config.isPremium,
       mcpServerRunning: config.mcpServerRunning,
       enhancedPromptsContent: config.enhancedPromptsContent,
       pluginPaths: config.pluginPaths,

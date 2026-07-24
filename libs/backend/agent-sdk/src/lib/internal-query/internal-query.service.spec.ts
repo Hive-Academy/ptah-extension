@@ -43,7 +43,6 @@ function makeConfig(
     cwd: '/fake/workspace',
     model: 'claude-sonnet-4-20250514',
     prompt: 'Analyze this workspace',
-    isPremium: false,
     mcpServerRunning: false,
     ...overrides,
   };
@@ -84,7 +83,6 @@ describe('InternalQueryService', () => {
         model: 'opus',
         prompt: 'do the thing',
         systemPromptAppend: 'return JSON',
-        isPremium: true,
         mcpServerRunning: true,
         mcpPort: 51820,
         maxTurns: 12,
@@ -102,7 +100,6 @@ describe('InternalQueryService', () => {
         model: 'opus',
         prompt: 'do the thing',
         systemPromptAppend: 'return JSON',
-        isPremium: true,
         mcpServerRunning: true,
         mcpPort: 51820,
         maxTurns: 12,

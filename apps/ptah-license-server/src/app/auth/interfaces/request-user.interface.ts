@@ -36,13 +36,12 @@ export interface RequestUser {
    * Subscription tier for the tenant
    * Used for feature gating and resource limits
    *
-   * TASK_2025_128: Freemium model (Community + Pro)
+   * Open-source + Builders model (Community + Builders)
    * - 'community': Free tier (always valid, no license required)
-   * - 'pro': Active Pro subscription
-   * - 'trial_pro': Pro plan during 100-day trial
+   * - 'builders': Active Ptah Builders subscription
    * - 'expired': Revoked or payment failed
    */
-  tier: 'community' | 'pro' | 'trial_pro' | 'expired';
+  tier: 'community' | 'builders' | 'expired';
 }
 
 /**
@@ -83,13 +82,12 @@ export interface JWTPayload {
   /**
    * Subscription tier
    *
-   * TASK_2025_128: Freemium model (Community + Pro)
+   * Open-source + Builders model (Community + Builders)
    * - 'community': Free tier (always valid)
-   * - 'pro': Active Pro subscription
-   * - 'trial_pro': Pro plan during 100-day trial
+   * - 'builders': Active Ptah Builders subscription
    * - 'expired': Revoked or payment failed
    */
-  tier: 'community' | 'pro' | 'trial_pro' | 'expired';
+  tier: 'community' | 'builders' | 'expired';
 
   /**
    * Issued at timestamp

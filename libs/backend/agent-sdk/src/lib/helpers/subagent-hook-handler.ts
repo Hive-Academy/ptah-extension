@@ -11,15 +11,17 @@
  *
  * Flow:
  * 1. SubagentStart hook fires -> registry.register() for resumption tracking
- * 2. Subagent visibility flows via `agentProgressSummaries: true` Option in
- *    SdkQueryOptionsBuilder + task_* system messages (task_started,
- *    task_progress, task_updated, task_notification) handled by
- *    SdkMessageTransformer.
+ * 2. Subagent visibility flows via two complementary channels handled by
+ *    SdkMessageTransformer:
+ *      - the built-in task_* system message stream (task_started, task_progress,
+ *        task_updated, task_notification) for the collapsed task-node summary; and
+ *      - `forwardSubagentText: true` (SdkQueryOptionsBuilder), which forwards the
+ *        full nested subagent conversation (assistant/user text + thinking) as
+ *        messages carrying `parent_tool_use_id` = the spawning Task tool_use id.
  * 3. SubagentStop hook fires -> registry.update() to mark as 'completed'.
  *
- * Subagent visibility flows via the SDK's built-in task_* event stream
- * (`agentProgressSummaries: true` Option). The legacy AgentSessionWatcherService
- * is a no-op stub retained for legacy consumers.
+ * The legacy AgentSessionWatcherService is a no-op stub retained for legacy
+ * consumers.
  */
 
 import { injectable, inject } from 'tsyringe';

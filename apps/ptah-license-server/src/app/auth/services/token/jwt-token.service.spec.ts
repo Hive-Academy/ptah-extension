@@ -315,7 +315,7 @@ describe('JwtTokenService', () => {
   // ==========================================================================
 
   describe('determineTier', () => {
-    it('returns "pro" for an active subscription', async () => {
+    it('returns "builders" for an active subscription', async () => {
       prisma.subscription.findFirst.mockResolvedValueOnce({
         status: 'active',
       });
@@ -325,10 +325,10 @@ describe('JwtTokenService', () => {
         undefined,
         DB_USER_ID,
       );
-      expect(user.tier).toBe('pro');
+      expect(user.tier).toBe('builders');
     });
 
-    it('returns "trial_pro" for a trialing subscription', async () => {
+    it('returns "builders" for a trialing subscription', async () => {
       prisma.subscription.findFirst.mockResolvedValueOnce({
         status: 'trialing',
       });
@@ -338,7 +338,7 @@ describe('JwtTokenService', () => {
         undefined,
         DB_USER_ID,
       );
-      expect(user.tier).toBe('trial_pro');
+      expect(user.tier).toBe('builders');
     });
 
     it('returns "expired" for a past_due subscription', async () => {
@@ -354,11 +354,11 @@ describe('JwtTokenService', () => {
       expect(user.tier).toBe('expired');
     });
 
-    it('falls back to an active pro license when no subscription exists', async () => {
+    it('falls back to an active builders license when no subscription exists', async () => {
       prisma.subscription.findFirst.mockResolvedValueOnce(null);
       prisma.license.findFirst.mockResolvedValueOnce({
         status: 'active',
-        plan: 'pro',
+        plan: 'builders',
         expiresAt: new Date('2099-01-01T00:00:00Z'),
       });
 
@@ -367,14 +367,14 @@ describe('JwtTokenService', () => {
         undefined,
         DB_USER_ID,
       );
-      expect(user.tier).toBe('pro');
+      expect(user.tier).toBe('builders');
     });
 
-    it('marks a date-expired pro license as "expired"', async () => {
+    it('marks a date-expired builders license as "expired"', async () => {
       prisma.subscription.findFirst.mockResolvedValueOnce(null);
       prisma.license.findFirst.mockResolvedValueOnce({
         status: 'active',
-        plan: 'pro',
+        plan: 'builders',
         expiresAt: new Date('2020-01-01T00:00:00Z'), // past
       });
 
@@ -390,7 +390,7 @@ describe('JwtTokenService', () => {
       prisma.subscription.findFirst.mockResolvedValueOnce(null);
       prisma.license.findFirst.mockResolvedValueOnce({
         status: 'revoked',
-        plan: 'pro',
+        plan: 'builders',
       });
 
       const user = await service.mapWorkOSUserToRequestUser(

@@ -46,7 +46,6 @@ export interface HarnessLlmExecuteParams {
   model: string;
   prompt: string;
   systemPromptAppend: string;
-  isPremium: boolean;
   mcpServerRunning: boolean;
   maxTurns: number;
   outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> };
@@ -114,7 +113,6 @@ export class HarnessLlmRunner {
       model: args.execute.model,
       prompt: args.execute.prompt,
       systemPromptAppend: args.execute.systemPromptAppend,
-      isPremium: args.execute.isPremium,
       mcpServerRunning: args.execute.mcpServerRunning,
       maxTurns: args.execute.maxTurns,
       outputFormat: args.execute.outputFormat,

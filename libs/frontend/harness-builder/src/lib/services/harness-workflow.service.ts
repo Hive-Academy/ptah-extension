@@ -63,6 +63,10 @@ export class HarnessWorkflowService {
     this._surfaceId.set(surfaceId);
     this._mode.set(mode);
     this._started.set(true);
+    // Pin the build: from here until dispose(), the state store must NOT reset
+    // on an active-workspace switch, so `harness:apply` keeps targeting the
+    // workspace this build started in.
+    this.state.setBuildInProgress(true);
 
     this.claims.claim(correlationId as string, surfaceId);
     this.state.registerWorkflowSurface(surfaceId);
@@ -159,6 +163,7 @@ export class HarnessWorkflowService {
     this._surfaceId.set(null);
     this._mode.set(null);
     this._started.set(false);
+    this.state.setBuildInProgress(false);
   }
 
   private resolveSessionId(): ClaudeSessionId | null {

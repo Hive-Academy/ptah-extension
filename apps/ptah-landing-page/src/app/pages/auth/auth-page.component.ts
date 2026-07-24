@@ -17,6 +17,7 @@ import { SocialLoginButtonsComponent } from './components/social-login-buttons.c
 import { VerificationCodeComponent } from './components/verification-code.component';
 import { AuthApiService } from './services/auth-api.service';
 import { AuthService } from '../../services/auth.service';
+import { environment } from '../../../environments/environment';
 import {
   AuthMode,
   AUTH_ERROR_MESSAGES,
@@ -77,129 +78,141 @@ import { isValidEmail } from './utils/auth-validation.utils';
 
         <div class="relative z-10 max-w-md mx-auto w-full">
           @if (showVscodeSuccess()) {
-          <!-- VS Code Post-Signup Success Screen -->
-          <div class="flex flex-col items-center text-center gap-6 py-8">
-            <div
-              class="w-16 h-16 rounded-full bg-success/20 flex items-center justify-center"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="w-8 h-8 text-success"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="2"
+            <!-- VS Code Post-Signup Success Screen -->
+            <div class="flex flex-col items-center text-center gap-6 py-8">
+              <div
+                class="w-16 h-16 rounded-full bg-success/20 flex items-center justify-center"
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-            </div>
-            <h2 class="text-2xl font-bold text-base-content">
-              Account Created Successfully!
-            </h2>
-            <div class="flex flex-col gap-3 text-base-content/70">
-              <p>
-                Check your email for your <strong>license key</strong>. It will
-                look like:
-              </p>
-              <code
-                class="bg-base-200 px-4 py-2 rounded-lg text-sm font-mono text-base-content/80"
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="w-8 h-8 text-success"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </div>
+              <h2 class="text-2xl font-bold text-base-content">
+                Account Created Successfully!
+              </h2>
+              <div class="flex flex-col gap-3 text-base-content/70">
+                <p>
+                  You're in — the <strong>Ptah extension</strong> is free and
+                  open source and already works fully in VS Code. There's
+                  nothing to activate.
+                </p>
+                <p>
+                  This account is your identity for the Ptah community, and for
+                  any future <strong>Ptah Builders</strong> membership. We've
+                  emailed you an account key that looks like:
+                </p>
+                <code
+                  class="bg-base-200 px-4 py-2 rounded-lg text-sm font-mono text-base-content/80"
+                >
+                  ptah_lic_...
+                </code>
+                <p>
+                  You don't need to paste it anywhere to use Ptah. If you join
+                  Ptah Builders, that same key is what marks your membership.
+                </p>
+              </div>
+              <div class="divider text-xs text-base-content/40">
+                What's next?
+              </div>
+              <ol
+                class="text-left text-sm text-base-content/70 space-y-2 w-full max-w-xs"
               >
-                ptah_lic_...
-              </code>
-              <p>
-                Copy the license key and paste it into the
-                <strong>Ptah extension</strong> in VS Code to activate your
-                account.
-              </p>
+                <li class="flex gap-2">
+                  <span
+                    class="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold"
+                    >1</span
+                  >
+                  <span>Go back to VS Code — Ptah is ready to use</span>
+                </li>
+                <li class="flex gap-2">
+                  <span
+                    class="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold"
+                    >2</span
+                  >
+                  <span
+                    >Open the Ptah panel and start orchestrating agents</span
+                  >
+                </li>
+                <li class="flex gap-2">
+                  <span
+                    class="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold"
+                    >3</span
+                  >
+                  <span
+                    >Want to help fund development? Join the Ptah Builders
+                    waitlist any time from your profile</span
+                  >
+                </li>
+              </ol>
+              <a
+                routerLink="/profile"
+                class="btn btn-ghost btn-sm text-base-content/60 mt-4"
+              >
+                Or continue to your profile →
+              </a>
             </div>
-            <div class="divider text-xs text-base-content/40">What's next?</div>
-            <ol
-              class="text-left text-sm text-base-content/70 space-y-2 w-full max-w-xs"
-            >
-              <li class="flex gap-2">
-                <span
-                  class="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold"
-                  >1</span
-                >
-                <span>Check your email for the license key</span>
-              </li>
-              <li class="flex gap-2">
-                <span
-                  class="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold"
-                  >2</span
-                >
-                <span>Go back to VS Code</span>
-              </li>
-              <li class="flex gap-2">
-                <span
-                  class="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold"
-                  >3</span
-                >
-                <span>Paste the license key in the Ptah welcome screen</span>
-              </li>
-            </ol>
-            <a
-              routerLink="/profile"
-              class="btn btn-ghost btn-sm text-base-content/60 mt-4"
-            >
-              Or continue to your profile →
-            </a>
-          </div>
           } @else if (pendingVerification()) {
-          <!-- Email Verification Flow -->
-          <!-- Messages: Errors & Success -->
-          <ptah-auth-messages
-            [urlError]="''"
-            [successMessage]="successMessage()"
-            [errorMessage]="errorMessage()"
-          />
+            <!-- Email Verification Flow -->
+            <!-- Messages: Errors & Success -->
+            <ptah-auth-messages
+              [urlError]="''"
+              [successMessage]="successMessage()"
+              [errorMessage]="errorMessage()"
+            />
 
-          <ptah-verification-code
-            [email]="pendingEmail()"
-            [isLoading]="isLoading()"
-            [isResending]="isResending()"
-            (verify)="handleVerifyCode($event)"
-            (resend)="handleResendCode()"
-            (back)="handleBackToSignup()"
-          />
+            <ptah-verification-code
+              [email]="pendingEmail()"
+              [isLoading]="isLoading()"
+              [isResending]="isResending()"
+              (verify)="handleVerifyCode($event)"
+              (resend)="handleResendCode()"
+              (back)="handleBackToSignup()"
+            />
           } @else {
-          <!-- Header: Logo, Title, Tabs -->
-          <ptah-auth-header
-            [mode]="mode()"
-            [isTransitioning]="isTransitioning()"
-            (modeChange)="setMode($event)"
-          />
+            <!-- Header: Logo, Title, Tabs -->
+            <ptah-auth-header
+              [mode]="mode()"
+              [isTransitioning]="isTransitioning()"
+              (modeChange)="setMode($event)"
+            />
 
-          <!-- Messages: Errors & Success -->
-          <ptah-auth-messages
-            [urlError]="urlError()"
-            [successMessage]="successMessage()"
-            [errorMessage]="errorMessage()"
-          />
+            <!-- Messages: Errors & Success -->
+            <ptah-auth-messages
+              [urlError]="urlError()"
+              [successMessage]="successMessage()"
+              [errorMessage]="errorMessage()"
+            />
 
-          <!-- Form: Email & Password -->
-          <ptah-auth-form
-            [mode]="mode()"
-            [isLoading]="isLoading()"
-            (formSubmit)="handleFormSubmit($event)"
-            (emailChange)="onEmailChange($event)"
-          />
+            <!-- Form: Email & Password -->
+            <ptah-auth-form
+              [mode]="mode()"
+              [isLoading]="isLoading()"
+              (formSubmit)="handleFormSubmit($event)"
+              (emailChange)="onEmailChange($event)"
+            />
 
-          <!-- Social Login Buttons -->
-          <ptah-social-login-buttons
-            [mode]="mode()"
-            [emailValid]="hasValidEmail()"
-            (githubClick)="loginWithGitHub()"
-            (googleClick)="loginWithGoogle()"
-            (magicLinkClick)="sendMagicLink()"
-          />
+            <!-- Social Login Buttons -->
+            <ptah-social-login-buttons
+              [mode]="mode()"
+              [emailValid]="hasValidEmail()"
+              (githubClick)="loginWithGitHub()"
+              (googleClick)="loginWithGoogle()"
+              (magicLinkClick)="sendMagicLink()"
+            />
 
-          <!-- Footer -->
-          <ptah-auth-footer [mode]="mode()" />
+            <!-- Footer -->
+            <ptah-auth-footer [mode]="mode()" />
           }
         </div>
       </div>
@@ -293,7 +306,7 @@ export class AuthPageComponent implements OnInit {
 
   /** Whether email is valid (for magic link button) */
   public readonly hasValidEmail = computed(() =>
-    isValidEmail(this.currentEmail())
+    isValidEmail(this.currentEmail()),
   );
 
   public ngOnInit(): void {
@@ -380,14 +393,14 @@ export class AuthPageComponent implements OnInit {
           this.pendingUserId.set(error.userId);
           this.pendingEmail.set(error.email || email);
           this.successMessage.set(
-            'A verification code has been sent to your email.'
+            'A verification code has been sent to your email.',
           );
           this.errorMessage.set('');
           return;
         }
 
         this.errorMessage.set(
-          error.message || 'Invalid email or password. Please try again.'
+          error.message || 'Invalid email or password. Please try again.',
         );
       },
     });
@@ -409,10 +422,48 @@ export class AuthPageComponent implements OnInit {
     const plan = this.selectedPlan();
 
     if (returnUrl) {
+      // Absolute returnUrls come from cross-origin bounces (e.g. the license
+      // server's DiscourseConnect SSO endpoint on api.ptah.live). The Angular
+      // Router cannot navigate to them, and blindly following them would be an
+      // open redirect — only full-page-navigate to allowlisted origins.
+      if (/^https?:\/\//i.test(returnUrl)) {
+        if (this.isAllowedAbsoluteReturnUrl(returnUrl)) {
+          window.location.assign(returnUrl);
+        } else {
+          this.router.navigate(['/profile']);
+        }
+        return;
+      }
+      // A returnUrl may carry a scroll fragment (e.g. `/#waitlist` from the
+      // Early Adopter apply CTA). Router.navigate treats the whole string as a
+      // path segment, so split the fragment out and pass it via `fragment` —
+      // `withInMemoryScrolling({ anchorScrolling: 'enabled' })` then scrolls to
+      // the target element after navigation.
+      const [returnPath, fragment] = returnUrl.split('#');
       const queryParams = plan ? { autoCheckout: plan } : {};
-      this.router.navigate([returnUrl], { queryParams });
+      this.router.navigate([returnPath || '/'], {
+        queryParams,
+        ...(fragment ? { fragment } : {}),
+      });
     } else {
       this.router.navigate(['/profile']);
+    }
+  }
+
+  /**
+   * An absolute returnUrl is only honored when its origin is the configured
+   * license-server API origin or this site's own origin.
+   */
+  private isAllowedAbsoluteReturnUrl(returnUrl: string): boolean {
+    try {
+      const target = new URL(returnUrl);
+      const allowed = new Set<string>([window.location.origin]);
+      if (environment.apiBaseUrl) {
+        allowed.add(new URL(environment.apiBaseUrl).origin);
+      }
+      return allowed.has(target.origin);
+    } catch {
+      return false;
     }
   }
 
@@ -435,7 +486,7 @@ export class AuthPageComponent implements OnInit {
       error: (error: AuthErrorResponse) => {
         this.isLoading.set(false);
         this.errorMessage.set(
-          error.message || 'Failed to create account. Please try again.'
+          error.message || 'Failed to create account. Please try again.',
         );
       },
     });
@@ -467,7 +518,7 @@ export class AuthPageComponent implements OnInit {
         error: (error: AuthErrorResponse) => {
           this.isLoading.set(false);
           this.errorMessage.set(
-            error.message || 'Invalid verification code. Please try again.'
+            error.message || 'Invalid verification code. Please try again.',
           );
         },
       });
@@ -492,7 +543,7 @@ export class AuthPageComponent implements OnInit {
         error: (error: AuthErrorResponse) => {
           this.isResending.set(false);
           this.errorMessage.set(
-            error.message || 'Failed to resend code. Please try again.'
+            error.message || 'Failed to resend code. Please try again.',
           );
         },
       });
@@ -556,13 +607,13 @@ export class AuthPageComponent implements OnInit {
         next: () => {
           this.isLoading.set(false);
           this.successMessage.set(
-            'Magic link sent! Check your email and click the link to sign in.'
+            'Magic link sent! Check your email and click the link to sign in.',
           );
         },
         error: (error: AuthErrorResponse) => {
           this.isLoading.set(false);
           this.errorMessage.set(
-            error.message || 'Failed to send magic link. Please try again.'
+            error.message || 'Failed to send magic link. Please try again.',
           );
         },
       });

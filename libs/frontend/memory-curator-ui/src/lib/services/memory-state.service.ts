@@ -65,6 +65,18 @@ export class MemoryStateService {
   private readonly _indexRows = signal<readonly MemoryIndexRow[]>([]);
   private readonly _timelineRows = signal<readonly MemoryIndexRow[]>([]);
   private readonly _anchorId = signal<string | null>(null);
+
+  /**
+   * Monotonic request stamps. Each async loader bumps its counter before firing
+   * and, after the await resolves, only applies the result if the stamp is still
+   * current. This guards the workspace/scope-switch race: a slow response for a
+   * previously-active workspace must never overwrite the list/stats the user is
+   * now looking at. `refresh` and `search` share one stamp because both write
+   * `_entries` — a late refresh must not clobber a newer search and vice versa.
+   */
+  private entriesReqSeq = 0;
+  private statsReqSeq = 0;
+  private symbolsReqSeq = 0;
   public readonly entries = this._entries.asReadonly();
   public readonly query = this._query.asReadonly();
   public readonly tierFilter = this._tierFilter.asReadonly();
@@ -156,6 +168,7 @@ export class MemoryStateService {
       this._error.set(scoped.error);
       return;
     }
+    const seq = ++this.entriesReqSeq;
     this._loading.set(true);
     this._error.set(null);
     try {
@@ -167,11 +180,13 @@ export class MemoryStateService {
         limit: 200,
         offset: 0,
       });
+      if (seq !== this.entriesReqSeq) return;
       this._entries.set(result.memories);
     } catch (err) {
+      if (seq !== this.entriesReqSeq) return;
       this._error.set(toErrorMessage(err));
     } finally {
-      this._loading.set(false);
+      if (seq === this.entriesReqSeq) this._loading.set(false);
     }
   }
 
@@ -193,6 +208,7 @@ export class MemoryStateService {
       this._error.set(scoped.error);
       return;
     }
+    const seq = ++this.entriesReqSeq;
     this._loading.set(true);
     this._error.set(null);
     try {
@@ -201,11 +217,13 @@ export class MemoryStateService {
         50,
         scoped.workspaceRoot,
       );
+      if (seq !== this.entriesReqSeq) return;
       this._entries.set(result.hits.map((hit) => hit.memory));
     } catch (err) {
+      if (seq !== this.entriesReqSeq) return;
       this._error.set(toErrorMessage(err));
     } finally {
-      this._loading.set(false);
+      if (seq === this.entriesReqSeq) this._loading.set(false);
     }
   }
 
@@ -267,12 +285,15 @@ export class MemoryStateService {
       this._error.set(scoped.error);
       return;
     }
+    const seq = ++this.statsReqSeq;
     this._error.set(null);
     try {
       const scopedRoot = scoped.workspaceRoot ?? null;
       const stats = await this.rpcService.stats(scopedRoot);
+      if (seq !== this.statsReqSeq) return;
       this._stats.set(stats);
     } catch (err) {
+      if (seq !== this.statsReqSeq) return;
       this._error.set(toErrorMessage(err));
     }
   }
@@ -305,6 +326,7 @@ export class MemoryStateService {
       this._symbolError.set(scoped.error);
       return;
     }
+    const seq = ++this.symbolsReqSeq;
     this._symbolLoading.set(true);
     this._symbolError.set(null);
     try {
@@ -318,12 +340,14 @@ export class MemoryStateService {
         limit,
         offset,
       });
+      if (seq !== this.symbolsReqSeq) return;
       this._symbolItems.set(result.items);
       this._symbolTotal.set(result.total);
     } catch (err) {
+      if (seq !== this.symbolsReqSeq) return;
       this._symbolError.set(toErrorMessage(err));
     } finally {
-      this._symbolLoading.set(false);
+      if (seq === this.symbolsReqSeq) this._symbolLoading.set(false);
     }
   }
 }

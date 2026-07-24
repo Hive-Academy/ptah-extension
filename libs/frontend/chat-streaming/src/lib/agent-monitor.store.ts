@@ -27,9 +27,30 @@ import type {
   AgentCompletedEvent,
   AgentStartEvent,
   CliSessionReference,
+  SubagentTranscriptMessage,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+
+/**
+ * TODO: remove once the shared agent lifecycle events (AgentStartEvent,
+ * AgentProgressEvent, AgentStatusEvent, AgentCompletedEvent) and
+ * AgentProcessInfo carry workflowRunId/workflowName (backend slice — the
+ * backend-developer owns those shared type changes). Until then we read the
+ * two fields structurally via this local extension + cast so the frontend
+ * slice can consume them without editing libs/shared.
+ */
+interface WorkflowRunFields {
+  readonly workflowRunId?: string;
+  readonly workflowName?: string;
+}
+
+/** Structurally read the (shimmed) workflow-run fields off any lifecycle event
+ *  or process-info payload. Returns undefined values for non-workflow agents. */
+function readWorkflowFields(src: unknown): WorkflowRunFields {
+  const s = (src ?? {}) as WorkflowRunFields;
+  return { workflowRunId: s.workflowRunId, workflowName: s.workflowName };
+}
 
 /** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
 const MAX_FRONTEND_BUFFER = 50 * 1024;
@@ -88,6 +109,18 @@ export interface MonitoredAgent {
   /** Model identifier used by the CLI agent (e.g., 'gpt-5-codex', 'gpt-4o'). */
   readonly model?: string;
   readonly supportsContinuation?: boolean;
+  /**
+   * Stable id grouping all agents spawned by one `Workflow` tool run. Present
+   * only for agents that belong to a workflow orchestration; undefined for
+   * ordinary standalone agents. The monitor panel partitions agents into
+   * collapsible run groups keyed by this id.
+   */
+  workflowRunId?: string;
+  /**
+   * Display name of the owning workflow run. May be undefined until the SDK
+   * reports it, so consumers must tolerate a missing name for a known run.
+   */
+  workflowName?: string;
 }
 
 /**
@@ -106,6 +139,23 @@ export interface SubagentRecord {
   readonly parentToolUseId: string;
   /** SDK task_id, captured on `agent_start` (when present) or `agent_progress`/`agent_status` */
   taskId?: string;
+  /**
+   * Short SDK agent identifier (e.g. `"adcecb2"`), captured from `agent_start`
+   * (`AgentStartEvent.agentId`). Distinct from `taskId` (steer/stop routing) and
+   * from `parentToolUseId` (the Task tool_use id / primary key). This is the id
+   * required to read the agent's full historical transcript via the
+   * `subagent:transcript` RPC — see {@link AgentMonitorStore.getSubagentTranscript}.
+   * Only `agent_start` carries it, so it is set there and preserved (never
+   * downgraded to undefined) across later progress/status/completed merges.
+   */
+  agentId?: string;
+  /**
+   * Human-legible subagent (teammate) name from `agent_start`
+   * (`AgentStartEvent.teammateName`). Preferred over the hex `agentId` for
+   * display. Only `agent_start` carries it, so it is set there and preserved
+   * (never downgraded to undefined) across later progress/status/completed merges.
+   */
+  teammateName?: string;
   /** Latest description from progress/status events */
   description?: string;
   /** AI-generated rolling summary from progress events (most recent) */
@@ -140,6 +190,14 @@ export interface SubagentRecord {
    * record can, in theory, be materialised before any event carries it.
    */
   parentSessionId?: string;
+  /**
+   * Stable id grouping all subagents of one `Workflow` tool run. Mirrors
+   * {@link MonitoredAgent.workflowRunId}. Undefined for ordinary (non-workflow)
+   * subagents so existing behavior is unchanged.
+   */
+  workflowRunId?: string;
+  /** Display name of the owning workflow run (may be undefined until known). */
+  workflowName?: string;
 }
 
 /**
@@ -294,6 +352,38 @@ export class AgentMonitorStore implements OnDestroy {
     return this.agents().filter((a) => a.parentSessionId === sessionId);
   }
 
+  /**
+   * Workflow subagents — SubagentRecords carrying a `workflowRunId` — scoped to
+   * the active tab's session. Mirrors {@link activeTabAgents} scoping: when no
+   * tab is active all workflow subagents are returned; records without a
+   * `parentSessionId` are shown in every tab. Feeds the monitor panel's
+   * dedicated "watch running workflows" run groups. Unlike the background-agent
+   * tray (active-only), ALL statuses are included so a run's completed agents
+   * stay visible while it is being watched.
+   */
+  readonly activeWorkflowSubagents = computed<SubagentRecord[]>(() => {
+    const workflow = [...this._subagents().values()].filter(
+      (r) => !!r.workflowRunId,
+    );
+    const activeSessionId = this.tabManager.activeTabSessionId();
+    if (!activeSessionId) return workflow;
+    return workflow.filter(
+      (r) => !r.parentSessionId || r.parentSessionId === activeSessionId,
+    );
+  });
+
+  /**
+   * Workflow subagents owned by a specific session (scoped accessor for the
+   * embedded / canvas-tile panel — mirrors {@link agentsForSession}). Unlike
+   * {@link activeWorkflowSubagents} this doesn't depend on the global activeTab
+   * signal, so each tile's panel resolves its own run groups.
+   */
+  workflowSubagentsForSession(sessionId: string): SubagentRecord[] {
+    return [...this._subagents().values()].filter(
+      (r) => !!r.workflowRunId && r.parentSessionId === sessionId,
+    );
+  }
+
   /** Whether any agent is running. Reads _agents() directly with primitive equality
    * to avoid re-evaluation cascade through the sorted agents() array. */
   readonly hasRunningAgents = computed(
@@ -336,6 +426,17 @@ export class AgentMonitorStore implements OnDestroy {
 
   readonly panelOpen = this._panelOpen.asReadonly();
 
+  /**
+   * Monotonic "open the panel" request counter. Bumped by {@link requestPanelOpen}.
+   * The global-mode panel reads `panelOpen()` directly, but the embedded panel
+   * in `ChatViewComponent` drives its own local open signal — it watches THIS
+   * counter so a deep-tree caller (the "Workflow launched" chip) can force the
+   * panel open reliably even after the user manually closed it (a plain
+   * `panelOpen` set would not re-notify when it is already `true`).
+   */
+  private readonly _panelOpenRequests = signal(0);
+  readonly panelOpenRequests = this._panelOpenRequests.asReadonly();
+
   ngOnDestroy(): void {
     this.stopTick();
     this._pendingPermissionBuffer.clear();
@@ -376,6 +477,19 @@ export class AgentMonitorStore implements OnDestroy {
 
   openPanel(): void {
     this._panelOpen.set(true);
+  }
+
+  /**
+   * Force the monitor panel open from anywhere (global OR embedded mode).
+   * Sets `panelOpen` for global consumers, clears the "explicitly closed"
+   * latch, and bumps `panelOpenRequests` so the embedded `ChatViewComponent`
+   * panel re-opens even if it was previously dismissed. Used by the
+   * "Workflow launched" chat chip.
+   */
+  requestPanelOpen(): void {
+    this._userExplicitlyClosed = false;
+    this._panelOpen.set(true);
+    this._panelOpenRequests.update((n) => n + 1);
   }
 
   closePanel(): void {
@@ -422,6 +536,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
   onAgentSpawned(info: AgentProcessInfo): void {
     const hadAgents = this._agents().length > 0;
+    const wf = readWorkflowFields(info);
 
     this._agents.update((list) => {
       const existingIndex = list.findIndex((a) => a.agentId === info.agentId);
@@ -435,6 +550,8 @@ export class AgentMonitorStore implements OnDestroy {
           cliSessionId: info.cliSessionId || existing.cliSessionId,
           supportsContinuation:
             info.supportsContinuation ?? existing.supportsContinuation,
+          workflowRunId: wf.workflowRunId ?? existing.workflowRunId,
+          workflowName: wf.workflowName ?? existing.workflowName,
         };
         const next = [...list];
         next[existingIndex] = reopened;
@@ -471,6 +588,8 @@ export class AgentMonitorStore implements OnDestroy {
           displayName: info.displayName || info.ptahCliName,
           model: info.model,
           supportsContinuation: info.supportsContinuation,
+          workflowRunId: wf.workflowRunId,
+          workflowName: wf.workflowName,
         };
         return [
           ...list.filter((a) => a.agentId !== oldCard.agentId),
@@ -499,6 +618,8 @@ export class AgentMonitorStore implements OnDestroy {
         displayName: info.displayName || info.ptahCliName,
         model: info.model,
         supportsContinuation: info.supportsContinuation,
+        workflowRunId: wf.workflowRunId,
+        workflowName: wf.workflowName,
       };
       return this.enforceMaxExpanded([...list, fresh]);
     });
@@ -933,12 +1054,15 @@ export class AgentMonitorStore implements OnDestroy {
   onAgentStart(event: AgentStartEvent): void {
     const key = event.toolCallId;
     if (!key) return;
+    const wf = readWorkflowFields(event);
     this._subagents.update((map) => {
       const existing = map.get(key);
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
+        agentId: event.agentId ?? existing?.agentId,
+        teammateName: event.teammateName ?? existing?.teammateName,
         description: event.agentDescription ?? existing?.description,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -954,6 +1078,8 @@ export class AgentMonitorStore implements OnDestroy {
         errorMessage: existing?.errorMessage,
         outputFile: existing?.outputFile,
         parentSessionId: event.sessionId ?? existing?.parentSessionId,
+        workflowRunId: wf.workflowRunId ?? existing?.workflowRunId,
+        workflowName: wf.workflowName ?? existing?.workflowName,
       };
       next.set(key, merged);
       return next;
@@ -964,12 +1090,15 @@ export class AgentMonitorStore implements OnDestroy {
   onAgentProgress(event: AgentProgressEvent): void {
     const key = event.parentToolUseId;
     if (!key) return;
+    const wf = readWorkflowFields(event);
     this._subagents.update((map) => {
       const existing = map.get(key);
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
+        agentId: existing?.agentId,
+        teammateName: existing?.teammateName,
         description: event.description ?? existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: event.lastToolName ?? existing?.lastToolName,
@@ -980,6 +1109,8 @@ export class AgentMonitorStore implements OnDestroy {
         errorMessage: existing?.errorMessage,
         outputFile: existing?.outputFile,
         parentSessionId: event.sessionId ?? existing?.parentSessionId,
+        workflowRunId: wf.workflowRunId ?? existing?.workflowRunId,
+        workflowName: wf.workflowName ?? existing?.workflowName,
       };
       next.set(key, merged);
       return next;
@@ -990,12 +1121,15 @@ export class AgentMonitorStore implements OnDestroy {
   onAgentStatus(event: AgentStatusEvent): void {
     const key = event.parentToolUseId;
     if (!key) return;
+    const wf = readWorkflowFields(event);
     this._subagents.update((map) => {
       const existing = map.get(key);
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
+        agentId: existing?.agentId,
+        teammateName: existing?.teammateName,
         description: event.description ?? existing?.description,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -1006,6 +1140,8 @@ export class AgentMonitorStore implements OnDestroy {
         errorMessage: event.errorMessage ?? existing?.errorMessage,
         outputFile: existing?.outputFile,
         parentSessionId: event.sessionId ?? existing?.parentSessionId,
+        workflowRunId: wf.workflowRunId ?? existing?.workflowRunId,
+        workflowName: wf.workflowName ?? existing?.workflowName,
       };
       next.set(key, merged);
       return next;
@@ -1016,12 +1152,15 @@ export class AgentMonitorStore implements OnDestroy {
   onAgentCompleted(event: AgentCompletedEvent): void {
     const key = event.parentToolUseId;
     if (!key) return;
+    const wf = readWorkflowFields(event);
     this._subagents.update((map) => {
       const existing = map.get(key);
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
         taskId: event.taskId ?? existing?.taskId,
+        agentId: existing?.agentId,
+        teammateName: existing?.teammateName,
         description: existing?.description,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: existing?.lastToolName,
@@ -1032,6 +1171,8 @@ export class AgentMonitorStore implements OnDestroy {
         errorMessage: existing?.errorMessage,
         outputFile: event.outputFile ?? existing?.outputFile,
         parentSessionId: event.sessionId ?? existing?.parentSessionId,
+        workflowRunId: wf.workflowRunId ?? existing?.workflowRunId,
+        workflowName: wf.workflowName ?? existing?.workflowName,
       };
       next.set(key, merged);
       return next;
@@ -1135,6 +1276,48 @@ export class AgentMonitorStore implements OnDestroy {
     }
     this._subagentRpcError.set(null);
     return true;
+  }
+
+  /**
+   * Read a subagent's full historical transcript on demand via the
+   * `subagent:transcript` RPC. Unlike the live execution tree (fed by streamed
+   * `forwardSubagentText` deltas), this returns the agent's COMPLETE saved
+   * conversation — usable after the agent has finished or to backfill output
+   * that was never streamed into the current tree.
+   *
+   * `agentId` is the SDK short-hex id (see `SubagentRecord.agentId`), NOT the
+   * Task `parentToolUseId`. `sessionId` is the OWNING parent session
+   * (`SubagentRecord.parentSessionId` / `BackgroundAgentEntry.sessionId`).
+   *
+   * Mirrors the RPC-call / error-handling shape of {@link sendMessageToAgent}:
+   * on `!result.isSuccess()` it returns `[]` rather than throwing. A missing or
+   * not-yet-flushed transcript ALSO comes back as `{ messages: [] }` from the
+   * backend (never a not-found error), so callers must treat an empty array as
+   * "no transcript yet", not as a failure. The shared `subagentRpcError`
+   * channel is deliberately NOT touched here — it is keyed by
+   * `parentToolUseId` for steer/stop/background toasts, and a read-only
+   * transcript fetch (agentId-scoped) is surfaced through the viewer's own
+   * empty/error state instead.
+   */
+  async getSubagentTranscript(
+    sessionId: string,
+    agentId: string,
+    opts?: { limit?: number; offset?: number },
+  ): Promise<SubagentTranscriptMessage[]> {
+    const result = await this.rpc.call('subagent:transcript', {
+      sessionId,
+      agentId,
+      limit: opts?.limit,
+      offset: opts?.offset,
+    });
+    if (!result.isSuccess()) {
+      console.warn(
+        '[AgentMonitorStore] subagent:transcript failed:',
+        result.error ?? 'Unknown error',
+      );
+      return [];
+    }
+    return result.data.messages;
   }
 
   /**

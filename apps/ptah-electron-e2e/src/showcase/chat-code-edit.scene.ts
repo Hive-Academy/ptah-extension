@@ -253,20 +253,14 @@ async function openSingleTile(
 }
 
 test('P6.1 — fix / edit code in a single chat', async ({ page, director }) => {
-  // Clear any blocking startup modal (license / trial-ended dialog) before we
-  // start filming — the persistent authed profile always shows it on launch.
-  await director.dismissDialogs();
-
   // Navigate + set up BEFORE the first beat: land on the Canvas and open a
   // single tile (the subject surface) so the hook airs over a live chat rather
   // than the stale restored boot surface. Everything until the hook is trimmed
   // by render-all's lead-in trim, so this setup never airs. This scene appends
   // its two real turns into that one tile's conversation.
   await goToCanvas(page, director);
-  await director.dismissDialogs();
   await closeStaleTiles(page, director);
   const tile = await openSingleTile(page, director);
-  await director.dismissDialogs();
   await director.hold();
 
   // HOOK — fire immediately so the video opens on a question, not dead air.

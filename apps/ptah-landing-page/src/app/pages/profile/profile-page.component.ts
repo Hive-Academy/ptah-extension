@@ -29,7 +29,10 @@ import {
   ProfileFeaturesComponent,
   ProfileHeaderComponent,
 } from './components';
-import { LicenseData } from './models/license-data.interface';
+import {
+  hasActiveMembership,
+  LicenseData,
+} from './models/license-data.interface';
 import { SessionsGridComponent } from '../sessions/components/sessions-grid.component';
 import { ContactFormComponent } from '../contact/components/contact-form.component';
 
@@ -212,12 +215,7 @@ export type ProfileTab = 'account' | 'sessions' | 'contact';
                     class="w-4 h-4"
                     aria-hidden="true"
                   />
-                  {{
-                    license()?.plan === 'community' ||
-                    license()?.plan?.startsWith('trial_')
-                      ? 'View Pricing Plans'
-                      : 'Manage Subscription'
-                  }}
+                  {{ isActiveMember() ? 'View Plans' : 'View Pricing Plans' }}
                 </a>
                 <a
                   href="https://docs.ptah.live"
@@ -288,7 +286,6 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
   public readonly licenseKey = signal<string | null>(null);
   public readonly isRevealingKey = signal(false);
   public readonly revealKeyError = signal<string | null>(null);
-  public readonly isDowngrading = signal(false);
   public readonly actionsConfig: ViewportAnimationConfig = {
     animation: 'fadeIn',
     duration: 0.4,
@@ -299,6 +296,11 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
   public ngOnInit(): void {
     this.loadLicense();
     this.setupSSEListeners();
+  }
+
+  /** Whether the viewer holds an active Ptah Builders membership. */
+  public isActiveMember(): boolean {
+    return hasActiveMembership(this.license());
   }
 
   public ngOnDestroy(): void {
@@ -524,49 +526,6 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
               error.error?.message ||
                 'Failed to retrieve license key. Please try again.',
             );
-          }
-        },
-      });
-  }
-
-  /**
-   * Handle trial downgrade to Community plan
-   *
-   * TASK_2025_143: Called when user clicks "Continue with Community" and trial has expired
-   *
-   * Process:
-   * 1. Call POST /api/v1/licenses/downgrade-to-community
-   * 2. Backend updates database + emits SSE event
-   * 3. SSE listener auto-refreshes license data
-   * 4. Modal auto-dismisses
-   *
-   * No manual refresh needed - SSE handles it!
-   */
-  public handleDowngradeToCommunity(): void {
-    this.isDowngrading.set(true);
-
-    this.http
-      .post<{
-        success: boolean;
-        plan: string;
-        status: string;
-        message: string;
-      }>('/api/v1/licenses/downgrade-to-community', {})
-      .subscribe({
-        next: (response) => {
-          console.log('[Profile] Downgrade successful:', response);
-          this.isDowngrading.set(false);
-        },
-        error: (error) => {
-          console.error('[Profile] Downgrade failed:', error);
-          this.isDowngrading.set(false);
-          const errorMsg =
-            error.error?.message ||
-            'Failed to downgrade. Please try again or contact support.';
-          if (error.status === 400) {
-            console.warn('[Profile] Validation error:', errorMsg);
-          } else {
-            console.error('[Profile] Unexpected error:', errorMsg);
           }
         },
       });

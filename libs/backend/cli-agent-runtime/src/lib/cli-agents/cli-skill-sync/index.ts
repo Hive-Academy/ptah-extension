@@ -13,6 +13,7 @@ export { WorkspaceSkillInstaller } from './workspace-skill-installer.base';
 export { CodexSkillInstaller } from './codex-skill-installer';
 export { CopilotSkillInstaller } from './copilot-skill-installer';
 export { CursorSkillInstaller } from './cursor-skill-installer';
+export { AntigravitySkillInstaller } from './antigravity-skill-installer';
 export { CliSkillManifestTracker } from './cli-skill-manifest-tracker';
 export {
   stripAllowedToolsFromFrontmatter,

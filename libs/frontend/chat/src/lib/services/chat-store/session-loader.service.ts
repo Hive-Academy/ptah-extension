@@ -523,6 +523,24 @@ export class SessionLoaderService {
       const title =
         session?.name || existingTab?.name || sessionId.substring(0, 50);
       const activeTabId = this.tabManager.openSessionTab(sessionId, title);
+
+      // [compaction-diag] TEMPORARY — remove after the 2-tile stale-transcript
+      // repro is confirmed. Reveals the RELOAD TARGET: for a compaction reload,
+      // `openSessionTab(sessionId)` re-derives the tab from the session id. If
+      // `activeTabId` here does NOT equal the tile that was cleared in
+      // `handleCompactionComplete`, the reload is writing history into the
+      // wrong tab and the compacted tile stays stale.
+      if (opts?.reason === 'compaction') {
+        console.warn('[compaction-diag] switchSession reload target', {
+          requestedSessionId: sessionId,
+          resolvedTabId: activeTabId,
+          existingTabId: existingTab?.id ?? null,
+          openTabsForSession: this.tabManager
+            .tabs()
+            .filter((t) => t.claudeSessionId === sessionId)
+            .map((t) => t.id),
+        });
+      }
       this.tabManager.applyResumingSession(activeTabId, {
         sessionId,
         name: title,
@@ -748,6 +766,18 @@ export class SessionLoaderService {
           '[SessionLoaderService] Populated resumableSubagents for restored session',
           { sessionId, count: resumableSubagents.length },
         );
+      }
+
+      // Repopulate the agent-monitor sidebar for a restored session. The
+      // chat:resume payload carries the full (unfiltered) CLI session list,
+      // unlike the session:cli-sessions endpoint used by
+      // restoreCliSessionsForActiveTab() which drops ptah-cli refs lacking a
+      // ptahCliId. Without this, CLI agents spawned in a prior run never
+      // reappear in the sidebar after a webview/app reopen even though they
+      // are persisted and returned by the backend.
+      const cliSessions = result.data?.cliSessions;
+      if (cliSessions && cliSessions.length > 0) {
+        this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
       }
     } catch (error) {
       console.warn(

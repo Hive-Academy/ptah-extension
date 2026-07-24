@@ -17,3 +17,4 @@ export { ElectronOutputChannel } from './implementations/electron-output-channel
 export { ElectronCommandRegistry } from './implementations/electron-command-registry';
 export { ElectronEditorProvider } from './implementations/electron-editor-provider';
 export { ElectronDiagnosticsProvider } from './implementations/electron-diagnostics-provider';
+export { ElectronHttpServerProvider } from './implementations/electron-http-server-provider';

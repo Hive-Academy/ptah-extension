@@ -314,9 +314,9 @@ export function buildDependencyNamespace(
       }
     },
 
-    getSymbolIndex: async () => {
+    getSymbolIndex: async (workspaceRoot?: string) => {
       try {
-        const index = dependencyGraph.getSymbolIndex();
+        const index = dependencyGraph.getSymbolIndex(workspaceRoot);
         const result: Array<{ file: string; symbols: string[] }> = [];
         for (const [file, exports] of index) {
           result.push({
@@ -330,9 +330,9 @@ export function buildDependencyNamespace(
       }
     },
 
-    isBuilt: async () => {
+    isBuilt: async (workspaceRoot?: string) => {
       try {
-        return dependencyGraph.isBuilt();
+        return dependencyGraph.isBuilt(workspaceRoot);
       } catch {
         return false;
       }

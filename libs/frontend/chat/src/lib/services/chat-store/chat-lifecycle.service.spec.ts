@@ -263,10 +263,13 @@ describe('ChatLifecycleService', () => {
     it('stores license result on success', async () => {
       rpcCallMock.mockResolvedValueOnce({
         isSuccess: () => true,
-        data: { tier: 'pro', isActive: true },
+        data: { tier: 'builders', isActive: true },
       });
       await service.fetchLicenseStatus();
-      expect(service.licenseStatus()).toEqual({ tier: 'pro', isActive: true });
+      expect(service.licenseStatus()).toEqual({
+        tier: 'builders',
+        isActive: true,
+      });
     });
 
     it('logs and sets null after final failure result', async () => {

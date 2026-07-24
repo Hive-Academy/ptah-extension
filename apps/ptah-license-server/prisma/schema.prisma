@@ -19,6 +19,9 @@ model User {
   id               String         @id @default(uuid()) @db.Uuid
   workosId         String?        @unique @map("workos_id") // WorkOS user ID for sync
   paddleCustomerId String?        @unique @map("paddle_customer_id") // Paddle customer ID for billing
+  // Circle community member ID for paid Builders members (headless Admin API v2).
+  // Populated when a Builders subscription is provisioned; cleared/ignored on cancel.
+  circleMemberId   String?        @map("circle_member_id")
   email            String         @unique
   firstName        String?        @map("first_name")
   lastName         String?        @map("last_name")
@@ -30,12 +33,50 @@ model User {
   updatedAt        DateTime       @updatedAt @map("updated_at")
   licenses         License[]
   subscriptions    Subscription[]
-  trialReminders   TrialReminder[]
   sessionRequests  SessionRequest[]
+  memberGroupAssignments MemberGroupAssignment[]
 
   @@index([workosId])
   @@index([paddleCustomerId])
   @@map("users")
+}
+
+// Member cohort/group (e.g. "Founding Members"). A group optionally maps to a
+// Discourse group name (`discourseGroup`) that the provisioning fan-out keeps
+// in sync. Exactly one group is the current default (`isDefault`); new paid
+// Builders members are auto-assigned to it. Groups are durable cohort identity —
+// assignments survive churn (deprovisioning never removes them).
+model MemberGroup {
+  id             String   @id @default(cuid())
+  key            String   @unique // stable slug, e.g. 'founding'
+  name           String
+  description    String?
+  discourseGroup String?  @map("discourse_group") // Discourse group to sync (null = no sync)
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  assignments MemberGroupAssignment[]
+
+  @@index([isDefault])
+  @@map("member_groups")
+}
+
+// Join row linking a User to a MemberGroup. `source` records how the assignment
+// was made ('auto_provisioning' from the Builders fan-out, 'admin' from the
+// admin panel, 'migration' from a data backfill). One row per (user, group).
+model MemberGroupAssignment {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id") @db.Uuid
+  groupId    String   @map("group_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  source     String // 'auto_provisioning' | 'admin' | 'migration'
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group MemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@index([groupId])
+  @@map("member_group_assignments")
 }
 
 // Subscription model - tracks Paddle subscription state for payment lifecycle
@@ -66,7 +107,7 @@ model License {
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @map("user_id") @db.Uuid
   licenseKey String    @unique @map("license_key")
-  plan       String // "community" | "pro"
+  plan       String // "community" | "builders"
   status     String    @default("active") // "active" | "expired" | "revoked" | "paused"
   // TASK_2025_292: License origin. "paddle" = paid subscription, "complimentary" = admin-issued gift, "manual" = admin-issued refund-in-kind.
   // NOTE: When MRR dashboards are built, they MUST filter `source = 'paddle'` (or join via `subscriptions` which is the correct source of truth).
@@ -102,22 +143,6 @@ model FailedWebhook {
   @@index([eventType])
   @@index([resolved])
   @@map("failed_webhooks")
-}
-
-// TrialReminder model - tracks trial reminder emails sent to users
-// TASK_2025_142: Trial reminder scheduler - tracks which reminders have been sent
-model TrialReminder {
-  id           String   @id @default(uuid()) @db.Uuid
-  userId       String   @map("user_id") @db.Uuid
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reminderType String   @map("reminder_type") // "7_day" | "3_day" | "1_day" | "expired"
-  sentAt       DateTime @default(now()) @map("sent_at")
-  emailSentTo  String   @map("email_sent_to")
-
-  @@unique([userId, reminderType])
-  @@index([userId])
-  @@index([reminderType])
-  @@map("trial_reminders")
 }
 
 // SessionRequest model - stores training session registration requests
@@ -186,7 +211,7 @@ model MarketingCampaign {
   name              String
   subject           String
   templateId        String?   @map("template_id") @db.Uuid
-  segment           String // 'all' | 'proActive' | 'communityActive' | 'trialing' | 'subscriptionPastDue' | 'custom'
+  segment           String // 'all' | 'buildersActive' | 'communityActive' | 'subscriptionPastDue' | 'custom'
   recipientCount    Int       @default(0) @map("recipient_count")
   sentCount         Int       @default(0) @map("sent_count")
   bouncedCount      Int       @default(0) @map("bounced_count")
@@ -203,4 +228,21 @@ model MarketingCampaign {
   @@index([createdBy])
   @@index([createdAt])
   @@map("marketing_campaigns")
+}
+
+// Builders waitlist - captures leads for the new premium "Builders" tier.
+// Public, un-authenticated signups deduped by lowercased email.
+// notifiedAt / convertedAt are lifecycle timestamps the team fills in later
+// (notified when checkout opens, converted when they become a paying Builder).
+model Waitlist {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  source      String? // origin of the signup: 'landing' | 'pricing' | 'profile' | 'vscode' | ...
+  createdAt   DateTime  @default(now()) @map("created_at")
+  notifiedAt  DateTime? @map("notified_at")
+  convertedAt DateTime? @map("converted_at")
+
+  @@index([createdAt])
+  @@index([source])
+  @@map("waitlist")
 }

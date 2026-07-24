@@ -5,10 +5,6 @@ description: Record an animated GIF of browser interactions for bug reports or d
 
 import { Aside } from '@astrojs/starlight/components';
 
-<Aside type="caution" title="Pro tier only">
-Browser Automation requires an active Pro license.
-</Aside>
-
 Ptah can record the browser viewport as an animated GIF. This is designed for lightweight demo clips and bug reports — not long-form screen capture.
 
 ## `ptah_browser_record_start`

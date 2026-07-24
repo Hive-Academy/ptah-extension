@@ -74,7 +74,7 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
           </div>
         }
 
-        <!-- Preset selection (only show for premium with enhanced prompts) -->
+        <!-- Preset selection (only shown once a prompt has been generated) -->
         @if (hasGeneratedPrompt() && enhancedPromptsEnabled()) {
           <div class="mb-2 p-2 border border-base-300 rounded bg-base-200/30">
             <div class="text-xs font-medium mb-1.5">
@@ -105,7 +105,8 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
               </label>
             </div>
             <div class="text-[10px] text-base-content/50 mt-1.5">
-              Both presets include MCP documentation for premium users.
+              Both presets include MCP documentation when the MCP server is
+              running.
             </div>
           </div>
         }

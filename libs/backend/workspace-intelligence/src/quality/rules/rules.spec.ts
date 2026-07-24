@@ -31,6 +31,8 @@ import {
   // Registry
   RuleRegistry,
   ALL_RULES,
+  // Helpers
+  hasMatchingExtension,
 } from './index';
 import {
   configureArchitectureRules,
@@ -41,6 +43,20 @@ import type {
   QueryMatch,
 } from '../../ast/tree-sitter-parser.service';
 import { Result } from '@ptah-extension/shared';
+
+describe('hasMatchingExtension', () => {
+  it('returns true when the file extension is in the list', () => {
+    expect(hasMatchingExtension('src/app.ts', ['.ts', '.tsx'])).toBe(true);
+  });
+
+  it('returns false when the file extension is not in the list', () => {
+    expect(hasMatchingExtension('src/app.js', ['.ts', '.tsx'])).toBe(false);
+  });
+
+  it('returns false for a file without an extension', () => {
+    expect(hasMatchingExtension('Makefile', ['.ts'])).toBe(false);
+  });
+});
 
 // ============================================
 // TypeScript Rules Tests

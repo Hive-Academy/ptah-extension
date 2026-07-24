@@ -149,7 +149,6 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
       compactionControl: undefined,
       systemPromptMode: 'append',
       systemPromptContent: undefined,
-      isPremium: false,
     }),
   } as unknown as never;
 

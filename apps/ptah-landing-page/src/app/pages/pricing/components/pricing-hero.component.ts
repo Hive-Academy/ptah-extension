@@ -18,9 +18,7 @@ import { ConsoleGridBackgroundComponent } from '../../../components/console/cons
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ViewportAnimationDirective, ConsoleGridBackgroundComponent],
   template: `
-    <section
-      class="relative bg-ink-950 pt-40 pb-20 px-6 overflow-hidden"
-    >
+    <section class="relative bg-ink-950 pt-40 pb-20 px-6 overflow-hidden">
       <ptah-console-grid-background [glow]="true" />
 
       <div class="relative z-10 max-w-3xl mx-auto text-center">
@@ -36,8 +34,8 @@ import { ConsoleGridBackgroundComponent } from '../../../components/console/cons
           [viewportConfig]="headlineConfig"
           class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.05] mb-6"
         >
-          Try 100 Days Free.
-          <span class="text-amber-500">Then $5 a Month.</span>
+          Ptah Is Free.
+          <span class="text-amber-500">Open Source, No Catch.</span>
         </h1>
 
         <p
@@ -45,9 +43,9 @@ import { ConsoleGridBackgroundComponent } from '../../../components/console/cons
           [viewportConfig]="subtitleConfig"
           class="text-lg sm:text-xl text-ink-400 max-w-2xl mx-auto leading-relaxed"
         >
-          Start free with the Community tier. Unlock the full desktop suite —
-          Memory, Skills, Cron, and Gateways — with Pro. No credit card
-          required.
+          The full desktop suite — Memory, Skills, Cron, and Gateways — is free
+          and open source. Join Ptah Builders if you want live training,
+          curriculum, and member skill packs on top.
         </p>
       </div>
     </section>

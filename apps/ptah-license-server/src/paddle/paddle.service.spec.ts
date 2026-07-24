@@ -37,6 +37,11 @@ import {
 import { createTestingNestModule } from '../testing/nest-module-builder';
 import { EmailService } from '../email/services/email.service';
 import { EventsService } from '../events/events.service';
+import { CircleProvisioningService } from '../circle/circle-provisioning.service';
+import { WAITLIST_CONVERSION_SINK } from '../circle/waitlist-conversion.sink';
+import { SessionsService } from '../google-sessions/sessions.service';
+import { DiscourseProvisioningService } from '../discourse/discourse-provisioning.service';
+import { MemberGroupsService } from '../member-groups/member-groups.service';
 
 // ---------------------------------------------------------------------------
 // Stub factories
@@ -53,6 +58,54 @@ interface EventsStub {
 
 interface PaddleClientStub {
   customers: { get: jest.Mock };
+}
+
+interface CircleStub {
+  provisionBuildersMember: jest.Mock;
+  deprovisionBuildersMember: jest.Mock;
+}
+
+function createCircleStub(): CircleStub {
+  return {
+    provisionBuildersMember: jest.fn().mockResolvedValue(undefined),
+    deprovisionBuildersMember: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
+interface SessionsStub {
+  addMemberToSessions: jest.Mock;
+  removeMemberFromSessions: jest.Mock;
+}
+
+function createSessionsStub(): SessionsStub {
+  return {
+    addMemberToSessions: jest.fn().mockResolvedValue({ ok: true }),
+    removeMemberFromSessions: jest.fn().mockResolvedValue({ ok: true }),
+  };
+}
+
+interface DiscourseStub {
+  syncBuildersGroup: jest.Mock;
+}
+
+function createDiscourseStub(): DiscourseStub {
+  return { syncBuildersGroup: jest.fn().mockResolvedValue(undefined) };
+}
+
+interface WaitlistSinkStub {
+  markConverted: jest.Mock;
+}
+
+function createWaitlistSinkStub(): WaitlistSinkStub {
+  return { markConverted: jest.fn().mockResolvedValue(undefined) };
+}
+
+interface MemberGroupsStub {
+  assignDefaultGroup: jest.Mock;
+}
+
+function createMemberGroupsStub(): MemberGroupsStub {
+  return { assignDefaultGroup: jest.fn().mockResolvedValue(undefined) };
 }
 
 function createEmailStub(): EmailStub {
@@ -76,23 +129,38 @@ async function buildService(params?: {
   email?: EmailStub;
   events?: EventsStub;
   paddle?: PaddleClientStub;
+  circle?: CircleStub;
+  sessions?: SessionsStub;
+  discourse?: DiscourseStub;
+  waitlistSink?: WaitlistSinkStub;
+  memberGroups?: MemberGroupsStub;
 }): Promise<{
   service: PaddleService;
   prisma: MockPrisma;
   email: EmailStub;
   events: EventsStub;
   paddle: PaddleClientStub;
+  circle: CircleStub;
+  sessions: SessionsStub;
+  discourse: DiscourseStub;
+  waitlistSink: WaitlistSinkStub;
+  memberGroups: MemberGroupsStub;
 }> {
   const prisma = params?.prisma ?? createMockPrisma();
   const email = params?.email ?? createEmailStub();
   const events = params?.events ?? createEventsStub();
   const paddle = params?.paddle ?? createPaddleClientStub();
+  const circle = params?.circle ?? createCircleStub();
+  const sessions = params?.sessions ?? createSessionsStub();
+  const discourse = params?.discourse ?? createDiscourseStub();
+  const waitlistSink = params?.waitlistSink ?? createWaitlistSinkStub();
+  const memberGroups = params?.memberGroups ?? createMemberGroupsStub();
 
   const { module } = await createTestingNestModule({
     prisma,
     config: {
-      PADDLE_PRICE_ID_PRO_MONTHLY: 'pri_pro_monthly',
-      PADDLE_PRICE_ID_PRO_YEARLY: 'pri_pro_yearly',
+      PADDLE_PRICE_ID_BUILDERS_MONTHLY: 'pri_builders_monthly',
+      PADDLE_PRICE_ID_BUILDERS_YEARLY: 'pri_builders_yearly',
       PADDLE_PRICE_ID_SESSION: 'pri_session_onetime',
       ...(params?.config ?? {}),
     },
@@ -100,6 +168,11 @@ async function buildService(params?: {
       { provide: EmailService, useValue: email },
       { provide: EventsService, useValue: events },
       { provide: PADDLE_CLIENT, useValue: paddle },
+      { provide: CircleProvisioningService, useValue: circle },
+      { provide: SessionsService, useValue: sessions },
+      { provide: DiscourseProvisioningService, useValue: discourse },
+      { provide: WAITLIST_CONVERSION_SINK, useValue: waitlistSink },
+      { provide: MemberGroupsService, useValue: memberGroups },
       PaddleService,
     ],
   });
@@ -110,6 +183,11 @@ async function buildService(params?: {
     email,
     events,
     paddle,
+    circle,
+    sessions,
+    discourse,
+    waitlistSink,
+    memberGroups,
   };
 }
 
@@ -137,7 +215,7 @@ function buildSubscriptionNotification(
     id: overrides.id ?? 'sub_test_0001',
     status: (overrides.status ?? 'active') as never,
     customerId: overrides.customerId ?? 'ctm_test_0001',
-    priceId: overrides.priceId ?? 'pri_pro_monthly',
+    priceId: overrides.priceId ?? 'pri_builders_monthly',
     canceledAt: overrides.canceledAt ?? null,
     currentBillingPeriod: {
       startsAt: '2026-04-24T10:00:00Z',
@@ -145,7 +223,7 @@ function buildSubscriptionNotification(
     },
     items: [
       {
-        price: { id: overrides.priceId ?? 'pri_pro_monthly' },
+        price: { id: overrides.priceId ?? 'pri_builders_monthly' },
         trialDates: overrides.trialEndsAt
           ? { startsAt: '2026-04-24T10:00:00Z', endsAt: overrides.trialEndsAt }
           : null,
@@ -176,7 +254,7 @@ function buildTransactionNotification(
       overrides.includeBillingPeriod === false
         ? null
         : { startsAt: '2026-04-24T10:00:00Z', endsAt },
-    items: [{ price: { id: overrides.priceId ?? 'pri_pro_monthly' } }],
+    items: [{ price: { id: overrides.priceId ?? 'pri_builders_monthly' } }],
   } as unknown as TransactionNotification;
 }
 
@@ -218,7 +296,17 @@ describe('PaddleService — getCustomerEmail', () => {
 
 describe('PaddleService — handleSubscriptionCreatedEvent', () => {
   it('creates user + subscription + license, revokes prior active licenses, sends email, emits SSE', async () => {
-    const { service, prisma, email, events } = await buildService();
+    const {
+      service,
+      prisma,
+      email,
+      events,
+      circle,
+      sessions,
+      discourse,
+      waitlistSink,
+      memberGroups,
+    } = await buildService();
 
     // No existing subscription, no prior license with this eventId.
     prisma.subscription.findUnique.mockResolvedValue(null);
@@ -234,15 +322,16 @@ describe('PaddleService — handleSubscriptionCreatedEvent', () => {
     prisma.subscription.updateMany.mockResolvedValue({ count: 0 });
     prisma.license.create.mockResolvedValue({
       id: 'lic_001',
+      userId: 'usr_new',
       licenseKey: 'ptah_lic_stub',
-      plan: 'pro',
+      plan: 'builders',
     });
     prisma.subscription.create.mockResolvedValue({ id: 'sub_db_001' });
 
     const data = buildSubscriptionNotification({
       id: 'sub_test_0001',
       status: 'active',
-      priceId: 'pri_pro_monthly',
+      priceId: 'pri_builders_monthly',
     });
 
     const result = await service.handleSubscriptionCreatedEvent(
@@ -264,11 +353,11 @@ describe('PaddleService — handleSubscriptionCreatedEvent', () => {
       data: { status: 'revoked' },
     });
 
-    // License creation stamps plan = 'pro' and ties to event-id for dedup.
+    // License creation stamps plan = 'builders' and ties to event-id for dedup.
     const licCreateArg = prisma.license.create.mock.calls[0][0] as {
       data: { plan: string; status: string; createdBy: string };
     };
-    expect(licCreateArg.data.plan).toBe('pro');
+    expect(licCreateArg.data.plan).toBe('builders');
     expect(licCreateArg.data.status).toBe('active');
     expect(licCreateArg.data.createdBy).toBe('paddle_evt_created_001');
 
@@ -276,13 +365,68 @@ describe('PaddleService — handleSubscriptionCreatedEvent', () => {
     expect(events.emitLicenseUpdated).toHaveBeenCalledWith(
       expect.objectContaining({
         email: 'buyer@example.com',
-        plan: 'pro',
+        plan: 'builders',
         status: 'active',
       }),
     );
+
+    // Builders provisioning fan-out fires after license issuance with the
+    // new user's id and the normalized email.
+    expect(circle.provisionBuildersMember).toHaveBeenCalledWith(
+      'usr_new',
+      'buyer@example.com',
+    );
+    // ...and the optional waitlist conversion sink is stamped with the email.
+    expect(waitlistSink.markConverted).toHaveBeenCalledWith(
+      'buyer@example.com',
+    );
+
+    // Owned-community fan-out: Google session attendee add + Discourse group add.
+    expect(sessions.addMemberToSessions).toHaveBeenCalledWith(
+      'buyer@example.com',
+    );
+    expect(discourse.syncBuildersGroup).toHaveBeenCalledWith(
+      'usr_new',
+      'buyer@example.com',
+      true,
+    );
+
+    // Default member-group auto-assignment fires as part of the fan-out.
+    expect(memberGroups.assignDefaultGroup).toHaveBeenCalledWith('usr_new');
   });
 
-  it('marks plan as trial_pro when subscription status is trialing', async () => {
+  it('is non-fatal when default member-group assignment throws', async () => {
+    const memberGroups = createMemberGroupsStub();
+    memberGroups.assignDefaultGroup.mockRejectedValue(new Error('db down'));
+    const { service, prisma } = await buildService({ memberGroups });
+
+    prisma.subscription.findUnique.mockResolvedValue(null);
+    prisma.license.findFirst.mockResolvedValue(null);
+    prisma.user.findUnique.mockResolvedValue(null);
+    prisma.user.create.mockResolvedValue({
+      id: 'usr_grp_fail',
+      email: 'g@e.com',
+    });
+    prisma.license.updateMany.mockResolvedValue({ count: 0 });
+    prisma.subscription.updateMany.mockResolvedValue({ count: 0 });
+    prisma.license.create.mockResolvedValue({
+      id: 'lic_grp_fail',
+      userId: 'usr_grp_fail',
+      plan: 'builders',
+    });
+    prisma.subscription.create.mockResolvedValue({ id: 'sub_grp_fail' });
+
+    const data = buildSubscriptionNotification();
+    await expect(
+      service.handleSubscriptionCreatedEvent(data, 'g@e.com', 'evt_grp_fail'),
+    ).resolves.toEqual({ success: true, licenseId: 'lic_grp_fail' });
+
+    expect(memberGroups.assignDefaultGroup).toHaveBeenCalledWith(
+      'usr_grp_fail',
+    );
+  });
+
+  it('keeps the plan as builders (no trial plan) when subscription status is trialing', async () => {
     const { service, prisma, events } = await buildService();
     prisma.subscription.findUnique.mockResolvedValue(null);
     prisma.license.findFirst.mockResolvedValue(null);
@@ -300,7 +444,7 @@ describe('PaddleService — handleSubscriptionCreatedEvent', () => {
     prisma.subscription.updateMany.mockResolvedValue({ count: 0 });
     prisma.license.create.mockResolvedValue({
       id: 'lic_trial_001',
-      plan: 'trial_pro',
+      plan: 'builders',
     });
     prisma.subscription.create.mockResolvedValue({ id: 'sub_db_trial' });
 
@@ -318,10 +462,10 @@ describe('PaddleService — handleSubscriptionCreatedEvent', () => {
     const licCreateArg = prisma.license.create.mock.calls[0][0] as {
       data: { plan: string };
     };
-    expect(licCreateArg.data.plan).toBe('trial_pro');
+    expect(licCreateArg.data.plan).toBe('builders');
 
     expect(events.emitLicenseUpdated).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'trialing', plan: 'trial_pro' }),
+      expect.objectContaining({ status: 'trialing', plan: 'builders' }),
     );
   });
 
@@ -422,7 +566,7 @@ describe('PaddleService — handleSubscriptionCreatedEvent', () => {
 // ---------------------------------------------------------------------------
 
 describe('PaddleService — handleSubscriptionActivatedEvent', () => {
-  it('upgrades license plan from trial_pro to pro when an existing subscription is present', async () => {
+  it('activates the license to builders when an existing subscription is present', async () => {
     const { service, prisma, events } = await buildService();
     prisma.subscription.findUnique.mockResolvedValue({
       id: 'sub_db_001',
@@ -435,7 +579,7 @@ describe('PaddleService — handleSubscriptionActivatedEvent', () => {
 
     const data = buildSubscriptionNotification({
       status: 'active',
-      priceId: 'pri_pro_yearly',
+      priceId: 'pri_builders_yearly',
     });
 
     const result = await service.handleSubscriptionActivatedEvent(
@@ -453,16 +597,19 @@ describe('PaddleService — handleSubscriptionActivatedEvent', () => {
     expect(subUpdate.data.status).toBe('active');
     expect(subUpdate.data.trialEnd).toBeNull();
 
-    // license.updateMany scoped to trial_ plans.
+    // license.updateMany updates the active license to the builders plan.
     const licUpdate = prisma.license.updateMany.mock.calls[0][0] as {
-      where: { plan: { startsWith: string } };
+      where: { status: string };
       data: { plan: string };
     };
-    expect(licUpdate.where.plan.startsWith).toBe('trial_');
-    expect(licUpdate.data.plan).toBe('pro');
+    expect(licUpdate.where.status).toBe('active');
+    expect(licUpdate.data.plan).toBe('builders');
 
     expect(events.emitLicenseUpdated).toHaveBeenCalledWith(
-      expect.objectContaining({ email: 'trial@example.com', plan: 'pro' }),
+      expect.objectContaining({
+        email: 'trial@example.com',
+        plan: 'builders',
+      }),
     );
     expect(events.emitSubscriptionStatus).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'active' }),
@@ -510,7 +657,7 @@ describe('PaddleService — handleSubscriptionUpdatedEvent', () => {
     prisma.license.updateMany.mockResolvedValue({ count: 1 });
 
     const data = buildSubscriptionNotification({
-      priceId: 'pri_pro_yearly',
+      priceId: 'pri_builders_yearly',
       endsAt: '2027-04-24T10:00:00Z',
     });
 
@@ -525,14 +672,14 @@ describe('PaddleService — handleSubscriptionUpdatedEvent', () => {
     const licUpdate = prisma.license.updateMany.mock.calls[0][0] as {
       data: { plan: string; expiresAt: Date };
     };
-    expect(licUpdate.data.plan).toBe('pro');
+    expect(licUpdate.data.plan).toBe('builders');
     expect(licUpdate.data.expiresAt.toISOString()).toBe(
       '2027-04-24T10:00:00.000Z',
     );
 
     expect(events.emitLicenseUpdated).toHaveBeenCalledWith(
       expect.objectContaining({
-        plan: 'pro',
+        plan: 'builders',
         status: 'active',
         expiresAt: '2027-04-24T10:00:00.000Z',
       }),
@@ -561,7 +708,8 @@ describe('PaddleService — handleSubscriptionUpdatedEvent', () => {
 
 describe('PaddleService — handleSubscriptionCanceledEvent', () => {
   it('preserves access until currentBillingPeriod.endsAt', async () => {
-    const { service, prisma, events } = await buildService();
+    const { service, prisma, events, circle, sessions, discourse } =
+      await buildService();
     prisma.user.findUnique.mockResolvedValue({
       id: 'usr_cancel',
       email: 'c@e.com',
@@ -601,6 +749,16 @@ describe('PaddleService — handleSubscriptionCanceledEvent', () => {
 
     expect(events.emitSubscriptionStatus).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'canceled', plan: 'pro' }),
+    );
+
+    // Cancellation deprovisions the Circle membership (best-effort, non-fatal).
+    expect(circle.deprovisionBuildersMember).toHaveBeenCalledWith('usr_cancel');
+    // ...plus the owned-community reversals: session attendee + Discourse group.
+    expect(sessions.removeMemberFromSessions).toHaveBeenCalledWith('c@e.com');
+    expect(discourse.syncBuildersGroup).toHaveBeenCalledWith(
+      'usr_cancel',
+      'c@e.com',
+      false,
     );
   });
 

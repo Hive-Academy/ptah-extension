@@ -102,8 +102,11 @@ export class AuthController {
     '/sessions',
   ];
 
-  /** Valid plan keys for checkout (TASK_2025_128: Pro only, Community is free) */
-  private readonly VALID_PLAN_KEYS = ['pro-monthly', 'pro-yearly'];
+  /**
+   * Valid plan keys for post-auth checkout redirect.
+   * Builders is the only premium tier (monthly + yearly).
+   */
+  private readonly VALID_PLAN_KEYS = ['builders-monthly', 'builders-yearly'];
 
   constructor(
     @Inject(AuthService) private readonly authService: AuthService,
@@ -305,7 +308,7 @@ export class AuthController {
         plan,
       } = await this.authService.authenticateWithCode(code, state);
       if (authUser?.email) {
-        this.autoGenerateTrialIfNeeded(authUser.email);
+        this.autoProvisionCommunityIfNeeded(authUser.email);
       }
       res.cookie('ptah_auth', token, {
         httpOnly: true, // Prevents JavaScript access (XSS protection)
@@ -412,7 +415,7 @@ export class AuthController {
    *
    * @example
    * POST /auth/magic-link
-   * Body: { "email": "user@example.com", "returnUrl": "/pricing", "plan": "pro-monthly" }
+   * Body: { "email": "user@example.com", "returnUrl": "/pricing", "plan": "builders-monthly" }
    * → Returns: { success: true, message: "Check your email for login link" }
    */
   @Throttle({ default: { limit: 3, ttl: 60000 } })
@@ -507,7 +510,7 @@ export class AuthController {
       return;
     }
 
-    this.autoGenerateTrialIfNeeded(result.email as string);
+    this.autoProvisionCommunityIfNeeded(result.email as string);
     const jwtPayload = {
       sub: user.id,
       email: user.email,
@@ -663,7 +666,7 @@ export class AuthController {
       firstName,
       lastName,
     );
-    this.autoGenerateTrialIfNeeded(email);
+    this.autoProvisionCommunityIfNeeded(email);
 
     this.logger.log(
       `User signup initiated for: ${email} (pending verification)`,
@@ -711,7 +714,7 @@ export class AuthController {
       userId,
       code,
     );
-    this.autoGenerateTrialIfNeeded(user.email);
+    this.autoProvisionCommunityIfNeeded(user.email);
     res.cookie('ptah_auth', token, {
       httpOnly: true,
       secure: this.isProduction,
@@ -781,13 +784,13 @@ export class AuthController {
    *
    * Query Parameters:
    * - returnUrl: Optional URL path to redirect to after auth (e.g., '/pricing')
-   * - plan: Optional plan key for auto-checkout (e.g., 'pro-monthly', 'pro-yearly')
+   * - plan: Optional plan key for auto-checkout (e.g., 'builders-monthly', 'builders-yearly')
    *
    * @example
-   * GET /auth/oauth/github?returnUrl=/pricing&plan=pro-monthly
+   * GET /auth/oauth/github?returnUrl=/pricing&plan=builders-monthly
    * → Sets cookie: workos_state=<state>
    * → Redirect to: https://github.com/login/oauth/authorize?...
-   * → After auth: Redirect to /pricing?autoCheckout=pro-monthly
+   * → After auth: Redirect to /pricing?autoCheckout=builders-monthly
    *
    * @example
    * GET /auth/oauth/google
@@ -795,14 +798,19 @@ export class AuthController {
    * → Redirect to: https://accounts.google.com/o/oauth2/auth?...
    */
   /**
-   * Auto-generate a 100-day Pro trial license if the user has no active license.
+   * Auto-provision a free Community license if the user has no active license.
+   *
+   * Open-source model: new/returning users no longer receive a Pro trial. They
+   * get the free, open-source Community license instead. Premium (Builders) is
+   * opt-in via checkout once BUILDERS_CHECKOUT_ENABLED is on.
    *
    * Non-blocking: errors are logged but do not affect the auth flow.
-   * Idempotent: if user already has a license, this is a no-op.
+   * Idempotent: if the user already has any active license, this is a no-op
+   * (so existing Pro / Builders subscribers are never downgraded).
    *
    * @param email - User's email address
    */
-  private async autoGenerateTrialIfNeeded(email: string): Promise<void> {
+  private async autoProvisionCommunityIfNeeded(email: string): Promise<void> {
     try {
       const user = await this.prisma.user.findUnique({
         where: { email: email.toLowerCase() },
@@ -815,24 +823,31 @@ export class AuthController {
       });
       if (user?.licenses && user.licenses.length > 0) {
         this.logger.debug(
-          `User ${email} already has active license, skipping trial`,
+          `User ${email} already has active license, skipping community provisioning`,
         );
         return;
       }
-      const { licenseKey, expiresAt } =
-        await this.licenseService.createTrialLicense({ email });
+      const { licenseKey, expiresAt } = await this.licenseService.createLicense(
+        {
+          email,
+          plan: 'community',
+          createdBy: 'auto_community_signup',
+        },
+      );
       await this.emailService.sendLicenseKey({
         email,
         licenseKey,
-        plan: 'pro',
+        plan: 'community',
         expiresAt,
       });
 
-      this.logger.log(`Auto-trial created and emailed for: ${email}`);
+      this.logger.log(
+        `Auto community license created and emailed for: ${email}`,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(
-        `Failed to auto-generate trial for ${email}: ${message}`,
+        `Failed to auto-provision community license for ${email}: ${message}`,
       );
     }
   }

@@ -4,7 +4,7 @@
 
 ## Purpose
 
-The VS Code extension host application. Activates inside the extension host process, wires the tsyringe DI graph, runs a license gate, registers RPC handlers, and hosts the Angular webview SPA built from `apps/ptah-extension-webview`.
+The VS Code extension host application. Activates inside the extension host process, wires the tsyringe DI graph, verifies license/membership identity (non-blocking — never gates activation), registers RPC handlers, and hosts the Angular webview SPA built from `apps/ptah-extension-webview`.
 
 ## Boundaries
 
@@ -18,10 +18,9 @@ The VS Code extension host application. Activates inside the extension host proc
 
 ## Key Wiring
 
-- `src/di/container.ts` — thin orchestrator. `DIContainer.setupMinimal()` runs phase-0 + phase-1-minimal for the license gate; `DIContainer.setup()` runs phases 0-4. Phases live in sibling files `phase-0-platform.ts` through `phase-4-app.ts`.
-- `src/activation/bootstrap.ts` — minimal DI -> Sentry init -> license verify (blocking) -> full DI -> logger + RPC registration. Calls `fixPath()` from `@ptah-extension/agent-sdk` on Linux/macOS so GUI-launched VS Code finds nvm/npm-global bins.
+- `src/di/container.ts` — thin orchestrator. `DIContainer.setupMinimal()` runs phase-0 + phase-1-minimal (early services needed before full DI); `DIContainer.setup()` runs phases 0-4. Phases live in sibling files `phase-0-platform.ts` through `phase-4-app.ts`.
+- `src/activation/bootstrap.ts` — minimal DI -> Sentry init -> license/membership verify (non-blocking, identity-only) -> full DI -> logger + RPC registration. Calls `fixPath()` from `@ptah-extension/agent-sdk` on Linux/macOS so GUI-launched VS Code finds nvm/npm-global bins.
 - `src/activation/wire-runtime.ts`, `src/activation/post-init.ts` — finishes IPC, plugin activation, CLI/skill sync, agent adapters.
-- `src/activation/license-gate.ts` — blocks activation when license invalid.
 - `src/services/rpc/`, `src/providers/angular-webview.provider.ts`, `src/services/webview-html-generator.ts` — webview boot + RPC bridge.
 - `src/commands/` — `license-commands.ts`, `settings-commands.ts` register VS Code commands.
 - Deactivation cleans up `SkillJunctionService` junctions, `PtahCliRegistry` adapters, and flushes Sentry.
@@ -44,7 +43,7 @@ The VS Code extension host application. Activates inside the extension host proc
 
 - Never inline tsyringe registrations in `main.ts`. Add to the correct `phase-N-*.ts` and gate with `isRegistered`.
 - `reflect-metadata` MUST be the first import in any file that uses tsyringe decorators (see `src/main.ts:2`).
-- License gate is blocking — anything that should run regardless of license state belongs in `bootstrapVscode` before `handleLicenseBlocking`.
+- License/membership verify is non-blocking and identity-only — activation is never gated on license state (the open-access purge removed the blocking license gate and all feature gating). `LicenseService` verification just populates the membership card/status shown in settings.
 - New RPC namespaces require both the type declaration AND the runtime `ALLOWED_METHOD_PREFIXES` entry (see user memory note).
 
 ## Marketplace / Deployment Notes

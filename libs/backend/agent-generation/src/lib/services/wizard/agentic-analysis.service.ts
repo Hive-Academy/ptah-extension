@@ -142,7 +142,6 @@ export class AgenticAnalysisService {
     options?: {
       timeout?: number;
       model?: string;
-      isPremium?: boolean;
       mcpServerRunning?: boolean;
       mcpPort?: number;
     },
@@ -150,7 +149,6 @@ export class AgenticAnalysisService {
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS;
     const model =
       options?.model || this.modelSettings.selectedModel.get() || 'default';
-    const isPremium = options?.isPremium ?? false;
     const mcpServerRunning = options?.mcpServerRunning ?? false;
     const mcpPort = options?.mcpPort;
 
@@ -158,14 +156,13 @@ export class AgenticAnalysisService {
       workspace: workspacePath,
       timeout,
       model,
-      isPremium,
       mcpServerRunning,
     });
 
-    if (!isPremium || !mcpServerRunning) {
+    if (!mcpServerRunning) {
       return Result.err(
         new Error(
-          `Agentic analysis requires premium license and MCP server. isPremium=${isPremium}, mcpRunning=${mcpServerRunning}`,
+          `Agentic analysis requires the MCP server. mcpRunning=${mcpServerRunning}`,
         ),
       );
     }
@@ -180,7 +177,6 @@ export class AgenticAnalysisService {
         prompt:
           'Analyze this workspace thoroughly. Inspect the project structure, frameworks, architecture patterns, code health, and test coverage using the available tools.',
         systemPromptAppend: buildAnalysisSystemPrompt(),
-        isPremium,
         mcpServerRunning,
         mcpPort,
         maxTurns: MAX_AGENT_TURNS,

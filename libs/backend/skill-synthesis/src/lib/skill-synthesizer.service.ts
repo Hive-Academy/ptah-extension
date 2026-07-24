@@ -119,7 +119,6 @@ export class SkillSynthesizerService {
         model,
         prompt,
         systemPromptAppend,
-        isPremium: false,
         mcpServerRunning: false,
         maxTurns: 1,
         abortController,

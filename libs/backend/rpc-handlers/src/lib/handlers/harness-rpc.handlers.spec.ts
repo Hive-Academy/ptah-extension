@@ -451,6 +451,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       expect(result).toMatchObject({
         workspaceContext: { projectName: 'demo' },
         existingPresets: [],
+        workspaceRoot: '/ws',
       });
     });
 
@@ -724,6 +725,109 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       expect(suite.agentFileWriter.writeSubagentFiles).not.toHaveBeenCalled();
       expect(result.warnings).toContain(
         'No workspace folder open. Subagent files were not generated.',
+      );
+    });
+
+    it('explicit pinned workspaceRoot wins over the active workspace', async () => {
+      const suite = buildSuite();
+      const subagents = [
+        {
+          id: 'sentiment-watchdog',
+          name: 'Sentiment Watchdog',
+          description: 'watches sentiment',
+          role: 'monitor',
+          tools: ['Read'],
+          executionMode: 'background',
+          instructions: 'do the thing',
+        },
+      ];
+      const config = normalizedConfig({
+        agents: { enabledAgents: {}, harnessSubagents: subagents },
+      });
+      suite.configStore.normalizeHarnessConfig.mockReturnValue(config as never);
+      suite.handlers.register();
+
+      await getHandler(
+        suite.rpc,
+        'harness:apply',
+      )({ config, outputFormat: 'json', workspaceRoot: '/pinned/workspace' });
+
+      // Both file-writing paths must target the pinned root, NOT the active
+      // workspace ('/ws' from the mock provider).
+      expect(suite.configStore.writeClaudeMdToWorkspace).toHaveBeenCalledWith(
+        '/pinned/workspace',
+        config,
+      );
+      expect(suite.agentFileWriter.writeSubagentFiles).toHaveBeenCalledWith(
+        '/pinned/workspace',
+        subagents,
+      );
+    });
+
+    it('rejects an empty-string workspaceRoot at the boundary', async () => {
+      const suite = buildSuite();
+      const config = normalizedConfig();
+      suite.configStore.normalizeHarnessConfig.mockReturnValue(config as never);
+      suite.handlers.register();
+
+      await expect(
+        getHandler(
+          suite.rpc,
+          'harness:apply',
+        )({ config, outputFormat: 'json', workspaceRoot: '' }),
+      ).rejects.toThrow();
+    });
+
+    it('rejects a relative workspaceRoot at the boundary', async () => {
+      const suite = buildSuite();
+      const config = normalizedConfig();
+      suite.configStore.normalizeHarnessConfig.mockReturnValue(config as never);
+      suite.handlers.register();
+
+      await expect(
+        getHandler(
+          suite.rpc,
+          'harness:apply',
+        )({ config, outputFormat: 'json', workspaceRoot: 'relative/dir' }),
+      ).rejects.toThrow(/absolute/i);
+      // Parse fails before any file-write path is touched.
+      expect(suite.configStore.writeClaudeMdToWorkspace).not.toHaveBeenCalled();
+    });
+
+    it("rejects a workspaceRoot containing '..' traversal segments", async () => {
+      const suite = buildSuite();
+      const config = normalizedConfig();
+      suite.configStore.normalizeHarnessConfig.mockReturnValue(config as never);
+      suite.handlers.register();
+
+      await expect(
+        getHandler(
+          suite.rpc,
+          'harness:apply',
+        )({ config, outputFormat: 'json', workspaceRoot: '/ws/../etc' }),
+      ).rejects.toThrow(/\.\./);
+      expect(suite.configStore.writeClaudeMdToWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('accepts a clean absolute workspaceRoot', async () => {
+      const suite = buildSuite();
+      const config = normalizedConfig();
+      suite.configStore.normalizeHarnessConfig.mockReturnValue(config as never);
+      suite.handlers.register();
+
+      await expect(
+        getHandler(
+          suite.rpc,
+          'harness:apply',
+        )({
+          config,
+          outputFormat: 'json',
+          workspaceRoot: '/pinned/workspace',
+        }),
+      ).resolves.toBeDefined();
+      expect(suite.configStore.writeClaudeMdToWorkspace).toHaveBeenCalledWith(
+        '/pinned/workspace',
+        config,
       );
     });
 

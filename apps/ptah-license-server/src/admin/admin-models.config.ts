@@ -15,11 +15,11 @@ export type AdminModelKey =
   | 'licenses'
   | 'subscriptions'
   | 'failed-webhooks'
-  | 'trial-reminders'
   | 'session-requests'
   | 'admin-audit-log'
   | 'marketing-campaigns'
-  | 'marketing-campaign-templates';
+  | 'marketing-campaign-templates'
+  | 'waitlist';
 
 export interface AdminModelConfig {
   /** Prisma delegate name (the lower-case client property, e.g. prisma.user) */
@@ -28,11 +28,11 @@ export interface AdminModelConfig {
     | 'license'
     | 'subscription'
     | 'failedWebhook'
-    | 'trialReminder'
     | 'sessionRequest'
     | 'adminAuditLog'
     | 'marketingCampaign'
-    | 'marketingCampaignTemplate';
+    | 'marketingCampaignTemplate'
+    | 'waitlist';
   /** Columns shown on the list page */
   listFields: string[];
   /** Text-searchable string fields (contains, insensitive) */
@@ -141,16 +141,6 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
     readOnly: false,
     defaultSortBy: 'attemptedAt',
   },
-  'trial-reminders': {
-    prismaModel: 'trialReminder',
-    listFields: ['id', 'userId', 'reminderType', 'sentAt', 'emailSentTo'],
-    searchFields: ['userId', 'reminderType', 'emailSentTo'],
-    sortableFields: ['sentAt', 'reminderType'],
-    editableFields: [], // read-only tracking records
-    readOnly: true,
-    defaultSortBy: 'sentAt',
-    include: { user: true },
-  },
   'session-requests': {
     prismaModel: 'sessionRequest',
     listFields: [
@@ -228,6 +218,22 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
     searchFields: ['name', 'subject'],
     sortableFields: ['createdAt', 'updatedAt', 'name'],
     editableFields: ['name', 'subject', 'htmlBody'],
+    readOnly: false,
+    defaultSortBy: 'createdAt',
+  },
+  waitlist: {
+    prismaModel: 'waitlist',
+    listFields: [
+      'id',
+      'email',
+      'source',
+      'createdAt',
+      'notifiedAt',
+      'convertedAt',
+    ],
+    searchFields: ['email', 'source'],
+    sortableFields: ['createdAt', 'notifiedAt', 'convertedAt', 'source'],
+    editableFields: ['notifiedAt', 'convertedAt'],
     readOnly: false,
     defaultSortBy: 'createdAt',
   },

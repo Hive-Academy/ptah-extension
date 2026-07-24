@@ -68,6 +68,7 @@ import {
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
+import { runWithMcpRequestContext } from './mcp-request-context';
 import {
   formatWorkspaceAnalysis,
   formatSearchFiles,
@@ -154,7 +155,10 @@ export async function handleMCPRequest(
         return handleToolsList(request, deps);
 
       case 'tools/call':
-        return await handleToolsCall(request, deps);
+        return await runWithMcpRequestContext(
+          { callerSessionId: request._callerSessionId },
+          () => handleToolsCall(request, deps),
+        );
 
       default:
         return createErrorResponse(
@@ -1257,11 +1261,17 @@ async function handleIndividualTool(
       }
 
       case 'ptah_ast_analyze': {
-        const { file } = args as { file: string };
+        const { file, workspaceRoot } = args as {
+          file: string;
+          workspaceRoot?: string;
+        };
         if (!file || typeof file !== 'string' || !file.trim()) {
           return missingStringArgResponse(request, 'file');
         }
-        const result = await ptahAPI.ast.analyze(file.trim());
+        const result = await ptahAPI.ast.analyze(
+          file.trim(),
+          typeof workspaceRoot === 'string' ? workspaceRoot.trim() : undefined,
+        );
         return createToolSuccessResponse(request, JSON.stringify(result), deps);
       }
 
@@ -1280,13 +1290,16 @@ async function handleIndividualTool(
           return missingStringArgResponse(request, 'file');
         }
         await ensureDependencyGraphBuilt(ptahAPI);
-        const dependents = await ptahAPI.dependencies.getDependents(
+        const resolvedFile = await resolveDependencyQueryPath(
+          ptahAPI,
           file.trim(),
         );
+        const dependents =
+          await ptahAPI.dependencies.getDependents(resolvedFile);
         return createToolSuccessResponse(
           request,
           JSON.stringify({
-            file: file.trim(),
+            file: resolvedFile,
             dependents,
             count: dependents.length,
           }),
@@ -1300,14 +1313,18 @@ async function handleIndividualTool(
           return missingStringArgResponse(request, 'file');
         }
         await ensureDependencyGraphBuilt(ptahAPI);
-        const dependencies = await ptahAPI.dependencies.getDependencies(
+        const resolvedFile = await resolveDependencyQueryPath(
+          ptahAPI,
           file.trim(),
+        );
+        const dependencies = await ptahAPI.dependencies.getDependencies(
+          resolvedFile,
           depth,
         );
         return createToolSuccessResponse(
           request,
           JSON.stringify({
-            file: file.trim(),
+            file: resolvedFile,
             dependencies,
             count: dependencies.length,
           }),
@@ -1450,13 +1467,41 @@ function missingStringArgResponse(
  * Build the workspace import graph on first dependency query; reuse thereafter.
  */
 async function ensureDependencyGraphBuilt(ptahAPI: PtahAPI): Promise<void> {
-  if (await ptahAPI.dependencies.isBuilt()) return;
   const info = await ptahAPI.workspace.getInfo();
   const workspaceRoot = info?.path;
   if (!workspaceRoot) return;
+  // Guard on THIS workspace's graph so a second open workspace still builds its
+  // own graph rather than reusing the first workspace's cached result.
+  if (await ptahAPI.dependencies.isBuilt(workspaceRoot)) return;
   const files = await ptahAPI.search.findFiles('**/*.{ts,tsx,js,jsx}', 5000);
   if (files.length === 0) return;
-  await ptahAPI.dependencies.buildGraph(files, workspaceRoot);
+  // findFiles yields workspace-relative paths; the graph must be keyed by
+  // ABSOLUTE paths so its nodes match absolute-path queries (and so the graph
+  // reads real files rather than resolving relative paths against process.cwd).
+  const absoluteFiles = files.map((f) =>
+    toAbsoluteWorkspacePath(workspaceRoot, f),
+  );
+  await ptahAPI.dependencies.buildGraph(absoluteFiles, workspaceRoot);
+}
+
+/** Join a workspace-relative path to its root; pass absolute paths through. */
+function toAbsoluteWorkspacePath(workspaceRoot: string, file: string): string {
+  return path.isAbsolute(file) ? file : path.join(workspaceRoot, file);
+}
+
+/**
+ * Resolve a dependency-tool `file` argument to an absolute path against the same
+ * workspace root the graph is built under, so a relative arg from the agent
+ * matches the graph's absolute node keys. Absolute args pass through unchanged.
+ */
+async function resolveDependencyQueryPath(
+  ptahAPI: PtahAPI,
+  file: string,
+): Promise<string> {
+  if (path.isAbsolute(file)) return file;
+  const info = await ptahAPI.workspace.getInfo();
+  const workspaceRoot = info?.path;
+  return workspaceRoot ? path.join(workspaceRoot, file) : file;
 }
 
 /**

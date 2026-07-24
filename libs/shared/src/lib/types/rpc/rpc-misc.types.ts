@@ -111,36 +111,30 @@ export type LicenseGetStatusParams = Record<string, never>;
 /**
  * License tier values for RPC communication.
  *
- * Freemium model:
- * - 'community': FREE forever - always valid, no license required
- * - 'pro': Active Pro subscription ($5/month)
- * - 'trial_pro': Pro plan during 100-day trial
+ * Open-source + Builders model (exactly three values):
+ * - 'community': FREE and open source - always valid, no license required
+ * - 'builders': Active Ptah Builders membership (the only premium tier)
  * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
-export type LicenseTier = 'community' | 'pro' | 'trial_pro' | 'expired';
+export type LicenseTier = 'community' | 'builders' | 'expired';
 
 /**
  * Response from license:getStatus RPC method.
  *
- * Supports a two-tier paid model with trial support, plus a `reason` field
- * for context-aware welcome messaging. Freemium model uses `isCommunity`
- * (previously `isBasic`).
+ * Open-source + Builders model, plus a `reason` field for context-aware
+ * welcome messaging. Freemium model uses `isCommunity` (previously `isBasic`).
  */
 export interface LicenseGetStatusResponse {
   /** Whether the license is valid (Community = always true) */
   valid: boolean;
-  /** License tier (community, pro, trial_pro, or expired) */
+  /** License tier (community, builders, or expired) */
   tier: LicenseTier;
-  /** Whether the user has premium features enabled (Pro tier) */
+  /** Whether the user has premium features enabled (Builders tier) */
   isPremium: boolean;
   /** Whether the user has Community tier (convenience flag) */
   isCommunity: boolean;
   /** Days remaining before subscription expires (null if not applicable) */
   daysRemaining: number | null;
-  /** Whether user is currently in trial period */
-  trialActive: boolean;
-  /** Days remaining in trial period (null if not in trial) */
-  trialDaysRemaining: number | null;
   /** Plan details (if has valid license) */
   plan?: {
     name: string;
@@ -148,7 +142,7 @@ export interface LicenseGetStatusResponse {
     features: string[];
   };
   /** Reason for invalid license (for context-aware welcome messaging) */
-  reason?: 'expired' | 'trial_ended' | 'no_license';
+  reason?: 'expired' | 'no_license';
   /** User profile data - only present for licensed users */
   user?: {
     email: string;

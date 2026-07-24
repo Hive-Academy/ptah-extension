@@ -10,6 +10,7 @@ import {
   WebviewNavigationService,
 } from '@ptah-extension/core';
 import { AnalyticsCardComponent } from '../analytics-card/analytics-card.component';
+import { BuildersCardComponent } from '../builders-card/builders-card.component';
 
 /**
  * DashboardGridComponent
@@ -21,7 +22,7 @@ import { AnalyticsCardComponent } from '../analytics-card/analytics-card.compone
 @Component({
   selector: 'ptah-dashboard-grid',
   standalone: true,
-  imports: [LucideAngularModule, AnalyticsCardComponent],
+  imports: [LucideAngularModule, AnalyticsCardComponent, BuildersCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './dashboard-grid.component.html',
 })

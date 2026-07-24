@@ -39,8 +39,8 @@ Press F5 in VS Code to launch the Extension Development Host.
 
 ## License
 
-Ptah is licensed under the [Functional Source License, Version 1.1, MIT Future License](LICENSE.md) (FSL-1.1-MIT). This is a Fair Source license that protects against harmful free-riding while converting to full MIT open source after two years.
+Ptah is licensed under the [MIT License](LICENSE.md).
 
-By submitting a pull request or otherwise contributing to this repository, you agree that your contributions will be licensed under the same FSL-1.1-MIT license that covers the project. You also represent that you have the right to submit the contribution and that it does not violate any third-party rights.
+By submitting a pull request or otherwise contributing to this repository, you agree that your contributions will be licensed under the same MIT license that covers the project. You also represent that you have the right to submit the contribution and that it does not violate any third-party rights.
 
 We do not require a formal Contributor License Agreement (CLA). The "inbound = outbound" principle applies: contributions are made under the same terms as the project license.

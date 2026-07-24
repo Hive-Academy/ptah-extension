@@ -28,7 +28,11 @@ import type {
   ContinuationOutcome,
   SdkHandle,
 } from './cli-adapter.interface';
-import { stripAnsiCodes, buildTaskPrompt } from './cli-adapter.utils';
+import {
+  stripAnsiCodes,
+  buildTaskPrompt,
+  createBufferedEmitter,
+} from './cli-adapter.utils';
 
 /**
  * Minimal local types for the dynamically imported `@cursor/sdk` package.
@@ -260,51 +264,8 @@ export class CursorCliAdapter implements CliAdapter {
     let activeRun: CursorRun | undefined;
     let agent: CursorSdkAgent | undefined;
 
-    const outputBuffer: string[] = [];
-    const outputCallbacks: Array<(data: string) => void> = [];
-
-    const onOutput = (callback: (data: string) => void): void => {
-      outputCallbacks.push(callback);
-      if (outputBuffer.length > 0) {
-        for (const buffered of outputBuffer) {
-          callback(buffered);
-        }
-        outputBuffer.length = 0;
-      }
-    };
-
-    const emitOutput = (data: string): void => {
-      if (outputCallbacks.length === 0) {
-        outputBuffer.push(data);
-      } else {
-        for (const cb of outputCallbacks) {
-          cb(data);
-        }
-      }
-    };
-
-    const segmentBuffer: CliOutputSegment[] = [];
-    const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
-
-    const onSegment = (callback: (segment: CliOutputSegment) => void): void => {
-      segmentCallbacks.push(callback);
-      if (segmentBuffer.length > 0) {
-        for (const buffered of segmentBuffer) {
-          callback(buffered);
-        }
-        segmentBuffer.length = 0;
-      }
-    };
-
-    const emitSegment = (segment: CliOutputSegment): void => {
-      if (segmentCallbacks.length === 0) {
-        segmentBuffer.push(segment);
-      } else {
-        for (const cb of segmentCallbacks) {
-          cb(segment);
-        }
-      }
-    };
+    const output = createBufferedEmitter<string>();
+    const segment = createBufferedEmitter<CliOutputSegment>();
 
     const onAbort = (): void => {
       if (activeRun) {
@@ -323,8 +284,8 @@ export class CursorCliAdapter implements CliAdapter {
       if (!apiKey) {
         const msg =
           'Cursor API key not found. Set CURSOR_API_KEY or provider.cursor.apiKey in ~/.ptah/settings.json.';
-        emitOutput(`\n[Cursor SDK Error] ${msg}\n`);
-        emitSegment({ type: 'error', content: msg });
+        output.emit(`\n[Cursor SDK Error] ${msg}\n`);
+        segment.emit({ type: 'error', content: msg });
         return 1;
       }
 
@@ -367,8 +328,8 @@ export class CursorCliAdapter implements CliAdapter {
           }
           this.handleMessage(
             message,
-            emitOutput,
-            emitSegment,
+            output.emit,
+            segment.emit,
             textTracker,
             seenToolCalls,
           );
@@ -381,8 +342,8 @@ export class CursorCliAdapter implements CliAdapter {
         }
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        emitOutput(`\n[Cursor SDK Error] ${errorMessage}\n`);
-        emitSegment({
+        output.emit(`\n[Cursor SDK Error] ${errorMessage}\n`);
+        segment.emit({
           type: 'error',
           content: `Cursor SDK Error: ${errorMessage}`,
         });
@@ -395,8 +356,8 @@ export class CursorCliAdapter implements CliAdapter {
     return {
       abort: abortController,
       done,
-      onOutput,
-      onSegment,
+      onOutput: output.subscribe,
+      onSegment: segment.subscribe,
       getSessionId: () => capturedAgentId,
       setAgentId: () => {},
       supportsContinuation: () => true,

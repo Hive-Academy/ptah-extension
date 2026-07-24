@@ -85,6 +85,9 @@ import {
   buildCodeNamespace,
   buildHarnessNamespace,
 } from './namespace-builders';
+import { buildSessionAwareWorkspaceProvider } from './session-aware-workspace-provider';
+import { getCallerSessionId } from './mcp-core/mcp-request-context';
+import { resolveSessionWorkspaceRoot as resolveWorkspaceRootWithPrecedence } from './workspace-root-resolver';
 import {
   AgentProcessManager,
   CliDetectionService,
@@ -188,6 +191,7 @@ export const IDE_CAPABILITIES_TOKEN = Symbol.for('IDECapabilities');
 interface SdkSessionLifecycleManagerLike {
   getActiveSessionIds(): string[];
   getActiveSessionWorkspace(): string | undefined;
+  getSessionWorkspace(idOrTabId: string): string | undefined;
   find(id: string): { realSessionId: string | null } | undefined;
 }
 
@@ -401,9 +405,18 @@ export class PtahAPIBuilder {
       contextOrchestration: this.contextOrchestration,
     };
 
+    // Session-aware provider: `getWorkspaceRoot()` prefers the calling session's
+    // workspace over the process-global active folder. Path-resolving agent
+    // namespaces use this so a relative path resolves against the right
+    // workspace when multiple workspaces are open in Electron.
+    const sessionAwareWorkspaceProvider = buildSessionAwareWorkspaceProvider(
+      this.workspaceProvider,
+      () => this.resolveSessionWorkspaceRoot(),
+    );
+
     const systemDeps = {
       fileSystemManager: this.fileSystemManager,
-      workspaceProvider: this.workspaceProvider,
+      workspaceProvider: sessionAwareWorkspaceProvider,
       fileSystemProvider: this.fileSystemProvider,
     };
 
@@ -418,14 +431,14 @@ export class PtahAPIBuilder {
       workspaceAnalyzer: this.workspaceAnalyzer,
       contextEnrichment: this.contextEnrichment,
       dependencyGraph: this.dependencyGraph,
-      workspaceProvider: this.workspaceProvider,
+      workspaceProvider: sessionAwareWorkspaceProvider,
     };
 
     const astDeps = {
       treeSitterParser: this.treeSitterParser,
       astAnalysis: this.astAnalysis,
       fileSystemProvider: this.fileSystemProvider,
-      workspaceProvider: this.workspaceProvider,
+      workspaceProvider: sessionAwareWorkspaceProvider,
     };
     const getWorkspaceRootLazy = () => this.getWorkspaceRoot();
     const orchestrationDeps = {
@@ -564,7 +577,7 @@ export class PtahAPIBuilder {
       json: this.buildNamespaceSafe('json', () =>
         buildJsonNamespace({
           fileSystemProvider: this.fileSystemProvider,
-          workspaceProvider: this.workspaceProvider,
+          workspaceProvider: sessionAwareWorkspaceProvider,
         }),
       ),
       browser: this.buildNamespaceSafe('browser', () =>
@@ -709,20 +722,32 @@ export class PtahAPIBuilder {
    * or multiple sessions target different workspace folders.
    */
   private getWorkspaceRoot(): string {
-    try {
-      const sessionWorkspace =
-        this.sdkSessionLifecycleManager?.getActiveSessionWorkspace();
-      if (sessionWorkspace) {
-        return sessionWorkspace;
-      }
-    } catch {
-      // fall through to workspace provider
-    }
-    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-    if (workspaceRoot) {
-      return workspaceRoot;
-    }
-    return os.homedir();
+    return this.resolveSessionWorkspaceRoot() ?? os.homedir();
+  }
+
+  /**
+   * Session-aware workspace root, or `undefined` when neither a session nor a
+   * platform workspace resolves. Unlike {@link getWorkspaceRoot} this does NOT
+   * fall back to the home directory — path-resolving namespaces need the
+   * `undefined` so a relative path against a missing workspace surfaces a clear
+   * "No workspace folder open" error instead of silently resolving under $HOME.
+   *
+   * Resolution order:
+   * 1. The workspace of the session that issued THIS MCP call, resolved from
+   *    the request-scoped caller session id (concurrency-safe: bound to the
+   *    exact caller, not whichever session is globally most-recently-active).
+   * 2. Most-recently-active SDK session's projectPath (used off the MCP call
+   *    path — e.g. stdio/CLI or internal calls — where no caller id exists).
+   * 3. IWorkspaceProvider.getWorkspaceRoot() (global active folder).
+   */
+  private resolveSessionWorkspaceRoot(): string | undefined {
+    const mgr = this.sdkSessionLifecycleManager;
+    return resolveWorkspaceRootWithPrecedence({
+      getCallerSessionId,
+      getSessionWorkspace: (id) => mgr?.getSessionWorkspace(id),
+      getActiveSessionWorkspace: () => mgr?.getActiveSessionWorkspace(),
+      getProviderRoot: () => this.workspaceProvider.getWorkspaceRoot(),
+    });
   }
 
   /**

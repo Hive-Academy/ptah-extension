@@ -14,6 +14,9 @@ function makeState(): jest.Mocked<TransformerState> {
     hasActiveSkillToolUseId: jest.fn().mockReturnValue(false),
     activeSkillToolUseIdsCount: jest.fn().mockReturnValue(0),
     snapshotActiveSkillToolUseIds: jest.fn().mockReturnValue([]),
+    getWorkflowRun: jest.fn().mockReturnValue(undefined),
+    registerWorkflowRunRoot: jest.fn(),
+    associateWorkflowRunChild: jest.fn(),
     setMessageId: jest.fn(),
     clearMessageId: jest.fn(),
     setCurrentModel: jest.fn(),
@@ -41,8 +44,10 @@ function makeHelpers(): jest.Mocked<TransformerHelpers> {
     },
     subagentRegistry: {
       markPendingBackground: jest.fn(),
+      markPendingTeammateName: jest.fn(),
       setTaskId: jest.fn(),
       pruneSession: jest.fn(),
+      get: jest.fn().mockReturnValue(undefined),
     },
     modelResolver: {
       resolveForPricing: jest.fn().mockImplementation((m: string) => m),
@@ -141,6 +146,204 @@ describe('AssistantMessageTransformer', () => {
     expect(state.addBackgroundTaskToolUseId).toHaveBeenCalledWith('tool-bg-1');
     expect(helpers.subagentRegistry.markPendingBackground).toHaveBeenCalledWith(
       'tool-bg-1',
+    );
+  });
+
+  // TASK: teammates phase 1 (6c4733a02) — capture-side of AgentInput.name.
+  // The transformer observes `name` on a Task tool_use input BEFORE the
+  // SubagentStart hook fires and hands it to the registry as a "pending"
+  // name, keyed by the tool_use id (block.id).
+  it('captures AgentInput.name off a Task tool_use into markPendingTeammateName', () => {
+    const msg = {
+      uuid: 'u-name-1',
+      message: {
+        id: 'm-name-1',
+        model: 'claude-opus',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tool-name-1',
+            name: 'Task',
+            input: {
+              subagent_type: 'backend-developer',
+              description: 'desc',
+              prompt: 'go',
+              name: 'backend-developer',
+            },
+          },
+        ],
+      },
+    } as never;
+
+    transformer.transform(msg, state, helpers, 'sess-name-1' as never);
+
+    expect(
+      helpers.subagentRegistry.markPendingTeammateName,
+    ).toHaveBeenCalledWith('tool-name-1', 'backend-developer');
+  });
+
+  it('carries teammateName on the emitted agent_start event', () => {
+    const msg = {
+      uuid: 'u-name-start',
+      message: {
+        id: 'm-name-start',
+        model: 'claude-opus',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tool-name-start',
+            name: 'Task',
+            input: {
+              subagent_type: 'backend-developer',
+              description: 'desc',
+              prompt: 'go',
+              name: 'backend-developer',
+            },
+          },
+        ],
+      },
+    } as never;
+
+    const events = transformer.transform(
+      msg,
+      state,
+      helpers,
+      'sess-name-start' as never,
+    );
+
+    const agentStart = events.find((e) => e.eventType === 'agent_start');
+    expect(agentStart).toMatchObject({ teammateName: 'backend-developer' });
+  });
+
+  it('trims whitespace off AgentInput.name before capturing it', () => {
+    const msg = {
+      uuid: 'u-name-2',
+      message: {
+        id: 'm-name-2',
+        model: 'claude-opus',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tool-name-2',
+            name: 'Task',
+            input: {
+              description: 'desc',
+              prompt: 'go',
+              name: '  reviewer  ',
+            },
+          },
+        ],
+      },
+    } as never;
+
+    transformer.transform(msg, state, helpers, 'sess-name-2' as never);
+
+    expect(
+      helpers.subagentRegistry.markPendingTeammateName,
+    ).toHaveBeenCalledWith('tool-name-2', 'reviewer');
+  });
+
+  it('does not capture a teammate name when input.name is absent', () => {
+    const msg = {
+      uuid: 'u-name-3',
+      message: {
+        id: 'm-name-3',
+        model: 'claude-opus',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tool-name-3',
+            name: 'Task',
+            input: { description: 'desc', prompt: 'go' },
+          },
+        ],
+      },
+    } as never;
+
+    transformer.transform(msg, state, helpers, 'sess-name-3' as never);
+
+    expect(
+      helpers.subagentRegistry.markPendingTeammateName,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('does not capture a teammate name that is only whitespace', () => {
+    const msg = {
+      uuid: 'u-name-4',
+      message: {
+        id: 'm-name-4',
+        model: 'claude-opus',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tool-name-4',
+            name: 'Task',
+            input: { description: 'desc', prompt: 'go', name: '   ' },
+          },
+        ],
+      },
+    } as never;
+
+    transformer.transform(msg, state, helpers, 'sess-name-4' as never);
+
+    expect(
+      helpers.subagentRegistry.markPendingTeammateName,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('does not capture a non-string input.name', () => {
+    const msg = {
+      uuid: 'u-name-5',
+      message: {
+        id: 'm-name-5',
+        model: 'claude-opus',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tool-name-5',
+            name: 'Task',
+            input: { description: 'desc', prompt: 'go', name: 42 },
+          },
+        ],
+      },
+    } as never;
+
+    transformer.transform(msg, state, helpers, 'sess-name-5' as never);
+
+    expect(
+      helpers.subagentRegistry.markPendingTeammateName,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('captures both name and background flags when a Task tool_use carries both', () => {
+    const msg = {
+      uuid: 'u-name-6',
+      message: {
+        id: 'm-name-6',
+        model: 'claude-opus',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tool-name-6',
+            name: 'Task',
+            input: {
+              description: 'desc',
+              prompt: 'go',
+              name: 'long-runner',
+              run_in_background: true,
+            },
+          },
+        ],
+      },
+    } as never;
+
+    transformer.transform(msg, state, helpers, 'sess-name-6' as never);
+
+    expect(
+      helpers.subagentRegistry.markPendingTeammateName,
+    ).toHaveBeenCalledWith('tool-name-6', 'long-runner');
+    expect(helpers.subagentRegistry.markPendingBackground).toHaveBeenCalledWith(
+      'tool-name-6',
     );
   });
 

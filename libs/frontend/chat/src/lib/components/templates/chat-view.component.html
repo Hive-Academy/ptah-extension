@@ -35,13 +35,17 @@
         </div>
       }
 
-      <!-- Persistent background-agents tray (main panel only; tiles reuse this
-           same component so it must not render per-tile). Lives under the stats
-           summary so it never competes with the streamed output at the bottom.
-           Focus/steer/stop/background are handled inside the tray against each
-           agent's owning session. -->
-      @if (showBackgroundStrip) {
-        <ptah-background-agent-tray class="flex-shrink-0" />
+      <!-- Persistent background-agents tray. On the main panel it renders once
+           and shows every session's agents; inside a canvas tile it renders
+           scoped to that tile's own session (traySessionId). Lives under the
+           stats summary so it never competes with the streamed output at the
+           bottom. Focus/steer/stop/background are handled inside the tray
+           against each agent's owning session. -->
+      @if (showBackgroundStrip()) {
+        <ptah-background-agent-tray
+          class="flex-shrink-0"
+          [sessionId]="traySessionId()"
+        />
       }
 
       <!-- Compaction Notification Banner -->

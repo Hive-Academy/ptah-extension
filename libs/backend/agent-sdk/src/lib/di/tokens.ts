@@ -105,6 +105,9 @@ export const SDK_TOKENS = {
   SDK_STOP_HOOK_HANDLER: Symbol.for('SdkStopHookHandler'),
   SDK_STOP_FAILURE_HOOK_HANDLER: Symbol.for('SdkStopFailureHookHandler'),
   SDK_SUBAGENT_STOP_HOOK_HANDLER: Symbol.for('SdkSubagentStopHookHandler'),
+  SDK_TEAMMATE_LIFECYCLE_HOOK_HANDLER: Symbol.for(
+    'SdkTeammateLifecycleHookHandler',
+  ),
   SDK_SESSION_END_HOOK_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionEndHookCallbackRegistry',
   ),

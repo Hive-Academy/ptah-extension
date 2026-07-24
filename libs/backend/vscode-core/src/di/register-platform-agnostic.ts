@@ -16,7 +16,6 @@ import { TOKENS } from './tokens';
 import { RpcHandler } from '../messaging/rpc-handler';
 import { MessageValidatorService } from '../validation/message-validator.service';
 import { SubagentRegistryService } from '../services/subagent-registry.service';
-import { FeatureGateService } from '../services/feature-gate.service';
 import { LicenseService } from '../services/license.service';
 import { AuthSecretsService } from '../services/auth-secrets.service';
 import { SentryService } from '../services/sentry.service';
@@ -65,8 +64,6 @@ export function registerVsCodeCorePlatformAgnostic(
     SubagentRegistryService,
   );
 
-  container.registerSingleton(TOKENS.FEATURE_GATE_SERVICE, FeatureGateService);
-
   // Null-object default for the webview-resume contention guard. The Electron
   // host overrides this with the gateway's AttachedSessionRegistry (last
   // registration wins); the VS Code host keeps this no-op so the shared chat
@@ -95,7 +92,6 @@ export function registerVsCodeCorePlatformAgnostic(
       'RPC_HANDLER',
       'MESSAGE_VALIDATOR',
       'SUBAGENT_REGISTRY_SERVICE',
-      'FEATURE_GATE_SERVICE',
       ...(includeLicensingAndAuth
         ? [
             'SENTRY_SERVICE',

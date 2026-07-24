@@ -15,6 +15,7 @@ export {
   isUniqueConstraintError,
 } from './lib/run.store';
 export { HandlerRegistry } from './lib/handler-registry';
+export { normalizeWorkspaceRoot } from './lib/normalize-workspace-root';
 export {
   CronSchedulerError,
   JobNotFoundError,

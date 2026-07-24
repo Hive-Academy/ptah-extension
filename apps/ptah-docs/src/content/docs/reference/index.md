@@ -12,6 +12,6 @@ Short pages, dense content, easy to bookmark. If you already know what a thing i
 | Keyboard shortcuts | Every key combination, by area             |
 | File locations     | Where Ptah reads from and writes to        |
 | CLI flags          | Command-line arguments for the desktop app |
-| Tier comparison    | Free vs Trial vs Pro feature matrix        |
+| Tier comparison    | Community vs Builders feature matrix       |
 | Glossary           | Terms used throughout the docs             |
 | Changelog          | Link to release notes                      |

@@ -5,10 +5,6 @@ description: Navigate the browser to a URL and wait for predictable load states.
 
 import { Aside } from '@astrojs/starlight/components';
 
-<Aside type="caution" title="Pro tier only">
-Browser Automation requires an active Pro license.
-</Aside>
-
 ## `ptah_browser_navigate`
 
 Navigate the browser to a URL and block until the page has reached a requested load state.

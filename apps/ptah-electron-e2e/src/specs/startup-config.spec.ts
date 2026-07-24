@@ -11,7 +11,6 @@ import { test, expect } from '../support/fixtures';
  *
  *   {
  *     initialView:    string | null,
- *     isLicensed:     boolean,
  *     workspaceRoot:  string,    // '' when no workspace is set
  *     workspaceName:  string,    // basename(workspaceRoot) or ''
  *   }
@@ -22,7 +21,6 @@ import { test, expect } from '../support/fixtures';
 
 interface StartupConfig {
   initialView: string | null;
-  isLicensed: boolean;
   workspaceRoot: string;
   workspaceName: string;
 }
@@ -48,7 +46,7 @@ async function readStartupConfig(
 }
 
 test.describe('get-startup-config IPC', () => {
-  test('returns an object with all four expected keys', async ({
+  test('returns an object with the expected keys', async ({
     electronApp,
     mainWindow,
   }) => {
@@ -58,20 +56,16 @@ test.describe('get-startup-config IPC', () => {
     expect(cfg).toBeTruthy();
     expect(typeof cfg).toBe('object');
     expect(cfg).toHaveProperty('initialView');
-    expect(cfg).toHaveProperty('isLicensed');
     expect(cfg).toHaveProperty('workspaceRoot');
     expect(cfg).toHaveProperty('workspaceName');
   });
 
-  test('isLicensed is a boolean even when no license file exists', async ({
+  test('initialView defaults to chat and is a string or null', async ({
     electronApp,
     mainWindow,
   }) => {
     await mainWindow.waitForLoadState('domcontentloaded');
     const cfg = await readStartupConfig(electronApp);
-    expect(typeof cfg.isLicensed).toBe('boolean');
-    // initialView can be either null (premium / licensed) or a string
-    // (e.g. 'welcome' for unlicensed) -- both are valid envelope shapes.
     expect(['string', 'object']).toContain(typeof cfg.initialView);
     if (cfg.initialView !== null) {
       expect(typeof cfg.initialView).toBe('string');
@@ -104,8 +98,8 @@ test.describe('get-startup-config IPC', () => {
 
     expect(Object.keys(a).sort()).toEqual(Object.keys(b).sort());
     // The values should also be stable across calls in the absence of a
-    // license event mid-test (the watcher only fires on verify/expire).
-    expect(typeof a.isLicensed).toBe(typeof b.isLicensed);
+    // workspace change mid-test.
+    expect(typeof a.initialView).toBe(typeof b.initialView);
     expect(typeof a.workspaceRoot).toBe(typeof b.workspaceRoot);
   });
 });

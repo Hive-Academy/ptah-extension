@@ -68,18 +68,16 @@ jest.mock('tsyringe', () => ({
 
 // Mock the Logger token + service classes that AgentProcessManager now
 // depends on after the god-service split-up. The source file
-// constructor-injects LicenseService, SubagentRegistryService, and
-// SentryService alongside the original logger/cliDetection.
+// constructor-injects SubagentRegistryService and SentryService alongside
+// the original logger/cliDetection.
 jest.mock('@ptah-extension/vscode-core', () => ({
   TOKENS: {
     LOGGER: Symbol('LOGGER'),
     CLI_DETECTION_SERVICE: Symbol('CLI_DETECTION_SERVICE'),
-    LICENSE_SERVICE: Symbol('LICENSE_SERVICE'),
     SUBAGENT_REGISTRY_SERVICE: Symbol('SUBAGENT_REGISTRY_SERVICE'),
     SENTRY_SERVICE: Symbol('SENTRY_SERVICE'),
   },
   Logger: class {},
-  LicenseService: class {},
   SubagentRegistryService: class {},
   SentryService: class {},
 }));
@@ -310,16 +308,6 @@ function createMockWorkspaceProvider(): Record<string, jest.Mock> {
   };
 }
 
-/** Build a LicenseService stub that reports premium so MCP resolution
- *  reaches the HTTP health check (mocked to fail above — no real network). */
-function createMockLicenseService(): Record<string, jest.Mock> {
-  const status = { tier: 'pro', plan: { isPremium: true } };
-  return {
-    getCachedStatus: jest.fn().mockReturnValue(status),
-    verifyLicense: jest.fn().mockResolvedValue(status),
-  };
-}
-
 /** Minimal SubagentRegistryService stub — spawn() only touches it when a
  *  parentSessionId is provided (none of these tests do). */
 function createMockSubagentRegistry(): Record<string, jest.Mock> {
@@ -356,9 +344,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     setupVscodeConfig();
 
     // Instantiate manager directly (tsyringe decorators are mocked to no-ops).
-    // The constructor takes 7 deps: logger, cliDetection, licenseService,
-    // subagentRegistry, workspaceProvider, sentryService, reasoningSettings.
-    const licenseService = createMockLicenseService();
+    // The constructor takes 6 deps: logger, cliDetection, subagentRegistry,
+    // workspaceProvider, sentryService, reasoningSettings.
     const subagentRegistry = createMockSubagentRegistry();
     const workspaceProvider = createMockWorkspaceProvider();
     const sentryService = createMockSentryService();
@@ -367,21 +354,18 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     manager = new AgentProcessManager(
       logger,
       cliDetection,
-      licenseService as unknown as ConstructorParameters<
-        typeof AgentProcessManager
-      >[2],
       subagentRegistry as unknown as ConstructorParameters<
         typeof AgentProcessManager
-      >[3],
+      >[2],
       workspaceProvider as unknown as ConstructorParameters<
         typeof AgentProcessManager
-      >[4],
+      >[3],
       sentryService as unknown as ConstructorParameters<
         typeof AgentProcessManager
-      >[5],
+      >[4],
       reasoningSettings as unknown as ConstructorParameters<
         typeof AgentProcessManager
-      >[6],
+      >[5],
     );
   });
 
@@ -484,6 +468,73 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       expect(runSdkCall.reasoningEffort).toBeUndefined();
     });
+
+    const spawnPi = async () => {
+      setTimeout(() => sdkControls.resolve(0), 10);
+      await manager.spawn({
+        task: 'Task',
+        cli: 'pi',
+        workingDirectory: '/workspace/root',
+      });
+      return (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+    };
+
+    // Pi maps effort to `--thinking` and supports the full off..max scale, so
+    // the configured value must flow through RAW — no `max`→`xhigh` coercion
+    // (unlike Codex/Copilot). These cases guard that documented divergence.
+    it.each([
+      ['max', 'max'],
+      ['off', 'off'],
+      ['high', 'high'],
+    ])(
+      "passes Pi reasoning effort '%s' through raw (no max->xhigh coercion)",
+      async (configured, expected) => {
+        // UI driver is Codex/Copilot-only; it must NOT influence Pi.
+        reasoningEffortGet.mockReturnValue('max');
+        setupVscodeConfig({ piReasoningEffort: configured });
+
+        const runSdkCall = await spawnPi();
+
+        expect(runSdkCall.reasoningEffort).toBe(expected);
+      },
+    );
+
+    it('is undefined for Pi when no reasoning effort is configured', async () => {
+      setupVscodeConfig({ piReasoningEffort: '' });
+
+      const runSdkCall = await spawnPi();
+
+      expect(runSdkCall.reasoningEffort).toBeUndefined();
+    });
+  });
+
+  describe('model resolution', () => {
+    const spawnWith = async (cli: 'pi' | 'opencode' | 'antigravity') => {
+      setTimeout(() => sdkControls.resolve(0), 10);
+      await manager.spawn({
+        task: 'Task',
+        cli,
+        workingDirectory: '/workspace/root',
+      });
+      return (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+    };
+
+    // MODEL_CONFIG_KEYS maps each CLI to its `agentOrchestration.*Model` key;
+    // these cases guard the three new CLI entries added for this task.
+    it.each([
+      ['pi', 'piModel', 'anthropic/claude-sonnet'],
+      ['opencode', 'opencodeModel', 'gpt-5-codex'],
+      ['antigravity', 'antigravityModel', 'gemini-2.5-pro'],
+    ] as const)(
+      'reads %s model via MODEL_CONFIG_KEYS (%s)',
+      async (cli, configKey, model) => {
+        setupVscodeConfig({ [configKey]: model });
+
+        const runSdkCall = await spawnWith(cli);
+
+        expect(runSdkCall.model).toBe(model);
+      },
+    );
   });
 
   describe('SDK output in readOutput()', () => {
@@ -658,6 +709,26 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(() => manager.steer(result.agentId, 'do something else')).toThrow(
         /not supported/i,
       );
+    });
+
+    it('routes steering to sdkHandle.steer when the handle exposes it', async () => {
+      // Simulate a steer-capable SDK adapter (e.g. Pi RPC mode): the adapter
+      // reports supportsSteer() true and the handle owns a live steer channel.
+      const steerSpy = jest.fn();
+      (sdkControls.handle as { steer?: (message: string) => void }).steer =
+        steerSpy;
+      sdkAdapter.supportsSteer.mockReturnValue(true);
+
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      expect(() =>
+        manager.steer(result.agentId, 'also handle errors'),
+      ).not.toThrow();
+      expect(steerSpy).toHaveBeenCalledWith('also handle errors');
     });
   });
 

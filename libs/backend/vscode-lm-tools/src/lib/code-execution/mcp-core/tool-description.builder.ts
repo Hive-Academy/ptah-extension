@@ -1054,13 +1054,19 @@ export function buildAstAnalyzeTool(): MCPToolDefinition {
   return {
     name: 'ptah_ast_analyze',
     description:
-      'Analyze a JavaScript/TypeScript file with Tree-sitter and return its structure — functions, classes, imports, and exports with line ranges — WITHOUT reading the full file (40-60% fewer tokens). Use this before reading a file to understand its shape and decide what to read.',
+      'Analyze a JavaScript/TypeScript file with Tree-sitter and return its structure — functions, classes, imports, and exports with line ranges — WITHOUT reading the full file (40-60% fewer tokens). Use this before reading a file to understand its shape and decide what to read. Prefer an absolute file path; when multiple workspaces are open, either pass an absolute path or set workspaceRoot so a relative path resolves against the intended workspace.',
     inputSchema: {
       type: 'object',
       properties: {
         file: {
           type: 'string',
-          description: 'File path (absolute or relative to workspace root)',
+          description:
+            'File path. Absolute is safest. A relative path resolves against workspaceRoot when provided, otherwise the active workspace root.',
+        },
+        workspaceRoot: {
+          type: 'string',
+          description:
+            'Optional absolute workspace root to resolve a relative file path against. Omit to use the active workspace. Set this to disambiguate when multiple workspaces are open (ignored when file is already absolute).',
         },
       },
       required: ['file'],

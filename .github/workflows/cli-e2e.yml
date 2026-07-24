@@ -51,7 +51,10 @@ jobs:
         os: [ubuntu-latest]
         node-version: ['22']
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    # Matches the other E2E jobs' headroom. The restore-cli-manifest chain
+    # (34 tasks) plus the full jest e2e harness overruns 10m on a cold
+    # node_modules / Nx cache even though the specs themselves pass quickly.
+    timeout-minutes: 20
     defaults:
       run:
         # Use bash on both Linux and Windows (Git Bash) so step scripts behave

@@ -10,8 +10,6 @@ import {
   LucideAngularModule,
   Sparkles,
   Shield,
-  Clock,
-  CreditCard,
   UserPlus,
   Key,
   ExternalLink,
@@ -22,14 +20,16 @@ import {
   Loader2,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
 import { ChatStore } from '../../services/chat.store';
 import { ConfirmationDialogService } from '@ptah-extension/chat-state';
 
 /**
- * LicenseStatusCardComponent - License tier, trial status, user profile, and action buttons
+ * LicenseStatusCardComponent — Ptah Builders membership card.
  *
- * Extracted from SettingsComponent to reduce its complexity.
+ * Displays membership status, user identity, and sign-in / key-entry actions.
+ * Ptah's local features are free for everyone; this card carries membership
+ * identity only — no trial countdowns, no lockouts, no upgrade CTAs.
+ *
  * Self-contained: injects its own dependencies (ChatStore, ClaudeRpcService).
  */
 @Component({
@@ -44,65 +44,31 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
           <div class="flex items-center gap-1.5 mb-2">
             <lucide-angular [img]="ShieldIcon" class="w-4 h-4 text-secondary" />
             <h2 class="text-xs font-medium uppercase tracking-wide">
-              License Status
+              Membership
             </h2>
           </div>
 
-          <!-- Tier badge and validity -->
+          <!-- Membership badge and validity -->
           <div class="flex items-center gap-2 mb-2">
-            @if (licenseTier() === 'pro') {
+            @if (isPremium()) {
               <span class="badge badge-primary badge-xs gap-1">
                 <lucide-angular [img]="SparklesIcon" class="w-2.5 h-2.5" />
-                <span>Pro</span>
+                <span>Builder</span>
               </span>
-            } @else if (licenseTier() === 'trial_pro') {
-              <span class="badge badge-primary badge-xs gap-1">
-                <lucide-angular [img]="ClockIcon" class="w-2.5 h-2.5" />
-                <span>Pro Trial</span>
-              </span>
-            } @else if (licenseTier() === 'community') {
-              <span class="badge badge-ghost badge-xs">Community</span>
             } @else {
-              <span class="badge badge-error badge-xs">Expired</span>
+              <span class="badge badge-ghost badge-xs">Community</span>
             }
             @if (licenseValid() && !licenseReason()) {
-              <span class="text-xs text-success">Valid</span>
+              <span class="text-xs text-success">Active</span>
             } @else if (licenseValid() && licenseReason()) {
               <span class="text-xs text-warning">Needs Attention</span>
-            } @else {
-              <span class="text-xs text-error">Invalid</span>
             }
           </div>
 
-          <!-- License issue warning: key not found or expired -->
-          @if (isCommunity() && licenseReason() === 'no_license') {
-            <div
-              class="border border-warning rounded-md p-2.5 mb-2 bg-warning bg-opacity-5"
-            >
-              <div class="flex items-center gap-1.5 mb-1.5">
-                <lucide-angular
-                  [img]="AlertTriangleIcon"
-                  class="w-3.5 h-3.5 text-warning"
-                />
-                <span class="text-xs font-medium text-warning"
-                  >License Not Found</span
-                >
-              </div>
-              <p class="text-xs text-base-content/60 mb-2">
-                Your license key could not be verified. Please re-enter your
-                license key to restore your plan.
-              </p>
-              <button
-                class="btn btn-warning btn-xs w-full gap-1"
-                (click)="enterLicenseKey()"
-              >
-                <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
-                Re-enter License Key
-              </button>
-            </div>
-          } @else if (
+          <!-- Membership key issue: key not found or inactive -->
+          @if (
             isCommunity() &&
-            (licenseReason() === 'expired' || licenseReason() === 'trial_ended')
+            (licenseReason() === 'no_license' || licenseReason() === 'expired')
           ) {
             <div
               class="border border-warning rounded-md p-2.5 mb-2 bg-warning bg-opacity-5"
@@ -113,29 +79,21 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
                   class="w-3.5 h-3.5 text-warning"
                 />
                 <span class="text-xs font-medium text-warning"
-                  >License Expired</span
+                  >Membership Key Not Active</span
                 >
               </div>
               <p class="text-xs text-base-content/60 mb-2">
-                Your previous license has expired. Re-enter a valid license key
-                or upgrade to restore Pro features.
+                Your membership key could not be verified. Re-enter your key to
+                restore your Ptah Builders membership. Ptah's local features
+                remain available either way.
               </p>
-              <div class="flex gap-2">
-                <button
-                  class="btn btn-warning btn-xs flex-1 gap-1"
-                  (click)="enterLicenseKey()"
-                >
-                  <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
-                  Re-enter Key
-                </button>
-                <button
-                  class="btn btn-primary btn-xs flex-1 gap-1"
-                  (click)="openPricing()"
-                >
-                  <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
-                  Upgrade
-                </button>
-              </div>
+              <button
+                class="btn btn-warning btn-xs w-full gap-1"
+                (click)="enterLicenseKey()"
+              >
+                <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
+                Re-enter Membership Key
+              </button>
             </div>
           }
 
@@ -164,116 +122,11 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
               <button
                 class="btn btn-ghost btn-xs text-error gap-1 shrink-0"
                 (click)="removeLicenseKey()"
-                aria-label="Remove license key and log out"
+                aria-label="Remove membership key and log out"
               >
                 <lucide-angular [img]="LogOutIcon" class="w-3 h-3" />
                 <span>Log Out</span>
               </button>
-            </div>
-          }
-
-          <!-- Enhanced Trial Status Section -->
-          @if (showTrialInfo()) {
-            <div
-              class="border rounded-md p-2.5 mb-2"
-              [class.border-info]="trialUrgencyLevel() === 'info'"
-              [class.border-warning]="trialUrgencyLevel() === 'warning'"
-              [class.border-error]="trialUrgencyLevel() === 'error'"
-              [class.bg-info]="trialUrgencyLevel() === 'info'"
-              [class.bg-warning]="trialUrgencyLevel() === 'warning'"
-              [class.bg-error]="trialUrgencyLevel() === 'error'"
-              [class.bg-opacity-5]="true"
-            >
-              <!-- Header with icon and status badge -->
-              <div class="flex items-center justify-between mb-2">
-                <div class="flex items-center gap-1.5">
-                  <lucide-angular
-                    [img]="ClockIcon"
-                    class="w-3.5 h-3.5"
-                    [class.text-info]="trialUrgencyLevel() === 'info'"
-                    [class.text-warning]="trialUrgencyLevel() === 'warning'"
-                    [class.text-error]="trialUrgencyLevel() === 'error'"
-                  />
-                  <span class="text-xs font-medium">Pro Trial Status</span>
-                </div>
-                <span
-                  class="badge badge-xs"
-                  [class.badge-info]="trialUrgencyLevel() === 'info'"
-                  [class.badge-warning]="trialUrgencyLevel() === 'warning'"
-                  [class.badge-error]="trialUrgencyLevel() === 'error'"
-                >
-                  {{ trialStatusText() }}
-                </span>
-              </div>
-
-              <!-- Progress bar -->
-              <div
-                class="w-full h-1.5 bg-base-300 rounded-full overflow-hidden mb-2"
-              >
-                <div
-                  class="h-full transition-all duration-300 rounded-full"
-                  [class.bg-info]="trialUrgencyLevel() === 'info'"
-                  [class.bg-warning]="trialUrgencyLevel() === 'warning'"
-                  [class.bg-error]="trialUrgencyLevel() === 'error'"
-                  [style.width.%]="trialProgress()"
-                ></div>
-              </div>
-
-              <!-- End date -->
-              @if (trialEndDate()) {
-                <p class="text-xs text-base-content/60 mb-2">
-                  Ends on {{ trialEndDate() }}
-                </p>
-              }
-
-              <!-- Upgrade CTA -->
-              <button
-                class="btn btn-primary btn-xs w-full gap-1"
-                (click)="openPricing()"
-              >
-                <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
-                Upgrade to Pro
-              </button>
-            </div>
-          }
-
-          <!-- Trial Expired Section -->
-          @if (
-            licenseTier() === 'expired' && licenseReason() === 'trial_ended'
-          ) {
-            <div
-              class="border border-error rounded-md p-2.5 mb-2 bg-error bg-opacity-5"
-            >
-              <div class="flex items-center gap-1.5 mb-2">
-                <lucide-angular
-                  [img]="ClockIcon"
-                  class="w-3.5 h-3.5 text-error"
-                />
-                <span class="text-xs font-medium text-error"
-                  >Trial Expired</span
-                >
-              </div>
-              <p class="text-xs text-base-content/60 mb-2">
-                Your 100-day Pro trial has ended. Upgrade to restore Pro
-                features.
-              </p>
-              <button
-                class="btn btn-primary btn-xs w-full gap-1"
-                (click)="openPricing()"
-              >
-                <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
-                Upgrade to Pro
-              </button>
-            </div>
-          }
-
-          <!-- Subscription days remaining (paid, non-trial) -->
-          @if (!trialActive() && daysRemaining() !== null && isPremium()) {
-            <div
-              class="flex items-center gap-1.5 text-xs text-base-content/70 mb-2"
-            >
-              <lucide-angular [img]="CreditCardIcon" class="w-3 h-3" />
-              <span>{{ daysRemaining() }} days remaining</span>
             </div>
           }
 
@@ -286,7 +139,16 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
 
           <!-- Context-aware action buttons -->
           <div class="flex flex-wrap gap-2">
-            @if (isCommunity()) {
+            @if (isPremium()) {
+              <!-- Active members -->
+              <button
+                class="btn btn-ghost btn-xs gap-1"
+                (click)="openPricing()"
+              >
+                <lucide-angular [img]="ExternalLinkIcon" class="w-3 h-3" />
+                <span>Manage Membership</span>
+              </button>
+            } @else {
               <!-- Community users -->
               <button
                 class="btn btn-primary btn-xs gap-1"
@@ -300,60 +162,19 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
                 (click)="enterLicenseKey()"
               >
                 <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
-                <span>Enter License Key</span>
+                <span>Enter Membership Key</span>
               </button>
               <button
                 class="btn btn-ghost btn-xs gap-1"
-                (click)="openPricing()"
-              >
-                <lucide-angular [img]="ExternalLinkIcon" class="w-3 h-3" />
-                <span>View Pricing</span>
-              </button>
-            } @else if (trialActive()) {
-              <!-- Trial users -->
-              <button
-                class="btn btn-primary btn-xs gap-1"
                 (click)="openPricing()"
               >
                 <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
-                <span>Upgrade to Pro</span>
-              </button>
-              <button
-                class="btn btn-outline btn-xs gap-1"
-                (click)="enterLicenseKey()"
-              >
-                <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
-                <span>Enter License Key</span>
-              </button>
-            } @else if (isPremium()) {
-              <!-- Pro users -->
-              <button
-                class="btn btn-ghost btn-xs gap-1"
-                (click)="openPricing()"
-              >
-                <lucide-angular [img]="ExternalLinkIcon" class="w-3 h-3" />
-                <span>Manage Subscription</span>
-              </button>
-            } @else if (licenseTier() === 'expired') {
-              <!-- Expired users -->
-              <button
-                class="btn btn-primary btn-xs gap-1"
-                (click)="openPricing()"
-              >
-                <lucide-angular [img]="CreditCardIcon" class="w-3 h-3" />
-                <span>Renew Subscription</span>
-              </button>
-              <button
-                class="btn btn-outline btn-xs gap-1"
-                (click)="enterLicenseKey()"
-              >
-                <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
-                <span>Enter License Key</span>
+                <span>Explore Ptah Builders</span>
               </button>
             }
           </div>
 
-          <!-- License Key Input Form (inline modal) -->
+          <!-- Membership Key Input Form (inline) -->
           @if (showLicenseInput()) {
             <div
               class="border border-primary rounded-md p-2.5 mt-2 bg-primary bg-opacity-5"
@@ -364,7 +185,7 @@ import { ConfirmationDialogService } from '@ptah-extension/chat-state';
                     [img]="KeyIcon"
                     class="w-3.5 h-3.5 text-primary"
                   />
-                  <span class="text-xs font-medium">Enter License Key</span>
+                  <span class="text-xs font-medium">Enter Membership Key</span>
                 </div>
                 <button
                   class="btn btn-ghost btn-xs btn-circle"
@@ -422,8 +243,6 @@ export class LicenseStatusCardComponent {
   private readonly confirmationDialog = inject(ConfirmationDialogService);
   readonly SparklesIcon = Sparkles;
   readonly ShieldIcon = Shield;
-  readonly ClockIcon = Clock;
-  readonly CreditCardIcon = CreditCard;
   readonly UserPlusIcon = UserPlus;
   readonly KeyIcon = Key;
   readonly ExternalLinkIcon = ExternalLink;
@@ -437,12 +256,9 @@ export class LicenseStatusCardComponent {
   readonly licenseKeyError = signal('');
   readonly licenseKeySuccess = signal('');
   readonly isSubmittingKey = signal(false);
+
   readonly isPremium = computed(
     () => this.chatStore.licenseStatus()?.isPremium ?? false,
-  );
-
-  readonly licenseTier = computed(
-    () => this.chatStore.licenseStatus()?.tier ?? 'expired',
   );
 
   readonly isLoadingLicenseStatus = computed(
@@ -451,18 +267,6 @@ export class LicenseStatusCardComponent {
 
   readonly licenseValid = computed(
     () => this.chatStore.licenseStatus()?.valid ?? false,
-  );
-
-  readonly trialActive = computed(
-    () => this.chatStore.licenseStatus()?.trialActive ?? false,
-  );
-
-  readonly trialDaysRemaining = computed(
-    () => this.chatStore.licenseStatus()?.trialDaysRemaining ?? null,
-  );
-
-  readonly daysRemaining = computed(
-    () => this.chatStore.licenseStatus()?.daysRemaining ?? null,
   );
 
   readonly planDescription = computed(
@@ -489,25 +293,6 @@ export class LicenseStatusCardComponent {
     () => this.chatStore.licenseStatus()?.reason,
   );
 
-  readonly tierDisplayName = computed(() => {
-    switch (this.licenseTier()) {
-      case 'pro':
-        return 'Pro';
-      case 'trial_pro':
-        return 'Pro Trial';
-      case 'community':
-        return 'Community';
-      case 'expired':
-        return 'Expired';
-      default:
-        return 'Unknown';
-    }
-  });
-
-  readonly showTrialInfo = computed(
-    () => this.trialActive() && this.trialDaysRemaining() !== null,
-  );
-
   readonly userDisplayName = computed(() => {
     const first = this.userFirstName();
     const last = this.userLastName();
@@ -520,41 +305,6 @@ export class LicenseStatusCardComponent {
   readonly showUserName = computed(() => {
     const name = this.userDisplayName();
     return !!name && name !== this.userEmail();
-  });
-
-  readonly trialEndDate = computed(() => {
-    const days = this.trialDaysRemaining();
-    if (days === null) return null;
-    const endDate = new Date();
-    endDate.setDate(endDate.getDate() + days);
-    return endDate.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  });
-
-  readonly trialProgress = computed(() => {
-    const days = this.trialDaysRemaining();
-    if (days === null) return 0;
-    return Math.max(0, Math.min(100, (days / TRIAL_DURATION_DAYS) * 100));
-  });
-
-  readonly trialUrgencyLevel = computed((): 'info' | 'warning' | 'error' => {
-    const days = this.trialDaysRemaining();
-    if (days === null) return 'info';
-    if (days <= 1) return 'error';
-    if (days <= 3) return 'warning';
-    return 'info';
-  });
-
-  readonly trialStatusText = computed(() => {
-    const days = this.trialDaysRemaining();
-    if (days === null) return '';
-    if (days === 0) return 'Expires today';
-    if (days === 1) return 'Expires tomorrow';
-    return `${days} days remaining`;
   });
 
   readonly userInitials = computed(() => {
@@ -575,6 +325,7 @@ export class LicenseStatusCardComponent {
     }
     return '?';
   });
+
   async openSignup(): Promise<void> {
     await this.rpcService.call('command:execute', {
       command: 'ptah.openSignup',
@@ -616,18 +367,18 @@ export class LicenseStatusCardComponent {
 
       if (result.isSuccess() && result.data.success) {
         this.licenseKeySuccess.set(
-          `License activated! Plan: ${result.data.plan?.name ?? result.data.tier}. Reloading...`,
+          `Membership activated! Plan: ${result.data.plan?.name ?? result.data.tier}. Reloading...`,
         );
         this.licenseKeyInput.set('');
       } else {
         const errorMsg = result.isSuccess() ? result.data.error : result.error;
         this.licenseKeyError.set(
-          errorMsg ?? 'License verification failed. Please check your key.',
+          errorMsg ?? 'Membership verification failed. Please check your key.',
         );
       }
     } catch {
       this.licenseKeyError.set(
-        'Failed to verify license key. Please try again.',
+        'Failed to verify membership key. Please try again.',
       );
     } finally {
       this.isSubmittingKey.set(false);
@@ -638,7 +389,7 @@ export class LicenseStatusCardComponent {
     const confirmed = await this.confirmationDialog.confirm({
       title: 'Log Out',
       message:
-        'Remove your license key and log out? You can enter a new license key after reloading.',
+        'Remove your membership key and log out? You can enter a new key after reloading.',
       confirmLabel: 'Log Out',
       cancelLabel: 'Cancel',
       confirmStyle: 'error',
@@ -649,6 +400,10 @@ export class LicenseStatusCardComponent {
     await this.rpcService.call('license:clearKey', {});
   }
 
+  /**
+   * Open an external page (Ptah Builders / membership) in the browser via the
+   * host `ptah.openPricing` command. The target URL is resolved host-side.
+   */
   async openPricing(): Promise<void> {
     await this.rpcService.call('command:execute', {
       command: 'ptah.openPricing',

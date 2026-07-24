@@ -134,8 +134,6 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
   page,
   director,
 }) => {
-  await director.dismissDialogs();
-
   // PRE-WARM (kept — trimmed lead-in, before the first beat): the editor panel's
   // Monaco host is the worst mid-scene stall (~31s first-mount). Force it to
   // mount now — open the panel, open a leaf file, then close the panel — so the
@@ -149,7 +147,6 @@ test('SHOWCASE — editor tour (Monaco + terminal)', async ({
   // surface) so the hook lands on it instead of the stale restored surface.
   // Trimmed by render-all's lead-in trim, so the panel toggle never airs.
   const panel = await openEditorPanel(page, director);
-  await director.dismissDialogs();
   await director.hold();
 
   // HOOK — fire immediately so the video opens on a question, not dead air.

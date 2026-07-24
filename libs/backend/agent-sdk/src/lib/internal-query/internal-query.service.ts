@@ -20,7 +20,6 @@ export class InternalQueryService {
       model: config.model,
       prompt: config.prompt,
       systemPromptAppend: config.systemPromptAppend,
-      isPremium: config.isPremium,
       mcpServerRunning: config.mcpServerRunning,
       mcpPort: config.mcpPort,
       maxTurns: config.maxTurns,

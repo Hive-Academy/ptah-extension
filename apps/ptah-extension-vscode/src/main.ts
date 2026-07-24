@@ -43,7 +43,7 @@ let ptahExtension: PtahExtension | undefined;
  * registration contract against the real bundled extension.
  */
 export interface PtahActivationApi {
-  /** RPC verification result — undefined when activation was license-blocked. */
+  /** RPC verification result. */
   getRpcVerification(): RpcVerificationResult | undefined;
 }
 
@@ -52,9 +52,6 @@ export async function activate(
 ): Promise<PtahActivationApi | undefined> {
   try {
     const boot = await bootstrapVscode(context);
-    if (boot.blocked) {
-      return { getRpcVerification: () => undefined };
-    }
 
     await wireRuntimeVscode(context, boot.logger, boot.licenseStatus);
     ptahExtension = await registerPostInit(

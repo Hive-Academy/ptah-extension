@@ -1,6 +1,7 @@
 import {
   Controller,
   Inject,
+  Optional,
   Post,
   Body,
   Get,
@@ -9,12 +10,18 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import { LicenseService } from '../services/license.service';
 import { VerifyLicenseDto } from '../dto/verify-license.dto';
 import { JwtAuthGuard } from '../../app/auth/guards/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getPlanConfig, PlanName, PLANS } from '../../config/plans.config';
+import { isBuildersCheckoutEnabled } from '../../config/checkout.config';
+import {
+  MemberGroupsService,
+  type UserMemberGroup,
+} from '../../member-groups/member-groups.service';
 
 /**
  * LicenseController - Public license verification endpoint
@@ -31,7 +38,33 @@ export class LicenseController {
   constructor(
     @Inject(LicenseService) private readonly licenseService: LicenseService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    // Optional: member-cohort lookup for the /me response. Bound by the
+    // @Global() MemberGroupsModule; @Optional + best-effort read means a
+    // groups failure never fails /me (empty-array fallback).
+    @Optional()
+    @Inject(MemberGroupsService)
+    private readonly memberGroups?: MemberGroupsService,
   ) {}
+
+  /**
+   * Best-effort member-group lookup for the /me response. A failure or an
+   * unbound collaborator yields an empty array — it must never fail /me.
+   */
+  private async safeMemberGroups(userId: string): Promise<UserMemberGroup[]> {
+    if (!this.memberGroups) {
+      return [];
+    }
+    try {
+      return await this.memberGroups.getGroupsForUser(userId);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(
+        `Failed to resolve member groups for user ${userId}: ${message}`,
+      );
+      return [];
+    }
+  }
 
   /**
    * Verify a license key
@@ -76,7 +109,7 @@ export class LicenseController {
    *
    * Response (user with license):
    * {
-   *   plan: "pro",
+   *   plan: "builders",
    *   status: "active",
    *   expiresAt: "2026-02-15T00:00:00Z",
    *   daysRemaining: 45,
@@ -100,6 +133,7 @@ export class LicenseController {
   @UseGuards(JwtAuthGuard)
   async getMyLicense(@Req() req: Request) {
     const user = req.user as { id: string; email: string };
+    const checkoutEnabled = isBuildersCheckoutEnabled(this.configService);
     const fullUser = await this.prisma.user.findUnique({
       where: { id: user.id },
       include: {
@@ -115,6 +149,7 @@ export class LicenseController {
         plan: null,
         status: 'none',
         message: 'User not found',
+        checkoutEnabled,
       };
     }
     const license = await this.prisma.license.findFirst({
@@ -127,12 +162,8 @@ export class LicenseController {
       },
     });
     const subscription = fullUser.subscriptions[0] || null;
+    const memberGroups = await this.safeMemberGroups(user.id);
     if (!license) {
-      const isTrialEnded =
-        subscription?.status === 'trialing' &&
-        subscription?.trialEnd &&
-        new Date() > subscription.trialEnd;
-
       return {
         user: {
           email: fullUser.email,
@@ -143,14 +174,14 @@ export class LicenseController {
         },
         plan: null,
         planName: 'No Plan',
-        planDescription: 'Start a trial or subscribe to use Ptah Extension',
+        planDescription: 'Sign in to use the free, open-source Ptah orchestra',
         status: 'none',
         features: [],
-        message: isTrialEnded
-          ? 'Your trial has ended. Upgrade to Pro to continue using all features!'
-          : 'No active license found. Start your free trial to get started!',
-        reason: isTrialEnded ? 'trial_ended' : undefined,
+        message:
+          'No active license found. Ptah Community is free and open source.',
         subscription: null,
+        memberGroups,
+        checkoutEnabled,
       };
     }
     let daysRemaining: number | undefined;
@@ -159,30 +190,14 @@ export class LicenseController {
       const expiresAtMs = new Date(license.expiresAt).getTime();
       daysRemaining = Math.ceil((expiresAtMs - now) / (24 * 60 * 60 * 1000));
     }
-    const basePlan = (license.plan as string).replace('trial_', '');
     const planConfig =
-      basePlan === 'community' || basePlan === 'pro'
-        ? getPlanConfig(basePlan as PlanName)
+      license.plan === 'community' || license.plan === 'builders'
+        ? getPlanConfig(license.plan as PlanName)
         : PLANS.community; // Safe fallback for unknown plans
-    const isTrialEnded =
-      (subscription?.status === 'trialing' &&
-        subscription?.trialEnd &&
-        new Date() > subscription.trialEnd) ||
-      (subscription?.status === 'expired' &&
-        license.plan === 'community' &&
-        license.expiresAt !== null);
     const isExpired =
       license.status === 'expired' ||
       (license.expiresAt && new Date() > license.expiresAt);
-    let reason: 'trial_ended' | 'expired' | undefined;
-    if (isTrialEnded) {
-      reason = 'trial_ended';
-    } else if (isExpired) {
-      reason = 'expired';
-    }
-    const isInTrial = subscription?.status === 'trialing';
-    const effectivePlan =
-      isInTrial && license.plan === 'pro' ? 'trial_pro' : license.plan;
+    const reason: 'expired' | undefined = isExpired ? 'expired' : undefined;
     return {
       user: {
         email: fullUser.email,
@@ -191,7 +206,7 @@ export class LicenseController {
         memberSince: fullUser.createdAt.toISOString(),
         emailVerified: fullUser.emailVerified,
       },
-      plan: effectivePlan,
+      plan: license.plan,
       planName: planConfig.name,
       planDescription: planConfig.description,
       status: license.status,
@@ -200,10 +215,10 @@ export class LicenseController {
       licenseCreatedAt: license.createdAt.toISOString(),
       features: planConfig.features,
       reason,
+      memberGroups,
+      checkoutEnabled,
       subscription:
-        subscription &&
-        subscription.status !== 'expired' &&
-        subscription.priceId !== 'auto_trial_pro'
+        subscription && subscription.status !== 'expired'
           ? {
               status: subscription.status,
               currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
@@ -229,7 +244,7 @@ export class LicenseController {
    * {
    *   success: true,
    *   licenseKey: "ptah_lic_abc123...",
-   *   plan: "pro"
+   *   plan: "builders"
    * }
    *
    * Response (no active license):
@@ -284,136 +299,5 @@ export class LicenseController {
       licenseKey: license.licenseKey,
       plan: license.plan,
     };
-  }
-
-  /**
-   * Downgrade to Community plan
-   *
-   * POST /api/v1/licenses/downgrade-to-community
-   *
-   * Authentication: Required (ptah_auth JWT cookie)
-   * Used by: Trial-ended modal when user clicks "Continue with Community"
-   * Rate Limit: 3 requests per minute (same as reveal-key)
-   *
-   * @param req - Express request with authenticated user
-   * @returns Downgrade result
-   *
-   * Response (success):
-   * {
-   *   success: true,
-   *   plan: "community",
-   *   status: "active",
-   *   message: "Successfully downgraded to Community plan"
-   * }
-   *
-   * Response (validation error):
-   * Status: 400 Bad Request
-   * {
-   *   success: false,
-   *   message: "Trial has not ended yet. You have 3 days remaining."
-   * }
-   *
-   * Response (no active license):
-   * Status: 404 Not Found
-   * {
-   *   success: false,
-   *   message: "No active license found"
-   * }
-   *
-   * Security:
-   * - Requires JWT authentication via JwtAuthGuard
-   * - Strict rate limiting (3 req/min) to prevent abuse
-   * - Validates trial has ended before allowing downgrade
-   * - All downgrade events logged for audit trail
-   *
-   * Real-Time Update:
-   * - Emits SSE event 'license.updated' for instant UI refresh
-   * - Frontend profile page auto-updates via SSE listener
-   */
-  @Throttle({ default: { limit: 3, ttl: 60000 } })
-  @Post('downgrade-to-community')
-  @UseGuards(JwtAuthGuard)
-  async downgradeToCommunity(@Req() req: Request) {
-    const user = req.user as { id: string; email: string };
-    const fullUser = await this.prisma.user.findUnique({
-      where: { id: user.id },
-      include: {
-        subscriptions: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-      },
-    });
-
-    if (!fullUser) {
-      this.logger.warn(
-        `Downgrade denied: userId=${user.id}, reason=user_not_found`,
-      );
-      return {
-        success: false,
-        message: 'User not found',
-      };
-    }
-
-    const subscription = fullUser.subscriptions[0];
-    const isTrialEnded =
-      (subscription?.status === 'trialing' &&
-        subscription?.trialEnd &&
-        new Date() > subscription.trialEnd) ||
-      subscription?.status === 'expired';
-
-    if (!isTrialEnded) {
-      let daysRemaining: number | undefined;
-      if (subscription?.trialEnd) {
-        const now = Date.now();
-        const trialEndMs = new Date(subscription.trialEnd).getTime();
-        daysRemaining = Math.ceil((trialEndMs - now) / (24 * 60 * 60 * 1000));
-      }
-
-      this.logger.warn(
-        `Downgrade denied: userId=${
-          user.id
-        }, reason=trial_not_ended, daysRemaining=${daysRemaining || 'N/A'}`,
-      );
-
-      return {
-        success: false,
-        message: daysRemaining
-          ? `Trial has not ended yet. You have ${daysRemaining} day${
-              daysRemaining !== 1 ? 's' : ''
-            } remaining.`
-          : 'Trial has not ended yet',
-      };
-    }
-    try {
-      const result = await this.licenseService.downgradeToCommunity(user.id);
-
-      this.logger.log(
-        `Downgrade successful: userId=${user.id}, email=${user.email}, plan=${result.plan}`,
-      );
-
-      return {
-        ...result,
-        message: 'Successfully downgraded to Community plan',
-      };
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-
-      this.logger.error(
-        `Downgrade failed: userId=${user.id}, error=${errorMessage}`,
-      );
-      if (errorMessage.includes('No active license')) {
-        return {
-          success: false,
-          message: 'No active license found',
-        };
-      }
-
-      return {
-        success: false,
-        message: 'Failed to downgrade. Please try again or contact support.',
-      };
-    }
   }
 }

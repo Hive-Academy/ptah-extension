@@ -29,19 +29,23 @@ import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
 } from '@hive-academy/angular-gsap';
-import { LicenseData } from '../models/license-data.interface';
+import {
+  hasActiveMembership,
+  isBuildersTier,
+  LicenseData,
+} from '../models/license-data.interface';
 
 /**
- * ProfileDetailsComponent - Account details and subscription info
+ * ProfileDetailsComponent - Account details and membership info
  *
  * Displays:
- * - Email and plan information
+ * - Email and membership status
  * - Plan description
- * - Subscription status for Pro users
- * - Upgrade CTA for trial users
+ * - Billing status for Builders subscribers
+ * - Unified Ptah Builders CTA for non-members (waitlist or checkout)
  * - Sync with Paddle button for subscription management
  * - Manage Subscription link to Paddle customer portal
- * - License key reveal with show/hide toggle and copy-to-clipboard
+ * - License key reveal with show/hide toggle and copy-to-clipboard (members only)
  *
  * @input license - User license data
  * @input isSyncing - Whether a sync operation is in progress
@@ -59,29 +63,49 @@ import { LicenseData } from '../models/license-data.interface';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ViewportAnimationDirective, RouterLink, LucideAngularModule],
   template: `
-    <!-- Upgrade CTA for Trial Users -->
-    @if (license()?.message) {
-    <div
-      viewportAnimation
-      [viewportConfig]="alertConfig"
-      class="bg-gradient-to-r from-primary/20 to-secondary/20
+    <!-- Unified Ptah Builders CTA (non-members only: community, or lapsed subscription) -->
+    @if (!isActiveMember()) {
+      <div
+        viewportAnimation
+        [viewportConfig]="alertConfig"
+        class="bg-gradient-to-r from-primary/20 to-secondary/20
                border border-secondary/30 rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-4"
-    >
-      <lucide-angular
-        [img]="SparklesIcon"
-        class="w-10 h-10 text-secondary flex-shrink-0"
-        aria-hidden="true"
-      />
-      <div class="flex-1 text-center sm:text-left">
-        <p class="text-base-content font-medium">
-          {{ license()?.message }}
-        </p>
+      >
+        <lucide-angular
+          [img]="SparklesIcon"
+          class="w-10 h-10 text-secondary flex-shrink-0"
+          aria-hidden="true"
+        />
+        <div class="flex-1 text-center sm:text-left">
+          <p class="text-base-content font-semibold">Ptah Builders</p>
+          <p class="text-neutral-content text-sm mt-1">
+            {{ builderPromoMessage() }}
+          </p>
+        </div>
+        @if (checkoutEnabled()) {
+          <a routerLink="/pricing" class="btn btn-secondary btn-sm sm:btn-md">
+            <lucide-angular
+              [img]="ZapIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Get Ptah Builders
+          </a>
+        } @else {
+          <a
+            routerLink="/"
+            fragment="waitlist"
+            class="btn btn-secondary btn-sm sm:btn-md"
+          >
+            <lucide-angular
+              [img]="ZapIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Apply for Early Adopter
+          </a>
+        }
       </div>
-      <a routerLink="/pricing" class="btn btn-secondary btn-sm sm:btn-md">
-        <lucide-angular [img]="ZapIcon" class="w-4 h-4" aria-hidden="true" />
-        Upgrade Now
-      </a>
-    </div>
     }
 
     <!-- Account Details Card -->
@@ -115,7 +139,7 @@ import { LicenseData } from '../models/license-data.interface';
           <span class="font-medium">{{ license()?.user?.email }}</span>
         </div>
 
-        <!-- Plan -->
+        <!-- Membership -->
         <div class="px-6 py-4 flex justify-between items-center">
           <span class="text-neutral-content flex items-center gap-2">
             <lucide-angular
@@ -123,225 +147,213 @@ import { LicenseData } from '../models/license-data.interface';
               class="w-4 h-4"
               aria-hidden="true"
             />
-            Current Plan
+            Membership
           </span>
-          <span class="font-medium" [class.text-error]="isTrialEnded()">
-            {{ getPlanDisplayName() }}
+          <span class="font-medium" [class.text-error]="isExpired()">
+            {{ getMembershipLabel() }}
           </span>
         </div>
 
-        <!-- License Key - Hide when trial ended (no valid license) -->
-        @if (license()?.status !== 'none' && !isTrialEnded()) {
-        <div class="px-6 py-4 flex justify-between items-center">
-          <span class="text-neutral-content flex items-center gap-2">
-            <lucide-angular
-              [img]="KeyRoundIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            License Key
-          </span>
+        <!-- License Key - members only, hidden once membership has lapsed -->
+        @if (isMember() && license()?.status !== 'none' && !isExpired()) {
+          <div class="px-6 py-4 flex justify-between items-center">
+            <span class="text-neutral-content flex items-center gap-2">
+              <lucide-angular
+                [img]="KeyRoundIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+              License Key
+            </span>
 
-          @if (licenseKey()) {
-          <div class="flex items-center gap-2">
-            <code
-              class="text-xs font-mono bg-base-300 px-2 py-1 rounded select-all max-w-[200px] truncate"
-            >
-              {{ showLicenseKey() ? licenseKey() : maskedKey() }}
-            </code>
-            <button
-              type="button"
-              (click)="toggleLicenseKeyVisibility()"
-              class="btn btn-xs btn-ghost"
-              [attr.aria-label]="
-                showLicenseKey() ? 'Hide license key' : 'Show license key'
-              "
-            >
-              <lucide-angular
-                [img]="showLicenseKey() ? EyeOffIcon : EyeIcon"
-                class="w-3.5 h-3.5"
-                aria-hidden="true"
-              />
-            </button>
-            <button
-              type="button"
-              (click)="copyLicenseKey()"
-              class="btn btn-xs btn-ghost"
-              aria-label="Copy license key"
-            >
-              @if (copiedToClipboard()) {
-              <lucide-angular
-                [img]="CheckCircleIcon"
-                class="w-3.5 h-3.5 text-success"
-                aria-hidden="true"
-              />
-              } @else {
-              <lucide-angular
-                [img]="CopyIcon"
-                class="w-3.5 h-3.5"
-                aria-hidden="true"
-              />
-              }
-            </button>
+            @if (licenseKey()) {
+              <div class="flex items-center gap-2">
+                <code
+                  class="text-xs font-mono bg-base-300 px-2 py-1 rounded select-all max-w-[200px] truncate"
+                >
+                  {{ showLicenseKey() ? licenseKey() : maskedKey() }}
+                </code>
+                <button
+                  type="button"
+                  (click)="toggleLicenseKeyVisibility()"
+                  class="btn btn-xs btn-ghost"
+                  [attr.aria-label]="
+                    showLicenseKey() ? 'Hide license key' : 'Show license key'
+                  "
+                >
+                  <lucide-angular
+                    [img]="showLicenseKey() ? EyeOffIcon : EyeIcon"
+                    class="w-3.5 h-3.5"
+                    aria-hidden="true"
+                  />
+                </button>
+                <button
+                  type="button"
+                  (click)="copyLicenseKey()"
+                  class="btn btn-xs btn-ghost"
+                  aria-label="Copy license key"
+                >
+                  @if (copiedToClipboard()) {
+                    <lucide-angular
+                      [img]="CheckCircleIcon"
+                      class="w-3.5 h-3.5 text-success"
+                      aria-hidden="true"
+                    />
+                  } @else {
+                    <lucide-angular
+                      [img]="CopyIcon"
+                      class="w-3.5 h-3.5"
+                      aria-hidden="true"
+                    />
+                  }
+                </button>
+              </div>
+            } @else {
+              <button
+                type="button"
+                class="btn btn-sm btn-ghost"
+                [disabled]="isRevealingKey()"
+                (click)="revealKeyRequested.emit()"
+              >
+                @if (isRevealingKey()) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                  Retrieving...
+                } @else {
+                  Get License Key
+                }
+              </button>
+            }
           </div>
-          } @else {
-          <button
-            type="button"
-            class="btn btn-sm btn-ghost"
-            [disabled]="isRevealingKey()"
-            (click)="revealKeyRequested.emit()"
-          >
-            @if (isRevealingKey()) {
-            <span class="loading loading-spinner loading-xs"></span>
-            Retrieving... } @else { Get License Key }
-          </button>
-          }
-        </div>
 
-        <!-- License Key Error -->
-        @if (revealKeyError()) {
-        <div class="px-6 py-4 flex items-center gap-2 bg-error/10 text-error">
-          <lucide-angular
-            [img]="AlertCircleIcon"
-            class="w-4 h-4"
-            aria-hidden="true"
-          />
-          <span class="text-sm">{{ revealKeyError() }}</span>
-        </div>
-        } }
+          <!-- License Key Error -->
+          @if (revealKeyError()) {
+            <div
+              class="px-6 py-4 flex items-center gap-2 bg-error/10 text-error"
+            >
+              <lucide-angular
+                [img]="AlertCircleIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+              <span class="text-sm">{{ revealKeyError() }}</span>
+            </div>
+          }
+        }
 
         <!-- Plan Description -->
         @if (license()?.planDescription) {
-        <div class="px-6 py-4">
-          <span class="text-neutral-content text-sm">
-            {{ license()?.planDescription }}
-          </span>
-        </div>
+          <div class="px-6 py-4">
+            <span class="text-neutral-content text-sm">
+              {{ license()?.planDescription }}
+            </span>
+          </div>
         }
 
-        <!-- Upgrade CTA for Community users (no subscription) -->
-        @if (license()?.plan === 'community' && !license()?.subscription) {
-        <div class="px-6 py-4 flex justify-between items-center">
-          <span class="text-neutral-content flex items-center gap-2">
-            <lucide-angular
-              [img]="SparklesIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Unlock Pro Features
-          </span>
-          <a routerLink="/pricing" class="btn btn-sm btn-secondary">
-            <lucide-angular
-              [img]="ZapIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Upgrade to Pro
-          </a>
-        </div>
+        <!-- Subscription Status (only for Builders members with a Paddle subscription) -->
+        @if (license()?.subscription && isMember()) {
+          <div class="px-6 py-4 flex justify-between items-center">
+            <span class="text-neutral-content flex items-center gap-2">
+              <lucide-angular
+                [img]="CreditCardIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+              Billing Status
+            </span>
+            <span class="badge" [class]="getSubscriptionStatusClass()">
+              {{ getBillingStatusLabel() }}
+            </span>
+          </div>
+
+          @if (license()?.subscription?.canceledAt) {
+            <div class="px-6 py-4 flex justify-between items-center bg-error/5">
+              <span class="text-error flex items-center gap-2">
+                <lucide-angular
+                  [img]="ClockIcon"
+                  class="w-4 h-4"
+                  aria-hidden="true"
+                />
+                Cancellation Date
+              </span>
+              <span class="text-error font-medium">
+                {{ formatDate(license()?.subscription?.canceledAt ?? null) }}
+              </span>
+            </div>
+          }
         }
-
-        <!-- Subscription Status (only for Pro users with active Paddle subscription) -->
-        @if (license()?.subscription && license()?.plan !== 'community') {
-        <div class="px-6 py-4 flex justify-between items-center">
-          <span class="text-neutral-content flex items-center gap-2">
-            <lucide-angular
-              [img]="CreditCardIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Billing Status
-          </span>
-          <span class="badge" [class]="getSubscriptionStatusClass()">
-            {{ getBillingStatusLabel() }}
-          </span>
-        </div>
-
-        @if (license()?.subscription?.canceledAt) {
-        <div class="px-6 py-4 flex justify-between items-center bg-error/5">
-          <span class="text-error flex items-center gap-2">
-            <lucide-angular
-              [img]="ClockIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Cancellation Date
-          </span>
-          <span class="text-error font-medium">
-            {{ formatDate(license()?.subscription?.canceledAt ?? null) }}
-          </span>
-        </div>
-        } }
 
         <!-- Sync Success Message -->
         @if (syncSuccess()) {
-        <div
-          class="px-6 py-4 flex items-center gap-2 bg-success/10 text-success"
-        >
-          <lucide-angular
-            [img]="CheckCircleIcon"
-            class="w-4 h-4"
-            aria-hidden="true"
-          />
-          <span class="text-sm font-medium"
-            >Subscription synced successfully</span
+          <div
+            class="px-6 py-4 flex items-center gap-2 bg-success/10 text-success"
           >
-        </div>
+            <lucide-angular
+              [img]="CheckCircleIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            <span class="text-sm font-medium"
+              >Subscription synced successfully</span
+            >
+          </div>
         }
 
         <!-- Sync Error Message -->
         @if (syncError()) {
-        <div class="px-6 py-4 flex items-center gap-2 bg-error/10 text-error">
-          <lucide-angular
-            [img]="AlertCircleIcon"
-            class="w-4 h-4"
-            aria-hidden="true"
-          />
-          <span class="text-sm">{{ syncError() }}</span>
-        </div>
+          <div class="px-6 py-4 flex items-center gap-2 bg-error/10 text-error">
+            <lucide-angular
+              [img]="AlertCircleIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            <span class="text-sm">{{ syncError() }}</span>
+          </div>
         }
 
         <!-- Sync with Paddle Button (only for users with real Paddle subscription) -->
         @if (hasPaddleSubscription()) {
-        <div class="px-6 py-4 flex justify-between items-center">
-          <span class="text-neutral-content flex items-center gap-2">
-            <lucide-angular
-              [img]="RefreshCwIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Subscription Sync
-          </span>
-          <button
-            class="btn btn-sm btn-ghost"
-            [disabled]="isSyncing()"
-            (click)="syncRequested.emit()"
-          >
-            @if (isSyncing()) {
-            <span class="loading loading-spinner loading-xs"></span>
-            Syncing... } @else { Sync with Paddle }
-          </button>
-        </div>
+          <div class="px-6 py-4 flex justify-between items-center">
+            <span class="text-neutral-content flex items-center gap-2">
+              <lucide-angular
+                [img]="RefreshCwIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+              Subscription Sync
+            </span>
+            <button
+              class="btn btn-sm btn-ghost"
+              [disabled]="isSyncing()"
+              (click)="syncRequested.emit()"
+            >
+              @if (isSyncing()) {
+                <span class="loading loading-spinner loading-xs"></span>
+                Syncing...
+              } @else {
+                Sync with Paddle
+              }
+            </button>
+          </div>
         }
 
         <!-- Manage Subscription Link (only for users with real Paddle subscription) -->
         @if (hasPaddleSubscription()) {
-        <div class="px-6 py-4 flex justify-between items-center">
-          <span class="text-neutral-content flex items-center gap-2">
-            <lucide-angular
-              [img]="ExternalLinkIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Subscription Management
-          </span>
-          <button
-            class="btn btn-sm btn-secondary"
-            (click)="manageSubscriptionRequested.emit()"
-          >
-            Manage Subscription
-          </button>
-        </div>
+          <div class="px-6 py-4 flex justify-between items-center">
+            <span class="text-neutral-content flex items-center gap-2">
+              <lucide-angular
+                [img]="ExternalLinkIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+              Subscription Management
+            </span>
+            <button
+              class="btn btn-sm btn-secondary"
+              (click)="manageSubscriptionRequested.emit()"
+            >
+              Manage Subscription
+            </button>
+          </div>
         }
       </div>
     </div>
@@ -422,21 +434,15 @@ export class ProfileDetailsComponent {
   });
 
   /**
-   * Check if user has a real Paddle subscription (not trialing, not community, not expired)
-   * Only users with active paid Paddle subscriptions can:
+   * Check if user has a real Paddle subscription (Builders plan, not community).
+   * Only users with a Paddle subscription can:
    * - Sync with Paddle
    * - Open customer portal
    */
   public hasPaddleSubscription(): boolean {
     const licenseData = this.license();
     if (!licenseData?.subscription) return false;
-    if (licenseData.plan === 'community') return false;
-    const isTrialing =
-      licenseData.subscription.status === 'trialing' ||
-      licenseData.plan?.startsWith('trial_');
-    const isExpired = licenseData.subscription.status === 'expired';
-
-    return !isTrialing && !isExpired;
+    return isBuildersTier(licenseData.plan);
   }
 
   /**
@@ -461,33 +467,55 @@ export class ProfileDetailsComponent {
   };
 
   /**
-   * Check if trial has ended (even if DB still shows trialing status)
-   * TASK_2025_143: Use reason field to detect trial expiration
+   * Check if the membership has expired.
    */
-  public isTrialEnded(): boolean {
-    return this.license()?.reason === 'trial_ended';
+  public isExpired(): boolean {
+    return this.license()?.reason === 'expired';
+  }
+
+  /** Whether the viewer holds a Builders plan. */
+  public isMember(): boolean {
+    return isBuildersTier(this.license()?.plan);
   }
 
   /**
-   * Get display name for plan
-   * TASK_2025_143: Show "Trial Expired" when trial has ended
+   * Whether the viewer holds an active Builders membership, i.e. a Builders
+   * plan with no expired reason.
    */
-  public getPlanDisplayName(): string {
-    if (this.isTrialEnded()) return 'Trial Expired';
-    return this.license()?.planName || 'Unknown';
+  public isActiveMember(): boolean {
+    return hasActiveMembership(this.license());
+  }
+
+  /** Whether Ptah Builders checkout is open (mirrors the server flag). */
+  public checkoutEnabled(): boolean {
+    return this.license()?.checkoutEnabled ?? false;
+  }
+
+  /** Copy for the non-member Builders promo block. */
+  public builderPromoMessage(): string {
+    return (
+      this.license()?.message ||
+      'Join the founding waitlist: 35% off monthly (first 12 months) or 50% off yearly (first year) at launch, plus hosted perks, priority support and early access — on top of the open-source core you already have.'
+    );
+  }
+
+  /** Get display value for the "Membership" row. */
+  public getMembershipLabel(): string {
+    if (this.isExpired()) return 'Membership Expired';
+    return this.isMember() ? 'Ptah Builders' : 'Community';
   }
 
   /**
    * Get billing status label
-   * TASK_2025_143: Show "EXPIRED" when trial has ended
+   * Show "EXPIRED" when membership has expired
    */
   public getBillingStatusLabel(): string {
-    if (this.isTrialEnded()) return 'EXPIRED';
+    if (this.isExpired()) return 'EXPIRED';
     return this.license()?.subscription?.status?.toUpperCase() || 'UNKNOWN';
   }
 
   public getSubscriptionStatusClass(): string {
-    if (this.isTrialEnded()) return 'badge-error';
+    if (this.isExpired()) return 'badge-error';
 
     const status = this.license()?.subscription?.status;
     if (status === 'active') return 'badge-success';

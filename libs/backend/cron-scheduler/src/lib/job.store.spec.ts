@@ -10,6 +10,7 @@
  * verify the upsert idempotency contract without needing a real SQLite file.
  */
 import 'reflect-metadata';
+import * as path from 'node:path';
 import { JobStore } from './job.store';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
@@ -169,12 +170,27 @@ class FakeScheduledJobsDatabase {
       };
     }
 
-    // ── SELECT * FROM scheduled_jobs ORDER BY ... ─────────────────────────
+    // ── SELECT * FROM scheduled_jobs [WHERE ...] ORDER BY ... ─────────────
     if (/SELECT \* FROM scheduled_jobs/i.test(sql)) {
+      const filterEnabled = /enabled = 1/i.test(sql);
+      const filterWorkspace = /workspace_root = \?/i.test(sql);
       return {
         run: () => ({ changes: 0, lastInsertRowid: 0 }),
         get: () => undefined,
-        all: () => Array.from(rows.values()),
+        all(...params: unknown[]) {
+          // `workspace_root = ?` is the only parameterized condition, so the
+          // workspace root (when present) is always the first bound param.
+          const wantedWorkspace = filterWorkspace
+            ? (params[0] as string)
+            : undefined;
+          return Array.from(rows.values()).filter((row) => {
+            if (filterEnabled && row.enabled !== 1) return false;
+            if (filterWorkspace && row.workspace_root !== wantedWorkspace) {
+              return false;
+            }
+            return true;
+          });
+        },
         iterate: () => rows.values(),
       };
     }
@@ -415,4 +431,149 @@ describe('JobStore.upsert', () => {
     const row = fakeDb.getRow('@ptah/daily-backup');
     expect(row?.enabled).toBe(1);
   });
+});
+
+describe('JobStore.list', () => {
+  function seedThreeJobs(store: JobStore) {
+    store.create({
+      name: 'job-a',
+      cronExpr: '0 * * * *',
+      prompt: 'a',
+      workspaceRoot: '/ws-a',
+      enabled: true,
+      nextRunAt: null,
+    });
+    store.create({
+      name: 'job-b',
+      cronExpr: '0 * * * *',
+      prompt: 'b',
+      workspaceRoot: '/ws-b',
+      enabled: false,
+      nextRunAt: null,
+    });
+    store.create({
+      name: 'job-global',
+      cronExpr: '0 * * * *',
+      prompt: 'g',
+      workspaceRoot: null,
+      enabled: true,
+      nextRunAt: null,
+    });
+  }
+
+  it('returns every job when no filter is provided', () => {
+    const { store } = buildStore();
+    seedThreeJobs(store);
+
+    const jobs = store.list();
+    expect(jobs).toHaveLength(3);
+    expect(jobs.map((j) => j.name).sort()).toEqual([
+      'job-a',
+      'job-b',
+      'job-global',
+    ]);
+  });
+
+  it('filters to a single workspace when workspaceRoot is provided', () => {
+    const { store } = buildStore();
+    seedThreeJobs(store);
+
+    const jobs = store.list({ workspaceRoot: '/ws-a' });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].name).toBe('job-a');
+    expect(jobs[0].workspaceRoot).toBe('/ws-a');
+  });
+
+  it('returns an empty list when no job matches the workspaceRoot', () => {
+    const { store } = buildStore();
+    seedThreeJobs(store);
+
+    expect(store.list({ workspaceRoot: '/ws-unknown' })).toEqual([]);
+  });
+
+  it('combines enabledOnly with the workspaceRoot filter', () => {
+    const { store } = buildStore();
+    seedThreeJobs(store);
+
+    // job-b is in /ws-b but disabled → excluded by enabledOnly.
+    expect(store.list({ enabledOnly: true, workspaceRoot: '/ws-b' })).toEqual(
+      [],
+    );
+    // job-a is in /ws-a and enabled → included.
+    const enabledInA = store.list({
+      enabledOnly: true,
+      workspaceRoot: '/ws-a',
+    });
+    expect(enabledInA).toHaveLength(1);
+    expect(enabledInA[0].name).toBe('job-a');
+  });
+
+  it('still honors enabledOnly with no workspace filter', () => {
+    const { store } = buildStore();
+    seedThreeJobs(store);
+
+    const enabled = store.list({ enabledOnly: true });
+    expect(enabled.map((j) => j.name).sort()).toEqual(['job-a', 'job-global']);
+  });
+});
+
+describe('JobStore.list workspaceRoot normalization', () => {
+  const winIt = process.platform === 'win32' ? it : it.skip;
+
+  it('matches a stored root that differs only by a trailing separator', () => {
+    const { store } = buildStore();
+    // Portable absolute base; stored WITH a trailing separator (as a renderer
+    // that appended `path.sep` would produce), queried WITHOUT one.
+    const base = path.resolve('trailing-sep-ws');
+    store.create({
+      name: 'job-trailing',
+      cronExpr: '0 * * * *',
+      prompt: 'p',
+      workspaceRoot: base + path.sep,
+      enabled: true,
+      nextRunAt: null,
+    });
+
+    const jobs = store.list({ workspaceRoot: base });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].name).toBe('job-trailing');
+  });
+
+  it('matches legacy rows holding an un-normalized workspace_root', () => {
+    const { store } = buildStore();
+    const base = path.resolve('legacy-ws');
+    // Simulate a legacy row written before normalization existed: raw value
+    // with a redundant `.` segment + trailing separator. path.resolve collapses
+    // the `.` so the query below is still the same logical workspace.
+    store.create({
+      name: 'job-legacy',
+      cronExpr: '0 * * * *',
+      prompt: 'p',
+      workspaceRoot: path.join(base, '.') + path.sep,
+      enabled: true,
+      nextRunAt: null,
+    });
+
+    expect(store.list({ workspaceRoot: base })).toHaveLength(1);
+  });
+
+  winIt(
+    'folds drive-letter case + separator drift but preserves segment case (D:\\Foo\\ ↔ d:/Foo)',
+    () => {
+      const { store } = buildStore();
+      store.create({
+        name: 'job-win',
+        cronExpr: '0 * * * *',
+        prompt: 'p',
+        workspaceRoot: 'D:\\Foo\\',
+        enabled: true,
+        nextRunAt: null,
+      });
+
+      // Different drive case + forward slashes + trailing slash → same root.
+      expect(store.list({ workspaceRoot: 'd:/Foo' })).toHaveLength(1);
+      // Path-segment case is NOT folded — only the drive letter is.
+      expect(store.list({ workspaceRoot: 'd:/foo' })).toHaveLength(0);
+    },
+  );
 });

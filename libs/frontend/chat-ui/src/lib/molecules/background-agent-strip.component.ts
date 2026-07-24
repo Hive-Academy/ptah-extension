@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Square,
   Moon,
+  ScrollText,
 } from 'lucide-angular';
 import { AgentSteerInputComponent } from './agent-steer-input.component';
 
@@ -51,6 +52,9 @@ export interface BackgroundAgentStripEntry {
   /** Whether the "send to background" action applies — foreground running
    * subagents only. */
   readonly canBackground: boolean;
+  /** Whether a "view transcript" action applies — set by the smart wrapper when
+   * both the SDK `agentId` and owning session id are known for this agent. */
+  readonly canViewTranscript: boolean;
 }
 
 /** Payload emitted when a chip's inline steer input is submitted. */
@@ -123,6 +127,21 @@ export interface BackgroundAgentSteerRequest {
               </button>
 
               <!-- Contextual actions -->
+              @if (entry.canViewTranscript) {
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5 text-base-content/50 hover:text-primary"
+                  [attr.aria-label]="'View transcript for agent ' + entry.name"
+                  title="View transcript"
+                  (click)="viewTranscript.emit(entry.id)"
+                >
+                  <lucide-angular
+                    [img]="ScrollTextIcon"
+                    class="w-3 h-3"
+                    aria-hidden="true"
+                  />
+                </button>
+              }
               @if (entry.steerable) {
                 <button
                   type="button"
@@ -205,10 +224,13 @@ export class BackgroundAgentStripComponent {
   readonly stop = output<string>();
   /** Emits the entry id when its send-to-background button is clicked. */
   readonly sendToBackground = output<string>();
+  /** Emits the entry id when its view-transcript button is clicked. */
+  readonly viewTranscript = output<string>();
 
   protected readonly SteerIcon = MessageSquare;
   protected readonly StopIcon = Square;
   protected readonly BackgroundIcon = Moon;
+  protected readonly ScrollTextIcon = ScrollText;
 
   /** Id of the chip whose inline steer input is currently expanded. */
   protected readonly expandedId = signal<string | null>(null);

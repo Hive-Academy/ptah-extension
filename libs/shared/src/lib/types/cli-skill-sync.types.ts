@@ -12,8 +12,12 @@ import type { CliType } from './agent-process.types';
 /** CLI targets that support user-level skill directories.
  *  - copilot: ~/.copilot/skills/
  *  - codex: ~/.agents/skills/
+ *  - antigravity: {ws}/.agents/skills/ (native workspace root, shared with Codex)
  */
-export type CliTarget = Extract<CliType, 'copilot' | 'codex' | 'cursor'>;
+export type CliTarget = Extract<
+  CliType,
+  'copilot' | 'codex' | 'cursor' | 'antigravity'
+>;
 
 /**
  * Result of transforming a Claude-format agent to a CLI-specific format.

@@ -12,27 +12,26 @@
  * License tier values for the freemium model
  *
  * - 'community': FREE forever, always valid, no license required
- * - 'pro': Active Pro subscription ($5/month)
- * - 'trial_pro': Pro plan during 100-day trial
+ * - 'builders': Active Ptah Builders membership (paid tier)
  * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
 export type LicenseTierValue =
   | 'community' // FREE tier, always valid
-  | 'pro'
-  | 'trial_pro'
+  | 'builders'
   | 'expired'; // Only for revoked/explicitly expired
 
 /**
  * License verification status returned by the server
  *
  * - No license key: valid: false with reason 'not_found' (triggers registration prompt)
- * - Expired Pro (non-revoked): falls back to Community tier (valid: true)
- * - Revoked licenses: valid: false (blocks extension)
+ * - Expired Builders (non-revoked): falls back to Community tier (valid: true)
+ * - Revoked licenses: valid: false — this is identity/status only; it does NOT
+ *   block extension activation or any local feature (no gating exists).
  */
 export interface LicenseStatus {
   /** Whether the license is valid (Community = always true) */
   valid: boolean;
-  /** Current license tier (community, pro, trial_pro, or expired) */
+  /** Current license tier (community, builders, or expired) */
   tier: LicenseTierValue;
   /** Plan details (if applicable) */
   plan?: {
@@ -42,16 +41,12 @@ export interface LicenseStatus {
     isPremium: boolean;
     description: string;
   };
-  /** Subscription/trial expiration timestamp (ISO 8601) */
+  /** Subscription expiration timestamp (ISO 8601) */
   expiresAt?: string;
   /** Days remaining before subscription expires */
   daysRemaining?: number;
-  /** Whether user is currently in trial period */
-  trialActive?: boolean;
-  /** Days remaining in trial period (only set during trial) */
-  trialDaysRemaining?: number;
   /** Reason for invalid status */
-  reason?: 'expired' | 'revoked' | 'not_found' | 'trial_ended';
+  reason?: 'expired' | 'revoked' | 'not_found';
   /** User profile data from license server */
   user?: {
     email: string;
@@ -87,15 +82,15 @@ export interface PersistedLicenseCache {
 }
 
 /**
- * Persisted user context for expired/trial-ended users
+ * Persisted user context for expired users
  *
- * When a license key is auto-cleared due to expiration or trial end,
- * we persist the user's context so that on next restart they see
- * an expiration notice instead of the new-user welcome screen.
+ * When a license key is auto-cleared due to expiration, we persist the
+ * user's context so that on next restart they see an expiration notice
+ * instead of the new-user welcome screen.
  */
 export interface PreviousUserContext {
   /** Reason the key was cleared */
-  reason: 'expired' | 'trial_ended';
+  reason: 'expired';
   /** User profile from the expired license */
   user?: {
     email: string;

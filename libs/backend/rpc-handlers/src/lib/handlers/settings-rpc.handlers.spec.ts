@@ -625,7 +625,7 @@ describe('SettingsRpcHandlers', () => {
           makeImportResult({ imported: ['ptah.licenseKey'] }),
         );
         h.licenseService.verifyLicense.mockResolvedValue(
-          makeLicenseStatus({ valid: true, tier: 'pro' }),
+          makeLicenseStatus({ valid: true, tier: 'builders' }),
         );
         h.handlers.register();
 

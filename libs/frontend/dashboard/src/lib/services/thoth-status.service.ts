@@ -310,7 +310,12 @@ export class ThothStatusService implements MessageHandler {
 
   private async loadCron(): Promise<void> {
     try {
-      const result = await this.cronRpc.list({});
+      // Scope to the active workspace so the pillar counts this workspace's
+      // schedules, matching the Schedules tab's default 'workspace' view.
+      const workspaceRoot = this.appState.workspaceInfo()?.path;
+      const result = await this.cronRpc.list(
+        workspaceRoot ? { workspaceRoot } : {},
+      );
       const jobs = result.jobs ?? [];
       const nextRunAt = jobs
         .map((job) => job.nextRunAt)
