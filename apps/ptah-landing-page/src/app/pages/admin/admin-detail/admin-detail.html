@@ -80,10 +80,20 @@
       </div>
     }
 
-    @if (loading()) {
-      <div class="flex items-center gap-2 text-sm opacity-70">
-        <span class="loading loading-spinner loading-sm"></span>
-        Loading…
+    @if (loading() && !record()) {
+      <!-- First-load skeleton: card-shaped placeholder (design spec §7.5). -->
+      <div class="card bg-base-100 shadow-sm">
+        <div class="card-body">
+          <div class="mb-2 h-5 w-24 animate-pulse rounded-md bg-base-200"></div>
+          <dl class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+            @for (r of [0, 1, 2, 3, 4, 5]; track r) {
+              <div class="flex flex-col gap-1.5">
+                <div class="h-3 w-20 animate-pulse rounded-md bg-base-200"></div>
+                <div class="h-4 w-40 animate-pulse rounded-md bg-base-200"></div>
+              </div>
+            }
+          </dl>
+        </div>
       </div>
     }
 
@@ -105,6 +115,16 @@
                   {{ f.label }}
                 </dt>
                 <dd class="break-words text-sm">
+                  @if (f.badgeMap; as badgeMap) {
+                    @if (rec[f.key] !== null && rec[f.key] !== undefined && rec[f.key] !== '') {
+                      <ptah-admin-status-badge
+                        [badgeMap]="badgeMap"
+                        [value]="rec[f.key]"
+                      />
+                    } @else {
+                      <span class="opacity-50">—</span>
+                    }
+                  } @else {
                   @switch (f.type) {
                     @case ('datetime') {
                       @if (rec[f.key]; as v) {
@@ -131,6 +151,7 @@
                       }
                     }
                   }
+                  }
                 </dd>
               </div>
             }
@@ -146,6 +167,43 @@
         >
           <div class="card-body">
             <h3 class="card-title text-base">Edit</h3>
+
+            @if (model() === 'licenses') {
+              <div class="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-xs"
+                  [disabled]="saving()"
+                  (click)="extendLicense(30)"
+                >
+                  Extend 30d
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-outline btn-xs"
+                  [disabled]="saving()"
+                  (click)="extendLicense(365)"
+                >
+                  Extend 1y
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-outline btn-error btn-xs"
+                  [disabled]="saving()"
+                  (click)="setLicenseStatus('revoked')"
+                >
+                  Revoke
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-outline btn-success btn-xs"
+                  [disabled]="saving()"
+                  (click)="setLicenseStatus('active')"
+                >
+                  Reinstate
+                </button>
+              </div>
+            }
 
             @if (saveError(); as msg) {
               <div class="alert alert-error text-sm">
@@ -255,7 +313,8 @@
     }
   </section>
 } @else {
-  <div class="alert alert-warning">
-    <span>Unknown admin model. Pick a model from the sidebar.</span>
-  </div>
+  <ptah-admin-empty-state
+    message="Unknown admin model."
+    hint="Pick a model from the sidebar."
+  />
 }

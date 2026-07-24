@@ -7,8 +7,11 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { LucideAngularModule, Rows3, Rows4 } from 'lucide-angular';
 
 import type { FieldSpec } from '../../admin-models.config';
+import { EmptyState } from '../empty-state/empty-state';
+import { StatusBadge } from '../status-badge/status-badge';
 
 /**
  * Page/sort/selection event shapes emitted by `DataTable`.
@@ -42,10 +45,13 @@ export interface DataTablePageEvent {
   selector: 'ptah-admin-data-table',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe],
+  imports: [DatePipe, LucideAngularModule, StatusBadge, EmptyState],
   templateUrl: './data-table.html',
 })
 export class DataTable {
+  /** lucide density-toggle glyphs (compact = tighter rows). */
+  protected readonly Rows3 = Rows3;
+  protected readonly Rows4 = Rows4;
   /** Ordered column specs (full model field list — we filter `listColumn` internally). */
   public readonly columns = input.required<readonly FieldSpec[]>();
 
@@ -95,6 +101,62 @@ export class DataTable {
   /** Page-size options for the <select> widget. */
   protected readonly pageSizeOptions: readonly number[] = [10, 25, 50, 100];
 
+  /** localStorage key for the persisted density preference. */
+  private static readonly DENSITY_KEY = 'ptah-admin-table-density';
+
+  /**
+   * Row density (design spec §5.5): `compact` = current `table-sm`,
+   * `comfortable` = default `table` spacing. Persisted to `localStorage`.
+   */
+  protected readonly density = signal<'compact' | 'comfortable'>(
+    DataTable.readDensity(),
+  );
+
+  /**
+   * FIRST-load skeleton: only when a fetch is in flight AND we have no rows
+   * to dim yet. Once rows exist, refetches (pagination/sort) dim in place via
+   * `[class.opacity-50]` instead of flashing skeletons over real data.
+   */
+  protected readonly showSkeleton = computed<boolean>(
+    () => this.loading() && this.rows().length === 0,
+  );
+
+  /** Fixed-length placeholder list for skeleton rows (~5). */
+  protected readonly skeletonRows: readonly number[] = [0, 1, 2, 3, 4];
+
+  /** Total leading + data column count — drives skeleton/empty colspan. */
+  protected readonly columnCount = computed<number>(
+    () => this.listColumns().length + (this.selectable() ? 1 : 0),
+  );
+
+  /** Index list sized to the column count — drives skeleton cell iteration. */
+  protected readonly skeletonCols = computed<readonly number[]>(() =>
+    Array.from({ length: this.columnCount() }, (_, i) => i),
+  );
+
+  private static readDensity(): 'compact' | 'comfortable' {
+    try {
+      if (typeof localStorage === 'undefined') return 'compact';
+      const v = localStorage.getItem(DataTable.DENSITY_KEY);
+      return v === 'comfortable' ? 'comfortable' : 'compact';
+    } catch {
+      return 'compact';
+    }
+  }
+
+  /** Flip compact ⇄ comfortable and persist (best-effort). */
+  protected toggleDensity(): void {
+    const next = this.density() === 'compact' ? 'comfortable' : 'compact';
+    this.density.set(next);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(DataTable.DENSITY_KEY, next);
+      }
+    } catch {
+      /* storage unavailable (private mode / SSR) — keep in-memory only. */
+    }
+  }
+
   /**
    * Best-effort extraction of a row's id. We accept `unknown` rows so we
    * check shape defensively.
@@ -131,18 +193,6 @@ export class DataTable {
 
   protected isTruthy(value: unknown): boolean {
     return value === true || value === 'true' || value === 1 || value === '1';
-  }
-
-  /**
-   * Waitlist row lifecycle status, derived from `notifiedAt`/`convertedAt`.
-   * Only meaningful for the `waitlist` model — its `notifiedAt` column is
-   * the sole listColumn using this key, so the special case in the template
-   * is scoped there.
-   */
-  protected waitlistStatus(row: unknown): 'new' | 'invited' | 'converted' {
-    if (this.cellValue(row, 'convertedAt') != null) return 'converted';
-    if (this.cellValue(row, 'notifiedAt') != null) return 'invited';
-    return 'new';
   }
 
   /**

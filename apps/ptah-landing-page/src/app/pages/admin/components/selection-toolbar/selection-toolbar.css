@@ -1,0 +1,25 @@
+:host {
+  display: block;
+}
+
+/* Slide/fade the bar in as it mounts (design spec §6.1 — no GSAP). */
+.toolbar-enter {
+  animation: toolbar-slide-down 150ms ease-out;
+}
+
+@keyframes toolbar-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toolbar-enter {
+    animation: none;
+  }
+}

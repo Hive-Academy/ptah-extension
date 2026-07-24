@@ -1,9 +1,9 @@
 <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
-  <table class="table table-zebra table-sm">
+  <table class="table table-zebra" [class.table-sm]="density() === 'compact'">
     <thead>
       <tr>
         @if (selectable()) {
-          <th class="w-10">
+          <th class="sticky left-0 z-10 w-10 bg-base-100">
             <input
               type="checkbox"
               class="checkbox checkbox-sm"
@@ -13,9 +13,13 @@
             />
           </th>
         }
-        @for (col of listColumns(); track col.key) {
+        @for (col of listColumns(); track col.key; let first = $first) {
           <th
-            class="cursor-pointer select-none whitespace-nowrap hover:bg-base-200"
+            class="cursor-pointer select-none whitespace-nowrap text-xs font-medium uppercase tracking-wide text-ink-400 hover:bg-base-200"
+            [class.sticky]="first && !selectable()"
+            [class.left-0]="first && !selectable()"
+            [class.z-10]="first && !selectable()"
+            [class.bg-base-100]="first && !selectable()"
             (click)="onHeaderClick(col)"
           >
             <span class="inline-flex items-center gap-1">
@@ -26,102 +30,94 @@
         }
       </tr>
     </thead>
-    <tbody [class.opacity-50]="loading()">
-      @for (row of rows(); track rowId(row); let i = $index) {
-        <tr class="cursor-pointer hover" (click)="onRowClick(row, $event)">
-          @if (selectable()) {
-            <td>
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm"
-                [checked]="isSelected(rowId(row))"
-                (click)="$event.stopPropagation()"
-                (change)="toggleRow(rowId(row), $event)"
-                [attr.aria-label]="'Select row ' + rowId(row)"
-              />
+    <tbody [class.opacity-50]="loading() && rows().length > 0">
+      @if (showSkeleton()) {
+        <!-- First-load skeleton: ~5 rows × column count -->
+        @for (r of skeletonRows; track r) {
+          <tr>
+            @for (c of skeletonCols(); track c) {
+              <td>
+                <div class="h-4 w-full animate-pulse rounded-md bg-base-200"></div>
+              </td>
+            }
+          </tr>
+        }
+      } @else {
+        @for (row of rows(); track rowId(row)) {
+          <tr class="cursor-pointer hover" (click)="onRowClick(row, $event)">
+            @if (selectable()) {
+              <td class="sticky left-0 z-10 bg-base-100">
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-sm"
+                  [checked]="isSelected(rowId(row))"
+                  (click)="$event.stopPropagation()"
+                  (change)="toggleRow(rowId(row), $event)"
+                  [attr.aria-label]="'Select row ' + rowId(row)"
+                />
+              </td>
+            }
+            @for (col of listColumns(); track col.key; let first = $first) {
+              <td
+                class="align-top"
+                [class.sticky]="first && !selectable()"
+                [class.left-0]="first && !selectable()"
+                [class.z-10]="first && !selectable()"
+                [class.bg-base-100]="first && !selectable()"
+                [style.maxWidth.px]="col.truncate ?? null"
+                [class.truncate]="!!col.truncate"
+                [class.overflow-hidden]="!!col.truncate"
+                [class.text-ellipsis]="!!col.truncate"
+                [class.whitespace-nowrap]="!!col.truncate"
+              >
+                @if (col.badgeMap; as badgeMap) {
+                  <ptah-admin-status-badge
+                    [badgeMap]="badgeMap"
+                    [value]="cellValue(row, col.key)"
+                  />
+                } @else {
+                  @switch (col.type) {
+                    @case ('boolean') {
+                      @if (isTruthy(cellValue(row, col.key))) {
+                        <span class="badge badge-success badge-sm">yes</span>
+                      } @else {
+                        <span class="badge badge-ghost badge-sm">no</span>
+                      }
+                    }
+                    @case ('datetime') {
+                      @if (asDate(cellValue(row, col.key)); as v) {
+                        <span class="whitespace-nowrap text-xs">{{
+                          v | date: 'medium'
+                        }}</span>
+                      } @else {
+                        <span class="opacity-40">—</span>
+                      }
+                    }
+                    @case ('uuid') {
+                      <span class="font-mono text-xs">{{
+                        formatString(cellValue(row, col.key), col.truncate ?? 12)
+                      }}</span>
+                    }
+                    @case ('json') {
+                      <span class="font-mono text-xs opacity-70">
+                        {{ formatString(cellValue(row, col.key), col.truncate ?? 80) }}
+                      </span>
+                    }
+                    @default {
+                      {{ formatString(cellValue(row, col.key), col.truncate) }}
+                    }
+                  }
+                }
+              </td>
+            }
+          </tr>
+        } @empty {
+          <tr>
+            <td [attr.colspan]="columnCount()" class="p-0">
+              <ptah-admin-empty-state message="No records." />
             </td>
-          }
-          @for (col of listColumns(); track col.key) {
-            <td
-              class="align-top"
-              [style.maxWidth.px]="col.truncate ?? null"
-              [class.truncate]="!!col.truncate"
-              [class.overflow-hidden]="!!col.truncate"
-              [class.text-ellipsis]="!!col.truncate"
-              [class.whitespace-nowrap]="!!col.truncate"
-            >
-              @switch (col.type) {
-                @case ('boolean') {
-                  @if (isTruthy(cellValue(row, col.key))) {
-                    <span class="badge badge-success badge-sm">yes</span>
-                  } @else {
-                    <span class="badge badge-ghost badge-sm">no</span>
-                  }
-                }
-                @case ('datetime') {
-                  @if (col.key === 'notifiedAt') {
-                    @let status = waitlistStatus(row);
-                    <span
-                      class="badge badge-sm mr-1"
-                      [class.badge-ghost]="status === 'new'"
-                      [class.badge-info]="status === 'invited'"
-                      [class.badge-success]="status === 'converted'"
-                    >
-                      {{
-                        status === 'new'
-                          ? 'New'
-                          : status === 'invited'
-                            ? 'Invited'
-                            : 'Converted'
-                      }}
-                    </span>
-                  }
-                  @if (asDate(cellValue(row, col.key)); as v) {
-                    <span class="whitespace-nowrap text-xs">{{
-                      v | date: 'medium'
-                    }}</span>
-                  } @else {
-                    <span class="opacity-40">—</span>
-                  }
-                }
-                @case ('uuid') {
-                  <span class="font-mono text-xs">{{
-                    formatString(cellValue(row, col.key), col.truncate ?? 12)
-                  }}</span>
-                }
-                @case ('json') {
-                  <span class="font-mono text-xs opacity-70">
-                    {{ formatString(cellValue(row, col.key), col.truncate ?? 80) }}
-                  </span>
-                }
-                @default {
-                  @if (col.key === 'source') {
-                    @let val = cellValue(row, col.key);
-                    <span
-                      class="badge badge-sm"
-                      [class.badge-warning]="val === 'complimentary'"
-                      [class.badge-info]="val === 'manual'"
-                      [class.badge-ghost]="!val || val === 'paddle'"
-                    >
-                      {{ val || 'paddle' }}
-                    </span>
-                  } @else {
-                    {{ formatString(cellValue(row, col.key), col.truncate) }}
-                  }
-                }
-              }
-            </td>
-          }
-        </tr>
-      } @empty {
-        <tr>
-          <td
-            [attr.colspan]="listColumns().length + (selectable() ? 1 : 0)"
-            class="py-8 text-center text-sm opacity-60"
-          >
-            No records.
-          </td>
-        </tr>
+          </tr>
+        }
       }
     </tbody>
   </table>
@@ -143,6 +139,26 @@
         <option [value]="opt">{{ opt }}</option>
       }
     </select>
+
+    <button
+      type="button"
+      class="btn btn-ghost btn-sm btn-square"
+      (click)="toggleDensity()"
+      [attr.aria-label]="
+        density() === 'compact'
+          ? 'Switch to comfortable row spacing'
+          : 'Switch to compact row spacing'
+      "
+      [title]="
+        density() === 'compact' ? 'Comfortable rows' : 'Compact rows'
+      "
+    >
+      <lucide-angular
+        [img]="density() === 'compact' ? Rows4 : Rows3"
+        class="h-4 w-4"
+        aria-hidden="true"
+      />
+    </button>
   </div>
 
   <div class="flex items-center gap-3">

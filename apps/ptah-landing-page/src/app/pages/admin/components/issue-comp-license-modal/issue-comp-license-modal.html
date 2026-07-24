@@ -2,10 +2,57 @@
 <dialog class="modal modal-open">
   <div class="modal-box max-w-lg">
     <h3 class="font-bold text-lg">Issue Complimentary License</h3>
-    <p class="py-2 text-sm opacity-70">Give <strong>{{ displayEmail() }}</strong> a complimentary Builders membership for free.</p>
+    @if (isSearchMode() && !selectedRecipient()) {
+      <p class="py-2 text-sm opacity-70">Search for the recipient, then grant a complimentary Builders membership.</p>
+    } @else {
+      <p class="py-2 text-sm opacity-70">Give <strong>{{ displayEmail() }}</strong> a complimentary Builders membership for free.</p>
+    }
 
     @if (!result()) {
       <div class="space-y-4 my-4">
+        @if (isSearchMode()) {
+          <div class="form-control w-full relative">
+            <span class="label-text mb-1 text-xs font-semibold uppercase opacity-60">Recipient</span>
+            @if (selectedRecipient(); as r) {
+              <div class="flex items-center justify-between gap-2 rounded-md border border-base-300 bg-base-200 px-3 py-2">
+                <div class="min-w-0">
+                  <div class="truncate text-sm font-medium">{{ r.email }}</div>
+                  @if (r.name) {
+                    <div class="truncate text-xs text-ink-400">{{ r.name }}</div>
+                  }
+                </div>
+                <button type="button" class="btn btn-ghost btn-xs" (click)="clearRecipient()">Change</button>
+              </div>
+            } @else {
+              <input
+                type="search"
+                class="input input-bordered input-sm w-full"
+                placeholder="Search email, name, WorkOS/Paddle ID…"
+                [ngModel]="recipientQuery()"
+                (ngModelChange)="onRecipientInput($event)"
+                autocomplete="off"
+                aria-label="Search recipient"
+              />
+              @if (recipientResults().length > 0) {
+                <ul class="menu menu-sm absolute top-full left-0 z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-base-300 bg-base-200 shadow-lg">
+                  @for (opt of recipientResults(); track opt.id) {
+                    <li>
+                      <button type="button" class="flex flex-col items-start gap-0" (click)="selectRecipient(opt)">
+                        <span class="truncate text-sm">{{ opt.email }}</span>
+                        @if (opt.name) {
+                          <span class="truncate text-xs text-ink-400">{{ opt.name }}</span>
+                        }
+                      </button>
+                    </li>
+                  }
+                </ul>
+              } @else if (recipientQuery().trim().length >= 2) {
+                <p class="mt-1 text-xs text-ink-500">No matching users.</p>
+              }
+            }
+          </div>
+        }
+
         <label class="form-control w-full">
           <span class="label-text mb-1 text-xs font-semibold uppercase opacity-60">Duration</span>
           <select class="select select-bordered select-sm" [ngModel]="durationPreset()" (ngModelChange)="durationPreset.set($event)">

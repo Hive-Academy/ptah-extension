@@ -29,6 +29,13 @@ export interface AdminListQuery {
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   search?: string;
+  /**
+   * Server-side `field:value` filter (e.g. `notified:false`). Backend applies
+   * a per-model allowlist; a non-allowlisted field/value yields HTTP 400, so
+   * callers MUST only pass values documented for the target model. Additive —
+   * omitting it preserves the previous unfiltered behavior.
+   */
+  filter?: string;
 }
 
 export interface AdminBulkEmailRequest {
@@ -277,11 +284,26 @@ const adminStatsGroupSchema = z.object({
   memberCount: z.number(),
 });
 
+/**
+ * "Needs attention" aggregate counts (design spec §3.1). OPTIONAL on the
+ * response so older server builds that predate this block still validate;
+ * when present, the Overview's action queue "lights up" rows 2–4 instead of
+ * rendering them in the muted "not wired" state.
+ */
+const adminStatsAttentionSchema = z.object({
+  waitlistUninvited: z.number(),
+  failedWebhooksUnresolved: z.number(),
+  subscriptionsPastDue: z.number(),
+  sessionRequestsPending: z.number(),
+});
+export type AdminStatsAttention = z.infer<typeof adminStatsAttentionSchema>;
+
 /** Response for `GET /api/v1/admin/stats` — drives the Overview dashboard. */
 const adminStatsResponseSchema = z.object({
   waitlist: adminStatsWaitlistSchema,
   members: adminStatsMembersSchema,
   groups: z.array(adminStatsGroupSchema),
+  attention: adminStatsAttentionSchema.optional(),
   updatedAt: z.string(),
 });
 export type AdminStatsResponse = z.infer<typeof adminStatsResponseSchema>;
@@ -376,6 +398,7 @@ export class AdminApiService {
     if (q.sortBy) params = params.set('sortBy', q.sortBy);
     if (q.sortOrder) params = params.set('sortOrder', q.sortOrder);
     if (q.search) params = params.set('search', q.search);
+    if (q.filter) params = params.set('filter', q.filter);
     return this.http.get<unknown>(`${this.base}/${model}`, { params }).pipe(
       map(validate(adminListEnvelopeSchema, `GET /${model}`)),
       map(

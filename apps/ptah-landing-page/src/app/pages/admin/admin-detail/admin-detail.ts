@@ -21,7 +21,9 @@ import {
   FieldSpec,
 } from '../admin-models.config';
 import { DeleteUserModalComponent } from '../components/delete-user-modal/delete-user-modal';
+import { EmptyState } from '../components/empty-state/empty-state';
 import { IssueCompLicenseModalComponent } from '../components/issue-comp-license-modal/issue-comp-license-modal';
+import { StatusBadge } from '../components/status-badge/status-badge';
 
 /**
  * AdminDetail — generic show/edit page for a single admin record.
@@ -48,7 +50,13 @@ import { IssueCompLicenseModalComponent } from '../components/issue-comp-license
   selector: 'ptah-admin-detail',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, DeleteUserModalComponent, IssueCompLicenseModalComponent],
+  imports: [
+    DatePipe,
+    DeleteUserModalComponent,
+    IssueCompLicenseModalComponent,
+    StatusBadge,
+    EmptyState,
+  ],
   templateUrl: './admin-detail.html',
   styleUrls: ['./admin-detail.css'],
 })
@@ -238,6 +246,46 @@ export class AdminDetail {
 
   protected onCancel(): void {
     this.navigateBack();
+  }
+
+  /**
+   * License lifecycle quick-set (design spec §4.3.3). These buttons only
+   * POPULATE the existing edit form (`expiresAt`/`status`) — the admin still
+   * reviews and submits through the same PATCH the form already uses, so no
+   * new mutation path is introduced. Rendered for the `licenses` model only.
+   *
+   * `days` extends from the later of "now" and the current expiry, so
+   * extending an already-lapsed license grants a fresh window from today.
+   */
+  protected extendLicense(days: number): void {
+    const rec = this.record();
+    if (!rec) return;
+    const now = Date.now();
+    let baseMs = now;
+    const current = rec['expiresAt'];
+    if (typeof current === 'string') {
+      const d = new Date(current);
+      if (!isNaN(d.getTime()) && d.getTime() > now) baseMs = d.getTime();
+    }
+    const target = new Date(baseMs + days * 86_400_000);
+    this.formValues.update((prev) => ({
+      ...prev,
+      expiresAt: this.dateToLocalInput(target),
+    }));
+  }
+
+  /** Quick-set the license `status` field into the edit form (revoke/reinstate). */
+  protected setLicenseStatus(status: 'revoked' | 'active'): void {
+    this.formValues.update((prev) => ({ ...prev, status }));
+  }
+
+  /** Date → `datetime-local` input string (same format as {@link toFormValue}). */
+  private dateToLocalInput(d: Date): string {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return (
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+      `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    );
   }
 
   protected onUserDeleted(): void {

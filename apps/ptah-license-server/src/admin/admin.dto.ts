@@ -48,6 +48,20 @@ export class ListQueryDto {
   @IsString()
   @MaxLength(256)
   search?: string;
+
+  /**
+   * Optional single-field filter, format `field:value`
+   * (e.g. `resolved:false`, `status:past_due`, `notified:true`).
+   *
+   * The `field` MUST be in the model's `filterableFields` allowlist
+   * (see admin-models.config.ts) — this is validated server-side in
+   * `AdminService.list`, which rejects unknown fields with 400. Combined with
+   * `search` using AND semantics (search within the filtered set).
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  filter?: string;
 }
 
 /**

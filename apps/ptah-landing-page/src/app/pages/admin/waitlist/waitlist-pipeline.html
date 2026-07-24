@@ -1,0 +1,231 @@
+<section class="flex flex-col gap-4">
+  <!-- Header: title + total + inline funnel summary -->
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <h2 class="text-xl font-semibold">Waitlist Pipeline</h2>
+      <span class="text-sm text-ink-400">({{ summaryTotal() }} total)</span>
+    </div>
+
+    <div class="flex items-center gap-4 text-sm">
+      <span class="flex items-center gap-1.5">
+        <span class="text-ink-400">New</span>
+        <span class="font-semibold tabular-nums">{{ summaryNew() }}</span>
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="text-ink-400">Invited</span>
+        <span class="font-semibold tabular-nums text-info">{{ summaryInvited() }}</span>
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="text-ink-400">Converted</span>
+        <span class="font-semibold tabular-nums text-success">{{ summaryConverted() }}</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- Segmented tabs (URL-driven via ?tab=) -->
+  <div role="tablist" class="tabs tabs-boxed w-fit">
+    @for (t of tabs; track t.key) {
+      <button
+        type="button"
+        role="tab"
+        class="tab"
+        [class.tab-active]="tab() === t.key"
+        [attr.aria-selected]="tab() === t.key"
+        (click)="setTab(t.key)"
+      >
+        {{ t.label }}
+      </button>
+    }
+  </div>
+
+  <!-- New-tab bulk actions: persistent quick invite + contextual toolbar -->
+  @if (tab() === 'new') {
+    <div class="flex flex-col gap-2">
+      <div class="flex justify-end">
+        <button
+          type="button"
+          class="btn btn-outline btn-sm"
+          (click)="onInviteOldest()"
+        >
+          <lucide-angular [img]="UserPlusIcon" class="h-4 w-4" aria-hidden="true" />
+          Invite oldest {{ quickInviteBatch }}
+        </button>
+      </div>
+
+      <ptah-admin-selection-toolbar
+        [count]="selectedIds().length"
+        itemNoun="row"
+        (cleared)="clearSelection()"
+      >
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          (click)="onSendFoundingInvites()"
+        >
+          Send Founding Invites
+        </button>
+      </ptah-admin-selection-toolbar>
+    </div>
+  }
+
+  <!-- Body -->
+  @if (loading()) {
+    <div class="flex flex-col gap-2" aria-busy="true" aria-label="Loading waitlist">
+      @for (i of [1, 2, 3, 4, 5]; track i) {
+        <div class="h-14 animate-pulse rounded-md bg-base-200"></div>
+      }
+    </div>
+  } @else if (loadError()) {
+    <div class="alert alert-error">
+      <span>Failed to load the waitlist. The filter may be unavailable.</span>
+      <button type="button" class="btn btn-sm" (click)="retry()">Retry</button>
+    </div>
+  } @else if (rows().length === 0) {
+    @switch (tab()) {
+      @case ('new') {
+        <ptah-admin-empty-state
+          [icon]="PartyPopperIcon"
+          message="Nobody's waiting — you're caught up"
+          hint="New signups will appear here for you to invite."
+        />
+      }
+      @case ('invited') {
+        <ptah-admin-empty-state [icon]="MailCheckIcon" message="No pending invites" />
+      }
+      @case ('converted') {
+        <ptah-admin-empty-state [icon]="SparklesIcon" message="No conversions yet" />
+      }
+      @default {
+        <ptah-admin-empty-state [icon]="InboxIcon" message="The waitlist is empty" />
+      }
+    }
+  } @else {
+    <ul class="flex flex-col gap-2">
+      @for (row of rows(); track row.id) {
+        <li
+          class="flex items-center gap-3 rounded-md border border-base-300 bg-base-200 px-3 py-2.5"
+        >
+          @if (tab() === 'new') {
+            <input
+              type="checkbox"
+              class="checkbox checkbox-sm checkbox-primary shrink-0"
+              [checked]="isSelected(row.id)"
+              (change)="toggleSelected(row.id)"
+              [attr.aria-label]="'Select ' + row.email"
+            />
+          }
+
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="truncate font-medium">{{ row.email }}</span>
+              @if (row.source) {
+                <ptah-admin-status-badge
+                  [value]="row.source"
+                  [showIcon]="false"
+                  size="xs"
+                />
+              }
+              @if (tab() === 'all') {
+                <ptah-admin-status-badge
+                  [variant]="stageVariant(row)"
+                  [label]="stageLabel(row)"
+                  size="xs"
+                />
+              }
+            </div>
+            <div class="text-xs text-ink-400">
+              Joined {{ row.createdAt ? (row.createdAt | date: 'medium') : '—' }}
+            </div>
+          </div>
+
+          <!-- Per-tab right-side action -->
+          <div class="flex shrink-0 items-center gap-3">
+            @switch (tab()) {
+              @case ('invited') {
+                <span class="hidden text-xs text-ink-400 sm:inline">
+                  Invited {{ row.notifiedAt ? (row.notifiedAt | date: 'mediumDate') : '—' }}
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-outline btn-primary btn-xs"
+                  (click)="onApprove(row)"
+                >
+                  <lucide-angular [img]="KeyRoundIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+                  Approve → Builders
+                </button>
+              }
+              @case ('converted') {
+                <span class="hidden text-xs text-ink-400 sm:inline">
+                  Converted {{ row.convertedAt ? (row.convertedAt | date: 'mediumDate') : '—' }}
+                </span>
+                <a
+                  class="link link-hover flex items-center gap-1 text-xs text-info"
+                  [routerLink]="['/admin', 'licenses']"
+                  [queryParams]="{ search: row.email }"
+                >
+                  View license
+                  <lucide-angular [img]="ArrowRightIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
+              }
+            }
+          </div>
+        </li>
+      }
+    </ul>
+
+    <!-- Pagination -->
+    @if (totalPages() > 1) {
+      <div class="flex items-center justify-end gap-3 text-sm">
+        <span class="text-ink-400">Page {{ page() }} of {{ totalPages() }}</span>
+        <div class="join">
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="page() <= 1"
+            (click)="prevPage()"
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="page() >= totalPages()"
+            (click)="nextPage()"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    }
+  }
+
+  <!-- Founding-invite modal (selected rows or oldest-N, mode chosen by recipients) -->
+  <ptah-admin-waitlist-invite-modal
+    [open]="waitlistInviteOpen()"
+    [selectedIds]="inviteRecipients()"
+    (closeModal)="onInviteClose()"
+    (submitted)="onInviteSent($event)"
+  />
+
+  <!-- Approve → Builders modal (bound to the row email) -->
+  <app-issue-comp-license-modal
+    [email]="approveEmail()"
+    (issued)="onApproved()"
+  />
+
+  @if (inviteToast(); as t) {
+    <div class="toast toast-end z-50">
+      <div class="alert alert-success">
+        <span>Invited {{ t.invited }}, skipped {{ t.skipped }}.</span>
+      </div>
+    </div>
+  }
+
+  @if (approvedAt()) {
+    <div class="toast toast-end z-50">
+      <div class="alert alert-success">
+        <span>Builders license granted — the waitlist row will update shortly.</span>
+      </div>
+    </div>
+  }
+</section>

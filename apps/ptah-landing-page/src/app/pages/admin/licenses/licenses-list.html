@@ -1,0 +1,190 @@
+<section class="flex flex-col gap-4">
+  <!-- Header: title + count + search + primary issue action -->
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <lucide-angular
+        [img]="KeyRoundIcon"
+        class="h-5 w-5 text-ink-500"
+        aria-hidden="true"
+      />
+      <h2 class="text-xl font-semibold">Licenses</h2>
+      <span class="text-sm text-ink-400">({{ total() }} total)</span>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <input
+        type="search"
+        class="input input-bordered input-sm w-72 max-w-full"
+        placeholder="Search license key, user ID, plan, status…"
+        [value]="search()"
+        (input)="onSearchInput($event)"
+        aria-label="Search licenses"
+      />
+      <button
+        type="button"
+        class="btn btn-primary btn-sm gap-1"
+        (click)="openIssueModal()"
+      >
+        <lucide-angular [img]="PlusIcon" class="h-4 w-4" aria-hidden="true" />
+        Issue Complimentary License
+      </button>
+    </div>
+  </header>
+
+  @if (loadError(); as msg) {
+    <div class="alert alert-error">
+      <span>{{ msg }}</span>
+      <button type="button" class="btn btn-sm" (click)="retry()">Retry</button>
+    </div>
+  }
+
+  <!-- Table -->
+  <div class="overflow-x-auto rounded-lg border border-base-300">
+    <table class="table table-sm">
+      <thead>
+        <tr class="text-xs font-medium uppercase tracking-wide text-ink-400">
+          <th>License Key</th>
+          <th>User ID</th>
+          <th>Plan</th>
+          <th>Status</th>
+          <th>Source</th>
+          <th>Expires</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (loading()) {
+          @for (s of skeletonRows; track $index) {
+            <tr>
+              @for (c of columns; track c.key) {
+                <td>
+                  <div class="h-4 w-full animate-pulse rounded bg-base-200"></div>
+                </td>
+              }
+            </tr>
+          }
+        } @else {
+          @for (row of rows(); track rowId(row)) {
+            <tr
+              class="cursor-pointer hover:bg-base-200"
+              [class.border-l-2]="isExpiringSoon(row)"
+              [class.border-warning]="isExpiringSoon(row)"
+              (click)="onRowClick(row)"
+            >
+              <td class="font-mono text-xs">{{ truncate(row['licenseKey'], 24) }}</td>
+              <td class="font-mono text-xs text-ink-400">
+                {{ truncate(row['userId'], 14) }}
+              </td>
+              <td>{{ row['plan'] ?? '—' }}</td>
+              <td>
+                <ptah-admin-status-badge
+                  [badgeMap]="badgeMap('status')"
+                  [value]="row['status']"
+                  size="sm"
+                />
+              </td>
+              <td>
+                <ptah-admin-status-badge
+                  [badgeMap]="badgeMap('source')"
+                  [value]="row['source']"
+                  size="sm"
+                />
+              </td>
+              <td>
+                <div class="flex items-center gap-2 whitespace-nowrap">
+                  @if (asDate(row['expiresAt']); as d) {
+                    <span>{{ d | date: 'mediumDate' }}</span>
+                  } @else {
+                    <span class="text-ink-500">Lifetime</span>
+                  }
+                  @if (isExpiringSoon(row)) {
+                    <span class="badge badge-warning badge-outline badge-xs">
+                      Expiring soon
+                    </span>
+                  }
+                </div>
+              </td>
+              <td class="whitespace-nowrap text-ink-400">
+                @if (asDate(row['createdAt']); as d) {
+                  {{ d | date: 'mediumDate' }}
+                } @else {
+                  —
+                }
+              </td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+
+    @if (isEmpty()) {
+      @if (search().trim()) {
+        <ptah-admin-empty-state
+          [icon]="KeyRoundIcon"
+          message="No licenses match your search"
+          hint="Try clearing the search box to see every issued license."
+        />
+      } @else {
+        <ptah-admin-empty-state
+          [icon]="KeyRoundIcon"
+          message="No licenses issued yet"
+          hint="Issue a complimentary Builders license to get started."
+        />
+      }
+    }
+  </div>
+
+  <!-- Pagination -->
+  @if (!isEmpty() && !loadError()) {
+    <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
+      <div class="flex items-center gap-2 text-ink-400">
+        <span>Rows per page</span>
+        <select
+          class="select select-bordered select-xs"
+          [value]="pageSize()"
+          (change)="onPageSizeChange($event)"
+          aria-label="Rows per page"
+        >
+          @for (opt of pageSizeOptions; track opt) {
+            <option [value]="opt">{{ opt }}</option>
+          }
+        </select>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <span class="tabular-nums text-ink-400">
+          Page {{ page() }} of {{ totalPages() }}
+        </span>
+        <div class="join">
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="page() <= 1"
+            (click)="onPrev()"
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="page() >= totalPages()"
+            (click)="onNext()"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Search-mode issuance modal (primary header action) -->
+  <app-issue-comp-license-modal mode="search" (issued)="onIssued($event)" />
+
+  @if (issuedToast(); as t) {
+    <div class="toast toast-end z-50">
+      <div class="alert alert-success">
+        <span>{{ t }}</span>
+      </div>
+    </div>
+  }
+</section>

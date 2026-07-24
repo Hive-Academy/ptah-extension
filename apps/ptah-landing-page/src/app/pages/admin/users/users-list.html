@@ -1,0 +1,141 @@
+<section class="flex flex-col gap-4">
+  <!-- Header -->
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <h2 class="text-xl font-semibold">Users</h2>
+      <span class="text-sm text-ink-400">({{ total() }} total)</span>
+    </div>
+
+    <input
+      type="search"
+      class="input input-bordered input-sm w-72 max-w-full"
+      placeholder="Search email, first/last name, WorkOS ID, Paddle ID…"
+      [value]="search()"
+      (input)="onSearchInput($event)"
+      aria-label="Search users"
+    />
+  </header>
+
+  <!-- Contextual bulk-action bar (replaces the disabled-until-selected button) -->
+  <ptah-admin-selection-toolbar
+    [count]="selectedIds().length"
+    itemNoun="user"
+    (cleared)="clearSelection()"
+  >
+    <button
+      type="button"
+      class="btn btn-primary btn-sm"
+      (click)="onEmailSelected()"
+    >
+      Email Selected
+    </button>
+  </ptah-admin-selection-toolbar>
+
+  <!-- Body -->
+  @if (loading()) {
+    <div class="flex flex-col gap-2" aria-busy="true" aria-label="Loading users">
+      @for (i of [1, 2, 3, 4, 5]; track i) {
+        <div class="h-12 animate-pulse rounded-md bg-base-200"></div>
+      }
+    </div>
+  } @else if (loadError()) {
+    <div class="alert alert-error">
+      <span>Failed to load users.</span>
+    </div>
+  } @else if (rows().length === 0) {
+    <ptah-admin-empty-state message="No users match your search." />
+  } @else {
+    <div class="overflow-x-auto rounded-lg border border-base-300">
+      <table class="table table-sm">
+        <thead>
+          <tr class="text-xs font-medium uppercase tracking-wide text-ink-400">
+            <th class="w-10">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm"
+                [checked]="allSelected()"
+                (change)="toggleAll()"
+                aria-label="Select all users on this page"
+              />
+            </th>
+            <th>Email</th>
+            <th>Name</th>
+            <th>Verified</th>
+            <th>Joined</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.id) {
+            <tr
+              class="cursor-pointer hover:bg-base-200"
+              (click)="onRowClick(row.id)"
+            >
+              <td (click)="$event.stopPropagation()">
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-sm"
+                  [checked]="isSelected(row.id)"
+                  (change)="toggleSelected(row.id, $event)"
+                  [attr.aria-label]="'Select ' + row.email"
+                />
+              </td>
+              <td class="font-medium">{{ row.email }}</td>
+              <td class="text-ink-300">{{ displayName(row) }}</td>
+              <td>
+                <ptah-admin-status-badge
+                  [variant]="row.emailVerified ? 'success' : 'ghost'"
+                  [label]="row.emailVerified ? 'Verified' : 'Unverified'"
+                  size="xs"
+                />
+              </td>
+              <td class="text-xs text-ink-400">
+                {{ row.createdAt ? (row.createdAt | date: 'medium') : '—' }}
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    @if (totalPages() > 1) {
+      <div class="flex items-center justify-end gap-3 text-sm">
+        <span class="text-ink-400">Page {{ page() }} of {{ totalPages() }}</span>
+        <div class="join">
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="page() <= 1"
+            (click)="prevPage()"
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="page() >= totalPages()"
+            (click)="nextPage()"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    }
+  }
+
+  <ptah-admin-bulk-email-modal
+    [open]="bulkEmailOpen()"
+    [userIds]="selectedIds()"
+    (closeModal)="onBulkEmailClose()"
+    (submitted)="onBulkEmailSent($event)"
+  />
+
+  @if (bulkEmailToast(); as t) {
+    <div class="toast toast-end z-50">
+      <div class="alert alert-success">
+        <span>
+          Bulk email sent to {{ t.sent }} user(s)@if (t.failed.length > 0) {, {{ t.failed.length }} failed}.
+        </span>
+      </div>
+    </div>
+  }
+</section>

@@ -1,0 +1,131 @@
+<div class="rounded-lg border border-amber-500/20 bg-base-200 p-4">
+  <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400">
+    Needs Attention
+  </p>
+
+  @if (allCaughtUp()) {
+    <div
+      class="flex items-center gap-2 rounded-md bg-success/10 px-3 py-2 text-sm text-success"
+    >
+      <lucide-angular
+        [img]="CheckCircleIcon"
+        class="h-4 w-4 shrink-0"
+        aria-hidden="true"
+      />
+      <span>Nothing needs attention.</span>
+    </div>
+  } @else {
+    <ul class="flex flex-col gap-1">
+      @for (row of rows(); track row.key) {
+        <li>
+          @if (row.count === null) {
+            <!-- Not-wired state: backend aggregate not shipped yet (never a fake 0) -->
+            <a
+              [routerLink]="row.link"
+              [queryParams]="row.queryParams"
+              class="flex items-center justify-between gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-base-300"
+            >
+              <span class="flex min-w-0 items-center gap-3">
+                <span
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-base-300 text-ink-500"
+                >
+                  <lucide-angular
+                    [img]="row.icon"
+                    class="h-4 w-4"
+                    aria-hidden="true"
+                  />
+                </span>
+                <span class="flex min-w-0 flex-col">
+                  <span class="truncate text-sm text-ink-300">
+                    {{ row.label }}
+                  </span>
+                  <span class="truncate text-xs text-ink-500">
+                    {{ row.context }}
+                  </span>
+                </span>
+              </span>
+              <span class="flex shrink-0 items-center gap-2">
+                <span
+                  class="text-lg font-bold tabular-nums text-ink-500"
+                  title="Backend aggregate pending (see spec §3.1)"
+                >
+                  —
+                </span>
+                <lucide-angular
+                  [img]="ChevronRightIcon"
+                  class="h-4 w-4 text-ink-500"
+                  aria-hidden="true"
+                />
+              </span>
+            </a>
+          } @else if (row.count === 0) {
+            <!-- Per-row caught-up: collapse to a calm muted line -->
+            <div class="flex items-center gap-3 rounded-md px-3 py-2 text-ink-500">
+              <span
+                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-base-300 text-ink-500"
+              >
+                <lucide-angular
+                  [img]="row.icon"
+                  class="h-4 w-4"
+                  aria-hidden="true"
+                />
+              </span>
+              <span class="truncate text-sm">{{ row.label }}</span>
+              <span
+                class="ml-auto flex shrink-0 items-center gap-1 text-xs text-success"
+              >
+                <lucide-angular
+                  [img]="CheckCircleIcon"
+                  class="h-3.5 w-3.5"
+                  aria-hidden="true"
+                />
+                All caught up
+              </span>
+            </div>
+          } @else {
+            <!-- Urgent action row -->
+            <a
+              [routerLink]="row.link"
+              [queryParams]="row.queryParams"
+              class="flex items-center justify-between gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-base-300"
+            >
+              <span class="flex min-w-0 items-center gap-3">
+                <span
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+                  [class]="row.wellClass"
+                >
+                  <lucide-angular
+                    [img]="row.icon"
+                    class="h-4 w-4"
+                    aria-hidden="true"
+                  />
+                </span>
+                <span class="flex min-w-0 flex-col">
+                  <span class="truncate text-sm font-medium text-base-content">
+                    {{ row.label }}
+                  </span>
+                  <span class="truncate text-xs text-ink-400">
+                    {{ row.context }}
+                  </span>
+                </span>
+              </span>
+              <span class="flex shrink-0 items-center gap-2">
+                <span
+                  class="text-lg font-bold tabular-nums"
+                  [class]="row.countClass"
+                >
+                  {{ row.count }}
+                </span>
+                <lucide-angular
+                  [img]="ChevronRightIcon"
+                  class="h-4 w-4 text-ink-400"
+                  aria-hidden="true"
+                />
+              </span>
+            </a>
+          }
+        </li>
+      }
+    </ul>
+  }
+</div>

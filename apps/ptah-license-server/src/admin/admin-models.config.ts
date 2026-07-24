@@ -21,6 +21,31 @@ export type AdminModelKey =
   | 'marketing-campaign-templates'
   | 'waitlist';
 
+/**
+ * Descriptor for a single allowlisted `?filter=field:value` field.
+ *
+ * SECURITY: like `searchFields`/`sortableFields`, `filterableFields` is the
+ * ONLY allowlist between the HTTP query-string and Prisma. A `filter` targeting
+ * a field absent from this map is rejected with 400 — arbitrary field filtering
+ * is never permitted.
+ *
+ * - `boolean`      → column is a Prisma `Boolean`; value must be `true`/`false`.
+ * - `string`       → column is a Prisma `String`; value matched for equality
+ *                    and, when `allowedValues` is set, constrained to that set.
+ * - `datePresence` → column is a nullable `DateTime` exposed as a virtual
+ *                    boolean: `true` → `{ not: null }`, `false` → `null`.
+ *                    Lets `notified:true` mean "has a notifiedAt timestamp".
+ */
+export type AdminFilterFieldType = 'boolean' | 'string' | 'datePresence';
+
+export interface AdminFilterField {
+  type: AdminFilterFieldType;
+  /** Actual Prisma column the (possibly virtual) filter field maps to. */
+  column: string;
+  /** Optional value allowlist for `string` filters (rejects anything else). */
+  allowedValues?: readonly string[];
+}
+
 export interface AdminModelConfig {
   /** Prisma delegate name (the lower-case client property, e.g. prisma.user) */
   prismaModel:
@@ -39,6 +64,12 @@ export interface AdminModelConfig {
   searchFields: string[];
   /** Fields allowed as sortBy */
   sortableFields: string[];
+  /**
+   * Fields the admin may filter on via `?filter=field:value`. Keyed by the
+   * query-param field name (may be a virtual name such as `notified`). Absent =
+   * the model supports no field filtering; any `filter` is then rejected 400.
+   */
+  filterableFields?: Record<string, AdminFilterField>;
   /** Fields the admin may PATCH. Empty array = read-only. */
   editableFields: string[];
   /** If true, PATCH endpoint returns 405 Method Not Allowed */
@@ -118,6 +149,14 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
       'priceId',
     ],
     sortableFields: ['createdAt', 'updatedAt', 'currentPeriodEnd', 'status'],
+    filterableFields: {
+      // Prisma String column; values are the Paddle subscription lifecycle.
+      status: {
+        type: 'string',
+        column: 'status',
+        allowedValues: ['active', 'trialing', 'paused', 'canceled', 'past_due'],
+      },
+    },
     editableFields: [], // Paddle-managed, read-only
     readOnly: true,
     defaultSortBy: 'createdAt',
@@ -137,6 +176,10 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
     ],
     searchFields: ['eventId', 'eventType', 'errorMessage'],
     sortableFields: ['attemptedAt', 'retryCount', 'resolved'],
+    filterableFields: {
+      // Boolean column: `resolved:false` = the ops-triage "needs a human" queue.
+      resolved: { type: 'boolean', column: 'resolved' },
+    },
     editableFields: ['resolved', 'resolvedAt'],
     readOnly: false,
     defaultSortBy: 'attemptedAt',
@@ -163,6 +206,18 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
       'paddleTransactionId',
     ],
     sortableFields: ['createdAt', 'updatedAt', 'scheduledAt', 'status'],
+    filterableFields: {
+      status: {
+        type: 'string',
+        column: 'status',
+        allowedValues: ['pending', 'scheduled', 'completed', 'canceled'],
+      },
+      paymentStatus: {
+        type: 'string',
+        column: 'paymentStatus',
+        allowedValues: ['none', 'pending', 'completed'],
+      },
+    },
     editableFields: ['status', 'paymentStatus', 'scheduledAt'],
     readOnly: false,
     defaultSortBy: 'createdAt',
@@ -233,6 +288,14 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
     ],
     searchFields: ['email', 'source'],
     sortableFields: ['createdAt', 'notifiedAt', 'convertedAt', 'source'],
+    filterableFields: {
+      // Waitlist has no literal `status` column — lifecycle is two nullable
+      // timestamps. Expose them as virtual booleans so the pipeline tabs map
+      // cleanly: New = notified:false, Invited = notified:true,
+      // Converted = converted:true.
+      notified: { type: 'datePresence', column: 'notifiedAt' },
+      converted: { type: 'datePresence', column: 'convertedAt' },
+    },
     editableFields: ['notifiedAt', 'convertedAt'],
     readOnly: false,
     defaultSortBy: 'createdAt',

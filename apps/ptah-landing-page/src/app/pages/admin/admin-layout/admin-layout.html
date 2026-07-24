@@ -59,94 +59,101 @@
       aria-label="Close admin menu"
       class="drawer-overlay"
     ></label>
-    <div class="flex min-h-full w-64 flex-col bg-base-100 p-4">
-      <ul class="menu menu-sm gap-1">
-        <li>
-          <a
-            routerLink="/admin/overview"
-            routerLinkActive="active"
-            class="flex items-center"
-          >
-            <span>Overview</span>
-          </a>
-        </li>
-      </ul>
-
-      <div class="mb-2 mt-4 px-2 border-t border-base-200 pt-4">
-        <div class="text-xs uppercase tracking-wide text-base-content/50">
-          Marketing
-        </div>
-      </div>
-      <ul class="menu menu-sm gap-1">
-        <li>
-          <a
-            routerLink="/admin/marketing/compose"
-            routerLinkActive="active"
-            class="flex items-center"
-          >
-            <span>Compose</span>
-          </a>
-        </li>
-        <li>
-          <a
-            routerLink="/admin/marketing/campaigns"
-            routerLinkActive="active"
-            class="flex items-center"
-          >
-            <span>Campaigns History</span>
-          </a>
-        </li>
-        <li>
-          <a
-            routerLink="/admin/marketing/templates/new"
-            routerLinkActive="active"
-            class="flex items-center"
-          >
-            <span>New Template</span>
-          </a>
-        </li>
-      </ul>
-
-      <div class="mb-2 mt-4 px-2 border-t border-base-200 pt-4">
-        <div class="text-xs uppercase tracking-wide text-base-content/50">
-          Community
-        </div>
-      </div>
-      <ul class="menu menu-sm gap-1">
-        <li>
-          <a
-            routerLink="/admin/groups"
-            routerLinkActive="active"
-            class="flex items-center"
-          >
-            <span>Groups</span>
-          </a>
-        </li>
-      </ul>
-
-      <div class="mb-4 mt-6 px-2 border-t border-base-200 pt-4">
-        <div class="text-xs uppercase tracking-wide text-base-content/50">
-          Models
-        </div>
-      </div>
-      <ul class="menu menu-sm gap-1">
-        @for (spec of specs; track spec.key) {
-          <li>
-            <a
-              [routerLink]="['/admin', spec.key]"
-              routerLinkActive="active"
-              class="flex items-center justify-between"
+    <nav class="flex min-h-full w-64 flex-col gap-1 bg-base-100 p-4">
+      @for (group of navGroups; track group.label) {
+        <div class="mt-6 first:mt-0">
+          <!-- Group header (collapsible when it has secondary items) -->
+          @if (hasSecondary(group)) {
+            <button
+              type="button"
+              class="mb-2 flex w-full items-center gap-2 px-2"
+              (click)="toggleGroup(group.label)"
+              [attr.aria-expanded]="!isCollapsed(group.label)"
             >
-              <span>{{ spec.label }}</span>
-              @if (spec.readOnly) {
-                <span class="badge badge-ghost badge-sm" title="Read-only">
-                  ro
-                </span>
+              <lucide-angular
+                [img]="group.icon"
+                class="h-5 w-5 shrink-0 text-ink-500"
+                aria-hidden="true"
+              />
+              <span
+                class="flex-1 text-left text-xs font-semibold uppercase tracking-wide text-ink-500"
+              >
+                {{ group.label }}
+              </span>
+              <lucide-angular
+                [img]="ChevronDownIcon"
+                class="h-3.5 w-3.5 shrink-0 text-ink-500 transition-transform"
+                [class.-rotate-90]="isCollapsed(group.label)"
+                aria-hidden="true"
+              />
+            </button>
+          } @else {
+            <div class="mb-2 flex items-center gap-2 px-2">
+              <lucide-angular
+                [img]="group.icon"
+                class="h-5 w-5 shrink-0 text-ink-500"
+                aria-hidden="true"
+              />
+              <span
+                class="text-xs font-semibold uppercase tracking-wide text-ink-500"
+              >
+                {{ group.label }}
+              </span>
+            </div>
+          }
+
+          <ul class="flex flex-col gap-0.5">
+            @for (item of group.items; track item.route) {
+              @if (item.primary) {
+                <!-- Primary item — always visible, icon + medium weight -->
+                <li>
+                  <a
+                    [routerLink]="item.route"
+                    [routerLinkActive]="primaryActiveClass"
+                    class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium text-base-content hover:bg-base-200"
+                  >
+                    @if (item.icon) {
+                      <lucide-angular
+                        [img]="item.icon"
+                        class="h-[18px] w-[18px] shrink-0"
+                        aria-hidden="true"
+                      />
+                    }
+                    <span class="flex-1">{{ item.label }}</span>
+                    @if (item.readOnly) {
+                      <span
+                        class="badge badge-ghost badge-xs text-ink-500"
+                        title="Read-only"
+                      >
+                        ro
+                      </span>
+                    }
+                  </a>
+                </li>
+              } @else if (!isCollapsed(group.label)) {
+                <!-- Secondary item — indented, hidden when group collapsed -->
+                <li>
+                  <a
+                    [routerLink]="item.route"
+                    [routerLinkActive]="secondaryActiveClass"
+                    class="flex items-center justify-between rounded-md py-1.5 pl-8 pr-2.5 text-[13px] font-normal text-ink-400 hover:bg-base-200"
+                  >
+                    <span>{{ item.label }}</span>
+                    @if (item.readOnly) {
+                      <span
+                        class="badge badge-ghost badge-xs text-ink-500"
+                        title="Read-only"
+                      >
+                        ro
+                      </span>
+                    }
+                  </a>
+                </li>
               }
-            </a>
-          </li>
-        }
-      </ul>
-    </div>
+            }
+          </ul>
+        </div>
+      }
+    </nav>
   </aside>
 </div>

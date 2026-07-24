@@ -89,7 +89,11 @@ module.exports = {
           'info-content': '#08090c',
           success: '#34d399',
           'success-content': '#08090c',
-          warning: '#f5a524',
+          // #eab308 (Tailwind yellow-500): differentiates `warning` from the
+          // brand-amber `primary` (#f5a524), which were hex-identical and made
+          // every badge-warning/alert-warning indistinguishable from a primary
+          // CTA. See visual-design-specification §7.3.
+          warning: '#eab308',
           'warning-content': '#08090c',
           error: '#fb7185',
           'error-content': '#08090c',

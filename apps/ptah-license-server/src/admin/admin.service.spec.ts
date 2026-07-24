@@ -11,6 +11,7 @@ import { EmailService } from '../email/services/email.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { AdminService, DeleteUserActor } from './admin.service';
 import { DeleteUserDto } from './dto/delete-user.dto';
+import { ListQueryDto } from './admin.dto';
 
 /**
  * Unit tests for `AdminService.deleteUserCascade` (TASK_2025_292 T-B2-05).
@@ -385,6 +386,9 @@ describe('AdminService.getStats', () => {
   interface StatsMockPrisma {
     waitlist: { count: jest.Mock };
     license: { count: jest.Mock };
+    failedWebhook: { count: jest.Mock };
+    subscription: { count: jest.Mock };
+    sessionRequest: { count: jest.Mock };
     $transaction: jest.Mock;
   }
 
@@ -395,10 +399,16 @@ describe('AdminService.getStats', () => {
     last7Days: number;
     builders: number;
     community: number;
+    failedWebhooksUnresolved?: number;
+    subscriptionsPastDue?: number;
+    sessionRequestsPending?: number;
   }): { service: AdminService; prisma: StatsMockPrisma } {
     const prisma: StatsMockPrisma = {
       waitlist: { count: jest.fn() },
       license: { count: jest.fn() },
+      failedWebhook: { count: jest.fn() },
+      subscription: { count: jest.fn() },
+      sessionRequest: { count: jest.fn() },
       // Array-form $transaction: resolve the eagerly-created count promises.
       $transaction: jest
         .fn()
@@ -414,6 +424,16 @@ describe('AdminService.getStats', () => {
     prisma.license.count
       .mockResolvedValueOnce(counts.builders)
       .mockResolvedValueOnce(counts.community);
+    // Then the attention aggregates (tail of the transaction).
+    prisma.failedWebhook.count.mockResolvedValueOnce(
+      counts.failedWebhooksUnresolved ?? 0,
+    );
+    prisma.subscription.count.mockResolvedValueOnce(
+      counts.subscriptionsPastDue ?? 0,
+    );
+    prisma.sessionRequest.count.mockResolvedValueOnce(
+      counts.sessionRequestsPending ?? 0,
+    );
 
     const service = new AdminService(
       prisma as unknown as PrismaService,
@@ -447,10 +467,45 @@ describe('AdminService.getStats', () => {
     expect(new Date(stats.updatedAt).toISOString()).toBe(stats.updatedAt);
   });
 
+  it('surfaces the attention block from cheap count queries', async () => {
+    const { service, prisma } = build({
+      total: 40,
+      notified: 25,
+      converted: 5,
+      last7Days: 3,
+      builders: 5,
+      community: 100,
+      failedWebhooksUnresolved: 2,
+      subscriptionsPastDue: 4,
+      sessionRequestsPending: 6,
+    });
+
+    const stats = await service.getStats();
+
+    expect(stats.attention).toEqual({
+      waitlistUninvited: 15, // total 40 − notified 25
+      failedWebhooksUnresolved: 2,
+      subscriptionsPastDue: 4,
+      sessionRequestsPending: 6,
+    });
+    expect(prisma.failedWebhook.count).toHaveBeenCalledWith({
+      where: { resolved: false },
+    });
+    expect(prisma.subscription.count).toHaveBeenCalledWith({
+      where: { status: 'past_due' },
+    });
+    expect(prisma.sessionRequest.count).toHaveBeenCalledWith({
+      where: { status: 'pending' },
+    });
+  });
+
   it('includes per-group member counts from MemberGroupsService', async () => {
     const prisma = {
       waitlist: { count: jest.fn().mockResolvedValue(0) },
       license: { count: jest.fn().mockResolvedValue(0) },
+      failedWebhook: { count: jest.fn().mockResolvedValue(0) },
+      subscription: { count: jest.fn().mockResolvedValue(0) },
+      sessionRequest: { count: jest.fn().mockResolvedValue(0) },
       $transaction: jest
         .fn()
         .mockImplementation((arg: Promise<unknown>[]) => Promise.all(arg)),
@@ -518,5 +573,116 @@ describe('AdminService.getStats', () => {
     const deltaMs = Date.now() - gte.getTime();
     expect(deltaMs).toBeGreaterThan(6.9 * 24 * 60 * 60 * 1000);
     expect(deltaMs).toBeLessThan(7.1 * 24 * 60 * 60 * 1000);
+  });
+});
+
+describe('AdminService.list filtering', () => {
+  function buildList(prismaModel: string): {
+    service: AdminService;
+    findMany: jest.Mock;
+    count: jest.Mock;
+  } {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const count = jest.fn().mockResolvedValue(0);
+    const prisma = {
+      [prismaModel]: { findMany, count },
+      // Array-form $transaction: resolve the eagerly-created promises.
+      $transaction: jest
+        .fn()
+        .mockImplementation((arg: Promise<unknown>[]) => Promise.all(arg)),
+    };
+    const service = new AdminService(
+      prisma as unknown as PrismaService,
+      {} as unknown as EmailService,
+      {} as unknown as AuditLogService,
+      {} as unknown as ConfigService,
+    );
+    return { service, findMany, count };
+  }
+
+  it('translates a boolean filter into a Prisma equality where', async () => {
+    const { service, findMany, count } = buildList('failedWebhook');
+    await service.list('failed-webhooks', {
+      filter: 'resolved:false',
+    } as ListQueryDto);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { resolved: false } }),
+    );
+    expect(count).toHaveBeenCalledWith({ where: { resolved: false } });
+  });
+
+  it('translates a datePresence filter into a not-null where', async () => {
+    const { service, findMany } = buildList('waitlist');
+    await service.list('waitlist', { filter: 'notified:true' } as ListQueryDto);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { notifiedAt: { not: null } } }),
+    );
+  });
+
+  it('translates a datePresence false filter into a null where', async () => {
+    const { service, findMany } = buildList('waitlist');
+    await service.list('waitlist', {
+      filter: 'notified:false',
+    } as ListQueryDto);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { notifiedAt: null } }),
+    );
+  });
+
+  it('ANDs an allowlisted string filter with the text search', async () => {
+    const { service, findMany } = buildList('subscription');
+    await service.list('subscriptions', {
+      filter: 'status:past_due',
+      search: 'cus_123',
+    } as ListQueryDto);
+    const arg = findMany.mock.calls[0][0] as { where: { AND: unknown[] } };
+    expect(arg.where.AND).toEqual([
+      { OR: expect.any(Array) },
+      { status: 'past_due' },
+    ]);
+  });
+
+  it('rejects a filter on a non-allowlisted field', async () => {
+    const { service } = buildList('subscription');
+    await expect(
+      service.list('subscriptions', {
+        filter: 'priceId:pri_1',
+      } as ListQueryDto),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a string filter value outside the allowlist', async () => {
+    const { service } = buildList('subscription');
+    await expect(
+      service.list('subscriptions', {
+        filter: 'status:bogus',
+      } as ListQueryDto),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a non-true/false boolean filter value', async () => {
+    const { service } = buildList('failedWebhook');
+    await expect(
+      service.list('failed-webhooks', {
+        filter: 'resolved:maybe',
+      } as ListQueryDto),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a malformed filter string', async () => {
+    const { service } = buildList('failedWebhook');
+    await expect(
+      service.list('failed-webhooks', {
+        filter: 'resolvedfalse',
+      } as ListQueryDto),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('preserves pre-filter behavior when no filter is supplied', async () => {
+    const { service, findMany } = buildList('failedWebhook');
+    await service.list('failed-webhooks', {} as ListQueryDto);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: {} }),
+    );
   });
 });

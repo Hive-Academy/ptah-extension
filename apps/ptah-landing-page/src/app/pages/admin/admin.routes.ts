@@ -61,6 +61,40 @@ export const ADMIN_ROUTES: Routes = [
         loadComponent: () =>
           import('./groups/groups-list/groups-list').then((m) => m.GroupsList),
       },
+      // Bespoke workflow views (TASK_2026_164) — MUST precede the generic
+      // ':model' / ':model/:id' catch-all so these slugs resolve to their
+      // purpose-built components instead of the generic table.
+      {
+        path: 'waitlist',
+        loadComponent: () =>
+          import('./waitlist/waitlist-pipeline').then(
+            (m) => m.WaitlistPipeline,
+          ),
+      },
+      {
+        path: 'licenses',
+        loadComponent: () =>
+          import('./licenses/licenses-list').then((m) => m.LicensesList),
+      },
+      {
+        path: 'failed-webhooks',
+        loadComponent: () =>
+          import('./failed-webhooks/webhooks-triage').then(
+            (m) => m.WebhooksTriage,
+          ),
+      },
+      {
+        path: 'users',
+        loadComponent: () =>
+          import('./users/users-list').then((m) => m.UsersList),
+      },
+      {
+        path: 'users/:id',
+        loadComponent: () =>
+          import('./users/user-profile/user-profile').then(
+            (m) => m.UserProfile,
+          ),
+      },
       {
         path: ':model',
         loadComponent: () =>

@@ -23,6 +23,22 @@ export type FieldType =
   | 'uuid'
   | 'json';
 
+/**
+ * Semantic status colors — the 5-state palette from the admin design system
+ * (visual-design-specification §7.3), consumed by the shared `StatusBadge`
+ * component. Each maps to a daisyUI `badge-*` modifier under the `operator`
+ * theme:
+ *   success → healthy/done · warning → needs eyes soon · error → broken/stop
+ *   info → neutral-positive/in-progress · neutral/ghost → no strong signal.
+ */
+export type BadgeVariant =
+  | 'success'
+  | 'warning'
+  | 'error'
+  | 'info'
+  | 'neutral'
+  | 'ghost';
+
 export interface FieldSpec {
   /** Prisma attribute name — MUST match backend model. */
   key: string;
@@ -36,6 +52,17 @@ export interface FieldSpec {
   listColumn?: boolean;
   /** Max pixel width for truncated cells (adds ellipsis). */
   truncate?: number;
+  /**
+   * Optional enum-value → semantic-color map (design spec §7.3). When present,
+   * `StatusBadge` renders the field value as a colored `badge` instead of raw
+   * text. Keys MUST match the exact string the backend stores for this field
+   * (confirmed against `prisma/schema.prisma`); an unmatched value falls back
+   * to a neutral/ghost badge rather than an invented color.
+   *
+   * PRESENTATION-ONLY — this has no backend security counterpart, so it is
+   * exempt from the mirror-sync discipline in this file's header.
+   */
+  badgeMap?: Record<string, BadgeVariant>;
 }
 
 export interface AdminModelSpec {
@@ -146,12 +173,25 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
         type: 'string',
         listColumn: true,
         editable: true,
+        // License.status enum confirmed from prisma/schema.prisma:111.
+        badgeMap: {
+          active: 'success',
+          expired: 'error',
+          revoked: 'error',
+          paused: 'warning',
+        },
       },
       {
         key: 'source',
         label: 'Source',
         type: 'string',
         listColumn: true,
+        // Mirrors the (now-removed) hardcoded source branch from data-table.
+        badgeMap: {
+          complimentary: 'warning',
+          manual: 'info',
+          paddle: 'ghost',
+        },
       },
       {
         key: 'expiresAt',
@@ -195,7 +235,20 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
         type: 'string',
         listColumn: false,
       },
-      { key: 'status', label: 'Status', type: 'string', listColumn: true },
+      {
+        key: 'status',
+        label: 'Status',
+        type: 'string',
+        listColumn: true,
+        // Subscription.status enum confirmed from prisma/schema.prisma:89.
+        badgeMap: {
+          active: 'success',
+          trialing: 'info',
+          past_due: 'warning',
+          paused: 'warning',
+          canceled: 'error',
+        },
+      },
       { key: 'priceId', label: 'Price ID', type: 'string', listColumn: true },
       {
         key: 'currentPeriodEnd',
@@ -310,6 +363,13 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
         type: 'string',
         listColumn: true,
         editable: true,
+        // SessionRequest.status enum confirmed from prisma/schema.prisma:157.
+        badgeMap: {
+          pending: 'warning',
+          scheduled: 'info',
+          completed: 'success',
+          canceled: 'error',
+        },
       },
       {
         key: 'paymentStatus',
@@ -317,6 +377,12 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
         type: 'string',
         listColumn: true,
         editable: true,
+        // SessionRequest.paymentStatus enum confirmed from prisma/schema.prisma:158.
+        badgeMap: {
+          none: 'ghost',
+          pending: 'warning',
+          completed: 'success',
+        },
       },
       {
         key: 'scheduledAt',
@@ -353,7 +419,23 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
     fields: [
       { key: 'id', label: 'ID', type: 'uuid', listColumn: false },
       { key: 'actorEmail', label: 'Actor', type: 'string', listColumn: true },
-      { key: 'action', label: 'Action', type: 'string', listColumn: true },
+      {
+        key: 'action',
+        label: 'Action',
+        type: 'string',
+        listColumn: true,
+        // TODO confirm enum: `action` is a free-form String in the Prisma
+        // schema (schema.prisma:174) with no CHECK/enum constraint. The
+        // create/update/delete mapping below follows design spec §5, but the
+        // actual logged values may be namespaced (e.g. 'user.delete',
+        // 'license.issue'). Verify the real distinct values with
+        // backend-developer before Batch 3 wires this into data-table.
+        badgeMap: {
+          create: 'success',
+          update: 'info',
+          delete: 'error',
+        },
+      },
       {
         key: 'targetType',
         label: 'Target Type',

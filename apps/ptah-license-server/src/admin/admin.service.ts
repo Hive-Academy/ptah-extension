@@ -82,6 +82,20 @@ export interface AdminStatsResponse {
     builders: number;
     community: number;
   };
+  /**
+   * Command-Center "Needs Attention" aggregates (TASK_2026_164 §3.1). Purely
+   * additive — cheap `count()` queries surfacing the operator work queue.
+   */
+  attention: {
+    /** Waitlist rows with no `notifiedAt` (= total − notified). */
+    waitlistUninvited: number;
+    /** Failed webhooks with `resolved = false`. */
+    failedWebhooksUnresolved: number;
+    /** Subscriptions in `past_due`. */
+    subscriptionsPastDue: number;
+    /** Session requests in `pending`. */
+    sessionRequestsPending: number;
+  };
   groups: Array<{ key: string; name: string; memberCount: number }>;
   updatedAt: string;
 }
@@ -152,7 +166,7 @@ export class AdminService {
         ? q.sortBy
         : cfg.defaultSortBy;
 
-    const where = this.buildSearchWhere(cfg, q.search);
+    const where = this.buildListWhere(cfg, q);
     const delegate = (
       this.prisma as unknown as Record<
         string,
@@ -313,23 +327,42 @@ export class AdminService {
   async getStats(): Promise<AdminStatsResponse> {
     const since = new Date(Date.now() - SEVEN_DAYS_MS);
 
-    const [total, notified, converted, last7Days, builders, community] =
-      await this.prisma.$transaction([
-        this.prisma.waitlist.count(),
-        this.prisma.waitlist.count({ where: { notifiedAt: { not: null } } }),
-        this.prisma.waitlist.count({ where: { convertedAt: { not: null } } }),
-        this.prisma.waitlist.count({ where: { createdAt: { gte: since } } }),
-        this.prisma.license.count({
-          where: { plan: 'builders', status: 'active' },
-        }),
-        this.prisma.license.count({
-          where: { plan: 'community', status: 'active' },
-        }),
-      ]);
+    const [
+      total,
+      notified,
+      converted,
+      last7Days,
+      builders,
+      community,
+      failedWebhooksUnresolved,
+      subscriptionsPastDue,
+      sessionRequestsPending,
+    ] = await this.prisma.$transaction([
+      this.prisma.waitlist.count(),
+      this.prisma.waitlist.count({ where: { notifiedAt: { not: null } } }),
+      this.prisma.waitlist.count({ where: { convertedAt: { not: null } } }),
+      this.prisma.waitlist.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.license.count({
+        where: { plan: 'builders', status: 'active' },
+      }),
+      this.prisma.license.count({
+        where: { plan: 'community', status: 'active' },
+      }),
+      this.prisma.failedWebhook.count({ where: { resolved: false } }),
+      this.prisma.subscription.count({ where: { status: 'past_due' } }),
+      this.prisma.sessionRequest.count({ where: { status: 'pending' } }),
+    ]);
 
     return {
       waitlist: { total, notified, converted, last7Days },
       members: { builders, community },
+      attention: {
+        // No notifiedAt timestamp yet = not-yet-invited; total minus notified.
+        waitlistUninvited: total - notified,
+        failedWebhooksUnresolved,
+        subscriptionsPastDue,
+        sessionRequestsPending,
+      },
       groups: await this.getGroupStats(),
       updatedAt: new Date().toISOString(),
     };
@@ -375,6 +408,92 @@ export class AdminService {
         [field]: { contains: term, mode: 'insensitive' as const },
       })),
     };
+  }
+
+  /**
+   * Combine the optional text `search` and the optional field `filter` into a
+   * single Prisma `where`. Both are independent allowlisted inputs; when both
+   * are present they AND together (text search *within* the filtered set).
+   * Returns `{}` (no constraint) when neither is supplied — preserving the
+   * pre-filter behavior for older clients.
+   */
+  private buildListWhere(
+    cfg: AdminModelConfig,
+    q: ListQueryDto,
+  ): Record<string, unknown> {
+    const clauses = [
+      this.buildSearchWhere(cfg, q.search),
+      this.buildFilterWhere(cfg, q.filter),
+    ].filter((c) => Object.keys(c).length > 0);
+    if (clauses.length === 0) return {};
+    if (clauses.length === 1) return clauses[0];
+    return { AND: clauses };
+  }
+
+  /**
+   * Parse a `field:value` filter and translate it into a Prisma `where`
+   * fragment, enforcing the per-model `filterableFields` allowlist (the only
+   * boundary between the query-string and Prisma for filtering).
+   *
+   * Returns `{}` when no filter is supplied. Throws `BadRequestException` when:
+   *   - the `field:value` shape is malformed,
+   *   - `field` is not in the model's allowlist (arbitrary filtering blocked),
+   *   - a boolean/datePresence value is not `true`/`false`,
+   *   - a string value falls outside its declared `allowedValues`.
+   */
+  private buildFilterWhere(
+    cfg: AdminModelConfig,
+    filter?: string,
+  ): Record<string, unknown> {
+    if (!filter || filter.trim().length === 0) return {};
+
+    const separator = filter.indexOf(':');
+    if (separator <= 0 || separator === filter.length - 1) {
+      throw new BadRequestException(
+        `filter must be in 'field:value' form (got '${filter}')`,
+      );
+    }
+    const field = filter.slice(0, separator).trim();
+    const value = filter.slice(separator + 1).trim();
+
+    const spec = cfg.filterableFields?.[field];
+    if (!spec) {
+      const allowed = cfg.filterableFields
+        ? Object.keys(cfg.filterableFields)
+        : [];
+      throw new BadRequestException(
+        allowed.length > 0
+          ? `filter field '${field}' not allowed. Allowed: ${allowed.join(', ')}`
+          : 'filtering is not supported for this model',
+      );
+    }
+
+    switch (spec.type) {
+      case 'boolean':
+        return { [spec.column]: this.parseBoolFilter(field, value) };
+      case 'datePresence':
+        return {
+          [spec.column]: this.parseBoolFilter(field, value)
+            ? { not: null }
+            : null,
+        };
+      case 'string':
+        if (spec.allowedValues && !spec.allowedValues.includes(value)) {
+          throw new BadRequestException(
+            `filter '${field}' value '${value}' not allowed. Allowed: ${spec.allowedValues.join(', ')}`,
+          );
+        }
+        return { [spec.column]: value };
+    }
+  }
+
+  /** Coerce a filter value to boolean; 400 on anything but `true`/`false`. */
+  private parseBoolFilter(field: string, value: string): boolean {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    throw new BadRequestException(
+      `filter '${field}' expects 'true' or 'false' (got '${value}')`,
+    );
   }
 
   /**

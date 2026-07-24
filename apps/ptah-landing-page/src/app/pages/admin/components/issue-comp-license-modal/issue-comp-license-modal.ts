@@ -9,11 +9,26 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
+import {
+  catchError,
+  debounceTime,
+  distinctUntilChanged,
+  of,
+  switchMap,
+} from 'rxjs';
 import {
   AdminApiService,
   IssueComplimentaryLicenseRequest,
   IssueComplimentaryLicenseResponse,
 } from '../../../../services/admin-api.service';
+
+/** A user match surfaced by the search-mode recipient combobox. */
+export interface LicenseRecipientOption {
+  id: string;
+  email: string;
+  name: string;
+}
 
 @Component({
   selector: 'app-issue-comp-license-modal',
@@ -36,6 +51,14 @@ export class IssueCompLicenseModalComponent {
    * pre-filled (1-year duration, "Early adopter approval" reason).
    */
   public readonly email = input<string>('');
+  /**
+   * Entry-point contract (design spec §6.3):
+   *   - `'bound'`  (default): the recipient is fixed via `userId`/`email` —
+   *     the original Users-detail and Waitlist-approve behavior, UNCHANGED.
+   *   - `'search'`: no recipient is bound; the modal renders a type-ahead
+   *     combobox so an admin can pick any user (Licenses-list issuance).
+   */
+  public readonly mode = input<'bound' | 'search'>('bound');
   public issued = output<IssueComplimentaryLicenseResponse>();
 
   private adminApi = inject(AdminApiService);
@@ -45,9 +68,53 @@ export class IssueCompLicenseModalComponent {
     () => this.email().trim().length > 0,
   );
 
+  /**
+   * True when the modal must resolve its own recipient. Only when `mode` is
+   * `'search'` AND no recipient is bound — a bound `userId`/`email` always wins
+   * so existing call sites are never forced into the combobox.
+   */
+  public readonly isSearchMode = computed(
+    () =>
+      this.mode() === 'search' && !this.userId().trim() && !this.email().trim(),
+  );
+
+  // --- Search-mode recipient combobox ---
+
+  /** Raw text in the recipient search box. */
+  public readonly recipientQuery = signal('');
+  /** The chosen recipient — issuance targets this user's id. */
+  public readonly selectedRecipient = signal<LicenseRecipientOption | null>(
+    null,
+  );
+
+  /** Debounced type-ahead against `list('users', { search, pageSize: 5 })`. */
+  private readonly recipientResults$ = toObservable(this.recipientQuery).pipe(
+    debounceTime(250),
+    distinctUntilChanged(),
+    switchMap((raw) => {
+      const term = raw.trim();
+      // Don't query on an empty box or once a recipient is locked in.
+      if (term.length < 2 || this.selectedRecipient()) {
+        return of<LicenseRecipientOption[]>([]);
+      }
+      return this.adminApi.list('users', { search: term, pageSize: 5 }).pipe(
+        switchMap((res) => of(res.data.map(toRecipientOption))),
+        catchError(() => of<LicenseRecipientOption[]>([])),
+      );
+    }),
+  );
+
+  public readonly recipientResults = toSignal(this.recipientResults$, {
+    initialValue: [] as LicenseRecipientOption[],
+  });
+
   /** Email shown in the header/success copy, whichever path opened the modal. */
   public readonly displayEmail = computed(
-    () => this.email().trim() || this.userEmail(),
+    () =>
+      this.email().trim() ||
+      this.userEmail() ||
+      this.selectedRecipient()?.email ||
+      '',
   );
 
   public readonly isOpen = signal(false);
@@ -70,6 +137,8 @@ export class IssueCompLicenseModalComponent {
       this.reason().length >= 1 &&
       this.reason().length <= 500 &&
       (this.durationPreset() !== 'custom' || !!this.customExpiresAt()) &&
+      // Search mode additionally requires a chosen recipient.
+      (!this.isSearchMode() || this.selectedRecipient() !== null) &&
       !this.isLoading(),
   );
 
@@ -93,10 +162,32 @@ export class IssueCompLicenseModalComponent {
     this.sendEmail.set(true);
     this.stackOnTopOfPaid.set(false);
     this.isLoading.set(false);
+    // Reset the search-mode combobox so a reopened modal never keeps a stale
+    // recipient (bound-mode call sites never touch these).
+    this.recipientQuery.set('');
+    this.selectedRecipient.set(null);
   }
 
   public close() {
     this.isOpen.set(false);
+  }
+
+  /** Lock in a recipient from the combobox and collapse the results list. */
+  public selectRecipient(option: LicenseRecipientOption) {
+    this.selectedRecipient.set(option);
+    this.recipientQuery.set(option.email);
+  }
+
+  /** Clear the chosen recipient to re-open the type-ahead. */
+  public clearRecipient() {
+    this.selectedRecipient.set(null);
+    this.recipientQuery.set('');
+  }
+
+  protected onRecipientInput(value: string) {
+    // Editing the box after a pick invalidates the previous selection.
+    if (this.selectedRecipient()) this.selectedRecipient.set(null);
+    this.recipientQuery.set(value);
   }
 
   public confirm() {
@@ -105,9 +196,19 @@ export class IssueCompLicenseModalComponent {
     this.error.set(null);
 
     const emailTarget = this.email().trim();
+    const searchRecipient = this.isSearchMode()
+      ? this.selectedRecipient()
+      : null;
+    // Target precedence: search-mode picked user → bound email → bound userId.
+    const target: Pick<IssueComplimentaryLicenseRequest, 'userId' | 'email'> =
+      searchRecipient
+        ? { userId: searchRecipient.id }
+        : emailTarget
+          ? { email: emailTarget }
+          : { userId: this.userId() };
+
     const body: IssueComplimentaryLicenseRequest = {
-      // Target by email (waitlist approval) or userId (user-detail path).
-      ...(emailTarget ? { email: emailTarget } : { userId: this.userId() }),
+      ...target,
       durationPreset: this.durationPreset(),
       customExpiresAt:
         this.durationPreset() === 'custom'
@@ -168,4 +269,17 @@ export class IssueCompLicenseModalComponent {
     const d = new Date(value);
     return isNaN(d.getTime()) ? value : d.toISOString();
   }
+}
+
+/** Map a raw admin `users` list row to a combobox option (defensive reads). */
+function toRecipientOption(
+  row: Record<string, unknown>,
+): LicenseRecipientOption {
+  const id =
+    typeof row['id'] === 'string' ? row['id'] : String(row['id'] ?? '');
+  const email = typeof row['email'] === 'string' ? row['email'] : '';
+  const first = typeof row['firstName'] === 'string' ? row['firstName'] : '';
+  const last = typeof row['lastName'] === 'string' ? row['lastName'] : '';
+  const name = `${first} ${last}`.trim();
+  return { id, email, name };
 }
