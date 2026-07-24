@@ -61,6 +61,9 @@ export const FILE_TYPE_CLASSIFIER_SERVICE = Symbol.for(
   'FileTypeClassifierService',
 );
 export const WORKSPACE_INDEXER_SERVICE = Symbol.for('WorkspaceIndexerService');
+export const WORKSPACE_FILE_INDEX_SERVICE = Symbol.for(
+  'WorkspaceFileIndexService',
+);
 export const FILE_INDEXER_SERVICE = Symbol.for('FileIndexerService');
 export const WORKSPACE_ANALYZER_SERVICE = Symbol.for(
   'WorkspaceAnalyzerService',
@@ -196,6 +199,7 @@ export const TOKENS = {
   IGNORE_PATTERN_RESOLVER_SERVICE,
   FILE_TYPE_CLASSIFIER_SERVICE,
   WORKSPACE_INDEXER_SERVICE,
+  WORKSPACE_FILE_INDEX_SERVICE,
   FILE_INDEXER_SERVICE,
   WORKSPACE_ANALYZER_SERVICE,
   WORKSPACE_SERVICE,

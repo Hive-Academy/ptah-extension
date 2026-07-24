@@ -93,5 +93,17 @@ export function runFileSystemContract(
       expect(typeof watcher.dispose).toBe('function');
       watcher.dispose();
     });
+
+    it('createFileWatcher accepts exclude and cwd options and still returns an IFileWatcher', () => {
+      const watcher = provider.createFileWatcher('**/*', {
+        exclude: ['**/node_modules/**'],
+        cwd: process.cwd(),
+      });
+      expect(typeof watcher.onDidChange).toBe('function');
+      expect(typeof watcher.onDidCreate).toBe('function');
+      expect(typeof watcher.onDidDelete).toBe('function');
+      expect(typeof watcher.dispose).toBe('function');
+      watcher.dispose();
+    });
   });
 }

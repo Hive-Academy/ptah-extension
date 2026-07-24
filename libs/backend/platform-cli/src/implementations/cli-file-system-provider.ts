@@ -121,18 +121,31 @@ export class CliFileSystemProvider implements IFileSystemProvider {
     return maxResults ? results.slice(0, maxResults) : results;
   }
 
-  createFileWatcher(pattern: string): IFileWatcher {
+  createFileWatcher(
+    pattern: string,
+    options?: { exclude?: string[]; cwd?: string },
+  ): IFileWatcher {
     const [onDidChange, fireChange] = createEvent<string>();
     const [onDidCreate, fireCreate] = createEvent<string>();
     const [onDidDelete, fireDelete] = createEvent<string>();
 
     let underlying: { close(): Promise<void> | void } | undefined;
     let disposed = false;
+    const hasExcludes = !!options?.exclude && options.exclude.length > 0;
+    const cwd = options?.cwd;
+    // With `cwd`, chokidar emits paths relative to it — resolve to absolute so
+    // consumers get the same absolute paths the VS Code adapter emits.
+    const toAbs = (p: string): string => (cwd ? path.resolve(cwd, p) : p);
     void (async () => {
       const mod = (await import('chokidar')) as {
         watch: (
           pattern: string,
-          options: { ignoreInitial: boolean; persistent: boolean },
+          options: {
+            ignoreInitial: boolean;
+            persistent: boolean;
+            ignored?: string[];
+            cwd?: string;
+          },
         ) => {
           on(event: string, handler: (filePath: string) => void): unknown;
           close(): Promise<void> | void;
@@ -142,10 +155,12 @@ export class CliFileSystemProvider implements IFileSystemProvider {
       const watcher = mod.watch(pattern, {
         ignoreInitial: true,
         persistent: true,
+        ...(cwd ? { cwd } : {}),
+        ...(hasExcludes ? { ignored: options?.exclude } : {}),
       });
-      watcher.on('change', (filePath) => fireChange(filePath));
-      watcher.on('add', (filePath) => fireCreate(filePath));
-      watcher.on('unlink', (filePath) => fireDelete(filePath));
+      watcher.on('change', (filePath) => fireChange(toAbs(filePath)));
+      watcher.on('add', (filePath) => fireCreate(toAbs(filePath)));
+      watcher.on('unlink', (filePath) => fireDelete(toAbs(filePath)));
       underlying = watcher;
     })();
 

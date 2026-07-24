@@ -2,13 +2,34 @@ import 'reflect-metadata';
 
 jest.mock('vscode', () => ({}), { virtual: true });
 
-import { ContextService, FileSearchResult } from './context.service';
-import { FileType } from '@ptah-extension/platform-core';
+import { ContextService } from './context.service';
+import type { FileSearchResult } from '../file-indexing/workspace-file-index.service';
 
-describe('ContextService file search', () => {
-  let service: ContextService;
-  let findFiles: jest.Mock;
-  let stat: jest.Mock;
+/**
+ * ContextService file-search is now served entirely by the live
+ * WorkspaceFileIndexService. These tests assert ContextService delegates to the
+ * index (fresh, no disk walk) and applies the thin image/type filtering +
+ * pagination + inclusion-priority layers on top.
+ */
+describe('ContextService file search (index-backed)', () => {
+  let ensureReady: jest.Mock;
+  let search: jest.Mock;
+  let getAll: jest.Mock;
+  let searchDirectories: jest.Mock;
+
+  const file = (
+    fileName: string,
+    fileType: FileSearchResult['fileType'] = 'text',
+    isDirectory = false,
+  ): FileSearchResult => ({
+    path: `/workspace/${fileName}`,
+    relativePath: fileName,
+    fileName,
+    fileType,
+    size: 0,
+    lastModified: 0,
+    isDirectory,
+  });
 
   const makeService = (): ContextService => {
     const logger = {
@@ -18,10 +39,7 @@ describe('ContextService file search', () => {
       debug: jest.fn(),
     };
     const configManager = { get: jest.fn() };
-    const fsProvider = {
-      findFiles,
-      stat,
-    } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const fsProvider = {} as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     const workspaceProvider = {
       getWorkspaceRoot: jest.fn(() => '/workspace'),
       getWorkspaceFolders: jest.fn(() => ['/workspace']),
@@ -30,15 +48,17 @@ describe('ContextService file search', () => {
       ),
     } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     const editorProvider = {} as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-    const commandRegistry = {
-      executeCommand: jest.fn(),
-    } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-    const sentryService = {
-      captureException: jest.fn(),
-    } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const commandRegistry = { executeCommand: jest.fn() } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const sentryService = { captureException: jest.fn() } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     const ignoreResolver = {
       parseWorkspaceIgnoreFiles: jest.fn(async () => []),
       isIgnored: jest.fn(async () => ({ ignored: false })),
+    } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const fileIndex = {
+      ensureReady,
+      search,
+      getAll,
+      searchDirectories,
     } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     return new ContextService(
@@ -50,108 +70,101 @@ describe('ContextService file search', () => {
       commandRegistry,
       sentryService,
       ignoreResolver,
+      fileIndex,
     );
   };
 
   beforeEach(() => {
-    stat = jest.fn(async () => ({
-      size: 10,
-      mtime: 1,
-      type: FileType.File,
-    }));
-    findFiles = jest.fn(async () => []);
-    service = makeService();
+    ensureReady = jest.fn(async () => undefined);
+    search = jest.fn(() => []);
+    getAll = jest.fn(() => []);
+    searchDirectories = jest.fn(() => []);
   });
 
-  it('passes an exact-filename glob through unwrapped and returns matches', async () => {
-    findFiles.mockImplementation(async (pattern: string) => {
-      if (pattern === '**/package.json') {
-        return ['/workspace/a/package.json', '/workspace/b/package.json'];
-      }
-      return [];
-    });
-
-    const results = await service.searchFiles({ query: '**/package.json' });
-
-    const patternsUsed = findFiles.mock.calls.map((c) => c[0]);
-    expect(patternsUsed).toContain('**/package.json');
-    expect(patternsUsed).not.toContain('**/***/package.json*');
-    expect(patternsUsed.every((p: string) => !p.includes('***'))).toBe(true);
-    expect(results.map((r) => r.fileName)).toEqual([
-      'package.json',
-      'package.json',
-    ]);
-  });
-
-  it('passes a directory-scoped glob through unwrapped', async () => {
-    findFiles.mockImplementation(async (pattern: string) => {
-      if (pattern === 'src/**/*.component.ts') {
-        return ['/workspace/src/app/foo.component.ts'];
-      }
-      return [];
-    });
-
-    await service.searchFiles({ query: 'src/**/*.component.ts' });
-
-    const patternsUsed = findFiles.mock.calls.map((c) => c[0]);
-    expect(patternsUsed).toContain('src/**/*.component.ts');
-  });
-
-  it('still wraps a plain substring token for fuzzy matching', async () => {
-    findFiles.mockImplementation(async (pattern: string) => {
-      if (pattern === '**/*auth*') {
-        return ['/workspace/src/auth.service.ts'];
-      }
-      return [];
-    });
+  it('searchFiles awaits the index build then delegates to index.search', async () => {
+    search.mockReturnValue([file('auth.service.ts'), file('auth.spec.ts')]);
+    const service = makeService();
 
     const results = await service.searchFiles({ query: 'auth' });
 
-    const patternsUsed = findFiles.mock.calls.map((c) => c[0]);
-    expect(patternsUsed).toContain('**/*auth*');
-    expect(results.map((r) => r.fileName)).toEqual(['auth.service.ts']);
-  });
-
-  it('resolves two distinct concurrent searches with their own results', async () => {
-    findFiles.mockImplementation(async (pattern: string) => {
-      if (pattern === '**/*.component.ts') {
-        return ['/workspace/src/a.component.ts'];
-      }
-      if (pattern === '**/package.json') {
-        return ['/workspace/package.json'];
-      }
-      return [];
-    });
-
-    const [components, packages] = await Promise.all([
-      service.searchFiles({ query: '**/*.component.ts' }),
-      service.searchFiles({ query: '**/package.json' }),
-    ]);
-
-    expect(components.map((r: FileSearchResult) => r.fileName)).toEqual([
-      'a.component.ts',
-    ]);
-    expect(packages.map((r: FileSearchResult) => r.fileName)).toEqual([
-      'package.json',
+    expect(ensureReady).toHaveBeenCalledTimes(1);
+    expect(search).toHaveBeenCalledWith('auth', expect.any(Number));
+    expect(results.map((r) => r.fileName)).toEqual([
+      'auth.service.ts',
+      'auth.spec.ts',
     ]);
   });
 
-  it('collapses rapid identical queries into a single search', async () => {
-    findFiles.mockImplementation(async (pattern: string) => {
-      if (pattern === '**/*auth*') {
-        return ['/workspace/src/auth.service.ts'];
-      }
-      return [];
+  it('searchFiles excludes images unless includeImages is set', async () => {
+    search.mockReturnValue([file('logo.png', 'image'), file('a.ts', 'text')]);
+    const service = makeService();
+
+    const withoutImages = await service.searchFiles({ query: 'a' });
+    expect(withoutImages.map((r) => r.fileName)).toEqual(['a.ts']);
+
+    const withImages = await service.searchFiles({
+      query: 'a',
+      includeImages: true,
+    });
+    expect(withImages.map((r) => r.fileName)).toEqual(['logo.png', 'a.ts']);
+  });
+
+  it('searchFiles filters by requested fileTypes extensions', async () => {
+    search.mockReturnValue([
+      file('a.ts', 'text'),
+      file('b.css', 'text'),
+      file('c.ts', 'text'),
+    ]);
+    const service = makeService();
+
+    const results = await service.searchFiles({
+      query: '',
+      fileTypes: ['.ts'],
     });
 
-    const [first, second] = await Promise.all([
-      service.searchFiles({ query: 'auth' }),
-      service.searchFiles({ query: 'auth' }),
-    ]);
+    expect(results.map((r) => r.fileName)).toEqual(['a.ts', 'c.ts']);
+  });
 
-    const authCalls = findFiles.mock.calls.filter((c) => c[0] === '**/*auth*');
-    expect(authCalls.length).toBe(1);
-    expect(first.map((r) => r.fileName)).toEqual(['auth.service.ts']);
-    expect(second.map((r) => r.fileName)).toEqual(['auth.service.ts']);
+  it('getAllFiles paginates the index snapshot and drops images by default', async () => {
+    getAll.mockReturnValue([
+      file('a.ts'),
+      file('b.ts'),
+      file('logo.png', 'image'),
+      file('c.ts'),
+    ]);
+    const service = makeService();
+
+    const page = await service.getAllFiles(false, 1, 2);
+
+    expect(ensureReady).toHaveBeenCalled();
+    // images filtered → [a, b, c]; offset 1 limit 2 → [b, c]
+    expect(page.map((r) => r.fileName)).toEqual(['b.ts', 'c.ts']);
+  });
+
+  it('getFileSuggestions with a short query returns the all-files list', async () => {
+    getAll.mockReturnValue([file('a.ts'), file('b.ts')]);
+    const service = makeService();
+
+    const results = await service.getFileSuggestions('a', 20);
+
+    // short query (<2 chars) path calls getAll, not search
+    expect(search).not.toHaveBeenCalled();
+    expect(results.map((r) => r.fileName)).toEqual(['a.ts', 'b.ts']);
+  });
+
+  it('getFileSuggestions merges directory matches with file matches', async () => {
+    search.mockReturnValue([file('auth.service.ts'), file('auth.util.ts')]);
+    searchDirectories.mockReturnValue([file('auth', 'unknown', true)]);
+    const service = makeService();
+
+    const results = await service.getFileSuggestions('auth', 20);
+
+    expect(search).toHaveBeenCalledWith('auth', 40);
+    expect(searchDirectories).toHaveBeenCalledWith('auth', 20);
+    // The directory entry plus both file matches should all be present.
+    const names = results.map((r) => r.fileName);
+    expect(names).toContain('auth');
+    expect(names).toContain('auth.service.ts');
+    expect(names).toContain('auth.util.ts');
   });
 });

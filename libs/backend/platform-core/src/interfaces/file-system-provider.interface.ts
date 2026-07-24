@@ -99,8 +99,20 @@ export interface IFileSystemProvider {
    * Create a file system watcher.
    * Replaces: vscode.workspace.createFileSystemWatcher()
    *
-   * @param pattern - Glob pattern to watch
-   * @returns File watcher with change/create/delete events
+   * @param pattern - Glob pattern to watch (interpreted relative to `cwd` when given)
+   * @param options - Optional watcher options.
+   *   - `exclude`: glob patterns whose matches are suppressed. Node-backed
+   *     adapters (Electron/CLI) push these into chokidar's `ignored` so the
+   *     excluded trees (e.g. `**\/node_modules/**`) are never walked at the OS
+   *     level. The VS Code adapter already honours `files.watcherExclude` for
+   *     the OS watch and additionally filters emitted events for parity.
+   *   - `cwd`: root the pattern is resolved against. When provided, emitted event
+   *     paths are ABSOLUTE regardless of `process.cwd()`. Required for correctness
+   *     on hosts (Electron) whose working directory is not the workspace root.
+   * @returns File watcher with change/create/delete events (absolute paths when `cwd` is set)
    */
-  createFileWatcher(pattern: string): IFileWatcher;
+  createFileWatcher(
+    pattern: string,
+    options?: { exclude?: string[]; cwd?: string },
+  ): IFileWatcher;
 }

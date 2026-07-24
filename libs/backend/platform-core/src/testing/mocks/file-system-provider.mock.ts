@@ -212,9 +212,14 @@ export function createMockFileSystemProvider(
         return results;
       },
     ),
-    createFileWatcher: jest.fn((_pattern: string): IFileWatcher => {
-      return createEmptyWatcher();
-    }),
+    createFileWatcher: jest.fn(
+      (
+        _pattern: string,
+        _options?: { exclude?: string[]; cwd?: string },
+      ): IFileWatcher => {
+        return createEmptyWatcher();
+      },
+    ),
     __state: { files, directories },
   } as MockFileSystemProvider;
 

@@ -44,6 +44,7 @@ import {
   CODE_SYMBOL_INDEXER,
   type CodeSymbolIndexer,
   type DependencyGraphService,
+  type WorkspaceFileIndexService,
 } from '@ptah-extension/workspace-intelligence';
 import {
   MEMORY_TOKENS,
@@ -530,6 +531,32 @@ export async function wireRuntime(
         error instanceof Error ? error.message : String(error),
       );
     }
+
+    // Live in-memory file index for `@`-mention autocomplete. Build eagerly
+    // (non-blocking) so the first search is instant and the index self-updates
+    // via its file watcher; falls back to lazy-build on first query.
+    try {
+      if (
+        workspaceRoot &&
+        container.isRegistered(TOKENS.WORKSPACE_FILE_INDEX_SERVICE)
+      ) {
+        const fileIndex = container.resolve<WorkspaceFileIndexService>(
+          TOKENS.WORKSPACE_FILE_INDEX_SERVICE,
+        );
+        void fileIndex.start(workspaceRoot).catch((err: unknown) => {
+          console.warn(
+            '[Ptah Electron] WorkspaceFileIndex.start failed (non-fatal):',
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+      }
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Workspace file index wiring skipped (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+
     const contentDownload = container.resolve<ContentDownloadService>(
       PLATFORM_TOKENS.CONTENT_DOWNLOAD,
     );

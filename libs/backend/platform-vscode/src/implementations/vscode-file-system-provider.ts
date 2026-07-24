@@ -6,6 +6,7 @@
  */
 
 import * as vscode from 'vscode';
+import picomatch from 'picomatch';
 import type {
   IFileSystemProvider,
   FileStat,
@@ -136,22 +137,44 @@ export class VscodeFileSystemProvider implements IFileSystemProvider {
     return uris.map((uri) => uri.fsPath);
   }
 
-  createFileWatcher(pattern: string): IFileWatcher {
-    const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+  createFileWatcher(
+    pattern: string,
+    options?: { exclude?: string[]; cwd?: string },
+  ): IFileWatcher {
+    // Scope the watch to `cwd` via RelativePattern when given (correct for
+    // multi-root); otherwise watch the bare glob across all workspace folders.
+    // Either way `uri.fsPath` is absolute.
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      options?.cwd ? new vscode.RelativePattern(options.cwd, pattern) : pattern,
+    );
 
     const [onDidChange, fireChange] = createEvent<string>();
     const [onDidCreate, fireCreate] = createEvent<string>();
     const [onDidDelete, fireDelete] = createEvent<string>();
 
-    const changeDisposable = watcher.onDidChange((uri) =>
-      fireChange(uri.fsPath),
-    );
-    const createDisposable = watcher.onDidCreate((uri) =>
-      fireCreate(uri.fsPath),
-    );
-    const deleteDisposable = watcher.onDidDelete((uri) =>
-      fireDelete(uri.fsPath),
-    );
+    // The OS watch already honours `files.watcherExclude` (so node_modules etc.
+    // are excluded there). We additionally filter emitted events against the
+    // caller's excludes for parity with the chokidar-backed adapters, which
+    // push the same globs into chokidar's `ignored`.
+    const excludeGlobs = options?.exclude ?? [];
+    const isExcluded =
+      excludeGlobs.length > 0
+        ? (() => {
+            const match = picomatch(excludeGlobs, { dot: true });
+            return (fsPath: string): boolean =>
+              match(fsPath.replace(/\\/g, '/'));
+          })()
+        : (): boolean => false;
+
+    const changeDisposable = watcher.onDidChange((uri) => {
+      if (!isExcluded(uri.fsPath)) fireChange(uri.fsPath);
+    });
+    const createDisposable = watcher.onDidCreate((uri) => {
+      if (!isExcluded(uri.fsPath)) fireCreate(uri.fsPath);
+    });
+    const deleteDisposable = watcher.onDidDelete((uri) => {
+      if (!isExcluded(uri.fsPath)) fireDelete(uri.fsPath);
+    });
 
     return {
       onDidChange,

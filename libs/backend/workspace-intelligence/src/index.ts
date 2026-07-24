@@ -52,6 +52,7 @@ export {
   type WorkspaceIndexOptions,
   type IndexingProgress,
 } from './file-indexing/workspace-indexer.service';
+export { WorkspaceFileIndexService } from './file-indexing/workspace-file-index.service';
 export {
   FileTypeClassifierService,
   type FileClassificationResult,

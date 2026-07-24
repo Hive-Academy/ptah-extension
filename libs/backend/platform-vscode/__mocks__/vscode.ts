@@ -358,12 +358,12 @@ export const workspace = {
       });
     }),
   })),
-  createFileSystemWatcher: jest.fn((pattern: string) => {
+  createFileSystemWatcher: jest.fn((pattern: string | { pattern: string }) => {
     const change = createEmitter<{ fsPath: string }>();
     const create = createEmitter<{ fsPath: string }>();
     const del = createEmitter<{ fsPath: string }>();
     const entry = {
-      pattern,
+      pattern: typeof pattern === 'string' ? pattern : pattern.pattern,
       fireChange: change.fire,
       fireCreate: create.fire,
       fireDelete: del.fire,
@@ -569,6 +569,13 @@ export const EventEmitter = class<T> {
   dispose(): void {
     /* noop */
   }
+};
+
+export const RelativePattern = class {
+  constructor(
+    public readonly base: unknown,
+    public readonly pattern: string,
+  ) {}
 };
 
 export const CancellationTokenSource = class {

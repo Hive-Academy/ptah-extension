@@ -16,7 +16,10 @@ import {
   type SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
 import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
-import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
+import type {
+  CodeSymbolIndexer,
+  WorkspaceFileIndexService,
+} from '@ptah-extension/workspace-intelligence';
 import { DIContainer } from '../di/container';
 import { SettingsCommands } from '../commands/settings-commands';
 import {
@@ -237,6 +240,33 @@ export async function wireRuntimeVscode(
       {
         error: err instanceof Error ? err.message : String(err),
       },
+    );
+  }
+
+  // Live in-memory file index that powers `@`-mention autocomplete. Build it
+  // eagerly (non-blocking) so the first `@` search is instant and the index
+  // stays fresh via its file watcher. Lazy-builds on first query otherwise.
+  try {
+    if (DIContainer.isRegistered(TOKENS.WORKSPACE_FILE_INDEX_SERVICE)) {
+      const fileIndex = DIContainer.resolve<WorkspaceFileIndexService>(
+        TOKENS.WORKSPACE_FILE_INDEX_SERVICE,
+      );
+      const workspaceRoot =
+        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+      if (workspaceRoot) {
+        void fileIndex.start(workspaceRoot).catch((err: unknown) => {
+          logger.warn(
+            '[wire-runtime] WorkspaceFileIndex.start failed (non-fatal)',
+            { error: err instanceof Error ? err.message : String(err) },
+          );
+        });
+        context.subscriptions.push({ dispose: () => fileIndex.dispose() });
+      }
+    }
+  } catch (err) {
+    logger.warn(
+      '[wire-runtime] Workspace file index wiring skipped (non-fatal)',
+      { error: err instanceof Error ? err.message : String(err) },
     );
   }
 }
