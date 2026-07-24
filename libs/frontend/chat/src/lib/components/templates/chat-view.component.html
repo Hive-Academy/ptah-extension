@@ -108,7 +108,7 @@
       <!-- Resume Notification Banner -->
       <div class="px-2 py-1">
         <ptah-resume-notification-banner
-          [resumableSubagents]="chatStore.resumableSubagents()"
+          [resumableSubagents]="resolvedResumableSubagents()"
           (resumeRequested)="handleResumeAgent($event)"
           (resumeAllRequested)="handleResumeAllAgents($event)"
         />

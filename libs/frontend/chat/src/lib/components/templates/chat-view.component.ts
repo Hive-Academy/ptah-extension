@@ -347,6 +347,23 @@ export class ChatViewComponent {
   });
 
   /**
+   * Resumable interrupted subagents scoped to THIS surface's session. The
+   * backing `chatStore.resumableSubagents()` is a single root-scoped signal, so
+   * in canvas/tile mode every tile would otherwise render the same list. Tile
+   * mode (SESSION_CONTEXT present) filters by the tile's own resolved session
+   * via `parentSessionId`; the main panel keeps the global list unchanged.
+   */
+  protected readonly resolvedResumableSubagents = computed<SubagentRecord[]>(
+    () => {
+      const all = this.chatStore.resumableSubagents();
+      if (!this._sessionContext) return all;
+      const sid = this.resolvedSessionId();
+      if (!sid) return [];
+      return all.filter((s) => s.parentSessionId === sid);
+    },
+  );
+
+  /**
    * Component-scoped LRU of tab ids whose transcript stays mounted (keep-alive).
    * One instance per ChatViewComponent (declared in `providers`).
    */
