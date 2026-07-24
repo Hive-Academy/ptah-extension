@@ -62,8 +62,12 @@ use the always-works path:
    Colors**) and is applied to the theme (**Admin → Customize → Themes →
    Ptah Community → Colors** dropdown → select "Ptah").
 4. **Admin → Customize → Themes → Ptah Community → Set as default theme.**
+5. **Site logo** — a **global** `SiteSetting`, NOT carried by the theme import:
+   **Admin → Settings → Branding** → set `logo`, `logo_small`, and `mobile_logo`
+   to `assets/ptah-logo.svg`. (Option B / the rails apply script below does this
+   step for you automatically.)
 
-There's nothing to configure under a **Settings** tab — the theme has no
+There's nothing else to configure under a **Settings** tab — the theme has no
 `settings.yml`; the brand bar in `common/header.html` is static HTML with the
 `https://ptah.live` link hardcoded (see "Static header" below).
 
@@ -94,12 +98,16 @@ docker exec -u discourse:discourse discourse_dev bash -lc \
 #    recompiles theme SCSS/settings on save).
 ```
 
-`scripts/apply-theme.rb` uses `Theme#set_field` / `ColorScheme` directly
-(the same primitives Discourse's own theme importer uses internally) rather
-than a git clone, since the container has no network path back to this
-Windows-side monorepo checkout. **This is a best-effort script** — those APIs
-aren't part of Discourse's documented external plugin surface and can drift
-across versions. If it errors on your Discourse checkout, use Option B.
+`scripts/apply-theme.rb` uses `Theme#set_field` / `ColorScheme` / `UploadCreator`
+directly (the same primitives Discourse's own theme importer uses internally)
+rather than a git clone, since the container has no network path back to this
+Windows-side monorepo checkout. It applies the theme fields, the "Ptah" color
+scheme, sets it as default, **and sets the site logo** (`logo`/`logo_small`/
+`mobile_logo`) from `assets/ptah-logo.svg` — so one run wires up the full
+branding. **This is a best-effort script** — those APIs aren't part of
+Discourse's documented external plugin surface and can drift across versions;
+the logo step is non-fatal (WARN + fall back to the manual Settings upload). If
+it errors on your Discourse checkout, use Option B (manual Admin UI).
 
 ### Option B — manual Admin UI (guaranteed to work)
 

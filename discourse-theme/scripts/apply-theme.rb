@@ -23,6 +23,8 @@
 # =============================================================================
 
 require "json"
+require "fileutils"
+require "tmpdir"
 
 base = "/tmp/ptah-theme"
 about = JSON.parse(File.read(File.join(base, "about.json")))
@@ -55,6 +57,37 @@ theme.set_field(target: :translations, name: "en", value: File.read(File.join(ba
 theme.save!
 
 theme.set_default!
+
+# -- 3. Site logo (global SiteSetting — NOT theme-scoped) ----------------------
+# The site header wordmark is `SiteSetting.logo`, which a theme import does not
+# set. Apply it here from the theme's `assets.ptah-logo` so one command wires up
+# theme + colors + logo reproducibly (dev and prod). UploadCreator sanitizes the
+# SVG by writing back to the source file, so copy it to a writable temp first
+# (the theme dir is commonly owned by root / read-only for the `discourse` user).
+# Non-fatal: on any failure, fall back to the manual Admin > Settings > Logo step.
+logo_rel = about.dig("assets", "ptah-logo")
+if logo_rel
+  tmp = File.join(Dir.tmpdir, "ptah-logo-#{Process.pid}.svg")
+  begin
+    FileUtils.cp(File.join(base, logo_rel), tmp)
+    File.chmod(0644, tmp)
+    upload = UploadCreator
+      .new(File.open(tmp), File.basename(logo_rel), type: "site_setting")
+      .create_for(Discourse.system_user.id)
+    if upload&.persisted?
+      SiteSetting.logo = upload
+      SiteSetting.logo_small = upload
+      SiteSetting.mobile_logo = upload
+      puts "Set site logo from #{logo_rel} (upload ##{upload.id})"
+    else
+      puts "WARN: logo upload failed (#{upload&.errors&.full_messages&.inspect}) — set it manually in Admin > Settings > Logo"
+    end
+  rescue => e
+    puts "WARN: could not set site logo (#{e.class}: #{e.message}) — set it manually in Admin > Settings > Logo"
+  ensure
+    File.delete(tmp) if File.exist?(tmp)
+  end
+end
 
 puts "Applied theme ##{theme.id} (#{theme.name}) with color scheme ##{scheme.id} (#{scheme.name})"
 puts "Restart the rails server or hard-refresh the forum to see it."
