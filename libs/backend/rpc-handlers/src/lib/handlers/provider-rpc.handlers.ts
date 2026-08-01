@@ -333,16 +333,39 @@ export class ProviderRpcHandlers {
 
     // The virtual 'anthropic' direct provider and the native 'claude-cli'
     // ptah-cli provider share the same auth path — both resolve models from the
-    // host's Claude login via the SDK (no API key needed). Register the same
-    // live fetcher for both so the model dropdown shows subscription-appropriate
-    // models. Unlike 'anthropic' (not in the registry), 'claude-cli' also has
-    // CLAUDE_CLI_PROVIDER_ENTRY.staticModels as a registry fallback when the
-    // SDK lookup returns nothing.
+    // host's Claude login via the SDK (no API key needed).
     this.providerModels.registerDynamicFetcher(
       ANTHROPIC_DIRECT_PROVIDER_ID,
       fetcher,
     );
-    this.providerModels.registerDynamicFetcher('claude-cli', fetcher);
+
+    // 'claude-cli' is a `nativeAuth` provider: an agent running on it ALWAYS
+    // spawns with an EMPTY auth env (see CLAUDE_CLI_PROVIDER_ENTRY /
+    // PtahCliRegistry.buildAuthEnv), so it always talks to the host's real
+    // Claude login. The fetcher above reads the PROCESS-GLOBAL AuthEnv — when a
+    // third-party provider is active (Codex, Copilot, Moonshot, …) its proxy
+    // owns ANTHROPIC_BASE_URL and the SDK reports THAT catalog instead. Ask the
+    // SDK under the native login so this list always matches what the agent
+    // actually runs on, whatever the active provider happens to be.
+    this.providerModels.registerDynamicFetcher('claude-cli', async () => {
+      const models = await this.sdkAdapter.getNativeClaudeModels();
+      if (models.length === 0) {
+        this.logger.debug(
+          '[ProviderRpc] claude-cli: native Claude login returned no models — falling back to the static catalog',
+        );
+        return [];
+      }
+      this.logger.info(
+        `[ProviderRpc] Fetched ${models.length} claude-cli models from the native Claude login`,
+      );
+      return models.map((m) => ({
+        id: m.value,
+        name: m.displayName,
+        description: m.description || getModelPricingDescription(m.value),
+        contextLength: getModelContextWindow(m.value),
+        supportsToolUse: true,
+      }));
+    });
   }
 
   /**

@@ -406,6 +406,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return this.modelService.getSupportedModels();
   }
 
+  /**
+   * Models available under the host's ambient Claude login, regardless of which
+   * provider is currently active. Used by `nativeAuth` providers whose agents
+   * always spawn against that login.
+   */
+  async getNativeClaudeModels(): Promise<ModelInfo[]> {
+    return this.modelService.getNativeClaudeModels();
+  }
+
   async getDefaultModel(): Promise<string> {
     return this.modelService.getDefaultModel();
   }

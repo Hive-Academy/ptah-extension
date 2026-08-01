@@ -113,7 +113,10 @@ function createMockProviderModels(): MockProviderModels {
 type MockSdkAdapter = jest.Mocked<
   Pick<
     SdkAgentAdapter,
-    'clearModelCache' | 'getApiModels' | 'getSupportedModels'
+    | 'clearModelCache'
+    | 'getApiModels'
+    | 'getSupportedModels'
+    | 'getNativeClaudeModels'
   >
 >;
 
@@ -122,6 +125,7 @@ function createMockSdkAdapter(): MockSdkAdapter {
     clearModelCache: jest.fn(),
     getApiModels: jest.fn().mockResolvedValue([]),
     getSupportedModels: jest.fn().mockResolvedValue([]),
+    getNativeClaudeModels: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -294,6 +298,83 @@ describe('ProviderRpcHandlers', () => {
           'ollama-cloud',
         ]),
       );
+    });
+
+    /**
+     * `claude-cli` is a `nativeAuth` provider — a lane on it always runs against
+     * the host's ambient Claude login. Its model list must therefore never be
+     * derived from the process-global AuthEnv while a third-party
+     * Anthropic-compatible provider is active, or the picker leaks that
+     * provider's catalog (e.g. bare `kimi-*` ids) into the Claude lane.
+     */
+    describe('claude-cli dynamic fetcher', () => {
+      function claudeCliFetcher(h: Harness): () => Promise<unknown[]> {
+        const entry = h.providerModels.registerDynamicFetcher.mock.calls.find(
+          (c) => c[0] === 'claude-cli',
+        );
+        if (!entry) throw new Error('claude-cli fetcher was not registered');
+        return entry[1] as () => Promise<unknown[]>;
+      }
+
+      it('lists the native Claude login models', async () => {
+        const h = makeHarness();
+        h.sdkAdapter.getNativeClaudeModels.mockResolvedValue([
+          {
+            value: 'claude-opus-4-8',
+            displayName: 'Claude Opus 4.8',
+            description: '',
+          },
+        ]);
+        h.handlers.register();
+
+        await expect(claudeCliFetcher(h)()).resolves.toEqual([
+          expect.objectContaining({
+            id: 'claude-opus-4-8',
+            name: 'Claude Opus 4.8',
+          }),
+        ]);
+      });
+
+      it('still lists the native Claude models while a third-party provider owns the ambient env', async () => {
+        const h = makeHarness({
+          authEnv: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:58306' },
+        });
+        h.sdkAdapter.getNativeClaudeModels.mockResolvedValue([
+          {
+            value: 'opus[1m]',
+            displayName: 'Opus (1M context)',
+            description: '',
+          },
+          {
+            value: 'claude-fable-5[1m]',
+            displayName: 'Fable',
+            description: '',
+          },
+        ]);
+        // The active-provider list must never be the source for this provider.
+        h.sdkAdapter.getSupportedModels.mockResolvedValue([
+          {
+            value: 'gpt-5.6-luna',
+            displayName: 'gpt-5.6-luna',
+            description: '',
+          },
+        ]);
+        h.handlers.register();
+
+        await expect(claudeCliFetcher(h)()).resolves.toEqual([
+          expect.objectContaining({ id: 'opus[1m]' }),
+          expect.objectContaining({ id: 'claude-fable-5[1m]' }),
+        ]);
+        expect(h.sdkAdapter.getSupportedModels).not.toHaveBeenCalled();
+      });
+
+      it('returns empty (→ static Claude catalog) when the native login reports nothing', async () => {
+        const h = makeHarness();
+        h.sdkAdapter.getNativeClaudeModels.mockResolvedValue([]);
+        h.handlers.register();
+
+        await expect(claudeCliFetcher(h)()).resolves.toEqual([]);
+      });
     });
   });
 

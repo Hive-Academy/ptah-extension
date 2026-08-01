@@ -34,6 +34,42 @@ interface ApiModelEntry {
 /** Valid tier names for model resolution */
 export type ModelTier = 'opus' | 'sonnet' | 'haiku' | 'default';
 
+/**
+ * The only model values a third-party Anthropic-compatible provider can serve.
+ *
+ * Under a translation proxy (Codex, Copilot, OpenRouter, Moonshot, …) the SDK's
+ * `supportedModels()` still reports Anthropic-only ids it bundles natively —
+ * e.g. `claude-fable-5[1m]` ("Fable") and `opus[1m]` ("Opus (1M context)").
+ * Those are NOT tier aliases, so tier mapping leaves them untouched and they
+ * end up offered in the model picker even though the proxy cannot serve them.
+ * Only these four values get remapped to real provider models via
+ * `ANTHROPIC_DEFAULT_*_MODEL`; everything else is dropped.
+ */
+const THIRD_PARTY_SERVABLE_TIERS: ReadonlySet<string> = new Set<string>([
+  'default',
+  'opus',
+  'sonnet',
+  'haiku',
+]);
+
+/**
+ * AuthEnv that forces the SDK bridge onto the host's ambient Claude login,
+ * ignoring whichever third-party provider is currently active.
+ *
+ * Every key is explicitly `undefined` (rather than omitted) because the spawn
+ * env is `{ ...process.env, ...authEnv }` and the proxy strategies also write
+ * `process.env.ANTHROPIC_BASE_URL` — omitting a key would let the proxy value
+ * survive the spread.
+ */
+const NATIVE_CLAUDE_AUTH_ENV: AuthEnv = {
+  ANTHROPIC_API_KEY: undefined,
+  ANTHROPIC_BASE_URL: undefined,
+  ANTHROPIC_AUTH_TOKEN: undefined,
+  ANTHROPIC_DEFAULT_SONNET_MODEL: undefined,
+  ANTHROPIC_DEFAULT_OPUS_MODEL: undefined,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: undefined,
+};
+
 /** Tier names that have corresponding ANTHROPIC_DEFAULT_*_MODEL env vars */
 export type EnvMappedTier = Exclude<ModelTier, 'default'>;
 
@@ -115,6 +151,13 @@ export class SdkModelService {
   private pendingModelsPromise: Promise<ModelInfo[]> | null = null;
 
   /**
+   * Cached models for the host's ambient Claude login. Kept separate from
+   * `cachedModels` because that one is keyed to whichever provider is active.
+   */
+  private cachedNativeModels: ModelInfo[] = [];
+  private pendingNativeModelsPromise: Promise<ModelInfo[]> | null = null;
+
+  /**
    * Cached models from Anthropic /v1/models API
    */
   private cachedApiModels: ApiModelEntry[] | null = null;
@@ -160,6 +203,47 @@ export class SdkModelService {
       return await this.pendingModelsPromise;
     } finally {
       this.pendingModelsPromise = null;
+    }
+  }
+
+  /**
+   * Get the models available under the host's ambient Claude login
+   * (`~/.claude`), independent of which provider is currently active.
+   *
+   * This is what a `nativeAuth: true` provider (`claude-cli`) actually runs on:
+   * its lanes/subagents always spawn with an EMPTY auth env, so the picker must
+   * ask the SDK under that same env. Using `getSupportedModels()` instead would
+   * report the ACTIVE provider's catalog — e.g. Codex models while a Codex
+   * translation proxy owns `ANTHROPIC_BASE_URL`.
+   *
+   * @returns ModelInfo[] from the native login, empty array on failure
+   */
+  async getNativeClaudeModels(): Promise<ModelInfo[]> {
+    // Already on the native login — the normal path fetches the same list and
+    // shares its cache.
+    if (isDirectAnthropic(this.authEnv) && !this.authEnv.ANTHROPIC_API_KEY) {
+      return this.getSupportedModels();
+    }
+
+    if (this.cachedNativeModels.length > 0) {
+      return this.cachedNativeModels;
+    }
+
+    if (this.pendingNativeModelsPromise) {
+      return this.pendingNativeModelsPromise;
+    }
+
+    this.pendingNativeModelsPromise = this.fetchModelsViaSdk(
+      NATIVE_CLAUDE_AUTH_ENV,
+    );
+    try {
+      const models = await this.pendingNativeModelsPromise;
+      if (models.length > 0) {
+        this.cachedNativeModels = models;
+      }
+      return models;
+    } finally {
+      this.pendingNativeModelsPromise = null;
     }
   }
 
@@ -245,10 +329,16 @@ export class SdkModelService {
     });
     const seen = new Set<string>();
     const normalized: ModelInfo[] = [];
+    const dropped: string[] = [];
     let isDefault = false;
 
     for (const m of models) {
-      isDefault = m.value.toLowerCase() === 'default';
+      const raw = m.value.toLowerCase();
+      if (!THIRD_PARTY_SERVABLE_TIERS.has(raw)) {
+        dropped.push(m.value);
+        continue;
+      }
+      isDefault = raw === 'default';
       const resolvedValue = isDefault
         ? this.resolveModelId('opus')
         : this.resolveModelId(m.value);
@@ -263,7 +353,15 @@ export class SdkModelService {
       });
     }
 
-    const collisions = models.length - normalized.length;
+    if (dropped.length > 0) {
+      this.logger.info(
+        '[SdkModelService] applyTierMapping: dropped Anthropic-only models the provider cannot serve',
+        { dropped },
+      );
+    }
+
+    const servable = models.length - dropped.length;
+    const collisions = servable - normalized.length;
     if (collisions > 0) {
       this.logger.debug(
         `[SdkModelService] applyTierMapping: ${collisions} duplicate(s) collapsed (${models.length} â†’ ${normalized.length})`,
@@ -294,7 +392,9 @@ export class SdkModelService {
    *
    * @returns ModelInfo[] on success, empty array on failure
    */
-  private async fetchModelsViaSdk(): Promise<ModelInfo[]> {
+  private async fetchModelsViaSdk(
+    authEnv: AuthEnv = this.authEnv,
+  ): Promise<ModelInfo[]> {
     const cliJsPath = await this.moduleLoader.getCliJsPath();
     if (!cliJsPath) {
       this.logger.warn(
@@ -302,15 +402,15 @@ export class SdkModelService {
       );
       return [];
     }
-    const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
-    const hasAuthToken = !!this.authEnv.ANTHROPIC_AUTH_TOKEN;
+    const hasApiKey = !!authEnv.ANTHROPIC_API_KEY;
+    const hasAuthToken = !!authEnv.ANTHROPIC_AUTH_TOKEN;
 
     this.logger.info(
       '[SdkModelService] Fetching models via SDK supportedModels()',
       {
         hasApiKey,
         hasAuthToken,
-        hasBaseUrl: !!this.authEnv.ANTHROPIC_BASE_URL,
+        hasBaseUrl: !!authEnv.ANTHROPIC_BASE_URL,
         cliJsPath,
         note:
           !hasApiKey && !hasAuthToken
@@ -327,13 +427,15 @@ export class SdkModelService {
     try {
       const query = await this.moduleLoader.getQueryFunction();
       const emptyPrompt = (async function* () {})();
-      const baseUrl = this.authEnv.ANTHROPIC_BASE_URL?.trim();
+      const baseUrl = authEnv.ANTHROPIC_BASE_URL?.trim();
       const isThirdParty =
         baseUrl && !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
 
+      // `authEnv` keys are spread last and may be explicitly `undefined` — that
+      // is how the native-login env unsets a proxy value process.env carries.
       const env: Record<string, string | undefined> = {
         ...process.env,
-        ...this.authEnv,
+        ...authEnv,
         NO_PROXY: '127.0.0.1,localhost',
         ...(isThirdParty
           ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
@@ -593,6 +695,7 @@ export class SdkModelService {
    */
   clearCache(): void {
     this.cachedModels = [];
+    this.cachedNativeModels = [];
     this.cachedApiModels = null;
     this.apiModelsCacheTime = 0;
     this.logger.debug('[SdkModelService] Model cache cleared');
