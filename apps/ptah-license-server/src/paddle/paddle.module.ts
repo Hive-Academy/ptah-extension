@@ -6,9 +6,9 @@ import { PaddleWebhookService } from './paddle-webhook.service';
 import { PrismaModule } from '@ptah-api/core';
 import { EmailModule } from '@ptah-api/email';
 import { EventsModule } from '../events/events.module';
-import { WaitlistModule } from '../waitlist/waitlist.module';
-import { WaitlistService } from '../waitlist/waitlist.service';
-import { WAITLIST_CONVERSION_SINK } from '../circle/waitlist-conversion.sink';
+import { WaitlistModule } from '@ptah-api/marketing';
+import { WaitlistService } from '@ptah-api/marketing';
+import { WAITLIST_CONVERSION_SINK } from '@ptah-api/community';
 import {
   PaddleClientProvider,
   PADDLE_CLIENT,

@@ -7,7 +7,7 @@ import { PrismaModule } from '@ptah-api/core';
 import { EmailModule } from '@ptah-api/email';
 import { IdentityModule } from '@ptah-api/identity';
 import { EventsModule } from '../events/events.module';
-import { WaitlistModule } from '../waitlist/waitlist.module';
+import { WaitlistModule } from '@ptah-api/marketing';
 
 /**
  * LicenseModule - License verification and management

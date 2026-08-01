@@ -18,10 +18,7 @@ import { JwtAuthGuard } from '@ptah-api/identity';
 import { PrismaService } from '@ptah-api/core';
 import { getPlanConfig, PlanName, PLANS } from '@ptah-api/core';
 import { isBuildersCheckoutEnabled } from '@ptah-api/core';
-import {
-  MemberGroupsService,
-  type UserMemberGroup,
-} from '../../member-groups/member-groups.service';
+import { MemberGroupsService, type UserMemberGroup } from '@ptah-api/community';
 
 /**
  * LicenseController - Public license verification endpoint

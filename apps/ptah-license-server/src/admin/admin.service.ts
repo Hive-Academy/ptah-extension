@@ -20,7 +20,7 @@ import {
 } from './admin-models.config';
 import { BulkEmailDto, ListQueryDto } from './admin.dto';
 import { DeleteUserDto } from './dto/delete-user.dto';
-import { MemberGroupsService } from '../member-groups/member-groups.service';
+import { MemberGroupsService } from '@ptah-api/community';
 import type { AdminListResponse } from './admin-records.controller';
 import type { AdminBulkEmailResponse } from './admin-users.controller';
 

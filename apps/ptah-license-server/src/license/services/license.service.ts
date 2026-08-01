@@ -13,7 +13,7 @@ import { randomBytes, createPrivateKey, sign, KeyObject } from 'crypto';
 import { Prisma, License, User } from '@ptah-api/core';
 import { AuditLogService } from '@ptah-api/audit';
 import { EmailService } from '@ptah-api/email';
-import { WaitlistService } from '../../waitlist/waitlist.service';
+import { WaitlistService } from '@ptah-api/marketing';
 import {
   ComplimentaryDurationPreset,
   IssueComplimentaryLicenseDto,

@@ -14,7 +14,7 @@ import { JwtAuthGuard } from '@ptah-api/identity';
 import { AdminGuard } from '@ptah-api/identity';
 import { AdminThrottlerGuard } from '@ptah-api/identity';
 import { InviteWaitlistDto } from './admin.dto';
-import { WaitlistService } from '../waitlist/waitlist.service';
+import { WaitlistService } from '@ptah-api/marketing';
 import { AuditLogService } from '@ptah-api/audit';
 
 /**

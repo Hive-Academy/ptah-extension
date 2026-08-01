@@ -34,11 +34,11 @@ import { createMockPrisma, type MockPrisma } from '@ptah-api/core/testing';
 import { createTestingNestModule } from '@ptah-api/core/testing';
 import { EmailService } from '@ptah-api/email';
 import { EventsService } from '../events/events.service';
-import { CircleProvisioningService } from '../circle/circle-provisioning.service';
-import { WAITLIST_CONVERSION_SINK } from '../circle/waitlist-conversion.sink';
-import { SessionsService } from '../google-sessions/sessions.service';
-import { DiscourseProvisioningService } from '../discourse/discourse-provisioning.service';
-import { MemberGroupsService } from '../member-groups/member-groups.service';
+import { CircleProvisioningService } from '@ptah-api/community';
+import { WAITLIST_CONVERSION_SINK } from '@ptah-api/community';
+import { SessionsService } from '@ptah-api/community';
+import { DiscourseProvisioningService } from '@ptah-api/community';
+import { MemberGroupsService } from '@ptah-api/community';
 
 // ---------------------------------------------------------------------------
 // Stub factories

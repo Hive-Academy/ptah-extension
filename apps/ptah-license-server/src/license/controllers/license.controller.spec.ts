@@ -5,7 +5,7 @@ import { PrismaService } from '@ptah-api/core';
 import { VerifyLicenseDto } from '../dto/verify-license.dto';
 import { createMockPrisma, MockPrisma } from '@ptah-api/core/testing';
 import { LicenseController } from './license.controller';
-import type { MemberGroupsService } from '../../member-groups/member-groups.service';
+import type { MemberGroupsService } from '@ptah-api/community';
 
 function makeMemberGroups(
   groups: Array<{ key: string; name: string }> = [],

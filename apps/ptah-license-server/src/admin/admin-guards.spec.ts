@@ -9,11 +9,12 @@ import {
 } from '@nestjs/common/constants';
 import { AdminGuard } from '@ptah-api/identity';
 import { JwtAuthGuard } from '@ptah-api/identity';
-import { PacksModule } from '../packs/packs.module';
-import { AdminPacksController } from '../packs/admin-packs.controller';
-import { AdminSessionsController } from '../google-sessions/admin-sessions.controller';
-import { AdminCommunityController } from '../discourse/admin-community.controller';
-import { MemberGroupsController } from '../member-groups/member-groups.controller';
+import { PacksModule } from '@ptah-api/community';
+import { AdminPacksController } from '@ptah-api/community';
+import { AdminSessionsController } from '@ptah-api/community';
+import { AdminCommunityController } from '@ptah-api/community';
+import { MemberGroupsController } from '@ptah-api/community';
+import { WORKSPACE_ROOT } from '../testing/controller-registry';
 
 /**
  * STRUCTURAL GUARD TESTS (TASK_2026_169, plan §8.2).
@@ -45,7 +46,24 @@ import { MemberGroupsController } from '../member-groups/member-groups.controlle
  * carve-out (`@Query('code')`) that the version here did not have.
  */
 
-const SRC = join(__dirname, '..');
+/**
+ * Read a source file this suite asserts on, by WORKSPACE-relative path.
+ *
+ * ⚠️ WORKSPACE-relative, and a SINGLE literal per file, on purpose. These
+ * assertions read source TEXT, so they are a second path ledger alongside
+ * `ALL_CONTROLLERS[].file` — and the files they name now live in `libs/api/*`
+ * rather than this app. Anchoring on `WORKSPACE_ROOT` (shared with the
+ * controller registry) spans both, and keeping each path as one whole literal
+ * is what lets `tools/migration` rewrite it automatically the next time one of
+ * these files moves. A `join(SRC, 'dir', 'file.ts')` split into segments is
+ * invisible to that rewriting and silently rots into ENOENT.
+ */
+function readSource(workspaceRelativePath: string): string {
+  return readFileSync(
+    join(WORKSPACE_ROOT, ...workspaceRelativePath.split('/')),
+    'utf8',
+  );
+}
 
 function guardsOf(target: object): unknown[] {
   return (Reflect.getMetadata(GUARDS_METADATA, target) as unknown[]) ?? [];
@@ -100,9 +118,8 @@ describe('Admin surface — structural guards', () => {
     // never a loosening of the member gate. If this file ever learns about
     // ADMIN_EMAILS, AdminGuard, or an isAdmin flag, the two concerns have been
     // fused and a platform admin would silently gain member entitlements.
-    const membershipSource = readFileSync(
-      join(SRC, 'discourse', 'builders-membership.service.ts'),
-      'utf8',
+    const membershipSource = readSource(
+      'libs/api/community/src/lib/discourse/builders-membership.service.ts',
     );
 
     it.each(['ADMIN_EMAILS', 'AdminGuard', 'isAdmin'])(
@@ -115,11 +132,11 @@ describe('Admin surface — structural guards', () => {
     it('no source file fuses the member gate with an admin check', () => {
       // The literal shape the plan forbids: `isBuildersMember || isAdmin`.
       for (const file of [
-        join(SRC, 'discourse', 'builders-membership.service.ts'),
-        join(SRC, 'discourse', 'community.controller.ts'),
-        join(SRC, 'google-sessions', 'members.controller.ts'),
+        'libs/api/community/src/lib/discourse/builders-membership.service.ts',
+        'libs/api/community/src/lib/discourse/community.controller.ts',
+        'libs/api/community/src/lib/google-sessions/members.controller.ts',
       ]) {
-        const source = readFileSync(file, 'utf8');
+        const source = readSource(file);
         expect(source).not.toMatch(/isBuildersMember\s*\|\|\s*isAdmin/);
         expect(source).not.toContain('AdminGuard');
       }
@@ -179,8 +196,11 @@ describe('Admin surface — structural guards', () => {
         /from\s+'[^']*member-groups\.service'/,
       ];
 
-      for (const file of ['packs.service.ts', 'packs.module.ts']) {
-        const text = readFileSync(join(SRC, 'packs', file), 'utf8');
+      for (const file of [
+        'libs/api/community/src/lib/packs/packs.service.ts',
+        'libs/api/community/src/lib/packs/packs.module.ts',
+      ]) {
+        const text = readSource(file);
         for (const pattern of forbiddenImports) {
           expect({ file, matched: pattern.test(text) }).toEqual({
             file,

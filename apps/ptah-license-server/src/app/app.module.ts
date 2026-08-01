@@ -10,18 +10,18 @@ import { AuthModule } from './auth/auth.module';
 import { PaddleModule } from '../paddle/paddle.module';
 import { EventsModule } from '../events/events.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
-import { ContactModule } from '../contact/contact.module';
-import { WaitlistModule } from '../waitlist/waitlist.module';
-import { SessionModule } from '../session/session.module';
+import { ContactModule } from '@ptah-api/marketing';
+import { WaitlistModule } from '@ptah-api/marketing';
+import { SessionModule } from '@ptah-api/marketing';
 import { HealthModule } from '../health/health.module';
 import { AdminModule } from '../admin/admin.module';
 import { AuditModule } from '@ptah-api/audit';
-import { MarketingModule } from '../marketing/marketing.module';
-import { CircleModule } from '../circle/circle.module';
-import { GoogleSessionsModule } from '../google-sessions/google-sessions.module';
-import { DiscourseModule } from '../discourse/discourse.module';
-import { MemberGroupsModule } from '../member-groups/member-groups.module';
-import { PacksModule } from '../packs/packs.module';
+import { MarketingModule } from '@ptah-api/marketing';
+import { CircleModule } from '@ptah-api/community';
+import { GoogleSessionsModule } from '@ptah-api/community';
+import { DiscourseModule } from '@ptah-api/community';
+import { MemberGroupsModule } from '@ptah-api/community';
+import { PacksModule } from '@ptah-api/community';
 
 /**
  * AppModule - Root application module

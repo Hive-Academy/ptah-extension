@@ -4,7 +4,7 @@ import { PrismaService } from '@ptah-api/core';
 import { EventsService } from '../../events/events.service';
 import { AuditLogService } from '@ptah-api/audit';
 import { EmailService } from '@ptah-api/email';
-import { WaitlistService } from '../../waitlist/waitlist.service';
+import { WaitlistService } from '@ptah-api/marketing';
 import type { IssueComplimentaryLicenseDto } from '../dto/issue-complimentary-license.dto';
 
 /**

@@ -8,25 +8,25 @@ import { AdminStatsController } from '../admin/admin-stats.controller';
 import { AdminUsersController } from '../admin/admin-users.controller';
 import { AdminWaitlistController } from '../admin/admin-waitlist.controller';
 import { AuthController } from '../app/auth/auth.controller';
-import { ContactController } from '../contact/contact.controller';
-import { AdminCommunityController } from '../discourse/admin-community.controller';
-import { CommunityController } from '../discourse/community.controller';
-import { DiscourseController } from '../discourse/discourse.controller';
+import { ContactController } from '@ptah-api/marketing';
+import { AdminCommunityController } from '@ptah-api/community';
+import { CommunityController } from '@ptah-api/community';
+import { DiscourseController } from '@ptah-api/community';
 import { EventsController } from '../events/events.controller';
-import { AdminSessionsController } from '../google-sessions/admin-sessions.controller';
-import { MembersController } from '../google-sessions/members.controller';
+import { AdminSessionsController } from '@ptah-api/community';
+import { MembersController } from '@ptah-api/community';
 import { HealthController } from '../health/health.controller';
 import { AdminController as LicenseAdminController } from '../license/controllers/admin.controller';
 import { LicenseController } from '../license/controllers/license.controller';
-import { AdminMarketingController } from '../marketing/controllers/admin-marketing.controller';
-import { PublicMarketingController } from '../marketing/controllers/public-marketing.controller';
-import { ResendWebhookController } from '../marketing/controllers/resend-webhook.controller';
-import { MemberGroupsController } from '../member-groups/member-groups.controller';
-import { AdminPacksController } from '../packs/admin-packs.controller';
+import { AdminMarketingController } from '@ptah-api/marketing';
+import { PublicMarketingController } from '@ptah-api/marketing';
+import { ResendWebhookController } from '@ptah-api/marketing';
+import { MemberGroupsController } from '@ptah-api/community';
+import { AdminPacksController } from '@ptah-api/community';
 import { PaddleController } from '../paddle/paddle.controller';
-import { SessionController } from '../session/session.controller';
+import { SessionController } from '@ptah-api/marketing';
 import { SubscriptionController } from '../subscription/subscription.controller';
-import { WaitlistController } from '../waitlist/waitlist.controller';
+import { WaitlistController } from '@ptah-api/marketing';
 
 /**
  * THE SHARED CONTROLLER REGISTRY (TASK_2026_170, plan §6.1).
@@ -229,22 +229,22 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   },
   {
     label: 'contact/ContactController',
-    file: 'apps/ptah-license-server/src/contact/contact.controller.ts',
+    file: 'libs/api/marketing/src/lib/contact/contact.controller.ts',
     controller: ContactController,
   },
   {
     label: 'discourse/AdminCommunityController',
-    file: 'apps/ptah-license-server/src/discourse/admin-community.controller.ts',
+    file: 'libs/api/community/src/lib/discourse/admin-community.controller.ts',
     controller: AdminCommunityController,
   },
   {
     label: 'discourse/CommunityController',
-    file: 'apps/ptah-license-server/src/discourse/community.controller.ts',
+    file: 'libs/api/community/src/lib/discourse/community.controller.ts',
     controller: CommunityController,
   },
   {
     label: 'discourse/DiscourseController',
-    file: 'apps/ptah-license-server/src/discourse/discourse.controller.ts',
+    file: 'libs/api/community/src/lib/discourse/discourse.controller.ts',
     controller: DiscourseController,
   },
   {
@@ -254,12 +254,12 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   },
   {
     label: 'google-sessions/AdminSessionsController',
-    file: 'apps/ptah-license-server/src/google-sessions/admin-sessions.controller.ts',
+    file: 'libs/api/community/src/lib/google-sessions/admin-sessions.controller.ts',
     controller: AdminSessionsController,
   },
   {
     label: 'google-sessions/MembersController',
-    file: 'apps/ptah-license-server/src/google-sessions/members.controller.ts',
+    file: 'libs/api/community/src/lib/google-sessions/members.controller.ts',
     controller: MembersController,
   },
   {
@@ -279,27 +279,27 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   },
   {
     label: 'marketing/AdminMarketingController',
-    file: 'apps/ptah-license-server/src/marketing/controllers/admin-marketing.controller.ts',
+    file: 'libs/api/marketing/src/lib/marketing/controllers/admin-marketing.controller.ts',
     controller: AdminMarketingController,
   },
   {
     label: 'marketing/PublicMarketingController',
-    file: 'apps/ptah-license-server/src/marketing/controllers/public-marketing.controller.ts',
+    file: 'libs/api/marketing/src/lib/marketing/controllers/public-marketing.controller.ts',
     controller: PublicMarketingController,
   },
   {
     label: 'marketing/ResendWebhookController',
-    file: 'apps/ptah-license-server/src/marketing/controllers/resend-webhook.controller.ts',
+    file: 'libs/api/marketing/src/lib/marketing/controllers/resend-webhook.controller.ts',
     controller: ResendWebhookController,
   },
   {
     label: 'member-groups/MemberGroupsController',
-    file: 'apps/ptah-license-server/src/member-groups/member-groups.controller.ts',
+    file: 'libs/api/community/src/lib/member-groups/member-groups.controller.ts',
     controller: MemberGroupsController,
   },
   {
     label: 'packs/AdminPacksController',
-    file: 'apps/ptah-license-server/src/packs/admin-packs.controller.ts',
+    file: 'libs/api/community/src/lib/packs/admin-packs.controller.ts',
     controller: AdminPacksController,
   },
   {
@@ -309,7 +309,7 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   },
   {
     label: 'session/SessionController',
-    file: 'apps/ptah-license-server/src/session/session.controller.ts',
+    file: 'libs/api/marketing/src/lib/session/session.controller.ts',
     controller: SessionController,
   },
   {
@@ -319,7 +319,7 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   },
   {
     label: 'waitlist/WaitlistController',
-    file: 'apps/ptah-license-server/src/waitlist/waitlist.controller.ts',
+    file: 'libs/api/marketing/src/lib/waitlist/waitlist.controller.ts',
     controller: WaitlistController,
   },
 ];

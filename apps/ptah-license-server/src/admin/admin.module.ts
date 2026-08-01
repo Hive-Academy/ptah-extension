@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { IdentityModule } from '@ptah-api/identity';
 import { EmailModule } from '@ptah-api/email';
 import { LicenseModule } from '../license/license.module';
-import { WaitlistModule } from '../waitlist/waitlist.module';
+import { WaitlistModule } from '@ptah-api/marketing';
 import { AdminLicensesController } from './admin-licenses.controller';
 import { AdminRecordsController } from './admin-records.controller';
 import { AdminStatsController } from './admin-stats.controller';

@@ -351,8 +351,29 @@
       "platform": "api",
       "tags": "scope:api,type:feature",
       "app": "apps/ptah-license-server",
-      "sources": [],
-      "dependsOn": ["api-core", "api-identity"]
+      "sources": [
+        {
+          "glob": "src/discourse/**/*.ts",
+          "to": "discourse"
+        },
+        {
+          "glob": "src/member-groups/**/*.ts",
+          "to": "member-groups"
+        },
+        {
+          "glob": "src/google-sessions/**/*.ts",
+          "to": "google-sessions"
+        },
+        {
+          "glob": "src/packs/**/*.ts",
+          "to": "packs"
+        },
+        {
+          "glob": "src/circle/**/*.ts",
+          "to": "circle"
+        }
+      ],
+      "dependsOn": ["api-core", "api-identity", "api-audit"]
     },
     {
       "name": "api-marketing",
@@ -361,8 +382,25 @@
       "platform": "api",
       "tags": "scope:api,type:feature",
       "app": "apps/ptah-license-server",
-      "sources": [],
-      "dependsOn": ["api-core", "api-email"]
+      "sources": [
+        {
+          "glob": "src/contact/**/*.ts",
+          "to": "contact"
+        },
+        {
+          "glob": "src/session/**/*.ts",
+          "to": "session"
+        },
+        {
+          "glob": "src/marketing/**/*.ts",
+          "to": "marketing"
+        },
+        {
+          "glob": "src/waitlist/**/*.ts",
+          "to": "waitlist"
+        }
+      ],
+      "dependsOn": ["api-core", "api-email", "api-identity", "api-audit"]
     },
     {
       "name": "api-billing",

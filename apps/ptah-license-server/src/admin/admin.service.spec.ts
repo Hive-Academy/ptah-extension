@@ -521,7 +521,7 @@ describe('AdminService.getStats', () => {
       {} as unknown as EmailService,
       {} as unknown as AuditLogService,
       {} as unknown as ConfigService,
-      memberGroups as unknown as import('../member-groups/member-groups.service').MemberGroupsService,
+      memberGroups as unknown as import('../../../../libs/api/community/src/lib/member-groups/member-groups.service').MemberGroupsService,
     );
 
     const stats = await service.getStats();
