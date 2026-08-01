@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 import { z } from 'zod';
 
-import { validate } from './validate-response';
+import { validate } from '@ptah-web/core';
 
 /**
  * AdminBuildersApiService — HTTP client for the Builders-content admin surface

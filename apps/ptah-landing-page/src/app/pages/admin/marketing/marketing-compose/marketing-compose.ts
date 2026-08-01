@@ -23,7 +23,7 @@ import {
   MarketingTemplate,
   SendCampaignRequest,
 } from '../../../../services/admin-api.service';
-import { AuthService } from '../../../../services/auth.service';
+import { AuthService } from '@ptah-web/core';
 import { SegmentPicker } from '../../components/segment-picker/segment-picker';
 import { TemplatePicker } from '../../components/template-picker/template-picker';
 import { StatTile } from '../../components/stat-tile/stat-tile';

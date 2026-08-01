@@ -8,7 +8,7 @@ import {
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { ChevronDown, LucideAngularModule } from 'lucide-angular';
 
-import { AuthService } from '../../../services/auth.service';
+import { AuthService } from '@ptah-web/core';
 import { ADMIN_NAV_GROUPS, type AdminNavGroup } from './admin-nav.config';
 
 /**

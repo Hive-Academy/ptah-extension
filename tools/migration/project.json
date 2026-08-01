@@ -1,0 +1,32 @@
+{
+  "name": "migration",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tools/migration",
+  "projectType": "application",
+  "tags": ["type:tool"],
+  "targets": {
+    "extract": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "npx ts-node --transpile-only --project tools/migration/tsconfig.json tools/migration/extract-domain.ts --domain={args.domain}",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "extract-dry-run": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "npx ts-node --transpile-only --project tools/migration/tsconfig.json tools/migration/extract-domain.ts --domain={args.domain} --dry-run",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsc --noEmit --project tools/migration/tsconfig.json",
+        "cwd": "{workspaceRoot}"
+      }
+    }
+  }
+}

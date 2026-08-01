@@ -43,8 +43,44 @@ export default [
               onlyDependOnLibsWithTags: ['scope:shared', 'scope:webview'],
             },
             {
+              // The landing app is being decomposed into libs/web/* (scope:web)
+              // by tools/migration. Until the app is fully emptied it consumes
+              // both the legacy in-app code and the extracted web domains.
               sourceTag: 'scope:landing',
-              onlyDependOnLibsWithTags: ['scope:shared', 'scope:landing'],
+              onlyDependOnLibsWithTags: [
+                'scope:shared',
+                'scope:landing',
+                'scope:web',
+                'scope:api-contracts',
+              ],
+            },
+            // --- domain-extraction scopes (tools/migration) -------------
+            // libs/web/*  (@ptah-web/*) — Angular domains carved out of the
+            // landing app. They may talk to each other and to the shared
+            // HTTP contracts, never to a server-side lib.
+            {
+              sourceTag: 'scope:web',
+              onlyDependOnLibsWithTags: [
+                'scope:shared',
+                'scope:web',
+                'scope:api-contracts',
+              ],
+            },
+            // libs/api/* (@ptah-api/*) — NestJS domains carved out of the
+            // license server.
+            {
+              sourceTag: 'scope:api',
+              onlyDependOnLibsWithTags: [
+                'scope:shared',
+                'scope:api',
+                'scope:api-contracts',
+              ],
+            },
+            // libs/api-contracts/* (@ptah-contracts/*) — the wire contract
+            // between scope:web and scope:api. Depends on nothing but itself.
+            {
+              sourceTag: 'scope:api-contracts',
+              onlyDependOnLibsWithTags: ['scope:api-contracts'],
             },
             {
               sourceTag: 'scope:electron',

@@ -1,8 +1,8 @@
 import { Routes } from '@angular/router';
-import { LandingPageComponent } from './pages/landing-page.component';
-import { AdminAuthGuard } from './guards/admin-auth.guard';
-import { AuthGuard } from './guards/auth.guard';
-import { GuestGuard } from './guards/guest.guard';
+import { LandingPageComponent } from '@ptah-web/landing';
+import { AdminAuthGuard } from '@ptah-web/core';
+import { AuthGuard } from '@ptah-web/core';
+import { GuestGuard } from '@ptah-web/core';
 
 /**
  * Application Routes
@@ -45,40 +45,30 @@ export const routes: Routes = [
   {
     path: 'pricing',
     loadComponent: () =>
-      import('./pages/pricing/pricing-page.component').then(
-        (m) => m.PricingPageComponent,
-      ),
+      import('@ptah-web/pricing').then((m) => m.PricingPageComponent),
   },
   {
     path: 'login',
     loadComponent: () =>
-      import('./pages/auth/auth-page.component').then(
-        (m) => m.AuthPageComponent,
-      ),
+      import('@ptah-web/auth').then((m) => m.AuthPageComponent),
     canActivate: [GuestGuard],
   },
   {
     path: 'signup',
     loadComponent: () =>
-      import('./pages/auth/auth-page.component').then(
-        (m) => m.AuthPageComponent,
-      ),
+      import('@ptah-web/auth').then((m) => m.AuthPageComponent),
     canActivate: [GuestGuard],
   },
   {
     path: 'profile',
     loadComponent: () =>
-      import('./pages/profile/profile-page.component').then(
-        (m) => m.ProfilePageComponent,
-      ),
+      import('@ptah-web/account').then((m) => m.ProfilePageComponent),
     canActivate: [AuthGuard],
   },
   {
     path: 'members',
     loadComponent: () =>
-      import('./pages/members/members-page.component').then(
-        (m) => m.MembersPageComponent,
-      ),
+      import('@ptah-web/account').then((m) => m.MembersPageComponent),
     canActivate: [AuthGuard],
   },
   {
@@ -92,23 +82,17 @@ export const routes: Routes = [
   {
     path: 'terms-and-conditions',
     loadComponent: () =>
-      import('./pages/legal/terms-page.component').then(
-        (m) => m.TermsPageComponent,
-      ),
+      import('@ptah-web/legal').then((m) => m.TermsPageComponent),
   },
   {
     path: 'privacy',
     loadComponent: () =>
-      import('./pages/legal/privacy-page.component').then(
-        (m) => m.PrivacyPageComponent,
-      ),
+      import('@ptah-web/legal').then((m) => m.PrivacyPageComponent),
   },
   {
     path: 'refund',
     loadComponent: () =>
-      import('./pages/legal/refund-page.component').then(
-        (m) => m.RefundPageComponent,
-      ),
+      import('@ptah-web/legal').then((m) => m.RefundPageComponent),
   },
   {
     path: 'admin',

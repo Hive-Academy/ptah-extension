@@ -157,7 +157,14 @@
       ],
       "@ptah-extension/workspace-intelligence": [
         "./libs/backend/workspace-intelligence/src/index.ts"
-      ]
+      ],
+      "@ptah-web/core": ["./libs/web/core/src/index.ts"],
+      "@ptah-web/ui": ["./libs/web/ui/src/index.ts"],
+      "@ptah-web/legal": ["./libs/web/legal/src/index.ts"],
+      "@ptah-web/pricing": ["./libs/web/pricing/src/index.ts"],
+      "@ptah-web/auth": ["./libs/web/auth/src/index.ts"],
+      "@ptah-web/account": ["./libs/web/account/src/index.ts"],
+      "@ptah-web/landing": ["./libs/web/landing/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp"]
