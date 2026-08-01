@@ -35,6 +35,19 @@ export class ResendWebhookController {
   @Post()
   @HttpCode(HttpStatus.OK)
   async handle(
+    // ⚠️ DELIBERATELY UNBOUND — TASK_2026_170 exclusion (plan §6.2).
+    // Every other `@Body()`/`@Query()` payload param in this server binds
+    // `dtoPipe(TheDto)` because the global ValidationPipe is inert under
+    // esbuild (see `src/common/dto-validation.pipe.ts`). This one does not, on
+    // purpose: third-party webhook payload shapes change without notice, and
+    // `forbidNonWhitelisted` would 400 a perfectly valid webhook the first time
+    // Resend adds a field — turning a vendor-side additive change into dropped
+    // delivery events. `ResendWebhookPayload` is also an `interface`, not a
+    // class, so it cannot be an `expectedType` at all. The authoritative check
+    // on this route is the Svix HMAC in `ResendWebhookGuard`.
+    // Recorded as data in the `EXCLUDED` list of
+    // `src/common/controller-validation.spec.ts`, which asserts this param is
+    // still unbound so the exclusion cannot outlive its subject.
     @Body() payload: ResendWebhookPayload,
     @Headers('svix-id') svixId?: string,
   ): Promise<{ received: true }> {

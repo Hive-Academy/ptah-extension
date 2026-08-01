@@ -1,12 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { RequestMethod, ValidationPipe } from '@nestjs/common';
+import { RequestMethod } from '@nestjs/common';
 import {
   MODULE_METADATA,
   PATH_METADATA,
   METHOD_METADATA,
   GUARDS_METADATA,
-  ROUTE_ARGS_METADATA,
 } from '@nestjs/common/constants';
 import { AppModule } from '../app/app.module';
 import { AdminModule } from './admin.module';
@@ -31,68 +30,18 @@ import { MemberGroupsController } from '../member-groups/member-groups.controlle
  *   G4 — the Builders membership gate never consults admin identity
  *   G5 — the admin community controller exposes ONLY @Get handlers
  *   G6 — PacksModule registers no member-facing controller
- *   G7 — every @Body()/@Query() param binds dtoPipe (input validation is live)
+ *
+ * G7 ("every @Body()/@Query() param binds dtoPipe") USED to live here. It was
+ * moved to `src/common/controller-validation.spec.ts` by TASK_2026_170: it now
+ * covers every controller in the server, including public ones, which do not
+ * belong under an admin-guards heading — and it needed a named-primitive
+ * carve-out (`@Query('code')`) that the version here did not have.
  */
 
 const SRC = join(__dirname, '..');
 
 function guardsOf(target: object): unknown[] {
   return (Reflect.getMetadata(GUARDS_METADATA, target) as unknown[]) ?? [];
-}
-
-/**
- * Nest's `RouteParamtypes` values for the two decorators that carry a request
- * payload. Route args metadata is keyed `"<paramtype>:<index>"`.
- */
-const PARAMTYPE = { BODY: 3, QUERY: 4 } as const;
-
-interface ParamBinding {
-  handler: string;
-  kind: 'Body' | 'Query';
-  /** True when a ValidationPipe with `expectedType` is bound to the param. */
-  validated: boolean;
-}
-
-/**
- * Enumerate every `@Body()` / `@Query()` parameter on a controller and report
- * whether each one binds a `dtoPipe(...)` — i.e. a `ValidationPipe` carrying an
- * explicit `expectedType`.
- */
-function paramBindings(
-  controller: new (...args: never[]) => unknown,
-): ParamBinding[] {
-  const proto = controller.prototype as object;
-  const handlers = Object.getOwnPropertyNames(proto).filter(
-    (name) => name !== 'constructor',
-  );
-
-  const bindings: ParamBinding[] = [];
-  for (const handler of handlers) {
-    const meta =
-      (Reflect.getMetadata(ROUTE_ARGS_METADATA, controller, handler) as Record<
-        string,
-        { pipes?: unknown[] }
-      >) ?? {};
-
-    for (const [key, value] of Object.entries(meta)) {
-      const paramtype = Number(key.split(':')[0]);
-      if (paramtype !== PARAMTYPE.BODY && paramtype !== PARAMTYPE.QUERY) {
-        continue;
-      }
-      const validated = (value.pipes ?? []).some(
-        (pipe) =>
-          pipe instanceof ValidationPipe &&
-          (pipe as ValidationPipe & { expectedType?: unknown }).expectedType !==
-            undefined,
-      );
-      bindings.push({
-        handler: `${controller.name}.${handler}`,
-        kind: paramtype === PARAMTYPE.BODY ? 'Body' : 'Query',
-        validated,
-      });
-    }
-  }
-  return bindings;
 }
 
 function controllersOf(
@@ -217,58 +166,6 @@ describe('Admin surface — structural guards', () => {
         });
       }
     });
-  });
-
-  describe('G7 — every @Body()/@Query() param binds dtoPipe (validation is live)', () => {
-    // ⚠️ WHY THIS TEST EXISTS.
-    // esbuild does not implement `emitDecoratorMetadata`, so Nest cannot infer
-    // a handler parameter's DTO class and the globally-registered
-    // ValidationPipe short-circuits on `if (!metatype) return value;`. The
-    // practical effect is that a bare `@Body() dto: X` is SILENTLY UNVALIDATED:
-    // every @Matches/@MaxLength/@IsUUID cap and `forbidNonWhitelisted` becomes
-    // inert. This was live and demonstrated —
-    // `POST /admin/groups {"key":"INVALID KEY WITH SPACES!!"}` returned 201.
-    //
-    // `dtoPipe(X)` fixes it per-parameter via ValidationPipe's `expectedType`.
-    // Without this test that fix rots exactly the way the bug did: the next
-    // contributor copies a bare `@Body()` from anywhere else in the codebase
-    // (where it is still the norm) and ships an endpoint whose validation
-    // silently does nothing, on the admin surface, where a bad `repoUrl` or an
-    // unbounded array has the highest blast radius.
-    const CONTROLLERS: Array<
-      [string, new (...args: never[]) => unknown, number]
-    > = [
-      // [name, controller, minimum number of Body/Query params expected]
-      ['AdminPacksController', AdminPacksController, 3],
-      ['AdminSessionsController', AdminSessionsController, 3],
-      ['AdminCommunityController', AdminCommunityController, 1],
-      ['MemberGroupsController', MemberGroupsController, 4],
-    ];
-
-    it.each(CONTROLLERS)(
-      '%s binds a ValidationPipe with expectedType on every payload param',
-      (_name, controller) => {
-        for (const binding of paramBindings(controller)) {
-          // Assert on the whole object so a failure names the exact handler.
-          expect(binding).toEqual({
-            handler: binding.handler,
-            kind: binding.kind,
-            validated: true,
-          });
-        }
-      },
-    );
-
-    // Anti-vacuity: if the metadata key format ever changes under us, the loop
-    // above would iterate zero params and pass without checking anything.
-    it.each(CONTROLLERS)(
-      '%s actually exposes payload params for G7 to check',
-      (_name, controller, minimum) => {
-        expect(paramBindings(controller).length).toBeGreaterThanOrEqual(
-          minimum,
-        );
-      },
-    );
   });
 
   describe('G6 — PacksModule registers no member-facing controller', () => {

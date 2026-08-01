@@ -38,6 +38,30 @@ async function bootstrap() {
   );
   app.use(cookieParser());
   app.use('/webhooks/resend', bodyParser.raw({ type: '*/*' }));
+  // ⚠️ THIS GLOBAL PIPE IS CURRENTLY INERT. Do not read it as "input is
+  // validated" — it validates nothing, and has never validated anything.
+  //
+  // Nest resolves a handler parameter's DTO class from the `design:paramtypes`
+  // metadata emitted by TypeScript's `emitDecoratorMetadata`. This app is
+  // bundled by `@nx/esbuild`, and esbuild does NOT implement
+  // `emitDecoratorMetadata` (the flag in `tsconfig.app.json` has no effect on
+  // the bundle). Without that metadata `metadata.metatype` is `undefined` and
+  // `ValidationPipe.transform()` short-circuits on
+  // `if (!metatype || !this.toValidate(metadata)) return value;`.
+  //
+  // THE LIVE MECHANISM is `dtoPipe()` / `passthroughDtoPipe()` in
+  // `src/common/dto-validation.pipe.ts`, bound per-parameter
+  // (`@Body(dtoPipe(TheDto))`). `ValidationPipe`'s `expectedType` option is
+  // applied BEFORE the short-circuit, which is why the per-param form works
+  // where this one does not. `src/common/controller-validation.spec.ts`
+  // enforces that every payload param in the server is bound that way.
+  //
+  // RETAINED DELIBERATELY. It is the safety net for the day the deferred
+  // "Option B" lands (an esbuild plugin that emits `design:paramtypes` — see
+  // `.ptah/specs/TASK_2026_170/future-enhancements.md`), at which point this
+  // becomes the server-wide default and the per-param binding becomes
+  // redundant belt-and-braces. Deleting it now would look like dead-code
+  // cleanup but would actually remove that safety net.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

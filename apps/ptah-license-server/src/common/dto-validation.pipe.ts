@@ -26,31 +26,92 @@ import { ValidationPipe, type Type } from '@nestjs/common';
  *
  *   if (!metatype || !this.toValidate(metadata)) return value;
  *
- * So every DTO decorator in the server is currently inert — including the
- * length/range caps, the `@IsUUID` checks, and `forbidNonWhitelisted`.
+ * So every DTO decorator in the server is inert unless a pipe supplies the
+ * type explicitly — including the length/range caps, the `@IsUUID` checks, and
+ * `forbidNonWhitelisted`.
  *
  * THE FIX APPLIED HERE: `ValidationPipe`'s `expectedType` option overrides the
- * metatype rather than inferring it (`validation.pipe.js:51-52`), so binding
- * the DTO class explicitly at the parameter restores full validation and
- * transformation without any build-system change.
+ * metatype rather than inferring it (`validation.pipe.js` `transform()` applies
+ * `expectedType` BEFORE the short-circuit above), so binding the DTO class
+ * explicitly at the parameter restores full validation and transformation
+ * without any build-system change.
  *
- * SCOPE: this is applied to the endpoints added by TASK_2026_169 only, because
- * two of their requirements depend on validation actually running — the
- * `repoUrl` GitHub-URL regex (leak risk L4, a stored-XSS mitigation that is
- * worthless if inert) and numeric query coercion (an untransformed `pageSize`
- * reaches Prisma as a string and 500s).
+ * SCOPE — `dtoPipe` is the SERVER-WIDE input-validation mechanism.
+ * TASK_2026_169 introduced it for the admin packs / sessions / community /
+ * member-groups endpoints. TASK_2026_170 then bound every remaining controller
+ * in the server, so the rule is now unconditional:
  *
- * The app-wide defect is deliberately NOT fixed here: repairing decorator
- * metadata for the whole server would make ~9 existing admin models start
- * rejecting input they currently accept, which is a behavioural change well
- * beyond this task and needs its own review. It is escalated in the
- * implementation report as a follow-up.
+ *   ⚠️ EVERY `@Body()` / `@Query()` payload param MUST bind `dtoPipe(TheDto)`.
+ *      A bare `@Body() dto: X` is SILENTLY UNVALIDATED.
+ *
+ * This is enforced structurally by
+ * `apps/ptah-license-server/src/common/controller-validation.spec.ts`, which
+ * enumerates every controller in the server and fails the build on an unbound
+ * payload param.
+ *
+ * DOCUMENTED EXCEPTIONS (all three are asserted, not merely commented):
+ *  - Webhook receivers (`/webhooks/resend`, `/webhooks/paddle`) — third-party
+ *    payload shapes change without notice. See the `EXCLUDED` list in
+ *    `controller-validation.spec.ts`.
+ *  - Named-primitive query params (`@Query('code') code: string`) bind a
+ *    string, not a DTO; `dtoPipe` is meaningless there. The structural spec
+ *    carves them out by route-args `data`, and asserts the carve-out's size so
+ *    it cannot silently grow.
+ *  - `AdminController.update` uses `passthroughDtoPipe` (see below).
+ *
+ * END STATE: Option B — an esbuild plugin that emits `design:paramtypes` — would
+ * make the global pipe in `main.ts` live and render per-param binding
+ * unnecessary. It is deliberately deferred; see
+ * `.ptah/specs/TASK_2026_170/future-enhancements.md`. Until then the global pipe
+ * is retained as the safety net for the day that lands, and `dtoPipe` is the
+ * only thing actually validating input.
  */
 export function dtoPipe<T>(expectedType: Type<T>): ValidationPipe {
   return new ValidationPipe({
     expectedType,
     whitelist: true,
     forbidNonWhitelisted: true,
+    transform: true,
+  });
+}
+
+/**
+ * Transport-envelope variant of `dtoPipe` for handlers whose body shape is
+ * genuinely dynamic and whose allowlist lives elsewhere in the server.
+ *
+ * ⚠️ ONLY legitimate use today: `AdminController.update`
+ * (`src/admin/admin.controller.ts`). `UpdateRecordDto` is an index-signature
+ * class (`{ [key: string]: unknown }`) with NO class-validator metadata, and
+ * class-validator's whitelist step rejects EVERY property of a zero-metadata
+ * class when `forbidNonWhitelisted` is on:
+ *
+ *   // class-validator/cjs/validation/ValidationExecutor.js  whitelist()
+ *   Object.keys(object).forEach(propertyName => {
+ *     if (!groupedMetadatas[propertyName] || groupedMetadatas[propertyName].length === 0)
+ *       notAllowedProperties.push(propertyName);
+ *   });
+ *   // …then, when forbidNonWhitelisted: `property ${property} should not exist`
+ *
+ * So plain `dtoPipe(UpdateRecordDto)` would 400 EVERY non-empty admin PATCH.
+ * The real allowlist for that handler is `AdminService.filterEditable()`
+ * against `ADMIN_MODELS[key].editableFields` — a single source of truth that
+ * must not be duplicated into the DTO layer.
+ *
+ * This pipe still carries `expectedType`, so the param is explicitly and
+ * honestly bound: the structural guard in `controller-validation.spec.ts` sees
+ * a real `ValidationPipe` with a real expected type, and the policy difference
+ * is deliberate and documented rather than an accidental gap.
+ *
+ * 🔴 Do NOT reach for this to silence a 400. If the DTO has decorators, the 400
+ * is the DTO doing its job — use `dtoPipe` and fix the caller. A second call
+ * site for `passthroughDtoPipe` should be rejected in review unless it comes
+ * with the same "the allowlist provably lives elsewhere" argument.
+ */
+export function passthroughDtoPipe<T>(expectedType: Type<T>): ValidationPipe {
+  return new ValidationPipe({
+    expectedType,
+    whitelist: false,
+    forbidNonWhitelisted: false,
     transform: true,
   });
 }
