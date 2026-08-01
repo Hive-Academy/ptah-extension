@@ -248,8 +248,12 @@
     <!-- Resize handle between chat and agent panel -->
     @if (agentPanelOpen()) {
       <div
-        class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group"
-        (mousedown)="onResizeStart($event)"
+        class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group touch-none"
+        role="separator"
+        aria-orientation="vertical"
+        title="Drag to resize · double-click to reset"
+        (pointerdown)="onResizeStart($event)"
+        (dblclick)="onResizeReset()"
       >
         <div
           class="w-0.5 h-full rounded-full bg-base-content/20 group-hover:bg-primary/60 group-active:bg-primary transition-colors"

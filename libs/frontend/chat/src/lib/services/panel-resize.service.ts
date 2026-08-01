@@ -10,7 +10,10 @@
  *
  * Constraints:
  *   - MIN_WIDTH: 300px (usable agent card display)
- *   - MAX_WIDTH_RATIO: 60% of viewport (prevents chat area collapse)
+ *   - MAX_WIDTH_RATIO: 60% of the *container* (prevents chat area collapse)
+ *
+ * Scope: provided by `ChatViewComponent` so each canvas tile owns its own
+ * panel width. The root-level fallback serves standalone monitor panels.
  */
 
 import { Injectable, signal } from '@angular/core';
@@ -29,10 +32,17 @@ export class PanelResizeService {
   /** Whether a drag is in progress (disables CSS transitions) */
   readonly dragging = this._dragging.asReadonly();
 
-  /** Clamp and set a custom panel width */
-  setCustomWidth(width: number): void {
-    const maxWidth = window.innerWidth * MAX_WIDTH_RATIO;
-    const clamped = Math.min(Math.max(width, MIN_WIDTH), maxWidth);
+  /**
+   * Clamp and set a custom panel width.
+   *
+   * `containerWidth` is the width of the surface the panel lives in — the chat
+   * view host, not the viewport. Inside a canvas tile these differ by a lot, and
+   * clamping against the viewport pins the panel at max width on every drag.
+   */
+  setCustomWidth(width: number, containerWidth = window.innerWidth): void {
+    const maxWidth = containerWidth * MAX_WIDTH_RATIO;
+    const minWidth = Math.min(MIN_WIDTH, maxWidth);
+    const clamped = Math.min(Math.max(width, minWidth), maxWidth);
     this._customWidth.set(clamped);
   }
 

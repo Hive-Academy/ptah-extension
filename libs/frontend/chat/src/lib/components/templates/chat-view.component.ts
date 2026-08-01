@@ -7,6 +7,7 @@ import {
   ChangeDetectionStrategy,
   effect,
   untracked,
+  ElementRef,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -111,12 +112,13 @@ import type {
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [TranscriptRetentionService],
+  providers: [TranscriptRetentionService, PanelResizeService],
 })
 export class ChatViewComponent {
   readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly panelResizeService = inject(PanelResizeService);
+  private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
@@ -294,33 +296,66 @@ export class ChatViewComponent {
     }
   }
 
-  private resizeMouseMove: ((e: MouseEvent) => void) | null = null;
-  private resizeMouseUp: (() => void) | null = null;
+  private resizeHandleEl: HTMLElement | null = null;
+  private resizePointerId: number | null = null;
 
-  /** Start drag-resize: capture mouse and update panel width on move. */
-  onResizeStart(event: MouseEvent): void {
+  private readonly onResizeMove = (event: PointerEvent): void => {
+    if (event.pointerId !== this.resizePointerId) return;
+    const host = this.hostEl.nativeElement;
+    const newWidth = host.getBoundingClientRect().right - event.clientX;
+    this.panelResizeService.setCustomWidth(newWidth, host.clientWidth);
+  };
+
+  private readonly onResizeEnd = (event: PointerEvent): void => {
+    if (event.pointerId !== this.resizePointerId) return;
+    this.endResize();
+  };
+
+  /**
+   * Start drag-resize.
+   *
+   * Uses pointer capture rather than document-level mouse listeners: the pointer
+   * routinely leaves the window while dragging the agent panel edge, and a
+   * `mouseup` fired outside the window never reaches the document — leaving the
+   * drag stuck on forever. Capture guarantees the matching up/cancel event.
+   */
+  onResizeStart(event: PointerEvent): void {
+    if (event.button !== 0) return;
     event.preventDefault();
+    this.endResize();
+
+    const handle = event.currentTarget as HTMLElement;
+    this.resizeHandleEl = handle;
+    this.resizePointerId = event.pointerId;
+    handle.setPointerCapture(event.pointerId);
+    handle.addEventListener('pointermove', this.onResizeMove);
+    handle.addEventListener('pointerup', this.onResizeEnd);
+    handle.addEventListener('pointercancel', this.onResizeEnd);
+    // Fires if the handle is torn out of the DOM mid-drag (panel auto-closes).
+    handle.addEventListener('lostpointercapture', this.onResizeEnd);
     this.panelResizeService.setDragging(true);
+  }
 
-    this.resizeMouseMove = (e: MouseEvent) => {
-      const newWidth = window.innerWidth - e.clientX;
-      this.panelResizeService.setCustomWidth(newWidth);
-    };
+  /** Double-click the handle to fall back to the responsive default width. */
+  onResizeReset(): void {
+    this.panelResizeService.resetWidth();
+  }
 
-    this.resizeMouseUp = () => {
-      this.panelResizeService.setDragging(false);
-      if (this.resizeMouseMove) {
-        document.removeEventListener('mousemove', this.resizeMouseMove);
+  private endResize(): void {
+    const handle = this.resizeHandleEl;
+    const pointerId = this.resizePointerId;
+    this.resizeHandleEl = null;
+    this.resizePointerId = null;
+    if (handle) {
+      handle.removeEventListener('pointermove', this.onResizeMove);
+      handle.removeEventListener('pointerup', this.onResizeEnd);
+      handle.removeEventListener('pointercancel', this.onResizeEnd);
+      handle.removeEventListener('lostpointercapture', this.onResizeEnd);
+      if (pointerId !== null && handle.hasPointerCapture(pointerId)) {
+        handle.releasePointerCapture(pointerId);
       }
-      if (this.resizeMouseUp) {
-        document.removeEventListener('mouseup', this.resizeMouseUp);
-      }
-      this.resizeMouseMove = null;
-      this.resizeMouseUp = null;
-    };
-
-    document.addEventListener('mousemove', this.resizeMouseMove);
-    document.addEventListener('mouseup', this.resizeMouseUp);
+    }
+    this.panelResizeService.setDragging(false);
   }
 
   /** Signal-based viewChild for chat input (used for prompt-suggestion fill) */
