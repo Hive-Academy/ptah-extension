@@ -274,6 +274,8 @@
                     session.id === chatStore.currentSession()?.id ||
                     isSessionOpen(session.id)
                   "
+                  [class.text-base-content]="session.hasTranscript === false"
+                  [class.opacity-50]="session.hasTranscript === false"
                   [title]="session.name"
                 >
                   {{ getSessionDisplayName(session) }}
@@ -286,6 +288,13 @@
                   @if (session.messageCount > 0) {
                     <span class="text-base-content/40"
                       >{{ session.messageCount }} msgs</span
+                    >
+                  }
+                  @if (session.hasTranscript === false) {
+                    <span
+                      class="text-base-content/40 italic"
+                      [title]="expiredTranscriptHint"
+                      >transcript expired</span
                     >
                   }
                 </span>

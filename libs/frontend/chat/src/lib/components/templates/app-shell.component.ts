@@ -221,6 +221,13 @@ export class AppShellComponent {
   readonly ScaleIcon = Scale;
   readonly ClipboardListIcon = ClipboardList;
   readonly thothFirstRunDismissed = this.appState.thothFirstRunDismissed;
+  /**
+   * Tooltip for sessions whose SDK transcript was pruned by the Claude CLI's
+   * `cleanupPeriodDays` retention (default 30 days). The metadata row survives,
+   * so the session still lists — it just opens with no history.
+   */
+  readonly expiredTranscriptHint =
+    'Claude removed this session’s transcript after its retention period, so it will open empty. Raise "cleanupPeriodDays" in ~/.claude/settings.json to keep transcripts longer.';
   readonly editingSessionId = signal<string | null>(null);
   readonly editingSessionName = signal('');
   readonly isElectron = this.vscodeService.isElectron;
