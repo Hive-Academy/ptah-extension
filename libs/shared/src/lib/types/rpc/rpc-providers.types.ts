@@ -5,6 +5,8 @@
  * provider:clearModelTier, deprecated OpenRouter aliases, and all llm:* methods
  */
 
+import type { ModelCapability } from '../auth-env.types';
+
 /** Model tier for provider model mapping */
 export type ProviderModelTier = 'sonnet' | 'opus' | 'haiku';
 
@@ -32,6 +34,15 @@ export interface ProviderModelInfo {
   contextLength: number;
   /** Whether the model supports tool use (required for AI agents) */
   supportsToolUse: boolean;
+  /**
+   * Capabilities this model supports, when the provider declares them.
+   *
+   * Published to the SDK as `ANTHROPIC_DEFAULT_<TIER>_MODEL_SUPPORTED_CAPABILITIES`
+   * when the model is mapped to a tier. Leave undefined unless the provider
+   * really reports this — the SDK treats the env var as an allowlist, so a
+   * partial list turns off everything omitted from it.
+   */
+  capabilities?: ModelCapability[];
   /** Cost per input token in USD (from provider API, e.g. OpenRouter) */
   inputCostPerToken?: number;
   /** Cost per output token in USD (from provider API) */

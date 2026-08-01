@@ -555,3 +555,222 @@ describe('ProviderModelsService.registerDynamicFetcher', () => {
     expect(result.models[0].id).toBe('dyn-model');
   });
 });
+
+// ---------------------------------------------------------------------------
+// persisted model catalog — fallback when a live fetch is unavailable
+// ---------------------------------------------------------------------------
+
+describe('ProviderModelsService persisted model catalog', () => {
+  const CATALOG_KEY = 'provider.claude-cli.modelCatalog';
+
+  it('persists the catalog a dynamic fetcher returns', async () => {
+    const { service, config } = makeService({});
+    service.registerDynamicFetcher('claude-cli', async () => [
+      {
+        id: 'opus[1m]',
+        name: 'Opus (1M context)',
+        description: '',
+        contextLength: 1000000,
+        supportsToolUse: true,
+      },
+    ]);
+
+    await service.fetchModels('claude-cli', null);
+    // persistCatalog is fire-and-forget — let the microtask queue drain.
+    await Promise.resolve();
+
+    expect(config.set).toHaveBeenCalledWith(
+      CATALOG_KEY,
+      expect.objectContaining({
+        models: [expect.objectContaining({ id: 'opus[1m]' })],
+      }),
+    );
+  });
+
+  it('falls back to the persisted catalog instead of the hardcoded staticModels', async () => {
+    const { service } = makeService({
+      configValues: {
+        [CATALOG_KEY]: {
+          models: [
+            {
+              id: 'opus[1m]',
+              name: 'Opus (1M context)',
+              description: '',
+              contextLength: 1000000,
+              supportsToolUse: true,
+            },
+            {
+              id: 'claude-fable-5[1m]',
+              name: 'Fable',
+              description: '',
+              contextLength: 1000000,
+              supportsToolUse: true,
+            },
+          ],
+          timestamp: 1,
+        },
+      },
+    });
+    service.registerDynamicFetcher('claude-cli', async () => {
+      throw new Error('SDK bridge unavailable');
+    });
+
+    const result = await service.fetchModels('claude-cli', null);
+
+    expect(result.models.map((m) => m.id)).toEqual([
+      'opus[1m]',
+      'claude-fable-5[1m]',
+    ]);
+    expect(result.isStatic).toBe(false);
+  });
+
+  it('still falls back to staticModels when nothing is persisted', async () => {
+    const { service } = makeService({});
+    service.registerDynamicFetcher('claude-cli', async () => {
+      throw new Error('SDK bridge unavailable');
+    });
+
+    const result = await service.fetchModels('claude-cli', null);
+
+    expect(result.isStatic).toBe(true);
+    expect(result.models.length).toBeGreaterThan(0);
+  });
+
+  it('ignores a malformed persisted catalog rather than serving junk', async () => {
+    const { service } = makeService({
+      configValues: {
+        [CATALOG_KEY]: { models: [{ nope: true }, 'garbage'] },
+      },
+    });
+    service.registerDynamicFetcher('claude-cli', async () => {
+      throw new Error('SDK bridge unavailable');
+    });
+
+    const result = await service.fetchModels('claude-cli', null);
+
+    expect(result.isStatic).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// per-tier display metadata env vars
+// ---------------------------------------------------------------------------
+
+describe('ProviderModelsService tier metadata env vars', () => {
+  const ENV_OPUS_NAME = 'ANTHROPIC_DEFAULT_OPUS_MODEL_NAME';
+  const ENV_OPUS_DESC = 'ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION';
+  const ENV_OPUS_CAPS = 'ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES';
+
+  afterEach(() => {
+    delete process.env[ENV_OPUS_NAME];
+    delete process.env[ENV_OPUS_DESC];
+    delete process.env[ENV_OPUS_CAPS];
+  });
+
+  it('publishes the provider model label and description alongside the id', async () => {
+    const { service, authEnv } = makeService({});
+    service.registerDynamicFetcher('openai-codex', async () => [
+      {
+        id: 'gpt-5.6-luna',
+        name: 'GPT-5.6 Luna',
+        description: 'Most capable Codex model',
+        contextLength: 400000,
+        supportsToolUse: true,
+      },
+    ]);
+    await service.fetchModels('openai-codex', null);
+
+    await service.setModelTier(
+      'openai-codex',
+      'opus',
+      'gpt-5.6-luna',
+      'mainAgent',
+    );
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('gpt-5.6-luna');
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME).toBe('GPT-5.6 Luna');
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION).toBe(
+      'Most capable Codex model',
+    );
+  });
+
+  it('omits the capability allowlist when the provider declares none', async () => {
+    const { service, authEnv } = makeService({});
+    service.registerDynamicFetcher('openai-codex', async () => [
+      {
+        id: 'gpt-5.6-luna',
+        name: 'GPT-5.6 Luna',
+        description: '',
+        contextLength: 400000,
+        supportsToolUse: true,
+      },
+    ]);
+    await service.fetchModels('openai-codex', null);
+
+    await service.setModelTier(
+      'openai-codex',
+      'opus',
+      'gpt-5.6-luna',
+      'mainAgent',
+    );
+
+    // Setting it would tell the SDK every unlisted capability is unsupported.
+    expect(
+      authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
+    ).toBeUndefined();
+    expect(process.env[ENV_OPUS_CAPS]).toBeUndefined();
+  });
+
+  it('emits a comma-separated allowlist when the provider does declare capabilities', async () => {
+    const { service, authEnv } = makeService({});
+    service.registerDynamicFetcher('openai-codex', async () => [
+      {
+        id: 'gpt-5.6-luna',
+        name: 'GPT-5.6 Luna',
+        description: '',
+        contextLength: 400000,
+        supportsToolUse: true,
+        capabilities: ['thinking', 'effort'] as const,
+      },
+    ]);
+    await service.fetchModels('openai-codex', null);
+
+    await service.setModelTier(
+      'openai-codex',
+      'opus',
+      'gpt-5.6-luna',
+      'mainAgent',
+    );
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES).toBe(
+      'thinking,effort',
+    );
+  });
+
+  it('clearAllTierEnvVars clears the metadata vars too', async () => {
+    const { service, authEnv } = makeService({});
+    service.registerDynamicFetcher('openai-codex', async () => [
+      {
+        id: 'gpt-5.6-luna',
+        name: 'GPT-5.6 Luna',
+        description: 'Most capable Codex model',
+        contextLength: 400000,
+        supportsToolUse: true,
+      },
+    ]);
+    await service.fetchModels('openai-codex', null);
+    await service.setModelTier(
+      'openai-codex',
+      'opus',
+      'gpt-5.6-luna',
+      'mainAgent',
+    );
+
+    service.clearAllTierEnvVars();
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME).toBeUndefined();
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION).toBeUndefined();
+    expect(process.env[ENV_OPUS_NAME]).toBeUndefined();
+    expect(process.env[ENV_OPUS_DESC]).toBeUndefined();
+  });
+});

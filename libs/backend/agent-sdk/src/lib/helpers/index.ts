@@ -158,6 +158,8 @@ export type { ICuratorAuthResolver } from '../curator-llm-adapter';
 export {
   SdkModelService,
   TIER_ENV_VAR_MAP,
+  TIER_METADATA_ENV_VAR_MAP,
+  ALL_TIER_ENV_KEYS,
   buildTierEnvDefaults,
   type ModelTier,
   type EnvMappedTier,
