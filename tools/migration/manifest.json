@@ -194,9 +194,23 @@
       "platform": "web",
       "tags": "scope:web,type:feature",
       "app": "apps/ptah-landing-page",
-      "sources": [],
+      "sources": [
+        {
+          "glob": "src/app/pages/admin/**/*.ts",
+          "to": "."
+        },
+        {
+          "glob": "src/app/services/admin-api.service.ts",
+          "to": "services"
+        },
+        {
+          "glob": "src/app/services/admin-builders-api.service.ts",
+          "to": "services"
+        }
+      ],
       "dependsOn": ["web-core", "web-ui"],
-      "selectorPrefixes": ["app", "ptah"]
+      "selectorPrefixes": ["app", "ptah"],
+      "publicApi": ["admin.routes.ts"]
     },
     {
       "name": "api-core",

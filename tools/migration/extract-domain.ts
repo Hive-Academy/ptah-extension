@@ -20,7 +20,7 @@
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Project, SourceFile, StringLiteral, SyntaxKind } from 'ts-morph';
+import { Node, Project, SourceFile, StringLiteral, SyntaxKind } from 'ts-morph';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const MANIFEST_PATH = path.join(__dirname, 'manifest.json');
@@ -48,6 +48,17 @@ interface Domain {
    * allows, or every moved component trips @angular-eslint/component-selector.
    */
   selectorPrefixes?: string[];
+  /**
+   * Globs (relative to `<lib>/src/lib`) selecting which moved files the barrel
+   * re-exports. Defaults to all of them.
+   *
+   * Narrow this when the lib is consumed through ONE symbol behind a dynamic
+   * import: `import('@ptah-web/admin').then(m => m.ADMIN_ROUTES)` makes the
+   * bundler materialise the whole namespace object, so an `export *` barrel
+   * pulls every component into that chunk and collapses the feature's own
+   * `loadComponent` sub-chunks.
+   */
+  publicApi?: string[];
 }
 
 interface Manifest {
@@ -57,6 +68,14 @@ interface Manifest {
 interface PlannedMove {
   from: string;
   to: string;
+}
+
+/** A non-TS file a moved component depends on (external template / stylesheet). */
+interface PlannedAssetMove {
+  from: string;
+  to: string;
+  /** The component file that references it, for error messages. */
+  via: string;
 }
 
 interface PlannedRewrite {
@@ -607,6 +626,98 @@ function topLevelExportNames(sourceFile: SourceFile): string[] {
   return names;
 }
 
+/**
+ * Relative `templateUrl` / `styleUrl` / `styleUrls` values on a file's
+ * `@Component` decorators.
+ *
+ * ts-morph only knows about TypeScript, so a component with an external
+ * template would move on its own and leave its .html/.css behind — the build
+ * then fails on a missing resource. These have to travel with the class.
+ */
+function componentAssetSpecifiers(sourceFile: SourceFile): string[] {
+  const specifiers: string[] = [];
+
+  for (const declaration of sourceFile.getClasses()) {
+    for (const decorator of declaration.getDecorators()) {
+      if (decorator.getName() !== 'Component') continue;
+
+      const [argument] = decorator.getArguments();
+      if (!argument || !Node.isObjectLiteralExpression(argument)) continue;
+
+      for (const property of argument.getProperties()) {
+        if (!Node.isPropertyAssignment(property)) continue;
+        const name = property.getName();
+        if (!['templateUrl', 'styleUrl', 'styleUrls'].includes(name)) continue;
+
+        const initializer = property.getInitializer();
+        if (Node.isStringLiteral(initializer)) {
+          specifiers.push(initializer.getLiteralValue());
+        } else if (Node.isArrayLiteralExpression(initializer)) {
+          for (const element of initializer.getElements()) {
+            if (Node.isStringLiteral(element)) {
+              specifiers.push(element.getLiteralValue());
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return specifiers;
+}
+
+/**
+ * Is this lib file part of the domain's declared public API? With no
+ * `publicApi` in the manifest, everything is.
+ */
+function inPublicApi(
+  domain: Domain,
+  libRoot: string,
+  filePath: string,
+): boolean {
+  if (domain.publicApi === undefined) return true;
+
+  const libRelative = posix(
+    path.relative(path.join(libRoot, 'src', 'lib'), filePath),
+  );
+  if (libRelative.startsWith('..')) return false;
+
+  return domain.publicApi.some((glob) =>
+    globToRegExp(posix(glob).replace(/^\.\//, '')).test(libRelative),
+  );
+}
+
+/**
+ * Drop barrel lines that a (newly narrowed) `publicApi` no longer covers, so
+ * re-running a domain reconciles its public surface instead of only appending.
+ */
+function reconcileBarrel(domain: Domain, libRoot: string): number {
+  if (domain.publicApi === undefined) return 0;
+
+  const barrelPath = path.join(libRoot, 'src', 'index.ts');
+  if (!fs.existsSync(barrelPath)) return 0;
+
+  const lines = fs
+    .readFileSync(barrelPath, 'utf8')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  const kept = lines.filter((line) => {
+    const match = /^export \* from '\.\/(.+)';$/.exec(line);
+    if (!match) return true; // hand-written line, leave it alone
+
+    const target = path.join(libRoot, 'src', `${match[1]}.ts`);
+    return inPublicApi(domain, libRoot, posix(target));
+  });
+
+  if (kept.length === lines.length) return 0;
+
+  fs.writeFileSync(barrelPath, `${kept.join('\n')}\n`, 'utf8');
+  touchedForFormatting.add(barrelPath);
+  return lines.length - kept.length;
+}
+
 /** Does `destination` (a file, or a directory holding .ts files) already exist? */
 function destinationHasFiles(destination: string): boolean {
   if (!fs.existsSync(destination)) return false;
@@ -817,16 +928,90 @@ function main(): void {
     console.log(
       `\n[extract-domain] nothing to do — all ${alreadyMoved.length} source entr(ies) are already in ${domain.lib}`,
     );
-    // Still normalise the alias + baseUrl and tidy anything the scaffold hooks
-    // rewrote, so a no-op re-run is genuinely idempotent.
+    // Still normalise the alias + baseUrl, reconcile the public surface, and
+    // tidy anything the scaffold hooks rewrote, so a no-op re-run is genuinely
+    // idempotent.
     if (!dryRun) {
       ensureTsconfigAlias(domain);
+      const pruned = reconcileBarrel(domain, libRoot);
+      if (pruned > 0) {
+        console.log(
+          `[extract-domain] pruned ${pruned} barrel export(s) now outside publicApi`,
+        );
+      }
       formatTouchedFiles();
     }
     return;
   }
 
   moves.sort((a, b) => a.from.localeCompare(b.from));
+
+  // ------------------------------------------------------------------
+  // external component templates / stylesheets travel with their class
+  // ------------------------------------------------------------------
+  const assetMoves: PlannedAssetMove[] = [];
+  const missingAssets: Violation[] = [];
+  const escapingAssets: Violation[] = [];
+  const seenAssetTargets = new Set<string>();
+
+  for (const move of moves) {
+    const sourceFile = project.getSourceFileOrThrow(move.from);
+
+    for (const specifier of componentAssetSpecifiers(sourceFile)) {
+      if (!specifier.startsWith('.')) continue;
+
+      const from = posix(path.resolve(path.dirname(move.from), specifier));
+      // Resolving the SAME specifier against the destination keeps the
+      // decorator string valid without rewriting it.
+      const to = posix(path.resolve(path.dirname(move.to), specifier));
+
+      if (!fs.existsSync(from)) {
+        missingAssets.push({
+          file: rel(move.from),
+          specifier,
+          reason: `no such file: ${rel(from)}`,
+        });
+        continue;
+      }
+      if (!to.startsWith(`${posix(libRoot)}/`)) {
+        escapingAssets.push({
+          file: rel(move.from),
+          specifier,
+          reason: `would land outside the lib at ${rel(to)}`,
+        });
+        continue;
+      }
+      if (seenAssetTargets.has(to)) continue;
+      seenAssetTargets.add(to);
+      assetMoves.push({ from, to, via: rel(move.from) });
+    }
+  }
+
+  if (missingAssets.length > 0) {
+    die(
+      `${missingAssets.length} component asset(s) referenced by "${domain.name}" do not exist`,
+      missingAssets.map(
+        (entry) =>
+          `- ${entry.file}\n      ${entry.specifier}  (${entry.reason})`,
+      ),
+    );
+  }
+
+  if (escapingAssets.length > 0) {
+    die(
+      `${escapingAssets.length} component asset(s) in "${domain.name}" escape the lib`,
+      [
+        'A template/stylesheet outside the moved tree cannot follow its component.',
+        'Co-locate it with the component, or widen the domain to include its directory:',
+        ...escapingAssets.map(
+          (entry) =>
+            `- ${entry.file}\n      ${entry.specifier}  (${entry.reason})`,
+        ),
+      ],
+    );
+  }
+
+  assetMoves.sort((a, b) => a.from.localeCompare(b.from));
 
   // ------------------------------------------------------------------
   // move (in memory — nothing hits disk until project.saveSync())
@@ -1017,7 +1202,8 @@ function main(): void {
     // Nested index.ts files are the feature's *internal* barrels. Re-exporting
     // them from the lib barrel alongside the files they re-export makes every
     // shared symbol ambiguous (TS2308). The lib's public surface is src/index.ts.
-    return path.basename(filePath) !== 'index.ts';
+    if (path.basename(filePath) === 'index.ts') return false;
+    return inPublicApi(domain, libRoot, filePath);
   });
 
   // Names already public via a previous run's barrel lines.
@@ -1082,10 +1268,17 @@ function main(): void {
     console.log('\n[extract-domain] DRY RUN — nothing was written');
   } else {
     project.saveSync();
+    for (const asset of assetMoves) {
+      fs.mkdirSync(path.dirname(asset.to), { recursive: true });
+      fs.renameSync(asset.from, asset.to);
+    }
     fs.writeFileSync(barrelPath, barrelContent, 'utf8');
     touchedForFormatting.add(barrelPath);
     pruneEmptyDirs(
-      moves.map((move) => path.dirname(move.from)),
+      [
+        ...moves.map((move) => path.dirname(move.from)),
+        ...assetMoves.map((asset) => path.dirname(asset.from)),
+      ],
       appSourceBase,
     );
   }
@@ -1108,6 +1301,13 @@ function main(): void {
   console.log(`\nfiles moved (${moves.length}):`);
   for (const move of moves) {
     console.log(`  ${rel(move.from)}\n    -> ${rel(move.to)}`);
+  }
+
+  if (assetMoves.length > 0) {
+    console.log(`\ncomponent assets moved (${assetMoves.length}):`);
+    for (const asset of assetMoves) {
+      console.log(`  ${rel(asset.from)}\n    -> ${rel(asset.to)}`);
+    }
   }
 
   if (alreadyMoved.length > 0) {

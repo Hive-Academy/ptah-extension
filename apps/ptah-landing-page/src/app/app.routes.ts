@@ -97,8 +97,7 @@ export const routes: Routes = [
   {
     path: 'admin',
     canActivate: [AdminAuthGuard],
-    loadChildren: () =>
-      import('./pages/admin/admin.routes').then((m) => m.ADMIN_ROUTES),
+    loadChildren: () => import('@ptah-web/admin').then((m) => m.ADMIN_ROUTES),
     data: { hideFromNav: true },
   },
   {
