@@ -20,6 +20,7 @@ ptah-extension/
 │   ├── ptah-license-server-e2e/       # Jest e2e
 │   ├── ptah-landing-page/             # Angular marketing site
 │   ├── ptah-docs/                     # Astro Starlight (docs.ptah.live)
+│   ├── ptah-discourse-theme/          # Discourse theme + admin-API deploy
 │
 ├── libs/backend/                      # 16 runtime-agnostic libs (DI: tsyringe)
 │   ├── platform-core/                 # ★ Port interfaces + 16 PLATFORM_TOKENS

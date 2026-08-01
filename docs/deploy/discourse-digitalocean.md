@@ -436,43 +436,82 @@ attendee management.
 
 ## 9. Branding — Ptah theme + logo
 
-The dark, amber-accented **Ptah Community** theme lives in the monorepo at
-`discourse-theme/` (dark color scheme, `common/common.scss`, a static brand bar,
-and the `ptah-logo.svg` asset). Applying it makes `community.ptah.live` look like
-`ptah.live` instead of stock Discourse. Two paths — pick one:
+The dark, amber-accented **Ptah Community** theme is an Nx project at
+`apps/ptah-discourse-theme/` (dark color scheme, `common/common.scss`, a static
+brand bar, and the `ptah-logo.svg` asset). Applying it makes
+`community.ptah.live` look like `ptah.live` instead of stock Discourse.
 
-### Option A — Admin UI (recommended for prod)
+Theme changes deploy **automatically**: push `release/community` and
+`.github/workflows/deploy-community-theme.yml` validates, packages and imports
+the theme via Discourse's admin API, then smoke-checks the forum. Merging to
+`main` does not touch the live site. Full reference:
+[`apps/ptah-discourse-theme/README.md`](../../apps/ptah-discourse-theme/README.md).
 
-Discourse's git-repo importer expects `about.json` at the **root** of the URL,
-which a monorepo subdirectory can't satisfy — so use the always-works upload:
+### 9.1 One-time bootstrap
 
-1. Zip the **contents** of `discourse-theme/` (so `about.json` is at the zip root,
-   not inside a `discourse-theme/` folder).
-2. **Admin → Customize → Themes → Install → From your device** → upload the zip.
-3. **Admin → Customize → Colors** → confirm the **"Ptah"** scheme exists; on the
-   theme's **Colors** dropdown pick "Ptah". Then **Set as default theme**.
-4. **Site logo is a global setting, NOT carried by the theme import** — upload it
-   manually: **Admin → Settings → Branding** → set `logo`, `logo_small`, and
-   `mobile_logo` to `discourse-theme/assets/ptah-logo.svg`.
+Steps 1–2 are needed once per Discourse instance; after that CI handles everything.
 
-### Option B — one command via rails (theme + colors + logo)
+1. **Create a theme-deploy API key.** **Admin → API → New API Key** → User Level
+   **Single User** (an admin, e.g. `system`) → Scope **Global**.
 
-If you have shell access to the prod Discourse container, `scripts/apply-theme.rb`
-does everything in Option A (theme fields, the "Ptah" color scheme, set-default,
-**and** the site logo) in a single idempotent run:
+   > [!WARNING]
+   > The `DISCOURSE_API_KEY` used for `builders` group sync will **not** work —
+   > it's scoped to `groups: manage` + `users: list`, and Discourse hides admin
+   > routes from non-admin keys behind a **404 rather than a 403**, so it fails
+   > as a confusing "not found".
+
+2. **Create the theme and make it default**, from a machine with the repo:
+
+   ```bash
+   cd apps/ptah-discourse-theme
+   DISCOURSE_THEME_API_KEY=<key> \
+     node tools/deploy-theme.mjs --url https://community.ptah.live --yes --set-default
+   # prints: first install — pin this for future runs: DISCOURSE_THEME_ID=<id>
+   ```
+
+3. **Pin the id in GitHub** so CI updates that theme instead of duplicating it:
+   - Repo **secret** `DISCOURSE_THEME_API_KEY` = the key from step 1
+   - Repo **variable** `DISCOURSE_THEME_ID` = the id printed in step 2
+
+   > [!IMPORTANT]
+   > If `DISCOURSE_THEME_ID` is unset, **every** deploy creates a new duplicate
+   > theme rather than updating the live one.
+
+4. **Site logo** — a global `SiteSetting`, _not_ carried by a theme import, so it
+   is not part of the automated deploy. Set it once: **Admin → Settings →
+   Branding** → `logo`, `logo_small`, `mobile_logo` → upload
+   `apps/ptah-discourse-theme/assets/ptah-logo.svg`.
+
+### 9.2 Steady state
 
 ```bash
-# From the host — replace <container> with the prod Discourse app container name
-docker cp discourse-theme <container>:/tmp/ptah-theme
-docker exec -u discourse:discourse <container> bash -lc \
-  "cd /src && bin/rails runner /tmp/ptah-theme/scripts/apply-theme.rb"
-# Expect: "Set site logo ..." + "Applied theme #N (Ptah Community) ...". Hard-refresh the forum.
+npm run theme:deploy         # -> http://localhost:3001 (local discourse_dev)
+npm run theme:deploy:prod    # -> community.ptah.live (normally CI's job)
 ```
 
-> [!NOTE]
-> `apply-theme.rb` uses Discourse internals (`Theme#set_field`, `ColorScheme`,
-> `UploadCreator`) — stable but not a documented external API, so it can drift
-> across Discourse versions. The logo step is non-fatal (falls back to a WARN +
-> the manual Option A step). Re-run after a theme edit to re-apply.
+The import passes `theme_id`, so Discourse updates the theme in place
+(`RemoteTheme.update_zipped_theme`) — re-running is idempotent and never
+duplicates. The script refuses non-localhost targets without `--yes` unless `CI`
+is set.
 
-Smoke check after either path: `curl -s https://community.ptah.live/ -o /dev/null -w '%{http_code}\n'` → 200, and the header shows the Ptah logo + dark/amber theme on a hard refresh.
+### 9.3 Fallbacks
+
+- **Manual upload** — `npm run theme:build`, then **Admin → Customize → Themes →
+  Install → From your device** with
+  `dist/apps/ptah-discourse-theme/ptah-community-theme.zip`.
+- **Rails runner** (needs container shell access) — superseded for theme content,
+  but still the only automated path that sets the **site logo**:
+
+  ```bash
+  docker cp apps/ptah-discourse-theme <container>:/tmp/ptah-theme
+  docker exec -u discourse:discourse <container> bash -lc \
+    "cd /src && bin/rails runner /tmp/ptah-theme/scripts/apply-theme.rb"
+  ```
+
+  > [!NOTE]
+  > `apply-theme.rb` uses Discourse internals (`Theme#set_field`, `ColorScheme`,
+  > `UploadCreator`) — not a documented external API, so it can drift across
+  > versions. The logo step is non-fatal (WARN + fall back to step 4 above).
+
+Smoke check: `curl -s https://community.ptah.live/ -o /dev/null -w '%{http_code}\n'` → 200,
+and the header shows the Ptah logo + dark/amber theme on a hard refresh.
