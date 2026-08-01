@@ -437,10 +437,22 @@ export class StepPanelPreviewComponent {
     });
   }
 
+  /**
+   * Pick the model a freshly added lane starts on.
+   *
+   * The registry seed (`provider.defaultTiers.opus`) is only honoured when it is
+   * actually one of the models THIS vendor reports. Otherwise the `<select>`
+   * would render with a `[value]` matching no `<option>` — the browser silently
+   * shows the first option while the lane still carries the unmatched id into
+   * the Run step. Falling back to the first real option keeps what the user sees
+   * and what gets submitted identical, per lane.
+   */
   private defaultModelFor(vendor: DiscoveredVendor): string | undefined {
-    if (vendor.lane.model) return vendor.lane.model;
-    const models = this._modelsByBase().get(vendor.baseKey);
-    return models && models.length > 0 ? models[0].id : undefined;
+    const models = this._modelsByBase().get(vendor.baseKey) ?? [];
+    const seeded = vendor.lane.model;
+    if (seeded && models.some((m) => m.id === seeded)) return seeded;
+    if (models.length > 0) return models[0].id;
+    return seeded;
   }
 
   private findVendor(lane: VendorLane): DiscoveredVendor | undefined {
