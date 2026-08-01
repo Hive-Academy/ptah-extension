@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { PrismaModule } from '../prisma/prisma.module';
+import { PrismaModule } from '@ptah-api/core';
 import { EventsModule } from '../events/events.module';
 import { PaddleModule } from '../paddle/paddle.module';
 import { AuthModule } from '../app/auth/auth.module';

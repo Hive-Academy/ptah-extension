@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { LicenseService, AdminActor } from './license.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { EventsService } from '../../events/events.service';
 import { AuditLogService } from '../../audit/audit-log.service';
 import { EmailService } from '../../email/services/email.service';

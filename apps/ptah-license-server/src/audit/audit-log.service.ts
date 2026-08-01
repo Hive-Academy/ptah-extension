@@ -1,6 +1,6 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { Prisma } from '../generated-prisma-client/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@ptah-api/core';
+import { PrismaService } from '@ptah-api/core';
 import type { WriteAuditLogParams } from './audit-log.types';
 
 /**

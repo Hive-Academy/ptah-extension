@@ -165,7 +165,9 @@
       "@ptah-web/auth": ["./libs/web/auth/src/index.ts"],
       "@ptah-web/account": ["./libs/web/account/src/index.ts"],
       "@ptah-web/landing": ["./libs/web/landing/src/index.ts"],
-      "@ptah-web/admin": ["./libs/web/admin/src/index.ts"]
+      "@ptah-web/admin": ["./libs/web/admin/src/index.ts"],
+      "@ptah-api/core": ["./libs/api/core/src/index.ts"],
+      "@ptah-api/core/testing": ["./libs/api/core/src/testing/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp"]

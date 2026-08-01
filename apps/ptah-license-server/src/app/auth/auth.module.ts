@@ -12,7 +12,7 @@ import {
   MagicLinkService,
   UserSyncService,
 } from './services';
-import { PrismaModule } from '../../prisma/prisma.module';
+import { PrismaModule } from '@ptah-api/core';
 import { EmailModule } from '../../email/email.module';
 import {
   WorkOSClientProvider,
@@ -57,7 +57,7 @@ import { LicenseModule } from '../../license/license.module';
         const secret = configService.get<string>('JWT_SECRET');
         if (!secret) {
           throw new Error(
-            'JWT_SECRET is not configured. Please set it in your .env file.'
+            'JWT_SECRET is not configured. Please set it in your .env file.',
           );
         }
 

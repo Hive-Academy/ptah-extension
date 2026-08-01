@@ -1,6 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { PrismaModule } from '../prisma/prisma.module';
+import { PrismaModule } from '@ptah-api/core';
 import { AuthModule } from '../app/auth/auth.module';
 import { AdminGuard } from '../admin/admin.guard';
 import { AdminThrottlerGuard } from '../admin/admin-throttler.guard';

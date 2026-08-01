@@ -1,5 +1,5 @@
 import { EmailService } from '../email/services/email.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { WaitlistService } from './waitlist.service';
 
 describe('WaitlistService', () => {

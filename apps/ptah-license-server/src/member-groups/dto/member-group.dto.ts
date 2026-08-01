@@ -19,10 +19,29 @@ import {
 const GROUP_KEY_REGEX = /^[a-z0-9-]{2,40}$/;
 
 /**
+ * Google Calendar event ids are opaque. Generated ids use base32hex (`a-v0-9`),
+ * but imported and instance ids legitimately contain `_`, `-`, `@`, `.` and
+ * uppercase, so this is a permissive CHARSET guard, not a format claim: it
+ * exists to reject whitespace and shell/markup punctuation that could only be a
+ * paste accident, never to second-guess what Google considers valid. Google
+ * remains the authority — a syntactically fine id naming no event simply fails
+ * the attendee patch, which is already best-effort and non-fatal.
+ *
+ * The empty string is allowed on purpose: it is how the admin UI clears the
+ * field (the service normalizes '' → null).
+ */
+const SESSION_EVENT_ID_REGEX = /^[A-Za-z0-9_@.-]*$/;
+
+/** Max length of a Google Calendar event id, per Google's documented limit. */
+const SESSION_EVENT_ID_MAX = 1024;
+
+/**
  * Body DTO for POST /api/v1/admin/groups.
  *
  * `key` is an immutable lowercase slug (validated against `GROUP_KEY_REGEX`).
  * Setting `isDefault: true` atomically clears the previous default.
+ * `sessionEventId` opts this cohort into its own live-session Google Meet
+ * event; omitting it leaves the cohort on `BUILDERS_SESSION_EVENT_ID`.
  */
 export class CreateMemberGroupDto {
   @IsString()
@@ -47,6 +66,15 @@ export class CreateMemberGroupDto {
   discourseGroup?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(SESSION_EVENT_ID_MAX)
+  @Matches(SESSION_EVENT_ID_REGEX, {
+    message:
+      'sessionEventId must be a Google Calendar event id (no whitespace)',
+  })
+  sessionEventId?: string;
+
+  @IsOptional()
   @IsBoolean()
   isDefault?: boolean;
 }
@@ -55,7 +83,10 @@ export class CreateMemberGroupDto {
  * Body DTO for PATCH /api/v1/admin/groups/:id.
  *
  * All fields optional. `key` is intentionally NOT patchable (stable slug).
- * `description` / `discourseGroup` accept `null` to clear the stored value.
+ * `description` / `discourseGroup` / `sessionEventId` accept `null` to clear the
+ * stored value — `@IsOptional()` skips validation for both `null` and
+ * `undefined`, and the service writes only KEYS PRESENT on the body, so `null`
+ * clears while omission leaves the column untouched.
  */
 export class UpdateMemberGroupDto {
   @IsOptional()
@@ -73,6 +104,15 @@ export class UpdateMemberGroupDto {
   @IsString()
   @MaxLength(120)
   discourseGroup?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(SESSION_EVENT_ID_MAX)
+  @Matches(SESSION_EVENT_ID_REGEX, {
+    message:
+      'sessionEventId must be a Google Calendar event id (no whitespace)',
+  })
+  sessionEventId?: string | null;
 
   @IsOptional()
   @IsBoolean()

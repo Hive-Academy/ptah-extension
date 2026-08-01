@@ -30,11 +30,8 @@ import type {
 
 import { PaddleService } from './paddle.service';
 import { PADDLE_CLIENT } from './providers/paddle.provider';
-import {
-  createMockPrisma,
-  type MockPrisma,
-} from '../testing/mock-prisma.factory';
-import { createTestingNestModule } from '../testing/nest-module-builder';
+import { createMockPrisma, type MockPrisma } from '@ptah-api/core/testing';
+import { createTestingNestModule } from '@ptah-api/core/testing';
 import { EmailService } from '../email/services/email.service';
 import { EventsService } from '../events/events.service';
 import { CircleProvisioningService } from '../circle/circle-provisioning.service';
@@ -382,8 +379,10 @@ describe('PaddleService — handleSubscriptionCreatedEvent', () => {
     );
 
     // Owned-community fan-out: Google session attendee add + Discourse group add.
+    // The userId rides along so attendance resolves the member's COHORT event.
     expect(sessions.addMemberToSessions).toHaveBeenCalledWith(
       'buyer@example.com',
+      'usr_new',
     );
     expect(discourse.syncBuildersGroup).toHaveBeenCalledWith(
       'usr_new',
@@ -754,7 +753,10 @@ describe('PaddleService — handleSubscriptionCanceledEvent', () => {
     // Cancellation deprovisions the Circle membership (best-effort, non-fatal).
     expect(circle.deprovisionBuildersMember).toHaveBeenCalledWith('usr_cancel');
     // ...plus the owned-community reversals: session attendee + Discourse group.
-    expect(sessions.removeMemberFromSessions).toHaveBeenCalledWith('c@e.com');
+    expect(sessions.removeMemberFromSessions).toHaveBeenCalledWith(
+      'c@e.com',
+      'usr_cancel',
+    );
     expect(discourse.syncBuildersGroup).toHaveBeenCalledWith(
       'usr_cancel',
       'c@e.com',

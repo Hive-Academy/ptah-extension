@@ -31,6 +31,28 @@ type Platform = 'web' | 'api';
 interface SourceEntry {
   glob: string;
   to?: string;
+  /**
+   * Move these files at the filesystem level WITHOUT loading them into
+   * ts-morph.
+   *
+   * For generated code (a Prisma client is ~900 KB of machine-written
+   * TypeScript): parsing it wastes minutes and can exhaust memory, and its
+   * imports must never be rewritten — the generator owns them and would undo
+   * any edit on the next run. Imports *pointing at* raw files are still
+   * rewritten normally, via a redirect registered for the old path.
+   */
+  raw?: boolean;
+  /**
+   * Land these files in `<lib>/src/<entryPoint>/` behind their own barrel and
+   * their own `<importPath>/<entryPoint>` alias, instead of `<lib>/src/lib/`.
+   *
+   * This is how the workspace already ships test helpers (`libs/shared/src/testing`
+   * + `@ptah-extension/shared/testing`): `tsconfig.lib.json` excludes the
+   * directory, so jest-typed helpers never enter the production compile and
+   * their dev-only imports (`@nestjs/testing`) can never reach the app bundle's
+   * generated package.json.
+   */
+  entryPoint?: string;
 }
 
 interface Domain {
@@ -508,30 +530,81 @@ function ensureTypecheckTarget(domain: Domain): void {
  * against the tsconfig it was handed — not the file that declared it — so
  * every `./libs/...` alias breaks in esbuild bundles while tsc stays green.
  */
+/**
+ * Keep a secondary entry point out of the lib's PRODUCTION compile, mirroring
+ * `libs/shared/tsconfig.lib.json` excluding `src/testing/**`. Test helpers use
+ * jest globals and dev-only deps; compiling them as part of the lib would force
+ * `"jest"` into the production `types` array and can leak dev packages into a
+ * consumer's generated package.json.
+ */
+function excludeEntryPointsFromLibBuild(
+  domain: Domain,
+  entryPoints: string[],
+): void {
+  const tsconfigPath = path.join(abs(domain.lib), 'tsconfig.lib.json');
+  if (!fs.existsSync(tsconfigPath)) return;
+
+  const tsconfig = readJson<{
+    exclude?: string[];
+    [key: string]: unknown;
+  }>(tsconfigPath);
+  const exclude = tsconfig.exclude ?? [];
+
+  let changed = false;
+  for (const entryPoint of entryPoints) {
+    const pattern = `src/${entryPoint}/**/*`;
+    if (!exclude.includes(pattern)) {
+      exclude.push(pattern);
+      changed = true;
+    }
+  }
+  if (!changed) return;
+
+  tsconfig.exclude = exclude;
+  writeJson(tsconfigPath, tsconfig);
+}
+
 function ensureTsconfigAlias(
   domain: Domain,
+  entryPoints: string[] = [],
 ): 'present' | 'added' | 'normalized' {
   const tsconfig = readJson<{
     compilerOptions: { baseUrl?: string; paths: Record<string, string[]> };
   }>(TSCONFIG_BASE);
   const paths = tsconfig.compilerOptions.paths;
-  const expected = `./${domain.lib}/src/index.ts`;
 
   const hadBaseUrl = tsconfig.compilerOptions.baseUrl !== undefined;
   if (hadBaseUrl) delete tsconfig.compilerOptions.baseUrl;
 
-  const existing = paths[domain.importPath];
-  const aliasCorrect =
-    existing !== undefined && existing.length === 1 && existing[0] === expected;
+  // The lib's own alias, plus one per secondary entry point.
+  const wanted = new Map<string, string>([
+    [domain.importPath, `./${domain.lib}/src/index.ts`],
+    ...entryPoints.map((entryPoint): [string, string] => [
+      `${domain.importPath}/${entryPoint}`,
+      `./${domain.lib}/src/${entryPoint}/index.ts`,
+    ]),
+  ]);
 
-  if (aliasCorrect && !hadBaseUrl) {
-    return 'present';
+  let added = false;
+  let corrected = false;
+  for (const [alias, expected] of wanted) {
+    const existing = paths[alias];
+    if (
+      existing !== undefined &&
+      existing.length === 1 &&
+      existing[0] === expected
+    ) {
+      continue;
+    }
+    if (existing === undefined) added = true;
+    else corrected = true;
+    paths[alias] = [expected];
   }
 
-  paths[domain.importPath] = [expected];
+  if (!added && !corrected && !hadBaseUrl) return 'present';
+
   writeJson(TSCONFIG_BASE, tsconfig);
-  if (aliasCorrect) return 'normalized'; // only baseUrl was stripped
-  return existing === undefined ? 'added' : 'normalized';
+  return added ? 'added' : 'normalized';
 }
 
 // ---------------------------------------------------------------------------
@@ -570,6 +643,13 @@ function resolveSpecifier(
   project: Project,
   fromFile: string,
   specifier: string,
+  /**
+   * Old path -> new path for files moved raw. They are absent from ts-morph and
+   * still on disk at their old location during this phase, so without the
+   * redirect an import of a raw-moved file resolves to the app and looks like a
+   * closure violation.
+   */
+  rawRedirects: ReadonlyMap<string, string> = new Map(),
 ): string | null {
   if (!specifier.startsWith('.')) return null;
 
@@ -585,6 +665,10 @@ function resolveSpecifier(
   );
 
   for (const candidate of candidates) {
+    const redirected = rawRedirects.get(posix(candidate));
+    if (redirected) return redirected;
+  }
+  for (const candidate of candidates) {
     if (project.getSourceFile(posix(candidate))) return posix(candidate);
   }
   for (const candidate of candidates) {
@@ -593,6 +677,19 @@ function resolveSpecifier(
     }
   }
   return null;
+}
+
+/** Recursively list every file under `dir`, as posix absolute paths. */
+function walkFiles(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+
+  const found: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const child = path.join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...walkFiles(child));
+    else found.push(posix(child));
+  }
+  return found;
 }
 
 function topLevelExportNames(sourceFile: SourceFile): string[] {
@@ -869,16 +966,66 @@ function main(): void {
             entry.to,
             path.relative(path.join(appRoot, globStaticBase(cleanGlob)), from),
           );
-    return posix(path.join(libRoot, 'src', 'lib', relativeTarget));
+    return posix(
+      path.join(libRoot, 'src', entry.entryPoint ?? 'lib', relativeTarget),
+    );
   };
 
+  /** Secondary entry points this domain declares, e.g. `["testing"]`. */
+  const entryPoints = [
+    ...new Set(
+      domain.sources
+        .map((raw) => normalizeSource(raw).entryPoint)
+        .filter((name): name is string => name !== undefined),
+    ),
+  ].sort();
+
   const moves: PlannedMove[] = [];
+  const rawMoves: PlannedMove[] = [];
+  const rawRedirects = new Map<string, string>();
   const seenTargets = new Set<string>();
   const alreadyMoved: string[] = [];
 
   for (const raw of domain.sources) {
     const entry = normalizeSource(raw);
     const cleanGlob = posix(entry.glob).replace(/^\.\//, '');
+
+    if (entry.raw === true) {
+      const staticBase = path.join(appRoot, globStaticBase(cleanGlob));
+      const pattern = globToRegExp(cleanGlob);
+      const matchedRaw = walkFiles(staticBase).filter((file) =>
+        pattern.test(posix(path.relative(appRoot, file))),
+      );
+
+      if (matchedRaw.length === 0) {
+        const destination = posix(
+          path.join(
+            libRoot,
+            'src',
+            entry.entryPoint ?? 'lib',
+            entry.to ?? path.relative(appSourceBase, staticBase),
+          ),
+        );
+        if (destinationHasFiles(destination)) {
+          alreadyMoved.push(entry.glob);
+          continue;
+        }
+        die(`raw source glob matched nothing: ${entry.glob}`, [
+          `app: ${domain.app}`,
+          `Nothing at the destination either (${rel(destination)}).`,
+        ]);
+      }
+
+      for (const from of matchedRaw) {
+        const to = destinationOf(entry, cleanGlob, from);
+        if (seenTargets.has(to)) continue;
+        seenTargets.add(to);
+        rawMoves.push({ from, to });
+        rawRedirects.set(from, to);
+      }
+      continue;
+    }
+
     const matched = project.getSourceFiles(`${posix(appRoot)}/${cleanGlob}`);
 
     if (matched.length === 0) {
@@ -893,7 +1040,7 @@ function main(): void {
             path.join(
               libRoot,
               'src',
-              'lib',
+              entry.entryPoint ?? 'lib',
               entry.to ??
                 path.relative(
                   appSourceBase,
@@ -924,7 +1071,7 @@ function main(): void {
     }
   }
 
-  if (moves.length === 0) {
+  if (moves.length === 0 && rawMoves.length === 0) {
     console.log(
       `\n[extract-domain] nothing to do — all ${alreadyMoved.length} source entr(ies) are already in ${domain.lib}`,
     );
@@ -932,7 +1079,7 @@ function main(): void {
     // tidy anything the scaffold hooks rewrote, so a no-op re-run is genuinely
     // idempotent.
     if (!dryRun) {
-      ensureTsconfigAlias(domain);
+      ensureTsconfigAlias(domain, entryPoints);
       const pruned = reconcileBarrel(domain, libRoot);
       if (pruned > 0) {
         console.log(
@@ -1027,6 +1174,13 @@ function main(): void {
   // import fixing, both directions
   // ------------------------------------------------------------------
   const libDirs = [
+    // Secondary entry points FIRST — they sit inside the lib root, so the more
+    // specific directory has to win the prefix match.
+    ...entryPoints.map((entryPoint) => ({
+      dir: posix(path.join(libRoot, 'src', entryPoint)),
+      importPath: `${domain.importPath}/${entryPoint}`,
+      name: domain.name,
+    })),
     { dir: posix(libRoot), importPath: domain.importPath, name: domain.name },
     ...otherExtracted.map((entry) => ({
       dir: posix(abs(entry.lib)),
@@ -1087,7 +1241,12 @@ function main(): void {
 
       if (!specifier.startsWith('.')) continue;
 
-      const resolved = resolveSpecifier(project, filePath, specifier);
+      const resolved = resolveSpecifier(
+        project,
+        filePath,
+        specifier,
+        rawRedirects,
+      );
 
       if (isInsideThisLib && isEnvironmentImport(specifier, resolved)) {
         envViolations.push({
@@ -1110,7 +1269,28 @@ function main(): void {
         literal.setLiteralValue(target.importPath);
         continue;
       }
-      if (target) continue; // same lib: relative import is fine
+      if (target) {
+        // Same lib, so a relative specifier is correct in principle — but if it
+        // only resolved via a raw redirect, the literal still points at the
+        // file's OLD location (ts-morph cannot repoint imports to files it
+        // never parsed). Rewrite it to a real intra-lib relative path.
+        const withoutRedirects = resolveSpecifier(project, filePath, specifier);
+        if (resolved !== null && withoutRedirects !== resolved) {
+          const corrected = posix(
+            path.relative(path.dirname(filePath), resolved),
+          ).replace(/\.tsx?$/, '');
+          const relativeSpecifier = corrected.startsWith('.')
+            ? corrected
+            : `./${corrected}`;
+          rewrites.push({
+            file: rel(filePath),
+            from: specifier,
+            to: relativeSpecifier,
+          });
+          literal.setLiteralValue(relativeSpecifier);
+        }
+        continue;
+      }
 
       if (!isInsideThisLib) continue; // app-internal relative import, untouched
 
@@ -1196,6 +1376,14 @@ function main(): void {
       '',
     )}`;
 
+  /** Which secondary entry point (if any) a lib file belongs to. */
+  const entryPointOf = (filePath: string): string | undefined =>
+    entryPoints.find((entryPoint) =>
+      posix(filePath).startsWith(
+        `${posix(path.join(libRoot, 'src', entryPoint))}/`,
+      ),
+    );
+
   const barrelCandidates = movedFiles.filter((sourceFile) => {
     const filePath = posix(sourceFile.getFilePath());
     if (isSpecFile(filePath)) return false;
@@ -1203,6 +1391,9 @@ function main(): void {
     // them from the lib barrel alongside the files they re-export makes every
     // shared symbol ambiguous (TS2308). The lib's public surface is src/index.ts.
     if (path.basename(filePath) === 'index.ts') return false;
+    // A secondary entry point has its own barrel and its own alias; `publicApi`
+    // only governs the main `src/lib` surface.
+    if (entryPointOf(filePath) !== undefined) return true;
     return inPublicApi(domain, libRoot, filePath);
   });
 
@@ -1248,11 +1439,39 @@ function main(): void {
   }
 
   const barrelAdditions: string[] = [];
+  /** entryPoint -> `export *` lines destined for its own barrel. */
+  const entryPointBarrels = new Map<string, string[]>();
+
   for (const sourceFile of barrelCandidates) {
     const filePath = posix(sourceFile.getFilePath());
     if (withheld.has(filePath)) continue;
 
+    const entryPoint = entryPointOf(filePath);
+    if (entryPoint !== undefined) {
+      const entryPointRoot = path.join(libRoot, 'src', entryPoint);
+      const specifier = `./${posix(
+        path.relative(entryPointRoot, filePath),
+      ).replace(/\.tsx?$/, '')}`;
+      const lines = entryPointBarrels.get(entryPoint) ?? [];
+      const line = `export * from '${specifier}';`;
+      if (!lines.includes(line)) lines.push(line);
+      entryPointBarrels.set(entryPoint, lines);
+      continue;
+    }
+
     const line = `export * from '${barrelSpecifier(filePath)}';`;
+    if (!existingLines.includes(line) && !barrelAdditions.includes(line)) {
+      barrelAdditions.push(line);
+    }
+  }
+
+  // Raw-moved files never land in the barrel by default — a generated client is
+  // hundreds of files and only its entry point is public. `publicApi` names it.
+  for (const move of rawMoves) {
+    if (!/\.tsx?$/.test(move.to) || isSpecFile(move.to)) continue;
+    if (!inPublicApi(domain, libRoot, move.to)) continue;
+
+    const line = `export * from '${barrelSpecifier(move.to)}';`;
     if (!existingLines.includes(line) && !barrelAdditions.includes(line)) {
       barrelAdditions.push(line);
     }
@@ -1272,21 +1491,55 @@ function main(): void {
       fs.mkdirSync(path.dirname(asset.to), { recursive: true });
       fs.renameSync(asset.from, asset.to);
     }
+    for (const move of rawMoves) {
+      fs.mkdirSync(path.dirname(move.to), { recursive: true });
+      fs.renameSync(move.from, move.to);
+    }
     fs.writeFileSync(barrelPath, barrelContent, 'utf8');
     touchedForFormatting.add(barrelPath);
+
+    for (const [entryPoint, lines] of entryPointBarrels) {
+      const entryPointBarrel = path.join(
+        libRoot,
+        'src',
+        entryPoint,
+        'index.ts',
+      );
+      const existing = fs.existsSync(entryPointBarrel)
+        ? fs
+            .readFileSync(entryPointBarrel, 'utf8')
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+        : [];
+      const merged = [
+        ...existing,
+        ...lines.filter((line) => !existing.includes(line)),
+      ].sort();
+      fs.mkdirSync(path.dirname(entryPointBarrel), { recursive: true });
+      fs.writeFileSync(entryPointBarrel, `${merged.join('\n')}\n`, 'utf8');
+      touchedForFormatting.add(entryPointBarrel);
+    }
+    if (entryPoints.length > 0)
+      excludeEntryPointsFromLibBuild(domain, entryPoints);
     pruneEmptyDirs(
       [
         ...moves.map((move) => path.dirname(move.from)),
         ...assetMoves.map((asset) => path.dirname(asset.from)),
+        ...rawMoves.map((move) => path.dirname(move.from)),
       ],
-      appSourceBase,
+      // Boundary is the app's src/, NOT `appSourceBase`. A domain can pull from
+      // outside src/app (the license server keeps prisma/, config/ and the
+      // generated client as siblings of src/app), and a boundary below those
+      // would silently skip pruning their emptied directories.
+      path.join(appRoot, 'src'),
     );
   }
 
   const aliasState =
     dryRun && !alreadyScaffolded
       ? 'skipped (dry run — generator owns it)'
-      : ensureTsconfigAlias(domain);
+      : ensureTsconfigAlias(domain, entryPoints);
 
   if (!dryRun) formatTouchedFiles();
 
@@ -1301,6 +1554,18 @@ function main(): void {
   console.log(`\nfiles moved (${moves.length}):`);
   for (const move of moves) {
     console.log(`  ${rel(move.from)}\n    -> ${rel(move.to)}`);
+  }
+
+  if (rawMoves.length > 0) {
+    const libSrcLib = path.join(libRoot, 'src', 'lib');
+    const roots = new Set(
+      rawMoves.map(
+        (move) => posix(path.relative(libSrcLib, move.to)).split('/')[0],
+      ),
+    );
+    console.log(
+      `\nraw files moved, not parsed (${rawMoves.length}) -> ${rel(libSrcLib)}/{${[...roots].join(', ')}}`,
+    );
   }
 
   if (assetMoves.length > 0) {

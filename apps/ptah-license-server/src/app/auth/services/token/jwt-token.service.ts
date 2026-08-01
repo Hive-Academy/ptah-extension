@@ -10,7 +10,7 @@ import type {
   JWTPayload,
   RequestUser,
 } from '../../interfaces/request-user.interface';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 
 /**
  * Valid roles that can be assigned via WorkOS metadata.

@@ -22,8 +22,8 @@
  * expect a `Prisma.TransactionClient`.
  */
 
-import type { Prisma } from '../generated-prisma-client/client';
-import type { PrismaService } from '../prisma/prisma.service';
+import type { Prisma } from '../lib/generated-prisma-client/client';
+import type { PrismaService } from '../lib/prisma/prisma.service';
 
 /** Deep partial for override objects. */
 export type DeepPartial<T> = {

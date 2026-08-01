@@ -26,7 +26,7 @@ import {
   ListSessionsQueryDto,
   UpdateSessionDto,
 } from './dto/admin-session.dto';
-import { dtoPipe } from '../common/dto-validation.pipe';
+import { dtoPipe } from '@ptah-api/core';
 import type { AdminSession } from './google-sessions.types';
 
 /**

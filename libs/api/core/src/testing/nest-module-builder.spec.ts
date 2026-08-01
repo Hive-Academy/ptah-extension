@@ -10,7 +10,7 @@ import 'reflect-metadata';
 import { Injectable, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createTestingNestModule } from './nest-module-builder';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../lib/prisma/prisma.service';
 import { createMockPrisma } from './mock-prisma.factory';
 
 const SAMPLE_TOKEN = 'SAMPLE_TOKEN_STRING';

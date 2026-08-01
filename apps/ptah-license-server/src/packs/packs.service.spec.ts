@@ -3,8 +3,8 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '../generated-prisma-client/client';
-import type { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@ptah-api/core';
+import type { PrismaService } from '@ptah-api/core';
 import type { AuditLogService } from '../audit/audit-log.service';
 import { PacksService } from './packs.service';
 

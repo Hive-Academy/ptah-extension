@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'crypto';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 
 /**
  * User with subscription data from database

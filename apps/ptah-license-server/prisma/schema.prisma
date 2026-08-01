@@ -10,7 +10,7 @@ datasource db {
 }
 generator client {
   provider = "prisma-client"
-  output   = "../src/generated-prisma-client"
+  output   = "../../../libs/api/core/src/lib/generated-prisma-client"
 }
 
 // User model - stores user information for license ownership
@@ -46,12 +46,20 @@ model User {
 // in sync. Exactly one group is the current default (`isDefault`); new paid
 // Builders members are auto-assigned to it. Groups are durable cohort identity —
 // assignments survive churn (deprovisioning never removes them).
+//
+// `sessionEventId` makes the weekly live session COHORT-AWARE: two cohorts (e.g.
+// English and Arabic) can run concurrently against two different Google Meet
+// events. It names that cohort's MASTER recurring Google Calendar event — the
+// same kind of id as the `BUILDERS_SESSION_EVENT_ID` env var, which remains the
+// fallback for every cohort that leaves this null. A single-cohort deployment
+// therefore keeps working with the env var alone and no rows populated here.
 model MemberGroup {
   id             String   @id @default(cuid())
   key            String   @unique // stable slug, e.g. 'founding'
   name           String
   description    String?
   discourseGroup String?  @map("discourse_group") // Discourse group to sync (null = no sync)
+  sessionEventId String?  @map("session_event_id") // cohort's Google Calendar master event (null = fall back to BUILDERS_SESSION_EVENT_ID)
   isDefault      Boolean  @default(false) @map("is_default")
   createdAt      DateTime @default(now()) @map("created_at")
 

@@ -12,7 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { SessionsService } from './sessions.service';
 import type { BuildersSession } from './google-sessions.types';
 import {
@@ -65,7 +65,10 @@ export class MembersController {
       throw new ForbiddenException({ reason: 'membership_required' });
     }
 
-    const sessions = await this.sessions.listUpcomingSessions();
+    // Cohort-scoped: a member sees generic sessions plus their OWN cohort's
+    // series, never another cohort's. Collapses to "every session" until some
+    // cohort configures a `sessionEventId`.
+    const sessions = await this.sessions.listUpcomingSessions(user.id);
     const memberGroups = await this.safeMemberGroups(user.id);
     return { sessions, communityUrl: this.communityUrl(), memberGroups };
   }

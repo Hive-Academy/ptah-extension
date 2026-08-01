@@ -1,5 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 
 export type SegmentKey =
   | 'all'

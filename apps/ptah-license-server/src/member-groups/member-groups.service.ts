@@ -5,8 +5,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '../generated-prisma-client/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@ptah-api/core';
+import { PrismaService } from '@ptah-api/core';
 import { AuditLogService } from '../audit/audit-log.service';
 
 /**
@@ -19,6 +19,12 @@ export interface MemberGroupWithCount {
   name: string;
   description: string | null;
   discourseGroup: string | null;
+  /**
+   * This cohort's own Google Calendar master event for the weekly live session,
+   * or null to fall back to `BUILDERS_SESSION_EVENT_ID`. Admin-only — it is not
+   * part of the member-facing {@link UserMemberGroup} projection.
+   */
+  sessionEventId: string | null;
   isDefault: boolean;
   memberCount: number;
   createdAt: Date;
@@ -35,6 +41,7 @@ export interface CreateMemberGroupInput {
   name: string;
   description?: string | null;
   discourseGroup?: string | null;
+  sessionEventId?: string | null;
   isDefault?: boolean;
 }
 
@@ -42,6 +49,7 @@ export interface UpdateMemberGroupInput {
   name?: string;
   description?: string | null;
   discourseGroup?: string | null;
+  sessionEventId?: string | null;
   isDefault?: boolean;
 }
 
@@ -157,6 +165,83 @@ export class MemberGroupsService {
       include: { group: { select: { key: true, name: true } } },
     });
     return rows.map((r) => ({ key: r.group.key, name: r.group.name }));
+  }
+
+  /**
+   * The Google Calendar master event id for the live session THIS USER should be
+   * invited to, or null when none of their cohorts configures one (the caller
+   * then falls back to `BUILDERS_SESSION_EVENT_ID`).
+   *
+   * ── MULTI-COHORT RESOLUTION RULE: MOST RECENTLY ASSIGNED COHORT WINS ────────
+   * A user can hold assignments to several cohorts at once, so "the user's
+   * event" needs a rule that is deterministic AND matches how cohorts are
+   * actually administered here. Two facts drive the choice:
+   *
+   *   1. EVERY new paid Builders member is auto-assigned to the DEFAULT cohort
+   *      by the Paddle fan-out (`assignDefaultGroup`, source 'auto_provisioning')
+   *      before an admin has any chance to place them. An Arabic-cohort member
+   *      therefore lands in the English default first, and the admin's placement
+   *      is always the LATER assignment. Under an "oldest wins" or "default
+   *      wins" rule that admin action would be inert — every member would stay
+   *      pinned to the default cohort's event and the feature would do nothing
+   *      without a manual unassign. Newest-wins lets the admin's placement take
+   *      effect by itself, which is the operation the admin actually performs.
+   *   2. Re-provisioning does NOT churn the answer: `assignDefaultGroup` upserts
+   *      with an empty `update: {}`, so an existing default-cohort row keeps its
+   *      original `assignedAt`. A member re-subscribing cannot have their seat
+   *      dragged back to the default cohort.
+   *
+   * Ties on `assignedAt` (possible when rows are written in the same
+   * millisecond) break on the cohort's stable `key` ascending, so the answer is
+   * total and stable rather than dependent on physical row order.
+   *
+   * Cohorts WITHOUT a configured event are filtered out in SQL rather than
+   * merely losing the ordering: a member of [Arabic (has an event), General (no
+   * event, assigned later)] must resolve to the Arabic event, not fall through
+   * to the env-var default. An unconfigured cohort never shadows a configured
+   * one.
+   *
+   * This method reads only; it never throws for "no answer" — an unassigned or
+   * unknown user simply yields null.
+   */
+  async getSessionEventIdForUser(userId: string): Promise<string | null> {
+    const rows = await this.prisma.memberGroupAssignment.findMany({
+      where: { userId, group: { sessionEventId: { not: null } } },
+      orderBy: [{ assignedAt: 'desc' }, { group: { key: 'asc' } }],
+      include: { group: { select: { key: true, sessionEventId: true } } },
+    });
+
+    for (const row of rows) {
+      const eventId = this.normalizeEventId(row.group.sessionEventId);
+      if (eventId) {
+        return eventId;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Every distinct cohort-scoped session event id configured across all groups.
+   *
+   * Callers use this to tell "this event belongs to SOME cohort" from "this
+   * event belongs to nobody in particular". An empty result means no cohort has
+   * opted in, which is the signal that the deployment is still single-cohort and
+   * must behave exactly as it did before this column existed.
+   */
+  async listSessionEventIds(): Promise<string[]> {
+    const groups = await this.prisma.memberGroup.findMany({
+      where: { sessionEventId: { not: null } },
+      select: { sessionEventId: true },
+    });
+
+    const ids = new Set<string>();
+    for (const group of groups) {
+      const eventId = this.normalizeEventId(group.sessionEventId);
+      if (eventId) {
+        ids.add(eventId);
+      }
+    }
+    return [...ids];
   }
 
   /**
@@ -286,6 +371,7 @@ export class MemberGroupsService {
             name: input.name,
             description: input.description ?? null,
             discourseGroup: input.discourseGroup ?? null,
+            sessionEventId: this.normalizeEventId(input.sessionEventId),
             isDefault: input.isDefault ?? false,
           },
         });
@@ -296,6 +382,7 @@ export class MemberGroupsService {
         name: group.name,
         isDefault: group.isDefault,
         discourseGroup: group.discourseGroup,
+        sessionEventId: group.sessionEventId,
       });
 
       return this.toWithCount(group, 0);
@@ -339,6 +426,11 @@ export class MemberGroupsService {
       if (input.discourseGroup !== undefined) {
         data.discourseGroup = input.discourseGroup;
       }
+      // Normalized on write so a whitespace-only value clears the column rather
+      // than becoming an event id that can never match anything in Calendar.
+      if (input.sessionEventId !== undefined) {
+        data.sessionEventId = this.normalizeEventId(input.sessionEventId);
+      }
       if (input.isDefault !== undefined) data.isDefault = input.isDefault;
 
       const group = await tx.memberGroup.update({
@@ -353,6 +445,7 @@ export class MemberGroupsService {
       key: updated.key,
       fields: Object.keys(input),
       isDefault: updated.isDefault,
+      sessionEventId: updated.sessionEventId,
     });
 
     return this.toWithCount(updated, updated._count.assignments);
@@ -501,6 +594,7 @@ export class MemberGroupsService {
       name: string;
       description: string | null;
       discourseGroup: string | null;
+      sessionEventId: string | null;
       isDefault: boolean;
       createdAt: Date;
     },
@@ -512,10 +606,21 @@ export class MemberGroupsService {
       name: group.name,
       description: group.description,
       discourseGroup: group.discourseGroup,
+      sessionEventId: group.sessionEventId,
       isDefault: group.isDefault,
       memberCount,
       createdAt: group.createdAt,
     };
+  }
+
+  /**
+   * Trim a stored/submitted event id to either a usable id or null. Empty and
+   * whitespace-only are collapsed to null so "unset" has exactly ONE
+   * representation — every read path can then test truthiness alone.
+   */
+  private normalizeEventId(value: string | null | undefined): string | null {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
   }
 
   /**

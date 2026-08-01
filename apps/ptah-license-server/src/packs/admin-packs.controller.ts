@@ -23,7 +23,7 @@ import {
   ListPacksQueryDto,
   UpdatePackDto,
 } from './dto/pack.dto';
-import { dtoPipe } from '../common/dto-validation.pipe';
+import { dtoPipe } from '@ptah-api/core';
 import type { PackResponse } from './packs.types';
 
 /**

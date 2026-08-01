@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { UnsubscribeTokenService } from '../services/unsubscribe-token.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { AuditLogService } from '../../audit/audit-log.service';
 import { getUnsubscribePage } from '../html/unsubscribe-confirmation.html';
 

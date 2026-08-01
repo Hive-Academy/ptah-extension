@@ -16,7 +16,7 @@ import { DiscourseProvisioningService } from '../discourse/discourse-provisionin
 import { MemberGroupsService } from '../member-groups/member-groups.service';
 import { EmailService } from '../email/services/email.service';
 import { EventsService } from '../events/events.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';
 
 /**
@@ -150,9 +150,13 @@ export class PaddleService {
     try {
       if (this.sessions) {
         if (isMember) {
-          await this.sessions.addMemberToSessions(email);
+          // `userId` threads the member's COHORT through, so attendance lands
+          // on their cohort's event when one is configured. Ordering is already
+          // correct: the provisioning fan-out assigns the default cohort BEFORE
+          // calling this, so resolution sees an assignment rather than racing it.
+          await this.sessions.addMemberToSessions(email, userId);
         } else {
-          await this.sessions.removeMemberFromSessions(email);
+          await this.sessions.removeMemberFromSessions(email, userId);
         }
       }
     } catch (error) {

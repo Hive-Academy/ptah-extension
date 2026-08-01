@@ -14,7 +14,7 @@ import {
   isBuildersCheckoutEnabled,
   getBuildersMonthlyPriceId,
   getBuildersYearlyPriceId,
-} from '../config/checkout.config';
+} from '@ptah-api/core';
 import {
   PaddleSyncService,
   PaddleSubscriptionData,

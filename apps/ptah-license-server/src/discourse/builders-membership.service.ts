@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 
 /**
  * BuildersMembershipService — the single source of truth for "does this user

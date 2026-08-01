@@ -6,8 +6,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '../generated-prisma-client/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@ptah-api/core';
+import { PrismaService } from '@ptah-api/core';
 import { AuditLogService } from '../audit/audit-log.service';
 import type { AdminAuditAction } from '../audit/audit-log.types';
 import {

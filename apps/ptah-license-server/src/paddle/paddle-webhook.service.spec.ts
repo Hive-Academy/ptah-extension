@@ -33,11 +33,8 @@ import { ConfigService } from '@nestjs/config';
 import { PaddleService } from './paddle.service';
 import { PaddleWebhookService } from './paddle-webhook.service';
 import { PADDLE_CLIENT } from './providers/paddle.provider';
-import {
-  createMockPrisma,
-  type MockPrisma,
-} from '../testing/mock-prisma.factory';
-import { createTestingNestModule } from '../testing/nest-module-builder';
+import { createMockPrisma, type MockPrisma } from '@ptah-api/core/testing';
+import { createTestingNestModule } from '@ptah-api/core/testing';
 import {
   loadPaddleFixture,
   signPaddlePayload,

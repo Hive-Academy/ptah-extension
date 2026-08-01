@@ -30,7 +30,7 @@ import {
   createMockPrisma,
   asPrismaService,
   type MockPrisma,
-} from '../testing/mock-prisma.factory';
+} from '@ptah-api/core/testing';
 import { SubscriptionDbService } from './subscription-db.service';
 
 const LICENSE_KEY_PATTERN = /^ptah_lic_[0-9a-f]{64}$/;

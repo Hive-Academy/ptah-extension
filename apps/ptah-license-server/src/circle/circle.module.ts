@@ -1,6 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { PrismaModule } from '../prisma/prisma.module';
+import { PrismaModule } from '@ptah-api/core';
 import { CircleProvider } from './circle.provider';
 import { CircleProvisioningService } from './circle-provisioning.service';
 

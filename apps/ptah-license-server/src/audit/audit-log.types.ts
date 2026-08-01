@@ -1,4 +1,4 @@
-import type { Prisma } from '../generated-prisma-client/client';
+import type { Prisma } from '@ptah-api/core';
 
 /**
  * Audit log types for cross-cutting admin action tracking (TASK_2025_292).

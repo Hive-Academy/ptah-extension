@@ -18,7 +18,7 @@ import { AdminThrottlerGuard } from '../../admin/admin-throttler.guard';
 import { SegmentResolverService } from '../services/segment-resolver.service';
 import { TemplateRenderService } from '../services/template-render.service';
 import { MarketingService } from '../services/marketing.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { SaveTemplateDto } from '../dto/save-template.dto';
 import { SendCampaignDto } from '../dto/send-campaign.dto';
 

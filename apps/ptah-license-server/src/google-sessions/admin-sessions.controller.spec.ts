@@ -7,6 +7,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import type { AuditLogService } from '../audit/audit-log.service';
 import type { GoogleCalendarProvider } from './google-calendar.provider';
+import type { MemberGroupsService } from '../member-groups/member-groups.service';
 import { AdminSessionsService } from './admin-sessions.service';
 import { AdminSessionsController } from './admin-sessions.controller';
 
@@ -39,6 +40,12 @@ function build(
     writable?: boolean | undefined;
     enabled?: boolean;
     protectedId?: string | undefined;
+    /**
+     * Cohort-configured session events. Omitted → MemberGroupsService is left
+     * UNBOUND, which is the pre-cohort world every test below the first block
+     * still exercises. `'throw'` models a groups-table outage.
+     */
+    cohortEventIds?: string[] | 'throw';
   } = {},
 ) {
   const calendar = {
@@ -60,13 +67,25 @@ function build(
   } as unknown as ConfigService;
   const audit = { write: jest.fn().mockResolvedValue('audit-id') };
 
+  const memberGroups =
+    opts.cohortEventIds === undefined
+      ? undefined
+      : {
+          listSessionEventIds: jest.fn(() =>
+            opts.cohortEventIds === 'throw'
+              ? Promise.reject(new Error('groups table down'))
+              : Promise.resolve(opts.cohortEventIds as string[]),
+          ),
+        };
+
   const service = new AdminSessionsService(
     config,
     calendar as unknown as GoogleCalendarProvider,
     audit as unknown as AuditLogService,
+    memberGroups as unknown as MemberGroupsService | undefined,
   );
   const controller = new AdminSessionsController(service);
-  return { controller, service, calendar, audit };
+  return { controller, service, calendar, audit, memberGroups };
 }
 
 function req(): Request {
@@ -157,6 +176,91 @@ describe('AdminSessionsController', () => {
       await expect(controller.remove(req(), 'anything')).resolves.toEqual({
         deleted: true,
       });
+    });
+  });
+
+  /**
+   * Cohort awareness MULTIPLIED the footgun: every cohort's own
+   * `MemberGroup.sessionEventId` is now also a master whose deletion would
+   * destroy that cohort's standing invites. The guard covers all of them.
+   */
+  describe('⚠️ recurring-master guard — per-cohort events', () => {
+    const AR_MASTER = 'evt_arabic_master';
+
+    it("refuses to delete a COHORT's master even though it is not the env-var id", async () => {
+      const { controller, calendar } = build({
+        protectedId: undefined,
+        cohortEventIds: [AR_MASTER],
+      });
+
+      const promise = controller.remove(req(), AR_MASTER);
+
+      await expect(promise).rejects.toBeInstanceOf(ConflictException);
+      await expect(promise).rejects.toMatchObject({
+        response: { reason: 'protected_recurring_event' },
+      });
+      expect(calendar.deleteEvent).not.toHaveBeenCalled();
+    });
+
+    it("refuses to delete an EXPANDED INSTANCE of a cohort's series", async () => {
+      const { controller, calendar } = build({
+        protectedId: undefined,
+        cohortEventIds: [AR_MASTER],
+      });
+      const instanceId = `${AR_MASTER}_20260806T140000Z`;
+      calendar.getEvent.mockResolvedValue({
+        ok: true,
+        json: { id: instanceId, recurringEventId: AR_MASTER },
+      });
+
+      await expect(controller.remove(req(), instanceId)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(calendar.deleteEvent).not.toHaveBeenCalled();
+    });
+
+    it('still protects the env-var master alongside the cohort ones', async () => {
+      const { controller } = build({ cohortEventIds: [AR_MASTER] });
+
+      await expect(
+        controller.remove(req(), PROTECTED_ID),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('refuses to PATCH a cohort master too', async () => {
+      const { controller, calendar } = build({
+        protectedId: undefined,
+        cohortEventIds: [AR_MASTER],
+      });
+
+      await expect(
+        controller.update(req(), AR_MASTER, { title: 'Renamed' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(calendar.patchEvent).not.toHaveBeenCalled();
+    });
+
+    it('still allows deleting an unrelated one-off when cohorts exist', async () => {
+      const { controller } = build({ cohortEventIds: [AR_MASTER] });
+
+      await expect(controller.remove(req(), 'evt_other')).resolves.toEqual({
+        deleted: true,
+      });
+    });
+
+    it('degrades to env-var-only protection (never a 500) when the groups lookup fails', async () => {
+      const { controller, calendar } = build({ cohortEventIds: 'throw' });
+
+      // The env-var master is still refused — the guard keeps exactly the
+      // protection it had before cohorts existed rather than failing open
+      // entirely or turning an admin delete into a 500.
+      await expect(
+        controller.remove(req(), PROTECTED_ID),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      await expect(controller.remove(req(), 'evt_other')).resolves.toEqual({
+        deleted: true,
+      });
+      expect(calendar.deleteEvent).toHaveBeenCalledWith('evt_other');
     });
   });
 

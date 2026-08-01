@@ -1,5 +1,5 @@
 import { SegmentResolverService } from './segment-resolver.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 
 describe('SegmentResolverService', () => {
   let service: SegmentResolverService;

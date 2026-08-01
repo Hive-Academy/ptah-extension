@@ -12,7 +12,8 @@
  *   - `paddle` fixtures — signed-webhook loader for Paddle Billing v2.
  */
 
-export * from './mock-prisma.factory';
-export * from './nest-module-builder';
+// createMockPrisma()/createTestingNestModule() moved to @ptah-api/core/testing
+// alongside PrismaService — every api domain needs them, not just this app.
+export * from '@ptah-api/core/testing';
 export * from './testcontainers/postgres';
 export * from './fixtures/paddle';

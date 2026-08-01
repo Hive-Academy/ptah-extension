@@ -1,6 +1,6 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { Prisma } from '../generated-prisma-client/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@ptah-api/core';
+import { PrismaService } from '@ptah-api/core';
 import { AuditLogService } from '../audit/audit-log.service';
 import { MemberGroupsService } from './member-groups.service';
 
@@ -97,6 +97,7 @@ function makeGroup(overrides: Partial<Record<string, unknown>> = {}) {
     name: 'Founding Members',
     description: null,
     discourseGroup: 'builders-founding',
+    sessionEventId: null,
     isDefault: true,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
@@ -379,6 +380,195 @@ describe('MemberGroupsService', () => {
       await expect(service.getDiscourseGroupsForUser('u1')).resolves.toEqual([
         'builders-founding',
       ]);
+    });
+  });
+
+  /**
+   * Cohort-aware live sessions: each cohort may name its own Google Calendar
+   * master event, so two cohorts (e.g. English + Arabic) can run concurrently.
+   */
+  describe('session event resolution', () => {
+    describe('getSessionEventIdForUser', () => {
+      it('asks the DB for the most-recent assignment among cohorts THAT HAVE an event', async () => {
+        const prisma = createMockPrisma();
+        prisma.memberGroupAssignment.findMany.mockResolvedValue([
+          { group: { key: 'arabic', sessionEventId: 'evt_arabic' } },
+        ]);
+        const { service } = build(prisma);
+
+        await expect(service.getSessionEventIdForUser('u1')).resolves.toBe(
+          'evt_arabic',
+        );
+
+        // The rule lives in the query, so assert the query itself:
+        //   - cohorts without an event are excluded (they must never shadow a
+        //     configured one by merely being assigned later),
+        //   - newest assignment first (the admin's placement always post-dates
+        //     the auto_provisioning default assignment),
+        //   - group.key ascending as a total tie-break.
+        expect(prisma.memberGroupAssignment.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { userId: 'u1', group: { sessionEventId: { not: null } } },
+            orderBy: [{ assignedAt: 'desc' }, { group: { key: 'asc' } }],
+          }),
+        );
+      });
+
+      it('takes the FIRST row, i.e. the most recently assigned cohort', async () => {
+        const prisma = createMockPrisma();
+        // Ordered by the query: admin-assigned Arabic (newer) ahead of the
+        // auto-provisioned English default (older).
+        prisma.memberGroupAssignment.findMany.mockResolvedValue([
+          { group: { key: 'arabic', sessionEventId: 'evt_arabic' } },
+          { group: { key: 'english', sessionEventId: 'evt_english' } },
+        ]);
+        const { service } = build(prisma);
+
+        await expect(service.getSessionEventIdForUser('u1')).resolves.toBe(
+          'evt_arabic',
+        );
+      });
+
+      it('skips whitespace-only ids and falls through to the next cohort', async () => {
+        const prisma = createMockPrisma();
+        prisma.memberGroupAssignment.findMany.mockResolvedValue([
+          { group: { key: 'broken', sessionEventId: '   ' } },
+          { group: { key: 'english', sessionEventId: ' evt_english ' } },
+        ]);
+        const { service } = build(prisma);
+
+        // Also trims — a pasted id with stray spaces still matches in Calendar.
+        await expect(service.getSessionEventIdForUser('u1')).resolves.toBe(
+          'evt_english',
+        );
+      });
+
+      it('returns null for a user in no event-configured cohort (env fallback)', async () => {
+        const prisma = createMockPrisma();
+        prisma.memberGroupAssignment.findMany.mockResolvedValue([]);
+        const { service } = build(prisma);
+
+        await expect(
+          service.getSessionEventIdForUser('u1'),
+        ).resolves.toBeNull();
+      });
+    });
+
+    describe('listSessionEventIds', () => {
+      it('returns distinct, trimmed, non-empty ids', async () => {
+        const prisma = createMockPrisma();
+        prisma.memberGroup.findMany.mockResolvedValue([
+          { sessionEventId: 'evt_english' },
+          { sessionEventId: ' evt_english ' }, // same event, sloppy paste
+          { sessionEventId: 'evt_arabic' },
+          { sessionEventId: '  ' },
+        ]);
+        const { service } = build(prisma);
+
+        await expect(service.listSessionEventIds()).resolves.toEqual([
+          'evt_english',
+          'evt_arabic',
+        ]);
+      });
+
+      it('returns [] when no cohort configures an event (single-cohort deployment)', async () => {
+        const prisma = createMockPrisma();
+        prisma.memberGroup.findMany.mockResolvedValue([]);
+        const { service } = build(prisma);
+
+        // This empty result is the signal every caller uses to keep the exact
+        // pre-cohort behaviour.
+        await expect(service.listSessionEventIds()).resolves.toEqual([]);
+      });
+    });
+
+    describe('admin configuration', () => {
+      it('normalizes a blank sessionEventId to null on create', async () => {
+        const prisma = createMockPrisma();
+        prisma.memberGroup.create.mockResolvedValue(makeGroup({ id: 'grp-n' }));
+        const { service } = build(prisma);
+
+        await service.create(
+          { key: 'arabic', name: 'Arabic', sessionEventId: '   ' },
+          null,
+        );
+
+        expect(prisma.memberGroup.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ sessionEventId: null }),
+          }),
+        );
+      });
+
+      it('stores a trimmed sessionEventId on create', async () => {
+        const prisma = createMockPrisma();
+        prisma.memberGroup.create.mockResolvedValue(makeGroup({ id: 'grp-n' }));
+        const { service } = build(prisma);
+
+        await service.create(
+          { key: 'arabic', name: 'Arabic', sessionEventId: ' evt_arabic ' },
+          null,
+        );
+
+        expect(prisma.memberGroup.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ sessionEventId: 'evt_arabic' }),
+          }),
+        );
+      });
+
+      it('patches sessionEventId when present and CLEARS it on explicit null', async () => {
+        const prisma = createMockPrisma();
+        prisma.memberGroup.findUnique.mockResolvedValue(makeGroup());
+        prisma.memberGroup.update.mockResolvedValue({
+          ...makeGroup(),
+          sessionEventId: null,
+          _count: { assignments: 0 },
+        });
+        const { service } = build(prisma);
+
+        await service.update('grp-1', { sessionEventId: null }, null);
+
+        expect(prisma.memberGroup.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ sessionEventId: null }),
+          }),
+        );
+      });
+
+      it('leaves sessionEventId untouched when the key is absent from the patch', async () => {
+        const prisma = createMockPrisma();
+        prisma.memberGroup.findUnique.mockResolvedValue(makeGroup());
+        prisma.memberGroup.update.mockResolvedValue({
+          ...makeGroup(),
+          _count: { assignments: 0 },
+        });
+        const { service } = build(prisma);
+
+        await service.update('grp-1', { name: 'Renamed' }, null);
+
+        const data = prisma.memberGroup.update.mock.calls[0][0].data as Record<
+          string,
+          unknown
+        >;
+        // Omission must not clear the column — only an explicit null does.
+        expect('sessionEventId' in data).toBe(false);
+      });
+
+      it('projects sessionEventId onto the admin list shape', async () => {
+        const prisma = createMockPrisma();
+        prisma.memberGroup.findMany.mockResolvedValue([
+          {
+            ...makeGroup({ sessionEventId: 'evt_arabic' }),
+            _count: { assignments: 3 },
+          },
+        ]);
+        const { service } = build(prisma);
+
+        await expect(service.listWithCounts()).resolves.toEqual([
+          expect.objectContaining({ sessionEventId: 'evt_arabic' }),
+        ]);
+      });
     });
   });
 

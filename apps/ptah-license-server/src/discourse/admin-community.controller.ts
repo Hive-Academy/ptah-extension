@@ -3,7 +3,7 @@ import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../admin/admin.guard';
 import { AdminCommunityService } from './admin-community.service';
 import { ListTopicsQueryDto } from './dto/admin-community.dto';
-import { dtoPipe } from '../common/dto-validation.pipe';
+import { dtoPipe } from '@ptah-api/core';
 import type { AdminCommunityTopics, AdminReviewQueue } from './discourse.types';
 
 /**

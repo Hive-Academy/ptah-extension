@@ -23,7 +23,7 @@ import type { Request } from 'express';
 
 import { PaddleController } from './paddle.controller';
 import { PaddleWebhookService } from './paddle-webhook.service';
-import { createTestingNestModule } from '../testing/nest-module-builder';
+import { createTestingNestModule } from '@ptah-api/core/testing';
 import {
   loadPaddleFixture,
   TEST_PADDLE_WEBHOOK_SECRET,

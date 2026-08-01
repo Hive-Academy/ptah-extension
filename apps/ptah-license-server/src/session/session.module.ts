@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../app/auth/auth.module';
-import { PrismaModule } from '../prisma/prisma.module';
+import { PrismaModule } from '@ptah-api/core';
 import { EmailModule } from '../email/email.module';
 import { SessionController } from './session.controller';
 import { SessionService } from './session.service';

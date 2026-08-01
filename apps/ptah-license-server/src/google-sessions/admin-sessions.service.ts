@@ -6,11 +6,13 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditLogService } from '../audit/audit-log.service';
 import type { AdminAuditAction } from '../audit/audit-log.types';
+import { MemberGroupsService } from '../member-groups/member-groups.service';
 import { GoogleCalendarProvider } from './google-calendar.provider';
 import { extractEventItems, toAdminSession } from './google-event.mapper';
 import type {
@@ -60,18 +62,54 @@ export class AdminSessionsService {
     @Inject(GoogleCalendarProvider)
     private readonly calendar: GoogleCalendarProvider,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
+    // Optional: cohort → session-event lookup, so the footgun guard below
+    // protects EVERY cohort's series, not just the env-var one.
+    @Optional()
+    @Inject(MemberGroupsService)
+    private readonly memberGroups?: MemberGroupsService,
   ) {}
 
   /**
-   * The recurring Builders session master event id, or undefined when unset.
-   * Read through ConfigService on every call (never `process.env`) so a
-   * deployment can change it without a rebuild.
+   * Every master session event that member provisioning depends on: the
+   * server-wide `BUILDERS_SESSION_EVENT_ID` plus each cohort's own
+   * `MemberGroup.sessionEventId`.
+   *
+   * The env var is read through ConfigService on every call (never
+   * `process.env`) so a deployment can change it without a rebuild.
+   *
+   * DEGRADATION IS DELIBERATELY TOWARDS THE OLD BEHAVIOUR, NOT TOWARDS OPEN.
+   * If the cohort lookup fails, the returned set still contains the env-var id,
+   * so the guard keeps exactly the protection it had before cohorts existed —
+   * it does not 500 an admin delete over a groups-table hiccup, and it does not
+   * silently drop to no protection at all. A cohort series could be deletable
+   * during such an outage; that is an accepted, logged trade, and it is not a
+   * realistic window since the same database backs the admin's own auth.
    */
-  private get protectedEventId(): string | undefined {
-    return (
-      this.configService.get<string>('BUILDERS_SESSION_EVENT_ID')?.trim() ||
-      undefined
-    );
+  private async protectedEventIds(): Promise<Set<string>> {
+    const ids = new Set<string>();
+
+    const envId = this.configService
+      .get<string>('BUILDERS_SESSION_EVENT_ID')
+      ?.trim();
+    if (envId) {
+      ids.add(envId);
+    }
+
+    if (this.memberGroups) {
+      try {
+        for (const cohortId of await this.memberGroups.listSessionEventIds()) {
+          ids.add(cohortId);
+        }
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown error';
+        this.logger.warn(
+          `Failed to list cohort session events (${message}) — the protected-series guard covers only BUILDERS_SESSION_EVENT_ID for this request`,
+        );
+      }
+    }
+
+    return ids;
   }
 
   /**
@@ -159,7 +197,7 @@ export class AdminSessionsService {
     if (input.startsAt && input.endsAt) {
       this.assertRangeAdvances(input.startsAt, input.endsAt);
     }
-    this.assertNotProtectedSeries(eventId, undefined);
+    await this.assertNotProtectedSeries(eventId, undefined);
 
     const result = await this.calendar.patchEvent(eventId, input);
     const session = this.unwrapEvent(result, 'update');
@@ -181,10 +219,13 @@ export class AdminSessionsService {
    * Delete a calendar event.
    *
    * ⚠️ FOOTGUN GUARD (implementation plan §4.4). `BUILDERS_SESSION_EVENT_ID`
-   * names the master recurring event whose attendee list the Paddle
-   * provisioning fan-out maintains. Deleting it would silently destroy every
-   * provisioned member's standing invite and break `addMemberToSessions` for
-   * all future signups.
+   * — and now, additionally, every cohort's `MemberGroup.sessionEventId` — names
+   * a master recurring event whose attendee list the Paddle provisioning fan-out
+   * maintains. Deleting one would silently destroy every provisioned member's
+   * standing invite for that cohort and break `addMemberToSessions` for all
+   * future signups into it. Cohort awareness MULTIPLIED the number of events
+   * carrying this hazard, so the guard covers all of them rather than only the
+   * env-var one it was originally written for.
    *
    * The guard checks BOTH ids, and that second check is the load-bearing one:
    * `listUpcomingSessions` expands recurrences (`singleEvents=true`), so the
@@ -199,7 +240,7 @@ export class AdminSessionsService {
     actor: SessionActor,
   ): Promise<{ deleted: boolean }> {
     const resolved = await this.resolveEvent(eventId);
-    this.assertNotProtectedSeries(eventId, resolved?.recurringEventId);
+    await this.assertNotProtectedSeries(eventId, resolved?.recurringEventId);
 
     const result = await this.calendar.deleteEvent(eventId);
 
@@ -242,22 +283,31 @@ export class AdminSessionsService {
   }
 
   /**
-   * Throw 409 when the target is the protected recurring series — either the
-   * master itself or one of its expanded instances.
+   * Throw 409 when the target is A protected recurring series — either a master
+   * itself or one of its expanded instances.
+   *
+   * Now plural: with cohort-aware sessions there is one protected master PER
+   * COHORT plus the env-var one, and deleting any of them destroys that
+   * cohort's standing invites. The two comparisons and the 409 contract are
+   * otherwise unchanged — set membership simply replaced equality against a
+   * single id.
    */
-  private assertNotProtectedSeries(
+  private async assertNotProtectedSeries(
     eventId: string,
     recurringEventId: string | undefined,
-  ): void {
-    const protectedId = this.protectedEventId;
-    if (!protectedId) {
+  ): Promise<void> {
+    const protectedIds = await this.protectedEventIds();
+    if (protectedIds.size === 0) {
       return;
     }
-    if (eventId === protectedId || recurringEventId === protectedId) {
+    if (
+      protectedIds.has(eventId) ||
+      (recurringEventId !== undefined && protectedIds.has(recurringEventId))
+    ) {
       throw new ConflictException({
         reason: 'protected_recurring_event',
         message:
-          'This is the recurring Builders session series that member provisioning depends on. Manage it in Google Calendar directly.',
+          'This is a recurring Builders session series that member provisioning depends on. Manage it in Google Calendar directly.',
       });
     }
   }

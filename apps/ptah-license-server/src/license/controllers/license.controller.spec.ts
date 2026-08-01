@@ -1,12 +1,9 @@
 import type { Request } from 'express';
 import type { ConfigService } from '@nestjs/config';
 import { LicenseService } from '../services/license.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { VerifyLicenseDto } from '../dto/verify-license.dto';
-import {
-  createMockPrisma,
-  MockPrisma,
-} from '../../testing/mock-prisma.factory';
+import { createMockPrisma, MockPrisma } from '@ptah-api/core/testing';
 import { LicenseController } from './license.controller';
 import type { MemberGroupsService } from '../../member-groups/member-groups.service';
 

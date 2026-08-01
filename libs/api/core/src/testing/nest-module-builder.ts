@@ -29,7 +29,7 @@
 import 'reflect-metadata';
 import { ConfigService } from '@nestjs/config';
 import type { Type } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../lib/prisma/prisma.service';
 import { createMockPrisma, type MockPrisma } from './mock-prisma.factory';
 
 type InjectionToken =

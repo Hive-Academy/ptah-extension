@@ -15,9 +15,9 @@ import type { Request } from 'express';
 import { LicenseService } from '../services/license.service';
 import { VerifyLicenseDto } from '../dto/verify-license.dto';
 import { JwtAuthGuard } from '../../app/auth/guards/jwt-auth.guard';
-import { PrismaService } from '../../prisma/prisma.service';
-import { getPlanConfig, PlanName, PLANS } from '../../config/plans.config';
-import { isBuildersCheckoutEnabled } from '../../config/checkout.config';
+import { PrismaService } from '@ptah-api/core';
+import { getPlanConfig, PlanName, PLANS } from '@ptah-api/core';
+import { isBuildersCheckoutEnabled } from '@ptah-api/core';
 import {
   MemberGroupsService,
   type UserMemberGroup,

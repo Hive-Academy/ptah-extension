@@ -21,7 +21,7 @@ import {
   type SubscriptionCreatedNotification,
   type TransactionNotification,
 } from '@paddle/paddle-node-sdk';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { PaddleService } from './paddle.service';
 import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';
 import { mapEventToStoredPayload } from './dto/paddle-webhook.dto';

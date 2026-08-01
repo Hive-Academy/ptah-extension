@@ -219,8 +219,47 @@
       "platform": "api",
       "tags": "scope:api,type:util",
       "app": "apps/ptah-license-server",
-      "sources": [],
-      "dependsOn": []
+      "sources": [
+        {
+          "glob": "src/prisma/*.ts",
+          "to": "prisma"
+        },
+        {
+          "glob": "src/generated-prisma-client/**/*",
+          "to": "generated-prisma-client",
+          "raw": true
+        },
+        {
+          "glob": "src/config/*.ts",
+          "to": "config"
+        },
+        {
+          "glob": "src/common/dto-validation.pipe.ts",
+          "to": "common"
+        },
+        {
+          "glob": "src/sentry/sentry.module.ts",
+          "to": "sentry"
+        },
+        {
+          "glob": "src/testing/mock-prisma.factory*.ts",
+          "to": ".",
+          "entryPoint": "testing"
+        },
+        {
+          "glob": "src/testing/nest-module-builder*.ts",
+          "to": ".",
+          "entryPoint": "testing"
+        }
+      ],
+      "dependsOn": [],
+      "publicApi": [
+        "prisma/*.ts",
+        "config/*.ts",
+        "common/*.ts",
+        "sentry/*.ts",
+        "generated-prisma-client/client.ts"
+      ]
     },
     {
       "name": "api-audit",

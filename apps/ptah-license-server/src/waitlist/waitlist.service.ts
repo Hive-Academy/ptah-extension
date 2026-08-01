@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { EmailService } from '../email/services/email.service';
 
 export type WaitlistJoinStatus = 'joined' | 'already_joined';

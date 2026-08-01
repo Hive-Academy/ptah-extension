@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { User } from '@workos-inc/node';
-import { PrismaService } from '../../../../prisma/prisma.service';
-import type { User as PrismaUser } from '../../../../generated-prisma-client/client';
+import { PrismaService } from '@ptah-api/core';
+import type { User as PrismaUser } from '@ptah-api/core';
 
 /**
  * Database user info needed for JWT generation

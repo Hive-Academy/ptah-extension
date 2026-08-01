@@ -66,6 +66,17 @@ export default [
                 'scope:api-contracts',
               ],
             },
+            // The license server (its own `scope:app` tag) is being decomposed
+            // into libs/api/* by tools/migration. Until it is fully emptied it
+            // consumes both its remaining in-app code and the api domains.
+            {
+              sourceTag: 'scope:app',
+              onlyDependOnLibsWithTags: [
+                'scope:shared',
+                'scope:api',
+                'scope:api-contracts',
+              ],
+            },
             // libs/api/* (@ptah-api/*) — NestJS domains carved out of the
             // license server.
             {

@@ -4,7 +4,7 @@ import { MarketingService } from './marketing.service';
 import { SegmentResolverService } from './segment-resolver.service';
 import { TemplateRenderService } from './template-render.service';
 import { UnsubscribeTokenService } from './unsubscribe-token.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { AuditLogService } from '../../audit/audit-log.service';
 import { EmailService } from '../../email/services/email.service';
 import type { SendCampaignDto } from '../dto/send-campaign.dto';

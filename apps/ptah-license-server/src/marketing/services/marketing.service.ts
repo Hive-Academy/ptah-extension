@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { AuditLogService } from '../../audit/audit-log.service';
 import { SegmentResolverService } from './segment-resolver.service';
 import { TemplateRenderService } from './template-render.service';

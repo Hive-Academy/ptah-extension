@@ -135,6 +135,12 @@
           "codeCoverage": true
         }
       }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsc --noEmit --project apps/ptah-license-server/tsconfig.app.json"
+      }
     }
   }
 }

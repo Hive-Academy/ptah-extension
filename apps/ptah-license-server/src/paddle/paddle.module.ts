@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PaddleController } from './paddle.controller';
 import { PaddleService } from './paddle.service';
 import { PaddleWebhookService } from './paddle-webhook.service';
-import { PrismaModule } from '../prisma/prisma.module';
+import { PrismaModule } from '@ptah-api/core';
 import { EmailModule } from '../email/email.module';
 import { EventsModule } from '../events/events.module';
 import { WaitlistModule } from '../waitlist/waitlist.module';

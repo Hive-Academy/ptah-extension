@@ -6,11 +6,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { EventsService } from '../../events/events.service';
-import { PLANS, getPlanConfig, PlanName } from '../../config/plans.config';
+import { PLANS, getPlanConfig, PlanName } from '@ptah-api/core';
 import { randomBytes, createPrivateKey, sign, KeyObject } from 'crypto';
-import { Prisma, License, User } from '../../generated-prisma-client/client';
+import { Prisma, License, User } from '@ptah-api/core';
 import { AuditLogService } from '../../audit/audit-log.service';
 import { EmailService } from '../../email/services/email.service';
 import { WaitlistService } from '../../waitlist/waitlist.service';

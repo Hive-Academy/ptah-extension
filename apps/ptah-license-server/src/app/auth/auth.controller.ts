@@ -23,7 +23,7 @@ import {
   TicketService,
   MagicLinkService,
 } from './services';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '@ptah-api/core';
 import { EmailService } from '../../email/services/email.service';
 import { LicenseService } from '../../license/services/license.service';
 import {

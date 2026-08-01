@@ -9,8 +9,8 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma } from '../generated-prisma-client/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@ptah-api/core';
+import { PrismaService } from '@ptah-api/core';
 import { EmailService } from '../email/services/email.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import {

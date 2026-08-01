@@ -19,7 +19,7 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../admin/admin.guard';
 import { AdminThrottlerGuard } from '../admin/admin-throttler.guard';
-import { dtoPipe } from '../common/dto-validation.pipe';
+import { dtoPipe } from '@ptah-api/core';
 import { DiscourseProvisioningService } from '../discourse/discourse-provisioning.service';
 import {
   MemberGroupsService,
@@ -40,6 +40,13 @@ export interface MemberGroupResponse {
   name: string;
   description: string | null;
   discourseGroup: string | null;
+  /**
+   * This cohort's own Google Calendar master event for the weekly live session
+   * (null = the cohort uses `BUILDERS_SESSION_EVENT_ID`). Exposed on list,
+   * create and patch so cohorts are configurable from the admin panel rather
+   * than a DB console.
+   */
+  sessionEventId: string | null;
   isDefault: boolean;
   memberCount: number;
   createdAt: string;
@@ -198,6 +205,7 @@ export class MemberGroupsController {
       name: group.name,
       description: group.description,
       discourseGroup: group.discourseGroup,
+      sessionEventId: group.sessionEventId,
       isDefault: group.isDefault,
       memberCount: group.memberCount,
       createdAt: group.createdAt.toISOString(),
