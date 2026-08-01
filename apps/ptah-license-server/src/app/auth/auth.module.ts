@@ -1,96 +1,51 @@
-import { Module, forwardRef } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { JwtModule } from '@nestjs/jwt';
-import { AuthController } from './auth.controller';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import {
-  AuthService,
-  WorkosUserService,
-  JwtTokenService,
-  PkceService,
-  TicketService,
-  MagicLinkService,
-  UserSyncService,
-} from './services';
-import { PrismaModule } from '@ptah-api/core';
+import { Module } from '@nestjs/common';
 import { EmailModule } from '@ptah-api/email';
-import {
-  WorkOSClientProvider,
-  WORKOS_CLIENT,
-} from './providers/workos.provider';
+import { IdentityModule } from '@ptah-api/identity';
+import { AuthController } from './auth.controller';
 import { LicenseModule } from '../../license/license.module';
 
 /**
- * Authentication Module
+ * Authentication Module — the app-side composition seam for `AuthController`.
  *
- * Provides JWT-based authentication with WorkOS integration.
+ * ⚠️ THIS MODULE IS DELIBERATELY THIN, AND IT IS WHAT BREAKS THE CYCLE.
+ * The auth CAPABILITY (WorkOS provider, AuthService, token/PKCE/magic-link
+ * services, the JWT/admin guards) now lives in `@ptah-api/identity`. What stays
+ * here is only the controller and the wiring it needs.
  *
- * **Architecture** (Single Responsibility Services):
- * - `PkceService`: OAuth 2.1 PKCE state management
- * - `WorkosUserService`: WorkOS User Management API operations
- * - `JwtTokenService`: JWT generation and validation
- * - `UserSyncService`: Database synchronization
- * - `AuthService`: Orchestrator that coordinates the above
+ * The cycle it replaced: this module used to declare `AuthController` AND own
+ * every auth service. `AuthController` needs `LicenseService`, so this module
+ * imported `LicenseModule`; `LicenseModule` needed `JwtAuthGuard`, so it
+ * imported this module. `forwardRef()` on both sides made that legal inside a
+ * single project — but Nx forbids a cycle BETWEEN projects, so the capability
+ * could not become a lib until the knot was cut.
  *
- * **Features**:
- * - WorkOS AuthKit integration (hosted authentication)
- * - Email/password authentication with email verification
- * - OAuth (GitHub, Google) authentication
- * - Magic link passwordless authentication
- * - JWT token generation and validation
- * - HTTP-only cookie session management
+ * The cut, in one sentence: identity owns everything that does not touch
+ * licensing, and the controller — the ONLY part that touches both — stays in
+ * the app, which is allowed to depend on both libs.
  *
- * **Exports**:
- * - `AuthService`: For authentication operations
- * - `JwtAuthGuard`: For protecting routes with `@UseGuards(JwtAuthGuard)`
- * - `JwtModule`: For services that need JwtService
+ *   before:  AuthModule ⇄ LicenseModule            (forwardRef both ways)
+ *   after:   AuthModule → LicenseModule → IdentityModule
+ *            AuthModule → IdentityModule
+ *
+ * That is acyclic, so NEITHER side needs `forwardRef()` any more — both were
+ * removed rather than left as harmless-looking scaffolding.
+ *
+ * When `api-licensing` lands, `AuthController` becomes movable to a thin
+ * endpoints lib depending on identity + licensing, and this module disappears.
+ *
+ * Everything previously re-exported from here (`AuthService`, `JwtAuthGuard`,
+ * `TicketService`, `MagicLinkService`, `JwtModule`, `WORKOS_CLIENT`) is
+ * exported by `IdentityModule` — feature modules import that directly now.
+ *
+ * `EmailModule` is imported directly rather than leaned on through
+ * `IdentityModule`: `AuthController` injects `EmailService` (verification and
+ * magic-link sends), and a module must import what its OWN controllers inject.
+ * `IdentityModule` imports `EmailModule` for its services but deliberately does
+ * not re-export it — re-exporting a dependency to satisfy someone else's
+ * injection is how modules quietly become each other's service locator.
  */
 @Module({
-  imports: [
-    ConfigModule,
-    PrismaModule,
-    EmailModule,
-    forwardRef(() => LicenseModule),
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => {
-        const secret = configService.get<string>('JWT_SECRET');
-        if (!secret) {
-          throw new Error(
-            'JWT_SECRET is not configured. Please set it in your .env file.',
-          );
-        }
-
-        return {
-          secret,
-          signOptions: {
-            expiresIn: (configService.get<string>('JWT_EXPIRES_IN') ||
-              '7d') as any,
-          },
-        };
-      },
-      inject: [ConfigService],
-    }),
-  ],
+  imports: [IdentityModule, EmailModule, LicenseModule],
   controllers: [AuthController],
-  providers: [
-    WorkOSClientProvider,
-    PkceService,
-    WorkosUserService,
-    JwtTokenService,
-    UserSyncService,
-    AuthService,
-    JwtAuthGuard,
-    TicketService,
-    MagicLinkService,
-  ],
-  exports: [
-    AuthService,
-    JwtAuthGuard,
-    TicketService,
-    MagicLinkService,
-    JwtModule, // Required for guards that depend on JwtService
-    WORKOS_CLIENT, // Export for services that need direct WorkOS access
-  ],
 })
 export class AuthModule {}

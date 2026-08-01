@@ -14,7 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import { LicenseService } from '../services/license.service';
 import { VerifyLicenseDto } from '../dto/verify-license.dto';
-import { JwtAuthGuard } from '../../app/auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '@ptah-api/identity';
 import { PrismaService } from '@ptah-api/core';
 import { getPlanConfig, PlanName, PLANS } from '@ptah-api/core';
 import { isBuildersCheckoutEnabled } from '@ptah-api/core';

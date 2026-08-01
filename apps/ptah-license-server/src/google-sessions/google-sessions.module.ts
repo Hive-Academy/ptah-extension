@@ -1,9 +1,9 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@ptah-api/core';
-import { AuthModule } from '../app/auth/auth.module';
-import { AdminGuard } from '../admin/admin.guard';
-import { AdminThrottlerGuard } from '../admin/admin-throttler.guard';
+import { IdentityModule } from '@ptah-api/identity';
+import { AdminGuard } from '@ptah-api/identity';
+import { AdminThrottlerGuard } from '@ptah-api/identity';
 import { GoogleAuthProvider } from './google-auth.provider';
 import { GoogleCalendarProvider } from './google-calendar.provider';
 import { SessionsService } from './sessions.service';
@@ -19,7 +19,7 @@ import { AdminSessionsController } from './admin-sessions.controller';
  * threading an explicit import through `PaddleModule`. `AuditLogService` is
  * already globally available via `AuditModule`.
  *
- * Imports `AuthModule` for `JwtAuthGuard` (the members endpoint requires the
+ * Imports `IdentityModule` for `JwtAuthGuard` (the members endpoint requires the
  * ptah_auth cookie).
  *
  * Feature-off: when GOOGLE_OAUTH_* are unset the integration no-ops (logged
@@ -40,7 +40,7 @@ import { AdminSessionsController } from './admin-sessions.controller';
  */
 @Global()
 @Module({
-  imports: [ConfigModule, PrismaModule, AuthModule],
+  imports: [ConfigModule, PrismaModule, IdentityModule],
   controllers: [MembersController, AdminSessionsController],
   providers: [
     GoogleAuthProvider,

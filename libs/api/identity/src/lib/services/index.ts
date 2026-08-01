@@ -7,6 +7,6 @@
  * - sync/    : Database synchronization
  */
 export { AuthService, OAuthProvider } from './auth.service';
-export * from './workos';
-export * from './token';
-export * from './sync';
+export * from './workos/index';
+export * from './token/index';
+export * from './sync/index';

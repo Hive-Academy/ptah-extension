@@ -11,7 +11,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { AuthService } from '../app/auth/services/auth.service';
+import { AuthService } from '@ptah-api/identity';
 import { PrismaService } from '@ptah-api/core';
 import { DiscourseSsoService } from './discourse-sso.service';
 

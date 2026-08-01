@@ -101,9 +101,18 @@ export interface JWTPayload {
 }
 
 /**
- * Augment Express Request with user property
+ * Augment Express Request with user property.
+ *
+ * `@typescript-eslint/no-namespace` is disabled here rather than worked around:
+ * global augmentation of an existing ambient namespace (`Express`) has no
+ * ES2015-module equivalent — `declare module 'express'` would replace the
+ * module's types rather than merge into `Express.Request`, and the interface
+ * merging that makes `req.user` typed everywhere REQUIRES the namespace form.
+ * The rule's own docs list ambient module/namespace declarations as the
+ * exception; this is that exception, not a shortcut.
  */
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: RequestUser;

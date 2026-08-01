@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventsController } from './events.controller';
 import { EventsService } from './events.service';
-import { AuthModule } from '../app/auth/auth.module';
+import { IdentityModule } from '@ptah-api/identity';
 
 /**
  * EventsModule - Server-Sent Events for real-time updates
@@ -30,11 +30,11 @@ import { AuthModule } from '../app/auth/auth.module';
  * - Events only sent to the authenticated user
  *
  * Dependencies:
- * - AuthModule: For TicketService (ticket validation)
+ * - IdentityModule: For TicketService (ticket validation)
  * - ConfigModule: For heartbeat interval configuration
  */
 @Module({
-  imports: [AuthModule, ConfigModule],
+  imports: [IdentityModule, ConfigModule],
   controllers: [EventsController],
   providers: [EventsService],
   exports: [EventsService],

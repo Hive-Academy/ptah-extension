@@ -10,7 +10,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '@ptah-api/identity';
 import { SubscriptionService } from './subscription.service';
 import {
   ValidateCheckoutDto,

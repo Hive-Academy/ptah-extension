@@ -5,7 +5,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { AuthService, TicketService } from '../services';
+import { AuthService, TicketService } from '../services/index';
 
 /**
  * QueryTokenAuthGuard - Validates tokens from query string

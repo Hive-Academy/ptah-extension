@@ -2,7 +2,7 @@ import { Controller, Get, Inject, Req, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '@ptah-api/identity';
 import { DiscourseAdminProvider } from './discourse-admin.provider';
 import { BuildersMembershipService } from './builders-membership.service';
 import type { CommunitySummary } from './discourse.types';

@@ -6,9 +6,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { RequestUser } from '../interfaces/request-user.interface';
-import { JwtTokenService, PkceService } from './token';
-import { UserSyncService } from './sync';
-import { WorkosUserService, EmailVerificationRequired } from './workos';
+import { JwtTokenService, PkceService } from './token/index';
+import { UserSyncService } from './sync/index';
+import { WorkosUserService, EmailVerificationRequired } from './workos/index';
 
 /** Supported OAuth providers */
 export type OAuthProvider = 'github' | 'google';

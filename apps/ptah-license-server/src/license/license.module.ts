@@ -1,11 +1,11 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LicenseService } from './services/license.service';
 import { LicenseController } from './controllers/license.controller';
 import { AdminController } from './controllers/admin.controller';
 import { PrismaModule } from '@ptah-api/core';
 import { EmailModule } from '@ptah-api/email';
-import { AuthModule } from '../app/auth/auth.module';
+import { IdentityModule } from '@ptah-api/identity';
 import { EventsModule } from '../events/events.module';
 import { WaitlistModule } from '../waitlist/waitlist.module';
 
@@ -29,7 +29,7 @@ import { WaitlistModule } from '../waitlist/waitlist.module';
     ConfigModule,
     EventsModule,
     WaitlistModule,
-    forwardRef(() => AuthModule),
+    IdentityModule,
   ],
   controllers: [LicenseController, AdminController],
   providers: [LicenseService],

@@ -63,7 +63,7 @@ export class TicketService implements OnModuleDestroy {
   async create(
     userId: string,
     tenantId: string,
-    email: string
+    email: string,
   ): Promise<string> {
     const ticket = randomBytes(32).toString('hex');
     const timeoutId = setTimeout(() => {

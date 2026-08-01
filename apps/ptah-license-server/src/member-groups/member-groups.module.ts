@@ -1,8 +1,8 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { AuthModule } from '../app/auth/auth.module';
-import { AdminGuard } from '../admin/admin.guard';
-import { AdminThrottlerGuard } from '../admin/admin-throttler.guard';
+import { IdentityModule } from '@ptah-api/identity';
+import { AdminGuard } from '@ptah-api/identity';
+import { AdminThrottlerGuard } from '@ptah-api/identity';
 import { MemberGroupsController } from './member-groups.controller';
 import { MemberGroupsService } from './member-groups.service';
 
@@ -17,13 +17,13 @@ import { MemberGroupsService } from './member-groups.service';
  * Guard providers (`AdminGuard`, `AdminThrottlerGuard`) are declared locally
  * (rather than importing `AdminModule`) to keep the module graph acyclic —
  * both are stateless and only depend on `ConfigService` / the global
- * ThrottlerModule providers. `AuthModule` supplies `JwtAuthGuard`.
+ * ThrottlerModule providers. `IdentityModule` supplies `JwtAuthGuard`.
  *
  * `PrismaModule` + `AuditModule` are `@Global()` — no import needed here.
  */
 @Global()
 @Module({
-  imports: [ConfigModule, AuthModule],
+  imports: [ConfigModule, IdentityModule],
   controllers: [MemberGroupsController],
   providers: [MemberGroupsService, AdminGuard, AdminThrottlerGuard],
   exports: [MemberGroupsService],

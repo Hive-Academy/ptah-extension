@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
-import { AdminGuard } from './admin.guard';
+import { JwtAuthGuard } from '@ptah-api/identity';
+import { AdminGuard } from '@ptah-api/identity';
 import { AdminService, AdminStatsResponse } from './admin.service';
 
 /**

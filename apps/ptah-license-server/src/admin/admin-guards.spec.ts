@@ -7,8 +7,8 @@ import {
   METHOD_METADATA,
   GUARDS_METADATA,
 } from '@nestjs/common/constants';
-import { AdminGuard } from './admin.guard';
-import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
+import { AdminGuard } from '@ptah-api/identity';
+import { JwtAuthGuard } from '@ptah-api/identity';
 import { PacksModule } from '../packs/packs.module';
 import { AdminPacksController } from '../packs/admin-packs.controller';
 import { AdminSessionsController } from '../google-sessions/admin-sessions.controller';

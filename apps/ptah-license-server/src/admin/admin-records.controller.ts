@@ -14,8 +14,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
-import { AdminGuard } from './admin.guard';
+import { JwtAuthGuard } from '@ptah-api/identity';
+import { AdminGuard } from '@ptah-api/identity';
 import { AdminService } from './admin.service';
 import { ListQueryDto, UpdateRecordDto } from './admin.dto';
 import { ADMIN_MODELS, AdminModelKey } from './admin-models.config';

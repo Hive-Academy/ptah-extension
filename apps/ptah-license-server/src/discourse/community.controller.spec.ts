@@ -17,8 +17,8 @@ import { CommunityController } from './community.controller';
 import type { DiscourseAdminProvider } from './discourse-admin.provider';
 import type { BuildersMembershipService } from './builders-membership.service';
 import type { CommunityTopic } from './discourse.types';
-import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
-import type { AuthService } from '../app/auth/services/auth.service';
+import { JwtAuthGuard } from '@ptah-api/identity';
+import type { AuthService } from '@ptah-api/identity';
 
 const TOPICS: CommunityTopic[] = [
   {

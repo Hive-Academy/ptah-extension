@@ -90,7 +90,7 @@ export class PkceService implements OnModuleDestroy {
     this.logger.debug(
       `Generated PKCE state: ${state.substring(0, 8)}... (expires in 5 min)${
         options?.returnUrl ? ` returnUrl=${options.returnUrl}` : ''
-      }${options?.plan ? ` plan=${options.plan}` : ''}`
+      }${options?.plan ? ` plan=${options.plan}` : ''}`,
     );
 
     return { codeVerifier, codeChallenge, state };
@@ -119,7 +119,7 @@ export class PkceService implements OnModuleDestroy {
     this.logger.debug(
       `Consumed PKCE state: ${state.substring(0, 8)}... (remaining: ${
         this.states.size
-      })`
+      })`,
     );
 
     return {

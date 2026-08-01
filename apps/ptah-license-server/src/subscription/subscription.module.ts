@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@ptah-api/core';
 import { EventsModule } from '../events/events.module';
 import { PaddleModule } from '../paddle/paddle.module';
-import { AuthModule } from '../app/auth/auth.module';
+import { IdentityModule } from '@ptah-api/identity';
 import { SubscriptionController } from './subscription.controller';
 import { SubscriptionService } from './subscription.service';
 import { SubscriptionDbService } from './subscription-db.service';
@@ -41,7 +41,7 @@ import { SubscriptionEventListener } from './events';
     EventsModule,
     ConfigModule,
     PaddleModule, // Provides PADDLE_CLIENT token
-    AuthModule, // Provides AuthService for JwtAuthGuard
+    IdentityModule, // Provides AuthService for JwtAuthGuard
   ],
   controllers: [SubscriptionController],
   providers: [

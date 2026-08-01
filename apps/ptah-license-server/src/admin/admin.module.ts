@@ -1,6 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { AuthModule } from '../app/auth/auth.module';
+import { IdentityModule } from '@ptah-api/identity';
 import { EmailModule } from '@ptah-api/email';
 import { LicenseModule } from '../license/license.module';
 import { WaitlistModule } from '../waitlist/waitlist.module';
@@ -9,8 +9,8 @@ import { AdminRecordsController } from './admin-records.controller';
 import { AdminStatsController } from './admin-stats.controller';
 import { AdminUsersController } from './admin-users.controller';
 import { AdminWaitlistController } from './admin-waitlist.controller';
-import { AdminGuard } from './admin.guard';
-import { AdminThrottlerGuard } from './admin-throttler.guard';
+import { AdminGuard } from '@ptah-api/identity';
+import { AdminThrottlerGuard } from '@ptah-api/identity';
 import { AdminService } from './admin.service';
 
 /**
@@ -18,7 +18,7 @@ import { AdminService } from './admin.service';
  *
  * Imports:
  *   - `ConfigModule` for `AdminGuard`'s `ADMIN_EMAILS` lookup.
- *   - `AuthModule` re-exports `JwtAuthGuard` (used in controller's guard chain).
+ *   - `IdentityModule` re-exports `JwtAuthGuard` (used in controller's guard chain).
  *   - `EmailModule` re-exports `EmailService` (used for bulk marketing email).
  *   - `WaitlistModule` re-exports `WaitlistService` (invite waves).
  *   - `forwardRef(() => LicenseModule)` for `LicenseService` (complimentary
@@ -41,7 +41,7 @@ import { AdminService } from './admin.service';
 @Module({
   imports: [
     ConfigModule,
-    AuthModule,
+    IdentityModule,
     EmailModule,
     WaitlistModule,
     forwardRef(() => LicenseModule),

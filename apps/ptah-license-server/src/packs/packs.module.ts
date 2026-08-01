@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { AuthModule } from '../app/auth/auth.module';
-import { AdminGuard } from '../admin/admin.guard';
-import { AdminThrottlerGuard } from '../admin/admin-throttler.guard';
+import { IdentityModule } from '@ptah-api/identity';
+import { AdminGuard } from '@ptah-api/identity';
+import { AdminThrottlerGuard } from '@ptah-api/identity';
 import { AdminPacksController } from './admin-packs.controller';
 import { PacksService } from './packs.service';
 
@@ -12,7 +12,7 @@ import { PacksService } from './packs.service';
  * Guard providers (`AdminGuard`, `AdminThrottlerGuard`) are declared locally
  * rather than importing `AdminModule`, to keep the module graph acyclic — both
  * are stateless and only depend on `ConfigService` / the global ThrottlerModule
- * providers. `AuthModule` supplies `JwtAuthGuard`. This mirrors
+ * providers. `IdentityModule` supplies `JwtAuthGuard`. This mirrors
  * `MemberGroupsModule` exactly.
  *
  * `PrismaModule` + `AuditModule` are `@Global()` — no import needed here.
@@ -36,7 +36,7 @@ import { PacksService } from './packs.service';
  * asserts every controller here is mounted under `v1/admin/`.
  */
 @Module({
-  imports: [ConfigModule, AuthModule],
+  imports: [ConfigModule, IdentityModule],
   controllers: [AdminPacksController],
   providers: [PacksService, AdminGuard, AdminThrottlerGuard],
 })

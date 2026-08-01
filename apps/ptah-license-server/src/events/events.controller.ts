@@ -12,7 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { Observable, interval, map, merge, finalize } from 'rxjs';
 import { EventsService } from './events.service';
 import { ConnectionEvent } from './events.types';
-import { TicketService } from '../app/auth/services';
+import { TicketService } from '@ptah-api/identity';
 
 /**
  * EventsController - SSE endpoint for real-time updates

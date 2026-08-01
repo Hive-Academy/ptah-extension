@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AuthModule } from '../app/auth/auth.module';
+import { IdentityModule } from '@ptah-api/identity';
 import { PrismaModule } from '@ptah-api/core';
 import { EmailModule } from '@ptah-api/email';
 import { SessionController } from './session.controller';
@@ -13,12 +13,12 @@ import { SessionService } from './session.service';
  * - POST /api/v1/sessions/request (submit session registration)
  *
  * Dependencies:
- * - AuthModule (JwtAuthGuard + AuthService)
+ * - IdentityModule (JwtAuthGuard + AuthService)
  * - PrismaModule (database access for SessionRequest)
  * - EmailModule (notification and confirmation emails)
  */
 @Module({
-  imports: [AuthModule, PrismaModule, EmailModule],
+  imports: [IdentityModule, PrismaModule, EmailModule],
   controllers: [SessionController],
   providers: [SessionService],
 })

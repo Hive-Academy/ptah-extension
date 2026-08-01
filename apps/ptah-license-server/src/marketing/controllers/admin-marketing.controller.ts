@@ -12,9 +12,9 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { JwtAuthGuard } from '../../app/auth/guards/jwt-auth.guard';
-import { AdminGuard } from '../../admin/admin.guard';
-import { AdminThrottlerGuard } from '../../admin/admin-throttler.guard';
+import { JwtAuthGuard } from '@ptah-api/identity';
+import { AdminGuard } from '@ptah-api/identity';
+import { AdminThrottlerGuard } from '@ptah-api/identity';
 import { SegmentResolverService } from '../services/segment-resolver.service';
 import { TemplateRenderService } from '../services/template-render.service';
 import { MarketingService } from '../services/marketing.service';

@@ -16,13 +16,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { JwtAuthGuard } from '@ptah-api/identity';
 import {
   AuthService,
   OAuthProvider,
   TicketService,
   MagicLinkService,
-} from './services';
+} from '@ptah-api/identity';
 import { PrismaService } from '@ptah-api/core';
 import { EmailService } from '@ptah-api/email';
 import { LicenseService } from '../../license/services/license.service';
@@ -32,7 +32,7 @@ import {
   VerifyEmailDto,
   ResendVerificationDto,
   MagicLinkDto,
-} from './dto';
+} from '@ptah-api/identity';
 
 /** Cookie name for PKCE state parameter (CSRF protection) */
 const WORKOS_STATE_COOKIE = 'workos_state';

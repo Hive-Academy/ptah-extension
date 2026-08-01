@@ -1,9 +1,9 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@ptah-api/core';
-import { AuthModule } from '../app/auth/auth.module';
-import { AdminGuard } from '../admin/admin.guard';
-import { AdminThrottlerGuard } from '../admin/admin-throttler.guard';
+import { IdentityModule } from '@ptah-api/identity';
+import { AdminGuard } from '@ptah-api/identity';
+import { AdminThrottlerGuard } from '@ptah-api/identity';
 import { DiscourseController } from './discourse.controller';
 import { CommunityController } from './community.controller';
 import { AdminCommunityController } from './admin-community.controller';
@@ -21,7 +21,7 @@ import { AdminCommunityService } from './admin-community.service';
  * `DiscourseProvisioningService` is injectable into the Paddle webhook fan-out
  * without threading an explicit import through `PaddleModule`.
  *
- * Imports `AuthModule` for `AuthService` (the SSO endpoint validates the
+ * Imports `IdentityModule` for `AuthService` (the SSO endpoint validates the
  * ptah_auth JWT cookie to identify the caller).
  *
  * Provides:
@@ -47,7 +47,7 @@ import { AdminCommunityService } from './admin-community.service';
  */
 @Global()
 @Module({
-  imports: [ConfigModule, PrismaModule, AuthModule],
+  imports: [ConfigModule, PrismaModule, IdentityModule],
   controllers: [
     DiscourseController,
     CommunityController,

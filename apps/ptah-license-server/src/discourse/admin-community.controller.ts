@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, Query, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
-import { AdminGuard } from '../admin/admin.guard';
+import { JwtAuthGuard } from '@ptah-api/identity';
+import { AdminGuard } from '@ptah-api/identity';
 import { AdminCommunityService } from './admin-community.service';
 import { ListTopicsQueryDto } from './dto/admin-community.dto';
 import { dtoPipe } from '@ptah-api/core';

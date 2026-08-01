@@ -9,9 +9,9 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
-import { AdminGuard } from './admin.guard';
-import { AdminThrottlerGuard } from './admin-throttler.guard';
+import { JwtAuthGuard } from '@ptah-api/identity';
+import { AdminGuard } from '@ptah-api/identity';
+import { AdminThrottlerGuard } from '@ptah-api/identity';
 import { LicenseService } from '../license/services/license.service';
 import type { ComplimentaryLicenseResult } from '../license/services/license.service';
 import { IssueComplimentaryLicenseDto } from '../license/dto/issue-complimentary-license.dto';

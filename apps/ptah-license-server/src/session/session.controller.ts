@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '@ptah-api/identity';
 import { SessionService } from './session.service';
 import { SessionRequestDto } from './dto/session-request.dto';
 

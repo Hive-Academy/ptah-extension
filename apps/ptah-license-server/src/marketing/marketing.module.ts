@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
-import { AuthModule } from '../app/auth/auth.module';
+import { IdentityModule } from '@ptah-api/identity';
 import { EmailModule } from '@ptah-api/email';
 import { PrismaModule } from '@ptah-api/core';
 import { AuditModule } from '@ptah-api/audit';
@@ -17,7 +17,7 @@ import { ResendWebhookGuard } from './guards/resend-webhook.guard';
 @Module({
   imports: [
     EmailModule,
-    AuthModule,
+    IdentityModule,
     ConfigModule,
     PrismaModule,
     AuditModule,

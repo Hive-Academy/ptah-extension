@@ -11,7 +11,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '@ptah-api/identity';
 import { PrismaService } from '@ptah-api/core';
 import { SessionsService } from './sessions.service';
 import type { BuildersSession } from './google-sessions.types';
