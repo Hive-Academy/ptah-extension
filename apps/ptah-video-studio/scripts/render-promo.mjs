@@ -165,9 +165,14 @@ function writeNarrationScript(spec, dir) {
  * — those flags override narrate.mjs's env defaults; unset ones fall through
  * to PH_TTS_ENGINE / PH_ELEVENLABS_VOICE_ID.
  */
-function narrate(slug, spec, force) {
+function narrate(slug, spec, force, engineOverride) {
   const args = [path.join(__dirname, 'narrate.mjs'), '--scene', slug];
-  if (spec.engine) args.push('--engine', spec.engine);
+  // `--engine` beats the spec so a draft can be voiced locally (kokoro) without
+  // editing — and committing — a spec that is pinned to a paid engine for the
+  // final cut. Note kokoro emits no word alignment, so a kokoro draft falls back
+  // to even-sliced captions; re-render on the spec's engine for word-synced ones.
+  const engine = engineOverride || spec.engine;
+  if (engine) args.push('--engine', engine);
   if (spec.voice) args.push('--voice', spec.voice);
   if (spec.model) args.push('--model', spec.model);
   // Per-spec delivery controls (deliberate/premium tuning). Unset ones fall
@@ -280,12 +285,12 @@ function render(spec, dir) {
   console.log(`[promo] Done: ${outFile}`);
 }
 
-function renderPromo(slug, force) {
+function renderPromo(slug, force, engineOverride) {
   const spec = loadSpec(slug);
   const dir = sceneDir(slug);
   writeNarrationScript(spec, dir);
   if (spec.slides.some((s) => s.vo)) {
-    narrate(slug, spec, force);
+    narrate(slug, spec, force, engineOverride);
   }
   render(spec, dir);
 }
@@ -303,6 +308,8 @@ function allSlugs() {
 function main() {
   const args = parseArgs();
   const force = Boolean(args['force-narration']);
+  const engineOverride =
+    typeof args.engine === 'string' ? args.engine : undefined;
 
   // Slug sources: --all (whole campaign), --promo <slug>, or positional slugs
   // (`render-promo one two three`). Multiple slugs render sequentially.
@@ -328,7 +335,7 @@ function main() {
   for (const slug of slugs) {
     try {
       console.log(`\n[promo] ===== ${slug} =====`);
-      renderPromo(slug, force);
+      renderPromo(slug, force, engineOverride);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[promo] ${slug} FAILED: ${message}`);
