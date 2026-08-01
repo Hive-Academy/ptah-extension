@@ -69,7 +69,19 @@ const UNVALIDATED_DEBT: readonly string[] = [
   'contact/ContactController', // B4
   'session/SessionController', // B5
   'subscription/SubscriptionController', // B6
-  'admin/AdminController', // B7
+  // B7 was one line for the 306-line `admin/AdminController`. TASK_2026_170 R2
+  // split that class into five resource controllers, so the single line becomes
+  // four — one per batch, one per controller. `admin/AdminStatsController` is
+  // deliberately ABSENT: it has zero payload params, so the staleness assertion
+  // below ("still has at least one unbound param") would fail on it. It sits in
+  // ENFORCED and passes vacuously, exactly like the other param-free
+  // controllers. The arithmetic is checked by MIN_TOTAL_PAYLOAD_PARAMS: the
+  // split MOVES params, it never adds or removes them, so the server-wide total
+  // is identical before and after.
+  'admin/AdminRecordsController', // B7a  (@Query ListQueryDto, @Body UpdateRecordDto)
+  'admin/AdminUsersController', // B7b  (@Body BulkEmailDto, @Body DeleteUserDto)
+  'admin/AdminLicensesController', // B7c  (@Body IssueComplimentaryLicenseDto)
+  'admin/AdminWaitlistController', // B7d  (@Body InviteWaitlistDto)
   'marketing/AdminMarketingController', // B8
   'license/AdminController', // B9
 ];
@@ -103,9 +115,15 @@ const EXCLUDED: ReadonlyArray<{
  * every "all params are bound" assertion passes vacuously. Asserting a minimum
  * total makes that failure loud and immediate.
  *
- * Counted from source on 2026-08-01: 39 `@Body()`/`@Query()` params across the
- * 21 controllers above (31 whole-object + 8 named-primitive). Raise it only
- * when you have counted again.
+ * Counted from source on 2026-08-01: 39 `@Body()`/`@Query()` params across every
+ * controller in `ALL_CONTROLLERS` (31 whole-object + 8 named-primitive). Raise
+ * it only when you have counted again.
+ *
+ * ⚠️ It is ALSO the arithmetic check on TASK_2026_170's controller splits. R2
+ * turned one 6-param `admin/AdminController` into five controllers holding
+ * 2 + 2 + 1 + 1 + 0 = 6 params. A split MOVES params; it can never add or
+ * remove one, so this total must read EXACTLY the same before and after. It
+ * still does: re-derived by probe after R2 and confirmed at 39.
  */
 const MIN_TOTAL_PAYLOAD_PARAMS = 39;
 

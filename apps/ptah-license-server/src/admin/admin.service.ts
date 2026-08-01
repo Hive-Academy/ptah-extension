@@ -21,10 +21,8 @@ import {
 import { BulkEmailDto, ListQueryDto } from './admin.dto';
 import { DeleteUserDto } from './dto/delete-user.dto';
 import { MemberGroupsService } from '../member-groups/member-groups.service';
-import type {
-  AdminBulkEmailResponse,
-  AdminListResponse,
-} from './admin.controller';
+import type { AdminListResponse } from './admin-records.controller';
+import type { AdminBulkEmailResponse } from './admin-users.controller';
 
 /**
  * Per-user relation counts included in the deletion preview & result payloads.

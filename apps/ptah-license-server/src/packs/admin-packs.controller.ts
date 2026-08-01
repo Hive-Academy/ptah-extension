@@ -43,11 +43,6 @@ import type { PackResponse } from './packs.types';
  * posted inside their cohort's Discourse group), never through Ptah. Structural
  * test G6 asserts every controller in `PacksModule` is mounted under
  * `v1/admin/`.
- *
- * ⚠️ ROUTING: `PacksModule` MUST be registered in `app.module.ts` BEFORE
- * `AdminModule`. `AdminController` is `@Controller('v1/admin')` with `@Get(':model')`
- * wildcards; registered in the wrong order, `GET /api/v1/admin/packs` falls
- * through to it and 400s with "Unknown admin model: packs".
  */
 @Controller('v1/admin/packs')
 @UseGuards(JwtAuthGuard, AdminGuard)

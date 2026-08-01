@@ -57,7 +57,7 @@ import { ValidationPipe, type Type } from '@nestjs/common';
  *    string, not a DTO; `dtoPipe` is meaningless there. The structural spec
  *    carves them out by route-args `data`, and asserts the carve-out's size so
  *    it cannot silently grow.
- *  - `AdminController.update` uses `passthroughDtoPipe` (see below).
+ *  - `AdminRecordsController.update` uses `passthroughDtoPipe` (see below).
  *
  * END STATE: Option B — an esbuild plugin that emits `design:paramtypes` — would
  * make the global pipe in `main.ts` live and render per-param binding
@@ -79,8 +79,8 @@ export function dtoPipe<T>(expectedType: Type<T>): ValidationPipe {
  * Transport-envelope variant of `dtoPipe` for handlers whose body shape is
  * genuinely dynamic and whose allowlist lives elsewhere in the server.
  *
- * ⚠️ ONLY legitimate use today: `AdminController.update`
- * (`src/admin/admin.controller.ts`). `UpdateRecordDto` is an index-signature
+ * ⚠️ ONLY legitimate use today: `AdminRecordsController.update`
+ * (`src/admin/admin-records.controller.ts`). `UpdateRecordDto` is an index-signature
  * class (`{ [key: string]: unknown }`) with NO class-validator metadata, and
  * class-validator's whitelist step rejects EVERY property of a zero-metadata
  * class when `forbidNonWhitelisted` is on:

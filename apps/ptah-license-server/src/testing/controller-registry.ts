@@ -2,7 +2,11 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { type Type } from '@nestjs/common';
 
-import { AdminController as AdminAdminController } from '../admin/admin.controller';
+import { AdminLicensesController } from '../admin/admin-licenses.controller';
+import { AdminRecordsController } from '../admin/admin-records.controller';
+import { AdminStatsController } from '../admin/admin-stats.controller';
+import { AdminUsersController } from '../admin/admin-users.controller';
+import { AdminWaitlistController } from '../admin/admin-waitlist.controller';
 import { AuthController } from '../app/auth/auth.controller';
 import { ContactController } from '../contact/contact.controller';
 import { AdminCommunityController } from '../discourse/admin-community.controller';
@@ -95,19 +99,42 @@ export interface ControllerRegistryEntry {
  * Every controller in the server, with a UNIQUE human label and its
  * source-relative file path.
  *
- * ⚠️ The label is NOT `controller.name`. Two distinct classes in this server are
- * both called `AdminController` (`admin/admin.controller.ts` and
- * `license/controllers/admin.controller.ts`). Keying a debt ledger on the
- * class name would let one hide behind the other: whichever got bound first
+ * ⚠️ The label is NOT `controller.name`, and it must stay that way.
+ * Until TASK_2026_170 R2, two distinct classes in this server were both called
+ * `AdminController` (`admin/admin.controller.ts` and
+ * `license/controllers/admin.controller.ts`). Keying a debt ledger on the class
+ * name would have let one hide behind the other: whichever got bound first
  * would remove "AdminController" from the ledger and silently exempt the other.
- * Labels are path-qualified so the two can never collide, and the classes are
- * imported under aliases.
+ * R2 split the first into five resource-named controllers; R3 renames the
+ * second to `IntegrationLicensesController`, after which the alias import below
+ * collapses to a plain one. Labels stay path-qualified regardless — they are
+ * the ledger keys, a class name is not guaranteed unique, and a path is.
  */
 export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   {
-    label: 'admin/AdminController',
-    file: 'admin/admin.controller.ts',
-    controller: AdminAdminController,
+    label: 'admin/AdminLicensesController',
+    file: 'admin/admin-licenses.controller.ts',
+    controller: AdminLicensesController,
+  },
+  {
+    label: 'admin/AdminRecordsController',
+    file: 'admin/admin-records.controller.ts',
+    controller: AdminRecordsController,
+  },
+  {
+    label: 'admin/AdminStatsController',
+    file: 'admin/admin-stats.controller.ts',
+    controller: AdminStatsController,
+  },
+  {
+    label: 'admin/AdminUsersController',
+    file: 'admin/admin-users.controller.ts',
+    controller: AdminUsersController,
+  },
+  {
+    label: 'admin/AdminWaitlistController',
+    file: 'admin/admin-waitlist.controller.ts',
+    controller: AdminWaitlistController,
   },
   {
     label: 'app/auth/AuthController',

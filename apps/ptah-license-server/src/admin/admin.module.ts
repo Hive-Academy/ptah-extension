@@ -4,7 +4,11 @@ import { AuthModule } from '../app/auth/auth.module';
 import { EmailModule } from '../email/email.module';
 import { LicenseModule } from '../license/license.module';
 import { WaitlistModule } from '../waitlist/waitlist.module';
-import { AdminController } from './admin.controller';
+import { AdminLicensesController } from './admin-licenses.controller';
+import { AdminRecordsController } from './admin-records.controller';
+import { AdminStatsController } from './admin-stats.controller';
+import { AdminUsersController } from './admin-users.controller';
+import { AdminWaitlistController } from './admin-waitlist.controller';
 import { AdminGuard } from './admin.guard';
 import { AdminThrottlerGuard } from './admin-throttler.guard';
 import { AdminService } from './admin.service';
@@ -16,10 +20,23 @@ import { AdminService } from './admin.service';
  *   - `ConfigModule` for `AdminGuard`'s `ADMIN_EMAILS` lookup.
  *   - `AuthModule` re-exports `JwtAuthGuard` (used in controller's guard chain).
  *   - `EmailModule` re-exports `EmailService` (used for bulk marketing email).
+ *   - `WaitlistModule` re-exports `WaitlistService` (invite waves).
+ *   - `forwardRef(() => LicenseModule)` for `LicenseService` (complimentary
+ *     licences) — circular because `LicenseModule` consumes `AdminThrottlerGuard`.
  *
- * `PrismaModule` is `@Global()` — no import needed here.
+ * `PrismaModule` and `AuditModule` are `@Global()` — no import needed here.
  *
- * Leaf module: exports nothing (no other module should consume admin services).
+ * ⚠️ FIVE CONTROLLERS, ONE SERVICE, ONE MODULE (TASK_2026_170 R2).
+ * `AdminController` used to be a single 306-line class carrying four unrelated
+ * concerns — generic model CRUD, user administration, licence issuance and
+ * waitlist invitation — under `@Controller('v1/admin')` with three `:model`
+ * wildcards that contested ten sibling admin routes. The CONTROLLERS split by
+ * resource; the MODULE did not, because "the native admin dashboard backend" is
+ * genuinely one concern and `AdminService` is shared. The `imports` array is
+ * unchanged: it already covered every dependency of every new controller.
+ *
+ * Leaf module: exports only `AdminThrottlerGuard` (consumed by sibling admin
+ * surfaces in other modules).
  */
 @Module({
   imports: [
@@ -29,7 +46,13 @@ import { AdminService } from './admin.service';
     WaitlistModule,
     forwardRef(() => LicenseModule),
   ],
-  controllers: [AdminController],
+  controllers: [
+    AdminRecordsController,
+    AdminUsersController,
+    AdminStatsController,
+    AdminWaitlistController,
+    AdminLicensesController,
+  ],
   providers: [AdminService, AdminGuard, AdminThrottlerGuard],
   exports: [AdminThrottlerGuard],
 })

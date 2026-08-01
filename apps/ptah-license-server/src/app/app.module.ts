@@ -63,13 +63,16 @@ import { PacksModule } from '../packs/packs.module';
     GoogleSessionsModule, // Google Calendar/Meet Builders sessions + members area
     DiscourseModule, // DiscourseConnect SSO + builders group sync
     MemberGroupsModule, // Member cohorts (groups) + assignment (@Global)
-    // TASK_2026_169: admin-only Builders pack registry.
-    // ⚠️ MUST stay ABOVE AdminModule. AdminController is @Controller('v1/admin')
-    // with @Get(':model') wildcards, so a sibling @Controller('v1/admin/packs')
-    // only wins the route match when its module is registered first. Move this
-    // below AdminModule and GET /api/v1/admin/packs silently 400s with
-    // "Unknown admin model: packs". Same reason MemberGroupsModule sits here.
-    PacksModule,
+    // THIS ARRAY'S ORDER NO LONGER ARBITRATES ROUTE MATCHING (TASK_2026_170 R2).
+    // It used to: AdminController was @Controller('v1/admin') with @Get(':model')
+    // wildcards, so ten sibling admin routes — packs, groups, sessions,
+    // community/*, marketing/* — resolved correctly ONLY because their modules
+    // appeared above AdminModule here. R2 moved those wildcards under the
+    // literal `v1/admin/records`, and `src/common/route-map.spec.ts` (RI-1/RI-2)
+    // now asserts that no two controllers can contest a path at all. Order this
+    // array for readability; a routing bug can no longer hide in it.
+    PacksModule, // TASK_2026_169: admin-only Builders pack registry
+
     LicenseModule,
     AuthModule,
     PaddleModule,

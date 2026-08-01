@@ -7,8 +7,6 @@ import {
   METHOD_METADATA,
   GUARDS_METADATA,
 } from '@nestjs/common/constants';
-import { AppModule } from '../app/app.module';
-import { AdminModule } from './admin.module';
 import { AdminGuard } from './admin.guard';
 import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
 import { PacksModule } from '../packs/packs.module';
@@ -26,10 +24,19 @@ import { MemberGroupsController } from '../member-groups/member-groups.controlle
  * CI on every commit.
  *
  *   G1 — every admin controller carries JwtAuthGuard + AdminGuard at CLASS level
- *   G3 — PacksModule is registered BEFORE AdminModule (routing landmine)
  *   G4 — the Builders membership gate never consults admin identity
  *   G5 — the admin community controller exposes ONLY @Get handlers
  *   G6 — PacksModule registers no member-facing controller
+ *
+ * G3 ("registers PacksModule before AdminModule in AppModule") USED to live
+ * here. It was DELETED by TASK_2026_170 R2, not moved. G3 froze an arbitrary
+ * ordering of `app.module.ts`'s `imports` array as if the ordering itself were
+ * the invariant; it was only ever a PROXY for the real property — that no two
+ * controllers contest a route. R2 removed the cause by moving
+ * `AdminController`'s `v1/admin/:model` wildcards under `v1/admin/records`, and
+ * `src/common/route-map.spec.ts` now asserts the real property directly as RI-2
+ * ("no cross-controller contest"), which holds no matter how the array is
+ * ordered. Keeping G3 after that would have made a free choice look mandatory.
  *
  * G7 ("every @Body()/@Query() param binds dtoPipe") USED to live here. It was
  * moved to `src/common/controller-validation.spec.ts` by TASK_2026_170: it now
@@ -85,29 +92,6 @@ describe('Admin surface — structural guards', () => {
     ])('%s is mounted under v1/admin/', (_name, ctrl) => {
       const path = Reflect.getMetadata(PATH_METADATA, ctrl) as string;
       expect(path.startsWith('v1/admin/')).toBe(true);
-    });
-  });
-
-  describe('G3 — module registration order (routing landmine, plan §7.2)', () => {
-    // AdminController is @Controller('v1/admin') with @Get(':model') and
-    // @Get(':model/:id') wildcards. A sibling @Controller('v1/admin/packs')
-    // only wins the route match when its module is registered FIRST.
-    // Registered after, GET /api/v1/admin/packs falls through to the generic
-    // admin CRUD and 400s with "Unknown admin model: packs" — a confusing,
-    // non-obvious failure. This asserts the ordering directly, with no Nest
-    // bootstrap and no database.
-    it('registers PacksModule before AdminModule in AppModule', () => {
-      const imports = Reflect.getMetadata(
-        MODULE_METADATA.IMPORTS,
-        AppModule,
-      ) as unknown[];
-
-      const packsIndex = imports.indexOf(PacksModule);
-      const adminIndex = imports.indexOf(AdminModule);
-
-      expect(packsIndex).toBeGreaterThanOrEqual(0);
-      expect(adminIndex).toBeGreaterThanOrEqual(0);
-      expect(packsIndex).toBeLessThan(adminIndex);
     });
   });
 

@@ -355,6 +355,16 @@ export type UnassignGroupMemberResponse = z.infer<
  * `environment.apiBaseUrl` and sets `withCredentials: true` so the
  * `ptah_auth` cookie is attached cross-origin.
  *
+ * ⚠️ GENERIC RECORD CRUD LIVES UNDER `/records` (TASK_2026_170 R2).
+ * `list()` / `get()` / `update()` hit `${base}/records/${model}[/${id}]`, served
+ * by `AdminRecordsController`. Every other method here targets a named
+ * sub-resource (`users/*`, `licenses/complimentary`, `marketing/*`,
+ * `waitlist/invite`, `stats`, `groups/*`) whose path did NOT change — those are
+ * separate controllers with behaviour the generic table view cannot express.
+ * Note the consequence: `records/users` (generic user table) and `users/:id`
+ * (cascade delete, deletion preview, bulk mail) are deliberately different
+ * resources.
+ *
  * Angular 21 patterns:
  * - `inject()` DI
  * - `providedIn: 'root'` singleton
@@ -384,15 +394,17 @@ export class AdminApiService {
     if (q.sortOrder) params = params.set('sortOrder', q.sortOrder);
     if (q.search) params = params.set('search', q.search);
     if (q.filter) params = params.set('filter', q.filter);
-    return this.http.get<unknown>(`${this.base}/${model}`, { params }).pipe(
-      map(validate(adminListEnvelopeSchema, `GET /${model}`)),
-      map(
-        (res): AdminListResponse<T> => ({
-          ...res,
-          data: res.data as unknown as T[],
-        }),
-      ),
-    );
+    return this.http
+      .get<unknown>(`${this.base}/records/${model}`, { params })
+      .pipe(
+        map(validate(adminListEnvelopeSchema, `GET /records/${model}`)),
+        map(
+          (res): AdminListResponse<T> => ({
+            ...res,
+            data: res.data as unknown as T[],
+          }),
+        ),
+      );
   }
 
   /**
@@ -402,8 +414,8 @@ export class AdminApiService {
     model: AdminModelKey,
     id: string,
   ): Observable<T> {
-    return this.http.get<unknown>(`${this.base}/${model}/${id}`).pipe(
-      map(validate(adminRecordSchema, `GET /${model}/${id}`)),
+    return this.http.get<unknown>(`${this.base}/records/${model}/${id}`).pipe(
+      map(validate(adminRecordSchema, `GET /records/${model}/${id}`)),
       map((rec) => rec as unknown as T),
     );
   }
@@ -418,10 +430,12 @@ export class AdminApiService {
     id: string,
     patch: Record<string, unknown>,
   ): Observable<T> {
-    return this.http.patch<unknown>(`${this.base}/${model}/${id}`, patch).pipe(
-      map(validate(adminRecordSchema, `PATCH /${model}/${id}`)),
-      map((rec) => rec as unknown as T),
-    );
+    return this.http
+      .patch<unknown>(`${this.base}/records/${model}/${id}`, patch)
+      .pipe(
+        map(validate(adminRecordSchema, `PATCH /records/${model}/${id}`)),
+        map((rec) => rec as unknown as T),
+      );
   }
 
   /**
