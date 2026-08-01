@@ -75,6 +75,13 @@
                   <button
                     type="button"
                     class="btn btn-ghost btn-xs"
+                    (click)="openMembers(g)"
+                  >
+                    Members
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
                     (click)="openAssign(g)"
                   >
                     Assign Members
@@ -117,3 +124,109 @@
   (closeModal)="onAssignClose()"
   (submitted)="onAssignSubmitted($event)"
 />
+
+<!--
+  Members drill-down (TASK_2026_169 / F3d). Browsing a cohort's roster was
+  previously impossible — the API only offered remove-by-id — so removing
+  someone meant already knowing their user id.
+-->
+<ptah-admin-detail-drawer
+  [open]="membersOpen()"
+  [title]="(membersTarget()?.name ?? 'Cohort') + ' members'"
+  (closed)="closeMembers()"
+>
+  <div class="flex flex-col gap-3">
+    <form class="join" (submit)="onMemberSearchSubmit($event)">
+      <label class="sr-only" for="group-members-search">Search by email</label>
+      <input
+        id="group-members-search"
+        type="search"
+        class="input input-bordered input-sm join-item w-full"
+        placeholder="Search by email"
+        [value]="memberSearchDraft()"
+        (input)="onMemberSearchInput($event)"
+      />
+      <button type="submit" class="btn btn-sm join-item">Search</button>
+    </form>
+
+    @if (membersError(); as memErr) {
+      <div class="alert alert-error py-2 text-sm" role="alert">
+        <span>{{ memErr }}</span>
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs"
+          (click)="fetchMembers()"
+        >
+          Retry
+        </button>
+      </div>
+    }
+
+    @if (membersLoading() && members().length === 0) {
+      <div class="flex flex-col gap-2">
+        @for (i of [1, 2, 3]; track i) {
+          <div class="h-12 animate-pulse rounded-lg bg-base-300"></div>
+        }
+      </div>
+    } @else if (members().length === 0) {
+      <p class="py-6 text-center text-sm opacity-60">
+        @if (memberSearch().length > 0) {
+          No members match that email.
+        } @else {
+          This cohort has no members yet.
+        }
+      </p>
+    } @else {
+      <ul class="flex flex-col divide-y divide-base-300">
+        @for (m of members(); track m.userId) {
+          <li class="flex items-center justify-between gap-3 py-2">
+            <div class="min-w-0">
+              <div class="truncate text-sm font-medium">{{ m.email }}</div>
+              <div class="truncate text-xs opacity-60">
+                {{ memberName(m) }} · added
+                {{ m.assignedAt | date: 'mediumDate' }} · {{ m.source }}
+              </div>
+            </div>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs text-error"
+              [disabled]="removingUserId() !== null"
+              (click)="removeMember(m)"
+            >
+              @if (removingUserId() === m.userId) {
+                <span class="loading loading-spinner loading-xs"></span>
+              } @else {
+                Remove
+              }
+            </button>
+          </li>
+        }
+      </ul>
+
+      @if (membersTotalPages() > 1) {
+        <div class="flex items-center justify-between gap-2 pt-1">
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            [disabled]="membersPage() <= 1 || membersLoading()"
+            (click)="goToMembersPage(membersPage() - 1)"
+          >
+            Previous
+          </button>
+          <span class="text-xs opacity-60">
+            Page {{ membersPage() }} of {{ membersTotalPages() }} ·
+            {{ membersTotal() }} total
+          </span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            [disabled]="membersPage() >= membersTotalPages() || membersLoading()"
+            (click)="goToMembersPage(membersPage() + 1)"
+          >
+            Next
+          </button>
+        </div>
+      }
+    }
+  </div>
+</ptah-admin-detail-drawer>

@@ -11,6 +11,8 @@ import { AdminLayout } from './admin-layout/admin-layout';
  *   /admin/overview         → AdminOverview (GET /api/v1/admin/stats tiles)
  *   /admin/groups           → GroupsList (member-cohort management —
  *                             dedicated view, NOT the generic model CRUD)
+ *   /admin/builders/*       → Builders content (packs registry, calendar
+ *                             sessions, read-only community triage)
  *   /admin/:model           → AdminList (table view for a single model)
  *   /admin/:model/:id       → AdminDetail (read / edit a single record)
  *
@@ -126,6 +128,34 @@ export const ADMIN_ROUTES: Routes = [
         loadComponent: () =>
           import('./marketing/templates/templates-gallery').then(
             (m) => m.TemplatesGallery,
+          ),
+      },
+      // Builders content management (TASK_2026_169) — MUST precede the generic
+      // ':model' / ':model/:id' catch-all. `builders` is NOT an `AdminModelKey`,
+      // so a mis-ordered entry here resolves to `AdminList` and the API answers
+      // 400 "Unknown admin model: builders".
+      {
+        path: 'builders',
+        pathMatch: 'full',
+        redirectTo: 'builders/packs',
+      },
+      {
+        path: 'builders/packs',
+        loadComponent: () =>
+          import('./builders/packs/packs-list').then((m) => m.PacksList),
+      },
+      {
+        path: 'builders/sessions',
+        loadComponent: () =>
+          import('./builders/sessions/sessions-list').then(
+            (m) => m.SessionsList,
+          ),
+      },
+      {
+        path: 'builders/community',
+        loadComponent: () =>
+          import('./builders/community/community-view').then(
+            (m) => m.CommunityView,
           ),
       },
       {

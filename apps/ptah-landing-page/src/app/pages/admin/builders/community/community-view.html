@@ -1,0 +1,178 @@
+<section class="flex flex-col gap-6">
+  <header class="flex flex-wrap items-start justify-between gap-3">
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center gap-2">
+        <h2 class="text-xl font-semibold">Community</h2>
+        <span class="badge badge-ghost badge-sm">read-only</span>
+      </div>
+      <!--
+        Decision 1 — moderation stays in Discourse. This copy tells the operator
+        where the actions live, so the absence of controls reads as a boundary
+        rather than a missing feature.
+      -->
+      <p class="max-w-2xl text-sm opacity-70">
+        A window onto the Builders forum. Moderating, replying, and acting on
+        flags all happen in Discourse's own admin panel — every row here links
+        straight to it.
+      </p>
+    </div>
+
+    @if (communityUrl(); as base) {
+      <a
+        class="btn btn-sm"
+        [href]="base"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Open Discourse
+      </a>
+    }
+  </header>
+
+  <!-- Review queue: an awareness count, not an action surface. -->
+  <div class="flex flex-wrap items-stretch gap-4">
+    <div class="min-w-56">
+      <ptah-admin-stat-tile
+        label="Pending review"
+        [value]="reviewLoading() ? null : reviewCount()"
+        [delta]="reviewCount() > 0 ? 'needs a human' : 'nothing waiting'"
+        [deltaTone]="reviewTone()"
+      />
+    </div>
+
+    <div class="flex flex-1 flex-col justify-center gap-2">
+      @if (reviewError(); as revErr) {
+        <div class="alert alert-error py-2 text-sm" role="alert">
+          <span>{{ revErr }}</span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            (click)="fetchReviewQueue()"
+          >
+            Retry
+          </button>
+        </div>
+      } @else if (reviewCount() > 0) {
+        <ul class="flex flex-col gap-1 text-sm">
+          @for (item of reviewItems(); track item.id) {
+            <li class="flex flex-wrap items-baseline gap-2">
+              <span class="badge badge-outline badge-sm">{{ item.type }}</span>
+              <span class="opacity-80">{{ item.topicTitle ?? 'Untitled' }}</span>
+              <span class="text-xs opacity-50">
+                {{ item.createdAt | date: 'shortDate' }}
+              </span>
+            </li>
+          }
+        </ul>
+        @if (reviewUrl(); as rUrl) {
+          <a
+            class="link link-primary text-sm"
+            [href]="rUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Review in Discourse →
+          </a>
+        }
+      } @else if (!reviewLoading()) {
+        <p class="text-sm opacity-60">
+          Nothing is waiting on a moderator right now.
+        </p>
+      }
+    </div>
+  </div>
+
+  <div class="flex flex-col gap-3">
+    <h3 class="text-lg font-semibold">Recent topics</h3>
+
+    @if (topicsError(); as errMsg) {
+      <div class="alert alert-error" role="alert">
+        <span>{{ errMsg }}</span>
+        <button
+          type="button"
+          class="btn btn-sm btn-ghost"
+          (click)="fetchTopics()"
+        >
+          Retry
+        </button>
+      </div>
+    }
+
+    @if (topicsLoading() && topics().length === 0) {
+      <div class="flex flex-col gap-2">
+        @for (i of [1, 2, 3]; track i) {
+          <div class="h-12 animate-pulse rounded-lg bg-base-200"></div>
+        }
+      </div>
+    } @else if (showDisabled()) {
+      <ptah-admin-empty-state
+        [icon]="CommunityIcon"
+        message="Discourse is not configured on this server."
+        hint="Set the Discourse URL and API key in the license server environment to surface forum activity here."
+      />
+    } @else if (showEmptyTopics()) {
+      <ptah-admin-empty-state
+        [icon]="CommunityIcon"
+        message="No recent topics."
+        hint="Either the forum is quiet, or Discourse could not be reached — the server returns an empty list rather than an error."
+      />
+    } @else if (topics().length > 0) {
+      <div class="overflow-x-auto rounded-lg border border-base-300">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Topic</th>
+              <th>Category</th>
+              <th class="text-right">Posts</th>
+              <th>Last post</th>
+              <th class="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (t of topicRows(); track t.id) {
+              <tr>
+                <td>
+                  @if (t.href) {
+                    <a
+                      class="link link-hover font-medium"
+                      [href]="t.href"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {{ t.title }}
+                    </a>
+                  } @else {
+                    <span class="font-medium">{{ t.title }}</span>
+                  }
+                </td>
+                <td class="text-sm opacity-70">{{ t.categoryName ?? '—' }}</td>
+                <td class="text-right tabular-nums">{{ t.postsCount }}</td>
+                <td class="text-sm opacity-70">
+                  @if (t.lastPostedAt) {
+                    {{ t.lastPostedAt | date: 'medium' }}
+                  } @else {
+                    —
+                  }
+                </td>
+                <td class="text-right">
+                  @if (t.href) {
+                    <a
+                      class="btn btn-ghost btn-xs"
+                      [href]="t.href"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Open in Discourse
+                    </a>
+                  } @else {
+                    <span class="text-xs opacity-50">—</span>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </div>
+</section>

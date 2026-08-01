@@ -14,11 +14,14 @@
  */
 import {
   AlertTriangle,
+  CalendarDays,
   CreditCard,
   KeyRound,
   LayoutDashboard,
   type LucideIconData,
   Megaphone,
+  MessagesSquare,
+  Package,
   ScrollText,
   TrendingUp,
   UserCircle,
@@ -148,6 +151,38 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
         label: 'Session Requests',
         route: '/admin/session-requests',
         primary: false,
+      },
+    ],
+  },
+  {
+    // TASK_2026_169 — the admin's window onto Builders member content, reached
+    // through `AdminGuard` rather than a Builders membership. Sits between
+    // Operations and People & Community: operational in nature, but the content
+    // it manages is member-facing.
+    //
+    // Member Groups deliberately stays under People & Community — cohorts are
+    // people-shaped, and the members drill-down enhances `/admin/groups` in place.
+    label: 'Builders Content',
+    icon: Package,
+    items: [
+      {
+        label: 'Packs',
+        route: '/admin/builders/packs',
+        primary: true,
+        icon: Package,
+      },
+      {
+        label: 'Sessions',
+        route: '/admin/builders/sessions',
+        primary: true,
+        icon: CalendarDays,
+      },
+      {
+        label: 'Community',
+        route: '/admin/builders/community',
+        primary: true,
+        icon: MessagesSquare,
+        readOnly: true,
       },
     ],
   },

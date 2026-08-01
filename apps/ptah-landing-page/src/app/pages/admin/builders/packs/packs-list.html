@@ -1,0 +1,216 @@
+<section class="flex flex-col gap-4">
+  <header class="flex flex-wrap items-start justify-between gap-3">
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center gap-2">
+        <h2 class="text-xl font-semibold">Packs</h2>
+        <span class="text-sm opacity-60">({{ packs().length }} total)</span>
+      </div>
+      <!--
+        L12 mitigation — this copy is load-bearing. The cohort label on a pack
+        gates nothing; repository access is administered on GitHub. An operator
+        who assumes editing the cohort re-shares (or revokes) a repo would
+        mis-administer the feature, so the view states its own scope up front.
+      -->
+      <p class="max-w-2xl text-sm opacity-70">
+        A record of which GitHub repository was shared with which cohort.
+        Access is granted on GitHub — inviting collaborators, adding a team, or
+        posting the repo link in that cohort's Discourse group. Nothing on this
+        page grants or revokes access.
+      </p>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" (click)="openCreate()">
+      New Pack
+    </button>
+  </header>
+
+  <div class="flex flex-wrap items-end gap-3">
+    <form class="join" (submit)="onSearchSubmit($event)">
+      <label class="sr-only" for="packs-search">Search packs</label>
+      <input
+        id="packs-search"
+        type="search"
+        class="input input-bordered input-sm join-item w-56"
+        placeholder="Search title or slug"
+        [value]="searchDraft()"
+        (input)="onSearchInput($event)"
+      />
+      <button type="submit" class="btn btn-sm join-item">Search</button>
+    </form>
+
+    <label class="form-control">
+      <div class="label py-0">
+        <span class="label-text text-xs opacity-70">Cohort</span>
+      </div>
+      <select
+        class="select select-bordered select-sm w-52"
+        aria-label="Filter by cohort"
+        [value]="cohortFilter()"
+        (change)="onCohortFilterChange($event)"
+      >
+        <option value="">All cohorts</option>
+        @for (c of cohortOptions(); track c.key) {
+          <option [value]="c.key">{{ c.name }}</option>
+        }
+      </select>
+    </label>
+
+    @if (isFiltered()) {
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm"
+        (click)="clearFilters()"
+      >
+        Clear filters
+      </button>
+    }
+  </div>
+
+  @if (error(); as errMsg) {
+    <div class="alert alert-error" role="alert">
+      <span>{{ errMsg }}</span>
+      <button type="button" class="btn btn-sm btn-ghost" (click)="fetch()">
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (loading() && packs().length === 0) {
+    <div class="flex flex-col gap-2">
+      @for (i of [1, 2, 3]; track i) {
+        <div class="h-14 animate-pulse rounded-lg bg-base-200"></div>
+      }
+    </div>
+  } @else if (packs().length === 0) {
+    <ptah-admin-empty-state
+      [icon]="PackageIcon"
+      [message]="
+        isFiltered() ? 'No packs match those filters.' : 'No packs recorded yet.'
+      "
+      [hint]="
+        isFiltered()
+          ? null
+          : 'Create the repo on GitHub and grant the cohort access there, then record it here.'
+      "
+    >
+      @if (isFiltered()) {
+        <button type="button" class="btn btn-sm" (click)="clearFilters()">
+          Clear filters
+        </button>
+      } @else {
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          (click)="openCreate()"
+        >
+          New Pack
+        </button>
+      }
+    </ptah-admin-empty-state>
+  } @else {
+    <div class="overflow-x-auto rounded-lg border border-base-300">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Pack</th>
+            <th>Repository</th>
+            <th>Cohort</th>
+            <th>Tags</th>
+            <th>Notes</th>
+            <th class="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (p of packs(); track p.id) {
+            <tr>
+              <td>
+                <div class="font-medium">{{ p.title }}</div>
+                <div class="font-mono text-xs opacity-60">{{ p.slug }}</div>
+                @if (p.description) {
+                  <div class="mt-1 max-w-md text-xs opacity-70">
+                    {{ p.description }}
+                  </div>
+                }
+              </td>
+              <td>
+                <a
+                  class="link link-primary break-all text-sm"
+                  [href]="p.repoUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {{ p.repoUrl }}
+                </a>
+              </td>
+              <td>
+                <!--
+                  The unlabelled case renders as a deliberate "No cohort" chip,
+                  never as a blank cell — blank reads as missing data, which
+                  invites an operator to "fix" it.
+                -->
+                @if (p.cohortKey) {
+                  <ptah-admin-status-badge
+                    [variant]="'info'"
+                    [label]="p.cohortName ?? p.cohortKey"
+                    [showIcon]="false"
+                  />
+                } @else {
+                  <ptah-admin-status-badge
+                    [variant]="'ghost'"
+                    label="No cohort"
+                    [showIcon]="false"
+                  />
+                }
+              </td>
+              <td>
+                @if (p.tags.length > 0) {
+                  <div class="flex flex-wrap gap-1">
+                    @for (t of p.tags; track t) {
+                      <span class="badge badge-outline badge-sm">{{ t }}</span>
+                    }
+                  </div>
+                } @else {
+                  <span class="text-sm opacity-50">—</span>
+                }
+              </td>
+              <td class="max-w-xs text-xs opacity-70">
+                {{ p.notes ?? '—' }}
+              </td>
+              <td class="text-right">
+                <div class="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    (click)="openEdit(p)"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs text-error"
+                    (click)="openDelete(p)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>
+
+<ptah-admin-pack-form-modal
+  [open]="formOpen()"
+  [pack]="formTarget()"
+  (closeModal)="onFormClose()"
+  (saved)="onFormSaved()"
+/>
+
+<ptah-admin-delete-pack-modal
+  [open]="deleteOpen()"
+  [pack]="deleteTarget()"
+  (closeModal)="onDeleteClose()"
+  (deleted)="onDeleted()"
+/>

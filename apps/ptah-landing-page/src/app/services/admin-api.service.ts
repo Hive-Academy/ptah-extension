@@ -3,6 +3,8 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 import { z } from 'zod';
 
+import { validate } from './validate-response';
+
 /**
  * URL slug for every admin-addressable Prisma model.
  *
@@ -345,23 +347,6 @@ const unassignGroupMemberResponseSchema = z.object({
 export type UnassignGroupMemberResponse = z.infer<
   typeof unassignGroupMemberResponseSchema
 >;
-
-/**
- * Validates an HTTP response body against a Zod schema at the API boundary.
- * On mismatch it throws a single, located error (`<path>: <message>`) that
- * propagates through the Observable error channel, so callers surface a clear
- * "malformed response" instead of dereferencing `undefined` later.
- */
-function validate<S extends z.ZodType>(schema: S, endpoint: string) {
-  return (raw: unknown): z.infer<S> => {
-    const parsed = schema.safeParse(raw);
-    if (parsed.success) return parsed.data;
-    const detail = parsed.error.issues
-      .map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
-      .join('; ');
-    throw new Error(`Malformed response from ${endpoint} — ${detail}`);
-  };
-}
 
 /**
  * AdminApiService - Thin HTTP client for `/api/v1/admin/*`

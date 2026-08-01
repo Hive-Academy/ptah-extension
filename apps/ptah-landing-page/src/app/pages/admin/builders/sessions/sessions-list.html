@@ -1,0 +1,208 @@
+<section class="flex flex-col gap-4">
+  <header class="flex flex-wrap items-start justify-between gap-3">
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center gap-2">
+        <h2 class="text-xl font-semibold">Sessions</h2>
+        <span class="text-sm opacity-60">({{ sessions().length }} upcoming)</span>
+      </div>
+      <p class="max-w-2xl text-sm opacity-70">
+        The Builders session calendar, read and written through Google
+        Calendar. Members see these same events on their own page.
+      </p>
+    </div>
+
+    <div class="flex items-end gap-3">
+      <label class="form-control">
+        <div class="label py-0">
+          <span class="label-text text-xs opacity-70">Window</span>
+        </div>
+        <select
+          class="select select-bordered select-sm w-36"
+          aria-label="Lookahead window in days"
+          [value]="daysAhead()"
+          (change)="onWindowChange($event)"
+        >
+          @for (d of windowOptions; track d) {
+            <option [value]="d">Next {{ d }} days</option>
+          }
+        </select>
+      </label>
+
+      @if (calendarWritable()) {
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          (click)="openCreate()"
+        >
+          New Session
+        </button>
+      }
+    </div>
+  </header>
+
+  @if (showReadOnlyNotice()) {
+    <div class="alert alert-warning" role="status">
+      <div class="flex flex-col gap-1">
+        <span class="font-medium">Calendar is read-only</span>
+        <span class="text-sm">
+          The server's Google account has no calendar write scope, so sessions
+          cannot be created, edited, or deleted from here. Re-run the Google
+          OAuth consent with the calendar scope and replace the stored refresh
+          token to enable editing. Viewing is unaffected.
+        </span>
+      </div>
+    </div>
+  }
+
+  @if (error(); as errMsg) {
+    <div class="alert alert-error" role="alert">
+      <span>{{ errMsg }}</span>
+      <button type="button" class="btn btn-sm btn-ghost" (click)="fetch()">
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (deleteError(); as delErr) {
+    <div class="alert alert-error" role="alert">
+      <span>{{ delErr }}</span>
+    </div>
+  }
+
+  @if (loading() && sessions().length === 0) {
+    <div class="flex flex-col gap-2">
+      @for (i of [1, 2, 3]; track i) {
+        <div class="h-14 animate-pulse rounded-lg bg-base-200"></div>
+      }
+    </div>
+  } @else if (sessions().length === 0) {
+    <ptah-admin-empty-state
+      [icon]="CalendarIcon"
+      message="No sessions in this window."
+      hint="Widen the window, or schedule one if the calendar is writable."
+    />
+  } @else {
+    <div class="overflow-x-auto rounded-lg border border-base-300">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Session</th>
+            <th>Starts</th>
+            <th>Ends</th>
+            <th>Meet link</th>
+            <th class="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (s of sessions(); track s.id) {
+            <tr>
+              <td>
+                <div class="flex items-center gap-2">
+                  <span class="font-medium">{{ s.title }}</span>
+                  @if (s.recurring) {
+                    <ptah-admin-status-badge
+                      [variant]="'info'"
+                      label="series"
+                      [showIcon]="false"
+                    />
+                  }
+                </div>
+                @if (s.recurring) {
+                  <div class="text-xs opacity-60">
+                    Recurring series — member provisioning maintains its
+                    attendee list. Manage it in Google Calendar.
+                  </div>
+                }
+              </td>
+              <td class="text-sm">{{ s.startsAt | date: 'medium' }}</td>
+              <td class="text-sm">{{ s.endsAt | date: 'shortTime' }}</td>
+              <td>
+                @if (s.meetLink) {
+                  <a
+                    class="link link-primary text-sm"
+                    [href]="s.meetLink"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Join
+                  </a>
+                } @else {
+                  <span class="text-sm opacity-50">—</span>
+                }
+              </td>
+              <td class="text-right">
+                @if (calendarWritable()) {
+                  @if (pendingDeleteId() === s.id) {
+                    <div class="flex items-center justify-end gap-2">
+                      <span class="text-xs opacity-70">Delete this session?</span>
+                      <button
+                        type="button"
+                        class="btn btn-error btn-xs"
+                        [disabled]="deletingId() === s.id"
+                        (click)="confirmDelete(s)"
+                      >
+                        @if (deletingId() === s.id) {
+                          <span
+                            class="loading loading-spinner loading-xs"
+                          ></span>
+                        } @else {
+                          Confirm
+                        }
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        [disabled]="deletingId() === s.id"
+                        (click)="cancelDelete()"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  } @else {
+                    <div class="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        [disabled]="s.recurring"
+                        [attr.title]="
+                          s.recurring
+                            ? 'Edit the recurring series in Google Calendar'
+                            : null
+                        "
+                        (click)="openEdit(s)"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs text-error"
+                        [disabled]="s.recurring"
+                        [attr.title]="
+                          s.recurring
+                            ? 'The recurring series cannot be deleted here — member provisioning depends on it'
+                            : null
+                        "
+                        (click)="requestDelete(s)"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  }
+                } @else {
+                  <span class="text-xs opacity-50">read-only</span>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>
+
+<ptah-admin-session-form-modal
+  [open]="formOpen()"
+  [session]="formTarget()"
+  (closeModal)="onFormClose()"
+  (saved)="onFormSaved()"
+/>

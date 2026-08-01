@@ -1,0 +1,157 @@
+@if (open()) {
+  <dialog class="modal modal-open" aria-labelledby="session-form-title">
+    <div class="modal-box max-w-lg">
+      <header class="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h3 id="session-form-title" class="text-lg font-semibold">
+            {{ isEdit() ? 'Edit Session' : 'New Session' }}
+          </h3>
+          <p class="text-sm opacity-70">
+            Writes directly to the Builders Google Calendar. Members see the
+            change on their next page load.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm btn-square"
+          aria-label="Close"
+          [disabled]="saving()"
+          (click)="onCloseClick()"
+        >
+          ✕
+        </button>
+      </header>
+
+      <form (submit)="onSubmit($event)" class="flex flex-col gap-4">
+        @if (errorMessage(); as msg) {
+          <div class="alert alert-error text-sm">
+            <span>{{ msg }}</span>
+          </div>
+        }
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Title</span>
+          </div>
+          <input
+            type="text"
+            class="input input-bordered input-sm"
+            [value]="title()"
+            (input)="onTitleInput($event)"
+            [disabled]="saving()"
+            placeholder="e.g. Builders Office Hours"
+            maxlength="160"
+          />
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Description</span>
+            <span class="label-text-alt">optional</span>
+          </div>
+          <textarea
+            class="textarea textarea-bordered textarea-sm"
+            rows="2"
+            [value]="description()"
+            (input)="onDescriptionInput($event)"
+            [disabled]="saving()"
+            placeholder="Agenda or joining notes"
+            maxlength="5000"
+          ></textarea>
+        </label>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label class="form-control w-full">
+            <div class="label">
+              <span class="label-text">Starts</span>
+            </div>
+            <input
+              type="datetime-local"
+              class="input input-bordered input-sm"
+              [value]="startsAt()"
+              (input)="onStartsAtInput($event)"
+              [disabled]="saving()"
+            />
+          </label>
+
+          <label class="form-control w-full">
+            <div class="label">
+              <span class="label-text">Ends</span>
+            </div>
+            <input
+              type="datetime-local"
+              class="input input-bordered input-sm"
+              [class.input-error]="rangeTouched() && !rangeValid()"
+              [value]="endsAt()"
+              (input)="onEndsAtInput($event)"
+              [disabled]="saving()"
+            />
+          </label>
+        </div>
+
+        @if (rangeTouched() && !rangeValid()) {
+          <p class="text-xs text-error">
+            The end time must be after the start time.
+          </p>
+        } @else {
+          <p class="text-xs opacity-60">
+            Times are in your local timezone and stored as absolute instants.
+          </p>
+        }
+
+        @if (!isEdit()) {
+          <label
+            class="flex cursor-pointer items-start gap-3 rounded-lg border border-base-300 p-3"
+          >
+            <input
+              type="checkbox"
+              class="toggle toggle-primary toggle-sm mt-0.5"
+              [checked]="createMeetLink()"
+              (change)="onCreateMeetLinkChange($event)"
+              [disabled]="saving()"
+            />
+            <span class="flex flex-col">
+              <span class="label-text font-medium">Create a Meet link</span>
+              <span class="text-xs opacity-70">
+                Google mints the conference when the event is created. It
+                cannot be added later from here.
+              </span>
+            </span>
+          </label>
+        }
+
+        <div class="modal-action">
+          <button
+            type="button"
+            class="btn btn-ghost"
+            [disabled]="saving()"
+            (click)="onCloseClick()"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary px-8"
+            [disabled]="!canSubmit()"
+          >
+            @if (saving()) {
+              <span class="loading loading-spinner loading-sm"></span>
+              Saving…
+            } @else {
+              {{ isEdit() ? 'Save Changes' : 'Create Session' }}
+            }
+          </button>
+        </div>
+      </form>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop"
+      aria-label="Close modal"
+      [disabled]="saving()"
+      (click)="onCloseClick()"
+    >
+      close
+    </button>
+  </dialog>
+}
