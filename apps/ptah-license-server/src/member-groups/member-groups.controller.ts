@@ -10,6 +10,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -18,14 +19,17 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../admin/admin.guard';
 import { AdminThrottlerGuard } from '../admin/admin-throttler.guard';
+import { dtoPipe } from '../common/dto-validation.pipe';
 import { DiscourseProvisioningService } from '../discourse/discourse-provisioning.service';
 import {
   MemberGroupsService,
+  type GroupMembersPage,
   type MemberGroupWithCount,
 } from './member-groups.service';
 import {
   AssignMembersDto,
   CreateMemberGroupDto,
+  ListGroupMembersQueryDto,
   UpdateMemberGroupDto,
 } from './dto/member-group.dto';
 
@@ -52,6 +56,15 @@ export interface MemberGroupResponse {
  * Discourse group sync on assign is best-effort and non-fatal: a sync failure
  * never fails the assignment (the assignment is the source of truth; Discourse
  * SSO re-asserts group membership on next login).
+ *
+ * ⚠️ EVERY `@Body()` / `@Query()` PARAM MUST BIND `dtoPipe(TheDto)`.
+ * A bare `@Body() dto: X` is SILENTLY UNVALIDATED in this server: esbuild does
+ * not emit `emitDecoratorMetadata`, so Nest cannot infer the DTO type and the
+ * global ValidationPipe short-circuits — every `class-validator` decorator
+ * becomes inert. Before TASK_2026_169 that made
+ * `POST /admin/groups {"key":"INVALID KEY WITH SPACES!!"}` return 201.
+ * See `src/common/dto-validation.pipe.ts`. Structural test G7 in
+ * `src/admin/admin-guards.spec.ts` fails the build if a binding is dropped.
  */
 @Controller('v1/admin/groups')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -74,12 +87,28 @@ export class MemberGroupsController {
     return { groups: groups.map((g) => this.toResponse(g)) };
   }
 
+  /**
+   * Paginated members of a group (TASK_2026_169). Read-only, so no throttle
+   * override — the global 100/min default applies.
+   */
+  @Get(':id/members')
+  async listMembers(
+    @Param('id') id: string,
+    @Query(dtoPipe(ListGroupMembersQueryDto)) query: ListGroupMembersQueryDto,
+  ): Promise<GroupMembersPage> {
+    return this.groups.listMembers(id, {
+      page: query.page,
+      pageSize: query.pageSize,
+      search: query.search,
+    });
+  }
+
   @Post()
   @UseGuards(AdminThrottlerGuard)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async create(
     @Req() req: Request,
-    @Body() dto: CreateMemberGroupDto,
+    @Body(dtoPipe(CreateMemberGroupDto)) dto: CreateMemberGroupDto,
   ): Promise<MemberGroupResponse> {
     const actor = req.user?.email ?? null;
     this.logger.log(
@@ -95,7 +124,7 @@ export class MemberGroupsController {
   async update(
     @Req() req: Request,
     @Param('id') id: string,
-    @Body() dto: UpdateMemberGroupDto,
+    @Body(dtoPipe(UpdateMemberGroupDto)) dto: UpdateMemberGroupDto,
   ): Promise<MemberGroupResponse> {
     const actor = req.user?.email ?? null;
     this.logger.log(
@@ -114,7 +143,7 @@ export class MemberGroupsController {
   async assign(
     @Req() req: Request,
     @Param('id') id: string,
-    @Body() dto: AssignMembersDto,
+    @Body(dtoPipe(AssignMembersDto)) dto: AssignMembersDto,
   ): Promise<{ assigned: number; skipped: number }> {
     const actor = req.user?.email ?? null;
     const result = await this.groups.assignMany(id, dto, actor);

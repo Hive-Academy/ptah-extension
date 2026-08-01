@@ -77,3 +77,44 @@ export interface CommunitySummary {
   communityUrl: string | null;
   topics: CommunityTopic[];
 }
+
+/**
+ * One pending item in Discourse's moderation review queue, as surfaced on the
+ * READ-ONLY admin community triage surface (TASK_2026_169).
+ *
+ * Deliberately minimal: enough for an admin to judge WHETHER to open Discourse,
+ * never enough to act from here. All moderation lives in Discourse's own admin
+ * panel, which has the full context (post body, author history, prior flags,
+ * trust level) that a correct moderation decision needs — and an undo.
+ *
+ * Validated at the boundary like `communityTopicSchema`: a Discourse shape
+ * drift degrades to `[]` rather than leaking an untyped payload.
+ */
+export const reviewQueueItemSchema = z.object({
+  id: z.number(),
+  type: z.string(),
+  topicTitle: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export type ReviewQueueItem = z.infer<typeof reviewQueueItemSchema>;
+
+export const reviewQueueItemsSchema = z.array(reviewQueueItemSchema);
+
+/** Response body for `GET /api/v1/admin/community/topics`. */
+export interface AdminCommunityTopics {
+  communityUrl: string | null;
+  topics: CommunityTopic[];
+  enabled: boolean;
+}
+
+/**
+ * Response body for `GET /api/v1/admin/community/review-queue`.
+ * `reviewUrl` deep-links into Discourse's own review panel — from this surface,
+ * that link is the ONLY path to an action.
+ */
+export interface AdminReviewQueue {
+  items: ReviewQueueItem[];
+  count: number;
+  reviewUrl: string | null;
+}

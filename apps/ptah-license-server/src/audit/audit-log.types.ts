@@ -25,7 +25,20 @@ export type AdminAuditAction =
   | 'group.create'
   | 'group.update'
   | 'group.assign'
-  | 'group.unassign';
+  | 'group.unassign'
+  // TASK_2026_169: admin-only Builders pack registry (bookkeeping rows only —
+  // a pack mutation grants and revokes no repository access, which lives on
+  // GitHub). Written inside the same transaction as the mutation.
+  | 'pack.create'
+  | 'pack.update'
+  | 'pack.delete'
+  // TASK_2026_169: admin Google Calendar session writes.
+  // NOTE: there is deliberately no `community.*` action — the admin community
+  // surface is READ-ONLY and performs zero mutations. Discourse records its own
+  // moderation history in its own admin panel.
+  | 'sessions.event.create'
+  | 'sessions.event.update'
+  | 'sessions.event.delete';
 
 /**
  * Target type enum — the kind of entity an audit row describes.
@@ -37,7 +50,11 @@ export type AdminAuditTargetType =
   | 'MarketingCampaign'
   | 'Subscription'
   | 'Waitlist'
-  | 'MemberGroup';
+  | 'MemberGroup'
+  // TASK_2026_169. No `DiscourseTopic` target type — the admin community
+  // surface is read-only, so there is no Discourse mutation to audit.
+  | 'Pack'
+  | 'CalendarEvent';
 
 /**
  * Input shape for `AuditLogService.write`.

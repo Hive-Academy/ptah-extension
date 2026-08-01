@@ -19,6 +19,17 @@ import type { GoogleTokenResult } from './google-sessions.types';
  */
 @Injectable()
 export class GoogleAuthProvider {
+  /**
+   * Scopes that permit `events.insert` / `events.patch` / `events.delete`.
+   * Google's ladder distinguishes read from write but not write-verb from
+   * write-verb: both of these allow all three. A `.readonly` variant allows
+   * none of them.
+   */
+  private static readonly CALENDAR_WRITE_SCOPES = [
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/calendar.events',
+  ];
+
   private readonly logger = new Logger(GoogleAuthProvider.name);
   private readonly tokenUrl = 'https://oauth2.googleapis.com/token';
   private readonly timeoutMs = 10_000;
@@ -31,6 +42,15 @@ export class GoogleAuthProvider {
 
   private cachedToken: string | undefined;
   private cachedExpiresAt = 0;
+
+  /**
+   * Scopes carried by the last successful refresh-token grant. `undefined`
+   * until a refresh has succeeded at least once since boot.
+   */
+  private grantedScopes: string[] | undefined;
+
+  /** Guard so the scope verdict is logged once, not on every token refresh. */
+  private loggedScopeVerdict = false;
 
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
@@ -103,6 +123,8 @@ export class GoogleAuthProvider {
       const json = (await response.json()) as {
         access_token?: string;
         expires_in?: number;
+        /** Space-delimited list of scopes actually granted for this token. */
+        scope?: string;
       };
       if (!json.access_token) {
         return {
@@ -114,6 +136,7 @@ export class GoogleAuthProvider {
       const expiresInMs = (json.expires_in ?? 3600) * 1000;
       this.cachedToken = json.access_token;
       this.cachedExpiresAt = Date.now() + expiresInMs - this.expiryBufferMs;
+      this.recordGrantedScopes(json.scope);
 
       return { ok: true, accessToken: json.access_token };
     } catch (error: unknown) {
@@ -130,5 +153,59 @@ export class GoogleAuthProvider {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Whether the refresh-token grant carries a scope permitting event writes
+   * (`events.insert` / `events.patch` / `events.delete`).
+   *
+   * `undefined` = not yet determined — no successful refresh since boot, so no
+   * grant has been observed. A `true`/`false` verdict is only meaningful after
+   * `getAccessToken()` has succeeded at least once. Callers surface `undefined`
+   * as "unknown", never as "no".
+   *
+   * This is the CHEAP verification mechanism. The authoritative one is the live
+   * create+delete smoke (`scripts/google-calendar-write-smoke.mjs`) — a grant
+   * can name a scope the calendar ACL still refuses.
+   */
+  hasCalendarWriteScope(): boolean | undefined {
+    if (this.grantedScopes === undefined) {
+      return undefined;
+    }
+    return this.grantedScopes.some((scope) =>
+      GoogleAuthProvider.CALENDAR_WRITE_SCOPES.includes(scope),
+    );
+  }
+
+  /**
+   * Cache the scopes returned alongside a fresh access token and log the write
+   * verdict once.
+   *
+   * Google omits `scope` on some refresh-grant responses; when it does, a
+   * previously observed grant is retained rather than being downgraded to
+   * "unknown" — an absent field is not evidence of a narrowed grant.
+   *
+   * Scopes are not secrets, but only the boolean verdict and the matched scope
+   * name are logged — never the token.
+   */
+  private recordGrantedScopes(scope: string | undefined): void {
+    const scopes = (scope ?? '').split(' ').filter(Boolean);
+    if (scopes.length === 0 && this.grantedScopes !== undefined) {
+      return;
+    }
+    this.grantedScopes = scopes;
+
+    if (this.loggedScopeVerdict) {
+      return;
+    }
+    this.loggedScopeVerdict = true;
+    const matched = scopes.find((s) =>
+      GoogleAuthProvider.CALENDAR_WRITE_SCOPES.includes(s),
+    );
+    this.logger.log(
+      matched
+        ? `Google Calendar write scope present (granted: ${matched})`
+        : `Google Calendar write scope ABSENT — event create/update/delete will be refused upstream (granted scope count: ${scopes.length})`,
+    );
   }
 }

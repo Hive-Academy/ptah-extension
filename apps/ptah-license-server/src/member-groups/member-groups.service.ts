@@ -69,6 +69,32 @@ export type MemberGroupAssignmentSource =
   | 'admin'
   | 'migration';
 
+/** Query for the paginated group-members drill-down (TASK_2026_169). */
+export interface ListGroupMembersQuery {
+  page?: number;
+  pageSize?: number;
+  /** Case-insensitive substring matched against the FIXED column user.email. */
+  search?: string;
+}
+
+/** One row of the group-members drill-down. */
+export interface GroupMemberResponse {
+  userId: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  assignedAt: string;
+  source: string;
+}
+
+/** Paginated envelope for the group-members drill-down. */
+export interface GroupMembersPage {
+  members: GroupMemberResponse[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 /**
  * MemberGroupsService — owns member-cohort (group) CRUD + user assignment.
  *
@@ -147,6 +173,71 @@ export class MemberGroupsService {
       .filter(
         (name): name is string => typeof name === 'string' && name !== '',
       );
+  }
+
+  /**
+   * List the members of a group, paginated and newest-assignment-first
+   * (TASK_2026_169).
+   *
+   * Closes the gap the admin frontend flagged in its own docblock: the backend
+   * previously exposed `DELETE /groups/:id/members/:userId` (remove-by-id) with
+   * no way to browse a group's members and pick one, so the remove action had
+   * no usable entry point.
+   *
+   * `search` is a FIXED field (`user.email`) — never a caller-supplied field
+   * name — so the `assertAllowedField` allowlist discipline is satisfied by
+   * construction. Throws 404 for an unknown group rather than returning an
+   * empty page, so a stale group id in the UI is visibly wrong.
+   */
+  async listMembers(
+    groupId: string,
+    query: ListGroupMembersQuery,
+  ): Promise<GroupMembersPage> {
+    const group = await this.prisma.memberGroup.findUnique({
+      where: { id: groupId },
+      select: { id: true },
+    });
+    if (!group) {
+      throw new NotFoundException(`Member group ${groupId} not found`);
+    }
+
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 25;
+    const where: Prisma.MemberGroupAssignmentWhereInput = {
+      groupId,
+      ...(query.search
+        ? { user: { email: { contains: query.search, mode: 'insensitive' } } }
+        : {}),
+    };
+
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.memberGroupAssignment.findMany({
+        where,
+        orderBy: { assignedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          user: {
+            select: { id: true, email: true, firstName: true, lastName: true },
+          },
+        },
+      }),
+      this.prisma.memberGroupAssignment.count({ where }),
+    ]);
+
+    return {
+      members: rows.map((row) => ({
+        userId: row.user.id,
+        email: row.user.email,
+        firstName: row.user.firstName,
+        lastName: row.user.lastName,
+        assignedAt: row.assignedAt.toISOString(),
+        source: row.source,
+      })),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   /**

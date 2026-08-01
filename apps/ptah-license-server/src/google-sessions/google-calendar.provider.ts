@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleAuthProvider } from './google-auth.provider';
 import type {
+  CalendarEventInput,
   GoogleApiResult,
   GoogleCalendarEvent,
 } from './google-sessions.types';
@@ -36,6 +38,20 @@ export class GoogleCalendarProvider {
   /** True when the underlying OAuth2 flow is configured. */
   isEnabled(): boolean {
     return this.auth.isEnabled();
+  }
+
+  /**
+   * Whether the granted OAuth scope permits event create/update/delete
+   * (TASK_2026_169). `undefined` = not yet determined (no successful token
+   * refresh since boot).
+   *
+   * This is a HINT for degrading the admin UI, not an authorization decision:
+   * Google remains the authority and a write can still be refused (403) by the
+   * calendar's own ACL even with a write scope granted. Every write path here
+   * folds such a refusal into `{ ok:false, status:403 }` regardless.
+   */
+  isWritable(): boolean | undefined {
+    return this.auth.hasCalendarWriteScope();
   }
 
   /** Configured target calendar (defaults to the account's 'primary'). */
@@ -119,12 +135,104 @@ export class GoogleCalendarProvider {
   }
 
   /**
+   * Create a calendar event (TASK_2026_169).
+   *
+   * `conferenceDataVersion=1` is REQUIRED for Google to honour a
+   * `conferenceData.createRequest` and actually mint a Meet link — without it
+   * the field is silently dropped and the event is created with no link.
+   * `sendUpdates=none` keeps event creation from emailing the whole standing
+   * attendee list.
+   */
+  async createEvent(input: CalendarEventInput): Promise<GoogleApiResult> {
+    const query = new URLSearchParams({
+      conferenceDataVersion: '1',
+      sendUpdates: 'none',
+    });
+    return this.request(
+      'POST',
+      `/calendars/${encodeURIComponent(this.calendarId)}/events?${query.toString()}`,
+      this.toGoogleEventBody(input),
+    );
+  }
+
+  /**
+   * Patch the mutable fields of an event (summary / description / start / end).
+   * `createMeetLink` is ignored here — conferencing is set at creation time.
+   */
+  async patchEvent(
+    eventId: string,
+    input: Partial<CalendarEventInput>,
+  ): Promise<GoogleApiResult> {
+    return this.request(
+      'PATCH',
+      `/calendars/${encodeURIComponent(this.calendarId)}/events/${encodeURIComponent(
+        eventId,
+      )}?sendUpdates=none`,
+      this.toGoogleEventBody(input),
+    );
+  }
+
+  /**
+   * Delete an event. Google responds `204 No Content` with an empty body on
+   * success, which `safeParseJson` folds cleanly into
+   * `{ ok:true, status:204, json:undefined }`. An already-deleted event yields
+   * `410 Gone`, surfaced as `{ ok:false, status:410 }` for the caller to treat
+   * as idempotent rather than fatal.
+   */
+  async deleteEvent(eventId: string): Promise<GoogleApiResult> {
+    return this.request(
+      'DELETE',
+      `/calendars/${encodeURIComponent(this.calendarId)}/events/${encodeURIComponent(
+        eventId,
+      )}?sendUpdates=none`,
+    );
+  }
+
+  /**
+   * Map the internal {@link CalendarEventInput} to Google's `events` resource
+   * shape. Only supplied keys are emitted so the same mapper serves both the
+   * full create body and a partial PATCH body.
+   */
+  private toGoogleEventBody(
+    input: Partial<CalendarEventInput>,
+  ): Record<string, unknown> {
+    const body: Record<string, unknown> = {};
+    if (input.title !== undefined) {
+      body['summary'] = input.title;
+    }
+    if (input.description !== undefined) {
+      body['description'] = input.description;
+    }
+    if (input.startsAt !== undefined) {
+      body['start'] = { dateTime: new Date(input.startsAt).toISOString() };
+    }
+    if (input.endsAt !== undefined) {
+      body['end'] = { dateTime: new Date(input.endsAt).toISOString() };
+    }
+    if (input.createMeetLink) {
+      body['conferenceData'] = {
+        createRequest: {
+          requestId: randomUUID(),
+          conferenceSolutionKey: { type: 'hangoutsMeet' },
+        },
+      };
+    }
+    return body;
+  }
+
+  /**
    * Perform a single bounded, authenticated Calendar API request. Never throws:
    * a feature-off/failed token, transport error, abort, or non-2xx all fold
    * into `{ ok:false, error }` (or `{ skipped:true }` in feature-off mode).
+   *
+   * The verb union was widened from `'GET' | 'PATCH'` for TASK_2026_169. No
+   * other change was needed: `body ? … : undefined` already handles the
+   * body-less DELETE, `safeParseJson` already returns `undefined` for the empty
+   * 204 body, and non-2xx already folds to a sanitized `{ ok:false, status }`
+   * that never carries the raw Google body.
    */
   private async request(
-    method: 'GET' | 'PATCH',
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     body?: Record<string, unknown>,
     extraHeaders?: Record<string, string>,

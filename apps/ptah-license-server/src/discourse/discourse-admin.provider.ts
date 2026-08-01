@@ -2,8 +2,10 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   communityTopicsSchema,
+  reviewQueueItemsSchema,
   type CommunityTopic,
   type DiscourseSyncResult,
+  type ReviewQueueItem,
 } from './discourse.types';
 
 /**
@@ -212,6 +214,81 @@ export class DiscourseAdminProvider {
       return [];
     }
     return parsed.data;
+  }
+
+  /**
+   * Fetch the pending moderation review queue for the READ-ONLY admin community
+   * triage surface (TASK_2026_169). Reads Discourse `GET /review.json?status=pending`.
+   *
+   * ⚠️ READ-ONLY BY DESIGN. This is the ONLY method added to this provider for
+   * the admin community surface, and it issues a `GET` — a verb `request()`
+   * already supports. The verb union is NOT widened: `PUT`/`DELETE` remain used
+   * solely by the pre-existing group-sync paths. There is deliberately no
+   * approve/reject/close/pin method here; all moderation stays in Discourse's
+   * own admin panel (structural test G5 asserts the controller exposes only
+   * `@Get` handlers).
+   *
+   * Fully tolerant, mirroring `getLatestTopics`: feature-off, any transport or
+   * parse error, or a shape drift that fails Zod validation folds into `[]`.
+   * Never throws.
+   */
+  async getReviewQueue(limit = 20): Promise<ReviewQueueItem[]> {
+    if (!this.isEnabled()) {
+      return [];
+    }
+
+    const res = await this.request('GET', '/review.json?status=pending');
+    if (!res.ok || typeof res.json !== 'object' || res.json === null) {
+      return [];
+    }
+
+    const raw = (res.json as { reviewables?: unknown }).reviewables;
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+
+    const mapped: ReviewQueueItem[] = [];
+    for (const item of raw) {
+      const parsed = this.mapReviewable(item);
+      if (parsed) {
+        mapped.push(parsed);
+      }
+    }
+
+    const capped = mapped.slice(0, limit);
+    const validated = reviewQueueItemsSchema.safeParse(capped);
+    if (!validated.success) {
+      this.logger.warn(
+        'Discourse /review.json mapping failed contract validation',
+      );
+      return [];
+    }
+    return validated.data;
+  }
+
+  /** Map a raw Discourse reviewable to the contract shape, or null. */
+  private mapReviewable(raw: unknown): ReviewQueueItem | null {
+    if (typeof raw !== 'object' || raw === null) {
+      return null;
+    }
+    const r = raw as {
+      id?: unknown;
+      type?: unknown;
+      topic_title?: unknown;
+      created_at?: unknown;
+    };
+    if (typeof r.id !== 'number') {
+      return null;
+    }
+    return {
+      id: r.id,
+      type: typeof r.type === 'string' ? r.type : 'Reviewable',
+      topicTitle: typeof r.topic_title === 'string' ? r.topic_title : null,
+      createdAt:
+        typeof r.created_at === 'string'
+          ? r.created_at
+          : new Date(0).toISOString(),
+    };
   }
 
   /** Map a raw Discourse topic to the contract shape, or null when malformed. */

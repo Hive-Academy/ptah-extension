@@ -2,9 +2,9 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditLogService } from '../audit/audit-log.service';
 import { GoogleCalendarProvider } from './google-calendar.provider';
+import { extractEventItems, toBuildersSession } from './google-event.mapper';
 import type {
   BuildersSession,
-  GoogleCalendarEvent,
   SessionAttendeeResult,
 } from './google-sessions.types';
 
@@ -53,6 +53,12 @@ export class SessionsService {
    * List upcoming Builders sessions for the next {@link LOOKAHEAD_DAYS} days.
    * Feature-off (Google unconfigured) returns `[]` and logs once — the members
    * endpoint stays responsive with a stable contract.
+   *
+   * TASK_2026_169 note: the ONLY change to this method is that the raw-event
+   * mapping now delegates to the shared `google-event.mapper`. The window, the
+   * signature, the filtering, and the returned shape are all unchanged — the
+   * member contract is byte-identical. The admin surface owns its own read path
+   * in `AdminSessionsService` rather than widening this one.
    */
   async listUpcomingSessions(): Promise<BuildersSession[]> {
     if (!this.isEnabledOrLogOnce()) {
@@ -74,10 +80,10 @@ export class SessionsService {
       return [];
     }
 
-    const items = this.extractItems(result.json);
+    const items = extractEventItems(result.json);
     return items
       .filter((event) => event.status !== 'cancelled')
-      .map((event) => this.toSession(event))
+      .map((event) => toBuildersSession(event))
       .filter((session): session is BuildersSession => session !== null);
   }
 
@@ -164,66 +170,6 @@ export class SessionsService {
       );
       return { ok: false, error: message };
     }
-  }
-
-  /**
-   * Map a raw Google Calendar event to the contract session shape, or null
-   * when it lacks the minimum fields (id + resolvable start/end).
-   */
-  private toSession(event: GoogleCalendarEvent): BuildersSession | null {
-    const id = event.id;
-    const startsAt = this.resolveTimestamp(event.start);
-    const endsAt = this.resolveTimestamp(event.end);
-    if (!id || !startsAt || !endsAt) {
-      return null;
-    }
-
-    return {
-      id,
-      title: event.summary ?? '',
-      startsAt,
-      endsAt,
-      meetLink: this.resolveMeetLink(event),
-      recurring: Boolean(event.recurringEventId || event.recurrence),
-    };
-  }
-
-  /** Promote a Google start/end (dateTime or all-day date) to an ISO string. */
-  private resolveTimestamp(
-    slot: { dateTime?: string; date?: string } | undefined,
-  ): string | null {
-    if (!slot) {
-      return null;
-    }
-    if (slot.dateTime) {
-      return new Date(slot.dateTime).toISOString();
-    }
-    if (slot.date) {
-      return new Date(`${slot.date}T00:00:00.000Z`).toISOString();
-    }
-    return null;
-  }
-
-  /** Resolve a Meet URL from hangoutLink or a video conferenceData entry point. */
-  private resolveMeetLink(event: GoogleCalendarEvent): string | null {
-    if (event.hangoutLink) {
-      return event.hangoutLink;
-    }
-    const video = event.conferenceData?.entryPoints?.find(
-      (entry) => entry.entryPointType === 'video' && entry.uri,
-    );
-    return video?.uri ?? null;
-  }
-
-  private extractItems(json: unknown): GoogleCalendarEvent[] {
-    if (
-      typeof json === 'object' &&
-      json !== null &&
-      Array.isArray((json as { items?: unknown }).items)
-    ) {
-      return (json as { items: GoogleCalendarEvent[] }).items;
-    }
-    return [];
   }
 
   private isEnabledOrLogOnce(): boolean {

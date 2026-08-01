@@ -1,13 +1,17 @@
+import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsEmail,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 
@@ -94,4 +98,31 @@ export class AssignMembersDto {
   @IsEmail({}, { each: true })
   @MaxLength(320, { each: true })
   emails?: string[];
+}
+
+/**
+ * Query DTO for GET /api/v1/admin/groups/:id/members (TASK_2026_169).
+ *
+ * `search` filters on a FIXED column (`user.email`) inside the service — it is
+ * never a caller-supplied field NAME. `pageSize` is capped at 100, matching the
+ * generic admin list envelope.
+ */
+export class ListGroupMembersQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number = 25;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  search?: string;
 }

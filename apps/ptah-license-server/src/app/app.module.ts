@@ -21,6 +21,7 @@ import { CircleModule } from '../circle/circle.module';
 import { GoogleSessionsModule } from '../google-sessions/google-sessions.module';
 import { DiscourseModule } from '../discourse/discourse.module';
 import { MemberGroupsModule } from '../member-groups/member-groups.module';
+import { PacksModule } from '../packs/packs.module';
 
 /**
  * AppModule - Root application module
@@ -62,6 +63,13 @@ import { MemberGroupsModule } from '../member-groups/member-groups.module';
     GoogleSessionsModule, // Google Calendar/Meet Builders sessions + members area
     DiscourseModule, // DiscourseConnect SSO + builders group sync
     MemberGroupsModule, // Member cohorts (groups) + assignment (@Global)
+    // TASK_2026_169: admin-only Builders pack registry.
+    // ⚠️ MUST stay ABOVE AdminModule. AdminController is @Controller('v1/admin')
+    // with @Get(':model') wildcards, so a sibling @Controller('v1/admin/packs')
+    // only wins the route match when its module is registered first. Move this
+    // below AdminModule and GET /api/v1/admin/packs silently 400s with
+    // "Unknown admin model: packs". Same reason MemberGroupsModule sits here.
+    PacksModule,
     LicenseModule,
     AuthModule,
     PaddleModule,

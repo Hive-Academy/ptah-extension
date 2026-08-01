@@ -33,6 +33,8 @@ interface AssignmentDelegate {
   create: jest.Mock;
   upsert: jest.Mock;
   deleteMany: jest.Mock;
+  /** TASK_2026_169: backs the paginated group-members drill-down. */
+  count: jest.Mock;
 }
 interface UserDelegate {
   findMany: jest.Mock;
@@ -60,6 +62,7 @@ function createMockPrisma(): MockPrisma {
       create: jest.fn().mockResolvedValue({ id: 'assign-1' }),
       upsert: jest.fn().mockResolvedValue({ id: 'assign-1' }),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      count: jest.fn().mockResolvedValue(0),
     },
     user: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
@@ -376,6 +379,131 @@ describe('MemberGroupsService', () => {
       await expect(service.getDiscourseGroupsForUser('u1')).resolves.toEqual([
         'builders-founding',
       ]);
+    });
+  });
+
+  /**
+   * TASK_2026_169 — the group-members drill-down. Closes the gap the admin
+   * frontend flagged in its own docblock: `DELETE /groups/:id/members/:userId`
+   * existed with no way to browse a group's members and pick one.
+   */
+  describe('listMembers', () => {
+    const ASSIGNMENT = {
+      assignedAt: new Date('2026-02-01T00:00:00Z'),
+      source: 'admin',
+      user: {
+        id: 'usr-1',
+        email: 'member@example.com',
+        firstName: 'Mem',
+        lastName: 'Ber',
+      },
+    };
+
+    it('returns a paginated envelope with the joined user fields', async () => {
+      const prisma = createMockPrisma();
+      prisma.memberGroup.findUnique.mockResolvedValue({ id: 'grp-1' });
+      prisma.memberGroupAssignment.findMany.mockResolvedValue([ASSIGNMENT]);
+      prisma.memberGroupAssignment.count.mockResolvedValue(1);
+      const { service } = build(prisma);
+
+      const page = await service.listMembers('grp-1', {
+        page: 1,
+        pageSize: 25,
+      });
+
+      expect(page).toEqual({
+        members: [
+          {
+            userId: 'usr-1',
+            email: 'member@example.com',
+            firstName: 'Mem',
+            lastName: 'Ber',
+            assignedAt: '2026-02-01T00:00:00.000Z',
+            source: 'admin',
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 25,
+      });
+    });
+
+    it('computes skip/take from page and pageSize, newest assignment first', async () => {
+      const prisma = createMockPrisma();
+      prisma.memberGroup.findUnique.mockResolvedValue({ id: 'grp-1' });
+      const { service } = build(prisma);
+
+      await service.listMembers('grp-1', { page: 3, pageSize: 10 });
+
+      expect(prisma.memberGroupAssignment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          skip: 20,
+          take: 10,
+          orderBy: { assignedAt: 'desc' },
+        }),
+      );
+    });
+
+    it('defaults to page 1 / pageSize 25 when omitted', async () => {
+      const prisma = createMockPrisma();
+      prisma.memberGroup.findUnique.mockResolvedValue({ id: 'grp-1' });
+      const { service } = build(prisma);
+
+      const page = await service.listMembers('grp-1', {});
+
+      expect(page.page).toBe(1);
+      expect(page.pageSize).toBe(25);
+      expect(prisma.memberGroupAssignment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 0, take: 25 }),
+      );
+    });
+
+    it('filters on the FIXED user.email column, never a caller-named field', async () => {
+      const prisma = createMockPrisma();
+      prisma.memberGroup.findUnique.mockResolvedValue({ id: 'grp-1' });
+      const { service } = build(prisma);
+
+      await service.listMembers('grp-1', { search: 'member@' });
+
+      const where =
+        prisma.memberGroupAssignment.findMany.mock.calls[0][0].where;
+      expect(where).toEqual({
+        groupId: 'grp-1',
+        user: { email: { contains: 'member@', mode: 'insensitive' } },
+      });
+    });
+
+    it('omits the search predicate entirely when no search is supplied', async () => {
+      const prisma = createMockPrisma();
+      prisma.memberGroup.findUnique.mockResolvedValue({ id: 'grp-1' });
+      const { service } = build(prisma);
+
+      await service.listMembers('grp-1', {});
+
+      expect(
+        prisma.memberGroupAssignment.findMany.mock.calls[0][0].where,
+      ).toEqual({ groupId: 'grp-1' });
+    });
+
+    it('throws 404 for an unknown group rather than returning an empty page', async () => {
+      const prisma = createMockPrisma();
+      prisma.memberGroup.findUnique.mockResolvedValue(null);
+      const { service } = build(prisma);
+
+      await expect(service.listMembers('nope', {})).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(prisma.memberGroupAssignment.findMany).not.toHaveBeenCalled();
+    });
+
+    it('runs the page read and the count in a single transaction', async () => {
+      const prisma = createMockPrisma();
+      prisma.memberGroup.findUnique.mockResolvedValue({ id: 'grp-1' });
+      const { service } = build(prisma);
+
+      await service.listMembers('grp-1', {});
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     });
   });
 });

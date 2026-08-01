@@ -56,6 +56,9 @@ model MemberGroup {
   createdAt      DateTime @default(now()) @map("created_at")
 
   assignments MemberGroupAssignment[]
+  // Bookkeeping back-relation only — a Pack row labelled with this cohort.
+  // Grants nothing: see the Pack model docblock below.
+  packs       Pack[]
 
   @@index([isDefault])
   @@map("member_groups")
@@ -77,6 +80,49 @@ model MemberGroupAssignment {
   @@unique([userId, groupId])
   @@index([groupId])
   @@map("member_group_assignments")
+}
+
+// TASK_2026_169: A "pack" is a Ptah-authored source-code deliverable — a GitHub
+// repository containing a production-shaped codebase plus its Claude plugins and
+// MCP servers — shared with a Builders cohort.
+//
+// DELIVERY HAPPENS ENTIRELY ON GITHUB. The admin invites the cohort's members as
+// collaborators (or posts the repo link inside that cohort's Discourse group) by
+// hand. There is deliberately NO GitHub App integration, no collaborator-invite
+// automation, and no storage of members' GitHub handles. `notes` records
+// whichever manual step was taken, for the admin's own reference.
+//
+// ONE PACK = ONE REPO. `repoUrl` is the pack's own dedicated GitHub repository;
+// packs never share a repo. Adding a second deliverable means adding a second
+// Pack row, not a second URL on this one.
+//
+// THIS TABLE IS AN ADMIN-ONLY REGISTRY. IT GATES NOTHING.
+// There is no member-facing endpoint that reads it. Ptah never serves pack
+// content and never decides who may access a pack. Access is administered
+// ENTIRELY on GitHub. This table exists so the admin has one place recording
+// which repo belongs to which cohort.
+//
+// `cohortKey` is therefore a BOOKKEEPING LABEL, NOT AN ACCESS CONTROL:
+//   null     -> the repo is not tied to a particular cohort.
+//   non-null -> the repo was shared with that MemberGroup cohort (on GitHub).
+// Changing this field grants and revokes nothing.
+model Pack {
+  id          String   @id @default(cuid())
+  slug        String   @unique // stable lowercase slug, e.g. 'saas-starter'
+  title       String
+  description String
+  repoUrl     String   @map("repo_url") // https://github.com/<owner>/<repo> — one repo per pack
+  notes       String? // freeform ADMIN note (e.g. "invites sent 2026-08-01")
+  tags        String[] @default([])
+  cohortKey   String?  @map("cohort_key") // bookkeeping label only — gates nothing
+  createdBy   String?  @map("created_by") // admin email at creation time
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  cohort MemberGroup? @relation(fields: [cohortKey], references: [key], onDelete: SetNull)
+
+  @@index([cohortKey])
+  @@map("packs")
 }
 
 // Subscription model - tracks Paddle subscription state for payment lifecycle

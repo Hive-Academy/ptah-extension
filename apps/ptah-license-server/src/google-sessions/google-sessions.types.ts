@@ -34,6 +34,41 @@ export interface BuildersSession {
 }
 
 /**
+ * A session as returned by the ADMIN surface (`/api/v1/admin/sessions`).
+ *
+ * Identical to {@link BuildersSession} plus `description`, which the admin edit
+ * form needs in order to prefill — without it a blind edit would either wipe
+ * the calendar event's description or have to leave the field permanently blank.
+ *
+ * ⚠️ WHY THIS IS A SEPARATE TYPE RATHER THAN A FIELD ON `BuildersSession`.
+ * `BuildersSession` is the MEMBER contract (`GET /api/v1/members/sessions`).
+ * Widening it would change a member-facing response shape as a side effect of
+ * an admin feature — and this task deliberately changes nothing on the member
+ * path. Keeping the admin shape distinct means the member response stays
+ * byte-identical while the admin surface gets the field it needs.
+ */
+export interface AdminSession extends BuildersSession {
+  description: string | null;
+}
+
+/**
+ * Internal input for creating/patching a Builders session event (TASK_2026_169).
+ * Mapped to Google's `events` resource shape by
+ * `GoogleCalendarProvider.toGoogleEventBody`.
+ *
+ * - `startsAt` / `endsAt` — ISO-8601 timestamps.
+ * - `createMeetLink`      — mint a Google Meet link via `conferenceData.createRequest`
+ *                           (create only; requires `conferenceDataVersion=1`).
+ */
+export interface CalendarEventInput {
+  title: string;
+  description?: string;
+  startsAt: string;
+  endsAt: string;
+  createMeetLink?: boolean;
+}
+
+/**
  * Result of an OAuth2 access-token acquisition.
  * `ok:false` carries a short sanitized reason — never the raw upstream body.
  */
@@ -77,6 +112,7 @@ export interface GoogleCalendarEvent {
   etag?: string;
   status?: string;
   summary?: string;
+  description?: string;
   hangoutLink?: string;
   recurringEventId?: string;
   recurrence?: string[];
