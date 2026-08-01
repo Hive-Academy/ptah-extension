@@ -13,7 +13,7 @@ import {
   UserSyncService,
 } from './services';
 import { PrismaModule } from '@ptah-api/core';
-import { EmailModule } from '../../email/email.module';
+import { EmailModule } from '@ptah-api/email';
 import {
   WorkOSClientProvider,
   WORKOS_CLIENT,

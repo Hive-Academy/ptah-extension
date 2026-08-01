@@ -11,8 +11,8 @@ import { EventsService } from '../../events/events.service';
 import { PLANS, getPlanConfig, PlanName } from '@ptah-api/core';
 import { randomBytes, createPrivateKey, sign, KeyObject } from 'crypto';
 import { Prisma, License, User } from '@ptah-api/core';
-import { AuditLogService } from '../../audit/audit-log.service';
-import { EmailService } from '../../email/services/email.service';
+import { AuditLogService } from '@ptah-api/audit';
+import { EmailService } from '@ptah-api/email';
 import { WaitlistService } from '../../waitlist/waitlist.service';
 import {
   ComplimentaryDurationPreset,

@@ -24,7 +24,7 @@ import {
   MagicLinkService,
 } from './services';
 import { PrismaService } from '@ptah-api/core';
-import { EmailService } from '../../email/services/email.service';
+import { EmailService } from '@ptah-api/email';
 import { LicenseService } from '../../license/services/license.service';
 import {
   LoginDto,

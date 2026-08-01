@@ -11,8 +11,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@ptah-api/core';
 import { PrismaService } from '@ptah-api/core';
-import { EmailService } from '../email/services/email.service';
-import { AuditLogService } from '../audit/audit-log.service';
+import { EmailService } from '@ptah-api/email';
+import { AuditLogService } from '@ptah-api/audit';
 import {
   ADMIN_MODELS,
   AdminModelConfig,

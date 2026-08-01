@@ -5,8 +5,8 @@ import { SegmentResolverService } from './segment-resolver.service';
 import { TemplateRenderService } from './template-render.service';
 import { UnsubscribeTokenService } from './unsubscribe-token.service';
 import { PrismaService } from '@ptah-api/core';
-import { AuditLogService } from '../../audit/audit-log.service';
-import { EmailService } from '../../email/services/email.service';
+import { AuditLogService } from '@ptah-api/audit';
+import { EmailService } from '@ptah-api/email';
 import type { SendCampaignDto } from '../dto/send-campaign.dto';
 import type { ResendWebhookPayload } from '../dto/resend-webhook.dto';
 

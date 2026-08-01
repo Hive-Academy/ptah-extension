@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
-import type { AuditLogService } from '../audit/audit-log.service';
+import type { AuditLogService } from '@ptah-api/audit';
 import type { GoogleCalendarProvider } from './google-calendar.provider';
 import type { MemberGroupsService } from '../member-groups/member-groups.service';
 import { AdminSessionsService } from './admin-sessions.service';

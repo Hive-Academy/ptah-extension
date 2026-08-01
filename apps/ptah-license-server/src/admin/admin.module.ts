@@ -1,7 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from '../app/auth/auth.module';
-import { EmailModule } from '../email/email.module';
+import { EmailModule } from '@ptah-api/email';
 import { LicenseModule } from '../license/license.module';
 import { WaitlistModule } from '../waitlist/waitlist.module';
 import { AdminLicensesController } from './admin-licenses.controller';

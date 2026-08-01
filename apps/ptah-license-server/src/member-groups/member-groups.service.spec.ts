@@ -1,7 +1,7 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@ptah-api/core';
 import { PrismaService } from '@ptah-api/core';
-import { AuditLogService } from '../audit/audit-log.service';
+import { AuditLogService } from '@ptah-api/audit';
 import { MemberGroupsService } from './member-groups.service';
 
 /**

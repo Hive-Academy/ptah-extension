@@ -1,4 +1,4 @@
-import { EmailService } from '../email/services/email.service';
+import { EmailService } from '@ptah-api/email';
 import { PrismaService } from '@ptah-api/core';
 import { WaitlistService } from './waitlist.service';
 

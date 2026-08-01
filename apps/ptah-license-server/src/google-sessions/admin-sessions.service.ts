@@ -10,8 +10,8 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AuditLogService } from '../audit/audit-log.service';
-import type { AdminAuditAction } from '../audit/audit-log.types';
+import { AuditLogService } from '@ptah-api/audit';
+import type { AdminAuditAction } from '@ptah-api/audit';
 import { MemberGroupsService } from '../member-groups/member-groups.service';
 import { GoogleCalendarProvider } from './google-calendar.provider';
 import { extractEventItems, toAdminSession } from './google-event.mapper';

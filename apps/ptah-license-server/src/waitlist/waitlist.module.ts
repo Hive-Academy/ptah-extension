@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '@ptah-api/core';
-import { EmailModule } from '../email/email.module';
+import { EmailModule } from '@ptah-api/email';
 import { WaitlistController } from './waitlist.controller';
 import { WaitlistService } from './waitlist.service';
 

@@ -8,8 +8,8 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@ptah-api/core';
 import { PrismaService } from '@ptah-api/core';
-import { AuditLogService } from '../audit/audit-log.service';
-import type { AdminAuditAction } from '../audit/audit-log.types';
+import { AuditLogService } from '@ptah-api/audit';
+import type { AdminAuditAction } from '@ptah-api/audit';
 import {
   toPackResponse,
   type CreatePackInput,

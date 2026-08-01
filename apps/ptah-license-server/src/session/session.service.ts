@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@ptah-api/core';
-import { EmailService } from '../email/services/email.service';
+import { EmailService } from '@ptah-api/email';
 
 @Injectable()
 export class SessionService {

@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@ptah-api/core';
 import type { PrismaService } from '@ptah-api/core';
-import type { AuditLogService } from '../audit/audit-log.service';
+import type { AuditLogService } from '@ptah-api/audit';
 import { PacksService } from './packs.service';
 
 /**

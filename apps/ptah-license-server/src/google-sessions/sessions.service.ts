@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AuditLogService } from '../audit/audit-log.service';
+import { AuditLogService } from '@ptah-api/audit';
 import { MemberGroupsService } from '../member-groups/member-groups.service';
 import { GoogleCalendarProvider } from './google-calendar.provider';
 import { extractEventItems, toBuildersSession } from './google-event.mapper';

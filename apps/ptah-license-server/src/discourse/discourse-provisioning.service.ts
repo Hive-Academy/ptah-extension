@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { AuditLogService } from '../audit/audit-log.service';
+import { AuditLogService } from '@ptah-api/audit';
 import { MemberGroupsService } from '../member-groups/member-groups.service';
 import { DiscourseAdminProvider } from './discourse-admin.provider';
 

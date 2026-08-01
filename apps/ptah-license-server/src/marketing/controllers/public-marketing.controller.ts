@@ -10,7 +10,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { UnsubscribeTokenService } from '../services/unsubscribe-token.service';
 import { PrismaService } from '@ptah-api/core';
-import { AuditLogService } from '../../audit/audit-log.service';
+import { AuditLogService } from '@ptah-api/audit';
 import { getUnsubscribePage } from '../html/unsubscribe-confirmation.html';
 
 @Controller()

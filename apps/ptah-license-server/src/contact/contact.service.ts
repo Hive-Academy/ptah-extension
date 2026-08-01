@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { EmailService } from '../email/services/email.service';
+import { EmailService } from '@ptah-api/email';
 import { ContactCategory } from './dto/contact-message.dto';
 
 @Injectable()

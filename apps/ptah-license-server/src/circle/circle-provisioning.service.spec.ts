@@ -13,7 +13,7 @@
 
 import { CircleProvisioningService } from './circle-provisioning.service';
 import type { CircleProvider } from './circle.provider';
-import type { AuditLogService } from '../audit/audit-log.service';
+import type { AuditLogService } from '@ptah-api/audit';
 import type { PrismaService } from '@ptah-api/core';
 
 interface CircleProviderMock {

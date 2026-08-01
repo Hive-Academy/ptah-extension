@@ -32,7 +32,7 @@ import { PaddleService } from './paddle.service';
 import { PADDLE_CLIENT } from './providers/paddle.provider';
 import { createMockPrisma, type MockPrisma } from '@ptah-api/core/testing';
 import { createTestingNestModule } from '@ptah-api/core/testing';
-import { EmailService } from '../email/services/email.service';
+import { EmailService } from '@ptah-api/email';
 import { EventsService } from '../events/events.service';
 import { CircleProvisioningService } from '../circle/circle-provisioning.service';
 import { WAITLIST_CONVERSION_SINK } from '../circle/waitlist-conversion.sink';

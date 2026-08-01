@@ -14,7 +14,7 @@ import {
 import { SessionsService } from '../google-sessions/sessions.service';
 import { DiscourseProvisioningService } from '../discourse/discourse-provisioning.service';
 import { MemberGroupsService } from '../member-groups/member-groups.service';
-import { EmailService } from '../email/services/email.service';
+import { EmailService } from '@ptah-api/email';
 import { EventsService } from '../events/events.service';
 import { PrismaService } from '@ptah-api/core';
 import { PADDLE_CLIENT, PaddleClient } from './providers/paddle.provider';

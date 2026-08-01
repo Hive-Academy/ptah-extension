@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../app/auth/auth.module';
-import { EmailModule } from '../email/email.module';
+import { EmailModule } from '@ptah-api/email';
 import { ContactController } from './contact.controller';
 import { ContactService } from './contact.service';
 

@@ -10,7 +10,7 @@ import { Throttle } from '@nestjs/throttler';
 import { AdminApiKeyGuard } from '../guards/admin-api-key.guard';
 import { LicenseService } from '../services/license.service';
 import { CreateLicenseDto } from '../dto/create-license.dto';
-import { EmailService } from '../../email/services/email.service';
+import { EmailService } from '@ptah-api/email';
 
 /**
  * AdminController - Admin-only license management endpoints

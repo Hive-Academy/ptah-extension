@@ -10,7 +10,7 @@
 
 import { DiscourseProvisioningService } from './discourse-provisioning.service';
 import type { DiscourseAdminProvider } from './discourse-admin.provider';
-import type { AuditLogService } from '../audit/audit-log.service';
+import type { AuditLogService } from '@ptah-api/audit';
 import type { MemberGroupsService } from '../member-groups/member-groups.service';
 
 interface AdminMock {

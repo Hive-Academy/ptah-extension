@@ -15,7 +15,7 @@ import { WaitlistModule } from '../waitlist/waitlist.module';
 import { SessionModule } from '../session/session.module';
 import { HealthModule } from '../health/health.module';
 import { AdminModule } from '../admin/admin.module';
-import { AuditModule } from '../audit/audit.module';
+import { AuditModule } from '@ptah-api/audit';
 import { MarketingModule } from '../marketing/marketing.module';
 import { CircleModule } from '../circle/circle.module';
 import { GoogleSessionsModule } from '../google-sessions/google-sessions.module';

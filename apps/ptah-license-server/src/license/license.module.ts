@@ -4,7 +4,7 @@ import { LicenseService } from './services/license.service';
 import { LicenseController } from './controllers/license.controller';
 import { AdminController } from './controllers/admin.controller';
 import { PrismaModule } from '@ptah-api/core';
-import { EmailModule } from '../email/email.module';
+import { EmailModule } from '@ptah-api/email';
 import { AuthModule } from '../app/auth/auth.module';
 import { EventsModule } from '../events/events.module';
 import { WaitlistModule } from '../waitlist/waitlist.module';

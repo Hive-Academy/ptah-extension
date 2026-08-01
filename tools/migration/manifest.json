@@ -266,9 +266,14 @@
       "lib": "libs/api/audit",
       "importPath": "@ptah-api/audit",
       "platform": "api",
-      "tags": "scope:api,type:feature",
+      "tags": "scope:api,type:util",
       "app": "apps/ptah-license-server",
-      "sources": [],
+      "sources": [
+        {
+          "glob": "src/audit/*.ts",
+          "to": "."
+        }
+      ],
       "dependsOn": ["api-core"]
     },
     {
@@ -276,9 +281,14 @@
       "lib": "libs/api/email",
       "importPath": "@ptah-api/email",
       "platform": "api",
-      "tags": "scope:api,type:feature",
+      "tags": "scope:api,type:util",
       "app": "apps/ptah-license-server",
-      "sources": [],
+      "sources": [
+        {
+          "glob": "src/email/**/*.ts",
+          "to": "."
+        }
+      ],
       "dependsOn": ["api-core"]
     },
     {

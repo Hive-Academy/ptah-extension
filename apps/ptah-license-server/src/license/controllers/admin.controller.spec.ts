@@ -1,5 +1,5 @@
 import { LicenseService } from '../services/license.service';
-import { EmailService } from '../../email/services/email.service';
+import { EmailService } from '@ptah-api/email';
 import { CreateLicenseDto } from '../dto/create-license.dto';
 import { AdminController } from './admin.controller';
 

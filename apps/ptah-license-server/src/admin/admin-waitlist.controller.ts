@@ -15,7 +15,7 @@ import { AdminGuard } from './admin.guard';
 import { AdminThrottlerGuard } from './admin-throttler.guard';
 import { InviteWaitlistDto } from './admin.dto';
 import { WaitlistService } from '../waitlist/waitlist.service';
-import { AuditLogService } from '../audit/audit-log.service';
+import { AuditLogService } from '@ptah-api/audit';
 
 /**
  * AdminWaitlistController — the founding early-adopter invite wave
