@@ -1596,15 +1596,18 @@ function main(): void {
   }
 
   if (rawMoves.length > 0) {
-    const libSrcLib = path.join(libRoot, 'src', 'lib');
-    const roots = new Set(
-      rawMoves.map(
-        (move) => posix(path.relative(libSrcLib, move.to)).split('/')[0],
+    // Relative to <lib>/src, not <lib>/src/lib — raw files can land in a
+    // secondary entry point, which would otherwise render as "..".
+    const libSrc = path.join(libRoot, 'src');
+    const roots = [
+      ...new Set(
+        rawMoves.map((move) =>
+          posix(path.dirname(path.relative(libSrc, move.to))),
+        ),
       ),
-    );
-    console.log(
-      `\nraw files moved, not parsed (${rawMoves.length}) -> ${rel(libSrcLib)}/{${[...roots].join(', ')}}`,
-    );
+    ].sort();
+    console.log(`\nraw files moved, not parsed (${rawMoves.length}):`);
+    for (const root of roots) console.log(`  ${rel(libSrc)}/${root}/`);
   }
 
   if (assetMoves.length > 0) {

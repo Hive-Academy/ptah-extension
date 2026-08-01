@@ -341,8 +341,36 @@
       "platform": "api",
       "tags": "scope:api,type:feature",
       "app": "apps/ptah-license-server",
-      "sources": [],
-      "dependsOn": ["api-core", "api-identity", "api-audit", "api-email"]
+      "sources": [
+        {
+          "glob": "src/license/**/*.ts",
+          "to": "license"
+        },
+        {
+          "glob": "src/events/**/*.ts",
+          "to": "events"
+        },
+        {
+          "glob": "src/app/auth/auth.controller.ts",
+          "to": "auth-endpoints"
+        },
+        {
+          "glob": "src/app/auth/auth.module.ts",
+          "to": "auth-endpoints"
+        },
+        {
+          "glob": "src/app/auth/guards/admin-api-key.guard.spec.ts",
+          "to": "license/guards"
+        }
+      ],
+      "dependsOn": [
+        "api-core",
+        "api-identity",
+        "api-audit",
+        "api-email",
+        "api-marketing",
+        "api-community"
+      ]
     },
     {
       "name": "api-community",
@@ -409,8 +437,40 @@
       "platform": "api",
       "tags": "scope:api,type:feature",
       "app": "apps/ptah-license-server",
-      "sources": [],
-      "dependsOn": ["api-core", "api-licensing", "api-identity", "api-email"]
+      "sources": [
+        {
+          "glob": "src/paddle/**/*.ts",
+          "to": "paddle"
+        },
+        {
+          "glob": "src/subscription/**/*.ts",
+          "to": "subscription"
+        },
+        {
+          "glob": "src/testing/fixtures/paddle/*.ts",
+          "to": "fixtures/paddle",
+          "entryPoint": "testing"
+        },
+        {
+          "glob": "src/testing/fixtures/paddle/*.json",
+          "to": "fixtures/paddle",
+          "entryPoint": "testing",
+          "raw": true
+        },
+        {
+          "glob": "src/testing/testcontainers/*.ts",
+          "to": "testcontainers",
+          "entryPoint": "testing"
+        }
+      ],
+      "dependsOn": [
+        "api-core",
+        "api-identity",
+        "api-email",
+        "api-marketing",
+        "api-community",
+        "api-licensing"
+      ]
     },
     {
       "name": "api-admin",
@@ -419,14 +479,32 @@
       "platform": "api",
       "tags": "scope:api,type:feature",
       "app": "apps/ptah-license-server",
-      "sources": [],
+      "sources": [
+        {
+          "glob": "src/admin/*.controller.ts",
+          "to": "."
+        },
+        {
+          "glob": "src/admin/admin.*.ts",
+          "to": "."
+        },
+        {
+          "glob": "src/admin/admin-models.config.ts",
+          "to": "."
+        },
+        {
+          "glob": "src/admin/dto/**/*.ts",
+          "to": "dto"
+        }
+      ],
       "dependsOn": [
         "api-core",
         "api-identity",
-        "api-licensing",
+        "api-audit",
+        "api-email",
         "api-community",
         "api-marketing",
-        "api-billing"
+        "api-licensing"
       ]
     }
   ]

@@ -2,30 +2,30 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { type Type } from '@nestjs/common';
 
-import { AdminLicensesController } from '../admin/admin-licenses.controller';
-import { AdminRecordsController } from '../admin/admin-records.controller';
-import { AdminStatsController } from '../admin/admin-stats.controller';
-import { AdminUsersController } from '../admin/admin-users.controller';
-import { AdminWaitlistController } from '../admin/admin-waitlist.controller';
-import { AuthController } from '../app/auth/auth.controller';
+import { AdminLicensesController } from '@ptah-api/admin';
+import { AdminRecordsController } from '@ptah-api/admin';
+import { AdminStatsController } from '@ptah-api/admin';
+import { AdminUsersController } from '@ptah-api/admin';
+import { AdminWaitlistController } from '@ptah-api/admin';
+import { AuthController } from '@ptah-api/licensing';
 import { ContactController } from '@ptah-api/marketing';
 import { AdminCommunityController } from '@ptah-api/community';
 import { CommunityController } from '@ptah-api/community';
 import { DiscourseController } from '@ptah-api/community';
-import { EventsController } from '../events/events.controller';
+import { EventsController } from '@ptah-api/licensing';
 import { AdminSessionsController } from '@ptah-api/community';
 import { MembersController } from '@ptah-api/community';
 import { HealthController } from '../health/health.controller';
-import { AdminController as LicenseAdminController } from '../license/controllers/admin.controller';
-import { LicenseController } from '../license/controllers/license.controller';
+import { AdminController as LicenseAdminController } from '@ptah-api/licensing';
+import { LicenseController } from '@ptah-api/licensing';
 import { AdminMarketingController } from '@ptah-api/marketing';
 import { PublicMarketingController } from '@ptah-api/marketing';
 import { ResendWebhookController } from '@ptah-api/marketing';
 import { MemberGroupsController } from '@ptah-api/community';
 import { AdminPacksController } from '@ptah-api/community';
-import { PaddleController } from '../paddle/paddle.controller';
+import { PaddleController } from '@ptah-api/billing';
 import { SessionController } from '@ptah-api/marketing';
-import { SubscriptionController } from '../subscription/subscription.controller';
+import { SubscriptionController } from '@ptah-api/billing';
 import { WaitlistController } from '@ptah-api/marketing';
 
 /**
@@ -199,32 +199,32 @@ export interface ControllerRegistryEntry {
 export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   {
     label: 'admin/AdminLicensesController',
-    file: 'apps/ptah-license-server/src/admin/admin-licenses.controller.ts',
+    file: 'libs/api/admin/src/lib/admin-licenses.controller.ts',
     controller: AdminLicensesController,
   },
   {
     label: 'admin/AdminRecordsController',
-    file: 'apps/ptah-license-server/src/admin/admin-records.controller.ts',
+    file: 'libs/api/admin/src/lib/admin-records.controller.ts',
     controller: AdminRecordsController,
   },
   {
     label: 'admin/AdminStatsController',
-    file: 'apps/ptah-license-server/src/admin/admin-stats.controller.ts',
+    file: 'libs/api/admin/src/lib/admin-stats.controller.ts',
     controller: AdminStatsController,
   },
   {
     label: 'admin/AdminUsersController',
-    file: 'apps/ptah-license-server/src/admin/admin-users.controller.ts',
+    file: 'libs/api/admin/src/lib/admin-users.controller.ts',
     controller: AdminUsersController,
   },
   {
     label: 'admin/AdminWaitlistController',
-    file: 'apps/ptah-license-server/src/admin/admin-waitlist.controller.ts',
+    file: 'libs/api/admin/src/lib/admin-waitlist.controller.ts',
     controller: AdminWaitlistController,
   },
   {
     label: 'app/auth/AuthController',
-    file: 'apps/ptah-license-server/src/app/auth/auth.controller.ts',
+    file: 'libs/api/licensing/src/lib/auth-endpoints/auth.controller.ts',
     controller: AuthController,
   },
   {
@@ -249,7 +249,7 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   },
   {
     label: 'events/EventsController',
-    file: 'apps/ptah-license-server/src/events/events.controller.ts',
+    file: 'libs/api/licensing/src/lib/events/events.controller.ts',
     controller: EventsController,
   },
   {
@@ -269,12 +269,12 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   },
   {
     label: 'license/AdminController',
-    file: 'apps/ptah-license-server/src/license/controllers/admin.controller.ts',
+    file: 'libs/api/licensing/src/lib/license/controllers/admin.controller.ts',
     controller: LicenseAdminController,
   },
   {
     label: 'license/LicenseController',
-    file: 'apps/ptah-license-server/src/license/controllers/license.controller.ts',
+    file: 'libs/api/licensing/src/lib/license/controllers/license.controller.ts',
     controller: LicenseController,
   },
   {
@@ -304,7 +304,7 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   },
   {
     label: 'paddle/PaddleController',
-    file: 'apps/ptah-license-server/src/paddle/paddle.controller.ts',
+    file: 'libs/api/billing/src/lib/paddle/paddle.controller.ts',
     controller: PaddleController,
   },
   {
@@ -314,7 +314,7 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   },
   {
     label: 'subscription/SubscriptionController',
-    file: 'apps/ptah-license-server/src/subscription/subscription.controller.ts',
+    file: 'libs/api/billing/src/lib/subscription/subscription.controller.ts',
     controller: SubscriptionController,
   },
   {
