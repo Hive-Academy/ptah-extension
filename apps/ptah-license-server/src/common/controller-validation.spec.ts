@@ -1,11 +1,12 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { ValidationPipe, type Type } from '@nestjs/common';
 import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 
 import {
   ALL_CONTROLLERS,
-  SRC,
+  CONTROLLER_ROOTS,
+  WORKSPACE_ROOT,
   findControllerFiles,
 } from '../testing/controller-registry';
 
@@ -234,18 +235,44 @@ describe('Server-wide input validation — structural guard', () => {
     // The ledger's guarantee — "add a new controller with a bare @Body() and
     // the suite fails" — is only true if the new controller is IN
     // ALL_CONTROLLERS. Since that list is hand-maintained, this scans the
-    // source tree and fails when the two drift. Cheap, infra-free, and it
+    // source trees and fails when the two drift. Cheap, infra-free, and it
     // closes the one hole an import list otherwise leaves open.
-    it('every *.controller.ts in src/ appears in ALL_CONTROLLERS', () => {
-      const onDisk = findControllerFiles(SRC).sort();
+    //
+    // Scans EVERY controller root — this app plus each extracted libs/api/*
+    // domain — so a controller stays covered after its domain moves out.
+    it('every *.controller.ts under the controller roots appears in ALL_CONTROLLERS', () => {
+      const onDisk = findControllerFiles().sort();
       const listed = ALL_CONTROLLERS.map((c) => c.file).sort();
 
       expect(listed).toEqual(onDisk);
     });
 
+    // Guards the census against silently scanning nothing: if root discovery
+    // ever returned an empty or app-only list while controllers lived in libs,
+    // the assertion above would pass vacuously for the missing tree.
+    it('the controller roots include this app and every api lib', () => {
+      const libRoots = CONTROLLER_ROOTS.filter((root) =>
+        root.split(sep).join('/').includes('/libs/api/'),
+      );
+      const apiLibsDir = join(WORKSPACE_ROOT, 'libs', 'api');
+      const expectedLibCount = existsSync(apiLibsDir)
+        ? readdirSync(apiLibsDir, { withFileTypes: true }).filter(
+            (entry) =>
+              entry.isDirectory() &&
+              existsSync(join(apiLibsDir, entry.name, 'src')),
+          ).length
+        : 0;
+
+      expect(CONTROLLER_ROOTS.length).toBe(1 + expectedLibCount);
+      expect(libRoots.length).toBe(expectedLibCount);
+    });
+
     it('each ALL_CONTROLLERS entry names the class its file exports', () => {
       for (const { file, controller } of ALL_CONTROLLERS) {
-        const source = readFileSync(join(SRC, ...file.split('/')), 'utf8');
+        const source = readFileSync(
+          join(WORKSPACE_ROOT, ...file.split('/')),
+          'utf8',
+        );
         const exported = [
           ...source.matchAll(/^export class (\w+Controller)\b/gm),
         ].map((m) => m[1]);

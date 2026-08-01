@@ -1,5 +1,5 @@
-import { existsSync, readdirSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
 import { type Type } from '@nestjs/common';
 
 import { AdminLicensesController } from '../admin/admin-licenses.controller';
@@ -49,8 +49,18 @@ import { WaitlistController } from '../waitlist/waitlist.controller';
  * that must stay infra-free — no Postgres, no Nest bootstrap, no docker (the
  * same reasoning TASK_2026_169 used for G3; see its report §6(d)). The
  * hand-maintained list is instead kept honest by the CENSUS assertion in
- * `controller-validation.spec.ts`, which calls `findControllerFiles(SRC)`
+ * `controller-validation.spec.ts`, which calls `findControllerFiles()`
  * below and fails if any `*.controller.ts` on disk is missing from it.
+ *
+ * ⚠️ CONTROLLERS NO LONGER LIVE IN ONE TREE.
+ * The license server is being decomposed into `libs/api/*` scoped libs
+ * (`@ptah-api/*`) by `tools/migration`. A controller may therefore sit in the
+ * app's `src/` OR inside any api lib, and it MOVES from the first to the second
+ * as its domain is extracted. The census consequently scans MULTIPLE ROOTS
+ * (see {@link CONTROLLER_ROOTS}) and `file` paths are WORKSPACE-relative rather
+ * than src-relative, so an entry keeps meaning the same thing on both sides of
+ * a move. The roots are discovered from the filesystem at import time, so a new
+ * api lib is covered the moment it exists — this file needs no edit for that.
  *
  * ⚠️ DO NOT ADD THIS MODULE TO `testing/index.ts`. The barrel is a general
  * test-harness surface; pulling 21 controller classes (and their entire DI
@@ -63,34 +73,110 @@ import { WaitlistController } from '../waitlist/waitlist.controller';
  */
 
 /**
- * The server's `src/` directory.
+ * The server's own `src/` directory.
  *
  * ⚠️ RE-DERIVED DELIBERATELY, NOT COPIED. This module lives at `src/testing/`,
  * so `join(__dirname, '..')` is `src/`. Its previous home was `src/common/`,
  * where `..` was ALSO `src/` — the two depths happen to agree, which is
  * precisely why this needs saying out loud: the next move may not be at the
- * same depth, and a silently-wrong `SRC` would make the census scan the wrong
- * tree and `readFileSync(join(SRC, file))` read the wrong files.
+ * same depth, and a silently-wrong root would make the census scan the wrong
+ * tree and the file-exports-class assertion read the wrong files.
  *
  * The guard below turns "someone moved this file" into an immediate, named
  * failure instead of a confusing census diff.
  */
-export const SRC = join(__dirname, '..');
+export const APP_SRC = join(__dirname, '..');
 
-if (!existsSync(join(SRC, 'main.ts'))) {
+if (!existsSync(join(APP_SRC, 'main.ts'))) {
   throw new Error(
-    `controller-registry: SRC resolved to "${SRC}", which does not contain ` +
-      `main.ts. This module derives the server's src/ directory as ONE level ` +
-      `above its own directory. If this file moved, re-derive SRC here — do ` +
-      `not adjust the callers.`,
+    `controller-registry: APP_SRC resolved to "${APP_SRC}", which does not ` +
+      `contain main.ts. This module derives the server's src/ directory as ONE ` +
+      `level above its own directory. If this file moved, re-derive APP_SRC ` +
+      `here — do not adjust the callers.`,
   );
+}
+
+/**
+ * The Nx workspace root, found by walking UP from this file until a directory
+ * containing `nx.json` appears.
+ *
+ * ⚠️ WHY A SEARCH AND NOT A FIXED NUMBER OF `..` SEGMENTS. `file` paths are
+ * workspace-relative because controllers live in two places now (this app and
+ * `libs/api/*`), so the ledger needs an anchor ABOVE both. Counting `..` from
+ * `apps/<app>/src/testing/` would bake this file's depth into the anchor and
+ * break silently the next time it moves — the exact failure mode the APP_SRC
+ * guard above exists to prevent. Searching for a marker cannot drift.
+ */
+function findWorkspaceRoot(start: string): string {
+  let dir = start;
+  for (;;) {
+    if (existsSync(join(dir, 'nx.json'))) return dir;
+
+    const parent = dirname(dir);
+    if (parent === dir) {
+      throw new Error(
+        `controller-registry: walked up from "${start}" to the filesystem ` +
+          `root without finding nx.json, so the workspace root could not be ` +
+          `derived. Every ALL_CONTROLLERS \`file\` is resolved against it. If ` +
+          `this server no longer lives inside the Nx workspace, re-derive the ` +
+          `anchor here — do not adjust the callers.`,
+      );
+    }
+    dir = parent;
+  }
+}
+
+export const WORKSPACE_ROOT = findWorkspaceRoot(__dirname);
+
+/**
+ * Every `src/` tree that may contain a controller: this app, plus each
+ * `libs/api/*` domain extracted out of it.
+ *
+ * Discovered from the filesystem rather than hand-listed, so extracting a new
+ * api domain needs no edit here — the census covers it as soon as the lib
+ * exists. Returns app-first, then libs in directory order.
+ */
+export function discoverControllerRoots(): string[] {
+  const roots = [APP_SRC];
+
+  const apiLibs = join(WORKSPACE_ROOT, 'libs', 'api');
+  if (existsSync(apiLibs)) {
+    for (const entry of readdirSync(apiLibs, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const libSrc = join(apiLibs, entry.name, 'src');
+      if (existsSync(libSrc)) roots.push(libSrc);
+    }
+  }
+
+  return roots;
+}
+
+/** @see discoverControllerRoots */
+export const CONTROLLER_ROOTS: readonly string[] = discoverControllerRoots();
+
+for (const root of CONTROLLER_ROOTS) {
+  if (!existsSync(root) || !statSync(root).isDirectory()) {
+    throw new Error(
+      `controller-registry: controller root "${root}" is not a directory. ` +
+        `Roots are discovered as this app's src/ plus every libs/api/*/src ` +
+        `under "${WORKSPACE_ROOT}". A root that vanishes between discovery ` +
+        `and use would make the census silently under-report.`,
+    );
+  }
 }
 
 /** One entry in {@link ALL_CONTROLLERS}. */
 export interface ControllerRegistryEntry {
   /** UNIQUE, path-qualified human label — the key every ledger is keyed on. */
   readonly label: string;
-  /** Source path relative to `src/`, always `/`-separated. */
+  /**
+   * Source path relative to {@link WORKSPACE_ROOT}, always `/`-separated.
+   *
+   * Workspace-relative, NOT src-relative: a controller lives in this app until
+   * its domain is extracted, then in `libs/api/<domain>/src/lib/`. Anchoring
+   * above both keeps one ledger meaningful across that move. `tools/migration`
+   * rewrites these literals automatically when it moves a controller.
+   */
   readonly file: string;
   readonly controller: Type<unknown>;
 }
@@ -113,138 +199,132 @@ export interface ControllerRegistryEntry {
 export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   {
     label: 'admin/AdminLicensesController',
-    file: 'admin/admin-licenses.controller.ts',
+    file: 'apps/ptah-license-server/src/admin/admin-licenses.controller.ts',
     controller: AdminLicensesController,
   },
   {
     label: 'admin/AdminRecordsController',
-    file: 'admin/admin-records.controller.ts',
+    file: 'apps/ptah-license-server/src/admin/admin-records.controller.ts',
     controller: AdminRecordsController,
   },
   {
     label: 'admin/AdminStatsController',
-    file: 'admin/admin-stats.controller.ts',
+    file: 'apps/ptah-license-server/src/admin/admin-stats.controller.ts',
     controller: AdminStatsController,
   },
   {
     label: 'admin/AdminUsersController',
-    file: 'admin/admin-users.controller.ts',
+    file: 'apps/ptah-license-server/src/admin/admin-users.controller.ts',
     controller: AdminUsersController,
   },
   {
     label: 'admin/AdminWaitlistController',
-    file: 'admin/admin-waitlist.controller.ts',
+    file: 'apps/ptah-license-server/src/admin/admin-waitlist.controller.ts',
     controller: AdminWaitlistController,
   },
   {
     label: 'app/auth/AuthController',
-    file: 'app/auth/auth.controller.ts',
+    file: 'apps/ptah-license-server/src/app/auth/auth.controller.ts',
     controller: AuthController,
   },
   {
     label: 'contact/ContactController',
-    file: 'contact/contact.controller.ts',
+    file: 'apps/ptah-license-server/src/contact/contact.controller.ts',
     controller: ContactController,
   },
   {
     label: 'discourse/AdminCommunityController',
-    file: 'discourse/admin-community.controller.ts',
+    file: 'apps/ptah-license-server/src/discourse/admin-community.controller.ts',
     controller: AdminCommunityController,
   },
   {
     label: 'discourse/CommunityController',
-    file: 'discourse/community.controller.ts',
+    file: 'apps/ptah-license-server/src/discourse/community.controller.ts',
     controller: CommunityController,
   },
   {
     label: 'discourse/DiscourseController',
-    file: 'discourse/discourse.controller.ts',
+    file: 'apps/ptah-license-server/src/discourse/discourse.controller.ts',
     controller: DiscourseController,
   },
   {
     label: 'events/EventsController',
-    file: 'events/events.controller.ts',
+    file: 'apps/ptah-license-server/src/events/events.controller.ts',
     controller: EventsController,
   },
   {
     label: 'google-sessions/AdminSessionsController',
-    file: 'google-sessions/admin-sessions.controller.ts',
+    file: 'apps/ptah-license-server/src/google-sessions/admin-sessions.controller.ts',
     controller: AdminSessionsController,
   },
   {
     label: 'google-sessions/MembersController',
-    file: 'google-sessions/members.controller.ts',
+    file: 'apps/ptah-license-server/src/google-sessions/members.controller.ts',
     controller: MembersController,
   },
   {
     label: 'health/HealthController',
-    file: 'health/health.controller.ts',
+    file: 'apps/ptah-license-server/src/health/health.controller.ts',
     controller: HealthController,
   },
   {
     label: 'license/AdminController',
-    file: 'license/controllers/admin.controller.ts',
+    file: 'apps/ptah-license-server/src/license/controllers/admin.controller.ts',
     controller: LicenseAdminController,
   },
   {
     label: 'license/LicenseController',
-    file: 'license/controllers/license.controller.ts',
+    file: 'apps/ptah-license-server/src/license/controllers/license.controller.ts',
     controller: LicenseController,
   },
   {
     label: 'marketing/AdminMarketingController',
-    file: 'marketing/controllers/admin-marketing.controller.ts',
+    file: 'apps/ptah-license-server/src/marketing/controllers/admin-marketing.controller.ts',
     controller: AdminMarketingController,
   },
   {
     label: 'marketing/PublicMarketingController',
-    file: 'marketing/controllers/public-marketing.controller.ts',
+    file: 'apps/ptah-license-server/src/marketing/controllers/public-marketing.controller.ts',
     controller: PublicMarketingController,
   },
   {
     label: 'marketing/ResendWebhookController',
-    file: 'marketing/controllers/resend-webhook.controller.ts',
+    file: 'apps/ptah-license-server/src/marketing/controllers/resend-webhook.controller.ts',
     controller: ResendWebhookController,
   },
   {
     label: 'member-groups/MemberGroupsController',
-    file: 'member-groups/member-groups.controller.ts',
+    file: 'apps/ptah-license-server/src/member-groups/member-groups.controller.ts',
     controller: MemberGroupsController,
   },
   {
     label: 'packs/AdminPacksController',
-    file: 'packs/admin-packs.controller.ts',
+    file: 'apps/ptah-license-server/src/packs/admin-packs.controller.ts',
     controller: AdminPacksController,
   },
   {
     label: 'paddle/PaddleController',
-    file: 'paddle/paddle.controller.ts',
+    file: 'apps/ptah-license-server/src/paddle/paddle.controller.ts',
     controller: PaddleController,
   },
   {
     label: 'session/SessionController',
-    file: 'session/session.controller.ts',
+    file: 'apps/ptah-license-server/src/session/session.controller.ts',
     controller: SessionController,
   },
   {
     label: 'subscription/SubscriptionController',
-    file: 'subscription/subscription.controller.ts',
+    file: 'apps/ptah-license-server/src/subscription/subscription.controller.ts',
     controller: SubscriptionController,
   },
   {
     label: 'waitlist/WaitlistController',
-    file: 'waitlist/waitlist.controller.ts',
+    file: 'apps/ptah-license-server/src/waitlist/waitlist.controller.ts',
     controller: WaitlistController,
   },
 ];
 
-/**
- * Recursively collect `*.controller.ts` paths under `src/`, `/`-normalized and
- * relative to {@link SRC}. The input for the census assertion — it is what
- * makes the hand-maintained list above impossible to leave incomplete.
- */
-export function findControllerFiles(dir: string): string[] {
-  const found: string[] = [];
+function collectControllerFiles(dir: string, found: string[]): void {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
@@ -254,13 +334,26 @@ export function findControllerFiles(dir: string): string[] {
       ) {
         continue;
       }
-      found.push(...findControllerFiles(full));
+      collectControllerFiles(full, found);
     } else if (
       entry.name.endsWith('.controller.ts') &&
       !entry.name.endsWith('.spec.ts')
     ) {
-      found.push(relative(SRC, full).split(sep).join('/'));
+      found.push(relative(WORKSPACE_ROOT, full).split(sep).join('/'));
     }
   }
+}
+
+/**
+ * Recursively collect `*.controller.ts` paths under every controller root,
+ * `/`-normalized and relative to {@link WORKSPACE_ROOT}. The input for the
+ * census assertion — it is what makes the hand-maintained list above impossible
+ * to leave incomplete, on BOTH sides of a domain extraction.
+ */
+export function findControllerFiles(
+  roots: readonly string[] = CONTROLLER_ROOTS,
+): string[] {
+  const found: string[] = [];
+  for (const root of roots) collectControllerFiles(root, found);
   return found;
 }

@@ -1332,6 +1332,45 @@ function main(): void {
     );
   }
 
+  // ------------------------------------------------------------------
+  // workspace-relative path literals
+  // ------------------------------------------------------------------
+  // Some files reference other files by PATH rather than by import — the
+  // license server's `testing/controller-registry.ts` keys its ledger on
+  // `file: 'apps/ptah-license-server/src/.../x.controller.ts'`, and a census
+  // spec asserts that ledger against a filesystem scan. Moving a file without
+  // updating those literals leaves the ledger pointing at a path that no longer
+  // exists, and the census fails on the NEXT run rather than in this one.
+  //
+  // Only an EXACT match on a moved file's workspace-relative path is rewritten,
+  // so a literal cannot be caught by accident: the value has to name a real
+  // file this run is moving, extension included. Module specifiers are relative
+  // or aliased and can never take this form, so they are untouched.
+  const pathLiteralRewrites = new Map(
+    [...moves, ...rawMoves, ...assetMoves].map((move) => [
+      rel(move.from),
+      rel(move.to),
+    ]),
+  );
+
+  for (const sourceFile of project.getSourceFiles()) {
+    const filePath = posix(sourceFile.getFilePath());
+
+    for (const literal of sourceFile.getDescendantsOfKind(
+      SyntaxKind.StringLiteral,
+    )) {
+      const replacement = pathLiteralRewrites.get(literal.getLiteralValue());
+      if (replacement === undefined) continue;
+
+      rewrites.push({
+        file: rel(filePath),
+        from: literal.getLiteralValue(),
+        to: replacement,
+      });
+      literal.setLiteralValue(replacement);
+    }
+  }
+
   if (selfAliasImports.length > 0) {
     die(
       `${selfAliasImports.length} file(s) landing in "${domain.name}" import ${domain.importPath} — its own barrel`,
