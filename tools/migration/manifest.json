@@ -296,10 +296,43 @@
       "lib": "libs/api/identity",
       "importPath": "@ptah-api/identity",
       "platform": "api",
-      "tags": "scope:api,type:feature",
+      "tags": "scope:api,type:util",
       "app": "apps/ptah-license-server",
-      "sources": [],
-      "dependsOn": ["api-core", "api-audit", "api-email"]
+      "sources": [
+        {
+          "glob": "src/app/auth/dto/**/*.ts",
+          "to": "dto"
+        },
+        {
+          "glob": "src/app/auth/interfaces/**/*.ts",
+          "to": "interfaces"
+        },
+        {
+          "glob": "src/app/auth/providers/**/*.ts",
+          "to": "providers"
+        },
+        {
+          "glob": "src/app/auth/services/**/*.ts",
+          "to": "services"
+        },
+        {
+          "glob": "src/app/auth/guards/jwt-auth.guard*.ts",
+          "to": "guards"
+        },
+        {
+          "glob": "src/app/auth/guards/query-token.guard*.ts",
+          "to": "guards"
+        },
+        {
+          "glob": "src/admin/admin.guard.ts",
+          "to": "guards"
+        },
+        {
+          "glob": "src/admin/admin-throttler.guard.ts",
+          "to": "guards"
+        }
+      ],
+      "dependsOn": ["api-core", "api-email"]
     },
     {
       "name": "api-licensing",

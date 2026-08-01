@@ -31,7 +31,7 @@ import {
   createMockPrisma,
   asPrismaService,
   type MockPrisma,
-} from '../../../../testing';
+} from '@ptah-api/core/testing';
 import { JwtTokenService } from './jwt-token.service';
 
 const JWT_SECRET = 'test-jwt-secret-256-bit-long-for-hs256-round-trip-xxxxx';

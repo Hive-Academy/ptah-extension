@@ -10,35 +10,46 @@ Ptah is an "AI coding orchestra" delivered as a VS Code extension, Electron desk
 
 ```
 ptah-extension/
-├── apps/                              # 10 runtime targets
+├── apps/                              # 14 Nx projects (9 shipping + 4 e2e + 1 theme)
 │   ├── ptah-extension-vscode/         # VS Code extension host (esbuild → main.mjs)
 │   ├── ptah-extension-webview/        # Angular 21 webview shell (Zone-based)
 │   ├── ptah-electron/                 # Electron 40 desktop app
-│   ├── ptah-electron-e2e/             # Playwright _electron.launch
 │   ├── ptah-cli/                      # @hive-academy/ptah-cli (JSON-RPC stdio)
+│   ├── ptah-tui/                      # Ink TUI → tui.mjs inside @hive-academy/ptah-cli
 │   ├── ptah-license-server/           # NestJS 11 + Prisma + Paddle + WorkOS + Resend
-│   ├── ptah-license-server-e2e/       # Jest e2e
 │   ├── ptah-landing-page/             # Angular marketing site
 │   ├── ptah-docs/                     # Astro Starlight (docs.ptah.live)
+│   ├── ptah-video-studio/             # Remotion compositor (tooling; never shipped)
 │   ├── ptah-discourse-theme/          # Discourse theme + admin-API deploy
+│   └── *-e2e/                         # ptah-electron | ptah-extension-vscode |
+│                                      # ptah-landing-page | ptah-license-server
 │
-├── libs/backend/                      # 16 runtime-agnostic libs (DI: tsyringe)
-│   ├── platform-core/                 # ★ Port interfaces + 16 PLATFORM_TOKENS
+├── libs/backend/                      # 25 runtime-agnostic libs (DI: tsyringe)
+│   ├── platform-core/                 # ★ Port interfaces + 22 PLATFORM_TOKENS
 │   ├── platform-{cli,electron,vscode} #   Adapter trio (mutually exclusive)
 │   ├── agent-sdk/                     # Claude/Codex SDK wrapper, compaction
+│   ├── auth-providers/                # Auth strategies + provider trees (one-way → agent-sdk)
+│   ├── auth-providers-tokens/         # Zero-dep AUTH_PROVIDERS_TOKENS
+│   ├── cli-agent-runtime/             # Rival-CLI orchestration + cross-CLI MCP install
+│   ├── cli-engine/                    # In-process backend host for ptah-cli / ptah-tui
 │   ├── agent-generation/              # Setup-wizard generation pipeline
 │   ├── workspace-intelligence/        # AST + symbol indexer + analysis
 │   ├── rpc-handlers/                  # 30+ handlers (dual-registration rule)
 │   ├── vscode-core/                   # Logger, RpcHandler, License, FeatureGate
 │   ├── vscode-lm-tools/               # Code-exec MCP + browser/web capabilities
+│   ├── settings-core/                 # ~/.ptah/settings.json store + secret envelopes
 │   ├── persistence-sqlite/            # ~/.ptah/ptah.db + migrations + IEmbedder
 │   ├── memory-contracts/              # Zero-dep memory port interfaces
 │   ├── memory-curator/                # Letta-style memory + IndexingControl
 │   ├── messaging-gateway/             # Telegram/Discord/Slack + voice
+│   ├── gateway-chat-bridge/           # Gateway inbound → agent session → outbound
+│   ├── voice-contracts/               # Zero-dep voice ports + error taxonomy
+│   ├── voice-providers/               # Whisper/Kokoro + cloud voice adapters
 │   ├── cron-scheduler/                # SQLite-backed slot-claim cron
+│   ├── task-specs/                    # .ptah/specs/ task.md frontmatter contract
 │   └── skill-synthesis/               # Trajectory extraction + judge
 │
-├── libs/frontend/                     # 21 Angular 21 libs (signals, OnPush)
+├── libs/frontend/                     # 25 Angular 21 libs (signals, OnPush)
 │   ├── core/                          # VSCodeService, MESSAGE_HANDLERS, RPC client
 │   ├── ui/                            # Floating-UI primitives (Native*) + legacy CDK
 │   ├── markdown/                      # ★ Single XSS chokepoint (DOMPurify + marked)
@@ -49,6 +60,10 @@ ptah-extension/
 │   ├── dashboard/                     # Card-driven home
 │   ├── setup-wizard/                  # 7-step premium-gated onboarding
 │   ├── harness-builder/               # Streamed harness builder
+│   ├── marketplace/                   # Plugins / Smithery / OAuth surfaces
+│   ├── tribunal-panel/                # Multi-vendor tribunal wizard + tile host
+│   ├── tasks-ui/                      # Six-column Kanban over .ptah/specs/
+│   ├── workspace-indexing/            # Shared indexing panel (breaks chat ↔ memory cycle)
 │   ├── thoth-shell/                   # 4-tab inner chrome (Memory/Skills/Cron/Gateway)
 │   ├── memory-curator-ui/             # Electron-only Memory tab
 │   ├── cron-scheduler-ui/             # Electron-only Schedules tab
@@ -126,28 +141,42 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 - [ptah-electron](./apps/ptah-electron/CLAUDE.md) — Electron desktop app
 - [ptah-electron-e2e](./apps/ptah-electron-e2e/CLAUDE.md) — Playwright electron tests
 - [ptah-cli](./apps/ptah-cli/CLAUDE.md) — Headless JSON-RPC CLI
+- [ptah-tui](./apps/ptah-tui/CLAUDE.md) — Ink TUI on `cli-engine`; not its own npm package — builds to `tui.mjs` inside `@hive-academy/ptah-cli`, launched by `ptah tui` (hence `private: true`)
 - [ptah-license-server](./apps/ptah-license-server/CLAUDE.md) — NestJS license API
 - [ptah-license-server-e2e](./apps/ptah-license-server-e2e/CLAUDE.md) — License e2e
 - [ptah-landing-page](./apps/ptah-landing-page/CLAUDE.md) — Angular marketing
+- ptah-landing-page-e2e — Playwright marketing-site tests
+- [ptah-extension-vscode-e2e](./apps/ptah-extension-vscode-e2e/CLAUDE.md) — VS Code e2e
 - [ptah-docs](./apps/ptah-docs/CLAUDE.md) — Astro Starlight docs
+- ptah-video-studio — Remotion compositor + selfshot pipeline (tooling only)
+- ptah-discourse-theme — Discourse theme + admin-API deploy
 
 ### Backend Libs
 
-- [platform-core](./libs/backend/platform-core/CLAUDE.md) — ★ Ports + PLATFORM_TOKENS
+- [platform-core](./libs/backend/platform-core/CLAUDE.md) — ★ Ports + 22 PLATFORM_TOKENS
 - [platform-cli](./libs/backend/platform-cli/CLAUDE.md) — CLI adapters
 - [platform-electron](./libs/backend/platform-electron/CLAUDE.md) — Electron adapters
 - [platform-vscode](./libs/backend/platform-vscode/CLAUDE.md) — VS Code adapters
 - [agent-sdk](./libs/backend/agent-sdk/CLAUDE.md) — Claude/Codex SDK wrapper
+- [auth-providers](./libs/backend/auth-providers/CLAUDE.md) — Auth strategies + provider trees
+- auth-providers-tokens — Zero-dep `AUTH_PROVIDERS_TOKENS` (no CLAUDE.md yet)
+- [cli-agent-runtime](./libs/backend/cli-agent-runtime/CLAUDE.md) — Rival-CLI orchestration + MCP install
+- [cli-engine](./libs/backend/cli-engine/CLAUDE.md) — In-process backend host for ptah-cli / ptah-tui
 - [agent-generation](./libs/backend/agent-generation/CLAUDE.md) — Generation pipeline
 - [workspace-intelligence](./libs/backend/workspace-intelligence/CLAUDE.md) — AST + symbols
 - [rpc-handlers](./libs/backend/rpc-handlers/CLAUDE.md) — RPC handler classes
 - [vscode-core](./libs/backend/vscode-core/CLAUDE.md) — Logger, License, RPC infra
 - [vscode-lm-tools](./libs/backend/vscode-lm-tools/CLAUDE.md) — Code-exec MCP + browser
+- settings-core — `~/.ptah/settings.json` store + secret envelopes (no CLAUDE.md yet)
 - [persistence-sqlite](./libs/backend/persistence-sqlite/CLAUDE.md) — SQLite + migrations
 - [memory-contracts](./libs/backend/memory-contracts/CLAUDE.md) — Memory port interfaces
 - [memory-curator](./libs/backend/memory-curator/CLAUDE.md) — Letta-style memory
 - [messaging-gateway](./libs/backend/messaging-gateway/CLAUDE.md) — Telegram/Discord/Slack
+- [gateway-chat-bridge](./libs/backend/gateway-chat-bridge/CLAUDE.md) — Gateway ↔ agent session
+- [voice-contracts](./libs/backend/voice-contracts/CLAUDE.md) — Zero-dep voice ports
+- [voice-providers](./libs/backend/voice-providers/CLAUDE.md) — Whisper/Kokoro + cloud voice
 - [cron-scheduler](./libs/backend/cron-scheduler/CLAUDE.md) — SQLite cron loop
+- [task-specs](./libs/backend/task-specs/CLAUDE.md) — `.ptah/specs/` task.md contract
 - [skill-synthesis](./libs/backend/skill-synthesis/CLAUDE.md) — Trajectory extraction
 
 ### Frontend Libs
@@ -167,6 +196,10 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 - [dashboard](./libs/frontend/dashboard/CLAUDE.md) — Card-driven home
 - [setup-wizard](./libs/frontend/setup-wizard/CLAUDE.md) — 7-step onboarding
 - [harness-builder](./libs/frontend/harness-builder/CLAUDE.md) — Streamed harness builder
+- marketplace — Plugins / Smithery / OAuth surfaces (no CLAUDE.md yet)
+- tribunal-panel — Multi-vendor tribunal wizard + tile host (no CLAUDE.md yet)
+- [tasks-ui](./libs/frontend/tasks-ui/CLAUDE.md) — Six-column Kanban over `.ptah/specs/`
+- workspace-indexing — Shared indexing panel, breaks chat ↔ memory cycle (no CLAUDE.md yet)
 - [thoth-shell](./libs/frontend/thoth-shell/CLAUDE.md) — 4-tab inner chrome (Electron)
 - [memory-curator-ui](./libs/frontend/memory-curator-ui/CLAUDE.md) — Memory tab (Electron)
 - [cron-scheduler-ui](./libs/frontend/cron-scheduler-ui/CLAUDE.md) — Schedules tab (Electron)
