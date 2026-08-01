@@ -1,29 +1,13 @@
-import { readFileSync, readdirSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ValidationPipe, type Type } from '@nestjs/common';
 import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 
-import { AdminController as AdminAdminController } from '../admin/admin.controller';
-import { AuthController } from '../app/auth/auth.controller';
-import { ContactController } from '../contact/contact.controller';
-import { AdminCommunityController } from '../discourse/admin-community.controller';
-import { CommunityController } from '../discourse/community.controller';
-import { DiscourseController } from '../discourse/discourse.controller';
-import { EventsController } from '../events/events.controller';
-import { AdminSessionsController } from '../google-sessions/admin-sessions.controller';
-import { MembersController } from '../google-sessions/members.controller';
-import { HealthController } from '../health/health.controller';
-import { AdminController as LicenseAdminController } from '../license/controllers/admin.controller';
-import { LicenseController } from '../license/controllers/license.controller';
-import { AdminMarketingController } from '../marketing/controllers/admin-marketing.controller';
-import { PublicMarketingController } from '../marketing/controllers/public-marketing.controller';
-import { ResendWebhookController } from '../marketing/controllers/resend-webhook.controller';
-import { MemberGroupsController } from '../member-groups/member-groups.controller';
-import { AdminPacksController } from '../packs/admin-packs.controller';
-import { PaddleController } from '../paddle/paddle.controller';
-import { SessionController } from '../session/session.controller';
-import { SubscriptionController } from '../subscription/subscription.controller';
-import { WaitlistController } from '../waitlist/waitlist.controller';
+import {
+  ALL_CONTROLLERS,
+  SRC,
+  findControllerFiles,
+} from '../testing/controller-registry';
 
 /**
  * SERVER-WIDE INPUT-VALIDATION STRUCTURAL GUARD (TASK_2026_170, plan §7).
@@ -52,143 +36,19 @@ import { WaitlistController } from '../waitlist/waitlist.controller';
  * `src/common/` is the right home: the guard now sits beside the mechanism it
  * guards (`dto-validation.pipe.ts`).
  *
- * Deliberately dependency-free — no Postgres, no Nest bootstrap, no docker. In
- * particular the controller list below is an explicit import list and NOT
- * module-graph reflection: reflecting over `AppModule` would drag Prisma's
- * `onModuleInit` into a spec that must stay infra-free (the same reasoning
- * TASK_2026_169 used for G3 — see its report §6(d)). The hand-maintained list
- * is instead kept honest by the CENSUS assertion below, which scans the source
- * tree and fails if any `*.controller.ts` is missing from it.
+ * Deliberately dependency-free — no Postgres, no Nest bootstrap, no docker.
+ *
+ * The controller list itself lives in `src/testing/controller-registry.ts`
+ * (TASK_2026_170 R1), shared with `route-map.spec.ts` so the two structural
+ * guards can never disagree about what "every controller" means. That module
+ * documents why it is an explicit import list rather than module-graph
+ * reflection, and it also owns `SRC` / `findControllerFiles`, the inputs to the
+ * CENSUS assertion below which scans the source tree and fails if any
+ * `*.controller.ts` is missing from the list.
  */
-
-const SRC = join(__dirname, '..');
 
 /** Nest's `RouteParamtypes` values for the two decorators carrying a payload. */
 const PARAMTYPE = { BODY: 3, QUERY: 4 } as const;
-
-/**
- * Every controller in the server, with a UNIQUE human label and its
- * source-relative file path.
- *
- * ⚠️ The label is NOT `controller.name`. Two distinct classes in this server are
- * both called `AdminController` (`admin/admin.controller.ts` and
- * `license/controllers/admin.controller.ts`). Keying the debt ledger on the
- * class name would let one hide behind the other: whichever got bound first
- * would remove "AdminController" from the ledger and silently exempt the other.
- * Labels are path-qualified so the two can never collide, and the classes are
- * imported under aliases.
- */
-const ALL_CONTROLLERS: ReadonlyArray<{
-  readonly label: string;
-  readonly file: string;
-  readonly controller: Type<unknown>;
-}> = [
-  {
-    label: 'admin/AdminController',
-    file: 'admin/admin.controller.ts',
-    controller: AdminAdminController,
-  },
-  {
-    label: 'app/auth/AuthController',
-    file: 'app/auth/auth.controller.ts',
-    controller: AuthController,
-  },
-  {
-    label: 'contact/ContactController',
-    file: 'contact/contact.controller.ts',
-    controller: ContactController,
-  },
-  {
-    label: 'discourse/AdminCommunityController',
-    file: 'discourse/admin-community.controller.ts',
-    controller: AdminCommunityController,
-  },
-  {
-    label: 'discourse/CommunityController',
-    file: 'discourse/community.controller.ts',
-    controller: CommunityController,
-  },
-  {
-    label: 'discourse/DiscourseController',
-    file: 'discourse/discourse.controller.ts',
-    controller: DiscourseController,
-  },
-  {
-    label: 'events/EventsController',
-    file: 'events/events.controller.ts',
-    controller: EventsController,
-  },
-  {
-    label: 'google-sessions/AdminSessionsController',
-    file: 'google-sessions/admin-sessions.controller.ts',
-    controller: AdminSessionsController,
-  },
-  {
-    label: 'google-sessions/MembersController',
-    file: 'google-sessions/members.controller.ts',
-    controller: MembersController,
-  },
-  {
-    label: 'health/HealthController',
-    file: 'health/health.controller.ts',
-    controller: HealthController,
-  },
-  {
-    label: 'license/AdminController',
-    file: 'license/controllers/admin.controller.ts',
-    controller: LicenseAdminController,
-  },
-  {
-    label: 'license/LicenseController',
-    file: 'license/controllers/license.controller.ts',
-    controller: LicenseController,
-  },
-  {
-    label: 'marketing/AdminMarketingController',
-    file: 'marketing/controllers/admin-marketing.controller.ts',
-    controller: AdminMarketingController,
-  },
-  {
-    label: 'marketing/PublicMarketingController',
-    file: 'marketing/controllers/public-marketing.controller.ts',
-    controller: PublicMarketingController,
-  },
-  {
-    label: 'marketing/ResendWebhookController',
-    file: 'marketing/controllers/resend-webhook.controller.ts',
-    controller: ResendWebhookController,
-  },
-  {
-    label: 'member-groups/MemberGroupsController',
-    file: 'member-groups/member-groups.controller.ts',
-    controller: MemberGroupsController,
-  },
-  {
-    label: 'packs/AdminPacksController',
-    file: 'packs/admin-packs.controller.ts',
-    controller: AdminPacksController,
-  },
-  {
-    label: 'paddle/PaddleController',
-    file: 'paddle/paddle.controller.ts',
-    controller: PaddleController,
-  },
-  {
-    label: 'session/SessionController',
-    file: 'session/session.controller.ts',
-    controller: SessionController,
-  },
-  {
-    label: 'subscription/SubscriptionController',
-    file: 'subscription/subscription.controller.ts',
-    controller: SubscriptionController,
-  },
-  {
-    label: 'waitlist/WaitlistController',
-    file: 'waitlist/waitlist.controller.ts',
-    controller: WaitlistController,
-  },
-];
 
 /**
  * Controllers whose payload params are not yet bound. This list only ever
@@ -343,29 +203,6 @@ function bindingsFor(label: string): ParamBinding[] {
     throw new Error(`Unknown controller label: ${label}`);
   }
   return payloadBindings(entry.label, entry.controller);
-}
-
-/** Recursively collect `*.controller.ts` paths under `src/`, `/`-normalized. */
-function findControllerFiles(dir: string): string[] {
-  const found: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (
-        entry.name === 'generated-prisma-client' ||
-        entry.name === 'node_modules'
-      ) {
-        continue;
-      }
-      found.push(...findControllerFiles(full));
-    } else if (
-      entry.name.endsWith('.controller.ts') &&
-      !entry.name.endsWith('.spec.ts')
-    ) {
-      found.push(relative(SRC, full).split(sep).join('/'));
-    }
-  }
-  return found;
 }
 
 describe('Server-wide input validation — structural guard', () => {
