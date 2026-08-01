@@ -1,0 +1,58 @@
+{
+  "title": "Ptah Builders — membership launch (vertical short cut)",
+  "format": "vertical",
+  "lang": "en",
+  "rtl": false,
+  "engine": "elevenlabs",
+  "stability": 0.4,
+  "similarity": 0.75,
+  "style": 0.2,
+  "speed": 1,
+  "music": "rising-dawn.mp3",
+  "musicVolume": 0.2,
+  "slides": [
+    {
+      "kind": "scene",
+      "scene": "builders-hook",
+      "holdMs": 6000,
+      "vo": "You have finished the tutorials. You still have not shipped the product.",
+      "captions": ["You finished the tutorials.", "You still have not shipped."]
+    },
+    {
+      "kind": "scene",
+      "scene": "builders-promise",
+      "holdMs": 6000,
+      "vo": "Ptah Builders is a cohort. Six to eight weeks, and at the end you have a real product running in production.",
+      "captions": ["Six to eight weeks.", "One real product, in production."]
+    },
+    {
+      "kind": "scene",
+      "scene": "builders-cohort",
+      "holdMs": 12000,
+      "vo": "Every week has one job. Foundation, domain, authentication, billing, agents, hardening, deploy, launch. You build live, and your work is reviewed before it ships.",
+      "captions": [
+        "Eight weeks, eight jobs",
+        "You build live",
+        "Reviewed before it ships"
+      ]
+    },
+    {
+      "kind": "scene",
+      "scene": "builders-room",
+      "holdMs": 9000,
+      "vo": "Weekly live sessions, a private room for members, and cohorts running in English and in Arabic side by side.",
+      "captions": ["Weekly live sessions", "English and Arabic cohorts"]
+    },
+    {
+      "kind": "scene",
+      "scene": "builders-offer",
+      "holdMs": 9000,
+      "vo": "Twenty nine dollars a month, or two hundred and ninety a year. Early adopter seats are limited. Join the next cohort.",
+      "captions": [
+        "29 a month, 290 a year",
+        "Limited early adopter seats",
+        "Join the next cohort"
+      ]
+    }
+  ]
+}

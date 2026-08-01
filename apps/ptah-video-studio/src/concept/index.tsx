@@ -44,6 +44,16 @@ import {
   StoryProofV2,
   StoryCtaV2,
 } from './story-scenes-v2';
+import {
+  BuildersHook,
+  BuildersPromise,
+  BuildersCohort,
+  BuildersCourse,
+  BuildersVault,
+  BuildersRoom,
+  BuildersProof,
+  BuildersOffer,
+} from './builders-scenes';
 
 export type ConceptScene = React.FC<ConceptSceneProps>;
 
@@ -88,4 +98,13 @@ export const CONCEPT_SCENES: Record<string, ConceptScene> = {
   'story-lifecycle-v2': StoryLifecycleV2,
   'story-proof-v2': StoryProofV2,
   'story-cta-v2': StoryCtaV2,
+  // "Ptah Builders" membership launch reel — capture-free, 8 beats.
+  'builders-hook': BuildersHook,
+  'builders-promise': BuildersPromise,
+  'builders-cohort': BuildersCohort,
+  'builders-course': BuildersCourse,
+  'builders-vault': BuildersVault,
+  'builders-room': BuildersRoom,
+  'builders-proof': BuildersProof,
+  'builders-offer': BuildersOffer,
 };

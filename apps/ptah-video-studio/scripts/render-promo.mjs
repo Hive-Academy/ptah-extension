@@ -181,13 +181,44 @@ function narrate(slug, spec, force) {
   execFileSync(process.execPath, args, { stdio: 'inherit' });
 }
 
-/** Per-slide clip durations + wav paths from durations.json (1-based index). */
+/**
+ * Group a clip's word tokens into one window per spoken sentence. Feeds
+ * `PromoSlide.captionWindowsMs`, which `PhaseStage` uses to land phase
+ * boundaries on real sentence timings instead of an even 1/N division.
+ */
+function sentenceWindows(words) {
+  const out = [];
+  let start = null;
+  let end = null;
+  for (const word of words) {
+    if (start === null) start = word.startMs;
+    end = word.endMs;
+    if (/[.!?]"?$/.test(word.text)) {
+      out.push({ startMs: start, endMs: end });
+      start = null;
+    }
+  }
+  if (start !== null && end !== null) out.push({ startMs: start, endMs: end });
+  return out;
+}
+
+/**
+ * Per-slide clip durations + wav paths from durations.json (1-based index).
+ *
+ * ALSO attaches the ElevenLabs word alignment (`clip.words`, emitted by
+ * narrate.mjs's `wordsFromAlignment`) onto each slide as `voWordsMs` +
+ * `captionWindowsMs`. Without this, `CaptionRail` silently falls back to
+ * even-slicing the `vo` paragraph — i.e. no word-synced captions on ANY promo,
+ * however it was narrated. Kokoro emits no alignment, so those specs keep the
+ * fallback. The mutated `spec` is what gets serialized into the render props.
+ */
 function narrationProps(spec, dir) {
   const durationsPath = path.join(dir, 'durations.json');
   const clipDurationsMs = new Array(spec.slides.length).fill(null);
   const narrationFiles = {};
   if (!fs.existsSync(durationsPath)) return { clipDurationsMs, narrationFiles };
   const durations = JSON.parse(fs.readFileSync(durationsPath, 'utf8'));
+  let aligned = 0;
   for (const clip of durations.clips ?? []) {
     const slideIndex = (clip.index ?? 0) - 1;
     if (slideIndex < 0 || slideIndex >= spec.slides.length) continue;
@@ -195,6 +226,16 @@ function narrationProps(spec, dir) {
       clipDurationsMs[slideIndex] = clip.durationMs;
     }
     if (clip.file) narrationFiles[slideIndex] = clip.file;
+    if (Array.isArray(clip.words) && clip.words.length > 0) {
+      const slide = spec.slides[slideIndex];
+      slide.voWordsMs = clip.words;
+      const windows = sentenceWindows(clip.words);
+      if (windows.length > 0) slide.captionWindowsMs = windows;
+      aligned++;
+    }
+  }
+  if (aligned > 0) {
+    console.log(`[promo] word-synced captions on ${aligned} slide(s) from VO alignment.`);
   }
   return { clipDurationsMs, narrationFiles };
 }
