@@ -49,6 +49,7 @@ function makeSummary(
 describe('SessionLoaderService', () => {
   let service: SessionLoaderService;
   let rpcCall: jest.Mock;
+  let loadCliSessions: jest.Mock;
   let pendingSessionLoadSignal: ReturnType<typeof signal<string | null>>;
   let activeTabSessionIdSignal: ReturnType<typeof signal<string | null>>;
   let activeTabStatusSignal: ReturnType<typeof signal<string | null>>;
@@ -87,8 +88,10 @@ describe('SessionLoaderService', () => {
       startStreamingForResumedSession: jest.fn(),
     } as unknown as StreamingHandlerService;
 
+    loadCliSessions = jest.fn();
     const agentMonitorStoreMock = {
       clearAgents: jest.fn(),
+      loadCliSessions,
     } as unknown as AgentMonitorStore;
 
     const vscodeMock = {
@@ -118,6 +121,66 @@ describe('SessionLoaderService', () => {
     consoleWarn.mockRestore();
     consoleLog.mockRestore();
     TestBed.resetTestingModule();
+  });
+
+  describe('restoreCliSessionsForSession', () => {
+    const SESSION = 'sess-tribunal' as SessionId;
+    const refs = [{ agentId: 'a1', cli: 'ptah-cli' }];
+
+    beforeEach(() => {
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'session:cli-sessions'
+          ? { success: true, data: { cliSessions: refs } }
+          : { success: true, data: {} },
+      );
+    });
+
+    const cliSessionCalls = (): unknown[][] =>
+      rpcCall.mock.calls.filter(([m]) => m === 'session:cli-sessions');
+
+    it('loads the fetched references into the agent monitor for that session', async () => {
+      await service.restoreCliSessionsForSession(SESSION);
+
+      expect(loadCliSessions).toHaveBeenCalledWith(refs, SESSION);
+    });
+
+    it('fetches once per session — a sibling surface asking again is a no-op', async () => {
+      await service.restoreCliSessionsForSession(SESSION);
+      await service.restoreCliSessionsForSession(SESSION);
+
+      expect(cliSessionCalls()).toHaveLength(1);
+      expect(loadCliSessions).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases the guard when the fetch throws so a later surface retries', async () => {
+      rpcCall.mockRejectedValueOnce(new Error('rpc down'));
+
+      await service.restoreCliSessionsForSession(SESSION);
+      expect(loadCliSessions).not.toHaveBeenCalled();
+
+      await service.restoreCliSessionsForSession(SESSION);
+      expect(loadCliSessions).toHaveBeenCalledWith(refs, SESSION);
+    });
+
+    it('skips the fetch when the session was already hydrated by chat:resume', async () => {
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set('tab-1');
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { cliSessions: refs } }
+          : { success: true, data: { cliSessions: [] } },
+      );
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(loadCliSessions).toHaveBeenCalledWith(refs, SESSION);
+
+      await service.restoreCliSessionsForSession(SESSION);
+
+      expect(cliSessionCalls()).toHaveLength(0);
+    });
   });
 
   describe('removeSessionFromList', () => {

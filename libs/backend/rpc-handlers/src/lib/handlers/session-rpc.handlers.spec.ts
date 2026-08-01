@@ -1116,15 +1116,15 @@ describe('SessionRpcHandlers', () => {
       expect(result.cliSessions).toEqual([]);
     });
 
-    it('filters out ghost ptah-cli entries lacking a ptahCliId', async () => {
+    it('returns ptah-cli entries without a ptahCliId (parity with chat:resume)', async () => {
       const h = makeHarness();
       const realCli: CliSessionReference = {
         cli: 'ptah-cli',
         ptahCliId: 'real-cli-id',
       } as CliSessionReference;
-      const ghostCli = {
+      const mcpSpawned = {
         cli: 'ptah-cli',
-        // no ptahCliId — synthesized by the removed recoverMissingCliSessions()
+        // No ptahCliId — how MCP-spawned agents (tribunal panelists) persist.
       } as CliSessionReference;
       const codex = { cli: 'codex' } as CliSessionReference;
 
@@ -1132,7 +1132,7 @@ describe('SessionRpcHandlers', () => {
         makeMetadata({
           sessionId: VALID_SESSION_ID,
           workspaceId: WORKSPACE,
-          cliSessions: [realCli, ghostCli, codex],
+          cliSessions: [realCli, mcpSpawned, codex],
         }) as never,
       );
       h.handlers.register();
@@ -1143,8 +1143,7 @@ describe('SessionRpcHandlers', () => {
         { sessionId: VALID_SESSION_ID },
       );
 
-      // Real ptah-cli stays; ghost is filtered; non-ptah-cli passes through.
-      expect(result.cliSessions).toEqual([realCli, codex]);
+      expect(result.cliSessions).toEqual([realCli, mcpSpawned, codex]);
     });
 
     it('returns [] and captures to Sentry when the store throws (never bubbles)', async () => {

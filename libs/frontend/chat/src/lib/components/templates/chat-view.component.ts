@@ -39,6 +39,7 @@ import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { CompactionLifecycleService } from '../../services/chat-store/compaction-lifecycle.service';
+import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import {
@@ -144,6 +145,7 @@ export class ChatViewComponent {
   private readonly _compactionLifecycle = inject(CompactionLifecycleService);
   protected readonly suppressAnimateOnce =
     this._compactionLifecycle.suppressAnimateOnce;
+  private readonly sessionLoader = inject(SessionLoaderService);
   private readonly _claudeRpc = inject(ClaudeRpcService);
   private readonly _confirmDialog = inject(ConfirmationDialogService);
   private readonly _authState = inject(AuthStateService);
@@ -653,6 +655,27 @@ export class ChatViewComponent {
   });
 
   constructor() {
+    // Hydrate this surface's CLI agent cards from persisted metadata. Each
+    // surface asks for its OWN session — a canvas tile is rarely the active
+    // tab, and the bootstrap-time active-tab restore only ever covered one of
+    // them, so agents spawned in a prior run never came back on the others.
+    // SessionLoaderService dedupes per session, so the extra calls from the
+    // main panel and sibling tiles cost nothing.
+    effect(() => {
+      const sessionId = this.resolvedSessionId();
+      if (!sessionId) return;
+      untracked(() => {
+        this.sessionLoader
+          .restoreCliSessionsForSession(sessionId)
+          .catch((err) => {
+            console.warn(
+              '[ChatView] Failed to restore CLI sessions for surface:',
+              err,
+            );
+          });
+      });
+    });
+
     // Force the embedded agent panel open when a deep-tree caller (the
     // "Workflow launched" chip) requests it via AgentMonitorStore. The store's
     // monotonic counter re-triggers even after the user manually closed the
