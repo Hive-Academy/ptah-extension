@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '@ptah-api/identity';
+import { dtoPipe } from '@ptah-api/core';
 import { SubscriptionService } from './subscription.service';
 import {
   ValidateCheckoutDto,
@@ -36,6 +37,16 @@ import {
  * - POST /validate-checkout - Validate if user can checkout
  * - POST /reconcile        - Sync local data with Paddle
  * - POST /portal-session   - Get Paddle customer portal URL
+ *
+ * ⚠️ EVERY `@Body()` / `@Query()` PARAM MUST BIND `dtoPipe(TheDto)`.
+ * A bare `@Body() dto: X` is SILENTLY UNVALIDATED in this server: esbuild does
+ * not emit `emitDecoratorMetadata`, so Nest cannot infer the DTO type and the
+ * global ValidationPipe short-circuits — every `class-validator` decorator
+ * becomes inert. Before TASK_2026_170 that let `{"priceId":123}` reach
+ * `SubscriptionService.validateCheckout` despite `@IsString()`.
+ * See `libs/api/core/src/lib/common/dto-validation.pipe.ts`. The structural
+ * test in `apps/ptah-license-server/src/common/controller-validation.spec.ts`
+ * fails the build if a binding is dropped.
  */
 @Controller('v1/subscriptions')
 export class SubscriptionController {
@@ -106,7 +117,7 @@ export class SubscriptionController {
   @HttpCode(HttpStatus.OK)
   async validateCheckout(
     @Req() req: Request,
-    @Body() dto: ValidateCheckoutDto,
+    @Body(dtoPipe(ValidateCheckoutDto)) dto: ValidateCheckoutDto,
   ): Promise<ValidateCheckoutResponseDto> {
     const user = req.user as { id: string; email: string };
     return this.subscriptionService.validateCheckout(user.id, dto.priceId);
