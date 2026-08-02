@@ -19,9 +19,16 @@
 import 'reflect-metadata';
 
 import { RPC_METHOD_NAMES } from '@ptah-extension/shared';
-import { deriveRpcSurface } from '@ptah-extension/rpc-handlers';
+import {
+  deriveRpcSurface,
+  resolveRpcHandlerPlan,
+} from '@ptah-extension/rpc-handlers';
 
 import { createCliRpcHostProfile } from './cli-host-profile';
+import {
+  CLI_ONLY_ABSENT_CAPABILITIES,
+  EXPECTED_ABSENT_CAPABILITIES,
+} from './expected-absent';
 
 /** Webview-only surfaces: pickers, command palette, editor pane, persisted
  *  layout, embedded PTY, desktop updater. Every backend subsystem stays on. */
@@ -55,7 +62,7 @@ export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] = [
 ];
 
 describe('CLI RPC surface', () => {
-  const surface = deriveRpcSurface(createCliRpcHostProfile());
+  const surface = deriveRpcSurface(createCliRpcHostProfile('cli'));
 
   it('excludes exactly the webview-only surface methods', () => {
     expect([...surface.excluded]).toEqual([...CLI_EXPECTED_ABSENT_METHODS]);
@@ -88,4 +95,60 @@ describe('CLI RPC surface', () => {
       expect(surface.excluded.some((m) => m.startsWith(ns))).toBe(false);
     }
   });
+});
+
+describe('CLI / TUI host parity', () => {
+  it('boots the TUI as its own RPC host', () => {
+    expect(createCliRpcHostProfile('tui').host).toBe('tui');
+    expect(createCliRpcHostProfile().host).toBe('cli');
+  });
+
+  it.each([['cli'], ['tui']] as const)(
+    '%s keeps every webview-only capability off',
+    (host) => {
+      const profile = createCliRpcHostProfile(host);
+      for (const capability of EXPECTED_ABSENT_CAPABILITIES) {
+        expect(profile.capabilities[capability]).toBe(false);
+      }
+    },
+  );
+
+  it('serves file:pick on the TUI but not the stdio CLI', () => {
+    const tui = deriveRpcSurface(createCliRpcHostProfile('tui'));
+    const cli = deriveRpcSurface(createCliRpcHostProfile('cli'));
+
+    expect(tui.registered).toContain('file:pick');
+    expect(cli.excluded).toContain('file:pick');
+
+    for (const capability of CLI_ONLY_ABSENT_CAPABILITIES) {
+      expect(createCliRpcHostProfile('cli').capabilities[capability]).toBe(
+        false,
+      );
+    }
+  });
+
+  it('withholds file:pick-images from both — neither can attach image bytes', () => {
+    for (const host of ['cli', 'tui'] as const) {
+      expect(
+        deriveRpcSurface(createCliRpcHostProfile(host)).excluded,
+      ).toContain('file:pick-images');
+    }
+  });
+
+  it('differs from the stdio CLI by exactly file:pick', () => {
+    const tui = new Set(
+      deriveRpcSurface(createCliRpcHostProfile('tui')).excluded,
+    );
+    const cli = deriveRpcSurface(createCliRpcHostProfile('cli')).excluded;
+    expect(cli.filter((m) => !tui.has(m))).toEqual(['file:pick']);
+  });
+
+  it.each([['cli'], ['tui']] as const)(
+    '%s resolves a handler plan with no unimplemented entry',
+    (host) => {
+      expect(() =>
+        resolveRpcHandlerPlan(createCliRpcHostProfile(host)),
+      ).not.toThrow();
+    },
+  );
 });

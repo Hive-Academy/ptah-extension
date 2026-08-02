@@ -74,6 +74,7 @@ const ALL_DISABLED: HostCapabilities = {
   workspaceLifecycle: false,
   fileOpen: false,
   filePicker: false,
+  filePickerImages: false,
   fileSystemAccess: false,
   editorRevert: false,
   editorHost: false,

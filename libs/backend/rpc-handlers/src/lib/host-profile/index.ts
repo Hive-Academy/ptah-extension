@@ -20,5 +20,7 @@ export {
 export {
   deriveRpcSurface,
   registerRpcSurface,
+  resolveRpcHandlerPlan,
+  type RpcHandlerPlanStep,
   type RpcSurface,
 } from './register-rpc-surface';

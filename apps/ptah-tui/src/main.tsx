@@ -10,6 +10,7 @@ import {
 } from '@ptah-extension/cli-engine';
 
 import { TuiWebviewManagerAdapter } from './transport/tui-webview-manager-adapter.js';
+import { TuiFilePickerBridge } from './transport/tui-file-picker-bridge.js';
 import { App } from './components/App.js';
 import { ThothLifecycle } from './lib/thoth-lifecycle.js';
 import { installConsoleCapture } from './lib/console-capture.js';
@@ -25,6 +26,7 @@ export interface RunTuiGlobals {
 interface RootProps {
   ctx: EngineContext;
   workspacePath: string;
+  filePicker: TuiFilePickerBridge;
   initialAuthReady: boolean;
   initialAuthError?: string;
   thothLifecycle: ThothLifecycle;
@@ -34,6 +36,7 @@ interface RootProps {
 function Root({
   ctx,
   workspacePath,
+  filePicker,
   initialAuthReady,
   initialAuthError,
   thothLifecycle,
@@ -59,6 +62,7 @@ function Root({
       pushAdapter={ctx.pushAdapter}
       fireAndForget={ctx.fireAndForget}
       workspacePath={workspacePath}
+      filePicker={filePicker}
       authReady={authReady}
       authError={authError}
       reinitializeSdk={reinitializeSdk}
@@ -103,13 +107,23 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
   }
 
   const pushAdapter = new TuiWebviewManagerAdapter();
+  // Registered with the engine so `file:pick` has a selection surface, and
+  // handed to the tree so the overlay can settle those requests.
+  const filePicker = new TuiFilePickerBridge();
   const workspacePath = globals.cwd ?? process.cwd();
   const thothLifecycle = new ThothLifecycle();
   let signalExitCode = 0;
 
   const exitCode = await withEngine(
     { cwd: globals.cwd, config: globals.config, verbose: globals.verbose },
-    { mode: 'full', requireSdk: false, thoth: 'off', pushAdapter },
+    {
+      mode: 'full',
+      requireSdk: false,
+      thoth: 'off',
+      host: 'tui',
+      pushAdapter,
+      filePicker,
+    },
     async (ctx: EngineContext): Promise<number> => {
       // Booted with `requireSdk: false` so an unconfigured first run reaches
       // the UI; the adapter is initialized here instead. Going through
@@ -122,6 +136,7 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
           <Root
             ctx={ctx}
             workspacePath={workspacePath}
+            filePicker={filePicker}
             initialAuthReady={sdk.initialized}
             initialAuthError={sdk.errorMessage}
             thothLifecycle={thothLifecycle}
@@ -144,6 +159,7 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
         <Root
           ctx={ctx}
           workspacePath={workspacePath}
+          filePicker={filePicker}
           initialAuthReady={sdk.initialized}
           initialAuthError={sdk.errorMessage}
           thothLifecycle={thothLifecycle}

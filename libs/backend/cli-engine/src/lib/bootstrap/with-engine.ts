@@ -24,6 +24,7 @@ import {
 import type { CliMessageTransport } from '../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
 import type { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handler.js';
+import type { IHeadlessFilePicker } from '../rpc/headless-file-picker.port.js';
 import { emitFatalError } from '../output/stderr-json.js';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { MigrationRunner } from '@ptah-extension/settings-core';
@@ -167,6 +168,16 @@ export interface WithEngineOptions {
    */
   requireSdk?: boolean;
   /**
+   * Which headless host is booting. The TUI passes `'tui'` so its RPC host
+   * profile can diverge from the stdio CLI's. Defaults to `'cli'`.
+   */
+  host?: 'cli' | 'tui';
+  /**
+   * Selection UI backing `file:pick`. Supplied by the TUI; omitting it leaves
+   * the method unregistered, which is what the stdio CLI wants.
+   */
+  filePicker?: IHeadlessFilePicker;
+  /**
    * Thoth activation tier (default `'off'`). `'off'` opens no SQLite handle —
    * plain commands pay nothing. `'oneshot'` runs `openAndMigrate()` only so
    * store-backed commands and memory injection work. `'runtime'` additionally
@@ -244,7 +255,9 @@ export async function withEngine<T>(
   const bootOptions: CliBootstrapOptions = {
     bootstrapMode: opts.mode,
     verbose: globals.verbose === true,
+    host: opts.host ?? 'cli',
   };
+  if (opts.filePicker !== undefined) bootOptions.filePicker = opts.filePicker;
   if (globals.cwd !== undefined) bootOptions.workspacePath = globals.cwd;
   if (opts.pushAdapter !== undefined)
     bootOptions.pushAdapter = opts.pushAdapter;

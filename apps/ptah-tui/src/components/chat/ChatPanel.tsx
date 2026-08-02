@@ -9,6 +9,7 @@ import type {
   CommandEntry,
 } from '../../hooks/use-commands.js';
 import { useFilePicker } from '../../hooks/use-file-picker.js';
+import { useFilePickRequests } from '../../hooks/use-file-pick-requests.js';
 import type { FileEntry } from '../../hooks/use-file-picker.js';
 import { MessageList } from './MessageList.js';
 import { MessageInput } from './MessageInput.js';
@@ -41,7 +42,8 @@ export function ChatPanel({
   // `workspacePath` comes from the context, not a prop: it was previously an
   // optional prop that no caller ever passed, so every chat session started
   // without a workspace root.
-  const { transport, pushAdapter, workspacePath } = useTuiContext();
+  const { transport, pushAdapter, workspacePath, filePicker: pickerBridge } =
+    useTuiContext();
   const { messages, isStreaming, send, stop, clear, addSystemMessage } =
     useChat(transport, pushAdapter, workspacePath);
 
@@ -53,6 +55,9 @@ export function ChatPanel({
   const [overlayQuery, setOverlayQuery] = useState('');
 
   const filePicker = useFilePicker();
+  // Backend-initiated `file:pick`: the RPC handler parks a request on the
+  // bridge and this settles it from the same overlay the @-mention uses.
+  const pickRequests = useFilePickRequests(pickerBridge, workspacePath);
 
   const commandCallbacks = useMemo(
     (): CommandCallbacks => ({
@@ -185,9 +190,9 @@ export function ChatPanel({
     [send, executeCommand, addSystemMessage, onOverlayActiveChange],
   );
 
-  const isOverlayActive = overlayType !== null;
+  const isOverlayActive = overlayType !== null || pickRequests.active;
   const isCommandOverlay = overlayType === 'command';
-  const isFileOverlay = overlayType === 'file';
+  const isFileOverlay = overlayType === 'file' || pickRequests.active;
 
   return (
     <Box flexDirection="column" flexGrow={1}>
@@ -208,8 +213,12 @@ export function ChatPanel({
           query={overlayQuery}
           files={filePicker.files}
           loading={filePicker.loading}
-          onSelect={handleFileSelect}
-          onDismiss={handleOverlayDismiss}
+          onSelect={
+            pickRequests.active ? pickRequests.select : handleFileSelect
+          }
+          onDismiss={
+            pickRequests.active ? pickRequests.finish : handleOverlayDismiss
+          }
           isActive={isFileOverlay && !modalActive}
         />
       )}

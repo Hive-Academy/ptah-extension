@@ -35,8 +35,15 @@ export const RPC_CAPABILITIES = [
   // --- host UI surfaces ----------------------------------------------------
   /** Host can reveal a path in its own editor/explorer (`file:open`). */
   'fileOpen',
-  /** Host has native file/image picker dialogs. */
+  /** Host can ask the user to choose workspace files (`file:pick`). */
   'filePicker',
+  /**
+   * Host can ask the user to choose images and return their bytes
+   * (`file:pick-images`). Separate from `filePicker` because a host may be
+   * able to select a path without being able to attach image data — the TUI
+   * picks files from its overlay but has no image-attachment surface.
+   */
+  'filePickerImages',
   /** Host exposes raw filesystem read/exists/save-dialog RPC. */
   'fileSystemAccess',
   /** Host can revert files to their on-disk/HEAD state. */

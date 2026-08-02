@@ -1,5 +1,48 @@
 import nx from '@nx/eslint-plugin';
 
+/**
+ * Message-constant restrictions applied everywhere. Kept in a const because
+ * flat config replaces (rather than merges) a rule's options per file match,
+ * so the apps-scoped block below must re-state them alongside its own.
+ */
+const MESSAGE_LITERAL_SELECTORS = [
+  {
+    selector:
+      "CallExpression[callee.property.name='postStrictMessage'][arguments.0.type='Literal']",
+    message:
+      'Use MESSAGE_TYPES constants instead of string literals for message types. Import from @ptah-extension/shared.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='publish'][arguments.0.type='Literal']",
+    message:
+      'Use MESSAGE_TYPES constants instead of string literals for event types. Import from @ptah-extension/shared.',
+  },
+];
+
+/**
+ * RPC handler classes are library code. An app that declares one re-opens the
+ * per-host duplication TASK_2026_171 removed: the class is invisible to the
+ * manifest, so no other host can serve it and no capability gates it.
+ *
+ * The files below are the families still awaiting the P3 move into
+ * `libs/backend/rpc-handlers`. Each migration deletes its entry; when the list
+ * is empty the exception can go with it.
+ */
+const APP_LOCAL_RPC_HANDLERS_PENDING_MIGRATION = [
+  'apps/ptah-extension-vscode/src/services/rpc/handlers/agent-rpc.handlers.ts',
+  'apps/ptah-extension-vscode/src/services/rpc/handlers/command-rpc.handlers.ts',
+  'apps/ptah-extension-vscode/src/services/rpc/handlers/editor-rpc.handlers.ts',
+  'apps/ptah-extension-vscode/src/services/rpc/handlers/file-rpc.handlers.ts',
+  'apps/ptah-electron/src/services/rpc/handlers/agent-rpc.handlers.ts',
+  'apps/ptah-electron/src/services/rpc/handlers/command-rpc.handlers.ts',
+  'apps/ptah-electron/src/services/rpc/handlers/editor-rpc.handlers.ts',
+  'apps/ptah-electron/src/services/rpc/handlers/file-rpc.handlers.ts',
+  'apps/ptah-electron/src/services/rpc/handlers/layout-rpc.handlers.ts',
+  'apps/ptah-electron/src/services/rpc/handlers/terminal-rpc.handlers.ts',
+  'apps/ptah-electron/src/services/rpc/handlers/update-rpc.handlers.ts',
+];
+
 export default [
   ...nx.configs['flat/base'],
   ...nx.configs['flat/typescript'],
@@ -209,19 +252,20 @@ export default [
   {
     files: ['**/*.ts'],
     rules: {
+      'no-restricted-syntax': ['error', ...MESSAGE_LITERAL_SELECTORS],
+    },
+  },
+  {
+    files: ['apps/**/*.ts'],
+    ignores: APP_LOCAL_RPC_HANDLERS_PENDING_MIGRATION,
+    rules: {
       'no-restricted-syntax': [
         'error',
+        ...MESSAGE_LITERAL_SELECTORS,
         {
-          selector:
-            "CallExpression[callee.property.name='postStrictMessage'][arguments.0.type='Literal']",
+          selector: 'ClassDeclaration[id.name=/RpcHandlers$/]',
           message:
-            'Use MESSAGE_TYPES constants instead of string literals for message types. Import from @ptah-extension/shared.',
-        },
-        {
-          selector:
-            "CallExpression[callee.property.name='publish'][arguments.0.type='Literal']",
-          message:
-            'Use MESSAGE_TYPES constants instead of string literals for event types. Import from @ptah-extension/shared.',
+            'RPC handler classes belong in libs/backend/rpc-handlers with a RPC_HANDLER_MANIFEST entry, not in an app. Apps ship only their rpc-host-profile.ts.',
         },
       ],
     },

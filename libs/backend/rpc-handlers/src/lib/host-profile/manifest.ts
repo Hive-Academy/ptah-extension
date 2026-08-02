@@ -65,8 +65,11 @@ import {
  * Structural shape every RPC handler class satisfies. Matches tsyringe's
  * `constructor<T>` so the class-as-token `container.resolve` call type-checks.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- tsyringe's
-// class-as-token `resolve` requires an `any[]`-parameter construct signature.
+/**
+ * tsyringe's class-as-token `resolve` only accepts an `any[]`-parameter
+ * construct signature; a narrower one fails to match the real handlers.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type RpcHandlerCtor = new (...args: any[]) => { register(): void };
 
 export interface RpcHandlerManifestEntry {
@@ -327,8 +330,13 @@ export const RPC_HANDLER_MANIFEST = [
   { key: 'host.fileOpen', methods: ['file:open'], requires: ['fileOpen'] },
   {
     key: 'host.filePicker',
-    methods: ['file:pick', 'file:pick-images'],
+    methods: ['file:pick'],
     requires: ['filePicker'],
+  },
+  {
+    key: 'host.filePickImages',
+    methods: ['file:pick-images'],
+    requires: ['filePickerImages'],
   },
   {
     key: 'host.fileSystem',

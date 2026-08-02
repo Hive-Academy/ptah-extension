@@ -114,7 +114,12 @@ import { CliMessageTransport } from './transport/cli-message-transport';
 import { CliWebviewManagerAdapter } from './transport/cli-webview-manager-adapter';
 import { CliFireAndForgetHandler } from './transport/cli-fire-and-forget-handler';
 import { CliAgentRpcHandlers } from './rpc/cli-agent-rpc.handlers.js';
+import { CliFilePickerRpcHandlers } from './rpc/cli-file-picker-rpc.handlers.js';
 import { createCliRpcHostProfile } from './rpc/cli-host-profile';
+import {
+  HEADLESS_FILE_PICKER,
+  type IHeadlessFilePicker,
+} from './rpc/headless-file-picker.port.js';
 import { registerThothLibraries } from './thoth/register-thoth-libraries';
 
 /**
@@ -136,6 +141,18 @@ export interface CliBootstrapOptions {
    * shared RPC handler. Defaults to `'full'`.
    */
   bootstrapMode?: 'minimal' | 'full';
+  /**
+   * Which headless host is booting. Both share this container, but they are
+   * separate RPC hosts — `createCliRpcHostProfile` keys off this so a
+   * capability can differ between the stdio CLI and the interactive TUI.
+   * Defaults to `'cli'`.
+   */
+  host?: 'cli' | 'tui';
+  /**
+   * Selection UI for `file:pick`. Only the TUI supplies one — its profile is
+   * the only headless profile with the `filePicker` capability on.
+   */
+  filePicker?: IHeadlessFilePicker;
   /**
    * When true, emit `debug.di.phase` notifications via `pushAdapter` at the
    * start AND end of every numbered DI phase. Consumed by the JSON-RPC
@@ -215,6 +232,7 @@ export class CliDIContainer {
       logsPath,
     };
     const bootstrapMode: 'minimal' | 'full' = options.bootstrapMode ?? 'full';
+    const host: 'cli' | 'tui' = options.host ?? 'cli';
     const verbose: boolean = options.verbose === true;
     const pushAdapter = options.pushAdapter ?? new CliWebviewManagerAdapter();
     container.register(TOKENS.WEBVIEW_MANAGER, { useValue: pushAdapter });
@@ -669,7 +687,13 @@ export class CliDIContainer {
         registerChatServices(container);
         registerHarnessServices(container);
         container.registerSingleton(CliAgentRpcHandlers);
-        registerRpcSurface(container, createCliRpcHostProfile());
+        if (options.filePicker) {
+          container.register(HEADLESS_FILE_PICKER, {
+            useValue: options.filePicker,
+          });
+          container.registerSingleton(CliFilePickerRpcHandlers);
+        }
+        registerRpcSurface(container, createCliRpcHostProfile(host));
       } catch (error) {
         logger.error(
           '[CLI DI] RPC method registration failed',

@@ -1,99 +1,28 @@
 /**
- * Dual-Registration Guard Test (test-strategy-plan.md §4.1)
+ * Manifest invariants + dual-registration guard (test-strategy-plan.md §4.1).
  *
- * Ensures every method registered by a SHARED_HANDLERS class has its prefix
- * present in ALLOWED_METHOD_PREFIXES (the runtime security allowlist in
- * vscode-core). Without this guard, a new handler class whose prefix is
- * missing from the allowlist silently fails at runtime — the RpcHandler
- * rejects the registration — rather than breaking CI.
+ * The manifest must partition `RPC_METHOD_NAMES` exactly — that is what makes
+ * every host's exclusion set derivable instead of hand-maintained.
+ *
+ * The allowlist half ensures every method's prefix is present in
+ * ALLOWED_METHOD_PREFIXES (the runtime security allowlist in vscode-core).
+ * Without it, a handler whose prefix is missing silently fails at runtime —
+ * the RpcHandler rejects the registration — rather than breaking CI.
  *
  * Failure message example:
  *   Missing prefixes detected:
- *     - NewFeatureRpcHandlers: newFeature:doSomething  (prefix: "newFeature:")
+ *     - newFeature: newFeature:doSomething  (prefix: "newFeature:")
  */
 
 // ---------------------------------------------------------------------------
 // Heavy transitive dependencies must be mocked before the SUT is imported.
 //
-// Importing `register-all` brings in every handler class; some of them
-// (SetupRpcHandlers via agent-generation, WorkspaceRpcHandlers via
-// workspace-intelligence) reach `TreeSitterParserService` whose module top-
-// level evaluates `import.meta.url` — a construct Jest's CJS transform cannot
-// parse. We mock both packages here so the module graph never reaches those
-// native/ESM-only files.
+// Importing the manifest brings in every handler class — see
+// `test-utils/heavy-module-mocks.ts` for why that needs stubbing.
 // ---------------------------------------------------------------------------
-jest.mock('@ptah-extension/workspace-intelligence', () => ({
-  ProjectType: {
-    Node: 'node',
-    React: 'react',
-    Vue: 'vue',
-    Angular: 'angular',
-    NextJS: 'nextjs',
-    Python: 'python',
-    Java: 'java',
-    Rust: 'rust',
-    Go: 'go',
-    DotNet: 'dotnet',
-    PHP: 'php',
-    Ruby: 'ruby',
-    General: 'general',
-    Unknown: 'unknown',
-  },
-  Framework: {
-    React: 'react',
-    Vue: 'vue',
-    Angular: 'angular',
-    NextJS: 'nextjs',
-    Nuxt: 'nuxt',
-    Express: 'express',
-    Django: 'django',
-    Laravel: 'laravel',
-    Rails: 'rails',
-    Svelte: 'svelte',
-    Astro: 'astro',
-    NestJS: 'nestjs',
-    Fastify: 'fastify',
-    Flask: 'flask',
-    FastAPI: 'fastapi',
-    Spring: 'spring',
-  },
-  MonorepoType: {
-    Nx: 'nx',
-    Lerna: 'lerna',
-    Rush: 'rush',
-    Turborepo: 'turborepo',
-    PnpmWorkspaces: 'pnpm-workspaces',
-    YarnWorkspaces: 'yarn-workspaces',
-  },
-  FileType: {
-    Source: 'source',
-    Test: 'test',
-    Config: 'config',
-    Documentation: 'docs',
-    Asset: 'asset',
-  },
-  TreeSitterParserService: class {},
-  AstAnalysisService: class {},
-  DependencyGraphService: class {},
-  WorkspaceAnalyzerService: class {},
-  ContextService: class {},
-  ContextOrchestrationService: class {},
-  WorkspaceService: class {},
-  TokenCounterService: class {},
-  FileSystemService: class {},
-  FileSystemError: class extends Error {},
-  ProjectDetectorService: class {},
-  FrameworkDetectorService: class {},
-  DependencyAnalyzerService: class {},
-  MonorepoDetectorService: class {},
-  PatternMatcherService: class {},
-  IgnorePatternResolverService: class {},
-  WorkspaceIndexerService: class {},
-  FileTypeClassifierService: class {},
-  FileRelevanceScorerService: class {},
-  ContextSizeOptimizerService: class {},
-  ContextEnrichmentService: class {},
-}));
+jest.mock('@ptah-extension/workspace-intelligence', () =>
+  require('../test-utils/heavy-module-mocks').workspaceIntelligenceMock(),
+);
 
 jest.mock('@ptah-extension/memory-curator', () => ({
   // Pass through the real module so MEMORY_TOKENS and other DI symbols are

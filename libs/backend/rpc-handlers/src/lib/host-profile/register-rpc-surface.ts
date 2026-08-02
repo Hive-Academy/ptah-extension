@@ -69,6 +69,66 @@ export function deriveRpcSurface(profile: HostProfile): RpcSurface {
   };
 }
 
+/** One handler class the engine will construct, and why. */
+export interface RpcHandlerPlanStep {
+  /** Manifest key that first pulled this class in. */
+  readonly key: string;
+  readonly ctor: RpcHandlerCtor;
+  /** False for host-supplied classes, whose failures are tolerated. */
+  readonly libOwned: boolean;
+}
+
+/**
+ * Decide exactly which handler classes a profile constructs, in order, with
+ * each class appearing once even when it serves several manifest entries.
+ *
+ * Pure: no container, no side effects. `registerRpcSurface` executes this
+ * plan, and each host's negative smoke spec asserts against it — so "what
+ * must NOT be constructed on this host" is checked against the same
+ * derivation the runtime uses, not a parallel reimplementation.
+ *
+ * @throws when the profile contradicts the manifest: a capability is on but
+ *   nothing implements the entry, or a host supplied a handler for an entry
+ *   its capabilities switched off.
+ */
+export function resolveRpcHandlerPlan(
+  profile: HostProfile,
+): readonly RpcHandlerPlanStep[] {
+  const hostHandlers = profile.hostHandlers as Readonly<
+    Record<string, RpcHandlerCtor | undefined>
+  >;
+  const plan: RpcHandlerPlanStep[] = [];
+  const seen = new Set<RpcHandlerCtor>();
+
+  for (const entry of RPC_HANDLER_MANIFEST as readonly RpcHandlerManifestEntry[]) {
+    const enabled = satisfies(profile.capabilities, entry.requires);
+    const supplied = hostHandlers[entry.key];
+
+    if (!enabled) {
+      if (supplied) {
+        throw new Error(
+          `[${profile.host} RPC] profile supplies a handler for '${entry.key}' ` +
+            `but the capabilities it requires (${entry.requires.join(', ')}) are off`,
+        );
+      }
+      continue;
+    }
+
+    const ctor = entry.handler ?? supplied;
+    if (!ctor) {
+      throw new Error(
+        `[${profile.host} RPC] manifest entry '${entry.key}' is enabled but no ` +
+          `handler is available — add it to the profile's hostHandlers`,
+      );
+    }
+    if (seen.has(ctor)) continue;
+    seen.add(ctor);
+    plan.push({ key: entry.key, ctor, libOwned: entry.handler !== undefined });
+  }
+
+  return plan;
+}
+
 export function registerRpcSurface(
   container: DependencyContainer,
   profile: HostProfile,
@@ -119,44 +179,16 @@ function registerHandlers(
   logger: Logger,
   tag: string,
 ): void {
-  const hostHandlers = profile.hostHandlers as Readonly<
-    Record<string, RpcHandlerCtor | undefined>
-  >;
-  const seen = new Set<RpcHandlerCtor>();
-
-  for (const entry of RPC_HANDLER_MANIFEST as readonly RpcHandlerManifestEntry[]) {
-    const enabled = satisfies(profile.capabilities, entry.requires);
-    const supplied = hostHandlers[entry.key];
-
-    if (!enabled) {
-      if (supplied) {
-        throw new Error(
-          `${tag} profile supplies a handler for '${entry.key}' but the ` +
-            `capabilities it requires (${entry.requires.join(', ')}) are off`,
-        );
-      }
-      continue;
-    }
-
-    const Ctor = entry.handler ?? supplied;
-    if (!Ctor) {
-      throw new Error(
-        `${tag} manifest entry '${entry.key}' is enabled but no handler is ` +
-          `available — add it to the profile's hostHandlers`,
-      );
-    }
-    if (seen.has(Ctor)) continue;
-    seen.add(Ctor);
-
-    if (entry.handler) {
-      container.resolve(Ctor).register();
+  for (const { key, ctor, libOwned } of resolveRpcHandlerPlan(profile)) {
+    if (libOwned) {
+      container.resolve(ctor).register();
       continue;
     }
 
     try {
-      container.resolve(Ctor).register();
+      container.resolve(ctor).register();
     } catch (error: unknown) {
-      logger.warn(`${tag} failed to register host handler '${entry.key}'`, {
+      logger.warn(`${tag} failed to register host handler '${key}'`, {
         error: error instanceof Error ? error.message : String(error),
       });
     }

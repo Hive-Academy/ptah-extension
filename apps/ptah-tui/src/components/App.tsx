@@ -11,6 +11,7 @@ import type {
 } from '@ptah-extension/cli-engine';
 
 import { TuiProvider } from '../context/TuiContext.js';
+import type { TuiFilePickerBridge } from '../transport/tui-file-picker-bridge.js';
 import { ThemeProvider } from '../context/ThemeContext.js';
 import { SessionProvider, useSessionContext } from '../context/SessionContext.js';
 import { ModeProvider } from '../context/ModeContext.js';
@@ -36,6 +37,7 @@ interface AppProps {
   pushAdapter: CliWebviewManagerAdapter;
   fireAndForget: CliFireAndForgetHandler;
   workspacePath: string;
+  filePicker?: TuiFilePickerBridge;
   authReady: boolean;
   authError?: string;
   reinitializeSdk: () => Promise<boolean>;
@@ -294,6 +296,7 @@ export function App({
   pushAdapter,
   fireAndForget,
   workspacePath,
+  filePicker,
   authReady,
   authError,
   reinitializeSdk,
@@ -306,6 +309,7 @@ export function App({
       pushAdapter={pushAdapter}
       fireAndForget={fireAndForget}
       workspacePath={workspacePath}
+      filePicker={filePicker}
       reinitializeSdk={reinitializeSdk}
     >
       <ThemeProvider>
