@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   Inject,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
@@ -37,6 +38,20 @@ import { AuthService } from '../services/auth.service';
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
+  private readonly logger = new Logger(JwtAuthGuard.name);
+
+  /**
+   * Fixed, non-revealing 401 body for every token-rejection reason.
+   *
+   * The underlying message comes from JWT verification ('jwt expired',
+   * 'invalid signature', 'jwt malformed', …) and leaks token shape, expiry
+   * state and signing behaviour to an unauthenticated caller. Per CLAUDE.md,
+   * raw `error.message` must never reach a client — the detail is logged
+   * server-side instead.
+   */
+  private static readonly REJECTION_MESSAGE =
+    'Authentication failed. Please login again.';
+
   constructor(@Inject(AuthService) private readonly authService: AuthService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -54,10 +69,11 @@ export class JwtAuthGuard implements CanActivate {
       request.user = user;
 
       return true;
-    } catch (error: any) {
-      throw new UnauthorizedException(
-        `Authentication failed: ${error.message}`,
-      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(`Token validation rejected: ${message}`);
+
+      throw new UnauthorizedException(JwtAuthGuard.REJECTION_MESSAGE);
     }
   }
 }

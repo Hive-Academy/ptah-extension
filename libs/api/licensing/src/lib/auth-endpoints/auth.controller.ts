@@ -23,7 +23,7 @@ import {
   TicketService,
   MagicLinkService,
 } from '@ptah-api/identity';
-import { PrismaService } from '@ptah-api/core';
+import { PrismaService, dtoPipe } from '@ptah-api/core';
 import { EmailService } from '@ptah-api/email';
 import { LicenseService } from '../license/services/license.service';
 import {
@@ -85,6 +85,23 @@ const STATE_COOKIE_MAX_AGE_MS = 5 * 60 * 1000;
  * - State cookie prevents CSRF attacks
  * - HTTP-only cookies prevent XSS token theft
  * - Secure flag ensures HTTPS-only in production
+ *
+ * ⚠️ EVERY WHOLE-OBJECT `@Body()` / `@Query()` PARAM MUST BIND `dtoPipe(TheDto)`.
+ * A bare `@Body() dto: X` is SILENTLY UNVALIDATED in this server: esbuild does
+ * not emit `emitDecoratorMetadata`, so Nest cannot infer the DTO type and the
+ * global ValidationPipe short-circuits — every `class-validator` decorator
+ * becomes inert. TASK_2026_170 bound all five payload DTOs here (MagicLinkDto,
+ * LoginDto, SignupDto, VerifyEmailDto, ResendVerificationDto).
+ *
+ * CARVE-OUT: the five NAMED-PRIMITIVE query params on this controller
+ * (`@Query('code')`, `'state'`, `'token'`, `'returnUrl'`, `'plan'`) bind a
+ * STRING, not a DTO, so `dtoPipe` is meaningless for them and they are
+ * deliberately left alone. The structural test counts them EXACTLY — do not
+ * add a sixth without consciously accepting it there.
+ *
+ * See `libs/api/core/src/lib/common/dto-validation.pipe.ts`. The structural
+ * test in `apps/ptah-license-server/src/common/controller-validation.spec.ts`
+ * fails the build if a binding is dropped.
  */
 @Controller('v1/auth')
 export class AuthController {
@@ -421,7 +438,7 @@ export class AuthController {
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   @Post('magic-link')
   async requestMagicLink(
-    @Body() body: MagicLinkDto,
+    @Body(dtoPipe(MagicLinkDto)) body: MagicLinkDto,
   ): Promise<{ success: boolean; message: string }> {
     const { email, returnUrl, plan } = body;
     const validatedReturnUrl = this.validateReturnUrl(returnUrl);
@@ -601,7 +618,7 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login/email')
   async loginWithEmail(
-    @Body() body: LoginDto,
+    @Body(dtoPipe(LoginDto)) body: LoginDto,
     @Res() res: Response,
   ): Promise<void> {
     const { email, password } = body;
@@ -653,7 +670,10 @@ export class AuthController {
    */
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('signup')
-  async signup(@Body() body: SignupDto, @Res() res: Response): Promise<void> {
+  async signup(
+    @Body(dtoPipe(SignupDto)) body: SignupDto,
+    @Res() res: Response,
+  ): Promise<void> {
     const { email, password, firstName, lastName } = body;
 
     if (!email || !password) {
@@ -699,7 +719,7 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('verify-email')
   async verifyEmail(
-    @Body() body: VerifyEmailDto,
+    @Body(dtoPipe(VerifyEmailDto)) body: VerifyEmailDto,
     @Res() res: Response,
   ): Promise<void> {
     const { userId, code } = body;
@@ -753,7 +773,7 @@ export class AuthController {
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   @Post('resend-verification')
   async resendVerification(
-    @Body() body: ResendVerificationDto,
+    @Body(dtoPipe(ResendVerificationDto)) body: ResendVerificationDto,
     @Res() res: Response,
   ): Promise<void> {
     const { userId } = body;

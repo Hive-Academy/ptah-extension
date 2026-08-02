@@ -107,8 +107,14 @@ describe('JwtAuthGuard', () => {
     await expect(
       guard.canActivate(makeContext(request)),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+    // TASK_2026_170: the 401 body is now a FIXED string. The underlying JWT
+    // reason ('jwt expired') is logged server-side, never returned — it leaks
+    // token expiry state to an unauthenticated caller.
     await expect(guard.canActivate(makeContext(request))).rejects.toThrow(
-      'Authentication failed: jwt expired',
+      'Authentication failed. Please login again.',
+    );
+    await expect(guard.canActivate(makeContext(request))).rejects.not.toThrow(
+      /jwt expired/,
     );
     expect(request.user).toBeUndefined();
   });
@@ -119,8 +125,13 @@ describe('JwtAuthGuard', () => {
       cookies: { ptah_auth: 'tampered.jwt.token' },
     };
 
+    // TASK_2026_170: fixed 401 body — 'invalid signature' would tell an
+    // attacker their forgery was well-formed but mis-signed.
     await expect(guard.canActivate(makeContext(request))).rejects.toThrow(
-      'Authentication failed: invalid signature',
+      'Authentication failed. Please login again.',
+    );
+    await expect(guard.canActivate(makeContext(request))).rejects.not.toThrow(
+      /invalid signature/,
     );
     expect(request.user).toBeUndefined();
   });

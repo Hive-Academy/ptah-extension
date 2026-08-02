@@ -65,7 +65,6 @@ const PARAMTYPE = { BODY: 3, QUERY: 4 } as const;
  * direction.
  */
 const UNVALIDATED_DEBT: readonly string[] = [
-  'app/auth/AuthController', // B3
   'contact/ContactController', // B4
   'session/SessionController', // B5
   'subscription/SubscriptionController', // B6
