@@ -250,6 +250,10 @@ export class AuthRpcHandlers {
             'supportsOptionalApiKey' in p
               ? p.supportsOptionalApiKey
               : undefined,
+          // Ambient-credential providers (claude-cli). Without this the tile
+          // is indistinguishable from a local server in this payload, which is
+          // how the TUI came to render it with a fabricated localhost endpoint.
+          nativeAuth: 'nativeAuth' in p ? p.nativeAuth : undefined,
         }));
         let copilotAuthenticated = false;
         let copilotUsername: string | undefined;
@@ -550,9 +554,12 @@ export class AuthRpcHandlers {
   }
 
   /**
-   * auth:copilotLogout - Disconnect GitHub Copilot OAuth
+   * auth:copilotLogout - Disconnect GitHub Copilot in Ptah.
    *
-   * Clears the in-memory Copilot auth state.
+   * Clears the in-memory Copilot auth state AND persists a Ptah-side logout
+   * tombstone so the next `configure()` does not silently re-authenticate from
+   * the shared `~/.config/github-copilot/hosts.json`. That file is left alone
+   * on purpose — it belongs to the user's editor Copilot integrations too.
    */
   private registerCopilotLogout(): void {
     this.rpcHandler.registerMethod<Record<string, never>, { success: boolean }>(
@@ -560,7 +567,11 @@ export class AuthRpcHandlers {
       async () => {
         try {
           this.logger.debug('RPC: auth:copilotLogout called');
-          this.copilotAuth.logout();
+          // MUST be awaited: logout() persists a logout tombstone to the
+          // settings store (TASK_2026_172 Issue 2). Fire-and-forget would
+          // report success before the write landed and could lose it entirely
+          // if the host exited right after.
+          await this.copilotAuth.logout();
           this.logger.info('RPC: auth:copilotLogout succeeded');
           return { success: true };
         } catch (error) {

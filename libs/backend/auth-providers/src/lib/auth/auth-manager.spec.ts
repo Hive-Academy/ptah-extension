@@ -275,6 +275,152 @@ describe('AuthManager', () => {
       expect(strategies.localProxy.configure).not.toHaveBeenCalled();
     });
 
+    /**
+     * TASK_2026_172 Issue 1 — the Claude Subscription tile.
+     *
+     * The tile persists `authMethod: 'thirdParty'` + `anthropicProviderId:
+     * 'claude-cli'`. Its registry entry is `authType: 'none'` with no proxy,
+     * which is byte-identical to Ollama's — so before the `nativeAuth`
+     * short-circuit it landed on LocalNativeStrategy, which probes an Ollama
+     * daemon on 127.0.0.1:11434 and then overwrites `ANTHROPIC_BASE_URL` with
+     * `''` plus an Ollama placeholder token, destroying the ambient `~/.claude`
+     * login the tile exists to use.
+     */
+    it("routes 'thirdParty' + claude-cli to the CLI strategy — never local-native", async () => {
+      const { manager, strategies } = makeManager({
+        config: { anthropicProviderId: 'claude-cli' },
+      });
+      strategies.cli.configure.mockResolvedValueOnce({
+        configured: true,
+        details: ['Claude CLI v2.0.0 (credentials managed by CLI)'],
+      });
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(strategies.cli.configure).toHaveBeenCalledTimes(1);
+      expect(strategies.cli.configure.mock.calls[0][0].providerId).toBe(
+        'claude-cli',
+      );
+      // The regression: no Ollama probe, no proxy, no API key lookup.
+      expect(strategies.localNative.configure).not.toHaveBeenCalled();
+      expect(strategies.localProxy.configure).not.toHaveBeenCalled();
+      expect(strategies.oauthProxy.configure).not.toHaveBeenCalled();
+      expect(strategies.apiKey.configure).not.toHaveBeenCalled();
+    });
+
+    it('leaves ANTHROPIC_BASE_URL and the auth token untouched for the claude-cli tile', async () => {
+      const { manager, strategies, authEnv } = makeManager({
+        config: { anthropicProviderId: 'claude-cli' },
+      });
+      // CliStrategy writes nothing to authEnv — assert the orchestrator does
+      // not inject anything either, so the SDK keeps its default credential
+      // chain (`~/.claude`).
+      strategies.cli.configure.mockImplementationOnce(async () => ({
+        configured: true,
+        details: [],
+      }));
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(authEnv.ANTHROPIC_BASE_URL).toBeUndefined();
+      expect(authEnv.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+      expect(authEnv.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(process.env['ANTHROPIC_BASE_URL']).toBeUndefined();
+      expect(process.env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
+    });
+
+    it("routes 'thirdParty' + ollama to local-native — the claude-cli fix must not move local providers", async () => {
+      const { manager, strategies } = makeManager({
+        config: { anthropicProviderId: 'ollama' },
+      });
+      strategies.localNative.configure.mockResolvedValueOnce({
+        configured: true,
+        details: ['Ollama (Anthropic-native at http://127.0.0.1:11434)'],
+      });
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(strategies.localNative.configure).toHaveBeenCalledTimes(1);
+      expect(strategies.localNative.configure.mock.calls[0][0].providerId).toBe(
+        'ollama',
+      );
+      expect(strategies.cli.configure).not.toHaveBeenCalled();
+    });
+
+    it("routes 'thirdParty' + ollama-cloud to local-native (keyless signin path preserved)", async () => {
+      const { manager, strategies } = makeManager({
+        config: { anthropicProviderId: 'ollama-cloud' },
+      });
+      strategies.localNative.configure.mockResolvedValueOnce({
+        configured: true,
+        details: ['Ollama Cloud'],
+      });
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(strategies.localNative.configure.mock.calls[0][0].providerId).toBe(
+        'ollama-cloud',
+      );
+      expect(strategies.cli.configure).not.toHaveBeenCalled();
+    });
+
+    it("routes 'thirdParty' + lm-studio to local-proxy", async () => {
+      const { manager, strategies } = makeManager({
+        config: { anthropicProviderId: 'lm-studio' },
+      });
+      strategies.localProxy.configure.mockResolvedValueOnce({
+        configured: true,
+        details: ['LM Studio via translation proxy'],
+      });
+
+      await manager.configureAuthentication('thirdParty');
+
+      expect(strategies.localProxy.configure.mock.calls[0][0].providerId).toBe(
+        'lm-studio',
+      );
+      expect(strategies.cli.configure).not.toHaveBeenCalled();
+    });
+
+    it.each(['github-copilot', 'openai-codex'])(
+      "routes 'thirdParty' + %s to oauth-proxy",
+      async (providerId) => {
+        const { manager, strategies } = makeManager({
+          config: { anthropicProviderId: providerId },
+        });
+        strategies.oauthProxy.configure.mockResolvedValueOnce({
+          configured: true,
+          details: [],
+        });
+
+        await manager.configureAuthentication('thirdParty');
+
+        expect(
+          strategies.oauthProxy.configure.mock.calls[0][0].providerId,
+        ).toBe(providerId);
+        expect(strategies.cli.configure).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['moonshot', 'z-ai'])(
+      "routes 'thirdParty' + %s to api-key",
+      async (providerId) => {
+        const { manager, strategies } = makeManager({
+          config: { anthropicProviderId: providerId },
+        });
+        strategies.apiKey.configure.mockResolvedValueOnce({
+          configured: true,
+          details: [],
+        });
+
+        await manager.configureAuthentication('thirdParty');
+
+        expect(strategies.apiKey.configure.mock.calls[0][0].providerId).toBe(
+          providerId,
+        );
+        expect(strategies.cli.configure).not.toHaveBeenCalled();
+      },
+    );
+
     it("defaults to the registry default provider when 'thirdParty' has no configured id", async () => {
       const { manager, strategies, scopeResolver } = makeManager();
       strategies.apiKey.configure.mockResolvedValueOnce({

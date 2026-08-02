@@ -212,6 +212,35 @@ describe('CuratorAuthResolver.resolve', () => {
     expect(result?.env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(result?.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
+
+  /**
+   * TASK_2026_172 Issue 1. `resolve()` routes off `resolveStrategy`, so the
+   * claude-cli misroute reached the curator too: the provider fell into
+   * `resolveLocalNative`, whose `getProviderBaseUrl('claude-cli')` returns the
+   * entry's empty `baseUrl` — i.e. the curator ran with
+   * `ANTHROPIC_BASE_URL: ''`, which overrides the ambient `~/.claude` login
+   * rather than inheriting it. The `nativeAuth` route sends it to
+   * `resolveCli()` instead, which is the empty-env path.
+   */
+  it("curator on the 'claude-cli' provider inherits the ambient login (empty auth env, no tier overrides)", async () => {
+    const { resolver } = createHarness({ activeProviderId: 'moonshot' });
+    const result = await resolver.resolve('claude-cli');
+
+    expect(result).not.toBeNull();
+    expect(result?.env.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(result?.env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(result?.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined();
+    expect(result?.baseUrl).toBeUndefined();
+  });
+
+  it("curator on 'ollama' still gets the local base url — the claude-cli fix is scoped to nativeAuth", async () => {
+    const { resolver } = createHarness({ activeProviderId: 'anthropic' });
+    const result = await resolver.resolve('ollama');
+
+    expect(result?.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:11434');
+    expect(result?.baseUrl).toBe('http://127.0.0.1:11434');
+  });
 });
 
 describe('CuratorAuthResolver.buildCuratorEnv', () => {

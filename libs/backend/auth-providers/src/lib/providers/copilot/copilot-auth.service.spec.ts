@@ -75,6 +75,7 @@ import {
   PlatformType,
   type IPlatformInfo,
 } from '@ptah-extension/platform-core';
+import type { ISettingsStore } from '@ptah-extension/settings-core';
 import { CopilotAuthService } from './copilot-auth.service';
 import type { CopilotTokenResponse } from './copilot-provider.types';
 import { SdkError } from '@ptah-extension/agent-sdk';
@@ -168,6 +169,45 @@ function makeAxiosError(
   return err as AxiosError & { isAxiosError: true };
 }
 
+/**
+ * In-memory `ISettingsStore` double backing the logout tombstone
+ * (`provider.github-copilot.loggedOut`). Only the global read/write pair is
+ * exercised; the secret + watch surface throws so an accidental dependency on
+ * it fails loudly rather than silently no-op'ing.
+ */
+interface FakeSettingsStore extends ISettingsStore {
+  values: Map<string, unknown>;
+  writeGlobal: jest.Mock<Promise<void>, [string, unknown]>;
+}
+
+function createFakeSettingsStore(
+  initial: Record<string, unknown> = {},
+): FakeSettingsStore {
+  const values = new Map<string, unknown>(Object.entries(initial));
+  const unsupported = (): never => {
+    throw new Error('not used by CopilotAuthService');
+  };
+  const writeGlobal = jest.fn(async (key: string, value: unknown) => {
+    values.set(key, value);
+  });
+
+  return {
+    values,
+    writeGlobal: writeGlobal as FakeSettingsStore['writeGlobal'],
+    readGlobal: (<T>(key: string) =>
+      values.get(key) as T | undefined) as ISettingsStore['readGlobal'],
+    readSecret: unsupported,
+    writeSecret: unsupported,
+    deleteSecret: unsupported,
+    watchGlobal: unsupported,
+    watchSecret: unsupported,
+    flushSync: () => undefined,
+  } as FakeSettingsStore;
+}
+
+/** Tombstone key under test — mirrors the constant in the service. */
+const TOMBSTONE_KEY = 'provider.github-copilot.loggedOut';
+
 // Build a fresh service wired up with the canonical mock dependency set.
 interface ServiceHarness {
   service: CopilotAuthService;
@@ -175,12 +215,14 @@ interface ServiceHarness {
   userInteraction: MockUserInteraction;
   workspaceProvider: MockWorkspaceProvider;
   platformInfo: IPlatformInfo;
+  settingsStore: FakeSettingsStore;
 }
 
 function makeService(
   options: {
     config?: Record<string, unknown>;
     platformInfo?: Partial<IPlatformInfo>;
+    settings?: Record<string, unknown>;
   } = {},
 ): ServiceHarness {
   const logger = createMockLogger();
@@ -189,15 +231,24 @@ function makeService(
     config: options.config,
   });
   const platformInfo = createMockPlatformInfo(options.platformInfo);
+  const settingsStore = createFakeSettingsStore(options.settings);
 
   const service = new CopilotAuthService(
     asLogger(logger),
     platformInfo,
     userInteraction,
     workspaceProvider,
+    settingsStore,
   );
 
-  return { service, logger, userInteraction, workspaceProvider, platformInfo };
+  return {
+    service,
+    logger,
+    userInteraction,
+    workspaceProvider,
+    platformInfo,
+    settingsStore,
+  };
 }
 
 // Seconds â†’ the service stores / checks `expires_at` in Unix seconds, so we
@@ -1075,6 +1126,167 @@ describe('CopilotAuthService', () => {
       );
       expect(userInteraction.openExternal).toHaveBeenCalledWith(
         'https://github.com/login/device',
+      );
+    });
+  });
+  // -------------------------------------------------------------------------
+  // Logout tombstone (TASK_2026_172 Issue 2)
+  // -------------------------------------------------------------------------
+
+  /**
+   * `logout()` used to null only in-memory state. `hosts.json` survived, so
+   * the next `configure()` -> `tryRestoreAuth()` silently signed the user back
+   * in and logout appeared to do nothing.
+   *
+   * The fix is a Ptah-side tombstone in the settings store, NOT a delete of
+   * `~/.config/github-copilot/hosts.json` — that file is shared with the
+   * user's editor Copilot integrations, so deleting it would sign them out
+   * everywhere. These specs pin both halves: the tombstone must stop silent
+   * restore, and the shared credential file must never be written or removed
+   * by logout.
+   */
+  describe('logout tombstone', () => {
+    it('persists the tombstone so logout survives a process restart', async () => {
+      const { service, settingsStore } = makeService();
+
+      await service.logout();
+
+      expect(settingsStore.writeGlobal).toHaveBeenCalledWith(
+        TOMBSTONE_KEY,
+        true,
+      );
+      expect(settingsStore.values.get(TOMBSTONE_KEY)).toBe(true);
+    });
+
+    it('never touches the shared hosts.json on logout', async () => {
+      const { service } = makeService();
+
+      await service.logout();
+
+      expect(mockedWriteCopilotToken).not.toHaveBeenCalled();
+      expect(mockedReadCopilotToken).not.toHaveBeenCalled();
+    });
+
+    it('login -> logout -> configure does NOT silently re-authenticate', async () => {
+      // 1. Explicit login via the file token.
+      mockedReadCopilotToken.mockResolvedValueOnce('gho_file_token');
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+      const { service } = makeService();
+      await expect(service.login()).resolves.toBe(true);
+      await expect(service.isAuthenticated()).resolves.toBe(true);
+
+      // 2. Explicit logout.
+      await service.logout();
+      await expect(service.isAuthenticated()).resolves.toBe(false);
+
+      // 3. What `configure()` does on the next run. hosts.json is still on
+      //    disk and would exchange fine — the tombstone is what stops it.
+      //    Clearing the call history isolates this step from the login above.
+      mockedReadCopilotToken.mockClear();
+      mockedReadCopilotToken.mockResolvedValue('gho_file_token');
+      mockedAxios.get.mockResolvedValue(makeTokenResponse());
+
+      await expect(service.tryRestoreAuth()).resolves.toBe(false);
+      // The shared credential file was never even opened.
+      expect(mockedReadCopilotToken).not.toHaveBeenCalled();
+      await expect(service.isAuthenticated()).resolves.toBe(false);
+    });
+
+    it('honours a tombstone written by a previous process (cold start)', async () => {
+      mockedReadCopilotToken.mockResolvedValue('gho_file_token');
+      mockedAxios.get.mockResolvedValue(makeTokenResponse());
+
+      const { service } = makeService({ settings: { [TOMBSTONE_KEY]: true } });
+
+      await expect(service.tryRestoreAuth()).resolves.toBe(false);
+      expect(mockedReadCopilotToken).not.toHaveBeenCalled();
+    });
+
+    it('restores silently when no tombstone is present', async () => {
+      mockedReadCopilotToken.mockResolvedValueOnce('gho_file_token');
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+
+      const { service } = makeService();
+
+      await expect(service.tryRestoreAuth()).resolves.toBe(true);
+      expect(mockedReadCopilotToken).toHaveBeenCalledTimes(1);
+    });
+
+    it('explicit login() clears the tombstone and re-authenticates', async () => {
+      // Persistent (not `…Once`) so the follow-up silent restore below has a
+      // token to find too — the point is that restore is no longer blocked.
+      mockedReadCopilotToken.mockResolvedValue('gho_file_token');
+      mockedAxios.get.mockResolvedValue(makeTokenResponse());
+
+      const { service, settingsStore } = makeService({
+        settings: { [TOMBSTONE_KEY]: true },
+      });
+
+      await expect(service.login()).resolves.toBe(true);
+
+      expect(settingsStore.writeGlobal).toHaveBeenCalledWith(
+        TOMBSTONE_KEY,
+        false,
+      );
+      expect(settingsStore.values.get(TOMBSTONE_KEY)).toBe(false);
+      await expect(service.isAuthenticated()).resolves.toBe(true);
+      // And silent restore works again afterwards.
+      await expect(service.tryRestoreAuth()).resolves.toBe(true);
+    });
+
+    it('headless re-login (beginLogin + pollLogin) clears the tombstone too', async () => {
+      mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());
+      mockedPollForAccessToken.mockResolvedValueOnce('gho_device_token');
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+      mockedWriteCopilotToken.mockResolvedValueOnce(undefined);
+
+      const { service, settingsStore } = makeService({
+        settings: { [TOMBSTONE_KEY]: true },
+      });
+
+      const info = await service.beginLogin();
+      await expect(service.pollLogin(info.deviceCode)).resolves.toBe(true);
+
+      expect(settingsStore.values.get(TOMBSTONE_KEY)).toBe(false);
+    });
+
+    it('a failed poll leaves the tombstone in place', async () => {
+      mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());
+      mockedPollForAccessToken.mockResolvedValueOnce(null);
+
+      const { service, settingsStore } = makeService({
+        settings: { [TOMBSTONE_KEY]: true },
+      });
+
+      const info = await service.beginLogin();
+      await expect(service.pollLogin(info.deviceCode)).resolves.toBe(false);
+
+      expect(settingsStore.values.get(TOMBSTONE_KEY)).toBe(true);
+    });
+
+    it('a settings-store read failure fails open (never harder than the user asked)', async () => {
+      mockedReadCopilotToken.mockResolvedValueOnce('gho_file_token');
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+
+      const { service, settingsStore, logger } = makeService();
+      settingsStore.readGlobal = (() => {
+        throw new Error('settings file corrupt');
+      }) as typeof settingsStore.readGlobal;
+
+      await expect(service.tryRestoreAuth()).resolves.toBe(true);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to read logout tombstone'),
+      );
+    });
+
+    it('a settings-store write failure still clears in-memory state and warns', async () => {
+      const { service, settingsStore, logger } = makeService();
+      settingsStore.writeGlobal.mockRejectedValueOnce(new Error('disk full'));
+
+      await expect(service.logout()).resolves.toBeUndefined();
+      await expect(service.isAuthenticated()).resolves.toBe(false);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to persist logout tombstone'),
       );
     });
   });

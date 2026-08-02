@@ -68,6 +68,7 @@ export {
   COPILOT_DEFAULT_TIERS,
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   readCopilotToken,
+  readCopilotUsername,
   getCopilotHostsPath,
   getCopilotAppsPath,
   writeCopilotToken,

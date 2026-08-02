@@ -6,6 +6,7 @@ export { CopilotAuthService } from './copilot-auth.service';
 export { VscodeCopilotAuthService } from './vscode-copilot-auth.service';
 export {
   readCopilotToken,
+  readCopilotUsername,
   getCopilotHostsPath,
   getCopilotAppsPath,
   writeCopilotToken,

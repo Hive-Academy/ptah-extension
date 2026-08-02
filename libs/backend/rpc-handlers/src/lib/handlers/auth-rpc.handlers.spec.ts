@@ -249,7 +249,9 @@ function createMockCopilot(): MockCopilot {
   return {
     isAuthenticated: jest.fn().mockResolvedValue(false),
     login: jest.fn().mockResolvedValue(true),
-    logout: jest.fn(),
+    // Async on purpose: `logout()` persists the Ptah logout tombstone
+    // (TASK_2026_172 Issue 2), so the handler must await it.
+    logout: jest.fn().mockResolvedValue(undefined),
   } as unknown as MockCopilot;
 }
 
@@ -1058,6 +1060,37 @@ describe('AuthRpcHandlers', () => {
 
       expect(result.success).toBe(true);
       expect(h.copilot.logout).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * `logout()` persists a logout tombstone. A fire-and-forget call would
+     * report success before the write landed — and lose it entirely if the
+     * host exited right after — so the handler must await it.
+     */
+    it('awaits logout() before reporting success', async () => {
+      const h = makeHarness();
+      let settled = false;
+      h.copilot.logout.mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        settled = true;
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'auth:copilotLogout');
+
+      expect(settled).toBe(true);
+      expect(result.success).toBe(true);
+    });
+
+    it('reports failure when the tombstone write rejects', async () => {
+      const h = makeHarness();
+      h.copilot.logout.mockRejectedValue(new Error('settings store offline'));
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'auth:copilotLogout');
+
+      expect(result.success).toBe(false);
+      expect(h.sentry.captureException).toHaveBeenCalled();
     });
   });
 

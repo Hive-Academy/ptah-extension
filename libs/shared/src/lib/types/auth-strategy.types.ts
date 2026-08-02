@@ -6,7 +6,10 @@
  * - oauth-proxy:   OAuth token + translation proxy (Copilot, Codex)
  * - local-native:  Local server speaking Anthropic API (Ollama v0.14+)
  * - local-proxy:   Local server + translation proxy (LM Studio)
- * - cli:           Claude CLI credential store (~/.claude/)
+ * - cli:           AMBIENT credentials — the host's `~/.claude` login created by
+ *                  the Claude CLI. This is the "Claude (Subscription)" route:
+ *                  no base-url override, no auth token, no reachability probe.
+ *                  The Agent SDK stays on its default credential chain.
  */
 
 /** The 5 auth strategies, each corresponding to a distinct authentication flow */
@@ -32,16 +35,29 @@ export type LegacyAuthMethod = 'apiKey' | 'claudeCli' | 'thirdParty';
  *
  * This is the canonical translation point between the legacy config format
  * and the new strategy system. Called at the backend boundary (AuthManager)
- * to select the correct IAuthStrategy.
+ * to select the correct IAuthStrategy. Because EVERY save path (Electron
+ * webview, VS Code webview, TUI, `ptah auth`) funnels through this function,
+ * routing decisions belong here and nowhere else — a per-caller special case
+ * would silently diverge on the surfaces that forgot it.
  *
  * Decision tree:
  *   legacyMethod === 'claudeCli'                              → 'cli'
  *   legacyMethod === 'apiKey'                                 → 'api-key'
  *   legacyMethod === 'thirdParty' (i.e., "use a provider"):
+ *     provider.nativeAuth === true                            → 'cli'
  *     provider.authType === 'oauth' && provider.requiresProxy → 'oauth-proxy'
  *     provider.authType === 'none'  && !provider.requiresProxy→ 'local-native'
  *     provider.authType === 'none'  && provider.requiresProxy → 'local-proxy'
  *     otherwise (apiKey providers like OpenRouter/Moonshot/Z.AI)→ 'api-key'
+ *
+ * The `nativeAuth` test MUST come first. `claude-cli` ("Claude
+ * (Subscription)") is declared `authType: 'none'` with no proxy, which is
+ * byte-identical to Ollama's declaration — without the `nativeAuth`
+ * short-circuit it fell into `local-native`, where `LocalNativeStrategy`
+ * probed an Ollama daemon on 127.0.0.1:11434 and then set
+ * `ANTHROPIC_BASE_URL=''` plus an Ollama placeholder token, destroying the
+ * ambient `~/.claude` login the tile exists to use. `nativeAuth` providers
+ * must reach a strategy that writes NO auth env at all — that is `'cli'`.
  *
  * @param legacyMethod - The stored config value ('apiKey' | 'claudeCli' | 'thirdParty')
  * @param provider - Optional provider metadata from the provider registry
@@ -51,11 +67,17 @@ export function resolveStrategy(
   provider?: {
     authType?: 'apiKey' | 'oauth' | 'none';
     requiresProxy?: boolean;
+    nativeAuth?: boolean;
   },
 ): AuthStrategyType {
   if (legacyMethod === 'claudeCli') return 'cli';
   if (legacyMethod === 'apiKey') return 'api-key';
   if (!provider) return 'api-key'; // fallback when no provider metadata
+
+  // Ambient/subscription credentials (`claude-cli`): leave the Agent SDK on
+  // its default credential chain. Checked before authType/proxy because a
+  // nativeAuth provider is otherwise indistinguishable from a local one.
+  if (provider.nativeAuth === true) return 'cli';
 
   if (provider.authType === 'oauth' && provider.requiresProxy)
     return 'oauth-proxy';
