@@ -68,6 +68,11 @@ services:
       NX_DAEMON: 'false'
     volumes:
       - ./apps/ptah-license-server/src:/app/apps/ptah-license-server/src:delegated
+      # The server's domain code lives in libs/api/* (and tsconfig.base.json owns
+      # the @ptah-api/* aliases), so both must be live-mounted or the container
+      # compiles a stale copy baked at image-build time.
+      - ./libs:/app/libs:delegated
+      - ./tsconfig.base.json:/app/tsconfig.base.json:delegated
       - ./apps/ptah-license-server/prisma:/app/apps/ptah-license-server/prisma:delegated
       - ./apps/ptah-license-server/prisma.config.ts:/app/apps/ptah-license-server/prisma.config.ts:delegated
       - ./apps/ptah-license-server/tsconfig.json:/app/apps/ptah-license-server/tsconfig.json:delegated
