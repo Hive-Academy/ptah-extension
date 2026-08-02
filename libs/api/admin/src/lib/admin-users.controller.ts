@@ -16,6 +16,7 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '@ptah-api/identity';
 import { AdminGuard } from '@ptah-api/identity';
 import { AdminThrottlerGuard } from '@ptah-api/identity';
+import { dtoPipe } from '@ptah-api/core';
 import {
   AdminService,
   UserDeletionPreview,
@@ -62,9 +63,19 @@ export interface AdminBulkEmailResponse {
  * different segment counts), which `src/common/route-map.spec.ts` asserts
  * mechanically (RI-3).
  *
- * ⚠️ VALIDATION DEBT: `@Body()` on `bulkEmailUsers` and `deleteUser` is still
- * bare. Binding is TASK_2026_170 B7b; tracked by
- * `src/common/controller-validation.spec.ts`'s `UNVALIDATED_DEBT` ledger.
+ * ⚠️ EVERY `@Body()` / `@Query()` PARAM MUST BIND `dtoPipe(TheDto)`.
+ * A bare `@Body() dto: X` is SILENTLY UNVALIDATED in this server: esbuild does
+ * not emit `emitDecoratorMetadata`, so Nest cannot infer the DTO type and the
+ * global ValidationPipe short-circuits — every `class-validator` decorator
+ * becomes inert. See `libs/api/core/src/lib/common/dto-validation.pipe.ts`.
+ * `apps/ptah-license-server/src/common/controller-validation.spec.ts` fails the
+ * build if a binding is dropped.
+ *
+ * Both bodies here guard genuinely destructive or expensive work, so the
+ * decorators matter: `BulkEmailDto`'s `@ArrayMinSize(1)` / `@ArrayMaxSize(500)`
+ * bound a real mail send, and `DeleteUserDto`'s `@IsEmail()` is the shape half
+ * of the typed-confirmation safeguard in front of a cascade delete (the
+ * equality half stays in `AdminService.deleteUserCascade`).
  */
 @Controller('v1/admin/users')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -77,7 +88,7 @@ export class AdminUsersController {
   @HttpCode(200)
   async bulkEmailUsers(
     @Req() req: Request,
-    @Body() dto: BulkEmailDto,
+    @Body(dtoPipe(BulkEmailDto)) dto: BulkEmailDto,
   ): Promise<AdminBulkEmailResponse> {
     const actor = req.user?.email ?? 'unknown';
     this.logger.log(
@@ -114,7 +125,7 @@ export class AdminUsersController {
   async deleteUser(
     @Req() req: Request,
     @Param('id') id: string,
-    @Body() body: DeleteUserDto,
+    @Body(dtoPipe(DeleteUserDto)) body: DeleteUserDto,
   ): Promise<UserDeletionResult> {
     const actorEmail = req.user?.email ?? 'unknown';
     const userAgent = req.headers['user-agent'];
