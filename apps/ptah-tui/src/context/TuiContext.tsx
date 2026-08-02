@@ -10,6 +10,13 @@ export interface TuiContextValue {
   transport: CliMessageTransport;
   pushAdapter: CliWebviewManagerAdapter;
   fireAndForget: CliFireAndForgetHandler;
+  /**
+   * Absolute workspace root the engine was booted against. Lives on the
+   * context rather than being drilled through props because the consumers
+   * (`ChatPanel` → `useChat`) sit several layers below `App`, and the prop
+   * chain silently dropped it.
+   */
+  workspacePath: string;
   reinitializeSdk: () => Promise<boolean>;
 }
 
@@ -19,6 +26,7 @@ export interface TuiProviderProps {
   transport: CliMessageTransport;
   pushAdapter: CliWebviewManagerAdapter;
   fireAndForget: CliFireAndForgetHandler;
+  workspacePath: string;
   reinitializeSdk: () => Promise<boolean>;
   children: React.ReactNode;
 }
@@ -27,12 +35,19 @@ export function TuiProvider({
   transport,
   pushAdapter,
   fireAndForget,
+  workspacePath,
   reinitializeSdk,
   children,
 }: TuiProviderProps): React.JSX.Element {
   const value = React.useMemo(
-    () => ({ transport, pushAdapter, fireAndForget, reinitializeSdk }),
-    [transport, pushAdapter, fireAndForget, reinitializeSdk],
+    () => ({
+      transport,
+      pushAdapter,
+      fireAndForget,
+      workspacePath,
+      reinitializeSdk,
+    }),
+    [transport, pushAdapter, fireAndForget, workspacePath, reinitializeSdk],
   );
 
   return <TuiContext.Provider value={value}>{children}</TuiContext.Provider>;

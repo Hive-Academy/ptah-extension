@@ -140,6 +140,27 @@ export interface SkillSynthesisEventPayload {
   readonly event: SkillSynthesisEventWire;
 }
 
+/**
+ * Payload for MESSAGE_TYPES.AUTH_DEVICE_CODE ('auth:deviceCode').
+ *
+ * `provider` is the provider registry id ('github-copilot', 'openai-codex').
+ * `userCode` is absent when the underlying CLI printed only a verification URL.
+ */
+export interface AuthDeviceCodePayload {
+  readonly provider: string;
+  readonly userCode?: string;
+  readonly verificationUri?: string;
+  /** Seconds until the code expires, when the provider reports it. */
+  readonly expiresInSeconds?: number;
+}
+
+/** Payload for MESSAGE_TYPES.AUTH_LOGIN_OUTPUT ('auth:loginOutput'). */
+export interface AuthLoginOutputPayload {
+  readonly provider: string;
+  readonly stream: 'stdout' | 'stderr';
+  readonly line: string;
+}
+
 /** Payload for MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW ('harness:open-workflow'). */
 export interface HarnessOpenWorkflowPayload {
   readonly mode: 'new-project' | 'configure-harness';
@@ -263,6 +284,8 @@ export interface MessagePayloadMap {
   'db:vecStatusChanged': VecStatusChangedPayload;
   'embedder:statusChanged': EmbedderStatusChangedPayload;
   'skillSynthesis:event': SkillSynthesisEventPayload;
+  'auth:deviceCode': AuthDeviceCodePayload;
+  'auth:loginOutput': AuthLoginOutputPayload;
   'harness:open-workflow': HarnessOpenWorkflowPayload;
   'harness:config-proposed': HarnessConfigProposedPayload;
   'chat:sendMessage:response': MessageResponse;

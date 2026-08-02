@@ -21,6 +21,12 @@ export { ConfigRpcHandlers } from './config-rpc.handlers';
 export { LicenseRpcHandlers } from './license-rpc.handlers';
 export { ChatRpcHandlers } from './chat-rpc.handlers';
 export { AuthRpcHandlers } from './auth-rpc.handlers';
+export { asAuthCommandRunner } from './auth-command-runner';
+export type {
+  AuthCommandRequest,
+  AuthCommandResult,
+  IAuthCommandRunner,
+} from './auth-command-runner';
 export { EnhancedPromptsRpcHandlers } from './enhanced-prompts-rpc.handlers';
 export { QualityRpcHandlers } from './quality-rpc.handlers';
 export { ProviderRpcHandlers } from './provider-rpc.handlers';

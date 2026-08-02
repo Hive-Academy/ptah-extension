@@ -76,7 +76,9 @@ export type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
   CopilotAuthState,
+  CopilotDeviceLoginInfo,
   CopilotHostsFile,
+  CopilotLoginOptions,
 } from './lib/providers/copilot';
 export {
   CodexAuthService,

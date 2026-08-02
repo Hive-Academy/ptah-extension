@@ -5,12 +5,9 @@ import { PassThrough } from 'node:stream';
 import { render } from 'ink';
 import {
   withEngine,
-  initializeSdkAdapter,
-  CliFireAndForgetHandler,
   CliDIContainer,
   type EngineContext,
 } from '@ptah-extension/cli-engine';
-import type { DependencyContainer } from 'tsyringe';
 
 import { TuiWebviewManagerAdapter } from './transport/tui-webview-manager-adapter.js';
 import { App } from './components/App.js';
@@ -27,8 +24,6 @@ export interface RunTuiGlobals {
 
 interface RootProps {
   ctx: EngineContext;
-  container: DependencyContainer;
-  fireAndForget: CliFireAndForgetHandler;
   workspacePath: string;
   initialAuthReady: boolean;
   initialAuthError?: string;
@@ -38,8 +33,6 @@ interface RootProps {
 
 function Root({
   ctx,
-  container,
-  fireAndForget,
   workspacePath,
   initialAuthReady,
   initialAuthError,
@@ -51,18 +44,20 @@ function Root({
     initialAuthError,
   );
 
+  // `ctx.initializeSdk` rather than the bare `initializeSdkAdapter` export:
+  // the context variant records the adapter so `withEngine` disposes it.
   const reinitializeSdk = useCallback(async (): Promise<boolean> => {
-    const sdk = await initializeSdkAdapter(container);
+    const sdk = await ctx.initializeSdk();
     setAuthReady(sdk.initialized);
     setAuthError(sdk.errorMessage);
     return sdk.initialized;
-  }, [container]);
+  }, [ctx]);
 
   return (
     <App
       transport={ctx.transport}
       pushAdapter={ctx.pushAdapter}
-      fireAndForget={fireAndForget}
+      fireAndForget={ctx.fireAndForget}
       workspacePath={workspacePath}
       authReady={authReady}
       authError={authError}
@@ -116,15 +111,16 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
     { cwd: globals.cwd, config: globals.config, verbose: globals.verbose },
     { mode: 'full', requireSdk: false, thoth: 'off', pushAdapter },
     async (ctx: EngineContext): Promise<number> => {
-      const sdk = await initializeSdkAdapter(ctx.container);
-      const fireAndForget = new CliFireAndForgetHandler(ctx.container);
+      // Booted with `requireSdk: false` so an unconfigured first run reaches
+      // the UI; the adapter is initialized here instead. Going through
+      // `ctx.initializeSdk` (not the bare export) is what registers it for
+      // disposal in withEngine's finally.
+      const sdk = await ctx.initializeSdk();
 
       if (smoke) {
         const app = render(
           <Root
             ctx={ctx}
-            container={ctx.container}
-            fireAndForget={fireAndForget}
             workspacePath={workspacePath}
             initialAuthReady={sdk.initialized}
             initialAuthError={sdk.errorMessage}
@@ -147,8 +143,6 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
       const app = render(
         <Root
           ctx={ctx}
-          container={ctx.container}
-          fireAndForget={fireAndForget}
           workspacePath={workspacePath}
           initialAuthReady={sdk.initialized}
           initialAuthError={sdk.errorMessage}

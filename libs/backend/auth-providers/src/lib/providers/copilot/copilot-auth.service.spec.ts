@@ -322,6 +322,117 @@ describe('CopilotAuthService', () => {
       );
     });
 
+    /**
+     * `showInformationMessage` is `console.log` under the CLI runtime and the
+     * TUI replaces `console.*` with a no-op sink, so the device code was
+     * invisible there. `onDeviceCode` is the headless-safe channel — and it
+     * MUST fire before the clipboard/browser awaits and the 5-minute poll,
+     * otherwise it is no better than what it replaces.
+     */
+    it('invokes onDeviceCode with the device metadata', async () => {
+      mockedReadCopilotToken.mockResolvedValueOnce(null);
+      mockedRequestDeviceCode.mockResolvedValueOnce(
+        makeDeviceCodeFixture({
+          device_code: 'D-device',
+          user_code: 'USER-123',
+          verification_uri: 'https://github.com/login/device',
+          expires_in: 900,
+        }),
+      );
+      mockedPollForAccessToken.mockResolvedValueOnce('gho_device_token');
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+      mockedWriteCopilotToken.mockResolvedValueOnce(undefined);
+
+      const onDeviceCode = jest.fn();
+      const { service } = makeService();
+      await service.login({ onDeviceCode });
+
+      expect(onDeviceCode).toHaveBeenCalledTimes(1);
+      expect(onDeviceCode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deviceCode: 'D-device',
+          userCode: 'USER-123',
+          verificationUri: 'https://github.com/login/device',
+          expiresIn: 900,
+        }),
+      );
+    });
+
+    it('fires onDeviceCode BEFORE the clipboard/browser surfacing and the poll', async () => {
+      mockedReadCopilotToken.mockResolvedValueOnce(null);
+      mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());
+
+      const order: string[] = [];
+      const { service, userInteraction } = makeService();
+      userInteraction.writeToClipboard.mockImplementation(async () => {
+        order.push('clipboard');
+      });
+      mockedPollForAccessToken.mockImplementation(async () => {
+        order.push('poll');
+        return null;
+      });
+
+      await service.login({
+        onDeviceCode: () => {
+          order.push('onDeviceCode');
+        },
+      });
+
+      expect(order).toEqual(['onDeviceCode', 'clipboard', 'poll']);
+    });
+
+    it('still surfaces the code via IUserInteraction (VS Code / Electron unchanged)', async () => {
+      mockedReadCopilotToken.mockResolvedValueOnce(null);
+      mockedRequestDeviceCode.mockResolvedValueOnce(
+        makeDeviceCodeFixture({ user_code: 'USER-123' }),
+      );
+      mockedPollForAccessToken.mockResolvedValueOnce(null);
+
+      const { service, userInteraction } = makeService();
+      await service.login({ onDeviceCode: jest.fn() });
+
+      expect(userInteraction.showInformationMessage).toHaveBeenCalledWith(
+        expect.stringContaining('USER-123'),
+        'OK',
+      );
+    });
+
+    it('does not invoke onDeviceCode when file-based auth short-circuits the flow', async () => {
+      mockedReadCopilotToken.mockResolvedValueOnce('gho_file_token');
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+
+      const onDeviceCode = jest.fn();
+      const { service } = makeService();
+      await service.login({ onDeviceCode });
+
+      expect(onDeviceCode).not.toHaveBeenCalled();
+    });
+
+    it('completes the login even if onDeviceCode throws', async () => {
+      mockedReadCopilotToken.mockResolvedValueOnce(null);
+      mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());
+      mockedPollForAccessToken.mockResolvedValueOnce('gho_device_token');
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+      mockedWriteCopilotToken.mockResolvedValueOnce(undefined);
+
+      const { service } = makeService();
+      await expect(
+        service.login({
+          onDeviceCode: () => {
+            throw new Error('observer exploded');
+          },
+        }),
+      ).resolves.toBe(true);
+    });
+
+    it('remains callable with no options (existing callers unchanged)', async () => {
+      mockedReadCopilotToken.mockResolvedValueOnce('gho_file_token');
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+
+      const { service } = makeService();
+      await expect(service.login()).resolves.toBe(true);
+    });
+
     it('uses the configured client ID when one is set in workspace config', async () => {
       mockedReadCopilotToken.mockResolvedValueOnce(null);
       mockedRequestDeviceCode.mockResolvedValueOnce(makeDeviceCodeFixture());

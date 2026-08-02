@@ -76,6 +76,7 @@ import type {
 } from '@ptah-extension/agent-sdk';
 import type {
   CopilotAuthService,
+  CopilotLoginOptions,
   ICodexAuthService,
   ProviderModelsService,
 } from '@ptah-extension/auth-providers';
@@ -252,15 +253,35 @@ function createMockCopilot(): MockCopilot {
   } as unknown as MockCopilot;
 }
 
-type MockCodex = jest.Mocked<Pick<ICodexAuthService, 'getTokenStatus'>>;
+type MockCodex = jest.Mocked<
+  Pick<ICodexAuthService, 'getTokenStatus' | 'clearCache'>
+>;
 
 function createMockCodex(): MockCodex {
   return {
     getTokenStatus: jest
       .fn()
       .mockResolvedValue({ authenticated: false, stale: false }),
+    clearCache: jest.fn(),
   };
 }
+
+/**
+ * Push surface used by the interactive-login events (`auth:deviceCode`).
+ * Injected optionally, mirroring the handler's `{ isOptional: true }` binding.
+ */
+type MockWebviewManager = { broadcastMessage: jest.Mock };
+
+function createMockWebviewManager(): MockWebviewManager {
+  return { broadcastMessage: jest.fn().mockResolvedValue(undefined) };
+}
+
+/**
+ * The `IAuthCommandRunner` capability, present only on adapters that can drive
+ * an interactive login themselves (the CLI/TUI runtime). Attaching it to the
+ * platform-commands mock is exactly how `asAuthCommandRunner` detects it.
+ */
+type MockAuthCommandRunner = jest.Mock;
 
 type MockCliDetector = jest.Mocked<
   Pick<ClaudeCliDetector, 'performHealthCheck'>
@@ -295,6 +316,8 @@ interface Harness {
   cliDetector: MockCliDetector;
   sentry: MockSentryService;
   scopeResolver: MockScopeResolver;
+  webviewManager: MockWebviewManager;
+  authCommandRunner?: MockAuthCommandRunner;
 }
 
 function makeHarness(
@@ -307,6 +330,18 @@ function makeHarness(
     appOverrides?: Record<string, unknown>;
     activePath?: string | undefined;
     appScope?: string;
+    /**
+     * When supplied, the platform-commands mock gains the optional
+     * `runAuthCommand` capability and returns this result — simulating the
+     * CLI/TUI runtime. Omit it to simulate VS Code (terminal path).
+     */
+    authCommandResult?: {
+      success: boolean;
+      exitCode: number | null;
+      error?: string;
+    };
+    /** When true, `runAuthCommand` rejects instead of resolving. */
+    authCommandThrows?: boolean;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -325,6 +360,19 @@ function makeHarness(
   const copilot = createMockCopilot();
   const codex = createMockCodex();
   const platformCommands = createMockPlatformCommands();
+  const webviewManager = createMockWebviewManager();
+
+  let authCommandRunner: MockAuthCommandRunner | undefined;
+  if (opts.authCommandResult !== undefined || opts.authCommandThrows === true) {
+    authCommandRunner =
+      opts.authCommandThrows === true
+        ? jest.fn().mockRejectedValue(new Error('spawn exploded'))
+        : jest.fn().mockResolvedValue(opts.authCommandResult);
+    (
+      platformCommands as unknown as { runAuthCommand: MockAuthCommandRunner }
+    ).runAuthCommand = authCommandRunner;
+  }
+
   const platformAuth = createMockAuthProvider();
   const cliDetector = createMockCliDetector();
   const sentry = createMockSentryService();
@@ -355,6 +403,7 @@ function makeHarness(
     cliDetector as unknown as ClaudeCliDetector,
     sentry as unknown as SentryService,
     scopeResolver as unknown as WorkspaceScopeResolver,
+    webviewManager as unknown as import('@ptah-extension/vscode-core').WebviewManager,
   );
 
   return {
@@ -372,6 +421,8 @@ function makeHarness(
     cliDetector,
     sentry,
     scopeResolver,
+    webviewManager,
+    ...(authCommandRunner ? { authCommandRunner } : {}),
   };
 }
 
@@ -878,6 +929,95 @@ describe('AuthRpcHandlers', () => {
       expect(h.sdkAdapter.reset).toHaveBeenCalled();
     });
 
+    /**
+     * Regression: the device code was surfaced only through
+     * `IUserInteraction.showInformationMessage`, which the CLI implements as
+     * `console.log` — swallowed by the TUI's console capture. `login()` then
+     * blocks polling for up to five minutes, so the user saw a bare spinner.
+     * The handler must hand `login()` an observer that broadcasts the code the
+     * moment it exists.
+     */
+    it('broadcasts auth:deviceCode as soon as the device code is known', async () => {
+      const h = makeHarness();
+      h.copilot.login.mockImplementation(async (opts?: CopilotLoginOptions) => {
+        opts?.onDeviceCode?.({
+          deviceCode: 'opaque-device-code',
+          userCode: 'ABCD-1234',
+          verificationUri: 'https://github.com/login/device',
+          interval: 5,
+          expiresIn: 900,
+        });
+        return true;
+      });
+      h.handlers.register();
+
+      await call<{ success: boolean }>(h, 'auth:copilotLogin');
+
+      expect(h.webviewManager.broadcastMessage).toHaveBeenCalledWith(
+        'auth:deviceCode',
+        {
+          provider: 'github-copilot',
+          userCode: 'ABCD-1234',
+          verificationUri: 'https://github.com/login/device',
+          expiresInSeconds: 900,
+        },
+      );
+    });
+
+    it('never broadcasts the opaque deviceCode polling key to the UI', async () => {
+      const h = makeHarness();
+      h.copilot.login.mockImplementation(async (opts?: CopilotLoginOptions) => {
+        opts?.onDeviceCode?.({
+          deviceCode: 'secret-polling-key',
+          userCode: 'ABCD-1234',
+          verificationUri: 'https://github.com/login/device',
+          interval: 5,
+          expiresIn: 900,
+        });
+        return true;
+      });
+      h.handlers.register();
+
+      await call<{ success: boolean }>(h, 'auth:copilotLogin');
+
+      const broadcast = JSON.stringify(
+        h.webviewManager.broadcastMessage.mock.calls,
+      );
+      expect(broadcast).not.toContain('secret-polling-key');
+    });
+
+    it('completes the login even when the broadcast rejects', async () => {
+      const h = makeHarness();
+      h.webviewManager.broadcastMessage.mockRejectedValue(
+        new Error('no surface attached'),
+      );
+      h.copilot.login.mockImplementation(async (opts?: CopilotLoginOptions) => {
+        opts?.onDeviceCode?.({
+          deviceCode: 'd',
+          userCode: 'ABCD-1234',
+          verificationUri: 'https://github.com/login/device',
+          interval: 5,
+          expiresIn: 900,
+        });
+        return true;
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'auth:copilotLogin');
+
+      expect(result.success).toBe(true);
+    });
+
+    it('emits no device-code broadcast when login resolves without one (file-based restore)', async () => {
+      const h = makeHarness();
+      h.copilot.login.mockResolvedValue(true);
+      h.handlers.register();
+
+      await call<{ success: boolean }>(h, 'auth:copilotLogin');
+
+      expect(h.webviewManager.broadcastMessage).not.toHaveBeenCalled();
+    });
+
     it('returns a structured failure when Copilot login returns false', async () => {
       const h = makeHarness();
       h.copilot.login.mockResolvedValue(false);
@@ -958,7 +1098,7 @@ describe('AuthRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('auth:codexLogin', () => {
-    it('opens a terminal running `codex login --device-auth` via IPlatformCommands', async () => {
+    it('opens a terminal running `codex login --device-auth` when the platform has one', async () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -969,6 +1109,76 @@ describe('AuthRpcHandlers', () => {
         'Codex Login',
         'codex login --device-auth',
       );
+    });
+
+    /**
+     * Regression: in the CLI/TUI runtime `openTerminal` is a no-op, so the old
+     * unconditional `return { success: true }` reported a login that never
+     * happened. When the adapter advertises `runAuthCommand`, the command must
+     * be run for real and the result must track its outcome.
+     */
+    it('runs the command via IAuthCommandRunner instead of openTerminal when the capability exists', async () => {
+      const h = makeHarness({
+        authCommandResult: { success: true, exitCode: 0 },
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'auth:codexLogin');
+
+      expect(result.success).toBe(true);
+      expect(h.authCommandRunner).toHaveBeenCalledWith({
+        provider: 'openai-codex',
+        name: 'Codex Login',
+        command: 'codex login --device-auth',
+      });
+      expect(h.platformCommands.openTerminal).not.toHaveBeenCalled();
+    });
+
+    it('refreshes codex credentials and resets the SDK after a successful run', async () => {
+      const h = makeHarness({
+        authCommandResult: { success: true, exitCode: 0 },
+      });
+      h.handlers.register();
+
+      await call<{ success: boolean }>(h, 'auth:codexLogin');
+
+      expect(h.codex.clearCache).toHaveBeenCalledTimes(1);
+      expect(h.sdkAdapter.reset).toHaveBeenCalled();
+    });
+
+    it('reports failure (never optimistic success) when the command exits non-zero', async () => {
+      const h = makeHarness({
+        authCommandResult: {
+          success: false,
+          exitCode: 1,
+          error: '`codex login --device-auth` exited with code 1.',
+        },
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'auth:codexLogin',
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('exited with code 1');
+      expect(h.codex.clearCache).not.toHaveBeenCalled();
+    });
+
+    it('returns a structured failure (no throw to the RPC boundary) when the runner rejects', async () => {
+      const h = makeHarness({ authCommandThrows: true });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'auth:codexLogin',
+      );
+
+      expect(result.success).toBe(false);
+      expect(h.sentry.captureException).toHaveBeenCalled();
+      // Library error text must not reach the client verbatim.
+      expect(result.error).not.toContain('spawn exploded');
     });
   });
 

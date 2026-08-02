@@ -5,6 +5,8 @@ import TextInput from 'ink-text-input';
 import { useRpc } from '../../hooks/use-rpc.js';
 import { useTheme } from '../../hooks/use-theme.js';
 import { useKeyboardNav } from '../../hooks/use-keyboard-nav.js';
+import { useLoginProgress } from '../../hooks/use-login-progress.js';
+import type { LoginProgress } from '../../hooks/use-login-progress.js';
 import { useTuiContext } from '../../context/TuiContext.js';
 import { Badge, KeyHint, Spinner } from '../atoms/index.js';
 import { ListItem } from '../molecules/index.js';
@@ -271,11 +273,69 @@ function ClaudeConfig({
   );
 }
 
+/**
+ * Renders an in-flight device-code login prominently: the code the user must
+ * type, the URL to open, and the tail of whatever the login subprocess printed.
+ *
+ * This is the entire point of the `auth:deviceCode` / `auth:loginOutput` push
+ * events — before them the code went to a `console.log` the TUI swallows, so a
+ * device-code login showed nothing but a spinner for up to five minutes.
+ */
+function LoginProgressView({
+  progress,
+}: {
+  progress: LoginProgress;
+}): React.JSX.Element | null {
+  const theme = useTheme();
+  const { deviceCode, output } = progress;
+
+  if (!deviceCode && output.length === 0) return null;
+
+  return (
+    <Box flexDirection="column" marginTop={1} gap={1}>
+      {deviceCode?.userCode && (
+        <Box
+          borderStyle="round"
+          borderColor={theme.ui.accent}
+          paddingX={1}
+          gap={1}
+        >
+          <Text dimColor>Code:</Text>
+          <Text bold color={theme.ui.accent}>
+            {deviceCode.userCode}
+          </Text>
+          <Text dimColor>(copied to clipboard)</Text>
+        </Box>
+      )}
+
+      {deviceCode?.verificationUri && (
+        <Box gap={1}>
+          <Text dimColor>Open:</Text>
+          <Text bold color={theme.ui.brand}>
+            {deviceCode.verificationUri}
+          </Text>
+        </Box>
+      )}
+
+      {output.length > 0 && (
+        <Box flexDirection="column">
+          {output.map((line, index) => (
+            <Text key={`${index}-${line}`} dimColor wrap="truncate-end">
+              {line}
+            </Text>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 interface CopilotConfigProps {
   auth: AuthStatus;
   saving: boolean;
   loggingIn: boolean;
   statusMsg: StatusMsg | null;
+  progress: LoginProgress;
   onLogin: () => void;
   onLogout: () => void;
 }
@@ -285,6 +345,7 @@ function CopilotConfig({
   saving,
   loggingIn,
   statusMsg,
+  progress,
 }: CopilotConfigProps): React.JSX.Element {
   const theme = useTheme();
   const isConnected = auth.copilotAuthenticated ?? false;
@@ -298,9 +359,16 @@ function CopilotConfig({
       </Box>
 
       {saving || loggingIn ? (
-        <Spinner
-          label={loggingIn ? 'Signing in via GitHub...' : 'Processing...'}
-        />
+        <Box flexDirection="column">
+          <Spinner
+            label={
+              loggingIn
+                ? 'Signing in via GitHub — waiting for authorization...'
+                : 'Processing...'
+            }
+          />
+          <LoginProgressView progress={progress} />
+        </Box>
       ) : isConnected ? (
         <Box gap={1}>
           <Text color={theme.status.success}>✓ Connected</Text>
@@ -356,6 +424,7 @@ interface CodexConfigProps {
   auth: AuthStatus;
   saving: boolean;
   statusMsg: StatusMsg | null;
+  progress: LoginProgress;
   onLogin: () => void;
 }
 
@@ -363,6 +432,7 @@ function CodexConfig({
   auth,
   saving,
   statusMsg,
+  progress,
 }: CodexConfigProps): React.JSX.Element {
   const theme = useTheme();
   const isAuth = auth.codexAuthenticated ?? false;
@@ -377,7 +447,10 @@ function CodexConfig({
       </Box>
 
       {saving ? (
-        <Spinner label="Opening terminal..." />
+        <Box flexDirection="column">
+          <Spinner label="Running `codex login --device-auth`..." />
+          <LoginProgressView progress={progress} />
+        </Box>
       ) : isStale ? (
         <Box gap={1}>
           <Text color={theme.status.warning}>⚠ Token expired</Text>
@@ -638,7 +711,7 @@ interface AuthSectionProps {
 export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
   const theme = useTheme();
   const { call, error: rpcError } = useRpc();
-  const { reinitializeSdk } = useTuiContext();
+  const { reinitializeSdk, pushAdapter } = useTuiContext();
 
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -689,6 +762,16 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
     !isClaudeTile && selectedProvider?.authType === 'oauth';
   const isApiKeyProvider =
     !isClaudeTile && !isOAuthProvider && !isLocalProvider;
+
+  // Only the two device-code providers emit login progress; every other tile
+  // subscribes to nothing.
+  const loginProgress = useLoginProgress(
+    pushAdapter,
+    isCopilotProvider || isCodexProvider ? selectedTileId : null,
+  );
+  // Stable across renders (useCallback in the hook) — safe as a dep, unlike
+  // the freshly-built `loginProgress` object itself.
+  const resetLoginProgress = loginProgress.reset;
 
   const runSaveAndTest = useCallback(
     async (params: SaveParams): Promise<void> => {
@@ -773,6 +856,7 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
   const handleCopilotLogin = useCallback(async (): Promise<void> => {
     setCopilotLoggingIn(true);
     setStatusMsg(null);
+    resetLoginProgress();
     const result = await call<
       Record<string, never>,
       { success: boolean; username?: string; error?: string }
@@ -788,7 +872,7 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
       setStatusMsg({ type: 'error', text: result?.error ?? 'Login failed.' });
     }
     setCopilotLoggingIn(false);
-  }, [call, loadAuthStatus, reinitializeSdk]);
+  }, [call, loadAuthStatus, reinitializeSdk, resetLoginProgress]);
 
   const handleCopilotLogout = useCallback(async (): Promise<void> => {
     setSaving(true);
@@ -807,20 +891,26 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
   const handleCodexLogin = useCallback(async (): Promise<void> => {
     setSaving(true);
     setStatusMsg(null);
-    const result = await call<void, { success: boolean }>(
+    resetLoginProgress();
+    // In the TUI runtime this RPC now runs `codex login --device-auth` to
+    // completion and reports the real exit status, so success here means the
+    // login actually finished — not merely that a command was dispatched.
+    const result = await call<void, { success: boolean; error?: string }>(
       'auth:codexLogin',
       undefined as unknown as void,
     );
     if (result?.success) {
-      setStatusMsg({
-        type: 'info',
-        text: 'Codex login initiated in terminal.',
-      });
+      setStatusMsg({ type: 'success', text: 'Codex login complete.' });
+      await loadAuthStatus();
+      await reinitializeSdk();
     } else {
-      setStatusMsg({ type: 'error', text: 'Failed to start Codex login.' });
+      setStatusMsg({
+        type: 'error',
+        text: result?.error ?? 'Failed to start Codex login.',
+      });
     }
     setSaving(false);
-  }, [call]);
+  }, [call, loadAuthStatus, reinitializeSdk, resetLoginProgress]);
 
   const browseNav = useKeyboardNav({
     itemCount: tiles.length,
@@ -950,6 +1040,7 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
           saving={saving}
           loggingIn={copilotLoggingIn}
           statusMsg={statusMsg}
+          progress={loginProgress}
           onLogin={() => void handleCopilotLogin()}
           onLogout={() => void handleCopilotLogout()}
         />
@@ -960,6 +1051,7 @@ export function AuthSection({ isActive }: AuthSectionProps): React.JSX.Element {
           auth={authStatus}
           saving={saving}
           statusMsg={statusMsg}
+          progress={loginProgress}
           onLogin={() => void handleCodexLogin()}
         />
       )}

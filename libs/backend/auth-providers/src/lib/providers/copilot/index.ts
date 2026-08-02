@@ -24,6 +24,8 @@ export type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
   CopilotAuthState,
+  CopilotDeviceLoginInfo,
+  CopilotLoginOptions,
   CopilotTokenResponse,
 } from './copilot-provider.types';
 export { OpenAIResponseTranslator as CopilotResponseTranslator } from '../../translation';

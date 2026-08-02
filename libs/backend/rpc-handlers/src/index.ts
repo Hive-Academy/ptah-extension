@@ -42,12 +42,16 @@ export {
   mintResetChallengeToken,
   IndexingRpcHandlers,
   TasksRpcHandlers,
+  asAuthCommandRunner,
 } from './lib/handlers';
 export type {
   DbHealthResult,
   DbHealthParams,
   DbResetParams,
   DbResetResult,
+  AuthCommandRequest,
+  AuthCommandResult,
+  IAuthCommandRunner,
 } from './lib/handlers';
 export type {
   IPlatformCommands,

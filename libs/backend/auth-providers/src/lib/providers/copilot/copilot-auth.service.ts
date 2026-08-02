@@ -33,6 +33,7 @@ import type {
   ICopilotAuthService,
   CopilotAuthState,
   CopilotDeviceLoginInfo,
+  CopilotLoginOptions,
   CopilotPollLoginOptions,
   CopilotTokenResponse,
 } from './copilot-provider.types';
@@ -157,9 +158,11 @@ export class CopilotAuthService implements ICopilotAuthService {
    *
    * The VscodeCopilotAuthService subclass adds VS Code native auth as highest priority.
    *
+   * @param opts - optional observer hooks. `onDeviceCode` fires as soon as the
+   *   device code is known, before this method blocks in `pollLogin`.
    * @returns true if authentication succeeded, false otherwise
    */
-  async login(): Promise<boolean> {
+  async login(opts: CopilotLoginOptions = {}): Promise<boolean> {
     try {
       this.logger.info('[CopilotAuth] Starting authentication...');
       const fileRestored = await this.tryFileBasedAuth();
@@ -171,6 +174,11 @@ export class CopilotAuthService implements ICopilotAuthService {
       );
 
       const deviceLogin = await this.beginLogin();
+      // Notify observers FIRST: `surfaceDeviceCodeToUser` awaits clipboard and
+      // browser-launch subprocesses that can stall on headless machines, and
+      // `pollLogin` then blocks for up to five minutes. A headless caller that
+      // learns the code only after those awaits has effectively learned nothing.
+      this.notifyDeviceCode(opts.onDeviceCode, deviceLogin);
       await this.surfaceDeviceCodeToUser(
         deviceLogin.userCode,
         deviceLogin.verificationUri,
@@ -181,6 +189,27 @@ export class CopilotAuthService implements ICopilotAuthService {
         `[CopilotAuth] Login failed: ${error instanceof Error ? error.message : String(error)}`,
       );
       return false;
+    }
+  }
+
+  /**
+   * Invoke the caller-supplied device-code observer without letting a faulty
+   * observer abort the login flow. Protected so the VS Code subclass can reuse
+   * it if it ever grows its own device-code path.
+   */
+  protected notifyDeviceCode(
+    onDeviceCode: CopilotLoginOptions['onDeviceCode'],
+    info: CopilotDeviceLoginInfo,
+  ): void {
+    if (!onDeviceCode) return;
+    try {
+      onDeviceCode(info);
+    } catch (error) {
+      this.logger.warn(
+        `[CopilotAuth] Device-code observer threw (ignored): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 

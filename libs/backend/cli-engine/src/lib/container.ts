@@ -151,6 +151,17 @@ export interface CliBootstrapResult {
   pushAdapter: CliWebviewManagerAdapter;
   fireAndForget: CliFireAndForgetHandler;
   logger: Logger;
+  /**
+   * Resolves once the initial workspace context has been created and marked
+   * active on the workspace-aware state storage. `setup()` is synchronous, so
+   * this step is inherently deferred; callers that touch settings MUST await
+   * this first (`withEngine` does) or their reads/writes race the activation
+   * and hit the global default bucket.
+   *
+   * Never rejects — failures are logged and swallowed inside `setup()`.
+   * Optional so test doubles for `bootstrap` need not provide it.
+   */
+  workspaceReady?: Promise<void>;
 }
 
 /**
@@ -265,26 +276,35 @@ export class CliDIContainer {
     container.register(TOKENS.WORKSPACE_CONTEXT_MANAGER, {
       useValue: workspaceContextManager,
     });
-    workspaceContextManager.createWorkspace(workspacePath).then(
-      (result) => {
-        if ('error' in result) {
+    /**
+     * `setup()` is synchronous, so this cannot be awaited here. The promise is
+     * surfaced on the bootstrap result instead and awaited by `withEngine`
+     * BEFORE any user work runs — otherwise early settings reads/writes race
+     * the activation and land in the global default bucket rather than the
+     * workspace bucket. Never rejects: both outcomes are logged and swallowed.
+     */
+    const workspaceReady = workspaceContextManager
+      .createWorkspace(workspacePath)
+      .then(
+        (result) => {
+          if ('error' in result) {
+            logger.warn(
+              '[CLI DI] Failed to create initial workspace context (non-fatal)',
+              { error: result.error } as unknown as Error,
+            );
+            return;
+          }
+          workspaceAwareStorage.setActiveWorkspace(path.resolve(workspacePath));
+        },
+        (error) => {
           logger.warn(
             '[CLI DI] Failed to create initial workspace context (non-fatal)',
-            { error: result.error } as unknown as Error,
+            {
+              error: error instanceof Error ? error.message : String(error),
+            } as unknown as Error,
           );
-          return;
-        }
-        workspaceAwareStorage.setActiveWorkspace(path.resolve(workspacePath));
-      },
-      (error) => {
-        logger.warn(
-          '[CLI DI] Failed to create initial workspace context (non-fatal)',
-          {
-            error: error instanceof Error ? error.message : String(error),
-          } as unknown as Error,
-        );
-      },
-    );
+        },
+      );
 
     logger.info('[CLI DI] Platform-agnostic vscode-core services registered');
     try {
@@ -509,7 +529,7 @@ export class CliDIContainer {
     phaseEnd('3', phase3Start);
     const phase3_5Start = phaseStart('3.5');
     container.register(TOKENS.PLATFORM_COMMANDS, {
-      useValue: new CliPlatformCommands(),
+      useValue: new CliPlatformCommands({ verbose, pushSink: pushAdapter }),
     });
     container.register(TOKENS.PLATFORM_AUTH_PROVIDER, {
       useValue: new CliPlatformAuth(),
@@ -669,6 +689,7 @@ export class CliDIContainer {
       pushAdapter,
       fireAndForget,
       logger,
+      workspaceReady,
     };
   }
 }

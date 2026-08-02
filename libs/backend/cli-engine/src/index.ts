@@ -9,6 +9,7 @@ export type {
   WithEngineOptions,
   EngineContext,
   InitializeSdkAdapterResult,
+  SdkAgentLifecycle,
 } from './lib/bootstrap/with-engine.js';
 
 export { CliDIContainer } from './lib/container.js';
@@ -46,6 +47,10 @@ export {
   CliSaveDialog,
   CliModelDiscovery,
 } from './lib/platform/index.js';
+export type {
+  AuthCommandPushSink,
+  CliPlatformCommandsOptions,
+} from './lib/platform/cli-platform-commands.js';
 
 export {
   CliOutputManagerAdapter,

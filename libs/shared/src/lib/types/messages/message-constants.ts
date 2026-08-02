@@ -178,6 +178,24 @@ export const MESSAGE_TYPES = {
   EMBEDDER_STATUS_CHANGED: 'embedder:statusChanged',
   /** Backend → Frontend: a skill-synthesis pipeline event fired (analyze/curator/backfill). */
   SKILL_SYNTHESIS_EVENT: 'skillSynthesis:event',
+  /**
+   * Backend → Frontend: an interactive provider login produced a device code
+   * the user must enter in a browser (Copilot device-code flow, `codex login
+   * --device-auth`).
+   *
+   * Emitted as soon as the code is known — BEFORE the flow blocks on polling —
+   * so headless surfaces (the TUI) can render it. VS Code / Electron continue
+   * to rely on `IUserInteraction.showInformationMessage`; this event is purely
+   * additive for them.
+   */
+  AUTH_DEVICE_CODE: 'auth:deviceCode',
+  /**
+   * Backend → Frontend: a line of output from an interactive provider login
+   * subprocess. Only emitted by runtimes that drive the login command
+   * themselves (CLI/TUI) — VS Code hands the command to a real terminal and
+   * never produces these.
+   */
+  AUTH_LOGIN_OUTPUT: 'auth:loginOutput',
 } as const;
 
 /**

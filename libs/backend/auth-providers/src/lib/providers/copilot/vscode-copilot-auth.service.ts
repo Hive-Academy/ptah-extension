@@ -21,6 +21,7 @@ import type {
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { CopilotAuthService } from './copilot-auth.service';
+import type { CopilotLoginOptions } from './copilot-provider.types';
 
 @injectable()
 export class VscodeCopilotAuthService extends CopilotAuthService {
@@ -41,7 +42,7 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
    * seamless OAuth dialog without needing to copy device codes.
    * Falls back to the base class strategy (file + device code) on failure.
    */
-  override async login(): Promise<boolean> {
+  override async login(opts: CopilotLoginOptions = {}): Promise<boolean> {
     try {
       this.logger.info(
         '[VscodeCopilotAuth] Trying VS Code native GitHub auth...',
@@ -59,7 +60,7 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
         `[VscodeCopilotAuth] VS Code native auth failed, falling back to base: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    return super.login();
+    return super.login(opts);
   }
 
   /**

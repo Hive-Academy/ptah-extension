@@ -28,8 +28,8 @@ import { ModelSelector } from './overlays/ModelSelector.js';
 import { ThothPanel } from './thoth/ThothPanel.js';
 import type { ThothLifecycle } from '../lib/thoth-lifecycle.js';
 import { useAgentConfig } from '../hooks/use-agent-config.js';
-
-type ActiveView = 'chat' | 'settings' | 'thoth';
+import { resolveInitialView } from './initial-view.js';
+import type { ActiveView } from './initial-view.js';
 
 interface AppProps {
   transport: CliMessageTransport;
@@ -64,7 +64,9 @@ function AppShell({
   const { setActiveSession } = useSessionContext();
   const agentConfig = useAgentConfig();
 
-  const [activeView, setActiveView] = useState<ActiveView>('chat');
+  const [activeView, setActiveView] = useState<ActiveView>(() =>
+    resolveInitialView(authReady),
+  );
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [agentPanelVisible, setAgentPanelVisible] = useState(true);
   const [modalStack, setModalStack] = useState<React.ReactNode[]>([]);
@@ -303,6 +305,7 @@ export function App({
       transport={transport}
       pushAdapter={pushAdapter}
       fireAndForget={fireAndForget}
+      workspacePath={workspacePath}
       reinitializeSdk={reinitializeSdk}
     >
       <ThemeProvider>

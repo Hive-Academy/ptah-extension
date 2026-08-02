@@ -24,7 +24,6 @@ interface ChatPanelProps {
   onSettings?: () => void;
   onSessions?: () => void;
   onQuit?: () => void;
-  workspacePath?: string;
   agentConfig?: UseAgentConfigResult;
   authReady?: boolean;
 }
@@ -36,11 +35,13 @@ export function ChatPanel({
   onSettings,
   onSessions,
   onQuit,
-  workspacePath,
   agentConfig,
   authReady = false,
 }: ChatPanelProps): React.JSX.Element {
-  const { transport, pushAdapter } = useTuiContext();
+  // `workspacePath` comes from the context, not a prop: it was previously an
+  // optional prop that no caller ever passed, so every chat session started
+  // without a workspace root.
+  const { transport, pushAdapter, workspacePath } = useTuiContext();
   const { messages, isStreaming, send, stop, clear, addSystemMessage } =
     useChat(transport, pushAdapter, workspacePath);
 

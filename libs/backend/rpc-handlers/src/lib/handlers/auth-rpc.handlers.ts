@@ -13,7 +13,10 @@ import {
   ConfigManager,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
-import type { SentryService } from '@ptah-extension/vscode-core';
+import type {
+  SentryService,
+  WebviewManager,
+} from '@ptah-extension/vscode-core';
 import type {
   IPlatformCommands,
   IPlatformAuthProvider,
@@ -34,8 +37,12 @@ import {
 } from '@ptah-extension/auth-providers';
 import type {
   CopilotAuthService,
+  CopilotDeviceLoginInfo,
   ICodexAuthService,
 } from '@ptah-extension/auth-providers';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import type { AuthDeviceCodePayload } from '@ptah-extension/shared';
+import { asAuthCommandRunner } from './auth-command-runner';
 import {
   SETTINGS_TOKENS,
   WorkspaceScopeResolver,
@@ -51,6 +58,10 @@ import type {
 } from '@ptah-extension/shared';
 import { AuthSettingsSchema } from './auth-rpc.schema';
 import type { RpcMethodName } from '@ptah-extension/shared';
+
+/** Provider registry ids used to tag interactive-login push events. */
+const COPILOT_PROVIDER_ID = 'github-copilot';
+const CODEX_PROVIDER_ID = 'openai-codex';
 
 function resolveScopeFromKey(
   effectiveKey: string,
@@ -122,6 +133,14 @@ export class AuthRpcHandlers {
     private readonly sentryService: SentryService,
     @inject(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER)
     private readonly scopeResolver: WorkspaceScopeResolver,
+    /**
+     * Optional: absent in unit harnesses and in any host that has not wired a
+     * webview manager. Used only to broadcast interactive-login progress
+     * (`auth:deviceCode`, `auth:loginOutput`) — never load-bearing for the RPC
+     * result itself.
+     */
+    @inject(TOKENS.WEBVIEW_MANAGER, { isOptional: true })
+    private readonly webviewManager?: WebviewManager,
   ) {}
 
   /**
@@ -492,7 +511,13 @@ export class AuthRpcHandlers {
       try {
         this.logger.debug('RPC: auth:copilotLogin called');
 
-        const loginSuccess = await this.copilotAuth.login();
+        // The device-code flow blocks inside `login()` for up to five minutes.
+        // Broadcasting the code the moment it exists is the only way a surface
+        // without a message dialog (the TUI) can show the user what to do —
+        // `showInformationMessage` still fires for VS Code / Electron.
+        const loginSuccess = await this.copilotAuth.login({
+          onDeviceCode: (info) => this.broadcastDeviceCode(info),
+        });
 
         if (!loginSuccess) {
           return {
@@ -732,24 +757,85 @@ export class AuthRpcHandlers {
   }
 
   /**
-   * auth:codexLogin - Open a terminal for the user to run `codex login`
+   * auth:codexLogin - Start the external `codex login --device-auth` flow.
    *
-   * Codex authentication is managed externally via the CLI.
-   * This handler opens a VS Code terminal with `codex login` pre-typed,
-   * making it one-click from the auth settings UI.
+   * Two paths, selected by platform capability (see `auth-command-runner.ts`):
+   *
+   * 1. The platform can run the command itself (`IAuthCommandRunner`, i.e. the
+   *    CLI/TUI runtime). The command is spawned, its output is streamed to the
+   *    UI as `auth:loginOutput` / `auth:deviceCode` push events, and `success`
+   *    reflects the real exit code.
+   * 2. The platform has a terminal (VS Code). Unchanged historical behaviour:
+   *    hand the command to `openTerminal` and report success — the user drives
+   *    it from there and the outcome is not observable here.
    */
   private registerCodexLogin(): void {
-    this.rpcHandler.registerMethod<void, { success: boolean }>(
+    this.rpcHandler.registerMethod<void, { success: boolean; error?: string }>(
       'auth:codexLogin',
       async () => {
-        this.logger.info('RPC: auth:codexLogin - opening terminal');
-        this.platformCommands.openTerminal(
-          'Codex Login',
-          'codex login --device-auth',
-        );
-        return { success: true };
+        const command = 'codex login --device-auth';
+        const runner = asAuthCommandRunner(this.platformCommands);
+
+        if (!runner) {
+          this.logger.info('RPC: auth:codexLogin - opening terminal');
+          this.platformCommands.openTerminal('Codex Login', command);
+          return { success: true };
+        }
+
+        this.logger.info('RPC: auth:codexLogin - running command in-process');
+        try {
+          const result = await runner.runAuthCommand({
+            provider: CODEX_PROVIDER_ID,
+            name: 'Codex Login',
+            command,
+          });
+          if (!result.success) {
+            this.logger.warn(
+              `RPC: auth:codexLogin failed (exit ${String(result.exitCode)})`,
+            );
+            return {
+              success: false,
+              error: result.error ?? 'codex login did not complete.',
+            };
+          }
+          this.codexAuth.clearCache();
+          await this.sdkAdapter.reset();
+          return { success: true };
+        } catch (error) {
+          this.logger.error(
+            'RPC: auth:codexLogin failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(String(error)),
+            { errorSource: 'AuthRpcHandlers.registerCodexLogin' },
+          );
+          return { success: false, error: 'Failed to start Codex login.' };
+        }
       },
     );
+  }
+
+  /**
+   * Broadcast a provider device code to every attached surface. Best-effort:
+   * a missing webview manager or a rejected send must never fail the login.
+   */
+  private broadcastDeviceCode(info: CopilotDeviceLoginInfo): void {
+    const payload: AuthDeviceCodePayload = {
+      provider: COPILOT_PROVIDER_ID,
+      userCode: info.userCode,
+      verificationUri: info.verificationUri,
+      expiresInSeconds: info.expiresIn,
+    };
+    void this.webviewManager
+      ?.broadcastMessage(MESSAGE_TYPES.AUTH_DEVICE_CODE, payload)
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `Failed to broadcast ${MESSAGE_TYPES.AUTH_DEVICE_CODE}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
   }
 
   /**
