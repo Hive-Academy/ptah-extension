@@ -6,7 +6,7 @@
   "theme_version": "1.0.0",
   "minimum_discourse_version": "3.0.0",
   "assets": {
-    "ptah-logo": "assets/ptah-logo.svg"
+    "ptah-logo": "assets/ptah-logo.png"
   },
   "color_schemes": {
     "Ptah": {
