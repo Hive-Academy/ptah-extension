@@ -52,10 +52,18 @@ Use the ptah.harness MCP tools to ground your recommendations:
 - proposeConfig(configUpdates, isConfigComplete?) — push partial HarnessConfig updates to the configuration surface. Call proposeConfig whenever configuration decisions firm up (persona, agents, skills, system prompt, MCP servers); configUpdates is a partial HarnessConfig — only include fields you are changing. Call it again with isConfigComplete=true once the configuration is ready to apply.`;
 
     const applyExpectations = `## What Apply Writes
-When the user clicks Apply, Ptah materializes the configuration to the workspace:
+When the user clicks Apply, Ptah materializes the configuration:
 - \`.claude/CLAUDE.md\` — the project system prompt / guidance.
 - \`.claude/agents/*.md\` — one file per designed subagent.
-- \`.claude/skills/\` — junctions for every selected or created skill.
+- \`~/.ptah/plugins/ptah-harness-*/skills/*/SKILL.md\` — one per entry in skills.createdSkills, written at apply time if you did not already author it with createSkill.
+- \`.claude/skills/\` — junctions for skills that exist on disk under an enabled plugin or a ptah-harness-* plugin.
+- \`.mcp.json\` and \`.vscode/mcp.json\` — every enabled mcp.servers entry you recorded WITH a transport config.
+- \`~/.ptah/harnesses/<name>.json\` — the reusable preset.
+
+An MCP entry is only installed if you give it a \`config\`. Record servers like this:
+\`{ name: 'github', url: '', enabled: true, config: { type: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] } }\`
+for a local server, or \`config: { type: 'http', url: 'https://…/mcp' }\` for a remote one. Optional: \`serverKey\` (config key, defaults to name) and \`installTargets\` (defaults to ['claude','vscode']).
+An entry without a \`config\` is still described in CLAUDE.md but is NOT installed, and the user is warned to add it by hand — so only omit the config when you genuinely cannot determine the transport.
 Set the user's expectations accordingly as the design firms up.`;
 
     const planningBlock = `## Project Planning (do this first — the workspace is empty)

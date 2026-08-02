@@ -48,6 +48,7 @@ import type { HarnessConfigStore } from '../harness/config/harness-config-store.
 import type { HarnessAgentFileWriterService } from '../harness/config/harness-agent-file-writer.service';
 import type { HarnessWorkflowPromptService } from '../harness/ai/harness-workflow-prompt.service';
 import type { HarnessFsService } from '../harness/io/harness-fs.service';
+import type { HarnessMcpInstallService } from '../harness/io/harness-mcp-install.service';
 
 type Mocked<T> = jest.Mocked<T>;
 
@@ -104,6 +105,7 @@ interface Suite {
   agentFileWriter: Mocked<HarnessAgentFileWriterService>;
   workflowPrompt: Mocked<HarnessWorkflowPromptService>;
   fsService: Mocked<HarnessFsService>;
+  mcpInstall: Mocked<HarnessMcpInstallService>;
 }
 
 function buildSuite(): Suite {
@@ -211,6 +213,12 @@ function buildSuite(): Suite {
     composePrompt: jest.fn().mockResolvedValue({ prompt: 'WORKFLOW PROMPT' }),
   } as unknown as Mocked<HarnessWorkflowPromptService>;
 
+  const mcpInstall = {
+    installServers: jest
+      .fn()
+      .mockResolvedValue({ installedPaths: [], warnings: [] }),
+  } as unknown as Mocked<HarnessMcpInstallService>;
+
   const fsService = {
     createSkillPlugin: jest.fn().mockResolvedValue({
       skillId: 'demo-skill',
@@ -249,6 +257,7 @@ function buildSuite(): Suite {
     agentFileWriter,
     workflowPrompt,
     fsService,
+    mcpInstall,
   );
 
   return {
@@ -270,6 +279,7 @@ function buildSuite(): Suite {
     agentFileWriter,
     workflowPrompt,
     fsService,
+    mcpInstall,
   };
 }
 
@@ -858,6 +868,146 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         ],
         [],
       );
+    });
+
+    it('installs recorded MCP servers and reports the written config paths', async () => {
+      const suite = buildSuite();
+      const servers = [
+        {
+          name: 'github',
+          url: '',
+          enabled: true,
+          config: { type: 'stdio', command: 'npx', args: ['-y', 'srv'] },
+        },
+      ];
+      suite.mcpInstall.installServers.mockResolvedValue({
+        installedPaths: ['/ws/.mcp.json', '/ws/.vscode/mcp.json'],
+        warnings: [],
+      });
+      const config = normalizedConfig({
+        mcp: { servers, enabledTools: {} },
+      });
+
+      const result = (await applyWith(suite, config)) as {
+        appliedPaths: string[];
+        warnings: string[];
+      };
+
+      expect(suite.mcpInstall.installServers).toHaveBeenCalledWith(
+        servers,
+        '/ws',
+      );
+      expect(result.appliedPaths).toEqual(
+        expect.arrayContaining(['/ws/.mcp.json', '/ws/.vscode/mcp.json']),
+      );
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('propagates MCP install warnings into the apply response', async () => {
+      const suite = buildSuite();
+      suite.mcpInstall.installServers.mockResolvedValue({
+        installedPaths: [],
+        warnings: [
+          'MCP server "legacy" has no transport config and was not installed. Add it to the workspace manually.',
+        ],
+      });
+      const config = normalizedConfig({
+        mcp: {
+          servers: [{ name: 'legacy', url: 'https://x', enabled: true }],
+          enabledTools: {},
+        },
+      });
+
+      const result = (await applyWith(suite, config)) as {
+        warnings: string[];
+      };
+
+      expect(result.warnings).toContain(
+        'MCP server "legacy" has no transport config and was not installed. Add it to the workspace manually.',
+      );
+    });
+
+    it('materializes createdSkills to disk and reports their SKILL.md paths', async () => {
+      const suite = buildSuite();
+      suite.fsService.createSkillPlugin
+        .mockResolvedValueOnce({
+          skillId: 'alpha',
+          skillPath:
+            '/home/user/.ptah/plugins/ptah-harness-alpha/skills/alpha/SKILL.md',
+        })
+        .mockResolvedValueOnce({
+          skillId: 'beta',
+          skillPath:
+            '/home/user/.ptah/plugins/ptah-harness-beta/skills/beta/SKILL.md',
+        });
+      const config = normalizedConfig({
+        skills: {
+          selectedSkills: [],
+          createdSkills: [
+            { name: 'alpha', description: 'a', content: 'ca' },
+            { name: 'beta', description: 'b', content: 'cb' },
+          ],
+        },
+      });
+
+      const result = (await applyWith(suite, config)) as {
+        appliedPaths: string[];
+        warnings: string[];
+      };
+
+      expect(suite.fsService.createSkillPlugin).toHaveBeenCalledTimes(2);
+      expect(suite.fsService.createSkillPlugin).toHaveBeenNthCalledWith(1, {
+        name: 'alpha',
+        description: 'a',
+        content: 'ca',
+      });
+      expect(result.appliedPaths).toEqual(
+        expect.arrayContaining([
+          '/home/user/.ptah/plugins/ptah-harness-alpha/skills/alpha/SKILL.md',
+          '/home/user/.ptah/plugins/ptah-harness-beta/skills/beta/SKILL.md',
+        ]),
+      );
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('writes created skills before junctions are refreshed', async () => {
+      const suite = buildSuite();
+      const config = normalizedConfig({
+        skills: {
+          selectedSkills: [],
+          createdSkills: [{ name: 'alpha', description: 'a', content: 'c' }],
+        },
+      });
+
+      await applyWith(suite, config);
+
+      const wroteAt =
+        suite.fsService.createSkillPlugin.mock.invocationCallOrder[0];
+      const junctionedAt =
+        suite.skillJunction.createJunctions.mock.invocationCallOrder[0];
+      expect(wroteAt).toBeLessThan(junctionedAt);
+    });
+
+    it('surfaces a failed skill write as a warning without aborting apply', async () => {
+      const suite = buildSuite();
+      suite.fsService.createSkillPlugin.mockRejectedValueOnce(
+        new Error('disk full'),
+      );
+      const config = normalizedConfig({
+        skills: {
+          selectedSkills: [],
+          createdSkills: [{ name: 'alpha', description: 'a', content: 'c' }],
+        },
+      });
+
+      const result = (await applyWith(suite, config)) as {
+        warnings: string[];
+      };
+
+      expect(result.warnings).toContain(
+        'Failed to create skill "alpha": disk full',
+      );
+      expect(suite.skillJunction.createJunctions).toHaveBeenCalled();
     });
   });
 

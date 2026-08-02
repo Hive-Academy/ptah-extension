@@ -7,6 +7,7 @@
 
 import { z } from 'zod';
 import type { FlatStreamEventUnion } from '../execution';
+import type { McpInstallTarget, McpServerConfig } from '../mcp-directory.types';
 
 /** Workspace context describing the current project environment for harness operations */
 export interface HarnessWorkspaceContext {
@@ -118,7 +119,25 @@ export interface McpServerEntry {
   url: string;
   description?: string;
   enabled: boolean;
+  /**
+   * Transport config used to actually install the server when the harness is
+   * applied. Optional on purpose: entries discovered from an existing workspace
+   * mcp.json, and presets written before install support existed, carry only
+   * the descriptive fields. An entry without a config is still described in the
+   * generated CLAUDE.md — it is just never installed.
+   */
+  config?: McpServerConfig;
+  /** Config key written into the target mcp.json. Defaults to `name`. */
+  serverKey?: string;
+  /** Where to install. Defaults to `['claude', 'vscode']`. */
+  installTargets?: McpInstallTarget[];
 }
+
+/** Default install targets for a harness MCP entry that does not specify any. */
+export const HARNESS_DEFAULT_MCP_TARGETS: McpInstallTarget[] = [
+  'claude',
+  'vscode',
+];
 
 /** CLAUDE.md generation configuration */
 export interface HarnessClaudeMdConfig {

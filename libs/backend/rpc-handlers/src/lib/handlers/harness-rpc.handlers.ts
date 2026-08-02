@@ -99,6 +99,7 @@ import type { HarnessConfigStore } from '../harness/config/harness-config-store.
 import type { HarnessAgentFileWriterService } from '../harness/config/harness-agent-file-writer.service';
 import type { HarnessWorkflowPromptService } from '../harness/ai/harness-workflow-prompt.service';
 import type { HarnessFsService } from '../harness/io/harness-fs.service';
+import type { HarnessMcpInstallService } from '../harness/io/harness-mcp-install.service';
 
 interface WizardWebviewLifecycleLike {
   disposeWebview(viewType: string): void;
@@ -173,6 +174,8 @@ export class HarnessRpcHandlers {
     @inject(HARNESS_TOKENS.WORKFLOW_PROMPT)
     private readonly workflowPrompt: HarnessWorkflowPromptService,
     @inject(HARNESS_TOKENS.IO_FS) private readonly fsService: HarnessFsService,
+    @inject(HARNESS_TOKENS.MCP_INSTALL)
+    private readonly mcpInstall: HarnessMcpInstallService,
   ) {}
 
   /**
@@ -409,7 +412,41 @@ export class HarnessRpcHandlers {
             settingsError instanceof Error ? settingsError : new Error(msg),
           );
         }
-        const hasCreatedSkills = config.skills.createdSkills.length > 0;
+        // Install the MCP servers the design recorded. Entries the agent left
+        // without a transport config surface as warnings rather than silently
+        // doing nothing.
+        const mcpOutcome = await this.mcpInstall.installServers(
+          config.mcp.servers ?? [],
+          workspaceRoot,
+        );
+        appliedPaths.push(...mcpOutcome.installedPaths);
+        warnings.push(...mcpOutcome.warnings);
+
+        // Materialize skill definitions the agent proposed but never wrote via
+        // harness:create-skill / ptah_harness_create_skill. Without this a skill
+        // listed in createdSkills produces no file at all. createSkillPlugin
+        // overwrites, so re-running it for already-created skills is idempotent.
+        // Must run BEFORE junction creation so the SKILL.md files exist.
+        const createdSkills = config.skills.createdSkills ?? [];
+        for (const skill of createdSkills) {
+          try {
+            const { skillPath } = await this.fsService.createSkillPlugin(skill);
+            appliedPaths.push(skillPath);
+          } catch (skillError) {
+            const msg =
+              skillError instanceof Error
+                ? skillError.message
+                : String(skillError);
+            const label = skill?.name ?? '(unnamed)';
+            warnings.push(`Failed to create skill "${label}": ${msg}`);
+            this.logger.error(
+              `RPC: harness:apply skill creation failed for "${label}"`,
+              skillError instanceof Error ? skillError : new Error(msg),
+            );
+          }
+        }
+
+        const hasCreatedSkills = createdSkills.length > 0;
         if (config.skills.selectedSkills.length > 0 || hasCreatedSkills) {
           try {
             const pluginPaths = this.pluginLoader.resolveCurrentPluginPaths();

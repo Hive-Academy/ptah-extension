@@ -156,11 +156,13 @@ export class SkillJunctionService {
   }
 
   /**
-   * Point junction creation at the user layer (~/.ptah/user/) instead of the
-   * plugin directories. When set, buildSkillsMap reads skills from skillsRoot
-   * as the sole source (ignoring pluginPaths + synthesizedSkillsRoot, since the
-   * mirror has already unified plugin + synth skills under the user layer), and
-   * command sync reads from commandsRoot.
+   * Point junction creation at the user layer (~/.ptah/user/). When set,
+   * buildSkillsMap uses skillsRoot as the BASE source (the mirror has already
+   * unified plugin + synth skills there, so synthesizedSkillsRoot is not walked
+   * again) and overlays any pluginPaths the caller passes, with the user layer
+   * winning on collision. The overlay is what lets un-mirrored plugin dirs —
+   * harness-authored ptah-harness-* — reach the workspace. Command sync reads
+   * from commandsRoot.
    *
    * Driven from the activation layer (which owns UserLayerMirrorService); this
    * service takes plain string paths so agent-sdk never imports agent-generation.
@@ -397,14 +399,17 @@ export class SkillJunctionService {
     pluginPaths: string[],
     disabledSkillIds: Set<string> = new Set(),
   ): Map<string, string> {
-    const skillsMap = new Map<string, string>();
-
-    if (this.userSkillsRoot) {
-      return this.buildSkillsMapFromUserLayer(
-        this.userSkillsRoot,
-        disabledSkillIds,
-      );
-    }
+    // The user layer is the BASE source once the mirror has populated it: it
+    // already unifies bundled-plugin and synthesized skills. pluginPaths are
+    // then overlaid additively, so skill directories the mirror never sees —
+    // harness-authored ~/.ptah/plugins/ptah-harness-*, which is not in
+    // enabledPluginIds and therefore never mirrored — still get junctioned.
+    // User-layer entries win on collision, preserving mirrored precedence.
+    const userSkillsRoot = this.userSkillsRoot;
+    const skillsMap = userSkillsRoot
+      ? this.buildSkillsMapFromUserLayer(userSkillsRoot, disabledSkillIds)
+      : new Map<string, string>();
+    const userLayerNames = new Set(skillsMap.keys());
 
     for (const pluginPath of pluginPaths) {
       const skillsDir = join(pluginPath, 'skills');
@@ -438,16 +443,26 @@ export class SkillJunctionService {
 
         if (skillsMap.has(entry)) {
           const pluginId = basename(pluginPath);
-          this.logger.warn(
-            `[SkillJunctionService] Skill name collision: "${entry}" already registered, skipping from ${pluginId}`,
-          );
+          if (userLayerNames.has(entry)) {
+            // Expected: the mirror already published this plugin's skill into
+            // the user layer. Not a conflict worth warning about.
+            this.logger.debug(
+              `[SkillJunctionService] Skill "${entry}" already sourced from the user layer, skipping ${pluginId}`,
+            );
+          } else {
+            this.logger.warn(
+              `[SkillJunctionService] Skill name collision: "${entry}" already registered, skipping from ${pluginId}`,
+            );
+          }
           continue;
         }
 
         skillsMap.set(entry, entryPath);
       }
     }
-    if (this.synthesizedSkillsRoot) {
+    // Synthesized skills are already unified into the user layer by the mirror;
+    // only walk them directly when the user layer is not in play.
+    if (!userSkillsRoot && this.synthesizedSkillsRoot) {
       const synthSkillsDir = this.synthesizedSkillsRoot;
       let synthEntries: string[];
       try {
@@ -490,10 +505,10 @@ export class SkillJunctionService {
 
   /**
    * Build the skill map from the user layer (~/.ptah/user/skills/). This is the
-   * SOLE source when source roots have been swapped: the mirror has already
-   * unified plugin + synthesized skills here, so pluginPaths and the
-   * synthesizedSkillsRoot append are intentionally ignored. disabledSkillIds
-   * filtering is preserved.
+   * BASE source when source roots have been swapped: the mirror has already
+   * unified plugin + synthesized skills here, so the synthesizedSkillsRoot walk
+   * is skipped. Callers overlay pluginPaths on top of this map for plugin dirs
+   * the mirror does not cover. disabledSkillIds filtering is preserved.
    */
   private buildSkillsMapFromUserLayer(
     userSkillsRoot: string,
