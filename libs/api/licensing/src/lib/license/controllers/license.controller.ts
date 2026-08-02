@@ -12,6 +12,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
+import { dtoPipe } from '@ptah-api/core';
 import { LicenseService } from '../services/license.service';
 import { VerifyLicenseDto } from '../dto/verify-license.dto';
 import { JwtAuthGuard } from '@ptah-api/identity';
@@ -27,6 +28,16 @@ import { MemberGroupsService, type UserMemberGroup } from '@ptah-api/community';
  * No authentication required - this is a public endpoint used by VS Code extensions.
  *
  * Routes: /api/v1/licenses/* (global prefix 'api' is added automatically)
+ *
+ * ⚠️ EVERY `@Body()` / `@Query()` PARAM MUST BIND `dtoPipe(TheDto)`.
+ * A bare `@Body() dto: X` is SILENTLY UNVALIDATED in this server: esbuild does
+ * not emit `emitDecoratorMetadata`, so Nest cannot infer the DTO type and the
+ * global ValidationPipe short-circuits — every `class-validator` decorator
+ * becomes inert. Before TASK_2026_170 that made `VerifyLicenseDto`'s
+ * `@Matches(/^ptah_lic_[a-f0-9]{64}$/)` inert on this public route.
+ * See `libs/api/core/src/lib/common/dto-validation.pipe.ts`. The structural
+ * test in `apps/ptah-license-server/src/common/controller-validation.spec.ts`
+ * fails the build if a binding is dropped.
  */
 @Controller('v1/licenses')
 export class LicenseController {
@@ -95,7 +106,7 @@ export class LicenseController {
    */
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('verify')
-  async verify(@Body() dto: VerifyLicenseDto) {
+  async verify(@Body(dtoPipe(VerifyLicenseDto)) dto: VerifyLicenseDto) {
     return this.licenseService.verifyLicense(dto.licenseKey);
   }
 

@@ -213,7 +213,13 @@ export class LicenseService {
    *
    * TASK_2025_128: Freemium model with migration compatibility
    *
-   * @param licenseKey - The license key to verify (format: ptah_lic_{64-hex} or PTAH-XXXX-XXXX-XXXX)
+   * @param licenseKey - The license key to verify. Format is `ptah_lic_{64-hex}`
+   *   and nothing else. This docblock previously also advertised a legacy
+   *   `PTAH-XXXX-XXXX-XXXX` form; that form is not produced by `generateLicenseKey()`
+   *   below (see its "Format:" note) and no row has ever used it — TASK_2026_170
+   *   data check D1 counted licences failing `^ptah_lic_[a-f0-9]{64}$` and returned
+   *   D1 = 0 (2026-08-02). The claim was the only reason binding
+   *   `VerifyLicenseDto`'s `@Matches` on this public endpoint looked risky.
    * @returns License status with validity, tier, plan details, and expiration
    *
    * Response cases:
