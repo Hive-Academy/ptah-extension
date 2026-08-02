@@ -13,23 +13,12 @@
  * through {@link IHeadlessFilePicker}; the stdio CLI has nobody to ask.
  */
 
-import {
-  capabilities,
-  type HostProfile,
-  type RpcHandlerCtor,
-} from '@ptah-extension/rpc-handlers';
-
-import { CliFilePickerRpcHandlers } from './cli-file-picker-rpc.handlers.js';
+import { capabilities, type HostProfile } from '@ptah-extension/rpc-handlers';
 
 export function createCliRpcHostProfile(
   host: 'cli' | 'tui' = 'cli',
 ): HostProfile {
   const interactive = host === 'tui';
-
-  const hostHandlers: Record<string, RpcHandlerCtor> = {};
-  if (interactive) {
-    hostHandlers['host.filePicker'] = CliFilePickerRpcHandlers;
-  }
 
   return {
     platform: 'cli',
@@ -44,7 +33,7 @@ export function createCliRpcHostProfile(
       workspaceLifecycle: true,
       filePicker: interactive,
     }),
-    hostHandlers,
+    hostHandlers: {},
     wiring: {
       worktree: false,
       copilotPermission: false,

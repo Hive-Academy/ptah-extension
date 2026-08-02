@@ -35,9 +35,12 @@ import {
   CronRpcHandlers,
   EmbedderRpcHandlers,
   EnhancedPromptsRpcHandlers,
+  FilePickerRpcHandlers,
+  FileSystemRpcHandlers,
   GatewayRpcHandlers,
   GitRpcHandlers,
   HarnessRpcHandlers,
+  ImagePickerRpcHandlers,
   IndexingRpcHandlers,
   LicenseRpcHandlers,
   LlmRpcHandlers,
@@ -282,6 +285,24 @@ export const RPC_HANDLER_MANIFEST = [
     handler: IndexingRpcHandlers,
   },
   {
+    key: 'filePicker',
+    methods: FilePickerRpcHandlers.METHODS,
+    requires: ['filePicker'],
+    handler: FilePickerRpcHandlers,
+  },
+  {
+    key: 'filePickImages',
+    methods: ImagePickerRpcHandlers.METHODS,
+    requires: ['filePickerImages'],
+    handler: ImagePickerRpcHandlers,
+  },
+  {
+    key: 'fileSystem',
+    methods: FileSystemRpcHandlers.METHODS,
+    requires: ['fileSystemAccess'],
+    handler: FileSystemRpcHandlers,
+  },
+  {
     key: 'skillSynthesis',
     methods: SkillsSynthesisRpcHandlers.METHODS,
     requires: ['skillSynthesis'],
@@ -320,21 +341,6 @@ export const RPC_HANDLER_MANIFEST = [
 
   // --- host-owned (unification pending) -------------------------------------
   { key: 'host.fileOpen', methods: ['file:open'], requires: ['fileOpen'] },
-  {
-    key: 'host.filePicker',
-    methods: ['file:pick'],
-    requires: ['filePicker'],
-  },
-  {
-    key: 'host.filePickImages',
-    methods: ['file:pick-images'],
-    requires: ['filePickerImages'],
-  },
-  {
-    key: 'host.fileSystem',
-    methods: ['file:read', 'file:exists', 'file:save-dialog'],
-    requires: ['fileSystemAccess'],
-  },
   {
     key: 'host.editorRevert',
     methods: ['editor:revertFiles'],
@@ -407,5 +413,30 @@ export function assertManifestInvariants(registry: readonly string[]): void {
     throw new Error(
       `RPC manifest is missing an owner for ${unowned.length} method(s): ${unowned.join(', ')}`,
     );
+  }
+
+  assertHandlersNotSharedAcrossCapabilities();
+}
+
+/**
+ * A handler class registers all of its methods at once, so two entries backed
+ * by the same class must be gated identically. Otherwise enabling one
+ * capability silently registers the other's methods too, and the derived
+ * exclusion set becomes a lie.
+ */
+function assertHandlersNotSharedAcrossCapabilities(): void {
+  const seen = new Map<RpcHandlerCtor, { key: string; requires: string }>();
+  for (const entry of RPC_HANDLER_MANIFEST as readonly RpcHandlerManifestEntry[]) {
+    if (!entry.handler) continue;
+    const requires = [...entry.requires].sort().join('+') || '(none)';
+    const previous = seen.get(entry.handler);
+    if (previous && previous.requires !== requires) {
+      throw new Error(
+        `RPC manifest: ${entry.handler.name} backs '${previous.key}' ` +
+          `(requires ${previous.requires}) and '${entry.key}' ` +
+          `(requires ${requires}). Split the class, or gate both entries the same.`,
+      );
+    }
+    if (!previous) seen.set(entry.handler, { key: entry.key, requires });
   }
 }

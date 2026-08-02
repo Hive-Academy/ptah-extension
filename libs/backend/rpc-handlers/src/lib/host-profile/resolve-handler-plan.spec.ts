@@ -68,8 +68,9 @@ describe('resolveRpcHandlerPlan', () => {
     const shared = OtherFakeHandler as unknown as RpcHandlerCtor;
     const plan = resolveRpcHandlerPlan(
       profile({
-        capabilities: capabilities({ fileOpen: true, filePicker: true }),
-        hostHandlers: { 'host.fileOpen': shared, 'host.filePicker': shared },
+        // Electron's real shape: one EditorRpcHandlers serves several keys.
+        capabilities: capabilities({ fileOpen: true, editorRevert: true }),
+        hostHandlers: { 'host.fileOpen': shared, 'host.editorRevert': shared },
       }),
     );
 

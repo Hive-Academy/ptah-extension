@@ -34,8 +34,6 @@ export function createVscodeRpcHostProfile(logger: Logger): HostProfile {
     }),
     hostHandlers: {
       'host.fileOpen': FileRpcHandlers,
-      'host.filePicker': FileRpcHandlers,
-      'host.filePickImages': FileRpcHandlers,
       'host.editorRevert': EditorRpcHandlers,
       'host.command': CommandRpcHandlers,
     },

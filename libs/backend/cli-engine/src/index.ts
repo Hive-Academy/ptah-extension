@@ -36,12 +36,6 @@ export { CliWebviewManagerAdapter } from './lib/transport/cli-webview-manager-ad
 export { CliFireAndForgetHandler } from './lib/transport/cli-fire-and-forget-handler.js';
 
 export { createCliRpcHostProfile } from './lib/rpc/cli-host-profile.js';
-export { CliFilePickerRpcHandlers } from './lib/rpc/cli-file-picker-rpc.handlers.js';
-export {
-  HEADLESS_FILE_PICKER,
-  type HeadlessFilePickRequest,
-  type IHeadlessFilePicker,
-} from './lib/rpc/headless-file-picker.port.js';
 
 export {
   CliPlatformCommands,

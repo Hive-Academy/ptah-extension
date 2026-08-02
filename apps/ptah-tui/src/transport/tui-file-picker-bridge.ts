@@ -1,9 +1,9 @@
 /**
- * TUI implementation of the headless file-picker port.
+ * TUI implementation of the IFileDialog port.
  *
  * The backend cannot open a dialog, and the Ink tree cannot be called from the
- * backend — so this sits between them. `pickFiles` (called on the RPC thread
- * by `CliFilePickerRpcHandlers`) parks a pending request; the React tree
+ * backend — so this sits between them. `openFiles` (called on the RPC thread
+ * by `FilePickerRpcHandlers`) parks a pending request; the React tree
  * subscribes, renders the existing `FilePickerOverlay`, and settles it.
  *
  * Cancellation is an empty selection, never a rejection — that is the port's
@@ -13,10 +13,7 @@
  * caller forever.
  */
 
-import type {
-  HeadlessFilePickRequest,
-  IHeadlessFilePicker,
-} from '@ptah-extension/cli-engine';
+import type { IFileDialog } from '@ptah-extension/platform-core';
 
 export interface PendingFilePick {
   readonly multiple: boolean;
@@ -26,7 +23,7 @@ export interface PendingFilePick {
 
 type Subscriber = (request: PendingFilePick) => void;
 
-export class TuiFilePickerBridge implements IHeadlessFilePicker {
+export class TuiFilePickerBridge implements IFileDialog {
   private subscriber: Subscriber | null = null;
 
   /**
@@ -42,16 +39,18 @@ export class TuiFilePickerBridge implements IHeadlessFilePicker {
     };
   }
 
-  async pickFiles(
-    request: HeadlessFilePickRequest,
-  ): Promise<readonly string[]> {
+  async openFiles(options: {
+    multiple: boolean;
+    title: string;
+    filters?: Record<string, string[]>;
+  }): Promise<readonly string[]> {
     const subscriber = this.subscriber;
     if (!subscriber) return [];
 
     return new Promise<readonly string[]>((resolve) => {
       let settled = false;
       subscriber({
-        multiple: request.multiple,
+        multiple: options.multiple,
         resolve: (paths) => {
           if (settled) return;
           settled = true;

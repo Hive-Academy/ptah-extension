@@ -17,6 +17,7 @@ import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import { PlatformType } from '@ptah-extension/platform-core';
 
 import { ElectronFileSystemProvider } from './implementations/electron-file-system-provider';
+import { ElectronFileDialog } from './implementations/electron-file-dialog';
 import { ElectronStateStorage } from './implementations/electron-state-storage';
 import {
   ElectronSecretStorage,
@@ -95,6 +96,9 @@ export function registerPlatformElectronServices(
   });
   container.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
     useValue: new ElectronFileSystemProvider(),
+  });
+  container.register(PLATFORM_TOKENS.FILE_DIALOG, {
+    useValue: new ElectronFileDialog(),
   });
   container.register(PLATFORM_TOKENS.STATE_STORAGE, {
     useValue: new ElectronStateStorage(

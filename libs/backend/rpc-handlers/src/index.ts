@@ -8,6 +8,9 @@
 
 export {
   AgentRpcHandlers,
+  FileSystemRpcHandlers,
+  FilePickerRpcHandlers,
+  ImagePickerRpcHandlers,
   SessionRpcHandlers,
   ContextRpcHandlers,
   AutocompleteRpcHandlers,

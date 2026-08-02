@@ -84,4 +84,10 @@ export const PLATFORM_TOKENS = {
    * unregistered (Electron / CLI), McpOAuthService falls back to the loopback.
    */
   OAUTH_CALLBACK_LISTENER: Symbol.for('PlatformOAuthCallbackListener'),
+  /**
+   * IFileDialog — "choose file(s)" dialog. Adapters: VscodeFileDialog,
+   * ElectronFileDialog, and the TUI's overlay bridge. Unregistered on the
+   * stdio CLI, whose profile leaves the picker capabilities off.
+   */
+  FILE_DIALOG: Symbol.for('FileDialog'),
 } as const;

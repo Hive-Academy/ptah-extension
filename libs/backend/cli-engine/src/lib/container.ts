@@ -41,6 +41,7 @@ import {
   ContentDownloadService,
 } from '@ptah-extension/platform-core';
 import type {
+  IFileDialog,
   IOutputChannel,
   IStateStorage,
   ISecretStorage,
@@ -95,6 +96,7 @@ import {
   WebSearchRpcHandlers,
   WorkspaceRpcHandlers,
   AgentRpcHandlers,
+  FilePickerRpcHandlers,
   activateSessionLifecycleNotifier,
   registerChatServices,
   registerHarnessServices,
@@ -114,12 +116,7 @@ import {
 import { CliMessageTransport } from './transport/cli-message-transport';
 import { CliWebviewManagerAdapter } from './transport/cli-webview-manager-adapter';
 import { CliFireAndForgetHandler } from './transport/cli-fire-and-forget-handler';
-import { CliFilePickerRpcHandlers } from './rpc/cli-file-picker-rpc.handlers.js';
 import { createCliRpcHostProfile } from './rpc/cli-host-profile';
-import {
-  HEADLESS_FILE_PICKER,
-  type IHeadlessFilePicker,
-} from './rpc/headless-file-picker.port.js';
 import { registerThothLibraries } from './thoth/register-thoth-libraries';
 
 /**
@@ -152,7 +149,7 @@ export interface CliBootstrapOptions {
    * Selection UI for `file:pick`. Only the TUI supplies one — its profile is
    * the only headless profile with the `filePicker` capability on.
    */
-  filePicker?: IHeadlessFilePicker;
+  filePicker?: IFileDialog;
   /**
    * When true, emit `debug.di.phase` notifications via `pushAdapter` at the
    * start AND end of every numbered DI phase. Consumed by the JSON-RPC
@@ -688,10 +685,10 @@ export class CliDIContainer {
         registerHarnessServices(container);
         container.registerSingleton(AgentRpcHandlers);
         if (options.filePicker) {
-          container.register(HEADLESS_FILE_PICKER, {
+          container.register(PLATFORM_TOKENS.FILE_DIALOG, {
             useValue: options.filePicker,
           });
-          container.registerSingleton(CliFilePickerRpcHandlers);
+          container.registerSingleton(FilePickerRpcHandlers);
         }
         registerRpcSurface(container, createCliRpcHostProfile(host));
       } catch (error) {

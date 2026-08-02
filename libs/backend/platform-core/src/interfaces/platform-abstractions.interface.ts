@@ -67,6 +67,26 @@ export interface ISaveDialogProvider {
 }
 
 /**
+ * IFileDialog — platform-specific "choose file(s)" dialog.
+ *
+ * The three hosts open very different things (a VS Code quick-open dialog, an
+ * OS-native Electron dialog, a terminal selection list) but the callers only
+ * ever need paths back, so that is the whole port. Cancellation is an empty
+ * array, never a throw — every caller treats "user changed their mind" as a
+ * normal outcome.
+ */
+export interface IFileDialog {
+  openFiles(options: {
+    /** Allow selecting more than one file. */
+    multiple: boolean;
+    /** Dialog title, where the host has one. */
+    title: string;
+    /** Extension filters keyed by group label, e.g. `{ Images: ['png'] }`. */
+    filters?: Record<string, string[]>;
+  }): Promise<readonly string[]>;
+}
+
+/**
  * IModelDiscovery - Platform-specific LM model discovery.
  *
  * Replaces:

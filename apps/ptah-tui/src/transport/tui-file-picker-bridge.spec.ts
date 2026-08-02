@@ -10,10 +10,9 @@ describe('TuiFilePickerBridge', () => {
     const bridge = new TuiFilePickerBridge();
     bridge.subscribe((request) => request.resolve(['/a.ts', '/b.ts']));
 
-    await expect(bridge.pickFiles({ multiple: true })).resolves.toEqual([
-      '/a.ts',
-      '/b.ts',
-    ]);
+    await expect(
+      bridge.openFiles({ multiple: true, title: 'Attach Files' }),
+    ).resolves.toEqual(['/a.ts', '/b.ts']);
   });
 
   it('forwards the multiple flag to the subscriber', async () => {
@@ -24,15 +23,17 @@ describe('TuiFilePickerBridge', () => {
       request.resolve([]);
     });
 
-    await bridge.pickFiles({ multiple: false });
-    await bridge.pickFiles({ multiple: true });
+    await bridge.openFiles({ multiple: false, title: 'Attach Files' });
+    await bridge.openFiles({ multiple: true, title: 'Attach Files' });
     expect(seen).toEqual([false, true]);
   });
 
   it('resolves empty when nothing is subscribed rather than hanging', async () => {
     const bridge = new TuiFilePickerBridge();
 
-    await expect(bridge.pickFiles({ multiple: true })).resolves.toEqual([]);
+    await expect(
+      bridge.openFiles({ multiple: true, title: 'Attach Files' }),
+    ).resolves.toEqual([]);
   });
 
   it('resolves empty after the subscriber unmounts', async () => {
@@ -40,7 +41,9 @@ describe('TuiFilePickerBridge', () => {
     const unsubscribe = bridge.subscribe((request) => request.resolve(['/x']));
     unsubscribe();
 
-    await expect(bridge.pickFiles({ multiple: true })).resolves.toEqual([]);
+    await expect(
+      bridge.openFiles({ multiple: true, title: 'Attach Files' }),
+    ).resolves.toEqual([]);
   });
 
   it('ignores a second resolve for the same request', async () => {
@@ -50,9 +53,9 @@ describe('TuiFilePickerBridge', () => {
       request.resolve(['/second']);
     });
 
-    await expect(bridge.pickFiles({ multiple: true })).resolves.toEqual([
-      '/first',
-    ]);
+    await expect(
+      bridge.openFiles({ multiple: true, title: 'Attach Files' }),
+    ).resolves.toEqual(['/first']);
   });
 
   it('routes to the latest subscriber', async () => {
@@ -60,8 +63,8 @@ describe('TuiFilePickerBridge', () => {
     bridge.subscribe((request) => request.resolve(['/old']));
     bridge.subscribe((request) => request.resolve(['/new']));
 
-    await expect(bridge.pickFiles({ multiple: true })).resolves.toEqual([
-      '/new',
-    ]);
+    await expect(
+      bridge.openFiles({ multiple: true, title: 'Attach Files' }),
+    ).resolves.toEqual(['/new']);
   });
 });

@@ -50,6 +50,7 @@ export type {
   IPlatformAuthProvider,
   ISaveDialogProvider,
   IModelDiscovery,
+  IFileDialog,
 } from './interfaces/platform-abstractions.interface';
 export { PLATFORM_TOKENS } from './di';
 export { createEvent } from './utils/event-emitter';

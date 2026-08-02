@@ -44,13 +44,15 @@ import {
   SkillsShRpcHandlers,
   TasksRpcHandlers,
   AgentRpcHandlers,
+  FileSystemRpcHandlers,
+  FilePickerRpcHandlers,
+  ImagePickerRpcHandlers,
   registerHarnessServices,
   registerChatServices,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import {
   EditorRpcHandlers,
-  FileRpcHandlers,
   CommandRpcHandlers,
   LayoutRpcHandlers,
   TerminalRpcHandlers,
@@ -110,6 +112,10 @@ export function registerPhase4Handlers(
   container.registerSingleton(VoiceRpcHandlers);
   container.registerSingleton(IndexingRpcHandlers);
   container.registerSingleton(TasksRpcHandlers);
+  container.registerSingleton(AgentRpcHandlers);
+  container.registerSingleton(FileSystemRpcHandlers);
+  container.registerSingleton(FilePickerRpcHandlers);
+  container.registerSingleton(ImagePickerRpcHandlers);
 
   logger.info(
     '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
@@ -150,7 +156,6 @@ export function registerPhase4Handlers(
         c.resolve(TOKENS.WEBVIEW_MANAGER),
       ),
   });
-  container.registerSingleton(FileRpcHandlers);
   container.registerSingleton(CommandRpcHandlers);
   container.registerSingleton(AgentRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);

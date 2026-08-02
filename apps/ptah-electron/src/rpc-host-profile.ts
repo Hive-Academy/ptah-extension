@@ -15,7 +15,6 @@ import { capabilities, type HostProfile } from '@ptah-extension/rpc-handlers';
 import {
   CommandRpcHandlers,
   EditorRpcHandlers,
-  FileRpcHandlers,
   LayoutRpcHandlers,
   TerminalRpcHandlers,
   UpdateRpcHandlers,
@@ -49,9 +48,6 @@ export function createElectronRpcHostProfile(
     }),
     hostHandlers: {
       'host.fileOpen': EditorRpcHandlers,
-      'host.filePicker': FileRpcHandlers,
-      'host.filePickImages': FileRpcHandlers,
-      'host.fileSystem': FileRpcHandlers,
       'host.editorRevert': EditorRpcHandlers,
       'host.editorPane': EditorRpcHandlers,
       'host.command': CommandRpcHandlers,

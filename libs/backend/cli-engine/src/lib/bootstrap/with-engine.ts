@@ -24,7 +24,7 @@ import {
 import type { CliMessageTransport } from '../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
 import type { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handler.js';
-import type { IHeadlessFilePicker } from '../rpc/headless-file-picker.port.js';
+import type { IFileDialog } from '@ptah-extension/platform-core';
 import { emitFatalError } from '../output/stderr-json.js';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { MigrationRunner } from '@ptah-extension/settings-core';
@@ -176,7 +176,7 @@ export interface WithEngineOptions {
    * Selection UI backing `file:pick`. Supplied by the TUI; omitting it leaves
    * the method unregistered, which is what the stdio CLI wants.
    */
-  filePicker?: IHeadlessFilePicker;
+  filePicker?: IFileDialog;
   /**
    * Thoth activation tier (default `'off'`). `'off'` opens no SQLite handle —
    * plain commands pay nothing. `'oneshot'` runs `openAndMigrate()` only so

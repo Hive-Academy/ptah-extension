@@ -9,6 +9,11 @@
  * Tier 2 handlers: Refactored to use platform abstractions.
  */
 export { AgentRpcHandlers } from './agent-rpc.handlers';
+export {
+  FileSystemRpcHandlers,
+  FilePickerRpcHandlers,
+  ImagePickerRpcHandlers,
+} from './file-rpc.handlers';
 export { SessionRpcHandlers } from './session-rpc.handlers';
 export { ContextRpcHandlers } from './context-rpc.handlers';
 export { AutocompleteRpcHandlers } from './autocomplete-rpc.handlers';

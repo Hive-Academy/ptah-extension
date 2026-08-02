@@ -19,6 +19,8 @@ import { TOKENS, GitInfoService } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
   AgentRpcHandlers,
+  FilePickerRpcHandlers,
+  ImagePickerRpcHandlers,
   activateSessionLifecycleNotifier,
   registerChatServices,
   registerHarnessServices,
@@ -71,6 +73,8 @@ export function registerPhase3Handlers(
   container.registerSingleton(QualityRpcHandlers);
   container.registerSingleton(PluginRpcHandlers);
   container.registerSingleton(AgentRpcHandlers);
+  container.registerSingleton(FilePickerRpcHandlers);
+  container.registerSingleton(ImagePickerRpcHandlers);
   container.registerSingleton(PtahCliRpcHandlers);
   container.registerSingleton(SkillsShRpcHandlers);
   container.registerSingleton(McpDirectoryRpcHandlers);
