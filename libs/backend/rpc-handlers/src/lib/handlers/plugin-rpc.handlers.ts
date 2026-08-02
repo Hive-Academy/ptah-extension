@@ -2,9 +2,15 @@
  * Plugin RPC Handlers
  *
  * Handles plugin configuration RPC methods:
- * - plugins:list-available - List all bundled plugins with metadata
+ * - plugins:list-available - List bundled + harness-authored plugins with metadata
  * - plugins:get-config - Get per-workspace plugin configuration
- * - plugins:save-config - Save plugin configuration (enabled plugins + disabled skills)
+ * - plugins:save-config - Save plugin configuration (enabled plugins + disabled
+ *   plugins + disabled skills)
+ * - plugins:list-skills - Enumerate skills inside the given plugin IDs
+ *
+ * Activation asymmetry these handlers must preserve: bundled plugins are
+ * opt-in via `enabledPluginIds`, harness-authored ones are opt-out via
+ * `disabledPluginIds`. See `PluginSource` in `@ptah-extension/shared`.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -76,10 +82,11 @@ export class PluginRpcHandlers {
   }
 
   /**
-   * plugins:list-available - List all bundled plugins with metadata
+   * plugins:list-available - List every visible plugin with metadata
    *
-   * Returns the full list of available Ptah Orchestra plugins with their
-   * names, descriptions, categories, skill/command counts, and keywords.
+   * Returns the bundled Ptah Orchestra plugins PLUS one entry per
+   * harness-authored `ptah-harness-*` directory, each with names, descriptions,
+   * categories, skill/command counts, keywords, and a `source` discriminator.
    * This data is used by the Plugin Browser modal for display and search.
    */
   private registerListAvailable(): void {
@@ -156,15 +163,23 @@ export class PluginRpcHandlers {
    *
    * @param params.enabledPluginIds - Array of plugin IDs to enable
    * @param params.disabledSkillIds - Array of skill IDs to disable (optional, preserves existing if omitted)
+   * @param params.disabledPluginIds - Array of default-enabled (harness) plugin IDs to disable
+   *   (optional, preserves existing if omitted)
    * @returns Success status with optional error message
    */
   private registerSaveConfig(): void {
     this.rpcHandler.registerMethod<
-      { enabledPluginIds: string[]; disabledSkillIds?: string[] },
+      {
+        enabledPluginIds: string[];
+        disabledSkillIds?: string[];
+        disabledPluginIds?: string[];
+      },
       { success: boolean; error?: string }
     >('plugins:save-config', async (params) => {
       try {
         const rawIds = params?.enabledPluginIds ?? [];
+        // Includes the discovered ptah-harness-* directories, so a harness ID
+        // survives this filter while a genuinely unknown ID is still dropped.
         const knownPluginIds = this.pluginLoader
           .getAvailablePlugins()
           .map((p) => p.id);
@@ -178,6 +193,20 @@ export class PluginRpcHandlers {
         ];
         const pluginPaths =
           this.pluginLoader.resolvePluginPaths(enabledPluginIds);
+
+        // Undefined => preserve whatever is persisted (TUI/CLI clients never
+        // send this field and must not re-enable a plugin the user turned off).
+        const disabledPluginIds = Array.isArray(params?.disabledPluginIds)
+          ? [
+              ...new Set(
+                params.disabledPluginIds.filter(
+                  (id): id is string =>
+                    typeof id === 'string' && knownPluginIds.includes(id),
+                ),
+              ),
+            ]
+          : undefined;
+
         let disabledSkillIds: string[];
         if (Array.isArray(params?.disabledSkillIds)) {
           disabledSkillIds = [
@@ -191,8 +220,18 @@ export class PluginRpcHandlers {
           const existingConfig = this.pluginLoader.getWorkspacePluginConfig();
           disabledSkillIds = existingConfig.disabledSkillIds;
         }
+        // Skill IDs are validated against the enabled bundled plugins PLUS
+        // every harness directory: harness plugins are opt-out and so never
+        // appear in enabledPluginIds, and without them the per-skill toggle for
+        // a harness skill would be silently discarded as an unknown ID.
+        const skillScopePaths = [
+          ...new Set([
+            ...pluginPaths,
+            ...this.pluginLoader.discoverHarnessPluginPaths(),
+          ]),
+        ];
         const discoveredSkills =
-          this.pluginLoader.discoverSkillsForPlugins(pluginPaths);
+          this.pluginLoader.discoverSkillsForPlugins(skillScopePaths);
         const knownSkillIds = new Set(discoveredSkills.map((s) => s.skillId));
         const validatedDisabledSkillIds = disabledSkillIds.filter((id) =>
           knownSkillIds.has(id),
@@ -211,11 +250,13 @@ export class PluginRpcHandlers {
         this.logger.debug('RPC: plugins:save-config called', {
           enabledPluginIds,
           disabledSkillIds: validatedDisabledSkillIds,
+          disabledPluginIds,
         });
 
         await this.pluginLoader.saveWorkspacePluginConfig({
           enabledPluginIds,
           disabledSkillIds: validatedDisabledSkillIds,
+          disabledPluginIds,
         });
         this.commandDiscovery.invalidateCache();
         // Junctions must be fed from resolveCurrentPluginPaths(), NOT the
@@ -233,6 +274,7 @@ export class PluginRpcHandlers {
         this.logger.debug('RPC: plugins:save-config success', {
           enabledCount: enabledPluginIds.length,
           disabledSkillCount: validatedDisabledSkillIds.length,
+          disabledPluginCount: disabledPluginIds?.length,
           pluginPaths: pluginPaths.length,
           junctionPluginPaths: junctionPluginPaths.length,
         });

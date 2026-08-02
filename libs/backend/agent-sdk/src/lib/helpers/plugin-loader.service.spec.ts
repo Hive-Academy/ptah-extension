@@ -1,15 +1,23 @@
 /**
- * PluginLoaderService — plugin path resolution.
+ * PluginLoaderService — plugin discovery, visibility, and path resolution.
  *
- * Focus: the split between the two resolvers.
+ * Focus: the two activation models and the split between the two resolvers.
  *
- * - `resolvePluginPaths(ids)` stays bundled-only. It seeds the user-layer mirror
- *   (`mirrorUserLayer`) and the SDK session `plugins` option, where harness dirs
- *   would change ownership semantics.
- * - `resolveCurrentPluginPaths()` is the junction-feeding path and additionally
- *   discovers `{pluginsBasePath}/ptah-harness-*`. Without those entries,
- *   SkillJunctionService.removeStaleJunctions deletes every harness-authored
- *   skill junction whenever the user toggles a plugin in the marketplace.
+ * - Bundled plugins are OPT-IN: active only while listed in `enabledPluginIds`.
+ * - Harness plugins (`ptah-harness-*`) are OPT-OUT: the user authored them by
+ *   clicking Apply, so they are active on discovery and stay active until their
+ *   id is listed in `disabledPluginIds`.
+ *
+ * - `getAvailablePlugins()` merges both so the marketplace can render and toggle
+ *   harness plugins at all.
+ * - `resolvePluginPaths(ids)` resolves explicitly-named plugins. It seeds the
+ *   user-layer mirror (`mirrorUserLayer`) and the SDK session `plugins` option.
+ *   It accepts a harness id only when the directory actually exists.
+ * - `resolveCurrentPluginPaths()` is the junction-feeding path: enabled bundled
+ *   plugins ∪ discovered harness dirs, minus anything explicitly disabled.
+ *   Without the harness half, SkillJunctionService.removeStaleJunctions deletes
+ *   every harness-authored skill junction whenever the user toggles a plugin in
+ *   the marketplace. Without the disable half, the toggle does nothing.
  *
  * Uses a real temp directory rather than a mocked `fs` — the service reads the
  * filesystem synchronously and the directory layout is the thing under test.
@@ -56,8 +64,20 @@ function makeHarness(options: {
   harnessDirs?: string[];
   /** Files (not directories) created directly under the plugins base path. */
   strayFiles?: string[];
+  /**
+   * `{ 'ptah-harness-alpha': [{ dir, name, description }] }` — writes real
+   * `skills/{dir}/SKILL.md` files so skill counts and descriptions come from
+   * disk rather than from a stub.
+   */
+  skills?: Record<
+    string,
+    Array<{ dir: string; name?: string; description?: string }>
+  >;
   enabledPluginIds?: string[];
   disabledSkillIds?: string[];
+  disabledPluginIds?: string[];
+  /** Omit the persisted disabledPluginIds key entirely (pre-toggle configs). */
+  omitDisabledPluginIds?: boolean;
   /** Skip creating the plugins base directory entirely (ENOENT path). */
   omitBasePath?: boolean;
 }): Harness {
@@ -77,18 +97,45 @@ function makeHarness(options: {
     for (const file of options.strayFiles ?? []) {
       fs.writeFileSync(path.join(pluginsBasePath, file), 'x', 'utf-8');
     }
+    for (const [pluginId, entries] of Object.entries(options.skills ?? {})) {
+      for (const entry of entries) {
+        const skillDir = path.join(
+          pluginsBasePath,
+          pluginId,
+          'skills',
+          entry.dir,
+        );
+        fs.mkdirSync(skillDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(skillDir, 'SKILL.md'),
+          [
+            '---',
+            `name: "${entry.name ?? entry.dir}"`,
+            `description: "${entry.description ?? `desc for ${entry.dir}`}"`,
+            '---',
+            '',
+            'body',
+            '',
+          ].join('\n'),
+          'utf-8',
+        );
+      }
+    }
+  }
+
+  const persisted: PluginConfigState = {
+    enabledPluginIds: options.enabledPluginIds ?? [],
+    disabledSkillIds: options.disabledSkillIds ?? [],
+    disabledPluginIds: options.disabledPluginIds ?? [],
+    lastUpdated: undefined,
+  };
+  if (options.omitDisabledPluginIds) {
+    delete persisted.disabledPluginIds;
   }
 
   const logger = createMockLogger();
   const service = new PluginLoaderService(logger as unknown as Logger);
-  service.initialize(
-    pluginsBasePath,
-    createStateStorage({
-      enabledPluginIds: options.enabledPluginIds ?? [],
-      disabledSkillIds: options.disabledSkillIds ?? [],
-      lastUpdated: undefined,
-    }),
-  );
+  service.initialize(pluginsBasePath, createStateStorage(persisted));
 
   return { service, logger, pluginsBasePath };
 }
@@ -153,8 +200,8 @@ describe('PluginLoaderService.discoverHarnessPluginPaths', () => {
   });
 });
 
-describe('PluginLoaderService.resolvePluginPaths (bundled-only — unchanged)', () => {
-  it('resolves enabled bundled plugin IDs and never appends harness dirs', () => {
+describe('PluginLoaderService.resolvePluginPaths (explicitly-named plugins)', () => {
+  it('resolves enabled bundled plugin IDs and never appends harness dirs on its own', () => {
     const h = track(
       makeHarness({
         bundledDirs: ['ptah-core', 'ptah-angular'],
@@ -171,6 +218,25 @@ describe('PluginLoaderService.resolvePluginPaths (bundled-only — unchanged)', 
     );
   });
 
+  it('resolves a harness ID that names a real directory', () => {
+    // plugins:list-skills passes every ID from getAvailablePlugins(), harness
+    // IDs included — dropping them here would hide harness skills from the
+    // per-skill toggle.
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        harnessDirs: ['ptah-harness-alpha'],
+      }),
+    );
+
+    expect(
+      h.service.resolvePluginPaths(['ptah-core', 'ptah-harness-alpha']),
+    ).toEqual([
+      path.join(h.pluginsBasePath, 'ptah-core'),
+      path.join(h.pluginsBasePath, 'ptah-harness-alpha'),
+    ]);
+  });
+
   it('still filters unknown IDs and missing directories', () => {
     const h = track(
       makeHarness({
@@ -184,15 +250,143 @@ describe('PluginLoaderService.resolvePluginPaths (bundled-only — unchanged)', 
         'ptah-core',
         'ptah-react', // known ID, directory not downloaded
         '../escape', // unknown ID
-        'ptah-harness-alpha', // harness dirs are not addressable by ID
       ]),
     ).toEqual([path.join(h.pluginsBasePath, 'ptah-core')]);
+
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[PluginLoaderService] Unknown plugin ID filtered out',
+      { pluginId: '../escape' },
+    );
+  });
+
+  it('rejects a harness-prefixed ID with no directory behind it', () => {
+    // The prefix alone must not be a passport: only IDs that discovery actually
+    // returned (direct children of the base path) are addressable, which is
+    // what blocks traversal through the harness branch.
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        harnessDirs: ['ptah-harness-alpha'],
+      }),
+    );
+
+    expect(
+      h.service.resolvePluginPaths([
+        'ptah-harness-ghost',
+        `ptah-harness-..${path.sep}..${path.sep}etc`,
+      ]),
+    ).toEqual([]);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[PluginLoaderService] Unknown plugin ID filtered out',
+      { pluginId: 'ptah-harness-ghost' },
+    );
   });
 
   it('returns an empty array with no enabled plugins even when harness dirs exist', () => {
     const h = track(makeHarness({ harnessDirs: ['ptah-harness-alpha'] }));
 
     expect(h.service.resolvePluginPaths([])).toEqual([]);
+  });
+});
+
+describe('PluginLoaderService.getAvailablePlugins (marketplace visibility)', () => {
+  it('lists every bundled plugin marked as bundled', () => {
+    const h = track(makeHarness({ bundledDirs: ['ptah-core'] }));
+
+    const plugins = h.service.getAvailablePlugins();
+
+    expect(plugins.length).toBeGreaterThan(0);
+    expect(plugins.every((p) => p.source === 'bundled')).toBe(true);
+    expect(plugins.map((p) => p.id)).toContain('ptah-core');
+  });
+
+  it('appends a discovered harness plugin with a slug-derived name and real skill count', () => {
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        harnessDirs: ['ptah-harness-release-notes'],
+        skills: {
+          'ptah-harness-release-notes': [
+            {
+              dir: 'release-notes',
+              name: 'Release Notes',
+              description: 'Draft release notes from the changelog',
+            },
+            { dir: 'changelog-lint' },
+          ],
+        },
+      }),
+    );
+
+    const harnessPlugin = h.service
+      .getAvailablePlugins()
+      .find((p) => p.id === 'ptah-harness-release-notes');
+
+    expect(harnessPlugin).toBeDefined();
+    expect(harnessPlugin).toMatchObject({
+      id: 'ptah-harness-release-notes',
+      name: 'Release Notes',
+      category: 'harness-tools',
+      skillCount: 2,
+      commandCount: 0,
+      isDefault: false,
+      source: 'harness',
+    });
+    expect(harnessPlugin?.description).toBe(
+      'Draft release notes from the changelog',
+    );
+    expect(harnessPlugin?.keywords).toEqual(
+      expect.arrayContaining(['release', 'notes', 'harness', 'custom']),
+    );
+  });
+
+  it('describes a harness plugin with no skills on disk without throwing', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-harness-empty'] }));
+
+    const harnessPlugin = h.service
+      .getAvailablePlugins()
+      .find((p) => p.id === 'ptah-harness-empty');
+
+    expect(harnessPlugin).toMatchObject({
+      name: 'Empty',
+      skillCount: 0,
+      source: 'harness',
+    });
+    expect(harnessPlugin?.description).toContain('harness wizard');
+  });
+
+  it('skips a half-written skill folder that has no SKILL.md', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha'],
+        skills: { 'ptah-harness-alpha': [{ dir: 'good' }] },
+      }),
+    );
+    fs.mkdirSync(
+      path.join(h.pluginsBasePath, 'ptah-harness-alpha', 'skills', 'partial'),
+      { recursive: true },
+    );
+
+    const harnessPlugin = h.service
+      .getAvailablePlugins()
+      .find((p) => p.id === 'ptah-harness-alpha');
+
+    expect(harnessPlugin?.skillCount).toBe(1);
+  });
+
+  it('still lists a harness plugin the user explicitly disabled (visible but off)', () => {
+    // Visibility is independent of activation — a disabled plugin must stay in
+    // the list or the user could never turn it back on.
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha'],
+        disabledPluginIds: ['ptah-harness-alpha'],
+      }),
+    );
+
+    expect(h.service.getAvailablePlugins().map((p) => p.id)).toContain(
+      'ptah-harness-alpha',
+    );
   });
 });
 
@@ -261,6 +455,158 @@ describe('PluginLoaderService.resolveCurrentPluginPaths (junction source of trut
     expect(h.service.resolveCurrentPluginPaths()).toEqual([
       path.join(h.pluginsBasePath, 'ptah-core'),
       path.join(h.pluginsBasePath, 'ptah-harness-late'),
+    ]);
+  });
+
+  it('includes an untouched harness plugin without it ever being in enabledPluginIds', () => {
+    // Opt-out semantics: authoring the skill IS the enable action. Nothing adds
+    // the id to enabledPluginIds, so absence there must not mean "off".
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha', 'ptah-harness-beta'],
+        enabledPluginIds: [],
+        disabledPluginIds: [],
+      }),
+    );
+
+    expect(h.service.resolveCurrentPluginPaths().sort()).toEqual(
+      [
+        path.join(h.pluginsBasePath, 'ptah-harness-alpha'),
+        path.join(h.pluginsBasePath, 'ptah-harness-beta'),
+      ].sort(),
+    );
+  });
+
+  it('EXCLUDES a harness plugin the user explicitly disabled', () => {
+    // The toggle only bites here: SkillJunctionService prunes junctions whose
+    // skill is absent from these paths, so an excluded plugin is what actually
+    // un-junctions its skills from .claude/skills/.
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        harnessDirs: ['ptah-harness-alpha', 'ptah-harness-beta'],
+        enabledPluginIds: ['ptah-core'],
+        disabledPluginIds: ['ptah-harness-alpha'],
+      }),
+    );
+
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([
+      path.join(h.pluginsBasePath, 'ptah-core'),
+      path.join(h.pluginsBasePath, 'ptah-harness-beta'),
+    ]);
+  });
+
+  it('lets an explicit disable win over an explicit enable for the same id', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha'],
+        enabledPluginIds: ['ptah-harness-alpha'],
+        disabledPluginIds: ['ptah-harness-alpha'],
+      }),
+    );
+
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([]);
+  });
+
+  it('honours an explicit disable of a bundled plugin too', () => {
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core', 'ptah-angular'],
+        enabledPluginIds: ['ptah-core', 'ptah-angular'],
+        disabledPluginIds: ['ptah-angular'],
+      }),
+    );
+
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([
+      path.join(h.pluginsBasePath, 'ptah-core'),
+    ]);
+  });
+
+  it('treats a config persisted without disabledPluginIds as nothing disabled', () => {
+    // Back-compat: every config on disk today has only enabledPluginIds and
+    // disabledSkillIds. It must load unchanged, with harness plugins still on.
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        harnessDirs: ['ptah-harness-alpha'],
+        enabledPluginIds: ['ptah-core'],
+        omitDisabledPluginIds: true,
+      }),
+    );
+
+    expect(h.service.getWorkspacePluginConfig().disabledPluginIds).toEqual([]);
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([
+      path.join(h.pluginsBasePath, 'ptah-core'),
+      path.join(h.pluginsBasePath, 'ptah-harness-alpha'),
+    ]);
+  });
+});
+
+describe('PluginLoaderService.saveWorkspacePluginConfig (disable persistence)', () => {
+  it('persists disabledPluginIds and applies it on the next resolve', async () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha'],
+        omitDisabledPluginIds: true,
+      }),
+    );
+
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([
+      path.join(h.pluginsBasePath, 'ptah-harness-alpha'),
+    ]);
+
+    await h.service.saveWorkspacePluginConfig({
+      enabledPluginIds: [],
+      disabledSkillIds: [],
+      disabledPluginIds: ['ptah-harness-alpha'],
+    });
+
+    expect(h.service.getWorkspacePluginConfig().disabledPluginIds).toEqual([
+      'ptah-harness-alpha',
+    ]);
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([]);
+  });
+
+  it('preserves an existing disable when a legacy caller omits disabledPluginIds', async () => {
+    // harness:start-new-project and the CLI still save { enabledPluginIds,
+    // disabledSkillIds } only — that must not silently re-enable the plugin.
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        harnessDirs: ['ptah-harness-alpha'],
+        disabledPluginIds: ['ptah-harness-alpha'],
+      }),
+    );
+
+    await h.service.saveWorkspacePluginConfig({
+      enabledPluginIds: ['ptah-core'],
+      disabledSkillIds: [],
+    });
+
+    expect(h.service.getWorkspacePluginConfig().disabledPluginIds).toEqual([
+      'ptah-harness-alpha',
+    ]);
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([
+      path.join(h.pluginsBasePath, 'ptah-core'),
+    ]);
+  });
+
+  it('clears the denylist when an explicit empty array is passed', async () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha'],
+        disabledPluginIds: ['ptah-harness-alpha'],
+      }),
+    );
+
+    await h.service.saveWorkspacePluginConfig({
+      enabledPluginIds: [],
+      disabledSkillIds: [],
+      disabledPluginIds: [],
+    });
+
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([
+      path.join(h.pluginsBasePath, 'ptah-harness-alpha'),
     ]);
   });
 });

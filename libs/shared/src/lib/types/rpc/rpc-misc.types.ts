@@ -251,6 +251,22 @@ export interface QualityExportResult {
   filePath?: string;
 }
 
+/**
+ * Where a plugin came from — this drives its activation semantics.
+ *
+ * - `bundled`: shipped with Ptah and downloaded into `~/.ptah/plugins/`.
+ *   OPT-IN — active only while its id is listed in `enabledPluginIds`.
+ * - `harness`: authored by the user through the harness wizard
+ *   (`ptah_harness_create_skill` / `harness:create-skill`), written to
+ *   `~/.ptah/plugins/ptah-harness-{slug}/`. OPT-OUT — the user created it by
+ *   clicking Apply, so it is active on discovery and stays active until its id
+ *   is listed in `disabledPluginIds`.
+ *
+ * Optional on {@link PluginInfo} for back-compat: payloads produced before this
+ * field existed carry only bundled plugins, so `undefined` means `'bundled'`.
+ */
+export type PluginSource = 'bundled' | 'harness';
+
 /** Plugin metadata for UI display */
 export interface PluginInfo {
   /** Unique plugin identifier (directory name, e.g., 'ptah-core') */
@@ -264,7 +280,8 @@ export interface PluginInfo {
     | 'core-tools'
     | 'backend-tools'
     | 'frontend-tools'
-    | 'creative-tools';
+    | 'creative-tools'
+    | 'harness-tools';
   /** Number of skills in this plugin */
   skillCount: number;
   /** Number of commands in this plugin */
@@ -273,14 +290,30 @@ export interface PluginInfo {
   isDefault: boolean;
   /** Search keywords for filtering */
   keywords: string[];
+  /** Origin + activation semantics. Absent on legacy payloads → `'bundled'`. */
+  source?: PluginSource;
 }
 
 /** Per-workspace plugin configuration state */
 export interface PluginConfigState {
-  /** Array of enabled plugin IDs */
+  /**
+   * Plugin IDs the user explicitly turned ON.
+   *
+   * This is the allowlist for OPT-IN (bundled) plugins only. Harness-authored
+   * plugins are default-enabled and are NOT required to appear here.
+   */
   enabledPluginIds: string[];
   /** Skill directory names that are explicitly disabled (e.g., "orchestration") */
   disabledSkillIds: string[];
+  /**
+   * Plugin IDs the user explicitly turned OFF.
+   *
+   * Only meaningful for OPT-OUT (harness-authored) plugins: those are active on
+   * discovery, so the only way to record "the user unchecked this" is a
+   * dedicated denylist. Optional — configs persisted before this field existed
+   * load unchanged and are read as an empty denylist (no migration).
+   */
+  disabledPluginIds?: string[];
   /** ISO timestamp of last configuration change */
   lastUpdated?: string;
 }

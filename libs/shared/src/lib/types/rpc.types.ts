@@ -848,7 +848,16 @@ export interface RpcMethodRegistry {
     result: PluginConfigState;
   };
   'plugins:save-config': {
-    params: { enabledPluginIds: string[]; disabledSkillIds?: string[] };
+    params: {
+      enabledPluginIds: string[];
+      disabledSkillIds?: string[];
+      /**
+       * Explicit denylist for default-enabled (harness-authored) plugins.
+       * Omit to preserve whatever is already persisted — clients that predate
+       * this field (TUI, CLI) must not clobber it.
+       */
+      disabledPluginIds?: string[];
+    };
     result: { success: boolean; error?: string };
   };
   'plugins:list-skills': {

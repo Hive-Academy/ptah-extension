@@ -3,15 +3,23 @@
  *
  * Responsibilities:
  * - Provide hardcoded metadata for bundled Ptah plugins
+ * - Discover harness-authored plugin directories (`ptah-harness-*`) and describe
+ *   them as first-class `PluginInfo` entries so the marketplace can show them
  * - Read/write per-workspace plugin configuration from VS Code workspaceState
  * - Resolve plugin IDs to absolute directory paths for SDK consumption
- * - Discover harness-authored plugin directories (`ptah-harness-*`) that exist
- *   on disk but are never listed in the workspace's enabledPluginIds
+ *
+ * Two activation models live side by side (see `PluginSource` in shared):
+ * - Bundled plugins are OPT-IN: active only while listed in `enabledPluginIds`.
+ * - Harness plugins are OPT-OUT: the user authored them by clicking Apply, so
+ *   they are active the moment they appear on disk and stay active until their
+ *   id lands in `disabledPluginIds`.
  *
  * Design:
  * - Initialized from main.ts with pluginsBasePath and workspaceState (late initialization)
  * - All methods gracefully handle uninitialized state (null pluginsBasePath/workspaceState)
- * - Plugin IDs are validated against the known set to prevent arbitrary path construction
+ * - Plugin IDs are validated against the known set — bundled metadata plus the
+ *   harness directories actually present on disk — to prevent arbitrary path
+ *   construction
  *
  */
 
@@ -35,8 +43,12 @@ const PLUGIN_CONFIG_KEY = 'ptah.plugins.config';
  *
  * Each entry corresponds to a directory under assets/plugins/ in the extension.
  * The metadata is used by the frontend Plugin Browser UI for display and filtering.
+ *
+ * `source` is omitted here and stamped as `'bundled'` by `getAvailablePlugins()`
+ * — these entries are bundled by definition, so repeating it five times would
+ * only invite drift.
  */
-const AVAILABLE_PLUGINS: ReadonlyArray<PluginInfo> = [
+const AVAILABLE_PLUGINS: ReadonlyArray<Omit<PluginInfo, 'source'>> = [
   {
     id: 'ptah-core',
     name: 'Ptah Core',
@@ -124,10 +136,36 @@ const KNOWN_PLUGIN_IDS = new Set(AVAILABLE_PLUGINS.map((p) => p.id));
  *
  * The harness wizard writes custom skills to
  * `{pluginsBasePath}/ptah-harness-{slug}/skills/{slug}/SKILL.md`. These plugins
- * are not part of AVAILABLE_PLUGINS and never appear in `enabledPluginIds`, so
- * they can only be found by scanning the plugins base directory.
+ * are not part of AVAILABLE_PLUGINS and are not required to appear in
+ * `enabledPluginIds`, so they can only be found by scanning the plugins base
+ * directory.
  */
 const HARNESS_PLUGIN_PREFIX = 'ptah-harness-';
+
+/**
+ * Fallback description for a harness plugin whose skills carry no frontmatter
+ * description (or whose SKILL.md files are unreadable).
+ */
+const HARNESS_FALLBACK_DESCRIPTION =
+  'Custom skill you authored with the Ptah harness wizard.';
+
+/**
+ * Turn a harness directory slug into a display name.
+ *
+ * `ptah-harness-release-notes` → slug `release-notes` → `Release Notes`.
+ */
+function humanizeSlug(slug: string): string {
+  const words = slug
+    .split('-')
+    .map((word) => word.trim())
+    .filter((word) => word.length > 0);
+
+  if (words.length === 0) return slug;
+
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
 
 /**
  * Manages plugin discovery and per-workspace plugin configuration.
@@ -183,15 +221,83 @@ export class PluginLoaderService {
   }
 
   /**
-   * Get metadata for all available bundled plugins.
+   * Get metadata for every plugin the user can see and toggle.
    *
-   * Returns hardcoded metadata for the 4 Ptah plugins.
-   * This does not require initialization (metadata is static).
+   * Two sources are merged:
+   * - the hardcoded bundled catalogue (always present, even uninitialized), and
+   * - one dynamically-built entry per `ptah-harness-*` directory on disk.
+   *
+   * The harness entries are what make user-authored skills visible in the
+   * marketplace at all. They are also the allowlist that lets a harness ID
+   * survive `plugins:save-config` — an ID matching neither list is still
+   * rejected.
    *
    * @returns Array of PluginInfo objects with plugin metadata
    */
   getAvailablePlugins(): PluginInfo[] {
-    return [...AVAILABLE_PLUGINS];
+    const bundled: PluginInfo[] = AVAILABLE_PLUGINS.map((plugin) => ({
+      ...plugin,
+      source: 'bundled' as const,
+    }));
+
+    return [...bundled, ...this.describeHarnessPlugins()];
+  }
+
+  /**
+   * Build a `PluginInfo` for every harness-authored directory on disk.
+   *
+   * Everything is derived from the directory itself — the slug supplies the
+   * display name, the `skills/` tree supplies the real skill count, and the
+   * first skill's frontmatter supplies a description. Nothing here is
+   * persisted, so a directory created after activation shows up on the next
+   * call without any cache invalidation.
+   */
+  private describeHarnessPlugins(): PluginInfo[] {
+    return this.discoverHarnessPluginPaths().map((pluginPath) => {
+      const id = path.basename(pluginPath);
+      const slug = id.slice(HARNESS_PLUGIN_PREFIX.length);
+      const skills = this.discoverSkillsForPlugins([pluginPath]);
+      // The wizard writes `ptah-harness-{slug}/skills/{slug}/SKILL.md`, so the
+      // skill named after the slug is the plugin's reason for existing. Prefer
+      // it over `skills[0]`, which is whatever readdir happened to return
+      // first once a second skill exists.
+      const primarySkill =
+        skills.find((skill) => skill.skillId === slug) ?? skills[0];
+
+      return {
+        id,
+        name: humanizeSlug(slug),
+        description: primarySkill?.description ?? HARNESS_FALLBACK_DESCRIPTION,
+        category: 'harness-tools' as const,
+        skillCount: skills.length,
+        commandCount: this.countPluginCommands(pluginPath),
+        // Harness plugins are opt-out, not "recommended" — `isDefault` drives a
+        // Recommended badge in the browser modal and would misread here.
+        isDefault: false,
+        keywords: [
+          ...slug.split('-').filter((word) => word.length > 0),
+          'harness',
+          'custom',
+        ],
+        source: 'harness' as const,
+      };
+    });
+  }
+
+  /**
+   * Count the markdown command files directly under `{pluginPath}/commands/`.
+   *
+   * Returns 0 when the directory is absent — which is the normal case for
+   * harness plugins, since the wizard only writes skills.
+   */
+  private countPluginCommands(pluginPath: string): number {
+    try {
+      return fs
+        .readdirSync(path.join(pluginPath, 'commands'))
+        .filter((entry) => entry.toLowerCase().endsWith('.md')).length;
+    } catch {
+      return 0;
+    }
   }
 
   /**
@@ -210,6 +316,7 @@ export class PluginLoaderService {
       return {
         enabledPluginIds: [],
         disabledSkillIds: [],
+        disabledPluginIds: [],
         lastUpdated: undefined,
       };
     }
@@ -221,6 +328,7 @@ export class PluginLoaderService {
       return {
         enabledPluginIds: [],
         disabledSkillIds: [],
+        disabledPluginIds: [],
         lastUpdated: undefined,
       };
     }
@@ -229,6 +337,12 @@ export class PluginLoaderService {
       enabledPluginIds: stored.enabledPluginIds,
       disabledSkillIds: Array.isArray(stored.disabledSkillIds)
         ? stored.disabledSkillIds
+        : [],
+      // Absent on every config persisted before harness plugins became
+      // toggleable — read as "nothing explicitly disabled", which is exactly
+      // the default-enabled behaviour those configs already had. No migration.
+      disabledPluginIds: Array.isArray(stored.disabledPluginIds)
+        ? stored.disabledPluginIds
         : [],
       lastUpdated: stored.lastUpdated,
     };
@@ -240,11 +354,19 @@ export class PluginLoaderService {
    * Persists the configuration to VS Code workspaceState with a lastUpdated timestamp.
    * The configuration survives VS Code restarts but is scoped to the current workspace.
    *
+   * `disabledPluginIds` is preserve-on-omit: callers that predate harness
+   * plugin toggling (`harness:start-new-project`, the CLI) pass only
+   * `enabledPluginIds`/`disabledSkillIds`, and must not silently re-enable a
+   * plugin the user turned off. Pass an explicit `[]` to clear the denylist.
+   *
    * @param config - Plugin configuration to save (enabledPluginIds will be persisted)
    * @throws Error if workspaceState is not initialized
    */
   async saveWorkspacePluginConfig(
-    config: Pick<PluginConfigState, 'enabledPluginIds' | 'disabledSkillIds'>,
+    config: Pick<
+      PluginConfigState,
+      'enabledPluginIds' | 'disabledSkillIds' | 'disabledPluginIds'
+    >,
   ): Promise<void> {
     if (!this.workspaceState) {
       throw new SdkError(
@@ -252,9 +374,15 @@ export class PluginLoaderService {
       );
     }
 
+    const disabledPluginIds =
+      config.disabledPluginIds ??
+      this.getWorkspacePluginConfig().disabledPluginIds ??
+      [];
+
     const configToSave: PluginConfigState = {
       enabledPluginIds: config.enabledPluginIds,
       disabledSkillIds: config.disabledSkillIds,
+      disabledPluginIds,
       lastUpdated: new Date().toISOString(),
     };
 
@@ -264,6 +392,7 @@ export class PluginLoaderService {
       enabledCount: configToSave.enabledPluginIds.length,
       enabledPluginIds: configToSave.enabledPluginIds,
       disabledSkillCount: configToSave.disabledSkillIds.length,
+      disabledPluginIds,
       lastUpdated: configToSave.lastUpdated,
     });
   }
@@ -271,9 +400,13 @@ export class PluginLoaderService {
   /**
    * Resolve plugin IDs to absolute directory paths.
    *
-   * Maps each valid plugin ID to its absolute path under the extension's
-   * assets/plugins/ directory. Invalid or unknown plugin IDs are filtered out
-   * to prevent arbitrary path construction (security).
+   * Maps each valid plugin ID to its absolute path under the plugins base
+   * directory. An ID is valid when it names a bundled plugin OR a
+   * `ptah-harness-*` directory that actually exists on disk; anything else is
+   * filtered out with a warning to prevent arbitrary path construction
+   * (security). Directory-backed validation is what keeps traversal IDs like
+   * `ptah-harness-../../etc` out — `discoverHarnessPluginPaths()` only ever
+   * yields direct children of the base path.
    *
    * @param enabledPluginIds - Array of plugin IDs to resolve
    * @returns Array of absolute paths to plugin directories (only for valid IDs)
@@ -288,8 +421,16 @@ export class PluginLoaderService {
 
     const pluginsBasePath = this.pluginsBasePath;
 
+    // Only pay for the directory scan when a harness ID is actually requested —
+    // the hot path (session start with bundled IDs) stays a pure Set lookup.
+    const harnessIds = enabledPluginIds.some((id) =>
+      id.startsWith(HARNESS_PLUGIN_PREFIX),
+    )
+      ? new Set(this.discoverHarnessPluginPaths().map((p) => path.basename(p)))
+      : new Set<string>();
+
     const validIds = enabledPluginIds.filter((id) => {
-      const isValid = KNOWN_PLUGIN_IDS.has(id);
+      const isValid = KNOWN_PLUGIN_IDS.has(id) || harnessIds.has(id);
       if (!isValid) {
         this.logger.warn(
           '[PluginLoaderService] Unknown plugin ID filtered out',
@@ -391,23 +532,37 @@ export class PluginLoaderService {
   /**
    * Resolve the plugin paths that currently back workspace skill/command
    * junctions: the enabled bundled plugins PLUS every harness-authored
-   * `ptah-harness-*` directory.
+   * `ptah-harness-*` directory the user has NOT explicitly disabled.
    *
-   * This is the single source of truth for junction creation. Harness plugins
-   * must be included here because SkillJunctionService treats any junction whose
-   * skill is missing from the supplied paths as stale and deletes it — without
-   * them, toggling a plugin in the marketplace would wipe every harness-authored
-   * skill junction.
+   * This is the single source of truth for junction creation, and it encodes
+   * both activation models:
+   * - bundled → opt-in, so only `enabledPluginIds` are included;
+   * - harness → opt-out, so every discovered directory is included unless its
+   *   id appears in `disabledPluginIds`.
+   *
+   * Both halves are filtered by `disabledPluginIds` so an explicit disable
+   * always wins. That exclusion is the whole point of the toggle:
+   * SkillJunctionService prunes any junction whose skill is missing from the
+   * supplied paths, so dropping a disabled plugin here is what actually removes
+   * its skills from `.claude/skills/`. Conversely, keeping the untouched
+   * harness directories here is what stops a marketplace toggle from wiping
+   * every harness-authored junction as stale.
    *
    * Callers that need only the bundled, user-selected plugins (the user-layer
    * mirror, session plugin options) must keep using `resolvePluginPaths`.
    */
   resolveCurrentPluginPaths(): string[] {
     const config = this.getWorkspacePluginConfig();
-    const bundledPaths = this.resolvePluginPaths(config.enabledPluginIds);
-    const harnessPaths = this.discoverHarnessPluginPaths();
+    const disabledIds = new Set(config.disabledPluginIds ?? []);
 
-    return Array.from(new Set([...bundledPaths, ...harnessPaths]));
+    const enabledPaths = this.resolvePluginPaths(
+      config.enabledPluginIds.filter((id) => !disabledIds.has(id)),
+    );
+    const harnessPaths = this.discoverHarnessPluginPaths().filter(
+      (pluginPath) => !disabledIds.has(path.basename(pluginPath)),
+    );
+
+    return Array.from(new Set([...enabledPaths, ...harnessPaths]));
   }
 
   /**
@@ -444,7 +599,24 @@ export class PluginLoaderService {
 
         const skillMdPath = path.join(entryPath, 'SKILL.md');
 
-        const content = fs.readFileSync(skillMdPath, 'utf-8');
+        // Must not throw: this now runs over harness directories authored at
+        // runtime by the wizard/agent, where a half-written skill folder with
+        // no SKILL.md is plausible. One bad folder must not take down
+        // `plugins:list-available`.
+        let content: string;
+        try {
+          content = fs.readFileSync(skillMdPath, 'utf-8');
+        } catch (error: unknown) {
+          this.logger.debug(
+            '[PluginLoaderService] Skipping skill without a readable SKILL.md',
+            {
+              path: skillMdPath,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+          continue;
+        }
+
         const { name, description } = this.parseFrontmatter(content);
 
         skills.push({
