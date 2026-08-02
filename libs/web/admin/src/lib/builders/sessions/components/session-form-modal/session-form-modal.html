@@ -99,7 +99,7 @@
           </p>
         }
 
-        @if (!isEdit()) {
+        @if (showMeetToggle()) {
           <label
             class="flex cursor-pointer items-start gap-3 rounded-lg border border-base-300 p-3"
           >
@@ -111,14 +111,82 @@
               [disabled]="saving()"
             />
             <span class="flex flex-col">
-              <span class="label-text font-medium">Create a Meet link</span>
+              <span class="label-text font-medium">
+                {{ isEdit() ? 'Add a Meet link' : 'Create a Meet link' }}
+              </span>
               <span class="text-xs opacity-70">
-                Google mints the conference when the event is created. It
-                cannot be added later from here.
+                @if (isEdit()) {
+                  This session has no conference yet. Google will mint one when
+                  you save.
+                } @else {
+                  Google mints the conference when the event is created.
+                }
               </span>
             </span>
           </label>
+        } @else if (isEdit()) {
+          <p class="text-xs opacity-60">
+            This session already has a Meet link. Removing it has to be done in
+            Google Calendar.
+          </p>
         }
+
+        <div class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Guests</span>
+            <span class="label-text-alt">optional</span>
+          </div>
+
+          @if (attendees().length > 0) {
+            <div class="mb-2 flex flex-wrap gap-1.5">
+              @for (email of attendees(); track email) {
+                <span class="badge badge-neutral badge-sm gap-1 py-2.5">
+                  {{ email }}
+                  <button
+                    type="button"
+                    class="opacity-60 hover:opacity-100"
+                    [attr.aria-label]="'Remove ' + email"
+                    [disabled]="saving()"
+                    (click)="removeAttendee(email)"
+                  >
+                    ✕
+                  </button>
+                </span>
+              }
+            </div>
+          }
+
+          <div class="flex gap-2">
+            <input
+              type="email"
+              class="input input-bordered input-sm flex-1"
+              [class.input-error]="attendeeError() !== null"
+              [value]="attendeeDraft()"
+              (input)="onAttendeeDraftInput($event)"
+              (keydown.enter)="onAttendeeCommit($event)"
+              [disabled]="saving()"
+              placeholder="name@example.com"
+              aria-label="Add a guest email"
+            />
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              [disabled]="saving() || attendeeDraft().trim().length === 0"
+              (click)="onAttendeeCommit($event)"
+            >
+              Add
+            </button>
+          </div>
+
+          @if (attendeeError(); as attErr) {
+            <p class="mt-1 text-xs text-error">{{ attErr }}</p>
+          } @else {
+            <p class="mt-1 text-xs opacity-60">
+              Saved on the event. Nobody is emailed until you choose “Send
+              invitations”.
+            </p>
+          }
+        </div>
 
         <div class="modal-action">
           <button

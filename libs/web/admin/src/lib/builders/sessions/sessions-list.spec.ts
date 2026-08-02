@@ -7,8 +7,28 @@ import {
   AdminSession,
   AdminSessionsResponse,
 } from '../../services/admin-builders-api.service';
+import {
+  AdminApiService,
+  type MemberGroup,
+} from '../../services/admin-api.service';
+import { SessionTemplatePalette } from './components/session-template-palette/session-template-palette';
 import { SessionsCalendar } from './components/sessions-calendar/sessions-calendar';
 import { SessionsList } from './sessions-list';
+
+function cohort(overrides: Partial<MemberGroup> = {}): MemberGroup {
+  return {
+    id: 'grp-1',
+    key: 'founding',
+    name: 'Founding',
+    description: null,
+    discourseGroup: null,
+    sessionEventId: 'series-1',
+    isDefault: true,
+    memberCount: 12,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
 
 function session(overrides: Partial<AdminSession> = {}): AdminSession {
   return {
@@ -19,6 +39,7 @@ function session(overrides: Partial<AdminSession> = {}): AdminSession {
     meetLink: null,
     recurring: false,
     description: null,
+    attendees: [],
     ...overrides,
   };
 }
@@ -39,7 +60,9 @@ describe('SessionsList', () => {
     listSessions: jest.Mock;
     updateSession: jest.Mock;
     deleteSession: jest.Mock;
+    sendInvitations: jest.Mock;
   };
+  let adminApi: { listGroups: jest.Mock };
 
   const createComponent = (): void => {
     fixture = TestBed.createComponent(SessionsList);
@@ -78,10 +101,15 @@ describe('SessionsList', () => {
       listSessions: jest.fn().mockReturnValue(of(response())),
       updateSession: jest.fn().mockReturnValue(of(session())),
       deleteSession: jest.fn().mockReturnValue(of({ deleted: true })),
+      sendInvitations: jest.fn().mockReturnValue(of(session())),
     };
+    adminApi = { listGroups: jest.fn().mockReturnValue(of([cohort()])) };
     TestBed.configureTestingModule({
       imports: [SessionsList],
-      providers: [{ provide: AdminBuildersApiService, useValue: api }],
+      providers: [
+        { provide: AdminBuildersApiService, useValue: api },
+        { provide: AdminApiService, useValue: adminApi },
+      ],
     });
   });
 
@@ -349,6 +377,210 @@ describe('SessionsList', () => {
 
       expect(api.deleteSession).toHaveBeenCalledWith('evt-8');
       expect(detailsDialog()).toBeNull();
+    });
+  });
+
+  describe('session-type palette (cohort-derived)', () => {
+    it('renders one draggable chip per cohort', () => {
+      adminApi.listGroups.mockReturnValue(
+        of([cohort({ key: 'founding', name: 'Founding' })]),
+      );
+      createComponent();
+
+      const palette = fixture.debugElement.query(
+        By.directive(SessionTemplatePalette),
+      );
+      expect(palette).not.toBeNull();
+      expect(palette.nativeElement.textContent).toContain('Founding');
+      expect(
+        palette.nativeElement.querySelector(
+          '[data-session-template="founding"]',
+        ),
+      ).not.toBeNull();
+    });
+
+    it('hides the palette on a read-only grant — nothing there is droppable', () => {
+      api.listSessions.mockReturnValue(
+        of(response({ calendarWritable: false })),
+      );
+      createComponent();
+
+      expect(
+        fixture.debugElement.query(By.directive(SessionTemplatePalette)),
+      ).toBeNull();
+    });
+
+    it('degrades to no palette, not an error, when cohorts fail to load', () => {
+      adminApi.listGroups.mockReturnValue(
+        throwError(() => new Error('groups down')),
+      );
+      createComponent();
+
+      expect(
+        fixture.debugElement.query(By.directive(SessionTemplatePalette)),
+      ).toBeNull();
+      // The calendar loaded fine; a missing convenience must not look broken.
+      expect(
+        fixture.debugElement.query(By.directive(SessionsCalendar)),
+      ).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('.alert-error')).toBeNull();
+    });
+
+    it('seeds the create form title from a dropped template', () => {
+      adminApi.listGroups.mockReturnValue(
+        of([cohort({ key: 'founding', name: 'Founding' })]),
+      );
+      createComponent();
+
+      calendar().rangeSelected.emit({
+        startsAt: '2026-09-01T17:00:00.000Z',
+        endsAt: '2026-09-01T18:00:00.000Z',
+        templateId: 'founding',
+      });
+      fixture.detectChanges();
+
+      const titleInput: HTMLInputElement = fixture.nativeElement.querySelector(
+        'input[placeholder="e.g. Builders Office Hours"]',
+      );
+      expect(titleInput.value).toBe('Founding — Live Session');
+    });
+
+    it('leaves the title blank for a plain drag across empty space', () => {
+      createComponent();
+
+      calendar().rangeSelected.emit({
+        startsAt: '2026-09-01T17:00:00.000Z',
+        endsAt: '2026-09-01T18:00:00.000Z',
+      });
+      fixture.detectChanges();
+
+      const titleInput: HTMLInputElement = fixture.nativeElement.querySelector(
+        'input[placeholder="e.g. Builders Office Hours"]',
+      );
+      expect(titleInput.value).toBe('');
+    });
+  });
+
+  /**
+   * ⚠️ The blast-radius block on the client side. Sending puts mail in real
+   * customers' inboxes, so these pin that it takes two deliberate clicks, that
+   * the confirmation states the true recipient count, and that no other action
+   * can reach it.
+   */
+  describe('⚠️ invitations', () => {
+    const withGuests = (): AdminSession =>
+      session({
+        id: 'evt-6',
+        attendees: [
+          { email: 'a@example.com', responseStatus: 'accepted' },
+          { email: 'b@example.com', responseStatus: null },
+        ],
+      });
+
+    const openDetails = (target: AdminSession): void => {
+      api.listSessions.mockReturnValue(
+        of(response({ calendarWritable: true, sessions: [target] })),
+      );
+      createComponent();
+      calendar().sessionSelected.emit(target);
+      fixture.detectChanges();
+    };
+
+    it('does not send on the first click — it asks, naming the recipient count', () => {
+      openDetails(withGuests());
+
+      findButton(detailsDialog() as Element, 'Send invitations').click();
+      fixture.detectChanges();
+
+      expect(api.sendInvitations).not.toHaveBeenCalled();
+      expect(detailsDialog()?.textContent).toContain('Email 2 guests?');
+      expect(detailsDialog()?.textContent).toContain('cannot be recalled');
+    });
+
+    it('sends on confirmation and reports the outcome', () => {
+      openDetails(withGuests());
+      api.sendInvitations.mockReturnValue(of(withGuests()));
+
+      findButton(detailsDialog() as Element, 'Send invitations').click();
+      fixture.detectChanges();
+      findButton(detailsDialog() as Element, 'Send now').click();
+      fixture.detectChanges();
+
+      expect(api.sendInvitations).toHaveBeenCalledWith('evt-6');
+      expect(fixture.nativeElement.textContent).toContain(
+        'Invitations sent to 2 guests.',
+      );
+    });
+
+    it('backs out without sending', () => {
+      openDetails(withGuests());
+
+      findButton(detailsDialog() as Element, 'Send invitations').click();
+      fixture.detectChanges();
+      findButton(detailsDialog() as Element, 'Cancel').click();
+      fixture.detectChanges();
+
+      expect(api.sendInvitations).not.toHaveBeenCalled();
+    });
+
+    it('offers nothing to send when the event has no guests', () => {
+      openDetails(session({ attendees: [] }));
+
+      const labels = buttonsIn(detailsDialog() as Element).map((b) =>
+        b.textContent?.trim(),
+      );
+      expect(labels).not.toContain('Send invitations');
+      expect(detailsDialog()?.textContent).toContain('Nobody is invited yet');
+    });
+
+    it('offers nothing to send on the protected recurring series', () => {
+      openDetails(
+        session({
+          recurring: true,
+          attendees: [{ email: 'a@example.com', responseStatus: null }],
+        }),
+      );
+
+      const labels = buttonsIn(detailsDialog() as Element).map((b) =>
+        b.textContent?.trim(),
+      );
+      expect(labels).not.toContain('Send invitations');
+    });
+
+    it('surfaces a refusal without claiming anything was sent', () => {
+      openDetails(withGuests());
+      api.sendInvitations.mockReturnValue(
+        throwError(() => ({
+          status: 400,
+          error: { reason: 'no_recipients', message: 'No guests to invite.' },
+        })),
+      );
+
+      findButton(detailsDialog() as Element, 'Send invitations').click();
+      fixture.detectChanges();
+      findButton(detailsDialog() as Element, 'Send now').click();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent).toContain(
+        'No guests to invite.',
+      );
+      expect(fixture.nativeElement.textContent).not.toContain(
+        'Invitations sent',
+      );
+    });
+
+    it('never fires as a side effect of rescheduling', () => {
+      createComponent();
+
+      calendar().rescheduled.emit({
+        session: session({ id: 'evt-4' }),
+        startsAt: '2026-08-11T17:00:00.000Z',
+        endsAt: '2026-08-11T18:00:00.000Z',
+        revert: jest.fn(),
+      });
+      fixture.detectChanges();
+
+      expect(api.sendInvitations).not.toHaveBeenCalled();
     });
   });
 

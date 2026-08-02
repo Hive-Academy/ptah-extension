@@ -24,6 +24,7 @@ import {
 import {
   CreateSessionDto,
   ListSessionsQueryDto,
+  SendInvitationsDto,
   UpdateSessionDto,
 } from './dto/admin-session.dto';
 import { dtoPipe } from '@ptah-api/core';
@@ -86,6 +87,7 @@ export class AdminSessionsController {
         startsAt: dto.startsAt,
         endsAt: dto.endsAt,
         createMeetLink: dto.createMeetLink,
+        attendees: dto.attendees,
       },
       this.actor(req),
     );
@@ -100,6 +102,36 @@ export class AdminSessionsController {
     @Body(dtoPipe(UpdateSessionDto)) dto: UpdateSessionDto,
   ): Promise<AdminSession> {
     return this.adminSessions.updateSession(eventId, dto, this.actor(req));
+  }
+
+  /**
+   * ⚠️ THE ONLY ROUTE IN THIS CONTROLLER THAT SENDS EMAIL. Merges `attendees`
+   * into the event's guest list and patches with `sendUpdates=all`, so Google
+   * mails everyone on the resulting list — including guests already invited.
+   *
+   * Deliberately not a flag on POST/PATCH: as a flag it could ride along on a
+   * rescheduling drag, and "I moved an event by an hour" would silently become
+   * "I emailed the entire cohort". A separate route makes sending its own
+   * request, its own throttle bucket, and its own audit action.
+   *
+   * The rate limit is the tightest in the module for the same reason.
+   *
+   * 400 `no_recipients` when the event has no guests and none were supplied;
+   * 409 `protected_recurring_event` for the provisioning-owned series.
+   */
+  @Post(':eventId/invitations')
+  @UseGuards(AdminThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  async invite(
+    @Req() req: Request,
+    @Param('eventId') eventId: string,
+    @Body(dtoPipe(SendInvitationsDto)) dto: SendInvitationsDto,
+  ): Promise<AdminSession> {
+    return this.adminSessions.sendInvitations(
+      eventId,
+      dto.attendees,
+      this.actor(req),
+    );
   }
 
   /** 409 `protected_recurring_event` when the target is the protected series. */

@@ -12,14 +12,17 @@ import {
   AdminBuildersApiService,
   AdminSession,
 } from '../../services/admin-builders-api.service';
+import { AdminApiService } from '../../services/admin-api.service';
 import { EmptyState } from '../../components/empty-state/empty-state';
 import { StatusBadge } from '../../components/status-badge/status-badge';
 import { SessionFormModal } from './components/session-form-modal/session-form-modal';
+import { SessionTemplatePalette } from './components/session-template-palette/session-template-palette';
 import {
   SessionsCalendar,
   type SessionRangeSelection,
   type SessionRescheduleRequest,
 } from './components/sessions-calendar/sessions-calendar';
+import { toSessionTemplates, type SessionTemplate } from './session-templates';
 
 /** Which surface is showing. The calendar is the primary view; the table is the scan view. */
 type SessionsView = 'calendar' | 'table';
@@ -68,11 +71,13 @@ type SessionsView = 'calendar' | 'table';
     StatusBadge,
     SessionFormModal,
     SessionsCalendar,
+    SessionTemplatePalette,
   ],
   templateUrl: './sessions-list.html',
 })
 export class SessionsList {
   private readonly api = inject(AdminBuildersApiService);
+  private readonly adminApi = inject(AdminApiService);
 
   protected readonly CalendarIcon = CalendarDays;
 
@@ -87,12 +92,27 @@ export class SessionsList {
 
   protected readonly view = signal<SessionsView>('calendar');
 
+  /**
+   * Draggable session types, derived from cohorts. Loaded independently of the
+   * session fetch and failing silently to `[]`: cohorts are a convenience for
+   * scheduling, and a groups-endpoint hiccup must not make the calendar itself
+   * look broken. The "New Session" button still works with no palette at all.
+   */
+  protected readonly templates = signal<SessionTemplate[]>([]);
+
+  /** The session awaiting invite confirmation, if any. */
+  protected readonly pendingInviteId = signal<string | null>(null);
+  protected readonly invitingId = signal<string | null>(null);
+
   /** Form modal state — `null` session means create mode. */
   protected readonly formOpen = signal<boolean>(false);
   protected readonly formTarget = signal<AdminSession | null>(null);
 
   /** Range a grid selection prefills into the create form; `null` for a blank form. */
   protected readonly formRange = signal<SessionRangeSelection | null>(null);
+
+  /** Title a dropped/clicked template seeds into the create form. */
+  protected readonly formTitleSeed = signal<string | null>(null);
 
   /** The event the admin clicked in the calendar, shown in the details dialog. */
   protected readonly selectedSession = signal<AdminSession | null>(null);
@@ -101,8 +121,11 @@ export class SessionsList {
   protected readonly pendingDeleteId = signal<string | null>(null);
   protected readonly deletingId = signal<string | null>(null);
 
-  /** Failure text for delete and reschedule alike — both are row-level actions. */
+  /** Failure text for delete, reschedule, and invite alike — all row-level actions. */
   protected readonly actionError = signal<string | null>(null);
+
+  /** Confirmation text after a successful send, so the outcome isn't silent. */
+  protected readonly inviteNotice = signal<string | null>(null);
 
   /** True once a load has completed, so the read-only notice isn't shown mid-flight. */
   protected readonly loaded = signal<boolean>(false);
@@ -113,6 +136,16 @@ export class SessionsList {
 
   public constructor() {
     this.fetch();
+    this.fetchTemplates();
+  }
+
+  private fetchTemplates(): void {
+    this.adminApi.listGroups().subscribe({
+      next: (cohorts) => this.templates.set(toSessionTemplates(cohorts)),
+      // Deliberately silent. A missing palette is a smaller failure than an
+      // error banner over a calendar that loaded perfectly well.
+      error: () => this.templates.set([]),
+    });
   }
 
   protected fetch(): void {
@@ -142,6 +175,8 @@ export class SessionsList {
     // it would reappear pre-armed on the other surface's row.
     this.selectedSession.set(null);
     this.pendingDeleteId.set(null);
+    this.pendingInviteId.set(null);
+    this.inviteNotice.set(null);
   }
 
   protected onWindowChange(event: Event): void {
@@ -165,21 +200,93 @@ export class SessionsList {
   protected openCreate(): void {
     this.formTarget.set(null);
     this.formRange.set(null);
+    this.formTitleSeed.set(null);
     this.formOpen.set(true);
   }
 
-  /** A drag across empty grid space — same create form, times prefilled. */
+  /**
+   * A drag across empty grid space, or a template chip dropped on it.
+   *
+   * Both land here because both mean the same thing — "create a session in this
+   * slot". A dropped chip additionally carries `templateId`, which seeds the
+   * title so the admin confirms rather than types.
+   */
   protected openCreateForRange(range: SessionRangeSelection): void {
     this.formTarget.set(null);
     this.formRange.set(range);
+    this.formTitleSeed.set(this.titleForTemplate(range.templateId));
     this.formOpen.set(true);
+  }
+
+  /**
+   * A chip was clicked instead of dragged — the keyboard and touch path to the
+   * same outcome. There is no slot to infer, so the form opens with the title
+   * seeded and the times blank for the admin to fill in.
+   */
+  protected onTemplatePicked(template: SessionTemplate): void {
+    this.formTarget.set(null);
+    this.formRange.set(null);
+    this.formTitleSeed.set(template.title);
+    this.formOpen.set(true);
+  }
+
+  private titleForTemplate(templateId: string | undefined): string | null {
+    if (!templateId) return null;
+    return this.templates().find((t) => t.id === templateId)?.title ?? null;
   }
 
   protected openEdit(session: AdminSession): void {
     this.formTarget.set(session);
     this.formRange.set(null);
+    this.formTitleSeed.set(null);
     this.formOpen.set(true);
     this.selectedSession.set(null);
+  }
+
+  /**
+   * Arm the invite confirmation. Deliberately two-step, and deliberately NOT
+   * reusing `pendingDeleteId`: an admin mid-confirmation should never be one
+   * mis-click from the other action, and the two confirmations render in the
+   * same corner of the same dialog.
+   */
+  protected requestInvite(session: AdminSession): void {
+    this.actionError.set(null);
+    this.pendingDeleteId.set(null);
+    this.pendingInviteId.set(session.id);
+  }
+
+  protected cancelInvite(): void {
+    this.pendingInviteId.set(null);
+  }
+
+  /**
+   * ⚠️ SENDS EMAIL. Google mails every guest on the event — including ones
+   * already invited, who get it again. The confirmation this follows states the
+   * exact recipient count, which is the number `selectedInviteCount` renders.
+   */
+  protected confirmInvite(session: AdminSession): void {
+    this.invitingId.set(session.id);
+    this.actionError.set(null);
+    this.api.sendInvitations(session.id).subscribe({
+      next: (updated) => {
+        this.invitingId.set(null);
+        this.pendingInviteId.set(null);
+        this.selectedSession.set(updated);
+        this.inviteNotice.set(
+          `Invitations sent to ${updated.attendees.length} ${
+            updated.attendees.length === 1 ? 'guest' : 'guests'
+          }.`,
+        );
+        this.fetch();
+      },
+      error: (err: unknown) => {
+        this.invitingId.set(null);
+        this.pendingInviteId.set(null);
+        this.actionError.set(
+          this.extractErrorMessage(err, 'Failed to send invitations.'),
+        );
+      },
+    });
   }
 
   protected onFormClose(): void {
@@ -193,14 +300,18 @@ export class SessionsList {
 
   protected onSessionSelected(session: AdminSession): void {
     this.actionError.set(null);
+    this.inviteNotice.set(null);
     this.pendingDeleteId.set(null);
+    this.pendingInviteId.set(null);
     this.selectedSession.set(session);
   }
 
   protected closeDetails(): void {
-    if (this.deletingId() !== null) return;
+    if (this.deletingId() !== null || this.invitingId() !== null) return;
     this.selectedSession.set(null);
     this.pendingDeleteId.set(null);
+    this.pendingInviteId.set(null);
+    this.inviteNotice.set(null);
   }
 
   /**

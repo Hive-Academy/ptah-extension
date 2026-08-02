@@ -16,6 +16,7 @@ function session(overrides: Partial<AdminSession> = {}): AdminSession {
     meetLink: null,
     recurring: false,
     description: 'Bring your questions.',
+    attendees: [],
     ...overrides,
   };
 }
@@ -195,16 +196,173 @@ describe('SessionFormModal', () => {
     });
   });
 
-  describe('create-only meet-link control', () => {
-    it('offers "Create a Meet link" in create mode but not in edit mode', () => {
+  /**
+   * This block used to assert "the Meet toggle is create-only", encoding the
+   * old belief that Google could not attach conferencing to an existing event.
+   * It can — the provider was simply not sending `conferenceDataVersion=1` on
+   * patch. The contract is now about whether a link ALREADY EXISTS, not about
+   * create vs edit.
+   */
+  describe('meet-link control', () => {
+    it('offers to create a link in create mode', () => {
       openCreate();
       expect(fixture.nativeElement.textContent).toContain('Create a Meet link');
+    });
+
+    it('offers to add a link when editing a session that has none', () => {
+      openEdit(session({ meetLink: null }));
+
+      expect(fixture.nativeElement.textContent).toContain('Add a Meet link');
+    });
+
+    it('offers no toggle when the session already has a link, and says why', () => {
+      openEdit(session({ meetLink: 'https://meet.google.com/abc-defg-hij' }));
+
+      // An on/off control for a link this path cannot turn off would be a lie
+      // about what saving does.
+      expect(fixture.nativeElement.textContent).not.toContain(
+        'Meet link</span>',
+      );
+      expect(
+        fixture.nativeElement.querySelector('input[type="checkbox"]'),
+      ).toBeNull();
+      expect(fixture.nativeElement.textContent).toContain(
+        'already has a Meet link',
+      );
+    });
+
+    it('sends createMeetLink on an edit of a session with no link', () => {
+      openEdit(session({ id: 'evt-2', meetLink: null }));
+      submit();
+
+      expect(api.updateSession).toHaveBeenCalledWith(
+        'evt-2',
+        expect.objectContaining({ createMeetLink: true }),
+      );
+    });
+
+    it('omits createMeetLink entirely when the session already has a link', () => {
+      openEdit(session({ id: 'evt-3', meetLink: 'https://meet.google.com/x' }));
+      submit();
+
+      expect(api.updateSession.mock.calls[0][1]).not.toHaveProperty(
+        'createMeetLink',
+      );
+    });
+  });
+
+  /**
+   * Guests are recorded on the event and NOBODY is emailed here — sending is a
+   * separate action on the details dialog. These tests pin that boundary as
+   * much as they pin the chip mechanics.
+   */
+  describe('guest list', () => {
+    const guestInput = (): HTMLInputElement =>
+      fixture.nativeElement.querySelector('input[type="email"]');
+
+    const addGuest = (email: string): void => {
+      typeInto(guestInput(), email);
+      guestInput().dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+      );
+      fixture.detectChanges();
+    };
+
+    it('prefills the guest list from the loaded session', () => {
+      openEdit(
+        session({
+          attendees: [{ email: 'a@example.com', responseStatus: 'accepted' }],
+        }),
+      );
+
+      expect(fixture.nativeElement.textContent).toContain('a@example.com');
+    });
+
+    it('adds a typed address as a chip and submits it', () => {
+      openCreate();
+      typeInto(q.title(), 'Office hours');
+      typeInto(q.startsAt(), '2026-09-01T17:00');
+      typeInto(q.endsAt(), '2026-09-01T18:00');
+      addGuest('New@Example.com');
+
+      expect(fixture.nativeElement.textContent).toContain('new@example.com');
+      submit();
+
+      expect(api.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ attendees: ['new@example.com'] }),
+      );
+    });
+
+    it('refuses a malformed address before the round-trip', () => {
+      openCreate();
+      addGuest('not-an-email');
+
+      expect(fixture.nativeElement.textContent).toContain(
+        'is not a valid email address',
+      );
+    });
+
+    it('refuses a duplicate rather than inviting someone twice', () => {
+      openEdit(
+        session({
+          attendees: [{ email: 'a@example.com', responseStatus: null }],
+        }),
+      );
+      addGuest('A@example.com');
+
+      expect(fixture.nativeElement.textContent).toContain(
+        'already on the guest list',
+      );
+    });
+
+    it('sends the complete list on edit, so removing a chip removes that guest', () => {
+      openEdit(
+        session({
+          id: 'evt-5',
+          attendees: [
+            { email: 'keep@example.com', responseStatus: null },
+            { email: 'drop@example.com', responseStatus: null },
+          ],
+        }),
+      );
+
+      const removeButton = Array.from<HTMLButtonElement>(
+        fixture.nativeElement.querySelectorAll('button[aria-label^="Remove"]'),
+      ).find((b) => b.getAttribute('aria-label') === 'Remove drop@example.com');
+      removeButton?.click();
+      fixture.detectChanges();
+      submit();
+
+      // The server REPLACES the guest list with what it receives, so a partial
+      // list here would silently uninvite people.
+      expect(api.updateSession).toHaveBeenCalledWith(
+        'evt-5',
+        expect.objectContaining({ attendees: ['keep@example.com'] }),
+      );
+    });
+
+    it('states that saving emails nobody', () => {
+      openCreate();
+
+      expect(fixture.nativeElement.textContent).toContain(
+        'Nobody is emailed until you choose',
+      );
+    });
+
+    it('does not carry a guest list across a close and reopen', () => {
+      openEdit(
+        session({
+          attendees: [{ email: 'a@example.com', responseStatus: null }],
+        }),
+      );
+      expect(fixture.nativeElement.textContent).toContain('a@example.com');
 
       closeModal();
-      openEdit(session());
-      expect(fixture.nativeElement.textContent).not.toContain(
-        'Create a Meet link',
-      );
+      openCreate();
+
+      // The reset effect reseeds from the new inputs. Leaking the previous
+      // session's guests into a blank create form would invite strangers to it.
+      expect(fixture.nativeElement.textContent).not.toContain('a@example.com');
     });
   });
 });

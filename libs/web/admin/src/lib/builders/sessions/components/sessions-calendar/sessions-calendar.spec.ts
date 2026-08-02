@@ -26,6 +26,7 @@ function session(overrides: Partial<AdminSession> = {}): AdminSession {
     meetLink: null,
     recurring: false,
     description: null,
+    attendees: [],
     ...overrides,
   };
 }

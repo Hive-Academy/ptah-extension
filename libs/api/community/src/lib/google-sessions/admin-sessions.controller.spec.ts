@@ -436,4 +436,134 @@ describe('AdminSessionsController', () => {
       );
     });
   });
+
+  /**
+   * ⚠️ The blast-radius block. `sendUpdates=all` puts mail in real customers'
+   * inboxes, so these tests pin BOTH halves of the contract: that the routine
+   * write paths never reach it, and that the one path which does reaches it
+   * with a merged — never truncated — guest list.
+   */
+  describe('⚠️ invitations are the only path that sends email', () => {
+    const EVENT = {
+      id: 'evt_1',
+      summary: 'New session',
+      start: { dateTime: CREATE.startsAt },
+      end: { dateTime: CREATE.endsAt },
+    };
+
+    it('never sends on create', async () => {
+      const { controller, calendar } = build();
+      calendar.createEvent.mockResolvedValue({ ok: true, json: EVENT });
+
+      await controller.create(req(), {
+        ...CREATE,
+        attendees: ['guest@example.com'],
+      });
+
+      // Guest recorded, nobody mailed: the provider default is sendUpdates=none
+      // and create must never pass anything else.
+      expect(calendar.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ attendees: ['guest@example.com'] }),
+      );
+      expect(calendar.createEvent.mock.calls[0][1]).toBeUndefined();
+    });
+
+    it('never sends on update, including a rescheduling drag', async () => {
+      const { controller, calendar } = build();
+      calendar.patchEvent.mockResolvedValue({ ok: true, json: EVENT });
+
+      await controller.update(req(), 'evt_1', {
+        startsAt: CREATE.startsAt,
+        endsAt: CREATE.endsAt,
+      });
+
+      expect(calendar.patchEvent.mock.calls[0][2]).toBeUndefined();
+    });
+
+    it('patches with sendUpdates=all and merges into the existing guest list', async () => {
+      const { controller, calendar } = build();
+      calendar.getEvent.mockResolvedValue({
+        ok: true,
+        json: { ...EVENT, attendees: [{ email: 'Existing@Example.com' }] },
+      });
+      calendar.patchEvent.mockResolvedValue({ ok: true, json: EVENT });
+
+      await controller.invite(req(), 'evt_1', {
+        attendees: ['New@Example.com'],
+      });
+
+      const [, body, sendUpdates] = calendar.patchEvent.mock.calls[0];
+      expect(sendUpdates).toBe('all');
+      // Merged and lowercased — a partial list must never uninvite the guests
+      // it omits, and casing must match the provisioning fan-out's own.
+      expect(body.attendees).toEqual([
+        'existing@example.com',
+        'new@example.com',
+      ]);
+    });
+
+    it('does not duplicate a guest who is already invited', async () => {
+      const { controller, calendar } = build();
+      calendar.getEvent.mockResolvedValue({
+        ok: true,
+        json: { ...EVENT, attendees: [{ email: 'dup@example.com' }] },
+      });
+      calendar.patchEvent.mockResolvedValue({ ok: true, json: EVENT });
+
+      await controller.invite(req(), 'evt_1', {
+        attendees: ['DUP@example.com'],
+      });
+
+      expect(calendar.patchEvent.mock.calls[0][1].attendees).toEqual([
+        'dup@example.com',
+      ]);
+    });
+
+    it('refuses with no_recipients rather than patching an empty guest list', async () => {
+      const { controller, calendar } = build();
+      calendar.getEvent.mockResolvedValue({ ok: true, json: EVENT });
+
+      await expect(controller.invite(req(), 'evt_1', {})).rejects.toMatchObject(
+        { response: { reason: 'no_recipients' } },
+      );
+      expect(calendar.patchEvent).not.toHaveBeenCalled();
+    });
+
+    it('refuses to invite on the protected recurring series', async () => {
+      const { controller, calendar } = build();
+
+      await expect(
+        controller.invite(req(), PROTECTED_ID, {
+          attendees: ['guest@example.com'],
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(calendar.patchEvent).not.toHaveBeenCalled();
+    });
+
+    it('audits recipient counts, never the addresses themselves', async () => {
+      const { controller, calendar, audit } = build();
+      calendar.getEvent.mockResolvedValue({
+        ok: true,
+        json: { ...EVENT, attendees: [{ email: 'existing@example.com' }] },
+      });
+      calendar.patchEvent.mockResolvedValue({ ok: true, json: EVENT });
+
+      await controller.invite(req(), 'evt_1', {
+        attendees: ['new@example.com'],
+      });
+
+      const row = audit.write.mock.calls.at(-1)?.[0];
+      expect(row).toMatchObject({
+        action: 'sessions.event.invite',
+        targetId: 'evt_1',
+        actorEmail: 'admin@example.com',
+      });
+      expect(row.metadata).toMatchObject({ recipientCount: 2, addedCount: 1 });
+      // An audit table is not a second copy of the customer email list. The
+      // ACTOR's address is recorded (that is the point of an audit row); no
+      // recipient's is.
+      expect(JSON.stringify(row.metadata)).not.toContain('existing@');
+      expect(JSON.stringify(row.metadata)).not.toContain('new@');
+    });
+  });
 });

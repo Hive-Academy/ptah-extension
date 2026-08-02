@@ -14,7 +14,11 @@ import { AuditLogService } from '@ptah-api/audit';
 import type { AdminAuditAction } from '@ptah-api/audit';
 import { MemberGroupsService } from '../member-groups/member-groups.service';
 import { GoogleCalendarProvider } from './google-calendar.provider';
-import { extractEventItems, toAdminSession } from './google-event.mapper';
+import {
+  extractEventItems,
+  toAdminSession,
+  toSessionAttendees,
+} from './google-event.mapper';
 import type {
   AdminSession,
   CalendarEventInput,
@@ -162,14 +166,23 @@ export class AdminSessionsService {
     return { sessions, calendarWritable: this.calendar.isWritable() === true };
   }
 
-  /** Create a calendar event. Audited as `sessions.event.create`. */
+  /**
+   * Create a calendar event. Audited as `sessions.event.create`.
+   *
+   * Any `attendees` are recorded on the event but NOT emailed — the create call
+   * goes out with `sendUpdates=none`. Notifying is {@link sendInvitations},
+   * a separate deliberate action.
+   */
   async createSession(
     input: CalendarEventInput,
     actor: SessionActor,
   ): Promise<AdminSession> {
     this.assertRangeAdvances(input.startsAt, input.endsAt);
 
-    const result = await this.calendar.createEvent(input);
+    const result = await this.calendar.createEvent({
+      ...input,
+      attendees: normalizeEmails(input.attendees),
+    });
     const session = this.unwrapEvent(result, 'create');
 
     this.logger.log(
@@ -180,6 +193,7 @@ export class AdminSessionsService {
       startsAt: session.startsAt,
       endsAt: session.endsAt,
       meetLink: session.meetLink,
+      attendeeCount: session.attendees.length,
     });
     return session;
   }
@@ -199,7 +213,10 @@ export class AdminSessionsService {
     }
     await this.assertNotProtectedSeries(eventId, undefined);
 
-    const result = await this.calendar.patchEvent(eventId, input);
+    const result = await this.calendar.patchEvent(eventId, {
+      ...input,
+      attendees: normalizeEmails(input.attendees),
+    });
     const session = this.unwrapEvent(result, 'update');
 
     this.logger.log(
@@ -211,6 +228,69 @@ export class AdminSessionsService {
       ),
       startsAt: session.startsAt,
       endsAt: session.endsAt,
+    });
+    return session;
+  }
+
+  /**
+   * Add guests to a session and EMAIL THEM.
+   *
+   * ⚠️ THE ONLY PATH IN THIS SERVICE THAT SENDS MAIL. Every other write —
+   * create, patch, a rescheduling drag — goes out with `sendUpdates=none`, so
+   * routine editing never reaches a customer's inbox. This method exists to
+   * make notifying a separate decision the admin takes on purpose, and it is
+   * why `sendUpdates` is a parameter on the provider rather than a constant.
+   *
+   * Attendees are MERGED into the existing list, not replaced: the caller is
+   * saying "invite these people", and a partial list must never silently
+   * uninvite the guests it omits. Google re-mails everyone on the resulting
+   * list, including guests already invited — that is Google's behaviour for
+   * `sendUpdates=all`, not something this method can narrow, and the admin UI
+   * states the recipient count before calling.
+   *
+   * The protected recurring series is refused for the same reason patching it
+   * is: member provisioning owns that event's attendee list, and an admin
+   * invite merged into it would fight the fan-out.
+   */
+  async sendInvitations(
+    eventId: string,
+    attendees: string[] | undefined,
+    actor: SessionActor,
+  ): Promise<AdminSession> {
+    const resolved = await this.resolveEvent(eventId);
+    await this.assertNotProtectedSeries(eventId, resolved?.recurringEventId);
+
+    const existing = resolved ? toSessionAttendees(resolved) : [];
+    const merged = mergeEmails(
+      existing.map((attendee) => attendee.email),
+      normalizeEmails(attendees),
+    );
+
+    if (merged.length === 0) {
+      throw new BadRequestException({
+        reason: 'no_recipients',
+        message:
+          'This session has no guests, and no addresses were supplied to invite.',
+      });
+    }
+
+    const result = await this.calendar.patchEvent(
+      eventId,
+      { attendees: merged },
+      'all',
+    );
+    const session = this.unwrapEvent(result, 'update');
+
+    this.logger.log(
+      `Admin sent session invitations: actor=${actor.email ?? 'unknown'} eventId=${eventId} recipients=${merged.length}`,
+    );
+    await this.safeAudit('sessions.event.invite', eventId, actor, {
+      // Counts, not addresses: an audit row is not the place to accumulate a
+      // second copy of the customer email list.
+      recipientCount: merged.length,
+      addedCount: merged.length - existing.length,
+      title: session.title,
+      startsAt: session.startsAt,
     });
     return session;
   }
@@ -415,4 +495,42 @@ export class AdminSessionsService {
       );
     }
   }
+}
+
+/**
+ * Lowercase, trim, and de-duplicate a guest list, preserving first-seen order.
+ *
+ * Returns `undefined` for an absent list so the spread into a patch body leaves
+ * `attendees` unset — sending `attendees: undefined` through would be harmless,
+ * but sending `attendees: []` would wipe the event's guest list, and the two
+ * are one typo apart.
+ *
+ * Normalisation matches `SessionsService.mutateAttendee`, which lowercases
+ * before comparing. Without it the same person could occupy two slots on one
+ * event under different casing, and the provisioning fan-out would then fail to
+ * find the one it wrote.
+ */
+function normalizeEmails(emails: string[] | undefined): string[] | undefined {
+  if (emails === undefined) {
+    return undefined;
+  }
+  return mergeEmails([], emails);
+}
+
+/** Concatenate two guest lists, normalised, de-duplicated, order-preserving. */
+function mergeEmails(
+  existing: string[],
+  incoming: string[] | undefined,
+): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const raw of [...existing, ...(incoming ?? [])]) {
+    const email = raw.trim().toLowerCase();
+    if (email.length === 0 || seen.has(email)) {
+      continue;
+    }
+    seen.add(email);
+    merged.push(email);
+  }
+  return merged;
 }

@@ -38,7 +38,11 @@ export type AdminAuditAction =
   // moderation history in its own admin panel.
   | 'sessions.event.create'
   | 'sessions.event.update'
-  | 'sessions.event.delete';
+  | 'sessions.event.delete'
+  // The only admin action in this module that sends email. Audited separately
+  // from `sessions.event.update` precisely so "who emailed this guest list, and
+  // when" is answerable without reconstructing it from patch rows.
+  | 'sessions.event.invite';
 
 /**
  * Target type enum — the kind of entity an audit row describes.

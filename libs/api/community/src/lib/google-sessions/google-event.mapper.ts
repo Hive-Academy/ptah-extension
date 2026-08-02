@@ -2,6 +2,7 @@ import type {
   AdminSession,
   BuildersSession,
   GoogleCalendarEvent,
+  SessionAttendee,
 } from './google-sessions.types';
 
 /**
@@ -82,7 +83,31 @@ export function toAdminSession(
   if (!base) {
     return null;
   }
-  return { ...base, description: event.description ?? null };
+  return {
+    ...base,
+    description: event.description ?? null,
+    attendees: toSessionAttendees(event),
+  };
+}
+
+/**
+ * Flatten Google's attendee resources to `{ email, responseStatus }`.
+ *
+ * Entries without an email are dropped: Google emits them for resources (rooms,
+ * equipment) and for guests hidden by the calendar's privacy settings, and
+ * neither is something the admin can act on or re-send to. Emails are
+ * lowercased to match the provisioning fan-out's own normalisation, so the same
+ * person cannot appear twice under different casing.
+ */
+export function toSessionAttendees(
+  event: GoogleCalendarEvent,
+): SessionAttendee[] {
+  return (event.attendees ?? [])
+    .filter((attendee) => Boolean(attendee.email))
+    .map((attendee) => ({
+      email: (attendee.email as string).toLowerCase(),
+      responseStatus: attendee.responseStatus ?? null,
+    }));
 }
 
 /** Extract the `items` array from a Calendar list response, or `[]`. */

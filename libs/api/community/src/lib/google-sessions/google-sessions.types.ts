@@ -49,7 +49,36 @@ export interface BuildersSession {
  */
 export interface AdminSession extends BuildersSession {
   description: string | null;
+  /**
+   * The event's guest list. Admin-only for the same reason `description` is:
+   * widening `BuildersSession` would leak every other member's email address
+   * onto the member-facing response.
+   */
+  attendees: SessionAttendee[];
 }
+
+/**
+ * One guest on a session event, flattened from Google's attendee resource.
+ *
+ * `responseStatus` is Google's own vocabulary (`needsAction` | `declined` |
+ * `tentative` | `accepted`) and is passed through rather than remapped, so the
+ * admin UI shows exactly what Google shows. `null` when Google omits it.
+ */
+export interface SessionAttendee {
+  email: string;
+  responseStatus: string | null;
+}
+
+/**
+ * Whether a write should email the guest list.
+ *
+ * Mirrors Google's `sendUpdates` query parameter. Every routine write defaults
+ * to `'none'` — creating, editing, or dragging a session must never email
+ * customers as a side effect. `'all'` is reached only through the explicit
+ * invitations endpoint, which exists precisely so sending is a decision the
+ * admin makes on purpose rather than a consequence of another action.
+ */
+export type SendUpdates = 'none' | 'all' | 'externalOnly';
 
 /**
  * Internal input for creating/patching a Builders session event (TASK_2026_169).
@@ -57,8 +86,15 @@ export interface AdminSession extends BuildersSession {
  * `GoogleCalendarProvider.toGoogleEventBody`.
  *
  * - `startsAt` / `endsAt` — ISO-8601 timestamps.
- * - `createMeetLink`      — mint a Google Meet link via `conferenceData.createRequest`
- *                           (create only; requires `conferenceDataVersion=1`).
+ * - `createMeetLink`      — mint a Google Meet link via `conferenceData.createRequest`.
+ *                           Honoured on BOTH create and patch: Google will attach
+ *                           conferencing to an existing event as long as the
+ *                           request carries `conferenceDataVersion=1`.
+ * - `attendees`           — the full guest list, lowercased emails. This REPLACES
+ *                           the event's attendees rather than merging, so a caller
+ *                           holding a partial list would silently uninvite everyone
+ *                           missing from it. `AdminSessionsService` is the only
+ *                           caller and always sends the complete list.
  */
 export interface CalendarEventInput {
   title: string;
@@ -66,6 +102,7 @@ export interface CalendarEventInput {
   startsAt: string;
   endsAt: string;
   createMeetLink?: boolean;
+  attendees?: string[];
 }
 
 /**

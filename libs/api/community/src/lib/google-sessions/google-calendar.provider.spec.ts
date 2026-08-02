@@ -157,6 +157,91 @@ describe('GoogleCalendarProvider (write path)', () => {
       expect(url).toContain('/events/evt_1');
       expect(JSON.parse(init.body)).toEqual({ summary: 'Renamed' });
     });
+
+    it('defaults to sendUpdates=none so an edit never mails the guest list', async () => {
+      const fetchMock = mockFetch({
+        ok: true,
+        status: 200,
+        body: JSON.stringify({ id: 'evt_1' }),
+      });
+      const { provider } = buildProvider({});
+
+      await provider.patchEvent('evt_1', { title: 'Renamed' });
+
+      expect(fetchMock.mock.calls[0][0]).toContain('sendUpdates=none');
+    });
+
+    it('carries conferenceDataVersion=1 so an existing event can gain a Meet link', async () => {
+      const fetchMock = mockFetch({
+        ok: true,
+        status: 200,
+        body: JSON.stringify({ id: 'evt_1' }),
+      });
+      const { provider } = buildProvider({});
+
+      await provider.patchEvent('evt_1', { createMeetLink: true });
+
+      const [url, init] = fetchMock.mock.calls[0];
+      // Without the query param Google silently drops conferenceData and the
+      // event is patched with no link — the exact bug this parameter fixes.
+      expect(url).toContain('conferenceDataVersion=1');
+      expect(JSON.parse(init.body).conferenceData.createRequest).toEqual(
+        expect.objectContaining({
+          conferenceSolutionKey: { type: 'hangoutsMeet' },
+        }),
+      );
+    });
+
+    it('maps attendees to Google email objects', async () => {
+      const fetchMock = mockFetch({
+        ok: true,
+        status: 200,
+        body: JSON.stringify({ id: 'evt_1' }),
+      });
+      const { provider } = buildProvider({});
+
+      await provider.patchEvent('evt_1', {
+        attendees: ['a@example.com', 'b@example.com'],
+      });
+
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).attendees).toEqual([
+        { email: 'a@example.com' },
+        { email: 'b@example.com' },
+      ]);
+    });
+
+    it('forwards an explicit sendUpdates — the only way mail is ever sent', async () => {
+      const fetchMock = mockFetch({
+        ok: true,
+        status: 200,
+        body: JSON.stringify({ id: 'evt_1' }),
+      });
+      const { provider } = buildProvider({});
+
+      await provider.patchEvent(
+        'evt_1',
+        { attendees: ['a@example.com'] },
+        'all',
+      );
+
+      expect(fetchMock.mock.calls[0][0]).toContain('sendUpdates=all');
+    });
+
+    it('omits attendees entirely when none are supplied, rather than clearing them', async () => {
+      const fetchMock = mockFetch({
+        ok: true,
+        status: 200,
+        body: JSON.stringify({ id: 'evt_1' }),
+      });
+      const { provider } = buildProvider({});
+
+      await provider.patchEvent('evt_1', { title: 'Renamed' });
+
+      // `attendees: []` would wipe the event's guest list. Absent must stay absent.
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty(
+        'attendees',
+      );
+    });
   });
 
   describe('deleteEvent', () => {

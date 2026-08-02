@@ -6,6 +6,7 @@ import type {
   CalendarEventInput,
   GoogleApiResult,
   GoogleCalendarEvent,
+  SendUpdates,
 } from './google-sessions.types';
 
 /**
@@ -140,13 +141,18 @@ export class GoogleCalendarProvider {
    * `conferenceDataVersion=1` is REQUIRED for Google to honour a
    * `conferenceData.createRequest` and actually mint a Meet link — without it
    * the field is silently dropped and the event is created with no link.
-   * `sendUpdates=none` keeps event creation from emailing the whole standing
-   * attendee list.
+   *
+   * `sendUpdates` defaults to `'none'`: creating an event must never email the
+   * guest list as a side effect. The caller passes `'all'` only from the
+   * explicit invitations path.
    */
-  async createEvent(input: CalendarEventInput): Promise<GoogleApiResult> {
+  async createEvent(
+    input: CalendarEventInput,
+    sendUpdates: SendUpdates = 'none',
+  ): Promise<GoogleApiResult> {
     const query = new URLSearchParams({
       conferenceDataVersion: '1',
-      sendUpdates: 'none',
+      sendUpdates,
     });
     return this.request(
       'POST',
@@ -156,18 +162,31 @@ export class GoogleCalendarProvider {
   }
 
   /**
-   * Patch the mutable fields of an event (summary / description / start / end).
-   * `createMeetLink` is ignored here — conferencing is set at creation time.
+   * Patch the mutable fields of an event (summary / description / start / end /
+   * attendees / conferencing).
+   *
+   * `conferenceDataVersion=1` is sent here as well as on create. Google DOES
+   * attach conferencing to an existing event through a patch — the parameter is
+   * what was missing, not the capability — so `createMeetLink` is now honoured
+   * on edit and an event that shipped without a Meet link can gain one.
+   *
+   * Like create, `sendUpdates` defaults to `'none'`; a rescheduling drag must
+   * not email everyone mid-drag.
    */
   async patchEvent(
     eventId: string,
     input: Partial<CalendarEventInput>,
+    sendUpdates: SendUpdates = 'none',
   ): Promise<GoogleApiResult> {
+    const query = new URLSearchParams({
+      conferenceDataVersion: '1',
+      sendUpdates,
+    });
     return this.request(
       'PATCH',
       `/calendars/${encodeURIComponent(this.calendarId)}/events/${encodeURIComponent(
         eventId,
-      )}?sendUpdates=none`,
+      )}?${query.toString()}`,
       this.toGoogleEventBody(input),
     );
   }
@@ -208,6 +227,9 @@ export class GoogleCalendarProvider {
     }
     if (input.endsAt !== undefined) {
       body['end'] = { dateTime: new Date(input.endsAt).toISOString() };
+    }
+    if (input.attendees !== undefined) {
+      body['attendees'] = input.attendees.map((email) => ({ email }));
     }
     if (input.createMeetLink) {
       body['conferenceData'] = {

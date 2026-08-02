@@ -52,6 +52,12 @@ export class SessionFormModal {
    */
   public readonly initialRange = input<SessionRangeSelection | null>(null);
 
+  /**
+   * Create-mode title seed from a session-type template. Ignored in edit mode,
+   * where `session.title` wins.
+   */
+  public readonly initialTitle = input<string | null>(null);
+
   /** Emitted when the user requests the modal to close without saving. */
   public readonly closeModal = output<void>();
 
@@ -65,10 +71,26 @@ export class SessionFormModal {
   protected readonly endsAt = signal<string>('');
   protected readonly createMeetLink = signal<boolean>(true);
 
+  /** Guest list as it will be sent. Recorded on the event; emails nobody. */
+  protected readonly attendees = signal<string[]>([]);
+  protected readonly attendeeDraft = signal<string>('');
+  protected readonly attendeeError = signal<string | null>(null);
+
   protected readonly saving = signal<boolean>(false);
   protected readonly errorMessage = signal<string | null>(null);
 
   protected readonly isEdit = computed<boolean>(() => this.session() !== null);
+
+  /**
+   * Offer the Meet toggle on create, and on edit only when the session has no
+   * link yet. Google can attach a conference to an existing event, but it has
+   * no "remove" through this path — showing an on/off control for a link that
+   * cannot be turned off would be a lie about what saving does.
+   */
+  protected readonly showMeetToggle = computed<boolean>(() => {
+    const existing = this.session();
+    return existing === null || existing.meetLink === null;
+  });
 
   /** True when both instants parse and the end is strictly after the start. */
   protected readonly rangeValid = computed<boolean>(() => {
@@ -96,10 +118,16 @@ export class SessionFormModal {
       // Edit mode reads the session; create mode reads the grid selection when
       // the modal was opened by dragging the calendar, and is blank otherwise.
       const seed = s ?? this.initialRange();
-      this.title.set(s?.title ?? '');
+      this.title.set(s?.title ?? this.initialTitle() ?? '');
       this.description.set(s?.description ?? '');
       this.startsAt.set(seed ? toLocalInputValue(seed.startsAt) : '');
       this.endsAt.set(seed ? toLocalInputValue(seed.endsAt) : '');
+      this.attendees.set(s ? s.attendees.map((a) => a.email) : []);
+      this.attendeeDraft.set('');
+      this.attendeeError.set(null);
+      // Defaults on for create. On edit it means "add one", and the toggle is
+      // only rendered when the session has none, so `true` never claims to
+      // re-mint a link that already exists.
       this.createMeetLink.set(true);
       this.saving.set(false);
       this.errorMessage.set(null);
@@ -130,6 +158,44 @@ export class SessionFormModal {
     );
   }
 
+  protected onAttendeeDraftInput(event: Event): void {
+    this.attendeeDraft.set(
+      (event.target as HTMLInputElement | null)?.value ?? '',
+    );
+    this.attendeeError.set(null);
+  }
+
+  /**
+   * Commit the draft address as a chip.
+   *
+   * Validated and de-duplicated here rather than on submit: the server rejects
+   * the whole request on one malformed address, and finding out after filling
+   * in the rest of the form is a worse trade than being told immediately.
+   */
+  protected onAttendeeCommit(event: Event): void {
+    event.preventDefault();
+    const email = this.attendeeDraft().trim().toLowerCase();
+    if (email.length === 0) return;
+
+    if (!EMAIL_PATTERN.test(email)) {
+      this.attendeeError.set(`"${email}" is not a valid email address.`);
+      return;
+    }
+    if (this.attendees().includes(email)) {
+      this.attendeeError.set(`${email} is already on the guest list.`);
+      return;
+    }
+
+    this.attendees.update((list) => [...list, email]);
+    this.attendeeDraft.set('');
+    this.attendeeError.set(null);
+  }
+
+  protected removeAttendee(email: string): void {
+    this.attendees.update((list) => list.filter((item) => item !== email));
+    this.attendeeError.set(null);
+  }
+
   protected onCloseClick(): void {
     if (this.saving()) return;
     this.closeModal.emit();
@@ -150,6 +216,16 @@ export class SessionFormModal {
     const request$ = existing
       ? this.api.updateSession(existing.id, {
           title: this.title().trim(),
+          // The server REPLACES the guest list with what it receives, and this
+          // signal was seeded from the loaded session, so it is always the
+          // complete list — removing a chip really removes that guest.
+          attendees: this.attendees(),
+          // Only sent when the session has no conference yet (`showMeetToggle`).
+          // Sending `false` on an event that has one is harmless but would be a
+          // field with no meaning; sending nothing keeps the patch honest.
+          ...(this.showMeetToggle()
+            ? { createMeetLink: this.createMeetLink() }
+            : {}),
           // Sent unconditionally, including when empty. The field now prefills
           // from the loaded session, so a blank box means the admin cleared it
           // — and the server maps `''` through to Google, which clears the
@@ -165,6 +241,7 @@ export class SessionFormModal {
           startsAt,
           endsAt,
           createMeetLink: this.createMeetLink(),
+          attendees: this.attendees(),
         });
 
     request$.subscribe({
@@ -201,6 +278,14 @@ export class SessionFormModal {
     return 'Failed to save the session. Please try again.';
   }
 }
+
+/**
+ * Guest-address shape. Deliberately permissive — a UX guard that catches the
+ * obvious typo before the round-trip, not an authority. `class-validator`'s
+ * `@IsEmail` on the server is the real boundary, and a stricter pattern here
+ * would only reject addresses the server would have accepted.
+ */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * ISO 8601 → the `YYYY-MM-DDTHH:mm` local wall time an `<input

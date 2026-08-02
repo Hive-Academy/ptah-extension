@@ -95,6 +95,8 @@ export interface CreateSessionRequest {
   endsAt: string;
   /** Mint a Google Meet link with the event (`conferenceDataVersion=1`). */
   createMeetLink?: boolean;
+  /** Guest list recorded on the event. Emails NOBODY — see `sendInvitations`. */
+  attendees?: string[];
 }
 
 /** Body for `PATCH /api/v1/admin/sessions/:eventId` — all fields optional. */
@@ -103,6 +105,28 @@ export interface UpdateSessionRequest {
   description?: string;
   startsAt?: string;
   endsAt?: string;
+  /**
+   * Attach a Meet link to an event that shipped without one. `false` does not
+   * remove an existing link — Google needs an explicit null for that.
+   */
+  createMeetLink?: boolean;
+  /**
+   * REPLACES the guest list wholesale, so send the complete list the event
+   * should end up with. Still emails nobody.
+   */
+  attendees?: string[];
+}
+
+/**
+ * Body for `POST /api/v1/admin/sessions/:eventId/invitations`.
+ *
+ * ⚠️ THE ONLY REQUEST IN THIS CLIENT THAT SENDS EMAIL. Addresses are merged
+ * into the existing guest list (not replacing it) and Google mails everyone on
+ * the result, including guests already invited. Omit `attendees` to re-send to
+ * the current list.
+ */
+export interface SendInvitationsRequest {
+  attendees?: string[];
 }
 
 /** Query for `GET /api/v1/admin/community/topics`. `limit` is 1–50, default 20. */
@@ -172,7 +196,19 @@ const adminSessionSchema = z.object({
   recurring: z.boolean(),
   /** Admin-only. Absent from the member `BuildersSession` shape by design. */
   description: z.string().nullable(),
+  /**
+   * The event's guest list. Admin-only for the same reason `description` is —
+   * on the member response it would publish every other member's email.
+   * `responseStatus` is Google's own vocabulary, passed through unmapped.
+   */
+  attendees: z.array(
+    z.object({
+      email: z.string(),
+      responseStatus: z.string().nullable(),
+    }),
+  ),
 });
+export type SessionAttendee = AdminSession['attendees'][number];
 export type AdminSession = z.infer<typeof adminSessionSchema>;
 
 const adminSessionsEnvelopeSchema = z.object({
@@ -339,6 +375,34 @@ export class AdminBuildersApiService {
       .patch<unknown>(`${this.base}/sessions/${eventId}`, body)
       .pipe(
         map(validate(adminSessionSchema, `PATCH /admin/sessions/${eventId}`)),
+      );
+  }
+
+  /**
+   * ⚠️ SENDS EMAIL. Merges `attendees` into the event's guest list and asks
+   * Google to notify everyone on the result (`sendUpdates=all`) — including
+   * guests already invited, who receive the invitation again.
+   *
+   * Deliberately a separate call rather than a flag on create/update: as a flag
+   * it could ride along on a rescheduling drag and turn "I moved this by an
+   * hour" into "I emailed the whole cohort". Callers MUST confirm with the
+   * admin, showing the recipient count, before invoking this.
+   *
+   * 400 `no_recipients` when the event has no guests and none were supplied.
+   */
+  public sendInvitations(
+    eventId: string,
+    body: SendInvitationsRequest = {},
+  ): Observable<AdminSession> {
+    return this.http
+      .post<unknown>(`${this.base}/sessions/${eventId}/invitations`, body)
+      .pipe(
+        map(
+          validate(
+            adminSessionSchema,
+            `POST /admin/sessions/${eventId}/invitations`,
+          ),
+        ),
       );
   }
 

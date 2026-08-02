@@ -197,21 +197,30 @@ describe('google-event.mapper', () => {
       expect(toBuildersSession(FULL_EVENT)).not.toHaveProperty('description');
     });
 
-    it('the admin shape is the member shape plus exactly description', () => {
+    it('the admin shape is the member shape plus exactly description and attendees', () => {
       const admin = toAdminSession(FULL_EVENT) ?? {};
       expect(Object.keys(admin).sort()).toEqual(
-        [...MEMBER_KEYS, 'description'].sort(),
+        [...MEMBER_KEYS, 'description', 'attendees'].sort(),
       );
+    });
+
+    it('attendees NEVER appear on the member shape, even when the event has guests', () => {
+      // The guest list is every other member's email address. Widening
+      // `BuildersSession` to carry it would publish the customer list to every
+      // member who opens their sessions page.
+      expect(toBuildersSession(FULL_EVENT)).not.toHaveProperty('attendees');
     });
 
     it('the two shapes agree on every shared field', () => {
       const member = toBuildersSession(FULL_EVENT);
       const admin = toAdminSession(FULL_EVENT);
-      const { description: _dropped, ...adminWithoutDescription } = admin ?? {
-        description: null,
-      };
+      const {
+        description: _droppedDescription,
+        attendees: _droppedAttendees,
+        ...adminSharedFields
+      } = admin ?? { description: null, attendees: [] };
 
-      expect(adminWithoutDescription).toEqual(member);
+      expect(adminSharedFields).toEqual(member);
     });
   });
 });

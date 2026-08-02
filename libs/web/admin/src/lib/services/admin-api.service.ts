@@ -321,6 +321,13 @@ const memberGroupSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   discourseGroup: z.string().nullable(),
+  /**
+   * This cohort's own Google Calendar master series (null = it falls back to
+   * `BUILDERS_SESSION_EVENT_ID`). The server has always sent this; the client
+   * started reading it when the sessions calendar began deriving its drag-and-
+   * drop templates from cohorts.
+   */
+  sessionEventId: z.string().nullable(),
   isDefault: z.boolean(),
   memberCount: z.number(),
   createdAt: z.string(),

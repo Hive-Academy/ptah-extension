@@ -13,6 +13,7 @@ import {
   EventClickInfo,
   EventDropInfo,
   EventInput,
+  EventReceiveInfo,
   EventResizeDoneInfo,
   FullCalendarModule,
 } from '@fullcalendar/angular';
@@ -44,6 +45,11 @@ export interface SessionRangeSelection {
   startsAt: string;
   /** ISO 8601 */
   endsAt: string;
+  /**
+   * Cohort key when the range came from dropping a template chip, so the
+   * container can seed the title. Absent for a plain drag across empty space.
+   */
+  templateId?: string;
 }
 
 /**
@@ -138,24 +144,43 @@ export class SessionsCalendar {
         center: 'title',
         end: 'dayGridMonth,timeGridWeek,timeGridDay',
       },
-      height: '70vh',
+      height: '72vh',
       validRange: this.validRange,
       nowIndicator: true,
-      dayMaxEvents: 3,
+      // A month is 4-6 real weeks. Padding every month to a fixed 6 rows left a
+      // wholly empty leading row on the grid and squeezed the rows that had
+      // events into less height than they needed.
+      fixedWeekCount: false,
+      showNonCurrentDates: false,
+      dayMaxEvents: true,
+      moreLinkClick: 'popover',
+      dayHeaderFormat: { weekday: 'short' },
+      eventTimeFormat: {
+        hour: 'numeric',
+        minute: '2-digit',
+        meridiem: 'short',
+      },
       // Sessions run in the evening; a 00:00–24:00 axis would push every one of
       // them below the fold in the week view.
       slotMinTime: '07:00:00',
       slotMaxTime: '23:00:00',
+      slotDuration: '00:30:00',
+      scrollTime: '16:00:00',
       expandRows: true,
       selectable: writable,
       selectMirror: writable,
       // Per-event `editable` still decides individual events (recurring masters
       // opt out); this is the global gate for the read-only grant.
       editable: writable,
+      // Accepts chips dragged from `SessionTemplatePalette`. FullCalendar pairs
+      // an external `Draggable` with any droppable calendar through a global
+      // registry, so the palette needs no reference to this component.
+      droppable: writable,
       eventClick: (info: EventClickInfo) => this.onEventClick(info),
       select: (info: DateSelectInfo) => this.onSelect(info),
       eventDrop: (info: EventDropInfo) => this.onEventChange(info),
       eventResize: (info: EventResizeDoneInfo) => this.onEventChange(info),
+      eventReceive: (info: EventReceiveInfo) => this.onEventReceive(info),
       datesSet: (info: DatesSetInfo) => this.onDatesSet(info),
     };
   });
@@ -197,6 +222,34 @@ export class SessionsCalendar {
             endsAt: info.end.toISOString(),
           },
     );
+  }
+
+  /**
+   * A template chip was dropped on the grid.
+   *
+   * The dropped event is reverted immediately and a range is emitted instead.
+   * FullCalendar adds the event optimistically, but nothing exists server-side
+   * yet — leaving it on the grid would show a session that the next refetch
+   * silently deletes, and a failed create would leave a phantom behind. The
+   * container opens a prefilled create form; the grid regains the event when
+   * the server confirms it.
+   */
+  private onEventReceive(info: EventReceiveInfo): void {
+    const { start, end } = info.event;
+    const templateId = info.event.extendedProps['templateId'];
+    info.revert();
+
+    if (!start) return;
+    // A month-cell drop lands all-day; a time-grid drop carries a real end.
+    const range =
+      info.event.allDay || !end
+        ? defaultRangeOn(start)
+        : { startsAt: start.toISOString(), endsAt: end.toISOString() };
+
+    this.rangeSelected.emit({
+      ...range,
+      templateId: typeof templateId === 'string' ? templateId : undefined,
+    });
   }
 
   private onEventChange(info: EventDropInfo | EventResizeDoneInfo): void {
