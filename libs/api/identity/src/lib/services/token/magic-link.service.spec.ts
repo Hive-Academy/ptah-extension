@@ -5,7 +5,7 @@
  * frozen clock.
  * Coverage:
  *   - Token generation: 64-char hex (256-bit entropy via crypto.randomBytes).
- *   - Link URL uses FRONTEND_URL with /api/auth/verify path.
+ *   - Link URL uses FRONTEND_URL with /api/v1/auth/verify path.
  *   - Round-trip: create → validateAndConsume resolves the email.
  *   - Single-use enforcement: second consume returns `token_already_used`
  *     (or the entry has been deleted — see note in test).
@@ -69,7 +69,7 @@ describe('MagicLinkService', () => {
     it('returns a URL whose token is 64-char lowercase hex (256-bit entropy)', async () => {
       const url = await service.createMagicLink('user@example.com');
 
-      expect(url.startsWith(`${FRONTEND_URL}/api/auth/verify?token=`)).toBe(
+      expect(url.startsWith(`${FRONTEND_URL}/api/v1/auth/verify?token=`)).toBe(
         true,
       );
 
@@ -93,7 +93,7 @@ describe('MagicLinkService', () => {
       const url = await service.createMagicLink('user@example.com');
 
       expect(url).toMatch(
-        /^https:\/\/staging\.ptah\.live\/api\/auth\/verify\?token=[0-9a-f]{64}$/,
+        /^https:\/\/staging\.ptah\.live\/api\/v1\/auth\/verify\?token=[0-9a-f]{64}$/,
       );
     });
 
@@ -103,9 +103,9 @@ describe('MagicLinkService', () => {
 
       const url = await service.createMagicLink('user@example.com');
 
-      expect(url.startsWith('https://ptah.live/api/auth/verify?token=')).toBe(
-        true,
-      );
+      expect(
+        url.startsWith('https://ptah.live/api/v1/auth/verify?token='),
+      ).toBe(true);
     });
   });
 

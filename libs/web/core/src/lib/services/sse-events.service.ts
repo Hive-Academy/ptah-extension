@@ -127,7 +127,7 @@ export class SSEEventsService implements OnDestroy {
   private eventSource: EventSource | null = null;
   private readonly eventSubject = new Subject<SSEEvent>();
   private readonly sseBaseUrl = '/api/v1/events';
-  private readonly authBaseUrl = '/api/auth';
+  private readonly authBaseUrl = '/api/v1/auth';
 
   /** Current connection state as a signal for reactive UI updates */
   public readonly connectionState = signal<ConnectionState>('disconnected');

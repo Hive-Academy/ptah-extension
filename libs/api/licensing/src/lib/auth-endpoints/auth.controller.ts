@@ -65,14 +65,14 @@ const STATE_COOKIE_MAX_AGE_MS = 5 * 60 * 1000;
  * WORKOS OAUTH FLOW (PKCE - OAuth 2.1 Compliant)
  * ============================================================================
  *
- * 1. User visits `/auth/login`
+ * 1. User visits `/v1/auth/login`
  *    → Generate code_verifier and code_challenge
  *    → Store code_verifier server-side (mapped to state)
  *    → Set state in HTTP-only cookie (CSRF protection)
  *    → Redirect to WorkOS with code_challenge
  *
  * 2. User completes authentication at WorkOS
- *    → WorkOS redirects to `/auth/callback?code=...&state=...`
+ *    → WorkOS redirects to `/v1/auth/callback?code=...&state=...`
  *
  * 3. Callback validation:
  *    → Validate state from cookie matches state from query
@@ -86,7 +86,7 @@ const STATE_COOKIE_MAX_AGE_MS = 5 * 60 * 1000;
  * - HTTP-only cookies prevent XSS token theft
  * - Secure flag ensures HTTPS-only in production
  */
-@Controller('auth')
+@Controller('v1/auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
   private readonly isProduction: boolean;
@@ -197,7 +197,7 @@ export class AuthController {
    * - maxAge: 5 minutes - Short TTL limits attack window
    *
    * @example
-   * GET /auth/login
+   * GET /v1/auth/login
    * → Sets cookie: workos_state=<state>
    * → Redirect to: https://auth.workos.com/login?code_challenge=...&state=...
    */
@@ -234,7 +234,7 @@ export class AuthController {
    * - WorkOS error: 401 Unauthorized with error message
    *
    * @example
-   * GET /auth/callback?code=abc123&state=xyz789
+   * GET /v1/auth/callback?code=abc123&state=xyz789
    * Cookie: workos_state=xyz789
    * → Validates state match
    * → Clears workos_state cookie
@@ -351,7 +351,7 @@ export class AuthController {
    * Clears the unified ptah_auth JWT cookie.
    *
    * @example
-   * POST /auth/logout
+   * POST /v1/auth/logout
    * → Clears cookie: ptah_auth
    * → Returns: { success: true }
    */
@@ -378,7 +378,7 @@ export class AuthController {
    * Useful for frontend to check authentication status.
    *
    * @example
-   * GET /auth/me
+   * GET /v1/auth/me
    * Cookie: ptah_auth=<jwt>
    * → Returns: { id, email, tenantId, roles, permissions, tier }
    */
@@ -411,10 +411,10 @@ export class AuthController {
    * 2. Backend checks if user exists (has license)
    * 3. If user exists: Create magic link with optional returnUrl/plan, send email
    * 4. If user doesn't exist: Return success but don't send email (security)
-   * 5. User clicks link in email → GET /auth/verify → redirects with autoCheckout
+   * 5. User clicks link in email → GET /v1/auth/verify → redirects with autoCheckout
    *
    * @example
-   * POST /auth/magic-link
+   * POST /v1/auth/magic-link
    * Body: { "email": "user@example.com", "returnUrl": "/pricing", "plan": "builders-monthly" }
    * → Returns: { success: true, message: "Check your email for login link" }
    */
@@ -469,7 +469,7 @@ export class AuthController {
    * 4. If invalid: Redirect to login with error message
    *
    * @example
-   * GET /auth/verify?token=abc123...
+   * GET /v1/auth/verify?token=abc123...
    * → Success: Sets cookie + redirects to returnUrl?autoCheckout=plan or /profile
    * → Failure: Redirects to /login?error=token_expired
    */
@@ -561,7 +561,7 @@ export class AuthController {
    * - Cryptographically secure random token
    *
    * @example
-   * POST /auth/stream/ticket
+   * POST /v1/auth/stream/ticket
    * Cookie: ptah_auth=<jwt>
    * → Returns: { ticket: "abc123..." }
    *
@@ -593,7 +593,7 @@ export class AuthController {
    * - Stricter than default global limit
    *
    * @example
-   * POST /auth/login/email
+   * POST /v1/auth/login/email
    * Body: { "email": "user@example.com", "password": "secret123" }
    * → Sets cookie: ptah_auth=<jwt>
    * → Returns: { success: true, user: { id, email, ... } }
@@ -647,7 +647,7 @@ export class AuthController {
    * - Stricter than default global limit
    *
    * @example
-   * POST /auth/signup
+   * POST /v1/auth/signup
    * Body: { "email": "user@example.com", "password": "secret123", "firstName": "John" }
    * → Returns: { success: true, pendingVerification: true, userId: "...", email: "..." }
    */
@@ -691,7 +691,7 @@ export class AuthController {
    * - 6-digit code = 1 million combinations, limit prevents exhaustive search
    *
    * @example
-   * POST /auth/verify-email
+   * POST /v1/auth/verify-email
    * Body: { "userId": "user_xxx", "code": "123456" }
    * → Sets cookie: ptah_auth=<jwt>
    * → Returns: { success: true, user: { id, email, ... } }
@@ -746,7 +746,7 @@ export class AuthController {
    * - Same limit as magic-link endpoint
    *
    * @example
-   * POST /auth/resend-verification
+   * POST /v1/auth/resend-verification
    * Body: { "userId": "user_xxx" }
    * → Returns: { success: true, message: "..." }
    */
@@ -776,7 +776,7 @@ export class AuthController {
    * Direct OAuth Login (GitHub/Google)
    *
    * Redirects directly to OAuth provider without going through WorkOS AuthKit.
-   * After authentication, user is redirected back to /auth/callback.
+   * After authentication, user is redirected back to /v1/auth/callback.
    *
    * Supported providers:
    * - github: GitHub OAuth
@@ -787,13 +787,13 @@ export class AuthController {
    * - plan: Optional plan key for auto-checkout (e.g., 'builders-monthly', 'builders-yearly')
    *
    * @example
-   * GET /auth/oauth/github?returnUrl=/pricing&plan=builders-monthly
+   * GET /v1/auth/oauth/github?returnUrl=/pricing&plan=builders-monthly
    * → Sets cookie: workos_state=<state>
    * → Redirect to: https://github.com/login/oauth/authorize?...
    * → After auth: Redirect to /pricing?autoCheckout=builders-monthly
    *
    * @example
-   * GET /auth/oauth/google
+   * GET /v1/auth/oauth/google
    * → Sets cookie: workos_state=<state>
    * → Redirect to: https://accounts.google.com/o/oauth2/auth?...
    */

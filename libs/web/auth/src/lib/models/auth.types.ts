@@ -42,7 +42,7 @@ export interface AuthUser {
 
 /**
  * Email/Password login request
- * POST /api/auth/login/email
+ * POST /api/v1/auth/login/email
  */
 export interface LoginRequest {
   email: string;
@@ -51,7 +51,7 @@ export interface LoginRequest {
 
 /**
  * User signup request
- * POST /api/auth/signup
+ * POST /api/v1/auth/signup
  */
 export interface SignupRequest {
   email: string;
@@ -62,7 +62,7 @@ export interface SignupRequest {
 
 /**
  * Magic link request
- * POST /api/auth/magic-link
+ * POST /api/v1/auth/magic-link
  */
 export interface MagicLinkRequest {
   email: string;
@@ -74,7 +74,7 @@ export interface MagicLinkRequest {
 
 /**
  * Successful authentication response
- * Returned from /api/auth/login/email and /api/auth/verify-email
+ * Returned from /api/v1/auth/login/email and /api/v1/auth/verify-email
  */
 export interface AuthSuccessResponse {
   success: true;
@@ -83,7 +83,7 @@ export interface AuthSuccessResponse {
 
 /**
  * Signup response - pending verification
- * Returned from /api/auth/signup
+ * Returned from /api/v1/auth/signup
  */
 export interface SignupPendingResponse {
   success: true;

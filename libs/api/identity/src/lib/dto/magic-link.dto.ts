@@ -2,7 +2,7 @@ import { IsEmail, IsOptional, IsString } from 'class-validator';
 
 /**
  * DTO for magic link request
- * POST /api/auth/magic-link
+ * POST /api/v1/auth/magic-link
  */
 export class MagicLinkDto {
   @IsEmail({}, { message: 'Please provide a valid email address' })

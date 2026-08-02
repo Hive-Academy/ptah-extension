@@ -413,7 +413,6 @@ Push to `release/landing` triggers the GitHub Actions workflow which:
 ### Delegate DNS to DigitalOcean (Recommended)
 
 1. **In GoDaddy:**
-
    - Go to **My Products** > Select `ptah.live`
    - Click **DNS** > **Nameservers** > **Change**
    - Select **Enter my own nameservers**
@@ -428,7 +427,6 @@ Push to `release/landing` triggers the GitHub Actions workflow which:
    - Save and confirm
 
 2. **In DigitalOcean:**
-
    - Go to **Networking** > **Domains**
    - Add domain: `ptah.live`
    - Add A record: `api` > Droplet IP
@@ -448,7 +446,7 @@ Push to `release/landing` triggers the GitHub Actions workflow which:
 ### WorkOS Configuration
 
 1. Go to <https://dashboard.workos.com>
-2. **Redirects** > Add: `https://api.ptah.live/api/auth/callback`
+2. **Redirects** > Add: `https://api.ptah.live/api/v1/auth/callback`
 3. **Logout URL** > Add: `https://ptah.live`
 
 ### Paddle Configuration

@@ -57,7 +57,7 @@ Most Builders behavior forks on **one flag set in two places** — keep them in 
 
 Auth is a WorkOS-backed HTTP-only `ptah_auth` JWT cookie (HS256, signed with `.env`
 `JWT_SECRET`) + a `ptah_auth_hint` localStorage flag the SPA uses to decide whether to
-probe `GET /api/auth/me`. For gated pages (`/profile`, `/members`) you don't need the
+probe `GET /api/v1/auth/me`. For gated pages (`/profile`, `/members`) you don't need the
 real login UI — mint a token and inject it (same technique as `scripts/discourse-e2e.mjs`):
 
 1. Seed a user (+ subscription for a Builder) in Postgres — see the `seedUser()` helper
@@ -194,24 +194,24 @@ Precondition: auth'd user with an **active Builders subscription or active `buil
 
 Use the real UI here. Route `/login` `/signup` (GuestGuard → auth'd users bounce to `/profile`).
 
-- **5.1 Email/password sign-in** — `POST /api/auth/login/email` (5/min) → sets hint, `navigateAfterAuth`
+- **5.1 Email/password sign-in** — `POST /api/v1/auth/login/email` (5/min) → sets hint, `navigateAfterAuth`
   to `/profile` or `returnUrl` (+`autoCheckout`). `email_verification_required` → verification flow.
-- **5.2 Sign-up + 6-digit verification** — `POST /api/auth/signup` → `POST /api/auth/verify-email` (10/min);
-  resend `POST /api/auth/resend-verification` (3/min). `source=vscode` → special "Account Created" screen.
-- **5.3 Social OAuth (GitHub/Google)** — full-page `GET /api/auth/oauth/{github|google}?returnUrl&plan`
+- **5.2 Sign-up + 6-digit verification** — `POST /api/v1/auth/signup` → `POST /api/v1/auth/verify-email` (10/min);
+  resend `POST /api/v1/auth/resend-verification` (3/min). `source=vscode` → special "Account Created" screen.
+- **5.3 Social OAuth (GitHub/Google)** — full-page `GET /api/v1/auth/oauth/{github|google}?returnUrl&plan`
   (WorkOS PKCE) → callback sets cookie → `FRONTEND_URL?auth_hint=1`; `AuthInitializerService` hydrates.
-- **5.4 Magic link** — `POST /api/auth/magic-link` (3/min); verify `GET /api/auth/verify?token=` (2-min).
+- **5.4 Magic link** — `POST /api/v1/auth/magic-link` (3/min); verify `GET /api/v1/auth/verify?token=` (2-min).
   Always success server-side (no email enumeration).
 - **5.5 Return-URL open-redirect guard** — only own-origin + `apiBaseUrl`-origin absolute returnUrls
   full-page-navigate (e.g. the Discourse SSO bounce); anything else → `/profile`. **Security regression check.**
-- **5.6 Logout** — `POST /api/auth/logout` clears the hint/cookie.
+- **5.6 Logout** — `POST /api/v1/auth/logout` clears the hint/cookie.
 
 ---
 
 ## 6. Profile page (`/profile`, AuthGuard)
 
 - **6.1** Load account — `GET /api/v1/licenses/me`; error → retry; connects SSE after load.
-- **6.2** Real-time SSE — `POST /api/auth/stream/ticket` → `GET /api/v1/events/subscribe?ticket=`;
+- **6.2** Real-time SSE — `POST /api/v1/auth/stream/ticket` → `GET /api/v1/events/subscribe?ticket=`;
   refreshes on `license.updated` / `subscription.status_changed` / `reconciliation.completed`
   (ticket 30s single-use, auto-reconnect w/ backoff).
 - **6.3** Sync with Paddle — `POST /api/v1/subscriptions/reconcile` → toast.

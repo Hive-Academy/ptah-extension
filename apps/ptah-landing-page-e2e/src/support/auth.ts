@@ -8,7 +8,7 @@ import { env } from './env';
  * The SPA reads two things: an HTTP-only `ptah_auth` HS256 JWT cookie (signed
  * with `.env` JWT_SECRET) that the license server validates, and a
  * `ptah_auth_hint` localStorage flag that tells the SPA to probe
- * `GET /api/auth/me`. We set both so gated routes (`/profile`, `/members`,
+ * `GET /api/v1/auth/me`. We set both so gated routes (`/profile`, `/members`,
  * `/admin`) render as an authenticated user.
  *
  * The JWT payload mirrors `mintJwt()` in scripts/discourse-e2e.mjs. Note the
@@ -81,7 +81,7 @@ export async function injectAuth(
   ]);
   // NB: the SPA stores the literal string 'true' (auth.service.ts AUTH_HINT_KEY),
   // NOT '1' as the handoff §1.2 states — matching the real reader is what makes
-  // the SPA probe GET /api/auth/me instead of treating the session as guest.
+  // the SPA probe GET /api/v1/auth/me instead of treating the session as guest.
   await context.addInitScript(() => {
     try {
       localStorage.setItem('ptah_auth_hint', 'true');

@@ -60,7 +60,7 @@ export class MagicLinkService {
    *
    * @param email - User's email address
    * @param options - Optional returnUrl and plan for post-auth redirect
-   * @returns Full magic link URL (e.g., https://ptah.live/api/auth/verify?token=abc123...)
+   * @returns Full magic link URL (e.g., https://ptah.live/api/v1/auth/verify?token=abc123...)
    */
   async createMagicLink(
     email: string,
@@ -88,7 +88,7 @@ export class MagicLinkService {
     );
     const frontendUrl =
       this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
-    return `${frontendUrl}/api/auth/verify?token=${token}`;
+    return `${frontendUrl}/api/v1/auth/verify?token=${token}`;
   }
 
   /**

@@ -5,7 +5,7 @@ import { AuthController } from './auth.controller';
 import { LicenseModule } from '../license/license.module';
 
 /**
- * Authentication Module — the HTTP surface for `/api/auth/*`.
+ * Authentication Module — the HTTP surface for `/api/v1/auth/*`.
  *
  * ⚠️ WHY THIS LIVES IN api-licensing AND NOT api-identity.
  * The auth CAPABILITY (WorkOS provider, `AuthService`, token/PKCE/magic-link

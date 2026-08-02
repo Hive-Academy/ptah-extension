@@ -23,12 +23,12 @@ import {
  * authentication endpoints.
  *
  * Endpoints:
- * - POST /api/auth/login/email - Email/password login
- * - POST /api/auth/signup - Create new account (returns pending verification)
- * - POST /api/auth/verify-email - Verify email with code
- * - POST /api/auth/resend-verification - Resend verification code
- * - POST /api/auth/magic-link - Send magic link email
- * - GET /api/auth/oauth/:provider - OAuth redirect
+ * - POST /api/v1/auth/login/email - Email/password login
+ * - POST /api/v1/auth/signup - Create new account (returns pending verification)
+ * - POST /api/v1/auth/verify-email - Verify email with code
+ * - POST /api/v1/auth/resend-verification - Resend verification code
+ * - POST /api/v1/auth/magic-link - Send magic link email
+ * - GET /api/v1/auth/oauth/:provider - OAuth redirect
  */
 @Injectable({
   providedIn: 'root',
@@ -36,7 +36,7 @@ import {
 export class AuthApiService {
   private readonly http = inject(HttpClient);
   private readonly apiBaseUrl = inject(API_BASE_URL);
-  private readonly baseUrl = '/api/auth';
+  private readonly baseUrl = '/api/v1/auth';
 
   /**
    * Login with email and password

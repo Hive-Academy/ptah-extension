@@ -2,7 +2,7 @@ import { IsString, Length } from 'class-validator';
 
 /**
  * DTO for email verification
- * POST /api/auth/verify-email
+ * POST /api/v1/auth/verify-email
  */
 export class VerifyEmailDto {
   @IsString()

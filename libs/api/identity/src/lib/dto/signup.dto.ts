@@ -2,7 +2,7 @@ import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 
 /**
  * DTO for user signup
- * POST /api/auth/signup
+ * POST /api/v1/auth/signup
  */
 export class SignupDto {
   @IsEmail({}, { message: 'Please provide a valid email address' })

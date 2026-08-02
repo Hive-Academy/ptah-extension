@@ -57,14 +57,14 @@ openssl rand -hex 32
 
 Dashboard: <https://dashboard.workos.com/>
 
-| Step | Action                                                      |
-| ---- | ----------------------------------------------------------- |
-| 1    | Create a **Production** environment                         |
-| 2    | Copy **API Key** (`sk_live_...`)                            |
-| 3    | Copy **Client ID** (`client_...`)                           |
-| 4    | Add redirect URI: `https://api.ptah.live/api/auth/callback` |
-| 5    | Enable OAuth providers (GitHub, Google)                     |
-| 6    | (Optional) Verify `ptah.live` domain for SSO                |
+| Step | Action                                                         |
+| ---- | -------------------------------------------------------------- |
+| 1    | Create a **Production** environment                            |
+| 2    | Copy **API Key** (`sk_live_...`)                               |
+| 3    | Copy **Client ID** (`client_...`)                              |
+| 4    | Add redirect URI: `https://api.ptah.live/api/v1/auth/callback` |
+| 5    | Enable OAuth providers (GitHub, Google)                        |
+| 6    | (Optional) Verify `ptah.live` domain for SSO                   |
 
 ### 2.2 Paddle (Payments)
 
@@ -144,7 +144,7 @@ ADMIN_SECRET=<generated-hex-64-chars>
 # ── WorkOS (OAuth / SSO) ──
 WORKOS_API_KEY=sk_live_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 WORKOS_CLIENT_ID=client_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-WORKOS_REDIRECT_URI=https://api.ptah.live/api/auth/callback
+WORKOS_REDIRECT_URI=https://api.ptah.live/api/v1/auth/callback
 
 # ── Paddle (Payments) ──
 PADDLE_API_KEY=pdl_live_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

@@ -23,8 +23,8 @@ const AUTH_HINT_KEY = 'ptah_auth_hint';
  * AuthService - Handles authentication state
  *
  * API endpoints:
- * - GET /api/auth/me → Check if authenticated, get user data
- * - POST /api/auth/logout → Clear session
+ * - GET /api/v1/auth/me → Check if authenticated, get user data
+ * - POST /api/v1/auth/logout → Clear session
  *
  * Uses HTTP-only cookie (ptah_auth) - no token storage needed.
  * Uses localStorage hint to avoid unnecessary 401 errors when not logged in.
@@ -36,7 +36,7 @@ const AUTH_HINT_KEY = 'ptah_auth_hint';
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
-  private readonly baseUrl = '/api/auth';
+  private readonly baseUrl = '/api/v1/auth';
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
   /**
