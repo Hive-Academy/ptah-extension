@@ -16,6 +16,7 @@ import {
 import type { Request } from 'express';
 import { JwtAuthGuard } from '@ptah-api/identity';
 import { AdminGuard } from '@ptah-api/identity';
+import { dtoPipe, passthroughDtoPipe } from '@ptah-api/core';
 import { AdminService } from './admin.service';
 import { ListQueryDto, UpdateRecordDto } from './admin.dto';
 import { ADMIN_MODELS, AdminModelKey } from './admin-models.config';
@@ -64,12 +65,22 @@ export interface AdminListResponse<T = Record<string, unknown>> {
  * user-specific administration — cascade delete with typed confirmation,
  * impact preview, bulk mail — none of which the generic CRUD can express.
  *
- * ⚠️ VALIDATION DEBT: `@Query()` / `@Body()` here are still bare. Binding is
- * TASK_2026_170 B7a, and `update` is the one handler in this server that must
- * bind `passthroughDtoPipe(UpdateRecordDto)` rather than `dtoPipe(...)` —
- * `UpdateRecordDto` is an index-signature type whose real allowlist is
- * `AdminService.filterEditable()` / `ADMIN_MODELS[key].editableFields`. Tracked
- * by `src/common/controller-validation.spec.ts`'s `UNVALIDATED_DEBT` ledger.
+ * ⚠️ EVERY `@Body()` / `@Query()` PARAM MUST BIND `dtoPipe(TheDto)`.
+ * A bare `@Body() dto: X` is SILENTLY UNVALIDATED in this server: esbuild does
+ * not emit `emitDecoratorMetadata`, so Nest cannot infer the DTO type and the
+ * global ValidationPipe short-circuits — every `class-validator` decorator
+ * becomes inert. See `libs/api/core/src/lib/common/dto-validation.pipe.ts`.
+ * `apps/ptah-license-server/src/common/controller-validation.spec.ts` fails the
+ * build if a binding is dropped.
+ *
+ * 🔴 `update` IS THE ONE DELIBERATE EXCEPTION IN THIS SERVER (TASK_2026_170 F1).
+ * It binds `passthroughDtoPipe(UpdateRecordDto)`, NOT `dtoPipe(...)`.
+ * `UpdateRecordDto` is an index-signature class with ZERO class-validator
+ * metadata, and class-validator's `whitelist()` step marks EVERY property of a
+ * zero-metadata class as not-allowed — so `dtoPipe` there would 400 every
+ * non-empty admin PATCH. The authoritative allowlist for that handler is
+ * `AdminService.filterEditable()` against `ADMIN_MODELS[key].editableFields`.
+ * Do not "fix" this to `dtoPipe`, and do not add decorators to `UpdateRecordDto`.
  */
 @Controller('v1/admin/records')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -81,7 +92,7 @@ export class AdminRecordsController {
   @Get(':model')
   async list(
     @Param('model') model: string,
-    @Query() q: ListQueryDto,
+    @Query(dtoPipe(ListQueryDto)) q: ListQueryDto,
   ): Promise<AdminListResponse> {
     const key = this.assertModel(model);
     return this.admin.list(key, q);
@@ -105,7 +116,7 @@ export class AdminRecordsController {
     @Req() req: Request,
     @Param('model') model: string,
     @Param('id') id: string,
-    @Body() body: UpdateRecordDto,
+    @Body(passthroughDtoPipe(UpdateRecordDto)) body: UpdateRecordDto,
   ): Promise<Record<string, unknown>> {
     const key = this.assertModel(model);
     if (ADMIN_MODELS[key].readOnly) {

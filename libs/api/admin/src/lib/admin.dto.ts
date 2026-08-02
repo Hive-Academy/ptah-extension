@@ -65,15 +65,37 @@ export class ListQueryDto {
 }
 
 /**
- * PATCH body DTO — intentionally permissive (index signature).
+ * PATCH body DTO for `PATCH /api/v1/admin/records/:model/:id` — intentionally
+ * permissive (index signature, ZERO class-validator metadata).
  *
- * The global `ValidationPipe` is configured with `forbidNonWhitelisted: true`,
- * which would otherwise reject unknown keys. Because editable fields vary per
- * model, we accept any shape here and rely on `AdminService.filterEditable()`
- * to drop any key not in `ADMIN_MODELS[key].editableFields`.
+ * ⚠️ THIS CLASS IS BOUND WITH `passthroughDtoPipe`, NOT `dtoPipe`
+ * (`AdminRecordsController.update`). That binding is deliberate and it is the
+ * ONLY `passthroughDtoPipe` call site in the server (TASK_2026_170 F1).
  *
- * This is the enforcement contract: the server-side filter in AdminService
- * is the authoritative allowlist — the DTO is only a transport envelope.
+ * Why it cannot be `dtoPipe`: `dtoPipe` sets `whitelist + forbidNonWhitelisted`,
+ * and class-validator's `ValidationExecutor.whitelist()` collects every property
+ * for which it finds no metadata — for a zero-metadata class that is EVERY
+ * property — then `forbidNonWhitelisted` turns each into
+ * `property <key> should not exist`. So `dtoPipe(UpdateRecordDto)` would 400
+ * every non-empty admin PATCH, across all nine admin models. The real callers
+ * send computed keys (`buildDirtyPatch()` in the admin detail view, and
+ * `{ resolved, resolvedAt }` from webhook triage), so nothing would survive.
+ *
+ * An earlier version of this docblock claimed the global `ValidationPipe`'s
+ * `forbidNonWhitelisted` "would otherwise reject unknown keys" and that this
+ * class relies on `filterEditable()` instead. The first half was never true in
+ * practice: esbuild emits no `design:paramtypes`, so the global pipe
+ * short-circuited and NO pipe ever ran on this parameter. That comment described
+ * intended behaviour under a pipe that had never executed.
+ *
+ * The enforcement contract, correctly stated: `passthroughDtoPipe` binds the
+ * parameter honestly (a real `ValidationPipe` with a real `expectedType`, so the
+ * structural guard in
+ * `apps/ptah-license-server/src/common/controller-validation.spec.ts` sees it)
+ * while applying NO property policy; `AdminService.filterEditable()` against
+ * `ADMIN_MODELS[key].editableFields` is the AUTHORITATIVE allowlist and the
+ * single source of truth. Do NOT add decorators here — that would duplicate
+ * that source of truth into a second place and start 400-ing valid edits.
  */
 export class UpdateRecordDto {
   [key: string]: unknown;
