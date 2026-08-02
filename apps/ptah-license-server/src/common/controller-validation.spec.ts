@@ -74,7 +74,6 @@ const UNVALIDATED_DEBT: readonly string[] = [
   // controllers. The arithmetic is checked by MIN_TOTAL_PAYLOAD_PARAMS: the
   // split MOVES params, it never adds or removes them, so the server-wide total
   // is identical before and after.
-  'admin/AdminWaitlistController', // B7d  (@Body InviteWaitlistDto)
   'marketing/AdminMarketingController', // B8
   'license/IntegrationLicensesController', // B9
 ];

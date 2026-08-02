@@ -13,6 +13,7 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '@ptah-api/identity';
 import { AdminGuard } from '@ptah-api/identity';
 import { AdminThrottlerGuard } from '@ptah-api/identity';
+import { dtoPipe } from '@ptah-api/core';
 import { InviteWaitlistDto } from './admin.dto';
 import { WaitlistService } from '@ptah-api/marketing';
 import { AuditLogService } from '@ptah-api/audit';
@@ -25,9 +26,18 @@ import { AuditLogService } from '@ptah-api/audit';
  * the owning class changed. Guard chain: `JwtAuthGuard` → `AdminGuard` at CLASS
  * level.
  *
- * ⚠️ VALIDATION DEBT: `@Body()` is still bare. Binding is TASK_2026_170 B7d
- * (`InviteWaitlistDto`'s `@Max(1000)` becomes enforced there); tracked by
- * `src/common/controller-validation.spec.ts`'s `UNVALIDATED_DEBT` ledger.
+ * ⚠️ EVERY `@Body()` / `@Query()` PARAM MUST BIND `dtoPipe(TheDto)`.
+ * A bare `@Body() dto: X` is SILENTLY UNVALIDATED in this server: esbuild does
+ * not emit `emitDecoratorMetadata`, so Nest cannot infer the DTO type and the
+ * global ValidationPipe short-circuits — every `class-validator` decorator
+ * becomes inert. See `libs/api/core/src/lib/common/dto-validation.pipe.ts`.
+ * `apps/ptah-license-server/src/common/controller-validation.spec.ts` fails the
+ * build if a binding is dropped.
+ *
+ * The stakes here are outbound mail volume: `InviteWaitlistDto`'s `@Max(1000)`
+ * on `batchSize` and `@ArrayMaxSize(1000)` on `ids` are the only bound on how
+ * many founding-invite emails one request can send, and neither had ever
+ * executed before this binding.
  */
 @Controller('v1/admin/waitlist')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -57,7 +67,7 @@ export class AdminWaitlistController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async inviteWaitlist(
     @Req() req: Request,
-    @Body() body: InviteWaitlistDto,
+    @Body(dtoPipe(InviteWaitlistDto)) body: InviteWaitlistDto,
   ): Promise<{ invited: number; skipped: number }> {
     const actorEmail = req.user?.email ?? 'unknown';
     const userAgent = req.headers['user-agent'];
