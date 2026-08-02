@@ -43,11 +43,50 @@ test.describe('Admin dashboard @admin', () => {
       },
     );
 
-    await adminPage.goto('/admin/subscriptions');
+    // `subscriptions` no longer resolves through the generic table — it merged
+    // into the user surface — so the read-only badge is asserted on the audit
+    // log, which is still a generic read-only model.
+    await adminPage.goto('/admin/admin-audit-log');
     await expect(
-      adminPage.getByRole('heading', { name: 'Subscriptions' }),
+      adminPage.getByRole('heading', { name: 'Audit Log' }),
     ).toBeVisible();
     await expect(adminPage.getByText('read-only')).toBeVisible();
+  });
+
+  test('licenses + subscriptions slugs redirect into the merged user surface', async ({
+    adminPage,
+  }) => {
+    // Both standalone tabs were merged into Users. The redirects exist so old
+    // bookmarks land on the merged view instead of falling through to the
+    // generic table, which would silently restore the split.
+    for (const slug of ['/admin/licenses', '/admin/subscriptions']) {
+      await adminPage.goto(slug);
+      await expect(
+        adminPage.getByRole('heading', { name: 'Users' }),
+      ).toBeVisible({ timeout: 15_000 });
+      await expect(adminPage).toHaveURL(/\/admin\/users/);
+    }
+  });
+
+  test('the merged user surface shows license + subscription per row', async ({
+    adminPage,
+  }) => {
+    await adminPage.goto('/admin/users');
+    await expect(adminPage.getByRole('heading', { name: 'Users' })).toBeVisible(
+      {
+        timeout: 15_000,
+      },
+    );
+    await expect(
+      adminPage.getByRole('columnheader', { name: 'License' }),
+    ).toBeVisible();
+    await expect(
+      adminPage.getByRole('columnheader', { name: 'Paddle Subscription' }),
+    ).toBeVisible();
+    // The entitlement lenses replace the removed Revenue & Licensing nav group.
+    await expect(
+      adminPage.getByRole('tab', { name: 'Paddle subscriber' }),
+    ).toBeVisible();
   });
 
   test('§7.2 unknown model slug → client-side warning, no crash', async ({
@@ -79,8 +118,13 @@ test.describe('Admin dashboard @admin', () => {
     await firstDataCell.click();
 
     await adminPage.waitForURL(/\/admin\/users\/[^/]+$/);
+    // `users` resolves to the bespoke UserProfile, not the generic AdminDetail —
+    // its back affordance is labelled with the list it returns to.
     await expect(
-      adminPage.getByRole('button', { name: '← Back' }),
+      adminPage.getByRole('button', { name: 'Users' }),
+    ).toBeVisible();
+    await expect(
+      adminPage.getByRole('heading', { name: 'Billing & Entitlement' }),
     ).toBeVisible();
   });
 });

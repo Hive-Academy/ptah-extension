@@ -12,6 +12,7 @@ import { AuditLogService } from '@ptah-api/audit';
 import { AdminService, DeleteUserActor } from './admin.service';
 import { DeleteUserDto } from './dto/delete-user.dto';
 import { ListQueryDto } from './admin.dto';
+import { ADMIN_MODELS } from './admin-models.config';
 
 /**
  * Unit tests for `AdminService.deleteUserCascade` (TASK_2025_292 T-B2-05).
@@ -676,6 +677,63 @@ describe('AdminService.list filtering', () => {
         filter: 'resolvedfalse',
       } as ListQueryDto),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('translates a relationPreset filter into its hard-coded relation where', async () => {
+    const { service, findMany } = buildList('user');
+    await service.list('users', {
+      filter: 'entitlement:builders',
+    } as ListQueryDto);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { licenses: { some: { plan: 'builders', status: 'active' } } },
+      }),
+    );
+  });
+
+  it('translates the `unlinked` reconciliation preset into its AND fragment', async () => {
+    const { service, findMany } = buildList('user');
+    await service.list('users', {
+      filter: 'entitlement:unlinked',
+    } as ListQueryDto);
+    const arg = findMany.mock.calls[0][0] as { where: { AND: unknown[] } };
+    expect(arg.where.AND).toEqual([
+      { licenses: { some: { source: 'paddle', status: 'active' } } },
+      { subscriptions: { none: {} } },
+    ]);
+  });
+
+  it('nests a preset AND inside the outer AND when combined with search', async () => {
+    const { service, findMany } = buildList('user');
+    await service.list('users', {
+      filter: 'entitlement:unlinked',
+      search: 'abdallah',
+    } as ListQueryDto);
+    const arg = findMany.mock.calls[0][0] as { where: { AND: unknown[] } };
+    expect(arg.where.AND).toEqual([
+      { OR: expect.any(Array) },
+      { AND: expect.any(Array) },
+    ]);
+  });
+
+  it('rejects a relationPreset value that names no declared preset', async () => {
+    const { service } = buildList('user');
+    await expect(
+      service.list('users', {
+        filter: 'entitlement:whales',
+      } as ListQueryDto),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('returns a copy of the preset so the config is never mutated', async () => {
+    const { service, findMany } = buildList('user');
+    await service.list('users', {
+      filter: 'entitlement:builders',
+    } as ListQueryDto);
+    const arg = findMany.mock.calls[0][0] as { where: Record<string, unknown> };
+    expect(arg.where).not.toBe(
+      ADMIN_MODELS.users.filterableFields?.['entitlement'],
+    );
   });
 
   it('preserves pre-filter behavior when no filter is supplied', async () => {

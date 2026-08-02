@@ -29,22 +29,50 @@ export type AdminModelKey =
  * a field absent from this map is rejected with 400 — arbitrary field filtering
  * is never permitted.
  *
- * - `boolean`      → column is a Prisma `Boolean`; value must be `true`/`false`.
- * - `string`       → column is a Prisma `String`; value matched for equality
- *                    and, when `allowedValues` is set, constrained to that set.
- * - `datePresence` → column is a nullable `DateTime` exposed as a virtual
- *                    boolean: `true` → `{ not: null }`, `false` → `null`.
- *                    Lets `notified:true` mean "has a notifiedAt timestamp".
+ * - `boolean`        → column is a Prisma `Boolean`; value must be `true`/`false`.
+ * - `string`         → column is a Prisma `String`; value matched for equality
+ *                      and, when `allowedValues` is set, constrained to that set.
+ * - `datePresence`   → column is a nullable `DateTime` exposed as a virtual
+ *                      boolean: `true` → `{ not: null }`, `false` → `null`.
+ *                      Lets `notified:true` mean "has a notifiedAt timestamp".
+ * - `relationPreset` → the filter value selects one of a CLOSED set of
+ *                      hard-coded relation `where` fragments (`presets`). The
+ *                      fragment itself never derives from user input — only the
+ *                      preset NAME does, and an unknown name is rejected 400.
+ *                      Lets `entitlement:builders` mean "has an active builders
+ *                      license", which no scalar column can express.
  */
-export type AdminFilterFieldType = 'boolean' | 'string' | 'datePresence';
+export type AdminFilterFieldType =
+  | 'boolean'
+  | 'string'
+  | 'datePresence'
+  | 'relationPreset';
 
-export interface AdminFilterField {
-  type: AdminFilterFieldType;
-  /** Actual Prisma column the (possibly virtual) filter field maps to. */
-  column: string;
-  /** Optional value allowlist for `string` filters (rejects anything else). */
-  allowedValues?: readonly string[];
-}
+/**
+ * Discriminated on `type` so each variant carries exactly the keys it needs —
+ * `relationPreset` has no single backing column, and scalar filters have no
+ * preset map.
+ */
+export type AdminFilterField =
+  | {
+      type: 'boolean' | 'datePresence';
+      /** Actual Prisma column the (possibly virtual) filter field maps to. */
+      column: string;
+    }
+  | {
+      type: 'string';
+      column: string;
+      /** Optional value allowlist (rejects anything else). */
+      allowedValues?: readonly string[];
+    }
+  | {
+      type: 'relationPreset';
+      /**
+       * Preset name → literal Prisma `where` fragment. Both halves are authored
+       * here; the query-string only ever picks a key.
+       */
+      presets: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+    };
 
 export interface AdminModelConfig {
   /** Prisma delegate name (the lower-case client property, e.g. prisma.user) */
@@ -102,9 +130,48 @@ export const ADMIN_MODELS: Record<AdminModelKey, AdminModelConfig> = {
       'paddleCustomerId',
     ],
     sortableFields: ['createdAt', 'updatedAt', 'email', 'emailVerified'],
+    // TASK: licenses + subscriptions merged into the user surface. `entitlement`
+    // is the "who has what" lens the admin dashboard is built around — every
+    // preset is a relation predicate, which is why it cannot be a scalar filter.
+    //
+    // `unlinked` is the reconciliation case: a license whose `source` claims it
+    // came from Paddle, held by a user with ZERO subscription rows. That is
+    // either a dropped webhook or a mislabeled `source` — both need a human.
+    filterableFields: {
+      entitlement: {
+        type: 'relationPreset',
+        presets: {
+          builders: {
+            licenses: { some: { plan: 'builders', status: 'active' } },
+          },
+          community: {
+            licenses: { some: { plan: 'community', status: 'active' } },
+          },
+          subscriber: {
+            subscriptions: { some: { status: { in: ['active', 'trialing'] } } },
+          },
+          // The billing-failure queue that used to live on the standalone
+          // Subscriptions tab — surfaced here so the Overview "past due" tile
+          // still has somewhere to drill into.
+          pastDue: {
+            subscriptions: { some: { status: 'past_due' } },
+          },
+          unlinked: {
+            AND: [
+              { licenses: { some: { source: 'paddle', status: 'active' } } },
+              { subscriptions: { none: {} } },
+            ],
+          },
+          none: { licenses: { none: { status: 'active' } } },
+        },
+      },
+    },
     editableFields: ['firstName', 'lastName', 'emailVerified'],
     readOnly: false,
     defaultSortBy: 'createdAt',
+    // Powers both the entitlement columns on the list AND the single-fetch
+    // Billing section on `/admin/users/:id` (getById shares this include).
+    include: { licenses: true, subscriptions: true },
   },
   licenses: {
     prismaModel: 'license',

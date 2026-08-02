@@ -6,17 +6,21 @@
  * operator needs to do") rather than model-oriented ("what the DB contains").
  *
  * Route slugs intentionally reuse the EXISTING `AdminModelKey` slugs
- * (`/admin/waitlist`, `/admin/users`, `/admin/licenses`, …). Today every
- * non-bespoke slug still resolves through the generic `:model` route in
- * `admin.routes.ts`; the bespoke components + explicit routes land in a later
- * batch. Editing routes is out of scope for this config — it only describes
- * grouping, tiering, icons, and active-state targets.
+ * (`/admin/waitlist`, `/admin/users`, …). Non-bespoke slugs still resolve
+ * through the generic `:model` route in `admin.routes.ts`. Editing routes is
+ * out of scope for this config — it only describes grouping, tiering, icons,
+ * and active-state targets.
+ *
+ * ⚠️ THERE IS DELIBERATELY NO "Revenue & Licensing" GROUP. Licenses and Paddle
+ * subscriptions were merged into the user surface: `/admin/users` carries the
+ * entitlement columns + `?filter=entitlement:*` lenses, and `/admin/users/:id`
+ * owns the full license ↔ subscription reconciliation. Re-adding standalone
+ * `/admin/licenses` or `/admin/subscriptions` nav items would resurrect the
+ * split view this merge removed (both slugs now redirect to `/admin/users`).
  */
 import {
   AlertTriangle,
   CalendarDays,
-  CreditCard,
-  KeyRound,
   LayoutDashboard,
   type LucideIconData,
   Megaphone,
@@ -116,24 +120,6 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
         label: 'Email Templates',
         route: '/admin/marketing-campaign-templates',
         primary: false,
-      },
-    ],
-  },
-  {
-    label: 'Revenue & Licensing',
-    icon: CreditCard,
-    items: [
-      {
-        label: 'Licenses',
-        route: '/admin/licenses',
-        primary: true,
-        icon: KeyRound,
-      },
-      {
-        label: 'Subscriptions (Paddle)',
-        route: '/admin/subscriptions',
-        primary: false,
-        readOnly: true,
       },
     ],
   },

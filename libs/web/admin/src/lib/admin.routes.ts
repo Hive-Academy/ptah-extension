@@ -13,6 +13,8 @@ import { AdminLayout } from './admin-layout/admin-layout';
  *                             dedicated view, NOT the generic model CRUD)
  *   /admin/builders/*       → Builders content (packs registry, calendar
  *                             sessions, read-only community triage)
+ *   /admin/users            → UsersList (people directory + entitlement lenses)
+ *   /admin/users/:id        → UserProfile (identity + merged billing surface)
  *   /admin/:model           → AdminList (table view for a single model)
  *   /admin/:model/:id       → AdminDetail (read / edit a single record)
  *
@@ -73,10 +75,21 @@ export const ADMIN_ROUTES: Routes = [
             (m) => m.WaitlistPipeline,
           ),
       },
+      // Licenses + Paddle subscriptions are MERGED into the user surface. Both
+      // legacy slugs redirect so bookmarks and any missed deep link land on the
+      // merged view instead of falling through to the generic `:model` table
+      // (which would silently re-expose the split, user-less list). Angular
+      // preserves query params across `redirectTo`, so `?search=<email>`
+      // hand-offs keep working — `email` is a searchable field on `users`.
       {
         path: 'licenses',
-        loadComponent: () =>
-          import('./licenses/licenses-list').then((m) => m.LicensesList),
+        pathMatch: 'full',
+        redirectTo: 'users',
+      },
+      {
+        path: 'subscriptions',
+        pathMatch: 'full',
+        redirectTo: 'users',
       },
       {
         path: 'failed-webhooks',

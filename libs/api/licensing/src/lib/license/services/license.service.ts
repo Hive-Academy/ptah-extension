@@ -313,15 +313,22 @@ export class LicenseService {
    * 4. Calculate expiration date from plan configuration
    * 5. Create license record in database
    *
-   * @param params - Email, plan, and optional createdBy marker for license creation
+   * @param params - Email, plan, and optional createdBy/source markers
    * @returns The generated license key and expiration date
+   *
+   * ⚠️ `source` DEFAULTS TO `'paddle'` AT THE SCHEMA LEVEL, so a caller that
+   * omits it labels the row as a paid Paddle sale. Any caller that is NOT a
+   * Paddle purchase MUST pass an explicit `source` — otherwise the admin
+   * dashboard reconciles the row against a subscription that will never exist,
+   * and MRR filters (`source = 'paddle'`) over-count.
    */
   async createLicense(params: {
     email: string;
     plan: PlanName;
     createdBy?: string;
+    source?: string;
   }): Promise<{ licenseKey: string; expiresAt: Date | null }> {
-    const { email, plan, createdBy = 'admin' } = params;
+    const { email, plan, createdBy = 'admin', source } = params;
     const user = await this.findOrCreateUserByEmail(email);
     await this.prisma.license.updateMany({
       where: {
@@ -348,6 +355,8 @@ export class LicenseService {
         status: 'active',
         expiresAt,
         createdBy,
+        // Omitted `source` falls through to the schema default ('paddle').
+        ...(source ? { source } : {}),
       },
     });
 

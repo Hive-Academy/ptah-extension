@@ -20,18 +20,14 @@ import { ADMIN_MODEL_SPECS, BadgeVariant } from '../../admin-models.config';
 import { DeleteUserModalComponent } from '../../components/delete-user-modal/delete-user-modal';
 import { IssueCompLicenseModalComponent } from '../../components/issue-comp-license-modal/issue-comp-license-modal';
 import { StatusBadge } from '../../components/status-badge/status-badge';
-
-interface UserRecord {
-  id: string;
-  email: string;
-  firstName: string | null;
-  lastName: string | null;
-  emailVerified: boolean;
-  workosId: string | null;
-  paddleCustomerId: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
-}
+import {
+  Entitlement,
+  LicenseRecord,
+  SubscriptionRecord,
+  UserWithBilling,
+  deriveEntitlement,
+  isExpiringSoon,
+} from '../entitlement';
 
 type RelatedStatus = 'loading' | 'ok' | 'error';
 
@@ -44,18 +40,21 @@ interface RelatedState {
 const EMPTY_RELATED: RelatedState = { status: 'loading', rows: [], total: 0 };
 
 /**
- * UserProfile — bespoke detail surface for a single user (design spec §4.4.2),
- * replacing the generic `AdminDetail` for the `users` route only. Route
+ * UserProfile — the single billing surface for one user. Route
  * `/admin/users/:id`.
  *
- * Three stacked cards instead of a flat `<dl>`:
- *   1. Identity — avatar-initial, verified `StatusBadge`, demoted mono IDs.
- *   2. Related records — Licenses / Subscriptions / Session Requests, each a
- *      poor-man's join via `AdminApiService.list(model, {search: userId})`
- *      (those models advertise "…user ID…" as a searched field) with a
- *      "View all →" handoff.
- *   3. Danger zone — Issue Comp License (bound `userId`) + Delete User,
- *      visually separated so a destructive action never sits at equal weight.
+ * This view ABSORBED the former standalone Licenses and Subscriptions tabs.
+ * Where the previous version showed a three-column strip of related-record
+ * chips (plan name + status, nothing more) and punted to two other pages, the
+ * billing section is now the destination: full license rows, full Paddle
+ * subscription rows, and — the point of the merge — an explicit reconciliation
+ * between them, since the schema has no FK to make that link for us.
+ *
+ * ONE REQUEST, NOT THREE. `ADMIN_MODELS.users.include` ships `licenses` and
+ * `subscriptions` on `GET /records/users/:id`, so the old "poor man's join"
+ * (three `list(model, {search: userId})` calls, each capped at 5 rows and
+ * matching on a free-text id) is gone for both billing relations. Session
+ * requests are not part of the merge and keep their existing lookup.
  */
 @Component({
   selector: 'ptah-admin-user-profile',
@@ -91,17 +90,29 @@ export class UserProfile {
     () => this.idParam()?.get('id') ?? null,
   );
 
-  protected readonly user = signal<UserRecord | null>(null);
+  protected readonly user = signal<UserWithBilling | null>(null);
   protected readonly loading = signal<boolean>(false);
   protected readonly loadError = signal<string | null>(null);
 
-  protected readonly licenses = signal<RelatedState>(EMPTY_RELATED);
-  protected readonly subscriptions = signal<RelatedState>(EMPTY_RELATED);
   protected readonly sessions = signal<RelatedState>(EMPTY_RELATED);
 
-  // Status badge maps borrowed from the shared model config so related-record
-  // chips match the color semantics used on the dedicated list views.
+  /** The license ↔ subscription join, derived from the single user payload. */
+  protected readonly entitlement = computed<Entitlement | null>(() => {
+    const u = this.user();
+    return u ? deriveEntitlement(u) : null;
+  });
+
+  protected readonly licenses = computed<readonly LicenseRecord[]>(
+    () => this.user()?.licenses ?? [],
+  );
+  protected readonly subscriptions = computed<readonly SubscriptionRecord[]>(
+    () => this.user()?.subscriptions ?? [],
+  );
+
+  // Status badge maps borrowed from the shared model config so the merged
+  // billing rows keep the exact color semantics the old dedicated lists used.
   protected readonly licenseStatusMap = this.badgeMapFor('licenses', 'status');
+  protected readonly licenseSourceMap = this.badgeMapFor('licenses', 'source');
   protected readonly subStatusMap = this.badgeMapFor('subscriptions', 'status');
   protected readonly sessionStatusMap = this.badgeMapFor(
     'session-requests',
@@ -134,7 +145,7 @@ export class UserProfile {
         return;
       }
       this.loadUser(id);
-      this.loadRelated(id);
+      this.loadRelatedList('session-requests', id, this.sessions);
     });
   }
 
@@ -142,7 +153,7 @@ export class UserProfile {
     this.loading.set(true);
     this.loadError.set(null);
     this.user.set(null);
-    this.api.get<UserRecord>('users', id).subscribe({
+    this.api.get<UserWithBilling>('users', id).subscribe({
       next: (u) => {
         this.user.set(u);
         this.loading.set(false);
@@ -152,12 +163,6 @@ export class UserProfile {
         this.loadError.set('Failed to load user.');
       },
     });
-  }
-
-  private loadRelated(id: string): void {
-    this.loadRelatedList('licenses', id, this.licenses);
-    this.loadRelatedList('subscriptions', id, this.subscriptions);
-    this.loadRelatedList('session-requests', id, this.sessions);
   }
 
   private loadRelatedList(
@@ -188,6 +193,35 @@ export class UserProfile {
     return String(value);
   }
 
+  protected isExpiringSoon = isExpiringSoon;
+
+  /**
+   * The subscription a license is attributable to, or null.
+   *
+   * There is no FK to follow: a license only claims a Paddle origin via its
+   * `source`, and the user's subscriptions are the only candidates. So a
+   * Paddle-sourced license resolves to the live subscription (falling back to
+   * the most recent one when none is live), and anything else — complimentary,
+   * manual, signup — resolves to null BY DESIGN. Those licenses were never
+   * paid for, and pairing them with an unrelated subscription would invent a
+   * link the data does not support.
+   */
+  protected linkedSubscription(
+    license: LicenseRecord,
+  ): SubscriptionRecord | null {
+    if (license.source !== 'paddle') return null;
+    const e = this.entitlement();
+    return e?.liveSubscription ?? this.subscriptions()[0] ?? null;
+  }
+
+  /** Explains a null `linkedSubscription` in the license row's own terms. */
+  protected unlinkedReason(license: LicenseRecord): string {
+    if (license.source === 'paddle') {
+      return 'No Paddle subscription on file';
+    }
+    return `Not a Paddle sale (${license.source})`;
+  }
+
   // --- Actions -------------------------------------------------------------
   protected openIssueLicense(): void {
     this.compLicenseModal()?.open();
@@ -197,9 +231,10 @@ export class UserProfile {
     this.deleteUserModal()?.open();
   }
 
+  /** Re-reads the user so the merged billing section picks up the new license. */
   protected onLicenseIssued(): void {
     const id = this.userId();
-    if (id) this.loadRelatedList('licenses', id, this.licenses);
+    if (id) this.loadUser(id);
   }
 
   protected onUserDeleted(): void {

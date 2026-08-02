@@ -187,10 +187,13 @@ export const ADMIN_MODEL_SPECS: AdminModelSpec[] = [
         type: 'string',
         listColumn: true,
         // Mirrors the (now-removed) hardcoded source branch from data-table.
+        // `paddle` is the ONLY value that asserts revenue — the reconciliation
+        // on the user profile treats it as a claim that a subscription exists.
         badgeMap: {
           complimentary: 'warning',
           manual: 'info',
-          paddle: 'ghost',
+          signup: 'ghost',
+          paddle: 'success',
         },
       },
       {

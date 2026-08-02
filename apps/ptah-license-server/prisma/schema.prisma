@@ -163,7 +163,9 @@ model License {
   licenseKey String    @unique @map("license_key")
   plan       String // "community" | "builders"
   status     String    @default("active") // "active" | "expired" | "revoked" | "paused"
-  // TASK_2025_292: License origin. "paddle" = paid subscription, "complimentary" = admin-issued gift, "manual" = admin-issued refund-in-kind.
+  // TASK_2025_292: License origin. "paddle" = paid subscription, "complimentary" = admin-issued gift, "manual" = admin-issued refund-in-kind,
+  // "signup" = auto-issued free community tier at registration (NOT revenue).
+  // ⚠️ The default below is "paddle", so any non-purchase creation path MUST set `source` explicitly or it will be counted as a sale.
   // NOTE: When MRR dashboards are built, they MUST filter `source = 'paddle'` (or join via `subscriptions` which is the correct source of truth).
   source     String    @default("paddle")
   expiresAt  DateTime? @map("expires_at")

@@ -85,7 +85,7 @@ export class NeedsAttentionQueue {
     const warnWell = 'bg-warning/10 text-warning';
     const errWell = 'bg-error/10 text-error';
 
-    return [
+    const rows: QueueRow[] = [
       {
         key: 'waitlist',
         label: 'Waitlist not yet invited',
@@ -113,8 +113,10 @@ export class NeedsAttentionQueue {
         label: 'Subscriptions past due',
         context: 'Billing needs attention in Paddle',
         icon: CreditCard,
-        link: '/admin/subscriptions',
-        queryParams: null,
+        // Licenses + subscriptions merged into the user surface; `pastDue` is
+        // the server-side preset for "holds a past_due Paddle subscription".
+        link: '/admin/users',
+        queryParams: { filter: 'entitlement:pastDue' },
         count: att ? att.subscriptionsPastDue : null,
         wellClass: warnWell,
         countClass: 'text-warning',
@@ -131,6 +133,7 @@ export class NeedsAttentionQueue {
         countClass: 'text-warning',
       },
     ];
+    return rows;
   });
 
   /**

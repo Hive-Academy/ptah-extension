@@ -852,6 +852,10 @@ export class AuthController {
           email,
           plan: 'community',
           createdBy: 'auto_community_signup',
+          // Explicit: this free tier license is NOT a Paddle sale. Without it
+          // the schema default ('paddle') makes every signup look like revenue
+          // and surface in the admin dashboard as an unlinked paid license.
+          source: 'signup',
         },
       );
       await this.emailService.sendLicenseKey({

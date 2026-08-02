@@ -437,7 +437,8 @@ export class AdminService {
    *   - the `field:value` shape is malformed,
    *   - `field` is not in the model's allowlist (arbitrary filtering blocked),
    *   - a boolean/datePresence value is not `true`/`false`,
-   *   - a string value falls outside its declared `allowedValues`.
+   *   - a string value falls outside its declared `allowedValues`,
+   *   - a relationPreset value names a preset that was not declared.
    */
   private buildFilterWhere(
     cfg: AdminModelConfig,
@@ -482,6 +483,19 @@ export class AdminService {
           );
         }
         return { [spec.column]: value };
+      case 'relationPreset': {
+        // The value is only ever a KEY lookup into the hard-coded preset map —
+        // no part of the returned `where` fragment originates from user input.
+        const preset = spec.presets[value];
+        if (!preset) {
+          throw new BadRequestException(
+            `filter '${field}' value '${value}' not allowed. Allowed: ${Object.keys(
+              spec.presets,
+            ).join(', ')}`,
+          );
+        }
+        return { ...preset };
+      }
     }
   }
 

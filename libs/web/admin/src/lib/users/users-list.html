@@ -6,15 +6,55 @@
       <span class="text-sm text-ink-400">({{ total() }} total)</span>
     </div>
 
-    <input
-      type="search"
-      class="input input-bordered input-sm w-72 max-w-full"
-      placeholder="Search email, first/last name, WorkOS ID, Paddle ID…"
-      [value]="search()"
-      (input)="onSearchInput($event)"
-      aria-label="Search users"
-    />
+    <div class="flex flex-wrap items-center gap-2">
+      <input
+        type="search"
+        class="input input-bordered input-sm w-72 max-w-full"
+        placeholder="Search email, first/last name, WorkOS ID, Paddle ID…"
+        [value]="search()"
+        (input)="onSearchInput($event)"
+        aria-label="Search users"
+      />
+      <button
+        type="button"
+        class="btn btn-primary btn-sm"
+        (click)="openIssueModal()"
+      >
+        + Issue Complimentary License
+      </button>
+    </div>
   </header>
+
+  <!-- Entitlement lenses — server-side `?filter=entitlement:<preset>` -->
+  <div
+    class="flex flex-wrap items-center gap-1"
+    role="tablist"
+    aria-label="Filter by entitlement"
+  >
+    @for (l of lenses; track l.key) {
+      <button
+        type="button"
+        role="tab"
+        class="btn btn-xs"
+        [class.btn-primary]="lens() === l.key"
+        [class.btn-ghost]="lens() !== l.key"
+        [attr.aria-selected]="lens() === l.key"
+        (click)="setLens(l.key)"
+      >
+        {{ l.label }}
+      </button>
+    }
+
+    @if (flaggedCount() > 0 && lens() !== 'unlinked') {
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs ml-2 text-warning"
+        (click)="setLens('unlinked')"
+      >
+        ⚠ {{ flaggedCount() }} on this page need attention
+      </button>
+    }
+  </div>
 
   <!-- Contextual bulk-action bar (replaces the disabled-until-selected button) -->
   <ptah-admin-selection-toolbar
@@ -60,36 +100,98 @@
             </th>
             <th>Email</th>
             <th>Name</th>
+            <th>License</th>
+            <th>Paddle Subscription</th>
             <th>Verified</th>
             <th>Joined</th>
           </tr>
         </thead>
         <tbody>
-          @for (row of rows(); track row.id) {
+          @for (row of rows(); track row.user.id) {
             <tr
               class="cursor-pointer hover:bg-base-200"
-              (click)="onRowClick(row.id)"
+              (click)="onRowClick(row.user.id)"
             >
               <td (click)="$event.stopPropagation()">
                 <input
                   type="checkbox"
                   class="checkbox checkbox-sm"
-                  [checked]="isSelected(row.id)"
-                  (change)="toggleSelected(row.id, $event)"
-                  [attr.aria-label]="'Select ' + row.email"
+                  [checked]="isSelected(row.user.id)"
+                  (change)="toggleSelected(row.user.id, $event)"
+                  [attr.aria-label]="'Select ' + row.user.email"
                 />
               </td>
-              <td class="font-medium">{{ row.email }}</td>
-              <td class="text-ink-300">{{ displayName(row) }}</td>
+              <td class="font-medium">
+                <div class="flex items-center gap-1.5">
+                  {{ row.user.email }}
+                  @if (row.entitlement.discrepancies.length > 0) {
+                    <span
+                      class="text-warning"
+                      [attr.title]="row.entitlement.discrepancies[0].message"
+                      aria-label="Entitlement needs attention"
+                    >
+                      ⚠
+                    </span>
+                  }
+                </div>
+              </td>
+              <td class="text-ink-300">{{ displayName(row.user) }}</td>
+
+              <!-- License: effective plan + status, expiry as the secondary line -->
+              <td>
+                <div class="flex flex-col gap-0.5">
+                  <ptah-admin-status-badge
+                    [variant]="planVariant(row.entitlement)"
+                    [label]="planLabel(row.entitlement)"
+                    size="xs"
+                  />
+                  @if (row.entitlement.activeLicense; as lic) {
+                    <span
+                      class="text-[0.65rem] leading-tight"
+                      [class.text-warning]="row.entitlement.expiringSoon"
+                      [class.text-ink-500]="!row.entitlement.expiringSoon"
+                    >
+                      {{
+                        lic.expiresAt
+                          ? (row.entitlement.expiringSoon ? 'Expires ' : 'Until ') +
+                            (lic.expiresAt | date: 'mediumDate')
+                          : 'Lifetime'
+                      }}
+                      · {{ lic.source }}
+                    </span>
+                  }
+                </div>
+              </td>
+
+              <!-- Subscription: the other half of the join, on the same row -->
+              <td>
+                <div class="flex flex-col gap-0.5">
+                  <ptah-admin-status-badge
+                    [variant]="subscriptionVariant(row.entitlement)"
+                    [label]="subscriptionLabel(row.entitlement)"
+                    size="xs"
+                  />
+                  @if (row.entitlement.liveSubscription; as sub) {
+                    <span class="font-mono text-[0.65rem] leading-tight text-ink-500">
+                      {{ sub.paddleSubscriptionId }}
+                    </span>
+                  }
+                </div>
+              </td>
+
               <td>
                 <ptah-admin-status-badge
-                  [variant]="row.emailVerified ? 'success' : 'ghost'"
-                  [label]="row.emailVerified ? 'Verified' : 'Unverified'"
+                  [variant]="row.user.emailVerified ? 'success' : 'ghost'"
+                  [label]="row.user.emailVerified ? 'Verified' : 'Unverified'"
                   size="xs"
                 />
               </td>
               <td class="text-xs text-ink-400">
-                {{ row.createdAt ? (row.createdAt | date: 'medium') : '—' }}
+                {{
+                  row.user.createdAt
+                    ? (row.user.createdAt | date: 'medium')
+                    : '—'
+                }}
               </td>
             </tr>
           }
@@ -128,6 +230,18 @@
     (closeModal)="onBulkEmailClose()"
     (submitted)="onBulkEmailSent($event)"
   />
+
+  <!-- Search mode: the modal resolves its own recipient, so issuance works
+       here without the removed licenses page. -->
+  <app-issue-comp-license-modal mode="search" (issued)="onIssued($event)" />
+
+  @if (issuedToast(); as t) {
+    <div class="toast toast-end z-50">
+      <div class="alert alert-success">
+        <span>{{ t }}</span>
+      </div>
+    </div>
+  }
 
   @if (bulkEmailToast(); as t) {
     <div class="toast toast-end z-50">

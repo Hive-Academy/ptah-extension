@@ -42,10 +42,14 @@ import { WaitlistFunnel } from './waitlist-funnel/waitlist-funnel';
 export class AdminOverview {
   private readonly api = inject(AdminApiService);
 
-  /** Query-param intent read client-side by the Licenses view (spec §3.5). */
+  /**
+   * Drill-down for the Builders tile. Targets the merged user surface, which
+   * replaced the standalone Licenses view: `entitlement:builders` is a
+   * server-side preset ("holds an active builders license"), so the tile count
+   * and the list it opens are answering the same question.
+   */
   protected readonly buildersLinkParams = {
-    plan: 'builders',
-    status: 'active',
+    filter: 'entitlement:builders',
   };
 
   protected readonly stats = signal<AdminStatsResponse | null>(null);
