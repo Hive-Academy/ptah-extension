@@ -26,10 +26,9 @@
  * - `workspace:switch`          — Switch active workspace + import sessions
  *
  * VS Code Note: VS Code's `VsCodeWorkspaceProvider` does not implement
- * `IWorkspaceLifecycleProvider`; the VS Code app excludes this handler via
- * `registerAllRpcHandlers(container, { exclude: [WorkspaceRpcHandlers] })`
- * and lists the `workspace:*` methods in its `ELECTRON_ONLY_METHODS` array
- * so verifier output stays clean.
+ * `IWorkspaceLifecycleProvider`, so its host profile leaves the
+ * `workspaceLifecycle` capability off. `registerRpcSurface` then skips this
+ * handler and derives the `workspace:*` exclusions for the verifier.
  */
 
 import { injectable, inject } from 'tsyringe';

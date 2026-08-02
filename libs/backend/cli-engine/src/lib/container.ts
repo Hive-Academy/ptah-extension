@@ -95,6 +95,9 @@ import {
   WebSearchRpcHandlers,
   WorkspaceRpcHandlers,
   activateSessionLifecycleNotifier,
+  registerChatServices,
+  registerHarnessServices,
+  registerRpcSurface,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import {
@@ -110,7 +113,8 @@ import {
 import { CliMessageTransport } from './transport/cli-message-transport';
 import { CliWebviewManagerAdapter } from './transport/cli-webview-manager-adapter';
 import { CliFireAndForgetHandler } from './transport/cli-fire-and-forget-handler';
-import { CliRpcMethodRegistrationService } from './rpc/cli-rpc-method-registration.service';
+import { CliAgentRpcHandlers } from './rpc/cli-agent-rpc.handlers.js';
+import { createCliRpcHostProfile } from './rpc/cli-host-profile';
 import { registerThothLibraries } from './thoth/register-thoth-libraries';
 
 /**
@@ -662,8 +666,10 @@ export class CliDIContainer {
         } as unknown as Error);
       }
       try {
-        const registration = new CliRpcMethodRegistrationService(container);
-        registration.registerAll();
+        registerChatServices(container);
+        registerHarnessServices(container);
+        container.registerSingleton(CliAgentRpcHandlers);
+        registerRpcSurface(container, createCliRpcHostProfile());
       } catch (error) {
         logger.error(
           '[CLI DI] RPC method registration failed',

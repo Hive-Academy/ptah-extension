@@ -6,9 +6,9 @@ import type { DependencyContainer } from 'tsyringe';
 import { type Logger } from '@ptah-extension/vscode-core';
 import {
   MEMORY_CONTRACT_TOKENS,
-  type IMemoryReader,
-  type IMemoryLister,
-  type ISymbolSink,
+  NullMemoryLister,
+  NullMemoryReader,
+  NullSymbolSink,
 } from '@ptah-extension/memory-contracts';
 import { registerCuratorAuthServices } from '@ptah-extension/auth-providers';
 import {
@@ -158,32 +158,22 @@ function ensureMemoryContractFallbacks(
   const missing: string[] = [];
 
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_READER)) {
-    const noopMemoryReader: IMemoryReader = {
-      search: async () => ({ hits: [], bm25Only: true }),
-    };
     container.register(MEMORY_CONTRACT_TOKENS.MEMORY_READER, {
-      useValue: noopMemoryReader,
+      useValue: NullMemoryReader,
     });
     missing.push('MEMORY_READER');
   }
 
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER)) {
-    const noopMemoryLister: IMemoryLister = {
-      listAll: () => ({ memories: [], total: 0 }),
-    };
     container.register(MEMORY_CONTRACT_TOKENS.MEMORY_LISTER, {
-      useValue: noopMemoryLister,
+      useValue: NullMemoryLister,
     });
     missing.push('MEMORY_LISTER');
   }
 
   if (!container.isRegistered(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)) {
-    const noopSymbolSink: ISymbolSink = {
-      deleteSymbolsForFile: () => 0,
-      insertSymbols: async () => undefined,
-    };
     container.register(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK, {
-      useValue: noopSymbolSink,
+      useValue: NullSymbolSink,
     });
     missing.push('SYMBOL_SINK');
   }

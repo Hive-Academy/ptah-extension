@@ -4,7 +4,7 @@
  * IMPORTANT: All SDK services are registered as singletons to ensure
  * the same instance is used across all consumers. This is critical for
  * SdkAgentAdapter - the initialized state must be shared between main.ts
- * (which calls initialize()) and RpcMethodRegistrationService (which uses it).
+ * (which calls initialize()) and `registerRpcSurface` (which uses it).
  *
  * Pattern: Services use @injectable() and @inject() decorators for auto-wiring.
  * Registration uses singleton pattern to ensure consistent state across consumers.

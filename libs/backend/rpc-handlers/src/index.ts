@@ -59,7 +59,7 @@ export type {
   ISaveDialogProvider,
   IModelDiscovery,
 } from '@ptah-extension/platform-core';
-export * from './lib/register-all';
+export * from './lib/host-profile';
 export * from './lib/verify-and-report';
 export {
   registerSharedRpcHandlers,

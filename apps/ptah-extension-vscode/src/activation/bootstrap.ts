@@ -17,7 +17,11 @@ import {
   type MigrationRunner,
   type IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
+import { registerRpcSurface } from '@ptah-extension/rpc-handlers';
+import type { CommandManager } from '@ptah-extension/vscode-core';
 import { DIContainer } from '../di/container';
+import { registerSetupAgentsCommand } from '../commands/setup-agents-command';
+import { createVscodeRpcHostProfile } from '../rpc-host-profile';
 
 export interface BootstrapResult {
   logger: Logger;
@@ -107,10 +111,16 @@ export async function bootstrapVscode(
     tier: licenseStatus.tier,
     valid: licenseStatus.valid,
   });
-  const rpcMethodRegistration = DIContainer.resolve(
-    TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
-  ) as { registerAll: () => RpcVerificationResult };
-  const rpcVerification = rpcMethodRegistration.registerAll();
+  const rootContainer = DIContainer.getContainer();
+  registerSetupAgentsCommand(
+    rootContainer,
+    DIContainer.resolve<CommandManager>(TOKENS.COMMAND_MANAGER),
+    logger,
+  );
+  const rpcVerification = registerRpcSurface(
+    rootContainer,
+    createVscodeRpcHostProfile(logger),
+  );
   const agentDiscovery = DIContainer.resolve(
     TOKENS.AGENT_DISCOVERY_SERVICE,
   ) as { initializeWatchers: () => void };

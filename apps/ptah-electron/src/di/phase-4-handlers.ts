@@ -5,7 +5,7 @@
  *   - Phase 4.1: 18 shared RPC handler classes (5 factory-based for lazy
  *                container/webview resolution, 13 singletons).
  *   - Phase 4.2: 11 Electron-specific RPC handler classes + GitInfoService +
- *                PtyManagerService + ElectronRpcMethodRegistrationService orchestrator.
+ *                PtyManagerService.
  */
 
 import type { DependencyContainer } from 'tsyringe';
@@ -61,14 +61,13 @@ import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
 import { PtyManagerService } from '../services/pty-manager.service';
 import { ELECTRON_TOKENS } from './electron-tokens';
-import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method-registration.service';
 
 /**
- * Phase 4: Register all RPC handler classes and the orchestrator service.
+ * Phase 4: Register all RPC handler classes with the container.
  *
  * Prerequisites: Phases 0–3 must have registered all dependencies the factory
  * bodies resolve. Registrations themselves are lazy; actual resolution happens
- * when ElectronRpcMethodRegistrationService.registerAll() runs in main.ts.
+ * when `registerRpcSurface()` runs in `wire-runtime.ts`.
  *
  * NOTE: Factory-based registrations (SetupRpcHandlers, WizardGenerationRpcHandlers,
  * EnhancedPromptsRpcHandlers, LlmRpcHandlers, EditorRpcHandlers) exist because
@@ -163,7 +162,6 @@ export function registerPhase4Handlers(
   container.registerSingleton(TerminalRpcHandlers);
   container.registerSingleton(UPDATE_MANAGER_TOKEN, UpdateManager);
   container.registerSingleton(UpdateRpcHandlers);
-  container.registerSingleton(ElectronRpcMethodRegistrationService);
 
   logger.info(
     '[Electron DI] Electron-specific RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',

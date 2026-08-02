@@ -37,9 +37,6 @@ export const CONFIG_MANAGER = Symbol.for('ConfigManager');
 export const MESSAGE_VALIDATOR = Symbol.for('MessageValidator');
 export const CONTEXT_MANAGER = Symbol.for('ContextManager');
 export const RPC_HANDLER = Symbol.for('RpcHandler');
-export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
-  'RpcMethodRegistrationService',
-);
 export const SUBAGENT_REGISTRY_SERVICE = Symbol.for('SubagentRegistryService');
 export const SENTRY_SERVICE = Symbol.for('SentryService');
 export const TOKEN_COUNTER_SERVICE = Symbol.for('TokenCounterService');
@@ -185,7 +182,6 @@ export const TOKENS = {
   MESSAGE_VALIDATOR,
   CONTEXT_MANAGER,
   RPC_HANDLER,
-  RPC_METHOD_REGISTRATION_SERVICE,
   SUBAGENT_REGISTRY_SERVICE,
   SENTRY_SERVICE,
   TOKEN_COUNTER_SERVICE,

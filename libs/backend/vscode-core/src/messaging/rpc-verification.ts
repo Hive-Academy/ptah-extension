@@ -163,7 +163,7 @@ export function assertRpcRegistration(
         ', ',
       )}\n` +
         `Expected ${result.expectedCount} methods, found ${result.actualCount} handlers.\n` +
-        `This usually means a handler was not registered in RpcMethodRegistrationService.`,
+        `This usually means the owning manifest entry is missing from the host profile.`,
     );
   }
 }

@@ -106,23 +106,39 @@ jest.mock('@ptah-extension/memory-curator', () => ({
 import 'reflect-metadata';
 import { ALLOWED_METHOD_PREFIXES } from '@ptah-extension/vscode-core';
 import { RPC_METHOD_NAMES } from '@ptah-extension/shared';
-import { SHARED_HANDLERS } from './register-all';
+import { RPC_HANDLER_MANIFEST, assertManifestInvariants } from './host-profile';
+
+describe('RPC handler manifest', () => {
+  it('claims every registry method exactly once', () => {
+    expect(() => assertManifestInvariants(RPC_METHOD_NAMES)).not.toThrow();
+  });
+
+  it('uses unique entry keys', () => {
+    const keys = RPC_HANDLER_MANIFEST.map((entry) => entry.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('only leaves `host.`-prefixed entries without a library implementation', () => {
+    const unowned = RPC_HANDLER_MANIFEST.filter(
+      (entry) => !('handler' in entry) && !entry.key.startsWith('host.'),
+    ).map((entry) => entry.key);
+    expect(unowned).toEqual([]);
+  });
+});
 
 describe('RPC allowlist dual-registration guard', () => {
-  it('every SHARED_HANDLERS method has its prefix in ALLOWED_METHOD_PREFIXES', () => {
+  it('every manifest method has its prefix in ALLOWED_METHOD_PREFIXES', () => {
     const missing: string[] = [];
 
-    for (const HandlerCtor of SHARED_HANDLERS) {
-      for (const method of HandlerCtor.METHODS) {
+    for (const entry of RPC_HANDLER_MANIFEST) {
+      for (const method of entry.methods) {
         const colonIndex = method.indexOf(':');
         // Methods without a colon have no valid prefix — flag them too.
         const prefix =
           colonIndex === -1 ? method : method.slice(0, colonIndex + 1);
 
         if (!(ALLOWED_METHOD_PREFIXES as readonly string[]).includes(prefix)) {
-          missing.push(
-            `  - ${HandlerCtor.name}: ${method}  (prefix: "${prefix}")`,
-          );
+          missing.push(`  - ${entry.key}: ${method}  (prefix: "${prefix}")`);
         }
       }
     }

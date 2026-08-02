@@ -508,7 +508,7 @@ import type {
  * If you add a new RPC method:
  * 1. Add its params/result types above
  * 2. Add an entry to this registry
- * 3. Register the handler in RpcMethodRegistrationService
+ * 3. Give it an owner in RPC_HANDLER_MANIFEST (@ptah-extension/rpc-handlers)
  *
  * If a method is not in this registry, it CANNOT be called from frontend.
  */

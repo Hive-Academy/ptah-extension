@@ -4,7 +4,7 @@
  * Provides a WebviewManager-compatible interface for Electron that sends
  * messages to the renderer via the IpcBridge. This adapter is registered
  * as TOKENS.WEBVIEW_MANAGER in the DI container so that backend services
- * (RpcMethodRegistrationService, AgentSessionWatcherService, etc.) can
+ * (RPC handlers, AgentSessionWatcherService, etc.) can
  * push events to the frontend without knowing about Electron IPC.
  *
  * In VS Code, WebviewManager wraps VS Code's webview panel postMessage API.

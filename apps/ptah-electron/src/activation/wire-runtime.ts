@@ -14,7 +14,8 @@ import {
   EnhancedPromptsService,
 } from '@ptah-extension/agent-generation';
 import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-generation';
-import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method-registration.service';
+import { registerRpcSurface } from '@ptah-extension/rpc-handlers';
+import { createElectronRpcHostProfile } from '../rpc-host-profile';
 import { createApplicationMenu } from '../menu/application-menu';
 import { syncCliAgentsOnActivation } from './cli-agent-sync';
 import { syncCliSkillsOnActivation } from './cli-skill-sync';
@@ -116,10 +117,11 @@ export async function wireRuntime(
       error instanceof Error ? error.message : String(error),
     );
   }
-  const rpcRegistration = container.resolve(
-    ElectronRpcMethodRegistrationService,
+  const rpcLogger = container.resolve<Logger>(TOKENS.LOGGER);
+  registerRpcSurface(
+    container,
+    createElectronRpcHostProfile(container, rpcLogger),
   );
-  rpcRegistration.registerAll();
 
   console.log(
     '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized',

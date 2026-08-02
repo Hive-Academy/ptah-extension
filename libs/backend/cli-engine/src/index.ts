@@ -35,10 +35,7 @@ export { CliMessageTransport } from './lib/transport/cli-message-transport.js';
 export { CliWebviewManagerAdapter } from './lib/transport/cli-webview-manager-adapter.js';
 export { CliFireAndForgetHandler } from './lib/transport/cli-fire-and-forget-handler.js';
 
-export {
-  CliRpcMethodRegistrationService,
-  __CLI_EXCLUDED_RPC_METHODS_FOR_TEST,
-} from './lib/rpc/cli-rpc-method-registration.service.js';
+export { createCliRpcHostProfile } from './lib/rpc/cli-host-profile.js';
 export { CliAgentRpcHandlers } from './lib/rpc/cli-agent-rpc.handlers.js';
 
 export {
