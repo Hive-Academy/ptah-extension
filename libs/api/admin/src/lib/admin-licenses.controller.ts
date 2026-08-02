@@ -12,6 +12,7 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '@ptah-api/identity';
 import { AdminGuard } from '@ptah-api/identity';
 import { AdminThrottlerGuard } from '@ptah-api/identity';
+import { dtoPipe } from '@ptah-api/core';
 import { LicenseService } from '@ptah-api/licensing';
 import type { ComplimentaryLicenseResult } from '@ptah-api/licensing';
 import { IssueComplimentaryLicenseDto } from '@ptah-api/licensing';
@@ -31,9 +32,20 @@ import { IssueComplimentaryLicenseDto } from '@ptah-api/licensing';
  * `licensing/IntegrationLicensesController`, so this prefix is now owned by
  * exactly one controller and one auth model.
  *
- * ⚠️ VALIDATION DEBT: `@Body()` is still bare. Binding is TASK_2026_170 B7c;
- * tracked by `src/common/controller-validation.spec.ts`'s `UNVALIDATED_DEBT`
- * ledger.
+ * ⚠️ EVERY `@Body()` / `@Query()` PARAM MUST BIND `dtoPipe(TheDto)`.
+ * A bare `@Body() dto: X` is SILENTLY UNVALIDATED in this server: esbuild does
+ * not emit `emitDecoratorMetadata`, so Nest cannot infer the DTO type and the
+ * global ValidationPipe short-circuits — every `class-validator` decorator
+ * becomes inert. See `libs/api/core/src/lib/common/dto-validation.pipe.ts`.
+ * `apps/ptah-license-server/src/common/controller-validation.spec.ts` fails the
+ * build if a binding is dropped.
+ *
+ * `IssueComplimentaryLicenseDto` is the DTO in this server with the most
+ * behaviour riding on that binding: a custom EXACTLY-ONE-OF `userId` XOR
+ * `email` cross-field rule, `@ValidateIf` gating `customExpiresAt` on
+ * `durationPreset === 'custom'`, and a `@Transform` that trims and lowercases
+ * `email` BEFORE `LicenseService.createComplimentaryLicense` find-or-creates a
+ * user from it. None of that had ever executed before this binding.
  */
 @Controller('v1/admin/licenses')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -57,7 +69,8 @@ export class AdminLicensesController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async issueComplimentaryLicense(
     @Req() req: Request,
-    @Body() body: IssueComplimentaryLicenseDto,
+    @Body(dtoPipe(IssueComplimentaryLicenseDto))
+    body: IssueComplimentaryLicenseDto,
   ): Promise<ComplimentaryLicenseResult> {
     const actorEmail = req.user?.email ?? 'unknown';
     const userAgent = req.headers['user-agent'];
