@@ -167,6 +167,34 @@ export class MarketingCompose {
     return 0;
   });
 
+  /**
+   * Hard cap on the campaign-name input — 93, not 100.
+   *
+   * `SendCampaignDto.name` is `@Length(1, 100)` server-side, and `sendTest()`
+   * below posts `` `${this.name()} (test)` `` — SEVEN characters longer than
+   * what the operator typed. With a 100-char client cap an admin who used
+   * 94-100 characters would get the worst possible outcome: the REAL send
+   * succeeds and the TEST send 400s, i.e. the safety rehearsal is the only
+   * thing that fails. 100 - ' (test)'.length = 93 keeps both paths inside the
+   * server's limit.
+   *
+   * 🔴 The DTO is right and the caller was wrong. Do NOT raise the server's
+   * `@Length(1, 100)` to make a longer name fit (TASK_2026_170 §3.16).
+   *
+   * Related headroom note: `bulk-email-modal.ts` builds
+   * `` `Bulk Email: ${subject.substring(0, 80) || 'Untitled'}` `` = 12 + ≤80 =
+   * ≤92 chars, so it clears the same 100-char cap with 8 characters to spare.
+   */
+  private static readonly MAX_NAME_LENGTH = 93;
+
+  /**
+   * Single write path for `name`, so the cap survives paste, autofill and any
+   * programmatic set — `maxlength` on the input alone only covers typing.
+   */
+  protected setName(value: string): void {
+    this.name.set(value.slice(0, MarketingCompose.MAX_NAME_LENGTH));
+  }
+
   // ── Per-step completeness (reuses canSubmit's existing sub-conditions) ─────
   protected readonly hasName = computed(() => this.name().trim().length > 0);
 

@@ -199,13 +199,28 @@ export class IssueCompLicenseModalComponent {
     const searchRecipient = this.isSearchMode()
       ? this.selectedRecipient()
       : null;
+    const boundUserId = this.userId().trim();
     // Target precedence: search-mode picked user → bound email → bound userId.
+    //
+    // The final branch OMITS `userId` when it is empty rather than sending
+    // `{ userId: '' }`. The modal defaults to `mode: 'bound'`, and
+    // `isSearchMode()` is false in that mode, so `canSubmit` never required a
+    // recipient — opening it with no bound user and no typed email produced
+    // `{ userId: '' }`, which fails BOTH `@IsUUID('4')` and the server's
+    // EXACTLY-ONE-OF rule (an empty string counts as absent, so it reads as
+    // NEITHER identifier). Now that TASK_2026_170 B7c binds
+    // `IssueComplimentaryLicenseDto`, omitting the key makes the server answer
+    // with the accurate error — "Provide exactly one of `userId` or `email`" —
+    // instead of a confusing uuid-format complaint about a field the operator
+    // never filled in.
     const target: Pick<IssueComplimentaryLicenseRequest, 'userId' | 'email'> =
       searchRecipient
         ? { userId: searchRecipient.id }
         : emailTarget
           ? { email: emailTarget }
-          : { userId: this.userId() };
+          : boundUserId
+            ? { userId: boundUserId }
+            : {};
 
     const body: IssueComplimentaryLicenseRequest = {
       ...target,
