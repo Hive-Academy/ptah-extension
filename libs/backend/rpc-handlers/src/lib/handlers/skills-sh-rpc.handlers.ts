@@ -15,7 +15,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import type { Dirent } from 'fs';
 import * as path from 'path';
@@ -31,11 +30,10 @@ import type {
   RpcMethodName,
 } from '@ptah-extension/shared';
 import {
-  SAFE_SOURCE_PATTERN,
-  SAFE_SKILL_ID_PATTERN,
   SAFE_SKILL_NAME_PATTERN,
   sanitizeSearchQuery,
 } from './skills-sh-rpc.schema';
+import { installSkillViaCli, runSkillsCli } from '../utils/skills-sh-cli';
 import { SkillsShApiClient } from '@ptah-extension/cli-agent-runtime';
 
 const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
@@ -191,7 +189,7 @@ export class SkillsShRpcHandlers {
         }
 
         const workspaceRoot = this.getWorkspaceRoot();
-        const result = await this.runSkillsCli(
+        const result = await runSkillsCli(
           ['find', sanitizedQuery],
           workspaceRoot,
           15000,
@@ -237,7 +235,7 @@ export class SkillsShRpcHandlers {
         const workspaceRoot = this.getWorkspaceRoot();
         const skills: InstalledSkill[] = [];
         try {
-          const projectResult = await this.runSkillsCli(
+          const projectResult = await runSkillsCli(
             ['list', '--json'],
             workspaceRoot,
             10000,
@@ -270,7 +268,7 @@ export class SkillsShRpcHandlers {
           }
         }
         try {
-          const globalResult = await this.runSkillsCli(
+          const globalResult = await runSkillsCli(
             ['list', '--json', '-g'],
             workspaceRoot,
             10000,
@@ -333,50 +331,17 @@ export class SkillsShRpcHandlers {
           scope: params.scope,
         });
 
-        if (!SAFE_SOURCE_PATTERN.test(params.source)) {
-          return {
-            success: false,
-            error: `Invalid source format: "${params.source}". Expected "owner/repo".`,
-          };
-        }
-
-        if (params.skillId && !SAFE_SKILL_ID_PATTERN.test(params.skillId)) {
-          return {
-            success: false,
-            error: `Invalid skillId format: "${params.skillId}".`,
-          };
-        }
-
-        const workspaceRoot = this.getWorkspaceRoot();
-        if (!workspaceRoot && params.scope === 'project') {
-          return {
-            success: false,
-            error: 'No workspace folder open for project-scope installation.',
-          };
-        }
-
-        const args = ['add', params.source];
-        if (params.skillId) {
-          args.push('--skill', params.skillId);
-        }
-        args.push('--agent', 'claude-code');
-        args.push('-y');
-        if (params.scope === 'global') {
-          args.push('-g');
-        }
-
-        const result = await this.runSkillsCli(
-          args,
-          workspaceRoot || os.homedir(),
-          30000,
+        const result = await installSkillViaCli(
+          {
+            source: params.source,
+            skillId: params.skillId,
+            scope: params.scope,
+          },
+          this.getWorkspaceRoot() || undefined,
         );
 
-        if (result.exitCode !== 0) {
-          const errorDetail =
-            result.stderr.trim() ||
-            result.stdout.trim().split('\n').pop() ||
-            `CLI exited with code ${result.exitCode}`;
-          return { success: false, error: errorDetail };
+        if (!result.success) {
+          return result;
         }
 
         this.popularCache = null;
@@ -430,7 +395,7 @@ export class SkillsShRpcHandlers {
           args.push('-g');
         }
 
-        const result = await this.runSkillsCli(
+        const result = await runSkillsCli(
           args,
           workspaceRoot || os.homedir(),
           15000,
@@ -483,7 +448,7 @@ export class SkillsShRpcHandlers {
         let skills: SkillShEntry[] = [];
         try {
           const workspaceRoot = this.getWorkspaceRoot() || os.homedir();
-          const result = await this.runSkillsCli(
+          const result = await runSkillsCli(
             ['find', '""'],
             workspaceRoot,
             15000,
@@ -566,72 +531,6 @@ export class SkillsShRpcHandlers {
         }
       },
     );
-  }
-
-  private runSkillsCli(
-    args: string[],
-    cwd: string,
-    timeout = 15000,
-  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const settle = (result: {
-        stdout: string;
-        stderr: string;
-        exitCode: number;
-      }) => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          resolve(result);
-        }
-      };
-
-      const child = spawn('npx', ['skills', ...args], {
-        shell: true,
-        cwd: cwd || undefined,
-        env: {
-          ...process.env,
-          FORCE_COLOR: '0',
-          NO_COLOR: '1',
-        },
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      child.stdout.setEncoding('utf8');
-      child.stderr.setEncoding('utf8');
-
-      child.stdout.on('data', (data: string) => {
-        stdout += data;
-      });
-
-      child.stderr.on('data', (data: string) => {
-        stderr += data;
-      });
-
-      child.on('close', (code: number | null) => {
-        settle({ stdout, stderr, exitCode: code ?? 1 });
-      });
-
-      child.on('error', (error: Error) => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          reject(error);
-        }
-      });
-
-      const timer = setTimeout(() => {
-        child.kill('SIGTERM');
-        settle({
-          stdout,
-          stderr: `CLI timed out after ${timeout}ms`,
-          exitCode: 124,
-        });
-      }, timeout);
-    });
   }
 
   /**

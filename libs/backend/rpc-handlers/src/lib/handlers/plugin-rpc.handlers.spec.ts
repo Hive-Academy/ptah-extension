@@ -84,6 +84,7 @@ type MockPluginLoader = jest.Mocked<
     | 'getWorkspacePluginConfig'
     | 'saveWorkspacePluginConfig'
     | 'resolvePluginPaths'
+    | 'resolveCurrentPluginPaths'
     | 'discoverSkillsForPlugins'
   >
 >;
@@ -93,6 +94,12 @@ function createMockPluginLoader(
     availablePlugins?: PluginInfo[];
     workspaceConfig?: PluginConfigState;
     resolvedPaths?: string[];
+    /**
+     * What the junction-feeding resolver returns. Defaults to `resolvedPaths`
+     * so bundled-only setups behave exactly as before; set it explicitly to
+     * model harness-authored ptah-harness-* dirs being appended.
+     */
+    junctionPaths?: string[];
     discoveredSkills?: PluginSkillEntry[];
   } = {},
 ): MockPluginLoader {
@@ -111,6 +118,11 @@ function createMockPluginLoader(
     resolvePluginPaths: jest
       .fn()
       .mockReturnValue(overrides.resolvedPaths ?? []),
+    resolveCurrentPluginPaths: jest
+      .fn()
+      .mockReturnValue(
+        overrides.junctionPaths ?? overrides.resolvedPaths ?? [],
+      ),
     discoverSkillsForPlugins: jest
       .fn()
       .mockReturnValue(overrides.discoveredSkills ?? []),
@@ -179,6 +191,7 @@ function makeHarness(
     availablePlugins?: PluginInfo[];
     workspaceConfig?: PluginConfigState;
     resolvedPaths?: string[];
+    junctionPaths?: string[];
     discoveredSkills?: PluginSkillEntry[];
   } = {},
 ): Harness {
@@ -429,6 +442,76 @@ describe('PluginRpcHandlers', () => {
         ['/plugins/alpha'],
         [],
       );
+    });
+
+    it('feeds junctions from the harness-inclusive resolver, not the bundled-only one', async () => {
+      // Regression: junctions used to be created from the bundled-only
+      // resolvePluginPaths() result, so SkillJunctionService.removeStaleJunctions
+      // deleted every harness-authored junction on any marketplace toggle.
+      const h = makeHarness({
+        availablePlugins: [makePluginInfo('alpha')],
+        resolvedPaths: ['/plugins/alpha'],
+        junctionPaths: [
+          '/plugins/alpha',
+          '/home/user/.ptah/plugins/ptah-harness-demo-skill',
+        ],
+        discoveredSkills: [],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:save-config', {
+        enabledPluginIds: ['alpha'],
+        disabledSkillIds: [],
+      });
+
+      expect(h.pluginLoader.resolveCurrentPluginPaths).toHaveBeenCalled();
+      expect(h.skillJunction.createJunctions).toHaveBeenCalledWith(
+        ['/plugins/alpha', '/home/user/.ptah/plugins/ptah-harness-demo-skill'],
+        [],
+      );
+    });
+
+    it('keeps harness junctions alive when the user disables every plugin', async () => {
+      const h = makeHarness({
+        availablePlugins: [makePluginInfo('alpha')],
+        resolvedPaths: [],
+        junctionPaths: ['/home/user/.ptah/plugins/ptah-harness-demo-skill'],
+        discoveredSkills: [],
+      });
+      h.handlers.register();
+
+      const result = await call(h, 'plugins:save-config', {
+        enabledPluginIds: [],
+        disabledSkillIds: [],
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(h.skillJunction.createJunctions).toHaveBeenCalledWith(
+        ['/home/user/.ptah/plugins/ptah-harness-demo-skill'],
+        [],
+      );
+    });
+
+    it('still validates disabled skill IDs against the bundled plugin paths only', async () => {
+      const h = makeHarness({
+        availablePlugins: [makePluginInfo('alpha')],
+        resolvedPaths: ['/plugins/alpha'],
+        junctionPaths: [
+          '/plugins/alpha',
+          '/home/user/.ptah/plugins/ptah-harness-demo-skill',
+        ],
+        discoveredSkills: [makeSkillEntry('real-skill', 'alpha')],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:save-config', {
+        enabledPluginIds: ['alpha'],
+        disabledSkillIds: ['real-skill'],
+      });
+
+      expect(h.pluginLoader.discoverSkillsForPlugins).toHaveBeenCalledWith([
+        '/plugins/alpha',
+      ]);
     });
 
     it('returns a structured error shape (not a throw) when the loader throws', async () => {

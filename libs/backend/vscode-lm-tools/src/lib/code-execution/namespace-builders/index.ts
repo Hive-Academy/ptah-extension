@@ -79,4 +79,6 @@ export {
   buildHarnessNamespace,
   type HarnessNamespaceDependencies,
   type HarnessNamespace,
+  type HarnessMcpInstaller,
+  type HarnessMcpInstallOutcome,
 } from './harness-namespace.builder';

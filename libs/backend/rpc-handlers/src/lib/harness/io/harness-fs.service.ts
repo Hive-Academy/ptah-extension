@@ -12,6 +12,11 @@
  * Extracted from `harness-rpc.handlers.ts` (`registerCreateSkill` and
  * `registerDiscoverMcp`) to keep the handler free of `fs`/`path`/`os` imports.
  *
+ * Discovery of the `ptah-harness-*` directories this service writes is NOT here:
+ * it lives in `PluginLoaderService.discoverHarnessPluginPaths()` (agent-sdk), so
+ * `resolveCurrentPluginPaths()` is the single source of truth for every junction
+ * call site instead of an ad-hoc merge at one of them.
+ *
  * Behaviour is byte-identical to the pre-extraction implementation — the only
  * change is WHERE the code lives.
  */
@@ -95,39 +100,6 @@ export class HarnessFsService {
     await fs.writeFile(skillMdPath, skillContent, 'utf-8');
 
     return { skillId: sanitizedName, skillPath: skillMdPath };
-  }
-
-  async discoverHarnessPluginPaths(): Promise<string[]> {
-    const pluginsBase = path.join(os.homedir(), '.ptah', 'plugins');
-    let entries: string[];
-    try {
-      entries = await fs.readdir(pluginsBase);
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        this.logger.warn(
-          `RPC: harness:apply failed to read plugins directory: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-      return [];
-    }
-
-    const paths: string[] = [];
-    for (const entry of entries) {
-      if (!entry.startsWith('ptah-harness-')) continue;
-      const pluginPath = path.join(pluginsBase, entry);
-      try {
-        if ((await fs.stat(pluginPath)).isDirectory()) {
-          paths.push(pluginPath);
-        }
-      } catch (error: unknown) {
-        this.logger.debug('Skipping unreadable harness plugin dir', {
-          path: pluginPath,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
-    return paths;
   }
 
   /**

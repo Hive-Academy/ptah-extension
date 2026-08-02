@@ -27,6 +27,15 @@ import type {
 } from '@ptah-extension/shared';
 
 /**
+ * Phase of the in-flight setup for the currently expanded server.
+ *
+ * `validating` → pre-flight `mcpDirectory:resolveSmithery` (fails fast on a bad
+ * config / missing API key). `installing` → `mcpDirectory:installSmithery`,
+ * which is the ONLY call that actually persists anything.
+ */
+type SetupPhase = 'idle' | 'validating' | 'installing';
+
+/**
  * A curated category. Smithery has NO category field, so categories are
  * implemented as curated search queries — exactly as smithery.ai does.
  */
@@ -65,15 +74,29 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
  *    Pages accumulate; "Load more" appends the next cursor page.
  *  - Install resolves details, renders {@link JsonSchemaFormComponent} when the
  *    connection carries a `configSchema` with properties (else one-click), then
- *    calls `mcpDirectory:resolveSmithery`. Resolve success/error is surfaced
- *    in-view — no blank screen / unhandled rejection.
+ *    runs the two-step setup below. Every failure is surfaced in-view — no
+ *    blank screen / unhandled rejection.
+ *
+ * Setup is two RPCs, in order:
+ *  1. `mcpDirectory:resolveSmithery` — PRE-FLIGHT ONLY. It validates the config
+ *     against the server's schema and proves the Smithery key works, returning
+ *     a connection it does NOT persist. A failure here is a fast, precise error
+ *     before anything touches disk.
+ *  2. `mcpDirectory:installSmithery` — the real persistence path. Non-secret
+ *     metadata lands in `~/.ptah/smithery-installed.json`; the credential-bearing
+ *     config is routed to the encrypted secret store. Chat sessions rebuild the
+ *     live URL from that manifest at query time.
+ *
+ * Installed state is read back from `mcpDirectory:listSmitheryInstalled` (source
+ * of truth: the manifest, not this component's memory) and `Remove` maps to
+ * `mcpDirectory:uninstallSmithery`.
  *
  * This surface refuses to fire any browse RPC unless key status has been
  * resolved to `configured`.
  *
  * Complexity Level: 3 — key-gate state machine + paginated browse + category
- * chips + per-server config form + resolve flow. Patterns: signal state,
- * debounced search, cursor pagination, DaisyUI cards.
+ * chips + per-server config form + validate→install→installed flow. Patterns:
+ * signal state, debounced search, cursor pagination, DaisyUI cards.
  */
 @Component({
   selector: 'ptah-smithery-surface',
@@ -287,7 +310,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
                             Managed
                           </span>
                         }
-                        @if (resolvedNames().has(server.name)) {
+                        @if (isInstalled(server.name)) {
                           <span
                             class="badge badge-xs badge-primary text-[10px] gap-0.5"
                           >
@@ -296,7 +319,7 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
                               class="w-2 h-2"
                               aria-hidden="true"
                             />
-                            Ready
+                            Installed
                           </span>
                         }
                       </div>
@@ -320,20 +343,47 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
                         {{ server.description || 'No description available' }}
                       </p>
                     </div>
-                    <div class="shrink-0">
+                    <div class="shrink-0 flex items-center gap-1">
+                      @if (isInstalled(server.name)) {
+                        <button
+                          class="btn btn-ghost btn-xs border border-base-300"
+                          [disabled]="isUninstalling(server.name)"
+                          (click)="uninstall(server)"
+                          type="button"
+                          [attr.aria-label]="'Remove ' + cardTitle(server)"
+                        >
+                          @if (isUninstalling(server.name)) {
+                            <span
+                              class="loading loading-spinner loading-xs"
+                            ></span>
+                            Removing...
+                          } @else {
+                            Remove
+                          }
+                        </button>
+                      }
                       <button
-                        class="btn btn-primary btn-xs"
-                        [disabled]="installingNames().has(server.name)"
+                        class="btn btn-xs"
+                        [class.btn-primary]="!isInstalled(server.name)"
+                        [class.btn-ghost]="isInstalled(server.name)"
+                        [class.border-base-300]="isInstalled(server.name)"
+                        [disabled]="isBusy(server.name)"
                         (click)="toggleInstallPanel(server)"
                         type="button"
-                        [attr.aria-label]="'Install ' + cardTitle(server)"
+                        [attr.aria-label]="
+                          (isInstalled(server.name)
+                            ? 'Reconfigure '
+                            : 'Install ') + cardTitle(server)
+                        "
                       >
-                        @if (installingNames().has(server.name)) {
+                        @if (isBusy(server.name)) {
                           <span
                             class="loading loading-spinner loading-xs"
                           ></span>
                         } @else if (expandedName() === server.name) {
                           Cancel
+                        } @else if (isInstalled(server.name)) {
+                          Reconfigure
                         } @else {
                           Install
                         }
@@ -375,33 +425,71 @@ const SMITHERY_CATEGORIES: readonly SmitheryCategory[] = [
                               </div>
                             }
 
-                            @if (resolveError()) {
-                              <div class="text-xs text-error">
-                                {{ resolveError() }}
+                            @if (setupError()) {
+                              <div class="text-xs text-error" role="alert">
+                                {{ setupError() }}
                               </div>
                             }
-                            @if (resolvedNames().has(server.name)) {
-                              <div class="text-xs text-success">
-                                Connection resolved — ready to use in a session.
-                              </div>
+                            @switch (setupPhase()) {
+                              @case ('validating') {
+                                <div
+                                  class="text-[11px] text-base-content/60 flex items-center gap-1.5"
+                                  aria-live="polite"
+                                >
+                                  <span
+                                    class="loading loading-spinner loading-xs"
+                                  ></span>
+                                  Validating configuration with Smithery...
+                                </div>
+                              }
+                              @case ('installing') {
+                                <div
+                                  class="text-[11px] text-base-content/60 flex items-center gap-1.5"
+                                  aria-live="polite"
+                                >
+                                  <span
+                                    class="loading loading-spinner loading-xs"
+                                  ></span>
+                                  Installing server...
+                                </div>
+                              }
+                              @default {
+                                @if (
+                                  isInstalled(server.name) && !setupError()
+                                ) {
+                                  <div class="text-xs text-success">
+                                    Installed — available in new chat sessions.
+                                  </div>
+                                }
+                              }
                             }
 
                             <button
                               class="btn btn-primary btn-xs w-full"
-                              [disabled]="
-                                !canResolve() ||
-                                installingNames().has(server.name)
-                              "
-                              (click)="resolve(server)"
+                              [disabled]="!canSetup() || isBusy(server.name)"
+                              (click)="setupServer(server)"
                               type="button"
                             >
-                              @if (installingNames().has(server.name)) {
-                                <span
-                                  class="loading loading-spinner loading-xs"
-                                ></span>
-                                Resolving...
-                              } @else {
-                                Set up server
+                              @switch (setupPhase()) {
+                                @case ('validating') {
+                                  <span
+                                    class="loading loading-spinner loading-xs"
+                                  ></span>
+                                  Validating...
+                                }
+                                @case ('installing') {
+                                  <span
+                                    class="loading loading-spinner loading-xs"
+                                  ></span>
+                                  Installing...
+                                }
+                                @default {
+                                  @if (isInstalled(server.name)) {
+                                    Update configuration
+                                  } @else {
+                                    Install server
+                                  }
+                                }
                               }
                             </button>
                           }
@@ -461,8 +549,10 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
   /** Increment to trigger a reload of the browse list (parity with other surfaces). */
   public readonly refreshTrigger = input(0);
 
-  /** Emitted after a server connection is successfully resolved. */
-  public readonly serverResolved = output<string>();
+  /** Emitted with the serverKey after a server is successfully installed. */
+  public readonly serverInstalled = output<string>();
+  /** Emitted with the serverKey after a server is successfully removed. */
+  public readonly serverUninstalled = output<string>();
 
   protected readonly SearchIcon = Search;
   protected readonly CheckIcon = Check;
@@ -514,9 +604,20 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
   public readonly configValue = signal<Record<string, unknown>>({});
   public readonly configValid = signal(true);
 
-  public readonly installingNames = signal<Set<string>>(new Set());
-  public readonly resolvedNames = signal<Set<string>>(new Set());
-  public readonly resolveError = signal<string | null>(null);
+  /**
+   * Installed servers, keyed by qualifiedName → serverKey. Sourced from
+   * `mcpDirectory:listSmitheryInstalled` (the on-disk manifest), so a reload
+   * shows what is genuinely installed rather than what this session did.
+   */
+  public readonly installedByName = signal<ReadonlyMap<string, string>>(
+    new Map(),
+  );
+  /** Phase of the in-flight setup for the expanded server. */
+  public readonly setupPhase = signal<SetupPhase>('idle');
+  /** In-flight uninstall tracking, by serverKey. */
+  public readonly uninstallingKeys = signal<Set<string>>(new Set());
+  /** Setup (validate or install) failure, rendered inside the expanded panel. */
+  public readonly setupError = signal<string | null>(null);
 
   /**
    * Back-compat accessor: the rendered list. Tests and any consumers can read
@@ -525,7 +626,7 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
   public readonly displayServers = computed(() => this.servers());
 
   /** True when the active config form (if any) is satisfied. */
-  public readonly canResolve = computed(
+  public readonly canSetup = computed(
     () => this.activeConfigSchema() === null || this.configValid(),
   );
 
@@ -695,6 +796,10 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
   // ── Install / resolve ───────────────────────────────────────────────────────
 
   public async toggleInstallPanel(server: McpRegistryEntry): Promise<void> {
+    // Never tear the panel down mid-setup (the button is disabled too).
+    if (this.isBusy(server.name)) {
+      return;
+    }
     if (this.expandedName() === server.name) {
       this.resetInstallPanel();
       return;
@@ -724,34 +829,155 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
     }
   }
 
-  public async resolve(server: McpRegistryEntry): Promise<void> {
-    if (!this.canResolve() || this.installingNames().has(server.name)) {
+  /** True while the expanded server is mid-setup (validate or install). */
+  public isBusy(qualifiedName: string): boolean {
+    return (
+      this.expandedName() === qualifiedName && this.setupPhase() !== 'idle'
+    );
+  }
+
+  /** True when the manifest reports this qualified name as installed. */
+  public isInstalled(qualifiedName: string): boolean {
+    return this.installedByName().has(qualifiedName);
+  }
+
+  /** The installed serverKey for a qualified name, or null when not installed. */
+  public serverKeyOf(qualifiedName: string): string | null {
+    return this.installedByName().get(qualifiedName) ?? null;
+  }
+
+  /** True while an uninstall for this qualified name is in flight. */
+  public isUninstalling(qualifiedName: string): boolean {
+    const key = this.serverKeyOf(qualifiedName);
+    return key !== null && this.uninstallingKeys().has(key);
+  }
+
+  /**
+   * Validate, then actually install.
+   *
+   * Step 1 (`resolveSmithery`) persists nothing — it exists to fail fast with a
+   * precise message when the config or the Smithery key is wrong. Step 2
+   * (`installSmithery`) is what makes the server available to chat sessions.
+   */
+  public async setupServer(server: McpRegistryEntry): Promise<void> {
+    if (!this.canSetup() || this.setupPhase() !== 'idle') {
       return;
     }
-    this.addToSet(this.installingNames, server.name);
-    this.resolveError.set(null);
+    const config = this.activeConfigSchema() === null ? {} : this.configValue();
+
+    this.setupError.set(null);
+    this.setupPhase.set('validating');
     try {
-      const result = await this.rpc.call('mcpDirectory:resolveSmithery', {
+      const validation = await this.rpc.call('mcpDirectory:resolveSmithery', {
         qualifiedName: server.name,
-        config: this.activeConfigSchema() === null ? {} : this.configValue(),
+        config,
       });
       if (this.destroyed) return;
-      if (result.isSuccess() && result.data.config && !result.data.error) {
-        this.addToSet(this.resolvedNames, server.name);
-        this.serverResolved.emit(server.name);
+      if (!validation.isSuccess() || !validation.data.config) {
+        this.setupError.set(
+          (validation.isSuccess() ? validation.data.error : validation.error) ??
+            'Failed to validate server connection',
+        );
+        return;
+      }
+
+      this.setupPhase.set('installing');
+      const installed = await this.rpc.call('mcpDirectory:installSmithery', {
+        qualifiedName: server.name,
+        config,
+      });
+      if (this.destroyed) return;
+      if (!installed.isSuccess() || !installed.data.success) {
+        this.setupError.set(
+          (installed.isSuccess() ? installed.data.error : installed.error) ??
+            'Failed to install server',
+        );
+        return;
+      }
+
+      const serverKey = installed.data.serverKey;
+      if (serverKey) {
+        this.installedByName.update(
+          (prev) => new Map([...prev, [server.name, serverKey]]),
+        );
+        this.serverInstalled.emit(serverKey);
+      }
+      // Reconcile against the manifest — authoritative, and covers the case
+      // where the backend derived a serverKey it did not echo back.
+      await this.loadInstalled();
+    } catch (error: unknown) {
+      if (this.destroyed) return;
+      this.setupError.set(this.messageOf(error, 'Failed to install server'));
+    } finally {
+      if (!this.destroyed) this.setupPhase.set('idle');
+    }
+  }
+
+  /** Remove an installed server: drops its manifest record + encrypted config. */
+  public async uninstall(server: McpRegistryEntry): Promise<void> {
+    const serverKey = this.serverKeyOf(server.name);
+    if (serverKey === null || this.uninstallingKeys().has(serverKey)) {
+      return;
+    }
+    this.addToSet(this.uninstallingKeys, serverKey);
+    this.setupError.set(null);
+    try {
+      const result = await this.rpc.call('mcpDirectory:uninstallSmithery', {
+        serverKey,
+      });
+      if (this.destroyed) return;
+      if (result.isSuccess() && result.data.success) {
+        this.installedByName.update((prev) => {
+          const next = new Map(prev);
+          next.delete(server.name);
+          return next;
+        });
+        this.serverUninstalled.emit(serverKey);
       } else {
-        this.resolveError.set(
+        this.setupError.set(
           (result.isSuccess() ? result.data.error : result.error) ??
-            'Failed to resolve server connection',
+            'Failed to remove server',
         );
       }
-    } catch {
+    } catch (error: unknown) {
       if (this.destroyed) return;
-      this.resolveError.set('Failed to resolve server connection');
+      this.setupError.set(this.messageOf(error, 'Failed to remove server'));
     } finally {
-      if (!this.destroyed)
-        this.removeFromSet(this.installingNames, server.name);
+      if (!this.destroyed) this.removeFromSet(this.uninstallingKeys, serverKey);
     }
+  }
+
+  /**
+   * Refresh the installed map from the manifest. Deliberately quiet: a failure
+   * here must not blank the browse list or clobber optimistic state — the row
+   * badge simply stays as-is until the next successful read.
+   */
+  private async loadInstalled(): Promise<void> {
+    try {
+      const result = await this.rpc.call(
+        'mcpDirectory:listSmitheryInstalled',
+        {},
+      );
+      if (this.destroyed || !result.isSuccess()) return;
+      this.installedByName.set(
+        new Map(
+          result.data.servers.map((record) => [
+            record.qualifiedName,
+            record.serverKey,
+          ]),
+        ),
+      );
+    } catch {
+      // Non-fatal: keep the previously known installed state.
+    }
+  }
+
+  /** Narrow an unknown throwable to a displayable message. */
+  private messageOf(error: unknown, fallback: string): string {
+    if (error instanceof Error && error.message.trim().length > 0) {
+      return error.message;
+    }
+    return fallback;
   }
 
   // ── Browse / pagination ─────────────────────────────────────────────────────
@@ -766,7 +992,8 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
       const configured = result.isSuccess() && result.data.configured === true;
       this.keyStatus.set(configured ? 'configured' : 'not-configured');
       if (configured) {
-        await this.runBrowse();
+        // Installed state is independent of the browse list — load both.
+        await Promise.all([this.runBrowse(), this.loadInstalled()]);
       }
     } catch {
       if (this.destroyed) return;
@@ -901,7 +1128,8 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
     this.configValue.set({});
     this.configValid.set(true);
     this.detailError.set(null);
-    this.resolveError.set(null);
+    this.setupError.set(null);
+    this.setupPhase.set('idle');
   }
 
   private addToSet(

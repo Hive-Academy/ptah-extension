@@ -256,7 +256,10 @@ export function activateSkillJunctions(
       SDK_TOKENS.SDK_PLUGIN_LOADER,
     );
     const config = pluginLoader.getWorkspacePluginConfig();
-    const paths = pluginLoader.resolvePluginPaths(config.enabledPluginIds);
+    // Harness-inclusive by design — same source as the getPluginPaths callback
+    // below. resolvePluginPaths() would omit the harness-authored
+    // ptah-harness-* dirs and their junctions would be pruned as stale.
+    const paths = pluginLoader.resolveCurrentPluginPaths();
 
     const junctionResult = skillJunction.activate({
       pluginPaths: paths,

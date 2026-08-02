@@ -49,6 +49,7 @@ import type { HarnessAgentFileWriterService } from '../harness/config/harness-ag
 import type { HarnessWorkflowPromptService } from '../harness/ai/harness-workflow-prompt.service';
 import type { HarnessFsService } from '../harness/io/harness-fs.service';
 import type { HarnessMcpInstallService } from '../harness/io/harness-mcp-install.service';
+import type { HarnessSkillInstallService } from '../harness/io/harness-skill-install.service';
 
 type Mocked<T> = jest.Mocked<T>;
 
@@ -106,6 +107,7 @@ interface Suite {
   workflowPrompt: Mocked<HarnessWorkflowPromptService>;
   fsService: Mocked<HarnessFsService>;
   mcpInstall: Mocked<HarnessMcpInstallService>;
+  skillInstall: Mocked<HarnessSkillInstallService>;
 }
 
 function buildSuite(): Suite {
@@ -219,13 +221,18 @@ function buildSuite(): Suite {
       .mockResolvedValue({ installedPaths: [], warnings: [] }),
   } as unknown as Mocked<HarnessMcpInstallService>;
 
+  const skillInstall = {
+    installSkills: jest
+      .fn()
+      .mockResolvedValue({ installedPaths: [], warnings: [] }),
+  } as unknown as Mocked<HarnessSkillInstallService>;
+
   const fsService = {
     createSkillPlugin: jest.fn().mockResolvedValue({
       skillId: 'demo-skill',
       skillPath:
         '/home/user/.ptah/plugins/ptah-harness-demo-skill/skills/demo-skill/SKILL.md',
     }),
-    discoverHarnessPluginPaths: jest.fn().mockResolvedValue([]),
     discoverMcpServers: jest.fn().mockResolvedValue({
       servers: [
         {
@@ -258,6 +265,7 @@ function buildSuite(): Suite {
     workflowPrompt,
     fsService,
     mcpInstall,
+    skillInstall,
   );
 
   return {
@@ -280,6 +288,7 @@ function buildSuite(): Suite {
     workflowPrompt,
     fsService,
     mcpInstall,
+    skillInstall,
   };
 }
 
@@ -505,8 +514,9 @@ describe('HarnessRpcHandlers (thin facade)', () => {
 
     it('enables the SaaS plugin, refreshes junctions, focuses chat, broadcasts, and disposes the wizard panel', async () => {
       const suite = buildSuite();
-      suite.pluginLoader.resolvePluginPaths.mockReturnValue([
+      suite.pluginLoader.resolveCurrentPluginPaths.mockReturnValue([
         '/plugins/ptah-nx-saas',
+        '/home/user/.ptah/plugins/ptah-harness-demo-skill',
       ]);
       const broadcastMessage = jest.fn().mockResolvedValue(undefined);
       const disposeWebview = jest.fn();
@@ -526,7 +536,15 @@ describe('HarnessRpcHandlers (thin facade)', () => {
           disabledSkillIds: [],
         },
       );
-      expect(suite.skillJunction.createJunctions).toHaveBeenCalled();
+      // The junction refresh must keep harness-authored plugin dirs in scope,
+      // otherwise enabling the SaaS plugin prunes them as stale.
+      expect(suite.skillJunction.createJunctions).toHaveBeenCalledWith(
+        [
+          '/plugins/ptah-nx-saas',
+          '/home/user/.ptah/plugins/ptah-harness-demo-skill',
+        ],
+        [],
+      );
       expect(suite.platformCommands.focusChat).toHaveBeenCalled();
       expect(broadcastMessage).toHaveBeenCalledWith(
         'harness:open-workflow',
@@ -843,10 +861,11 @@ describe('HarnessRpcHandlers (thin facade)', () => {
 
     it('junctions harness plugin skills when created skills exist', async () => {
       const suite = buildSuite();
+      // resolveCurrentPluginPaths() is now the single source of truth: it
+      // already appends the ptah-harness-* dirs, so the handler performs no
+      // merge of its own.
       suite.pluginLoader.resolveCurrentPluginPaths.mockReturnValue([
         '/plugins/ptah-core',
-      ]);
-      suite.fsService.discoverHarnessPluginPaths.mockResolvedValue([
         '/home/user/.ptah/plugins/ptah-harness-demo-skill',
       ]);
       const config = normalizedConfig({
@@ -860,7 +879,6 @@ describe('HarnessRpcHandlers (thin facade)', () => {
 
       await applyWith(suite, config);
 
-      expect(suite.fsService.discoverHarnessPluginPaths).toHaveBeenCalled();
       expect(suite.skillJunction.createJunctions).toHaveBeenCalledWith(
         [
           '/plugins/ptah-core',
@@ -868,6 +886,8 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         ],
         [],
       );
+      // The bundled-only resolver must not feed junctions.
+      expect(suite.pluginLoader.resolvePluginPaths).not.toHaveBeenCalled();
     });
 
     it('installs recorded MCP servers and reports the written config paths', async () => {
@@ -924,6 +944,59 @@ describe('HarnessRpcHandlers (thin facade)', () => {
 
       expect(result.warnings).toContain(
         'MCP server "legacy" has no transport config and was not installed. Add it to the workspace manually.',
+      );
+    });
+
+    it('installs recorded skills.sh skills and reports the written paths', async () => {
+      const suite = buildSuite();
+      const selectedSkillRefs = [
+        {
+          skillId: 'frontend-design',
+          source: 'skills.sh' as const,
+          installSource: 'anthropics/skills',
+        },
+      ];
+      suite.skillInstall.installSkills.mockResolvedValue({
+        installedPaths: ['/ws/.claude/skills/frontend-design'],
+        warnings: [],
+      });
+      const config = normalizedConfig({
+        skills: {
+          selectedSkills: ['frontend-design'],
+          selectedSkillRefs,
+          createdSkills: [],
+        },
+      });
+
+      const result = (await applyWith(suite, config)) as {
+        appliedPaths: string[];
+        warnings: string[];
+      };
+
+      expect(suite.skillInstall.installSkills).toHaveBeenCalledWith(
+        selectedSkillRefs,
+        '/ws',
+      );
+      expect(result.appliedPaths).toContain(
+        '/ws/.claude/skills/frontend-design',
+      );
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('propagates skill install warnings into the apply response', async () => {
+      const suite = buildSuite();
+      suite.skillInstall.installSkills.mockResolvedValue({
+        installedPaths: [],
+        warnings: ['Skill "orphan" came from skills.sh but no installSource'],
+      });
+      const config = normalizedConfig({
+        skills: { selectedSkills: ['orphan'], createdSkills: [] },
+      });
+
+      const result = (await applyWith(suite, config)) as { warnings: string[] };
+
+      expect(result.warnings).toContain(
+        'Skill "orphan" came from skills.sh but no installSource',
       );
     });
 

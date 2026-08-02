@@ -13,7 +13,7 @@ The harness builder assembles a specialist **around MCP servers that are connect
 - **Autodesk MCP** connected — use Autodesk's own servers (Revit MCP is a tech preview; Fusion MCP is live), or the official APS reference server `autodesk-platform-services/aps-mcp-server-nodejs` around the AEC Data Model / Model Derivative APIs. Needs a free Autodesk Platform Services dev app (client ID/secret). [VERIFY which Autodesk MCP you'll demo and its current preview status on record day.]
 - **IFC MCP** connected — a community IFC server (e.g. `ifc-mcp` on npm, or `ifcMCP` by Jia-Rui Lin) wrapping IfcOpenShell to extract entities, properties, spatial relationships, and quantities from a `.ifc` file. Note on camera that these are community projects.
 - **Sample model** ready — a free public `.ifc` (e.g. a buildingSMART sample) for the IFC server, and the same/another model in an APS bucket or demo ACC project for the Autodesk pull.
-- Both servers registered in `.mcp.json` so the builder detects them via `harness_list_installed_mcp`.
+- Both servers registered in `.mcp.json` so the builder detects them via `ptah_harness_list_installed_mcp`.
 - Harness-builder prompt drafted and ready to paste.
 - Autodesk client secret blurred/omitted — no secrets on screen.
 

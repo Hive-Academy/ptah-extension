@@ -218,8 +218,15 @@ export class PluginRpcHandlers {
           disabledSkillIds: validatedDisabledSkillIds,
         });
         this.commandDiscovery.invalidateCache();
+        // Junctions must be fed from resolveCurrentPluginPaths(), NOT the
+        // bundled-only pluginPaths above: it reads the config we just saved and
+        // adds the harness-authored ptah-harness-* directories. Passing bundled
+        // paths alone makes SkillJunctionService treat every harness skill
+        // junction as stale and delete it.
+        const junctionPluginPaths =
+          this.pluginLoader.resolveCurrentPluginPaths();
         this.skillJunction.createJunctions(
-          pluginPaths,
+          junctionPluginPaths,
           validatedDisabledSkillIds,
         );
 
@@ -227,6 +234,7 @@ export class PluginRpcHandlers {
           enabledCount: enabledPluginIds.length,
           disabledSkillCount: validatedDisabledSkillIds.length,
           pluginPaths: pluginPaths.length,
+          junctionPluginPaths: junctionPluginPaths.length,
         });
 
         return { success: true };

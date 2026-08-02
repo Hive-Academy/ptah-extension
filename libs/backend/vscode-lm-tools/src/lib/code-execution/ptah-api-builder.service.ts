@@ -92,6 +92,7 @@ import {
   AgentProcessManager,
   CliDetectionService,
   McpRegistryProvider,
+  McpInstallService,
   SmitheryRegistrySource,
   PulseMcpRegistrySource,
   SkillsShApiClient,
@@ -652,6 +653,10 @@ export class PtahAPIBuilder {
           // PulseMCP needs no API key — always live in production so the harness
           // builder also discovers trusted vendor/community servers.
           pulseMcpRegistry: new PulseMcpRegistrySource({ logger: this.logger }),
+          // Same installer that backs the marketplace MCP directory and
+          // harness:apply, so an agent-initiated install lands in exactly the
+          // same config files and the same ~/.ptah/mcp-installed.json manifest.
+          mcpInstaller: new McpInstallService(),
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
           broadcast: (type, payload) => {
             if (!webviewManager) {

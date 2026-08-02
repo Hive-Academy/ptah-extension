@@ -593,6 +593,8 @@ export class HarnessBuilderViewComponent implements OnInit, OnDestroy {
         },
         skills: {
           selectedSkills: partial.skills?.selectedSkills ?? [],
+          // Origin metadata the backend needs to install skills.sh entries.
+          selectedSkillRefs: partial.skills?.selectedSkillRefs ?? [],
           createdSkills: partial.skills?.createdSkills ?? [],
         },
         prompt: {

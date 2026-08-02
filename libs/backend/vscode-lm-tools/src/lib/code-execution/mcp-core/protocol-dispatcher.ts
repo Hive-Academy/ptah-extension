@@ -10,7 +10,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
-import type { CliType } from '@ptah-extension/shared';
+import type {
+  CliType,
+  McpInstallTarget,
+  McpServerConfig,
+} from '@ptah-extension/shared';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
 import type {
   PtahAPI,
@@ -56,6 +60,7 @@ import {
   buildHarnessCreateSkillTool,
   buildHarnessSearchMcpRegistryTool,
   buildHarnessListInstalledMcpTool,
+  buildHarnessInstallMcpTool,
   buildAstAnalyzeTool,
   buildContextEnrichFileTool,
   buildGetDependentsTool,
@@ -291,6 +296,7 @@ function handleToolsList(
           buildHarnessCreateSkillTool(),
           buildHarnessSearchMcpRegistryTool(),
           buildHarnessListInstalledMcpTool(),
+          buildHarnessInstallMcpTool(),
         ]
       : []),
     ...(!disabled.has('code')
@@ -1256,6 +1262,70 @@ async function handleIndividualTool(
             servers: installedServers,
             count: installedServers.length,
           }),
+          deps,
+        );
+      }
+
+      case 'ptah_harness_install_mcp_server': {
+        if (!ptahAPI.harness) {
+          return createToolSuccessResponse(
+            request,
+            JSON.stringify({
+              results: [],
+              error: 'Harness namespace not available',
+            }),
+            deps,
+          );
+        }
+        const {
+          serverName: mcpServerName,
+          config: mcpConfig,
+          serverKey: mcpServerKey,
+          targets: mcpTargets,
+        } = args as {
+          serverName?: string;
+          config?: McpServerConfig;
+          serverKey?: string;
+          targets?: McpInstallTarget[];
+        };
+
+        if (
+          typeof mcpServerName !== 'string' ||
+          mcpServerName.trim().length === 0
+        ) {
+          return missingStringArgResponse(request, 'serverName');
+        }
+        if (
+          mcpConfig === null ||
+          typeof mcpConfig !== 'object' ||
+          Array.isArray(mcpConfig)
+        ) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "config" is required and must be an MCP transport config object ({"type":"stdio"|"http"|"sse", ...}).',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        // Argument shapes beyond this point are validated by the namespace
+        // (zod) — a rejection surfaces as an isError tool result.
+        const installOutcome = await ptahAPI.harness.installMcpServer(
+          mcpServerName,
+          mcpConfig,
+          mcpServerKey,
+          mcpTargets,
+        );
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(installOutcome),
           deps,
         );
       }

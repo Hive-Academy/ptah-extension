@@ -1006,8 +1006,9 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
       'query. Each result is tagged with source: "official", "pulsemcp", or ' +
       '"smithery". Returns server names and descriptions. Use specific ' +
       'technology or vendor keywords (e.g., "github", "postgresql", "autodesk") ' +
-      'for best results. Pair with harness_list_installed_mcp to see which ' +
-      'servers are already configured before adding more.',
+      'for best results. Pair with ptah_harness_list_installed_mcp to see which ' +
+      'servers are already configured before adding more, and install a chosen ' +
+      'server with ptah_harness_install_mcp_server.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1027,12 +1028,12 @@ export function buildHarnessSearchMcpRegistryTool(): MCPToolDefinition {
 }
 
 /**
- * Build the harness_list_installed_mcp tool definition
+ * Build the ptah_harness_list_installed_mcp tool definition
  * List MCP servers configured in the workspace
  */
 export function buildHarnessListInstalledMcpTool(): MCPToolDefinition {
   return {
-    name: 'harness_list_installed_mcp',
+    name: 'ptah_harness_list_installed_mcp',
     description:
       'Harness-builder tool: list the MCP servers already configured in the workspace. ' +
       'Reads from .vscode/mcp.json and .mcp.json in the workspace root and returns each ' +
@@ -1043,6 +1044,57 @@ export function buildHarnessListInstalledMcpTool(): MCPToolDefinition {
       properties: {},
     },
     annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_harness_install_mcp_server tool definition
+ * Write an MCP server entry into the workspace/CLI config files
+ */
+export function buildHarnessInstallMcpTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_harness_install_mcp_server',
+    description:
+      'Harness-builder tool: install an MCP server into the workspace by writing its transport ' +
+      'config to the selected target config files (claude -> .mcp.json, vscode -> .vscode/mcp.json, ' +
+      'cursor -> .cursor/mcp.json, copilot -> ~/.copilot/mcp-config.json). Defaults to ' +
+      '["claude","vscode"]. Discover a server first with ptah_harness_search_mcp_registry and check ' +
+      'ptah_harness_list_installed_mcp so you do not re-install one that is already configured. ' +
+      'You must supply the transport config yourself — the registry entry tells you the package/URL. ' +
+      'Returns the resolved server key, the config files written, and per-target warnings. NOTE: the ' +
+      'server becomes available to a NEW agent session, not the current one.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        serverName: {
+          type: 'string',
+          description:
+            'Fully qualified registry name used for install tracking (e.g. "io.github.owner/server").',
+        },
+        config: {
+          type: 'object',
+          description:
+            'Transport config. stdio: {"type":"stdio","command":"npx","args":["-y","pkg"],"env":{}}. ' +
+            'Remote: {"type":"http"|"sse","url":"https://...","headers":{}}.',
+        },
+        serverKey: {
+          type: 'string',
+          description:
+            'Optional config key (e.g. "github"). Defaults to the last path segment of serverName, sanitized.',
+        },
+        targets: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['vscode', 'claude', 'cursor', 'copilot'],
+          },
+          description:
+            'Optional install targets. Defaults to ["claude","vscode"].',
+        },
+      },
+      required: ['serverName', 'config'],
+    },
+    annotations: { destructiveHint: false, idempotentHint: true },
   };
 }
 

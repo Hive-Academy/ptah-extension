@@ -5,6 +5,8 @@
  * - Provide hardcoded metadata for bundled Ptah plugins
  * - Read/write per-workspace plugin configuration from VS Code workspaceState
  * - Resolve plugin IDs to absolute directory paths for SDK consumption
+ * - Discover harness-authored plugin directories (`ptah-harness-*`) that exist
+ *   on disk but are never listed in the workspace's enabledPluginIds
  *
  * Design:
  * - Initialized from main.ts with pluginsBasePath and workspaceState (late initialization)
@@ -116,6 +118,16 @@ const AVAILABLE_PLUGINS: ReadonlyArray<PluginInfo> = [
 
 /** Set of valid plugin IDs for path validation */
 const KNOWN_PLUGIN_IDS = new Set(AVAILABLE_PLUGINS.map((p) => p.id));
+
+/**
+ * Directory-name prefix used by harness-authored plugins.
+ *
+ * The harness wizard writes custom skills to
+ * `{pluginsBasePath}/ptah-harness-{slug}/skills/{slug}/SKILL.md`. These plugins
+ * are not part of AVAILABLE_PLUGINS and never appear in `enabledPluginIds`, so
+ * they can only be found by scanning the plugins base directory.
+ */
+const HARNESS_PLUGIN_PREFIX = 'ptah-harness-';
 
 /**
  * Manages plugin discovery and per-workspace plugin configuration.
@@ -318,12 +330,84 @@ export class PluginLoaderService {
   }
 
   /**
-   * Resolve plugin paths for currently enabled plugins.
-   * Convenience method for SkillJunctionService callbacks.
+   * Discover harness-authored plugin directories (`ptah-harness-*`) under the
+   * plugins base path.
+   *
+   * These plugins are written by the harness wizard (`harness:create-skill` /
+   * `ptah_harness_create_skill`) directly into `{pluginsBasePath}/`. They are
+   * deliberately absent from AVAILABLE_PLUGINS — the user never enables or
+   * disables them in the marketplace — so `resolvePluginPaths` can never surface
+   * them and a directory scan is the only way to find them.
+   *
+   * Synchronous by design: it shares `pluginsBasePath` and the sync `fs` style
+   * of the rest of this service, and its callers (junction creation, workspace
+   * change callbacks) are synchronous.
+   *
+   * @returns Absolute paths to harness plugin directories (empty when
+   *          uninitialized or when the plugins directory does not exist)
+   */
+  discoverHarnessPluginPaths(): string[] {
+    if (!this.pluginsBasePath) return [];
+
+    const pluginsBasePath = this.pluginsBasePath;
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(pluginsBasePath);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.logger.warn(
+          '[PluginLoaderService] Failed to read plugins directory',
+          {
+            path: pluginsBasePath,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+      return [];
+    }
+
+    const paths: string[] = [];
+    for (const entry of entries) {
+      if (!entry.startsWith(HARNESS_PLUGIN_PREFIX)) continue;
+      const pluginPath = path.join(pluginsBasePath, entry);
+      try {
+        if (fs.statSync(pluginPath).isDirectory()) {
+          paths.push(pluginPath);
+        }
+      } catch (error: unknown) {
+        this.logger.debug(
+          '[PluginLoaderService] Skipping unreadable harness plugin dir',
+          {
+            path: pluginPath,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+    }
+
+    return paths;
+  }
+
+  /**
+   * Resolve the plugin paths that currently back workspace skill/command
+   * junctions: the enabled bundled plugins PLUS every harness-authored
+   * `ptah-harness-*` directory.
+   *
+   * This is the single source of truth for junction creation. Harness plugins
+   * must be included here because SkillJunctionService treats any junction whose
+   * skill is missing from the supplied paths as stale and deletes it — without
+   * them, toggling a plugin in the marketplace would wipe every harness-authored
+   * skill junction.
+   *
+   * Callers that need only the bundled, user-selected plugins (the user-layer
+   * mirror, session plugin options) must keep using `resolvePluginPaths`.
    */
   resolveCurrentPluginPaths(): string[] {
     const config = this.getWorkspacePluginConfig();
-    return this.resolvePluginPaths(config.enabledPluginIds);
+    const bundledPaths = this.resolvePluginPaths(config.enabledPluginIds);
+    const harnessPaths = this.discoverHarnessPluginPaths();
+
+    return Array.from(new Set([...bundledPaths, ...harnessPaths]));
   }
 
   /**

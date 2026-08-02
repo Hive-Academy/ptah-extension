@@ -100,6 +100,7 @@ import type { HarnessAgentFileWriterService } from '../harness/config/harness-ag
 import type { HarnessWorkflowPromptService } from '../harness/ai/harness-workflow-prompt.service';
 import type { HarnessFsService } from '../harness/io/harness-fs.service';
 import type { HarnessMcpInstallService } from '../harness/io/harness-mcp-install.service';
+import type { HarnessSkillInstallService } from '../harness/io/harness-skill-install.service';
 
 interface WizardWebviewLifecycleLike {
   disposeWebview(viewType: string): void;
@@ -176,6 +177,8 @@ export class HarnessRpcHandlers {
     @inject(HARNESS_TOKENS.IO_FS) private readonly fsService: HarnessFsService,
     @inject(HARNESS_TOKENS.MCP_INSTALL)
     private readonly mcpInstall: HarnessMcpInstallService,
+    @inject(HARNESS_TOKENS.SKILL_INSTALL)
+    private readonly skillInstall: HarnessSkillInstallService,
   ) {}
 
   /**
@@ -422,6 +425,17 @@ export class HarnessRpcHandlers {
         appliedPaths.push(...mcpOutcome.installedPaths);
         warnings.push(...mcpOutcome.warnings);
 
+        // Install the skills.sh skills the design recorded. Refs the agent
+        // tagged skills.sh without an installSource surface as warnings rather
+        // than silently doing nothing. Local selections are already on disk and
+        // are handled by the junction pass below.
+        const skillOutcome = await this.skillInstall.installSkills(
+          config.skills.selectedSkillRefs,
+          workspaceRoot,
+        );
+        appliedPaths.push(...skillOutcome.installedPaths);
+        warnings.push(...skillOutcome.warnings);
+
         // Materialize skill definitions the agent proposed but never wrote via
         // harness:create-skill / ptah_harness_create_skill. Without this a skill
         // listed in createdSkills produces no file at all. createSkillPlugin
@@ -449,17 +463,12 @@ export class HarnessRpcHandlers {
         const hasCreatedSkills = createdSkills.length > 0;
         if (config.skills.selectedSkills.length > 0 || hasCreatedSkills) {
           try {
+            // resolveCurrentPluginPaths() already appends the harness-authored
+            // ptah-harness-* directories, so the skills written just above are
+            // junctioned without an ad-hoc merge here.
             const pluginPaths = this.pluginLoader.resolveCurrentPluginPaths();
-            const harnessPluginPaths =
-              await this.fsService.discoverHarnessPluginPaths();
-            const mergedPluginPaths = Array.from(
-              new Set([...pluginPaths, ...harnessPluginPaths]),
-            );
             const disabledSkillIds = this.pluginLoader.getDisabledSkillIds();
-            this.skillJunction.createJunctions(
-              mergedPluginPaths,
-              disabledSkillIds,
-            );
+            this.skillJunction.createJunctions(pluginPaths, disabledSkillIds);
           } catch (junctionError) {
             const msg =
               junctionError instanceof Error
@@ -599,9 +608,9 @@ export class HarnessRpcHandlers {
           try {
             const refreshedConfig =
               this.pluginLoader.getWorkspacePluginConfig();
-            const pluginPaths = this.pluginLoader.resolvePluginPaths(
-              refreshedConfig.enabledPluginIds,
-            );
+            // Harness-inclusive: bundled-only paths would make every
+            // harness-authored skill junction look stale and get removed.
+            const pluginPaths = this.pluginLoader.resolveCurrentPluginPaths();
             const junctionResult = this.skillJunction.createJunctions(
               pluginPaths,
               refreshedConfig.disabledSkillIds,
