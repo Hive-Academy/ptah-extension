@@ -13,8 +13,8 @@ model. Companion deep-dive: `discourse-digitalocean.md` (Discourse §1–6, Goog
 | Paddle sandbox product "Ptah Builders"                                                       | `pro_01kxx5795byye8459t6affa2m8`                             | ✅ DEV |
 | Sandbox price $29/mo                                                                         | `pri_01kxx5bgmepb6w0y43sqk7szaz` → `.env` + `environment.ts` | ✅ DEV |
 | Sandbox price $290/yr                                                                        | `pri_01kxx5eb8m36kn6t3h1ss8dy0b` → `.env` + `environment.ts` | ✅ DEV |
-| Sandbox discount FOUNDING70M (70% × 12 cycles, monthly)                                      | ⚠️ re-create in sandbox → new `dsc_` id → `.env`             | ⬜     |
-| Sandbox discount FOUNDING70Y (70% first payment, yearly)                                     | ⚠️ re-create in sandbox → new `dsc_` id → `.env`             | ⬜     |
+| Sandbox discount FOUNDING70M (70% × 12 cycles, monthly)                                      | `dsc_01kz178gb27gbe49mz0g2cbs6g` → `.env`                    | ✅ DEV |
+| Sandbox discount FOUNDING70Y (70% first payment, yearly)                                     | `dsc_01kz17avfpf5pxrgrqjbyq5bfn` → `.env`                    | ✅ DEV |
 | `BUILDERS_CHECKOUT_ENABLED=false` (waitlist mode)                                            | `.env`                                                       | ✅ DEV |
 | `DISCOURSE_SSO_SECRET` (generated, reusable in Discourse admin)                              | `.env`                                                       | ✅ DEV |
 | `API_PUBLIC_URL=http://localhost:3000`                                                       | `.env`                                                       | ✅ DEV |
