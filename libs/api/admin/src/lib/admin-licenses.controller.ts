@@ -24,13 +24,12 @@ import { IssueComplimentaryLicenseDto } from '@ptah-api/licensing';
  * the owning class changed. Guard chain: `JwtAuthGuard` → `AdminGuard` at CLASS
  * level, i.e. a DASHBOARD route authenticated by an admin's session cookie.
  *
- * ⚠️ NOT TO BE CONFUSED WITH `POST /api/v1/admin/licenses` (no
- * `/complimentary`), which today still belongs to
- * `license/controllers/admin.controller.ts` and is authenticated by an
- * `x-api-key` header via `AdminApiKeyGuard` — a machine/ops integration, a
- * completely different trust model that merely looks like a neighbour.
- * TASK_2026_170 R3 moves that one to `v1/integrations/licenses`, after which
- * this prefix is owned by exactly one controller and one auth model.
+ * The other license-creation route — `x-api-key`-authenticated, a machine/ops
+ * integration on a completely different trust model — used to sit next door at
+ * `POST /api/v1/admin/licenses` (no `/complimentary`). TASK_2026_170 R3 moved it
+ * to `POST /api/v1/integrations/licenses` as
+ * `licensing/IntegrationLicensesController`, so this prefix is now owned by
+ * exactly one controller and one auth model.
  *
  * ⚠️ VALIDATION DEBT: `@Body()` is still bare. Binding is TASK_2026_170 B7c;
  * tracked by `src/common/controller-validation.spec.ts`'s `UNVALIDATED_DEBT`

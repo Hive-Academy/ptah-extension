@@ -56,7 +56,8 @@ const PARAMTYPE = { BODY: 3, QUERY: 4 } as const;
  * SHRINKS. TASK_2026_170 empties it, one controller per commit.
  *
  * Keyed on `ALL_CONTROLLERS[].label`, never on `controller.name` — see the note
- * on `ALL_CONTROLLERS` about the duplicated `AdminController` class name.
+ * on `ALL_CONTROLLERS` about the `AdminController` class-name collision that
+ * TASK_2026_170 R2/R3 removed, and why path-qualified labels outlive it.
  *
  * ⚠️ Only list a controller that ACTUALLY has an unbound whole-object payload
  * param. The staleness assertion below rejects entries for controllers with
@@ -84,7 +85,7 @@ const UNVALIDATED_DEBT: readonly string[] = [
   'admin/AdminLicensesController', // B7c  (@Body IssueComplimentaryLicenseDto)
   'admin/AdminWaitlistController', // B7d  (@Body InviteWaitlistDto)
   'marketing/AdminMarketingController', // B8
-  'license/AdminController', // B9
+  'license/IntegrationLicensesController', // B9
 ];
 
 /**

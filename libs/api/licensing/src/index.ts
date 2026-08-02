@@ -4,7 +4,7 @@ export * from './lib/events/events.controller';
 export * from './lib/events/events.module';
 export * from './lib/events/events.service';
 export * from './lib/events/events.types';
-export * from './lib/license/controllers/admin.controller';
+export * from './lib/license/controllers/integration-licenses.controller';
 export * from './lib/license/controllers/license.controller';
 export * from './lib/license/dto/create-license.dto';
 export * from './lib/license/dto/issue-complimentary-license.dto';

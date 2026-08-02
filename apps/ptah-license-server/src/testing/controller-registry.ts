@@ -16,7 +16,7 @@ import { EventsController } from '@ptah-api/licensing';
 import { AdminSessionsController } from '@ptah-api/community';
 import { MembersController } from '@ptah-api/community';
 import { HealthController } from '../health/health.controller';
-import { AdminController as LicenseAdminController } from '@ptah-api/licensing';
+import { IntegrationLicensesController } from '@ptah-api/licensing';
 import { LicenseController } from '@ptah-api/licensing';
 import { AdminMarketingController } from '@ptah-api/marketing';
 import { PublicMarketingController } from '@ptah-api/marketing';
@@ -186,15 +186,20 @@ export interface ControllerRegistryEntry {
  * source-relative file path.
  *
  * ⚠️ The label is NOT `controller.name`, and it must stay that way.
- * Until TASK_2026_170 R2, two distinct classes in this server were both called
+ * Until TASK_2026_170, two distinct classes in this server were both called
  * `AdminController` (`admin/admin.controller.ts` and
- * `license/controllers/admin.controller.ts`). Keying a debt ledger on the class
- * name would have let one hide behind the other: whichever got bound first
- * would remove "AdminController" from the ledger and silently exempt the other.
- * R2 split the first into five resource-named controllers; R3 renames the
- * second to `IntegrationLicensesController`, after which the alias import below
- * collapses to a plain one. Labels stay path-qualified regardless — they are
- * the ledger keys, a class name is not guaranteed unique, and a path is.
+ * `license/controllers/admin.controller.ts`), which forced an aliased import
+ * here. Keying a debt ledger on the class name would have let one hide behind
+ * the other: whichever got bound first would remove "AdminController" from the
+ * ledger and silently exempt the other. R2 split the first into five
+ * resource-named controllers and R3 renamed the second to
+ * `IntegrationLicensesController`, so no duplicated controller class name is
+ * left in the server and every import above is a plain one.
+ *
+ * Labels stay path-qualified anyway, and that is not a leftover: they are the
+ * ledger keys, a path is guaranteed unique and a class name is not. Nothing
+ * stops the next contributor from reintroducing a collision, and when they do
+ * the ledgers must keep working without an edit.
  */
 export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
   {
@@ -268,9 +273,9 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
     controller: HealthController,
   },
   {
-    label: 'license/AdminController',
-    file: 'libs/api/licensing/src/lib/license/controllers/admin.controller.ts',
-    controller: LicenseAdminController,
+    label: 'license/IntegrationLicensesController',
+    file: 'libs/api/licensing/src/lib/license/controllers/integration-licenses.controller.ts',
+    controller: IntegrationLicensesController,
   },
   {
     label: 'license/LicenseController',

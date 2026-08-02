@@ -1,10 +1,12 @@
 import { LicenseService } from '../services/license.service';
 import { EmailService } from '@ptah-api/email';
 import { CreateLicenseDto } from '../dto/create-license.dto';
-import { AdminController } from './admin.controller';
+import { IntegrationLicensesController } from './integration-licenses.controller';
 
 /**
- * Unit tests for AdminController (TASK_2025_294 W1.B4).
+ * Unit tests for IntegrationLicensesController (TASK_2025_294 W1.B4; renamed
+ * with its subject by TASK_2026_170 R3, which moved the route from
+ * `POST v1/admin/licenses` to `POST v1/integrations/licenses`).
  *
  * Strategy: instantiate the controller directly with mocked LicenseService
  * and EmailService. The AdminApiKeyGuard is a separate concern covered in
@@ -21,10 +23,10 @@ import { AdminController } from './admin.controller';
  *   - LicenseService is called with the exact { email, plan } params
  */
 
-describe('AdminController', () => {
+describe('IntegrationLicensesController', () => {
   let licenseService: jest.Mocked<LicenseService>;
   let emailService: jest.Mocked<EmailService>;
-  let controller: AdminController;
+  let controller: IntegrationLicensesController;
 
   const baseDto: CreateLicenseDto = {
     email: 'user@example.com',
@@ -38,10 +40,13 @@ describe('AdminController', () => {
     emailService = {
       sendLicenseKey: jest.fn(),
     } as unknown as jest.Mocked<EmailService>;
-    controller = new AdminController(licenseService, emailService);
+    controller = new IntegrationLicensesController(
+      licenseService,
+      emailService,
+    );
   });
 
-  describe('POST /api/v1/admin/licenses (createLicense)', () => {
+  describe('POST /api/v1/integrations/licenses (createLicense)', () => {
     it('happy path: creates license, sends email, and returns success response without the key', async () => {
       const expiresAt = new Date('2026-06-01T00:00:00Z');
       licenseService.createLicense.mockResolvedValueOnce({

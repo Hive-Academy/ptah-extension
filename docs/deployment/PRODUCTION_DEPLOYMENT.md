@@ -42,7 +42,7 @@ Run these **once** before first deployment. Store the output securely (password 
 # JWT signing secret (license server auth tokens)
 openssl rand -hex 32
 
-# Admin API key (protects /api/v1/admin/* endpoints)
+# Admin API key (protects /api/v1/integrations/* machine endpoints)
 openssl rand -hex 32
 
 # Admin secret (protects trial reminder cron trigger)

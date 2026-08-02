@@ -279,7 +279,6 @@ const EXPECTED_ROUTES: readonly string[] = [
   'POST unsubscribe/:token',
   'POST v1/admin/groups',
   'POST v1/admin/groups/:id/assign',
-  'POST v1/admin/licenses',
   'POST v1/admin/licenses/complimentary',
   'POST v1/admin/marketing/send',
   'POST v1/admin/marketing/templates',
@@ -295,6 +294,7 @@ const EXPECTED_ROUTES: readonly string[] = [
   'POST v1/auth/stream/ticket',
   'POST v1/auth/verify-email',
   'POST v1/contact',
+  'POST v1/integrations/licenses',
   'POST v1/licenses/me/reveal-key',
   'POST v1/licenses/verify',
   'POST v1/sessions/request',
@@ -337,36 +337,34 @@ const PREFIX_EXCEPTIONS: ReadonlyArray<{
 /**
  * RI-1 debt — prefix violations that EXIST TODAY and have a named owner.
  *
- * Un-rottable in both directions, exactly like
- * `controller-validation.spec.ts`'s `UNVALIDATED_DEBT`:
+ * ⚠️ **EMPTY, AND THAT IS THE POINT OF THIS TASK.** This ledger was seeded with
+ * ten entries, all owned by one controller: `license/AdminController` was
+ * `@Controller('v1/admin')`, a proper path-prefix of every `v1/admin/*` sibling.
+ * It was never a dashboard route at all — it is a MACHINE/OPS integration
+ * authenticated by an `x-api-key` header (`AdminApiKeyGuard`), not by an admin's
+ * session cookie, and the URL made two different trust models look like
+ * neighbours.
+ *
+ * All ten were closed by R3 in one move: the controller became
+ * `license/IntegrationLicensesController` at `v1/integrations/licenses`, a
+ * prefix that is disjoint from every other in the server. There is nothing left
+ * to list — no controller prefix now shadows another anywhere.
+ *
+ * They were prefix-SHAPE violations only: `POST v1/admin/licenses` never
+ * CONTESTED a sibling route (RI-2 was already clean), because no sibling
+ * declared a 3-segment POST that unified with it. R3 was therefore a
+ * legibility fix, not a bug fix — which is exactly why it needed a ledger to
+ * force it, rather than an outage.
+ *
+ * The mechanism is retained rather than deleted, un-rottable in both directions
+ * exactly like `controller-validation.spec.ts`'s `UNVALIDATED_DEBT`:
  *   listed but no longer violating -> the staleness assertion fails
  *   violating but not listed       -> the main assertion fails
- *
- * ⚠️ ALL TEN ENTRIES BELONG TO TASK_2026_170 R3 AND ARE DELETED BY IT.
- * `license/controllers/admin.controller.ts` is still `@Controller('v1/admin')`,
- * which is a proper path-prefix of every `v1/admin/*` sibling. It is a
- * MACHINE/OPS integration authenticated by an `x-api-key` header
- * (`AdminApiKeyGuard`), not a dashboard route authenticated by an admin's
- * session cookie — two different trust models made to look like neighbours by
- * the URL. R3 moves it to `v1/integrations/licenses` as
- * `IntegrationLicensesController`, and every line below goes with it.
- *
- * Note this is a prefix-shape violation only: `POST v1/admin/licenses` does not
- * CONTEST any sibling route (RI-2 is already clean — see below), because no
- * sibling declares a 3-segment POST that unifies with it.
+ * so the next contributor who nests one controller's prefix inside another has
+ * to write the line — and justify it in review — instead of quietly restoring
+ * the shape.
  */
-const KNOWN_PREFIX_DEBT: readonly string[] = [
-  'license/AdminController @ v1/admin  <  admin/AdminLicensesController @ v1/admin/licenses',
-  'license/AdminController @ v1/admin  <  admin/AdminRecordsController @ v1/admin/records',
-  'license/AdminController @ v1/admin  <  admin/AdminStatsController @ v1/admin/stats',
-  'license/AdminController @ v1/admin  <  admin/AdminUsersController @ v1/admin/users',
-  'license/AdminController @ v1/admin  <  admin/AdminWaitlistController @ v1/admin/waitlist',
-  'license/AdminController @ v1/admin  <  discourse/AdminCommunityController @ v1/admin/community',
-  'license/AdminController @ v1/admin  <  google-sessions/AdminSessionsController @ v1/admin/sessions',
-  'license/AdminController @ v1/admin  <  marketing/AdminMarketingController @ v1/admin/marketing',
-  'license/AdminController @ v1/admin  <  member-groups/MemberGroupsController @ v1/admin/groups',
-  'license/AdminController @ v1/admin  <  packs/AdminPacksController @ v1/admin/packs',
-];
+const KNOWN_PREFIX_DEBT: readonly string[] = [];
 
 /**
  * RI-2 debt — cross-controller route contests that EXIST TODAY.

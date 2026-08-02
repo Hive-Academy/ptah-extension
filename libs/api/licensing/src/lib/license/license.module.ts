@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LicenseService } from './services/license.service';
 import { LicenseController } from './controllers/license.controller';
-import { AdminController } from './controllers/admin.controller';
+import { IntegrationLicensesController } from './controllers/integration-licenses.controller';
 import { PrismaModule } from '@ptah-api/core';
 import { EmailModule } from '@ptah-api/email';
 import { IdentityModule } from '@ptah-api/identity';
@@ -14,7 +14,8 @@ import { WaitlistModule } from '@ptah-api/marketing';
  *
  * Provides:
  * - Public license verification endpoint (POST /api/v1/licenses/verify)
- * - Admin license creation endpoint (POST /api/v1/admin/licenses)
+ * - Machine/ops license creation endpoint
+ *   (POST /api/v1/integrations/licenses, x-api-key gated)
  * - License creation service with email integration
  *
  * Dependencies:
@@ -31,7 +32,7 @@ import { WaitlistModule } from '@ptah-api/marketing';
     WaitlistModule,
     IdentityModule,
   ],
-  controllers: [LicenseController, AdminController],
+  controllers: [LicenseController, IntegrationLicensesController],
   providers: [LicenseService],
   exports: [LicenseService],
 })

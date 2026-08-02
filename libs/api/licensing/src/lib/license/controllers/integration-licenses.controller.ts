@@ -13,21 +13,32 @@ import { CreateLicenseDto } from '../dto/create-license.dto';
 import { EmailService } from '@ptah-api/email';
 
 /**
- * AdminController - Admin-only license management endpoints
+ * IntegrationLicensesController — machine/ops license provisioning
+ * (TASK_2026_170 R3).
  *
- * Security: All endpoints require X-API-Key header validation
+ * Security: every endpoint requires an `x-api-key` header, validated against
+ * `ADMIN_API_KEY` by `AdminApiKeyGuard` (see `guards/admin-api-key.guard.ts`).
+ * That guard is the RESOURCE BOUNDARY: this is an out-of-repo INTEGRATION
+ * authenticated by a shared secret, NOT a dashboard route authenticated by an
+ * admin's session cookie (`JwtAuthGuard` → `AdminGuard`, which is what every
+ * `v1/admin/*` controller uses). R3 moved it off `v1/admin` because the URL made
+ * two different trust models look like neighbours; `v1/integrations` says what
+ * it is. See `admin/AdminLicensesController` for the cookie-authenticated
+ * complimentary-license route that keeps the `v1/admin/licenses` prefix.
+ *
  * Rate Limit: 30 requests per minute (TASK_2025_125)
  *
  * Endpoints:
- * - POST /api/v1/admin/licenses - Create license and send email
+ * - POST /api/v1/integrations/licenses - Create license and send email
  *
- * Routes: /api/v1/admin/* (global prefix 'api' is added automatically)
+ * Routes: /api/v1/integrations/licenses (global prefix 'api' is added
+ * automatically)
  */
-@Controller('v1/admin')
+@Controller('v1/integrations/licenses')
 @UseGuards(AdminApiKeyGuard)
 @Throttle({ default: { limit: 30, ttl: 60000 } })
-export class AdminController {
-  private readonly logger = new Logger(AdminController.name);
+export class IntegrationLicensesController {
+  private readonly logger = new Logger(IntegrationLicensesController.name);
 
   constructor(
     @Inject(LicenseService) private readonly licenseService: LicenseService,
@@ -56,7 +67,7 @@ export class AdminController {
    *   emailError?: string (present if emailSent=false)
    * }
    */
-  @Post('licenses')
+  @Post()
   async createLicense(@Body() dto: CreateLicenseDto) {
     const { licenseKey, expiresAt } = await this.licenseService.createLicense({
       email: dto.email,

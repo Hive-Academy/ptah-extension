@@ -9,18 +9,20 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, timingSafeEqual } from 'crypto';
 
 /**
- * AdminApiKeyGuard - Validates X-API-Key header for admin endpoints
+ * AdminApiKeyGuard - Validates the `x-api-key` header for machine integrations
  *
  * Security:
- * - Validates X-API-Key header against ADMIN_API_KEY environment variable
+ * - Validates the `x-api-key` header against the ADMIN_API_KEY environment
+ *   variable (header name is lower-cased by Node — see canActivate below, which
+ *   is authoritative over any prose)
  * - Throws 401 Unauthorized if key is missing or invalid
  * - Prevents unauthorized license creation
  * - Uses hash-based constant-time comparison (no length leak)
  *
  * Usage:
- * @Controller('api/v1/admin')
+ * @Controller('v1/integrations/licenses')
  * @UseGuards(AdminApiKeyGuard)
- * export class AdminController { }
+ * export class IntegrationLicensesController { }
  */
 @Injectable()
 export class AdminApiKeyGuard implements CanActivate {
