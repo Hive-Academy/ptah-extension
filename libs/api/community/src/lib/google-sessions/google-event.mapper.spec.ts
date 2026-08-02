@@ -33,6 +33,17 @@ const FULL_EVENT: GoogleCalendarEvent = {
   start: { dateTime: '2026-09-01T14:00:00.000Z' },
   end: { dateTime: '2026-09-01T15:00:00.000Z' },
   hangoutLink: 'https://meet.google.com/abc-defg-hij',
+  // Guests are part of the fixture ON PURPOSE. The member-shape assertions
+  // below claim the guest list never reaches a member; against an event with no
+  // guests those assertions would hold vacuously and keep holding even if the
+  // mapper started spreading the raw Google event.
+  attendees: [
+    { email: 'Member.One@Example.com', responseStatus: 'accepted' },
+    { email: 'member.two@example.com' },
+    // No email: Google emits these for rooms/equipment and for guests hidden by
+    // the calendar's privacy settings. Neither is actionable, so both are dropped.
+    { responseStatus: 'needsAction' },
+  ],
 };
 
 describe('google-event.mapper', () => {
@@ -208,7 +219,21 @@ describe('google-event.mapper', () => {
       // The guest list is every other member's email address. Widening
       // `BuildersSession` to carry it would publish the customer list to every
       // member who opens their sessions page.
-      expect(toBuildersSession(FULL_EVENT)).not.toHaveProperty('attendees');
+      const member = toBuildersSession(FULL_EVENT);
+
+      expect(member).not.toHaveProperty('attendees');
+      // Belt and braces: no member field may carry an address either, however
+      // the mapper is later refactored.
+      expect(JSON.stringify(member)).not.toContain('@example.com');
+    });
+
+    it('collects the guest list onto the admin shape, normalised', () => {
+      const admin = toAdminSession(FULL_EVENT);
+
+      expect(admin?.attendees).toEqual([
+        { email: 'member.one@example.com', responseStatus: 'accepted' },
+        { email: 'member.two@example.com', responseStatus: null },
+      ]);
     });
 
     it('the two shapes agree on every shared field', () => {

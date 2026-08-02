@@ -80,6 +80,53 @@ function build(
 }
 
 describe('SessionsService', () => {
+  /**
+   * ⚠️ The customer-list guard, asserted at the METHOD THE MEMBER ENDPOINT
+   * ACTUALLY CALLS rather than at the mapper it happens to delegate to.
+   *
+   * The Google events this service reads carry the full guest list — every
+   * paying member's email address is on the recurring series, put there by the
+   * provisioning fan-out. `GET /api/v1/members/sessions` returns whatever this
+   * method returns, straight onto the wire, to any Builders member. A mapper
+   * test proves the mapper is safe; this proves the PATH is, and would still
+   * fail if someone swapped in a different mapper or spread the raw event.
+   */
+  describe('⚠️ the member path never returns anyone’s email address', () => {
+    it('drops the guest list from a heavily-attended session', async () => {
+      const calendar = createCalendarMock(true);
+      calendar.listEvents.mockResolvedValue({
+        ok: true,
+        json: {
+          items: [
+            {
+              id: 'evt_1',
+              summary: 'Builders Office Hours',
+              start: { dateTime: '2026-07-20T17:00:00Z' },
+              end: { dateTime: '2026-07-20T18:00:00Z' },
+              attendees: [
+                { email: 'paying.customer@example.com' },
+                { email: 'another.customer@example.com' },
+                { email: 'founder@ptah.live', organizer: true },
+              ],
+            },
+          ],
+        },
+      });
+
+      const sessions = await build(
+        calendar,
+        createAuditMock(),
+      ).listUpcomingSessions(USER);
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]).not.toHaveProperty('attendees');
+      // Substring, not key-shape: an address smuggled into `title` or
+      // `description` would be the same leak through a different door.
+      expect(JSON.stringify(sessions)).not.toContain('@example.com');
+      expect(JSON.stringify(sessions)).not.toContain('@ptah.live');
+    });
+  });
+
   describe('listUpcomingSessions', () => {
     it('maps Google events to the members contract shape', async () => {
       const calendar = createCalendarMock(true);
