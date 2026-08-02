@@ -25,6 +25,7 @@ import type { RpcMethodName } from '@ptah-extension/shared';
 
 import type { Capability } from './capabilities';
 import {
+  AgentRpcHandlers,
   AuthRpcHandlers,
   AutocompleteRpcHandlers,
   ChatRpcHandlers,
@@ -62,12 +63,9 @@ import {
 } from '../handlers';
 
 /**
- * Structural shape every RPC handler class satisfies. Matches tsyringe's
- * `constructor<T>` so the class-as-token `container.resolve` call type-checks.
- */
-/**
- * tsyringe's class-as-token `resolve` only accepts an `any[]`-parameter
- * construct signature; a narrower one fails to match the real handlers.
+ * Structural shape every RPC handler class satisfies. tsyringe's
+ * class-as-token `resolve` only accepts an `any[]`-parameter construct
+ * signature; a narrower one fails to match the real handlers.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type RpcHandlerCtor = new (...args: any[]) => { register(): void };
@@ -105,19 +103,14 @@ const EDITOR_PANE_METHODS = [
   'editor:listAllFiles',
 ] as const satisfies readonly RpcMethodName[];
 
-const AGENT_METHODS = [
-  'agent:getConfig',
-  'agent:setConfig',
-  'agent:detectClis',
-  'agent:listCliModels',
-  'agent:permissionResponse',
-  'agent:stop',
-  'agent:continue',
-  'agent:resumeCliSession',
-] as const satisfies readonly RpcMethodName[];
-
 export const RPC_HANDLER_MANIFEST = [
   // --- library-owned, every host --------------------------------------------
+  {
+    key: 'agent',
+    methods: AgentRpcHandlers.METHODS,
+    requires: [],
+    handler: AgentRpcHandlers,
+  },
   {
     key: 'auth',
     methods: AuthRpcHandlers.METHODS,
@@ -326,7 +319,6 @@ export const RPC_HANDLER_MANIFEST = [
   },
 
   // --- host-owned (unification pending) -------------------------------------
-  { key: 'host.agent', methods: AGENT_METHODS, requires: [] },
   { key: 'host.fileOpen', methods: ['file:open'], requires: ['fileOpen'] },
   {
     key: 'host.filePicker',

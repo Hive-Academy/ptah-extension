@@ -8,6 +8,7 @@
  * Tier 1 handlers: Zero refactoring needed (no vscode imports).
  * Tier 2 handlers: Refactored to use platform abstractions.
  */
+export { AgentRpcHandlers } from './agent-rpc.handlers';
 export { SessionRpcHandlers } from './session-rpc.handlers';
 export { ContextRpcHandlers } from './context-rpc.handlers';
 export { AutocompleteRpcHandlers } from './autocomplete-rpc.handlers';

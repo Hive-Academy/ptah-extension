@@ -1,17 +1,17 @@
 /**
- * Electron Agent Orchestration RPC Handlers
+ * Agent Orchestration RPC Handlers.
  *
- * Electron-specific implementations for agent orchestration methods:
- * - agent:getConfig - Get agent config from Electron storage + CLI detection
- * - agent:setConfig - Persist agent config to Electron storage
- * - agent:detectClis - Re-detect installed CLI agents
- * - agent:listCliModels - List available models per CLI
- * - agent:permissionResponse - Route permission decisions to Copilot bridge
- * - agent:stop - Stop a running CLI agent
- * - agent:resumeCliSession - Resume a CLI agent session
+ * Owns the `agent:*` namespace on every host:
+ * - agent:getConfig / agent:setConfig — orchestration config via IWorkspaceProvider
+ * - agent:detectClis / agent:listCliModels — rival-CLI detection and models
+ * - agent:permissionResponse — routes decisions to the SDK + Copilot bridges
+ * - agent:stop / agent:continue / agent:resumeCliSession — process control
  *
- * Mirrors the VS Code AgentRpcHandlers but uses platform-agnostic services
- * (IStateStorage, IWorkspaceProvider) instead of VS Code APIs.
+ * Unified from three byte-for-byte-equivalent copies (VS Code, Electron,
+ * cli-engine). Electron's implementation is the base; the only host-specific
+ * behaviour left is Copilot model discovery, which goes through
+ * {@link IModelDiscovery} — VS Code's adapter queries the editor's Language
+ * Model API, the other hosts return nothing and the curated CLI list is used.
  */
 
 import { injectable, inject, type DependencyContainer } from 'tsyringe';
@@ -24,6 +24,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IStateStorage,
+  IModelDiscovery,
 } from '@ptah-extension/platform-core';
 import {
   CliDetectionService,
@@ -52,9 +53,7 @@ import type {
 export class AgentRpcHandlers {
   /**
    * Method names registered against the global `RpcHandler`. Order matches
-   * `register()` invocation order. Asserted in the CLI parity spec
-   * (`apps/ptah-cli/src/services/rpc/handlers/cli-agent-rpc.handlers.spec.ts`)
-   * to keep CLI and Electron in lockstep.
+   * `register()` invocation order.
    */
   static readonly METHODS = [
     'agent:getConfig',
@@ -82,6 +81,8 @@ export class AgentRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.STATE_STORAGE)
     private readonly stateStorage: IStateStorage,
+    @inject(TOKENS.MODEL_DISCOVERY)
+    private readonly modelDiscovery: IModelDiscovery,
     @inject(PLATFORM_TOKENS.DI_CONTAINER)
     private readonly runtimeContainer: DependencyContainer,
   ) {}
@@ -109,7 +110,7 @@ export class AgentRpcHandlers {
       bridge.setAutoApprove(copilotAutoApprove);
     }
 
-    this.logger.debug('Electron Agent RPC handlers registered', {
+    this.logger.debug('Agent RPC handlers registered', {
       methods: [
         'agent:getConfig',
         'agent:setConfig',
@@ -364,7 +365,13 @@ export class AgentRpcHandlers {
           const modelMap = await this.cliDetection.listModelsForAll();
 
           const codex = (modelMap['codex'] ?? []) as CliModelOption[];
-          const copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
+          // Hosts with a Language Model API (VS Code) report the models the
+          // user actually has; everywhere else this is empty and the curated
+          // per-CLI list stands in.
+          let copilot = await this.getCopilotModelsFromHost();
+          if (copilot.length === 0) {
+            copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
+          }
           const cursor = (modelMap['cursor'] ?? []) as CliModelOption[];
           const antigravity = (modelMap['antigravity'] ??
             []) as CliModelOption[];
@@ -390,7 +397,11 @@ export class AgentRpcHandlers {
           });
 
           return result;
-        } catch (error) {
+        } catch (error: unknown) {
+          this.captureException(
+            error,
+            'AgentRpcHandlers.registerListCliModels',
+          );
           this.logger.error(
             'RPC: agent:listCliModels failed',
             error instanceof Error ? error : new Error(String(error)),
@@ -399,6 +410,59 @@ export class AgentRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * Copilot models as reported by the host's Language Model API, with
+   * human-readable display names. Empty when the host has no such API.
+   */
+  private async getCopilotModelsFromHost(): Promise<CliModelOption[]> {
+    try {
+      const models = await this.modelDiscovery.getCopilotModels();
+      return models.map((model) => ({
+        id: model.id,
+        name: this.formatModelDisplayName(model.id),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Convert a model family slug to a human-readable name.
+   * e.g. "claude-opus-4.6" -> "Claude Opus 4.6"
+   *      "gpt-5.3-codex"   -> "GPT 5.3 Codex"
+   */
+  private formatModelDisplayName(family: string): string {
+    return family
+      .split('-')
+      .map((part) => {
+        if (/^\d/.test(part)) return part;
+        const upper = part.toUpperCase();
+        if (['GPT', 'AI'].includes(upper)) return upper;
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join(' ');
+  }
+
+  /**
+   * Forward an error to Sentry when the host registered it. Guarded rather
+   * than injected because the headless hosts boot without Sentry.
+   */
+  private captureException(error: unknown, errorSource: string): void {
+    if (!this.runtimeContainer.isRegistered(TOKENS.SENTRY_SERVICE)) return;
+    try {
+      this.runtimeContainer
+        .resolve<{
+          captureException(e: Error, ctx: { errorSource: string }): void;
+        }>(TOKENS.SENTRY_SERVICE)
+        .captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource },
+        );
+    } catch {
+      // Observability must never break an RPC call.
+    }
   }
 
   /**

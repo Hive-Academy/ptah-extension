@@ -19,7 +19,6 @@ import {
   type RpcHandlerCtor,
 } from '@ptah-extension/rpc-handlers';
 
-import { CliAgentRpcHandlers } from './cli-agent-rpc.handlers.js';
 import { CliFilePickerRpcHandlers } from './cli-file-picker-rpc.handlers.js';
 
 export function createCliRpcHostProfile(
@@ -27,9 +26,7 @@ export function createCliRpcHostProfile(
 ): HostProfile {
   const interactive = host === 'tui';
 
-  const hostHandlers: Record<string, RpcHandlerCtor> = {
-    'host.agent': CliAgentRpcHandlers,
-  };
+  const hostHandlers: Record<string, RpcHandlerCtor> = {};
   if (interactive) {
     hostHandlers['host.filePicker'] = CliFilePickerRpcHandlers;
   }

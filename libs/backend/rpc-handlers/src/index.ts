@@ -7,6 +7,7 @@
  */
 
 export {
+  AgentRpcHandlers,
   SessionRpcHandlers,
   ContextRpcHandlers,
   AutocompleteRpcHandlers,

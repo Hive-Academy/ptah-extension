@@ -13,7 +13,6 @@ import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
 import { capabilities, type HostProfile } from '@ptah-extension/rpc-handlers';
 
 import {
-  AgentRpcHandlers,
   CommandRpcHandlers,
   EditorRpcHandlers,
   FileRpcHandlers,
@@ -49,7 +48,6 @@ export function createElectronRpcHostProfile(
       appUpdater: true,
     }),
     hostHandlers: {
-      'host.agent': AgentRpcHandlers,
       'host.fileOpen': EditorRpcHandlers,
       'host.filePicker': FileRpcHandlers,
       'host.filePickImages': FileRpcHandlers,

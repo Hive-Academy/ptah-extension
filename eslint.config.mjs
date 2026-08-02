@@ -30,11 +30,9 @@ const MESSAGE_LITERAL_SELECTORS = [
  * is empty the exception can go with it.
  */
 const APP_LOCAL_RPC_HANDLERS_PENDING_MIGRATION = [
-  'apps/ptah-extension-vscode/src/services/rpc/handlers/agent-rpc.handlers.ts',
   'apps/ptah-extension-vscode/src/services/rpc/handlers/command-rpc.handlers.ts',
   'apps/ptah-extension-vscode/src/services/rpc/handlers/editor-rpc.handlers.ts',
   'apps/ptah-extension-vscode/src/services/rpc/handlers/file-rpc.handlers.ts',
-  'apps/ptah-electron/src/services/rpc/handlers/agent-rpc.handlers.ts',
   'apps/ptah-electron/src/services/rpc/handlers/command-rpc.handlers.ts',
   'apps/ptah-electron/src/services/rpc/handlers/editor-rpc.handlers.ts',
   'apps/ptah-electron/src/services/rpc/handlers/file-rpc.handlers.ts',

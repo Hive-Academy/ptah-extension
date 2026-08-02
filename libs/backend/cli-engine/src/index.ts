@@ -42,7 +42,6 @@ export {
   type HeadlessFilePickRequest,
   type IHeadlessFilePicker,
 } from './lib/rpc/headless-file-picker.port.js';
-export { CliAgentRpcHandlers } from './lib/rpc/cli-agent-rpc.handlers.js';
 
 export {
   CliPlatformCommands,

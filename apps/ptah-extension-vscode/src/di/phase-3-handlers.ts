@@ -18,6 +18,7 @@ import type { DependencyContainer } from 'tsyringe';
 import { TOKENS, GitInfoService } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
+  AgentRpcHandlers,
   activateSessionLifecycleNotifier,
   registerChatServices,
   registerHarnessServices,
@@ -39,7 +40,6 @@ import {
   CommandRpcHandlers,
   QualityRpcHandlers,
   PluginRpcHandlers,
-  AgentRpcHandlers,
   PtahCliRpcHandlers,
   SkillsShRpcHandlers,
   McpDirectoryRpcHandlers,

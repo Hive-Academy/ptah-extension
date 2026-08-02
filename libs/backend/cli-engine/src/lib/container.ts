@@ -94,6 +94,7 @@ import {
   ProviderRpcHandlers,
   WebSearchRpcHandlers,
   WorkspaceRpcHandlers,
+  AgentRpcHandlers,
   activateSessionLifecycleNotifier,
   registerChatServices,
   registerHarnessServices,
@@ -113,7 +114,6 @@ import {
 import { CliMessageTransport } from './transport/cli-message-transport';
 import { CliWebviewManagerAdapter } from './transport/cli-webview-manager-adapter';
 import { CliFireAndForgetHandler } from './transport/cli-fire-and-forget-handler';
-import { CliAgentRpcHandlers } from './rpc/cli-agent-rpc.handlers.js';
 import { CliFilePickerRpcHandlers } from './rpc/cli-file-picker-rpc.handlers.js';
 import { createCliRpcHostProfile } from './rpc/cli-host-profile';
 import {
@@ -686,7 +686,7 @@ export class CliDIContainer {
       try {
         registerChatServices(container);
         registerHarnessServices(container);
-        container.registerSingleton(CliAgentRpcHandlers);
+        container.registerSingleton(AgentRpcHandlers);
         if (options.filePicker) {
           container.register(HEADLESS_FILE_PICKER, {
             useValue: options.filePicker,

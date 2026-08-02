@@ -50,8 +50,7 @@ function profile(overrides: Partial<HostProfile> = {}): HostProfile {
     platform: 'cli',
     host: 'cli',
     capabilities: capabilities({}),
-    // `host.agent` requires nothing, so every host must supply it.
-    hostHandlers: { 'host.agent': FakeHandler as unknown as RpcHandlerCtor },
+    hostHandlers: {},
     wiring: {
       worktree: false,
       copilotPermission: false,
@@ -70,11 +69,7 @@ describe('resolveRpcHandlerPlan', () => {
     const plan = resolveRpcHandlerPlan(
       profile({
         capabilities: capabilities({ fileOpen: true, filePicker: true }),
-        hostHandlers: {
-          'host.agent': FakeHandler as unknown as RpcHandlerCtor,
-          'host.fileOpen': shared,
-          'host.filePicker': shared,
-        },
+        hostHandlers: { 'host.fileOpen': shared, 'host.filePicker': shared },
       }),
     );
 
@@ -94,7 +89,6 @@ describe('resolveRpcHandlerPlan', () => {
       resolveRpcHandlerPlan(
         profile({
           hostHandlers: {
-            'host.agent': FakeHandler as unknown as RpcHandlerCtor,
             'host.terminal': FakeHandler as unknown as RpcHandlerCtor,
           },
         }),
@@ -107,17 +101,13 @@ describe('resolveRpcHandlerPlan', () => {
       profile({
         capabilities: capabilities({ fileOpen: true }),
         hostHandlers: {
-          'host.agent': FakeHandler as unknown as RpcHandlerCtor,
           'host.fileOpen': OtherFakeHandler as unknown as RpcHandlerCtor,
         },
       }),
     );
 
     const hostOwned = plan.filter((step) => !step.libOwned);
-    expect(hostOwned.map((step) => step.key)).toEqual([
-      'host.agent',
-      'host.fileOpen',
-    ]);
+    expect(hostOwned.map((step) => step.key)).toEqual(['host.fileOpen']);
     expect(plan.some((step) => step.libOwned)).toBe(true);
   });
 });

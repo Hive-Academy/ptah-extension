@@ -16,7 +16,6 @@ import { capabilities, type HostProfile } from '@ptah-extension/rpc-handlers';
 import { parseWorktreeList } from '@ptah-extension/shared';
 
 import {
-  AgentRpcHandlers,
   CommandRpcHandlers,
   EditorRpcHandlers,
   FileRpcHandlers,
@@ -34,7 +33,6 @@ export function createVscodeRpcHostProfile(logger: Logger): HostProfile {
       commandExecution: true,
     }),
     hostHandlers: {
-      'host.agent': AgentRpcHandlers,
       'host.fileOpen': FileRpcHandlers,
       'host.filePicker': FileRpcHandlers,
       'host.filePickImages': FileRpcHandlers,
