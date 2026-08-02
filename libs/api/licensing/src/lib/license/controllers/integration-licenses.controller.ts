@@ -11,6 +11,7 @@ import { AdminApiKeyGuard } from '../guards/admin-api-key.guard';
 import { LicenseService } from '../services/license.service';
 import { CreateLicenseDto } from '../dto/create-license.dto';
 import { EmailService } from '@ptah-api/email';
+import { dtoPipe } from '@ptah-api/core';
 
 /**
  * IntegrationLicensesController — machine/ops license provisioning
@@ -33,6 +34,20 @@ import { EmailService } from '@ptah-api/email';
  *
  * Routes: /api/v1/integrations/licenses (global prefix 'api' is added
  * automatically)
+ *
+ * ⚠️ EVERY `@Body()` / `@Query()` PARAM MUST BIND `dtoPipe(TheDto)`.
+ * A bare `@Body() dto: X` is SILENTLY UNVALIDATED in this server: esbuild does
+ * not emit `emitDecoratorMetadata`, so Nest cannot infer the DTO type and the
+ * global ValidationPipe short-circuits — every `class-validator` decorator
+ * becomes inert. See `libs/api/core/src/lib/common/dto-validation.pipe.ts`.
+ * `apps/ptah-license-server/src/common/controller-validation.spec.ts` fails the
+ * build if a binding is dropped.
+ *
+ * This route matters more than its traffic suggests: `CreateLicenseDto` has no
+ * caller anywhere in this repo, so its only clients are OUT-OF-REPO scripts
+ * holding `ADMIN_API_KEY`. Nothing in the workspace can be regressed by binding
+ * it, and unvalidated it was the one place an arbitrary `plan` string could be
+ * written straight onto a license row.
  */
 @Controller('v1/integrations/licenses')
 @UseGuards(AdminApiKeyGuard)
@@ -68,7 +83,7 @@ export class IntegrationLicensesController {
    * }
    */
   @Post()
-  async createLicense(@Body() dto: CreateLicenseDto) {
+  async createLicense(@Body(dtoPipe(CreateLicenseDto)) dto: CreateLicenseDto) {
     const { licenseKey, expiresAt } = await this.licenseService.createLicense({
       email: dto.email,
       plan: dto.plan,

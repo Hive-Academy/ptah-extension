@@ -55,27 +55,27 @@ const PARAMTYPE = { BODY: 3, QUERY: 4 } as const;
  * Controllers whose payload params are not yet bound. This list only ever
  * SHRINKS. TASK_2026_170 empties it, one controller per commit.
  *
+ * ✅ EMPTY as of TASK_2026_170 B9. Every whole-object `@Body()` / `@Query()`
+ * param in this server now binds a `ValidationPipe` carrying `expectedType`,
+ * so the "no enforced controller has an unbound payload param" assertion below
+ * covers the entire surface and the staleness assertion passes vacuously.
+ *
  * Keyed on `ALL_CONTROLLERS[].label`, never on `controller.name` — see the note
  * on `ALL_CONTROLLERS` about the `AdminController` class-name collision that
  * TASK_2026_170 R2/R3 removed, and why path-qualified labels outlive it.
+ *
+ * ⚠️ THIS LIST IS NOT AN ESCAPE HATCH. It exists to let a large migration land
+ * one revertible commit at a time; that migration is finished. Do not re-add a
+ * name to unblock a merge — bind the param instead. If you genuinely believe a
+ * new controller cannot be bound, it belongs in `EXCLUDED` below with a written
+ * reason, not here.
  *
  * ⚠️ Only list a controller that ACTUALLY has an unbound whole-object payload
  * param. The staleness assertion below rejects entries for controllers with
  * nothing left to bind, which is what stops the ledger rotting in the other
  * direction.
  */
-const UNVALIDATED_DEBT: readonly string[] = [
-  // B7 was one line for the 306-line `admin/AdminController`. TASK_2026_170 R2
-  // split that class into five resource controllers, so the single line becomes
-  // four — one per batch, one per controller. `admin/AdminStatsController` is
-  // deliberately ABSENT: it has zero payload params, so the staleness assertion
-  // below ("still has at least one unbound param") would fail on it. It sits in
-  // ENFORCED and passes vacuously, exactly like the other param-free
-  // controllers. The arithmetic is checked by MIN_TOTAL_PAYLOAD_PARAMS: the
-  // split MOVES params, it never adds or removes them, so the server-wide total
-  // is identical before and after.
-  'license/IntegrationLicensesController', // B9
-];
+const UNVALIDATED_DEBT: readonly string[] = [];
 
 /**
  * Permanently excluded from the binding rule — expressed as DATA so the reason
@@ -325,17 +325,20 @@ describe('Server-wide input validation — structural guard', () => {
     //   remove a name without binding   -> the main assertion above fails
     //   bind without removing the name  -> this assertion fails
     //   add a controller with bare @Body() -> not in the ledger -> main fails
-    it.each(UNVALIDATED_DEBT)(
-      '%s still has at least one unbound param (delete this line once it does not)',
-      (label) => {
-        const unbound = bindingsFor(label).filter((b) => !b.validated);
+    //
+    // ⚠️ This is ONE aggregate test that loops, not `it.each(UNVALIDATED_DEBT)`.
+    // Jest throws "`.each` called with an empty Array of table data" on an empty
+    // table, and an EMPTY ledger is precisely the end state TASK_2026_170 drives
+    // to — a parameterised form would have turned success into a suite failure
+    // on the final commit. Looping keeps the assertion vacuous at zero entries
+    // while still NAMING every stale label when there are some.
+    it('every entry still has an unbound param (delete the line once it does not)', () => {
+      const stale = UNVALIDATED_DEBT.filter((label) =>
+        bindingsFor(label).every((b) => b.validated),
+      );
 
-        expect({
-          label,
-          unbound: unbound.length > 0,
-        }).toEqual({ label, unbound: true });
-      },
-    );
+      expect(stale).toEqual([]);
+    });
   });
 
   describe('EXCLUDED — permanent, documented carve-outs', () => {
