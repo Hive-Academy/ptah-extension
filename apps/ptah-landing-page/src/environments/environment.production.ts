@@ -35,14 +35,12 @@ export const environment = {
     token: 'live_e6d7985ed0c5db90caecc145a68',
 
     /**
-     * Ptah Builders monthly membership ($29/mo). The retired Pro product's
-     * IDs must NOT be reused — create the Builders product + prices in the
-     * live Paddle dashboard at launch and replace these placeholders
-     * (isPriceIdPlaceholder() blocks checkout until then).
+     * Ptah Builders monthly membership ($29/mo) — live product
+     * pro_01kz1d03jqd00gt6jgmbv3a8ve, price created 2026-08-02.
      */
-    proPriceIdMonthly: 'pri_BUILDERS_MONTHLY_REPLACE_ME',
-    /** Ptah Builders yearly membership ($290/yr) - replace at launch */
-    proPriceIdYearly: 'pri_BUILDERS_YEARLY_REPLACE_ME',
+    proPriceIdMonthly: 'pri_01kz1d200y7qqed9djyazrbskz',
+    /** Ptah Builders yearly membership ($290/yr) - live price */
+    proPriceIdYearly: 'pri_01kz1d31ax08swgnv20p55h1xc',
     /** Price ID for one-time session payment ($100) - from Paddle dashboard */
     sessionPriceId: 'pri_01kk28cjvvcv6eq4t61nft5jhb',
   },

@@ -25,16 +25,18 @@ model. Companion deep-dive: `discourse-digitalocean.md` (Discourse §1–6, Goog
 
 ### 2.1 Live Paddle (mirror of the sandbox setup)
 
-- [ ] Create product **Ptah Builders** (Standard digital goods) at
-      https://vendors.paddle.com → copy `pro_...` id.
-- [ ] Price **$29.00/month** "Builders Monthly (Founding Member)", no trial.
-- [ ] Price **$290.00/year** "Builders Yearly (Founding Member)", no trial.
-- [ ] Discount **FOUNDING70M**: 70%, recurring **12 billing periods**, checkout
+- [x] Create product **Ptah Builders** (Standard digital goods) at
+      https://vendors.paddle.com → `pro_01kz1d03jqd00gt6jgmbv3a8ve` (2026-08-02).
+- [x] Price **$29.00/month** "Builders Monthly (Founding Member)", no trial →
+      `pri_01kz1d200y7qqed9djyazrbskz`.
+- [x] Price **$290.00/year** "Builders Yearly (Founding Member)", no trial →
+      `pri_01kz1d31ax08swgnv20p55h1xc`.
+- [x] Discount **FOUNDING70M**: 70%, recurring **12 billing periods**, checkout
       code enabled, restricted to the monthly price ($8.70/month for the first
-      12 cycles, then the $29 list price).
-- [ ] Discount **FOUNDING70Y**: 70%, one payment, checkout code enabled,
+      12 cycles, then the $29 list price) → `dsc_01kz1d5yxk1naqrtctbwyfbfaf`.
+- [x] Discount **FOUNDING70Y**: 70%, one payment, checkout code enabled,
       restricted to the yearly price ($87 for the first year, then the $290
-      list price).
+      list price) → `dsc_01kz1d8xwjt9wq17c9rdqcy29j`.
 - [ ] ⚠️ The old FOUNDING35 / FOUNDING50 discounts are dead. Paddle discounts
       cannot be edited once used, so the 70% offer needs **new** discounts and
       new `dsc_` ids. Any invite already sent carries the old `dsc_` id in its
@@ -42,12 +44,17 @@ model. Companion deep-dive: `discourse-digitalocean.md` (Discourse §1–6, Goog
       still check out at 35% / 50%.
 - [ ] Tip: create the production API key with **discounts: write** scope so
       this can be automated next time.
-- [ ] Values → `.env.prod`: `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`,
+- [x] Values → `.env.prod`: `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`,
       `PADDLE_PRICE_ID_BUILDERS_MONTHLY/_YEARLY`,
-      `PADDLE_DISCOUNT_ID_BUILDERS_MONTHLY/_YEARLY`.
-- [ ] Values → `apps/ptah-landing-page/src/environments/environment.production.ts`:
-      replace `pri_BUILDERS_MONTHLY_REPLACE_ME` / `pri_BUILDERS_YEARLY_REPLACE_ME`
-      (checkout is guard-blocked until these are real).
+      `PADDLE_DISCOUNT_ID_BUILDERS_MONTHLY/_YEARLY` (all live ids set 2026-08-02).
+- [x] Values → `apps/ptah-landing-page/src/environments/environment.production.ts`:
+      live `pri_` ids in place (checkout stays guard-blocked by
+      `buildersCheckoutEnabled: false` until launch).
+- [ ] ⚠️ `.env.prod` deploy sync: the deploy-server workflow now writes
+      `/opt/ptah-extension/.env.prod` from the `ENV_PROD_FILE` GitHub secret on
+      every deploy. After ANY local `.env.prod` change run:
+      `gh secret set ENV_PROD_FILE < .env.prod` — never hand-edit env on the
+      droplet, it will be overwritten.
 - [ ] Webhook destination for the prod server already exists from the legacy
       setup — verify it still points at `https://api.ptah.live/webhooks/paddle`.
 
