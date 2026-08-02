@@ -28,37 +28,53 @@ import interactionPlugin from 'fullcalendar/interaction';
 import timeGridPlugin from 'fullcalendar/timegrid';
 import breezyTheme from 'fullcalendar/themes/breezy';
 
-import { AdminSession } from '../../../../services/admin-builders-api.service';
-
-/** Longest window `GET /api/v1/admin/sessions` accepts (`@Max(365)` on the DTO). */
-const MAX_DAYS_AHEAD = 365;
-
 /** Local wall-clock hour a month-view click prefills as the session start. */
 const DEFAULT_START_HOUR = 9;
 
 /** Duration a prefilled session spans, in milliseconds. */
 const DEFAULT_DURATION_MS = 60 * 60 * 1000;
 
-/** A time range the admin picked on the grid, ready for the create modal. */
+/**
+ * The minimum a session must be for this calendar to render it.
+ *
+ * Declared structurally rather than imported so the component belongs to
+ * neither the admin nor the member side. Both surfaces' own session types
+ * satisfy it without conversion: the admin's carries `description` and
+ * `attendees` on top, the member's is exactly this. Those extras survive the
+ * round-trip through `extendedProps`, which is what lets the generic parameter
+ * hand the caller back its OWN type in every output.
+ */
+export interface CalendarSession {
+  id: string;
+  title: string;
+  /** ISO 8601 */
+  startsAt: string;
+  /** ISO 8601 */
+  endsAt: string;
+  meetLink: string | null;
+  recurring: boolean;
+}
+
+/** A time range picked on the grid, ready for a create form. */
 export interface SessionRangeSelection {
   /** ISO 8601 */
   startsAt: string;
   /** ISO 8601 */
   endsAt: string;
   /**
-   * Cohort key when the range came from dropping a template chip, so the
-   * container can seed the title. Absent for a plain drag across empty space.
+   * Identifier of the template chip that was dropped, when the range came from
+   * one. Absent for a plain drag across empty space.
    */
   templateId?: string;
 }
 
 /**
- * A drag/resize the admin performed on an existing event. `revert()` is
- * FullCalendar's own undo — the container calls it when the PATCH fails so the
- * grid never shows a time the server refused.
+ * A drag/resize performed on an existing event. `revert()` is FullCalendar's
+ * own undo — the host calls it when the save fails so the grid never shows a
+ * time the server refused.
  */
-export interface SessionRescheduleRequest {
-  session: AdminSession;
+export interface SessionRescheduleRequest<T extends CalendarSession> {
+  session: T;
   /** ISO 8601 */
   startsAt: string;
   /** ISO 8601 */
@@ -67,72 +83,95 @@ export interface SessionRescheduleRequest {
 }
 
 /**
- * SessionsCalendar — the Builders session calendar rendered as an actual
- * calendar (FullCalendar v7, `@fullcalendar/angular`), not a table of rows.
+ * SessionCalendar — the Builders session grid, shared by the admin console and
+ * the members' area (FullCalendar v7).
  *
- * Presentational: it owns no HTTP and no session state. Every mutation is
- * emitted upward to `SessionsList`, which is the single place that talks to
- * `AdminBuildersApiService` and therefore the single place that knows how the
- * server's two refusals (read-only grant, protected recurring series) surface.
+ * Presentational and stateless: it owns no HTTP and no session state. Every
+ * interaction is emitted upward, so the host stays the single place that talks
+ * to an API and the single place that knows what its server will refuse.
  *
- * Three constraints from the surrounding system shape the options below:
+ * ⚠️ ONE COMPONENT, TWO AUDIENCES, ONE GATE. `writable` is the whole of the
+ * difference between the two surfaces. The members' area passes `false`, which
+ * removes selection, dragging and external drops outright — a member cannot
+ * reach a mutation affordance because none is rendered, not because a handler
+ * declines. The admin passes `calendarWritable` from the server's own scope
+ * verdict.
  *
- * 1. **The API window is anchored to now.** `GET /admin/sessions` takes only
- *    `daysAhead` — there is no arbitrary start date — so events before today
- *    are unfetchable. `validRange` therefore pins navigation to
- *    today…today+365d rather than letting the admin page into empty months and
- *    read that emptiness as "no sessions".
+ * ⚠️ IT RENDERS WHAT IT IS GIVEN. This component never fetches, so it can never
+ * widen what a member is allowed to see. The member endpoint returns
+ * `BuildersSession`, which carries no guest list and no description by
+ * construction; sharing this component does not change that, and the guards in
+ * `google-event.mapper.spec` / `sessions.service.spec` still hold the line.
+ *
+ * Two constraints from the API shape the options below:
+ *
+ * 1. **The window is anchored to now.** Both session endpoints take a
+ *    days-ahead lookahead with no arbitrary start, so events before today are
+ *    unfetchable. `validRange` pins navigation to today…today+`maxDaysAhead`
+ *    rather than letting a reader page into empty months and read that
+ *    emptiness as "no sessions".
  * 2. **Recurring masters are immovable.** The server answers 409
  *    `protected_recurring_event` because member provisioning maintains that
- *    event's attendee list, so those events get `editable: false` and a
- *    distinct class — drag is refused by the grid, not by a round-trip.
- * 3. **`calendarWritable: false` removes affordances, it doesn't grey them.**
- *    When the grant carries no write scope the grid is not selectable and no
- *    event is draggable, matching how the table hides its buttons outright.
+ *    event's attendee list, so those events are never draggable — refused by
+ *    the grid, not by a round-trip.
  */
 @Component({
-  selector: 'ptah-admin-sessions-calendar',
+  selector: 'ptah-session-calendar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FullCalendarModule],
-  templateUrl: './sessions-calendar.html',
-  styleUrl: './sessions-calendar.css',
+  templateUrl: './session-calendar.html',
+  styleUrl: './session-calendar.css',
   // FullCalendar's grid is built imperatively and never carries the emulated
   // `_ngcontent-*` attribute, so encapsulated rules would not reach it. See the
-  // header comment in `sessions-calendar.css`.
+  // header comment in `session-calendar.css`.
   encapsulation: ViewEncapsulation.None,
 })
-export class SessionsCalendar {
-  /** Sessions currently loaded for the window the container fetched. */
-  public readonly sessions = input.required<AdminSession[]>();
+export class SessionCalendar<T extends CalendarSession = CalendarSession> {
+  /** Sessions currently loaded for the window the host fetched. */
+  public readonly sessions = input.required<T[]>();
 
-  /** Mirrors `calendarWritable` — gates selection and dragging wholesale. */
+  /**
+   * Master switch for every mutation affordance. `false` renders a read-only
+   * grid: nothing selectable, nothing draggable, no external drop target.
+   */
   public readonly writable = input<boolean>(false);
 
   /** Dims the grid while a fetch is in flight without unmounting it. */
   public readonly loading = input<boolean>(false);
 
-  /** An event was clicked — the container opens its details panel. */
-  public readonly sessionSelected = output<AdminSession>();
+  /**
+   * How far ahead navigation may reach, in days — the host's own API ceiling.
+   * The admin endpoint accepts up to 365; the member endpoint is fixed at 60,
+   * and letting a member page past it would show empty months that look like a
+   * quiet calendar rather than an unfetchable one.
+   */
+  public readonly maxDaysAhead = input<number>(365);
 
-  /** An empty range was selected/clicked — the container opens create mode. */
+  /** An event was clicked. */
+  public readonly sessionSelected = output<T>();
+
+  /** An empty range was selected, or a template chip dropped on one. */
   public readonly rangeSelected = output<SessionRangeSelection>();
 
-  /** An event was dragged or resized — the container PATCHes, or reverts. */
-  public readonly rescheduled = output<SessionRescheduleRequest>();
+  /** An event was dragged or resized — the host saves, or reverts. */
+  public readonly rescheduled = output<SessionRescheduleRequest<T>>();
 
   /**
    * The visible range moved. Carries days-from-now to the end of that range so
-   * the container can decide whether its loaded window still covers the view.
+   * a host with a widenable window can decide whether its loaded set covers the
+   * view. Hosts with a fixed window ignore it.
    */
   public readonly windowRequested = output<number>();
 
   /**
-   * Navigation bounds, resolved once at construction. Recomputing this per
-   * change detection would hand FullCalendar a new object on every cycle and
-   * make it re-render the view for no reason.
+   * Navigation bounds. Depends only on `maxDaysAhead`, so it is recomputed when
+   * that changes and NOT on every change-detection pass — handing FullCalendar
+   * a fresh object each cycle would re-render the view for no reason.
    */
-  private readonly validRange = buildValidRange(new Date());
+  private readonly validRange = computed(() =>
+    buildValidRange(new Date(), this.maxDaysAhead()),
+  );
 
   protected readonly calendarOptions = computed<CalendarOptions>(() => {
     const writable = this.writable();
@@ -145,7 +184,7 @@ export class SessionsCalendar {
         end: 'dayGridMonth,timeGridWeek,timeGridDay',
       },
       height: '72vh',
-      validRange: this.validRange,
+      validRange: this.validRange(),
       nowIndicator: true,
       // A month is 4-6 real weeks. Padding every month to a fixed 6 rows left a
       // wholly empty leading row on the grid and squeezed the rows that had
@@ -170,10 +209,10 @@ export class SessionsCalendar {
       selectable: writable,
       selectMirror: writable,
       // Per-event `editable` still decides individual events (recurring masters
-      // opt out); this is the global gate for the read-only grant.
+      // opt out); this is the global gate.
       editable: writable,
-      // Accepts chips dragged from `SessionTemplatePalette`. FullCalendar pairs
-      // an external `Draggable` with any droppable calendar through a global
+      // Accepts chips dragged from an external palette. FullCalendar pairs an
+      // external `Draggable` with any droppable calendar through a global
       // registry, so the palette needs no reference to this component.
       droppable: writable,
       eventClick: (info: EventClickInfo) => this.onEventClick(info),
@@ -195,8 +234,8 @@ export class SessionsCalendar {
       className: session.recurring
         ? 'ptah-fc-event ptah-fc-event--series'
         : 'ptah-fc-event',
-      // The immovable series reads as `info` here for the same reason its table
-      // row wears an info badge — one colour, one meaning, across both views.
+      // The immovable series reads as `info` for the same reason its admin
+      // table row wears an info badge — one colour, one meaning, everywhere.
       ...(session.recurring
         ? {
             color: 'var(--ptah-fc-series)',
@@ -208,7 +247,7 @@ export class SessionsCalendar {
   );
 
   private onEventClick(info: EventClickInfo): void {
-    const session = readSession(info.event.extendedProps);
+    const session = this.readSession(info.event.extendedProps);
     if (session) this.sessionSelected.emit(session);
   }
 
@@ -231,8 +270,8 @@ export class SessionsCalendar {
    * FullCalendar adds the event optimistically, but nothing exists server-side
    * yet — leaving it on the grid would show a session that the next refetch
    * silently deletes, and a failed create would leave a phantom behind. The
-   * container opens a prefilled create form; the grid regains the event when
-   * the server confirms it.
+   * host opens a prefilled create form; the grid regains the event when the
+   * server confirms it.
    */
   private onEventReceive(info: EventReceiveInfo): void {
     const { start, end } = info.event;
@@ -253,10 +292,10 @@ export class SessionsCalendar {
   }
 
   private onEventChange(info: EventDropInfo | EventResizeDoneInfo): void {
-    const session = readSession(info.event.extendedProps);
+    const session = this.readSession(info.event.extendedProps);
     const { start, end } = info.event;
     // A timed event always carries both bounds. If either is missing the
-    // mutation is not representable as a PATCH body, so undo it rather than
+    // mutation is not representable as a patch body, so undo it rather than
     // send the server a half-specified range.
     if (!session || !start || !end) {
       info.revert();
@@ -271,31 +310,33 @@ export class SessionsCalendar {
   }
 
   private onDatesSet(info: DatesSetInfo): void {
-    this.windowRequested.emit(daysFromNow(info.end));
+    this.windowRequested.emit(daysFromNow(info.end, this.maxDaysAhead()));
+  }
+
+  /**
+   * Narrow FullCalendar's untyped `extendedProps` bag back to the caller's own
+   * session type. Sound because the object came from `sessions()` unchanged —
+   * `calendarEvents` stores the whole `T` and never reconstructs it.
+   */
+  private readSession(props: Record<string, unknown>): T | null {
+    const candidate = props['session'];
+    return candidate && typeof candidate === 'object' ? (candidate as T) : null;
   }
 }
 
-/** Narrows FullCalendar's untyped `extendedProps` bag back to our session. */
-function readSession(props: Record<string, unknown>): AdminSession | null {
-  const candidate = props['session'];
-  return candidate && typeof candidate === 'object'
-    ? (candidate as AdminSession)
-    : null;
-}
-
 /**
- * Days from now until `end`, clamped to the window the server accepts. Rounded
- * up so a range ending part-way through a day still fetches that whole day.
+ * Days from now until `end`, clamped to the host's ceiling. Rounded up so a
+ * range ending part-way through a day still fetches that whole day.
  */
-function daysFromNow(end: Date): number {
+function daysFromNow(end: Date, maxDaysAhead: number): number {
   const days = Math.ceil((end.getTime() - Date.now()) / 86_400_000);
-  return Math.min(MAX_DAYS_AHEAD, Math.max(1, days));
+  return Math.min(maxDaysAhead, Math.max(1, days));
 }
 
 /**
  * A month-view cell is an all-day span, which is not a shape a Builders session
  * takes. Collapse it to a one-hour slot on the clicked day — a starting point
- * the admin adjusts in the form, not a guess we submit on their behalf.
+ * to adjust in the form, not a guess submitted on the admin's behalf.
  */
 function defaultRangeOn(day: Date): SessionRangeSelection {
   const start = new Date(day);
@@ -306,11 +347,14 @@ function defaultRangeOn(day: Date): SessionRangeSelection {
   };
 }
 
-/** Today 00:00 → today+365d, the exact span `daysAhead` can reach. */
-function buildValidRange(now: Date): { start: Date; end: Date } {
+/** Today 00:00 → today + `maxDaysAhead`, the exact span the API can reach. */
+function buildValidRange(
+  now: Date,
+  maxDaysAhead: number,
+): { start: Date; end: Date } {
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
-  end.setDate(end.getDate() + MAX_DAYS_AHEAD);
+  end.setDate(end.getDate() + maxDaysAhead);
   return { start, end };
 }

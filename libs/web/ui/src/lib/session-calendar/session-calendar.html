@@ -6,8 +6,8 @@
     <!--
       Custom event body. The default renderer prints "title  5p" as flat text,
       which at month density reads as an undifferentiated list. This gives each
-      event a colour rail, a bold time, and glyphs for the two facts an admin
-      scans for — whether it has a Meet link and whether anyone is invited.
+      event a bold time and a glyph for the fact both audiences scan for —
+      whether the session has a Meet link to join.
     -->
     <ng-template #eventContent let-arg>
       <div class="flex min-w-0 items-center gap-1.5 px-1 py-0.5">
@@ -23,6 +23,11 @@
           </span>
           <span class="sr-only">has a Meet link</span>
         }
+        <!--
+          Guest count is admin-only by construction: the member session shape
+          has no `attendees` field, so this renders nothing on that surface
+          rather than being conditionally hidden.
+        -->
         @if (arg.event.extendedProps.session?.attendees?.length) {
           <span class="shrink-0 text-[10px] tabular-nums opacity-70">
             {{ arg.event.extendedProps.session.attendees.length }}

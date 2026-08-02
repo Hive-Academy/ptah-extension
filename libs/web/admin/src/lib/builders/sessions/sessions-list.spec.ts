@@ -12,7 +12,7 @@ import {
   type MemberGroup,
 } from '../../services/admin-api.service';
 import { SessionTemplatePalette } from './components/session-template-palette/session-template-palette';
-import { SessionsCalendar } from './components/sessions-calendar/sessions-calendar';
+import { SessionCalendar } from '@ptah-web/ui';
 import { SessionsList } from './sessions-list';
 
 function cohort(overrides: Partial<MemberGroup> = {}): MemberGroup {
@@ -89,9 +89,8 @@ describe('SessionsList', () => {
   const rows = (): HTMLTableRowElement[] =>
     Array.from(fixture.nativeElement.querySelectorAll('tbody tr'));
 
-  const calendar = (): SessionsCalendar =>
-    fixture.debugElement.query(By.directive(SessionsCalendar))
-      .componentInstance;
+  const calendar = (): SessionCalendar<AdminSession> =>
+    fixture.debugElement.query(By.directive(SessionCalendar)).componentInstance;
 
   const detailsDialog = (): HTMLElement | null =>
     fixture.nativeElement.querySelector('.modal-open');
@@ -119,7 +118,7 @@ describe('SessionsList', () => {
       createComponent();
 
       expect(
-        fixture.debugElement.query(By.directive(SessionsCalendar)),
+        fixture.debugElement.query(By.directive(SessionCalendar)),
       ).not.toBeNull();
       expect(fixture.nativeElement.querySelector('tbody')).toBeNull();
       expect(
@@ -136,7 +135,7 @@ describe('SessionsList', () => {
 
       expect(rows()).toHaveLength(1);
       expect(
-        fixture.debugElement.query(By.directive(SessionsCalendar)),
+        fixture.debugElement.query(By.directive(SessionCalendar)),
       ).toBeNull();
       expect(
         fixture.nativeElement.querySelector(
@@ -421,7 +420,7 @@ describe('SessionsList', () => {
       ).toBeNull();
       // The calendar loaded fine; a missing convenience must not look broken.
       expect(
-        fixture.debugElement.query(By.directive(SessionsCalendar)),
+        fixture.debugElement.query(By.directive(SessionCalendar)),
       ).not.toBeNull();
       expect(fixture.nativeElement.querySelector('.alert-error')).toBeNull();
     });

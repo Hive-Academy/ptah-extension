@@ -10,14 +10,14 @@ import {
   FullCalendarComponent,
 } from '@fullcalendar/angular';
 
-import { AdminSession } from '../../../../services/admin-builders-api.service';
 import {
+  CalendarSession,
   SessionRangeSelection,
   SessionRescheduleRequest,
-  SessionsCalendar,
-} from './sessions-calendar';
+  SessionCalendar,
+} from './session-calendar';
 
-function session(overrides: Partial<AdminSession> = {}): AdminSession {
+function session(overrides: Partial<CalendarSession> = {}): CalendarSession {
   return {
     id: 'evt-1',
     title: 'Builders Office Hours',
@@ -25,20 +25,18 @@ function session(overrides: Partial<AdminSession> = {}): AdminSession {
     endsAt: '2026-08-10T18:00:00.000Z',
     meetLink: null,
     recurring: false,
-    description: null,
-    attendees: [],
     ...overrides,
   };
 }
 
-describe('SessionsCalendar', () => {
-  let fixture: ComponentFixture<SessionsCalendar>;
+describe('SessionCalendar', () => {
+  let fixture: ComponentFixture<SessionCalendar>;
 
   const create = (
-    sessions: AdminSession[],
+    sessions: CalendarSession[],
     writable: boolean,
-  ): ComponentFixture<SessionsCalendar> => {
-    fixture = TestBed.createComponent(SessionsCalendar);
+  ): ComponentFixture<SessionCalendar> => {
+    fixture = TestBed.createComponent(SessionCalendar);
     fixture.componentRef.setInput('sessions', sessions);
     fixture.componentRef.setInput('writable', writable);
     fixture.detectChanges();
@@ -64,7 +62,7 @@ describe('SessionsCalendar', () => {
   };
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [SessionsCalendar] });
+    TestBed.configureTestingModule({ imports: [SessionCalendar] });
   });
 
   it('renders one calendar event per session, carrying the session itself', () => {
@@ -107,7 +105,7 @@ describe('SessionsCalendar', () => {
 
   it('emits the clicked session', () => {
     create([session({ id: 'evt-3' })], true);
-    const emitted: AdminSession[] = [];
+    const emitted: CalendarSession[] = [];
     fixture.componentInstance.sessionSelected.subscribe((s) => emitted.push(s));
 
     option('eventClick')({
@@ -178,7 +176,7 @@ describe('SessionsCalendar', () => {
   describe('reschedule', () => {
     it('emits the dragged event with its new bounds and FullCalendar’s revert', () => {
       create([session({ id: 'evt-9' })], true);
-      const emitted: SessionRescheduleRequest[] = [];
+      const emitted: SessionRescheduleRequest<CalendarSession>[] = [];
       fixture.componentInstance.rescheduled.subscribe((r) => emitted.push(r));
       const revert = jest.fn();
 
@@ -200,7 +198,7 @@ describe('SessionsCalendar', () => {
 
     it('reverts instead of emitting a half-specified range', () => {
       create([session()], true);
-      const emitted: SessionRescheduleRequest[] = [];
+      const emitted: SessionRescheduleRequest<CalendarSession>[] = [];
       fixture.componentInstance.rescheduled.subscribe((r) => emitted.push(r));
       const revert = jest.fn();
 
@@ -257,5 +255,78 @@ describe('SessionsCalendar', () => {
     );
     expect(spanDays).toBe(365);
     expect(range.start.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  /**
+   * ⚠️ The member surface renders this same component with `writable=false`.
+   * These pin that the read-only mode removes every mutation affordance
+   * outright rather than relying on a handler to decline — a member cannot
+   * reach what is not rendered.
+   */
+  describe('read-only mode (the members’ area)', () => {
+    const readOnly = (): void => {
+      fixture = TestBed.createComponent(SessionCalendar);
+      fixture.componentRef.setInput('sessions', [session()]);
+      fixture.componentRef.setInput('writable', false);
+      fixture.componentRef.setInput('maxDaysAhead', 60);
+      fixture.detectChanges();
+    };
+
+    it('is not a drop target, so an external palette cannot reach it', () => {
+      readOnly();
+
+      expect(api().getOption('droppable')).toBe(false);
+    });
+
+    it('offers no selection and no dragging at all', () => {
+      readOnly();
+
+      expect(api().getOption('selectable')).toBe(false);
+      expect(api().getOption('editable')).toBe(false);
+      expect(api().getEvents()[0].startEditable).toBe(false);
+      expect(api().getEvents()[0].durationEditable).toBe(false);
+    });
+
+    it('still lets a member click through to a session', () => {
+      readOnly();
+      const emitted: CalendarSession[] = [];
+      fixture.componentInstance.sessionSelected.subscribe((s) =>
+        emitted.push(s),
+      );
+
+      option('eventClick')({
+        event: api().getEvents()[0],
+      } as unknown as EventClickInfo);
+
+      // Reading is the whole point of the member calendar; only mutation is gated.
+      expect(emitted).toHaveLength(1);
+    });
+
+    it('honours a tighter navigation ceiling than the admin’s', () => {
+      readOnly();
+
+      // The member endpoint is fixed at 60 days. Letting a member page past it
+      // would show empty months that read as a quiet calendar rather than an
+      // unfetchable one.
+      const range = api().getOption('validRange') as { start: Date; end: Date };
+      const spanDays = Math.round(
+        (range.end.getTime() - range.start.getTime()) / 86_400_000,
+      );
+      expect(spanDays).toBe(60);
+    });
+
+    it('clamps window requests to that same ceiling', () => {
+      readOnly();
+      const emitted: number[] = [];
+      fixture.componentInstance.windowRequested.subscribe((d) =>
+        emitted.push(d),
+      );
+
+      option('datesSet')({
+        end: new Date(Date.now() + 900 * 86_400_000),
+      } as unknown as DatesSetInfo);
+
+      expect(emitted.at(-1)).toBe(60);
+    });
   });
 });

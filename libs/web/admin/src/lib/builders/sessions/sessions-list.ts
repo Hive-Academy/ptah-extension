@@ -18,10 +18,10 @@ import { StatusBadge } from '../../components/status-badge/status-badge';
 import { SessionFormModal } from './components/session-form-modal/session-form-modal';
 import { SessionTemplatePalette } from './components/session-template-palette/session-template-palette';
 import {
-  SessionsCalendar,
+  SessionCalendar,
   type SessionRangeSelection,
   type SessionRescheduleRequest,
-} from './components/sessions-calendar/sessions-calendar';
+} from '@ptah-web/ui';
 import { toSessionTemplates, type SessionTemplate } from './session-templates';
 
 /** Which surface is showing. The calendar is the primary view; the table is the scan view. */
@@ -38,7 +38,8 @@ type SessionsView = 'calendar' | 'table';
  *
  * Two surfaces over one fetch:
  *
- * - **Calendar** (default) — `SessionsCalendar`, a real FullCalendar grid.
+ * - **Calendar** (default) — the shared `SessionCalendar` grid, the same
+ *   component the members' area renders read-only.
  *   Sessions are a *schedule*; a flat table made the reader reconstruct the
  *   week in their head. Drag/resize reschedules, dragging empty space creates.
  * - **Table** — the scan/audit view, and the only place with a bulk-readable
@@ -70,7 +71,7 @@ type SessionsView = 'calendar' | 'table';
     EmptyState,
     StatusBadge,
     SessionFormModal,
-    SessionsCalendar,
+    SessionCalendar,
     SessionTemplatePalette,
   ],
   templateUrl: './sessions-list.html',
@@ -319,7 +320,9 @@ export class SessionsList {
    * optimistically, so a rejected PATCH must call `revert()` — otherwise the
    * grid would keep showing a time the server refused.
    */
-  protected onRescheduled(request: SessionRescheduleRequest): void {
+  protected onRescheduled(
+    request: SessionRescheduleRequest<AdminSession>,
+  ): void {
     this.actionError.set(null);
     this.api
       .updateSession(request.session.id, {

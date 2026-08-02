@@ -17,7 +17,7 @@ import {
   LucideAngularModule,
   Users,
 } from 'lucide-angular';
-import { NavigationComponent } from '@ptah-web/ui';
+import { NavigationComponent, SessionCalendar } from '@ptah-web/ui';
 import {
   BuildersSession,
   CommunityTopic,
@@ -58,6 +58,7 @@ interface ArtifactPlaceholder {
     LucideAngularModule,
     NavigationComponent,
     SessionCardComponent,
+    SessionCalendar,
     BuildersPitchComponent,
     CommunityTopicListComponent,
   ],
@@ -154,17 +155,76 @@ interface ArtifactPlaceholder {
                 >
                   Upcoming Live Sessions
                 </h2>
+
+                @if (sessions().length > 0) {
+                  <div
+                    role="tablist"
+                    class="tabs tabs-boxed tabs-xs ml-auto"
+                    aria-label="Session view"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      class="tab"
+                      [class.tab-active]="sessionsView() === 'list'"
+                      [attr.aria-selected]="sessionsView() === 'list'"
+                      (click)="setSessionsView('list')"
+                    >
+                      List
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      class="tab"
+                      [class.tab-active]="sessionsView() === 'calendar'"
+                      [attr.aria-selected]="sessionsView() === 'calendar'"
+                      (click)="setSessionsView('calendar')"
+                    >
+                      Calendar
+                    </button>
+                  </div>
+                }
               </div>
 
-              @if (sessions().length > 0) {
+              @if (sessions().length === 0) {
+                <div class="px-6 py-8 text-center text-neutral-content text-sm">
+                  No sessions scheduled in the next 60 days. Check back soon.
+                </div>
+              } @else if (sessionsView() === 'calendar') {
+                <!--
+                  The same component the admin console renders, with writable
+                  false. That single input is the whole of the difference:
+                  nothing here is selectable, draggable, or a drop target, so a
+                  member cannot reach a mutation affordance because none exists
+                  — not because a handler declines.
+
+                  maxDaysAhead matches this endpoint's fixed 60-day window;
+                  paging past it would show empty months that read as a quiet
+                  calendar rather than an unfetchable one.
+                -->
+                <div class="p-4">
+                  <ptah-session-calendar
+                    [sessions]="sessions()"
+                    [writable]="false"
+                    [maxDaysAhead]="60"
+                    (sessionSelected)="onSessionSelected($event)"
+                  />
+
+                  @if (selectedSession(); as picked) {
+                    <div class="mt-4 rounded-xl border border-secondary/20">
+                      <ptah-session-card [session]="picked" />
+                    </div>
+                  } @else {
+                    <p class="mt-3 text-center text-xs text-neutral-content">
+                      Select a session to see its details and join link.
+                    </p>
+                  }
+                </div>
+              } @else {
                 <div class="divide-y divide-secondary/10">
                   @for (session of sessions(); track session.id) {
                     <ptah-session-card [session]="session" />
                   }
-                </div>
-              } @else {
-                <div class="px-6 py-8 text-center text-neutral-content text-sm">
-                  No sessions scheduled in the next 60 days. Check back soon.
                 </div>
               }
             </div>
@@ -301,6 +361,16 @@ export class MembersPageComponent implements OnInit {
   public readonly errorMessage = signal<string | null>(null);
   public readonly membershipRequired = signal(false);
   public readonly sessions = signal<BuildersSession[]>([]);
+
+  /**
+   * List or calendar. The list stays the default: it is the scannable answer to
+   * "when is the next one", which is what a member opens this page to find. The
+   * calendar is for placing those sessions in the shape of a month.
+   */
+  public readonly sessionsView = signal<'list' | 'calendar'>('list');
+
+  /** The event a member clicked on the calendar, shown as a card beneath it. */
+  public readonly selectedSession = signal<BuildersSession | null>(null);
   public readonly communityUrl = signal<string | null>(null);
   public readonly memberGroups = signal<MemberGroupBadge[]>([]);
 
@@ -337,6 +407,17 @@ export class MembersPageComponent implements OnInit {
       body: 'Skill packs and delivery patterns extracted from real Builder sessions.',
     },
   ];
+
+  public setSessionsView(view: 'list' | 'calendar'): void {
+    this.sessionsView.set(view);
+    // The selection belongs to the calendar. Carrying it into the list would
+    // leave a duplicate card of one session sitting under the full list.
+    this.selectedSession.set(null);
+  }
+
+  public onSessionSelected(session: BuildersSession): void {
+    this.selectedSession.set(session);
+  }
 
   public ngOnInit(): void {
     this.loadSessions();

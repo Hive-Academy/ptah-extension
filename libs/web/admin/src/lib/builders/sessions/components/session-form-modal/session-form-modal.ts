@@ -13,7 +13,7 @@ import {
   AdminBuildersApiService,
   AdminSession,
 } from '../../../../services/admin-builders-api.service';
-import type { SessionRangeSelection } from '../sessions-calendar/sessions-calendar';
+import type { SessionRangeSelection } from '@ptah-web/ui';
 
 /**
  * SessionFormModal — daisyUI dialog for scheduling or rescheduling a Builders
