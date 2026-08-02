@@ -12,21 +12,46 @@
     </div>
 
     <div class="flex items-end gap-3">
-      <label class="form-control">
-        <div class="label py-0">
-          <span class="label-text text-xs opacity-70">Window</span>
-        </div>
-        <select
-          class="select select-bordered select-sm w-36"
-          aria-label="Lookahead window in days"
-          [value]="daysAhead()"
-          (change)="onWindowChange($event)"
+      <div role="tablist" class="tabs tabs-boxed tabs-sm">
+        <button
+          type="button"
+          role="tab"
+          class="tab"
+          [class.tab-active]="view() === 'calendar'"
+          [attr.aria-selected]="view() === 'calendar'"
+          (click)="setView('calendar')"
         >
-          @for (d of windowOptions; track d) {
-            <option [value]="d">Next {{ d }} days</option>
-          }
-        </select>
-      </label>
+          Calendar
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="tab"
+          [class.tab-active]="view() === 'table'"
+          [attr.aria-selected]="view() === 'table'"
+          (click)="setView('table')"
+        >
+          Table
+        </button>
+      </div>
+
+      @if (view() === 'table') {
+        <label class="form-control">
+          <div class="label py-0">
+            <span class="label-text text-xs opacity-70">Window</span>
+          </div>
+          <select
+            class="select select-bordered select-sm w-36"
+            aria-label="Lookahead window in days"
+            [value]="daysAhead()"
+            (change)="onWindowChange($event)"
+          >
+            @for (d of windowOptions; track d) {
+              <option [value]="d">Next {{ d }} days</option>
+            }
+          </select>
+        </label>
+      }
 
       @if (calendarWritable()) {
         <button
@@ -63,13 +88,31 @@
     </div>
   }
 
-  @if (deleteError(); as delErr) {
+  @if (actionError(); as actErr) {
     <div class="alert alert-error" role="alert">
-      <span>{{ delErr }}</span>
+      <span>{{ actErr }}</span>
     </div>
   }
 
-  @if (loading() && sessions().length === 0) {
+  @if (view() === 'calendar') {
+    <ptah-admin-sessions-calendar
+      [sessions]="sessions()"
+      [writable]="calendarWritable()"
+      [loading]="loading()"
+      (sessionSelected)="onSessionSelected($event)"
+      (rangeSelected)="openCreateForRange($event)"
+      (rescheduled)="onRescheduled($event)"
+      (windowRequested)="widenWindow($event)"
+    />
+
+    @if (calendarWritable()) {
+      <p class="text-xs opacity-60">
+        Drag an event to reschedule it, drag its edge to change the duration, or
+        drag across empty space to schedule a new session. The recurring series
+        is fixed — member provisioning maintains its attendee list.
+      </p>
+    }
+  } @else if (loading() && sessions().length === 0) {
     <div class="flex flex-col gap-2">
       @for (i of [1, 2, 3]; track i) {
         <div class="h-14 animate-pulse rounded-lg bg-base-200"></div>
@@ -200,9 +243,116 @@
   }
 </section>
 
+<!--
+  Details dialog — the calendar's stand-in for a table row's action cell. Only
+  reachable from the calendar view; the table keeps its inline controls.
+-->
+@if (selectedSession(); as sel) {
+  <div class="modal modal-open" role="dialog" aria-labelledby="session-detail-title">
+    <div class="modal-box max-w-lg">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex flex-col gap-1">
+          <h3 id="session-detail-title" class="text-lg font-semibold">
+            {{ sel.title }}
+          </h3>
+          <p class="text-sm opacity-70">
+            {{ sel.startsAt | date: 'medium' }} — {{ sel.endsAt | date: 'shortTime' }}
+          </p>
+        </div>
+        @if (sel.recurring) {
+          <ptah-admin-status-badge
+            [variant]="'info'"
+            label="series"
+            [showIcon]="false"
+          />
+        }
+      </div>
+
+      @if (sel.description) {
+        <p class="mt-3 whitespace-pre-wrap text-sm opacity-80">
+          {{ sel.description }}
+        </p>
+      }
+
+      @if (sel.recurring) {
+        <p class="mt-3 text-xs opacity-60">
+          Recurring series — member provisioning maintains its attendee list, so
+          it cannot be moved, edited, or deleted here. Manage it in Google
+          Calendar.
+        </p>
+      }
+
+      <div class="modal-action">
+        @if (sel.meetLink) {
+          <a
+            class="btn btn-ghost btn-sm"
+            [href]="sel.meetLink"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Join
+          </a>
+        }
+
+        @if (calendarWritable() && !sel.recurring) {
+          @if (pendingDeleteId() === sel.id) {
+            <span class="mr-auto text-xs opacity-70">Delete this session?</span>
+            <button
+              type="button"
+              class="btn btn-error btn-sm"
+              [disabled]="deletingId() === sel.id"
+              (click)="confirmDelete(sel)"
+            >
+              @if (deletingId() === sel.id) {
+                <span class="loading loading-spinner loading-xs"></span>
+              } @else {
+                Confirm
+              }
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              [disabled]="deletingId() === sel.id"
+              (click)="cancelDelete()"
+            >
+              Cancel
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm text-error"
+              (click)="requestDelete(sel)"
+            >
+              Delete
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              (click)="openEdit(sel)"
+            >
+              Edit
+            </button>
+          }
+        }
+
+        <button type="button" class="btn btn-ghost btn-sm" (click)="closeDetails()">
+          Close
+        </button>
+      </div>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop"
+      aria-label="Close session details"
+      (click)="closeDetails()"
+    ></button>
+  </div>
+}
+
 <ptah-admin-session-form-modal
   [open]="formOpen()"
   [session]="formTarget()"
+  [initialRange]="formRange()"
   (closeModal)="onFormClose()"
   (saved)="onFormSaved()"
 />

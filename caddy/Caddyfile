@@ -26,3 +26,26 @@ api.ptah.live {
         format console
     }
 }
+
+# Discourse forum (runbook docs/deploy/discourse-digitalocean.md §3 Option B).
+# The discourse_docker "app" container joins ptah_prod_network via docker_args
+# in /var/discourse/containers/app.yml, so Caddy proxies to it by container
+# name. (Its 127.0.0.1:8081 host binding is a debug convenience only.)
+community.ptah.live {
+    request_body {
+        max_size 20MB
+    }
+
+    reverse_proxy app:80 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    encode gzip
+
+    log {
+        output stdout
+        format console
+    }
+}

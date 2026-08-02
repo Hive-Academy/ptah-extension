@@ -13,6 +13,7 @@ import {
   AdminBuildersApiService,
   AdminSession,
 } from '../../../../services/admin-builders-api.service';
+import type { SessionRangeSelection } from '../sessions-calendar/sessions-calendar';
 
 /**
  * SessionFormModal — daisyUI dialog for scheduling or rescheduling a Builders
@@ -44,6 +45,12 @@ export class SessionFormModal {
 
   /** `null` = create mode. Non-null = edit mode, pre-fills the form. */
   public readonly session = input<AdminSession | null>(null);
+
+  /**
+   * Create-mode start/end seed from a calendar grid selection. Ignored in edit
+   * mode, where `session` is the authoritative source for the times.
+   */
+  public readonly initialRange = input<SessionRangeSelection | null>(null);
 
   /** Emitted when the user requests the modal to close without saving. */
   public readonly closeModal = output<void>();
@@ -86,10 +93,13 @@ export class SessionFormModal {
     effect(() => {
       if (!this.open()) return;
       const s = this.session();
+      // Edit mode reads the session; create mode reads the grid selection when
+      // the modal was opened by dragging the calendar, and is blank otherwise.
+      const seed = s ?? this.initialRange();
       this.title.set(s?.title ?? '');
       this.description.set(s?.description ?? '');
-      this.startsAt.set(s ? toLocalInputValue(s.startsAt) : '');
-      this.endsAt.set(s ? toLocalInputValue(s.endsAt) : '');
+      this.startsAt.set(seed ? toLocalInputValue(seed.startsAt) : '');
+      this.endsAt.set(seed ? toLocalInputValue(seed.endsAt) : '');
       this.createMeetLink.set(true);
       this.saving.set(false);
       this.errorMessage.set(null);
