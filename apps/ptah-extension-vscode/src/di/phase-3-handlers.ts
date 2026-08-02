@@ -19,6 +19,7 @@ import { TOKENS, GitInfoService } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
   AgentRpcHandlers,
+  CommandRpcHandlers,
   FilePickerRpcHandlers,
   ImagePickerRpcHandlers,
   activateSessionLifecycleNotifier,
@@ -39,7 +40,6 @@ import {
   LicenseRpcHandlers,
   ProviderRpcHandlers,
   SubagentRpcHandlers,
-  CommandRpcHandlers,
   QualityRpcHandlers,
   PluginRpcHandlers,
   PtahCliRpcHandlers,

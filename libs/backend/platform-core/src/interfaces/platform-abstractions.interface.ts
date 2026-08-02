@@ -34,6 +34,22 @@ export interface IPlatformCommands {
    * CLI: no-op (no UI to focus).
    */
   focusChat(): Promise<void>;
+  /**
+   * Run a host command by id.
+   *
+   * Hosts differ in what a "command" even is: VS Code forwards to its command
+   * registry, Electron implements each id itself, and headless hosts have no
+   * command surface at all. `handled: false` means "this host has no
+   * implementation for that id" — distinct from a command that ran and failed,
+   * which rejects.
+   *
+   * Callers are responsible for authorizing the id before calling; this does
+   * not gate.
+   */
+  executeCommand(
+    command: string,
+    args?: readonly unknown[],
+  ): Promise<{ handled: boolean; error?: string }>;
 }
 
 /**

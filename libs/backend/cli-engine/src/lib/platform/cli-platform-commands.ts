@@ -93,6 +93,21 @@ export class CliPlatformCommands
   }
 
   /**
+   * Headless hosts have no command surface. Reported rather than thrown so a
+   * caller that reaches here (it should not — the profile leaves
+   * `commandExecution` off) still gets a usable answer.
+   */
+  async executeCommand(
+    command: string,
+  ): Promise<{ handled: boolean; error?: string }> {
+    this.breadcrumb('executeCommand');
+    return {
+      handled: false,
+      error: `No command surface in the CLI: ${command}`,
+    };
+  }
+
+  /**
    * Spawn an interactive auth command and resolve with its real outcome.
    *
    * stdout/stderr are piped (never inherited): the TUI owns the terminal, so

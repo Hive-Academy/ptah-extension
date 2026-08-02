@@ -10,7 +10,6 @@
  */
 
 export { EditorRpcHandlers } from './editor-rpc.handlers';
-export { CommandRpcHandlers } from './command-rpc.handlers';
 export { LayoutRpcHandlers } from './layout-rpc.handlers';
 export { TerminalRpcHandlers } from './terminal-rpc.handlers';
 export { UpdateRpcHandlers } from './update-rpc.handlers';

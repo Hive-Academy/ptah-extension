@@ -23,7 +23,7 @@ export {
   McpDirectoryRpcHandlers,
   SkillsShRpcHandlers,
   AgentRpcHandlers,
+  CommandRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 export { FileRpcHandlers } from './file-rpc.handlers';
 export { EditorRpcHandlers } from './editor-rpc.handlers';
-export { CommandRpcHandlers } from './command-rpc.handlers';

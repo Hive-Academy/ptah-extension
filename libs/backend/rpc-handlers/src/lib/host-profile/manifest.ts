@@ -29,6 +29,7 @@ import {
   AuthRpcHandlers,
   AutocompleteRpcHandlers,
   ChatRpcHandlers,
+  CommandRpcHandlers,
   ConfigRpcHandlers,
   ContextRpcHandlers,
   CorpusRpcHandlers,
@@ -297,6 +298,12 @@ export const RPC_HANDLER_MANIFEST = [
     handler: ImagePickerRpcHandlers,
   },
   {
+    key: 'command',
+    methods: CommandRpcHandlers.METHODS,
+    requires: ['commandExecution'],
+    handler: CommandRpcHandlers,
+  },
+  {
     key: 'fileSystem',
     methods: FileSystemRpcHandlers.METHODS,
     requires: ['fileSystemAccess'],
@@ -350,11 +357,6 @@ export const RPC_HANDLER_MANIFEST = [
     key: 'host.editorPane',
     methods: EDITOR_PANE_METHODS,
     requires: ['editorHost'],
-  },
-  {
-    key: 'host.command',
-    methods: ['command:execute'],
-    requires: ['commandExecution'],
   },
   {
     key: 'host.layout',

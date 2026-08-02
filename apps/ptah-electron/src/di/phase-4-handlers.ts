@@ -44,6 +44,7 @@ import {
   SkillsShRpcHandlers,
   TasksRpcHandlers,
   AgentRpcHandlers,
+  CommandRpcHandlers,
   FileSystemRpcHandlers,
   FilePickerRpcHandlers,
   ImagePickerRpcHandlers,
@@ -53,7 +54,6 @@ import {
 } from '@ptah-extension/rpc-handlers';
 import {
   EditorRpcHandlers,
-  CommandRpcHandlers,
   LayoutRpcHandlers,
   TerminalRpcHandlers,
   UpdateRpcHandlers,

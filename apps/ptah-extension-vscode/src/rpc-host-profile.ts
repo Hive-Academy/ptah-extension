@@ -15,11 +15,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { capabilities, type HostProfile } from '@ptah-extension/rpc-handlers';
 import { parseWorktreeList } from '@ptah-extension/shared';
 
-import {
-  CommandRpcHandlers,
-  EditorRpcHandlers,
-  FileRpcHandlers,
-} from './services/rpc/handlers';
+import { EditorRpcHandlers, FileRpcHandlers } from './services/rpc/handlers';
 
 export function createVscodeRpcHostProfile(logger: Logger): HostProfile {
   return {
@@ -35,7 +31,6 @@ export function createVscodeRpcHostProfile(logger: Logger): HostProfile {
     hostHandlers: {
       'host.fileOpen': FileRpcHandlers,
       'host.editorRevert': EditorRpcHandlers,
-      'host.command': CommandRpcHandlers,
     },
     wiring: {
       worktree: true,
