@@ -65,7 +65,6 @@ const PARAMTYPE = { BODY: 3, QUERY: 4 } as const;
  * direction.
  */
 const UNVALIDATED_DEBT: readonly string[] = [
-  'contact/ContactController', // B4
   'session/SessionController', // B5
   'subscription/SubscriptionController', // B6
   // B7 was one line for the 306-line `admin/AdminController`. TASK_2026_170 R2
