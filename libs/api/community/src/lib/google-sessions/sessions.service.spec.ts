@@ -17,6 +17,7 @@ import { ConfigService } from '@nestjs/config';
 import { SessionsService } from './sessions.service';
 import type { GoogleCalendarProvider } from './google-calendar.provider';
 import type { AuditLogService } from '@ptah-api/audit';
+import type { EmailService } from '@ptah-api/email';
 import type { MemberGroupsService } from '../member-groups/member-groups.service';
 
 /** The caller every test resolves sessions/attendance for. */
@@ -67,6 +68,7 @@ function build(
   audit: AuditMock,
   config: Record<string, unknown> = {},
   groups?: GroupsMock,
+  email?: { sendBuildersSessionWelcome: jest.Mock },
 ): SessionsService {
   const configService = {
     get: (key: string): unknown => config[key],
@@ -76,7 +78,12 @@ function build(
     calendar as unknown as GoogleCalendarProvider,
     audit as unknown as AuditLogService,
     groups as unknown as MemberGroupsService | undefined,
+    email as unknown as EmailService | undefined,
   );
+}
+
+function createEmailMock(): { sendBuildersSessionWelcome: jest.Mock } {
+  return { sendBuildersSessionWelcome: jest.fn().mockResolvedValue(undefined) };
 }
 
 describe('SessionsService', () => {
@@ -124,6 +131,169 @@ describe('SessionsService', () => {
       // `description` would be the same leak through a different door.
       expect(JSON.stringify(sessions)).not.toContain('@example.com');
       expect(JSON.stringify(sessions)).not.toContain('@ptah.live');
+    });
+  });
+
+  /**
+   * ⚠️ THE SIGNUP-NOTIFICATION BLAST RADIUS.
+   *
+   * The obvious way to tell a new member about their sessions is to let Google
+   * do it (`sendUpdates=all` on the attendee patch). Google treats an attendee
+   * addition as an event UPDATE and mails an "Updated Invitation" to EVERY
+   * existing guest, with no parameter to narrow it. On a cohort of N that is N
+   * emails per signup, growing with the cohort.
+   *
+   * So the calendar write stays silent and the welcome is ours. These tests
+   * pin both halves: the patch never asks Google to notify, and exactly one
+   * message goes to exactly the new member.
+   */
+  describe('⚠️ new-member welcome — one email, one recipient', () => {
+    const CONFIG = { BUILDERS_SESSION_EVENT_ID: 'evt_master' };
+
+    function calendarWithAttendees(existing: string[]): CalendarMock {
+      const calendar = createCalendarMock(true);
+      calendar.patchEventAttendees.mockImplementation(
+        async (_id: string, mutate: (a: unknown[]) => unknown[]) => {
+          mutate(existing.map((email) => ({ email })));
+          return { ok: true, status: 200 };
+        },
+      );
+      calendar.listEvents.mockResolvedValue({
+        ok: true,
+        json: {
+          items: [
+            {
+              id: 'evt_1',
+              summary: 'Builders Office Hours',
+              hangoutLink: 'https://meet.google.com/abc-defg-hij',
+              start: { dateTime: '2026-09-01T17:00:00Z' },
+              end: { dateTime: '2026-09-01T18:00:00Z' },
+            },
+          ],
+        },
+      });
+      return calendar;
+    }
+
+    it('never asks Google to notify anyone', async () => {
+      const calendar = calendarWithAttendees([]);
+      const email = createEmailMock();
+
+      await build(
+        calendar,
+        createAuditMock(),
+        CONFIG,
+        undefined,
+        email,
+      ).addMemberToSessions('new@example.com', USER);
+
+      // `patchEventAttendees` takes no sendUpdates argument at all — the
+      // provider hardcodes `none`. If that ever becomes a parameter, this
+      // assertion is the reminder that passing 'all' mails the whole cohort.
+      expect(calendar.patchEventAttendees).toHaveBeenCalledTimes(1);
+      expect(calendar.patchEventAttendees.mock.calls[0]).toHaveLength(2);
+    });
+
+    it('sends exactly one welcome, to the new member, listing their sessions', async () => {
+      const email = createEmailMock();
+
+      await build(
+        calendarWithAttendees(['existing@example.com']),
+        createAuditMock(),
+        CONFIG,
+        undefined,
+        email,
+      ).addMemberToSessions('New@Example.com', USER);
+
+      expect(email.sendBuildersSessionWelcome).toHaveBeenCalledTimes(1);
+      const arg = email.sendBuildersSessionWelcome.mock.calls[0][0];
+      expect(arg.email).toBe('new@example.com');
+      // The existing guest is not a recipient, and never appears in the payload.
+      expect(JSON.stringify(arg)).not.toContain('existing@example.com');
+      expect(arg.sessions[0]).toEqual(
+        expect.objectContaining({
+          title: 'Builders Office Hours',
+          meetLink: 'https://meet.google.com/abc-defg-hij',
+        }),
+      );
+    });
+
+    it('stays silent for someone already on the event', async () => {
+      const email = createEmailMock();
+
+      // A re-delivered Paddle webhook, or a plan change that re-runs the
+      // fan-out, both land here for an existing member.
+      await build(
+        calendarWithAttendees(['dup@example.com']),
+        createAuditMock(),
+        CONFIG,
+        undefined,
+        email,
+      ).addMemberToSessions('DUP@example.com', USER);
+
+      expect(email.sendBuildersSessionWelcome).not.toHaveBeenCalled();
+    });
+
+    it('never welcomes anyone on a removal', async () => {
+      const email = createEmailMock();
+
+      await build(
+        calendarWithAttendees(['leaving@example.com']),
+        createAuditMock(),
+        CONFIG,
+        undefined,
+        email,
+      ).removeMemberFromSessions('leaving@example.com', USER);
+
+      expect(email.sendBuildersSessionWelcome).not.toHaveBeenCalled();
+    });
+
+    it('still reports attendance succeeded when the mail fails', async () => {
+      const email = createEmailMock();
+      email.sendBuildersSessionWelcome.mockRejectedValue(
+        new Error('resend down'),
+      );
+
+      // This runs inside the Paddle webhook. A mail failure must never surface
+      // as a failed provisioning — the member IS on the event either way.
+      await expect(
+        build(
+          calendarWithAttendees([]),
+          createAuditMock(),
+          CONFIG,
+          undefined,
+          email,
+        ).addMemberToSessions('new@example.com', USER),
+      ).resolves.toEqual(expect.objectContaining({ ok: true }));
+    });
+
+    it('degrades to no welcome when EmailService is unbound', async () => {
+      await expect(
+        build(
+          calendarWithAttendees([]),
+          createAuditMock(),
+          CONFIG,
+        ).addMemberToSessions('new@example.com', USER),
+      ).resolves.toEqual(expect.objectContaining({ ok: true }));
+    });
+
+    it('does not welcome when the attendee add itself failed', async () => {
+      const calendar = calendarWithAttendees([]);
+      calendar.patchEventAttendees.mockResolvedValue({
+        ok: false,
+        status: 403,
+      });
+      const email = createEmailMock();
+
+      await build(
+        calendar,
+        createAuditMock(),
+        CONFIG,
+        undefined,
+        email,
+      ).addMemberToSessions('new@example.com', USER);
+
+      expect(email.sendBuildersSessionWelcome).not.toHaveBeenCalled();
     });
   });
 

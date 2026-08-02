@@ -165,6 +165,58 @@ export class EmailService {
     this.logger.log(`Founding invite sent to ${email}`);
   }
 
+  /**
+   * Welcome a newly provisioned Builders member to the live sessions, listing
+   * the next few and how to join.
+   *
+   * ⚠️ WHY THIS EXISTS RATHER THAN A GOOGLE CALENDAR INVITATION.
+   * The provisioning fan-out adds the member as an attendee on the cohort's
+   * recurring event, and the obvious way to notify them would be to let Google
+   * do it (`sendUpdates=all` on that patch). Google refuses to be that precise:
+   * it treats an attendee addition as an EVENT UPDATE and mails an "Updated
+   * Invitation" to EVERY existing guest, with no parameter to narrow it to the
+   * person who was added. On a cohort of N members every signup would send N
+   * emails, and every existing member would be pinged by every new one.
+   *
+   * So the calendar write stays silent (`sendUpdates=none`) and the welcome is
+   * ours: exactly one message, to exactly the new member, with content we
+   * control. The event still lands in their Google Calendar — attendance is
+   * real, only the notification is ours.
+   *
+   * Callers treat delivery as BEST-EFFORT: this runs inside the Paddle webhook
+   * fan-out, where a mail failure must never fail provisioning.
+   *
+   * @param params.sessions - The next few upcoming sessions, already sorted.
+   *                          An empty list still sends: membership is active
+   *                          and "nothing scheduled yet" is honest.
+   */
+  async sendBuildersSessionWelcome(params: {
+    email: string;
+    sessions: Array<{
+      title: string;
+      startsAt: string;
+      meetLink: string | null;
+    }>;
+  }): Promise<void> {
+    const { email, sessions } = params;
+
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [email],
+      subject: "You're in — Ptah Builders live sessions",
+      html: this.getBuildersSessionWelcomeTemplate({ sessions }),
+    };
+
+    this.logger.log(
+      `Sending Builders session welcome to ${email} (${sessions.length} upcoming)`,
+    );
+    await this.sendWithRetry(msg, 3);
+    this.logger.log(`Builders session welcome sent to ${email}`);
+  }
+
   async sendMagicLink(params: {
     email: string;
     magicLink: string;
@@ -494,6 +546,91 @@ export class EmailService {
    * @private
    * @returns HTML email content
    */
+  /**
+   * Body for {@link sendBuildersSessionWelcome}.
+   *
+   * Times are rendered in UTC with the offset spelled out, because an email is
+   * rendered wherever the reader opens it and there is no browser locale to
+   * lean on. The members' area shows the same sessions in their own timezone,
+   * which is why the CTA points there.
+   */
+  private getBuildersSessionWelcomeTemplate(params: {
+    sessions: Array<{
+      title: string;
+      startsAt: string;
+      meetLink: string | null;
+    }>;
+  }): string {
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
+
+    const sessionRows = params.sessions
+      .map((session) => {
+        const when = formatUtc(session.startsAt);
+        const join = session.meetLink
+          ? `<a href="${escapeHtml(session.meetLink)}" style="color: #d4af37; text-decoration: none;">Join link</a>`
+          : '<span style="color: #64748b;">Join link to follow</span>';
+        return `
+          <tr>
+            <td style="padding: 10px 0; border-bottom: 1px solid #334155;">
+              <div style="color: #f1f5f9; font-weight: 600;">${escapeHtml(session.title)}</div>
+              <div style="color: #94a3b8; font-size: 13px;">${when} &middot; ${join}</div>
+            </td>
+          </tr>`;
+      })
+      .join('');
+
+    const schedule =
+      params.sessions.length > 0
+        ? `<table style="width: 100%; border-collapse: collapse; margin: 8px 0 20px;">${sessionRows}</table>`
+        : `<p style="color: #94a3b8;">Nothing is on the schedule this minute — the next one will appear in the members' area as soon as it is set.</p>`;
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>You're in — Ptah Builders live sessions</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #d4af37 0%, #8a6d10 100%); padding: 32px 24px; text-align: center; }
+          .header h1 { color: #0a0a0a; margin: 0; font-size: 26px; font-weight: 700; }
+          .header p { color: #0a0a0a; opacity: 0.8; margin: 8px 0 0; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; }
+          .content { background-color: #1e293b; padding: 32px 24px; }
+          .badge { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 4px 16px; border-radius: 12px; font-size: 13px; font-weight: 700; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+          .content p { color: #cbd5e1; }
+          .cta { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 12px 28px; border-radius: 8px; font-weight: 700; text-decoration: none; margin-top: 8px; }
+          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
+          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
+          .footer a { color: #d4af37; text-decoration: none; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>You're in</h1>
+            <p>Ptah Builders Live Sessions</p>
+          </div>
+          <div class="content">
+            <div class="badge">Builders</div>
+            <p>Your membership is active, and you have been added to the Builders live sessions. They will show up in your calendar automatically.</p>
+            <p style="color: #f1f5f9; font-weight: 600; margin-bottom: 0;">Coming up</p>
+            ${schedule}
+            <p>Every session, in your own timezone, lives in the members' area:</p>
+            <p><a class="cta" href="${frontendUrl}/members">Open the members' area</a></p>
+          </div>
+          <div class="footer">
+            <p>Questions? Just reply to this email.</p>
+            <p>— The Ptah Team &middot; <a href="${frontendUrl}">ptah.live</a></p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
   private getWaitlistConfirmationTemplate(): string {
     const frontendUrl =
       this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
@@ -827,4 +964,47 @@ export class EmailService {
       </html>
     `;
   }
+}
+
+/**
+ * ISO 8601 → a fixed, unambiguous UTC rendering, e.g. "Wed 5 Aug 2026, 17:00 UTC".
+ *
+ * Email is rendered wherever the reader opens it, with no browser locale and no
+ * script, so a "local time" is not something this can honestly produce. Naming
+ * the zone explicitly beats printing a bare time that silently means a
+ * different hour for every reader. The members' area does the timezone-aware
+ * rendering, which is why the mail links there.
+ */
+function formatUtc(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return 'Time to be confirmed';
+  }
+  return `${date.toLocaleString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'UTC',
+    hour12: false,
+  })} UTC`;
+}
+
+/**
+ * Escape a value for interpolation into the HTML body.
+ *
+ * Session titles come from the Google Calendar event, which an admin types.
+ * That is not attacker-controlled in any realistic sense, but it is
+ * human-controlled text reaching a markup template, and an unescaped `&` in
+ * "Q&A session" is enough to corrupt the mail on its own.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

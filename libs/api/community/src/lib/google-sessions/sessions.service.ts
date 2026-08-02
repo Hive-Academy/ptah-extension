@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditLogService } from '@ptah-api/audit';
+import { EmailService } from '@ptah-api/email';
 import { MemberGroupsService } from '../member-groups/member-groups.service';
 import { GoogleCalendarProvider } from './google-calendar.provider';
 import { extractEventItems, toBuildersSession } from './google-event.mapper';
@@ -12,6 +13,15 @@ import type {
 
 /** Window of upcoming sessions surfaced to members. */
 const LOOKAHEAD_DAYS = 60;
+
+/**
+ * How many upcoming sessions the welcome email lists.
+ *
+ * Enough to show the cadence ("this is weekly") without turning a welcome into
+ * a schedule dump. The members' area carries the full list, and the mail links
+ * there.
+ */
+const WELCOME_SESSION_COUNT = 3;
 
 /**
  * SessionsService — maps the founder's Google Calendar into the Builders
@@ -59,6 +69,12 @@ export class SessionsService {
     @Optional()
     @Inject(MemberGroupsService)
     private readonly memberGroups?: MemberGroupsService,
+    // Optional for the same reason every other collaborator here is: this
+    // service runs inside the Paddle webhook fan-out, and an unbound EmailModule
+    // must degrade to "no welcome sent", never to a failed provisioning.
+    @Optional()
+    @Inject(EmailService)
+    private readonly email?: EmailService,
   ) {}
 
   /** True when the Google integration is configured. */
@@ -264,6 +280,12 @@ export class SessionsService {
     const action =
       op === 'add' ? 'sessions.attendee.add' : 'sessions.attendee.remove';
 
+    // Set by the mutator below: true when the address was ALREADY on the event.
+    // A re-delivered Paddle webhook, or a plan change that re-runs the fan-out,
+    // both land here for someone already invited — and neither is a reason to
+    // welcome them a second time.
+    let alreadyInvited = false;
+
     try {
       const result = await this.calendar.patchEventAttendees(
         eventId,
@@ -271,6 +293,7 @@ export class SessionsService {
           const others = attendees.filter(
             (a) => (a.email ?? '').toLowerCase() !== normalized,
           );
+          alreadyInvited = others.length !== attendees.length;
           return op === 'add' ? [...others, { email: normalized }] : others;
         },
       );
@@ -307,6 +330,11 @@ export class SessionsService {
         ok: true,
         status: result.status ?? null,
       });
+
+      if (op === 'add' && !alreadyInvited) {
+        await this.safeSendWelcome(normalized, userId);
+      }
+
       return { ok: true, status: result.status };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -314,6 +342,54 @@ export class SessionsService {
         `Failed to ${op} session attendee for ${normalized}: ${message}`,
       );
       return { ok: false, error: message };
+    }
+  }
+
+  /**
+   * Tell a newly added member about their sessions. Never throws.
+   *
+   * ⚠️ THIS IS WHY THE CALENDAR WRITE STAYS SILENT. Notifying through Google
+   * (`sendUpdates=all` on the attendee patch) is not an option: Google treats
+   * an attendee addition as an event UPDATE and mails every existing guest,
+   * with no parameter to narrow it to the person added. On a cohort of N that
+   * is N emails per signup, and every member pinged by every new one. So the
+   * patch stays at `sendUpdates=none` and the welcome is ours — one message, to
+   * one person, with content we control.
+   *
+   * Best-effort in the strongest sense: this sits inside the Paddle webhook
+   * fan-out, so a mail failure, an unbound `EmailService`, or a calendar read
+   * that fails must all leave provisioning succeeded. The member is on the
+   * event either way; only the notification is lost, and the members' area
+   * shows the same sessions.
+   */
+  private async safeSendWelcome(email: string, userId: string): Promise<void> {
+    if (!this.email) {
+      this.logger.debug(
+        `EmailService is unbound — skipping the session welcome for ${email}`,
+      );
+      return;
+    }
+
+    try {
+      // Re-read rather than deriving from the patched master: that event is the
+      // recurrence definition, whose own start is the FIRST occurrence and may
+      // be long past. `listUpcomingSessions` expands instances and applies the
+      // caller's cohort scoping, so the mail lists what this member will
+      // actually see in the members' area.
+      const upcoming = await this.listUpcomingSessions(userId);
+      await this.email.sendBuildersSessionWelcome({
+        email,
+        sessions: upcoming.slice(0, WELCOME_SESSION_COUNT).map((session) => ({
+          title: session.title,
+          startsAt: session.startsAt,
+          meetLink: session.meetLink,
+        })),
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(
+        `Session welcome email failed for ${email} (attendance itself succeeded): ${message}`,
+      );
     }
   }
 

@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@ptah-api/core';
+import { EmailModule } from '@ptah-api/email';
 import { IdentityModule } from '@ptah-api/identity';
 import { AdminGuard } from '@ptah-api/identity';
 import { AdminThrottlerGuard } from '@ptah-api/identity';
@@ -40,7 +41,12 @@ import { AdminSessionsController } from './admin-sessions.controller';
  */
 @Global()
 @Module({
-  imports: [ConfigModule, PrismaModule, IdentityModule],
+  // EmailModule supplies the session-welcome mail sent to a newly provisioned
+  // member. It is imported (not relied on globally) because EmailModule is not
+  // @Global(); `SessionsService` still injects it @Optional() so a deployment
+  // without Resend configured degrades to "no welcome sent" rather than to a
+  // failed provisioning.
+  imports: [ConfigModule, PrismaModule, IdentityModule, EmailModule],
   controllers: [MembersController, AdminSessionsController],
   providers: [
     GoogleAuthProvider,
