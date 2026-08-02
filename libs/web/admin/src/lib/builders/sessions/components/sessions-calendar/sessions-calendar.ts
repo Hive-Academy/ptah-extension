@@ -192,7 +192,10 @@ export class SessionsCalendar {
     this.rangeSelected.emit(
       info.allDay
         ? defaultRangeOn(info.start)
-        : { startsAt: info.start.toISOString(), endsAt: info.end.toISOString() },
+        : {
+            startsAt: info.start.toISOString(),
+            endsAt: info.end.toISOString(),
+          },
     );
   }
 

@@ -221,7 +221,9 @@ describe('SessionsCalendar', () => {
     it('reports days from now to the end of the visible range', () => {
       create([], true);
       const emitted: number[] = [];
-      fixture.componentInstance.windowRequested.subscribe((d) => emitted.push(d));
+      fixture.componentInstance.windowRequested.subscribe((d) =>
+        emitted.push(d),
+      );
 
       option('datesSet')({
         end: new Date(Date.now() + 45 * 86_400_000),
@@ -233,7 +235,9 @@ describe('SessionsCalendar', () => {
     it('clamps to the 365-day ceiling the server enforces', () => {
       create([], true);
       const emitted: number[] = [];
-      fixture.componentInstance.windowRequested.subscribe((d) => emitted.push(d));
+      fixture.componentInstance.windowRequested.subscribe((d) =>
+        emitted.push(d),
+      );
 
       option('datesSet')({
         end: new Date(Date.now() + 900 * 86_400_000),

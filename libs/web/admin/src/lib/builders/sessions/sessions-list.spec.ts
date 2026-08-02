@@ -67,7 +67,8 @@ describe('SessionsList', () => {
     Array.from(fixture.nativeElement.querySelectorAll('tbody tr'));
 
   const calendar = (): SessionsCalendar =>
-    fixture.debugElement.query(By.directive(SessionsCalendar)).componentInstance;
+    fixture.debugElement.query(By.directive(SessionsCalendar))
+      .componentInstance;
 
   const detailsDialog = (): HTMLElement | null =>
     fixture.nativeElement.querySelector('.modal-open');
@@ -306,10 +307,12 @@ describe('SessionsList', () => {
       const dialog = detailsDialog();
       expect(dialog).not.toBeNull();
       expect(dialog?.textContent).toContain('Weekly Live');
-      expect(dialog?.querySelector('a[href="https://meet.example/x"]')).not.toBeNull();
-      expect(buttonsIn(dialog as Element).map((b) => b.textContent?.trim())).toEqual(
-        expect.arrayContaining(['Edit', 'Delete', 'Close']),
-      );
+      expect(
+        dialog?.querySelector('a[href="https://meet.example/x"]'),
+      ).not.toBeNull();
+      expect(
+        buttonsIn(dialog as Element).map((b) => b.textContent?.trim()),
+      ).toEqual(expect.arrayContaining(['Edit', 'Delete', 'Close']));
     });
 
     it('offers no mutation on the recurring series and says why', () => {
