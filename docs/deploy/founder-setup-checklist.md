@@ -13,8 +13,8 @@ model. Companion deep-dive: `discourse-digitalocean.md` (Discourse §1–6, Goog
 | Paddle sandbox product "Ptah Builders"                                                       | `pro_01kxx5795byye8459t6affa2m8`                             | ✅ DEV |
 | Sandbox price $29/mo                                                                         | `pri_01kxx5bgmepb6w0y43sqk7szaz` → `.env` + `environment.ts` | ✅ DEV |
 | Sandbox price $290/yr                                                                        | `pri_01kxx5eb8m36kn6t3h1ss8dy0b` → `.env` + `environment.ts` | ✅ DEV |
-| Sandbox discount FOUNDING35 (35% × 12 cycles, monthly)                                       | `dsc_01kxx97wk4794g0evqvbcxy8n7` → `.env`                    | ✅ DEV |
-| Sandbox discount FOUNDING50 (50% first payment, yearly)                                      | `dsc_01kxx9ahyztf5j4qqg2tvz7xmy` → `.env`                    | ✅ DEV |
+| Sandbox discount FOUNDING70M (70% × 12 cycles, monthly)                                      | ⚠️ re-create in sandbox → new `dsc_` id → `.env`             | ⬜     |
+| Sandbox discount FOUNDING70Y (70% first payment, yearly)                                     | ⚠️ re-create in sandbox → new `dsc_` id → `.env`             | ⬜     |
 | `BUILDERS_CHECKOUT_ENABLED=false` (waitlist mode)                                            | `.env`                                                       | ✅ DEV |
 | `DISCOURSE_SSO_SECRET` (generated, reusable in Discourse admin)                              | `.env`                                                       | ✅ DEV |
 | `API_PUBLIC_URL=http://localhost:3000`                                                       | `.env`                                                       | ✅ DEV |
@@ -29,10 +29,17 @@ model. Companion deep-dive: `discourse-digitalocean.md` (Discourse §1–6, Goog
       https://vendors.paddle.com → copy `pro_...` id.
 - [ ] Price **$29.00/month** "Builders Monthly (Founding Member)", no trial.
 - [ ] Price **$290.00/year** "Builders Yearly (Founding Member)", no trial.
-- [ ] Discount **FOUNDING35**: 35%, recurring **12 billing periods**, checkout
-      code enabled, restricted to the monthly price.
-- [ ] Discount **FOUNDING50**: 50%, one payment, checkout code enabled,
-      restricted to the yearly price.
+- [ ] Discount **FOUNDING70M**: 70%, recurring **12 billing periods**, checkout
+      code enabled, restricted to the monthly price ($8.70/month for the first
+      12 cycles, then the $29 list price).
+- [ ] Discount **FOUNDING70Y**: 70%, one payment, checkout code enabled,
+      restricted to the yearly price ($87 for the first year, then the $290
+      list price).
+- [ ] ⚠️ The old FOUNDING35 / FOUNDING50 discounts are dead. Paddle discounts
+      cannot be edited once used, so the 70% offer needs **new** discounts and
+      new `dsc_` ids. Any invite already sent carries the old `dsc_` id in its
+      link — **deactivate the old discounts in Paddle** so stale links can't
+      still check out at 35% / 50%.
 - [ ] Tip: create the production API key with **discounts: write** scope so
       this can be automated next time.
 - [ ] Values → `.env.prod`: `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`,

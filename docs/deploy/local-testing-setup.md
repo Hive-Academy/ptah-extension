@@ -297,9 +297,12 @@ seeds one):
 
 ## Workstream C — Paddle Builders checkout (sandbox)
 
-Sandbox product, prices, and the FOUNDING35/50 discounts are already in `.env`
-and the landing page (`environment.ts` points its checkout at the sandbox price
-ids). Checkout is guard-blocked by a flag; flip it locally to test:
+Sandbox product and prices are already in `.env` and the landing page
+(`environment.ts` points its checkout at the sandbox price ids). The founding
+discounts **FOUNDING70M** / **FOUNDING70Y** must be (re)created in the Paddle
+sandbox at **70%** — the old 35%/50% `dsc_` ids in `.env` are stale and cannot
+be edited in Paddle once used. Checkout is guard-blocked by a flag; flip it
+locally to test:
 
 1. `.env` → `BUILDERS_CHECKOUT_ENABLED=true`
 2. `apps/ptah-landing-page/src/environments/environment.ts` →

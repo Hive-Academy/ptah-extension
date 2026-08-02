@@ -53,7 +53,10 @@ import {
   Timer,
 } from 'lucide-angular';
 import { CountdownTimerComponent } from '@ptah-web/ui';
-import { EARLY_ADOPTER_DEADLINE } from '@ptah-web/core';
+import {
+  EARLY_ADOPTER_DEADLINE,
+  EARLY_ADOPTER_DEADLINE_LABEL,
+} from '@ptah-web/core';
 
 /**
  * PricingGridComponent - Grid of pricing plan cards
@@ -178,7 +181,7 @@ import { EARLY_ADOPTER_DEADLINE } from '@ptah-web/core';
               class="w-3.5 h-3.5"
               aria-hidden="true"
             />
-            Early Adopter offer closes Aug 15
+            Early Adopter offer closes {{ earlyAdopterDeadlineLabel }}
           </span>
 
           <div class="mt-5">
@@ -186,11 +189,11 @@ import { EARLY_ADOPTER_DEADLINE } from '@ptah-web/core';
           </div>
 
           <p class="mt-5 max-w-md mx-auto text-sm text-ink-300 leading-relaxed">
-            Approved contributors get their
+            Early adopters get
             <span class="text-amber-400 font-semibold"
-              >first year of Builders free</span
+              >70% off their first year</span
             >
-            — no checkout. Apply before the window closes.
+            — $8.70/mo or $87 for the year. Apply before the window closes.
           </p>
 
           <a [href]="buildersWaitlistHref()" class="cta-urgency mt-6">
@@ -250,9 +253,9 @@ import { EARLY_ADOPTER_DEADLINE } from '@ptah-web/core';
               @if (buildersCheckoutEnabled) {
                 Founding invite applied — your discount is ready at checkout.
               } @else {
-                Early Adopter program — approved contributors get their first
-                year of Builders free. Apply below and we'll review your
-                request.
+                Early Adopter program — founding members get 70% off their first
+                year of Builders ($8.70/mo or $87 for the year). Apply below and
+                we'll review your request.
               }
             </span>
           </div>
@@ -300,7 +303,7 @@ import { EARLY_ADOPTER_DEADLINE } from '@ptah-web/core';
               List price {{ proPlan.price }} &middot; {{ proPlan.priceSubtext }}
             </div>
             <div class="mt-1 text-[10px] text-amber-500/70 leading-snug">
-              Early adopters: first year of Builders free
+              Early adopters: 70% off your first year
             </div>
           </div>
 
@@ -490,6 +493,9 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   /** Early Adopter application window close — shared single source of truth. */
   protected readonly earlyAdopterDeadline = EARLY_ADOPTER_DEADLINE;
 
+  /** Human-readable deadline, kept in lockstep with the timestamp above. */
+  protected readonly earlyAdopterDeadlineLabel = EARLY_ADOPTER_DEADLINE_LABEL;
+
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly paddleService = inject(PaddleCheckoutService);
@@ -641,11 +647,12 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     features: [],
     standoutFeatures: [
       'Everything in Ptah (it is free)',
-      'Weekly live build sessions',
-      'PRD-to-production curriculum',
+      'SaaS-building course, PRD to production',
+      'Weekly live sessions — Q&A, tutorials, live builds',
+      'Private builders community',
       'Member skill packs',
       'Priority support',
-      'Founding-member pricing, locked in',
+      '70% off your first year — founding cohort',
     ],
     ctaText: 'Apply for Early Adopter',
     ctaAction: 'checkout',
@@ -662,8 +669,11 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     { label: 'Native VS Code integration', free: true },
     { label: 'Real-time streaming responses', free: true },
     { label: 'Tree-sitter workspace intelligence', free: true },
-    { label: 'Weekly live build sessions', free: false },
-    { label: 'PRD-to-production curriculum', free: false },
+    { label: 'SaaS-building course, PRD to production', free: false },
+    {
+      label: 'Weekly live sessions — Q&A, tutorials, live builds',
+      free: false,
+    },
     { label: 'Member skill packs', free: false },
     { label: 'Priority support', free: false },
   ];

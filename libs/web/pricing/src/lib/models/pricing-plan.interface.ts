@@ -5,8 +5,8 @@
  *
  * - Community: FREE forever (no Paddle, install from VS Code marketplace)
  * - Ptah Builders: paid membership (Paddle checkout), $29/mo or $290/yr list
- *   price. Founding waitlist members get a launch discount (35% off monthly
- *   for 12 cycles, 50% off yearly for the first year) applied via a Paddle
+ *   price. Founding waitlist members get a launch discount (70% off the first
+ *   year — $8.70/mo for 12 cycles or $87 first year) applied via a Paddle
  *   discount id passed through the `?promo=founding` checkout flow.
  *
  * Evidence: TASK_2025_121 - Two-Tier Paid Extension Model

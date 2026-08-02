@@ -495,7 +495,7 @@ export class ProfileDetailsComponent {
   public builderPromoMessage(): string {
     return (
       this.license()?.message ||
-      'Join the founding waitlist: 35% off monthly (first 12 months) or 50% off yearly (first year) at launch, plus hosted perks, priority support and early access — on top of the open-source core you already have.'
+      'Join the founding waitlist: 70% off your first year (monthly or yearly) at launch, plus the SaaS-building course, weekly live sessions and the private community — on top of the open-source core you already have.'
     );
   }
 

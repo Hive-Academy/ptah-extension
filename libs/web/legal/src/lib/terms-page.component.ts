@@ -157,9 +157,9 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               become a
               <strong class="text-white/90">founding member</strong> and receive
               a discount invite when Builders launches:
-              <strong class="text-white/90">35% off the monthly price</strong>
+              <strong class="text-white/90">70% off the monthly price</strong>
               for your first 12 billing cycles, or
-              <strong class="text-white/90">50% off the yearly price</strong>
+              <strong class="text-white/90">70% off the yearly price</strong>
               for your first year. The founding discount applies only to the
               billing cycle(s) stated above; renewals after that period bill at
               the then-current list price.

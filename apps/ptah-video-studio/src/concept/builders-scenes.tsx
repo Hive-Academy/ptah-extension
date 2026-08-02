@@ -15,10 +15,9 @@
  * Math.random, no CSS animations, no useFrame(delta), no THREE.Clock.
  *
  * PRICING NOTE: the offer beat renders `$29` / `$290` from the constants below.
- * The early-adopter discount is deliberately shown as "Early adopter · limited
- * seats" with NO hard percentage, because the discount is planned but not live.
- * When it is confirmed, edit EARLY_ADOPTER_* below (and the matching `vo` line
- * in the promo spec) — one place each.
+ * The founding-member discount is confirmed at 70% off the first year. See
+ * EARLY_ADOPTER_LABEL below (and the matching `vo` line in the promo spec) —
+ * one place each.
  */
 import React, { useMemo } from 'react';
 import {
@@ -88,9 +87,8 @@ const SHADOW_Y = FLOOR_Y + 0.02;
 // ── Offer constants — the ONLY place prices live in the render tree ──────────
 const PRICE_MONTHLY = 29;
 const PRICE_YEARLY = 290;
-/** Shown as a claim-free scarcity chip while the discount is still unconfirmed.
- *  Swap for e.g. '70% off · first 50 seats' once the offer is locked. */
-const EARLY_ADOPTER_LABEL = 'Early adopter · limited seats';
+/** The confirmed founding-member offer: 70% off the first year. */
+const EARLY_ADOPTER_LABEL = '70% off first year · limited seats';
 
 // ── Beat 1 · Hook — the gap between learning and shipping ────────────────────
 export const BuildersHook: React.FC<ConceptSceneProps> = ({ slide, durationFrames }) => {

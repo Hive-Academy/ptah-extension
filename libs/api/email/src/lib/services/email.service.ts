@@ -133,8 +133,8 @@ export class EmailService {
    *
    * Fired by an admin invite wave (POST /api/v1/admin/waitlist/invite). Carries
    * BOTH checkout options with the founding discounts applied:
-   *   - Monthly at 35% off for the first 12 billing cycles
-   *   - Yearly at 50% off for the first year
+   *   - Monthly at 70% off for the first 12 billing cycles
+   *   - Yearly at 70% off for the first year
    *
    * The CTA links point at the landing pricing page with `promo=founding`, the
    * billing `cycle`, and a `d=<paddleDiscountId>` param so the landing checkout
@@ -625,20 +625,20 @@ export class EmailService {
           </div>
           <div class="content">
             <div class="badge">Ptah Builders</div>
-            <p>You were one of the first to join the waitlist, so you get first access to <strong style="color: #f4d47c;">Ptah Builders</strong> — and a founding-member discount reserved for early adopters.</p>
+            <p>You were one of the first to join the waitlist, so you get first access to <strong style="color: #f4d47c;">Ptah Builders</strong> — the premium SaaS-building course, weekly live sessions (Q&amp;A, tutorials and live builds) and the members' community — plus the <strong style="color: #f4d47c;">70% founding discount</strong> reserved for early adopters.</p>
             <p>Pick the billing cycle that suits you:</p>
 
             <div class="plans">
               <div class="plan featured">
                 <h3>Yearly — best value</h3>
-                <p class="price"><s>$290/year</s> &nbsp; $145 for your first year</p>
-                <p class="save">50% off the first year</p>
+                <p class="price"><s>$290/year</s> &nbsp; $87 for your first year</p>
+                <p class="save">70% off the first year</p>
                 <a href="${yearlyUrl}" class="cta">Claim yearly →</a>
               </div>
               <div class="plan">
                 <h3>Monthly</h3>
-                <p class="price"><s>$29/month</s> &nbsp; $18.85/month</p>
-                <p class="save">35% off for your first 12 billing cycles</p>
+                <p class="price"><s>$29/month</s> &nbsp; $8.70/month</p>
+                <p class="save">70% off for your first 12 billing cycles</p>
                 <a href="${monthlyUrl}" class="cta">Claim monthly →</a>
               </div>
             </div>
@@ -648,7 +648,7 @@ export class EmailService {
               <span style="color: #94a3b8;"> Full refund on your first charge if Builders isn't for you. Renewals are cancel-anytime and non-refundable.</span>
             </div>
 
-            <p style="color: #94a3b8; font-size: 14px;">The open-source Community edition stays free forever — Builders simply layers hosted perks, priority support and early access on top.</p>
+            <p style="color: #94a3b8; font-size: 14px;">The open-source Community edition stays free forever — Builders simply layers the SaaS-building course, weekly live sessions and the community on top. Renewals are at the list price ($29/month or $290/year).</p>
           </div>
           <div class="footer">
             <p>Questions? Just reply to this email.</p>

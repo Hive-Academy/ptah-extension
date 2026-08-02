@@ -52,13 +52,13 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                   aria-hidden="true"
                 />
                 <h3 class="mt-4 text-xl font-bold text-white">
-                  Application received — we'll review and email you
+                  You're a founding member — we'll review and email you
                 </h3>
                 <p class="mt-2 text-sm text-ink-400 leading-relaxed">
-                  Thanks for applying to the Early Adopter program. We review
-                  applications from contributors and, once approved, grant your
-                  first year of Ptah Builders free — you'll get an email the
-                  moment it's live on your account.
+                  Thanks for applying to the Early Adopter program. Once
+                  approved, you get 70% off your first year of Ptah Builders —
+                  $8.70/mo or $87 for the year — and you'll get an email the
+                  moment your discount is live on your account.
                 </p>
               </div>
             }
@@ -70,11 +70,12 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                   aria-hidden="true"
                 />
                 <h3 class="mt-4 text-xl font-bold text-white">
-                  Your application is already in
+                  You're already a founding member
                 </h3>
                 <p class="mt-2 text-sm text-ink-400 leading-relaxed">
                   You've already applied to the Early Adopter program. We'll
-                  email you as soon as it's reviewed.
+                  email you as soon as it's reviewed, with 70% off your first
+                  year of Ptah Builders.
                 </p>
               </div>
             }
@@ -88,9 +89,9 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 Apply to the Early Adopter program
               </h3>
               <p class="mt-2 text-sm text-ink-400 leading-relaxed">
-                Approved contributors get their first year of Ptah Builders free
-                — no checkout, granted straight to your account. Apply below and
-                we'll review your request and email you. No spam.
+                Founding members get 70% off their first year — $8.70/mo or $87
+                for the year. Apply below and we'll review your request and
+                email you. No spam.
               </p>
 
               <form

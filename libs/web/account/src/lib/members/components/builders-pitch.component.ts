@@ -57,7 +57,8 @@ interface ValueProp {
         Ptah the app is free and open source. This area — live build sessions,
         the private community, and the founding cohort's course &amp; artifacts
         — is reserved for Ptah Builders members. Join the founding waitlist and
-        we'll email your invite the moment membership opens.
+        we'll email your invite the moment membership opens. Founding members
+        get 70% off their first year — $8.70/mo or $87 for the year.
       </p>
 
       <ul class="mt-6 grid sm:grid-cols-2 gap-3 text-left" role="list">

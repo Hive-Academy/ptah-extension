@@ -3,7 +3,7 @@
  *
  * Ptah-since-open-source messaging:
  *   - wordmark + "Free & open source"
- *   - Builders waitlist line with the founding discount (35% monthly / 50% yearly)
+ *   - Builders waitlist line with the founding discount (70% off first year)
  *   - clean display URL (ptah.live/#waitlist — NO query params)
  *   - QR pointing at the attributed target (…?utm_source=youtube#waitlist),
  *     generated at build time by scripts/gen-qr.mjs into waitlist-qr.ts (no
@@ -139,9 +139,7 @@ export const EndCard: React.FC<EndCardProps> = ({ headline }) => {
             lineHeight: 1.4,
           }}
         >
-          Founding members: <span style={{ color: THEME.amberLight, fontWeight: 800 }}>35% off monthly</span>
-          {' · '}
-          <span style={{ color: THEME.amberLight, fontWeight: 800 }}>50% off yearly</span>
+          Founding members: <span style={{ color: THEME.amberLight, fontWeight: 800 }}>70% off your first year</span>
         </div>
 
         <div

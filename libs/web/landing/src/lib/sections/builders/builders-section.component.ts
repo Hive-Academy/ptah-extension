@@ -23,7 +23,10 @@ import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
 import { CountdownTimerComponent } from '@ptah-web/ui';
-import { EARLY_ADOPTER_DEADLINE } from '@ptah-web/core';
+import {
+  EARLY_ADOPTER_DEADLINE,
+  EARLY_ADOPTER_DEADLINE_LABEL,
+} from '@ptah-web/core';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -125,7 +128,7 @@ interface ValueProp {
               >
                 <span
                   class="font-mono text-[10px] uppercase tracking-[0.2em] text-amber-500/90"
-                  >Offer closes Aug 15</span
+                  >Offer closes {{ earlyAdopterDeadlineLabel }}</span
                 >
                 <div class="mt-3">
                   <ptah-countdown-timer [target]="earlyAdopterDeadline" />
@@ -306,6 +309,9 @@ export class BuildersSectionComponent {
   /** Early Adopter application window close — shared single source of truth. */
   protected readonly earlyAdopterDeadline = EARLY_ADOPTER_DEADLINE;
 
+  /** Human-readable deadline, kept in lockstep with the timestamp above. */
+  protected readonly earlyAdopterDeadlineLabel = EARLY_ADOPTER_DEADLINE_LABEL;
+
   /** Copy for the S8.5 "Ptah Builders" Early Adopter offer. */
   protected readonly eyebrow = 'PTAH BUILDERS — EARLY ADOPTER';
   protected readonly headline =
@@ -314,11 +320,11 @@ export class BuildersSectionComponent {
     'Ptah the app is free and open source. Ptah Builders is where you go deeper: live build sessions, a PRD-to-production curriculum, and the delivery patterns other builders have already turned into skills.';
   /** List pricing once Builders checkout opens. */
   protected readonly listPrice = '$29/mo or $290/yr at launch.';
-  /** Early Adopter offer — approved contributors get their first year free. */
+  /** Early Adopter offer — founding members get 70% off their first year. */
   protected readonly foundingOffer =
-    'Early Adopters get their first year of Builders free. Apply now — approved contributors get Builders granted straight to their account, no checkout required, plus early access.';
+    'Early Adopters get 70% off their first year of Ptah Builders — the SaaS-building course, weekly live sessions, and the community — for $8.70/mo or $87 for the first year. Renewals bill at list price.';
   protected readonly reassurance =
-    "Membership isn't on sale yet — apply to the Early Adopter program and we'll review your request and email you the moment your free first year is live. No spam.";
+    "Membership isn't on sale yet — apply to the Early Adopter program and we'll review your request and email you the moment your 70% founding discount is live. No spam.";
   protected readonly ctaLabel = 'Apply';
   protected readonly ctaHref = '#waitlist';
   protected readonly ctaAria =

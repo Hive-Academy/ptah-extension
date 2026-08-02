@@ -153,7 +153,7 @@ monthly/yearly price ids are already in `environment.ts` and `.env`. Use a Paddl
 - **Expect:** founding callout "discount ready at checkout"; `cycle=yearly` selects the yearly price id;
   the emailed `d=` (a Paddle `dsc_...` id) is applied and **wins over** a manually typed promo code.
 - **Discount source:** `d` comes from `.env` `PADDLE_DISCOUNT_ID_BUILDERS_MONTHLY`/`_YEARLY`
-  (FOUNDING35 = 35%×12mo, FOUNDING50 = 50% first year — Paddle-side codes, not literals in code).
+  (FOUNDING70M = 70%×12mo, FOUNDING70Y = 70% first year — Paddle-side codes, not literals in code).
 
 ### 3.6 Manual promo code
 
