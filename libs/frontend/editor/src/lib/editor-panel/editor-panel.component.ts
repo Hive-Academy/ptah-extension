@@ -835,7 +835,17 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     const startY = event.clientY;
     const startHeight = this.editorService.terminalHeight();
     this.ngZone.runOutsideAngular(() => {
-      this._resizeMouseMove = (e: MouseEvent) => {
+      // Coalesce to at most one zone re-entry (and therefore one change-detection
+      // pass + one layout write) per animation frame. `mousemove` only records
+      // the latest position and arms a frame; the frame callback does the work.
+      let latestEvent: MouseEvent | null = null;
+
+      const applyLatest = (): void => {
+        this._dragFrame = null;
+        const e = latestEvent;
+        if (!e) return;
+        latestEvent = null;
+
         const deltaY = startY - e.clientY;
         const newHeight = startHeight + deltaY;
         const hostElement = (event.target as HTMLElement).closest(
@@ -848,7 +858,18 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         });
       };
 
+      this._resizeMouseMove = (e: MouseEvent) => {
+        latestEvent = e;
+        if (this._dragFrame === null) {
+          this._dragFrame = requestAnimationFrame(applyLatest);
+        }
+      };
+
       this._resizeMouseUp = () => {
+        // Cancel the pending frame and apply the final position synchronously,
+        // so coalescing can never drop the last update before release.
+        this.cancelDragFrame();
+        applyLatest();
         this.cleanupResizeListeners();
       };
 
@@ -861,6 +882,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
    * Remove resize drag event listeners from the document.
    */
   private cleanupResizeListeners(): void {
+    this.cancelDragFrame();
     if (this._resizeMouseMove) {
       document.removeEventListener('mousemove', this._resizeMouseMove);
       this._resizeMouseMove = null;
@@ -883,7 +905,17 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     const startWidth = this.sidebarWidth();
 
     this.ngZone.runOutsideAngular(() => {
-      this._sidebarResizeMouseMove = (e: MouseEvent) => {
+      // Coalesce to at most one zone re-entry (and therefore one change-detection
+      // pass + one layout write) per animation frame. `mousemove` only records
+      // the latest position and arms a frame; the frame callback does the work.
+      let latestEvent: MouseEvent | null = null;
+
+      const applyLatest = (): void => {
+        this._dragFrame = null;
+        const e = latestEvent;
+        if (!e) return;
+        latestEvent = null;
+
         const deltaX = e.clientX - startX;
         const newWidth = startWidth + deltaX;
         const clampedWidth = Math.max(160, Math.min(480, newWidth));
@@ -893,7 +925,18 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         });
       };
 
+      this._sidebarResizeMouseMove = (e: MouseEvent) => {
+        latestEvent = e;
+        if (this._dragFrame === null) {
+          this._dragFrame = requestAnimationFrame(applyLatest);
+        }
+      };
+
       this._sidebarResizeMouseUp = () => {
+        // Cancel the pending frame and apply the final position synchronously,
+        // so coalescing can never drop the last update before release.
+        this.cancelDragFrame();
+        applyLatest();
         this.cleanupSidebarResizeListeners();
       };
 
@@ -903,6 +946,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   private cleanupSidebarResizeListeners(): void {
+    this.cancelDragFrame();
     if (this._sidebarResizeMouseMove) {
       document.removeEventListener('mousemove', this._sidebarResizeMouseMove);
       this._sidebarResizeMouseMove = null;
@@ -928,7 +972,17 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     const containerWidth = container.clientWidth;
 
     this.ngZone.runOutsideAngular(() => {
-      this._splitResizeMouseMove = (e: MouseEvent) => {
+      // Coalesce to at most one zone re-entry (and therefore one change-detection
+      // pass + one layout write) per animation frame. `mousemove` only records
+      // the latest position and arms a frame; the frame callback does the work.
+      let latestEvent: MouseEvent | null = null;
+
+      const applyLatest = (): void => {
+        this._dragFrame = null;
+        const e = latestEvent;
+        if (!e) return;
+        latestEvent = null;
+
         const deltaX = e.clientX - startX;
         const deltaPercent = (deltaX / containerWidth) * 100;
         const newPercent = startPercent + deltaPercent;
@@ -939,7 +993,18 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         });
       };
 
+      this._splitResizeMouseMove = (e: MouseEvent) => {
+        latestEvent = e;
+        if (this._dragFrame === null) {
+          this._dragFrame = requestAnimationFrame(applyLatest);
+        }
+      };
+
       this._splitResizeMouseUp = () => {
+        // Cancel the pending frame and apply the final position synchronously,
+        // so coalescing can never drop the last update before release.
+        this.cancelDragFrame();
+        applyLatest();
         this.cleanupSplitResizeListeners();
       };
 
@@ -952,6 +1017,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
    * Remove split divider resize drag event listeners from the document.
    */
   private cleanupSplitResizeListeners(): void {
+    this.cancelDragFrame();
     if (this._splitResizeMouseMove) {
       document.removeEventListener('mousemove', this._splitResizeMouseMove);
       this._splitResizeMouseMove = null;
@@ -959,6 +1025,29 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     if (this._splitResizeMouseUp) {
       document.removeEventListener('mouseup', this._splitResizeMouseUp);
       this._splitResizeMouseUp = null;
+    }
+  }
+
+  /**
+   * Pending `requestAnimationFrame` handle for the active resize drag.
+   *
+   * Only one drag surface can be active at a time (they all start from a
+   * `mousedown` and there is a single pointer), so the terminal, sidebar and
+   * split drags share this one handle. `null` means no frame is armed.
+   */
+  private _dragFrame: number | null = null;
+
+  /**
+   * Cancel any frame armed by a resize drag.
+   *
+   * Called from every drag cleanup path — mouseup and `ngOnDestroy` alike — so
+   * a coalesced update can never land after the drag has ended or after the
+   * component has been torn down.
+   */
+  private cancelDragFrame(): void {
+    if (this._dragFrame !== null) {
+      cancelAnimationFrame(this._dragFrame);
+      this._dragFrame = null;
     }
   }
 }
