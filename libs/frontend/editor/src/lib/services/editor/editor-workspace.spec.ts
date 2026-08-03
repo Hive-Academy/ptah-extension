@@ -119,22 +119,32 @@ function makeState(): {
 
 function makeHelper(opts?: {
   handleFileContentChanged?: jest.Mock;
+  refreshDiffTabsForFile?: jest.Mock;
   closeSplit?: jest.Mock;
 }): {
   helper: EditorWorkspaceHelper;
   ctx: ReturnType<typeof makeState>;
   handleFileContentChanged: jest.Mock;
+  refreshDiffTabsForFile: jest.Mock;
   closeSplit: jest.Mock;
 } {
   const ctx = makeState();
   const handleFileContentChanged =
     opts?.handleFileContentChanged ?? jest.fn().mockResolvedValue(undefined);
+  const refreshDiffTabsForFile = opts?.refreshDiffTabsForFile ?? jest.fn();
   const closeSplit = opts?.closeSplit ?? jest.fn();
   const helper = new EditorWorkspaceHelper(ctx.state, {
     handleFileContentChanged,
+    refreshDiffTabsForFile,
     closeSplit,
   });
-  return { helper, ctx, handleFileContentChanged, closeSplit };
+  return {
+    helper,
+    ctx,
+    handleFileContentChanged,
+    refreshDiffTabsForFile,
+    closeSplit,
+  };
 }
 
 // ============================================================================
@@ -501,6 +511,41 @@ describe('EditorWorkspaceHelper push handling (post-C1: no raw listener)', () =>
     jest.advanceTimersByTime(1);
     expect(handleFileContentChanged).toHaveBeenCalledTimes(1);
     expect(handleFileContentChanged).toHaveBeenCalledWith('D:/ws/clean.ts');
+
+    helper.stopFileTreeWatcher();
+  });
+
+  it('(A1 AC5, literal) editor:reread-open-tabs SKIPS diff tabs entirely — 0 failed RPCs against a diff key', () => {
+    const { helper, ctx, handleFileContentChanged } = makeHelper();
+    (ctx.state.openTabs as unknown as { set(v: unknown): void }).set([
+      { filePath: 'D:/ws/clean.ts', isDirty: false },
+      {
+        filePath: 'diff:worktree:clean.ts',
+        isDirty: false,
+        diff: { comparison: 'worktree', path: 'clean.ts' },
+      },
+      {
+        filePath: 'diff:staged:renamed.ts',
+        isDirty: false,
+        diff: { comparison: 'staged', path: 'renamed.ts' },
+      },
+    ]);
+
+    helper.startFileTreeWatcher();
+    helper.onRereadOpenTabs();
+    jest.advanceTimersByTime(250);
+
+    // The two diff-keyed tabs must never reach handleFileContentChanged — that
+    // is what used to fire a guaranteed-failing `editor:openFile` RPC against
+    // a `diff:...` key on every single git operation with a diff tab open.
+    expect(handleFileContentChanged).toHaveBeenCalledTimes(1);
+    expect(handleFileContentChanged).toHaveBeenCalledWith('D:/ws/clean.ts');
+    expect(handleFileContentChanged).not.toHaveBeenCalledWith(
+      'diff:worktree:clean.ts',
+    );
+    expect(handleFileContentChanged).not.toHaveBeenCalledWith(
+      'diff:staged:renamed.ts',
+    );
 
     helper.stopFileTreeWatcher();
   });

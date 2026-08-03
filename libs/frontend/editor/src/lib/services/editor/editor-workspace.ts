@@ -58,6 +58,8 @@ export class EditorWorkspaceHelper {
     private readonly callbacks: {
       /** Re-open a file after a file:content-changed push for non-dirty tabs. */
       handleFileContentChanged(filePath: string): Promise<void>;
+      /** Revalidate working-tree diff tabs pointing at a changed file. */
+      refreshDiffTabsForFile(absolutePath: string): void;
       /** Close the split pane (used when the removed workspace was active). */
       closeSplit(): void;
     },
@@ -380,6 +382,9 @@ export class EditorWorkspaceHelper {
     if (!filePath) return;
 
     void this.callbacks.handleFileContentChanged(filePath);
+    // A working-tree diff reads the file on disk, so the same push that
+    // invalidates a file tab also invalidates that file's worktree diff.
+    this.callbacks.refreshDiffTabsForFile(filePath);
   }
 
   /**
@@ -398,6 +403,11 @@ export class EditorWorkspaceHelper {
       const tabs = this.state.openTabs();
       for (const tab of tabs) {
         if (tab.isDirty) continue;
+        // A1 AC5: a diff tab's key is `diff:<comparison>:<path>`, not a real
+        // file path. Issuing `editor:openFile` against it produced a
+        // guaranteed-failing RPC on every git operation; diff tabs revalidate
+        // through `git:status-update` -> refreshDiffTab instead.
+        if (tab.diff) continue;
         void this.callbacks.handleFileContentChanged(tab.filePath);
       }
     }, EditorWorkspaceHelper.REREAD_OPEN_TABS_DEBOUNCE_MS);

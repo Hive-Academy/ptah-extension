@@ -11,6 +11,7 @@
  * - git:discard          - Discard working tree changes (destructive)
  * - git:commit           - Create a commit with the provided message
  * - git:showFile         - Show file content from HEAD revision
+ * - git:diffFile         - Resolve both sides of a staged/worktree file diff
  * - git:push             - Push the current branch to its upstream remote
  * - git:branches         - List local/remote branches with ahead/behind counts
  * - git:checkout         - Checkout a branch (with dirty-tree guard)
@@ -35,7 +36,11 @@ import type {
   WebviewManager,
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IFileSystemProvider,
+} from '@ptah-extension/platform-core';
+import { parseGitDiffFileParams } from './git-rpc.schema';
 import type {
   GitInfoParams,
   GitInfoResult,
@@ -54,6 +59,12 @@ import type {
   GitCommitResult,
   GitShowFileParams,
   GitShowFileResult,
+  GitDiffFileParams,
+  GitDiffFileResult,
+  GitDiffComparison,
+  GitBlobRead,
+  GitReadErrorCode,
+  DiffSideRef,
   GitPushParams,
   GitPushResult,
   GitBranchesParams,
@@ -87,6 +98,7 @@ export class GitRpcHandlers {
     'git:discard',
     'git:commit',
     'git:showFile',
+    'git:diffFile',
     'git:push',
     'git:branches',
     'git:checkout',
@@ -105,6 +117,8 @@ export class GitRpcHandlers {
     private readonly gitInfo: GitInfoService,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fileSystem: IFileSystemProvider,
   ) {}
 
   register(): void {
@@ -117,6 +131,7 @@ export class GitRpcHandlers {
     this.registerGitDiscard();
     this.registerGitCommit();
     this.registerGitShowFile();
+    this.registerGitDiffFile();
     this.registerGitPush();
     this.registerGitBranches();
     this.registerGitCheckout();
@@ -461,6 +476,102 @@ export class GitRpcHandlers {
         return this.gitInfo.showFile(wsRoot, params.path);
       },
     );
+  }
+
+  /**
+   * git:diffFile - Resolve both sides of a file diff in one round trip.
+   *
+   * Replaces the two-call `git:showFile` + worktree-read pattern the editor
+   * used for a diff tab. Both sides come back as structured outcomes, so
+   * "absent at this revision" is never flattened into empty content.
+   *
+   * Failures answer with an `error` outcome on both sides rather than
+   * rejecting: a diff tab must be able to show a persistent error state, and
+   * a rejected RPC gives the renderer nothing to render.
+   */
+  private registerGitDiffFile(): void {
+    this.rpcHandler.registerMethod<GitDiffFileParams, GitDiffFileResult>(
+      'git:diffFile',
+      async (rawParams) => {
+        const params = parseGitDiffFileParams(rawParams);
+        if (!params) {
+          this.logger.warn('[GitRpc] git:diffFile called with invalid params');
+          return this.diffFileFailure(
+            '',
+            '',
+            'worktree',
+            'unknown',
+            'Invalid diff request.',
+          );
+        }
+
+        const originalPath = params.originalPath ?? params.path;
+        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:diffFile');
+        if (!wsRoot) {
+          return this.diffFileFailure(
+            params.path,
+            originalPath,
+            params.comparison,
+            'not-a-repo',
+            'No workspace folder open.',
+          );
+        }
+
+        try {
+          return await this.gitInfo.diffFile(
+            wsRoot,
+            {
+              path: params.path,
+              comparison: params.comparison,
+              originalPath: params.originalPath,
+            },
+            this.fileSystem,
+          );
+        } catch (error: unknown) {
+          // `GitInfoService.diffFile` rejects path traversal before spawning
+          // git. Surface that as a structured read error rather than an
+          // unmapped transport fault, and keep the detail in the log.
+          this.logger.error(
+            '[GitRpc] git:diffFile rejected the request',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return this.diffFileFailure(
+            params.path,
+            originalPath,
+            params.comparison,
+            'unknown',
+            'This file path cannot be diffed.',
+          );
+        }
+      },
+    );
+  }
+
+  /**
+   * A `git:diffFile` result whose two sides both failed.
+   *
+   * `snapshotToken` is empty because no snapshot was taken — a write path must
+   * treat an empty token as "never validated", not as a match.
+   */
+  private diffFileFailure(
+    filePath: string,
+    originalPath: string,
+    comparison: GitDiffComparison,
+    code: GitReadErrorCode,
+    message: string,
+  ): GitDiffFileResult {
+    const failure: GitBlobRead = { outcome: 'error', code, message };
+    const absent: DiffSideRef = { kind: 'absent' };
+    return {
+      path: filePath,
+      originalPath,
+      comparison,
+      original: failure,
+      modified: failure,
+      originalRef: absent,
+      modifiedRef: absent,
+      snapshotToken: '',
+    };
   }
 
   /**

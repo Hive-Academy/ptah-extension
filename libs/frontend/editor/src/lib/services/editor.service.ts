@@ -8,7 +8,10 @@ import {
 import { type MessageHandler } from '@ptah-extension/core';
 import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
-import type { FileContentChangedPayload } from '@ptah-extension/shared';
+import type {
+  FileContentChangedPayload,
+  GitStatusUpdatePayload,
+} from '@ptah-extension/shared';
 import { FileTreeNode } from '../models/file-tree.model';
 import type { EditorTab } from './editor/editor-tab.types';
 import {
@@ -19,8 +22,12 @@ import {
 import { EditorWorkspaceHelper } from './editor/editor-workspace';
 import { EditorTabsHelper } from './editor/editor-tabs';
 import { EditorFileOpsHelper } from './editor/editor-file-ops';
-import { EditorDiffSplitHelper } from './editor/editor-diff-split';
+import {
+  EditorDiffSplitHelper,
+  type OpenDiffRequest,
+} from './editor/editor-diff-split';
 export type { EditorTab } from './editor/editor-tab.types';
+export type { OpenDiffRequest } from './editor/editor-diff-split';
 
 /**
  * EditorService — coordinator that owns editor signals and delegates to
@@ -112,7 +119,7 @@ export class EditorService implements MessageHandler {
     const tabs = this._openTabs();
     const activePath = this._activeFilePath();
     const tab = tabs.find((t) => t.filePath === activePath);
-    return tab?.isDiff ? tab : null;
+    return tab?.diff ? tab : null;
   });
 
   private readonly internalState: EditorInternalState;
@@ -164,6 +171,8 @@ export class EditorService implements MessageHandler {
     this.workspaceHelper = new EditorWorkspaceHelper(this.internalState, {
       handleFileContentChanged: (filePath: string): Promise<void> =>
         this.fileOpsHelper.handleFileContentChanged(filePath),
+      refreshDiffTabsForFile: (absolutePath: string): void =>
+        this.diffSplitHelper.onFileContentChanged(absolutePath),
       closeSplit: (): void => this.diffSplitHelper.closeSplit(),
     });
 
@@ -172,6 +181,7 @@ export class EditorService implements MessageHandler {
     // teardown paths that do not, and also clears the error auto-dismiss.
     this.destroyRef.onDestroy(() => {
       this.workspaceHelper.stopFileTreeWatcher();
+      this.diffSplitHelper.dispose();
       this.clearError();
     });
   }
@@ -239,9 +249,16 @@ export class EditorService implements MessageHandler {
     this._terminalHeight.set(px);
   }
 
-  /** Open a diff view for a file. */
-  async openDiff(relativePath: string, absolutePath: string): Promise<void> {
-    return this.diffSplitHelper.openDiff(relativePath, absolutePath);
+  /**
+   * Open (or activate and revalidate) a diff view for one comparison of a file.
+   */
+  async openDiff(request: OpenDiffRequest): Promise<void> {
+    return this.diffSplitHelper.openDiff(request);
+  }
+
+  /** Force a revalidation of one diff tab — backs the diff view's Retry action. */
+  async refreshDiffTab(diffKey: string): Promise<void> {
+    return this.diffSplitHelper.refreshDiffTab(diffKey);
   }
 
   /** Save the active file content. */
@@ -392,6 +409,7 @@ export class EditorService implements MessageHandler {
     MESSAGE_TYPES.FILE_TREE_CHANGED,
     MESSAGE_TYPES.FILE_CONTENT_CHANGED,
     MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS,
+    MESSAGE_TYPES.GIT_STATUS_UPDATE,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -414,6 +432,16 @@ export class EditorService implements MessageHandler {
       case MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS:
         this.workspaceHelper.onRereadOpenTabs();
         return;
+      case MESSAGE_TYPES.GIT_STATUS_UPDATE: {
+        // The authoritative "git state changed" push — it already fires on
+        // every commit / stage / checkout / discard, which is exactly when an
+        // open diff tab stops being true (A1).
+        const payload = message.payload as
+          | Partial<GitStatusUpdatePayload>
+          | undefined;
+        this.diffSplitHelper.onGitStatusUpdate(payload?.workspaceRoot);
+        return;
+      }
       default:
         return;
     }

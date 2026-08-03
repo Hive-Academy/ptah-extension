@@ -12,6 +12,12 @@ export interface GitFileStatus {
   staged: boolean;
   /** Whether this entry is a directory (untracked directories from git status) */
   isDirectory?: boolean;
+  /**
+   * Pre-rename source path for rename/copy entries (`porcelain=v2` type-2
+   * lines). Absent for every other status. A staged rename must be diffed
+   * against this path at HEAD, not against `path`.
+   */
+  origPath?: string;
 }
 
 /** Branch ahead/behind information */
@@ -215,6 +221,78 @@ export interface GitShowFileResult {
   content: string;
   /** Whether the file is binary */
   isBinary?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// git:diffFile — structured two-sided file diff (TASK_2026_173, A2/A3/A4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a git read failed. Deliberately a closed set of machine-readable codes:
+ * the backend never ships raw stderr to the client (A3 AC4, NFR-8), so the
+ * frontend maps these to user-facing copy from its own string table.
+ */
+export type GitReadErrorCode =
+  | 'not-a-repo'
+  | 'no-commits'
+  | 'ambiguous-ref'
+  | 'git-missing'
+  | 'timeout'
+  | 'permission-denied'
+  | 'unknown';
+
+/**
+ * Outcome of reading one side of a diff.
+ *
+ * `absent` is a first-class, successful outcome — the path genuinely does not
+ * exist at that side (untracked file, staged addition, deletion). It is
+ * distinct from `error`, which means the read could not be performed. Callers
+ * MUST NOT render `error` as empty content.
+ */
+export type GitBlobRead =
+  | { outcome: 'content'; content: string }
+  | { outcome: 'binary'; byteLength: number }
+  | { outcome: 'absent' }
+  | { outcome: 'error'; code: GitReadErrorCode; message: string };
+
+/** What a diff side actually resolved to. Drives labels and hunk operations. */
+export type DiffSideRef =
+  | { kind: 'commit'; sha: string }
+  | { kind: 'index' }
+  | { kind: 'worktree' }
+  | { kind: 'absent' };
+
+/**
+ * Which two sides a diff compares. Mirrors the two Source Control rows:
+ * `staged` is HEAD ↔ index, `worktree` is index ↔ working tree.
+ * HEAD ↔ worktree is deliberately not offered — it corresponds to no UI row.
+ */
+export type GitDiffComparison = 'staged' | 'worktree';
+
+/** Parameters for git:diffFile RPC method */
+export interface GitDiffFileParams extends GitWorkspaceScopedParams {
+  /** Workspace-relative path, modified side. */
+  path: string;
+  comparison: GitDiffComparison;
+  /** Pre-rename source path for staged renames; backend falls back to `path`. */
+  originalPath?: string;
+}
+
+/** Result from git:diffFile RPC method */
+export interface GitDiffFileResult {
+  path: string;
+  originalPath: string;
+  comparison: GitDiffComparison;
+  original: GitBlobRead;
+  modified: GitBlobRead;
+  originalRef: DiffSideRef;
+  modifiedRef: DiffSideRef;
+  /**
+   * Digest over the exact bytes of both sides plus their ref identity.
+   * Opaque to the client; used to prove a later write applies to the same
+   * snapshot the user was shown.
+   */
+  snapshotToken: string;
 }
 
 /** Parameters for git:push RPC method */

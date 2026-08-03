@@ -15,6 +15,16 @@
  *   getLastCommit — returns empty result when output is blank
  *   getLastCommit — returns 0 for time when ct field is absent
  *
+ * TASK_2026_173 additions:
+ *   readBlob      — content / empty-but-tracked / binary-by-NUL / absent
+ *   readBlob      — classifies failures by exit code (not-a-repo, no-commits)
+ *   readBlob      — never leaks stderr or an absolute path to the client
+ *   readBlob      — rejects path traversal before spawning git
+ *   diffFile      — every row of the side-resolution table, both comparisons
+ *   diffFile      — staged rename reads the original side at origPath (N3)
+ *   diffFile      — snapshotToken is stable per snapshot, differs per content
+ *   parseFileStatus — origPath from the type-2 post-tab segment (N3)
+ *
  * `crossSpawn` is mocked at the module boundary so no git binary is required.
  *
  * Source-under-test:
@@ -432,5 +442,448 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       const args: string[] = mockSpawn.mock.calls[0][1] as string[];
       expect(args[args.length - 1]).toBe('v1.2.3');
     });
+  });
+});
+
+// ===========================================================================
+// TASK_2026_173 — readBlob / diffFile / origPath
+// ===========================================================================
+
+/** Queue spawn responses in call order and record the argv of each call. */
+function queueSpawn(
+  responses: Array<{ stdout?: string; stderr?: string; exitCode: number }>,
+): { calls: string[][] } {
+  const calls: string[][] = [];
+  let index = 0;
+  mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+    calls.push(args);
+    const response = responses[Math.min(index, responses.length - 1)];
+    index++;
+    return makeSpawnResult({
+      stdout: response.stdout ?? '',
+      stderr: response.stderr,
+      exitCode: response.exitCode,
+    });
+  });
+  return { calls };
+}
+
+const posix = (p: string): string => p.replace(/\\/g, '/');
+
+/** Minimal `WorktreeFileReader` over an in-memory file map. */
+function makeFileReader(files: Record<string, string>) {
+  return {
+    exists: jest.fn(async (p: string) =>
+      Object.prototype.hasOwnProperty.call(files, posix(p)),
+    ),
+    readFileBytes: jest.fn(async (p: string) => {
+      const content = files[posix(p)];
+      if (content === undefined) throw new Error(`ENOENT: ${p}`);
+      return new Uint8Array(Buffer.from(content, 'utf8'));
+    }),
+  };
+}
+
+describe('GitInfoService.readBlob()', () => {
+  let service: GitInfoService;
+  const WS = '/fake/workspace';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new GitInfoService(makeLogger() as never);
+  });
+
+  it('returns content and spawns nothing extra on the happy path', async () => {
+    const { calls } = queueSpawn([{ stdout: 'hello\n', exitCode: 0 }]);
+
+    const result = await service.readBlob(WS, 'HEAD', 'src/a.ts');
+
+    expect(result).toEqual({ outcome: 'content', content: 'hello\n' });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(['show', 'HEAD:src/a.ts']);
+  });
+
+  it('reads the index side with an empty revision prefix', async () => {
+    const { calls } = queueSpawn([{ stdout: 'staged\n', exitCode: 0 }]);
+
+    await service.readBlob(WS, '', 'src/a.ts');
+
+    expect(calls[0]).toEqual(['show', ':src/a.ts']);
+  });
+
+  it('classifies content containing a NUL byte as binary with a byte length', async () => {
+    const NUL = String.fromCharCode(0);
+    queueSpawn([
+      { stdout: `PNG${NUL}${String.fromCharCode(26)}`, exitCode: 0 },
+    ]);
+
+    const result = await service.readBlob(WS, 'HEAD', 'logo.png');
+
+    expect(result).toEqual({ outcome: 'binary', byteLength: 5 });
+  });
+
+  it('reports a genuinely empty tracked file as empty content, not as absent', async () => {
+    queueSpawn([{ stdout: '', exitCode: 0 }]);
+
+    const result = await service.readBlob(WS, 'HEAD', 'empty.ts');
+
+    expect(result).toEqual({ outcome: 'content', content: '' });
+  });
+
+  it('classifies a path missing at the revision as absent, via exit code only', async () => {
+    const { calls } = queueSpawn([
+      { exitCode: 128, stderr: 'fatal: path does not exist\n' },
+      { exitCode: 1 },
+    ]);
+
+    const result = await service.readBlob(WS, 'HEAD', 'src/new.ts');
+
+    expect(result).toEqual({ outcome: 'absent' });
+    expect(calls[1]).toEqual([
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      'HEAD:src/new.ts',
+    ]);
+  });
+
+  it('classifies a broken repository as error/not-a-repo, never as absent', async () => {
+    queueSpawn([
+      { exitCode: 128 }, // show
+      { exitCode: 128 }, // rev-parse <spec>
+      { exitCode: 128 }, // rev-parse --is-inside-work-tree
+    ]);
+
+    const result = await service.readBlob(WS, 'HEAD', 'src/a.ts');
+
+    expect(result.outcome).toBe('error');
+    if (result.outcome === 'error') {
+      expect(result.code).toBe('not-a-repo');
+    }
+  });
+
+  it('classifies an unborn HEAD as error/no-commits', async () => {
+    queueSpawn([
+      { exitCode: 128 }, // show
+      { exitCode: 128 }, // rev-parse <spec>
+      { stdout: 'true\n', exitCode: 0 }, // --is-inside-work-tree
+      { exitCode: 1 }, // rev-parse --verify --quiet HEAD
+    ]);
+
+    const result = await service.readBlob(WS, 'HEAD', 'src/a.ts');
+
+    expect(result.outcome).toBe('error');
+    if (result.outcome === 'error') {
+      expect(result.code).toBe('no-commits');
+    }
+  });
+
+  it('never leaks stderr or an absolute path into the client-facing message', async () => {
+    queueSpawn([
+      { exitCode: 128, stderr: 'fatal: /fake/workspace/.git is corrupt\n' },
+      { exitCode: 128 },
+      { exitCode: 128 },
+    ]);
+
+    const result = await service.readBlob(WS, 'HEAD', 'src/a.ts');
+
+    expect(result.outcome).toBe('error');
+    if (result.outcome === 'error') {
+      expect(result.message).not.toContain(WS);
+      expect(result.message).not.toContain('corrupt');
+      expect(result.message).toContain('src/a.ts');
+    }
+  });
+
+  it('rejects a traversing path before spawning git', async () => {
+    const { calls } = queueSpawn([{ exitCode: 0 }]);
+
+    await expect(
+      service.readBlob(WS, 'HEAD', '../../etc/passwd'),
+    ).rejects.toThrow(/traversal/i);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe('GitInfoService.diffFile()', () => {
+  let service: GitInfoService;
+  const WS = '/fake/workspace';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new GitInfoService(makeLogger() as never);
+  });
+
+  // --- staged comparison ---------------------------------------------------
+
+  it('staged modification: commit(HEAD) -> index', async () => {
+    const { calls } = queueSpawn([
+      { stdout: 'abc123\n', exitCode: 0 }, // rev-parse --verify --quiet HEAD
+      { stdout: 'old\n', exitCode: 0 }, // show HEAD:path
+      { stdout: 'new\n', exitCode: 0 }, // show :path
+    ]);
+
+    const result = await service.diffFile(
+      WS,
+      { path: 'src/a.ts', comparison: 'staged' },
+      makeFileReader({}),
+    );
+
+    expect(result.originalRef).toEqual({ kind: 'commit', sha: 'abc123' });
+    expect(result.modifiedRef).toEqual({ kind: 'index' });
+    expect(result.original).toEqual({ outcome: 'content', content: 'old\n' });
+    expect(result.modified).toEqual({ outcome: 'content', content: 'new\n' });
+    expect(calls[1]).toEqual(['show', 'HEAD:src/a.ts']);
+    expect(calls[2]).toEqual(['show', ':src/a.ts']);
+  });
+
+  it('staged addition: absent -> index', async () => {
+    queueSpawn([
+      { stdout: 'abc123\n', exitCode: 0 }, // HEAD sha
+      { exitCode: 128 }, // show HEAD:path
+      { exitCode: 1 }, // rev-parse <spec> => absent
+      { stdout: 'brand new\n', exitCode: 0 }, // show :path
+    ]);
+
+    const result = await service.diffFile(
+      WS,
+      { path: 'src/new.ts', comparison: 'staged' },
+      makeFileReader({}),
+    );
+
+    expect(result.original).toEqual({ outcome: 'absent' });
+    expect(result.originalRef).toEqual({ kind: 'absent' });
+    expect(result.modifiedRef).toEqual({ kind: 'index' });
+  });
+
+  it('staged deletion: commit(HEAD) -> absent', async () => {
+    queueSpawn([
+      { stdout: 'abc123\n', exitCode: 0 },
+      { stdout: 'gone\n', exitCode: 0 }, // show HEAD:path
+      { exitCode: 128 }, // show :path
+      { exitCode: 1 }, // rev-parse <spec> => absent
+    ]);
+
+    const result = await service.diffFile(
+      WS,
+      { path: 'src/gone.ts', comparison: 'staged' },
+      makeFileReader({}),
+    );
+
+    expect(result.originalRef).toEqual({ kind: 'commit', sha: 'abc123' });
+    expect(result.modified).toEqual({ outcome: 'absent' });
+    expect(result.modifiedRef).toEqual({ kind: 'absent' });
+  });
+
+  it('staged rename: reads the original side at the pre-rename path (N3)', async () => {
+    const { calls } = queueSpawn([
+      { stdout: 'abc123\n', exitCode: 0 },
+      { stdout: 'old\n', exitCode: 0 },
+      { stdout: 'new\n', exitCode: 0 },
+    ]);
+
+    const result = await service.diffFile(
+      WS,
+      {
+        path: 'src/new-name.ts',
+        comparison: 'staged',
+        originalPath: 'src/old-name.ts',
+      },
+      makeFileReader({}),
+    );
+
+    expect(calls[1]).toEqual(['show', 'HEAD:src/old-name.ts']);
+    expect(calls[2]).toEqual(['show', ':src/new-name.ts']);
+    expect(result.originalPath).toBe('src/old-name.ts');
+    expect(result.path).toBe('src/new-name.ts');
+  });
+
+  it('repository with zero commits: absent -> index, HEAD never read', async () => {
+    const { calls } = queueSpawn([
+      { exitCode: 1 }, // rev-parse --verify --quiet HEAD => unborn
+      { stdout: 'first\n', exitCode: 0 }, // show :path
+    ]);
+
+    const result = await service.diffFile(
+      WS,
+      { path: 'src/a.ts', comparison: 'staged' },
+      makeFileReader({}),
+    );
+
+    expect(result.original).toEqual({ outcome: 'absent' });
+    expect(result.originalRef).toEqual({ kind: 'absent' });
+    expect(result.modifiedRef).toEqual({ kind: 'index' });
+    expect(calls).toHaveLength(2);
+    expect(calls.some((argv) => argv.includes('HEAD:src/a.ts'))).toBe(false);
+  });
+
+  // --- worktree comparison -------------------------------------------------
+
+  it('unstaged modification: index -> worktree', async () => {
+    const { calls } = queueSpawn([{ stdout: 'indexed\n', exitCode: 0 }]);
+    const reader = makeFileReader({
+      '/fake/workspace/src/a.ts': 'working\n',
+    });
+
+    const result = await service.diffFile(
+      WS,
+      { path: 'src/a.ts', comparison: 'worktree' },
+      reader,
+    );
+
+    expect(calls[0]).toEqual(['show', ':src/a.ts']);
+    expect(result.originalRef).toEqual({ kind: 'index' });
+    expect(result.modifiedRef).toEqual({ kind: 'worktree' });
+    expect(result.modified).toEqual({
+      outcome: 'content',
+      content: 'working\n',
+    });
+  });
+
+  it('untracked file: absent -> worktree', async () => {
+    queueSpawn([
+      { exitCode: 128 }, // show :path
+      { exitCode: 1 }, // rev-parse <spec> => absent
+    ]);
+    const reader = makeFileReader({ '/fake/workspace/src/new.ts': 'brand\n' });
+
+    const result = await service.diffFile(
+      WS,
+      { path: 'src/new.ts', comparison: 'worktree' },
+      reader,
+    );
+
+    expect(result.original).toEqual({ outcome: 'absent' });
+    expect(result.originalRef).toEqual({ kind: 'absent' });
+    expect(result.modifiedRef).toEqual({ kind: 'worktree' });
+  });
+
+  it('worktree deletion: index -> absent, and does not throw (A4)', async () => {
+    queueSpawn([{ stdout: 'pre-deletion\n', exitCode: 0 }]);
+    const reader = makeFileReader({});
+
+    const result = await service.diffFile(
+      WS,
+      { path: 'src/gone.ts', comparison: 'worktree' },
+      reader,
+    );
+
+    expect(result.original).toEqual({
+      outcome: 'content',
+      content: 'pre-deletion\n',
+    });
+    expect(result.originalRef).toEqual({ kind: 'index' });
+    expect(result.modified).toEqual({ outcome: 'absent' });
+    expect(result.modifiedRef).toEqual({ kind: 'absent' });
+    expect(reader.readFileBytes).not.toHaveBeenCalled();
+  });
+
+  it('detects a binary worktree file by its NUL bytes', async () => {
+    queueSpawn([{ exitCode: 128 }, { exitCode: 1 }]);
+    const reader = makeFileReader({
+      '/fake/workspace/logo.png': `PNG${String.fromCharCode(0)}!`,
+    });
+
+    const result = await service.diffFile(
+      WS,
+      { path: 'logo.png', comparison: 'worktree' },
+      reader,
+    );
+
+    expect(result.modified).toEqual({ outcome: 'binary', byteLength: 5 });
+  });
+
+  // --- snapshot token ------------------------------------------------------
+
+  it('produces a stable token for identical input and a different one otherwise', async () => {
+    const reader = makeFileReader({ '/fake/workspace/src/a.ts': 'working\n' });
+
+    queueSpawn([{ stdout: 'indexed\n', exitCode: 0 }]);
+    const first = await service.diffFile(
+      WS,
+      { path: 'src/a.ts', comparison: 'worktree' },
+      reader,
+    );
+
+    queueSpawn([{ stdout: 'indexed\n', exitCode: 0 }]);
+    const second = await service.diffFile(
+      WS,
+      { path: 'src/a.ts', comparison: 'worktree' },
+      reader,
+    );
+
+    queueSpawn([{ stdout: 'CHANGED\n', exitCode: 0 }]);
+    const third = await service.diffFile(
+      WS,
+      { path: 'src/a.ts', comparison: 'worktree' },
+      reader,
+    );
+
+    expect(first.snapshotToken).toBe(second.snapshotToken);
+    expect(third.snapshotToken).not.toBe(first.snapshotToken);
+    expect(first.snapshotToken).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('rejects a traversing path before spawning git', async () => {
+    const { calls } = queueSpawn([{ exitCode: 0 }]);
+
+    await expect(
+      service.diffFile(
+        WS,
+        { path: '../outside.ts', comparison: 'worktree' },
+        makeFileReader({}),
+      ),
+    ).rejects.toThrow(/traversal/i);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe('GitInfoService.parseFileStatus() — origPath (N3)', () => {
+  let service: GitInfoService;
+  const WS = '/fake/workspace';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new GitInfoService(makeLogger() as never);
+  });
+
+  it('populates origPath from the post-tab segment of a type-2 rename line', async () => {
+    const status = [
+      '# branch.head main',
+      '2 R. N... 100644 100644 100644 abc123 def456 R100 src/new-name.ts\tsrc/old-name.ts',
+      '',
+    ].join('\n');
+
+    queueSpawn([
+      { stdout: 'true\n', exitCode: 0 }, // isGitRepo
+      { stdout: status, exitCode: 0 }, // status --porcelain=v2
+    ]);
+
+    const info = await service.getGitInfo(WS);
+
+    expect(info.files).toHaveLength(1);
+    expect(info.files[0]).toEqual({
+      path: 'src/new-name.ts',
+      status: 'R',
+      staged: true,
+      origPath: 'src/old-name.ts',
+    });
+  });
+
+  it('leaves origPath undefined for ordinary type-1 entries', async () => {
+    const status = [
+      '# branch.head main',
+      '1 .M N... 100644 100644 100644 abc123 def456 src/a.ts',
+      '',
+    ].join('\n');
+
+    queueSpawn([
+      { stdout: 'true\n', exitCode: 0 },
+      { stdout: status, exitCode: 0 },
+    ]);
+
+    const info = await service.getGitInfo(WS);
+
+    expect(info.files[0].origPath).toBeUndefined();
   });
 });

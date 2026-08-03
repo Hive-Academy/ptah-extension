@@ -18,11 +18,16 @@ import {
   X,
   Columns2,
   TerminalSquare,
+  AlertTriangle,
 } from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
 import { CodeEditorComponent } from '../code-editor/code-editor.component';
 import { DiffViewComponent } from '../diff-view/diff-view.component';
 import { EditorService } from '../services/editor.service';
+import type {
+  EditorTab,
+  OpenDiffRequest,
+} from '../services/editor/editor-tab.types';
 import { GitStatusService } from '../services/git-status.service';
 import { VimModeService } from '../services/vim-mode.service';
 import { GitStatusBarComponent } from '../git-status-bar/git-status-bar.component';
@@ -226,6 +231,18 @@ import type { FileTreeNode } from '../models/file-tree.model';
                           title="Unsaved changes"
                         ></span>
                       }
+                      @if (tab.diff && tab.diff.status !== 'fresh') {
+                        <lucide-angular
+                          [img]="AlertTriangleIcon"
+                          class="w-3 h-3 flex-shrink-0"
+                          [class.text-error]="tab.diff.status === 'error'"
+                          [class.text-warning]="tab.diff.status === 'stale'"
+                          [class.opacity-50]="tab.diff.status === 'refreshing'"
+                          data-testid="diff-tab-status-glyph"
+                          [attr.title]="diffStatusTitle(tab)"
+                          [attr.aria-label]="diffStatusTitle(tab)"
+                        />
+                      }
                       <button
                         class="ml-0.5 p-0.5 rounded opacity-0 group-hover:opacity-60 hover:opacity-100 hover:bg-base-content/10 transition-all"
                         [attr.aria-label]="'Close ' + tab.fileName"
@@ -253,13 +270,8 @@ import type { FileTreeNode } from '../models/file-tree.model';
               <div class="flex-1 min-h-0 relative">
                 @if (editorService.activeDiffTab()) {
                   <ptah-diff-view
-                    [filePath]="
-                      editorService.activeDiffTab()!.diffRelativePath!
-                    "
-                    [originalContent]="
-                      editorService.activeDiffTab()!.originalContent!
-                    "
-                    [modifiedContent]="editorService.activeDiffTab()!.content"
+                    [diffTab]="editorService.activeDiffTab()"
+                    (retryRequested)="onDiffRetry($event)"
                   />
                 } @else if (editorService.isActiveFileImage()) {
                   <div
@@ -494,6 +506,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   readonly XIcon = X;
   readonly SplitIcon = Columns2;
   readonly TerminalIcon = TerminalSquare;
+  readonly AlertTriangleIcon = AlertTriangle;
 
   /** Bound mouse event handlers for terminal resize drag (stored for cleanup). */
   private _resizeMouseMove: ((e: MouseEvent) => void) | null = null;
@@ -640,15 +653,29 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     void this.editorService.openFileAtLine(event.filePath, event.line);
   }
 
-  protected onDiffRequested(relativePath: string): void {
-    const workspaceRoot = this.gitStatus.activeWorkspacePath();
-    if (!workspaceRoot) return;
-    const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
-    const root = normalizedRoot.endsWith('/')
-      ? normalizedRoot
-      : normalizedRoot + '/';
-    const absolutePath = root + relativePath.replace(/\\/g, '/');
-    void this.editorService.openDiff(relativePath, absolutePath);
+  /**
+   * Open the diff a Source Control row stands for. The row now says WHICH
+   * comparison it means, so the staged and working-tree rows no longer collapse
+   * onto the same tab (A2).
+   */
+  protected onDiffRequested(request: OpenDiffRequest): void {
+    void this.editorService.openDiff(request);
+  }
+
+  /** Re-read a diff tab from git after a failed or stale read (A1 AC7). */
+  protected onDiffRetry(diffKey: string): void {
+    if (!diffKey) return;
+    void this.editorService.refreshDiffTab(diffKey);
+  }
+
+  /** Hover/screen-reader text for the tab-strip stale/error glyph. */
+  protected diffStatusTitle(tab: EditorTab): string {
+    const diff = tab.diff;
+    if (!diff) return '';
+    if (diff.errorMessage) return diff.errorMessage;
+    return diff.status === 'refreshing'
+      ? 'Re-reading this comparison from git…'
+      : 'This comparison may be out of date.';
   }
 
   protected onContentChanged(content: string): void {

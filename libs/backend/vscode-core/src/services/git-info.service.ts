@@ -6,12 +6,15 @@
  */
 
 import * as path from 'path';
+import { createHash } from 'crypto';
 import type { Logger } from '../logging';
 import {
   execGit,
+  execGitBuffer,
   WORKTREE_GIT_TIMEOUT_MS,
   type ExecGitOptions,
   type ExecGitResult,
+  type ExecGitBufferResult,
 } from '../utils/exec-git';
 import {
   parseWorktreeList,
@@ -35,7 +38,38 @@ import {
   type RemoteInfo,
   type GitRemotesResult,
   type GitLastCommitResult,
+  type GitBlobRead,
+  type GitReadErrorCode,
+  type GitDiffComparison,
+  type GitDiffFileResult,
+  type DiffSideRef,
 } from '@ptah-extension/shared';
+
+/**
+ * git's own binary heuristic: a NUL byte anywhere in the first 8000 bytes.
+ */
+const BINARY_SNIFF_BYTES = 8000;
+
+/**
+ * The slice of `IFileSystemProvider` the worktree side of a diff needs.
+ *
+ * Declared structurally rather than importing the port so this service keeps
+ * its narrow surface — hosts pass their registered
+ * `PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER` straight through.
+ */
+export interface WorktreeFileReader {
+  readFileBytes(filePath: string): Promise<Uint8Array>;
+  exists(filePath: string): Promise<boolean>;
+}
+
+/** Request shape for {@link GitInfoService.diffFile}. */
+export interface DiffFileRequest {
+  /** Workspace-relative path, modified side. */
+  path: string;
+  comparison: GitDiffComparison;
+  /** Pre-rename source path for staged renames; falls back to `path`. */
+  originalPath?: string;
+}
 
 export class GitInfoService {
   constructor(private readonly logger: Logger) {}
@@ -426,6 +460,374 @@ export class GitInfoService {
         error: message,
       } as unknown as Error);
       return { content: '' };
+    }
+  }
+
+  /**
+   * Read one side of a diff — the blob at `<rev>:<relativePath>`.
+   *
+   * `rev` is the revision half of a git object spec: `'HEAD'` for the last
+   * commit, `''` for the index.
+   *
+   * Unlike {@link showFile}, a failed read is never flattened to empty
+   * content. "The path does not exist at this revision" (`absent`) and "the
+   * read could not be performed" (`error`) are distinct outcomes, because
+   * rendering the second as the first is what makes a genuinely-empty tracked
+   * file indistinguishable from a brand-new one.
+   *
+   * Classification is by exit code, never by message text — git's stderr
+   * wording is localized, and `git show` exits 128 both for a missing path and
+   * for a broken repository.
+   *
+   * ```
+   * git show <rev>:<path>
+   *   exit 0    -> 'content' (or 'binary' when the bytes contain NUL)
+   *   exit != 0 -> git rev-parse --verify --quiet <rev>:<path>
+   *                  exit 0     -> 'error' (object resolves, show failed)
+   *                  exit 1     -> 'absent'
+   *                  otherwise  -> 'error', classified by pre-flight probes
+   * ```
+   *
+   * Note on the probe command: the plan specified `git cat-file -e`, but that
+   * exits **128** (not 1) for a missing path on current git — it only reports
+   * 1 for a bare object name. `rev-parse --verify --quiet` yields the exact
+   * 0 / 1 / 128 partition the ladder needs.
+   *
+   * Costs zero extra spawns on the happy path.
+   */
+  async readBlob(
+    workspacePath: string,
+    rev: string,
+    relativePath: string,
+  ): Promise<GitBlobRead> {
+    this.validatePathSegment(relativePath);
+    const spec = `${rev}:${relativePath}`;
+
+    try {
+      const show = await this.execGitBuffer(['show', spec], workspacePath);
+
+      if (show.exitCode === 0) {
+        if (show.stdout.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
+          return { outcome: 'binary', byteLength: show.stdout.byteLength };
+        }
+        return { outcome: 'content', content: show.stdout.toString('utf8') };
+      }
+
+      const probe = await this.execGit(
+        ['rev-parse', '--verify', '--quiet', spec],
+        workspacePath,
+      );
+
+      if (probe.exitCode === 1) {
+        return { outcome: 'absent' };
+      }
+
+      // Raw stderr and the absolute workspace path stay in the log; only a
+      // code and a workspace-relative message cross the RPC boundary.
+      this.logger.error('[GitInfoService] readBlob failed', {
+        workspacePath,
+        rev,
+        relativePath,
+        showExitCode: show.exitCode,
+        revParseExitCode: probe.exitCode,
+        stderr: show.stderr,
+      } as unknown as Error);
+
+      return this.gitReadError(
+        await this.probeReadErrorCode(workspacePath),
+        relativePath,
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[GitInfoService] readBlob threw', {
+        workspacePath,
+        rev,
+        relativePath,
+        error: message,
+      } as unknown as Error);
+      return this.gitReadError(this.classifyExecError(error), relativePath);
+    }
+  }
+
+  /**
+   * Resolve both sides of a file diff for one of the two Source Control rows.
+   *
+   * Side resolution is derived from whether each side's object actually
+   * exists, not from a parsed status code, so every row of the design's
+   * resolution table falls out of the same two reads:
+   *
+   * | status        | comparison | originalRef      | modifiedRef |
+   * |---------------|------------|------------------|-------------|
+   * | `M` unstaged  | worktree   | index            | worktree    |
+   * | `M` staged    | staged     | commit(HEAD)     | index       |
+   * | `??` untracked| worktree   | absent           | worktree    |
+   * | `A` staged    | staged     | absent           | index       |
+   * | `D` unstaged  | worktree   | index            | absent      |
+   * | `D` staged    | staged     | commit(HEAD)     | absent      |
+   * | `R` staged    | staged     | commit @ origPath| index       |
+   * | no commits    | staged     | absent           | index       |
+   *
+   * `HEAD ↔ worktree` is deliberately not offered: it maps to no UI row.
+   * A worktree deletion's original side is the **index**, not HEAD — the two
+   * coincide only when nothing is staged.
+   */
+  async diffFile(
+    workspacePath: string,
+    request: DiffFileRequest,
+    fileReader: WorktreeFileReader,
+  ): Promise<GitDiffFileResult> {
+    const modifiedPath = request.path;
+    const originalPath = request.originalPath ?? request.path;
+
+    this.validatePathSegment(modifiedPath);
+    this.validatePathSegment(originalPath);
+
+    const comparison = request.comparison;
+
+    try {
+      let original: GitBlobRead;
+      let originalRef: DiffSideRef;
+      let modified: GitBlobRead;
+      let modifiedRef: DiffSideRef;
+
+      if (comparison === 'staged') {
+        const headSha = await this.resolveHeadSha(workspacePath);
+        if (headSha === null) {
+          // Repository with zero commits: HEAD does not resolve, so the
+          // original side is genuinely absent rather than unreadable.
+          original = { outcome: 'absent' };
+          originalRef = { kind: 'absent' };
+        } else {
+          original = await this.readBlob(workspacePath, 'HEAD', originalPath);
+          originalRef =
+            original.outcome === 'absent'
+              ? { kind: 'absent' }
+              : { kind: 'commit', sha: headSha };
+        }
+
+        modified = await this.readBlob(workspacePath, '', modifiedPath);
+        modifiedRef =
+          modified.outcome === 'absent'
+            ? { kind: 'absent' }
+            : { kind: 'index' };
+      } else {
+        original = await this.readBlob(workspacePath, '', originalPath);
+        originalRef =
+          original.outcome === 'absent'
+            ? { kind: 'absent' }
+            : { kind: 'index' };
+
+        modified = await this.readWorktreeBlob(
+          workspacePath,
+          modifiedPath,
+          fileReader,
+        );
+        modifiedRef =
+          modified.outcome === 'absent'
+            ? { kind: 'absent' }
+            : { kind: 'worktree' };
+      }
+
+      return {
+        path: modifiedPath,
+        originalPath,
+        comparison,
+        original,
+        modified,
+        originalRef,
+        modifiedRef,
+        snapshotToken: this.computeSnapshotToken({
+          comparison,
+          path: modifiedPath,
+          originalPath,
+          originalRef,
+          modifiedRef,
+          original,
+          modified,
+        }),
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[GitInfoService] diffFile failed', {
+        workspacePath,
+        path: modifiedPath,
+        originalPath,
+        comparison,
+        error: message,
+      } as unknown as Error);
+
+      const failure = this.gitReadError(
+        this.classifyExecError(error),
+        modifiedPath,
+      );
+      const absent: DiffSideRef = { kind: 'absent' };
+
+      return {
+        path: modifiedPath,
+        originalPath,
+        comparison,
+        original: failure,
+        modified: failure,
+        originalRef: absent,
+        modifiedRef: absent,
+        snapshotToken: this.computeSnapshotToken({
+          comparison,
+          path: modifiedPath,
+          originalPath,
+          originalRef: absent,
+          modifiedRef: absent,
+          original: failure,
+          modified: failure,
+        }),
+      };
+    }
+  }
+
+  /**
+   * Read the working-tree side of a diff through the platform file system
+   * port. A missing file is `absent` — that is what makes a deleted file
+   * render as a diff instead of raising an error.
+   */
+  private async readWorktreeBlob(
+    workspacePath: string,
+    relativePath: string,
+    fileReader: WorktreeFileReader,
+  ): Promise<GitBlobRead> {
+    const absolutePath = path.join(workspacePath, relativePath);
+
+    try {
+      if (!(await fileReader.exists(absolutePath))) {
+        return { outcome: 'absent' };
+      }
+
+      const bytes = await fileReader.readFileBytes(absolutePath);
+      const buffer = Buffer.from(
+        bytes.buffer,
+        bytes.byteOffset,
+        bytes.byteLength,
+      );
+
+      if (buffer.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
+        return { outcome: 'binary', byteLength: buffer.byteLength };
+      }
+      return { outcome: 'content', content: buffer.toString('utf8') };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error('[GitInfoService] worktree read failed', {
+        workspacePath,
+        relativePath,
+        error: message,
+      } as unknown as Error);
+      return this.gitReadError(this.classifyExecError(error), relativePath);
+    }
+  }
+
+  /**
+   * Full SHA of HEAD, or null when HEAD does not resolve (repository with no
+   * commits, or an unborn branch). Rejections propagate — a missing git binary
+   * must not be misreported as "no commits".
+   */
+  private async resolveHeadSha(workspacePath: string): Promise<string | null> {
+    const { stdout, exitCode } = await this.execGit(
+      ['rev-parse', '--verify', '--quiet', 'HEAD'],
+      workspacePath,
+    );
+    if (exitCode !== 0) return null;
+    const sha = stdout.trim();
+    return sha.length > 0 ? sha : null;
+  }
+
+  /**
+   * Pre-flight probes, run only once a read has already failed, to turn an
+   * opaque non-zero exit into a specific cause.
+   */
+  private async probeReadErrorCode(
+    workspacePath: string,
+  ): Promise<GitReadErrorCode> {
+    try {
+      if (!(await this.isGitRepo(workspacePath))) return 'not-a-repo';
+      if ((await this.resolveHeadSha(workspacePath)) === null) {
+        return 'no-commits';
+      }
+      return 'unknown';
+    } catch (error: unknown) {
+      return this.classifyExecError(error);
+    }
+  }
+
+  /** Map a thrown spawn/timeout failure onto a read error code. */
+  private classifyExecError(error: unknown): GitReadErrorCode {
+    if (!(error instanceof Error)) return 'unknown';
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return 'git-missing';
+    if (code === 'EACCES' || code === 'EPERM') return 'permission-denied';
+    if (/timed out after \d+ms/.test(error.message)) return 'timeout';
+    return 'unknown';
+  }
+
+  /**
+   * Build the user-facing failure payload. The message carries the
+   * workspace-relative path and the code and nothing else — never stderr,
+   * never an absolute path.
+   */
+  private gitReadError(
+    code: GitReadErrorCode,
+    relativePath: string,
+  ): GitBlobRead {
+    return {
+      outcome: 'error',
+      code,
+      message: `Could not read "${relativePath}" from git (${code}).`,
+    };
+  }
+
+  /**
+   * sha256 over the exact content of both sides plus their ref identity.
+   *
+   * Every component is length-prefixed so no combination of paths or content
+   * can be rearranged into the same digest. Opaque to the client; it exists so
+   * a later write can prove it applies to the snapshot the user was shown.
+   */
+  private computeSnapshotToken(input: {
+    comparison: GitDiffComparison;
+    path: string;
+    originalPath: string;
+    originalRef: DiffSideRef;
+    modifiedRef: DiffSideRef;
+    original: GitBlobRead;
+    modified: GitBlobRead;
+  }): string {
+    const hash = createHash('sha256');
+    const field = (value: string): void => {
+      hash.update(`${Buffer.byteLength(value, 'utf8')}\0`, 'utf8');
+      hash.update(value, 'utf8');
+    };
+
+    field(input.comparison);
+    field(input.originalPath);
+    field(input.path);
+    field(this.describeRef(input.originalRef));
+    field(this.describeRef(input.modifiedRef));
+    field(this.describeBlob(input.original));
+    field(this.describeBlob(input.modified));
+
+    return hash.digest('hex');
+  }
+
+  private describeRef(ref: DiffSideRef): string {
+    return ref.kind === 'commit' ? `commit:${ref.sha}` : ref.kind;
+  }
+
+  private describeBlob(blob: GitBlobRead): string {
+    switch (blob.outcome) {
+      case 'content':
+        return `content:${blob.content}`;
+      case 'binary':
+        return `binary:${blob.byteLength}`;
+      case 'absent':
+        return 'absent';
+      case 'error':
+        return `error:${blob.code}`;
     }
   }
 
@@ -907,6 +1309,14 @@ export class GitInfoService {
     return execGit(args, cwd, options);
   }
 
+  private execGitBuffer(
+    args: string[],
+    cwd: string,
+    options?: ExecGitOptions,
+  ): Promise<ExecGitBufferResult> {
+    return execGitBuffer(args, cwd, options);
+  }
+
   /**
    * Parse branch info from git status --porcelain=v2 --branch output.
    * Lines starting with # contain branch metadata:
@@ -994,11 +1404,17 @@ export class GitInfoService {
         const beforeTab = tabIndex >= 0 ? line.substring(0, tabIndex) : line;
         const beforeTabParts = beforeTab.split(' ');
         const filePath = beforeTabParts.slice(9).join(' ');
+        // The post-tab segment is the pre-rename source path. Discarding it
+        // makes a staged rename undiffable: the original side must be read at
+        // HEAD under the OLD path, which exists nowhere else in this output.
+        const origPath =
+          tabIndex >= 0 ? line.substring(tabIndex + 1) : undefined;
         if (indexStatus !== '.') {
           files.push({
             path: filePath,
             status: this.mapStatusCode(indexStatus),
             staged: true,
+            ...(origPath && { origPath }),
           });
         }
         if (worktreeStatus !== '.') {
@@ -1006,6 +1422,7 @@ export class GitInfoService {
             path: filePath,
             status: this.mapStatusCode(worktreeStatus),
             staged: false,
+            ...(origPath && { origPath }),
           });
         }
       } else if (line.startsWith('u ')) {

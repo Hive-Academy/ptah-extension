@@ -78,12 +78,17 @@ describe('EditorService message routing (C1)', () => {
     jest.useRealTimers();
   });
 
-  it('declares all four inbound editor message types (C1 AC4)', () => {
+  it('declares every inbound editor message type in one place (C1 AC4)', () => {
+    // `git:status-update` joined the list in batch 2: it is the authoritative
+    // "git state changed" push and now also drives diff-tab revalidation (A1).
+    // MessageRouterService maps a type to an ARRAY of handlers, so declaring it
+    // here does not displace GitStatusService's own subscription.
     expect(service.handledMessageTypes).toEqual([
       MESSAGE_TYPES.EDITOR_TAB_CONTENT_REVERTED,
       MESSAGE_TYPES.FILE_TREE_CHANGED,
       MESSAGE_TYPES.FILE_CONTENT_CHANGED,
       MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS,
+      MESSAGE_TYPES.GIT_STATUS_UPDATE,
     ]);
   });
 

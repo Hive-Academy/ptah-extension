@@ -56,9 +56,8 @@ class StubCodeEditorComponent {
   template: '',
 })
 class StubDiffViewComponent {
-  readonly filePath = input<string | undefined>(undefined);
-  readonly originalContent = input<string>('');
-  readonly modifiedContent = input<string>('');
+  readonly diffTab = input<unknown>(null);
+  readonly retryRequested = output<string>();
 }
 
 @Component({
@@ -73,7 +72,7 @@ class StubSidebarComponent {
   readonly activeFilePath = input<string | undefined>(undefined);
   readonly changedFiles = input<unknown[]>([]);
   readonly fileSelected = output<string>();
-  readonly diffRequested = output<string>();
+  readonly diffRequested = output<unknown>();
   readonly searchResultSelected = output<{ filePath: string; line: number }>();
   readonly contextMenuRequested = output<unknown>();
 }

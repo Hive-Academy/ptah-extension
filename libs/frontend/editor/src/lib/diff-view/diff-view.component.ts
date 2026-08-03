@@ -1,6 +1,7 @@
 import {
   Component,
   input,
+  output,
   computed,
   signal,
   ChangeDetectionStrategy,
@@ -13,8 +14,11 @@ import {
   afterNextRender,
   ChangeDetectorRef,
 } from '@angular/core';
+import { LucideAngularModule, AlertTriangle, RefreshCw } from 'lucide-angular';
 import type * as monaco from 'monaco-editor';
 import { MonacoLoaderService } from '../services/monaco-loader.service';
+import type { EditorTab } from '../services/editor/editor-tab.types';
+import { diffComparisonLabel } from '../services/editor/editor-tab.types';
 
 type MonacoApi = typeof monaco;
 
@@ -30,36 +34,148 @@ type LoadState = 'loading' | 'ready' | 'error';
  * through `MonacoLoaderService` (shared via `window.monaco`), so this
  * component renders correctly even when it is the first Monaco surface to
  * mount in the session.
+ *
+ * The component takes ONE input — the diff tab record — rather than three
+ * loose strings. Everything the chrome needs (which comparison, whether a side
+ * is absent, binary or failed, how fresh the read is) is carried on that record
+ * by the backend, so nothing here has to infer state from content. In
+ * particular "(new file)" is driven by `originalRef.kind === 'absent'`, NOT by
+ * an empty original: a genuinely-empty tracked file is not a new file (A3 AC5).
  */
 @Component({
   selector: 'ptah-diff-view',
   standalone: true,
+  imports: [LucideAngularModule],
   template: `
-    <div class="w-full h-full relative bg-base-100">
-      <div #editorContainer class="w-full h-full"></div>
-      @if (loadState() === 'loading') {
+    <div class="w-full h-full flex flex-col bg-base-100">
+      <!-- Diff header bar: identity, chrome and freshness in one row. -->
+      @if (diff(); as d) {
         <div
-          class="absolute inset-0 flex items-center justify-center text-sm text-base-content/60 pointer-events-none"
+          class="flex items-center gap-2 px-2 py-1 text-xs bg-base-200 border-b border-base-content/10 flex-shrink-0"
+          role="status"
+          [attr.aria-label]="headerAriaLabel()"
         >
-          <span class="loading loading-spinner loading-sm mr-2"></span>
-          Loading diff editor…
-        </div>
-      } @else if (loadState() === 'error') {
-        <div
-          class="absolute inset-0 flex flex-col items-center justify-center p-4 text-sm text-error gap-2"
-        >
-          <span class="font-medium">Failed to load diff editor</span>
-          <span class="text-xs text-base-content/60 max-w-md text-center">
-            {{ loadError() }}
-          </span>
-        </div>
-      } @else if (isNewFile()) {
-        <div
-          class="absolute top-0 left-0 z-10 text-xs px-2 py-0.5 bg-base-300/80 text-base-content/60 pointer-events-none rounded-br"
-        >
-          (new file)
+          <span class="truncate font-medium" [attr.title]="pathTitle()">{{
+            d.path
+          }}</span>
+
+          @if (isRename()) {
+            <span class="opacity-50 truncate text-[10px]"
+              >renamed from {{ d.originalPath }}</span
+            >
+          }
+
+          <span
+            class="px-1.5 py-0.5 rounded bg-base-content/10 opacity-70 flex-shrink-0"
+            >{{ comparisonLabel() }}</span
+          >
+
+          @if (chromeLabel(); as chrome) {
+            <span
+              class="px-1.5 py-0.5 rounded bg-base-content/10 flex-shrink-0"
+              data-testid="diff-chrome"
+              >{{ chrome }}</span
+            >
+          }
+
+          @if (statusLabel(); as status) {
+            <span
+              class="flex items-center gap-1 flex-shrink-0"
+              [class.text-error]="d.status === 'error'"
+              [class.text-warning]="d.status === 'stale'"
+              [class.opacity-60]="d.status === 'refreshing'"
+              data-testid="diff-status-chip"
+              [attr.title]="d.errorMessage"
+            >
+              @if (d.status !== 'refreshing') {
+                <lucide-angular
+                  [img]="AlertTriangleIcon"
+                  class="w-3 h-3"
+                  aria-hidden="true"
+                />
+              }
+              {{ status }}
+            </span>
+          }
+
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs ml-auto px-1.5 flex-shrink-0"
+            data-testid="diff-retry"
+            title="Re-read this comparison from git"
+            aria-label="Retry reading this diff from git"
+            [disabled]="d.status === 'refreshing'"
+            (click)="retryRequested.emit(tabKey())"
+          >
+            <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
+          </button>
         </div>
       }
+
+      <div class="flex-1 min-h-0 relative">
+        <div #editorContainer class="w-full h-full"></div>
+
+        @if (loadState() === 'loading') {
+          <div
+            class="absolute inset-0 flex items-center justify-center text-sm text-base-content/60 pointer-events-none"
+          >
+            <span class="loading loading-spinner loading-sm mr-2"></span>
+            Loading diff editor…
+          </div>
+        } @else if (loadState() === 'error') {
+          <div
+            class="absolute inset-0 flex flex-col items-center justify-center p-4 text-sm text-error gap-2"
+          >
+            <span class="font-medium">Failed to load diff editor</span>
+            <span class="text-xs text-base-content/60 max-w-md text-center">
+              {{ loadError() }}
+            </span>
+          </div>
+        }
+
+        <!--
+          Persistent overlays (NOT toasts) — A1 AC7 requires the indicator to
+          stay until the condition clears. A failed git read is never rendered
+          as content, so the overlay is opaque.
+        -->
+        @if (gitError(); as message) {
+          <div
+            class="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 bg-base-100"
+            data-testid="diff-error-overlay"
+            role="alert"
+          >
+            <lucide-angular
+              [img]="AlertTriangleIcon"
+              class="w-5 h-5 text-error"
+              aria-hidden="true"
+            />
+            <span class="text-sm text-error font-medium text-center max-w-md">{{
+              message
+            }}</span>
+            @if (gitErrorDetail(); as detail) {
+              <span
+                class="text-xs text-base-content/60 max-w-md text-center break-all"
+                >{{ detail }}</span
+              >
+            }
+            <button
+              type="button"
+              class="btn btn-xs btn-outline mt-1"
+              data-testid="diff-error-retry"
+              (click)="retryRequested.emit(tabKey())"
+            >
+              Retry
+            </button>
+          </div>
+        } @else if (isBinary()) {
+          <div
+            class="absolute inset-0 flex items-center justify-center p-4 bg-base-100 text-sm text-base-content/60"
+            data-testid="diff-binary-overlay"
+          >
+            Binary file — diff not shown
+          </div>
+        }
+      </div>
     </div>
   `,
   styles: `
@@ -76,9 +192,14 @@ export class DiffViewComponent implements OnDestroy {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly loader = inject(MonacoLoaderService);
 
-  readonly filePath = input.required<string>();
-  readonly originalContent = input.required<string>();
-  readonly modifiedContent = input.required<string>();
+  /** The active diff tab, or null when no diff is being shown. */
+  readonly diffTab = input<EditorTab | null>(null);
+
+  /** Emits the diff tab key when the user asks for a re-read. */
+  readonly retryRequested = output<string>();
+
+  protected readonly AlertTriangleIcon = AlertTriangle;
+  protected readonly RefreshCwIcon = RefreshCw;
 
   private readonly editorContainer =
     viewChild.required<ElementRef<HTMLElement>>('editorContainer');
@@ -93,13 +214,120 @@ export class DiffViewComponent implements OnDestroy {
   protected readonly loadState = signal<LoadState>('loading');
   protected readonly loadError = signal<string>('');
 
-  private readonly language = computed(() =>
-    this.detectLanguage(this.filePath()),
+  /** The diff descriptor, or null when the input carries a non-diff tab. */
+  protected readonly diff = computed(() => this.diffTab()?.diff ?? null);
+
+  protected readonly tabKey = computed(() => this.diffTab()?.filePath ?? '');
+
+  protected readonly originalContent = computed(
+    () => this.diff()?.original ?? '',
+  );
+  protected readonly modifiedContent = computed(
+    () => this.diff()?.modified ?? '',
   );
 
-  protected readonly isNewFile = computed(
-    () => this.originalContent() === '' && this.modifiedContent().length > 0,
+  private readonly language = computed(() =>
+    this.detectLanguage(this.diff()?.path ?? ''),
   );
+
+  protected readonly comparisonLabel = computed(() => {
+    const d = this.diff();
+    return d ? diffComparisonLabel(d.comparison) : '';
+  });
+
+  protected readonly isRename = computed(() => {
+    const d = this.diff();
+    return !!d && d.originalPath !== d.path;
+  });
+
+  protected readonly pathTitle = computed(() => {
+    const d = this.diff();
+    if (!d) return '';
+    return d.originalPath === d.path ? d.path : `${d.originalPath} → ${d.path}`;
+  });
+
+  /**
+   * A file that exists on only one side of the comparison.
+   *
+   * Driven exclusively by the resolved refs. Deriving this from
+   * `original === ''` is the defect A3 AC5 names: an empty tracked file would
+   * masquerade as a newly-added one.
+   */
+  protected readonly isNewFile = computed(
+    () => this.diff()?.originalRef.kind === 'absent',
+  );
+
+  protected readonly isDeleted = computed(
+    () => this.diff()?.modifiedRef.kind === 'absent',
+  );
+
+  protected readonly isBinary = computed(() => this.diff()?.isBinary === true);
+
+  /** True when both sides resolved and are byte-identical (e.g. after discard). */
+  protected readonly hasNoChanges = computed(() => {
+    const d = this.diff();
+    if (!d || d.isBinary) return false;
+    if (d.originalRef.kind === 'absent' || d.modifiedRef.kind === 'absent') {
+      return false;
+    }
+    return d.original === d.modified;
+  });
+
+  /**
+   * The single chrome chip describing the shape of this diff.
+   *
+   * Suppressed entirely while the status is `error`: if a side could not be
+   * read, the refs describe nothing, and claiming "deleted" or "new file" off
+   * placeholder refs would be exactly the kind of fabricated state A3 exists
+   * to remove.
+   */
+  protected readonly chromeLabel = computed(() => {
+    if (this.diff()?.status === 'error') return '';
+    if (this.isBinary()) return 'binary';
+    if (this.isDeleted()) return 'deleted';
+    if (this.isNewFile()) return 'new file';
+    if (this.hasNoChanges()) return 'no changes';
+    return '';
+  });
+
+  protected readonly statusLabel = computed(() => {
+    switch (this.diff()?.status) {
+      case 'refreshing':
+        return 'refreshing…';
+      case 'stale':
+        return 'stale';
+      case 'error':
+        return 'error';
+      default:
+        return '';
+    }
+  });
+
+  /** Message for the persistent error overlay; null when the read succeeded. */
+  protected readonly gitError = computed(() => {
+    const d = this.diff();
+    if (!d || d.status !== 'error') return null;
+    return d.errorMessage ?? 'Git could not read this file.';
+  });
+
+  protected readonly gitErrorDetail = computed(() =>
+    this.diff()?.status === 'error' ? (this.diff()?.errorDetail ?? '') : '',
+  );
+
+  protected readonly headerAriaLabel = computed(() => {
+    const d = this.diff();
+    if (!d) return '';
+    const chrome = this.chromeLabel();
+    const status = this.statusLabel();
+    return [
+      `Diff of ${d.path}`,
+      `${this.comparisonLabel()} comparison`,
+      chrome,
+      status,
+    ]
+      .filter(Boolean)
+      .join(', ');
+  });
 
   constructor() {
     afterNextRender(() => {

@@ -18,6 +18,7 @@ import {
   Folder,
 } from 'lucide-angular';
 import type { GitFileStatus } from '@ptah-extension/shared';
+import type { OpenDiffRequest } from '../services/editor/editor-tab.types';
 
 /**
  * SourceControlFileComponent - Single file row in the source control panel.
@@ -41,8 +42,8 @@ import type { GitFileStatus } from '@ptah-extension/shared';
       class="group flex items-center gap-1.5 w-full px-2 py-0.5 text-left text-xs
              hover:bg-base-content/10 transition-colors cursor-pointer"
       role="listitem"
-      [title]="file().path"
-      (click)="openDiff.emit(file().path)"
+      [title]="rowTitle()"
+      (click)="openDiff.emit(diffRequest())"
     >
       <!-- Status icon -->
       <lucide-angular
@@ -114,11 +115,34 @@ export class SourceControlFileComponent {
   readonly stage = output<string>();
   readonly unstage = output<string>();
   readonly discard = output<string>();
-  readonly openDiff = output<string>();
+  /**
+   * The diff this row stands for. A row in *Staged Changes* and a row in
+   * *Changes* for the same file are different comparisons, so the row emits
+   * a structured request rather than a bare path (A2).
+   */
+  readonly openDiff = output<OpenDiffRequest>();
   readonly openFile = output<string>();
   readonly PlusIcon = Plus;
   readonly MinusIcon = Minus;
   readonly Undo2Icon = Undo2;
+
+  /**
+   * `origPath` is carried through for staged renames so the original side is
+   * read at the pre-rename path instead of the (nonexistent) new one (N3).
+   */
+  protected readonly diffRequest = computed<OpenDiffRequest>(() => {
+    const file = this.file();
+    return {
+      path: file.path,
+      comparison: this.staged() ? 'staged' : 'worktree',
+      ...(file.origPath ? { origPath: file.origPath } : {}),
+    };
+  });
+
+  protected readonly rowTitle = computed(() => {
+    const file = this.file();
+    return file.origPath ? `${file.origPath} → ${file.path}` : file.path;
+  });
 
   protected readonly fileName = computed(() => {
     const parts = this.file().path.replace(/\\/g, '/').split('/');

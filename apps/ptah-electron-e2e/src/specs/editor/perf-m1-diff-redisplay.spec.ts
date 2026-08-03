@@ -3,13 +3,17 @@ import { test, expect } from '../../support/fixtures';
 /**
  * M1 performance harness — diff-tab re-display latency (B0, TASK_2026_173).
  *
- * ⚠️ HARNESS ONLY — DOES NOT CAPTURE THE M1 BASELINE. Per plan §7 / tasks.md
- * Task 0.1 / Task 2.14, the M1 baseline MUST be captured after Batch 2 lands
- * (Batch 2 rewrites the diff fetch path entirely — a number captured against
- * today's `openDiff`/`git:showFile` two-RPC mechanism would not be
- * apples-to-apples with the post-rewrite figure). This spec exists to prove
- * the harness runs end-to-end against TODAY's diff mechanism; its numbers are
- * deliberately NOT recorded in measurements.md as the M1 baseline.
+ * POST-BATCH-2: this spec now mocks the real, current diff mechanism — the
+ * single `git:diffFile` RPC that `EditorDiffSplitHelper.openDiff` calls
+ * (`editor-diff-split.ts`) — instead of the pre-rewrite two-RPC
+ * `editor:openFile` + `git:showFile` pair the diff tab used to be built from.
+ * Its numbers ARE recorded as the Task 2.14 M1 baseline in `measurements.md`,
+ * per plan §7 / tasks.md Task 2.14 ("the M1 baseline MUST be captured after
+ * Batch 2 lands... on post-batch-2 / pre-batch-3 code").
+ *
+ * `editor:openFile` is still mocked because the harness opens a plain FILE
+ * tab first (step 1 of each round trip switches to it) — that tab is
+ * unrelated to the diff mechanism and is not part of what batch 2 rewrote.
  *
  * Workload: a synthetic ~500-line TypeScript file, alternating
  * diff-tab <-> file-tab for 10 round trips. Each round trip:
@@ -65,8 +69,8 @@ function median(values: number[]): number {
     : sorted[mid];
 }
 
-test.describe('perf M1 — diff-tab re-display latency (B0, harness proof only)', () => {
-  test('harness runs end-to-end over 10 round trips (numbers NOT the M1 baseline)', async ({
+test.describe('perf M1 — diff-tab re-display latency (post-Batch-2, M1 baseline)', () => {
+  test('10 round trips against the git:diffFile mechanism (Task 2.14 baseline)', async ({
     ui,
   }) => {
     await ui.mockRpc({
@@ -77,7 +81,19 @@ test.describe('perf M1 — diff-tab re-display latency (B0, harness proof only)'
         path: MAIN_TS_PATH,
         filePath: MAIN_TS_PATH,
       },
-      'git:showFile': { content: ORIGINAL_CONTENT },
+      // The single round-trip openDiff now makes (editor-diff-split.ts).
+      // Mirrors the real `M unstaged` row of the SS2.2 side-resolution table:
+      // original <- index, modified <- worktree.
+      'git:diffFile': {
+        path: 'src/big-file.ts',
+        originalPath: 'src/big-file.ts',
+        comparison: 'worktree',
+        original: { outcome: 'content', content: ORIGINAL_CONTENT },
+        modified: { outcome: 'content', content: MODIFIED_CONTENT },
+        originalRef: { kind: 'index' },
+        modifiedRef: { kind: 'worktree' },
+        snapshotToken: 'm1-harness-token',
+      },
     });
 
     await ui.goto('editor');
@@ -210,8 +226,8 @@ test.describe('perf M1 — diff-tab re-display latency (B0, harness proof only)'
     const max = Math.max(...samples);
 
     console.log(
-      `[perf-m1] HARNESS PROOF ONLY (pre-Batch-2 mechanism, NOT the recorded ` +
-        `baseline) — median=${med.toFixed(2)}ms max=${max.toFixed(
+      `[perf-m1] M1 BASELINE (post-Batch-2, git:diffFile mechanism) — ` +
+        `median=${med.toFixed(2)}ms max=${max.toFixed(
           2,
         )}ms samples=${JSON.stringify(samples.map((s) => Number(s.toFixed(2))))}`,
     );

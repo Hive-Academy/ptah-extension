@@ -16,6 +16,7 @@ import {
   ChevronRight,
 } from 'lucide-angular';
 import type { GitFileStatus } from '@ptah-extension/shared';
+import type { OpenDiffRequest } from '../services/editor/editor-tab.types';
 import { SourceControlService } from '../services/source-control.service';
 import { SourceControlFileComponent } from './source-control-file.component';
 import { WorktreeSectionComponent } from '../worktree/worktree-section.component';
@@ -181,7 +182,8 @@ export class SourceControlPanelComponent {
   readonly files = input.required<GitFileStatus[]>();
 
   readonly fileClicked = output<string>();
-  readonly diffRequested = output<string>();
+  /** Structured diff request — carries which comparison the row represents. */
+  readonly diffRequested = output<OpenDiffRequest>();
   protected commitMessage = '';
   protected readonly isCommitting = signal(false);
   protected readonly stagedExpanded = signal(true);
