@@ -256,26 +256,54 @@ import type { FileTreeNode } from '../models/file-tree.model';
               }
               <!-- Left pane editor content.
 
-                   The loading spinner is rendered as an OVERLAY on top of the
-                   always-mounted editor region rather than as a structural
-                   else-branch. A structural swap here destroyed the code-editor
-                   instance the first time a never-visited workspace was opened
-                   (EditorWorkspaceHelper clears activeFilePath then sets
-                   isLoading), which threw away the Monaco model/view-state
-                   cache for EVERY open workspace, not just the new one
-                   (TASK_2026_154 Serious #2). Keeping the editor host mounted
-                   preserves that cache; the opaque overlay reproduces the
-                   identical visual (spinner shown, editor hidden underneath
-                   while loading with no file yet). -->
+                   THREE ALWAYS-MOUNTED LAYERS, not a structural @if chain.
+                   Both Monaco surfaces stay in the DOM for the life of the
+                   panel and are only visually hidden; whichever one is not in
+                   use is absolutely positioned, so it occupies no layout.
+
+                   This is load-bearing twice over:
+                   - The loading spinner is an OVERLAY, not an else-branch. A
+                     structural swap here destroyed the code-editor instance the
+                     first time a never-visited workspace was opened
+                     (EditorWorkspaceHelper clears activeFilePath then sets
+                     isLoading), throwing away the Monaco model/view-state cache
+                     for EVERY open workspace (TASK_2026_154 Serious #2).
+                   - Until TASK_2026_173 (N1) the final @else branch WAS
+                     <ptah-code-editor>, so merely activating a diff tab
+                     reintroduced exactly that teardown, and the diff editor
+                     itself was reconstructed from scratch on every return
+                     switch (B1). Neither surface is unmounted any more.
+
+                   The code editor is fed undefined while a diff or an image is
+                   showing: activeFilePath() then holds a diff KEY (or an image
+                   path), which is not a text file it should ever open. -->
               <div class="flex-1 min-h-0 relative">
-                @if (editorService.activeDiffTab()) {
-                  <ptah-diff-view
-                    [diffTab]="editorService.activeDiffTab()"
-                    (retryRequested)="onDiffRetry($event)"
-                  />
-                } @else if (editorService.isActiveFileImage()) {
+                <ptah-diff-view
+                  class="absolute inset-0"
+                  [class.invisible]="!editorService.activeDiffTab()"
+                  [diffTab]="editorService.activeDiffTab()"
+                  [openDiffKeys]="openDiffKeys()"
+                  (retryRequested)="onDiffRetry($event)"
+                />
+                <ptah-code-editor
+                  class="absolute inset-0"
+                  [class.invisible]="
+                    !!editorService.activeDiffTab() ||
+                    editorService.isActiveFileImage()
+                  "
+                  [filePath]="codeEditorPath()"
+                  [content]="codeEditorContent()"
+                  [isFocused]="
+                    editorService.splitActive()
+                      ? editorService.focusedPane() === 'left'
+                      : true
+                  "
+                  (contentChanged)="onContentChanged($event)"
+                  (fileSaved)="onFileSaved($event)"
+                />
+                @if (editorService.isActiveFileImage()) {
                   <div
-                    class="h-full w-full flex items-center justify-center bg-base-100 overflow-auto p-4"
+                    class="absolute inset-0 flex items-center justify-center bg-base-100 overflow-auto p-4"
                   >
                     <img
                       [src]="imageFileUrl()"
@@ -284,18 +312,6 @@ import type { FileTreeNode } from '../models/file-tree.model';
                       draggable="false"
                     />
                   </div>
-                } @else {
-                  <ptah-code-editor
-                    [filePath]="editorService.activeFilePath()"
-                    [content]="editorService.activeFileContent()"
-                    [isFocused]="
-                      editorService.splitActive()
-                        ? editorService.focusedPane() === 'left'
-                        : true
-                    "
-                    (contentChanged)="onContentChanged($event)"
-                    (fileSaved)="onFileSaved($event)"
-                  />
                 }
                 @if (
                   editorService.isLoading() && !editorService.hasActiveFile()
@@ -596,6 +612,38 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   protected onPaneClick(pane: 'left' | 'right'): void {
     this.editorService.setFocusedPane(pane);
   }
+
+  /**
+   * Keys of every open diff tab, handed to the always-mounted diff view so it
+   * can dispose the model pair of a tab the user closed (B1 AC5) and of a whole
+   * workspace's worth of tabs when `openTabs` is replaced (B1 AC6).
+   */
+  protected readonly openDiffKeys = computed(() =>
+    this.editorService
+      .openTabs()
+      .filter((tab) => tab.diff)
+      .map((tab) => tab.filePath),
+  );
+
+  /**
+   * File path for the always-mounted code editor.
+   *
+   * `undefined` whenever the diff view or the image viewer is the visible
+   * layer: `activeFilePath()` then holds a diff tab KEY or an image path, and
+   * handing either to the code editor would create a bogus Monaco model (and,
+   * for a diff, mirror the diff's modified text into the file-editing surface).
+   */
+  protected readonly codeEditorPath = computed(() =>
+    this.editorService.activeDiffTab() || this.editorService.isActiveFileImage()
+      ? undefined
+      : this.editorService.activeFilePath(),
+  );
+
+  protected readonly codeEditorContent = computed(() =>
+    this.editorService.activeDiffTab() || this.editorService.isActiveFileImage()
+      ? ''
+      : this.editorService.activeFileContent(),
+  );
 
   protected readonly imageFileUrl = computed(() => {
     const filePath = this.editorService.activeFilePath();

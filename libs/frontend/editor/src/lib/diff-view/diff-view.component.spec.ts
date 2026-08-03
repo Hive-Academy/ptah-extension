@@ -23,8 +23,10 @@
  */
 
 import { TestBed } from '@angular/core/testing';
+import type { ComponentFixture } from '@angular/core/testing';
 import type { ComponentRef } from '@angular/core';
 import { DiffViewComponent } from './diff-view.component';
+import { MonacoLoaderService } from '../services/monaco-loader.service';
 import type {
   DiffSideRef,
   DiffTabState,
@@ -384,5 +386,382 @@ describe('DiffViewComponent', () => {
         fixture.nativeElement.querySelector('[data-testid="diff-retry"]'),
       ).toBeNull();
     });
+  });
+});
+
+// ===========================================================================
+// B1 / B2 / D3 — editor lifecycle (TASK_2026_173 batch 3)
+//
+// Monaco is faked, not loaded: these are assertions about WHICH Monaco calls
+// the component makes, which is exactly what B1 ("no construction on a return
+// switch") and B2 ("update models in place, never via window.monaco") are
+// claims about. A real Monaco would make the same assertions untestable in
+// jsdom and no more truthful.
+// ===========================================================================
+
+class FakeModel {
+  disposed = false;
+  pushes = 0;
+  constructor(
+    public value: string,
+    public language: string,
+    public readonly uri: { toString(): string },
+  ) {}
+  getValue(): string {
+    return this.value;
+  }
+  getLanguageId(): string {
+    return this.language;
+  }
+  getFullModelRange(): unknown {
+    return {
+      startLineNumber: 1,
+      startColumn: 1,
+      endLineNumber: 1,
+      endColumn: 1,
+    };
+  }
+  pushEditOperations(
+    _selections: unknown,
+    edits: { text: string }[],
+    _cursor: unknown,
+  ): null {
+    this.value = edits[0].text;
+    this.pushes++;
+    return null;
+  }
+  dispose(): void {
+    this.disposed = true;
+  }
+}
+
+function makeFakeMonaco() {
+  const models = new Map<string, FakeModel>();
+  const created: FakeModel[] = [];
+  const diffEditors: FakeDiffEditor[] = [];
+
+  interface FakeDiffEditor {
+    model: { original: FakeModel; modified: FakeModel } | null;
+    options: Record<string, unknown>;
+    layouts: number;
+    setModelCalls: number;
+    savedStates: number;
+    restored: unknown[];
+    setModel(model: { original: FakeModel; modified: FakeModel } | null): void;
+    saveViewState(): { id: number } | null;
+    restoreViewState(state: unknown): void;
+    updateOptions(options: Record<string, unknown>): void;
+    layout(): void;
+    dispose(): void;
+  }
+
+  let stateCounter = 0;
+
+  const api = {
+    Uri: {
+      parse: (raw: string) => ({ toString: () => raw }),
+    },
+    editor: {
+      createModel: (
+        value: string,
+        language: string,
+        uri: { toString(): string },
+      ) => {
+        const model = new FakeModel(value, language, uri);
+        models.set(uri.toString(), model);
+        created.push(model);
+        return model;
+      },
+      getModel: (uri: { toString(): string }) =>
+        models.get(uri.toString()) ?? null,
+      setModelLanguage: (model: FakeModel, language: string) => {
+        model.language = language;
+      },
+      setTheme: jest.fn(),
+      createDiffEditor: () => {
+        const editor: FakeDiffEditor = {
+          model: null,
+          options: {},
+          layouts: 0,
+          setModelCalls: 0,
+          savedStates: 0,
+          restored: [],
+          setModel(model) {
+            this.model = model;
+            this.setModelCalls++;
+          },
+          saveViewState() {
+            if (!this.model) return null;
+            this.savedStates++;
+            return { id: ++stateCounter };
+          },
+          restoreViewState(state: unknown) {
+            this.restored.push(state);
+          },
+          updateOptions(options: Record<string, unknown>) {
+            Object.assign(this.options, options);
+          },
+          layout() {
+            this.layouts++;
+          },
+          dispose() {
+            /* no-op */
+          },
+        };
+        diffEditors.push(editor);
+        return editor;
+      },
+    },
+  };
+
+  return { api, models, created, diffEditors };
+}
+
+type FakeMonaco = ReturnType<typeof makeFakeMonaco>;
+
+/** Immutably patch a diff tab's descriptor, mirroring what the service does. */
+function patchDiff(tab: EditorTab, patch: Partial<DiffTabState>): EditorTab {
+  const diff = tab.diff;
+  if (!diff) throw new Error('not a diff tab');
+  return { ...tab, diff: { ...diff, ...patch } };
+}
+
+async function createLiveFixture(
+  tab: EditorTab | null = makeDiffTab(),
+): Promise<{
+  fixture: ComponentFixture<DiffViewComponent>;
+  componentRef: ComponentRef<DiffViewComponent>;
+  monaco: FakeMonaco;
+  setTab(next: EditorTab | null): void;
+  setOpenKeys(keys: readonly string[]): void;
+}> {
+  const monaco = makeFakeMonaco();
+
+  await TestBed.configureTestingModule({
+    imports: [DiffViewComponent],
+    providers: [
+      {
+        provide: MonacoLoaderService,
+        useValue: {
+          load: () => Promise.resolve(monaco.api),
+        },
+      },
+    ],
+  }).compileComponents();
+
+  const fixture = TestBed.createComponent(DiffViewComponent);
+  const componentRef = fixture.componentRef;
+  componentRef.setInput('diffTab', tab);
+  componentRef.setInput('openDiffKeys', tab ? [tab.filePath] : []);
+  fixture.detectChanges();
+  // afterNextRender ran; let the loader promise resolve and the editor build.
+  await fixture.whenStable();
+  fixture.detectChanges();
+
+  return {
+    fixture,
+    componentRef,
+    monaco,
+    setTab(next: EditorTab | null) {
+      componentRef.setInput('diffTab', next);
+      fixture.detectChanges();
+    },
+    setOpenKeys(keys: readonly string[]) {
+      componentRef.setInput('openDiffKeys', keys);
+      fixture.detectChanges();
+    },
+  };
+}
+
+describe('DiffViewComponent — editor lifecycle (B1, B2, D3)', () => {
+  const originalResizeObserver = globalThis.ResizeObserver;
+
+  beforeAll(() => {
+    // jsdom has no ResizeObserver; the component observes its own container.
+    globalThis.ResizeObserver = class {
+      observe(): void {
+        /* no-op */
+      }
+      unobserve(): void {
+        /* no-op */
+      }
+      disconnect(): void {
+        /* no-op */
+      }
+    } as unknown as typeof ResizeObserver;
+  });
+
+  afterAll(() => {
+    globalThis.ResizeObserver = originalResizeObserver;
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('creates the diff editor exactly once and never recreates it on a tab switch (B1 AC1)', async () => {
+    const first = makeDiffTab({ path: 'src/a.ts' });
+    const second = makeDiffTab({ path: 'src/b.ts', modified: 'b\n' });
+    const { monaco, setTab, setOpenKeys } = await createLiveFixture(first);
+
+    expect(monaco.diffEditors).toHaveLength(1);
+    const modelsAfterFirst = monaco.created.length;
+
+    setOpenKeys([first.filePath, second.filePath]);
+    setTab(second);
+    setTab(first);
+    setTab(second);
+
+    // Still ONE editor, and the second tab's pair was built once and reused.
+    expect(monaco.diffEditors).toHaveLength(1);
+    expect(monaco.created.length).toBe(modelsAfterFirst + 2);
+  });
+
+  it('returns to a tab by re-attaching the CACHED pair, creating no models (B1 AC1)', async () => {
+    const tab = makeDiffTab();
+    const { monaco, setTab } = await createLiveFixture(tab);
+    const modelsAfterOpen = monaco.created.length;
+
+    // Switch away to a plain file tab: the diff detaches but stays mounted.
+    setTab(null);
+    expect(monaco.diffEditors[0].model).toBeNull();
+
+    setTab(tab);
+
+    expect(monaco.created.length).toBe(modelsAfterOpen);
+    expect(monaco.diffEditors[0].model).not.toBeNull();
+  });
+
+  it('updates content in place with pushEditOperations, disposing nothing (B2 AC1, AC5)', async () => {
+    const tab = makeDiffTab({ original: 'a\n', modified: 'b\n' });
+    const { monaco, setTab } = await createLiveFixture(tab);
+    const modelsAfterOpen = monaco.created.length;
+    const [originalModel, modifiedModel] = monaco.created;
+
+    for (let i = 0; i < 10; i++) {
+      setTab(patchDiff(tab, { modified: `b${i}\n`, requestId: i + 2 }));
+    }
+
+    // 10 rapid updates: same two models, no new ones, none disposed (AC5).
+    expect(monaco.created.length).toBe(modelsAfterOpen);
+    expect(modifiedModel.pushes).toBe(10);
+    expect(modifiedModel.getValue()).toBe('b9\n');
+    expect(originalModel.disposed).toBe(false);
+    expect(modifiedModel.disposed).toBe(false);
+  });
+
+  it('re-tokenizes in place when the language changes (B2 AC3)', async () => {
+    const tab = makeDiffTab({ path: 'src/a.ts' });
+    const { monaco, setTab } = await createLiveFixture(tab);
+    const [originalModel, modifiedModel] = monaco.created;
+    expect(modifiedModel.getLanguageId()).toBe('typescript');
+
+    setTab(patchDiff(tab, { path: 'src/a.py', requestId: 2 }));
+
+    expect(modifiedModel.getLanguageId()).toBe('python');
+    expect(originalModel.getLanguageId()).toBe('python');
+    expect(modifiedModel.disposed).toBe(false);
+  });
+
+  it('never touches window.monaco (B2 AC4 — verified with the global unavailable)', async () => {
+    const globalWindow = window as Window & { monaco?: unknown };
+    expect(globalWindow.monaco).toBeUndefined();
+
+    const tab = makeDiffTab();
+    const { monaco, setTab } = await createLiveFixture(tab);
+
+    setTab(patchDiff(tab, { modified: 'changed\n' }));
+
+    // The update landed even though no global Monaco exists anywhere.
+    expect(monaco.created[1].getValue()).toBe('changed\n');
+    expect(globalWindow.monaco).toBeUndefined();
+  });
+
+  it('saves and restores per-tab view state across a switch (B1 AC3, AC4)', async () => {
+    const first = makeDiffTab({ path: 'src/a.ts' });
+    const second = makeDiffTab({ path: 'src/b.ts' });
+    const { monaco, setTab, setOpenKeys } = await createLiveFixture(first);
+    const editor = monaco.diffEditors[0];
+
+    setOpenKeys([first.filePath, second.filePath]);
+    setTab(second); // saves A's state
+    setTab(first); // saves B's state, restores A's
+
+    // A's state was captured before leaving and handed back on return, and it
+    // is A's own state object — not B's.
+    const aState = editor.restored[editor.restored.length - 1];
+    expect(aState).toEqual({ id: 1 });
+    expect(editor.savedStates).toBeGreaterThanOrEqual(2);
+  });
+
+  it('disposes a closed tab pair and returns the model count to its start (B1 AC5)', async () => {
+    const tabs = Array.from({ length: 30 }, (_, i) =>
+      makeDiffTab({ path: `src/file${i}.ts` }),
+    );
+    const { monaco, setTab, setOpenKeys } = await createLiveFixture(tabs[0]);
+    const startingModels = monaco.created.length;
+
+    // Open 30 diff tabs.
+    setOpenKeys(tabs.map((t) => t.filePath));
+    for (const tab of tabs) setTab(tab);
+    expect(monaco.created.length).toBe(startingModels + 29 * 2);
+
+    // Close them all.
+    setTab(null);
+    setOpenKeys([]);
+
+    const live = monaco.created.filter((m) => !m.disposed);
+    expect(live).toHaveLength(0);
+  });
+
+  it('survives a workspace switch with no active diff (B1 AC6)', async () => {
+    const tab = makeDiffTab();
+    const { monaco, setTab, setOpenKeys } = await createLiveFixture(tab);
+
+    // Workspace switch: openTabs is replaced wholesale and nothing is active.
+    expect(() => {
+      setTab(null);
+      setOpenKeys([]);
+    }).not.toThrow();
+
+    expect(monaco.diffEditors[0].model).toBeNull();
+    expect(monaco.created.every((m) => m.disposed)).toBe(true);
+  });
+
+  it('toggles inline / side-by-side on the live editor without recreating it (D3 AC1, AC2)', async () => {
+    const { fixture, monaco } = await createLiveFixture();
+    const editor = monaco.diffEditors[0];
+    const toggle: HTMLButtonElement = fixture.nativeElement.querySelector(
+      '[data-testid="diff-layout-toggle"]',
+    );
+
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(editor.options['renderSideBySide']).toBe(false);
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(monaco.diffEditors).toHaveLength(1);
+
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(editor.options['renderSideBySide']).toBe(true);
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(monaco.diffEditors).toHaveLength(1);
+  });
+
+  it('preserves scroll position across a layout toggle (D3)', async () => {
+    const { fixture, monaco } = await createLiveFixture();
+    const editor = monaco.diffEditors[0];
+    const before = editor.restored.length;
+
+    fixture.nativeElement
+      .querySelector('[data-testid="diff-layout-toggle"]')
+      .click();
+    fixture.detectChanges();
+
+    expect(editor.restored.length).toBe(before + 1);
   });
 });

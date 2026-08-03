@@ -14,8 +14,15 @@ import {
   afterNextRender,
   ChangeDetectorRef,
 } from '@angular/core';
-import { LucideAngularModule, AlertTriangle, RefreshCw } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  AlertTriangle,
+  RefreshCw,
+  Columns2,
+  Rows2,
+} from 'lucide-angular';
 import type * as monaco from 'monaco-editor';
+import { rpcCall, VSCodeService } from '@ptah-extension/core';
 import { MonacoLoaderService } from '../services/monaco-loader.service';
 import type { EditorTab } from '../services/editor/editor-tab.types';
 import { diffComparisonLabel } from '../services/editor/editor-tab.types';
@@ -23,6 +30,20 @@ import { diffComparisonLabel } from '../services/editor/editor-tab.types';
 type MonacoApi = typeof monaco;
 
 type LoadState = 'loading' | 'ready' | 'error';
+
+/** Both text models backing one diff tab, cached and reused across switches. */
+interface DiffModelPair {
+  original: monaco.editor.ITextModel;
+  modified: monaco.editor.ITextModel;
+}
+
+/**
+ * Backend setting key for the inline / side-by-side preference (D3).
+ *
+ * Served by the EXISTING `editor:getSetting` / `editor:updateSetting` pair on
+ * all three hosts — D3 deliberately adds no new RPC method.
+ */
+const DIFF_LAYOUT_SETTING_KEY = 'editor.diff.renderSideBySide';
 
 /**
  * DiffViewComponent - Direct Monaco diff editor for side-by-side file comparison.
@@ -35,12 +56,28 @@ type LoadState = 'loading' | 'ready' | 'error';
  * component renders correctly even when it is the first Monaco surface to
  * mount in the session.
  *
- * The component takes ONE input — the diff tab record — rather than three
+ * The component takes ONE diff input — the diff tab record — rather than three
  * loose strings. Everything the chrome needs (which comparison, whether a side
  * is absent, binary or failed, how fresh the read is) is carried on that record
  * by the backend, so nothing here has to infer state from content. In
  * particular "(new file)" is driven by `originalRef.kind === 'absent'`, NOT by
  * an empty original: a genuinely-empty tracked file is not a new file (A3 AC5).
+ *
+ * LIFECYCLE (B1/B2). The component is mounted for the whole session — the
+ * editor panel hides it with `[class.invisible]` rather than unmounting it —
+ * and the Monaco diff editor is created exactly ONCE. Switching diff tabs
+ * swaps a cached model PAIR and restores that tab's view state; a content
+ * update rewrites the existing models via `pushEditOperations`. Nothing here
+ * ever reads `window.monaco`: the API handle comes from the loader promise, so
+ * "updates still work with the global unavailable" (B2 AC4) is structural
+ * rather than a behavioural promise.
+ *
+ * Model pairs are evicted when their tab closes, which is where this diverges
+ * from `CodeEditorComponent` (that one deliberately retains evicted models,
+ * because its tab content is cheap to re-open and its undo history is not).
+ * The live-key set arrives as an input rather than by injecting `EditorService`,
+ * so this stays a presentational component with no dependency on the editor
+ * coordinator.
  */
 @Component({
   selector: 'ptah-diff-view',
@@ -98,9 +135,34 @@ type LoadState = 'loading' | 'ready' | 'error';
             </span>
           }
 
+          <!--
+            D3: layout toggle. aria-pressed describes the INLINE state, so the
+            control reads as "inline diff view: off/on" rather than as an
+            unlabelled two-state icon.
+          -->
           <button
             type="button"
             class="btn btn-ghost btn-xs ml-auto px-1.5 flex-shrink-0"
+            data-testid="diff-layout-toggle"
+            [attr.aria-pressed]="!renderSideBySide()"
+            aria-label="Inline diff view"
+            [attr.title]="
+              renderSideBySide()
+                ? 'Switch to inline diff view'
+                : 'Switch to side-by-side diff view'
+            "
+            (click)="toggleRenderSideBySide()"
+          >
+            <lucide-angular
+              [img]="renderSideBySide() ? Rows2Icon : Columns2Icon"
+              class="w-3 h-3"
+              aria-hidden="true"
+            />
+          </button>
+
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs px-1.5 flex-shrink-0"
             data-testid="diff-retry"
             title="Re-read this comparison from git"
             aria-label="Retry reading this diff from git"
@@ -191,44 +253,71 @@ export class DiffViewComponent implements OnDestroy {
   private readonly ngZone = inject(NgZone);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly loader = inject(MonacoLoaderService);
+  private readonly vscodeService = inject(VSCodeService);
+
+  /**
+   * Max number of cached model PAIRS (two models each) retained before LRU
+   * eviction. Eviction-on-close already bounds the cache to the number of open
+   * diff tabs, so this cap is a backstop; 30 matches B1 AC5's workload.
+   */
+  private static readonly MAX_DIFF_PAIRS = 30;
+  private static instanceCounter = 0;
 
   /** The active diff tab, or null when no diff is being shown. */
   readonly diffTab = input<EditorTab | null>(null);
+
+  /**
+   * Keys of every diff tab currently open. A pair whose key leaves this set has
+   * had its tab closed (or its whole workspace swapped out) and is disposed —
+   * B1 AC5/AC6. Supplied by the panel so this component needs no reference to
+   * `EditorService`.
+   */
+  readonly openDiffKeys = input<readonly string[]>([]);
 
   /** Emits the diff tab key when the user asks for a re-read. */
   readonly retryRequested = output<string>();
 
   protected readonly AlertTriangleIcon = AlertTriangle;
   protected readonly RefreshCwIcon = RefreshCw;
+  protected readonly Columns2Icon = Columns2;
+  protected readonly Rows2Icon = Rows2;
 
   private readonly editorContainer =
     viewChild.required<ElementRef<HTMLElement>>('editorContainer');
 
+  private monacoApi: MonacoApi | null = null;
   private editor: monaco.editor.IStandaloneDiffEditor | null = null;
-  private originalModel: monaco.editor.ITextModel | null = null;
-  private modifiedModel: monaco.editor.ITextModel | null = null;
+  /** Model pairs keyed by diff tab key. */
+  private readonly pairs = new Map<string, DiffModelPair>();
+  /** Per-tab diff view state (both sides' scroll + cursor), keyed by tab key. */
+  private readonly viewStates = new Map<
+    string,
+    monaco.editor.IDiffEditorViewState
+  >();
+  /** Key of the pair currently attached to the editor, or null when detached. */
+  private currentKey: string | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
   private destroyed = false;
 
+  /**
+   * Per-instance id namespacing model URIs. Monaco's model registry is keyed
+   * globally by URI, so two diff surfaces showing the same tab must not collide.
+   */
+  private readonly instanceId = `dv-${(DiffViewComponent.instanceCounter++).toString(
+    36,
+  )}-${Math.random().toString(36).slice(2, 8)}`;
+
   protected readonly loadState = signal<LoadState>('loading');
   protected readonly loadError = signal<string>('');
+
+  /** D3: side-by-side (true) vs inline (false). Persisted per user. */
+  protected readonly renderSideBySide = signal(true);
 
   /** The diff descriptor, or null when the input carries a non-diff tab. */
   protected readonly diff = computed(() => this.diffTab()?.diff ?? null);
 
   protected readonly tabKey = computed(() => this.diffTab()?.filePath ?? '');
-
-  protected readonly originalContent = computed(
-    () => this.diff()?.original ?? '',
-  );
-  protected readonly modifiedContent = computed(
-    () => this.diff()?.modified ?? '',
-  );
-
-  private readonly language = computed(() =>
-    this.detectLanguage(this.diff()?.path ?? ''),
-  );
 
   protected readonly comparisonLabel = computed(() => {
     const d = this.diff();
@@ -330,12 +419,18 @@ export class DiffViewComponent implements OnDestroy {
   });
 
   constructor() {
+    void this.loadLayoutPreference();
+
     afterNextRender(() => {
       this.loader
         .load()
         .then((monacoApi) => {
           if (this.destroyed) return;
           this.createEditor(monacoApi);
+          // The effects below only fire on SUBSEQUENT changes, so reconcile
+          // once against whatever the inputs already hold.
+          this.syncDiff(this.diffTab());
+          this.evictClosedPairs(this.openDiffKeys());
           this.loadState.set('ready');
           this.cdr.markForCheck();
         })
@@ -349,13 +444,22 @@ export class DiffViewComponent implements OnDestroy {
         });
     });
 
+    // Declared BEFORE the eviction effect so that, in a flush where a tab is
+    // closed, the closing tab is detached from the editor before its models are
+    // disposed.
     effect(() => {
-      const original = this.originalContent();
-      const modified = this.modifiedContent();
-      const lang = this.language();
-      if (this.editor) {
-        this.updateModels(original, modified, lang);
-      }
+      const tab = this.diffTab();
+      this.syncDiff(tab);
+    });
+
+    effect(() => {
+      const keys = this.openDiffKeys();
+      this.evictClosedPairs(keys);
+    });
+
+    effect(() => {
+      const sideBySide = this.renderSideBySide();
+      this.applyRenderSideBySide(sideBySide);
     });
   }
 
@@ -363,28 +467,33 @@ export class DiffViewComponent implements OnDestroy {
     this.destroyed = true;
     this.resizeObserver?.disconnect();
     this.themeObserver?.disconnect();
-    this.disposeModels();
-    this.editor?.dispose();
+    this.currentKey = null;
+    for (const key of [...this.pairs.keys()]) this.disposePair(key);
+    this.viewStates.clear();
+    try {
+      this.editor?.dispose();
+    } catch {
+      // Monaco can throw if the editor was already disposed elsewhere.
+      void 0;
+    }
     this.editor = null;
+    this.monacoApi = null;
   }
 
   private createEditor(monacoApi: MonacoApi): void {
     const container = this.editorContainer().nativeElement;
-    const lang = this.language();
-    const original = this.originalContent();
-    const modified = this.modifiedContent();
-
-    const originalModel = monacoApi.editor.createModel(original, lang);
-    const modifiedModel = monacoApi.editor.createModel(modified, lang);
-    this.originalModel = originalModel;
-    this.modifiedModel = modifiedModel;
+    this.monacoApi = monacoApi;
 
     this.ngZone.runOutsideAngular(() => {
       const editor = monacoApi.editor.createDiffEditor(container, {
         theme: this.detectMonacoTheme(),
         automaticLayout: false,
+        // `readOnly` and `renderMarginRevertIcon` are PERMANENT (plan §4.3):
+        // Monaco's built-in revert arrow edits the modified BUFFER, which is
+        // the wrong mechanism for a git-backed diff. Hunk actions (D2) are
+        // built as decorations instead, so no accidental edit is possible.
         readOnly: true,
-        renderSideBySide: true,
+        renderSideBySide: this.renderSideBySide(),
         scrollBeyondLastLine: false,
         renderIndicators: true,
         renderMarginRevertIcon: false,
@@ -396,11 +505,6 @@ export class DiffViewComponent implements OnDestroy {
         },
       });
       this.editor = editor;
-
-      editor.setModel({
-        original: originalModel,
-        modified: modifiedModel,
-      });
 
       this.resizeObserver = new ResizeObserver(() => {
         this.editor?.layout();
@@ -416,6 +520,234 @@ export class DiffViewComponent implements OnDestroy {
         });
       }
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Model lifecycle (B1, B2)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Reconcile the editor with the given diff tab.
+   *
+   * Switching tabs attaches a CACHED model pair and restores that tab's own
+   * view state; a content update rewrites the attached models in place. The
+   * editor itself is never recreated, which is the whole of B1 AC1.
+   */
+  private syncDiff(tab: EditorTab | null): void {
+    const api = this.monacoApi;
+    const editor = this.editor;
+    if (!api || !editor) return;
+
+    const diff = tab?.diff ?? null;
+    if (!tab || !diff) {
+      // No diff active: detach, keeping the pair cached for the return trip.
+      if (this.currentKey) {
+        this.saveViewState(this.currentKey);
+        this.currentKey = null;
+      }
+      editor.setModel(null);
+      return;
+    }
+
+    const key = tab.filePath;
+    const language = this.detectLanguage(diff.path);
+
+    let pair = this.pairs.get(key);
+    if (!pair) {
+      pair = this.createPair(api, key, diff.original, diff.modified, language);
+    } else {
+      // B2 AC1/AC2/AC5: rewrite in place. No dispose, no recreate, so Monaco
+      // re-tokenizes incrementally instead of flashing unstyled text, and a
+      // burst of updates cannot leak models.
+      this.applyText(pair.original, diff.original);
+      this.applyText(pair.modified, diff.modified);
+      this.applyLanguage(api, pair.original, language);
+      this.applyLanguage(api, pair.modified, language);
+    }
+
+    if (this.currentKey !== key) {
+      if (this.currentKey) this.saveViewState(this.currentKey);
+      editor.setModel({ original: pair.original, modified: pair.modified });
+      this.currentKey = key;
+      this.restoreViewState(key);
+      this.scheduleLayout();
+    }
+
+    // Touch for LRU recency.
+    this.pairs.delete(key);
+    this.pairs.set(key, pair);
+    this.enforcePairCap(key);
+  }
+
+  private createPair(
+    api: MonacoApi,
+    key: string,
+    original: string,
+    modified: string,
+    language: string,
+  ): DiffModelPair {
+    return {
+      original: this.getOrCreateModel(api, key, 'original', original, language),
+      modified: this.getOrCreateModel(api, key, 'modified', modified, language),
+    };
+  }
+
+  private getOrCreateModel(
+    api: MonacoApi,
+    key: string,
+    side: 'original' | 'modified',
+    content: string,
+    language: string,
+  ): monaco.editor.ITextModel {
+    const uri = api.Uri.parse(
+      `ptah-diff://${this.instanceId}/${encodeURIComponent(key)}/${side}`,
+    );
+    const existing = api.editor.getModel(uri);
+    if (existing) {
+      this.applyText(existing, content);
+      this.applyLanguage(api, existing, language);
+      return existing;
+    }
+    return api.editor.createModel(content, language, uri);
+  }
+
+  /** Rewrite a model's whole text without disposing it (B2 AC1). */
+  private applyText(model: monaco.editor.ITextModel, text: string): void {
+    if (model.getValue() === text) return;
+    model.pushEditOperations(
+      [],
+      [{ range: model.getFullModelRange(), text }],
+      () => null,
+    );
+  }
+
+  /** Re-tokenize in place when the tab's language changes (B2 AC3). */
+  private applyLanguage(
+    api: MonacoApi,
+    model: monaco.editor.ITextModel,
+    language: string,
+  ): void {
+    if (model.getLanguageId() === language) return;
+    api.editor.setModelLanguage(model, language);
+  }
+
+  private enforcePairCap(justAddedKey: string): void {
+    if (this.pairs.size <= DiffViewComponent.MAX_DIFF_PAIRS) return;
+    for (const key of [...this.pairs.keys()]) {
+      if (this.pairs.size <= DiffViewComponent.MAX_DIFF_PAIRS) break;
+      if (key === justAddedKey || key === this.currentKey) continue;
+      this.disposePair(key);
+    }
+  }
+
+  /**
+   * Drop every cached pair whose tab is gone (B1 AC5) — including the wholesale
+   * `openTabs` replacement a workspace switch performs (B1 AC6).
+   *
+   * The attached pair is never evicted here: it is by definition the tab the
+   * user is looking at, and detaching is `syncDiff`'s job.
+   */
+  private evictClosedPairs(openKeys: readonly string[]): void {
+    if (!this.monacoApi) return;
+    const live = new Set(openKeys);
+    for (const key of [...this.pairs.keys()]) {
+      if (live.has(key) || key === this.currentKey) continue;
+      this.disposePair(key);
+    }
+  }
+
+  private disposePair(key: string): void {
+    const pair = this.pairs.get(key);
+    this.pairs.delete(key);
+    this.viewStates.delete(key);
+    if (!pair) return;
+    if (this.currentKey === key) {
+      this.currentKey = null;
+      this.editor?.setModel(null);
+    }
+    pair.original.dispose();
+    pair.modified.dispose();
+  }
+
+  // -------------------------------------------------------------------------
+  // View state (B1 AC3, AC4)
+  // -------------------------------------------------------------------------
+
+  private saveViewState(key: string): void {
+    const state = this.editor?.saveViewState();
+    if (state) this.viewStates.set(key, state);
+  }
+
+  private restoreViewState(key: string): void {
+    const state = this.viewStates.get(key);
+    if (state) this.editor?.restoreViewState(state);
+  }
+
+  /**
+   * Relayout on the next animation frame.
+   *
+   * MUST be `requestAnimationFrame`, not a microtask: the panel hides this
+   * component with `[class.invisible]`, and a microtask can run before Angular
+   * has flushed the class removal to the DOM, at which point Monaco measures a
+   * zero-sized (still hidden) container and renders nothing.
+   */
+  private scheduleLayout(): void {
+    if (typeof requestAnimationFrame !== 'function') return;
+    this.ngZone.runOutsideAngular(() => {
+      requestAnimationFrame(() => {
+        if (this.destroyed) return;
+        this.editor?.layout();
+      });
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // D3 — inline / side-by-side layout
+  // -------------------------------------------------------------------------
+
+  protected toggleRenderSideBySide(): void {
+    const next = !this.renderSideBySide();
+    this.renderSideBySide.set(next);
+    void this.persistLayoutPreference(next);
+  }
+
+  /** Swap layout on the LIVE editor — no recreation (D3 AC2, consistent with B1). */
+  private applyRenderSideBySide(sideBySide: boolean): void {
+    const editor = this.editor;
+    if (!editor) return;
+    const state = editor.saveViewState();
+    editor.updateOptions({ renderSideBySide: sideBySide });
+    if (state) editor.restoreViewState(state);
+    this.scheduleLayout();
+  }
+
+  private async loadLayoutPreference(): Promise<void> {
+    try {
+      const result = await rpcCall<{ value?: boolean }>(
+        this.vscodeService,
+        'editor:getSetting',
+        { key: DIFF_LAYOUT_SETTING_KEY },
+      );
+      if (this.destroyed) return;
+      if (result.success && typeof result.data?.value === 'boolean') {
+        this.renderSideBySide.set(result.data.value);
+      }
+    } catch {
+      // A missing or unreadable preference is not an error worth surfacing —
+      // side-by-side is the default and the toggle still works.
+      void 0;
+    }
+  }
+
+  private async persistLayoutPreference(sideBySide: boolean): Promise<void> {
+    try {
+      await rpcCall(this.vscodeService, 'editor:updateSetting', {
+        key: DIFF_LAYOUT_SETTING_KEY,
+        value: sideBySide,
+      });
+    } catch {
+      void 0;
+    }
   }
 
   /**
@@ -437,30 +769,6 @@ export class DiffViewComponent implements OnDestroy {
     if (dataTheme === 'light') return 'vs';
 
     return 'vs-dark';
-  }
-
-  private updateModels(original: string, modified: string, lang: string): void {
-    const monacoApi = (window as Window & { monaco?: MonacoApi }).monaco;
-    if (!monacoApi) return;
-
-    this.disposeModels();
-
-    const originalModel = monacoApi.editor.createModel(original, lang);
-    const modifiedModel = monacoApi.editor.createModel(modified, lang);
-    this.originalModel = originalModel;
-    this.modifiedModel = modifiedModel;
-
-    this.editor?.setModel({
-      original: originalModel,
-      modified: modifiedModel,
-    });
-  }
-
-  private disposeModels(): void {
-    this.originalModel?.dispose();
-    this.modifiedModel?.dispose();
-    this.originalModel = null;
-    this.modifiedModel = null;
   }
 
   private detectLanguage(filePath: string): string {

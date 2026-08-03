@@ -31,6 +31,7 @@ import { EditorPanelComponent } from './editor-panel.component';
 import { EditorService } from '../services/editor.service';
 import { GitStatusService } from '../services/git-status.service';
 import { VimModeService } from '../services/vim-mode.service';
+import { diffTabKey } from '../services/editor/editor-tab.types';
 
 // ---------------------------------------------------------------------------
 // Stub child components (match selectors + bound inputs/outputs)
@@ -57,6 +58,7 @@ class StubCodeEditorComponent {
 })
 class StubDiffViewComponent {
   readonly diffTab = input<unknown>(null);
+  readonly openDiffKeys = input<readonly string[]>([]);
   readonly retryRequested = output<string>();
 }
 
@@ -498,5 +500,146 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
     expect(readSignal('splitLeftPercent')).toBe(80);
 
     releaseMouse();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// N1 + B1 — the three-layer always-mounted content region (TASK_2026_173)
+//
+// The content region used to be an @if / @else if / @else chain whose final
+// @else WAS <ptah-code-editor>. Activating a diff tab therefore DESTROYED the
+// code editor — discarding the Monaco model + view-state cache for every open
+// workspace, the TASK_2026_154 teardown reintroduced by template structure —
+// and rebuilt the diff editor from scratch on every return switch. Both
+// surfaces are now mounted for the life of the panel and only hidden.
+// ---------------------------------------------------------------------------
+describe('EditorPanelComponent — diff and code editor stay mounted together (N1, B1)', () => {
+  let fixture: ComponentFixture<EditorPanelComponent>;
+  let editor: ReturnType<typeof makeEditorServiceStub>;
+
+  // Never re-derive the key format here — SEQ-1 keeps exactly one definition.
+  const DIFF_KEY = diffTabKey('worktree', 'src/a.ts');
+  const diffTab = {
+    filePath: DIFF_KEY,
+    fileName: 'a.ts (working tree)',
+    content: 'modified\n',
+    isDirty: false,
+    diff: { comparison: 'worktree', path: 'src/a.ts', status: 'fresh' },
+  };
+
+  function codeEditor() {
+    return fixture.debugElement.query(By.directive(StubCodeEditorComponent));
+  }
+
+  function diffView() {
+    return fixture.debugElement.query(By.directive(StubDiffViewComponent));
+  }
+
+  beforeEach(() => {
+    editor = makeEditorServiceStub();
+
+    TestBed.configureTestingModule({
+      imports: [EditorPanelComponent],
+      providers: [
+        { provide: EditorService, useValue: editor },
+        { provide: GitStatusService, useValue: makeGitStatusStub() },
+        { provide: VimModeService, useValue: makeVimStub() },
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+
+    TestBed.overrideComponent(EditorPanelComponent, {
+      set: {
+        imports: [
+          NgClass,
+          LucideAngularModule,
+          StubCodeEditorComponent,
+          StubDiffViewComponent,
+          StubSidebarComponent,
+          StubGitStatusBarComponent,
+          StubTerminalPanelComponent,
+          StubContextMenuComponent,
+          StubQuickOpenComponent,
+        ],
+      },
+    });
+
+    fixture = TestBed.createComponent(EditorPanelComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('does NOT destroy the CodeEditorComponent when a diff tab is activated (N1)', () => {
+    const instance = codeEditor().componentInstance;
+    expect(diffView()).toBeTruthy();
+
+    (editor.activeDiffTab as unknown as { set(v: unknown): void }).set(diffTab);
+    editor.activeFilePath.set(DIFF_KEY);
+    fixture.detectChanges();
+
+    // Same instance — its Monaco model/view-state cache survived.
+    expect(codeEditor().componentInstance).toBe(instance);
+    // ...and the diff view was not remounted either.
+    expect(diffView()).toBeTruthy();
+
+    (editor.activeDiffTab as unknown as { set(v: unknown): void }).set(null);
+    editor.activeFilePath.set('/ws/a.ts');
+    fixture.detectChanges();
+
+    expect(codeEditor().componentInstance).toBe(instance);
+  });
+
+  it('hides rather than unmounts whichever surface is inactive', () => {
+    expect(diffView().nativeElement.classList).toContain('invisible');
+    expect(codeEditor().nativeElement.classList).not.toContain('invisible');
+
+    (editor.activeDiffTab as unknown as { set(v: unknown): void }).set(diffTab);
+    editor.activeFilePath.set(DIFF_KEY);
+    fixture.detectChanges();
+
+    expect(diffView().nativeElement.classList).not.toContain('invisible');
+    expect(codeEditor().nativeElement.classList).toContain('invisible');
+  });
+
+  it('never hands the code editor a diff tab key or an image path', () => {
+    (editor.activeDiffTab as unknown as { set(v: unknown): void }).set(diffTab);
+    editor.activeFilePath.set(DIFF_KEY);
+    editor.activeFileContent.set('modified\n');
+    fixture.detectChanges();
+
+    // The always-mounted code editor must not open a model for `diff:...`.
+    expect(codeEditor().componentInstance.filePath()).toBeUndefined();
+    expect(codeEditor().componentInstance.content()).toBe('');
+
+    (editor.activeDiffTab as unknown as { set(v: unknown): void }).set(null);
+    (editor.isActiveFileImage as unknown as { set(v: boolean): void }).set(
+      true,
+    );
+    editor.activeFilePath.set('/ws/logo.png');
+    fixture.detectChanges();
+
+    expect(codeEditor().componentInstance.filePath()).toBeUndefined();
+    expect(codeEditor().nativeElement.classList).toContain('invisible');
+  });
+
+  it('forwards the open diff tab keys so closed pairs can be evicted (B1 AC5)', () => {
+    expect(diffView().componentInstance.openDiffKeys()).toEqual([]);
+
+    (editor.openTabs as unknown as { set(v: unknown[]): void }).set([
+      { filePath: '/ws/a.ts', fileName: 'a.ts', content: '', isDirty: false },
+      diffTab,
+    ]);
+    fixture.detectChanges();
+
+    expect(diffView().componentInstance.openDiffKeys()).toEqual([DIFF_KEY]);
+
+    (editor.openTabs as unknown as { set(v: unknown[]): void }).set([]);
+    fixture.detectChanges();
+
+    expect(diffView().componentInstance.openDiffKeys()).toEqual([]);
   });
 });

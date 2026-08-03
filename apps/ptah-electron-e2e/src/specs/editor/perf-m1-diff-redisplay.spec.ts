@@ -15,12 +15,18 @@ import { test, expect } from '../../support/fixtures';
  * tab first (step 1 of each round trip switches to it) — that tab is
  * unrelated to the diff mechanism and is not part of what batch 2 rewrote.
  *
+ * POST-BATCH-3 (B1/N1): `<ptah-diff-view>` is no longer unmounted when the
+ * user switches away — the panel hides it with `[class.invisible]` and the
+ * component detaches its models instead. Step 1 below therefore waits for the
+ * diff editor to go EMPTY (zero rendered `.view-line`s) rather than for the
+ * element to disappear, and additionally asserts the element is still mounted,
+ * which is N1's whole claim. The measured window is unchanged: it still runs
+ * from the click that re-displays the diff to the frame its content settles.
+ *
  * Workload: a synthetic ~500-line TypeScript file, alternating
  * diff-tab <-> file-tab for 10 round trips. Each round trip:
- *   1. Switch to the plain file tab (unmounts <ptah-diff-view> — today's
- *      `@if (activeDiffTab())` chain in editor-panel.component.ts:254 tears
- *      the diff editor down on every deactivation; this is exactly what
- *      Batch 3 (B1/N1) fixes).
+ *   1. Switch to the plain file tab (the diff view stays mounted but detaches
+ *      its model pair, so its rendered line count drops to zero).
  *   2. Switch back to the diff tab and time, from the click, until the
  *      modified editor's rendered `.view-line` count first stabilizes across
  *      two animation frames.
@@ -110,7 +116,12 @@ test.describe('perf M1 — diff-tab re-display latency (post-Batch-2, M1 baselin
       'ptah-editor-panel [role="tab"][aria-label="Switch to big-file.ts"]',
     );
     await expect(fileTabBtn).toBeVisible();
-    await expect(page.locator('.monaco-editor').first()).toBeVisible({
+    // Scoped to the CODE editor: post-B1 the diff view is also mounted (and
+    // hidden) from first paint, so a bare `.monaco-editor` would resolve to the
+    // invisible diff surface.
+    await expect(
+      page.locator('ptah-code-editor .monaco-editor').first(),
+    ).toBeVisible({
       timeout: 15_000,
     });
 
@@ -147,7 +158,7 @@ test.describe('perf M1 — diff-tab re-display latency (post-Batch-2, M1 baselin
     await changedRow.click();
 
     const diffTabBtn = page.locator(
-      'ptah-editor-panel [role="tab"][aria-label="Switch to big-file.ts (diff)"]',
+      'ptah-editor-panel [role="tab"][aria-label="Switch to big-file.ts (working tree)"]',
     );
     await expect(diffTabBtn).toBeVisible();
     await expect(page.locator('ptah-diff-view .view-lines').last()).toBeVisible(
@@ -157,9 +168,10 @@ test.describe('perf M1 — diff-tab re-display latency (post-Batch-2, M1 baselin
     const samples: number[] = [];
 
     for (let i = 0; i < ROUND_TRIPS; i++) {
-      // Step 1: switch away — unmounts <ptah-diff-view> today (N1).
+      // Step 1: switch away. The diff view STAYS MOUNTED (N1) and empties.
       await fileTabBtn.click();
-      await expect(page.locator('ptah-diff-view')).toHaveCount(0);
+      await expect(page.locator('ptah-diff-view')).toHaveCount(1);
+      await expect(page.locator('ptah-diff-view .view-line')).toHaveCount(0);
 
       // Step 2: arm the in-page timer BEFORE the click that re-mounts it.
       await page.evaluate(() => {
