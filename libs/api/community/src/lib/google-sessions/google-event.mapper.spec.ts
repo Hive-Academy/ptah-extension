@@ -164,6 +164,61 @@ describe('google-event.mapper', () => {
     it('returns null on the same unmappable events as toBuildersSession', () => {
       expect(toAdminSession({ ...FULL_EVENT, id: undefined })).toBeNull();
     });
+
+    /**
+     * ⚠️ `recurring` IS NOT A PERMISSION, and conflating the two is the bug
+     * these flags exist to fix: gating the admin UI on `recurring` disabled
+     * Edit and Delete on every event in any series, including ordinary repeats
+     * an admin created themselves and nothing depends on.
+     */
+    describe('protection flags', () => {
+      const PROTECTED = new Set(['master_builders']);
+
+      it('leaves an ordinary recurring event fully actionable', () => {
+        const session = toAdminSession(
+          { ...FULL_EVENT, recurringEventId: 'some_other_series' },
+          PROTECTED,
+        );
+
+        expect(session?.recurring).toBe(true);
+        expect(session?.isProtectedMaster).toBe(false);
+        expect(session?.inProtectedSeries).toBe(false);
+      });
+
+      it('flags the protected master itself', () => {
+        const session = toAdminSession(
+          { ...FULL_EVENT, id: 'master_builders' },
+          PROTECTED,
+        );
+
+        expect(session?.isProtectedMaster).toBe(true);
+        expect(session?.inProtectedSeries).toBe(true);
+      });
+
+      it('flags an expanded INSTANCE of the protected master as in-series but not master', () => {
+        const session = toAdminSession(
+          {
+            ...FULL_EVENT,
+            id: 'master_builders_20260805T140000Z',
+            recurringEventId: 'master_builders',
+          },
+          PROTECTED,
+        );
+
+        // Editable (the server patches instances happily), not deletable.
+        expect(session?.isProtectedMaster).toBe(false);
+        expect(session?.inProtectedSeries).toBe(true);
+      });
+
+      it('protects nothing when no ids are configured', () => {
+        const session = toAdminSession({
+          ...FULL_EVENT,
+          recurringEventId: 'master_builders',
+        });
+
+        expect(session?.inProtectedSeries).toBe(false);
+      });
+    });
   });
 
   describe('extractEventItems', () => {
@@ -208,10 +263,16 @@ describe('google-event.mapper', () => {
       expect(toBuildersSession(FULL_EVENT)).not.toHaveProperty('description');
     });
 
-    it('the admin shape is the member shape plus exactly description and attendees', () => {
+    it('the admin shape is the member shape plus exactly its admin-only fields', () => {
       const admin = toAdminSession(FULL_EVENT) ?? {};
       expect(Object.keys(admin).sort()).toEqual(
-        [...MEMBER_KEYS, 'description', 'attendees'].sort(),
+        [
+          ...MEMBER_KEYS,
+          'description',
+          'attendees',
+          'isProtectedMaster',
+          'inProtectedSeries',
+        ].sort(),
       );
     });
 
@@ -242,8 +303,15 @@ describe('google-event.mapper', () => {
       const {
         description: _droppedDescription,
         attendees: _droppedAttendees,
+        isProtectedMaster: _droppedMaster,
+        inProtectedSeries: _droppedSeries,
         ...adminSharedFields
-      } = admin ?? { description: null, attendees: [] };
+      } = admin ?? {
+        description: null,
+        attendees: [],
+        isProtectedMaster: false,
+        inProtectedSeries: false,
+      };
 
       expect(adminSharedFields).toEqual(member);
     });

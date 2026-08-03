@@ -156,9 +156,13 @@ export class AdminSessionsService {
       };
     }
 
+    // Resolved once per request and handed to the mapper so every row carries
+    // the SAME verdict the 409 guards below will apply. Without it the client
+    // has to guess from `recurring`, which over-blocks every ordinary repeat.
+    const protectedIds = await this.protectedEventIds();
     const sessions = extractEventItems(result.json)
       .filter((event) => event.status !== 'cancelled')
-      .map((event) => toAdminSession(event))
+      .map((event) => toAdminSession(event, protectedIds))
       .filter((session): session is AdminSession => session !== null);
 
     // Re-read the verdict: the listEvents call above may have been the first
@@ -183,7 +187,11 @@ export class AdminSessionsService {
       ...input,
       attendees: normalizeEmails(input.attendees),
     });
-    const session = this.unwrapEvent(result, 'create');
+    const session = this.unwrapEvent(
+      result,
+      'create',
+      await this.protectedEventIds(),
+    );
 
     this.logger.log(
       `Admin created session: actor=${actor.email ?? 'unknown'} eventId=${session.id}`,
@@ -222,7 +230,11 @@ export class AdminSessionsService {
       { ...input, attendees: normalizeEmails(input.attendees) },
       notifyGuests ? 'all' : 'none',
     );
-    const session = this.unwrapEvent(result, 'update');
+    const session = this.unwrapEvent(
+      result,
+      'update',
+      await this.protectedEventIds(),
+    );
 
     this.logger.log(
       `Admin updated session: actor=${actor.email ?? 'unknown'} eventId=${eventId} notifyGuests=${notifyGuests}`,
@@ -288,7 +300,11 @@ export class AdminSessionsService {
       { attendees: merged },
       'all',
     );
-    const session = this.unwrapEvent(result, 'update');
+    const session = this.unwrapEvent(
+      result,
+      'update',
+      await this.protectedEventIds(),
+    );
 
     this.logger.log(
       `Admin sent session invitations: actor=${actor.email ?? 'unknown'} eventId=${eventId} recipients=${merged.length}`,
@@ -420,11 +436,15 @@ export class AdminSessionsService {
   private unwrapEvent(
     result: GoogleApiResult,
     op: 'create' | 'update',
+    protectedIds: ReadonlySet<string> = new Set(),
   ): AdminSession {
     if (!result.ok) {
       throw this.mapUpstreamFailure(result, op);
     }
-    const session = toAdminSession((result.json ?? {}) as GoogleCalendarEvent);
+    const session = toAdminSession(
+      (result.json ?? {}) as GoogleCalendarEvent,
+      protectedIds,
+    );
     if (!session) {
       throw new BadGatewayException({
         reason: 'calendar_upstream_error',

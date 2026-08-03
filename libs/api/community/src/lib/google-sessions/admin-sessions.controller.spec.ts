@@ -339,6 +339,98 @@ describe('AdminSessionsController', () => {
     );
   });
 
+  /**
+   * ⚠️ THE LIST MUST CARRY THE SAME VERDICT THE GUARDS APPLY.
+   *
+   * The admin UI decides what to offer from these flags. Before they existed it
+   * inferred from `recurring` and disabled Edit and Delete on every event in
+   * any series — including ordinary repeats an admin created themselves, which
+   * the server would have edited happily.
+   *
+   * Asserted through the CONTROLLER rather than the mapper: the mapper is pure
+   * and already tested, but nothing forces `listSessions` to actually hand it
+   * the protected set. Deleting that argument leaves every mapper test passing.
+   */
+  describe('⚠️ list reports what each event will actually allow', () => {
+    function listWith(event: Record<string, unknown>) {
+      const built = build();
+      built.calendar.listEvents.mockResolvedValue({
+        ok: true,
+        json: {
+          items: [
+            {
+              summary: 'Session',
+              start: { dateTime: CREATE.startsAt },
+              end: { dateTime: CREATE.endsAt },
+              ...event,
+            },
+          ],
+        },
+      });
+      return built;
+    }
+
+    it('marks the protected master', async () => {
+      const { controller } = listWith({ id: PROTECTED_ID });
+
+      const { sessions } = await controller.list({ daysAhead: 60 });
+
+      expect(sessions[0].isProtectedMaster).toBe(true);
+      expect(sessions[0].inProtectedSeries).toBe(true);
+    });
+
+    it('marks an expanded INSTANCE as in-series but editable', async () => {
+      const { controller } = listWith({
+        id: `${PROTECTED_ID}_20260805T140000Z`,
+        recurringEventId: PROTECTED_ID,
+      });
+
+      const { sessions } = await controller.list({ daysAhead: 60 });
+
+      // Not the master, so PATCH is accepted — "move next week's session".
+      expect(sessions[0].isProtectedMaster).toBe(false);
+      expect(sessions[0].inProtectedSeries).toBe(true);
+    });
+
+    it('leaves an admin-created repeat completely unprotected', async () => {
+      const { controller } = listWith({
+        id: 'evt_weekly_standup',
+        recurringEventId: 'some_other_master',
+      });
+
+      const { sessions } = await controller.list({ daysAhead: 60 });
+
+      expect(sessions[0].recurring).toBe(true);
+      expect(sessions[0].isProtectedMaster).toBe(false);
+      expect(sessions[0].inProtectedSeries).toBe(false);
+    });
+
+    it("covers a COHORT's series, not just the env-var one", async () => {
+      const built = build({
+        protectedId: undefined,
+        cohortEventIds: ['evt_arabic_master'],
+      });
+      built.calendar.listEvents.mockResolvedValue({
+        ok: true,
+        json: {
+          items: [
+            {
+              id: 'evt_arabic_master_20260805',
+              recurringEventId: 'evt_arabic_master',
+              summary: 'Arabic cohort session',
+              start: { dateTime: CREATE.startsAt },
+              end: { dateTime: CREATE.endsAt },
+            },
+          ],
+        },
+      });
+
+      const { sessions } = await built.controller.list({ daysAhead: 60 });
+
+      expect(sessions[0].inProtectedSeries).toBe(true);
+    });
+  });
+
   describe('list', () => {
     it.each([
       [true, true],

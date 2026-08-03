@@ -91,10 +91,10 @@ ptah-session-calendar {
 }
 
 /*
- * The recurring master cannot be dragged (the server answers 409
- * `protected_recurring_event`), so it must not offer a drag affordance. On the
- * read-only member grid nothing is draggable anyway, and this is a no-op.
+ * `.ptah-fc-event--series` is presentation only — it marks an event as part of
+ * a recurring series so it reads consistently with the "series" badge in the
+ * admin table. It deliberately carries NO cursor override: being in a series
+ * does not mean being immovable, and a `cursor: default` here made perfectly
+ * draggable repeats look frozen. FullCalendar sets the grab cursor from the
+ * per-event `editable` flag, which is the actual permission.
  */
-.ptah-fc .ptah-fc-event--series {
-  cursor: default;
-}

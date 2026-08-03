@@ -141,6 +141,22 @@ export class SessionsList {
     () => this.loaded() && !this.calendarWritable(),
   );
 
+  /**
+   * Sessions with the grid's per-event drag permission attached.
+   *
+   * `SessionCalendar` is shared with the members' area and knows nothing about
+   * provisioning-owned series, so the permission is supplied here rather than
+   * inferred there from `recurring`. Only the master itself refuses a PATCH;
+   * every instance — including instances OF the protected series — is movable,
+   * which is what "reschedule next week's session" requires.
+   */
+  protected readonly calendarSessions = computed<AdminSession[]>(() =>
+    this.sessions().map((session) => ({
+      ...session,
+      editable: !session.isProtectedMaster,
+    })),
+  );
+
   public constructor() {
     this.fetch();
     this.fetchTemplates();

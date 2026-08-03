@@ -55,6 +55,28 @@ export interface AdminSession extends BuildersSession {
    * onto the member-facing response.
    */
   attendees: SessionAttendee[];
+
+  /**
+   * This event IS a provisioning-owned master series (its own id is in the
+   * protected set). PATCH is refused with 409 — rewriting the master rewrites
+   * every occurrence, including the standing invite the fan-out maintains.
+   *
+   * ⚠️ NOT THE SAME AS `recurring`, and the difference is the whole point of
+   * these two fields. `recurring` is true for EVERY instance of EVERY series,
+   * including one-off admin-created repeats the server is perfectly happy to
+   * edit. Gating the UI on `recurring` locked those out of their own controls.
+   */
+  isProtectedMaster: boolean;
+
+  /**
+   * This event is, or belongs to, a provisioning-owned series. DELETE and the
+   * invitations route are refused with 409, because member provisioning
+   * maintains that series' attendee list.
+   *
+   * Implied by {@link isProtectedMaster}; also true for an expanded INSTANCE of
+   * a protected master, whose own id differs from the master's.
+   */
+  inProtectedSeries: boolean;
 }
 
 /**

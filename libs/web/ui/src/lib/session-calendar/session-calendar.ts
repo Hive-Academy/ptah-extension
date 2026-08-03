@@ -53,6 +53,16 @@ export interface CalendarSession {
   endsAt: string;
   meetLink: string | null;
   recurring: boolean;
+  /**
+   * Whether THIS event may be dragged on a writable grid. Omitted means yes.
+   *
+   * Deliberately supplied by the host rather than inferred from `recurring`
+   * here: "part of a series" and "the server will refuse to move it" are
+   * different facts, and only the host knows which of its events are the
+   * provisioning-owned ones. Inferring it locked ordinary admin-created
+   * repeats in place for no reason.
+   */
+  editable?: boolean;
 }
 
 /** A time range picked on the grid, ready for a create form. */
@@ -230,12 +240,14 @@ export class SessionCalendar<T extends CalendarSession = CalendarSession> {
       title: session.title,
       start: session.startsAt,
       end: session.endsAt,
-      editable: this.writable() && !session.recurring,
+      editable: this.writable() && (session.editable ?? true),
       className: session.recurring
         ? 'ptah-fc-event ptah-fc-event--series'
         : 'ptah-fc-event',
-      // The immovable series reads as `info` for the same reason its admin
-      // table row wears an info badge — one colour, one meaning, everywhere.
+      // Series events read as `info` for the same reason their admin table row
+      // wears an info badge — one colour, one meaning, everywhere. This tracks
+      // `recurring`, which is presentation; `editable` above is permission, and
+      // the two are deliberately not the same signal.
       ...(session.recurring
         ? {
             color: 'var(--ptah-fc-series)',

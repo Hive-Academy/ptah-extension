@@ -86,8 +86,22 @@ describe('SessionCalendar', () => {
       expect(event.durationEditable).toBe(true);
     });
 
-    it('pins the recurring master in place — the server refuses to move it', () => {
+    /**
+     * ⚠️ Permission comes from the host, not from `recurring`. This component
+     * is shared and knows nothing about which series a server protects; it
+     * previously inferred "recurring means immovable", which froze every
+     * ordinary repeat an admin created.
+     */
+    it('keeps a recurring event draggable unless the host says otherwise', () => {
       create([session({ recurring: true })], true);
+
+      const event = api().getEvents()[0];
+      expect(event.startEditable).toBe(true);
+      expect(event.durationEditable).toBe(true);
+    });
+
+    it('pins an event the host marked non-editable', () => {
+      create([session({ recurring: true, editable: false })], true);
 
       const event = api().getEvents()[0];
       expect(event.startEditable).toBe(false);

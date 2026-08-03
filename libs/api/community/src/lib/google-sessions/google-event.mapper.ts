@@ -78,15 +78,24 @@ export function toBuildersSession(
  */
 export function toAdminSession(
   event: GoogleCalendarEvent,
+  protectedEventIds: ReadonlySet<string> = new Set(),
 ): AdminSession | null {
   const base = toBuildersSession(event);
   if (!base) {
     return null;
   }
+  // Computed from the SAME set the service's 409 guards consult, so the client
+  // is told exactly what the server will accept. Deriving it client-side from
+  // `recurring` is what previously disabled Edit and Delete on every event in
+  // any series — including admin-created repeats nothing depends on.
+  const isProtectedMaster = protectedEventIds.has(event.id ?? '');
   return {
     ...base,
     description: event.description ?? null,
     attendees: toSessionAttendees(event),
+    isProtectedMaster,
+    inProtectedSeries:
+      isProtectedMaster || protectedEventIds.has(event.recurringEventId ?? ''),
   };
 }
 

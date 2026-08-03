@@ -40,6 +40,8 @@ function session(overrides: Partial<AdminSession> = {}): AdminSession {
     recurring: false,
     description: null,
     attendees: [],
+    isProtectedMaster: false,
+    inProtectedSeries: false,
     ...overrides,
   };
 }
@@ -196,13 +198,78 @@ describe('SessionsList', () => {
     });
   });
 
-  describe('recurring-row disabling', () => {
-    it('disables Edit and Delete on a recurring row even when the calendar is writable', () => {
+  /**
+   * ⚠️ BEING IN A SERIES IS NOT A PERMISSION. These previously gated on
+   * `recurring`, which disabled Edit and Delete on every event in any series —
+   * including ordinary repeats an admin created themselves. The server only
+   * ever refused the provisioning-owned one, so the UI was locking an admin out
+   * of requests that would have succeeded.
+   */
+  describe('protected-series gating', () => {
+    it('leaves an ordinary recurring row fully actionable', () => {
       api.listSessions.mockReturnValue(
         of(
           response({
             calendarWritable: true,
-            sessions: [session({ recurring: true })],
+            // A weekly meeting the admin set up. Recurring, but nothing
+            // depends on it, and the server will happily edit or delete it.
+            sessions: [
+              session({
+                recurring: true,
+                isProtectedMaster: false,
+                inProtectedSeries: false,
+              }),
+            ],
+          }),
+        ),
+      );
+      createComponent();
+      showTable();
+
+      const row = rows()[0];
+      expect(findButton(row, 'Edit').disabled).toBe(false);
+      expect(findButton(row, 'Delete').disabled).toBe(false);
+      // Still badged as a series — presentation, not permission.
+      expect(row.textContent).toContain('series');
+    });
+
+    it('allows editing an INSTANCE of the protected series but not deleting it', () => {
+      api.listSessions.mockReturnValue(
+        of(
+          response({
+            calendarWritable: true,
+            sessions: [
+              session({
+                recurring: true,
+                isProtectedMaster: false,
+                inProtectedSeries: true,
+              }),
+            ],
+          }),
+        ),
+      );
+      createComponent();
+      showTable();
+
+      const row = rows()[0];
+      // Moving one occurrence is normal and the server accepts it; deleting
+      // would reach the series member provisioning depends on.
+      expect(findButton(row, 'Edit').disabled).toBe(false);
+      expect(findButton(row, 'Delete').disabled).toBe(true);
+    });
+
+    it('locks the protected master itself out of both', () => {
+      api.listSessions.mockReturnValue(
+        of(
+          response({
+            calendarWritable: true,
+            sessions: [
+              session({
+                recurring: true,
+                isProtectedMaster: true,
+                inProtectedSeries: true,
+              }),
+            ],
           }),
         ),
       );
@@ -212,7 +279,7 @@ describe('SessionsList', () => {
       const row = rows()[0];
       expect(findButton(row, 'Edit').disabled).toBe(true);
       expect(findButton(row, 'Delete').disabled).toBe(true);
-      expect(row.textContent).toContain('series');
+      expect(row.textContent).toContain('provisioning maintains');
     });
 
     it('leaves a non-recurring row fully actionable', () => {
@@ -396,7 +463,25 @@ describe('SessionsList', () => {
       ).toEqual(expect.arrayContaining(['Edit', 'Delete', 'Close']));
     });
 
-    it('offers no mutation on the recurring series and says why', () => {
+    it('offers no mutation on the protected series and says why', () => {
+      api.listSessions.mockReturnValue(
+        of(response({ calendarWritable: true, sessions: [session()] })),
+      );
+      createComponent();
+
+      calendar().sessionSelected.emit(
+        session({ recurring: true, inProtectedSeries: true }),
+      );
+      fixture.detectChanges();
+
+      const dialog = detailsDialog() as Element;
+      const labels = buttonsIn(dialog).map((b) => b.textContent?.trim());
+      expect(labels).not.toContain('Edit');
+      expect(labels).not.toContain('Delete');
+      expect(dialog.textContent).toContain('provisioning maintains');
+    });
+
+    it('still offers Edit and Delete on an ordinary recurring event', () => {
       api.listSessions.mockReturnValue(
         of(response({ calendarWritable: true, sessions: [session()] })),
       );
@@ -405,11 +490,10 @@ describe('SessionsList', () => {
       calendar().sessionSelected.emit(session({ recurring: true }));
       fixture.detectChanges();
 
-      const dialog = detailsDialog() as Element;
-      const labels = buttonsIn(dialog).map((b) => b.textContent?.trim());
-      expect(labels).not.toContain('Edit');
-      expect(labels).not.toContain('Delete');
-      expect(dialog.textContent).toContain('Recurring series');
+      const labels = buttonsIn(detailsDialog() as Element).map((b) =>
+        b.textContent?.trim(),
+      );
+      expect(labels).toEqual(expect.arrayContaining(['Edit', 'Delete']));
     });
 
     it('deletes from the dialog only after confirmation, then closes', () => {
@@ -586,10 +670,11 @@ describe('SessionsList', () => {
       expect(detailsDialog()?.textContent).toContain('Nobody is invited yet');
     });
 
-    it('offers nothing to send on the protected recurring series', () => {
+    it('offers nothing to send on the protected series', () => {
       openDetails(
         session({
           recurring: true,
+          inProtectedSeries: true,
           attendees: [{ email: 'a@example.com', responseStatus: null }],
         }),
       );

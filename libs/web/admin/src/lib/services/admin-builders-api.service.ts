@@ -215,6 +215,20 @@ const adminSessionSchema = z.object({
       responseStatus: z.string().nullable(),
     }),
   ),
+  /**
+   * ⚠️ THESE, NOT `recurring`, DECIDE WHAT THE UI OFFERS.
+   *
+   * The server computes them from the same protected-id set its 409 guards
+   * consult, so a control is shown exactly when the request behind it will be
+   * accepted. `recurring` is true for EVERY instance of EVERY series — gating
+   * on it locked an admin out of editing ordinary repeats they created
+   * themselves and nothing depends on.
+   *
+   * `isProtectedMaster` blocks PATCH; `inProtectedSeries` blocks DELETE and
+   * invitations, and is implied by the former.
+   */
+  isProtectedMaster: z.boolean(),
+  inProtectedSeries: z.boolean(),
 });
 export type SessionAttendee = AdminSession['attendees'][number];
 export type AdminSession = z.infer<typeof adminSessionSchema>;

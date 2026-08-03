@@ -115,7 +115,7 @@
     }
 
     <ptah-session-calendar
-      [sessions]="sessions()"
+      [sessions]="calendarSessions()"
       [writable]="calendarWritable()"
       [loading]="loading()"
       (sessionSelected)="onSessionSelected($event)"
@@ -128,9 +128,9 @@
       <p class="text-xs opacity-60">
         Drag a session type onto a slot to schedule it, drag an event to
         reschedule, or drag its edge to change the duration. Editing never
-        emails anyone — use “Send invitations” on an event for that. The
-        recurring series is fixed: member provisioning maintains its attendee
-        list.
+        emails anyone unless you tick “Notify guests”. Only the series member
+        provisioning depends on is fixed — everything else, including your own
+        repeats, is yours to move.
       </p>
     }
   } @else if (loading() && sessions().length === 0) {
@@ -171,10 +171,10 @@
                     />
                   }
                 </div>
-                @if (s.recurring) {
+                @if (s.inProtectedSeries) {
                   <div class="text-xs opacity-60">
-                    Recurring series — member provisioning maintains its
-                    attendee list. Manage it in Google Calendar.
+                    Member provisioning maintains this series' attendee list, so
+                    it cannot be deleted here. Manage it in Google Calendar.
                   </div>
                 }
               </td>
@@ -227,10 +227,10 @@
                       <button
                         type="button"
                         class="btn btn-ghost btn-xs"
-                        [disabled]="s.recurring"
+                        [disabled]="s.isProtectedMaster"
                         [attr.title]="
-                          s.recurring
-                            ? 'Edit the recurring series in Google Calendar'
+                          s.isProtectedMaster
+                            ? 'This is the master series member provisioning depends on — edit it in Google Calendar'
                             : null
                         "
                         (click)="openEdit(s)"
@@ -240,10 +240,10 @@
                       <button
                         type="button"
                         class="btn btn-ghost btn-xs text-error"
-                        [disabled]="s.recurring"
+                        [disabled]="s.inProtectedSeries"
                         [attr.title]="
-                          s.recurring
-                            ? 'The recurring series cannot be deleted here — member provisioning depends on it'
+                          s.inProtectedSeries
+                            ? 'Part of the series member provisioning depends on — delete it in Google Calendar'
                             : null
                         "
                         (click)="requestDelete(s)"
@@ -295,11 +295,10 @@
         </p>
       }
 
-      @if (sel.recurring) {
+      @if (sel.inProtectedSeries) {
         <p class="mt-3 text-xs opacity-60">
-          Recurring series — member provisioning maintains its attendee list, so
-          it cannot be moved, edited, deleted, or invited from here. Manage it
-          in Google Calendar.
+          Member provisioning maintains this series' attendee list, so it cannot
+          be deleted or invited from here. Manage it in Google Calendar.
         </p>
       }
 
@@ -358,7 +357,7 @@
           </a>
         }
 
-        @if (calendarWritable() && !sel.recurring) {
+        @if (calendarWritable() && !sel.inProtectedSeries) {
           @if (pendingInviteId() === sel.id) {
             <button
               type="button"
