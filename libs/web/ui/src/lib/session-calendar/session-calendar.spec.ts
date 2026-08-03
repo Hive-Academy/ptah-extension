@@ -271,6 +271,33 @@ describe('SessionCalendar', () => {
     expect(range.start.getTime()).toBeLessThanOrEqual(Date.now());
   });
 
+  it('opens the window at midnight, so today is reachable all day', () => {
+    create([], true);
+
+    // Anchoring at "now" would make every already-elapsed hour of today
+    // unreachable — the admin could not click this morning's slot this
+    // afternoon. `spanDays === 365` holds either way, which is why this needs
+    // its own assertion; a mutation audit found the gap.
+    const range = api().getOption('validRange') as { start: Date; end: Date };
+    expect(range.start.getHours()).toBe(0);
+    expect(range.start.getMinutes()).toBe(0);
+    expect(range.start.getSeconds()).toBe(0);
+  });
+
+  it('rounds a partial day up, so the final day is still fetched', () => {
+    create([], true);
+    const emitted: number[] = [];
+    fixture.componentInstance.windowRequested.subscribe((d) => emitted.push(d));
+
+    option('datesSet')({
+      end: new Date(Date.now() + 45.5 * 86_400_000),
+    } as unknown as DatesSetInfo);
+
+    // Flooring would ask for 45 days and silently drop the events in the
+    // half-day the view is actually showing.
+    expect(emitted.at(-1)).toBe(46);
+  });
+
   /**
    * ⚠️ The member surface renders this same component with `writable=false`.
    * These pin that the read-only mode removes every mutation affordance

@@ -65,15 +65,47 @@ describe('session-templates', () => {
     it('survives a cohort being added, removed, or reordered', () => {
       // Hashed rather than index-based: an index would reshuffle every chip the
       // moment the list changed, and the admin would have to relearn it.
-      const before = toSessionTemplates([cohort({ key: 'b' })]);
+      //
+      // ⚠️ Uses MULTI-CHARACTER, SAME-LENGTH keys deliberately. An earlier
+      // version compared single letters, which a degenerate hash (`key.length`)
+      // maps to one colour — so the assertion held while the property it names
+      // was gone. A mutation audit caught it.
+      const before = toSessionTemplates([cohort({ key: 'builders' })]);
       const after = toSessionTemplates([
-        cohort({ key: 'a' }),
-        cohort({ key: 'b' }),
-        cohort({ key: 'c' }),
+        cohort({ key: 'founding' }),
+        cohort({ key: 'builders' }),
+        cohort({ key: 'alumni77' }),
       ]);
 
-      const movedChip = after.find((t) => t.id === 'b');
+      const movedChip = after.find((t) => t.id === 'builders');
       expect(movedChip?.color).toBe(before[0].color);
+    });
+
+    it('gives different cohorts different colours', () => {
+      // Without this, "stable per key" is satisfied by returning one constant
+      // for everything — every chip identical and the colour carrying no
+      // information at all.
+      const colors = toSessionTemplates([
+        cohort({ key: 'founding' }),
+        cohort({ key: 'builders' }),
+        cohort({ key: 'alumni77' }),
+        cohort({ key: 'partners' }),
+      ]).map((t) => t.color);
+
+      expect(new Set(colors).size).toBeGreaterThan(1);
+    });
+
+    it('distinguishes keys of identical length', () => {
+      // A length-based hash would collide every one of these.
+      const colors = toSessionTemplates([
+        cohort({ key: 'aaaa' }),
+        cohort({ key: 'bbbb' }),
+        cohort({ key: 'cccc' }),
+        cohort({ key: 'dddd' }),
+        cohort({ key: 'eeee' }),
+      ]).map((t) => t.color);
+
+      expect(new Set(colors).size).toBeGreaterThan(1);
     });
 
     it('never emits the brand amber or the info blue', () => {

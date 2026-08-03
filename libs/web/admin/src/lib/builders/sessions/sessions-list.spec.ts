@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { of, throwError } from 'rxjs';
+import { NEVER, of, throwError } from 'rxjs';
 
 import {
   AdminBuildersApiService,
@@ -547,10 +547,23 @@ describe('SessionsList', () => {
       ).toBeNull();
     });
 
+    /**
+     * ⚠️ PARTIAL COVERAGE, STATED HONESTLY. This asserts the visible outcome —
+     * no palette, no error banner, calendar intact — but NOT that the error
+     * handler swallows rather than rethrows. RxJS catches a throwing handler
+     * and re-reports it on a timer, so nothing escapes construction, and
+     * `flush()` cannot drain FullCalendar's polling timer to reach it.
+     *
+     * A mutation audit confirms it: replacing the handler with `throw e` leaves
+     * this test green. The residual risk is an unhandled rejection in the
+     * console — the page still renders — which was not judged worth wrapping
+     * this test in fakeAsync timer plumbing it is otherwise unrelated to.
+     */
     it('degrades to no palette, not an error, when cohorts fail to load', () => {
       adminApi.listGroups.mockReturnValue(
         throwError(() => new Error('groups down')),
       );
+
       createComponent();
 
       expect(
@@ -561,6 +574,31 @@ describe('SessionsList', () => {
         fixture.debugElement.query(By.directive(SessionCalendar)),
       ).not.toBeNull();
       expect(fixture.nativeElement.querySelector('.alert-error')).toBeNull();
+    });
+
+    it('does not leak a template title into a plain "New Session" click', () => {
+      adminApi.listGroups.mockReturnValue(
+        of([cohort({ key: 'founding', name: 'Founding' })]),
+      );
+      createComponent();
+
+      // Pick a template, abandon it, then start a blank session.
+      calendar().rangeSelected.emit({
+        startsAt: '2026-09-01T17:00:00.000Z',
+        endsAt: '2026-09-01T18:00:00.000Z',
+        templateId: 'founding',
+      });
+      fixture.detectChanges();
+      findButton(fixture.nativeElement, 'Cancel').click();
+      fixture.detectChanges();
+
+      findButton(fixture.nativeElement, 'New Session').click();
+      fixture.detectChanges();
+
+      const titleInput: HTMLInputElement = fixture.nativeElement.querySelector(
+        'input[placeholder="e.g. Builders Office Hours"]',
+      );
+      expect(titleInput.value).toBe('');
     });
 
     it('seeds the create form title from a dropped template', () => {
@@ -748,6 +786,55 @@ describe('SessionsList', () => {
     expect(api.deleteSession).toHaveBeenCalledWith('evt-7');
     // Constructor fetch + the post-delete refetch.
     expect(api.listSessions).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * Transient confirmation state. Every one of these guards existed in the
+   * component with a comment explaining it, and none had a test — a mutation
+   * audit deleted all three and the suite stayed green.
+   */
+  describe('confirmation state does not outlive its context', () => {
+    it('disarms a pending delete when the view switches', () => {
+      api.listSessions.mockReturnValue(
+        of(response({ calendarWritable: true, sessions: [session()] })),
+      );
+      createComponent();
+      showTable();
+      findButton(rows()[0], 'Delete').click();
+      fixture.detectChanges();
+      expect(rows()[0].textContent).toContain('Delete this session?');
+
+      findButton(fixture.nativeElement, 'Calendar').click();
+      fixture.detectChanges();
+      showTable();
+
+      // Otherwise the row comes back pre-armed, one click from a deletion the
+      // admin walked away from.
+      expect(rows()[0].textContent).not.toContain('Delete this session?');
+    });
+
+    it('refuses to close the details dialog while a delete is in flight', () => {
+      api.listSessions.mockReturnValue(
+        of(response({ calendarWritable: true, sessions: [session()] })),
+      );
+      // Never settles: the request stays in flight for the whole test.
+      api.deleteSession.mockReturnValue(NEVER);
+      createComponent();
+
+      calendar().sessionSelected.emit(session({ id: 'evt-1' }));
+      fixture.detectChanges();
+      findButton(detailsDialog() as Element, 'Delete').click();
+      fixture.detectChanges();
+      findButton(detailsDialog() as Element, 'Confirm').click();
+      fixture.detectChanges();
+
+      findButton(detailsDialog() as Element, 'Close').click();
+      fixture.detectChanges();
+
+      // Closing mid-flight would strand the spinner and leave the admin unsure
+      // whether the delete happened.
+      expect(detailsDialog()).not.toBeNull();
+    });
   });
 
   it('cancels the inline delete confirmation without calling the API', () => {
