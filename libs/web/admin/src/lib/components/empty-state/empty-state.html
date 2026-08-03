@@ -1,12 +1,12 @@
 <div class="flex flex-col items-center justify-center gap-3 py-12 text-center">
   <lucide-angular
     [img]="icon()"
-    class="h-10 w-10 text-ink-500"
+    class="h-10 w-10 text-base-content/40"
     aria-hidden="true"
   />
-  <p class="text-sm text-ink-400">{{ message() }}</p>
+  <p class="text-sm text-base-content/60">{{ message() }}</p>
   @if (hint(); as h) {
-    <p class="max-w-sm text-xs text-ink-500">{{ h }}</p>
+    <p class="max-w-sm text-xs text-base-content/40">{{ h }}</p>
   }
   <div class="mt-1 empty:hidden">
     <ng-content />

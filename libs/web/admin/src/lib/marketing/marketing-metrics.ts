@@ -93,13 +93,13 @@ const TONE_TEXT_CLASS: Record<RateTone, string> = {
   success: 'text-success',
   warning: 'text-warning',
   error: 'text-error',
-  neutral: 'text-ink-500',
+  neutral: 'text-base-content/40',
 };
 
 /**
  * Tailwind text-colour class for a rate (%) under its §3.7 band. Applied to the
  * inline rate readout, not a full badge — these are continuous metrics, not
- * enum states. `null` rates resolve to the muted `text-ink-500`.
+ * enum states. `null` rates resolve to the muted `text-base-content/40`.
  */
 export function rateColorClass(
   rate: number | null,

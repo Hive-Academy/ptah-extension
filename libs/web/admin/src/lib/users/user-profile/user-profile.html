@@ -1,7 +1,7 @@
 <section class="flex flex-col gap-4">
   <button
     type="button"
-    class="btn btn-ghost btn-sm w-fit gap-1 px-2 text-ink-400"
+    class="btn btn-ghost btn-sm w-fit gap-1 px-2 text-base-content/60"
     (click)="back()"
   >
     <lucide-angular [img]="ArrowLeftIcon" class="h-4 w-4" aria-hidden="true" />
@@ -23,7 +23,7 @@
     <div class="rounded-xl border border-base-300 bg-base-200 p-5">
       <div class="flex items-start gap-4">
         <div
-          class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-lg font-semibold text-amber-400"
+          class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg font-semibold text-accent"
           aria-hidden="true"
         >
           {{ initials() }}
@@ -37,9 +37,9 @@
               size="sm"
             />
           </div>
-          <p class="truncate text-sm text-ink-400">{{ u.email }}</p>
+          <p class="truncate text-sm text-base-content/60">{{ u.email }}</p>
 
-          <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 font-mono text-xs text-ink-400 sm:grid-cols-2">
+          <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 font-mono text-xs text-base-content/60 sm:grid-cols-2">
             <div class="flex justify-between gap-2">
               <dt>WorkOS ID</dt>
               <dd class="truncate">{{ asString(u.workosId) }}</dd>
@@ -65,7 +65,7 @@
     @if (entitlement(); as ent) {
       <div class="rounded-xl border border-base-300 bg-base-200 p-5">
         <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-400">
+          <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
             Billing &amp; Entitlement
           </h3>
           <button
@@ -88,11 +88,11 @@
                 size="sm"
               />
             </div>
-            <span class="text-ink-500" aria-hidden="true">·</span>
+            <span class="text-base-content/40" aria-hidden="true">·</span>
             <span
               class="text-sm"
               [class.text-warning]="ent.expiringSoon"
-              [class.text-ink-300]="!ent.expiringSoon"
+              [class.text-base-content/80]="!ent.expiringSoon"
             >
               {{
                 lic.expiresAt
@@ -102,13 +102,13 @@
               }}
             </span>
           } @else {
-            <span class="text-lg font-semibold text-ink-400">No active license</span>
+            <span class="text-lg font-semibold text-base-content/60">No active license</span>
           }
 
-          <span class="text-ink-500" aria-hidden="true">·</span>
+          <span class="text-base-content/40" aria-hidden="true">·</span>
 
           @if (ent.liveSubscription; as sub) {
-            <span class="flex items-center gap-2 text-sm text-ink-300">
+            <span class="flex items-center gap-2 text-sm text-base-content/80">
               Paid by Paddle
               <ptah-admin-status-badge
                 [badgeMap]="subStatusMap"
@@ -118,7 +118,7 @@
               <span class="font-mono text-xs">{{ sub.paddleSubscriptionId }}</span>
             </span>
           } @else {
-            <span class="text-sm text-ink-400">No live Paddle subscription</span>
+            <span class="text-sm text-base-content/60">No live Paddle subscription</span>
           }
         </div>
 
@@ -143,17 +143,17 @@
             <div class="mb-2 flex items-center justify-between">
               <span class="text-sm font-medium">
                 Licenses
-                <span class="text-ink-500">({{ licenses().length }})</span>
+                <span class="text-base-content/40">({{ licenses().length }})</span>
               </span>
             </div>
 
             @if (licenses().length === 0) {
-              <p class="text-xs text-ink-500">No licenses issued to this user.</p>
+              <p class="text-xs text-base-content/40">No licenses issued to this user.</p>
             } @else {
               <div class="overflow-x-auto rounded-lg border border-base-300">
                 <table class="table table-xs">
                   <thead>
-                    <tr class="text-[0.65rem] uppercase tracking-wide text-ink-400">
+                    <tr class="text-[0.65rem] uppercase tracking-wide text-base-content/60">
                       <th>Plan</th>
                       <th>Status</th>
                       <th>Source</th>
@@ -167,7 +167,7 @@
                         <td>
                           <div class="flex flex-col">
                             <span class="capitalize">{{ lic.plan }}</span>
-                            <span class="font-mono text-[0.6rem] text-ink-500">
+                            <span class="font-mono text-[0.6rem] text-base-content/40">
                               {{ lic.licenseKey }}
                             </span>
                           </div>
@@ -189,7 +189,7 @@
                         <td
                           class="text-xs"
                           [class.text-warning]="isExpiringSoon(lic)"
-                          [class.text-ink-400]="!isExpiringSoon(lic)"
+                          [class.text-base-content/60]="!isExpiringSoon(lic)"
                         >
                           {{
                             lic.expiresAt
@@ -206,7 +206,7 @@
                           } @else {
                             <span
                               [class.text-error]="lic.source === 'paddle'"
-                              [class.text-ink-500]="lic.source !== 'paddle'"
+                              [class.text-base-content/40]="lic.source !== 'paddle'"
                             >
                               {{ unlinkedReason(lic) }}
                             </span>
@@ -225,20 +225,20 @@
             <div class="mb-2 flex items-center justify-between">
               <span class="text-sm font-medium">
                 Paddle subscriptions
-                <span class="text-ink-500">({{ subscriptions().length }})</span>
+                <span class="text-base-content/40">({{ subscriptions().length }})</span>
               </span>
               <span class="badge badge-ghost badge-xs">read-only</span>
             </div>
 
             @if (subscriptions().length === 0) {
-              <p class="text-xs text-ink-500">
+              <p class="text-xs text-base-content/40">
                 No Paddle subscription records for this user.
               </p>
             } @else {
               <div class="overflow-x-auto rounded-lg border border-base-300">
                 <table class="table table-xs">
                   <thead>
-                    <tr class="text-[0.65rem] uppercase tracking-wide text-ink-400">
+                    <tr class="text-[0.65rem] uppercase tracking-wide text-base-content/60">
                       <th>Subscription</th>
                       <th>Status</th>
                       <th>Price</th>
@@ -254,7 +254,7 @@
                             <span class="font-mono text-[0.65rem]">
                               {{ sub.paddleSubscriptionId }}
                             </span>
-                            <span class="font-mono text-[0.6rem] text-ink-500">
+                            <span class="font-mono text-[0.6rem] text-base-content/40">
                               {{ sub.paddleCustomerId }}
                             </span>
                           </div>
@@ -267,14 +267,14 @@
                           />
                         </td>
                         <td class="font-mono text-[0.65rem]">{{ sub.priceId }}</td>
-                        <td class="text-xs text-ink-400">
+                        <td class="text-xs text-base-content/60">
                           {{
                             sub.currentPeriodEnd
                               ? (sub.currentPeriodEnd | date: 'mediumDate')
                               : '—'
                           }}
                         </td>
-                        <td class="text-xs text-ink-400">
+                        <td class="text-xs text-base-content/60">
                           {{
                             sub.trialEnd ? (sub.trialEnd | date: 'mediumDate') : '—'
                           }}
@@ -313,7 +313,7 @@
         }
         @default {
           @if (sessions().rows.length === 0) {
-            <p class="text-xs text-ink-500">No session requests for this user.</p>
+            <p class="text-xs text-base-content/40">No session requests for this user.</p>
           } @else {
             <ul class="flex flex-col gap-1.5 text-sm">
               @for (ses of sessions().rows; track $index) {
@@ -334,7 +334,7 @@
 
     <!-- 4. Danger zone -->
     <div class="rounded-xl border border-error/20 bg-base-200 p-5">
-      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-400">
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
         Danger zone
       </h3>
 
@@ -346,7 +346,7 @@
         >
           Delete User
         </button>
-        <p class="mt-2 text-xs text-ink-500">
+        <p class="mt-2 text-xs text-base-content/40">
           Permanently removes the user and cascades their records. This cannot be undone.
         </p>
       </div>

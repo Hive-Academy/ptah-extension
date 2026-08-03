@@ -18,7 +18,7 @@
                 <div class="min-w-0">
                   <div class="truncate text-sm font-medium">{{ r.email }}</div>
                   @if (r.name) {
-                    <div class="truncate text-xs text-ink-400">{{ r.name }}</div>
+                    <div class="truncate text-xs text-base-content/60">{{ r.name }}</div>
                   }
                 </div>
                 <button type="button" class="btn btn-ghost btn-xs" (click)="clearRecipient()">Change</button>
@@ -40,14 +40,14 @@
                       <button type="button" class="flex flex-col items-start gap-0" (click)="selectRecipient(opt)">
                         <span class="truncate text-sm">{{ opt.email }}</span>
                         @if (opt.name) {
-                          <span class="truncate text-xs text-ink-400">{{ opt.name }}</span>
+                          <span class="truncate text-xs text-base-content/60">{{ opt.name }}</span>
                         }
                       </button>
                     </li>
                   }
                 </ul>
               } @else if (recipientQuery().trim().length >= 2) {
-                <p class="mt-1 text-xs text-ink-500">No matching users.</p>
+                <p class="mt-1 text-xs text-base-content/40">No matching users.</p>
               }
             }
           </div>

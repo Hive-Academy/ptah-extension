@@ -57,7 +57,7 @@ export class WaitlistFunnel {
         count: total,
         widthPct: total > 0 ? 100 : 0,
         ratioPct: null,
-        fillClass: 'bg-ink-600',
+        fillClass: 'bg-base-content/20',
       },
       {
         label: 'Notified',

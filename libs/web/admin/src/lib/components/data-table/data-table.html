@@ -15,7 +15,7 @@
         }
         @for (col of listColumns(); track col.key; let first = $first) {
           <th
-            class="cursor-pointer select-none whitespace-nowrap text-xs font-medium uppercase tracking-wide text-ink-400 hover:bg-base-200"
+            class="cursor-pointer select-none whitespace-nowrap text-xs font-medium uppercase tracking-wide text-base-content/60 hover:bg-base-200"
             [class.sticky]="first && !selectable()"
             [class.left-0]="first && !selectable()"
             [class.z-10]="first && !selectable()"

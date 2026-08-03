@@ -93,13 +93,13 @@
               [attr.aria-expanded]="!isCollapsed(group.label)"
             >
               <span
-                class="flex-1 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-500"
+                class="flex-1 text-left text-[11px] font-semibold uppercase tracking-wider text-base-content/40"
               >
                 {{ group.label }}
               </span>
               <lucide-angular
                 [img]="ChevronDownIcon"
-                class="h-3.5 w-3.5 shrink-0 text-ink-600 transition-transform"
+                class="h-3.5 w-3.5 shrink-0 text-base-content/20 transition-transform"
                 [class.-rotate-90]="isCollapsed(group.label)"
                 aria-hidden="true"
               />
@@ -123,8 +123,8 @@
 </div>
 
 <!--
-  Shared nav link. Inactive links are calm (ink-300/ink-400); ONLY the active
-  route gets the amber highlight, so the current page is unambiguous. Primary
+  Shared nav link. Inactive links are calm (base-content/80 and /60); ONLY the
+  active route gets the primary highlight, so the current page is unambiguous. Primary
   (or flat) items carry an icon + left rail; secondary items are indented.
 -->
 <ng-template #navLink let-item="item" let-forcePrimary="forcePrimary">
@@ -134,7 +134,7 @@
         [routerLink]="item.route"
         [routerLinkActive]="primaryActiveClass"
         [routerLinkActiveOptions]="{ exact: !!item.exact }"
-        class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-normal text-ink-300 transition-colors hover:bg-base-300 hover:text-ink-100"
+        class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-normal text-base-content/80 transition-colors hover:bg-base-300 hover:text-base-content"
       >
         @if (item.icon) {
           <lucide-angular
@@ -146,7 +146,7 @@
         <span class="flex-1">{{ item.label }}</span>
         @if (item.readOnly) {
           <span
-            class="badge badge-ghost badge-xs text-ink-500"
+            class="badge badge-ghost badge-xs text-base-content/40"
             title="Read-only"
           >
             ro
@@ -160,12 +160,12 @@
         [routerLink]="item.route"
         [routerLinkActive]="secondaryActiveClass"
         [routerLinkActiveOptions]="{ exact: !!item.exact }"
-        class="flex items-center justify-between rounded-md py-1.5 pl-8 pr-2.5 text-[13px] font-normal text-ink-400 transition-colors hover:bg-base-300 hover:text-ink-200"
+        class="flex items-center justify-between rounded-md py-1.5 pl-8 pr-2.5 text-[13px] font-normal text-base-content/60 transition-colors hover:bg-base-300 hover:text-base-content/80"
       >
         <span>{{ item.label }}</span>
         @if (item.readOnly) {
           <span
-            class="badge badge-ghost badge-xs text-ink-500"
+            class="badge badge-ghost badge-xs text-base-content/40"
             title="Read-only"
           >
             ro

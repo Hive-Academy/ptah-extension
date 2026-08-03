@@ -2,7 +2,7 @@
   <a
     [routerLink]="target"
     [queryParams]="linkQueryParams()"
-    class="group flex flex-col gap-1 rounded-lg border border-base-300 bg-base-200 p-4 transition-colors hover:border-ink-600 hover:bg-base-300"
+    class="group flex flex-col gap-1 rounded-lg border border-base-300 bg-base-200 p-4 transition-colors hover:border-base-content/20 hover:bg-base-300"
   >
     <ng-container [ngTemplateOutlet]="body" />
   </a>
@@ -16,13 +16,13 @@
 
 <ng-template #body>
   <div class="flex items-center justify-between gap-2">
-    <span class="text-xs font-semibold uppercase tracking-wide text-ink-400">
+    <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
       {{ label() }}
     </span>
     @if (link()) {
       <lucide-angular
         [img]="ChevronRightIcon"
-        class="h-4 w-4 shrink-0 text-ink-500 transition-transform group-hover:translate-x-0.5"
+        class="h-4 w-4 shrink-0 text-base-content/40 transition-transform group-hover:translate-x-0.5"
         aria-hidden="true"
       />
     }

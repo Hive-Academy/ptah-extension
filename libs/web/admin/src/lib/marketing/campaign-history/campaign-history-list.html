@@ -4,11 +4,11 @@
     <div class="flex items-center gap-2">
       <lucide-angular
         [img]="MegaphoneIcon"
-        class="h-5 w-5 text-ink-500"
+        class="h-5 w-5 text-base-content/40"
         aria-hidden="true"
       />
       <h1 class="text-xl font-semibold">Campaign History</h1>
-      <span class="text-sm text-ink-400">({{ total() }} total)</span>
+      <span class="text-sm text-base-content/60">({{ total() }} total)</span>
     </div>
 
     <div class="flex flex-wrap items-center gap-2">
@@ -81,12 +81,12 @@
               <span [class]="row.bounce.colorClass">{{ row.bounce.text }} bounced</span>
               <span [class]="row.complaint.colorClass">{{ row.complaint.text }} complaints</span>
             </div>
-            <span class="whitespace-nowrap text-xs text-ink-500">
+            <span class="whitespace-nowrap text-xs text-base-content/40">
               {{ relative(row.createdAt) }}
             </span>
             <lucide-angular
               [img]="ChevronRightIcon"
-              class="h-4 w-4 text-ink-500"
+              class="h-4 w-4 text-base-content/40"
               aria-hidden="true"
             />
           </div>
@@ -98,7 +98,7 @@
   <!-- Pagination -->
   @if (!isEmpty() && !loadError() && !loading()) {
     <div class="flex flex-wrap items-center justify-end gap-3 text-sm">
-      <span class="tabular-nums text-ink-400">
+      <span class="tabular-nums text-base-content/60">
         Page {{ page() }} of {{ totalPages() }}
       </span>
       <div class="join">
