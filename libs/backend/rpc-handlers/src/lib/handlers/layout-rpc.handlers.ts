@@ -14,16 +14,22 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import type { RpcMethodName } from '@ptah-extension/shared';
 
 const LAYOUT_STORAGE_KEY = 'electron.layout.state';
 
 @injectable()
 export class LayoutRpcHandlers {
+  static readonly METHODS = [
+    'layout:persist',
+    'layout:restore',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(PLATFORM_TOKENS.STATE_STORAGE)
-    private readonly stateStorage: IStateStorage
+    private readonly stateStorage: IStateStorage,
   ) {}
 
   register(): void {
@@ -50,11 +56,11 @@ export class LayoutRpcHandlers {
         } catch (error) {
           this.logger.error(
             '[Electron RPC] layout:persist failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return { success: true };
         }
-      }
+      },
     );
   }
 
@@ -63,7 +69,7 @@ export class LayoutRpcHandlers {
       try {
         const saved = this.stateStorage.get<Record<string, unknown>>(
           LAYOUT_STORAGE_KEY,
-          {}
+          {},
         );
         this.logger.debug('[Electron RPC] layout:restore loaded', {
           hasData: !!saved && Object.keys(saved).length > 0,
@@ -72,7 +78,7 @@ export class LayoutRpcHandlers {
       } catch (error) {
         this.logger.error(
           '[Electron RPC] layout:restore failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return { success: true };
       }

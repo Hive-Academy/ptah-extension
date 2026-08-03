@@ -43,6 +43,7 @@ export {
   EmbedderRpcHandlers,
   GatewayRpcHandlers,
   VoiceRpcHandlers,
+  LayoutRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,
   IndexingRpcHandlers,

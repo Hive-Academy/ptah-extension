@@ -48,13 +48,13 @@ import {
   FileSystemRpcHandlers,
   FilePickerRpcHandlers,
   ImagePickerRpcHandlers,
+  LayoutRpcHandlers,
   registerHarnessServices,
   registerChatServices,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import {
   EditorRpcHandlers,
-  LayoutRpcHandlers,
   TerminalRpcHandlers,
   UpdateRpcHandlers,
 } from '../services/rpc/handlers';

@@ -43,6 +43,7 @@ import {
   HarnessRpcHandlers,
   ImagePickerRpcHandlers,
   IndexingRpcHandlers,
+  LayoutRpcHandlers,
   LicenseRpcHandlers,
   LlmRpcHandlers,
   McpDirectoryRpcHandlers,
@@ -345,6 +346,12 @@ export const RPC_HANDLER_MANIFEST = [
     requires: ['workspaceLifecycle'],
     handler: WorkspaceRpcHandlers,
   },
+  {
+    key: 'layout',
+    methods: LayoutRpcHandlers.METHODS,
+    requires: ['layoutPersistence'],
+    handler: LayoutRpcHandlers,
+  },
 
   // --- host-owned (unification pending) -------------------------------------
   { key: 'host.fileOpen', methods: ['file:open'], requires: ['fileOpen'] },
@@ -357,11 +364,6 @@ export const RPC_HANDLER_MANIFEST = [
     key: 'host.editorPane',
     methods: EDITOR_PANE_METHODS,
     requires: ['editorHost'],
-  },
-  {
-    key: 'host.layout',
-    methods: ['layout:persist', 'layout:restore'],
-    requires: ['layoutPersistence'],
   },
   {
     key: 'host.terminal',

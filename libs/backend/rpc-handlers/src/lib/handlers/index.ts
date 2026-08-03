@@ -52,6 +52,7 @@ export { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
 export { CronRpcHandlers } from './cron-rpc.handlers';
 export { GatewayRpcHandlers } from './gateway-rpc.handlers';
 export { VoiceRpcHandlers } from './voice-rpc.handlers';
+export { LayoutRpcHandlers } from './layout-rpc.handlers';
 export {
   PersistenceRpcHandlers,
   mintResetChallengeToken,
