@@ -1,8 +1,8 @@
 /**
  * update-rpc.handlers.spec.ts
  *
- * Unit tests for UpdateRpcHandlers — the Electron-local RPC methods backing
- * the desktop update banner:
+ * Unit tests for UpdateRpcHandlers — the RPC methods backing the desktop
+ * update banner:
  *
  *   update:get-state — returns the current lifecycle state (race-proof hydration)
  *   update:check-now — triggers an immediate GitHub Releases check
@@ -11,6 +11,12 @@
  *   - Construct UpdateRpcHandlers directly (no DI container) by passing mocks.
  *   - Use createMockRpcHandler() so register() calls can be exercised end-to-end
  *     via handleMessage().
+ *
+ * The updater mock is typed as the IAppUpdater port. While this class lived in
+ * apps/ptah-electron the spec had to load it through a `require()` shim and
+ * cast the mock to `never`, because the constructor named the concrete
+ * Electron-local UpdateManager. Behind the port that is a plain import
+ * (TASK_2026_171 risk R10); the five cases below are otherwise unchanged.
  */
 
 import 'reflect-metadata';
@@ -23,42 +29,32 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
-import type { Logger } from '@ptah-extension/vscode-core';
-import type { RpcHandler } from '@ptah-extension/vscode-core';
+import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type {
+  AppUpdateState,
+  IAppUpdater,
+} from '@ptah-extension/platform-core';
 import type { UpdateLifecycleState } from '@ptah-extension/shared';
 
+import { UpdateRpcHandlers } from './update-rpc.handlers';
+
 // ---------------------------------------------------------------------------
-// Mock UpdateManager
+// Mock IAppUpdater
 // ---------------------------------------------------------------------------
 
-interface MockUpdateManager {
+interface MockAppUpdater extends IAppUpdater {
   triggerCheck: jest.Mock;
-  getCurrentState: jest.Mock<UpdateLifecycleState>;
+  getCurrentState: jest.Mock;
 }
 
-function createMockUpdateManager(
-  stateOverride: UpdateLifecycleState = { state: 'idle' },
-): MockUpdateManager {
+function createMockAppUpdater(
+  stateOverride: AppUpdateState = { state: 'idle' },
+): MockAppUpdater {
   return {
     triggerCheck: jest.fn().mockResolvedValue(undefined),
-    getCurrentState: jest
-      .fn<UpdateLifecycleState, []>()
-      .mockReturnValue(stateOverride),
+    getCurrentState: jest.fn().mockReturnValue(stateOverride),
   };
 }
-
-// ---------------------------------------------------------------------------
-// Import class under test
-// ---------------------------------------------------------------------------
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { UpdateRpcHandlers } = require('./update-rpc.handlers') as {
-  UpdateRpcHandlers: new (
-    logger: Logger,
-    rpcHandler: RpcHandler,
-    updateManager: MockUpdateManager,
-  ) => { register(): void };
-};
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -67,20 +63,20 @@ const { UpdateRpcHandlers } = require('./update-rpc.handlers') as {
 describe('UpdateRpcHandlers', () => {
   let logger: MockLogger;
   let rpcHandler: MockRpcHandler;
-  let updateManager: MockUpdateManager;
+  let updateManager: MockAppUpdater;
 
   beforeEach(() => {
     logger = createMockLogger();
     rpcHandler = createMockRpcHandler();
-    updateManager = createMockUpdateManager();
+    updateManager = createMockAppUpdater();
   });
 
-  function buildHandlers(state: UpdateLifecycleState = { state: 'idle' }) {
-    updateManager = createMockUpdateManager(state);
+  function buildHandlers(state: AppUpdateState = { state: 'idle' }) {
+    updateManager = createMockAppUpdater(state);
     const handlers = new UpdateRpcHandlers(
       logger as unknown as Logger,
       rpcHandler as unknown as RpcHandler,
-      updateManager as never,
+      updateManager,
     );
     handlers.register();
     return { handlers, rpcHandler };

@@ -2,10 +2,13 @@
  * Electron DI — Phase 4: RPC handler registrations.
  *
  * Registers:
- *   - Phase 4.1: 18 shared RPC handler classes (5 factory-based for lazy
- *                container/webview resolution, 13 singletons).
- *   - Phase 4.2: 11 Electron-specific RPC handler classes + GitInfoService +
- *                PtyManagerService.
+ *   - Phase 4.1: the RPC handler classes Electron shares with every other host,
+ *                plus GitInfoService.
+ *   - Phase 4.2: the capability-gated classes only Electron serves, plus the
+ *                two host services they depend on (PtyManagerService behind
+ *                PLATFORM_TOKENS.PTY_HOST, UpdateManager behind
+ *                PLATFORM_TOKENS.APP_UPDATER). EditorRpcHandlers is the only
+ *                handler class still declared in this app (TASK_2026_173).
  */
 
 import type { DependencyContainer } from 'tsyringe';
@@ -50,11 +53,12 @@ import {
   ImagePickerRpcHandlers,
   LayoutRpcHandlers,
   TerminalRpcHandlers,
+  UpdateRpcHandlers,
   registerHarnessServices,
   registerChatServices,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
-import { EditorRpcHandlers, UpdateRpcHandlers } from '../services/rpc/handlers';
+import { EditorRpcHandlers } from '../services/rpc/handlers';
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
@@ -114,34 +118,46 @@ export function registerPhase4Handlers(
   container.registerSingleton(FilePickerRpcHandlers);
   container.registerSingleton(ImagePickerRpcHandlers);
 
-  logger.info(
-    '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
-    {
-      handlers: [
-        'SessionRpcHandlers',
-        'ChatRpcHandlers',
-        'ConfigRpcHandlers',
-        'AuthRpcHandlers',
-        'ContextRpcHandlers',
-        'SetupRpcHandlers',
-        'LicenseRpcHandlers',
-        'WizardGenerationRpcHandlers',
-        'AutocompleteRpcHandlers',
-        'SubagentRpcHandlers',
-        'PluginRpcHandlers',
-        'PtahCliRpcHandlers',
-        'EnhancedPromptsRpcHandlers',
-        'QualityRpcHandlers',
-        'ProviderRpcHandlers',
-        'LlmRpcHandlers',
-        'WebSearchRpcHandlers',
-        'HarnessRpcHandlers',
-        'McpDirectoryRpcHandlers',
-        'GitRpcHandlers',
-        'WorkspaceRpcHandlers',
-      ],
-    },
-  );
+  logger.info('[Electron DI] Shared RPC handler classes registered', {
+    handlers: [
+      'SessionRpcHandlers',
+      'ChatRpcHandlers',
+      'ConfigRpcHandlers',
+      'AuthRpcHandlers',
+      'ContextRpcHandlers',
+      'LicenseRpcHandlers',
+      'AutocompleteRpcHandlers',
+      'SubagentRpcHandlers',
+      'PluginRpcHandlers',
+      'PtahCliRpcHandlers',
+      'QualityRpcHandlers',
+      'ProviderRpcHandlers',
+      'WebSearchRpcHandlers',
+      // via registerSharedRpcHandlers()
+      'SetupRpcHandlers',
+      'WizardGenerationRpcHandlers',
+      'EnhancedPromptsRpcHandlers',
+      'LlmRpcHandlers',
+      'SessionLifecycleNotifier',
+      // ---
+      'HarnessRpcHandlers',
+      'McpDirectoryRpcHandlers',
+      'GitRpcHandlers',
+      'MemoryRpcHandlers',
+      'MemRpcHandlers',
+      'CorpusRpcHandlers',
+      'SkillsSynthesisRpcHandlers',
+      'CronRpcHandlers',
+      'GatewayRpcHandlers',
+      'VoiceRpcHandlers',
+      'IndexingRpcHandlers',
+      'TasksRpcHandlers',
+      'AgentRpcHandlers',
+      'FileSystemRpcHandlers',
+      'FilePickerRpcHandlers',
+      'ImagePickerRpcHandlers',
+    ],
+  });
   container.register(EditorRpcHandlers, {
     useFactory: (c) =>
       new EditorRpcHandlers(
@@ -176,18 +192,19 @@ export function registerPhase4Handlers(
   });
   container.registerSingleton(UpdateRpcHandlers);
 
-  logger.info(
-    '[Electron DI] Electron-specific RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
-    {
-      handlers: [
-        'EditorRpcHandlers',
-        'FileRpcHandlers',
-        'CommandRpcHandlers',
-        'AgentRpcHandlers',
-        'SkillsShRpcHandlers',
-        'LayoutRpcHandlers',
-        'TerminalRpcHandlers',
-      ],
-    },
-  );
+  logger.info('[Electron DI] Capability-gated RPC handler classes registered', {
+    // EditorRpcHandlers is the last app-local handler class (TASK_2026_173).
+    // The rest live in @ptah-extension/rpc-handlers and are registered here
+    // because their capabilities are Electron-only, not because they are
+    // Electron code.
+    handlers: [
+      'EditorRpcHandlers',
+      'CommandRpcHandlers',
+      'AgentRpcHandlers',
+      'SkillsShRpcHandlers',
+      'LayoutRpcHandlers',
+      'TerminalRpcHandlers',
+      'UpdateRpcHandlers',
+    ],
+  });
 }

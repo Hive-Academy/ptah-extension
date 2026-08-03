@@ -54,6 +54,7 @@ export { GatewayRpcHandlers } from './gateway-rpc.handlers';
 export { VoiceRpcHandlers } from './voice-rpc.handlers';
 export { LayoutRpcHandlers } from './layout-rpc.handlers';
 export { TerminalRpcHandlers } from './terminal-rpc.handlers';
+export { UpdateRpcHandlers } from './update-rpc.handlers';
 export {
   PersistenceRpcHandlers,
   mintResetChallengeToken,

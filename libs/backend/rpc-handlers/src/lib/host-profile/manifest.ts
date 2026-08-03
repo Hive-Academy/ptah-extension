@@ -62,6 +62,7 @@ import {
   SubagentRpcHandlers,
   TasksRpcHandlers,
   TerminalRpcHandlers,
+  UpdateRpcHandlers,
   VoiceRpcHandlers,
   WebSearchRpcHandlers,
   WizardGenerationRpcHandlers,
@@ -359,6 +360,12 @@ export const RPC_HANDLER_MANIFEST = [
     requires: ['pty'],
     handler: TerminalRpcHandlers,
   },
+  {
+    key: 'update',
+    methods: UpdateRpcHandlers.METHODS,
+    requires: ['appUpdater'],
+    handler: UpdateRpcHandlers,
+  },
 
   // --- host-owned (unification pending) -------------------------------------
   { key: 'host.fileOpen', methods: ['file:open'], requires: ['fileOpen'] },
@@ -371,11 +378,6 @@ export const RPC_HANDLER_MANIFEST = [
     key: 'host.editorPane',
     methods: EDITOR_PANE_METHODS,
     requires: ['editorHost'],
-  },
-  {
-    key: 'host.update',
-    methods: ['update:get-state', 'update:check-now'],
-    requires: ['appUpdater'],
   },
 ] as const satisfies readonly RpcHandlerManifestEntry[];
 

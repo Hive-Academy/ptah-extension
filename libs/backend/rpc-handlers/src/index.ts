@@ -45,6 +45,7 @@ export {
   VoiceRpcHandlers,
   LayoutRpcHandlers,
   TerminalRpcHandlers,
+  UpdateRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,
   IndexingRpcHandlers,

@@ -1,19 +1,30 @@
 /**
- * Electron Update RPC Handlers
+ * Update RPC Handlers
  *
  * Desktop update banner methods:
  *   - update:get-state — Pull the current lifecycle state (race-proof hydration)
  *   - update:check-now — Trigger an immediate GitHub Releases check
  *
- * This handler is Electron-local and must NOT appear in
- * `libs/backend/rpc-handlers/` or the SHARED_HANDLERS list.
+ * Host gating is data, not location: the manifest entry declares
+ * `requires: ['appUpdater']`, and only hosts whose profile turns that
+ * capability on (Electron today) register an `IAppUpdater` implementation.
+ * Hosts that leave it off never resolve this class. It is therefore NOT
+ * registered by `registerSharedRpcHandlers` — that runs on every host and is
+ * reserved for handlers every host serves unconditionally.
  */
 
 import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
-import { UpdateManager } from '../../update/update-manager';
-import { UPDATE_MANAGER_TOKEN } from '../../update/update-tokens';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IAppUpdater } from '@ptah-extension/platform-core';
+import type {
+  RpcMethodName,
+  UpdateCheckNowParams,
+  UpdateCheckNowResult,
+  UpdateGetStateParams,
+  UpdateGetStateResult,
+} from '@ptah-extension/shared';
 import {
   UpdateGetStateSchema,
   UpdateCheckNowSchema,
@@ -21,10 +32,16 @@ import {
 
 @injectable()
 export class UpdateRpcHandlers {
+  static readonly METHODS = [
+    'update:get-state',
+    'update:check-now',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    @inject(UPDATE_MANAGER_TOKEN) private readonly updateManager: UpdateManager,
+    @inject(PLATFORM_TOKENS.APP_UPDATER)
+    private readonly updateManager: IAppUpdater,
   ) {}
 
   register(): void {
@@ -33,7 +50,7 @@ export class UpdateRpcHandlers {
   }
 
   private registerGetState(): void {
-    this.rpcHandler.registerMethod(
+    this.rpcHandler.registerMethod<UpdateGetStateParams, UpdateGetStateResult>(
       'update:get-state',
       async (params: unknown) => {
         UpdateGetStateSchema.parse(params ?? {});
@@ -43,7 +60,7 @@ export class UpdateRpcHandlers {
   }
 
   private registerCheckNow(): void {
-    this.rpcHandler.registerMethod(
+    this.rpcHandler.registerMethod<UpdateCheckNowParams, UpdateCheckNowResult>(
       'update:check-now',
       async (params: unknown) => {
         UpdateCheckNowSchema.parse(params ?? {});
