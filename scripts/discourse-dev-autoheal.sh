@@ -19,6 +19,12 @@ while true; do
         discourse_dev bash -lc "bin/rails server -b 0.0.0.0 -p 3000 > /src/log/railss.log 2>&1"
       echo "$(date -Is) injected rails server into discourse_dev"
     fi
+    # Rolldown frontend watcher — Rails serves "Frontend build error" without it.
+    if ! docker exec discourse_dev pgrep -f "frontend/discourse" >/dev/null 2>&1; then
+      docker exec -d -u discourse:discourse -w /src \
+        discourse_dev bash -lc "pnpm --dir frontend/discourse start > /src/log/frontend.log 2>&1"
+      echo "$(date -Is) injected frontend watcher into discourse_dev"
+    fi
   fi
   sleep 20
 done
