@@ -34,6 +34,8 @@ import {
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
 import { EXPECTED_RESOLVABLE } from './expected-resolvable';
+import { ELECTRON_TOKENS } from './electron-tokens';
+import { registerPhase4Handlers } from './phase-4-handlers';
 
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
@@ -165,5 +167,41 @@ describe('Electron DI — shared RPC handler resolution', () => {
       ).modelSettings;
       expect(typeof ms.selectedModel.get).toBe('function');
     }
+  });
+});
+
+/**
+ * Risk R2 — duplicate `PtyManagerService` instance.
+ *
+ * `PLATFORM_TOKENS.PTY_HOST` must be an ALIAS of
+ * `ELECTRON_TOKENS.PTY_MANAGER_SERVICE`, never a second registration. IpcBridge
+ * holds the concrete instance and owns the `sessions` Map
+ * (`activation/bootstrap.ts` -> `ipc/ipc-bridge.ts`), while `terminal:create`
+ * resolves the port. A second instance would hand back session ids that the
+ * binary write/resize channel cannot find — terminals open and silently accept
+ * no input — and `disposeAll` would leak the real PTYs on quit.
+ *
+ * This asserts against the REAL wiring in `registerPhase4Handlers`, not a copy
+ * of it, and it asserts reference identity (`toBe`): a `registerSingleton`
+ * would still satisfy a structural comparison.
+ */
+describe('Electron DI — PTY host token aliasing (Risk R2)', () => {
+  it('resolves PTY_HOST to the very same instance as PTY_MANAGER_SERVICE', () => {
+    const c = rootContainer.createChildContainer();
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+      trace: jest.fn(),
+    } as unknown as Parameters<typeof registerPhase4Handlers>[1];
+
+    registerPhase4Handlers(c, logger);
+
+    const viaPort = c.resolve(PLATFORM_TOKENS.PTY_HOST);
+    const viaConcreteToken = c.resolve(ELECTRON_TOKENS.PTY_MANAGER_SERVICE);
+
+    expect(viaPort).toBeDefined();
+    expect(viaPort).toBe(viaConcreteToken);
   });
 });

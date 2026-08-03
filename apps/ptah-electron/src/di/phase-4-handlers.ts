@@ -164,6 +164,11 @@ export function registerPhase4Handlers(
   container.register(ELECTRON_TOKENS.PTY_MANAGER_SERVICE, {
     useValue: ptyManagerService,
   });
+  // Alias: the RPC handler depends on the port, IpcBridge on the concrete class.
+  // Same instance — a second PtyManagerService would own a separate session map.
+  container.register(PLATFORM_TOKENS.PTY_HOST, {
+    useToken: ELECTRON_TOKENS.PTY_MANAGER_SERVICE,
+  });
   container.registerSingleton(TerminalRpcHandlers);
   container.registerSingleton(UPDATE_MANAGER_TOKEN, UpdateManager);
   container.registerSingleton(UpdateRpcHandlers);

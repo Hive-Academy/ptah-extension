@@ -90,4 +90,10 @@ export const PLATFORM_TOKENS = {
    * stdio CLI, whose profile leaves the picker capabilities off.
    */
   FILE_DIALOG: Symbol.for('FileDialog'),
+
+  /**
+   * IPtyHost — spawn/kill pseudo-terminals for the `terminal:*` RPC methods.
+   * Registered only by hosts whose profile sets `pty: true` (Electron today).
+   */
+  PTY_HOST: Symbol.for('PlatformPtyHost'),
 } as const;

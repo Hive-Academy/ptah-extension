@@ -46,6 +46,12 @@ export type { IMcpServerStatus } from './interfaces/mcp-server-status.interface'
 export type { ITracer } from './interfaces/tracer.interface';
 export type { ISessionAttachmentGuard } from './interfaces/session-attachment-guard.interface';
 export type {
+  IPtyHost,
+  PtySpawnRequest,
+  PtySpawnResult,
+  PtyKillResult,
+} from './interfaces/pty-host.interface';
+export type {
   IPlatformCommands,
   IPlatformAuthProvider,
   ISaveDialogProvider,

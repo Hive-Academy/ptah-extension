@@ -16,6 +16,7 @@
 import * as pty from 'node-pty';
 import { randomUUID } from 'crypto';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { IPtyHost } from '@ptah-extension/platform-core';
 
 const MAX_TOTAL_SESSIONS = 20;
 const MAX_SESSIONS_PER_WORKSPACE = 5;
@@ -29,7 +30,7 @@ interface PtySession {
 type DataCallback = (id: string, data: string) => void;
 type ExitCallback = (id: string, exitCode: number) => void;
 
-export class PtyManagerService {
+export class PtyManagerService implements IPtyHost {
   private readonly sessions = new Map<string, PtySession>();
   private dataCallback: DataCallback | null = null;
   private exitCallback: ExitCallback | null = null;
