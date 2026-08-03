@@ -294,6 +294,60 @@ describe('SessionsList', () => {
       expect(api.listSessions).toHaveBeenCalledTimes(1);
     });
 
+    it('never asks the server to notify — a drag has no moment to ask', () => {
+      createComponent();
+
+      calendar().rescheduled.emit({
+        session: session({
+          id: 'evt-4',
+          attendees: [{ email: 'a@example.com', responseStatus: null }],
+        }),
+        startsAt: '2026-08-11T17:00:00.000Z',
+        endsAt: '2026-08-11T18:00:00.000Z',
+        revert: jest.fn(),
+      });
+      fixture.detectChanges();
+
+      expect(api.updateSession.mock.calls[0][1]).not.toHaveProperty(
+        'notifyGuests',
+      );
+    });
+
+    it('says so when guests were left in the dark', () => {
+      createComponent();
+
+      calendar().rescheduled.emit({
+        session: session({
+          attendees: [
+            { email: 'a@example.com', responseStatus: null },
+            { email: 'b@example.com', responseStatus: null },
+          ],
+        }),
+        startsAt: '2026-08-11T17:00:00.000Z',
+        endsAt: '2026-08-11T18:00:00.000Z',
+        revert: jest.fn(),
+      });
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent).toContain(
+        '2 guests were not notified',
+      );
+    });
+
+    it('stays quiet about notification when the session has no guests', () => {
+      createComponent();
+
+      calendar().rescheduled.emit({
+        session: session({ attendees: [] }),
+        startsAt: '2026-08-11T17:00:00.000Z',
+        endsAt: '2026-08-11T18:00:00.000Z',
+        revert: jest.fn(),
+      });
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent).not.toContain('not notified');
+    });
+
     it('reverts the grid and explains the refusal when the server says no', () => {
       createComponent();
       api.updateSession.mockReturnValue(

@@ -115,6 +115,14 @@ export interface UpdateSessionRequest {
    * should end up with. Still emails nobody.
    */
   attendees?: string[];
+  /**
+   * ⚠️ SENDS EMAIL when true. Google mails the guest list about the change.
+   *
+   * Omitted (the default) keeps the patch silent, which is what a rescheduling
+   * drag relies on. Set it only when notifying IS the intent — a real time
+   * change, where everyone's plans just moved.
+   */
+  notifyGuests?: boolean;
 }
 
 /**

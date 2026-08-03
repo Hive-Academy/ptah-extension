@@ -468,16 +468,80 @@ describe('AdminSessionsController', () => {
       expect(calendar.createEvent.mock.calls[0][1]).toBeUndefined();
     });
 
-    it('never sends on update, including a rescheduling drag', async () => {
+    it('never sends on update by default, including a rescheduling drag', async () => {
+      const { controller, calendar } = build();
+      calendar.patchEvent.mockResolvedValue({ ok: true, json: EVENT });
+
+      // A drag emits no `notifyGuests`, so it must land on 'none'.
+      await controller.update(req(), 'evt_1', {
+        startsAt: CREATE.startsAt,
+        endsAt: CREATE.endsAt,
+      });
+
+      expect(calendar.patchEvent.mock.calls[0][2]).toBe('none');
+    });
+
+    it('sends on update ONLY when notifyGuests is explicitly true', async () => {
       const { controller, calendar } = build();
       calendar.patchEvent.mockResolvedValue({ ok: true, json: EVENT });
 
       await controller.update(req(), 'evt_1', {
         startsAt: CREATE.startsAt,
         endsAt: CREATE.endsAt,
+        notifyGuests: true,
       });
 
-      expect(calendar.patchEvent.mock.calls[0][2]).toBeUndefined();
+      expect(calendar.patchEvent.mock.calls[0][2]).toBe('all');
+    });
+
+    it('does not forward notifyGuests to Google as an event field', async () => {
+      const { controller, calendar } = build();
+      calendar.patchEvent.mockResolvedValue({ ok: true, json: EVENT });
+
+      await controller.update(req(), 'evt_1', {
+        title: 'Renamed',
+        notifyGuests: true,
+      });
+
+      // It is a transport concern, not part of the event resource. Leaking it
+      // into the body would make Google reject the patch.
+      expect(calendar.patchEvent.mock.calls[0][1]).not.toHaveProperty(
+        'notifyGuests',
+      );
+    });
+
+    it('audits whether the guest list was told, and how many were reached', async () => {
+      const { controller, calendar, audit } = build();
+      calendar.patchEvent.mockResolvedValue({
+        ok: true,
+        json: { ...EVENT, attendees: [{ email: 'a@example.com' }] },
+      });
+
+      await controller.update(req(), 'evt_1', {
+        startsAt: CREATE.startsAt,
+        endsAt: CREATE.endsAt,
+        notifyGuests: true,
+      });
+
+      expect(audit.write.mock.calls.at(-1)?.[0].metadata).toMatchObject({
+        notifiedGuests: true,
+        recipientCount: 1,
+      });
+    });
+
+    it('records a silent edit as having notified nobody', async () => {
+      const { controller, calendar, audit } = build();
+      calendar.patchEvent.mockResolvedValue({
+        ok: true,
+        json: { ...EVENT, attendees: [{ email: 'a@example.com' }] },
+      });
+
+      await controller.update(req(), 'evt_1', { title: 'Renamed' });
+
+      expect(audit.write.mock.calls.at(-1)?.[0].metadata).toMatchObject({
+        notifiedGuests: false,
+        recipientCount: 0,
+      });
     });
 
     it('patches with sendUpdates=all and merges into the existing guest list', async () => {

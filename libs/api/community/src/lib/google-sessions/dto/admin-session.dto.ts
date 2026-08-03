@@ -120,6 +120,24 @@ export class UpdateSessionDto {
   @ArrayMaxSize(MAX_ATTENDEES)
   @IsEmail({}, { each: true })
   attendees?: string[];
+
+  /**
+   * ⚠️ SENDS EMAIL when true. Patches with `sendUpdates=all`, so Google mails
+   * the guest list about the change.
+   *
+   * Defaults to false, which is the whole point: a rescheduling drag, a typo
+   * fix, or a description tweak must not reach a customer's inbox as a side
+   * effect. This flag exists for the one case where notifying IS the intent —
+   * a real time change, where everyone's plans just moved.
+   *
+   * Unlike the invitations route this IS a flag on the patch, because "move the
+   * session and tell people" is one action, not two: notifying separately would
+   * mean the guest list learns about a new time in a second email that arrives
+   * after the calendar entry already moved under them.
+   */
+  @IsOptional()
+  @IsBoolean()
+  notifyGuests?: boolean;
 }
 
 /**

@@ -207,20 +207,25 @@ export class AdminSessionsService {
     eventId: string,
     input: Partial<CalendarEventInput>,
     actor: SessionActor,
+    notifyGuests = false,
   ): Promise<AdminSession> {
     if (input.startsAt && input.endsAt) {
       this.assertRangeAdvances(input.startsAt, input.endsAt);
     }
     await this.assertNotProtectedSeries(eventId, undefined);
 
-    const result = await this.calendar.patchEvent(eventId, {
-      ...input,
-      attendees: normalizeEmails(input.attendees),
-    });
+    // ⚠️ The one place a patch is allowed to send mail, and only when the caller
+    // asked. Defaults to 'none', so a rescheduling drag — which never sets this
+    // — stays silent exactly as before.
+    const result = await this.calendar.patchEvent(
+      eventId,
+      { ...input, attendees: normalizeEmails(input.attendees) },
+      notifyGuests ? 'all' : 'none',
+    );
     const session = this.unwrapEvent(result, 'update');
 
     this.logger.log(
-      `Admin updated session: actor=${actor.email ?? 'unknown'} eventId=${eventId}`,
+      `Admin updated session: actor=${actor.email ?? 'unknown'} eventId=${eventId} notifyGuests=${notifyGuests}`,
     );
     await this.safeAudit('sessions.event.update', eventId, actor, {
       fields: Object.keys(input).filter(
@@ -228,6 +233,10 @@ export class AdminSessionsService {
       ),
       startsAt: session.startsAt,
       endsAt: session.endsAt,
+      // Recorded so "was the guest list told about this change" is answerable
+      // from the audit log rather than inferred from timing.
+      notifiedGuests: notifyGuests,
+      recipientCount: notifyGuests ? session.attendees.length : 0,
     });
     return session;
   }

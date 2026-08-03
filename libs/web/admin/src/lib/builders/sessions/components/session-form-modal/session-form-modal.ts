@@ -22,10 +22,17 @@ import type { SessionRangeSelection } from '@ptah-web/ui';
  * Dual mode driven by the `session` input: `null` → create (POST
  * /api/v1/admin/sessions), non-null → edit (PATCH .../sessions/:eventId).
  *
- * `createMeetLink` is create-only: Google mints the conference on insert (with
- * `conferenceDataVersion=1`), and the patch path does not add one to an event
- * that shipped without it — offering the checkbox on edit would be a control
- * that silently does nothing.
+ * `createMeetLink` is offered on create, and on edit only when the session has
+ * no conference yet. Google DOES attach one to an existing event (the provider
+ * sends `conferenceDataVersion=1` on patch too), but there is no removal
+ * through this path — an on/off control for a link that only goes one way
+ * would misdescribe what saving does.
+ *
+ * ⚠️ ONE FIELD HERE CAN SEND EMAIL. `notifyGuests` patches with
+ * `sendUpdates=all`, so Google tells the guest list about the change. It
+ * defaults off on every open and is only offered when editing a session that
+ * already has guests. Everything else on this form — including a rescheduling
+ * drag, which never opens this modal at all — is silent by construction.
  *
  * The parent hides this modal's trigger entirely when `calendarWritable` is
  * false, and refuses to open it for the recurring master series (which the
@@ -73,6 +80,13 @@ export class SessionFormModal {
 
   /** Guest list as it will be sent. Recorded on the event; emails nobody. */
   protected readonly attendees = signal<string[]>([]);
+
+  /**
+   * ⚠️ Opt-in guest notification for this save. Defaults OFF every time the
+   * modal opens — a notification is a decision about someone else's inbox, and
+   * a remembered `true` would silently ride along on the next unrelated edit.
+   */
+  protected readonly notifyGuests = signal<boolean>(false);
   protected readonly attendeeDraft = signal<string>('');
   protected readonly attendeeError = signal<string | null>(null);
 
@@ -91,6 +105,22 @@ export class SessionFormModal {
     const existing = this.session();
     return existing === null || existing.meetLink === null;
   });
+
+  /**
+   * Offer guest notification only when editing a session that HAS guests.
+   *
+   * Not on create: a brand-new event has no one to notify about a change, and
+   * its guests are invited deliberately through "Send invitations" instead.
+   */
+  protected readonly showNotifyToggle = computed<boolean>(() => {
+    const existing = this.session();
+    return existing !== null && existing.attendees.length > 0;
+  });
+
+  /** Live guest count, for the notification control's copy. */
+  protected readonly guestCount = computed<number>(
+    () => this.attendees().length,
+  );
 
   /** True when both instants parse and the end is strictly after the start. */
   protected readonly rangeValid = computed<boolean>(() => {
@@ -125,6 +155,7 @@ export class SessionFormModal {
       this.attendees.set(s ? s.attendees.map((a) => a.email) : []);
       this.attendeeDraft.set('');
       this.attendeeError.set(null);
+      this.notifyGuests.set(false);
       // Defaults on for create. On edit it means "add one", and the toggle is
       // only rendered when the session has none, so `true` never claims to
       // re-mint a link that already exists.
@@ -154,6 +185,12 @@ export class SessionFormModal {
 
   protected onCreateMeetLinkChange(event: Event): void {
     this.createMeetLink.set(
+      (event.target as HTMLInputElement | null)?.checked ?? false,
+    );
+  }
+
+  protected onNotifyGuestsChange(event: Event): void {
+    this.notifyGuests.set(
       (event.target as HTMLInputElement | null)?.checked ?? false,
     );
   }
@@ -220,6 +257,10 @@ export class SessionFormModal {
           // signal was seeded from the loaded session, so it is always the
           // complete list — removing a chip really removes that guest.
           attendees: this.attendees(),
+          // ⚠️ The only field on this request that can send email. Sent as a
+          // literal so an unticked box is an explicit `false`, not an absence
+          // the server has to interpret.
+          notifyGuests: this.notifyGuests(),
           // Only sent when the session has no conference yet (`showMeetToggle`).
           // Sending `false` on an event that has one is harmless but would be a
           // field with no meaning; sending nothing keeps the patch honest.

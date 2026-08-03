@@ -349,6 +349,88 @@ describe('SessionFormModal', () => {
       );
     });
 
+    /**
+     * ⚠️ The only field on this form that can reach an inbox. These pin that it
+     * is off unless ticked, absent unless there is someone to tell, and never
+     * remembered across opens.
+     */
+    describe('notify-guests toggle', () => {
+      const notifyToggle = (): HTMLInputElement | null =>
+        fixture.nativeElement.querySelector('input.toggle-warning');
+
+      const withGuests = (): AdminSession =>
+        session({
+          id: 'evt-9',
+          attendees: [
+            { email: 'a@example.com', responseStatus: null },
+            { email: 'b@example.com', responseStatus: 'accepted' },
+          ],
+        });
+
+      it('is not offered on create — there is nobody to tell yet', () => {
+        openCreate();
+
+        expect(notifyToggle()).toBeNull();
+      });
+
+      it('is not offered when editing a session with no guests', () => {
+        openEdit(session({ attendees: [] }));
+
+        expect(notifyToggle()).toBeNull();
+      });
+
+      it('names the guest count when editing a session that has some', () => {
+        openEdit(withGuests());
+
+        expect(notifyToggle()).not.toBeNull();
+        expect(fixture.nativeElement.textContent).toContain('Notify 2 guests');
+      });
+
+      it('sends notifyGuests: false when left alone', () => {
+        openEdit(withGuests());
+        submit();
+
+        expect(api.updateSession).toHaveBeenCalledWith(
+          'evt-9',
+          expect.objectContaining({ notifyGuests: false }),
+        );
+      });
+
+      it('sends notifyGuests: true only once ticked', () => {
+        openEdit(withGuests());
+        const toggle = notifyToggle() as HTMLInputElement;
+        toggle.checked = true;
+        toggle.dispatchEvent(new Event('change'));
+        fixture.detectChanges();
+        submit();
+
+        expect(api.updateSession).toHaveBeenCalledWith(
+          'evt-9',
+          expect.objectContaining({ notifyGuests: true }),
+        );
+      });
+
+      it('resets to off on the next open, so it cannot ride along', () => {
+        openEdit(withGuests());
+        const toggle = notifyToggle() as HTMLInputElement;
+        toggle.checked = true;
+        toggle.dispatchEvent(new Event('change'));
+        fixture.detectChanges();
+
+        closeModal();
+        openEdit(withGuests());
+
+        // A remembered `true` would silently email everyone on the next
+        // unrelated edit — a typo fix becoming a broadcast.
+        expect(notifyToggle()?.checked).toBe(false);
+        submit();
+        expect(api.updateSession).toHaveBeenCalledWith(
+          'evt-9',
+          expect.objectContaining({ notifyGuests: false }),
+        );
+      });
+    });
+
     it('does not carry a guest list across a close and reopen', () => {
       openEdit(
         session({

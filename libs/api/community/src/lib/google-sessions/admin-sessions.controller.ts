@@ -96,12 +96,24 @@ export class AdminSessionsController {
   @Patch(':eventId')
   @UseGuards(AdminThrottlerGuard)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  /**
+   * ⚠️ SENDS EMAIL when `notifyGuests` is true — the one case where a patch
+   * does. A real time change is precisely when Google's "updated invitation"
+   * is what everyone wants; every other edit, and every rescheduling drag,
+   * leaves the flag unset and stays silent.
+   */
   async update(
     @Req() req: Request,
     @Param('eventId') eventId: string,
     @Body(dtoPipe(UpdateSessionDto)) dto: UpdateSessionDto,
   ): Promise<AdminSession> {
-    return this.adminSessions.updateSession(eventId, dto, this.actor(req));
+    const { notifyGuests, ...fields } = dto;
+    return this.adminSessions.updateSession(
+      eventId,
+      fields,
+      this.actor(req),
+      notifyGuests ?? false,
+    );
   }
 
   /**

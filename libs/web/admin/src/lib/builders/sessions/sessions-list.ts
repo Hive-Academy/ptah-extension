@@ -128,6 +128,12 @@ export class SessionsList {
   /** Confirmation text after a successful send, so the outcome isn't silent. */
   protected readonly inviteNotice = signal<string | null>(null);
 
+  /**
+   * Shown after a drag moved a session that has guests, stating that they were
+   * NOT told. Cleared by the next fetch, so it never lingers past its subject.
+   */
+  protected readonly rescheduleNotice = signal<string | null>(null);
+
   /** True once a load has completed, so the read-only notice isn't shown mid-flight. */
   protected readonly loaded = signal<boolean>(false);
 
@@ -178,6 +184,7 @@ export class SessionsList {
     this.pendingDeleteId.set(null);
     this.pendingInviteId.set(null);
     this.inviteNotice.set(null);
+    this.rescheduleNotice.set(null);
   }
 
   protected onWindowChange(event: Event): void {
@@ -296,12 +303,16 @@ export class SessionsList {
 
   protected onFormSaved(): void {
     this.formOpen.set(false);
+    // The form owns the notify decision, so whatever the drag warned about has
+    // now been answered one way or the other.
+    this.rescheduleNotice.set(null);
     this.fetch();
   }
 
   protected onSessionSelected(session: AdminSession): void {
     this.actionError.set(null);
     this.inviteNotice.set(null);
+    this.rescheduleNotice.set(null);
     this.pendingDeleteId.set(null);
     this.pendingInviteId.set(null);
     this.selectedSession.set(session);
@@ -324,13 +335,26 @@ export class SessionsList {
     request: SessionRescheduleRequest<AdminSession>,
   ): void {
     this.actionError.set(null);
+    this.rescheduleNotice.set(null);
     this.api
       .updateSession(request.session.id, {
         startsAt: request.startsAt,
         endsAt: request.endsAt,
       })
       .subscribe({
-        next: () => this.fetch(),
+        next: () => {
+          // A drag has no moment to ask about notifying, so it stays silent —
+          // consistent with every other routine write. Saying so is the point:
+          // an admin who moved a session with guests on it should not have to
+          // infer that nobody was told.
+          const guests = request.session.attendees.length;
+          if (guests > 0) {
+            this.rescheduleNotice.set(
+              `Moved. ${guests} ${guests === 1 ? 'guest was' : 'guests were'} not notified — reopen it with Edit and tick “Notify guests” to tell them.`,
+            );
+          }
+          this.fetch();
+        },
         error: (err: unknown) => {
           request.revert();
           this.actionError.set(

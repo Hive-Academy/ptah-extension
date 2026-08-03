@@ -100,6 +100,12 @@
     </div>
   }
 
+  @if (rescheduleNotice(); as moved) {
+    <div class="alert alert-info" role="status">
+      <span>{{ moved }}</span>
+    </div>
+  }
+
   @if (view() === 'calendar') {
     @if (calendarWritable() && templates().length > 0) {
       <ptah-admin-session-template-palette

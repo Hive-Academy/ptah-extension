@@ -188,6 +188,38 @@
           }
         </div>
 
+        @if (showNotifyToggle()) {
+          <label
+            class="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+            [class.border-warning]="notifyGuests()"
+            [class.border-base-300]="!notifyGuests()"
+          >
+            <input
+              type="checkbox"
+              class="toggle toggle-warning toggle-sm mt-0.5"
+              [checked]="notifyGuests()"
+              (change)="onNotifyGuestsChange($event)"
+              [disabled]="saving()"
+            />
+            <span class="flex flex-col">
+              <span class="label-text font-medium">
+                Notify {{ guestCount() }}
+                {{ guestCount() === 1 ? 'guest' : 'guests' }} of this change
+              </span>
+              <span class="text-xs opacity-70">
+                @if (notifyGuests()) {
+                  Google will email everyone on the guest list about the new
+                  details. Worth it for a real time change; noise for a typo
+                  fix.
+                } @else {
+                  Off — this save reaches nobody's inbox. Turn it on when you
+                  have moved the session and people need to know.
+                }
+              </span>
+            </span>
+          </label>
+        }
+
         <div class="modal-action">
           <button
             type="button"
