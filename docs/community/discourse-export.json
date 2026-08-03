@@ -1,0 +1,363 @@
+{
+  "exportedFrom": "http://localhost:3001",
+  "categories": [
+    {
+      "id": 4,
+      "name": "General",
+      "slug": "general",
+      "description": "<p>Create topics here that don’t fit into any other existing category.</p>",
+      "color": "25AAE2",
+      "read_restricted": false,
+      "topic_count": 2
+    },
+    {
+      "id": 5,
+      "name": "Builders Lounge",
+      "slug": "builders-lounge",
+      "description": null,
+      "color": "0088CC",
+      "read_restricted": true,
+      "topic_count": 10
+    },
+    {
+      "id": 2,
+      "name": "Site Feedback",
+      "slug": "site-feedback",
+      "description": "<p>Discussion about this site, its organization, how it works, and how we can improve it.</p>",
+      "color": "808281",
+      "read_restricted": false,
+      "topic_count": 3
+    },
+    {
+      "id": 3,
+      "name": "Staff",
+      "slug": "staff",
+      "description": "<p>Private category for staff discussions. Topics are only visible to admins and moderators.</p>",
+      "color": "E45735",
+      "read_restricted": true,
+      "topic_count": 2
+    }
+  ],
+  "topics": [
+    {
+      "id": 5,
+      "title": "Welcome to Discourse! :wave:",
+      "slug": "welcome-to-discourse",
+      "categoryId": 4,
+      "categoryName": "General",
+      "pinned": true,
+      "createdAt": "2026-07-22T02:50:32.555Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-07-22T02:50:32.786Z",
+          "raw": null,
+          "cooked": "<p>We are so glad you joined us.</p>\n<p>Here are some things you can do to get started:</p>\n<p><img src=\"/images/emoji/twitter/speaking_head.png?v=15\" title=\":speaking_head:\" class=\"emoji\" alt=\":speaking_head:\" loading=\"lazy\" width=\"20\" height=\"20\"> <strong>Introduce yourself</strong> by adding your picture and information about yourself and your interests to <a href=\"/my/preferences/account\">your profile</a>. What is one thing you’d like to be asked about?</p>\n<p><img src=\"/images/emoji/twitter/open_book.png?v=15\" title=\":open_book:\" class=\"emoji\" alt=\":open_book:\" loading=\"lazy\" width=\"20\" height=\"20\"> <strong>Get to know the community</strong> by <a href=\"/latest\">browsing discussions</a> that are already happening here. When you find a post interesting, informative, or entertaining, use the <img src=\"/images/emoji/twitter/heart.png?v=15\" title=\":heart:\" class=\"emoji\" alt=\":heart:\" loading=\"lazy\" width=\"20\" height=\"20\"> to show your appreciation or support!</p>\n<p><img src=\"/images/emoji/twitter/handshake.png?v=15\" title=\":handshake:\" class=\"emoji\" alt=\":handshake:\" loading=\"lazy\" width=\"20\" height=\"20\"> <strong>Contribute</strong> by commenting, sharing your own perspective, asking questions, or offering feedback in the discussion. Before replying or starting new topics, please review the <a href=\"/faq\">Community Guidelines</a>.</p>\n<blockquote>\n<p>If you need help or have a suggestion, feel free to ask in <a class=\"hashtag-cooked\" href=\"/c/site-feedback/2\" data-type=\"category\" data-slug=\"site-feedback\" data-id=\"2\" data-style-type=\"emoji\" data-emoji=\"thought_balloon\"><span class=\"hashtag-icon-placeholder\"><svg class=\"fa d-icon d-icon-square-full svg-icon svg-node\"><use href=\"#square-full\"></use></svg></span><span>Site Feedback</span></a> or <a href=\"/about\">contact the admins</a>.</p>\n</blockquote>"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "Welcome to the Ptah community",
+      "slug": "welcome-to-the-ptah-community",
+      "categoryId": 4,
+      "categoryName": "General",
+      "pinned": false,
+      "createdAt": "2026-08-01T20:49:40.718Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-01T20:49:41.055Z",
+          "raw": null,
+          "cooked": "<p>This is the public side of the Ptah community — open to everyone,<br>\nwhether or not you are a member.</p>\n<p>Ptah is an AI coding orchestra: a VS Code extension, a desktop app and<br>\na headless CLI sharing one core. Use this space to ask questions about<br>\nthe tool, share what you have built with it, and tell us what is<br>\nmissing.</p>\n<p>Bug reports and feature requests are both welcome. So is criticism —<br>\nwe would rather hear it here than not at all.</p>"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "title": "Week 8 build thread — Deploy and launch",
+      "slug": "week-8-build-thread-deploy-and-launch",
+      "categoryId": 5,
+      "categoryName": "Builders Lounge",
+      "pinned": false,
+      "createdAt": "2026-08-01T20:49:38.644Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-01T20:49:39.027Z",
+          "raw": null,
+          "cooked": "<p><strong>Week 8: Deploy and launch</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "title": "Week 7 build thread — Hardening — tests, policies, observability",
+      "slug": "week-7-build-thread-hardening-tests-policies-observability",
+      "categoryId": 5,
+      "categoryName": "Builders Lounge",
+      "pinned": false,
+      "createdAt": "2026-08-01T20:49:36.929Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-01T20:49:37.298Z",
+          "raw": null,
+          "cooked": "<p><strong>Week 7: Hardening — tests, policies, observability</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "title": "Week 6 build thread — Agents, memory and skills",
+      "slug": "week-6-build-thread-agents-memory-and-skills",
+      "categoryId": 5,
+      "categoryName": "Builders Lounge",
+      "pinned": false,
+      "createdAt": "2026-08-01T20:49:35.103Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-01T20:49:35.438Z",
+          "raw": null,
+          "cooked": "<p><strong>Week 6: Agents, memory and skills</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "title": "Week 5 build thread — The first vertical slice",
+      "slug": "week-5-build-thread-the-first-vertical-slice",
+      "categoryId": 5,
+      "categoryName": "Builders Lounge",
+      "pinned": false,
+      "createdAt": "2026-08-01T20:49:33.107Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-01T20:49:33.529Z",
+          "raw": null,
+          "cooked": "<p><strong>Week 5: The first vertical slice</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "title": "Week 4 build thread — Billing and entitlements",
+      "slug": "week-4-build-thread-billing-and-entitlements",
+      "categoryId": 5,
+      "categoryName": "Builders Lounge",
+      "pinned": false,
+      "createdAt": "2026-08-01T20:49:30.874Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-01T20:49:31.362Z",
+          "raw": null,
+          "cooked": "<p><strong>Week 4: Billing and entitlements</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "Week 3 build thread — Authentication and tenancy",
+      "slug": "week-3-build-thread-authentication-and-tenancy",
+      "categoryId": 5,
+      "categoryName": "Builders Lounge",
+      "pinned": false,
+      "createdAt": "2026-08-01T20:49:28.304Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-01T20:49:28.860Z",
+          "raw": null,
+          "cooked": "<p><strong>Week 3: Authentication and tenancy</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Week 2 build thread — The domain — modelling and migrations",
+      "slug": "week-2-build-thread-the-domain-modelling-and-migrations",
+      "categoryId": 5,
+      "categoryName": "Builders Lounge",
+      "pinned": false,
+      "createdAt": "2026-08-01T20:49:25.997Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-01T20:49:26.425Z",
+          "raw": null,
+          "cooked": "<p><strong>Week 2: The domain — modelling and migrations</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Week 1 build thread — Foundation — workspace, boundaries, CI",
+      "slug": "week-1-build-thread-foundation-workspace-boundaries-ci",
+      "categoryId": 5,
+      "categoryName": "Builders Lounge",
+      "pinned": false,
+      "createdAt": "2026-08-01T20:49:24.242Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-01T20:49:24.648Z",
+          "raw": null,
+          "cooked": "<p><strong>Week 1: Foundation — workspace, boundaries, CI</strong></p>\n<p>Post here as you work through this week.</p>\n<ul>\n<li>What you shipped</li>\n<li>What broke, and what the error actually said</li>\n<li>Anything you want reviewed before it merges</li>\n</ul>\n<p>Screenshots and diffs welcome. If you are behind, say so — the point is<br>\nto finish, not to keep pace with a schedule.</p>"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Questions — ask anything here",
+      "slug": "questions-ask-anything-here",
+      "categoryId": 5,
+      "categoryName": "Builders Lounge",
+      "pinned": false,
+      "createdAt": "2026-08-01T20:49:22.283Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-01T20:49:22.649Z",
+          "raw": null,
+          "cooked": "<p>A catch-all for questions that do not belong to a specific week.</p>\n<p>No question is too basic. If you are stuck on setup, tooling, an error<br>\nmessage, or a decision you cannot make, this is the place. Include the<br>\ncommand you ran and the full output where you can — it usually turns a<br>\nlong thread into a short one.</p>"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Start here — how this cohort works",
+      "slug": "start-here-how-this-cohort-works",
+      "categoryId": 5,
+      "categoryName": "Builders Lounge",
+      "pinned": true,
+      "createdAt": "2026-08-01T20:49:17.704Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-08-01T20:49:18.165Z",
+          "raw": null,
+          "cooked": "<p>Welcome to <strong>the Ptah Builders cohort</strong>.</p>\n<p>This is a build cohort, not a video course. Over the next few weeks you<br>\nship a real application to production, and everything here exists to<br>\nsupport that.</p>\n<h3><a name=\"p-16-how-a-week-runs-1\" class=\"anchor\" href=\"#p-16-how-a-week-runs-1\" aria-label=\"Heading link\"></a>How a week runs</h3>\n<ol>\n<li><strong>Live session.</strong> We build together. Bring your screen and your blockers.</li>\n<li><strong>Build thread.</strong> Each week has one thread below — post progress, screenshots and questions there so the answers stay findable.</li>\n<li><strong>Review.</strong> Share a branch or a diff and get it looked at before it ships.</li>\n</ol>\n<h3><a name=\"p-16-what-you-have-access-to-2\" class=\"anchor\" href=\"#p-16-what-you-have-access-to-2\" aria-label=\"Heading link\"></a>What you have access to</h3>\n<ul>\n<li>The private source pack repository</li>\n<li>The full foundation course</li>\n<li>This category, for members only</li>\n<li>The weekly live session</li>\n</ul>\n<h3><a name=\"p-16-ground-rules-3\" class=\"anchor\" href=\"#p-16-ground-rules-3\" aria-label=\"Heading link\"></a>Ground rules</h3>\n<ul>\n<li>Ask early. A blocked member is the only real failure mode here.</li>\n<li>Post in the open. A question in the build thread helps everyone; a DM helps one person.</li>\n<li>Working beats elegant. Ship it, then improve it.</li>\n</ul>"
+        },
+        {
+          "postNumber": 2,
+          "username": "system",
+          "createdAt": "2026-08-01T20:49:19.297Z",
+          "raw": null,
+          "cooked": ""
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Feature requests and roadmap discussion",
+      "slug": "feature-requests-and-roadmap-discussion",
+      "categoryId": 2,
+      "categoryName": "Site Feedback",
+      "pinned": false,
+      "createdAt": "2026-07-24T19:57:50.074Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-07-24T19:57:50.372Z",
+          "raw": null,
+          "cooked": "<p>What should we build next? Vote and discuss the roadmap here.</p>"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Show us what you shipped this week",
+      "slug": "show-us-what-you-shipped-this-week",
+      "categoryId": 2,
+      "categoryName": "Site Feedback",
+      "pinned": false,
+      "createdAt": "2026-07-24T19:57:48.774Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-07-24T19:57:49.417Z",
+          "raw": null,
+          "cooked": "<p>Drop a screenshot or a link. Small wins count. What did Ptah help you build?</p>"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Welcome to the Ptah Builders community",
+      "slug": "welcome-to-the-ptah-builders-community",
+      "categoryId": 2,
+      "categoryName": "Site Feedback",
+      "pinned": false,
+      "createdAt": "2026-07-24T19:57:47.384Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-07-24T19:57:47.937Z",
+          "raw": null,
+          "cooked": "<p>Kick the tires, introduce yourself, and tell us what you are building with Ptah. This is the place for questions, show-and-tell, and roadmap talk.</p>"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Admin Guide: Getting Started",
+      "slug": "admin-guide-getting-started",
+      "categoryId": 3,
+      "categoryName": "Staff",
+      "pinned": false,
+      "createdAt": "2026-07-22T02:50:33.229Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-07-22T02:50:33.559Z",
+          "raw": null,
+          "cooked": "<p><em>Welcome to your new community, and thank you for choosing Discourse!</em></p>\n<h2><a name=\"test-your-email-configuration-1\" class=\"anchor\" href=\"#test-your-email-configuration-1\" aria-label=\"Heading link\"></a><img src=\"/images/emoji/twitter/closed_mailbox_with_raised_flag.png?v=15\" title=\":closed_mailbox_with_raised_flag:\" class=\"emoji\" alt=\":closed_mailbox_with_raised_flag:\" loading=\"lazy\" width=\"20\" height=\"20\"> Test your email configuration</h2>\n<p>Email is required for new account signups and notifications.</p>\n<p>→ Send a <strong><a href=\"http://localhost:3000/admin/email/server-settings\"><kbd>test email</kbd></a></strong>.</p>\n<p>→ Email didn’t arrive? Read our guide on <a href=\"https://github.com/discourse/discourse/blob/main/docs/INSTALL-email.md\">email providers</a>.</p>\n<h2><a name=\"invite-your-team-2\" class=\"anchor\" href=\"#invite-your-team-2\" aria-label=\"Heading link\"></a><img src=\"/images/emoji/twitter/handshake.png?v=15\" title=\":handshake:\" class=\"emoji\" alt=\":handshake:\" loading=\"lazy\" width=\"20\" height=\"20\"> Invite your team</h2>\n<p>Collaborating with others?</p>\n<p>→ <strong><a href=\"http://localhost:3000/new-invite\"><kbd>Send invites</kbd></a></strong> to your team members.</p>\n<h2><a name=\"speech_balloon-start-some-conversations-3\" class=\"anchor\" href=\"#speech_balloon-start-some-conversations-3\" aria-label=\"Heading link\"></a><img src=\"/images/emoji/twitter/speech_balloon.png?v=15\" title=\":speech_balloon:\" class=\"emoji\" alt=\":speech_balloon:\" loading=\"lazy\" width=\"20\" height=\"20\"> Start some conversations</h2>\n<p>Give your early members a place to start interacting.</p>\n<p>→ Add some topics with conversation starters, frequently asked questions, and other content.</p>\n<p>→ Discuss ideas and plans for your community with your team.</p>\n<h2><a name=\"make-it-your-own-4\" class=\"anchor\" href=\"#make-it-your-own-4\" aria-label=\"Heading link\"></a><img src=\"/images/emoji/twitter/artist.png?v=15\" title=\":artist:\" class=\"emoji\" alt=\":artist:\" loading=\"lazy\" width=\"20\" height=\"20\"> Make it your own</h2>\n<p>Help your new members feel right at home when they first arrive.</p>\n<p>→ Personalize your <strong><a href=\"http://localhost:3000/t/-/5/\"><kbd>welcome topic</kbd></a></strong> and fill out your <strong><a href=\"http://localhost:3000/about\"><kbd>about page</kbd></a></strong>.</p>\n<p>→ Customize your <strong><a href=\"http://localhost:3000/admin/config/logo\"><kbd>site appearance</kbd></a></strong>.</p>\n<p>→ Set up different <strong><a href=\"http://localhost:3000/admin/config/login-and-authentication\"><kbd>login methods</kbd></a></strong> for your members.</p>\n<h2><a name=\"invite-your-first-members-5\" class=\"anchor\" href=\"#invite-your-first-members-5\" aria-label=\"Heading link\"></a><img src=\"/images/emoji/twitter/waving_hand.png?v=15\" title=\":waving_hand:\" class=\"emoji\" alt=\":waving_hand:\" loading=\"lazy\" width=\"20\" height=\"20\">  Invite your first members</h2>\n<p>Welcome a few people in - the more, the merrier!</p>\n<p>→ Send out <strong><a href=\"http://localhost:3000/new-invite\"><kbd>invites</kbd></a></strong> or send people the link to your community.</p>\n<h2><a name=\"books-learn-more-about-discourse-6\" class=\"anchor\" href=\"#books-learn-more-about-discourse-6\" aria-label=\"Heading link\"></a><img src=\"/images/emoji/twitter/books.png?v=15\" title=\":books:\" class=\"emoji\" alt=\":books:\" loading=\"lazy\" width=\"20\" height=\"20\"> Learn more about Discourse</h2>\n<p><strong>Support resources:</strong></p>\n<ul>\n<li>Ask our <a href=\"http://ask.discourse.com\">AI-powered assistant</a> anything about Discourse.</li>\n<li>Browse the complete <a href=\"https://meta.discourse.org/c/documentation/10\">Discourse documentation</a>.</li>\n</ul>\n<p><strong>Community resources:</strong></p>\n<ul>\n<li>Join the <a href=\"https://meta.discourse.org/\">Discourse community</a>.</li>\n<li>Take inspiration from <a href=\"https://discover.discourse.com/\">other Discourse communities</a>.</li>\n<li>Read the <a href=\"https://blog.discourse.org/\">Discourse blog</a>.</li>\n</ul>"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Guidelines",
+      "slug": "guidelines",
+      "categoryId": 3,
+      "categoryName": "Staff",
+      "pinned": false,
+      "createdAt": "2026-07-22T02:50:30.976Z",
+      "posts": [
+        {
+          "postNumber": 1,
+          "username": "system",
+          "createdAt": "2026-07-22T02:50:31.399Z",
+          "raw": null,
+          "cooked": "<p><a name=\"civilized\"></a></p>\n<h2><a name=\"this-is-a-civilized-place-for-public-discussioncivilized-1\" class=\"anchor\" href=\"#this-is-a-civilized-place-for-public-discussioncivilized-1\" aria-label=\"Heading link\"></a><a href=\"#civilized\">This is a Civilized Place for Public Discussion</a></h2>\n<p>Please treat this discussion forum with the same respect you would a public park. We, too, are a shared community resource — a place to share skills, knowledge and interests through ongoing conversation.</p>\n<p>These are not hard and fast rules. They are guidelines to aid the human judgment of our community and keep this a kind, friendly place for civilized public discourse.</p>\n<p><a name=\"improve\"></a></p>\n<h2><a name=\"improve-the-discussionimprove-2\" class=\"anchor\" href=\"#improve-the-discussionimprove-2\" aria-label=\"Heading link\"></a><a href=\"#improve\">Improve the Discussion</a></h2>\n<p>Help us make this a great place for discussion by always adding something positive to the discussion, however small. If you are not sure your post adds to the conversation, think over what you want to say and try again later.</p>\n<p>One way to improve the discussion is by discovering ones that are already happening. Spend time browsing the topics here before replying or starting your own, and you’ll have a better chance of meeting others who share your interests.</p>\n<p>The topics discussed here matter to us, and we want you to act as if they matter to you, too. Be respectful of the topics and the people discussing them, even if you disagree with some of what is being said.</p>\n<p><a name=\"agreeable\"></a></p>\n<h2><a name=\"be-agreeable-even-when-you-disagreeagreeable-3\" class=\"anchor\" href=\"#be-agreeable-even-when-you-disagreeagreeable-3\" aria-label=\"Heading link\"></a><a href=\"#agreeable\">Be Agreeable, Even When You Disagree</a></h2>\n<p>You may wish to respond by disagreeing. That’s fine. But remember to <em>criticize ideas, not people</em>. Please avoid:</p>\n<ul>\n<li>Name-calling</li>\n<li>Ad hominem attacks</li>\n<li>Responding to a post’s tone instead of its actual content</li>\n<li>Knee-jerk contradiction</li>\n</ul>\n<p>Instead, provide thoughtful insights that improve the conversation.</p>\n<p><a name=\"participate\"></a></p>\n<h2><a name=\"your-participation-countsparticipate-4\" class=\"anchor\" href=\"#your-participation-countsparticipate-4\" aria-label=\"Heading link\"></a><a href=\"#participate\">Your Participation Counts</a></h2>\n<p>The conversations we have here set the tone for every new arrival. Help us influence the future of this community by choosing to engage in discussions that make this forum an interesting place to be — and avoiding those that do not.</p>\n<p>Discourse provides tools that enable the community to collectively identify the best (and worst) contributions: bookmarks, likes, flags, replies, edits, watching, muting and so forth. Use these tools to improve your own experience, and everyone else’s, too.</p>\n<p>Let’s leave our community better than we found it.</p>\n<p><a name=\"flag-problems\"></a></p>\n<h2><a name=\"if-you-see-a-problem-flag-itflag-problems-5\" class=\"anchor\" href=\"#if-you-see-a-problem-flag-itflag-problems-5\" aria-label=\"Heading link\"></a><a href=\"#flag-problems\">If You See a Problem, Flag It</a></h2>\n<p>Moderators have special authority; they are responsible for this forum. But so are you. With your help, moderators can be community facilitators, not just janitors or police.</p>\n<p>When you see bad behavior, don’t reply. Replying encourages bad behavior by acknowledging it, consumes your energy, and wastes everyone’s time. <em>Just flag it</em>. If enough flags accrue, action will be taken, either automatically or by moderator intervention.</p>\n<p>In order to maintain our community, moderators reserve the right to remove any content and any user account for any reason at any time. Moderators do not preview new posts; the moderators and site operators take no responsibility for any content posted by the community.</p>\n<p><a name=\"be-civil\"></a></p>\n<h2><a name=\"always-be-civilbe-civil-6\" class=\"anchor\" href=\"#always-be-civilbe-civil-6\" aria-label=\"Heading link\"></a><a href=\"#be-civil\">Always Be Civil</a></h2>\n<p>Nothing sabotages a healthy conversation like rudeness:</p>\n<ul>\n<li>Be civil. Don’t post anything that a reasonable person would consider offensive, abusive, or hate speech.</li>\n<li>Keep it clean. Don’t post anything obscene or sexually explicit.</li>\n<li>Respect each other. Don’t harass or grief anyone, impersonate people, or expose their private information.</li>\n<li>Respect our forum. Don’t post spam or otherwise vandalize the forum.</li>\n</ul>\n<p>These are not concrete terms with precise definitions — avoid even the <em>appearance</em> of any of these things. If you’re unsure, ask yourself how you would feel if your post was featured on the front page of a major news site.</p>\n<p>This is a public forum, and search engines index these discussions. Keep the language, links, and images safe for family and friends.</p>\n<p><a name=\"keep-tidy\"></a></p>\n<h2><a name=\"keep-it-tidykeep-tidy-7\" class=\"anchor\" href=\"#keep-it-tidykeep-tidy-7\" aria-label=\"Heading link\"></a><a href=\"#keep-tidy\">Keep It Tidy</a></h2>\n<p>Make the effort to put things in the right place, so that we can spend more time discussing and less cleaning up. So:</p>\n<ul>\n<li>Don’t start a topic in the wrong category; please read the category definitions.</li>\n<li>Don’t cross-post the same thing in multiple topics.</li>\n<li>Don’t post no-content replies.</li>\n<li>Don’t divert a topic by changing it midstream.</li>\n<li>Don’t sign your posts — every post has your profile information attached to it.</li>\n</ul>\n<p>Rather than posting “+1” or “Agreed”, use the Like button. Rather than taking an existing topic in a radically different direction, use Reply as a Linked Topic.</p>\n<p><a name=\"stealing\"></a></p>\n<h2><a name=\"post-only-your-own-stuffstealing-8\" class=\"anchor\" href=\"#post-only-your-own-stuffstealing-8\" aria-label=\"Heading link\"></a><a href=\"#stealing\">Post Only Your Own Stuff</a></h2>\n<p>You may not post anything digital that belongs to someone else without permission. You may not post descriptions of, links to, or methods for stealing someone’s intellectual property (software, video, audio, images), or for breaking any other law.</p>\n<p><a name=\"power\"></a></p>\n<h2><a name=\"powered-by-youpower-9\" class=\"anchor\" href=\"#powered-by-youpower-9\" aria-label=\"Heading link\"></a><a href=\"#power\">Powered by You</a></h2>\n<p>This site is operated by your <a href=\"/about\">friendly moderator team</a> and <em>you</em>, the community. If you have any further questions about how things should work here, open a new topic in <a class=\"hashtag-cooked\" href=\"/c/site-feedback/2\" data-type=\"category\" data-slug=\"site-feedback\" data-id=\"2\" data-style-type=\"emoji\" data-emoji=\"thought_balloon\"><span class=\"hashtag-icon-placeholder\"><svg class=\"fa d-icon d-icon-square-full svg-icon svg-node\"><use href=\"#square-full\"></use></svg></span><span>Site Feedback</span></a> and let’s discuss! If there’s a critical or urgent issue that can’t be handled by a meta topic or flag, <a href=\"/about\">contact the moderators</a>.</p>"
+        },
+        {
+          "postNumber": 2,
+          "username": "system",
+          "createdAt": "2026-07-22T02:50:32.206Z",
+          "raw": null,
+          "cooked": "<p>Edit the first post in this topic to change the contents of the Guidelines page.</p>"
+        }
+      ]
+    }
+  ]
+}
