@@ -36,7 +36,13 @@ export function StatusBar({
   const activeSession = activeSessionId
     ? sessions.find((s) => s.id === activeSessionId)
     : null;
-  const sessionName = activeSession?.name ?? null;
+  // `sessions` is loaded once at mount, so a session created during this run is
+  // never in it. Deriving the label purely from that lookup is why the bar read
+  // "No session" mid-conversation while still rendering the accrued cost (which
+  // is gated on `activeSessionId` alone). Fall back to the id itself.
+  const sessionName =
+    activeSession?.name ??
+    (activeSessionId ? `Session ${activeSessionId.slice(0, 8)}` : null);
   const modelName =
     stats?.model ?? activeSession?.model ?? fallbackModel ?? null;
   const tokenCount =
@@ -61,7 +67,7 @@ export function StatusBar({
         : theme.ui.dimmed;
 
   const modeLabel = mode === 'plan' ? '[Plan]' : '[Build]';
-  const modeColor = mode === 'plan' ? theme.status.info : theme.status.success; 
+  const modeColor = mode === 'plan' ? theme.status.info : theme.status.success;
 
   return (
     <Box

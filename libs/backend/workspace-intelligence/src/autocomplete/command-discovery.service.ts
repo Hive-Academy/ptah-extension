@@ -13,6 +13,114 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 
 /**
+ * Frontmatter block plus the markdown body that follows it.
+ *
+ * Values are narrowed to strings: every field this service consumes
+ * (`name`, `description`, `argument-hint`, `allowed-tools`, `model`) is a
+ * scalar string in practice, and the tolerant fallback below can only ever
+ * produce strings.
+ */
+interface ParsedFrontmatter {
+  readonly data: Record<string, string>;
+  readonly content: string;
+}
+
+/** `---\n…\n---\n<body>`, tolerating a BOM and CRLF line endings. */
+const FRONTMATTER_BLOCK =
+  /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n([\s\S]*))?$/;
+
+const FRONTMATTER_ENTRY = /^([A-Za-z0-9_-]+)[ \t]*:[ \t]*(.*)$/;
+
+function stripWrappingQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length < 2) return trimmed;
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  if ((first === '"' || first === "'") && first === last) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+/**
+ * Line-oriented frontmatter reader used when strict YAML parsing fails.
+ *
+ * Splits each entry on its FIRST colon and takes the remainder of the line
+ * verbatim, which is precisely what strict YAML refuses to do. Skill authors
+ * routinely write
+ *
+ *   description: Interactive designer. Use when users want to: (1) do a thing
+ *
+ * — legal for Claude Code's tolerant reader, but a hard parse error for
+ * js-yaml ("incomplete explicit mapping pair"). Indented lines continue the
+ * previous key so folded descriptions survive too.
+ */
+function parseFrontmatterTolerant(raw: string): ParsedFrontmatter {
+  const match = FRONTMATTER_BLOCK.exec(raw);
+  if (!match) return { data: {}, content: raw };
+
+  const [, block, body = ''] = match;
+  const data: Record<string, string> = {};
+  let currentKey: string | null = null;
+
+  for (const line of block.split(/\r?\n/)) {
+    if (line.trim().length === 0 || line.trimStart().startsWith('#')) continue;
+
+    const entry = FRONTMATTER_ENTRY.exec(line);
+    if (entry) {
+      currentKey = entry[1];
+      data[currentKey] = stripWrappingQuotes(entry[2]);
+      continue;
+    }
+    // Indented continuation of the previous key (folded scalar).
+    if (currentKey !== null && /^[ \t]/.test(line)) {
+      data[currentKey] = `${data[currentKey]} ${line.trim()}`.trim();
+    }
+  }
+
+  return { data, content: body };
+}
+
+/**
+ * Parse frontmatter, degrading to {@link parseFrontmatterTolerant} instead of
+ * throwing. A skill whose description merely contains an unquoted colon used
+ * to be dropped from discovery entirely in all three hosts.
+ */
+function parseFrontmatterLenient(
+  raw: string,
+  onFallback?: () => void,
+): ParsedFrontmatter {
+  try {
+    // The options argument is load-bearing, not decoration. gray-matter
+    // populates `matter.cache[content]` with the UNPARSED file object BEFORE
+    // it runs the YAML parser (index.js:47 then :50), so once a document
+    // throws, that poisoned entry — `data: {}` — is what every later call for
+    // the same content returns, silently and without throwing. Discovery
+    // re-scans on every file-watcher event, so a skill would parse-fail once
+    // and then be served with empty frontmatter forever, never reaching the
+    // fallback below. Passing any options object opts out of the cache
+    // entirely (index.js:37).
+    const parsed = matter(raw, {});
+    return {
+      data: parsed.data as Record<string, string>,
+      content: parsed.content,
+    };
+  } catch {
+    onFallback?.();
+    return parseFrontmatterTolerant(raw);
+  }
+}
+
+/** Node's errno shape, for distinguishing "no such file" from real failures. */
+function isEnoent(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as NodeJS.ErrnoException).code === 'ENOENT'
+  );
+}
+
+/**
  * Command information
  */
 export interface CommandInfo {
@@ -286,8 +394,14 @@ export class CommandDiscoveryService {
   ): Promise<CommandInfo | null> {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
-      const { data: frontmatter, content: template } = matter(content);
-      let description = frontmatter['description'];
+      const { data: frontmatter, content: template } = parseFrontmatterLenient(
+        content,
+        () =>
+          console.debug(
+            `[CommandDiscovery] Strict YAML frontmatter failed for ${filePath}; using tolerant parse`,
+          ),
+      );
+      let description: string | null | undefined = frontmatter['description'];
       if (!description) {
         description = this.extractDescriptionFromMarkdown(template);
       }
@@ -363,7 +477,14 @@ export class CommandDiscoveryService {
         const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
         try {
           const content = await fs.readFile(skillMdPath, 'utf-8');
-          const { data: frontmatter } = matter(content);
+          // Tolerant parse: an unquoted colon in `description:` is legal for
+          // Claude Code's reader but a hard js-yaml error, and it used to drop
+          // the skill from discovery altogether.
+          const { data: frontmatter } = parseFrontmatterLenient(content, () =>
+            console.debug(
+              `[CommandDiscovery] Strict YAML frontmatter failed for ${skillMdPath}; using tolerant parse`,
+            ),
+          );
 
           const name = frontmatter['name'] || entry.name;
           const description = frontmatter['description'] || 'Skill';
@@ -378,6 +499,9 @@ export class CommandDiscoveryService {
             filePath: skillMdPath,
           });
         } catch (error) {
+          // A directory without a SKILL.md simply is not a skill (e.g. a
+          // stray `dist/`). That is not an error worth reporting.
+          if (isEnoent(error)) continue;
           console.debug(
             `[CommandDiscovery] Cannot read SKILL.md at ${skillMdPath}:`,
             error instanceof Error ? error.message : String(error),

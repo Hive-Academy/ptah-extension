@@ -12,6 +12,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { seedStaticModelPricing } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import type {
@@ -37,9 +38,7 @@ export class CliStrategy implements IAuthStrategy {
     private readonly sentryService: SentryService,
   ) {}
 
-  async configure(
-    _context: AuthConfigureContext,
-  ): Promise<AuthConfigureResult> {
+  async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
     this.logger.info(`[${this.name}] Configuring Claude CLI authentication`);
     const health = await this.cliDetector.performHealthCheck();
 
@@ -60,6 +59,14 @@ export class CliStrategy implements IAuthStrategy {
     );
     this.providerModels.clearAllTierEnvVars();
 
+    // Every other strategy seeds the provider's static model pricing on
+    // activation (ApiKeyStrategy, OAuthProxyStrategy). This one did not, so a
+    // Claude Max/Pro subscription session ran with an unseeded pricing map:
+    // `findModelPricing('claude-haiku-4-5')` missed and warned
+    // "not found in pricing map — cost will render as unavailable", even
+    // though the `claude-cli` provider entry carries correct pricing for it.
+    seedStaticModelPricing(context.providerId);
+
     this.logger.info(
       `[${this.name}] Using Claude CLI authentication (credentials managed by CLI)`,
     );
@@ -73,6 +80,6 @@ export class CliStrategy implements IAuthStrategy {
   }
 
   async teardown(): Promise<void> {
-    console.log('CliStrategy.teardown called');
+    this.logger.debug(`[${this.name}] teardown called`);
   }
 }

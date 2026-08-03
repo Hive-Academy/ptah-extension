@@ -106,6 +106,14 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
     return 1;
   }
 
+  // Installed before `withEngine` rather than just before `render`: the engine
+  // bootstrap writes `[ptah] withEngine: …` lines straight to `process.stderr`
+  // while booting, and those landed on the terminal the TUI is about to own.
+  // `PTAH_TUI_DEBUG=1` disables the capture when you need that output.
+  const restoreConsole = smoke
+    ? (): void => undefined
+    : installConsoleCapture();
+
   const pushAdapter = new TuiWebviewManagerAdapter();
   // Registered with the engine so `file:pick` has a selection surface, and
   // handed to the tree so the overlay can settle those requests.
@@ -114,24 +122,47 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
   const thothLifecycle = new ThothLifecycle();
   let signalExitCode = 0;
 
-  const exitCode = await withEngine(
-    { cwd: globals.cwd, config: globals.config, verbose: globals.verbose },
-    {
-      mode: 'full',
-      requireSdk: false,
-      thoth: 'off',
-      host: 'tui',
-      pushAdapter,
-      filePicker,
-    },
-    async (ctx: EngineContext): Promise<number> => {
-      // Booted with `requireSdk: false` so an unconfigured first run reaches
-      // the UI; the adapter is initialized here instead. Going through
-      // `ctx.initializeSdk` (not the bare export) is what registers it for
-      // disposal in withEngine's finally.
-      const sdk = await ctx.initializeSdk();
+  try {
+    const exitCode = await withEngine(
+      { cwd: globals.cwd, config: globals.config, verbose: globals.verbose },
+      {
+        mode: 'full',
+        requireSdk: false,
+        thoth: 'off',
+        host: 'tui',
+        pushAdapter,
+        filePicker,
+      },
+      async (ctx: EngineContext): Promise<number> => {
+        // Booted with `requireSdk: false` so an unconfigured first run reaches
+        // the UI; the adapter is initialized here instead. Going through
+        // `ctx.initializeSdk` (not the bare export) is what registers it for
+        // disposal in withEngine's finally.
+        const sdk = await ctx.initializeSdk();
 
-      if (smoke) {
+        if (smoke) {
+          const app = render(
+            <Root
+              ctx={ctx}
+              workspacePath={workspacePath}
+              filePicker={filePicker}
+              initialAuthReady={sdk.initialized}
+              initialAuthError={sdk.errorMessage}
+              thothLifecycle={thothLifecycle}
+              onQuit={() => undefined}
+            />,
+            {
+              exitOnCtrlC: false,
+              patchConsole: false,
+              stdin: createSmokeStdin(),
+            },
+          );
+          app.unmount();
+          await app.waitUntilExit();
+          return 0;
+        }
+
+        let unmounted = false;
         const app = render(
           <Root
             ctx={ctx}
@@ -140,64 +171,50 @@ export async function runTui(globals: RunTuiGlobals): Promise<number> {
             initialAuthReady={sdk.initialized}
             initialAuthError={sdk.errorMessage}
             thothLifecycle={thothLifecycle}
-            onQuit={() => undefined}
+            onQuit={() => {
+              unmounted = true;
+            }}
           />,
-          {
-            exitOnCtrlC: false,
-            patchConsole: false,
-            stdin: createSmokeStdin(),
-          },
+          // `patchConsole` defaults to true in Ink, which re-patches every
+          // `console.*` method *after* `installConsoleCapture` and reroutes the
+          // output to a region printed above the Ink frame. That is what leaked
+          // `[Pricing]` / `[CommandDiscovery]` lines onto the screen. Turning it
+          // off leaves the capture sink (log file / drop) as the only consumer.
+          { exitOnCtrlC: false, patchConsole: false },
         );
-        app.unmount();
-        await app.waitUntilExit();
-        return 0;
-      }
 
-      const restoreConsole = installConsoleCapture();
-      let unmounted = false;
-      const app = render(
-        <Root
-          ctx={ctx}
-          workspacePath={workspacePath}
-          filePicker={filePicker}
-          initialAuthReady={sdk.initialized}
-          initialAuthError={sdk.errorMessage}
-          thothLifecycle={thothLifecycle}
-          onQuit={() => {
+        const onSignal = (code: number) => () => {
+          signalExitCode = code;
+          if (!unmounted) {
             unmounted = true;
-          }}
-        />,
-        { exitOnCtrlC: false },
-      );
+            app.unmount();
+          }
+        };
+        const onSigint = onSignal(130);
+        const onSigterm = onSignal(143);
+        process.on('SIGINT', onSigint);
+        process.on('SIGTERM', onSigterm);
 
-      const onSignal = (code: number) => () => {
-        signalExitCode = code;
-        if (!unmounted) {
-          unmounted = true;
-          app.unmount();
+        void thothLifecycle.activate(ctx.container);
+
+        try {
+          await app.waitUntilExit();
+        } finally {
+          process.off('SIGINT', onSigint);
+          process.off('SIGTERM', onSigterm);
+          await thothLifecycle.dispose(ctx.container);
         }
-      };
-      const onSigint = onSignal(130);
-      const onSigterm = onSignal(143);
-      process.on('SIGINT', onSigint);
-      process.on('SIGTERM', onSigterm);
 
-      void thothLifecycle.activate(ctx.container);
+        return signalExitCode;
+      },
+    );
 
-      try {
-        await app.waitUntilExit();
-      } finally {
-        process.off('SIGINT', onSigint);
-        process.off('SIGTERM', onSigterm);
-        await thothLifecycle.dispose(ctx.container);
-        restoreConsole();
-      }
-
-      return signalExitCode;
-    },
-  );
-
-  return exitCode;
+    return exitCode;
+  } finally {
+    // Restored even when `withEngine` throws, so a bootstrap failure is still
+    // readable on the terminal once the TUI hands it back.
+    restoreConsole();
+  }
 }
 
 process.on('exit', () => {

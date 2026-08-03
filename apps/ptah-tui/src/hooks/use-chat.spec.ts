@@ -35,7 +35,14 @@ function makeTransport(
   return { transport, calls };
 }
 
-function textDelta(tabId: string, sessionId: string, delta: string) {
+function textDelta(
+  tabId: string,
+  sessionId: string,
+  delta: string,
+  source?: 'stream' | 'complete' | 'history',
+  blockIndex = 0,
+  messageId = 'm',
+) {
   return {
     tabId,
     sessionId,
@@ -44,8 +51,9 @@ function textDelta(tabId: string, sessionId: string, delta: string) {
       eventType: 'text_delta',
       timestamp: Date.now(),
       sessionId,
-      messageId: 'm',
-      blockIndex: 0,
+      ...(source ? { source } : {}),
+      messageId,
+      blockIndex,
       delta,
     },
   };
@@ -357,6 +365,262 @@ describe('ChatStreamController', () => {
     const system = c.messages.find((m) => m.role === 'system');
     expect(system?.content).toContain('timed out');
     c.dispose();
+  });
+
+  /**
+   * The backend emits every assistant text block twice — incrementally from
+   * `stream-event.transformer.ts` (`source: 'stream'`) and once more in full
+   * from `assistant-message.transformer.ts` (`source: 'complete'`). Appending
+   * both rendered "Hey! What are you working on?" twice in the live TUI.
+   */
+  describe('duplicate text_delta emission (source discrimination)', () => {
+    it('does not double the reply when a source:complete delta repeats the block', async () => {
+      const { transport } = makeTransport();
+      const pushAdapter = new EventEmitter();
+      const c = new ChatStreamController({
+        transport,
+        pushAdapter,
+        onChange: () => undefined,
+        flushIntervalMs: 100,
+      });
+      await c.send('hey');
+      const tabId = c.getTabId();
+
+      // Recorded sequence: incremental stream deltas...
+      pushAdapter.emit('chat:chunk', textDelta(tabId, 's1', 'Hey! ', 'stream'));
+      pushAdapter.emit(
+        'chat:chunk',
+        textDelta(tabId, 's1', 'What are you working on?', 'stream'),
+      );
+      // ...then the definitive re-emission of the SAME block, in full.
+      pushAdapter.emit(
+        'chat:chunk',
+        textDelta(tabId, 's1', 'Hey! What are you working on?', 'complete'),
+      );
+      jest.advanceTimersByTime(100);
+
+      const assistant = c.messages.find((m) => m.role === 'assistant');
+      expect(assistant?.content).toBe('Hey! What are you working on?');
+      c.dispose();
+    });
+
+    it('keeps separate text blocks distinct rather than collapsing them', async () => {
+      const { transport } = makeTransport();
+      const pushAdapter = new EventEmitter();
+      const c = new ChatStreamController({
+        transport,
+        pushAdapter,
+        onChange: () => undefined,
+        flushIntervalMs: 100,
+      });
+      await c.send('hi');
+      const tabId = c.getTabId();
+
+      pushAdapter.emit(
+        'chat:chunk',
+        textDelta(tabId, 's1', 'one', 'stream', 0),
+      );
+      pushAdapter.emit(
+        'chat:chunk',
+        textDelta(tabId, 's1', 'two', 'stream', 1),
+      );
+      pushAdapter.emit(
+        'chat:chunk',
+        textDelta(tabId, 's1', 'one', 'complete', 0),
+      );
+      pushAdapter.emit(
+        'chat:chunk',
+        textDelta(tabId, 's1', 'two', 'complete', 1),
+      );
+      jest.advanceTimersByTime(100);
+
+      const assistant = c.messages.find((m) => m.role === 'assistant');
+      expect(assistant?.content).toBe('onetwo');
+      c.dispose();
+    });
+
+    it('treats source:history the same as source:complete (replace)', async () => {
+      const { transport } = makeTransport();
+      const pushAdapter = new EventEmitter();
+      const c = new ChatStreamController({
+        transport,
+        pushAdapter,
+        onChange: () => undefined,
+        flushIntervalMs: 100,
+      });
+      await c.send('hi');
+      const tabId = c.getTabId();
+      pushAdapter.emit('chat:chunk', textDelta(tabId, 's1', 'part', 'stream'));
+      pushAdapter.emit(
+        'chat:chunk',
+        textDelta(tabId, 's1', 'the whole thing', 'history'),
+      );
+      jest.advanceTimersByTime(100);
+
+      const assistant = c.messages.find((m) => m.role === 'assistant');
+      expect(assistant?.content).toBe('the whole thing');
+      c.dispose();
+    });
+
+    it('still appends when no source is present (legacy stream contract)', async () => {
+      const { transport } = makeTransport();
+      const pushAdapter = new EventEmitter();
+      const c = new ChatStreamController({
+        transport,
+        pushAdapter,
+        onChange: () => undefined,
+        flushIntervalMs: 100,
+      });
+      await c.send('hi');
+      const tabId = c.getTabId();
+      pushAdapter.emit('chat:chunk', textDelta(tabId, 's1', 'Hel'));
+      pushAdapter.emit('chat:chunk', textDelta(tabId, 's1', 'lo'));
+      jest.advanceTimersByTime(100);
+
+      const assistant = c.messages.find((m) => m.role === 'assistant');
+      expect(assistant?.content).toBe('Hello');
+      c.dispose();
+    });
+  });
+
+  describe('hang recovery', () => {
+    /**
+     * The reported hang: the second turn's `chat:continue` promise never
+     * settled, and because the watchdog used to be armed only *after* that
+     * await, it was never created — the TUI sat on "Streaming" forever with
+     * the composer disabled and no error.
+     */
+    it('times out a turn whose RPC promise never settles', async () => {
+      const calls: string[] = [];
+      const transport: ChatTransport = {
+        call: (method: string) => {
+          calls.push(method);
+          return new Promise(() => undefined); // never settles
+        },
+      };
+      const pushAdapter = new EventEmitter();
+      const c = new ChatStreamController({
+        transport,
+        pushAdapter,
+        onChange: () => undefined,
+        watchdogMs: 60_000,
+      });
+
+      void c.send('hey');
+      expect(calls).toEqual(['chat:start']);
+      expect(c.isStreaming).toBe(true);
+
+      jest.advanceTimersByTime(60_000);
+
+      expect(c.isStreaming).toBe(false);
+      const system = c.messages.find((m) => m.role === 'system');
+      expect(system?.content).toContain('timed out');
+      c.dispose();
+    });
+
+    it('re-enables sending after a watchdog timeout instead of staying wedged', async () => {
+      let settle: (() => void) | null = null;
+      const calls: string[] = [];
+      const transport: ChatTransport = {
+        call: (method: string) => {
+          calls.push(method);
+          return new Promise<never>(() => {
+            settle = null;
+          });
+        },
+      };
+      const pushAdapter = new EventEmitter();
+      const c = new ChatStreamController({
+        transport,
+        pushAdapter,
+        onChange: () => undefined,
+        watchdogMs: 1_000,
+      });
+
+      void c.send('first');
+      jest.advanceTimersByTime(1_000);
+      // The in-flight guard must be released, or the user can never retry.
+      void c.send('second');
+
+      expect(calls).toHaveLength(2);
+      expect(settle).toBeNull();
+      c.dispose();
+    });
+
+    it('marks the abandoned assistant bubble as no longer streaming', async () => {
+      const transport: ChatTransport = {
+        call: () => new Promise(() => undefined),
+      };
+      const pushAdapter = new EventEmitter();
+      const c = new ChatStreamController({
+        transport,
+        pushAdapter,
+        onChange: () => undefined,
+        watchdogMs: 500,
+      });
+      void c.send('hey');
+      jest.advanceTimersByTime(500);
+
+      const assistant = c.messages.find((m) => m.role === 'assistant');
+      expect(assistant?.isStreaming).toBe(false);
+      c.dispose();
+    });
+  });
+
+  describe('session id resolution', () => {
+    it('adopts the real SDK id from session:id-resolved for the next turn', async () => {
+      const { transport, calls } = makeTransport();
+      const pushAdapter = new EventEmitter();
+      const c = new ChatStreamController({
+        transport,
+        pushAdapter,
+        onChange: () => undefined,
+      });
+      await c.send('first');
+
+      // `chat:start` returns `{ success: true }` with no sessionId, so this
+      // push event is the only carrier of the real id.
+      pushAdapter.emit('session:id-resolved', {
+        tabId: c.getTabId(),
+        realSessionId: 'real-sdk-uuid',
+      });
+      pushAdapter.emit('chat:complete', { tabId: c.getTabId() });
+
+      await c.send('second');
+      expect(calls[1].method).toBe('chat:continue');
+      expect(calls[1].params).toMatchObject({ sessionId: 'real-sdk-uuid' });
+      c.dispose();
+    });
+
+    it('ignores session:id-resolved addressed to another tab', async () => {
+      const { transport } = makeTransport();
+      const pushAdapter = new EventEmitter();
+      const c = new ChatStreamController({
+        transport,
+        pushAdapter,
+        onChange: () => undefined,
+      });
+      await c.send('first');
+      pushAdapter.emit('session:id-resolved', {
+        tabId: 'someone-elses-tab',
+        realSessionId: 'not-mine',
+      });
+      expect(c.getSessionId()).not.toBe('not-mine');
+      c.dispose();
+    });
+
+    it('detaches the session:id-resolved listener on dispose', () => {
+      const { transport } = makeTransport();
+      const pushAdapter = new EventEmitter();
+      const c = new ChatStreamController({
+        transport,
+        pushAdapter,
+        onChange: () => undefined,
+      });
+      expect(pushAdapter.listenerCount('session:id-resolved')).toBe(1);
+      c.dispose();
+      expect(pushAdapter.listenerCount('session:id-resolved')).toBe(0);
+    });
   });
 
   it('detaches all listeners on dispose', () => {

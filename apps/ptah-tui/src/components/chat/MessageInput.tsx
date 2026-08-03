@@ -4,12 +4,23 @@ import TextInput from 'ink-text-input';
 
 import { useTheme } from '../../hooks/use-theme.js';
 import { Spinner } from '../atoms/index.js';
+import {
+  isComposerFocused,
+  shouldComposerSubmit,
+  shouldRollBackChord,
+} from './composer-state.js';
 
 interface MessageInputProps {
   onSubmit: (text: string) => void;
   onStop: () => void;
   isStreaming: boolean;
+  /** A real modal (permission prompt, palette) owns the screen — blur. */
   modalActive?: boolean;
+  /**
+   * The inline `/` command or `@` file overlay is open. The composer KEEPS
+   * focus (the overlay filters on what you type here) but yields Enter.
+   */
+  overlayActive?: boolean;
   value?: string;
   onValueChange?: (value: string) => void;
 }
@@ -19,6 +30,7 @@ export function MessageInput({
   onStop,
   isStreaming,
   modalActive = false,
+  overlayActive = false,
   value: controlledValue,
   onValueChange,
 }: MessageInputProps): React.JSX.Element {
@@ -40,17 +52,32 @@ export function MessageInput({
     [isControlled, onValueChange],
   );
 
+  const composerState = { modalActive, overlayActive, isStreaming };
+  const inputFocused = isComposerFocused(composerState);
+
   useInput(
-    (_input, key) => {
+    (input, key) => {
       if (key.escape && isStreaming) {
         onStop();
+        return;
+      }
+
+      // This handler runs AFTER TextInput's (child effects register first), so
+      // the stray character is already in the buffer and we roll the value
+      // back to what it was before the chord.
+      if (shouldRollBackChord(composerState, key, input)) {
+        handleChange(currentValue);
       }
     },
-    { isActive: isStreaming },
+    { isActive: isStreaming || inputFocused },
   );
 
   const handleSubmit = useCallback(
     (text: string): void => {
+      if (!shouldComposerSubmit({ modalActive, overlayActive, isStreaming })) {
+        return;
+      }
+
       const trimmed = text.trim();
       if (!trimmed || isStreaming) return;
 
@@ -62,7 +89,14 @@ export function MessageInput({
         setInternalValue('');
       }
     },
-    [isStreaming, onSubmit, isControlled, onValueChange],
+    [
+      modalActive,
+      overlayActive,
+      isStreaming,
+      onSubmit,
+      isControlled,
+      onValueChange,
+    ],
   );
 
   return (
@@ -87,7 +121,7 @@ export function MessageInput({
             onChange={handleChange}
             onSubmit={handleSubmit}
             placeholder="Send a message..."
-            focus={!isStreaming && !modalActive}
+            focus={inputFocused}
           />
         </Box>
       )}

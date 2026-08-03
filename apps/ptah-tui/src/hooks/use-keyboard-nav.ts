@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useInput } from 'ink';
 
+import { resolveNavAction } from './nav-actions.js';
+
+export type { NavAction, NavKey } from './nav-actions.js';
+
 export interface UseKeyboardNavOptions {
   itemCount: number;
   isActive?: boolean;
@@ -54,42 +58,19 @@ export function useKeyboardNav({
 
   useInput(
     (_input, key) => {
-      if (itemCount === 0) return;
-
-      if (key.upArrow) {
-        setActiveIndexRaw((prev) => {
-          if (prev > 0) return prev - 1;
-          return wrap ? itemCount - 1 : prev;
-        });
-        return;
-      }
-
-      if (key.downArrow) {
-        setActiveIndexRaw((prev) => {
-          if (prev < itemCount - 1) return prev + 1;
-          return wrap ? 0 : prev;
-        });
-        return;
-      }
-
-      if (key.pageUp) {
-        setActiveIndexRaw((prev) => Math.max(0, prev - 10));
-        return;
-      }
-
-      if (key.pageDown) {
-        setActiveIndexRaw((prev) => Math.min(itemCount - 1, prev + 10));
-        return;
-      }
-
-      if (key.return && onSelect) {
-        onSelect(activeIndex);
-        return;
-      }
-
-      if (key.escape && onEscape) {
-        onEscape();
-        return;
+      const action = resolveNavAction(key, activeIndex, itemCount, wrap);
+      switch (action.kind) {
+        case 'escape':
+          onEscape?.();
+          return;
+        case 'select':
+          onSelect?.(activeIndex);
+          return;
+        case 'move':
+          setActiveIndexRaw(action.index);
+          return;
+        default:
+          return;
       }
     },
     { isActive },

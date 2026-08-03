@@ -1,4 +1,10 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import { Box } from 'ink';
 
 import { useTuiContext } from '../../context/TuiContext.js';
@@ -21,6 +27,11 @@ import type { UseAgentConfigResult } from '../../hooks/use-agent-config.js';
 interface ChatPanelProps {
   modalActive?: boolean;
   onOverlayActiveChange?: (active: boolean) => void;
+  onStreamingChange?: (streaming: boolean) => void;
+  /** Publishes this panel's command executor so the Ctrl+K palette can run it. */
+  registerCommandSink?: (
+    sink: ((name: string, args: string) => void) | null,
+  ) => void;
   onClear?: () => void;
   onSettings?: () => void;
   onSessions?: () => void;
@@ -32,6 +43,8 @@ interface ChatPanelProps {
 export function ChatPanel({
   modalActive = false,
   onOverlayActiveChange,
+  onStreamingChange,
+  registerCommandSink,
   onClear,
   onSettings,
   onSessions,
@@ -42,12 +55,38 @@ export function ChatPanel({
   // `workspacePath` comes from the context, not a prop: it was previously an
   // optional prop that no caller ever passed, so every chat session started
   // without a workspace root.
-  const { transport, pushAdapter, workspacePath, filePicker: pickerBridge } =
-    useTuiContext();
+  const {
+    transport,
+    pushAdapter,
+    workspacePath,
+    filePicker: pickerBridge,
+  } = useTuiContext();
   const { messages, isStreaming, send, stop, clear, addSystemMessage } =
     useChat(transport, pushAdapter, workspacePath);
 
   const [inputValue, setInputValue] = useState('');
+
+  // Single source of truth for the status bar: the controller, not a second
+  // set of push listeners that can never observe a watchdog timeout.
+  useEffect(() => {
+    onStreamingChange?.(isStreaming);
+  }, [isStreaming, onStreamingChange]);
+
+  // Latest-callback refs so the unmount cleanup below can run exactly once
+  // without capturing stale props or re-firing on every render.
+  const teardownRef = useRef({ onOverlayActiveChange, onStreamingChange });
+  teardownRef.current = { onOverlayActiveChange, onStreamingChange };
+
+  // `overlayActive` lives in AppShell but is only ever cleared by callbacks
+  // from here. Switching view with Ctrl+S / Ctrl+T while an overlay was open
+  // unmounted this panel without clearing it, leaving the app-shell `useInput`
+  // permanently disabled — Ctrl+S could then never bring you back.
+  useEffect(() => {
+    return () => {
+      teardownRef.current.onOverlayActiveChange?.(false);
+      teardownRef.current.onStreamingChange?.(false);
+    };
+  }, []);
 
   const [overlayType, setOverlayType] = useState<'command' | 'file' | null>(
     null,
@@ -85,6 +124,18 @@ export function ChatPanel({
   );
 
   const { commands, executeCommand } = useCommands(commandCallbacks);
+
+  useEffect(() => {
+    const sink = (name: string, args: string): void => {
+      void executeCommand(name, args).then((result) => {
+        if (result !== null) {
+          addSystemMessage(result);
+        }
+      });
+    };
+    registerCommandSink?.(sink);
+    return () => registerCommandSink?.(null);
+  }, [registerCommandSink, executeCommand, addSystemMessage]);
 
   const handleInputChange = useCallback(
     (value: string): void => {
@@ -231,11 +282,19 @@ export function ChatPanel({
           authReady={authReady}
         />
       )}
+      {/*
+        `modalActive` and `isOverlayActive` used to be OR'd into one prop, which
+        blurred the composer the instant an overlay opened. That is why file
+        search looked broken: typing `@` opened the picker and then swallowed
+        every following character, so the only query ever issued was the empty
+        one and the list never narrowed.
+      */}
       <MessageInput
         onSubmit={handleSubmit}
         onStop={() => void stop()}
         isStreaming={isStreaming}
-        modalActive={modalActive || isOverlayActive}
+        modalActive={modalActive}
+        overlayActive={isOverlayActive}
         value={inputValue}
         onValueChange={handleInputChange}
       />

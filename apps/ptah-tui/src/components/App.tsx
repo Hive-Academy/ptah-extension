@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import type {
   PermissionRequest,
@@ -13,7 +13,10 @@ import type {
 import { TuiProvider } from '../context/TuiContext.js';
 import type { TuiFilePickerBridge } from '../transport/tui-file-picker-bridge.js';
 import { ThemeProvider } from '../context/ThemeContext.js';
-import { SessionProvider, useSessionContext } from '../context/SessionContext.js';
+import {
+  SessionProvider,
+  useSessionContext,
+} from '../context/SessionContext.js';
 import { ModeProvider } from '../context/ModeContext.js';
 import { FocusProvider } from '../hooks/use-focus-manager.js';
 import { ErrorBoundary } from './common/ErrorBoundary.js';
@@ -75,6 +78,21 @@ function AppShell({
   const [isStreaming, setIsStreaming] = useState(false);
   const [overlayActive, setOverlayActive] = useState(false);
 
+  // Ctrl+K opens the palette from the shell, but the command machinery
+  // (`useCommands`) is owned by ChatPanel, which holds the chat callbacks the
+  // commands act on. ChatPanel publishes its executor here on mount so the
+  // palette can actually run a selection — previously `onExecute` was
+  // `handleDismiss(); void name;`, i.e. the advertised ^K did nothing at all.
+  const commandSinkRef = useRef<((name: string, args: string) => void) | null>(
+    null,
+  );
+  const registerCommandSink = useCallback(
+    (sink: ((name: string, args: string) => void) | null) => {
+      commandSinkRef.current = sink;
+    },
+    [],
+  );
+
   const handleQuit = useCallback(() => {
     onQuit();
     exit();
@@ -132,28 +150,12 @@ function AppShell({
     };
   }, [pushAdapter, fireAndForget]);
 
-  useEffect(() => {
-    const handleChunk = (): void => {
-      setIsStreaming(true);
-    };
-    const handleComplete = (): void => {
-      setIsStreaming(false);
-    };
-    const handleError = (): void => {
-      setIsStreaming(false);
-    };
-
-    pushAdapter.on('chat:chunk', handleChunk);
-    pushAdapter.on('chat:complete', handleComplete);
-    pushAdapter.on('chat:error', handleError);
-
-    return () => {
-      pushAdapter.off('chat:chunk', handleChunk);
-      pushAdapter.off('chat:complete', handleComplete);
-      pushAdapter.off('chat:error', handleError);
-    };
-  }, [pushAdapter]);
-
+  // The status bar used to derive `isStreaming` from its own
+  // `chat:chunk`/`chat:complete` listeners. That is a second source of truth
+  // for one piece of state, and it only ever cleared on a push event — so when
+  // the backend went silent the bar stayed on "◉ Streaming" forever even after
+  // ChatStreamController's watchdog had already ended the turn. The controller
+  // is now the only owner; ChatPanel reports its state up.
   const modalActive = modalStack.length > 0;
 
   const handleOverlayActiveChange = useCallback((active: boolean) => {
@@ -199,9 +201,9 @@ function AppShell({
         const handleDismiss = (): void => {
           setModalStack((prev) => prev.slice(0, -1));
         };
-        const handleExecute = (name: string): void => {
+        const handleExecute = (name: string, args: string): void => {
           handleDismiss();
-          void name;
+          commandSinkRef.current?.(name, args);
         };
         setModalStack((prev) => [
           ...prev,
@@ -227,7 +229,10 @@ function AppShell({
       }
 
       if (key.escape) {
+        // Escape returns to the chat surface AND drops the sessions sidebar,
+        // which otherwise kept the composer blurred with no obvious way back.
         setActiveView('chat');
+        setSidebarVisible(false);
       }
     },
     {
@@ -268,15 +273,22 @@ function AppShell({
               lifecycle={thothLifecycle}
               pushAdapter={pushAdapter}
               isActive={
-                process.stdin.isTTY === true &&
-                !modalActive &&
-                !overlayActive
+                process.stdin.isTTY === true && !modalActive && !overlayActive
               }
             />
           ) : (
             <ChatPanel
-              modalActive={modalActive}
+              // The sidebar counts as modal for the composer. `SessionList`
+              // binds bare letters (n = new, d = delete, y = confirm) and
+              // Enter/arrows with only `isFocused={!modalActive}` to guard
+              // them, so while the sidebar was open every one of those keys
+              // fired from *inside* a chat message: typing "and" created a
+              // session and armed a delete. Blurring the composer gives the
+              // sidebar sole ownership of the keyboard while it is up.
+              modalActive={modalActive || sidebarVisible}
               onOverlayActiveChange={handleOverlayActiveChange}
+              onStreamingChange={setIsStreaming}
+              registerCommandSink={registerCommandSink}
               onSettings={() => setActiveView('settings')}
               onSessions={() => setSidebarVisible((prev) => !prev)}
               onQuit={handleQuit}
