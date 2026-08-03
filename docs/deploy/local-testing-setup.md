@@ -148,8 +148,15 @@ DX 'bin/rails runner local-setup.rb'   # prints API_KEY=... — copy it
 
 `RAILS_DEVELOPMENT_HOSTS=host.docker.internal` lets the license-server **container**
 reach Discourse for admin group-sync (see networking note below). Started via
-`docker exec -d`, so it does NOT auto-restart with the container — re-run after a
-reboot / `./launcher`-style restart.
+`docker exec -d`, so it does NOT auto-restart with the container.
+
+> [!NOTE]
+> **Self-healing (installed 2026-08-03):** the WSL systemd unit
+> `discourse-dev-autoheal.service` (script: `scripts/discourse-dev-autoheal.sh`,
+> installed at `/usr/local/bin/`) re-injects the Rails server automatically
+> whenever the container runs without one — recovery is ~40s after any
+> container/WSL restart, no manual step needed. The command below is only the
+> manual fallback (or for a machine where the unit isn't installed):
 
 ```bash
 docker exec -d -u discourse:discourse -w /src \
