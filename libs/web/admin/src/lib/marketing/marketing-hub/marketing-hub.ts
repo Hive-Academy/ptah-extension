@@ -20,12 +20,9 @@ import {
   MarketingSegmentsResponse,
   MarketingTemplate,
 } from '../../services/admin-api.service';
-import { EmptyState } from '../../components/empty-state/empty-state';
-import {
-  StatTile,
-  StatTileDeltaTone,
-} from '../../components/stat-tile/stat-tile';
-import { StatusBadge } from '../../components/status-badge/status-badge';
+import { EmptyState } from '@ptah-web/panel-ui';
+import { StatTile, StatTileDeltaTone } from '@ptah-web/panel-ui';
+import { StatusBadge } from '@ptah-web/panel-ui';
 import {
   asCampaignRow,
   CampaignRow,

@@ -8,7 +8,7 @@
  * status-derivation + rate-coloring logic already centralised in
  * `marketing-metrics.ts`.
  */
-import type { BadgeVariant } from '../../admin-models.config';
+import type { BadgeVariant } from '@ptah-web/panel-ui';
 import { computeCampaignRates, rateColorClass } from '../marketing-metrics';
 
 /** The raw campaign-record fields these views consume (from `list`/`get`). */

@@ -16,7 +16,7 @@ import {
   AdminBuildersApiService,
   GroupMember,
 } from '../../services/admin-builders-api.service';
-import { DetailDrawer } from '../../components/detail-drawer/detail-drawer';
+import { DetailDrawer } from '@ptah-web/panel-ui';
 import { AssignMembersModal } from '../components/assign-members-modal/assign-members-modal';
 import { GroupFormModal } from '../components/group-form-modal/group-form-modal';
 

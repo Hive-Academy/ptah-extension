@@ -22,7 +22,6 @@ import {
   AlertTriangle,
   CalendarDays,
   LayoutDashboard,
-  type LucideIconData,
   Megaphone,
   MessagesSquare,
   Package,
@@ -34,46 +33,14 @@ import {
   Wrench,
 } from 'lucide-angular';
 
-export interface AdminNavItem {
-  /** Sidebar label. */
-  label: string;
-  /** Absolute route path (matches an existing `admin.routes.ts` target). */
-  route: string;
-  /**
-   * Tier: `true` = primary (bespoke, high-frequency) — icon + medium weight,
-   * always visible. `false` = secondary/utility — smaller, indented, hidden
-   * when its group's disclosure is collapsed (design spec §2.2, §2.3).
-   */
-  primary: boolean;
-  /** Leading lucide icon — present on primary items only (§7.6). */
-  icon?: LucideIconData;
-  /** Mirrors backend `readOnly` — renders the muted `ro` badge (§2.3). */
-  readOnly?: boolean;
-  /**
-   * When true, the active highlight requires an EXACT route match (no prefix).
-   * Used for hub-style items whose slug is a prefix of a sibling's route (e.g.
-   * `/admin/marketing` vs `/admin/marketing/compose`) so the parent doesn't
-   * stay lit while a child page is open.
-   */
-  exact?: boolean;
-}
+import type { PanelNavGroup } from '@ptah-web/panel-ui';
 
-export interface AdminNavGroup {
-  /** Uppercase group header label. */
-  label: string;
-  /** 20px group icon (§7.6). */
-  icon: LucideIconData;
-  /** Ordered items — primary first, then secondary. */
-  items: AdminNavItem[];
-  /**
-   * When true the group renders as a flat single link with no disclosure
-   * toggle (used for groups with a single, always-visible item — Command
-   * Center's Overview and Records & Compliance's Audit Log, per §2.3).
-   */
-  flat?: boolean;
-}
-
-export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
+/**
+ * The item/group shapes moved to `@ptah-web/panel-ui` when the drawer shell
+ * was generalised for the member panel — they were never admin-specific, only
+ * admin-private. This file now supplies data, not structure.
+ */
+export const ADMIN_NAV_GROUPS: readonly PanelNavGroup[] = [
   {
     label: 'Command Center',
     icon: LayoutDashboard,

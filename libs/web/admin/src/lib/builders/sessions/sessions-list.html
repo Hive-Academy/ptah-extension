@@ -140,7 +140,7 @@
       }
     </div>
   } @else if (sessions().length === 0) {
-    <ptah-admin-empty-state
+    <ptah-empty-state
       [icon]="CalendarIcon"
       message="No sessions in this window."
       hint="Widen the window, or schedule one if the calendar is writable."
@@ -164,7 +164,7 @@
                 <div class="flex items-center gap-2">
                   <span class="font-medium">{{ s.title }}</span>
                   @if (s.recurring) {
-                    <ptah-admin-status-badge
+                    <ptah-status-badge
                       [variant]="'info'"
                       label="series"
                       [showIcon]="false"
@@ -281,7 +281,7 @@
           </p>
         </div>
         @if (sel.recurring) {
-          <ptah-admin-status-badge
+          <ptah-status-badge
             [variant]="'info'"
             label="series"
             [showIcon]="false"

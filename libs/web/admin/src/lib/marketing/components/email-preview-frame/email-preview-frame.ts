@@ -8,7 +8,7 @@ import {
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { Eye } from 'lucide-angular';
 import DOMPurify from 'dompurify';
-import { EmptyState } from '../../../components/empty-state/empty-state';
+import { EmptyState } from '@ptah-web/panel-ui';
 
 /**
  * EmailPreviewFrame — the ONE shared, safe email-HTML preview surface

@@ -57,7 +57,7 @@
   </div>
 
   <!-- Contextual bulk-action bar (replaces the disabled-until-selected button) -->
-  <ptah-admin-selection-toolbar
+  <ptah-selection-toolbar
     [count]="selectedIds().length"
     itemNoun="user"
     (cleared)="clearSelection()"
@@ -69,7 +69,7 @@
     >
       Email Selected
     </button>
-  </ptah-admin-selection-toolbar>
+  </ptah-selection-toolbar>
 
   <!-- Body -->
   @if (loading()) {
@@ -83,7 +83,7 @@
       <span>Failed to load users.</span>
     </div>
   } @else if (rows().length === 0) {
-    <ptah-admin-empty-state message="No users match your search." />
+    <ptah-empty-state message="No users match your search." />
   } @else {
     <div class="overflow-x-auto rounded-lg border border-hairline">
       <table class="table table-sm">
@@ -140,7 +140,7 @@
               <!-- License: effective plan + status, expiry as the secondary line -->
               <td>
                 <div class="flex flex-col gap-0.5">
-                  <ptah-admin-status-badge
+                  <ptah-status-badge
                     [variant]="planVariant(row.entitlement)"
                     [label]="planLabel(row.entitlement)"
                     size="xs"
@@ -166,7 +166,7 @@
               <!-- Subscription: the other half of the join, on the same row -->
               <td>
                 <div class="flex flex-col gap-0.5">
-                  <ptah-admin-status-badge
+                  <ptah-status-badge
                     [variant]="subscriptionVariant(row.entitlement)"
                     [label]="subscriptionLabel(row.entitlement)"
                     size="xs"
@@ -180,7 +180,7 @@
               </td>
 
               <td>
-                <ptah-admin-status-badge
+                <ptah-status-badge
                   [variant]="row.user.emailVerified ? 'success' : 'ghost'"
                   [label]="row.user.emailVerified ? 'Verified' : 'Unverified'"
                   size="xs"

@@ -10,8 +10,8 @@ import {
 import { LucideAngularModule, Rows3, Rows4 } from 'lucide-angular';
 
 import type { FieldSpec } from '../../admin-models.config';
-import { EmptyState } from '../empty-state/empty-state';
-import { StatusBadge } from '../status-badge/status-badge';
+import { EmptyState } from '@ptah-web/panel-ui';
+import { StatusBadge } from '@ptah-web/panel-ui';
 
 /**
  * Page/sort/selection event shapes emitted by `DataTable`.

@@ -16,15 +16,15 @@ import {
  * stays in the parent view.
  *
  * Usage:
- *   <ptah-admin-selection-toolbar
+ *   <ptah-selection-toolbar
  *     [count]="selectedIds().length"
  *     itemNoun="webhook"
  *     (cleared)="clearSelection()">
  *     <button class="btn btn-sm btn-primary">Mark Resolved</button>
- *   </ptah-admin-selection-toolbar>
+ *   </ptah-selection-toolbar>
  */
 @Component({
-  selector: 'ptah-admin-selection-toolbar',
+  selector: 'ptah-selection-toolbar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './selection-toolbar.html',

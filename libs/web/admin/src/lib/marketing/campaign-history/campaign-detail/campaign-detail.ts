@@ -12,13 +12,10 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ArrowLeft, LucideAngularModule } from 'lucide-angular';
 
 import { AdminApiService } from '../../../services/admin-api.service';
-import { EmptyState } from '../../../components/empty-state/empty-state';
-import {
-  StatTile,
-  StatTileDeltaTone,
-} from '../../../components/stat-tile/stat-tile';
-import { StatusBadge } from '../../../components/status-badge/status-badge';
-import type { BadgeVariant } from '../../../admin-models.config';
+import { EmptyState } from '@ptah-web/panel-ui';
+import { StatTile, StatTileDeltaTone } from '@ptah-web/panel-ui';
+import { StatusBadge } from '@ptah-web/panel-ui';
+import type { BadgeVariant } from '@ptah-web/panel-ui';
 import {
   computeCampaignRates,
   rateTone,

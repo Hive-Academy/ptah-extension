@@ -23,8 +23,8 @@ import {
   AdminListResponse,
   MarketingTemplate,
 } from '../../services/admin-api.service';
-import { DetailDrawer } from '../../components/detail-drawer/detail-drawer';
-import { EmptyState } from '../../components/empty-state/empty-state';
+import { DetailDrawer } from '@ptah-web/panel-ui';
+import { EmptyState } from '@ptah-web/panel-ui';
 import { EmailPreviewFrame } from '../components/email-preview-frame/email-preview-frame';
 
 /** Max variable chips rendered before collapsing the remainder into "+N more". */

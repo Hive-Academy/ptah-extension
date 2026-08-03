@@ -1,177 +1,25 @@
 <!--
-  Admin shell — DaisyUI drawer.
+  Admin shell — thin binding over the shared PanelLayout.
+
   DO NOT add /admin* links to NavigationComponent, FooterComponent, or any
-  future sitemap.xml. This dashboard is gated by ADMIN_EMAILS allowlist and
+  future sitemap.xml. This dashboard is gated by the ADMIN_EMAILS allowlist and
   must remain invisible to public crawlers and unauthenticated users.
 
-  Scoped to the `operator-admin` daisyUI theme (stepped surface elevation) so
-  admin cards/panels read as raised against the page canvas WITHOUT affecting
-  the public marketing site, which stays on `operator`.
-
-  Surface roles: canvas = base-100 (darkest), chrome (header + sidebar) +
-  cards = base-200 (raised), hover/active + borders = base-300.
+  Scoped to the `operator-admin` daisyUI theme so admin surfaces stay separate
+  from the public marketing site, which remains on `operator`.
 -->
-<div
-  data-theme="operator-admin"
-  class="drawer lg:drawer-open min-h-screen bg-base-100"
+<ptah-panel-layout
+  [navGroups]="navGroups"
+  theme="operator-admin"
+  title="Admin Dashboard"
+  badgeLabel="Restricted"
+  badgeClass="badge-warning"
+  drawerId="admin-drawer"
 >
-  <input id="admin-drawer" type="checkbox" class="drawer-toggle" />
-
-  <!-- MAIN CONTENT -->
-  <div class="drawer-content flex flex-col">
-    <!-- Top bar -->
-    <header
-      class="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-hairline bg-base-200 px-4 py-3 lg:px-6"
-    >
-      <div class="flex items-center gap-3">
-        <label
-          for="admin-drawer"
-          class="btn btn-ghost btn-sm lg:hidden"
-          aria-label="Open admin menu"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 6h16M4 12h16M4 18h16"
-            />
-          </svg>
-        </label>
-        <h1 class="text-xl font-bold lg:text-2xl">Admin Dashboard</h1>
-        <span class="badge badge-warning badge-sm">Restricted</span>
-      </div>
-
-      <div class="flex items-center gap-2 text-sm text-base-content/70">
-        @if (currentEmail(); as email) {
-          <span class="hidden sm:inline">Signed in as</span>
-          <span class="font-mono text-xs sm:text-sm">{{ email }}</span>
-        }
-      </div>
-    </header>
-
-    <!-- Page outlet -->
-    <main class="flex-1 p-4 lg:p-6">
-      <router-outlet />
-    </main>
-  </div>
-
-  <!-- SIDEBAR -->
-  <aside class="drawer-side z-20">
-    <label
-      for="admin-drawer"
-      aria-label="Close admin menu"
-      class="drawer-overlay"
-    ></label>
-    <nav
-      class="flex min-h-full w-64 flex-col gap-0.5 border-r border-hairline bg-base-200 p-3"
-    >
-      @for (group of navGroups; track group.label; let first = $first) {
-        @if (group.flat) {
-          <!-- Flat group: a headerless standalone link (no group chrome) -->
-          <ul class="flex flex-col gap-0.5" [class.mt-3]="!first">
-            @for (item of group.items; track item.route) {
-              <ng-container
-                [ngTemplateOutlet]="navLink"
-                [ngTemplateOutletContext]="{ item: item, forcePrimary: true }"
-              />
-            }
-          </ul>
-        } @else {
-          <div class="mt-5 first:mt-0">
-            <!-- Lighter group header (label only, no icon) — collapsible -->
-            <button
-              type="button"
-              class="mb-1 flex w-full items-center gap-2 rounded px-2.5 py-1 hover:bg-base-300/50"
-              (click)="toggleGroup(group.label)"
-              [attr.aria-expanded]="!isCollapsed(group.label)"
-            >
-              <span
-                class="flex-1 text-left text-[11px] font-semibold uppercase tracking-wider text-base-content/40"
-              >
-                {{ group.label }}
-              </span>
-              <lucide-angular
-                [img]="ChevronDownIcon"
-                class="h-3.5 w-3.5 shrink-0 text-base-content/20 transition-transform"
-                [class.-rotate-90]="isCollapsed(group.label)"
-                aria-hidden="true"
-              />
-            </button>
-
-            <ul class="flex flex-col gap-0.5">
-              @for (item of group.items; track item.route) {
-                @if (item.primary || !isCollapsed(group.label)) {
-                  <ng-container
-                    [ngTemplateOutlet]="navLink"
-                    [ngTemplateOutletContext]="{ item: item, forcePrimary: false }"
-                  />
-                }
-              }
-            </ul>
-          </div>
-        }
-      }
-    </nav>
-  </aside>
-</div>
-
-<!--
-  Shared nav link. Inactive links are calm (base-content/80 and /60); ONLY the
-  active route gets the primary highlight, so the current page is unambiguous. Primary
-  (or flat) items carry an icon + left rail; secondary items are indented.
--->
-<ng-template #navLink let-item="item" let-forcePrimary="forcePrimary">
-  @if (item.primary || forcePrimary) {
-    <li>
-      <a
-        [routerLink]="item.route"
-        [routerLinkActive]="primaryActiveClass"
-        [routerLinkActiveOptions]="{ exact: !!item.exact }"
-        class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-normal text-base-content/80 transition-colors hover:bg-base-300 hover:text-base-content"
-      >
-        @if (item.icon) {
-          <lucide-angular
-            [img]="item.icon"
-            class="h-[18px] w-[18px] shrink-0"
-            aria-hidden="true"
-          />
-        }
-        <span class="flex-1">{{ item.label }}</span>
-        @if (item.readOnly) {
-          <span
-            class="badge badge-ghost badge-xs text-base-content/40"
-            title="Read-only"
-          >
-            ro
-          </span>
-        }
-      </a>
-    </li>
-  } @else {
-    <li>
-      <a
-        [routerLink]="item.route"
-        [routerLinkActive]="secondaryActiveClass"
-        [routerLinkActiveOptions]="{ exact: !!item.exact }"
-        class="flex items-center justify-between rounded-md py-1.5 pl-8 pr-2.5 text-[13px] font-normal text-base-content/60 transition-colors hover:bg-base-300 hover:text-base-content/80"
-      >
-        <span>{{ item.label }}</span>
-        @if (item.readOnly) {
-          <span
-            class="badge badge-ghost badge-xs text-base-content/40"
-            title="Read-only"
-          >
-            ro
-          </span>
-        }
-      </a>
-    </li>
-  }
-</ng-template>
+  <ng-container panelTopBar>
+    @if (currentEmail(); as email) {
+      <span class="hidden sm:inline">Signed in as</span>
+      <span class="font-mono text-xs sm:text-sm">{{ email }}</span>
+    }
+  </ng-container>
+</ptah-panel-layout>

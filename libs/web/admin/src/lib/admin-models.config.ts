@@ -15,6 +15,8 @@
  * - Field `key` values MUST match the Prisma model attribute names.
  */
 
+import type { BadgeVariant } from '@ptah-web/panel-ui';
+
 export type FieldType =
   | 'string'
   | 'number'
@@ -24,20 +26,11 @@ export type FieldType =
   | 'json';
 
 /**
- * Semantic status colors — the 5-state palette from the admin design system
- * (visual-design-specification §7.3), consumed by the shared `StatusBadge`
- * component. Each maps to a daisyUI `badge-*` modifier under the `operator`
- * theme:
- *   success → healthy/done · warning → needs eyes soon · error → broken/stop
- *   info → neutral-positive/in-progress · neutral/ghost → no strong signal.
+ * `BadgeVariant` — the semantic status palette (visual-design-specification
+ * §7.3) — now lives in `@ptah-web/panel-ui` alongside the `StatusBadge` that
+ * renders it, because the member panel resolves enum values through the same
+ * six names. Imported below for the `FieldSpec.badgeMap` declarations.
  */
-export type BadgeVariant =
-  | 'success'
-  | 'warning'
-  | 'error'
-  | 'info'
-  | 'neutral'
-  | 'ghost';
 
 export interface FieldSpec {
   /** Prisma attribute name — MUST match backend model. */

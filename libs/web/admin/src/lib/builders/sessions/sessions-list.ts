@@ -13,8 +13,8 @@ import {
   AdminSession,
 } from '../../services/admin-builders-api.service';
 import { AdminApiService } from '../../services/admin-api.service';
-import { EmptyState } from '../../components/empty-state/empty-state';
-import { StatusBadge } from '../../components/status-badge/status-badge';
+import { EmptyState } from '@ptah-web/panel-ui';
+import { StatusBadge } from '@ptah-web/panel-ui';
 import { SessionFormModal } from './components/session-form-modal/session-form-modal';
 import { SessionTemplatePalette } from './components/session-template-palette/session-template-palette';
 import {

@@ -18,9 +18,9 @@ import {
   FieldSpec,
 } from '../admin-models.config';
 import { DeleteUserModalComponent } from '../components/delete-user-modal/delete-user-modal';
-import { EmptyState } from '../components/empty-state/empty-state';
+import { EmptyState } from '@ptah-web/panel-ui';
 import { IssueCompLicenseModalComponent } from '../components/issue-comp-license-modal/issue-comp-license-modal';
-import { StatusBadge } from '../components/status-badge/status-badge';
+import { StatusBadge } from '@ptah-web/panel-ui';
 
 /**
  * AdminDetail — generic show/edit page for a single admin record.

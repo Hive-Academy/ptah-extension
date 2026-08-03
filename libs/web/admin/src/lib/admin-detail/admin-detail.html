@@ -117,7 +117,7 @@
                 <dd class="break-words text-sm">
                   @if (f.badgeMap; as badgeMap) {
                     @if (rec[f.key] !== null && rec[f.key] !== undefined && rec[f.key] !== '') {
-                      <ptah-admin-status-badge
+                      <ptah-status-badge
                         [badgeMap]="badgeMap"
                         [value]="rec[f.key]"
                       />
@@ -313,7 +313,7 @@
     }
   </section>
 } @else {
-  <ptah-admin-empty-state
+  <ptah-empty-state
     message="Unknown admin model."
     hint="Pick a model from the sidebar."
   />

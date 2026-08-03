@@ -26,8 +26,8 @@ import {
 import { AuthService } from '@ptah-web/core';
 import { SegmentPicker } from '../../components/segment-picker/segment-picker';
 import { TemplatePicker } from '../../components/template-picker/template-picker';
-import { StatTile } from '../../components/stat-tile/stat-tile';
-import { EmptyState } from '../../components/empty-state/empty-state';
+import { StatTile } from '@ptah-web/panel-ui';
+import { EmptyState } from '@ptah-web/panel-ui';
 import { EmailPreviewFrame } from '../components/email-preview-frame/email-preview-frame';
 import { SEGMENT_LABELS, segmentLabel } from '../marketing-segment-labels';
 import { CommonModule } from '@angular/common';

@@ -52,7 +52,7 @@
         </button>
       </div>
 
-      <ptah-admin-selection-toolbar
+      <ptah-selection-toolbar
         [count]="selectedIds().length"
         itemNoun="row"
         (cleared)="clearSelection()"
@@ -64,7 +64,7 @@
         >
           Send Founding Invites
         </button>
-      </ptah-admin-selection-toolbar>
+      </ptah-selection-toolbar>
     </div>
   }
 
@@ -83,20 +83,20 @@
   } @else if (rows().length === 0) {
     @switch (tab()) {
       @case ('new') {
-        <ptah-admin-empty-state
+        <ptah-empty-state
           [icon]="PartyPopperIcon"
           message="Nobody's waiting — you're caught up"
           hint="New signups will appear here for you to invite."
         />
       }
       @case ('invited') {
-        <ptah-admin-empty-state [icon]="MailCheckIcon" message="No pending invites" />
+        <ptah-empty-state [icon]="MailCheckIcon" message="No pending invites" />
       }
       @case ('converted') {
-        <ptah-admin-empty-state [icon]="SparklesIcon" message="No conversions yet" />
+        <ptah-empty-state [icon]="SparklesIcon" message="No conversions yet" />
       }
       @default {
-        <ptah-admin-empty-state [icon]="InboxIcon" message="The waitlist is empty" />
+        <ptah-empty-state [icon]="InboxIcon" message="The waitlist is empty" />
       }
     }
   } @else {
@@ -119,14 +119,14 @@
             <div class="flex flex-wrap items-center gap-2">
               <span class="truncate font-medium">{{ row.email }}</span>
               @if (row.source) {
-                <ptah-admin-status-badge
+                <ptah-status-badge
                   [value]="row.source"
                   [showIcon]="false"
                   size="xs"
                 />
               }
               @if (tab() === 'all') {
-                <ptah-admin-status-badge
+                <ptah-status-badge
                   [variant]="stageVariant(row)"
                   [label]="stageLabel(row)"
                   size="xs"

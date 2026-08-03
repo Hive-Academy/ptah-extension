@@ -16,10 +16,11 @@ import {
   AdminApiService,
   AdminModelKey,
 } from '../../services/admin-api.service';
-import { ADMIN_MODEL_SPECS, BadgeVariant } from '../../admin-models.config';
+import { ADMIN_MODEL_SPECS } from '../../admin-models.config';
+import type { BadgeVariant } from '@ptah-web/panel-ui';
 import { DeleteUserModalComponent } from '../../components/delete-user-modal/delete-user-modal';
 import { IssueCompLicenseModalComponent } from '../../components/issue-comp-license-modal/issue-comp-license-modal';
-import { StatusBadge } from '../../components/status-badge/status-badge';
+import { StatusBadge } from '@ptah-web/panel-ui';
 import {
   Entitlement,
   LicenseRecord,

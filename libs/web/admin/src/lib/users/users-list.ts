@@ -27,10 +27,10 @@ import {
   IssueComplimentaryLicenseResponse,
 } from '../services/admin-api.service';
 import { BulkEmailModal } from '../components/bulk-email-modal/bulk-email-modal';
-import { EmptyState } from '../components/empty-state/empty-state';
+import { EmptyState } from '@ptah-web/panel-ui';
 import { IssueCompLicenseModalComponent } from '../components/issue-comp-license-modal/issue-comp-license-modal';
-import { SelectionToolbar } from '../components/selection-toolbar/selection-toolbar';
-import { StatusBadge } from '../components/status-badge/status-badge';
+import { SelectionToolbar } from '@ptah-web/panel-ui';
+import { StatusBadge } from '@ptah-web/panel-ui';
 import {
   Entitlement,
   UserWithBilling,

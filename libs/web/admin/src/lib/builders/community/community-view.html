@@ -32,7 +32,7 @@
   <!-- Review queue: an awareness count, not an action surface. -->
   <div class="flex flex-wrap items-stretch gap-4">
     <div class="min-w-56">
-      <ptah-admin-stat-tile
+      <ptah-stat-tile
         label="Pending review"
         [value]="reviewLoading() ? null : reviewCount()"
         [delta]="reviewCount() > 0 ? 'needs a human' : 'nothing waiting'"
@@ -105,13 +105,13 @@
         }
       </div>
     } @else if (showDisabled()) {
-      <ptah-admin-empty-state
+      <ptah-empty-state
         [icon]="CommunityIcon"
         message="Discourse is not configured on this server."
         hint="Set the Discourse URL and API key in the license server environment to surface forum activity here."
       />
     } @else if (showEmptyTopics()) {
-      <ptah-admin-empty-state
+      <ptah-empty-state
         [icon]="CommunityIcon"
         message="No recent topics."
         hint="Either the forum is quiet, or Discourse could not be reached — the server returns an empty list rather than an error."

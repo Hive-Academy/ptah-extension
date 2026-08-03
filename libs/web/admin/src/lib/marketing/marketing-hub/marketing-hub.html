@@ -24,7 +24,7 @@
     </div>
   } @else if (noCampaigns()) {
     <div class="rounded-lg border border-hairline bg-base-200">
-      <ptah-admin-empty-state
+      <ptah-empty-state
         [icon]="MegaphoneIcon"
         message="No campaigns sent yet"
         hint="Compose your first campaign to see delivery performance here."
@@ -32,30 +32,30 @@
         <a routerLink="/admin/marketing/compose" class="btn btn-primary btn-sm">
           Compose your first campaign
         </a>
-      </ptah-admin-empty-state>
+      </ptah-empty-state>
     </div>
   } @else {
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <ptah-admin-stat-tile
+      <ptah-stat-tile
         label="CAMPAIGNS SENT"
         [value]="lifetimeCount()"
         link="/admin/marketing-campaigns"
       />
-      <ptah-admin-stat-tile
+      <ptah-stat-tile
         label="AVG DELIVERY (LAST 10)"
         [value]="avgDeliveryValue()"
         [delta]="deliveryDelta()"
         [deltaTone]="deliveryDeltaTone()"
         link="/admin/marketing-campaigns"
       />
-      <ptah-admin-stat-tile
+      <ptah-stat-tile
         label="AVG BOUNCE (LAST 10)"
         [value]="avgBounceValue()"
         [delta]="bounceDelta()"
         [deltaTone]="bounceDeltaTone()"
         link="/admin/marketing-campaigns"
       />
-      <ptah-admin-stat-tile
+      <ptah-stat-tile
         label="TEMPLATES"
         [value]="templatesTotal()"
         link="/admin/marketing-campaign-templates"
@@ -86,13 +86,13 @@
           </div>
         }
       } @else if (campaignsError()) {
-        <ptah-admin-empty-state
+        <ptah-empty-state
           [icon]="MegaphoneIcon"
           message="Couldn't load recent campaigns"
           hint="Refresh the page to try again."
         />
       } @else if (recentRows().length === 0) {
-        <ptah-admin-empty-state
+        <ptah-empty-state
           [icon]="MegaphoneIcon"
           message="No campaigns sent yet"
           hint="Compose your first campaign to see performance here."
@@ -100,7 +100,7 @@
           <a routerLink="/admin/marketing/compose" class="btn btn-primary btn-sm">
             Compose Campaign
           </a>
-        </ptah-admin-empty-state>
+        </ptah-empty-state>
       } @else {
         @for (row of recentRows(); track row.id) {
           <a
@@ -109,7 +109,7 @@
           >
             <div class="flex min-w-0 items-center gap-2">
               <span class="truncate text-sm font-medium">{{ row.name }}</span>
-              <ptah-admin-status-badge
+              <ptah-status-badge
                 [variant]="row.statusVariant"
                 [label]="row.statusLabel"
                 size="xs"
@@ -199,14 +199,14 @@
         </div>
       } @else if (noTemplates()) {
         <div class="rounded-lg border border-hairline bg-base-200">
-          <ptah-admin-empty-state
+          <ptah-empty-state
             [icon]="FileTextIcon"
             message="No templates yet"
           >
             <a routerLink="/admin/marketing/templates/new" class="btn btn-primary btn-sm">
               Create a template
             </a>
-          </ptah-admin-empty-state>
+          </ptah-empty-state>
         </div>
       } @else {
         <div class="flex flex-col gap-2">

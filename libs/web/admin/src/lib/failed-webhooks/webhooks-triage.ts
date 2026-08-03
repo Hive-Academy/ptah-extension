@@ -35,10 +35,10 @@ import {
   AdminListQuery,
   AdminListResponse,
 } from '../services/admin-api.service';
-import { DetailDrawer } from '../components/detail-drawer/detail-drawer';
-import { EmptyState } from '../components/empty-state/empty-state';
-import { SelectionToolbar } from '../components/selection-toolbar/selection-toolbar';
-import { StatusBadge } from '../components/status-badge/status-badge';
+import { DetailDrawer } from '@ptah-web/panel-ui';
+import { EmptyState } from '@ptah-web/panel-ui';
+import { SelectionToolbar } from '@ptah-web/panel-ui';
+import { StatusBadge } from '@ptah-web/panel-ui';
 
 /** Retry count at/above which a webhook is flagged "High retries" (§4.5). */
 const HIGH_RETRY_THRESHOLD = 3;

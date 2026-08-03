@@ -14,14 +14,14 @@ import {
  * the ad-hoc `No records.` text rows scattered across the admin surface.
  *
  * Usage:
- *   <ptah-admin-empty-state
+ *   <ptah-empty-state
  *     [icon]="PartyPopperIcon"
  *     message="Nobody's waiting — you're caught up">
  *     <button class="btn btn-sm btn-primary">Invite more</button>
- *   </ptah-admin-empty-state>
+ *   </ptah-empty-state>
  */
 @Component({
-  selector: 'ptah-admin-empty-state',
+  selector: 'ptah-empty-state',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [LucideAngularModule],

@@ -14,7 +14,7 @@ import {
   XCircle,
 } from 'lucide-angular';
 
-import type { BadgeVariant } from '../../admin-models.config';
+import type { BadgeVariant } from '../badge-variant';
 
 /**
  * StatusBadge — presentational semantic status chip for the admin dashboard.
@@ -30,7 +30,7 @@ import type { BadgeVariant } from '../../admin-models.config';
  * inline in `data-table.html` (data-table rewiring lands in a later batch).
  */
 @Component({
-  selector: 'ptah-admin-status-badge',
+  selector: 'ptah-status-badge',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [LucideAngularModule],

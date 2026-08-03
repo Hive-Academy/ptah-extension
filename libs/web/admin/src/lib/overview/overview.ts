@@ -12,7 +12,7 @@ import {
   AdminApiService,
   AdminStatsResponse,
 } from '../services/admin-api.service';
-import { StatTile } from '../components/stat-tile/stat-tile';
+import { StatTile } from '@ptah-web/panel-ui';
 import { NeedsAttentionQueue } from './needs-attention-queue/needs-attention-queue';
 import { WaitlistFunnel } from './waitlist-funnel/waitlist-funnel';
 

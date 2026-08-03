@@ -37,7 +37,7 @@
   </div>
 
   <!-- Bulk-action toolbar (contextual) -->
-  <ptah-admin-selection-toolbar
+  <ptah-selection-toolbar
     [count]="selectedCount()"
     itemNoun="webhook"
     (cleared)="clearSelection()"
@@ -53,7 +53,7 @@
       }
       Mark Resolved ({{ selectedCount() }})
     </button>
-  </ptah-admin-selection-toolbar>
+  </ptah-selection-toolbar>
 
   @if (loadError(); as msg) {
     <div class="alert alert-error">
@@ -111,9 +111,9 @@
               </td>
               <td>
                 @if (isResolved(row)) {
-                  <ptah-admin-status-badge variant="success" label="Resolved" size="sm" />
+                  <ptah-status-badge variant="success" label="Resolved" size="sm" />
                 } @else {
-                  <ptah-admin-status-badge variant="error" label="Unresolved" size="sm" />
+                  <ptah-status-badge variant="error" label="Unresolved" size="sm" />
                 }
               </td>
               <td>
@@ -141,18 +141,18 @@
 
     @if (isEmpty()) {
       @if (resolvedFilter() === 'unresolved') {
-        <ptah-admin-empty-state
+        <ptah-empty-state
           [icon]="CheckCircle2Icon"
           message="All webhooks resolved"
           hint="Nothing needs a human right now — the ops queue is clear."
         />
       } @else if (search().trim()) {
-        <ptah-admin-empty-state
+        <ptah-empty-state
           [icon]="WrenchIcon"
           message="No webhooks match your search"
         />
       } @else {
-        <ptah-admin-empty-state
+        <ptah-empty-state
           [icon]="WrenchIcon"
           message="No webhooks to show"
         />
@@ -204,7 +204,7 @@
   }
 
   <!-- Slide-over detail drawer -->
-  <ptah-admin-detail-drawer
+  <ptah-detail-drawer
     [open]="drawerOpen()"
     [title]="drawerTitle()"
     (closed)="closeDrawer()"
@@ -221,9 +221,9 @@
             <dt class="text-xs uppercase text-base-content/40">Status</dt>
             <dd>
               @if (isResolved(w)) {
-                <ptah-admin-status-badge variant="success" label="Resolved" size="sm" />
+                <ptah-status-badge variant="success" label="Resolved" size="sm" />
               } @else {
-                <ptah-admin-status-badge variant="error" label="Unresolved" size="sm" />
+                <ptah-status-badge variant="error" label="Unresolved" size="sm" />
               }
             </dd>
           </div>
@@ -298,7 +298,7 @@
         }
       </div>
     }
-  </ptah-admin-detail-drawer>
+  </ptah-detail-drawer>
 
   <!-- Toasts -->
   @if (bulkTotal() > 0) {

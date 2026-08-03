@@ -13,8 +13,8 @@ import {
   AdminCommunityTopic,
   ReviewQueueItem,
 } from '../../services/admin-builders-api.service';
-import { EmptyState } from '../../components/empty-state/empty-state';
-import { StatTile } from '../../components/stat-tile/stat-tile';
+import { EmptyState } from '@ptah-web/panel-ui';
+import { StatTile } from '@ptah-web/panel-ui';
 
 /** A topic row with its Discourse deep link precomputed. */
 interface TopicRow extends AdminCommunityTopic {

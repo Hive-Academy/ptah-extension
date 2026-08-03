@@ -71,7 +71,7 @@
                 [class.whitespace-nowrap]="!!col.truncate"
               >
                 @if (col.badgeMap; as badgeMap) {
-                  <ptah-admin-status-badge
+                  <ptah-status-badge
                     [badgeMap]="badgeMap"
                     [value]="cellValue(row, col.key)"
                   />
@@ -114,7 +114,7 @@
         } @empty {
           <tr>
             <td [attr.colspan]="columnCount()" class="p-0">
-              <ptah-admin-empty-state message="No records." />
+              <ptah-empty-state message="No records." />
             </td>
           </tr>
         }

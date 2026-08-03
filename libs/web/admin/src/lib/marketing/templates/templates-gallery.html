@@ -45,7 +45,7 @@
       }
     </div>
   } @else if (isEmpty()) {
-    <ptah-admin-empty-state
+    <ptah-empty-state
       [icon]="FileTextIcon"
       message="No templates yet"
       hint="Create a reusable email template to speed up your campaigns."
@@ -56,7 +56,7 @@
       >
         Create a template
       </a>
-    </ptah-admin-empty-state>
+    </ptah-empty-state>
   } @else {
     <!-- Card grid -->
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -173,7 +173,7 @@
   }
 
   <!-- Preview drawer (sandboxed EmailPreviewFrame — never [innerHTML]) -->
-  <ptah-admin-detail-drawer
+  <ptah-detail-drawer
     [open]="previewOpen()"
     [title]="previewTitle()"
     (closed)="closePreview()"
@@ -184,5 +184,5 @@
         [htmlBody]="previewBody()"
       />
     }
-  </ptah-admin-detail-drawer>
+  </ptah-detail-drawer>
 </section>

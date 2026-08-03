@@ -22,7 +22,7 @@ import { LucideAngularModule, X } from 'lucide-angular';
  * backdrop click, and marks the panel `role="dialog" aria-modal="true"`.
  */
 @Component({
-  selector: 'ptah-admin-detail-drawer',
+  selector: 'ptah-detail-drawer',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [LucideAngularModule],

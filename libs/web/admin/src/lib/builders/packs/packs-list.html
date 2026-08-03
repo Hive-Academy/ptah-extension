@@ -81,7 +81,7 @@
       }
     </div>
   } @else if (packs().length === 0) {
-    <ptah-admin-empty-state
+    <ptah-empty-state
       [icon]="PackageIcon"
       [message]="
         isFiltered() ? 'No packs match those filters.' : 'No packs recorded yet.'
@@ -105,7 +105,7 @@
           New Pack
         </button>
       }
-    </ptah-admin-empty-state>
+    </ptah-empty-state>
   } @else {
     <div class="overflow-x-auto rounded-lg border border-hairline">
       <table class="table">
@@ -148,13 +148,13 @@
                   invites an operator to "fix" it.
                 -->
                 @if (p.cohortKey) {
-                  <ptah-admin-status-badge
+                  <ptah-status-badge
                     [variant]="'info'"
                     [label]="p.cohortName ?? p.cohortKey"
                     [showIcon]="false"
                   />
                 } @else {
-                  <ptah-admin-status-badge
+                  <ptah-status-badge
                     [variant]="'ghost'"
                     label="No cohort"
                     [showIcon]="false"

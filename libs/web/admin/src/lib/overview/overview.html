@@ -71,7 +71,7 @@
           Members
         </h3>
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <ptah-admin-stat-tile
+          <ptah-stat-tile
             label="Builders"
             [value]="s.members.builders"
             [delta]="buildersDelta()"
@@ -80,11 +80,11 @@
             link="/admin/users"
             [linkQueryParams]="buildersLinkParams"
           />
-          <ptah-admin-stat-tile
+          <ptah-stat-tile
             label="Community"
             [value]="s.members.community"
           />
-          <ptah-admin-stat-tile
+          <ptah-stat-tile
             label="Total Members"
             [value]="totalMembers()"
           />
@@ -105,7 +105,7 @@
         @if (s.groups.length > 0) {
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             @for (g of s.groups; track g.key) {
-              <ptah-admin-stat-tile
+              <ptah-stat-tile
                 [label]="g.name"
                 [value]="g.memberCount"
                 [delta]="g.key"

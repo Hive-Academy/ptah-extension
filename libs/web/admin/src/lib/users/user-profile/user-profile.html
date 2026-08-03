@@ -31,7 +31,7 @@
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-2">
             <h2 class="truncate text-xl font-semibold">{{ fullName() }}</h2>
-            <ptah-admin-status-badge
+            <ptah-status-badge
               [variant]="u.emailVerified ? 'success' : 'ghost'"
               [label]="u.emailVerified ? 'Verified' : 'Unverified'"
               size="sm"
@@ -82,7 +82,7 @@
           @if (ent.activeLicense; as lic) {
             <div class="flex items-center gap-2">
               <span class="text-lg font-semibold capitalize">{{ lic.plan }}</span>
-              <ptah-admin-status-badge
+              <ptah-status-badge
                 [badgeMap]="licenseStatusMap"
                 [value]="lic.status"
                 size="sm"
@@ -110,7 +110,7 @@
           @if (ent.liveSubscription; as sub) {
             <span class="flex items-center gap-2 text-sm text-base-content/80">
               Paid by Paddle
-              <ptah-admin-status-badge
+              <ptah-status-badge
                 [badgeMap]="subStatusMap"
                 [value]="sub.status"
                 size="xs"
@@ -173,14 +173,14 @@
                           </div>
                         </td>
                         <td>
-                          <ptah-admin-status-badge
+                          <ptah-status-badge
                             [badgeMap]="licenseStatusMap"
                             [value]="lic.status"
                             size="xs"
                           />
                         </td>
                         <td>
-                          <ptah-admin-status-badge
+                          <ptah-status-badge
                             [badgeMap]="licenseSourceMap"
                             [value]="lic.source"
                             size="xs"
@@ -260,7 +260,7 @@
                           </div>
                         </td>
                         <td>
-                          <ptah-admin-status-badge
+                          <ptah-status-badge
                             [badgeMap]="subStatusMap"
                             [value]="sub.status"
                             size="xs"
@@ -319,7 +319,7 @@
               @for (ses of sessions().rows; track $index) {
                 <li class="flex items-center justify-between gap-2 rounded-md bg-base-300 px-2.5 py-1.5">
                   <span class="truncate">{{ asString(ses['sessionTopicId']) }}</span>
-                  <ptah-admin-status-badge
+                  <ptah-status-badge
                     [badgeMap]="sessionStatusMap"
                     [value]="ses['status']"
                     size="xs"

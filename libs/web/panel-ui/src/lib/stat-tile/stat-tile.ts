@@ -31,7 +31,7 @@ export type StatTileDeltaTone =
  * Dumb by design — no data fetching; the parent passes resolved values.
  */
 @Component({
-  selector: 'ptah-admin-stat-tile',
+  selector: 'ptah-stat-tile',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, LucideAngularModule, NgTemplateOutlet],

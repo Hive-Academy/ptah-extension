@@ -131,7 +131,7 @@
 
         @if (recipientCountPreview() > 0 || totalRecipientPreview() > 0) {
           <div class="mt-4 max-w-xs">
-            <ptah-admin-stat-tile
+            <ptah-stat-tile
               label="WILL REACH"
               [value]="recipientCountPreview() + ' of ' + totalRecipientPreview()"
               delta="opted-in filter applied"
@@ -219,7 +219,7 @@
                 [htmlBody]="previewHtml()"
               />
             } @else {
-              <ptah-admin-empty-state
+              <ptah-empty-state
                 [icon]="EyeIcon"
                 message="Preview will appear once you add content"
               />
@@ -304,7 +304,7 @@
                 [htmlBody]="previewHtml()"
               />
             } @else {
-              <ptah-admin-empty-state
+              <ptah-empty-state
                 [icon]="EyeIcon"
                 message="Nothing to preview yet"
               />
@@ -314,7 +314,7 @@
       </div>
 
       <!-- Recipient hero callout -->
-      <ptah-admin-stat-tile
+      <ptah-stat-tile
         [size]="'hero'"
         label="WILL SEND TO"
         [value]="recipientCountPreview()"

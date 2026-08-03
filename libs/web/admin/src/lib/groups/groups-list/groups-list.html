@@ -130,7 +130,7 @@
   previously impossible — the API only offered remove-by-id — so removing
   someone meant already knowing their user id.
 -->
-<ptah-admin-detail-drawer
+<ptah-detail-drawer
   [open]="membersOpen()"
   [title]="(membersTarget()?.name ?? 'Cohort') + ' members'"
   (closed)="closeMembers()"
@@ -229,4 +229,4 @@
       }
     }
   </div>
-</ptah-admin-detail-drawer>
+</ptah-detail-drawer>

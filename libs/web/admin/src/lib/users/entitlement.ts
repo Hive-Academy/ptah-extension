@@ -15,7 +15,7 @@
  * a discrepancy rather than guessed at.
  */
 
-import { BadgeVariant } from '../admin-models.config';
+import type { BadgeVariant } from '@ptah-web/panel-ui';
 
 /** Window (days) inside which an active license is flagged "expiring soon". */
 export const EXPIRING_SOON_DAYS = 14;

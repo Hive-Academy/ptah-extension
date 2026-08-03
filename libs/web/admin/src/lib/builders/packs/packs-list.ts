@@ -11,8 +11,8 @@ import {
   AdminBuildersApiService,
   Pack,
 } from '../../services/admin-builders-api.service';
-import { EmptyState } from '../../components/empty-state/empty-state';
-import { StatusBadge } from '../../components/status-badge/status-badge';
+import { EmptyState } from '@ptah-web/panel-ui';
+import { StatusBadge } from '@ptah-web/panel-ui';
 import { DeletePackModal } from './components/delete-pack-modal/delete-pack-modal';
 import { PackFormModal } from './components/pack-form-modal/pack-form-modal';
 

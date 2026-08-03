@@ -30,10 +30,10 @@ import {
   AdminListResponse,
   AdminStatsResponse,
 } from '../services/admin-api.service';
-import { EmptyState } from '../components/empty-state/empty-state';
+import { EmptyState } from '@ptah-web/panel-ui';
 import { IssueCompLicenseModalComponent } from '../components/issue-comp-license-modal/issue-comp-license-modal';
-import { SelectionToolbar } from '../components/selection-toolbar/selection-toolbar';
-import { StatusBadge } from '../components/status-badge/status-badge';
+import { SelectionToolbar } from '@ptah-web/panel-ui';
+import { StatusBadge } from '@ptah-web/panel-ui';
 import { WaitlistInviteModal } from '../components/waitlist-invite-modal/waitlist-invite-modal';
 
 /** The four pipeline stages, synced to the `?tab=` query param. */

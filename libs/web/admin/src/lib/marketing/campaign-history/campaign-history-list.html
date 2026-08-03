@@ -45,13 +45,13 @@
       }
     } @else if (isEmpty()) {
       @if (search().trim()) {
-        <ptah-admin-empty-state
+        <ptah-empty-state
           [icon]="MegaphoneIcon"
           message="No campaigns match your search"
           hint="Try clearing the search box to see every campaign."
         />
       } @else {
-        <ptah-admin-empty-state
+        <ptah-empty-state
           [icon]="MegaphoneIcon"
           message="No campaigns sent yet"
           hint="Compose your first campaign to see performance here."
@@ -59,7 +59,7 @@
           <a routerLink="/admin/marketing/compose" class="btn btn-primary btn-sm">
             Compose Campaign
           </a>
-        </ptah-admin-empty-state>
+        </ptah-empty-state>
       }
     } @else {
       @for (row of rows(); track row.id) {
@@ -69,7 +69,7 @@
         >
           <div class="flex min-w-0 items-center gap-2">
             <span class="truncate text-sm font-medium">{{ row.name }}</span>
-            <ptah-admin-status-badge
+            <ptah-status-badge
               [variant]="row.statusVariant"
               [label]="row.statusLabel"
               size="xs"

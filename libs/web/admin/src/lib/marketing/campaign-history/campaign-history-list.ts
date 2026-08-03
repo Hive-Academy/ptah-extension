@@ -28,8 +28,8 @@ import {
   AdminListResponse,
 } from '../../services/admin-api.service';
 import { ADMIN_MODEL_SPECS } from '../../admin-models.config';
-import { EmptyState } from '../../components/empty-state/empty-state';
-import { StatusBadge } from '../../components/status-badge/status-badge';
+import { EmptyState } from '@ptah-web/panel-ui';
+import { StatusBadge } from '@ptah-web/panel-ui';
 import { asCampaignRow, CampaignRowVm, toCampaignRowVm } from './campaign-row';
 import { relativeDate } from './relative-time';
 
