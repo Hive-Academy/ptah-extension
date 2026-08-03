@@ -52,6 +52,10 @@ export type {
   PtyKillResult,
 } from './interfaces/pty-host.interface';
 export type {
+  IAppUpdater,
+  AppUpdateState,
+} from './interfaces/app-updater.interface';
+export type {
   IPlatformCommands,
   IPlatformAuthProvider,
   ISaveDialogProvider,

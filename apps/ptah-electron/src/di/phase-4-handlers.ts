@@ -168,6 +168,12 @@ export function registerPhase4Handlers(
   });
   container.registerSingleton(TerminalRpcHandlers);
   container.registerSingleton(UPDATE_MANAGER_TOKEN, UpdateManager);
+  // Alias, NOT a second registerSingleton — see Risk R1. post-window starts the
+  // instance behind UPDATE_MANAGER_TOKEN and main.ts disposes it; a second
+  // UpdateManager would leave update:get-state reading a permanently idle one.
+  container.register(PLATFORM_TOKENS.APP_UPDATER, {
+    useToken: UPDATE_MANAGER_TOKEN,
+  });
   container.registerSingleton(UpdateRpcHandlers);
 
   logger.info(

@@ -36,6 +36,7 @@ import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { EXPECTED_RESOLVABLE } from './expected-resolvable';
 import { ELECTRON_TOKENS } from './electron-tokens';
 import { registerPhase4Handlers } from './phase-4-handlers';
+import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
@@ -200,6 +201,52 @@ describe('Electron DI — PTY host token aliasing (Risk R2)', () => {
 
     const viaPort = c.resolve(PLATFORM_TOKENS.PTY_HOST);
     const viaConcreteToken = c.resolve(ELECTRON_TOKENS.PTY_MANAGER_SERVICE);
+
+    expect(viaPort).toBeDefined();
+    expect(viaPort).toBe(viaConcreteToken);
+  });
+});
+
+/**
+ * Risk R1 — duplicate `UpdateManager` instance.
+ *
+ * `PLATFORM_TOKENS.APP_UPDATER` must be an ALIAS of `UPDATE_MANAGER_TOKEN`,
+ * never a second registration. `activation/post-window.ts` resolves
+ * `UPDATE_MANAGER_TOKEN` and calls `start()`, which performs the GitHub
+ * Releases check and mutates the manager's private `_currentState`; `main.ts`
+ * disposes that same instance on will-quit. A second `UpdateManager` would be
+ * the one `update:get-state` reads, so it would answer `{state:'idle'}` forever
+ * — the update banner would never appear and nothing would throw.
+ *
+ * This asserts against the REAL wiring in `registerPhase4Handlers`, not a copy
+ * of it, and it asserts reference identity (`toBe`): the two unions are
+ * structurally identical, so `toEqual` would pass under a duplicate-instance
+ * wiring and prove nothing.
+ */
+describe('Electron DI — app updater token aliasing (Risk R1)', () => {
+  it('resolves APP_UPDATER to the very same instance as UPDATE_MANAGER_TOKEN', () => {
+    const c = rootContainer.createChildContainer();
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+      trace: jest.fn(),
+    };
+    // UpdateManager is @injectable and injects these two; they are its
+    // constructor dependencies, not part of the wiring under test.
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    c.register(TOKENS.WEBVIEW_MANAGER, {
+      useValue: { broadcastMessage: jest.fn(async () => undefined) },
+    });
+
+    registerPhase4Handlers(
+      c,
+      logger as unknown as Parameters<typeof registerPhase4Handlers>[1],
+    );
+
+    const viaPort = c.resolve(PLATFORM_TOKENS.APP_UPDATER);
+    const viaConcreteToken = c.resolve(UPDATE_MANAGER_TOKEN);
 
     expect(viaPort).toBeDefined();
     expect(viaPort).toBe(viaConcreteToken);

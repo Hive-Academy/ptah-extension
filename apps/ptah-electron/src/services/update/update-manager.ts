@@ -11,6 +11,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { app, net } from 'electron';
+import type { IAppUpdater } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
@@ -47,7 +48,7 @@ interface GitHubRelease {
 }
 
 @injectable()
-export class UpdateManager {
+export class UpdateManager implements IAppUpdater {
   private _currentState: UpdateLifecycleState = { state: 'idle' };
   private _checkInterval: ReturnType<typeof setInterval> | null = null;
 
