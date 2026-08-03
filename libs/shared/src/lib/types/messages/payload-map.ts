@@ -123,6 +123,27 @@ import type {
 } from '../rpc/rpc-persistence.types';
 import type { HarnessConfig } from '../rpc/rpc-harness.types';
 import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
+import type { GitStatusUpdatePayload } from './git-status';
+
+/**
+ * Payload for MESSAGE_TYPES.FILE_TREE_CHANGED ('file:tree-changed').
+ *
+ * Deliberately empty: the push is a pure invalidation signal and the
+ * renderer re-fetches the tree for whichever workspace is active.
+ */
+export type FileTreeChangedPayload = Record<string, never>;
+
+/** Payload for MESSAGE_TYPES.FILE_CONTENT_CHANGED ('file:content-changed'). */
+export interface FileContentChangedPayload {
+  /** Absolute path (forward-slash normalized) of the file that changed. */
+  readonly filePath: string;
+}
+
+/**
+ * Payload for MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS
+ * ('editor:reread-open-tabs'). Empty — the renderer iterates its own tabs.
+ */
+export type EditorRereadOpenTabsPayload = Record<string, never>;
 
 /** Payload for MESSAGE_TYPES.VEC_STATUS_CHANGED ('db:vecStatusChanged'). */
 export interface VecStatusChangedPayload {
@@ -288,6 +309,10 @@ export interface MessagePayloadMap {
   'auth:loginOutput': AuthLoginOutputPayload;
   'harness:open-workflow': HarnessOpenWorkflowPayload;
   'harness:config-proposed': HarnessConfigProposedPayload;
+  'git:status-update': GitStatusUpdatePayload;
+  'file:tree-changed': FileTreeChangedPayload;
+  'file:content-changed': FileContentChangedPayload;
+  'editor:reread-open-tabs': EditorRereadOpenTabsPayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

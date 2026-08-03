@@ -1,7 +1,14 @@
-import { Injectable, inject, signal, computed } from '@angular/core';
+import {
+  Injectable,
+  inject,
+  signal,
+  computed,
+  DestroyRef,
+} from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
 import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import type { FileContentChangedPayload } from '@ptah-extension/shared';
 import { FileTreeNode } from '../models/file-tree.model';
 import type { EditorTab } from './editor/editor-tab.types';
 import {
@@ -35,6 +42,7 @@ export type { EditorTab } from './editor/editor-tab.types';
 })
 export class EditorService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /**
    * Map of workspace path to editor state. Contains cached editor state
@@ -157,6 +165,14 @@ export class EditorService implements MessageHandler {
       handleFileContentChanged: (filePath: string): Promise<void> =>
         this.fileOpsHelper.handleFileContentChanged(filePath),
       closeSplit: (): void => this.diffSplitHelper.closeSplit(),
+    });
+
+    // C1 AC3: nothing may stay pending past destruction. The panel already
+    // calls stopFileTreeWatcher() in ngOnDestroy; this is the backstop for
+    // teardown paths that do not, and also clears the error auto-dismiss.
+    this.destroyRef.onDestroy(() => {
+      this.workspaceHelper.stopFileTreeWatcher();
+      this.clearError();
     });
   }
 
@@ -363,14 +379,49 @@ export class EditorService implements MessageHandler {
     }, 5000);
   }
 
+  /**
+   * The single place a new inbound editor message type is declared (C1 AC4).
+   *
+   * `EditorWorkspaceHelper` is a plain class and cannot register itself, so
+   * its three push types are declared here and delegated in
+   * {@link handleMessage}. Adding a fifth type means one entry here and one
+   * `case` below — never a raw `window.addEventListener`.
+   */
   readonly handledMessageTypes = [
     MESSAGE_TYPES.EDITOR_TAB_CONTENT_REVERTED,
+    MESSAGE_TYPES.FILE_TREE_CHANGED,
+    MESSAGE_TYPES.FILE_CONTENT_CHANGED,
+    MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
-    if (message.type !== MESSAGE_TYPES.EDITOR_TAB_CONTENT_REVERTED) return;
+    switch (message.type) {
+      case MESSAGE_TYPES.EDITOR_TAB_CONTENT_REVERTED:
+        this.handleTabContentReverted(message.payload);
+        return;
+      case MESSAGE_TYPES.FILE_TREE_CHANGED:
+        this.workspaceHelper.onFileTreeChanged();
+        return;
+      case MESSAGE_TYPES.FILE_CONTENT_CHANGED: {
+        const payload = message.payload as
+          | Partial<FileContentChangedPayload>
+          | undefined;
+        if (payload?.filePath) {
+          this.workspaceHelper.onFileContentChanged(payload.filePath);
+        }
+        return;
+      }
+      case MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS:
+        this.workspaceHelper.onRereadOpenTabs();
+        return;
+      default:
+        return;
+    }
+  }
 
-    const payload = message.payload as
+  /** Apply an `editor:tabContentReverted` push (Electron git rewind). */
+  private handleTabContentReverted(rawPayload: unknown): void {
+    const payload = rawPayload as
       | { files?: Array<{ filePath: string; content: string }> }
       | undefined;
     const files = payload?.files ?? [];

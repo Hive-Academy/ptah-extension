@@ -2,8 +2,10 @@
  * M2 performance harness — `git:status-update` handling cost (B0, TASK_2026_173).
  *
  * Builds 300 `GitFileStatus` entries + 100 `FileTreeNodeComponent` fixtures
- * wired to a REAL (non-mocked) `GitStatusService` instance, dispatches a
- * synthetic `git:status-update` window message, and times
+ * wired to a REAL (non-mocked) `GitStatusService` instance, routes a synthetic
+ * `git:status-update` message through the service's `MessageHandler` entry
+ * point exactly as `MessageRouterService` would (post-C1, TASK_2026_173
+ * batch 1 — the service no longer holds a raw window listener), and times
  * `fixture.detectChanges()` across all 100 fixtures plus `TestBed.flushEffects()`.
  * 10 iterations; median + max reported.
  *
@@ -27,6 +29,7 @@
 import { signal } from '@angular/core';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { GitFileStatus, GitBranchInfo } from '@ptah-extension/shared';
 import { GitStatusService } from '../services/git-status.service';
 import { EditorService } from '../services/editor.service';
@@ -204,19 +207,19 @@ describe('perf M2 — git:status-update handling cost (B0)', () => {
       const files = buildFiles(iter);
       const start = performance.now();
 
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: {
-            type: 'git:status-update',
-            payload: {
-              branch: branch(),
-              files,
-              isGitRepo: true,
-              workspaceRoot: WORKSPACE_ROOT,
-            },
-          },
-        }),
-      );
+      // Post-C1 the service is a MessageHandler, not a raw window listener —
+      // this is exactly what MessageRouterService does on dispatch. A raw
+      // window event would no longer reach the service and would silently
+      // measure nothing.
+      gitStatus.handleMessage({
+        type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+        payload: {
+          branch: branch(),
+          files,
+          isGitRepo: true,
+          workspaceRoot: WORKSPACE_ROOT,
+        },
+      });
 
       for (const fixture of fixtures) {
         fixture.detectChanges();

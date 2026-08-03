@@ -12,6 +12,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { GitInfoResult } from '@ptah-extension/shared';
 import { GitStatusService } from './git-status.service';
 
@@ -154,18 +155,15 @@ describe('GitStatusService.switchWorkspace freshness (F2)', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // A push for /ws/a keeps it fresh.
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: {
-          type: 'git:status-update',
-          payload: {
-            ...gitInfo({ isGitRepo: true }),
-            workspaceRoot: '/ws/a',
-          },
-        },
-      }),
-    );
+    // A push for /ws/a keeps it fresh. Routed exactly as
+    // MessageRouterService would deliver it — no raw window event.
+    service.handleMessage({
+      type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+      payload: {
+        ...gitInfo({ isGitRepo: true }),
+        workspaceRoot: '/ws/a',
+      },
+    });
     await Promise.resolve();
 
     service.switchWorkspace('/ws/b');
@@ -178,5 +176,127 @@ describe('GitStatusService.switchWorkspace freshness (F2)', () => {
     expect(mockRpcCall).not.toHaveBeenCalled();
 
     service.stopListening();
+  });
+});
+
+// ============================================================================
+
+describe('GitStatusService as a MessageHandler (C1)', () => {
+  let service: GitStatusService;
+
+  beforeEach(() => {
+    mockRpcCall.mockReset();
+    mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+    TestBed.configureTestingModule({
+      providers: [
+        GitStatusService,
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+    service = TestBed.inject(GitStatusService);
+  });
+
+  it('declares exactly the shared GIT_STATUS_UPDATE type (C1 AC4)', () => {
+    expect(service.handledMessageTypes).toEqual([
+      MESSAGE_TYPES.GIT_STATUS_UPDATE,
+    ]);
+    // The literal the Electron watcher broadcasts — byte-identical (C1 AC2).
+    expect(MESSAGE_TYPES.GIT_STATUS_UPDATE).toBe('git:status-update');
+  });
+
+  it('registers NO global message listener on startListening (C1 AC1)', () => {
+    const addSpy = jest.spyOn(window, 'addEventListener');
+
+    service.switchWorkspace('/ws/a');
+    service.startListening();
+
+    expect(
+      addSpy.mock.calls.filter(([type]) => type === 'message'),
+    ).toHaveLength(0);
+
+    addSpy.mockRestore();
+  });
+
+  it('applies a routed push to the active workspace', async () => {
+    service.switchWorkspace('/ws/a');
+    await Promise.resolve();
+    await Promise.resolve();
+    service.startListening();
+
+    service.handleMessage({
+      type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+      payload: {
+        branch: { branch: 'feature/x', upstream: null, ahead: 2, behind: 0 },
+        files: [],
+        isGitRepo: true,
+        workspaceRoot: '/ws/a',
+      },
+    });
+
+    expect(service.branchName()).toBe('feature/x');
+    expect(service.changedFileCount()).toBe(0);
+  });
+
+  it('ignores a push that arrives before startListening', async () => {
+    service.switchWorkspace('/ws/a');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    service.handleMessage({
+      type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+      payload: {
+        branch: {
+          branch: 'never-applied',
+          upstream: null,
+          ahead: 0,
+          behind: 0,
+        },
+        files: [],
+        isGitRepo: true,
+        workspaceRoot: '/ws/a',
+      },
+    });
+
+    expect(service.branchName()).not.toBe('never-applied');
+  });
+
+  it('ignores a push after stopListening and leaves no timer pending (C1 AC3)', async () => {
+    jest.useFakeTimers();
+    try {
+      service.switchWorkspace('/ws/a');
+      await Promise.resolve();
+      await Promise.resolve();
+      service.startListening();
+      service.stopListening();
+
+      service.handleMessage({
+        type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+        payload: {
+          branch: {
+            branch: 'after-stop',
+            upstream: null,
+            ahead: 0,
+            behind: 0,
+          },
+          files: [],
+          isGitRepo: true,
+          workspaceRoot: '/ws/a',
+        },
+      });
+
+      expect(service.branchName()).not.toBe('after-stop');
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('ignores a payload-less message without throwing', () => {
+    service.switchWorkspace('/ws/a');
+    service.startListening();
+
+    expect(() =>
+      service.handleMessage({ type: MESSAGE_TYPES.GIT_STATUS_UPDATE }),
+    ).not.toThrow();
   });
 });

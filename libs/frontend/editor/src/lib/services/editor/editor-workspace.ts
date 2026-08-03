@@ -34,8 +34,17 @@ export class EditorWorkspaceHelper {
   /** Counter for stale-response protection in loadFileTree(). */
   private loadFileTreeRequestId = 0;
 
-  /** Handler for backend file:tree-changed push events. */
-  private treeMessageHandler: ((event: MessageEvent) => void) | null = null;
+  /**
+   * Whether push events are currently being acted on.
+   *
+   * This helper is a plain class, not injectable, so it cannot register as
+   * a `MessageHandler` itself — `EditorService` owns the registration and
+   * delegates here (C1). The flag preserves the exact observable behaviour
+   * of the raw listener it replaced: events before
+   * {@link startFileTreeWatcher} or after {@link stopFileTreeWatcher} are
+   * ignored.
+   */
+  private watching = false;
 
   /** Debounce timer for frontend-side tree refresh coalescing. */
   private treeRefreshDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -321,48 +330,21 @@ export class EditorWorkspaceHelper {
     return newTree.map(mergeNode);
   }
 
-  /** Start listening for file:tree-changed and file:content-changed pushes. */
+  /**
+   * Begin acting on `file:tree-changed`, `file:content-changed` and
+   * `editor:reread-open-tabs` pushes.
+   *
+   * Registration itself lives on `EditorService`, which implements
+   * `MessageHandler` and delegates to the three `on*` methods below. This
+   * method is now purely the enable half of the timer/gate lifecycle.
+   */
   public startFileTreeWatcher(): void {
-    if (this.treeMessageHandler) return;
-
-    this.treeMessageHandler = (event: MessageEvent) => {
-      const data = event.data;
-      if (data?.type === 'file:tree-changed') {
-        if (this.treeRefreshDebounceTimer) {
-          clearTimeout(this.treeRefreshDebounceTimer);
-        }
-        this.treeRefreshDebounceTimer = setTimeout(() => {
-          this.treeRefreshDebounceTimer = null;
-          void this.loadFileTree();
-        }, EditorWorkspaceHelper.TREE_REFRESH_DEBOUNCE_MS);
-      }
-
-      if (data?.type === 'file:content-changed' && data?.payload?.filePath) {
-        void this.callbacks.handleFileContentChanged(data.payload.filePath);
-      }
-      if (data?.type === 'editor:reread-open-tabs') {
-        if (this.rereadAllTabsDebounceTimer) {
-          clearTimeout(this.rereadAllTabsDebounceTimer);
-        }
-        this.rereadAllTabsDebounceTimer = setTimeout(() => {
-          this.rereadAllTabsDebounceTimer = null;
-          const tabs = this.state.openTabs();
-          for (const tab of tabs) {
-            if (tab.isDirty) continue;
-            void this.callbacks.handleFileContentChanged(tab.filePath);
-          }
-        }, EditorWorkspaceHelper.REREAD_OPEN_TABS_DEBOUNCE_MS);
-      }
-    };
-    window.addEventListener('message', this.treeMessageHandler);
+    this.watching = true;
   }
 
-  /** Stop listening and clean up the debounce timer. */
+  /** Stop acting on pushes and clear both pending debounce timers. */
   public stopFileTreeWatcher(): void {
-    if (this.treeMessageHandler) {
-      window.removeEventListener('message', this.treeMessageHandler);
-      this.treeMessageHandler = null;
-    }
+    this.watching = false;
     if (this.treeRefreshDebounceTimer) {
       clearTimeout(this.treeRefreshDebounceTimer);
       this.treeRefreshDebounceTimer = null;
@@ -371,6 +353,54 @@ export class EditorWorkspaceHelper {
       clearTimeout(this.rereadAllTabsDebounceTimer);
       this.rereadAllTabsDebounceTimer = null;
     }
+  }
+
+  /**
+   * Handle a `file:tree-changed` push. Coalesces bursts through the
+   * unchanged {@link TREE_REFRESH_DEBOUNCE_MS} window.
+   */
+  public onFileTreeChanged(): void {
+    if (!this.watching) return;
+
+    if (this.treeRefreshDebounceTimer) {
+      clearTimeout(this.treeRefreshDebounceTimer);
+    }
+    this.treeRefreshDebounceTimer = setTimeout(() => {
+      this.treeRefreshDebounceTimer = null;
+      void this.loadFileTree();
+    }, EditorWorkspaceHelper.TREE_REFRESH_DEBOUNCE_MS);
+  }
+
+  /**
+   * Handle a `file:content-changed` push for a single path. Undebounced,
+   * exactly as before — the backend already debounces per file.
+   */
+  public onFileContentChanged(filePath: string): void {
+    if (!this.watching) return;
+    if (!filePath) return;
+
+    void this.callbacks.handleFileContentChanged(filePath);
+  }
+
+  /**
+   * Handle an `editor:reread-open-tabs` push. Coalesces bursts through the
+   * unchanged {@link REREAD_OPEN_TABS_DEBOUNCE_MS} window, then re-reads
+   * every non-dirty open tab.
+   */
+  public onRereadOpenTabs(): void {
+    if (!this.watching) return;
+
+    if (this.rereadAllTabsDebounceTimer) {
+      clearTimeout(this.rereadAllTabsDebounceTimer);
+    }
+    this.rereadAllTabsDebounceTimer = setTimeout(() => {
+      this.rereadAllTabsDebounceTimer = null;
+      const tabs = this.state.openTabs();
+      for (const tab of tabs) {
+        if (tab.isDirty) continue;
+        void this.callbacks.handleFileContentChanged(tab.filePath);
+      }
+    }, EditorWorkspaceHelper.REREAD_OPEN_TABS_DEBOUNCE_MS);
   }
 }
 export type { EditorWorkspaceState };

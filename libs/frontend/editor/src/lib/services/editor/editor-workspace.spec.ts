@@ -9,10 +9,17 @@
  *   - mergeLoadedSubtrees: handles file ↔ directory type change
  *   - mergeLoadedSubtrees: returns new tree unchanged for empty previous
  *   - mergeLoadedSubtrees: path normalization (\\ vs /)
- *   - startFileTreeWatcher: debounces tree refresh
- *   - startFileTreeWatcher: reads data.payload.filePath (NOT data.data.filePath)
- *   - stopFileTreeWatcher: removes the listener
+ *   - push handling: registers no raw window listener (C1 AC1)
+ *   - onFileTreeChanged: debounces tree refresh (500ms, unchanged)
+ *   - onFileContentChanged: forwards the routed path
+ *   - onRereadOpenTabs: debounces at 250ms (unchanged) and skips dirty tabs
+ *   - start/stopFileTreeWatcher: gate semantics + no timer pending (C1 AC3)
  *   - loadFileTree: stale-response protection (concurrent calls)
+ *
+ * Post-C1 the helper no longer owns a `window.addEventListener`. Dispatch is
+ * owned by `MessageRouterService` and delegated here by `EditorService`; the
+ * message-shape guard (`data.payload.filePath`, not `data.data.filePath`)
+ * moved with it and is asserted in `editor.service.spec.ts`.
  *
  * `rpcCall` is mocked at the module boundary so we can drive arbitrary
  * tree shapes from RPC responses without an actual webview bridge.
@@ -412,7 +419,7 @@ describe('EditorWorkspaceHelper.mergeLoadedSubtrees', () => {
 
 // ============================================================================
 
-describe('EditorWorkspaceHelper.startFileTreeWatcher / stopFileTreeWatcher', () => {
+describe('EditorWorkspaceHelper push handling (post-C1: no raw listener)', () => {
   beforeEach(() => {
     mockRpcCall.mockReset();
     jest.useFakeTimers();
@@ -422,9 +429,20 @@ describe('EditorWorkspaceHelper.startFileTreeWatcher / stopFileTreeWatcher', () 
     jest.useRealTimers();
   });
 
-  function dispatchMsg(payload: unknown): void {
-    window.dispatchEvent(new MessageEvent('message', { data: payload }));
-  }
+  it('registers NO global message listener (C1 AC1)', () => {
+    const addSpy = jest.spyOn(window, 'addEventListener');
+    const { helper } = makeHelper();
+
+    helper.startFileTreeWatcher();
+
+    const messageRegistrations = addSpy.mock.calls.filter(
+      ([type]) => type === 'message',
+    );
+    expect(messageRegistrations).toHaveLength(0);
+
+    helper.stopFileTreeWatcher();
+    addSpy.mockRestore();
+  });
 
   it('debounces 5 rapid file:tree-changed events into a single loadFileTree() call', () => {
     const { helper } = makeHelper();
@@ -433,7 +451,7 @@ describe('EditorWorkspaceHelper.startFileTreeWatcher / stopFileTreeWatcher', () 
     helper.startFileTreeWatcher();
 
     for (let i = 0; i < 5; i++) {
-      dispatchMsg({ type: 'file:tree-changed' });
+      helper.onFileTreeChanged();
     }
 
     // Before debounce window completes — no RPC call yet
@@ -452,14 +470,11 @@ describe('EditorWorkspaceHelper.startFileTreeWatcher / stopFileTreeWatcher', () 
     helper.stopFileTreeWatcher();
   });
 
-  it('invokes handleFileContentChanged with data.payload.filePath (new shape)', () => {
+  it('invokes handleFileContentChanged for a routed file path', () => {
     const { helper, handleFileContentChanged } = makeHelper();
     helper.startFileTreeWatcher();
 
-    dispatchMsg({
-      type: 'file:content-changed',
-      payload: { filePath: 'D:/ws/a.ts' },
-    });
+    helper.onFileContentChanged('D:/ws/a.ts');
 
     expect(handleFileContentChanged).toHaveBeenCalledTimes(1);
     expect(handleFileContentChanged).toHaveBeenCalledWith('D:/ws/a.ts');
@@ -467,31 +482,70 @@ describe('EditorWorkspaceHelper.startFileTreeWatcher / stopFileTreeWatcher', () 
     helper.stopFileTreeWatcher();
   });
 
-  it('does NOT invoke handleFileContentChanged for the OLD data.data.filePath shape (regression guard)', () => {
-    const { helper, handleFileContentChanged } = makeHelper();
+  it('debounces editor:reread-open-tabs at 250ms and skips dirty tabs', () => {
+    const { helper, ctx, handleFileContentChanged } = makeHelper();
+    (ctx.state.openTabs as unknown as { set(v: unknown): void }).set([
+      { filePath: 'D:/ws/clean.ts', isDirty: false },
+      { filePath: 'D:/ws/dirty.ts', isDirty: true },
+    ]);
+
     helper.startFileTreeWatcher();
 
-    dispatchMsg({
-      type: 'file:content-changed',
-      data: { filePath: 'D:/ws/a.ts' },
-    });
+    helper.onRereadOpenTabs();
+    helper.onRereadOpenTabs();
+    helper.onRereadOpenTabs();
 
+    jest.advanceTimersByTime(249);
     expect(handleFileContentChanged).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+    expect(handleFileContentChanged).toHaveBeenCalledTimes(1);
+    expect(handleFileContentChanged).toHaveBeenCalledWith('D:/ws/clean.ts');
 
     helper.stopFileTreeWatcher();
   });
 
-  it('stopFileTreeWatcher removes the listener so subsequent events are ignored', () => {
+  it('ignores pushes that arrive before startFileTreeWatcher', () => {
+    const { helper, handleFileContentChanged } = makeHelper();
+    mockRpcCall.mockResolvedValue({ success: true, data: { tree: [] } });
+
+    helper.onFileTreeChanged();
+    helper.onFileContentChanged('D:/ws/a.ts');
+    helper.onRereadOpenTabs();
+    jest.advanceTimersByTime(2000);
+
+    expect(mockRpcCall).not.toHaveBeenCalled();
+    expect(handleFileContentChanged).not.toHaveBeenCalled();
+  });
+
+  it('stopFileTreeWatcher closes the gate so subsequent pushes are ignored', () => {
     const { helper } = makeHelper();
     mockRpcCall.mockResolvedValue({ success: true, data: { tree: [] } });
 
     helper.startFileTreeWatcher();
     helper.stopFileTreeWatcher();
 
-    dispatchMsg({ type: 'file:tree-changed' });
+    helper.onFileTreeChanged();
     jest.advanceTimersByTime(2000);
 
     expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+
+  it('stopFileTreeWatcher leaves NO timer pending, even mid-debounce (C1 AC3)', () => {
+    const { helper, handleFileContentChanged } = makeHelper();
+    mockRpcCall.mockResolvedValue({ success: true, data: { tree: [] } });
+
+    helper.startFileTreeWatcher();
+    helper.onFileTreeChanged();
+    helper.onRereadOpenTabs();
+    expect(jest.getTimerCount()).toBe(2);
+
+    helper.stopFileTreeWatcher();
+
+    expect(jest.getTimerCount()).toBe(0);
+    jest.advanceTimersByTime(10_000);
+    expect(mockRpcCall).not.toHaveBeenCalled();
+    expect(handleFileContentChanged).not.toHaveBeenCalled();
   });
 });
 

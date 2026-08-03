@@ -33,20 +33,32 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   GitChangeKind,
   GitInfoResult,
   GitStatusUpdatePayload,
 } from '@ptah-extension/shared';
 
+/**
+ * The four push message types this watcher emits.
+ *
+ * These are aliases for the shared `MESSAGE_TYPES` entries — the wire
+ * strings are unchanged from the local constants they replaced
+ * ('git:status-update', 'file:tree-changed', 'file:content-changed',
+ * 'editor:reread-open-tabs'). Both sides of the wire now name the same
+ * constant, so the frontend `MessageHandler` registrations cannot drift
+ * from what this service broadcasts.
+ */
+
 /** Message type used for pushing git status to the renderer. */
-const GIT_STATUS_UPDATE = 'git:status-update';
+const GIT_STATUS_UPDATE = MESSAGE_TYPES.GIT_STATUS_UPDATE;
 
 /** Message type used for pushing file tree invalidation to the renderer. */
-const FILE_TREE_CHANGED = 'file:tree-changed';
+const FILE_TREE_CHANGED = MESSAGE_TYPES.FILE_TREE_CHANGED;
 
 /** Message type used for pushing file content change notifications to the renderer. */
-const FILE_CONTENT_CHANGED = 'file:content-changed';
+const FILE_CONTENT_CHANGED = MESSAGE_TYPES.FILE_CONTENT_CHANGED;
 
 /**
  * Message type used to ask the renderer to re-read every currently open
@@ -54,7 +66,7 @@ const FILE_CONTENT_CHANGED = 'file:content-changed';
  * reset, push, branch switch) since git mutates files atomically via
  * rename, which fs.watch does not always surface as a per-file change.
  */
-const EDITOR_REREAD_OPEN_TABS = 'editor:reread-open-tabs';
+const EDITOR_REREAD_OPEN_TABS = MESSAGE_TYPES.EDITOR_REREAD_OPEN_TABS;
 
 export class GitWatcherService {
   private watchers: fs.FSWatcher[] = [];

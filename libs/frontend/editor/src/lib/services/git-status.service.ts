@@ -6,6 +6,8 @@ import {
   DestroyRef,
 } from '@angular/core';
 import { VSCodeService, rpcCall } from '@ptah-extension/core';
+import type { MessageHandler } from '@ptah-extension/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   GitInfoResult,
   GitBranchInfo,
@@ -63,7 +65,7 @@ function filesEqual(a: GitFileStatus[], b: GitFileStatus[]): boolean {
 }
 
 @Injectable({ providedIn: 'root' })
-export class GitStatusService {
+export class GitStatusService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -87,7 +89,6 @@ export class GitStatusService {
   private static readonly CACHE_TTL_MS = 5_000;
 
   private _isListening = false;
-  private _messageHandler: ((event: MessageEvent) => void) | null = null;
 
   private readonly _activeWorkspacePath = signal<string | null>(null);
   private readonly _branch = signal<GitBranchInfo>(EMPTY_BRANCH, {
@@ -208,34 +209,54 @@ export class GitStatusService {
   }
 
   /**
-   * Start listening for git:status-update push events from the backend.
-   * Also performs an initial RPC fetch to populate state immediately.
+   * Message types dispatched to {@link handleMessage} by
+   * `MessageRouterService`. Registered via the `MESSAGE_HANDLERS`
+   * multi-provider in the composition root — this service holds no raw
+   * `window` listener of its own (C1 AC1).
+   */
+  readonly handledMessageTypes = [MESSAGE_TYPES.GIT_STATUS_UPDATE] as const;
+
+  /**
+   * Apply a `git:status-update` push routed by `MessageRouterService`.
+   *
+   * Gated on {@link startListening} / {@link stopListening} so the
+   * observable behaviour is identical to the raw listener this replaced:
+   * pushes arriving before the editor panel starts listening, or after it
+   * stops, are ignored (C1 AC2).
+   */
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    if (!this._isListening) return;
+    if (message.type !== MESSAGE_TYPES.GIT_STATUS_UPDATE) return;
+    if (!message.payload) return;
+
+    const payload = message.payload as GitStatusUpdatePayload;
+    this.applyGitInfo(payload, payload.workspaceRoot ?? null);
+  }
+
+  /**
+   * Begin accepting `git:status-update` pushes and perform an initial RPC
+   * fetch to populate state immediately.
+   *
+   * No longer registers a listener — dispatch is owned by
+   * `MessageRouterService`. This flips the gate {@link handleMessage}
+   * reads and keeps the eager fetch, which is the only side effect callers
+   * ever depended on.
    */
   startListening(): void {
     if (this._isListening) return;
     this._isListening = true;
-    this._messageHandler = (event: MessageEvent) => {
-      const data = event.data;
-      if (data?.type === 'git:status-update' && data.payload) {
-        const payload = data.payload as GitStatusUpdatePayload;
-        this.applyGitInfo(payload, payload.workspaceRoot ?? null);
-      }
-    };
-    window.addEventListener('message', this._messageHandler);
     this.fetchGitInfo();
   }
 
   /**
-   * Stop listening for push events.
-   * Called when editor panel is hidden or service is destroyed.
+   * Stop accepting push events.
+   * Called when the editor panel is hidden or the service is destroyed.
+   *
+   * There is no listener to tear down and no timer to clear; closing the
+   * gate is the whole of it (C1 AC3).
    */
   stopListening(): void {
     this._isListening = false;
-
-    if (this._messageHandler) {
-      window.removeEventListener('message', this._messageHandler);
-      this._messageHandler = null;
-    }
   }
 
   /**

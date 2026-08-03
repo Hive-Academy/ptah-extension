@@ -196,6 +196,27 @@ export const MESSAGE_TYPES = {
    * never produces these.
    */
   AUTH_LOGIN_OUTPUT: 'auth:loginOutput',
+  /**
+   * Backend → Frontend: git status changed for a workspace root.
+   *
+   * Pushed by the Electron git watcher after a debounced burst of `.git/*`
+   * or working-tree events. Carries the full `GitInfoResult` plus the
+   * `causes` set and the `workspaceRoot` the status was computed for.
+   */
+  GIT_STATUS_UPDATE: 'git:status-update',
+  /**
+   * Backend → Frontend: the workspace file tree changed structurally
+   * (create / delete / rename). Payload is empty — the renderer re-fetches.
+   */
+  FILE_TREE_CHANGED: 'file:tree-changed',
+  /** Backend → Frontend: a specific workspace file's content changed on disk. */
+  FILE_CONTENT_CHANGED: 'file:content-changed',
+  /**
+   * Backend → Frontend: re-read every open editor tab from disk. Emitted
+   * after a git operation, since git mutates files atomically via rename,
+   * which `fs.watch` does not reliably surface as a per-file change.
+   */
+  EDITOR_REREAD_OPEN_TABS: 'editor:reread-open-tabs',
 } as const;
 
 /**

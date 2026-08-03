@@ -43,6 +43,7 @@ import {
 import {
   provideEditorInternalState,
   EditorService,
+  GitStatusService,
 } from '@ptah-extension/editor';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui';
@@ -127,6 +128,7 @@ export const appConfig: ApplicationConfig = {
     ...provideWizardInternalState(),
     ...provideEditorInternalState(),
     { provide: MESSAGE_HANDLERS, useExisting: EditorService, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: GitStatusService, multi: true },
     {
       provide: MESSAGE_HANDLERS,
       useExisting: ElectronLayoutService,
