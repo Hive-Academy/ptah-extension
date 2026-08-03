@@ -12,11 +12,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
 import { capabilities, type HostProfile } from '@ptah-extension/rpc-handlers';
 
-import {
-  EditorRpcHandlers,
-  TerminalRpcHandlers,
-  UpdateRpcHandlers,
-} from './services/rpc/handlers';
+import { EditorRpcHandlers, UpdateRpcHandlers } from './services/rpc/handlers';
 
 export function createElectronRpcHostProfile(
   container: DependencyContainer,
@@ -48,7 +44,6 @@ export function createElectronRpcHostProfile(
       'host.fileOpen': EditorRpcHandlers,
       'host.editorRevert': EditorRpcHandlers,
       'host.editorPane': EditorRpcHandlers,
-      'host.terminal': TerminalRpcHandlers,
       'host.update': UpdateRpcHandlers,
     },
     wiring: {

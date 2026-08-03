@@ -49,15 +49,12 @@ import {
   FilePickerRpcHandlers,
   ImagePickerRpcHandlers,
   LayoutRpcHandlers,
+  TerminalRpcHandlers,
   registerHarnessServices,
   registerChatServices,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
-import {
-  EditorRpcHandlers,
-  TerminalRpcHandlers,
-  UpdateRpcHandlers,
-} from '../services/rpc/handlers';
+import { EditorRpcHandlers, UpdateRpcHandlers } from '../services/rpc/handlers';
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 

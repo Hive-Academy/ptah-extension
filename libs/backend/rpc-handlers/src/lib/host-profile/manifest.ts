@@ -61,6 +61,7 @@ import {
   SkillsSynthesisRpcHandlers,
   SubagentRpcHandlers,
   TasksRpcHandlers,
+  TerminalRpcHandlers,
   VoiceRpcHandlers,
   WebSearchRpcHandlers,
   WizardGenerationRpcHandlers,
@@ -352,6 +353,12 @@ export const RPC_HANDLER_MANIFEST = [
     requires: ['layoutPersistence'],
     handler: LayoutRpcHandlers,
   },
+  {
+    key: 'terminal',
+    methods: TerminalRpcHandlers.METHODS,
+    requires: ['pty'],
+    handler: TerminalRpcHandlers,
+  },
 
   // --- host-owned (unification pending) -------------------------------------
   { key: 'host.fileOpen', methods: ['file:open'], requires: ['fileOpen'] },
@@ -364,11 +371,6 @@ export const RPC_HANDLER_MANIFEST = [
     key: 'host.editorPane',
     methods: EDITOR_PANE_METHODS,
     requires: ['editorHost'],
-  },
-  {
-    key: 'host.terminal',
-    methods: ['terminal:create', 'terminal:kill'],
-    requires: ['pty'],
   },
   {
     key: 'host.update',

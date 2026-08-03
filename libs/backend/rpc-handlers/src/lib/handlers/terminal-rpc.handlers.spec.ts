@@ -1,19 +1,22 @@
 /**
  * terminal-rpc.handlers.spec.ts
  *
- * CHARACTERIZATION tests for TerminalRpcHandlers — the Electron-local RPC
- * methods backing PTY session lifecycle:
+ * CHARACTERIZATION tests for TerminalRpcHandlers — the RPC methods backing
+ * PTY session lifecycle:
  *
  *   terminal:create — spawn a new PTY session
  *   terminal:kill   — kill an existing PTY session
  *
- * These tests exist to PIN current behavior before the P3 handler-unification
+ * These tests exist to PIN current behavior across the P3 handler-unification
  * move (TASK_2026_171), not to validate "correct" behavior. Two odd bits are
  * deliberately pinned as-is:
  *
- *   - terminal:create falls back to `require('os').homedir()` (a lazy inline
- *     require, not a top-level import) when neither an explicit `cwd` param
- *     nor a workspace root is available (terminal-rpc.handlers.ts:53).
+ *   - terminal:create falls back to `homedir()` (a top-level import from
+ *     `node:os`) when neither an explicit `cwd` param nor a workspace root is
+ *     available (terminal-rpc.handlers.ts). This was a lazy inline
+ *     `require('os').homedir()` while the class lived in apps/ptah-electron;
+ *     the swap to a top-level import is behaviourally identical and this case
+ *     is what verifies that (TASK_2026_171 risk R6).
  *   - terminal:create RE-THROWS on ptyManager.create() failure (it does NOT
  *     swallow), the opposite of layout:persist/layout:restore and of
  *     update:check-now, which both swallow and return a `success: false`
@@ -25,12 +28,12 @@
  *
  * Strategy: construct TerminalRpcHandlers directly (no DI container) using
  * `createMockRpcHandler()` / `createMockWorkspaceProvider()`, plus a
- * hand-rolled PtyManagerService stub, mirroring
- * update-rpc.handlers.spec.ts in this directory.
+ * hand-rolled IPtyHost stub, mirroring layout-rpc.handlers.spec.ts in this
+ * directory.
  */
 
 import 'reflect-metadata';
-import * as os from 'os';
+import { homedir } from 'node:os';
 
 import {
   createMockRpcHandler,
@@ -45,10 +48,12 @@ import {
   type MockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  IPtyHost,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 
 import { TerminalRpcHandlers } from './terminal-rpc.handlers';
-import type { PtyManagerService } from '../../pty-manager.service';
 
 interface MockPtyManager {
   create: jest.Mock;
@@ -78,7 +83,7 @@ describe('TerminalRpcHandlers', () => {
       logger as unknown as Logger,
       rpcHandler as unknown as RpcHandler,
       workspace as unknown as IWorkspaceProvider,
-      ptyManager as unknown as PtyManagerService,
+      ptyManager as unknown as IPtyHost,
     );
     handlers.register();
     return { handlers, rpcHandler, workspace, ptyManager };
@@ -132,7 +137,7 @@ describe('TerminalRpcHandlers', () => {
       });
 
       expect(ptyManager.create).toHaveBeenCalledWith(
-        expect.objectContaining({ cwd: os.homedir() }),
+        expect.objectContaining({ cwd: homedir() }),
       );
     });
 

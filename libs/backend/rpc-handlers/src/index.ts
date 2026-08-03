@@ -44,6 +44,7 @@ export {
   GatewayRpcHandlers,
   VoiceRpcHandlers,
   LayoutRpcHandlers,
+  TerminalRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,
   IndexingRpcHandlers,

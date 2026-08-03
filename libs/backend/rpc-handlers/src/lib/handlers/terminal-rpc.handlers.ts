@@ -9,29 +9,38 @@
  * channels handled by IpcBridge + PtyManagerService, NOT JSON RPC.
  */
 
+import { homedir } from 'node:os';
+
 import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
+  IPtyHost,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+import type {
+  RpcMethodName,
   TerminalCreateParams,
   TerminalCreateResult,
   TerminalKillParams,
   TerminalKillResult,
 } from '@ptah-extension/shared';
-import type { PtyManagerService } from '../../pty-manager.service';
-import { ELECTRON_TOKENS } from '../../../di/electron-tokens';
 
 @injectable()
 export class TerminalRpcHandlers {
+  static readonly METHODS = [
+    'terminal:create',
+    'terminal:kill',
+  ] as const satisfies readonly RpcMethodName[];
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
-    @inject(ELECTRON_TOKENS.PTY_MANAGER_SERVICE)
-    private readonly ptyManager: PtyManagerService,
+    @inject(PLATFORM_TOKENS.PTY_HOST)
+    private readonly ptyManager: IPtyHost,
   ) {}
 
   register(): void {
@@ -50,7 +59,7 @@ export class TerminalRpcHandlers {
       'terminal:create',
       async (params) => {
         const wsRoot = this.workspace.getWorkspaceRoot();
-        const cwd = params?.cwd || wsRoot || require('os').homedir();
+        const cwd = params?.cwd || wsRoot || homedir();
 
         this.logger.info('[TerminalRpc] Creating terminal session', {
           cwd,

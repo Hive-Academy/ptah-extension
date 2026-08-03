@@ -10,6 +10,12 @@
  *
  * Uses the real manifest — a synthetic one would not prove the guards fire
  * against the shapes hosts actually build.
+ *
+ * The host-owned fixture key is deliberately an EDITOR entry. Every P3
+ * handler move shrinks `HostOwnedRpcHandlerKey`, so a fixture pinned to a
+ * family that is still migrating stops compiling the moment that family
+ * lands in this library. The editor entries are the last ones out
+ * (TASK_2026_173), which makes them the stable choice here.
  */
 
 jest.mock('@ptah-extension/workspace-intelligence', () =>
@@ -80,9 +86,9 @@ describe('resolveRpcHandlerPlan', () => {
   it('throws when a capability is on but nothing implements the entry', () => {
     expect(() =>
       resolveRpcHandlerPlan(
-        profile({ capabilities: capabilities({ pty: true }) }),
+        profile({ capabilities: capabilities({ editorHost: true }) }),
       ),
-    ).toThrow(/'host.terminal' is enabled but no handler is available/);
+    ).toThrow(/'host.editorPane' is enabled but no handler is available/);
   });
 
   it('throws when a handler is supplied for a switched-off entry', () => {
@@ -90,11 +96,11 @@ describe('resolveRpcHandlerPlan', () => {
       resolveRpcHandlerPlan(
         profile({
           hostHandlers: {
-            'host.terminal': FakeHandler as unknown as RpcHandlerCtor,
+            'host.editorPane': FakeHandler as unknown as RpcHandlerCtor,
           },
         }),
       ),
-    ).toThrow(/supplies a handler for 'host.terminal'/);
+    ).toThrow(/supplies a handler for 'host.editorPane'/);
   });
 
   it('marks library-owned entries so their failures stay fatal', () => {
