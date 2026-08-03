@@ -32,7 +32,7 @@
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       @for (s of skeletonCards; track $index) {
         <div
-          class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-200 p-4"
+          class="flex flex-col gap-2 rounded-lg border border-hairline bg-base-200 p-4"
         >
           <div class="h-4 w-2/3 animate-pulse rounded bg-base-300"></div>
           <div class="h-3 w-full animate-pulse rounded bg-base-300"></div>
@@ -62,7 +62,7 @@
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       @for (t of templates(); track t.id) {
         <div
-          class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-200 p-4"
+          class="flex flex-col gap-2 rounded-lg border border-hairline bg-base-200 p-4"
         >
           <h3 class="truncate text-sm font-medium text-base-content" [title]="t.name">
             {{ t.name }}
@@ -90,7 +90,7 @@
 
           <!-- Action row -->
           <div
-            class="mt-auto flex flex-wrap gap-2 border-t border-base-300 pt-2"
+            class="mt-auto flex flex-wrap gap-2 border-t border-hairline pt-2"
           >
             <button
               type="button"

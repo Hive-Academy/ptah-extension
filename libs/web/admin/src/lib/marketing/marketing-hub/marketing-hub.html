@@ -19,11 +19,11 @@
   @if (campaignsLoading()) {
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       @for (s of skeletonCards; track $index) {
-        <div class="h-28 animate-pulse rounded-lg border border-base-300 bg-base-200"></div>
+        <div class="h-28 animate-pulse rounded-lg border border-hairline bg-base-200"></div>
       }
     </div>
   } @else if (noCampaigns()) {
-    <div class="rounded-lg border border-base-300 bg-base-200">
+    <div class="rounded-lg border border-hairline bg-base-200">
       <ptah-admin-empty-state
         [icon]="MegaphoneIcon"
         message="No campaigns sent yet"
@@ -77,7 +77,7 @@
       </a>
     </div>
 
-    <div class="rounded-lg border border-base-300 bg-base-200 p-2">
+    <div class="rounded-lg border border-hairline bg-base-200 p-2">
       @if (campaignsLoading()) {
         @for (s of skeletonRows; track $index) {
           <div class="flex items-center gap-3 px-3 py-2.5">
@@ -146,7 +146,7 @@
       @if (segmentsLoading()) {
         <div class="grid grid-cols-2 gap-3">
           @for (s of skeletonCards; track $index) {
-            <div class="h-20 animate-pulse rounded-md border border-base-300 bg-base-200"></div>
+            <div class="h-20 animate-pulse rounded-md border border-hairline bg-base-200"></div>
           }
         </div>
       } @else {
@@ -155,7 +155,7 @@
             <a
               routerLink="/admin/marketing/compose"
               [queryParams]="{ segment: card.key }"
-              class="flex flex-col gap-0.5 rounded-md border border-base-300 bg-base-200 p-3 transition-colors hover:border-base-content/20 hover:bg-base-300"
+              class="flex flex-col gap-0.5 rounded-md border border-hairline bg-base-200 p-3 transition-colors hover:border-base-content/20 hover:bg-base-300"
             >
               <span class="text-xs font-medium text-base-content/80">{{ card.label }}</span>
               <span class="text-lg font-semibold tabular-nums text-base-content">
@@ -194,11 +194,11 @@
       @if (templatesLoading()) {
         <div class="flex flex-col gap-2">
           @for (s of skeletonRows; track $index) {
-            <div class="h-12 animate-pulse rounded-md border border-base-300 bg-base-200"></div>
+            <div class="h-12 animate-pulse rounded-md border border-hairline bg-base-200"></div>
           }
         </div>
       } @else if (noTemplates()) {
-        <div class="rounded-lg border border-base-300 bg-base-200">
+        <div class="rounded-lg border border-hairline bg-base-200">
           <ptah-admin-empty-state
             [icon]="FileTextIcon"
             message="No templates yet"
@@ -213,7 +213,7 @@
           @for (tpl of recentTemplates(); track tpl.id) {
             <a
               [routerLink]="['/admin/marketing-campaign-templates', tpl.id]"
-              class="flex items-center justify-between gap-3 rounded-md border border-base-300 bg-base-200 p-3 transition-colors hover:border-base-content/20 hover:bg-base-300"
+              class="flex items-center justify-between gap-3 rounded-md border border-hairline bg-base-200 p-3 transition-colors hover:border-base-content/20 hover:bg-base-300"
             >
               <span class="truncate text-sm font-medium">{{ tpl.name }}</span>
               <span class="shrink-0 text-xs text-base-content/40">

@@ -20,12 +20,12 @@
     [attr.aria-label]="title()"
     tabindex="-1"
     (keydown)="onKeydown($event)"
-    class="absolute inset-y-0 right-0 flex w-full max-w-lg flex-col border-l border-base-300 bg-base-200 shadow-2xl transition-transform duration-200 ease-out focus:outline-none"
+    class="absolute inset-y-0 right-0 flex w-full max-w-lg flex-col border-l border-hairline bg-base-200 shadow-2xl transition-transform duration-200 ease-out focus:outline-none"
     [class.translate-x-0]="open()"
     [class.translate-x-full]="!open()"
   >
     <header
-      class="flex items-center justify-between gap-3 border-b border-base-300 px-4 py-3"
+      class="flex items-center justify-between gap-3 border-b border-hairline px-4 py-3"
     >
       <h2 class="text-sm font-semibold text-base-content">{{ title() }}</h2>
       <button
@@ -42,7 +42,7 @@
       <ng-content />
     </div>
 
-    <footer class="border-t border-base-300 px-4 py-3 empty:hidden">
+    <footer class="border-t border-hairline px-4 py-3 empty:hidden">
       <ng-content select="[drawerFooter]" />
     </footer>
   </aside>

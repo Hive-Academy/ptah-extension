@@ -2,7 +2,7 @@
   <header class="flex flex-wrap items-center justify-between gap-3">
     <h2 class="text-xl font-semibold">Overview</h2>
     @if (stats(); as s) {
-      <span class="text-xs text-base-content/40">
+      <span class="text-xs text-base-content/60">
         Updated {{ s.updatedAt | date: 'medium' }}
       </span>
     }
@@ -21,13 +21,13 @@
     <!-- First-paint skeleton: queue rows, funnel bars, member/cohort tiles -->
     <div class="flex flex-col gap-6">
       <div
-        class="flex flex-col gap-2 rounded-lg border border-base-300 bg-base-200 p-4"
+        class="flex flex-col gap-2 rounded-lg border border-hairline bg-base-200 p-4"
       >
         @for (i of [1, 2, 3, 4]; track i) {
           <div class="h-12 animate-pulse rounded-md bg-base-300"></div>
         }
       </div>
-      <div class="rounded-lg border border-base-300 bg-base-200 p-4 md:p-6">
+      <div class="rounded-lg border border-hairline bg-base-200 p-4 md:p-6">
         <div class="flex flex-col gap-3">
           @for (i of [1, 2, 3]; track i) {
             <div class="h-8 animate-pulse rounded-md bg-base-300"></div>
@@ -52,7 +52,7 @@
       <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60">
         Builders Waitlist
       </h3>
-      <div class="rounded-lg border border-base-300 bg-base-200 p-4 md:p-6">
+      <div class="rounded-lg border border-hairline bg-base-200 p-4 md:p-6">
         <ptah-admin-waitlist-funnel
           [total]="s.waitlist.total"
           [notified]="s.waitlist.notified"
@@ -76,6 +76,7 @@
             [value]="s.members.builders"
             [delta]="buildersDelta()"
             deltaTone="success"
+            [emphasis]="true"
             link="/admin/users"
             [linkQueryParams]="buildersLinkParams"
           />
@@ -97,7 +98,7 @@
           >
             Cohorts
           </h3>
-          <a routerLink="/admin/groups" class="btn btn-ghost btn-xs text-base-content/60">
+          <a routerLink="/admin/groups" class="btn btn-ghost btn-xs text-primary">
             Manage groups →
           </a>
         </div>
@@ -115,7 +116,7 @@
           </div>
         } @else {
           <div
-            class="rounded-lg border border-base-300 bg-base-200 p-6 text-center text-sm text-base-content/60"
+            class="rounded-lg border border-hairline bg-base-200 p-6 text-center text-sm text-base-content/60"
           >
             No cohorts yet.
           </div>

@@ -59,6 +59,14 @@ export class StatTile {
   /** Optional query params paired with `link`. */
   public readonly linkQueryParams = input<Record<string, unknown> | null>(null);
 
+  /**
+   * Renders the value in brand amber rather than `base-content`. Reserve this
+   * for the one metric a section is actually about — the Stitch reference
+   * (`docs/design-system/.../member_home`) carries amber on the hero metric,
+   * not on every tile, and the effect dies if every tile claims it.
+   */
+  public readonly emphasis = input<boolean>(false);
+
   protected readonly ChevronRightIcon = ChevronRight;
 
   /** Displayed value, with an em-dash fallback for null/empty. */
@@ -68,11 +76,13 @@ export class StatTile {
     return String(raw);
   });
 
-  protected readonly valueClass = computed<string>(() =>
-    this.size() === 'hero'
-      ? 'text-4xl md:text-5xl font-bold tabular-nums text-base-content'
-      : 'text-2xl md:text-3xl font-bold tabular-nums text-base-content',
-  );
+  protected readonly valueClass = computed<string>(() => {
+    const size =
+      this.size() === 'hero' ? 'text-4xl md:text-5xl' : 'text-2xl md:text-3xl';
+    // Literal tone strings so Tailwind's scanner keeps both variants.
+    const tone = this.emphasis() ? 'text-primary' : 'text-base-content';
+    return `${size} font-bold tabular-nums ${tone}`;
+  });
 
   /** Delta-chip class — literal daisyUI modifiers so Tailwind keeps them. */
   protected readonly deltaClass = computed<string>(

@@ -14,7 +14,7 @@
           <div class="form-control w-full relative">
             <span class="label-text mb-1 text-xs font-semibold uppercase opacity-60">Recipient</span>
             @if (selectedRecipient(); as r) {
-              <div class="flex items-center justify-between gap-2 rounded-md border border-base-300 bg-base-200 px-3 py-2">
+              <div class="flex items-center justify-between gap-2 rounded-md border border-hairline bg-base-200 px-3 py-2">
                 <div class="min-w-0">
                   <div class="truncate text-sm font-medium">{{ r.email }}</div>
                   @if (r.name) {
@@ -34,7 +34,7 @@
                 aria-label="Search recipient"
               />
               @if (recipientResults().length > 0) {
-                <ul class="menu menu-sm absolute top-full left-0 z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-base-300 bg-base-200 shadow-lg">
+                <ul class="menu menu-sm absolute top-full left-0 z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-hairline bg-base-200 shadow-lg">
                   @for (opt of recipientResults(); track opt.id) {
                     <li>
                       <button type="button" class="flex flex-col items-start gap-0" (click)="selectRecipient(opt)">

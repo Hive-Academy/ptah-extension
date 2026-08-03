@@ -101,7 +101,7 @@
 
         @if (showMeetToggle()) {
           <label
-            class="flex cursor-pointer items-start gap-3 rounded-lg border border-base-300 p-3"
+            class="flex cursor-pointer items-start gap-3 rounded-lg border border-hairline p-3"
           >
             <input
               type="checkbox"
@@ -192,7 +192,7 @@
           <label
             class="flex cursor-pointer items-start gap-3 rounded-lg border p-3"
             [class.border-warning]="notifyGuests()"
-            [class.border-base-300]="!notifyGuests()"
+            [class.border-hairline]="!notifyGuests()"
           >
             <input
               type="checkbox"

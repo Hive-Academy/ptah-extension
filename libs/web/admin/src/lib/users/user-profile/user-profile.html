@@ -20,7 +20,7 @@
     </div>
   } @else if (user(); as u) {
     <!-- 1. Identity -->
-    <div class="rounded-xl border border-base-300 bg-base-200 p-5">
+    <div class="rounded-xl border border-hairline bg-base-200 p-5">
       <div class="flex items-start gap-4">
         <div
           class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg font-semibold text-accent"
@@ -63,7 +63,7 @@
 
     <!-- 2. Billing & Entitlement — the merged Licenses + Subscriptions surface -->
     @if (entitlement(); as ent) {
-      <div class="rounded-xl border border-base-300 bg-base-200 p-5">
+      <div class="rounded-xl border border-hairline bg-base-200 p-5">
         <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
             Billing &amp; Entitlement
@@ -150,7 +150,7 @@
             @if (licenses().length === 0) {
               <p class="text-xs text-base-content/40">No licenses issued to this user.</p>
             } @else {
-              <div class="overflow-x-auto rounded-lg border border-base-300">
+              <div class="overflow-x-auto rounded-lg border border-hairline">
                 <table class="table table-xs">
                   <thead>
                     <tr class="text-[0.65rem] uppercase tracking-wide text-base-content/60">
@@ -235,7 +235,7 @@
                 No Paddle subscription records for this user.
               </p>
             } @else {
-              <div class="overflow-x-auto rounded-lg border border-base-300">
+              <div class="overflow-x-auto rounded-lg border border-hairline">
                 <table class="table table-xs">
                   <thead>
                     <tr class="text-[0.65rem] uppercase tracking-wide text-base-content/60">
@@ -291,7 +291,7 @@
     }
 
     <!-- 3. Session requests (not part of the billing merge) -->
-    <div class="rounded-xl border border-base-300 bg-base-200 p-5">
+    <div class="rounded-xl border border-hairline bg-base-200 p-5">
       <div class="mb-2 flex items-center justify-between">
         <span class="text-sm font-medium">Session Requests</span>
         @if (sessions().status === 'ok' && sessions().total > 0) {

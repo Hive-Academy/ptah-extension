@@ -19,7 +19,7 @@
       <div
         class="card bg-base-100 border-2 cursor-pointer hover:border-primary transition-all p-4"
         [class.border-primary]="value() === item.key"
-        [class.border-base-300]="value() !== item.key"
+        [class.border-hairline]="value() !== item.key"
         (click)="select(item.key)"
       >
         <div class="flex justify-between items-start">
