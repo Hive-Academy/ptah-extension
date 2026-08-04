@@ -4,6 +4,7 @@ import {
   input,
   output,
 } from '@angular/core';
+import type { TaskGraph } from '@ptah-extension/shared';
 import { TaskColumnComponent } from './task-column.component';
 import type { TaskStartRequest, TaskStatusChange } from './task-card.component';
 import type { TaskBoardColumn } from '../../services/tasks-store.service';
@@ -25,6 +26,7 @@ import type { TaskBoardColumn } from '../../services/tasks-store.service';
         <ptah-task-column
           [status]="column.status"
           [tasks]="column.tasks"
+          [graph]="graph()"
           [selectedTaskId]="selectedTaskId()"
           (taskSelect)="taskSelect.emit($event)"
           (statusChange)="statusChange.emit($event)"
@@ -37,6 +39,12 @@ import type { TaskBoardColumn } from '../../services/tasks-store.service';
 export class TaskBoardComponent {
   public readonly columns = input.required<TaskBoardColumn[]>();
   public readonly selectedTaskId = input<string | null>(null);
+  /**
+   * The derived board graph, forwarded to every card so it can render its child
+   * rollup and resolve its parent claim. Optional — a board handed no graph
+   * renders cards with neither, which is exactly the zero-metadata rendering.
+   */
+  public readonly graph = input<TaskGraph | null>(null);
 
   public readonly taskSelect = output<string>();
   public readonly statusChange = output<TaskStatusChange>();

@@ -7,6 +7,25 @@ export type {
   TaskStatusChange,
 } from './lib/components/board/task-card.component';
 export { TaskDetailComponent } from './lib/components/detail/task-detail.component';
+export { TaskRelationsComponent } from './lib/components/detail/task-relations.component';
+export type {
+  TaskRelationEntry,
+  TaskRelationGroupView,
+} from './lib/components/detail/task-relations.component';
+export {
+  LABEL_CHIP_CLASSES,
+  TASK_RELATION_GROUPS,
+  TASK_RELATION_GROUP_LABELS,
+  TASK_RELATION_GROUP_ORIGIN,
+  TASK_RELATION_ORIGIN_NOTES,
+  labelChipClass,
+  taskEstimateBadge,
+  taskRelationHeading,
+} from './lib/task-presentation';
+export type {
+  TaskRelationGroup,
+  TaskRelationOrigin,
+} from './lib/task-presentation';
 export {
   TasksStore,
   TASKS_CHANGED_MESSAGE_TYPE,

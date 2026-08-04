@@ -32,6 +32,9 @@ function makeTask(
     type: 'FEATURE',
     title: `Title ${id}`,
     dependsOn: [],
+    labels: [],
+    duplicates: [],
+    relatesTo: [],
     created: '2026-07-14T10:00:00.000Z',
     updated: '2026-07-14T10:00:00.000Z',
     frontmatterValid: true,
@@ -283,6 +286,110 @@ describe('TasksStore', () => {
     });
     expect(store.selectedTaskId()).toBe('TASK_2026_200');
     expect(store.taskDetail()?.body).toBe('# body');
+  });
+
+  // -------------------------------------------------------------------------
+  // The derived graph (Task 3.2)
+  // -------------------------------------------------------------------------
+  describe('graph()', () => {
+    it('derives children, rollups and inverses from the loaded payload alone', async () => {
+      rpcCall.mockResolvedValue(
+        ok(
+          makeBoard({
+            backlog: [
+              makeTask('TASK_2026_200', 'backlog', {
+                labels: ['licensing'],
+              }),
+              makeTask('TASK_2026_202', 'backlog', {
+                dependsOn: ['TASK_2026_200'],
+                relatesTo: ['TASK_2026_200'],
+              }),
+            ],
+            done: [
+              makeTask('TASK_2026_201', 'done', { parent: 'TASK_2026_200' }),
+            ],
+          }),
+        ),
+      );
+
+      await store.loadBoard();
+      const graph = store.graph();
+
+      expect(graph.children.get('TASK_2026_200')).toEqual(['TASK_2026_201']);
+      expect(graph.rollup.get('TASK_2026_200')).toEqual({
+        total: 1,
+        done: 1,
+        cancelled: 0,
+        open: 0,
+      });
+      expect(graph.blocks.get('TASK_2026_200')).toEqual(['TASK_2026_202']);
+      expect(graph.related.get('TASK_2026_200')).toEqual(['TASK_2026_202']);
+      expect(store.knownLabels()).toEqual(['licensing']);
+    });
+
+    it('is memoized — repeated reads rebuild nothing until the payload changes', async () => {
+      rpcCall.mockResolvedValue(
+        ok(makeBoard({ backlog: [makeTask('TASK_2026_200', 'backlog')] })),
+      );
+      await store.loadBoard();
+
+      const first = store.graph();
+      expect(store.graph()).toBe(first);
+      expect(store.knownLabels()).toBe(store.knownLabels());
+
+      rpcCall.mockResolvedValue(
+        ok(makeBoard({ backlog: [makeTask('TASK_2026_203', 'backlog')] })),
+      );
+      await store.loadBoard();
+      expect(store.graph()).not.toBe(first);
+    });
+
+    it('issues no RPC at all while the graph is being read (FR-B3.2)', async () => {
+      rpcCall.mockResolvedValue(
+        ok(
+          makeBoard({
+            backlog: [
+              makeTask('TASK_2026_200', 'backlog'),
+              makeTask('TASK_2026_201', 'backlog', {
+                parent: 'TASK_2026_200',
+              }),
+            ],
+          }),
+        ),
+      );
+      await store.loadBoard();
+      rpcCall.mockClear();
+
+      // Everything the board and the detail panel read off the graph.
+      store.graph();
+      store.knownLabels();
+      store.allTasks();
+      store.graph().rollup.get('TASK_2026_200');
+      store.graph().effectiveParent.get('TASK_2026_201');
+
+      // Not "no write" — NO CALL. A parent's carrier is never touched when a
+      // child appears, because children are read out of the CHILD's frontmatter.
+      expect(rpcCall).not.toHaveBeenCalled();
+    });
+
+    it('survives a host payload that predates the metadata contract', async () => {
+      // No labels / duplicates / relatesTo on the wire at all.
+      const wire: Partial<TaskSpecSummary> = {
+        ...makeTask('TASK_2026_200', 'backlog'),
+      };
+      delete wire.labels;
+      delete wire.duplicates;
+      delete wire.relatesTo;
+
+      rpcCall.mockResolvedValue(
+        ok(makeBoard({ backlog: [wire as TaskSpecSummary] })),
+      );
+      await store.loadBoard();
+
+      expect(() => store.graph()).not.toThrow();
+      expect(store.knownLabels()).toEqual([]);
+      expect(store.columns().backlog[0].labels).toEqual([]);
+    });
   });
 });
 

@@ -5,7 +5,11 @@ import {
   input,
   output,
 } from '@angular/core';
-import type { TaskSpecSummary, TaskStatus } from '@ptah-extension/shared';
+import type {
+  TaskGraph,
+  TaskSpecSummary,
+  TaskStatus,
+} from '@ptah-extension/shared';
 import {
   TaskCardComponent,
   type TaskStartRequest,
@@ -44,6 +48,7 @@ import { TASK_STATUS_BADGE, TASK_STATUS_LABELS } from '../../task-presentation';
         @for (task of tasks(); track task.id) {
           <ptah-task-card
             [task]="task"
+            [graph]="graph()"
             [selected]="task.id === selectedTaskId()"
             (selectTask)="taskSelect.emit($event)"
             (statusChange)="statusChange.emit($event)"
@@ -62,6 +67,8 @@ export class TaskColumnComponent {
   public readonly status = input.required<TaskStatus>();
   public readonly tasks = input.required<TaskSpecSummary[]>();
   public readonly selectedTaskId = input<string | null>(null);
+  /** Forwarded verbatim to every card; see `TaskCardComponent.graph`. */
+  public readonly graph = input<TaskGraph | null>(null);
 
   public readonly taskSelect = output<string>();
   public readonly statusChange = output<TaskStatusChange>();

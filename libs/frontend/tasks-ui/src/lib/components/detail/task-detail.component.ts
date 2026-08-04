@@ -7,12 +7,15 @@ import {
 } from '@angular/core';
 import { Check, LucideAngularModule, Minus, X } from 'lucide-angular';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
-import type { TaskSpecDetail } from '@ptah-extension/shared';
+import type { TaskGraph, TaskSpecDetail } from '@ptah-extension/shared';
 import {
+  TASK_ESTIMATE_LABELS,
   TASK_STATUS_BADGE,
   TASK_STATUS_LABELS,
   WORKFLOW_ARTIFACTS,
+  labelChipClass,
 } from '../../task-presentation';
+import { TaskRelationsComponent } from './task-relations.component';
 
 /**
  * Presentational task detail panel. Renders the frontmatter facts, the
@@ -24,7 +27,11 @@ import {
 @Component({
   selector: 'ptah-task-detail',
   standalone: true,
-  imports: [LucideAngularModule, MarkdownBlockComponent],
+  imports: [
+    LucideAngularModule,
+    MarkdownBlockComponent,
+    TaskRelationsComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <aside
@@ -74,6 +81,12 @@ import {
             </dd>
             <dt class="text-base-content/50">Type</dt>
             <dd>{{ task.type ?? '—' }}</dd>
+            @if (task.estimate; as estimate) {
+              <dt class="text-base-content/50">Estimate</dt>
+              <dd data-testid="task-detail-estimate">
+                {{ estimate }} — {{ estimateLabel() }}
+              </dd>
+            }
             @if (task.executor) {
               <dt class="text-base-content/50">Executor</dt>
               <dd>{{ task.executor }}</dd>
@@ -84,25 +97,57 @@ import {
             <dd>{{ task.updated ?? '—' }}</dd>
           </dl>
 
-          <!-- depends_on -->
-          @if (task.dependsOn.length > 0) {
-            <div class="flex flex-col gap-1">
-              <span class="text-xs text-base-content/50">Depends on</span>
+          <!-- Labels. Rendered as interpolated text, verbatim, in the order the
+               author typed them (NFR-4 / NFR-13). -->
+          @if (task.labels.length > 0) {
+            <div class="flex flex-col gap-1" data-testid="task-detail-labels">
+              <span class="text-xs text-base-content/50">Labels</span>
               <div class="flex flex-wrap gap-1">
-                @for (dep of task.dependsOn; track dep) {
-                  <span class="badge badge-sm badge-outline font-mono">{{
-                    dep
-                  }}</span>
+                @for (label of task.labels; track $index) {
+                  <span
+                    class="badge badge-sm border font-normal max-w-full truncate"
+                    [class]="chipClass(label)"
+                    [title]="label"
+                    >{{ label }}</span
+                  >
                 }
               </div>
             </div>
           }
 
-          <!-- Validation warnings -->
+          <!-- Relations — five groups, read-only. Supersedes the old
+               depends_on list: that WAS the "Blocked by" group, and one
+               renderer cannot disagree with itself about how an edge is shown. -->
+          <ptah-task-relations
+            [task]="task"
+            [graph]="graph()"
+            (openTask)="openTask.emit($event)"
+          />
+
+          <!-- Validation warnings.
+               The track key must be unique per ROW, and the field name is not:
+               duplicates and relates_to are arrays, so one field carries one
+               issue per bad entry and every one of them agrees on the field.
+               The ref narrows that to the offending entry, but it is optional
+               AND it repeats when the same bad entry is listed twice in one
+               array — two issues with an identical (field, code, ref), which
+               FR-B4.8 explicitly permits. So the position is folded in as
+               well: the index is unique by construction, and the semantic
+               prefix keeps the key stable across re-renders of the same list.
+               Anything less throws NG0955. -->
           @if (task.validationIssues.length > 0) {
             <div class="alert alert-warning py-2 px-3 text-xs">
-              <ul class="list-disc pl-4">
-                @for (issue of task.validationIssues; track issue.field) {
+              <ul class="list-disc pl-4" data-testid="task-detail-issues">
+                @for (
+                  issue of task.validationIssues;
+                  track issue.code +
+                    '|' +
+                    issue.field +
+                    '|' +
+                    (issue.ref ?? '') +
+                    '|' +
+                    $index
+                ) {
                   <li>{{ issue.field }}: {{ issue.message }}</li>
                 }
               </ul>
@@ -194,10 +239,23 @@ import {
 export class TaskDetailComponent {
   public readonly detail = input.required<TaskSpecDetail | null>();
   public readonly loading = input(false);
+  /**
+   * The derived board graph, for the inverse relations no single-task fetch can
+   * see: Blocks, Duplicated by, and the derived half of Related. `TasksGetResult`
+   * is deliberately unchanged — the inverses are a property of the whole board.
+   */
+  public readonly graph = input<TaskGraph | null>(null);
 
   public readonly closed = output<void>();
   /** Emits an artifact filename the host should open in the editor. */
   public readonly openArtifact = output<string>();
+  /** Emits the id of a related task the user asked to open. A read. */
+  public readonly openTask = output<string>();
+
+  protected readonly estimateLabel = computed(() => {
+    const estimate = this.detail()?.estimate;
+    return estimate ? TASK_ESTIMATE_LABELS[estimate] : '';
+  });
 
   protected readonly statusLabel = computed(() => {
     const task = this.detail();
@@ -231,4 +289,9 @@ export class TaskDetailComponent {
   protected readonly XIcon = X;
   protected readonly CheckIcon = Check;
   protected readonly MinusIcon = Minus;
+
+  /** Hashed chip classes for one label — see `labelChipClass`. */
+  protected chipClass(label: string): string {
+    return labelChipClass(label);
+  }
 }

@@ -14,7 +14,9 @@ import {
 } from '@ptah-extension/core';
 import {
   TASK_STATUSES,
+  buildTaskGraph,
   type ExcludedTaskFolder,
+  type TaskGraph,
   type TaskSpecDetail,
   type TaskSpecSummary,
   type TaskStatus,
@@ -84,6 +86,53 @@ export function readExcludedFolders(
     parsed.push({ folderName, reason });
   }
   return parsed;
+}
+
+/**
+ * Guarantee the four array-valued relation fields on a summary that crossed the
+ * host bridge.
+ *
+ * The contract says `dependsOn`, `labels`, `duplicates` and `relatesTo` are
+ * ALWAYS arrays — absent, malformed and empty all collapse to `[]` at the parse
+ * boundary — and `buildTaskGraph` iterates all four unconditionally. A payload
+ * missing any of them takes the whole board down with a `TypeError` on the
+ * first render.
+ *
+ * ## Why this is not dead code
+ *
+ * It is NOT a version-skew guard. The extension ships host and webview as one
+ * artifact, so a webview can never meet a host built from different sources —
+ * that scenario was investigated and is impossible here.
+ *
+ * The reason is narrower and it still holds: **`tasks:board` crosses the
+ * postMessage bridge and nothing on that path validates it.** There is no Zod
+ * schema, no runtime narrowing, no assertion anywhere between the host's
+ * `JSON.stringify` and this function — the payload is `as`-cast into
+ * `TasksBoardResult` and trusted. BR-9 puts validation at every external
+ * boundary; this is one, and this is the only validation on it. Until that
+ * boundary gets a real schema, deleting this line means any malformed frame —
+ * a truncated message, a bug in a future host handler, a replayed frame — is a
+ * blank board rather than a card with no metadata on it.
+ *
+ * The task object is returned UNCHANGED when it is already well-formed, so the
+ * normal path allocates nothing and object identity survives a reload.
+ */
+function withRelationArrays(task: TaskSpecSummary): TaskSpecSummary {
+  if (
+    Array.isArray(task.dependsOn) &&
+    Array.isArray(task.labels) &&
+    Array.isArray(task.duplicates) &&
+    Array.isArray(task.relatesTo)
+  ) {
+    return task;
+  }
+  return {
+    ...task,
+    dependsOn: Array.isArray(task.dependsOn) ? task.dependsOn : [],
+    labels: Array.isArray(task.labels) ? task.labels : [],
+    duplicates: Array.isArray(task.duplicates) ? task.duplicates : [],
+    relatesTo: Array.isArray(task.relatesTo) ? task.relatesTo : [],
+  };
 }
 
 /** Empty six-key column map — every status key is always present (R4). */
@@ -234,6 +283,61 @@ export class TasksStore implements MessageHandler {
       tasks: columns[status],
     }));
   });
+
+  /**
+   * Every board-visible task, flattened in canonical column order.
+   *
+   * The flattening order is `TASK_STATUSES`, which is fixed, so the graph built
+   * from it is deterministic. (`buildTaskGraph` re-sorts by id internally, so
+   * this order is a convenience for other consumers rather than a correctness
+   * dependency.)
+   */
+  public readonly allTasks = computed<readonly TaskSpecSummary[]>(() => {
+    const columns = this._columns();
+    return TASK_STATUSES.flatMap((status) => columns[status]);
+  });
+
+  /**
+   * The derived task graph — parentage, child rollups, inverse relations, the
+   * label union — over the ALREADY-LOADED board payload.
+   *
+   * ## One computed, invalidated only by the payload (NFR-10)
+   *
+   * Its only reactive dependency is `_columns`, which is written exactly once
+   * per resolved `tasks:board` response. Nothing a user types, selects, filters
+   * or hovers touches it, so the graph is built once per board load and every
+   * reader after that gets the memoized value.
+   *
+   * ## It is derived here rather than fetched
+   *
+   * `TasksGetResult` is unchanged and gains no relation fields. The detail
+   * panel's inverse relations (Blocks, Duplicated by, the derived half of
+   * Related) and the card's child rollup all read THIS, not the RPC — the
+   * inverses are a property of the whole board, and a per-task fetch cannot see
+   * them without the backend re-deriving and re-sending them on every open.
+   *
+   * ## It cannot produce a write
+   *
+   * `buildTaskGraph` is a pure function in `libs/shared` with no filesystem
+   * access of any kind (FR-B3.2). A parent's carrier is never touched when a
+   * child appears — children are read out of each CHILD's frontmatter.
+   */
+  public readonly graph = computed<TaskGraph>(() =>
+    buildTaskGraph(this.allTasks()),
+  );
+
+  /**
+   * Every distinct label in the workspace, as canonical display text in
+   * first-seen order.
+   *
+   * A projection of the memoized {@link graph}, so label completion costs one
+   * map read per keystroke rather than a rebuild (FR-B1.5, NFR-10). There is no
+   * label registry file and no persisted list — the union IS the completion
+   * source.
+   */
+  public readonly knownLabels = computed<readonly string[]>(
+    () => this.graph().knownLabels,
+  );
 
   /** Total number of included (board-visible) tasks. */
   public readonly totalCount = computed(() =>
@@ -665,7 +769,7 @@ export class TasksStore implements MessageHandler {
   private toSlice(data: TasksBoardResult): BoardSlice {
     const normalized = emptyColumns();
     for (const status of TASK_STATUSES) {
-      normalized[status] = data.columns[status] ?? [];
+      normalized[status] = (data.columns[status] ?? []).map(withRelationArrays);
     }
     const excluded = readExcludedFolders(data);
     return {

@@ -10,7 +10,10 @@ import {
   AlertTriangle,
   Ban,
   CheckCircle2,
+  Copy,
+  CornerLeftUp,
   GitBranch,
+  ListTree,
   LucideAngularModule,
   MoreVertical,
   Play,
@@ -18,10 +21,18 @@ import {
 } from 'lucide-angular';
 import {
   TASK_STATUSES,
+  type TaskChildRollup,
+  type TaskGraph,
   type TaskSpecSummary,
   type TaskStatus,
 } from '@ptah-extension/shared';
-import { TASK_STATUS_LABELS, taskTypeBadge } from '../../task-presentation';
+import {
+  TASK_ESTIMATE_LABELS,
+  TASK_STATUS_LABELS,
+  labelChipClass,
+  taskEstimateBadge,
+  taskTypeBadge,
+} from '../../task-presentation';
 
 /**
  * Payload emitted when the Start action fires. `isolate` requests
@@ -113,23 +124,76 @@ export interface TaskStatusChange {
           </div>
         </div>
 
+        <!-- Parent breadcrumb (FR-B3.4). Rendered from the DECLARED parent —
+             that is the only evidence of what the author meant. Whether it is
+             navigable comes from the derived graph: a claim the graph refused
+             (dangling / cycle / two levels deep) is shown as a non-interactive
+             value beside the reason it was refused, never as a link that goes
+             nowhere. -->
+        @if (parentCrumb(); as crumb) {
+          <div
+            class="flex items-center gap-1 min-w-0"
+            data-testid="task-card-parent"
+            [attr.role]="crumb.navigable ? null : 'note'"
+            [attr.aria-label]="crumb.navigable ? null : crumb.ariaLabel"
+          >
+            <lucide-angular
+              [img]="CornerLeftUpIcon"
+              class="w-2.5 h-2.5 shrink-0 text-base-content/50"
+            />
+            @if (crumb.navigable) {
+              <button
+                type="button"
+                class="text-[10px] font-mono text-base-content/60 hover:text-primary hover:underline truncate"
+                [attr.aria-label]="'Open parent task ' + crumb.id"
+                [title]="'Open parent task ' + crumb.id"
+                (click)="$event.stopPropagation(); selectTask.emit(crumb.id)"
+              >
+                {{ crumb.id }}
+              </button>
+            } @else {
+              <span
+                class="text-[10px] font-mono text-base-content/40 truncate"
+                [title]="crumb.reason"
+              >
+                {{ crumb.id }}
+              </span>
+              <span
+                class="text-[10px] text-warning flex-shrink-0"
+                [title]="crumb.reason"
+                >not linked</span
+              >
+            }
+          </div>
+        }
+
         <!-- Title -->
         <p class="text-sm font-medium leading-snug line-clamp-2">
           {{ task().title }}
         </p>
 
-        <!-- Meta row: type + executor + depends_on -->
+        <!-- Meta row: type + estimate + executor + depends_on + rollup + dup -->
         <div class="flex items-center flex-wrap gap-1">
           <span class="badge badge-xs" [class]="typeBadgeClass()">
             {{ task().type ?? 'no type' }}
           </span>
+          @if (task().estimate; as estimate) {
+            <span
+              class="badge badge-xs"
+              [class]="estimateBadgeClass()"
+              [title]="estimateTitle()"
+              data-testid="task-card-estimate"
+            >
+              {{ estimate }}
+            </span>
+          }
           @if (task().executor) {
             <span
-              class="badge badge-xs badge-ghost gap-0.5"
+              class="badge badge-xs badge-ghost gap-0.5 max-w-[7rem]"
               [title]="'Executor: ' + task().executor"
             >
-              <lucide-angular [img]="UserIcon" class="w-2.5 h-2.5" />
-              {{ task().executor }}
+              <lucide-angular [img]="UserIcon" class="w-2.5 h-2.5 shrink-0" />
+              <span class="truncate">{{ task().executor }}</span>
             </span>
           }
           @if (task().dependsOn.length > 0) {
@@ -141,7 +205,76 @@ export interface TaskStatusChange {
               {{ task().dependsOn.length }}
             </span>
           }
+          <!-- Child rollup (FR-B3.3): completed over total. A plain value, not
+               a control — the board has no filter to drive yet, and a button
+               that silently does nothing is worse than a number. -->
+          @if (childRollup(); as rollup) {
+            <span
+              class="badge badge-xs badge-ghost gap-0.5 tabular-nums"
+              [title]="rollupTitle()"
+              data-testid="task-card-rollup"
+            >
+              <lucide-angular
+                [img]="ListTreeIcon"
+                class="w-2.5 h-2.5"
+                aria-hidden="true"
+              />
+              <!-- "1 / 3" is not an accessible name. The visible glyph stays
+                   compact; the full sentence is what assistive tech reads. -->
+              <span class="sr-only">{{ rollupTitle() }}</span>
+              <span aria-hidden="true" data-testid="task-card-rollup-glyph">
+                {{ rollup.done }} / {{ rollup.total }}
+              </span>
+            </span>
+          }
+          <!-- Duplicate marker (FR-B4.4) — deliberately de-emphasised. -->
+          @if (task().duplicates.length > 0) {
+            <span
+              class="badge badge-xs badge-ghost gap-0.5 opacity-60"
+              [title]="'Duplicates: ' + task().duplicates.join(', ')"
+              data-testid="task-card-duplicate"
+            >
+              <lucide-angular [img]="CopyIcon" class="w-2.5 h-2.5" />
+              duplicate
+            </span>
+          }
         </div>
+
+        <!-- Label chips. Colour is hashed from the label text and is never the
+             sole carrier of meaning — every chip renders the text the author
+             typed, verbatim, as an interpolation (NFR-4 / NFR-13).
+
+             Bounded on both axes, because the board has exactly ONE column
+             width (16rem) and no wider layout to fall back on: each chip is
+             capped and truncated so one long unbroken label cannot escape the
+             card, and the count is capped so a heavily-labelled task cannot
+             push the card to twice the height of its neighbours. -->
+        @if (task().labels.length > 0) {
+          <div
+            class="flex items-center flex-wrap gap-1 min-w-0"
+            data-testid="task-card-labels"
+          >
+            @for (label of visibleLabels(); track $index) {
+              <span
+                class="badge badge-xs border font-normal max-w-[6rem] truncate"
+                [class]="chipClass(label)"
+                [title]="'Label: ' + label"
+              >
+                {{ label }}
+              </span>
+            }
+            @if (hiddenLabels().length > 0) {
+              <span
+                class="badge badge-xs badge-ghost font-normal tabular-nums"
+                [title]="hiddenLabelsTitle()"
+                [attr.aria-label]="hiddenLabelsTitle()"
+                data-testid="task-card-labels-overflow"
+              >
+                +{{ hiddenLabels().length }}
+              </span>
+            }
+          </div>
+        }
 
         <!-- Actions: agent-managed worktree isolation toggle + Start.
              Terminal tasks (done / cancelled) are not startable — show a
@@ -201,6 +334,17 @@ export interface TaskStatusChange {
 export class TaskCardComponent {
   public readonly task = input.required<TaskSpecSummary>();
   public readonly selected = input(false);
+  /**
+   * The derived board graph, for the two facts a card cannot know about itself:
+   * whether its declared `parent` claim was honoured, and how many children
+   * claim IT.
+   *
+   * Optional and defaulted to `null` so the card stays usable standalone. With
+   * no graph the card renders the declared parent as a non-navigable value with
+   * a stated reason and renders no rollup — it never guesses, and it never
+   * offers an affordance it cannot honour.
+   */
+  public readonly graph = input<TaskGraph | null>(null);
 
   public readonly selectTask = output<string>();
   public readonly statusChange = output<TaskStatusChange>();
@@ -213,6 +357,111 @@ export class TaskCardComponent {
   protected readonly typeBadgeClass = computed(() =>
     taskTypeBadge(this.task().type),
   );
+
+  /**
+   * How many label chips a card shows before rolling the rest into `+N`.
+   *
+   * Three, because the column is a fixed 16rem and a chip caps at 6rem: three
+   * chips wrap to at most two lines, which is the most the card can spend on
+   * labels without dominating the title. This is a presentation cap only —
+   * nothing is hidden from the data, and the overflow chip names every label it
+   * stands for.
+   */
+  private static readonly MAX_VISIBLE_LABELS = 3;
+
+  protected readonly visibleLabels = computed(() =>
+    this.task().labels.slice(0, TaskCardComponent.MAX_VISIBLE_LABELS),
+  );
+
+  protected readonly hiddenLabels = computed(() =>
+    this.task().labels.slice(TaskCardComponent.MAX_VISIBLE_LABELS),
+  );
+
+  protected readonly hiddenLabelsTitle = computed(() => {
+    const hidden = this.hiddenLabels();
+    return hidden.length === 0
+      ? ''
+      : `${hidden.length} more label(s): ${hidden.join(', ')}`;
+  });
+
+  protected readonly estimateBadgeClass = computed(() => {
+    const estimate = this.task().estimate;
+    return estimate ? taskEstimateBadge(estimate) : '';
+  });
+
+  protected readonly estimateTitle = computed(() => {
+    const estimate = this.task().estimate;
+    return estimate ? `Estimate: ${TASK_ESTIMATE_LABELS[estimate]}` : '';
+  });
+
+  /**
+   * Child counts for this task, or `null` when it has none.
+   *
+   * Read out of the graph's rollup, which is itself read out of every CHILD's
+   * frontmatter — so a parent card gaining a rollup involves no write to the
+   * parent's carrier (FR-B3.2). Only parents that HAVE children appear in the
+   * map, so `null` is the exact "render nothing" case (plan §6.7).
+   */
+  protected readonly childRollup = computed<TaskChildRollup | null>(
+    () => this.graph()?.rollup.get(this.task().id) ?? null,
+  );
+
+  protected readonly rollupTitle = computed(() => {
+    const rollup = this.childRollup();
+    if (rollup === null) return '';
+    return `Sub-tasks: ${rollup.done} done · ${rollup.open} open · ${rollup.cancelled} cancelled (${rollup.total} total)`;
+  });
+
+  /**
+   * The declared parent, plus whether the graph honoured the claim.
+   *
+   * `null` when no `parent` key was declared — absent renders nothing, with no
+   * "no parent" placeholder (plan §6.7). When the claim was refused the reason
+   * comes from the task's OWN parent validation issue, so the card repeats the
+   * backend's sentence rather than inventing a second, drift-prone one.
+   *
+   * `ariaLabel` carries the id AND the reason on the refused branch. A `title`
+   * alone does not discharge "disabled with a stated reason": it needs a mouse
+   * and a hover, so keyboard and screen-reader users get the bare id with no
+   * explanation at all. Naming the wrapper instead of adding `tabindex` keeps
+   * the reason reachable without spending a tab stop per card — the board is
+   * meant to become ONE tab stop under FR-C7, and 181 new ones would be a
+   * regression that batch then has to undo.
+   */
+  protected readonly parentCrumb = computed<{
+    readonly id: string;
+    readonly navigable: boolean;
+    readonly reason: string;
+    readonly ariaLabel: string;
+  } | null>(() => {
+    const task = this.task();
+    const parent = task.parent;
+    if (parent === undefined || parent.length === 0) return null;
+
+    const refused = (reason: string) => ({
+      id: parent,
+      navigable: false,
+      reason,
+      ariaLabel: `Parent ${parent}, not linked. ${reason}`,
+    });
+
+    const graph = this.graph();
+    if (graph === null) {
+      return refused(
+        'The board index is not available here, so the parent cannot be opened from this card.',
+      );
+    }
+    if (graph.effectiveParent.get(task.id) === parent) {
+      return { id: parent, navigable: true, reason: '', ariaLabel: '' };
+    }
+    const issue = task.validationIssues.find(
+      (candidate) => candidate.field === 'parent',
+    );
+    return refused(
+      issue?.message ??
+        `The parent claim '${parent}' was not honoured, so there is nothing to open.`,
+    );
+  });
 
   /** Terminal tasks (done / cancelled) cannot be started. */
   protected readonly isTerminal = computed(() => {
@@ -228,9 +477,17 @@ export class TaskCardComponent {
   protected readonly UserIcon = User;
   protected readonly GitBranchIcon = GitBranch;
   protected readonly PlayIcon = Play;
+  protected readonly CopyIcon = Copy;
+  protected readonly CornerLeftUpIcon = CornerLeftUp;
+  protected readonly ListTreeIcon = ListTree;
 
   protected statusLabel(status: TaskStatus): string {
     return TASK_STATUS_LABELS[status];
+  }
+
+  /** Hashed chip classes for one label — see `labelChipClass`. */
+  protected chipClass(label: string): string {
+    return labelChipClass(label);
   }
 
   protected onIsolateToggle(event: Event): void {

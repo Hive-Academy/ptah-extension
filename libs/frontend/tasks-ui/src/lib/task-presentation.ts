@@ -14,6 +14,7 @@ import {
   DOC_FILES,
   LEGACY_BATCHES_FILE,
   isLegacyDocFile,
+  labelColorIndex,
   type DocFile,
   type ExcludedTaskFolder,
   type TaskEstimate,
@@ -68,6 +69,189 @@ export const TASK_ESTIMATE_LABELS: Record<TaskEstimate, string> = {
   L: 'Large',
   XL: 'Extra large',
 };
+
+/**
+ * daisyui class list for the estimate badge.
+ *
+ * Two weights, not five colours. The badge has to be distinguishable from the
+ * type badge and the status badge (FR-B2.2) without inventing a fifth colour
+ * axis on a card that already carries four, so the size is expressed as
+ * *weight*: the two large sizes read as a filled badge, the rest as an outline.
+ * The letters are always rendered, so the weight is reinforcement and never the
+ * carrier of the meaning (NFR-12).
+ *
+ * Both class lists resolve through daisyui's `neutral` / `base-content` pair,
+ * which is dark-on-light in the light theme and light-on-dark in the dark one —
+ * so neither needs a per-theme audit the way {@link LABEL_CHIP_CLASSES} does.
+ */
+export function taskEstimateBadge(estimate: TaskEstimate): string {
+  return estimate === 'L' || estimate === 'XL'
+    ? 'badge-neutral font-mono'
+    : 'badge-outline font-mono';
+}
+
+// ---------------------------------------------------------------------------
+// Label chips
+// ---------------------------------------------------------------------------
+
+/**
+ * The label chip palette: a FIXED, hand-audited list of Tailwind class triples.
+ *
+ * ## Why these are absolute palette colours and not daisyui theme tokens
+ *
+ * The gate on this list is ≥ 4.5:1 text contrast in BOTH the light and the dark
+ * theme (NFR-12, R15). A daisyui token (`badge-info`, `bg-primary`, …) resolves
+ * to a different colour per theme, and this app ships 30-plus themes — auditing
+ * a token-based palette means auditing every theme, and it silently re-breaks
+ * the next time a theme is added. Tailwind palette steps are absolute sRGB, so
+ * a chip renders identically in every theme and ONE audit holds for all of them.
+ *
+ * ## Gate 1 — text contrast, `text-*-800` on `bg-*-100`
+ *
+ * Identical in every theme, because the values are absolute. Gate is 4.5:1.
+ *
+ * ## Gate 2 — chip boundary, the better of fill-or-border against the page
+ *
+ * On a dark page the near-white fill carries the edge (13–17:1); on a light
+ * page the fill is a 1.03–1.16:1 non-edge and the `-700` border carries it.
+ * Gate is WCAG 1.4.11's 3:1. `-700` rather than `-600` buys real margin: the
+ * worst entry moves from 3.09:1 (green, 3% over the line) to 4.70:1.
+ *
+ * | slot | hue | text : fill | worst boundary over 4 themes |
+ * |---|---|---|---|
+ * | 0 | zinc    | **13.55:1** | 9.79:1 |
+ * | 1 | red     | **6.80:1**  | 6.07:1 |
+ * | 2 | orange  | **6.38:1**  | 4.85:1 |
+ * | 3 | green   | **6.49:1**  | 4.70:1 |
+ * | 4 | cyan    | **6.49:1**  | 5.02:1 |
+ * | 5 | sky     | **6.59:1**  | 5.56:1 |
+ * | 6 | indigo  | **8.06:1**  | 7.41:1 |
+ * | 7 | fuchsia | **7.08:1**  | 5.93:1 |
+ *
+ * Themes audited: `anubis`, `anubis-light`, daisyui `dark`, daisyui `light`.
+ *
+ * ## Gate 3 — the slots must be telling apart at chip size
+ *
+ * Measured as Euclidean distance in OKLab between fills. `emerald`/`teal` at
+ * **0.0157** is the pair this list rejected as too close, so that number is the
+ * standing threshold. Every pair here clears it: the closest is `cyan`/`sky` at
+ * **0.0276**, which is 1.76x the rejected pair.
+ *
+ * `rose` was in this list and was CUT at review: `red`/`rose` measured
+ * **0.0064**, two and a half times CLOSER than the pair already rejected — the
+ * threshold was not being applied to the list that defined it. `amber`, `yellow`
+ * and `lime` fail gate 2 (2.75–2.99:1) and are not candidates.
+ *
+ * Nothing about the assignment is persisted — {@link labelChipClass} hashes the
+ * label text, so the same label is the same colour in every host with no
+ * registry, no column and no settings entry.
+ */
+export const LABEL_CHIP_CLASSES = [
+  'bg-zinc-100 text-zinc-800 border-zinc-700',
+  'bg-red-100 text-red-800 border-red-700',
+  'bg-orange-100 text-orange-800 border-orange-700',
+  'bg-green-100 text-green-800 border-green-700',
+  'bg-cyan-100 text-cyan-800 border-cyan-700',
+  'bg-sky-100 text-sky-800 border-sky-700',
+  'bg-indigo-100 text-indigo-800 border-indigo-700',
+  'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-700',
+] as const;
+
+/**
+ * Stable chip classes for a label.
+ *
+ * Delegates the slot choice to the shared {@link labelColorIndex}, which hashes
+ * the case- and whitespace-folded key — so `Licensing`, `licensing` and
+ * `licensing ` are one label with ONE colour (R9), and the extension host and
+ * the webview agree bit-for-bit.
+ *
+ * Colour is never the sole carrier of meaning: every chip renders its text.
+ */
+export function labelChipClass(label: string): string {
+  return LABEL_CHIP_CLASSES[labelColorIndex(label, LABEL_CHIP_CLASSES.length)];
+}
+
+// ---------------------------------------------------------------------------
+// Relation groups
+// ---------------------------------------------------------------------------
+
+/**
+ * The five relation headings the detail panel groups under (FR-B4.9), in the
+ * order they are rendered: what holds this task up, what this task holds up,
+ * then the two duplicate directions, then the loose relation.
+ */
+export const TASK_RELATION_GROUPS = [
+  'blocked_by',
+  'blocks',
+  'duplicates',
+  'duplicated_by',
+  'related',
+] as const;
+export type TaskRelationGroup = (typeof TASK_RELATION_GROUPS)[number];
+
+/** Heading text per relation group. */
+export const TASK_RELATION_GROUP_LABELS: Record<TaskRelationGroup, string> = {
+  blocked_by: 'Blocked by',
+  blocks: 'Blocks',
+  duplicates: 'Duplicates',
+  duplicated_by: 'Duplicated by',
+  related: 'Related',
+};
+
+/** Which side of an edge authored it. `related` is the one mixed group. */
+export type TaskRelationOrigin = 'authored' | 'derived';
+
+/**
+ * Where each group's edges are authored.
+ *
+ * `related` is `mixed` because `relates_to` may be declared on either side and
+ * the derived graph shows both — so that group is rendered as two homogeneous
+ * halves rather than one list the reader has to decode.
+ */
+export const TASK_RELATION_GROUP_ORIGIN: Record<
+  TaskRelationGroup,
+  TaskRelationOrigin | 'mixed'
+> = {
+  blocked_by: 'authored',
+  blocks: 'derived',
+  duplicates: 'authored',
+  duplicated_by: 'derived',
+  related: 'mixed',
+};
+
+/**
+ * The sentence that says which carrier owns an edge, per origin.
+ *
+ * This is the TEXT half of the authored-vs-derived distinction (FR-B4.9), and
+ * it is the load-bearing half. A solid-versus-dashed chip is not a distinction
+ * for a reader who cannot resolve that difference, and "removable only from the
+ * other task" is not something a border style can say. The styling reinforces
+ * these sentences; it never replaces them.
+ */
+export const TASK_RELATION_ORIGIN_NOTES: Record<TaskRelationOrigin, string> = {
+  authored: `Declared in this task's own frontmatter.`,
+  derived: `Declared by the other task — this task's carrier does not name it. Open that task to change the edge.`,
+};
+
+/**
+ * The heading a group renders under, once its origin is known.
+ *
+ * Four of the five groups already name their own direction, so the heading is
+ * just the label. `related` is the exception: it splits into two lists that
+ * would otherwise both be headed "Related", leaving the distinction to carry on
+ * the note sentence alone. Two identical headings are a worse failure than a
+ * long one — a reader scanning headings sees the same word twice and has no
+ * reason to look further.
+ */
+export function taskRelationHeading(
+  group: TaskRelationGroup,
+  origin: TaskRelationOrigin,
+): string {
+  if (group !== 'related') return TASK_RELATION_GROUP_LABELS[group];
+  return origin === 'authored'
+    ? 'Related — declared here'
+    : 'Related — declared elsewhere';
+}
 
 // ---------------------------------------------------------------------------
 // Validation warnings

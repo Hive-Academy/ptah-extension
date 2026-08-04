@@ -221,6 +221,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
           <div class="flex-1 min-w-0">
             <ptah-task-board
               [columns]="store.board()"
+              [graph]="store.graph()"
               [selectedTaskId]="store.selectedTaskId()"
               (taskSelect)="store.openTask($event)"
               (statusChange)="onStatusChange($event)"
@@ -231,9 +232,11 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
           @if (store.selectedTaskId()) {
             <ptah-task-detail
               [detail]="store.taskDetail()"
+              [graph]="store.graph()"
               [loading]="store.detailLoading()"
               (closed)="store.closeTask()"
               (openArtifact)="store.openArtifact($event)"
+              (openTask)="store.openTask($event)"
             />
           }
         }
