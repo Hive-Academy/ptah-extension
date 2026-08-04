@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -8,9 +9,13 @@ import { RouterLink } from '@angular/router';
 import { LucideAngularModule, ShieldCheck } from 'lucide-angular';
 
 import { AuthService, MemberSessionStore } from '@ptah-web/core';
+import type { PanelNavGroup } from '@ptah-web/panel-ui';
 import { PanelLayout } from '@ptah-web/panel-ui';
 
-import { MEMBER_NAV_GROUPS } from '../member-nav.config';
+import {
+  MEMBER_ADMIN_NAV_GROUP,
+  MEMBER_NAV_GROUPS,
+} from '../member-nav.config';
 import { MemberThemeService } from '../services/member-theme.service';
 import { MemberThemeToggle } from './member-theme-toggle';
 
@@ -55,8 +60,25 @@ export class MemberLayout {
 
   protected readonly ShieldCheckIcon = ShieldCheck;
 
-  /** Task-oriented nav groups — array order drives visual order. */
-  protected readonly navGroups = MEMBER_NAV_GROUPS;
+  /**
+   * Task-oriented nav groups — array order drives visual order.
+   *
+   * ⚠️ THIS COMPUTED IS THE ONE PLACE THE MEMBER NAV IS RESHAPED (R9.3).
+   * `member-nav.config.ts` stays static data; every condition that changes the
+   * SHAPE of the sidebar belongs here, rebuilding the array. Batch 15's
+   * Notifications `badgeCount` is committed to the same mechanism — see the
+   * warning above `MEMBER_NAV_GROUPS` — so the two must not diverge into a
+   * computed for one and a config function for the other.
+   *
+   * The Admin escape hatch appears only for an admin. `isAdmin` is refreshed by
+   * `MemberGuard` on every `/members/*` activation, so it is already correct
+   * before this shell first renders and never needs a probe of its own.
+   */
+  protected readonly navGroups = computed<readonly PanelNavGroup[]>(() =>
+    this.session.isAdmin()
+      ? [...MEMBER_NAV_GROUPS, MEMBER_ADMIN_NAV_GROUP]
+      : MEMBER_NAV_GROUPS,
+  );
 
   /** Cohort chips, `[]` for an entitled member with no assignment (R7.8). */
   protected readonly cohorts = this.session.cohorts;

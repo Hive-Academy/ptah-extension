@@ -21,6 +21,7 @@
 import {
   AlertTriangle,
   CalendarDays,
+  Hammer,
   LayoutDashboard,
   Megaphone,
   MessagesSquare,
@@ -170,3 +171,42 @@ export const ADMIN_NAV_GROUPS: readonly PanelNavGroup[] = [
     ],
   },
 ];
+
+/**
+ * The cross-panel link out to `/members`, appended to {@link ADMIN_NAV_GROUPS}
+ * by `AdminLayout` when — and only when — `MemberSessionStore.entitled()`.
+ *
+ * ⚠️ IT IS GATED ON ENTITLEMENT, NOT ON ADMIN-NESS, AND THE TWO ARE ORTHOGONAL
+ * (R7.4). Everyone who can see this sidebar is already an admin, so gating on
+ * `isAdmin` would gate on nothing. `/members` is guarded by `MemberGuard`,
+ * which turns on entitlement alone: an admin holding only a free `community`
+ * license — the founder's actual account — would click this and be bounced
+ * straight to `/pricing`. A link that reliably fails is worse than no link.
+ *
+ * ⚠️ KNOWN GAP, DELIBERATE. `MemberSessionStore` is seeded in exactly two
+ * places: the auth page's post-login probe, and `MemberGuard` on a `/members/*`
+ * activation. An admin who opens `/admin` cold — a fresh tab against an
+ * existing cookie, or a reload — has neither, so this link is hidden until they
+ * sign in again or visit `/members` once. That is fail-closed and cheap: the
+ * failure is an absent affordance, never a bad bounce. Making it always-on
+ * costs one `MemberEntitlementService.probe()` from `AdminLayout` per admin
+ * session, which is a NEW probe on the admin surface and was deliberately not
+ * added here without being asked for.
+ *
+ * Placed last, after Records & Compliance: an escape hatch out of the operator
+ * IA, not a seventh operator task. Flat, so it renders as a headerless
+ * standalone link.
+ */
+export const ADMIN_MEMBER_NAV_GROUP: PanelNavGroup = {
+  label: 'Member Panel',
+  icon: Hammer,
+  flat: true,
+  items: [
+    {
+      label: 'Member Panel',
+      route: '/members',
+      primary: true,
+      icon: Hammer,
+    },
+  ],
+};

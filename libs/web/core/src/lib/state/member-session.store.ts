@@ -65,6 +65,20 @@ export class MemberSessionStore {
    */
   public readonly isAdmin = computed(() => this._context()?.isAdmin ?? false);
 
+  /**
+   * Whether the server confirmed a Builders entitlement for this session.
+   *
+   * ⚠️ `false` MEANS "NOT KNOWN TO BE ENTITLED", NOT "KNOWN TO BE UNENTITLED",
+   * and the difference matters to the one consumer outside the member panel.
+   * {@link MemberEntitlementService} seeds this store ONLY on an entitled probe,
+   * so a visitor who has neither signed in through the auth page nor navigated
+   * into `/members` this page-load reads `false` here regardless of what they
+   * actually hold. That is the right default for drawing an affordance — an
+   * absent cross-panel link is a smaller failure than one that bounces the
+   * clicker to `/pricing` — and it is never an authorization answer (NFR-S8).
+   */
+  public readonly entitled = computed(() => this._context()?.entitled ?? false);
+
   public set(context: MemberContext): void {
     this._context.set(context);
   }

@@ -17,6 +17,7 @@ import {
   MessagesSquare,
   Package,
   Radio,
+  ShieldCheck,
   UserCircle,
 } from 'lucide-angular';
 
@@ -139,3 +140,42 @@ export const MEMBER_NAV_GROUPS: readonly PanelNavGroup[] = [
     ],
   },
 ];
+
+/**
+ * The cross-panel link out to `/admin`, appended to {@link MEMBER_NAV_GROUPS}
+ * by `MemberLayout` when — and only when — `MemberSessionStore.isAdmin()`.
+ *
+ * ⚠️ IT IS A SEPARATE CONST RATHER THAN A CONDITIONAL ENTRY IN THE ARRAY ABOVE,
+ * AND THAT SHAPE IS THE POINT (R9.3). This file supplies DATA; the one thing
+ * allowed to reshape it is a `computed()` in `MemberLayout` — the exact
+ * mechanism the Notifications `badgeCount` note above commits Batch 15 to. Two
+ * different mechanisms for "conditionally shaped nav" — one config function
+ * here, one computed there — is the drift R9.3 exists to prevent, so the
+ * conditional lives in the layout for both, and this file keeps describing
+ * groups without knowing who can see them.
+ *
+ * ⚠️ `isAdmin` AUTHORIZES NOTHING (R7.4, NFR-S8). It says what to DRAW. The
+ * server-side `AdminGuard` (`libs/api/identity`, fail-closed on an unset
+ * `ADMIN_EMAILS`) is the only thing that decides what an operator may do, and
+ * `AdminAuthGuard` re-probes on activation — so a stale `isAdmin` costs a
+ * bounce to `/profile`, never access. Equally, this item's presence says
+ * nothing about entitlement: an admin sees it whether or not they hold
+ * Builders, because reaching `/admin` never required a membership.
+ *
+ * Placed last, after Account, deliberately: it is an escape hatch out of the
+ * member IA, not a seventh member task. Flat, so it renders as a headerless
+ * standalone link with no disclosure chrome.
+ */
+export const MEMBER_ADMIN_NAV_GROUP: PanelNavGroup = {
+  label: 'Admin',
+  icon: ShieldCheck,
+  flat: true,
+  items: [
+    {
+      label: 'Admin',
+      route: '/admin',
+      primary: true,
+      icon: ShieldCheck,
+    },
+  ],
+};

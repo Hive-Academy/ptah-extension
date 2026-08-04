@@ -1,13 +1,15 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
   signal,
 } from '@angular/core';
 
-import { AuthService } from '@ptah-web/core';
+import { AuthService, MemberSessionStore } from '@ptah-web/core';
+import type { PanelNavGroup } from '@ptah-web/panel-ui';
 import { PanelLayout } from '@ptah-web/panel-ui';
-import { ADMIN_NAV_GROUPS } from './admin-nav.config';
+import { ADMIN_MEMBER_NAV_GROUP, ADMIN_NAV_GROUPS } from './admin-nav.config';
 
 /**
  * AdminLayout — binds the admin dashboard's nav data and identity onto the
@@ -32,9 +34,24 @@ import { ADMIN_NAV_GROUPS } from './admin-nav.config';
 })
 export class AdminLayout {
   private readonly auth = inject(AuthService);
+  private readonly session = inject(MemberSessionStore);
 
-  /** Task-oriented nav groups — order drives visual order. */
-  protected readonly navGroups = ADMIN_NAV_GROUPS;
+  /**
+   * Task-oriented nav groups — order drives visual order.
+   *
+   * Mirrors `MemberLayout`'s computed: `admin-nav.config.ts` stays static data
+   * and the one condition that reshapes the sidebar lives here.
+   *
+   * The Member Panel escape hatch appears only when the entitlement probe has
+   * confirmed a Builders membership for THIS operator — see
+   * {@link ADMIN_MEMBER_NAV_GROUP} for why it is gated on entitlement rather
+   * than on admin-ness, and for the cold-load case where it is hidden.
+   */
+  protected readonly navGroups = computed<readonly PanelNavGroup[]>(() =>
+    this.session.entitled()
+      ? [...ADMIN_NAV_GROUPS, ADMIN_MEMBER_NAV_GROUP]
+      : ADMIN_NAV_GROUPS,
+  );
 
   /** Current admin email for the top bar. Populated from AuthService. */
   protected readonly currentEmail = signal<string | null>(null);
