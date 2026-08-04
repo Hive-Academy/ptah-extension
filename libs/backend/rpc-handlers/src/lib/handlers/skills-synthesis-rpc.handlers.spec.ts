@@ -7,7 +7,9 @@
  */
 
 import 'reflect-metadata';
+import * as fs from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { container } from 'tsyringe';
 import {
   TOKENS,
@@ -17,6 +19,7 @@ import {
 import {
   SKILL_SYNTHESIS_TOKENS,
   USER_LAYER_MIRROR_SERVICE_TOKEN,
+  ProposalNotFoundError,
 } from '@ptah-extension/skill-synthesis';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
@@ -101,6 +104,25 @@ function makeEnhancer() {
       slug: '',
       revertedFrom: '',
       newHistoryTs: null,
+    }),
+    generateProposal: jest.fn().mockResolvedValue({
+      proposed: false,
+      slug: '',
+      kind: 'skill',
+      currentBody: null,
+      proposedBody: null,
+      judgeScore: null,
+      judgeReason: null,
+      proposalId: null,
+      skipReason: 'below-threshold',
+    }),
+    applyProposal: jest.fn().mockResolvedValue({
+      applied: true,
+      slug: '',
+      kind: 'skill',
+      judgeScore: null,
+      judgeReason: null,
+      historyTs: null,
     }),
   };
 }
@@ -1736,5 +1758,417 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:updateSuggestion', () =>
         name: 'x'.repeat(201),
       }),
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+// ─── Preview-before-apply RPC surface ──────────────────────────────────────
+
+describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', () => {
+  const PROPOSAL_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+
+  const cloneRow = {
+    slug: 'deep-research',
+    kind: 'skill' as const,
+    userPath: '/home/.ptah/user/skills/deep-research',
+    originPluginId: 'research-pack',
+    originVersion: '1.0.0',
+    sourceHash: 'sha256:aaa',
+    cloneStatus: 'clone' as const,
+    diverged: false,
+    historyDir: null,
+    lastEnhancedAt: null,
+    candidateId: null,
+    pendingSourceHash: null,
+    createdAt: 1690000000000,
+    updatedAt: 1700000000000,
+  };
+
+  it('previewEnhancement returns both bodies, judge verdict, and a proposalId', async () => {
+    const { rpcHandler, registry, enhancer, synthesis } = buildHandlers();
+    registry.getBySlug.mockReturnValue(cloneRow);
+    synthesis.readSettings.mockReturnValue({ minJudgeScore: 6 });
+    enhancer.generateProposal.mockResolvedValue({
+      proposed: true,
+      slug: 'deep-research',
+      kind: 'skill',
+      currentBody: 'OLD',
+      proposedBody: 'NEW',
+      judgeScore: 8,
+      judgeReason: 'judge-verdict',
+      proposalId: PROPOSAL_ID,
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:previewEnhancement', {
+      kind: 'skill',
+      slug: 'deep-research',
+    });
+
+    expect(enhancer.generateProposal).toHaveBeenCalledWith(
+      'deep-research',
+      { minJudgeScore: 6 },
+      { manual: true, kind: 'skill' },
+    );
+    expect(result).toEqual({
+      proposed: true,
+      skipReason: null,
+      currentBody: 'OLD',
+      proposedBody: 'NEW',
+      judgeScore: 8,
+      judgeReason: 'judge-verdict',
+      proposalId: PROPOSAL_ID,
+    });
+  });
+
+  it('previewEnhancement never reaches the write path', async () => {
+    const { rpcHandler, registry, enhancer } = buildHandlers();
+    registry.getBySlug.mockReturnValue(cloneRow);
+
+    await rpcHandler.call('skillSynthesis:previewEnhancement', {
+      kind: 'skill',
+      slug: 'deep-research',
+    });
+
+    expect(enhancer.enhance).not.toHaveBeenCalled();
+    expect(enhancer.applyProposal).not.toHaveBeenCalled();
+  });
+
+  it('previewEnhancement surfaces a skip verdict with a null proposalId', async () => {
+    const { rpcHandler, registry, enhancer } = buildHandlers();
+    registry.getBySlug.mockReturnValue(cloneRow);
+    enhancer.generateProposal.mockResolvedValue({
+      proposed: false,
+      slug: 'deep-research',
+      kind: 'skill',
+      currentBody: 'OLD',
+      proposedBody: 'NEW',
+      judgeScore: 3,
+      judgeReason: 'judge-verdict',
+      proposalId: null,
+      skipReason: 'judge-rejected',
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:previewEnhancement', {
+      kind: 'skill',
+      slug: 'deep-research',
+    });
+
+    expect(result).toMatchObject({
+      proposed: false,
+      skipReason: 'judge-rejected',
+      proposalId: null,
+      proposedBody: 'NEW',
+    });
+  });
+
+  it('previewEnhancement rejects an unknown slug with INVALID_PARAMS', async () => {
+    const { rpcHandler, registry, enhancer } = buildHandlers();
+    registry.getBySlug.mockReturnValue(null);
+
+    await expect(
+      rpcHandler.call('skillSynthesis:previewEnhancement', {
+        kind: 'skill',
+        slug: 'missing',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(enhancer.generateProposal).not.toHaveBeenCalled();
+  });
+
+  it('previewEnhancement rejects an invalid kind with INVALID_PARAMS', async () => {
+    const { rpcHandler, enhancer } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:previewEnhancement', {
+        kind: 'bogus',
+        slug: 'deep-research',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(enhancer.generateProposal).not.toHaveBeenCalled();
+  });
+
+  it('previewEnhancement wraps an enhancer throw without leaking the message', async () => {
+    const { rpcHandler, registry, enhancer } = buildHandlers();
+    registry.getBySlug.mockReturnValue(cloneRow);
+    enhancer.generateProposal.mockRejectedValue(
+      new Error('ENOENT: /home/secret/token.json'),
+    );
+
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('skillSynthesis:previewEnhancement', {
+        kind: 'skill',
+        slug: 'deep-research',
+      });
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+    expect((thrown as Error).message).not.toContain('token.json');
+  });
+
+  it('applyProposal forwards kind/slug/proposalId and returns the history stamp', async () => {
+    const { rpcHandler, enhancer } = buildHandlers();
+    enhancer.applyProposal.mockResolvedValue({
+      applied: true,
+      slug: 'deep-research',
+      kind: 'skill',
+      judgeScore: 8,
+      judgeReason: 'judge-verdict',
+      historyTs: '1700000000000',
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:applyProposal', {
+      kind: 'skill',
+      slug: 'deep-research',
+      proposalId: PROPOSAL_ID,
+    });
+
+    expect(enhancer.applyProposal).toHaveBeenCalledWith(
+      'skill',
+      'deep-research',
+      PROPOSAL_ID,
+    );
+    expect(result).toEqual({ applied: true, historyTs: '1700000000000' });
+  });
+
+  it('applyProposal maps an unknown proposalId to a clean INVALID_PARAMS', async () => {
+    const { rpcHandler, enhancer, sentry } = buildHandlers();
+    enhancer.applyProposal.mockRejectedValue(
+      new ProposalNotFoundError('not-found', PROPOSAL_ID),
+    );
+
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('skillSynthesis:applyProposal', {
+        kind: 'skill',
+        slug: 'deep-research',
+        proposalId: PROPOSAL_ID,
+      });
+    } catch (error: unknown) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect((thrown as Error).message).toContain('Preview again');
+    // A stale preview is user error, not a crash — no Sentry noise.
+    expect(sentry.captureException).not.toHaveBeenCalled();
+  });
+
+  it('applyProposal maps an expired proposal the same way', async () => {
+    const { rpcHandler, enhancer } = buildHandlers();
+    enhancer.applyProposal.mockRejectedValue(
+      new ProposalNotFoundError('expired', PROPOSAL_ID),
+    );
+
+    await expect(
+      rpcHandler.call('skillSynthesis:applyProposal', {
+        kind: 'skill',
+        slug: 'deep-research',
+        proposalId: PROPOSAL_ID,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+
+  it('applyProposal rejects a malformed proposalId before touching the enhancer', async () => {
+    const { rpcHandler, enhancer } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:applyProposal', {
+        kind: 'skill',
+        slug: 'deep-research',
+        proposalId: '../../etc/passwd',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(enhancer.applyProposal).not.toHaveBeenCalled();
+  });
+
+  it('applyProposal rejects a missing proposalId', async () => {
+    const { rpcHandler, enhancer } = buildHandlers();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:applyProposal', {
+        kind: 'skill',
+        slug: 'deep-research',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(enhancer.applyProposal).not.toHaveBeenCalled();
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — getHistoryBody', () => {
+  let tmpRoot: string;
+  let skillsRoot: string;
+  let snapshotDir: string;
+  const TS = '1700000000000';
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(join(tmpdir(), 'ptah-history-'));
+    skillsRoot = join(tmpRoot, 'skills');
+    snapshotDir = join(skillsRoot, 'deep-research', '.history', TS);
+    fs.mkdirSync(snapshotDir, { recursive: true });
+    fs.writeFileSync(join(snapshotDir, 'SKILL.md'), 'SNAPSHOT BODY', 'utf8');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  function withRealRoots() {
+    const built = buildHandlers();
+    built.mirror.getUserLayerRoots.mockReturnValue({
+      skills: skillsRoot,
+      agents: join(tmpRoot, 'agents'),
+      commands: join(tmpRoot, 'commands'),
+    });
+    return built;
+  }
+
+  it('returns the snapshot body for an enumerated timestamp', async () => {
+    const { rpcHandler, mirror } = withRealRoots();
+    mirror.listHistory.mockResolvedValue([
+      { ts: TS, path: snapshotDir, hasSkillMd: true },
+    ]);
+
+    const result = await rpcHandler.call('skillSynthesis:getHistoryBody', {
+      kind: 'skill',
+      slug: 'deep-research',
+      ts: TS,
+    });
+
+    expect(mirror.listHistory).toHaveBeenCalledWith('skill', 'deep-research');
+    expect(result).toEqual({ body: 'SNAPSHOT BODY', ts: TS });
+  });
+
+  it('returns null for a timestamp that history does not list', async () => {
+    const { rpcHandler, mirror } = withRealRoots();
+    mirror.listHistory.mockResolvedValue([
+      { ts: TS, path: snapshotDir, hasSkillMd: true },
+    ]);
+
+    const result = await rpcHandler.call('skillSynthesis:getHistoryBody', {
+      kind: 'skill',
+      slug: 'deep-research',
+      ts: '1600000000000',
+    });
+
+    expect(result).toEqual({ body: null, ts: '1600000000000' });
+  });
+
+  it('returns null when the snapshot carries no artifact file', async () => {
+    const { rpcHandler, mirror } = withRealRoots();
+    mirror.listHistory.mockResolvedValue([
+      { ts: TS, path: snapshotDir, hasSkillMd: false },
+    ]);
+
+    const result = await rpcHandler.call('skillSynthesis:getHistoryBody', {
+      kind: 'skill',
+      slug: 'deep-research',
+      ts: TS,
+    });
+
+    expect(result).toEqual({ body: null, ts: TS });
+  });
+
+  it.each([
+    '../../../etc/passwd',
+    '..',
+    '1700000000000/../../..',
+    'a/../../b',
+    '.history',
+    '',
+  ])('rejects traversal-shaped ts %p with INVALID_PARAMS', async (ts) => {
+    const { rpcHandler, mirror } = withRealRoots();
+
+    await expect(
+      rpcHandler.call('skillSynthesis:getHistoryBody', {
+        kind: 'skill',
+        slug: 'deep-research',
+        ts,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(mirror.listHistory).not.toHaveBeenCalled();
+  });
+
+  it.each(['../evil', 'a/b', ''])(
+    'rejects traversal-shaped slug %p with INVALID_PARAMS',
+    async (slug) => {
+      const { rpcHandler, mirror } = withRealRoots();
+
+      await expect(
+        rpcHandler.call('skillSynthesis:getHistoryBody', {
+          kind: 'skill',
+          slug,
+          ts: TS,
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(mirror.listHistory).not.toHaveBeenCalled();
+    },
+  );
+
+  it('refuses to read a listed snapshot that resolves outside the clone root', async () => {
+    const { rpcHandler, mirror } = withRealRoots();
+    // Defense in depth: even if history enumeration handed back a path outside
+    // the clone root, the containment check must veto the read.
+    const outside = join(tmpRoot, 'outside');
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(join(outside, 'SKILL.md'), 'LEAKED', 'utf8');
+    mirror.listHistory.mockResolvedValue([
+      { ts: TS, path: outside, hasSkillMd: true },
+    ]);
+
+    const result = await rpcHandler.call('skillSynthesis:getHistoryBody', {
+      kind: 'skill',
+      slug: 'deep-research',
+      ts: TS,
+    });
+
+    expect(result).toEqual({ body: null, ts: TS });
+  });
+
+  it('reads the flat <slug>.md artifact for an agent clone', async () => {
+    const { rpcHandler, mirror } = withRealRoots();
+    const agentSnapshot = join(
+      tmpRoot,
+      'agents',
+      '.history',
+      'deep-research',
+      TS,
+    );
+    fs.mkdirSync(agentSnapshot, { recursive: true });
+    fs.writeFileSync(
+      join(agentSnapshot, 'deep-research.md'),
+      'AGENT SNAPSHOT',
+      'utf8',
+    );
+    mirror.listHistory.mockResolvedValue([
+      { ts: TS, path: agentSnapshot, hasSkillMd: true },
+    ]);
+
+    const result = await rpcHandler.call('skillSynthesis:getHistoryBody', {
+      kind: 'agent',
+      slug: 'deep-research',
+      ts: TS,
+    });
+
+    expect(result).toEqual({ body: 'AGENT SNAPSHOT', ts: TS });
+  });
+
+  it('wraps a listHistory throw in PERSISTENCE_UNAVAILABLE without leaking', async () => {
+    const { rpcHandler, mirror } = withRealRoots();
+    mirror.listHistory.mockRejectedValue(
+      new Error('EACCES: /home/secret/.ssh/id_rsa'),
+    );
+
+    let thrown: unknown;
+    try {
+      await rpcHandler.call('skillSynthesis:getHistoryBody', {
+        kind: 'skill',
+        slug: 'deep-research',
+        ts: TS,
+      });
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+    expect((thrown as Error).message).not.toContain('id_rsa');
   });
 });

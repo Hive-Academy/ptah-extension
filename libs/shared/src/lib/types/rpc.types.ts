@@ -367,6 +367,12 @@ import type {
   SkillSynthesisGetCloneResult,
   SkillSynthesisEnhanceNowParams,
   SkillSynthesisEnhanceNowResult,
+  SkillSynthesisPreviewEnhancementParams,
+  SkillSynthesisPreviewEnhancementResult,
+  SkillSynthesisApplyProposalParams,
+  SkillSynthesisApplyProposalResult,
+  SkillSynthesisGetHistoryBodyParams,
+  SkillSynthesisGetHistoryBodyResult,
   SkillSynthesisRevertEnhancementParams,
   SkillSynthesisRevertEnhancementResult,
   SkillSynthesisRebaseCloneParams,
@@ -1505,6 +1511,18 @@ export interface RpcMethodRegistry {
   'skillSynthesis:enhanceNow': {
     params: SkillSynthesisEnhanceNowParams;
     result: SkillSynthesisEnhanceNowResult;
+  };
+  'skillSynthesis:previewEnhancement': {
+    params: SkillSynthesisPreviewEnhancementParams;
+    result: SkillSynthesisPreviewEnhancementResult;
+  };
+  'skillSynthesis:applyProposal': {
+    params: SkillSynthesisApplyProposalParams;
+    result: SkillSynthesisApplyProposalResult;
+  };
+  'skillSynthesis:getHistoryBody': {
+    params: SkillSynthesisGetHistoryBodyParams;
+    result: SkillSynthesisGetHistoryBodyResult;
   };
   'skillSynthesis:revertEnhancement': {
     params: SkillSynthesisRevertEnhancementParams;
@@ -2855,6 +2873,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:listClones': true,
   'skillSynthesis:getClone': true,
   'skillSynthesis:enhanceNow': true,
+  'skillSynthesis:previewEnhancement': true,
+  'skillSynthesis:applyProposal': true,
+  'skillSynthesis:getHistoryBody': true,
   'skillSynthesis:revertEnhancement': true,
   'skillSynthesis:rebaseClone': true,
   'skillSynthesis:keepClone': true,

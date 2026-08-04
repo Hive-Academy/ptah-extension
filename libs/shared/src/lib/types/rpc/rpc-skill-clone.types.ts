@@ -69,6 +69,58 @@ export interface SkillSynthesisEnhanceNowResult {
   skipReason: string | null;
 }
 
+/**
+ * Preview-before-apply (enhancement proposal) surface.
+ *
+ * `previewEnhancement` runs generation + judging WITHOUT touching disk and
+ * parks the proposed body in a short-lived server-side cache keyed by an
+ * opaque `proposalId`. `applyProposal` then commits that exact body, so Apply
+ * never re-runs the LLM and never applies a body the user did not see.
+ *
+ * When `proposed` is `false`, `proposalId` is `null` and `skipReason` explains
+ * why. `currentBody` / `proposedBody` / `judgeScore` / `judgeReason` are still
+ * populated whenever they are known (e.g. a judge-rejected candidate), so the
+ * UI can render the rejected diff alongside the reason.
+ */
+export interface SkillSynthesisPreviewEnhancementParams {
+  kind: SkillCloneKind;
+  slug: string;
+}
+export interface SkillSynthesisPreviewEnhancementResult {
+  proposed: boolean;
+  skipReason: string | null;
+  currentBody: string | null;
+  proposedBody: string | null;
+  judgeScore: number | null;
+  judgeReason: string | null;
+  proposalId: string | null;
+}
+
+export interface SkillSynthesisApplyProposalParams {
+  kind: SkillCloneKind;
+  slug: string;
+  proposalId: string;
+}
+export interface SkillSynthesisApplyProposalResult {
+  applied: boolean;
+  historyTs: string | null;
+}
+
+/**
+ * Body of one `.history/<ts>/` snapshot, so a past enhancement can be diffed
+ * before reverting. `body` is `null` when the snapshot exists but carries no
+ * artifact file (or the timestamp is unknown).
+ */
+export interface SkillSynthesisGetHistoryBodyParams {
+  kind: SkillCloneKind;
+  slug: string;
+  ts: string;
+}
+export interface SkillSynthesisGetHistoryBodyResult {
+  body: string | null;
+  ts: string;
+}
+
 export interface SkillSynthesisRevertEnhancementParams {
   kind: SkillCloneKind;
   slug: string;

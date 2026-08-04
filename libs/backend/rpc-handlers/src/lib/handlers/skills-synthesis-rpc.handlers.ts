@@ -25,6 +25,7 @@ import {
   USER_LAYER_MIRROR_SERVICE_TOKEN,
   MIN_INVOCATIONS_TO_ENHANCE,
   ENHANCE_COOLDOWN_MS,
+  ProposalNotFoundError,
   flattenSkillTriggers,
   readSkillTriggers,
   type SkillCandidateStore,
@@ -87,6 +88,12 @@ import type {
   SkillSynthesisGetCloneResult,
   SkillSynthesisEnhanceNowParams,
   SkillSynthesisEnhanceNowResult,
+  SkillSynthesisPreviewEnhancementParams,
+  SkillSynthesisPreviewEnhancementResult,
+  SkillSynthesisApplyProposalParams,
+  SkillSynthesisApplyProposalResult,
+  SkillSynthesisGetHistoryBodyParams,
+  SkillSynthesisGetHistoryBodyResult,
   SkillSynthesisRevertEnhancementParams,
   SkillSynthesisRevertEnhancementResult,
   SkillSynthesisRebaseCloneParams,
@@ -140,6 +147,9 @@ import {
   UpdateSkillSynthesisSettingsParamsSchema,
   SkillGetCloneParamsSchema,
   SkillEnhanceNowParamsSchema,
+  SkillPreviewEnhancementParamsSchema,
+  SkillApplyProposalParamsSchema,
+  SkillGetHistoryBodyParamsSchema,
   SkillRevertEnhancementParamsSchema,
   SkillRebaseCloneParamsSchema,
   SkillKeepCloneParamsSchema,
@@ -194,6 +204,9 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:listClones',
     'skillSynthesis:getClone',
     'skillSynthesis:enhanceNow',
+    'skillSynthesis:previewEnhancement',
+    'skillSynthesis:applyProposal',
+    'skillSynthesis:getHistoryBody',
     'skillSynthesis:revertEnhancement',
     'skillSynthesis:rebaseClone',
     'skillSynthesis:keepClone',
@@ -265,6 +278,9 @@ export class SkillsSynthesisRpcHandlers {
     this.registerListClones();
     this.registerGetClone();
     this.registerEnhanceNow();
+    this.registerPreviewEnhancement();
+    this.registerApplyProposal();
+    this.registerGetHistoryBody();
     this.registerRevertEnhancement();
     this.registerRebaseClone();
     this.registerKeepClone();
@@ -836,6 +852,151 @@ export class SkillsSynthesisRpcHandlers {
         if (error instanceof RpcUserError) throw error;
         this.report(error, 'SkillsSynthesisRpcHandlers.registerEnhanceNow');
         throw this.toUserError('skillSynthesis:enhanceNow');
+      }
+    });
+  }
+
+  /**
+   * Read-only half of enhancement: generate + judge a candidate and return it
+   * for review. Writes nothing. The returned `proposalId` is redeemed by
+   * `skillSynthesis:applyProposal`.
+   */
+  private registerPreviewEnhancement(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisPreviewEnhancementParams,
+      SkillSynthesisPreviewEnhancementResult
+    >('skillSynthesis:previewEnhancement', async (params) => {
+      const parsed = this.parseParams(
+        SkillPreviewEnhancementParamsSchema,
+        params,
+        'skillSynthesis:previewEnhancement',
+      );
+      try {
+        const enhancer = this.requireDesktop(this.enhancer);
+        const registry = this.requireDesktop(this.registry);
+        const kind = parsed.kind as SkillRegistryKind;
+        const row = registry.getBySlug(kind, parsed.slug);
+        if (!row) {
+          throw new RpcUserError(
+            `No cloned ${parsed.kind} found for slug "${parsed.slug}".`,
+            'INVALID_PARAMS',
+          );
+        }
+        const settings = this.synthesis.readSettings();
+        // manual: a user-initiated preview bypasses the auto-enhance cooldown
+        // and invocation floor, matching `enhanceNow`.
+        const result = await enhancer.generateProposal(parsed.slug, settings, {
+          manual: true,
+          kind,
+        });
+        return {
+          proposed: result.proposed,
+          skipReason: result.skipReason ?? null,
+          currentBody: result.currentBody,
+          proposedBody: result.proposedBody,
+          judgeScore: result.judgeScore,
+          judgeReason: result.judgeReason,
+          proposalId: result.proposalId,
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerPreviewEnhancement',
+        );
+        throw this.toUserError('skillSynthesis:previewEnhancement');
+      }
+    });
+  }
+
+  /**
+   * Write half of enhancement: commit the exact body previously returned by
+   * `skillSynthesis:previewEnhancement`. An unknown or expired `proposalId`
+   * is a clean INVALID_PARAMS — never a silent regeneration.
+   */
+  private registerApplyProposal(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisApplyProposalParams,
+      SkillSynthesisApplyProposalResult
+    >('skillSynthesis:applyProposal', async (params) => {
+      const parsed = this.parseParams(
+        SkillApplyProposalParamsSchema,
+        params,
+        'skillSynthesis:applyProposal',
+      );
+      try {
+        const enhancer = this.requireDesktop(this.enhancer);
+        const kind = parsed.kind as SkillRegistryKind;
+        const result = await enhancer.applyProposal(
+          kind,
+          parsed.slug,
+          parsed.proposalId,
+        );
+        return { applied: result.applied, historyTs: result.historyTs };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        if (error instanceof ProposalNotFoundError) {
+          this.logger.warn(
+            '[skill-synthesis] applyProposal — proposal unavailable',
+            { kind: parsed.kind, slug: parsed.slug, code: error.code },
+          );
+          throw new RpcUserError(
+            'This enhancement preview is no longer available. Preview again, then apply.',
+            'INVALID_PARAMS',
+          );
+        }
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerApplyProposal');
+        throw this.toUserError('skillSynthesis:applyProposal');
+      }
+    });
+  }
+
+  /**
+   * Body of one `.history/<ts>/` snapshot, so a past enhancement can be
+   * diffed before reverting.
+   *
+   * `ts` is never interpolated into a path directly: it must match an entry
+   * actually enumerated by `mirror.listHistory`, and the resolved file is
+   * re-checked to live under the clone's user-layer root.
+   */
+  private registerGetHistoryBody(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisGetHistoryBodyParams,
+      SkillSynthesisGetHistoryBodyResult
+    >('skillSynthesis:getHistoryBody', async (params) => {
+      const parsed = this.parseParams(
+        SkillGetHistoryBodyParamsSchema,
+        params,
+        'skillSynthesis:getHistoryBody',
+      );
+      try {
+        const mirror = this.requireDesktop(this.mirror);
+        const kind = parsed.kind as SkillRegistryKind;
+        const entries = await mirror.listHistory(kind, parsed.slug);
+        const entry = entries.find((e) => e.ts === parsed.ts);
+        if (!entry || !entry.hasSkillMd) {
+          return { body: null, ts: parsed.ts };
+        }
+        const fileName = kind === 'skill' ? 'SKILL.md' : `${parsed.slug}.md`;
+        const filePath = join(entry.path, fileName);
+        const roots = mirror.getUserLayerRoots();
+        const root =
+          kind === 'skill'
+            ? roots.skills
+            : kind === 'agent'
+              ? roots.agents
+              : roots.commands;
+        if (!this.isUnder(root, filePath)) {
+          return { body: null, ts: parsed.ts };
+        }
+        if (!fs.existsSync(filePath)) {
+          return { body: null, ts: parsed.ts };
+        }
+        return { body: fs.readFileSync(filePath, 'utf8'), ts: parsed.ts };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerGetHistoryBody');
+        throw this.toUserError('skillSynthesis:getHistoryBody');
       }
     });
   }
