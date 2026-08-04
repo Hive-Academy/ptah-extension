@@ -27,8 +27,8 @@ So: do **not** grant admins a Builders membership or make `isBuildersMember` ret
 
 We just shipped + tested a gate that ensures **only active Builders** read member/forum data. Do not weaken it.
 
-- `apps/ptah-license-server/src/discourse/builders-membership.service.ts` — `BuildersMembershipService.isBuildersMember(userId)` (active/trialing subscription OR active non-expired `builders` license). Single source of truth.
-- Gated endpoints: `apps/ptah-license-server/src/google-sessions/members.controller.ts` (`GET /api/v1/members/sessions`) and `apps/ptah-license-server/src/discourse/community.controller.ts` (`GET /api/v1/community/summary`). Both 403/degrade for non-Builders.
+- `libs/api/membership/src/lib/membership.service.ts` — `MembershipService.isBuildersMember(userId)` (active/trialing subscription OR active non-expired `builders` license). Single source of truth. (`libs/api/community/src/lib/discourse/builders-membership.service.ts` still holds the older, verbatim-identical copy that `DiscourseController` uses; it is retired with the rest of the Discourse tree.)
+- Gated endpoints: `libs/api/community/src/lib/google-sessions/members.controller.ts` (`GET /api/v1/members/sessions`) and `libs/api/community/src/lib/discourse/community.controller.ts` (`GET /api/v1/community/summary`). Both 403/degrade for non-Builders.
 - Regression tests: `scripts/community-gate-smoke.mjs`, `scripts/discourse-e2e.mjs`. **Re-run these after any change here** — they must stay green.
 
 The admin view must reach member content through an **admin-authorized path** (see `AdminGuard`), NOT by loosening the Builders gate on the member-facing endpoints.
@@ -39,8 +39,8 @@ The admin view must reach member content through an **admin-authorized path** (s
 
 **Admin authorization (license server):**
 
-- `apps/ptah-license-server/src/admin/admin.guard.ts` — `AdminGuard`, `ADMIN_EMAILS` allowlist (comma-split/trim/lowercase, fail-closed). Runs after `JwtAuthGuard`.
-- `apps/ptah-license-server/src/admin/admin.service.ts` / `admin.controller.ts` — existing admin endpoints (users, licenses, subscriptions, groups, waitlist, audit, marketing). All `@UseGuards(JwtAuthGuard, AdminGuard)`.
+- `libs/api/identity/src/lib/guards/admin.guard.ts` — `AdminGuard`, fail-closed. Runs after `JwtAuthGuard`. The `ADMIN_EMAILS` parse itself now lives in `libs/api/identity/src/lib/admin-emails.ts` (`isAdminEmail`) and is shared by every surface that reads the allowlist; only this guard fail-closes on an unset one.
+- `libs/api/admin/src/lib/admin.service.ts` / the `admin-*.controller.ts` files beside it — existing admin endpoints (users, licenses, subscriptions, groups, waitlist, audit, marketing). All `@UseGuards(JwtAuthGuard, AdminGuard)`.
 
 **Admin dashboard (Angular landing page):**
 
