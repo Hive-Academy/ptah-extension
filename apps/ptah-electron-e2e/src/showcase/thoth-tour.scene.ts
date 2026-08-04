@@ -76,7 +76,7 @@ const BEATS: readonly ThothBeat[] = [
   {
     id: 'cron',
     hero: [
-      '[data-testid="cron-job-row"]',
+      '[data-testid="cron-job-card"]',
       '[data-testid="cron-stat-total"]',
       '[aria-label="Cron statistics"]',
     ],
