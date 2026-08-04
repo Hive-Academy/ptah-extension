@@ -32,7 +32,7 @@ import { PacksService } from './packs.service';
  *
  * ⛔ NO MEMBER-FACING CONTROLLER. Distribution happens on GitHub; Ptah stores
  * a bookkeeping row and nothing else. This module injects neither
- * `BuildersMembershipService` nor `MemberGroupsService`. Structural test G6
+ * `MembershipService` nor `MemberGroupsService`. Structural test G6
  * asserts every controller here is mounted under `v1/admin/`.
  */
 @Module({

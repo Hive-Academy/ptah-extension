@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 /**
  * Postgres seed/cleanup helpers — the same `docker exec ... psql` path used by
- * `scripts/discourse-e2e.mjs` (`seedUser`/`cleanup`). Deterministic fixtures for
+ * `scripts/google-sessions-smoke.mjs` (`seedUser`/`cleanup`). Deterministic fixtures for
  * the UI specs: a plain community user, or a Builder (active subscription row so
  * entitlement resolves from the DB, not the JWT — handoff §4).
  *
@@ -30,7 +30,7 @@ export interface SeededUser {
 /**
  * Insert a user, and (for a Builder) an active subscription so
  * `GET /api/v1/licenses/me` reports `tier: 'builders'` and the members gate opens.
- * Mirrors `seedUser()` in scripts/discourse-e2e.mjs.
+ * Mirrors `seedUser()` in scripts/google-sessions-smoke.mjs.
  */
 export function seedUser(
   email: string,

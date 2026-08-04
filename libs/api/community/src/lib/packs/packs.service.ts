@@ -33,8 +33,8 @@ const COHORT_INCLUDE = { cohort: { select: { name: true } } } as const;
  *
  * Dependencies are therefore just the two `@Global()` services: `PrismaService`
  * and `AuditLogService`. In particular this service injects NEITHER
- * `BuildersMembershipService` NOR `MemberGroupsService` — it performs no
- * membership or cohort resolution of any kind.
+ * `MembershipService` NOR `MemberGroupsService` — it performs no membership or
+ * cohort resolution of any kind.
  *
  * `cohortKey` is a bookkeeping label backed by a real FK to `MemberGroup.key`
  * so it cannot name a cohort that does not exist. It gates nothing.

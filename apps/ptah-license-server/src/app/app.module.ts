@@ -21,7 +21,6 @@ import { MembershipModule } from '@ptah-api/membership';
 import { MemberHubModule } from '@ptah-api/member-hub';
 import { CircleModule } from '@ptah-api/community';
 import { GoogleSessionsModule } from '@ptah-api/community';
-import { DiscourseModule } from '@ptah-api/community';
 import { MemberGroupsModule } from '@ptah-api/community';
 import { PacksModule } from '@ptah-api/community';
 
@@ -69,7 +68,6 @@ import { PacksModule } from '@ptah-api/community';
     MembershipModule,
     CircleModule, // Circle community provisioning for paid Builders members
     GoogleSessionsModule, // Google Calendar/Meet Builders sessions + members area
-    DiscourseModule, // DiscourseConnect SSO + builders group sync
     MemberGroupsModule, // Member cohorts (groups) + assignment (@Global)
     // THIS ARRAY'S ORDER NO LONGER ARBITRATES ROUTE MATCHING (TASK_2026_170 R2).
     // It used to: AdminController was @Controller('v1/admin') with @Get(':model')

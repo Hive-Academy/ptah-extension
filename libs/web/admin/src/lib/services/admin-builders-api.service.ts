@@ -137,11 +137,6 @@ export interface SendInvitationsRequest {
   attendees?: string[];
 }
 
-/** Query for `GET /api/v1/admin/community/topics`. `limit` is 1–50, default 20. */
-export interface ListCommunityTopicsQuery {
-  limit?: number;
-}
-
 /** Query for `GET /api/v1/admin/groups/:id/members`. `pageSize` caps at 100. */
 export interface ListGroupMembersQuery {
   page?: number;
@@ -242,48 +237,6 @@ const adminSessionsEnvelopeSchema = z.object({
   calendarWritable: z.boolean(),
 });
 export type AdminSessionsResponse = z.infer<typeof adminSessionsEnvelopeSchema>;
-
-/**
- * One forum topic. Mirrors the `CommunityTopic` shape the member summary
- * endpoint returns; defined locally for the same isolation reason as above.
- */
-const communityTopicSchema = z.object({
-  id: z.number(),
-  title: z.string(),
-  slug: z.string(),
-  postsCount: z.number(),
-  /** ISO 8601, or null if never posted to after creation. */
-  lastPostedAt: z.string().nullable(),
-  categoryName: z.string().nullable(),
-});
-export type AdminCommunityTopic = z.infer<typeof communityTopicSchema>;
-
-const communityTopicsEnvelopeSchema = z.object({
-  /** Base Discourse URL, or null when the integration is unconfigured. */
-  communityUrl: z.string().nullable(),
-  topics: z.array(communityTopicSchema),
-  /** False when Discourse is not configured on this server. */
-  enabled: z.boolean(),
-});
-export type AdminCommunityTopicsResponse = z.infer<
-  typeof communityTopicsEnvelopeSchema
->;
-
-const reviewQueueItemSchema = z.object({
-  id: z.number(),
-  type: z.string(),
-  topicTitle: z.string().nullable(),
-  createdAt: z.string(),
-});
-export type ReviewQueueItem = z.infer<typeof reviewQueueItemSchema>;
-
-const reviewQueueEnvelopeSchema = z.object({
-  items: z.array(reviewQueueItemSchema),
-  count: z.number(),
-  /** Deep link to Discourse's own review queue, or null when unconfigured. */
-  reviewUrl: z.string().nullable(),
-});
-export type ReviewQueueResponse = z.infer<typeof reviewQueueEnvelopeSchema>;
 
 const groupMemberSchema = z.object({
   userId: z.string(),
@@ -442,46 +395,12 @@ export class AdminBuildersApiService {
       );
   }
 
-  // --- Community (READ-ONLY — moderation lives in Discourse's admin panel) ---
-
-  /**
-   * Recent forum topics. Degrades to `{ topics: [], enabled: false }` when
-   * Discourse is unconfigured and to an empty list (never a 500) on any
-   * upstream failure, so an empty list means "nothing to show", not "broken".
-   */
-  public listCommunityTopics(
-    q: ListCommunityTopicsQuery = {},
-  ): Observable<AdminCommunityTopicsResponse> {
-    let params = new HttpParams();
-    if (q.limit != null) params = params.set('limit', String(q.limit));
-    return this.http
-      .get<unknown>(`${this.base}/community/topics`, { params })
-      .pipe(
-        map(
-          validate(
-            communityTopicsEnvelopeSchema,
-            'GET /admin/community/topics',
-          ),
-        ),
-      );
-  }
-
-  /**
-   * Pending Discourse review-queue items — an awareness count answering "does
-   * anything need me?". Acting on an item happens in Discourse via `reviewUrl`.
-   */
-  public getReviewQueue(): Observable<ReviewQueueResponse> {
-    return this.http
-      .get<unknown>(`${this.base}/community/review-queue`)
-      .pipe(
-        map(
-          validate(
-            reviewQueueEnvelopeSchema,
-            'GET /admin/community/review-queue',
-          ),
-        ),
-      );
-  }
+  // NOTE: `listCommunityTopics()` and `getReviewQueue()` used to sit here,
+  // reading `GET /admin/community/{topics,review-queue}`. TASK_2026_177 P1b
+  // deleted both endpoints with the external forum they proxied, so the methods
+  // and their Zod envelopes went with them rather than being left to 404. The
+  // native moderation surface arrives in Batch 7 against new contracts in
+  // `@ptah-api-contracts/community` — it is a new API, not this one restored.
 
   // --- Cohort members drill-down ---
 

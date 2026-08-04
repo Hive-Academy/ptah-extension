@@ -15,22 +15,24 @@ import { PrismaService } from '@ptah-api/core';
  * license.
  *
  * ── WHY THIS LIVES IN ITS OWN NX PROJECT (RK-4) ────────────────────────────
- * This method is `libs/api/community/src/lib/discourse/builders-membership.service.ts:24-44`
- * MOVED VERBATIM. The query bodies below are byte-for-byte the ones that
+ * This method was MOVED VERBATIM out of the forum-integration tree that
+ * TASK_2026_177 P1b then deleted (`BuildersMembershipService.isBuildersMember`,
+ * at the time 21 lines). The query bodies below are byte-for-byte the ones that
  * shipped; the only additions are the error boundary and this docblock.
  *
  * That verbatimness is the point. `isBuildersMember` existed THREE times before
- * this lib — the `discourse/` service, an inline private copy in
- * `google-sessions/members.controller.ts`, and another inline copy in
- * `discourse/discourse.controller.ts`. When one predicate is written three
- * times, "paid member" drifts, and a drift in an access predicate is a security
- * bug that looks like a refactor. Rewriting the query while consolidating it
- * would make that drift indistinguishable from the consolidation, so it was not
- * rewritten.
+ * this lib — that service, an inline private copy in
+ * `google-sessions/members.controller.ts`, and a third inline copy in the SSO
+ * controller beside it. When one predicate is written three times, "paid
+ * member" drifts, and a drift in an access predicate is a security bug that
+ * looks like a refactor. Rewriting the query while consolidating it would make
+ * that drift indistinguishable from the consolidation, so it was not rewritten.
  *
- * `libs/api/community/src/lib/discourse/` is deleted wholesale later in this
- * task. Living in a DIFFERENT Nx project is what makes this definition's
- * survival structural rather than a step someone has to remember.
+ * The other two implementations are now GONE — deleted with their directory in
+ * P1b, which is what makes R7.2's unqualified gate (`rg 'isBuildersMember'`
+ * finds exactly one implementation) hold. Living in a DIFFERENT Nx project is
+ * what makes this definition's survival structural rather than a step someone
+ * has to remember.
  *
  * ── THIS GATE IS NOT STAFF-AWARE, AND THE FILE PROVES IT ───────────────────
  * Staff access is a SEPARATE authorized path — it is never an alternative

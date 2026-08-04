@@ -27,25 +27,9 @@ api.ptah.live {
     }
 }
 
-# Discourse forum (runbook docs/deploy/discourse-digitalocean.md §3 Option B).
-# The discourse_docker "app" container joins ptah_prod_network via docker_args
-# in /var/discourse/containers/app.yml, so Caddy proxies to it by container
-# name. (Its 127.0.0.1:8081 host binding is a debug convenience only.)
-community.ptah.live {
-    request_body {
-        max_size 20MB
-    }
-
-    reverse_proxy app:80 {
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-    }
-
-    encode gzip
-
-    log {
-        output stdout
-        format console
-    }
-}
+# NOTE: `community.ptah.live` used to be served here, reverse-proxied to the
+# forum container. TASK_2026_177 removed it. Deploying this file REQUIRES that
+# the `community.ptah.live` DNS record be gone first — Caddy provisions
+# certificates on demand, so a name that still resolves to this host with no
+# matching site block produces repeated ACME failures in the log. See
+# .ptah/specs/task_2026_177/decommission-runbook.md for the ordered procedure.

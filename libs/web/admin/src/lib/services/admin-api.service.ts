@@ -109,18 +109,16 @@ export interface CreateMemberGroupRequest {
   key: string;
   name: string;
   description?: string;
-  discourseGroup?: string;
   isDefault?: boolean;
 }
 
 /**
- * Body for PATCH /api/v1/admin/groups/:id. `null` clears
- * `description`/`discourseGroup`; `key` is not patchable.
+ * Body for PATCH /api/v1/admin/groups/:id. `null` clears `description`;
+ * `key` is not patchable.
  */
 export interface UpdateMemberGroupRequest {
   name?: string;
   description?: string | null;
-  discourseGroup?: string | null;
   isDefault?: boolean;
 }
 
@@ -320,7 +318,6 @@ const memberGroupSchema = z.object({
   key: z.string(),
   name: z.string(),
   description: z.string().nullable(),
-  discourseGroup: z.string().nullable(),
   /**
    * This cohort's own Google Calendar master series (null = it falls back to
    * `BUILDERS_SESSION_EVENT_ID`). The server has always sent this; the client

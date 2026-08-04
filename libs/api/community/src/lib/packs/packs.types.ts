@@ -5,11 +5,18 @@
  * repository containing a production-shaped codebase plus its Claude plugins
  * and MCP servers, shared with a Builders cohort.
  *
- * ⚠️ THIS REGISTRY GATES NOTHING. There is no member-facing endpoint that reads
- * it. Ptah never serves pack content and never decides who may access a pack —
+ * ⚠️ THIS REGISTRY GATES NOTHING, AND THAT SURVIVES THE CHANNEL CHANGE.
+ * Ptah never serves pack content and never decides who may access a pack —
  * access is administered entirely on GitHub (collaborator invites, or the repo
- * link posted inside that cohort's Discourse group). The table exists so the
- * admin has one place recording which repo belongs to which cohort.
+ * link handed to the cohort). The table exists so the admin has one place
+ * recording which repo belongs to which cohort.
+ *
+ * That link used to be posted in the cohort's group on the external forum,
+ * which TASK_2026_177 P1b deleted. Phase 5 (Batch 14) replaces the delivery
+ * channel with an in-product `GET /members/packs` filtered on `memberVisible`
+ * and NOTHING else (A-1, R5.6). Until that lands there is no member-facing
+ * endpoint reading this table. Note what does NOT change either way: delivering
+ * a link is not granting access, so a member endpoint here is still not a gate.
  *
  * `cohortKey` is a BOOKKEEPING LABEL, NOT AN ACCESS CONTROL. Changing it grants
  * and revokes nothing.

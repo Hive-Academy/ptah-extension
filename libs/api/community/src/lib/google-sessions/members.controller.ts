@@ -8,7 +8,6 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '@ptah-api/identity';
@@ -28,8 +27,16 @@ import {
  *  - 403 { reason: 'membership_required' } when the caller's active plan is not
  *    'builders' (resolved from the DB, not the JWT claim, so a stale token can
  *    never grant access).
- *  - 200 { sessions, communityUrl } otherwise. `sessions` is the next 60 days
- *    of Google Calendar events; `communityUrl` is DISCOURSE_URL (null when unset).
+ *  - 200 { sessions, memberGroups } otherwise. `sessions` is the next 60 days
+ *    of Google Calendar events.
+ *
+ * ⚠️ `communityUrl` WAS REMOVED HERE, SECOND, AND THE ORDER WAS THE POINT
+ * (TASK_2026_177 RISK-C). The field pointed at the external forum. Its Zod
+ * schema in `libs/web/core/.../members-api.service.ts` dropped it FIRST
+ * (`cdc1a1ef5`): `z.object()` STRIPS unknown keys, so a client that has already
+ * stopped reading the field tolerates a server still sending it. The reverse —
+ * server drops first — breaks a client that still requires it. Never invert
+ * this for a required field.
  *
  * Feature-off (Google unconfigured): `sessions` is `[]` — the endpoint still
  * responds so the frontend has a stable contract.
@@ -60,7 +67,6 @@ export class MembersController {
     // there is now exactly one implementation and it cannot drift from the one
     // every other member surface uses.
     @Inject(MembershipService) private readonly membership: MembershipService,
-    @Inject(ConfigService) private readonly configService: ConfigService,
     // Optional: member-cohort lookup for the sessions response. Bound by the
     // @Global() MemberGroupsModule; @Optional + best-effort read means a
     // groups failure never fails the endpoint (empty-array fallback).
@@ -74,7 +80,6 @@ export class MembersController {
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   async getSessions(@Req() req: Request): Promise<{
     sessions: BuildersSession[];
-    communityUrl: string | null;
     memberGroups: UserMemberGroup[];
   }> {
     const user = req.user as { id: string; email: string };
@@ -89,7 +94,7 @@ export class MembersController {
     // cohort configures a `sessionEventId`.
     const sessions = await this.sessions.listUpcomingSessions(user.id);
     const memberGroups = await this.safeMemberGroups(user.id);
-    return { sessions, communityUrl: this.communityUrl(), memberGroups };
+    return { sessions, memberGroups };
   }
 
   /**
@@ -109,11 +114,5 @@ export class MembersController {
       );
       return [];
     }
-  }
-
-  /** DISCOURSE_URL (trimmed, no trailing slash) or null when unset. */
-  private communityUrl(): string | null {
-    const url = this.configService.get<string>('DISCOURSE_URL')?.trim();
-    return url ? url.replace(/\/+$/, '') : null;
   }
 }

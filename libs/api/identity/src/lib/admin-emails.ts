@@ -5,15 +5,16 @@ import type { ConfigService } from '@nestjs/config';
  *
  * ── WHY THIS FILE EXISTS ───────────────────────────────────────────────────
  * `ADMIN_EMAILS` was parsed independently in FIVE places (`AdminGuard`,
- * `MemberGuard`, `MemberEntitlementController`, `AdminService`, and the
- * Discourse SSO controller). Every copy re-implemented split/trim/lowercase,
+ * `MemberGuard`, `MemberEntitlementController`, `AdminService`, and the forum
+ * SSO controller that TASK_2026_177 P1b later deleted, leaving four). Every
+ * copy re-implemented split/trim/lowercase,
  * and they had ALREADY drifted: two of them trimmed the incoming email before
  * comparing and three did not, so ` admin@x.com ` was an admin on some surfaces
  * and not on others. Five copies of an authorization predicate is five chances
  * for the definition of "admin" to diverge silently.
  *
  * ── WHAT THIS FILE DOES *NOT* DO: FLATTEN THE FAILURE POLICY ───────────────
- * The five call sites are NOT interchangeable, and collapsing them into one
+ * The call sites are NOT interchangeable, and collapsing them into one
  * boolean would be the wrong fix. There are two distinct postures and both are
  * correct where they are:
  *
@@ -22,7 +23,7 @@ import type { ConfigService } from '@nestjs/config';
  *   how a misconfigured deploy opens an admin surface.
  *
  *   INFORMATIONAL (everything else) — the flag decides whether a moderation
- *   affordance renders, or what Discourse SSO asserts. It authorizes nothing,
+ *   affordance renders. It authorizes nothing,
  *   so an unset allowlist correctly means "nobody is flagged" and must NEVER
  *   throw. `member.guard.spec.ts` pins this: an unset `ADMIN_EMAILS` must not
  *   block a legitimate member.
@@ -59,8 +60,9 @@ export function parseAdminEmails(config: ConfigService): string[] {
  * True when an allowlist is actually configured (at least one usable entry).
  *
  * For the AUTHORIZING caller only. `AdminGuard` uses this to fail closed on a
- * missing allowlist, and the Discourse SSO controller uses it to emit an
- * operator breadcrumb before degrading every admin to a regular user. Nothing
+ * missing allowlist. Its only other caller — a forum SSO controller that
+ * emitted an operator breadcrumb before degrading every admin to a regular
+ * user — was deleted by TASK_2026_177 P1b. Nothing
  * else should need it — an informational flag has no business distinguishing
  * "not configured" from "not listed", because both mean "do not show the
  * badge".

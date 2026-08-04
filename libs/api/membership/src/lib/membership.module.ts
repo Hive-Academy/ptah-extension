@@ -8,7 +8,7 @@ import { MembershipService } from './membership.service';
  * MembershipModule — the membership definition, its cohort lookup and the guard
  * that resolves both once per request.
  *
- * Declared `@Global()` (mirroring `DiscourseModule` and `MemberGroupsModule`)
+ * Declared `@Global()` (mirroring `MemberGroupsModule`)
  * so `MembershipService`, `CohortResolver` and `MemberGuard` are injectable
  * app-wide without threading an explicit import through every member module.
  *

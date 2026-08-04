@@ -37,7 +37,6 @@
           <tr>
             <th>Name</th>
             <th>Key</th>
-            <th>Discourse Group</th>
             <th class="text-right">Members</th>
             <th>Created</th>
             <th class="text-right">Actions</th>
@@ -63,9 +62,6 @@
                 }
               </td>
               <td class="font-mono text-sm">{{ g.key }}</td>
-              <td class="font-mono text-sm">
-                {{ g.discourseGroup ?? '—' }}
-              </td>
               <td class="text-right">{{ g.memberCount }}</td>
               <td class="text-sm opacity-70">
                 {{ g.createdAt | date: 'mediumDate' }}

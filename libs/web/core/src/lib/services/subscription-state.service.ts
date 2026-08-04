@@ -136,17 +136,6 @@ export class SubscriptionStateService {
   });
 
   /**
-   * Computed: Community forum base URL
-   *
-   * Mirrors the server's DISCOURSE_URL surfaced on `/licenses/me`. Returns
-   * null when the field is absent (older cached response) or the Discourse
-   * integration is off, so callers can hide the one-click Community entry.
-   */
-  public readonly communityUrl = computed<string | null>(() => {
-    return this._licenseData()?.communityUrl ?? null;
-  });
-
-  /**
    * Fetch subscription state (only if authenticated)
    *
    * Pattern: Returns Observable for proper lifecycle management with takeUntilDestroyed.

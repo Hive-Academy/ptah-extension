@@ -1,29 +1,28 @@
 # E2E Test Handoff — Landing Page & Builders Pack
 
 Verify **every landing-page feature and the full Builders pack** works as expected —
-locally first, against the real stack (license server + Discourse + Google Calendar +
+locally first, against the real stack (license server + Google Calendar +
 Paddle sandbox). This is the foundation for automated e2e (Playwright) and, later,
 marketing videos.
 
 > [!IMPORTANT]
 > **Current automated coverage = none for the landing page.** No `playwright.config`,
 > no `ptah-landing-page-e2e` project, zero `*.spec.ts`. Every flow below is manual
-> today. What _is_ automated lives in `scripts/` (SSO + sessions + Discourse round-trip)
+> today. What _is_ automated lives in `scripts/` (Google sessions round-trip)
 > and covers the backend contracts, not the UI. Section 6 is the plan to close the gap.
 
 Companion docs: `local-testing-setup.md` (stack bring-up), `founder-setup-checklist.md`
-(flags/discounts), `discourse-digitalocean.md` (SSO internals).
+(flags/discounts).
 
 ---
 
 ## 1. Test environment — bring up the full stack
 
-| Component                                              | How                                                                            | Reachable at            |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------ | ----------------------- |
-| Postgres + license server + ngrok                      | `docker compose up -d` (add `--profile webhook-testing` for ngrok)             | `http://localhost:3000` |
-| Discourse dev container (SSO + members community link) | `local-testing-setup.md` → Workstream A (WSL Ubuntu). Rails server: A5 command | `http://localhost:3001` |
-| Google Calendar/Meet (members sessions)                | Already wired (`.env` `GOOGLE_OAUTH_*`)                                        | —                       |
-| **Landing page**                                       | `nx serve ptah-landing-page`                                                   | `http://localhost:4200` |
+| Component                               | How                                                                | Reachable at            |
+| --------------------------------------- | ------------------------------------------------------------------ | ----------------------- |
+| Postgres + license server + ngrok       | `docker compose up -d` (add `--profile webhook-testing` for ngrok) | `http://localhost:3000` |
+| Google Calendar/Meet (members sessions) | Already wired (`.env` `GOOGLE_OAUTH_*`)                            | —                       |
+| **Landing page**                        | `nx serve ptah-landing-page`                                       | `http://localhost:4200` |
 
 The landing dev server proxies `/api` and `/webhooks` → `localhost:3000`
 (`apps/ptah-landing-page/proxy.conf.json`), so the SPA and API are same-origin.
@@ -31,9 +30,7 @@ The landing dev server proxies `/api` and `/webhooks` → `localhost:3000`
 **Smoke the backend before UI testing** (all should be green):
 
 ```bash
-node scripts/discourse-sso-smoke.mjs      # SSO endpoint crypto/redirect/reject
 node scripts/google-sessions-smoke.mjs    # Google refresh-token → calendar read
-node scripts/discourse-e2e.mjs            # full SSO round-trip + group gating + admin sync
 ```
 
 > [!WARNING]
@@ -58,10 +55,12 @@ Most Builders behavior forks on **one flag set in two places** — keep them in 
 Auth is a WorkOS-backed HTTP-only `ptah_auth` JWT cookie (HS256, signed with `.env`
 `JWT_SECRET`) + a `ptah_auth_hint` localStorage flag the SPA uses to decide whether to
 probe `GET /api/v1/auth/me`. For gated pages (`/profile`, `/members`) you don't need the
-real login UI — mint a token and inject it (same technique as `scripts/discourse-e2e.mjs`):
+real login UI — mint a token and inject it (same technique as
+`apps/ptah-landing-page-e2e/src/support/auth.ts`):
 
 1. Seed a user (+ subscription for a Builder) in Postgres — see the `seedUser()` helper
-   in `scripts/discourse-e2e.mjs` (`INSERT INTO users …` / `INSERT INTO subscriptions …`).
+   in `apps/ptah-landing-page-e2e/src/support/db.ts` (`INSERT INTO users …` /
+   `INSERT INTO subscriptions …`).
 2. Mint `ptah_auth` = HS256 JWT `{ sub:<userId>, email, tier, iat, exp }` with `JWT_SECRET`
    (see `mintJwt()` in that same script).
 3. In Playwright: `context.addCookies([{ name:'ptah_auth', value:<jwt>, domain:'localhost', path:'/' }])`
@@ -71,7 +70,7 @@ Use the **real** WorkOS UI only when testing the auth flows themselves (Section 
 
 > [!TIP]
 > Consider adding `scripts/mint-ptah-jwt.mjs <email> [--builder]` (thin wrapper over the
-> seed+mint helpers already in `discourse-e2e.mjs`) so manual testers and Playwright share
+> seed+mint helpers already in `src/support/{db,auth}.ts`) so manual testers and Playwright share
 > one fixture path.
 
 ---
@@ -184,8 +183,9 @@ Precondition: auth'd user with an **active Builders subscription or active `buil
 - **4.2 Session card "Join"** — opens the Google `meetLink` in a new tab; locale-aware date +
   start–end in viewer TZ; recurring badge when `recurring:true`; no Join button when `meetLink` null.
   (Backed by the real event we created — `google-sessions-smoke.mjs` proves the data.)
-- **4.3 Community / Discourse link** — "Open Community" opens `communityUrl` (= server `DISCOURSE_URL`).
-  Null → "Your community space is being set up."
+- **4.3 Community link** — the nav "Community" entry is an in-product `routerLink` to
+  `/members/community` (MG-2.7). It replaced an outbound SSO deep-link into a self-hosted
+  forum, which TASK_2026_177 removed along with the `communityUrl` field that fed it.
 - **4.4 Cohort badges** — `memberGroups[]` rendered as badges; founding → `badge-warning`, else `badge-ghost`.
 
 ---
@@ -203,7 +203,9 @@ Use the real UI here. Route `/login` `/signup` (GuestGuard → auth'd users boun
 - **5.4 Magic link** — `POST /api/v1/auth/magic-link` (3/min); verify `GET /api/v1/auth/verify?token=` (2-min).
   Always success server-side (no email enumeration).
 - **5.5 Return-URL open-redirect guard** — only own-origin + `apiBaseUrl`-origin absolute returnUrls
-  full-page-navigate (e.g. the Discourse SSO bounce); anything else → `/profile`. **Security regression check.**
+  full-page-navigate (any cross-origin bounce off the license server); anything else → `/profile`.
+  **Security regression check** — still live after TASK_2026_177 removed the forum SSO endpoint
+  that first motivated it; the allowlist is generic, not forum-specific.
 - **5.6 Logout** — `POST /api/v1/auth/logout` clears the hint/cookie.
 
 ---
@@ -241,7 +243,7 @@ Test with an admin-allowlisted account (add your test email to `ADMIN_EMAILS` in
   duration preset 30d/1y/5y/custom/never; optional `LICENSE_EMAIL_FAILED` warning. **This is the fastest
   way to create a Builder for testing §4** without Paddle.
 - **7.6 Member groups (cohorts)** — CRUD + assign/unassign; `key` immutable; `isDefault:true` clears prior
-  default; best-effort Discourse group sync.
+  default. No external fan-out — the assignment row is the only effect.
 - **7.7 Marketing** — segments / templates / `POST /admin/marketing/send` (3/min); bulk email ≤500 ids.
 - **7.8 Delete user** — deletion-preview → `DELETE /users/:id` (5/min) needs `confirmEmail` (+ ack if paid sub).
 
@@ -253,7 +255,7 @@ No e2e project exists — scaffold one. Suggested order (Builders-first, per pri
 
 1. **Scaffold** `apps/ptah-landing-page-e2e` (Playwright) with an `e2e` target; base URL
    `http://localhost:4200`; a global setup that runs the `scripts/*-smoke.mjs` preflight and
-   seeds/cleans fixtures via the `discourse-e2e.mjs` DB helpers.
+   seeds/cleans fixtures via the `src/support/db.ts` helpers.
 2. **Auth fixtures** — a `builderPage` / `communityPage` / `adminPage` fixture using the §1.2
    cookie+localStorage injection (fast, deterministic; no WorkOS in the loop).
 3. **P0 specs (Builders pack):** 2.1 waitlist join, 2.2 pricing waitlist rendering, 2.4 members
@@ -263,8 +265,8 @@ No e2e project exists — scaffold one. Suggested order (Builders-first, per pri
    (don't drive Paddle's iframe in CI). The state matrix (§3 note) is pure-function testable.
 5. **P2 specs (auth + profile + admin):** Section 5 real-WorkOS flows behind a tag (run locally, not CI);
    6.x profile + SSE; 7.x admin model CRUD.
-6. **Keep the backend-contract scripts** (`discourse-e2e.mjs` etc.) running as the API-level layer
-   beneath the UI specs.
+6. **Keep the backend-contract scripts** (`google-sessions-smoke.mjs` etc.) running as the
+   API-level layer beneath the UI specs.
 
 **Coverage today vs. target:**
 

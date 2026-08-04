@@ -20,7 +20,6 @@ export type AdminAuditAction =
   | 'circle.member.remove'
   | 'sessions.attendee.add'
   | 'sessions.attendee.remove'
-  | 'discourse.group.sync'
   | 'waitlist.invite'
   | 'group.create'
   | 'group.update'
@@ -33,9 +32,13 @@ export type AdminAuditAction =
   | 'pack.update'
   | 'pack.delete'
   // TASK_2026_169: admin Google Calendar session writes.
-  // NOTE: there is deliberately no `community.*` action — the admin community
-  // surface is READ-ONLY and performs zero mutations. Discourse records its own
-  // moderation history in its own admin panel.
+  // NOTE: there is no `community.*` action YET — but the reason has changed.
+  // It used to be that the admin community surface was READ-ONLY and the forum
+  // kept its own moderation history externally. TASK_2026_177 P1b deleted that
+  // external forum; the native community surface it replaces owns moderation
+  // WRITES, so `community.*` actions land with the moderation controllers in
+  // Phase 2 (plan §2.5, R8) and MUST be audited here — silence is no longer a
+  // design statement, only a not-yet.
   | 'sessions.event.create'
   | 'sessions.event.update'
   | 'sessions.event.delete'
@@ -55,8 +58,8 @@ export type AdminAuditTargetType =
   | 'Subscription'
   | 'Waitlist'
   | 'MemberGroup'
-  // TASK_2026_169. No `DiscourseTopic` target type — the admin community
-  // surface is read-only, so there is no Discourse mutation to audit.
+  // Phase 2 adds `Category` / `Topic` / `Post` here with the native forum's
+  // moderation controllers (plan §6.2).
   | 'Pack'
   | 'CalendarEvent';
 

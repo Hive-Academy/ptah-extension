@@ -18,7 +18,6 @@ export interface MemberGroupWithCount {
   key: string;
   name: string;
   description: string | null;
-  discourseGroup: string | null;
   /**
    * This cohort's own Google Calendar master event for the weekly live session,
    * or null to fall back to `BUILDERS_SESSION_EVENT_ID`. Admin-only — it is not
@@ -40,7 +39,6 @@ export interface CreateMemberGroupInput {
   key: string;
   name: string;
   description?: string | null;
-  discourseGroup?: string | null;
   sessionEventId?: string | null;
   isDefault?: boolean;
 }
@@ -48,7 +46,6 @@ export interface CreateMemberGroupInput {
 export interface UpdateMemberGroupInput {
   name?: string;
   description?: string | null;
-  discourseGroup?: string | null;
   sessionEventId?: string | null;
   isDefault?: boolean;
 }
@@ -61,14 +58,16 @@ export interface AssignManyInput {
 /**
  * Result of an admin bulk-assign. `assigned` counts newly-created assignments;
  * `skipped` counts users that were already in the group or could not be
- * resolved (unknown id/email). `syncedUsers` + `discourseGroup` are internal
- * hints the controller uses to drive best-effort Discourse group sync.
+ * resolved (unknown id/email).
+ *
+ * TASK_2026_177 P1b removed the `syncedUsers` + forum-group hint fields with the
+ * external provisioning integration they existed to drive. Assignment now has
+ * exactly one effect — the `MemberGroupAssignment` row — so the result carries
+ * only the two counts the admin panel renders.
  */
 export interface AssignManyResult {
   assigned: number;
   skipped: number;
-  syncedUsers: Array<{ userId: string; email: string }>;
-  discourseGroup: string | null;
 }
 
 /** Assignment `source` values — how a user came to be in a group. */
@@ -117,9 +116,11 @@ export interface GroupMembersPage {
  *   - Admin mutations (create/update/assign/unassign) write an AdminAuditLog
  *     row (`group.*` actions).
  *
- * This service NEVER touches Discourse — that dependency is inverted so
- * `DiscourseProvisioningService` (and the admin controller) depend on this
- * service, not the reverse, keeping the module graph acyclic.
+ * This service has NO external forum collaborator. It used to be the inverted
+ * end of a provisioning dependency — an external group-sync service depended on
+ * it, never the reverse, which is what kept the module graph acyclic. That whole
+ * integration was deleted by TASK_2026_177 P1b, so the inversion no longer has
+ * anything to protect against: cohorts are resolved and rendered in-product.
  */
 @Injectable()
 export class MemberGroupsService {
@@ -144,12 +145,11 @@ export class MemberGroupsService {
     id: string;
     key: string;
     name: string;
-    discourseGroup: string | null;
   } | null> {
     const group = await this.prisma.memberGroup.findFirst({
       where: { isDefault: true },
       orderBy: { createdAt: 'asc' },
-      select: { id: true, key: true, name: true, discourseGroup: true },
+      select: { id: true, key: true, name: true },
     });
     return group ?? null;
   }
@@ -242,22 +242,6 @@ export class MemberGroupsService {
       }
     }
     return [...ids];
-  }
-
-  /**
-   * The non-null Discourse group names a user's groups map to — used by the
-   * Discourse provisioning extension to assert cohort forum access.
-   */
-  async getDiscourseGroupsForUser(userId: string): Promise<string[]> {
-    const rows = await this.prisma.memberGroupAssignment.findMany({
-      where: { userId, group: { discourseGroup: { not: null } } },
-      include: { group: { select: { discourseGroup: true } } },
-    });
-    return rows
-      .map((r) => r.group.discourseGroup)
-      .filter(
-        (name): name is string => typeof name === 'string' && name !== '',
-      );
   }
 
   /**
@@ -370,7 +354,6 @@ export class MemberGroupsService {
             key: input.key,
             name: input.name,
             description: input.description ?? null,
-            discourseGroup: input.discourseGroup ?? null,
             sessionEventId: this.normalizeEventId(input.sessionEventId),
             isDefault: input.isDefault ?? false,
           },
@@ -381,7 +364,6 @@ export class MemberGroupsService {
         key: group.key,
         name: group.name,
         isDefault: group.isDefault,
-        discourseGroup: group.discourseGroup,
         sessionEventId: group.sessionEventId,
       });
 
@@ -402,7 +384,7 @@ export class MemberGroupsService {
   /**
    * Patch a group's mutable fields. Passing `isDefault: true` atomically
    * demotes the previous default. Only supplied keys are written; passing
-   * `null` for description/discourseGroup clears them.
+   * `null` for description clears it.
    */
   async update(
     id: string,
@@ -423,9 +405,6 @@ export class MemberGroupsService {
       const data: Prisma.MemberGroupUpdateInput = {};
       if (input.name !== undefined) data.name = input.name;
       if (input.description !== undefined) data.description = input.description;
-      if (input.discourseGroup !== undefined) {
-        data.discourseGroup = input.discourseGroup;
-      }
       // Normalized on write so a whitespace-only value clears the column rather
       // than becoming an event id that can never match anything in Calendar.
       if (input.sessionEventId !== undefined) {
@@ -454,8 +433,7 @@ export class MemberGroupsService {
   /**
    * Bulk-assign users (by id and/or email) to a group with source `admin`.
    * Idempotent per user (already-member → skipped). Unknown ids/emails are
-   * skipped. Returns per-run tallies plus the newly-synced users so the caller
-   * can drive best-effort Discourse group sync.
+   * skipped. Returns the per-run tallies.
    */
   async assignMany(
     groupId: string,
@@ -465,7 +443,7 @@ export class MemberGroupsService {
   ): Promise<AssignManyResult> {
     const group = await this.prisma.memberGroup.findUnique({
       where: { id: groupId },
-      select: { id: true, key: true, discourseGroup: true },
+      select: { id: true, key: true },
     });
     if (!group) {
       throw new NotFoundException(`Member group ${groupId} not found`);
@@ -474,7 +452,6 @@ export class MemberGroupsService {
     const { users, unresolved } = await this.resolveUsers(input);
     let assigned = 0;
     let skipped = unresolved;
-    const syncedUsers: Array<{ userId: string; email: string }> = [];
 
     for (const user of users) {
       const existing = await this.prisma.memberGroupAssignment.findUnique({
@@ -502,7 +479,6 @@ export class MemberGroupsService {
         throw error;
       }
       assigned += 1;
-      syncedUsers.push({ userId: user.id, email: user.email });
     }
 
     await this.safeAudit(actorEmail, 'group.assign', groupId, {
@@ -514,12 +490,7 @@ export class MemberGroupsService {
       source,
     });
 
-    return {
-      assigned,
-      skipped,
-      syncedUsers,
-      discourseGroup: group.discourseGroup,
-    };
+    return { assigned, skipped };
   }
 
   /**
@@ -593,7 +564,6 @@ export class MemberGroupsService {
       key: string;
       name: string;
       description: string | null;
-      discourseGroup: string | null;
       sessionEventId: string | null;
       isDefault: boolean;
       createdAt: Date;
@@ -605,7 +575,6 @@ export class MemberGroupsService {
       key: group.key,
       name: group.name,
       description: group.description,
-      discourseGroup: group.discourseGroup,
       sessionEventId: group.sessionEventId,
       isDefault: group.isDefault,
       memberCount,

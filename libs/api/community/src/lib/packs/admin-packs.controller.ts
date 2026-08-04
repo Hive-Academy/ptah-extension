@@ -36,13 +36,18 @@ import type { PackResponse } from './packs.types';
  * risk L1, asserted by structural test G1). Write routes add
  * `AdminThrottlerGuard` for a per-admin-email rate budget.
  *
- * ⚠️ THIS MODULE HAS NO MEMBER-FACING SIBLING, AND MUST NOT GAIN ONE.
- * Unlike `google-sessions/` and `discourse/` — where an admin controller sits
- * beside a Builders-gated member controller — packs are an admin-only registry.
- * Members receive packs through GitHub (a collaborator invite, or the repo link
- * posted inside their cohort's Discourse group), never through Ptah. Structural
- * test G6 asserts every controller in `PacksModule` is mounted under
- * `v1/admin/`.
+ * ⚠️ THIS MODULE HAS NO MEMBER-FACING SIBLING TODAY.
+ * Unlike `google-sessions/` — where an admin controller sits beside a
+ * Builders-gated member controller — packs are an admin-only registry. Members
+ * receive pack CONTENT through GitHub (a collaborator invite, or the repo link
+ * handed to their cohort), never through Ptah, and that stays true.
+ *
+ * Phase 5 (Batch 14) adds a member-facing READ of this table at
+ * `GET /members/packs`, filtered on `memberVisible` alone (A-1, R5.6), because
+ * the forum group the link used to be posted in was deleted by TASK_2026_177
+ * P1b. Structural test G6 asserts every controller in `PacksModule` is mounted
+ * under `v1/admin/` — when the member endpoint lands it belongs in the member
+ * surface, NOT in this module, so G6 stays true as written.
  */
 @Controller('v1/admin/packs')
 @UseGuards(JwtAuthGuard, AdminGuard)

@@ -5,7 +5,7 @@
  * Capture-free: every beat is a composite of a 3D stage (three-kit / three-assets
  * / GlassHero) plus 2D kinetic type and a numeric payoff, exactly like
  * story-scenes-v2. NOTHING here depends on the Electron app, Docker, the license
- * server, or the Discourse community — so this reel can be rendered today.
+ * server, or the community surface — so this reel can be rendered today.
  *
  * Brand discipline (same contract as story-scenes-v2): amber #f5a524 is THE
  * accent; emerald #34d399 only for success/active/"included"; ink #08090c base;

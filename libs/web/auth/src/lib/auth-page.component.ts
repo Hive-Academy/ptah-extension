@@ -441,10 +441,17 @@ export class AuthPageComponent implements OnInit {
     const plan = this.selectedPlan();
 
     if (returnUrl) {
-      // Absolute returnUrls come from cross-origin bounces (e.g. the license
-      // server's DiscourseConnect SSO endpoint on api.ptah.live). The Angular
-      // Router cannot navigate to them, and blindly following them would be an
-      // open redirect — only full-page-navigate to allowlisted origins.
+      // Absolute returnUrls come from cross-origin bounces off the license
+      // server on api.ptah.live. The Angular Router cannot navigate to them,
+      // and blindly following them would be an open redirect — only
+      // full-page-navigate to allowlisted origins.
+      //
+      // The forum SSO endpoint that first motivated this branch was deleted by
+      // TASK_2026_177 P1b. The branch STAYS: `isAllowedAbsoluteReturnUrl` is a
+      // generic origin allowlist (this site + the API), not forum-specific
+      // wiring, and it is the only thing standing between a crafted
+      // `?returnUrl=https://evil` and a post-authentication open redirect.
+      // Deleting it would remove a security control to tidy up a comment.
       if (/^https?:\/\//i.test(returnUrl)) {
         if (this.isAllowedAbsoluteReturnUrl(returnUrl)) {
           window.location.assign(returnUrl);

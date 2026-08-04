@@ -9,7 +9,7 @@
  *
  * Feature-off mode: when the GOOGLE_OAUTH_* env vars are unset the integration
  * reports `isEnabled() === false` and no-ops (logged once). The public members
- * endpoint still responds `{ sessions: [], communityUrl }` so the frontend has
+ * endpoint still responds `{ sessions: [], memberGroups }` so the frontend has
  * a stable contract.
  */
 

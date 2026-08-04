@@ -10,7 +10,7 @@ Ptah is an "AI coding orchestra" delivered as a VS Code extension, Electron desk
 
 ```
 ptah-extension/
-├── apps/                              # 14 Nx projects (9 shipping + 4 e2e + 1 theme)
+├── apps/                              # 13 Nx projects (9 shipping + 4 e2e)
 │   ├── ptah-extension-vscode/         # VS Code extension host (esbuild → main.mjs)
 │   ├── ptah-extension-webview/        # Angular 21 webview shell (Zone-based)
 │   ├── ptah-electron/                 # Electron 40 desktop app
@@ -20,7 +20,6 @@ ptah-extension/
 │   ├── ptah-landing-page/             # Angular marketing site
 │   ├── ptah-docs/                     # Astro Starlight (docs.ptah.live)
 │   ├── ptah-video-studio/             # Remotion compositor (tooling; never shipped)
-│   ├── ptah-discourse-theme/          # Discourse theme + admin-API deploy
 │   └── *-e2e/                         # ptah-electron | ptah-extension-vscode |
 │                                      # ptah-landing-page | ptah-license-server
 │
@@ -157,7 +156,6 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 - [ptah-extension-vscode-e2e](./apps/ptah-extension-vscode-e2e/CLAUDE.md) — VS Code e2e
 - [ptah-docs](./apps/ptah-docs/CLAUDE.md) — Astro Starlight docs
 - ptah-video-studio — Remotion compositor + selfshot pipeline (tooling only)
-- ptah-discourse-theme — Discourse theme + admin-API deploy
 
 ### Backend Libs
 

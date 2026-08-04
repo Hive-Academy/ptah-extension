@@ -8,11 +8,10 @@
           </h3>
           <p class="text-sm opacity-70">
             @if (isEdit()) {
-              Cohort identity persists across churn — Discourse group sync
-              handles access changes only.
+              Cohort identity persists across churn — assignments survive
+              deprovisioning.
             } @else {
-              Cohorts track membership history and drive Discourse group
-              sync.
+              Cohorts track membership history and scope what a member sees.
             }
           </p>
         </div>
@@ -95,28 +94,6 @@
             placeholder="What identifies this cohort?"
             maxlength="500"
           ></textarea>
-        </label>
-
-        <label class="form-control w-full">
-          <div class="label">
-            <span class="label-text">Discourse group</span>
-            <span class="label-text-alt">optional</span>
-          </div>
-          <input
-            type="text"
-            class="input input-bordered input-sm font-mono"
-            [value]="discourseGroup()"
-            (input)="onDiscourseGroupInput($event)"
-            [disabled]="saving()"
-            placeholder="e.g. builders-founding"
-            maxlength="120"
-          />
-          <div class="label">
-            <span class="label-text-alt opacity-60">
-              Discourse group name to sync on provisioning. Leave blank for
-              no sync.
-            </span>
-          </div>
         </label>
 
         <label

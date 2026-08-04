@@ -6,7 +6,6 @@ import {
   HttpCode,
   Inject,
   Logger,
-  Optional,
   Param,
   Patch,
   Post,
@@ -20,7 +19,6 @@ import { JwtAuthGuard } from '@ptah-api/identity';
 import { AdminGuard } from '@ptah-api/identity';
 import { AdminThrottlerGuard } from '@ptah-api/identity';
 import { dtoPipe } from '@ptah-api/core';
-import { DiscourseProvisioningService } from '../discourse/discourse-provisioning.service';
 import {
   MemberGroupsService,
   type GroupMembersPage,
@@ -39,7 +37,6 @@ export interface MemberGroupResponse {
   key: string;
   name: string;
   description: string | null;
-  discourseGroup: string | null;
   /**
    * This cohort's own Google Calendar master event for the weekly live session
    * (null = the cohort uses `BUILDERS_SESSION_EVENT_ID`). Exposed on list,
@@ -60,9 +57,11 @@ export interface MemberGroupResponse {
  * the email-allowlist guard then authorizes). Write routes add
  * `AdminThrottlerGuard` for a per-admin-email rate budget.
  *
- * Discourse group sync on assign is best-effort and non-fatal: a sync failure
- * never fails the assignment (the assignment is the source of truth; Discourse
- * SSO re-asserts group membership on next login).
+ * Assignment has NO external fan-out. It used to drive a best-effort forum
+ * group sync through an optional provisioning collaborator; TASK_2026_177 P1b
+ * removed that whole integration, so `assignMany` is now the single write and
+ * the `MemberGroupAssignment` row is the only source of truth. Cohort-scoped
+ * visibility is resolved in-product by `CohortResolver` (R7.8).
  *
  * ⚠️ EVERY `@Body()` / `@Query()` PARAM MUST BIND `dtoPipe(TheDto)`.
  * A bare `@Body() dto: X` is SILENTLY UNVALIDATED in this server: esbuild does
@@ -81,11 +80,6 @@ export class MemberGroupsController {
   constructor(
     @Inject(MemberGroupsService)
     private readonly groups: MemberGroupsService,
-    // Optional: Discourse provisioning (bound by the @Global() DiscourseModule).
-    // @Optional keeps the assign path resilient if the module is unregistered.
-    @Optional()
-    @Inject(DiscourseProvisioningService)
-    private readonly discourse?: DiscourseProvisioningService,
   ) {}
 
   @Get()
@@ -158,27 +152,6 @@ export class MemberGroupsController {
       `Admin assign member group: actor=${actor ?? 'unknown'} id=${id} assigned=${result.assigned} skipped=${result.skipped}`,
     );
 
-    // Best-effort Discourse group sync for the newly-assigned users. Non-fatal:
-    // the assignment already committed; a Discourse hiccup must not surface.
-    if (this.discourse && result.discourseGroup && result.syncedUsers.length) {
-      for (const user of result.syncedUsers) {
-        try {
-          await this.discourse.syncMemberGroup(
-            user.userId,
-            user.email,
-            result.discourseGroup,
-            true,
-          );
-        } catch (error: unknown) {
-          const message =
-            error instanceof Error ? error.message : 'Unknown error';
-          this.logger.warn(
-            `Discourse cohort sync failed for user ${user.userId} on group ${id}: ${message}`,
-          );
-        }
-      }
-    }
-
     return { assigned: result.assigned, skipped: result.skipped };
   }
 
@@ -204,7 +177,6 @@ export class MemberGroupsController {
       key: group.key,
       name: group.name,
       description: group.description,
-      discourseGroup: group.discourseGroup,
       sessionEventId: group.sessionEventId,
       isDefault: group.isDefault,
       memberCount: group.memberCount,

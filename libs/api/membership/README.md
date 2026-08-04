@@ -10,18 +10,24 @@ Depends on `@ptah-api/core` (`PrismaService`) and `@ptah-api/identity`
 
 ## Why this is a LIB and not a directory
 
-`isBuildersMember` used to exist three times: once in
-`libs/api/community/src/lib/discourse/builders-membership.service.ts`, once
-inline in `google-sessions/members.controller.ts`, and once inline in
-`discourse/discourse.controller.ts`. Three copies of one security predicate is
+`isBuildersMember` used to exist three times: once in a
+`BuildersMembershipService` inside the external-forum integration directory,
+once inline in `google-sessions/members.controller.ts`, and once inline in the
+forum SSO controller beside the first. Three copies of one security predicate is
 how the definition of "paid member" drifts.
 
-The obvious fix — one service inside `libs/api/community` — does not survive the
-work that follows it. `libs/api/community/src/lib/discourse/` is being **deleted
-wholesale** (TASK_2026_177 P1b), and a shared service that lives inside a doomed
+The obvious fix — one service inside `libs/api/community` — would not have
+survived the work that followed it. That whole directory was **deleted
+wholesale** by TASK_2026_177 P1b, and a shared service living inside a doomed
 directory has to be remembered and rescued by hand at deletion time. That is a
 procedural guarantee, and procedural guarantees are exactly what fail during a
 large deletion.
+
+**The deletion has since happened, and this lib was not touched by it** — which
+is the design working. Two of the three implementations died with their
+directory; this one is the survivor, and R7.2's gate (`rg 'isBuildersMember'`
+finds exactly one implementation) holds because of where it lives, not because
+anyone remembered to move it.
 
 Putting the definition in a **different Nx project** makes its survival
 **structural rather than procedural** (RK-4): `rm -rf` on that directory cannot

@@ -164,13 +164,12 @@ export const ADMIN_ROUTES: Routes = [
             (m) => m.SessionsList,
           ),
       },
-      {
-        path: 'builders/community',
-        loadComponent: () =>
-          import('./builders/community/community-view').then(
-            (m) => m.CommunityView,
-          ),
-      },
+      // NOTE: `builders/community` used to sit here — a read-only triage view
+      // over the external forum. TASK_2026_177 P1b deleted the two admin
+      // endpoints behind it (`GET v1/admin/community/{topics,review-queue}`)
+      // together with the forum itself, so the route could only 404. Batch 7
+      // (P2-FE) adds the native moderation surface; it is a new screen against
+      // new endpoints, not a restoration of this one.
       {
         path: ':model',
         loadComponent: () =>

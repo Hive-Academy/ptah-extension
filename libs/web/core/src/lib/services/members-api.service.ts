@@ -38,14 +38,18 @@ const memberGroupBadgeSchema = z.object({
 /**
  * ⚠️ `communityUrl` IS DELIBERATELY ABSENT, AND THE ORDER MATTERS (RISK-C).
  *
- * The Discourse forum is being replaced by the native community under
- * `/members`, so this field is going away on both sides. It is dropped HERE
- * FIRST and on the server SECOND, because the two directions are not
- * symmetric: `z.object()` STRIPS unknown keys, so a client that has already
+ * The external forum was replaced by the native community under `/members`, so
+ * this field went away on both sides. It was dropped HERE FIRST (`cdc1a1ef5`,
+ * Batch 4) and on the server SECOND (Batch 5), because the two directions are
+ * not symmetric: `z.object()` STRIPS unknown keys, so a client that has already
  * dropped the field parses a server that still sends it without complaint,
  * while a client still REQUIRING the field breaks the moment the server stops
- * sending it. Do not "tidy up" by removing the server field in the same change
- * — that is the ordering this comment exists to protect.
+ * sending it.
+ *
+ * ✅ BOTH HALVES HAVE NOW LANDED — the server no longer sends the field. The
+ * rule is kept because it is not about this field: any cross-side field removal
+ * drops the client requirement first and the server payload second, and the
+ * reverse order is a live incident. Do not compress the two into one change.
  */
 const membersSessionsResponseSchema = z.object({
   sessions: z.array(buildersSessionSchema),

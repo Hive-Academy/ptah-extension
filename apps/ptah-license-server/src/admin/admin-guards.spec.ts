@@ -1,10 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { RequestMethod } from '@nestjs/common';
 import {
   MODULE_METADATA,
   PATH_METADATA,
-  METHOD_METADATA,
   GUARDS_METADATA,
 } from '@nestjs/common/constants';
 import { AdminGuard } from '@ptah-api/identity';
@@ -12,7 +10,6 @@ import { JwtAuthGuard } from '@ptah-api/identity';
 import { PacksModule } from '@ptah-api/community';
 import { AdminPacksController } from '@ptah-api/community';
 import { AdminSessionsController } from '@ptah-api/community';
-import { AdminCommunityController } from '@ptah-api/community';
 import { MemberGroupsController } from '@ptah-api/community';
 import { WORKSPACE_ROOT } from '../testing/controller-registry';
 
@@ -26,8 +23,16 @@ import { WORKSPACE_ROOT } from '../testing/controller-registry';
  *
  *   G1 — every admin controller carries JwtAuthGuard + AdminGuard at CLASS level
  *   G4 — the Builders membership gate never consults admin identity
- *   G5 — the admin community controller exposes ONLY @Get handlers
  *   G6 — PacksModule registers no member-facing controller
+ *
+ * G5 ("the admin community controller exposes ONLY @Get handlers") USED to live
+ * here. It was DELETED by TASK_2026_177 P1b, not moved. G5 was the executable
+ * form of "all moderation stays in the external forum's own admin panel" — a
+ * rule whose subject no longer exists. `AdminCommunityController` was deleted
+ * with the rest of that forum integration, and the native community surface
+ * that replaces it owns moderation WRITES by design (plan §2.5, R8). Re-adding a
+ * read-only assertion against the new admin moderation controllers would freeze
+ * the opposite of the intended architecture.
  *
  * G3 ("registers PacksModule before AdminModule in AppModule") USED to live
  * here. It was DELETED by TASK_2026_170 R2, not moved. G3 froze an arbitrary
@@ -86,7 +91,6 @@ describe('Admin surface — structural guards', () => {
     it.each([
       ['AdminPacksController', AdminPacksController],
       ['AdminSessionsController', AdminSessionsController],
-      ['AdminCommunityController', AdminCommunityController],
       ['MemberGroupsController', MemberGroupsController],
     ])(
       '%s declares JwtAuthGuard + AdminGuard at class level',
@@ -106,7 +110,6 @@ describe('Admin surface — structural guards', () => {
     it.each([
       ['AdminPacksController', AdminPacksController],
       ['AdminSessionsController', AdminSessionsController],
-      ['AdminCommunityController', AdminCommunityController],
     ])('%s is mounted under v1/admin/', (_name, ctrl) => {
       const path = Reflect.getMetadata(PATH_METADATA, ctrl) as string;
       expect(path.startsWith('v1/admin/')).toBe(true);
@@ -118,12 +121,21 @@ describe('Admin surface — structural guards', () => {
     // never a loosening of the member gate. If this file ever learns about
     // ADMIN_EMAILS, AdminGuard, or an isAdmin flag, the two concerns have been
     // fused and a platform admin would silently gain member entitlements.
+    //
+    // ⚠️ REPOINTED BY TASK_2026_177 P1b. This suite used to read
+    // `BuildersMembershipService`, which held one of the three
+    // `isBuildersMember` implementations RISK-A enumerated. That file was
+    // deleted with the whole forum-integration tree; its logic was relocated FIRST
+    // (MG-2.2 / RK-4) to `MembershipService`, which is now the SINGLE
+    // implementation (R7.2). The invariant is unchanged and its subject is the
+    // same code — only the file it lives in moved, so this is a repoint and not
+    // a weakening.
     const membershipSource = readSource(
-      'libs/api/community/src/lib/discourse/builders-membership.service.ts',
+      'libs/api/membership/src/lib/membership.service.ts',
     );
 
     it.each(['ADMIN_EMAILS', 'AdminGuard', 'isAdmin'])(
-      'builders-membership.service.ts contains no reference to %s',
+      'membership.service.ts contains no reference to %s',
       (needle) => {
         expect(membershipSource).not.toContain(needle);
       },
@@ -132,39 +144,12 @@ describe('Admin surface — structural guards', () => {
     it('no source file fuses the member gate with an admin check', () => {
       // The literal shape the plan forbids: `isBuildersMember || isAdmin`.
       for (const file of [
-        'libs/api/community/src/lib/discourse/builders-membership.service.ts',
-        'libs/api/community/src/lib/discourse/community.controller.ts',
+        'libs/api/membership/src/lib/membership.service.ts',
         'libs/api/community/src/lib/google-sessions/members.controller.ts',
       ]) {
         const source = readSource(file);
         expect(source).not.toMatch(/isBuildersMember\s*\|\|\s*isAdmin/);
         expect(source).not.toContain('AdminGuard');
-      }
-    });
-  });
-
-  describe('G5 — the admin community controller is READ-ONLY', () => {
-    // The executable form of Checkpoint-1 Decision 1: all Discourse moderation
-    // stays in Discourse's own admin panel. A contributor adding a moderation
-    // write here fails the build rather than quietly reopening the surface.
-    it('exposes only @Get handlers', () => {
-      const proto = AdminCommunityController.prototype;
-      const handlers = Object.getOwnPropertyNames(proto).filter(
-        (name) => name !== 'constructor',
-      );
-
-      expect(handlers.length).toBeGreaterThan(0);
-
-      for (const name of handlers) {
-        const descriptor = Object.getOwnPropertyDescriptor(proto, name);
-        const method = Reflect.getMetadata(
-          METHOD_METADATA,
-          descriptor?.value as object,
-        );
-        expect({ name, method }).toEqual({
-          name,
-          method: RequestMethod.GET,
-        });
       }
     });
   });
@@ -191,8 +176,16 @@ describe('Admin surface — structural guards', () => {
       // docblocks in these files deliberately name both services in prose to
       // explain why they are absent, and a naive `toContain` would flag that
       // documentation as a violation.
+      //
+      // ⚠️ REPOINTED BY TASK_2026_177 P1b, for the same reason as G4 above.
+      // `builders-membership.service` was deleted with that tree, so
+      // a pattern naming it would have become permanently vacuous — an assertion
+      // that cannot fail is worse than none, because it reads as coverage.
+      // `MembershipService` is the relocated single implementation, so it is now
+      // the thing packs must not reach for.
       const forbiddenImports = [
-        /from\s+'[^']*builders-membership\.service'/,
+        /from\s+'[^']*membership\.service'/,
+        /from\s+'[^']*@ptah-api\/membership'/,
         /from\s+'[^']*member-groups\.service'/,
       ];
 
@@ -208,7 +201,7 @@ describe('Admin surface — structural guards', () => {
           });
         }
         // Nor injected by token.
-        expect(text).not.toMatch(/@Inject\(\s*BuildersMembershipService\s*\)/);
+        expect(text).not.toMatch(/@Inject\(\s*MembershipService\s*\)/);
         expect(text).not.toMatch(/@Inject\(\s*MemberGroupsService\s*\)/);
       }
     });

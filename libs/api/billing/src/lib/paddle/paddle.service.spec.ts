@@ -37,7 +37,6 @@ import { EventsService } from '@ptah-api/licensing';
 import { CircleProvisioningService } from '@ptah-api/community';
 import { WAITLIST_CONVERSION_SINK } from '@ptah-api/community';
 import { SessionsService } from '@ptah-api/community';
-import { DiscourseProvisioningService } from '@ptah-api/community';
 import { MemberGroupsService } from '@ptah-api/community';
 
 // ---------------------------------------------------------------------------
@@ -81,14 +80,6 @@ function createSessionsStub(): SessionsStub {
   };
 }
 
-interface DiscourseStub {
-  syncBuildersGroup: jest.Mock;
-}
-
-function createDiscourseStub(): DiscourseStub {
-  return { syncBuildersGroup: jest.fn().mockResolvedValue(undefined) };
-}
-
 interface WaitlistSinkStub {
   markConverted: jest.Mock;
 }
@@ -128,7 +119,6 @@ async function buildService(params?: {
   paddle?: PaddleClientStub;
   circle?: CircleStub;
   sessions?: SessionsStub;
-  discourse?: DiscourseStub;
   waitlistSink?: WaitlistSinkStub;
   memberGroups?: MemberGroupsStub;
 }): Promise<{
@@ -139,7 +129,6 @@ async function buildService(params?: {
   paddle: PaddleClientStub;
   circle: CircleStub;
   sessions: SessionsStub;
-  discourse: DiscourseStub;
   waitlistSink: WaitlistSinkStub;
   memberGroups: MemberGroupsStub;
 }> {
@@ -149,7 +138,6 @@ async function buildService(params?: {
   const paddle = params?.paddle ?? createPaddleClientStub();
   const circle = params?.circle ?? createCircleStub();
   const sessions = params?.sessions ?? createSessionsStub();
-  const discourse = params?.discourse ?? createDiscourseStub();
   const waitlistSink = params?.waitlistSink ?? createWaitlistSinkStub();
   const memberGroups = params?.memberGroups ?? createMemberGroupsStub();
 
@@ -167,7 +155,6 @@ async function buildService(params?: {
       { provide: PADDLE_CLIENT, useValue: paddle },
       { provide: CircleProvisioningService, useValue: circle },
       { provide: SessionsService, useValue: sessions },
-      { provide: DiscourseProvisioningService, useValue: discourse },
       { provide: WAITLIST_CONVERSION_SINK, useValue: waitlistSink },
       { provide: MemberGroupsService, useValue: memberGroups },
       PaddleService,
@@ -182,7 +169,6 @@ async function buildService(params?: {
     paddle,
     circle,
     sessions,
-    discourse,
     waitlistSink,
     memberGroups,
   };
@@ -300,7 +286,6 @@ describe('PaddleService — handleSubscriptionCreatedEvent', () => {
       events,
       circle,
       sessions,
-      discourse,
       waitlistSink,
       memberGroups,
     } = await buildService();
@@ -378,16 +363,11 @@ describe('PaddleService — handleSubscriptionCreatedEvent', () => {
       'buyer@example.com',
     );
 
-    // Owned-community fan-out: Google session attendee add + Discourse group add.
-    // The userId rides along so attendance resolves the member's COHORT event.
+    // Owned-community fan-out: Google session attendee add. The userId rides
+    // along so attendance resolves the member's COHORT event.
     expect(sessions.addMemberToSessions).toHaveBeenCalledWith(
       'buyer@example.com',
       'usr_new',
-    );
-    expect(discourse.syncBuildersGroup).toHaveBeenCalledWith(
-      'usr_new',
-      'buyer@example.com',
-      true,
     );
 
     // Default member-group auto-assignment fires as part of the fan-out.
@@ -707,8 +687,7 @@ describe('PaddleService — handleSubscriptionUpdatedEvent', () => {
 
 describe('PaddleService — handleSubscriptionCanceledEvent', () => {
   it('preserves access until currentBillingPeriod.endsAt', async () => {
-    const { service, prisma, events, circle, sessions, discourse } =
-      await buildService();
+    const { service, prisma, events, circle, sessions } = await buildService();
     prisma.user.findUnique.mockResolvedValue({
       id: 'usr_cancel',
       email: 'c@e.com',
@@ -752,15 +731,10 @@ describe('PaddleService — handleSubscriptionCanceledEvent', () => {
 
     // Cancellation deprovisions the Circle membership (best-effort, non-fatal).
     expect(circle.deprovisionBuildersMember).toHaveBeenCalledWith('usr_cancel');
-    // ...plus the owned-community reversals: session attendee + Discourse group.
+    // ...plus the owned-community reversal: session attendee removal.
     expect(sessions.removeMemberFromSessions).toHaveBeenCalledWith(
       'c@e.com',
       'usr_cancel',
-    );
-    expect(discourse.syncBuildersGroup).toHaveBeenCalledWith(
-      'usr_cancel',
-      'c@e.com',
-      false,
     );
   });
 

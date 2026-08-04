@@ -43,12 +43,10 @@ import { ALL_CONTROLLERS } from '../testing/controller-registry';
  *   RI-3 — intra-controller specificity ordering
  *   anti-vacuity — the enumerator and the unifier actually work
  *
- * TWO DECORATOR QUIRKS the enumerator handles, both verified against source:
+ * ONE DECORATOR QUIRK the enumerator handles, verified against source:
  *   - `events/events.controller.ts` uses `@Sse('subscribe')`, and Nest sets
  *     `METHOD_METADATA` to `RequestMethod.GET` for it — it is a GET route even
  *     though no `@Get` appears in the file.
- *   - `discourse/discourse.controller.ts` pairs `@Get('discourse')` with
- *     `@Redirect()`. `@Redirect` carries no method metadata; the `@Get` does.
  */
 
 /* ------------------------------------------------------------------------- */
@@ -249,8 +247,6 @@ const EXPECTED_ROUTES: readonly string[] = [
   'GET health',
   'GET resubscribe/:token',
   'GET unsubscribe/:token',
-  'GET v1/admin/community/review-queue',
-  'GET v1/admin/community/topics',
   'GET v1/admin/groups',
   'GET v1/admin/groups/:id/members',
   'GET v1/admin/marketing/segments',
@@ -266,7 +262,6 @@ const EXPECTED_ROUTES: readonly string[] = [
   'GET v1/auth/me',
   'GET v1/auth/oauth/:provider',
   'GET v1/auth/verify',
-  'GET v1/community/summary',
   'GET v1/events/health',
   'GET v1/events/subscribe',
   'GET v1/licenses/me',
@@ -289,7 +284,6 @@ const EXPECTED_ROUTES: readonly string[] = [
   // route parameter at segment 3.
   'GET v1/members/sessions',
   'GET v1/sessions/eligibility',
-  'GET v1/sso/discourse',
   'GET v1/subscriptions/checkout-info',
   'GET v1/subscriptions/status',
   'PATCH v1/admin/groups/:id',

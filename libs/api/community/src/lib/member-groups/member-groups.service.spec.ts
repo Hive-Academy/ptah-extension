@@ -13,7 +13,7 @@ import { MemberGroupsService } from './member-groups.service';
  *     (case-insensitive) + unknown-id/email skips.
  *   - Idempotent `assignDefaultGroup` (upsert) + no-default no-op.
  *   - Audit rows for create/update/assign/unassign.
- *   - Member/discourse group projections for a user.
+ *   - Member group projections for a user.
  *
  * Strategy: a hand-rolled Prisma mock (no shared factory dependency) whose
  * `$transaction(cb)` runs the callback inline with the same mock as `tx`.
@@ -96,7 +96,6 @@ function makeGroup(overrides: Partial<Record<string, unknown>> = {}) {
     key: 'founding',
     name: 'Founding Members',
     description: null,
-    discourseGroup: 'builders-founding',
     sessionEventId: null,
     isDefault: true,
     createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -131,7 +130,6 @@ describe('MemberGroupsService', () => {
         {
           key: 'founding',
           name: 'Founding Members',
-          discourseGroup: 'builders-founding',
           isDefault: true,
         },
         'admin@example.com',
@@ -236,7 +234,6 @@ describe('MemberGroupsService', () => {
         id: 'grp-def',
         key: 'founding',
         name: 'Founding Members',
-        discourseGroup: 'builders-founding',
       });
       const { service } = build(prisma);
 
@@ -270,7 +267,6 @@ describe('MemberGroupsService', () => {
       prisma.memberGroup.findUnique.mockResolvedValue({
         id: 'grp-1',
         key: 'founding',
-        discourseGroup: 'builders-founding',
       });
       // Two of three emails resolve; third is unknown (skipped).
       prisma.user.findMany.mockResolvedValue([
@@ -301,8 +297,6 @@ describe('MemberGroupsService', () => {
 
       expect(result.assigned).toBe(1); // u2
       expect(result.skipped).toBe(2); // u1 already-member + 1 unknown email
-      expect(result.syncedUsers).toEqual([{ userId: 'u2', email: 'b@e.com' }]);
-      expect(result.discourseGroup).toBe('builders-founding');
       expect(prisma.memberGroupAssignment.create).toHaveBeenCalledWith({
         data: { userId: 'u2', groupId: 'grp-1', source: 'admin' },
       });
@@ -366,19 +360,6 @@ describe('MemberGroupsService', () => {
 
       await expect(service.getGroupsForUser('u1')).resolves.toEqual([
         { key: 'founding', name: 'Founding Members' },
-      ]);
-    });
-
-    it('getDiscourseGroupsForUser drops null names', async () => {
-      const prisma = createMockPrisma();
-      prisma.memberGroupAssignment.findMany.mockResolvedValue([
-        { group: { discourseGroup: 'builders-founding' } },
-        { group: { discourseGroup: null } },
-      ]);
-      const { service } = build(prisma);
-
-      await expect(service.getDiscourseGroupsForUser('u1')).resolves.toEqual([
-        'builders-founding',
       ]);
     });
   });

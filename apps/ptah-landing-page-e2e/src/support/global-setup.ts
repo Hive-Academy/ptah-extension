@@ -5,11 +5,11 @@ import { env } from './env';
  * Preflight (handoff §8.1): fail fast with an actionable message if the backend
  * the UI specs depend on isn't up. We assert the two hard dependencies of the
  * P0 flows — the license server (proxied at /api) and Postgres (fixture seeding)
- * — NOT the full Discourse/Google smoke, which only §4 member-content live data
+ * — NOT the full Google smoke, which only §4 member-content live data
  * needs (and those specs stub the sessions call).
  *
  * Run the backend-contract smoke separately for a full pass:
- *   node scripts/discourse-e2e.mjs && node scripts/google-sessions-smoke.mjs
+ *   node scripts/google-sessions-smoke.mjs
  */
 async function licenseServerReachable(): Promise<boolean> {
   const url =

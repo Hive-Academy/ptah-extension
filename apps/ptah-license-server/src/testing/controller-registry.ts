@@ -9,9 +9,6 @@ import { AdminUsersController } from '@ptah-api/admin';
 import { AdminWaitlistController } from '@ptah-api/admin';
 import { AuthController } from '@ptah-api/licensing';
 import { ContactController } from '@ptah-api/marketing';
-import { AdminCommunityController } from '@ptah-api/community';
-import { CommunityController } from '@ptah-api/community';
-import { DiscourseController } from '@ptah-api/community';
 import { EventsController } from '@ptah-api/licensing';
 import { AdminSessionsController } from '@ptah-api/community';
 import { MembersController } from '@ptah-api/community';
@@ -238,21 +235,6 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
     label: 'contact/ContactController',
     file: 'libs/api/marketing/src/lib/contact/contact.controller.ts',
     controller: ContactController,
-  },
-  {
-    label: 'discourse/AdminCommunityController',
-    file: 'libs/api/community/src/lib/discourse/admin-community.controller.ts',
-    controller: AdminCommunityController,
-  },
-  {
-    label: 'discourse/CommunityController',
-    file: 'libs/api/community/src/lib/discourse/community.controller.ts',
-    controller: CommunityController,
-  },
-  {
-    label: 'discourse/DiscourseController',
-    file: 'libs/api/community/src/lib/discourse/discourse.controller.ts',
-    controller: DiscourseController,
   },
   {
     label: 'events/EventsController',

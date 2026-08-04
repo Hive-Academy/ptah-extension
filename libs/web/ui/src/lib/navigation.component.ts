@@ -30,7 +30,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
  *
  * Declutter & consolidate redesign (TASK_2026_168):
  * - Top row consolidated to: Product ▾ (Features, Builders), Pricing, Docs,
- *   Community ▾ (Community Forum-gated, Discord, GitHub, Reddit, LinkedIn),
+ *   Community ▾ (Community — authenticated only, Discord, GitHub, Reddit, LinkedIn),
  *   Download Ptah CTA, and — authenticated only — a User ▾ avatar menu
  *   (Members, Profile, divider, Logout). Unauthenticated keeps Login + Sign Up
  *   inline before the CTA.
@@ -174,7 +174,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
           Docs
         </a>
 
-        <!-- Community Disclosure Menu (Forum-gated, Discord, GitHub, Reddit, LinkedIn) -->
+        <!-- Community Disclosure Menu (Community, Discord, GitHub, Reddit, LinkedIn) -->
         <div class="relative">
           <button
             type="button"
@@ -206,12 +206,10 @@ import { SubscriptionStateService } from '@ptah-web/core';
               role="menu"
               aria-labelledby="community-menu-trigger"
             >
-              <!-- Community Forum (one-click SSO deep-link, authenticated only) -->
-              @if (isAuthenticated() && forumSsoUrl(); as forumUrl) {
+              <!-- Community (in-product, authenticated only) -->
+              @if (isAuthenticated()) {
                 <a
-                  [href]="forumUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  [routerLink]="COMMUNITY_ROUTE"
                   class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
                   role="menuitem"
                   (click)="closeMenu()"
@@ -221,7 +219,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
                     class="w-4 h-4"
                     aria-hidden="true"
                   />
-                  Community Forum
+                  Community
                 </a>
               }
 
@@ -603,12 +601,10 @@ import { SubscriptionStateService } from '@ptah-web/core';
             Community
           </div>
 
-          <!-- Community Forum Link (Authenticated) -->
-          @if (isAuthenticated() && forumSsoUrl(); as forumUrl) {
+          <!-- Community Link (Authenticated, in-product) -->
+          @if (isAuthenticated()) {
             <a
-              [href]="forumUrl"
-              target="_blank"
-              rel="noopener noreferrer"
+              [routerLink]="COMMUNITY_ROUTE"
               class="flex items-center gap-2 px-4 py-3 text-white/70 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
               role="menuitem"
               (click)="closeMobileMenu()"
@@ -618,7 +614,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
                 class="w-5 h-5"
                 aria-hidden="true"
               />
-              Community Forum
+              Community
             </a>
           }
 
@@ -773,15 +769,20 @@ export class NavigationComponent {
   private readonly elementRef = inject(ElementRef);
 
   /**
-   * One-click Discourse SSO login URL, derived from `communityUrl` on
-   * `/licenses/me`. Deep-links into the DiscourseConnect handshake so the
-   * `ptah_auth` cookie logs the user straight into the forum. `null` when the
-   * integration is off — the Community Forum entry is hidden in that case.
+   * In-product community route (MG-2.7).
+   *
+   * This used to be a one-click SSO deep-link into an external forum, computed
+   * from a `communityUrl` the server echoed on `/licenses/me`. TASK_2026_177
+   * removed the forum, the env var behind it and that response field, so the
+   * link is now a plain internal route and needs no server input at all.
+   *
+   * Still shown to AUTHENTICATED visitors only, and the guard is unchanged in
+   * spirit: `/members` is protected by `MemberGuard`, so an authenticated
+   * non-member who follows this lands on `/pricing` rather than an error. It is
+   * a `routerLink`, not an `href` with `target="_blank"` — the destination is
+   * this same app now, so a new tab would be wrong.
    */
-  public readonly forumSsoUrl = computed<string | null>(() => {
-    const base = this.subscriptionState.communityUrl();
-    return base ? `${base}/session/sso?return_path=%2F` : null;
-  });
+  public readonly COMMUNITY_ROUTE = '/members/community';
 
   /**
    * Signal tracking scroll position

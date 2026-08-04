@@ -107,16 +107,28 @@ const EXCLUDED: ReadonlyArray<{
  * total makes that failure loud and immediate.
  *
  * Counted from source on 2026-08-01: 39 `@Body()`/`@Query()` params across every
- * controller in `ALL_CONTROLLERS` (31 whole-object + 8 named-primitive). Raise
+ * controller in `ALL_CONTROLLERS` (31 whole-object + 8 named-primitive).
+ * Re-counted 2026-08-04 at **37** (31 whole-object + 6 named-primitive) after
+ * TASK_2026_177 P1b deleted three controllers with the forum integration. Raise
  * it only when you have counted again.
+ *
+ * ⚠️ THE -2 IS ACCOUNTED FOR, WHICH IS THE ONLY REASON LOWERING THIS IS SAFE.
+ * A floor that is lowered whenever it fails is not a floor. The entire drop is
+ * the SSO controller's two named primitives (`sso`, `sig`) — which is why
+ * `NAMED_PRIMITIVE_PARAM_COUNT` went 8 → 6 in the same change and the
+ * whole-object count is UNCHANGED at 31. Both numbers were re-derived by
+ * running this suite, not assumed: had a bound whole-object param also gone
+ * missing, the total would read 36 or less against an unchanged 31 and the
+ * arithmetic below would not close.
  *
  * ⚠️ It is ALSO the arithmetic check on TASK_2026_170's controller splits. R2
  * turned one 6-param `admin/AdminController` into five controllers holding
  * 2 + 2 + 1 + 1 + 0 = 6 params. A split MOVES params; it can never add or
- * remove one, so this total must read EXACTLY the same before and after. It
- * still does: re-derived by probe after R2 and confirmed at 39.
+ * remove one, so this total must read EXACTLY the same across a split. That
+ * property is intact — a DELETION is the one thing that legitimately lowers it,
+ * and it must be justified in this docblock, as above, every time.
  */
-const MIN_TOTAL_PAYLOAD_PARAMS = 39;
+const MIN_TOTAL_PAYLOAD_PARAMS = 37;
 
 /**
  * Named-primitive params — `@Query('code') code: string` — bind a STRING, not a
@@ -132,16 +144,17 @@ const MIN_TOTAL_PAYLOAD_PARAMS = 39;
  * (`@Query(dtoPipe(X))`) leaves `data` undefined while `@Query('code')` leaves
  * it `'code'`.
  *
- * Counted from source on 2026-08-01: 8 —
+ * Counted from source on 2026-08-01, re-counted 2026-08-04 after TASK_2026_177
+ * P1b deleted the forum SSO controller (which held `sso` and `sig`, two of the
+ * original eight): 6 —
  *   app/auth/auth.controller.ts:246,247,478,858,859   (code, state, token, returnUrl, plan)
- *   discourse/discourse.controller.ts:48,49           (sso, sig)
  *   events/events.controller.ts:78                    (ticket)
- * Asserted EXACTLY, not as a floor: a ninth named primitive must fail this test
+ * Asserted EXACTLY, not as a floor: a seventh named primitive must fail this test
  * so a contributor has to consciously accept it. The carve-out cannot silently
  * grow. Hardening these with `ParseUUIDPipe`/`@IsString` wrappers is recorded
  * in `.ptah/specs/TASK_2026_170/future-enhancements.md`.
  */
-const NAMED_PRIMITIVE_PARAM_COUNT = 8;
+const NAMED_PRIMITIVE_PARAM_COUNT = 6;
 
 interface ParamBinding {
   /** `<label>.<handler>` — so a failure names the exact offending handler. */

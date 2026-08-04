@@ -21,7 +21,6 @@ function cohort(overrides: Partial<MemberGroup> = {}): MemberGroup {
     key: 'founding',
     name: 'Founding',
     description: null,
-    discourseGroup: null,
     sessionEventId: 'series-1',
     isDefault: true,
     memberCount: 12,

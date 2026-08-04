@@ -62,11 +62,6 @@ export class CreateMemberGroupDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(120)
-  discourseGroup?: string;
-
-  @IsOptional()
-  @IsString()
   @MaxLength(SESSION_EVENT_ID_MAX)
   @Matches(SESSION_EVENT_ID_REGEX, {
     message:
@@ -83,7 +78,7 @@ export class CreateMemberGroupDto {
  * Body DTO for PATCH /api/v1/admin/groups/:id.
  *
  * All fields optional. `key` is intentionally NOT patchable (stable slug).
- * `description` / `discourseGroup` / `sessionEventId` accept `null` to clear the
+ * `description` / `sessionEventId` accept `null` to clear the
  * stored value — `@IsOptional()` skips validation for both `null` and
  * `undefined`, and the service writes only KEYS PRESENT on the body, so `null`
  * clears while omission leaves the column untouched.
@@ -99,11 +94,6 @@ export class UpdateMemberGroupDto {
   @IsString()
   @MaxLength(500)
   description?: string | null;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  discourseGroup?: string | null;
 
   @IsOptional()
   @IsString()

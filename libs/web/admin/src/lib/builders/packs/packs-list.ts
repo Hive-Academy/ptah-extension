@@ -28,8 +28,8 @@ interface CohortFilterOption {
  *
  * ⚠️ THIS VIEW IS A RECORD, NOT A DISTRIBUTION TOOL. Ptah never serves pack
  * content and never decides who may read a repo — access is granted on GitHub
- * (collaborator invite, GitHub team, or the repo link posted in that cohort's
- * Discourse group). The cohort column is a bookkeeping label: editing it grants
+ * (collaborator invite, GitHub team, or the repo link handed to that cohort).
+ * The cohort column is a bookkeeping label: editing it grants
  * and revokes nothing. The header subtitle and the form's helper text say so
  * explicitly, because an operator who believes otherwise would mis-administer
  * the feature (TASK_2026_169 risk L12).

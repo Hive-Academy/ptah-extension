@@ -1,8 +1,14 @@
 # Founder Setup Checklist — Open-Source + Builders Launch
 
 Single ledger of every configuration step for the open-source + Ptah Builders
-model. Companion deep-dive: `discourse-digitalocean.md` (Discourse §1–6, Google
-§7). Items marked ✅ DEV are already configured locally by the dev session.
+model. Items marked ✅ DEV are already configured locally by the dev session.
+
+> [!NOTE]
+> **The self-hosted forum was dropped (TASK_2026_177).** Its setup section, its
+> env vars and the DigitalOcean deep-dive this file used to point at are gone;
+> the community is an in-product surface under `/members`.
+> Decommissioning the running production instance is a separate, ordered
+> procedure — see `.ptah/specs/task_2026_177/decommission-runbook.md`.
 
 ---
 
@@ -16,8 +22,6 @@ model. Companion deep-dive: `discourse-digitalocean.md` (Discourse §1–6, Goog
 | Sandbox discount FOUNDING70M (70% × 12 cycles, monthly)                                      | `dsc_01kz178gb27gbe49mz0g2cbs6g` → `.env`                    | ✅ DEV |
 | Sandbox discount FOUNDING70Y (70% first payment, yearly)                                     | `dsc_01kz17avfpf5pxrgrqjbyq5bfn` → `.env`                    | ✅ DEV |
 | `BUILDERS_CHECKOUT_ENABLED=false` (waitlist mode)                                            | `.env`                                                       | ✅ DEV |
-| `DISCOURSE_SSO_SECRET` (generated, reusable in Discourse admin)                              | `.env`                                                       | ✅ DEV |
-| `API_PUBLIC_URL=http://localhost:3000`                                                       | `.env`                                                       | ✅ DEV |
 | DB migrations applied to local Postgres (waitlist, legacy purge + circle col, member groups) | `ptah_postgres` container                                    | ✅ DEV |
 | Default member group `founding` ("Founding Members")                                         | seeded by the member-groups migration                        | ✅ DEV |
 
@@ -69,23 +73,6 @@ model. Companion deep-dive: `discourse-digitalocean.md` (Discourse §1–6, Goog
       `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REFRESH_TOKEN`,
       `GOOGLE_CALENDAR_ID`, `BUILDERS_SESSION_EVENT_ID`.
 
-### 2.3 Discourse on DigitalOcean (runbook §1–6)
-
-- [ ] Droplet (dedicated `s-1vcpu-2gb` recommended — current droplet is 1GB) + 1GB swap.
-- [ ] DNS `A community.ptah.live → droplet IP`.
-- [ ] `discourse_docker` install; SMTP = Resend relay
-      (`smtp.resend.com:465`, user `resend`, password = `RESEND_API_KEY`).
-- [ ] Admin: enable DiscourseConnect provider, URL
-      `https://api.ptah.live/api/v1/sso/discourse`, secret = the
-      `DISCOURSE_SSO_SECRET` value (reuse dev's or generate fresh for prod).
-- [ ] Admin API key (scoped: groups manage + users list/show).
-- [ ] Groups: `builders` (access, members-only category) and
-      `builders-founding` (cohort badge group — synced automatically).
-- [ ] `.env.prod`: `DISCOURSE_URL=https://community.ptah.live`,
-      `DISCOURSE_SSO_SECRET`, `DISCOURSE_API_KEY`,
-      `DISCOURSE_API_USERNAME`, `API_PUBLIC_URL=https://api.ptah.live`.
-- [ ] Spaces backups + both smoke-test checklists (runbook §6 + §7.4).
-
 ### 2.4 Database + deploy
 
 - [ ] `npm run prisma:migrate:deploy` against the production database
@@ -107,9 +94,8 @@ model. Companion deep-dive: `discourse-digitalocean.md` (Discourse §1–6, Goog
 - New joiners are auto-assigned to whichever group is **default** at signup
   (`/admin/groups`). Cohort assignments survive cancellation (identity keeps,
   access group is removed).
-- To open a new wave: `/admin/groups` → create e.g. `wave-2` ("Builders Wave 2",
-  Discourse group `builders-wave-2` if you want a forum badge) → toggle
-  **default**. Founding members keep their badge forever.
+- To open a new wave: `/admin/groups` → create e.g. `wave-2` ("Builders Wave 2")
+  → toggle **default**. Founding members keep their badge forever.
 - Bulk-assign existing members: Assign Members action (paste emails).
 
 ## 4. Not launch-blocking (parked decisions)
@@ -122,22 +108,19 @@ model. Companion deep-dive: `discourse-digitalocean.md` (Discourse §1–6, Goog
 - [ ] Wave-1 videos recorded (`marketing/scripts/01..03`), rendered via the
       self-shot pipeline (`apps/ptah-video-studio/RECORDING.md`), uploaded with
       the tone-swept kit metadata.
-- [ ] Circle (dormant alternative): only if Discourse is ever outgrown —
-      Business plan $199/mo required for the API; set `CIRCLE_*` envs to enable.
+- [ ] Circle (dormant alternative): only if the in-product community is ever
+      outgrown — Business plan $199/mo required for the API; set `CIRCLE_*` envs
+      to enable.
 
 ## 5. Environment variable matrix
 
-| Variable                                              | Dev (`.env`)               | Prod (`.env.prod`)         |
-| ----------------------------------------------------- | -------------------------- | -------------------------- |
-| `PADDLE_PRICE_ID_BUILDERS_MONTHLY/_YEARLY`            | ✅ sandbox                 | ⬜ live ids (§2.1)         |
-| `PADDLE_DISCOUNT_ID_BUILDERS_MONTHLY/_YEARLY`         | ✅ sandbox                 | ⬜ live ids (§2.1)         |
-| `BUILDERS_CHECKOUT_ENABLED`                           | `false`                    | ⬜ `true` at launch (§2.5) |
-| `GOOGLE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN`         | ⬜ (§2.2)                  | ⬜ (§2.2)                  |
-| `GOOGLE_CALENDAR_ID`                                  | ✅ `primary`               | ✅ `primary`               |
-| `BUILDERS_SESSION_EVENT_ID`                           | ⬜ (§2.2)                  | ⬜ (§2.2)                  |
-| `DISCOURSE_URL`                                       | unset (feature off)        | ⬜ (§2.3)                  |
-| `DISCOURSE_SSO_SECRET`                                | ✅ generated               | ⬜ reuse or fresh (§2.3)   |
-| `DISCOURSE_API_KEY`                                   | unset (feature off)        | ⬜ (§2.3)                  |
-| `DISCOURSE_API_USERNAME` / `DISCOURSE_BUILDERS_GROUP` | ✅ defaults                | ✅ defaults                |
-| `API_PUBLIC_URL`                                      | ✅ `http://localhost:3000` | ⬜ `https://api.ptah.live` |
-| `CIRCLE_*`                                            | unset (dormant)            | unset (dormant)            |
+| Variable                                      | Dev (`.env`)           | Prod (`.env.prod`)         |
+| --------------------------------------------- | ---------------------- | -------------------------- |
+| `PADDLE_PRICE_ID_BUILDERS_MONTHLY/_YEARLY`    | ✅ sandbox             | ⬜ live ids (§2.1)         |
+| `PADDLE_DISCOUNT_ID_BUILDERS_MONTHLY/_YEARLY` | ✅ sandbox             | ⬜ live ids (§2.1)         |
+| `BUILDERS_CHECKOUT_ENABLED`                   | `false`                | ⬜ `true` at launch (§2.5) |
+| `GOOGLE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN` | ⬜ (§2.2)              | ⬜ (§2.2)                  |
+| `GOOGLE_CALENDAR_ID`                          | ✅ `primary`           | ✅ `primary`               |
+| `BUILDERS_SESSION_EVENT_ID`                   | ⬜ (§2.2)              | ⬜ (§2.2)                  |
+| `YOUTUBE_API_KEY`                             | ⬜ unset (feature off) | ⬜ unset (feature off)     |
+| `CIRCLE_*`                                    | unset (dormant)        | unset (dormant)            |

@@ -41,11 +41,17 @@ model User {
   @@map("users")
 }
 
-// Member cohort/group (e.g. "Founding Members"). A group optionally maps to a
-// Discourse group name (`discourseGroup`) that the provisioning fan-out keeps
-// in sync. Exactly one group is the current default (`isDefault`); new paid
-// Builders members are auto-assigned to it. Groups are durable cohort identity —
-// assignments survive churn (deprovisioning never removes them).
+// Member cohort/group (e.g. "Founding Members"). Exactly one group is the
+// current default (`isDefault`); new paid Builders members are auto-assigned to
+// it. Groups are durable cohort identity — assignments survive churn
+// (deprovisioning never removes them).
+//
+// A group used to also carry a column naming a group on the external forum that
+// a provisioning fan-out kept in sync. TASK_2026_177 P1b deleted that
+// integration, and the `20260805090000_` migration dropped the column. Cohort
+// membership is now resolved and rendered in-product: `CohortResolver` turns a
+// user's assignments into `cohortKeys`, and the native community surface gates
+// category visibility on them (AD-10).
 //
 // `sessionEventId` makes the weekly live session COHORT-AWARE: two cohorts (e.g.
 // English and Arabic) can run concurrently against two different Google Meet
@@ -58,7 +64,6 @@ model MemberGroup {
   key            String   @unique // stable slug, e.g. 'founding'
   name           String
   description    String?
-  discourseGroup String?  @map("discourse_group") // Discourse group to sync (null = no sync)
   sessionEventId String?  @map("session_event_id") // cohort's Google Calendar master event (null = fall back to BUILDERS_SESSION_EVENT_ID)
   isDefault      Boolean  @default(false) @map("is_default")
   createdAt      DateTime @default(now()) @map("created_at")
@@ -95,20 +100,25 @@ model MemberGroupAssignment {
 // MCP servers — shared with a Builders cohort.
 //
 // DELIVERY HAPPENS ENTIRELY ON GITHUB. The admin invites the cohort's members as
-// collaborators (or posts the repo link inside that cohort's Discourse group) by
-// hand. There is deliberately NO GitHub App integration, no collaborator-invite
-// automation, and no storage of members' GitHub handles. `notes` records
-// whichever manual step was taken, for the admin's own reference.
+// collaborators, or hands the repo link to the cohort, by hand. There is
+// deliberately NO GitHub App integration, no collaborator-invite automation, and
+// no storage of members' GitHub handles. `notes` records whichever manual step
+// was taken, for the admin's own reference.
 //
 // ONE PACK = ONE REPO. `repoUrl` is the pack's own dedicated GitHub repository;
 // packs never share a repo. Adding a second deliverable means adding a second
 // Pack row, not a second URL on this one.
 //
-// THIS TABLE IS AN ADMIN-ONLY REGISTRY. IT GATES NOTHING.
-// There is no member-facing endpoint that reads it. Ptah never serves pack
-// content and never decides who may access a pack. Access is administered
-// ENTIRELY on GitHub. This table exists so the admin has one place recording
-// which repo belongs to which cohort.
+// THIS TABLE GATES NOTHING, AND THAT SURVIVES THE CHANNEL CHANGE.
+// Ptah never serves pack content and never decides who may access a pack.
+// Access is administered ENTIRELY on GitHub. This table exists so the admin has
+// one place recording which repo belongs to which cohort.
+//
+// It is admin-only TODAY. The link used to reach members through the cohort's
+// group on the external forum that TASK_2026_177 P1b deleted; Phase 5 replaces
+// that channel with an in-product `GET /members/packs` filtered on
+// `member_visible` alone (A-1, R5.6). Delivering a link is not granting access,
+// so a member-facing READ does not make this table a gate.
 //
 // `cohortKey` is therefore a BOOKKEEPING LABEL, NOT AN ACCESS CONTROL:
 //   null     -> the repo is not tied to a particular cohort.

@@ -34,13 +34,12 @@ import { z } from 'zod';
  * ⚠️ VISIBILITY IS `memberVisible` ONLY (A-1). `GET /members/packs` filters on
  * `memberVisible: true` and NOTHING else. It does not filter on `cohortKey`,
  * and the service does not inject `CohortResolver` — that absence is the
- * control, mirroring how `PacksService` refuses to inject
- * `BuildersMembershipService`. Every member-visible pack is shown to every
- * entitled member.
+ * control, mirroring how `PacksService` refuses to inject `MembershipService`.
+ * Every member-visible pack is shown to every entitled member.
  *
  * This registry still GATES NOTHING. Ptah never serves pack content and never
  * provisions GitHub access (R5.7); only the discovery and link-delivery channel
- * moved in-product when Discourse was deleted.
+ * moved in-product when the external forum was deleted (TASK_2026_177 P1b).
  */
 export interface MemberPack {
   id: string;

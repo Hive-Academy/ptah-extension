@@ -11,7 +11,7 @@ import { env } from './env';
  * `GET /api/v1/auth/me`. We set both so gated routes (`/profile`, `/members`,
  * `/admin`) render as an authenticated user.
  *
- * The JWT payload mirrors `mintJwt()` in scripts/discourse-e2e.mjs. Note the
+ * The JWT payload mirrors `mintJwt()` in scripts/google-sessions-smoke.mjs. Note the
  * Builder *entitlement* is resolved server-side from the DB subscription/license,
  * NOT from `tier` in this token (§4) — so `seedUser({ builder: true })` is what
  * actually opens the members gate; `tier` here just keeps the token realistic.

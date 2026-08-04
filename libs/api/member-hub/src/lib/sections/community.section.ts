@@ -8,8 +8,9 @@ import type { HubSectionResolver } from './hub-section';
  *
  * ── PHASE 1: `{ status: 'empty', data: [] }` ───────────────────────────────
  * `Category`, `Topic` and `Post` do not exist yet — Batch 6 (P2-BE) creates
- * them together with `libs/api/forum`. Discourse is being removed, not proxied,
- * so there is deliberately no interim source to read from here.
+ * them together with `libs/api/forum`. The external forum this replaces was
+ * removed outright rather than proxied (TASK_2026_177 P1b), so there is
+ * deliberately no interim source to read from here.
  *
  * ⚠️ `data: []`, NEVER `null`. The contract requires array sections to carry
  * the empty ARRAY in every non-`'ok'` state so one renderer handles all three

@@ -24,7 +24,7 @@ import { AdminSessionsController } from './admin-sessions.controller';
  * ptah_auth cookie).
  *
  * Feature-off: when GOOGLE_OAUTH_* are unset the integration no-ops (logged
- * once) — the members endpoint still returns `{ sessions: [], communityUrl }`
+ * once) — the members endpoint still returns `{ sessions: [], memberGroups }`
  * and the provisioning fan-out skips attendance cleanly.
  *
  * TASK_2026_169 adds the ADMIN write path (`AdminSessionsController` +

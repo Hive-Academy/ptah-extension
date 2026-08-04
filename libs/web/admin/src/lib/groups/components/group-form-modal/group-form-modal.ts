@@ -49,7 +49,6 @@ export class GroupFormModal {
   protected readonly key = signal<string>('');
   protected readonly name = signal<string>('');
   protected readonly description = signal<string>('');
-  protected readonly discourseGroup = signal<string>('');
   protected readonly isDefault = signal<boolean>(false);
 
   protected readonly saving = signal<boolean>(false);
@@ -74,7 +73,6 @@ export class GroupFormModal {
       this.key.set(g?.key ?? '');
       this.name.set(g?.name ?? '');
       this.description.set(g?.description ?? '');
-      this.discourseGroup.set(g?.discourseGroup ?? '');
       this.isDefault.set(g?.isDefault ?? false);
       this.saving.set(false);
       this.errorMessage.set(null);
@@ -92,12 +90,6 @@ export class GroupFormModal {
   protected onDescriptionInput(event: Event): void {
     this.description.set(
       (event.target as HTMLTextAreaElement | null)?.value ?? '',
-    );
-  }
-
-  protected onDiscourseGroupInput(event: Event): void {
-    this.discourseGroup.set(
-      (event.target as HTMLInputElement | null)?.value ?? '',
     );
   }
 
@@ -120,22 +112,18 @@ export class GroupFormModal {
     this.errorMessage.set(null);
 
     const description = this.description().trim();
-    const discourseGroup = this.discourseGroup().trim();
 
     const existing = this.group();
     const request$ = existing
       ? this.api.updateGroup(existing.id, {
           name: this.name().trim(),
           description: description.length > 0 ? description : null,
-          discourseGroup: discourseGroup.length > 0 ? discourseGroup : null,
           isDefault: this.isDefault(),
         })
       : this.api.createGroup({
           key: this.key().trim(),
           name: this.name().trim(),
           description: description.length > 0 ? description : undefined,
-          discourseGroup:
-            discourseGroup.length > 0 ? discourseGroup : undefined,
           isDefault: this.isDefault(),
         });
 

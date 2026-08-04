@@ -381,10 +381,6 @@
       "app": "apps/ptah-license-server",
       "sources": [
         {
-          "glob": "src/discourse/**/*.ts",
-          "to": "discourse"
-        },
-        {
           "glob": "src/member-groups/**/*.ts",
           "to": "member-groups"
         },

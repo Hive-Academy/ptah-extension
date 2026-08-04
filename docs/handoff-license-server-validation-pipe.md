@@ -127,7 +127,11 @@ over-strictness _before_ flipping it, not after.
 ## Blast radius — 16 unprotected DTO files, 10 controllers
 
 **Already protected (do not re-do):** `packs/dto/pack.dto.ts`, `member-groups/dto/member-group.dto.ts`,
-`discourse/dto/admin-community.dto.ts`, `google-sessions/dto/admin-session.dto.ts`.
+`google-sessions/dto/admin-session.dto.ts`.
+
+> **Superseded in part by TASK_2026_177 P1b.** The forum-integration directory this
+> document also listed here was deleted wholesale, along with its DTO and its two
+> regression smokes. Only the entries above still exist.
 
 ### 🔴 Tier 1 — unauthenticated / public. Fix these first.
 
@@ -206,18 +210,16 @@ these. They are the most valuable thing you will find.
 - `ConfigService` via DI, never `process.env`.
 - Do **not** weaken any DTO just to make a caller pass without first confirming the caller is
   legitimate. Fix the caller when the DTO is right.
-- Do not touch these — they are protected by the TASK_2026_169 security invariant and have their own
-  regression smokes (`scripts/community-gate-smoke.mjs`, `scripts/discourse-e2e.mjs`):
-  `discourse/builders-membership.service.ts`, `discourse/community.controller.ts`,
-  `google-sessions/members.controller.ts`.
+- Do not touch these — they are protected by the TASK_2026_169 security invariant:
+  `google-sessions/members.controller.ts`, and the membership predicate it calls,
+  now `libs/api/membership/src/lib/membership.service.ts`.
 
 ## Verification
 
 ```bash
 npx nx test ptah-license-server --skip-nx-cache        # 617 tests green at time of writing
 npx eslint apps/ptah-license-server/src/<touched>
-node scripts/community-gate-smoke.mjs                  # must exit 0
-node scripts/discourse-e2e.mjs                         # must exit 0 (may need scripts/discourse-dev-up.sh first)
+node scripts/google-sessions-smoke.mjs                 # must exit 0
 ```
 
 Plus a live curl matrix per controller — valid payload succeeds, invalid payload 400s.
@@ -230,9 +232,8 @@ response. Small, adjacent to Tier 1 work, worth folding in.
 
 ## Dev environment
 
-- `npm run docker:up` — postgres + license-server (:3000) + Discourse dev (Rails :3001 + Ember).
-  Rails is started with `docker exec -d` and **does not survive a container restart** — re-run
-  `bash scripts/discourse-dev-up.sh` if `:3001` refuses connections.
-- Mint a `ptah_auth` cookie for local admin testing the way `scripts/community-gate-smoke.mjs` does
-  (HMAC over `header.payload` with `JWT_SECRET`).
+- `npm run docker:up` — postgres + license-server (:3000).
+- Mint a `ptah_auth` cookie for local admin testing the way
+  `apps/ptah-landing-page-e2e/src/support/auth.ts` does (HMAC over
+  `header.payload` with `JWT_SECRET`).
 - Dev `ADMIN_EMAILS=abdallah@miramarstaffing.com`.

@@ -10,9 +10,9 @@ import { MemberGroupsService } from './member-groups.service';
  * MemberGroupsModule — member cohort (group) CRUD + assignment.
  *
  * Declared `@Global()` so `MemberGroupsService` is injectable into the Paddle
- * provisioning fan-out, the Discourse provisioning extension, the license
- * `/me` endpoint, the members-area endpoint, and the admin stats surface
- * WITHOUT threading explicit imports through each module.
+ * provisioning fan-out, the license `/me` endpoint, the members-area endpoint,
+ * and the admin stats surface WITHOUT threading explicit imports through each
+ * module.
  *
  * Guard providers (`AdminGuard`, `AdminThrottlerGuard`) are declared locally
  * (rather than importing `AdminModule`) to keep the module graph acyclic —
