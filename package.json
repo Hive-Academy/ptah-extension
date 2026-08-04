@@ -210,6 +210,7 @@
     "@jest/globals": "^30.0.0",
     "@nestjs/config": "^4.0.2",
     "@nestjs/jwt": "^11.0.2",
+    "@nestjs/testing": "^11.0.0",
     "@nx-tools/nx-prisma": "^7.2.0",
     "@nx/angular": "22.6.5",
     "@nx/esbuild": "22.6.5",
