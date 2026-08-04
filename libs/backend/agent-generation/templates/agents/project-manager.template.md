@@ -200,7 +200,7 @@ Glob(.ptah/specs/TASK_*/**.md)
 **Priority 4: Understand validation**
 
 - \*-validation.md - Approved approaches
-- code-review.md - Quality issues requiring requirements updates
+- code-style-review.md / code-logic-review.md - Quality issues requiring requirements updates
 
 #### 3. Requirements Creation Decision
 

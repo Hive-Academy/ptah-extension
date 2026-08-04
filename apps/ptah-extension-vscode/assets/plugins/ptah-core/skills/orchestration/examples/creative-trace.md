@@ -28,7 +28,7 @@ Decision: Proceed with CREATIVE strategy
 **Orchestrator Output**:
 
 ```
-TASK INITIALIZED: TASK_2025_047
+TASK INITIALIZED: TASK_2026_047
 
 Strategy: CREATIVE (Design-First)
 Complexity: Medium
@@ -71,10 +71,10 @@ Invoking ui-ux-designer to create brand identity and design system...
 ```typescript
 Task({
   subagent_type: 'ui-ux-designer',
-  description: 'Create design system for TASK_2025_047',
-  prompt: `You are ui-ux-designer for TASK_2025_047.
+  description: 'Create design system for TASK_2026_047',
+  prompt: `You are ui-ux-designer for TASK_2026_047.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_047
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_047
 **Goal**: Create a complete design system for Ptah VS Code extension landing page
 
 Guide through niche discovery, then create design system.
@@ -85,7 +85,7 @@ See ui-ux-designer.md for detailed instructions.`,
 **UI/UX Designer - Discovery Phase**:
 
 ```
-NICHE DISCOVERY - TASK_2025_047
+NICHE DISCOVERY - TASK_2026_047
 
 I'll guide you through aesthetic discovery for your landing page.
 
@@ -265,7 +265,7 @@ evoking intelligence, innovation, and developer-first design.
 
 **Designer Also Creates** (visual-design-specification.md):
 ```markdown
-# Landing Page Visual Specification - TASK_2025_047
+# Landing Page Visual Specification - TASK_2026_047
 
 ## Page Structure
 
@@ -313,12 +313,12 @@ evoking intelligence, innovation, and developer-first design.
 ```typescript
 Task({
   subagent_type: 'technical-content-writer',
-  description: 'Create landing page content for TASK_2025_047',
-  prompt: `You are technical-content-writer for TASK_2025_047.
+  description: 'Create landing page content for TASK_2026_047',
+  prompt: `You are technical-content-writer for TASK_2026_047.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_047
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_047
 **Design System**: Read .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
-**Visual Spec**: Read .ptah/specs/TASK_2025_047/visual-design-specification.md
+**Visual Spec**: Read .ptah/specs/TASK_2026_047/visual-design-specification.md
 
 Create landing page content that integrates with the design system.
 See technical-content-writer.md for detailed instructions.`,
@@ -328,7 +328,7 @@ See technical-content-writer.md for detailed instructions.`,
 **Content Writer - Codebase Investigation**:
 
 ```
-CODEBASE INVESTIGATION - TASK_2025_047
+CODEBASE INVESTIGATION - TASK_2026_047
 
 Analyzing Ptah extension for accurate feature claims...
 
@@ -352,7 +352,7 @@ Technical Accuracy Verified.
 **Content Writer Output** (content-specification.md):
 
 ```markdown
-# Landing Page Content Specification - TASK_2025_047
+# Landing Page Content Specification - TASK_2026_047
 
 ## Design System Reference
 
@@ -592,12 +592,12 @@ real streaming, workspace intelligence, and multi-provider support.
 ```typescript
 Task({
   subagent_type: 'frontend-developer',
-  description: 'Implement landing page for TASK_2025_047',
-  prompt: `You are frontend-developer for TASK_2025_047.
+  description: 'Implement landing page for TASK_2026_047',
+  prompt: `You are frontend-developer for TASK_2026_047.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_047
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_047
 **Design System**: Read .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
-**Content Spec**: Read .ptah/specs/TASK_2025_047/content-specification.md
+**Content Spec**: Read .ptah/specs/TASK_2026_047/content-specification.md
 
 Implement the landing page with design system integration.
 See frontend-developer.md for detailed instructions.`,
@@ -607,7 +607,7 @@ See frontend-developer.md for detailed instructions.`,
 **Frontend Developer Output**:
 
 ```
-IMPLEMENTATION COMPLETE - TASK_2025_047
+IMPLEMENTATION COMPLETE - TASK_2026_047
 
 Files Created:
 - apps/landing/src/app/pages/home/home.component.ts
@@ -638,7 +638,7 @@ Lighthouse Score: 95 (Performance), 100 (Accessibility)
 **Orchestrator Presents**:
 
 ```
-USER CHECKPOINT - QA SELECTION - TASK_2025_047
+USER CHECKPOINT - QA SELECTION - TASK_2026_047
 
 Landing page implementation complete. Select QA approach:
 
@@ -662,10 +662,10 @@ Reply with your choice.
 ```typescript
 Task({
   subagent_type: 'code-style-reviewer',
-  description: 'Review landing page for TASK_2025_047',
-  prompt: `You are code-style-reviewer for TASK_2025_047.
+  description: 'Review landing page for TASK_2026_047',
+  prompt: `You are code-style-reviewer for TASK_2026_047.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_047
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_047
 **Changes**: New landing page components
 
 Review for Angular patterns and design system consistency.
@@ -673,10 +673,10 @@ See code-style-reviewer.md for detailed instructions.`,
 });
 ```
 
-**Style Reviewer Output** (code-review.md):
+**Style Reviewer Output** (code-style-review.md):
 
 ```markdown
-# Style Review - TASK_2025_047
+# Style Review - TASK_2026_047
 
 ## Design System Compliance
 
@@ -715,7 +715,7 @@ APPROVED - No blocking issues. Minor suggestions for consideration.
 **Orchestrator Final Output**:
 
 ```
-WORKFLOW COMPLETE - TASK_2025_047
+WORKFLOW COMPLETE - TASK_2026_047
 
 Ptah Landing Page Creation
 
@@ -728,10 +728,10 @@ Summary:
 
 Deliverables:
 1. Brand Design System (.claude/skills/technical-content-writer/DESIGN-SYSTEM.md)
-2. Visual Specification (.ptah/specs/TASK_2025_047/visual-design-specification.md)
-3. Content Specification (.ptah/specs/TASK_2025_047/content-specification.md)
+2. Visual Specification (.ptah/specs/TASK_2026_047/visual-design-specification.md)
+3. Content Specification (.ptah/specs/TASK_2026_047/content-specification.md)
 4. Landing Page Components (apps/landing/src/app/*)
-5. Style Review (.ptah/specs/TASK_2025_047/code-review.md)
+5. Style Review (.ptah/specs/TASK_2026_047/code-style-review.md)
 
 Design Aesthetic: "Cosmic Developer"
 - Dark mode native

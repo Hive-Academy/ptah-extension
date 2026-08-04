@@ -609,7 +609,7 @@ Categorize discovered documents by filename patterns:
 
 ```bash
 # Step 1: Discover documents
-Glob(.ptah/specs/TASK_2025_005/**.md)
+Glob(.ptah/specs/TASK_2026_005/**.md)
 
 # Result: 10 documents found
 # - context.md

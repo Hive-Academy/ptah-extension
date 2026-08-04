@@ -28,7 +28,7 @@ Decision: Proceed with BUGFIX strategy
 **Orchestrator Output**:
 
 ```
-TASK INITIALIZED: TASK_2025_046
+TASK INITIALIZED: TASK_2026_046
 
 Strategy: BUGFIX (Streamlined)
 Complexity: Medium
@@ -55,10 +55,10 @@ Action: Invoke researcher-expert for investigation
 ```typescript
 Task({
   subagent_type: 'researcher-expert',
-  description: 'Investigate memory leak for TASK_2025_046',
-  prompt: `You are researcher-expert for TASK_2025_046.
+  description: 'Investigate memory leak for TASK_2026_046',
+  prompt: `You are researcher-expert for TASK_2026_046.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_046
 **Bug Report**: "Memory leak in chat history - messages not being cleaned up when session closes"
 
 Investigate the memory leak:
@@ -73,7 +73,7 @@ See researcher-expert.md for detailed instructions.`,
 **Researcher Output** (research-report.md):
 
 ````markdown
-# Research Report - TASK_2025_046
+# Research Report - TASK_2026_046
 
 ## Investigation Summary
 
@@ -130,11 +130,11 @@ ngOnInit() {
 ```typescript
 Task({
   subagent_type: 'team-leader',
-  description: 'Decompose bugfix for TASK_2025_046',
-  prompt: `You are team-leader for TASK_2025_046.
+  description: 'Decompose bugfix for TASK_2026_046',
+  prompt: `You are team-leader for TASK_2026_046.
 
 **MODE**: 1 - DECOMPOSITION
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_046
 **Research Report**: Read research-report.md for root cause analysis
 
 Create tasks for the bugfix.
@@ -145,7 +145,7 @@ See team-leader.md for MODE 1 instructions.`
 **Team-Leader Output**:
 
 ```
-TASKS.MD CREATED - TASK_2025_046
+TASKS.MD CREATED - TASK_2026_046
 
 Created 4 tasks in 1 batch:
 
@@ -171,10 +171,10 @@ NEXT BATCH ASSIGNED: Batch 1 to frontend-developer
 ```typescript
 Task({
   subagent_type: 'frontend-developer',
-  description: 'Fix memory leak for TASK_2025_046',
-  prompt: `You are frontend-developer for TASK_2025_046.
+  description: 'Fix memory leak for TASK_2026_046',
+  prompt: `You are frontend-developer for TASK_2026_046.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_046
 **Tasks**: Read tasks.md, find Batch 1 (IN PROGRESS)
 **Research**: Read research-report.md for root cause details
 
@@ -211,11 +211,11 @@ Tasks: 1.1, 1.2, 1.3, 1.4 marked IMPLEMENTED
 ```typescript
 Task({
   subagent_type: 'team-leader',
-  description: 'Verify bugfix for TASK_2025_046',
-  prompt: `You are team-leader for TASK_2025_046.
+  description: 'Verify bugfix for TASK_2026_046',
+  prompt: `You are team-leader for TASK_2026_046.
 
 **MODE**: 2 - VERIFY + ASSIGN
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_046
 **Developer Report**: Frontend developer completed Batch 1
 
 Verify implementation, create commit.
@@ -252,11 +252,11 @@ ALL BATCHES COMPLETE
 ```typescript
 Task({
   subagent_type: 'team-leader',
-  description: 'Complete bugfix for TASK_2025_046',
-  prompt: `You are team-leader for TASK_2025_046.
+  description: 'Complete bugfix for TASK_2026_046',
+  prompt: `You are team-leader for TASK_2026_046.
 
 **MODE**: 3 - COMPLETION
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_046
 
 All batches complete. Perform final verification.
 See team-leader.md for MODE 3 instructions.`,
@@ -266,7 +266,7 @@ See team-leader.md for MODE 3 instructions.`,
 **Team-Leader MODE 3 Output**:
 
 ```
-ALL BATCHES COMPLETE - TASK_2025_046
+ALL BATCHES COMPLETE - TASK_2026_046
 
 Implementation Summary:
 - 1 batch completed
@@ -289,7 +289,7 @@ Ready for QA phase.
 **Orchestrator Presents**:
 
 ```
-USER CHECKPOINT - QA SELECTION - TASK_2025_046
+USER CHECKPOINT - QA SELECTION - TASK_2026_046
 
 Bugfix complete. Select QA approach:
 
@@ -317,10 +317,10 @@ Reply with your choice.
 ```typescript
 Task({
   subagent_type: 'senior-tester',
-  description: 'Test bugfix for TASK_2025_046',
-  prompt: `You are senior-tester for TASK_2025_046.
+  description: 'Test bugfix for TASK_2026_046',
+  prompt: `You are senior-tester for TASK_2026_046.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_046
 **Bug**: Memory leak in chat message cleanup
 **Fix**: See tasks.md for implemented changes
 
@@ -332,7 +332,7 @@ See senior-tester.md for detailed instructions.`,
 **Senior Tester Output** (test-report.md):
 
 ````markdown
-# Test Report - TASK_2025_046
+# Test Report - TASK_2026_046
 
 ## Regression Tests Created
 
@@ -415,10 +415,10 @@ Manual memory test performed:
 ```typescript
 Task({
   subagent_type: 'modernization-detector',
-  description: 'Analyze improvements for TASK_2025_046',
-  prompt: `You are modernization-detector for TASK_2025_046.
+  description: 'Analyze improvements for TASK_2026_046',
+  prompt: `You are modernization-detector for TASK_2026_046.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_046
 **Changes**: Memory leak fix in chat module
 
 Identify related improvement opportunities.
@@ -429,7 +429,7 @@ See modernization-detector.md for detailed instructions.`
 **Modernization Detector Output** (future-enhancements.md):
 
 ```markdown
-# Future Enhancements - TASK_2025_046
+# Future Enhancements - TASK_2026_046
 
 ## Related Improvements
 
@@ -461,7 +461,7 @@ See modernization-detector.md for detailed instructions.`
 **Orchestrator Final Output**:
 
 ```
-WORKFLOW COMPLETE - TASK_2025_046
+WORKFLOW COMPLETE - TASK_2026_046
 
 Memory Leak Fix in Chat History
 

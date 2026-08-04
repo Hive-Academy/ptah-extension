@@ -121,15 +121,15 @@ style(webview): format chat component files
 ### New Task Branch
 
 ```bash
-git checkout -b feature/TASK_2025_XXX
-git push -u origin feature/TASK_2025_XXX
+git checkout -b feature/TASK_2026_XXX
+git push -u origin feature/TASK_2026_XXX
 ```
 
 ### Continue Existing Task
 
 ```bash
-git checkout feature/TASK_2025_XXX
-git pull origin feature/TASK_2025_XXX --rebase
+git checkout feature/TASK_2026_XXX
+git pull origin feature/TASK_2026_XXX --rebase
 ```
 
 ### Commit Changes

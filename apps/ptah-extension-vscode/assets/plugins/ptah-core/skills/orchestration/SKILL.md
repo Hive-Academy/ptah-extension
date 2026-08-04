@@ -224,7 +224,7 @@ Instead, present the checkpoint as a **plain text message**: surface the documen
 ```
 REQUIREMENTS READY FOR REVIEW — TASK_[ID]
 
-Document: .ptah/tasks/TASK_[ID]/task-description.md
+Document: .ptah/specs/TASK_[ID]/task-description.md
 
 [2–4 line summary of scope, key requirements, out-of-scope]
 

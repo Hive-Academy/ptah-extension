@@ -239,7 +239,7 @@ Read(.claude/skills/technical-content-writer/DESIGN-SYSTEM.md)
 
 # Check for project-specific design specs
 Glob(.ptah/specs/TASK_*/visual-design-specification.md)
-Read(.ptah/specs/TASK_2025_072/context.md)
+Read(.ptah/specs/TASK_2026_072/context.md)
 ```
 
 ### Step 2: Investigate Product Features

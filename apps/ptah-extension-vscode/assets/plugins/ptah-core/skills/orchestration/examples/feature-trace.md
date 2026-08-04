@@ -28,7 +28,7 @@ Decision: Proceed with FEATURE strategy
 **Orchestrator Output**:
 
 ```
-TASK INITIALIZED: TASK_2025_045
+TASK INITIALIZED: TASK_2026_045
 
 Strategy: FEATURE (Full Workflow)
 Complexity: High
@@ -48,10 +48,10 @@ Proceeding to Phase 1: Requirements gathering...
 ```typescript
 Task({
   subagent_type: 'project-manager',
-  description: 'Create requirements for TASK_2025_045',
-  prompt: `You are project-manager for TASK_2025_045.
+  description: 'Create requirements for TASK_2026_045',
+  prompt: `You are project-manager for TASK_2026_045.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_045
 **User Request**: "Add real-time collaboration support with WebSocket connections for live cursor sharing"
 
 Analyze the request and create comprehensive requirements.
@@ -62,7 +62,7 @@ See project-manager.md for detailed instructions.`,
 **PM Output** (task-description.md excerpt):
 
 ```markdown
-# Task Description - TASK_2025_045
+# Task Description - TASK_2026_045
 
 ## Title
 
@@ -102,7 +102,7 @@ Real-Time Collaboration with Live Cursor Sharing
 **Orchestrator Presents**:
 
 ```
-USER VALIDATION CHECKPOINT - TASK_2025_045
+USER VALIDATION CHECKPOINT - TASK_2026_045
 
 PM has created requirements document.
 
@@ -112,7 +112,7 @@ Summary:
 - WebSocket-based architecture
 - Out of scope: voice/video, conflict resolution
 
-Document: .ptah/specs/TASK_2025_045/task-description.md
+Document: .ptah/specs/TASK_2026_045/task-description.md
 
 Reply "APPROVED" to proceed OR provide feedback for revision.
 ```
@@ -138,10 +138,10 @@ Invoking researcher-expert...
 ```typescript
 Task({
   subagent_type: 'researcher-expert',
-  description: 'Research WebSocket options for TASK_2025_045',
-  prompt: `You are researcher-expert for TASK_2025_045.
+  description: 'Research WebSocket options for TASK_2026_045',
+  prompt: `You are researcher-expert for TASK_2026_045.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_045
 **Research Questions**:
 1. Best WebSocket library for VS Code extension context
 2. Cursor synchronization protocol patterns (CRDT vs OT vs simple broadcast)
@@ -154,7 +154,7 @@ See researcher-expert.md for detailed instructions.`,
 **Researcher Output** (research-report.md excerpt):
 
 ```markdown
-# Research Report - TASK_2025_045
+# Research Report - TASK_2026_045
 
 ## WebSocket Library Comparison
 
@@ -186,10 +186,10 @@ Simple broadcast sufficient for cursor positions:
 ```typescript
 Task({
   subagent_type: 'software-architect',
-  description: 'Design implementation for TASK_2025_045',
-  prompt: `You are software-architect for TASK_2025_045.
+  description: 'Design implementation for TASK_2026_045',
+  prompt: `You are software-architect for TASK_2026_045.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_045
 **Requirements**: Read task-description.md
 **Research**: Read research-report.md
 
@@ -201,7 +201,7 @@ See software-architect.md for detailed instructions.`,
 **Architect Output** (implementation-plan.md excerpt):
 
 ```markdown
-# Implementation Plan - TASK_2025_045
+# Implementation Plan - TASK_2026_045
 
 ## Architecture Overview
 ```
@@ -249,7 +249,7 @@ v v
 **Orchestrator Presents**:
 
 ```
-USER VALIDATION CHECKPOINT - TASK_2025_045
+USER VALIDATION CHECKPOINT - TASK_2026_045
 
 Architect has created implementation plan.
 
@@ -258,7 +258,7 @@ Summary:
 - WebSocket-based architecture using `ws` library
 - 50ms debounce for cursor updates
 
-Document: .ptah/specs/TASK_2025_045/implementation-plan.md
+Document: .ptah/specs/TASK_2026_045/implementation-plan.md
 
 Reply "APPROVED" to proceed OR provide feedback for revision.
 ```
@@ -274,11 +274,11 @@ Reply "APPROVED" to proceed OR provide feedback for revision.
 ```typescript
 Task({
   subagent_type: 'team-leader',
-  description: 'Decompose tasks for TASK_2025_045',
-  prompt: `You are team-leader for TASK_2025_045.
+  description: 'Decompose tasks for TASK_2026_045',
+  prompt: `You are team-leader for TASK_2026_045.
 
 **MODE**: 1 - DECOMPOSITION
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_045
 **Implementation Plan**: Read implementation-plan.md
 
 Break down the implementation into atomic, batchable tasks.
@@ -289,7 +289,7 @@ See team-leader.md for MODE 1 instructions.`,
 **Team-Leader Output**:
 
 ```
-TASKS.MD CREATED - TASK_2025_045
+TASKS.MD CREATED - TASK_2026_045
 
 Created 9 tasks in 3 batches:
 
@@ -324,10 +324,10 @@ NEXT BATCH ASSIGNED: Batch 1 to backend-developer
 ```typescript
 Task({
   subagent_type: 'backend-developer',
-  description: 'Implement Batch 1 for TASK_2025_045',
-  prompt: `You are backend-developer for TASK_2025_045.
+  description: 'Implement Batch 1 for TASK_2026_045',
+  prompt: `You are backend-developer for TASK_2026_045.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_045
 **Tasks**: Read tasks.md, find Batch 1 (IN PROGRESS)
 
 Implement all tasks in Batch 1. Update status to IMPLEMENTED when done.
@@ -354,11 +354,11 @@ Tasks: 1.1, 1.2, 1.3 marked IMPLEMENTED
 ```typescript
 Task({
   subagent_type: 'team-leader',
-  description: 'Verify Batch 1 for TASK_2025_045',
-  prompt: `You are team-leader for TASK_2025_045.
+  description: 'Verify Batch 1 for TASK_2026_045',
+  prompt: `You are team-leader for TASK_2026_045.
 
 **MODE**: 2 - VERIFY + ASSIGN
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_045
 **Developer Report**: Backend developer completed Batch 1
 
 Verify implementation, create commit, assign next batch.
@@ -396,11 +396,11 @@ NEXT BATCH ASSIGNED: Batch 2 to frontend-developer
 ```typescript
 Task({
   subagent_type: 'team-leader',
-  description: 'Complete implementation for TASK_2025_045',
-  prompt: `You are team-leader for TASK_2025_045.
+  description: 'Complete implementation for TASK_2026_045',
+  prompt: `You are team-leader for TASK_2026_045.
 
 **MODE**: 3 - COMPLETION
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_045
 
 All batches complete. Perform final verification.
 See team-leader.md for MODE 3 instructions.`,
@@ -410,7 +410,7 @@ See team-leader.md for MODE 3 instructions.`,
 **Team-Leader MODE 3 Output**:
 
 ```
-ALL BATCHES COMPLETE - TASK_2025_045
+ALL BATCHES COMPLETE - TASK_2026_045
 
 Implementation Summary:
 - 3 batches completed
@@ -435,7 +435,7 @@ Ready for QA phase.
 **Orchestrator Presents**:
 
 ```
-USER CHECKPOINT - QA SELECTION - TASK_2025_045
+USER CHECKPOINT - QA SELECTION - TASK_2026_045
 
 Implementation complete. Select QA approach:
 
@@ -463,18 +463,18 @@ Reply with your choice.
 Promise.all([
   Task({
     subagent_type: 'senior-tester',
-    description: 'Test implementation for TASK_2025_045',
-    prompt: `You are senior-tester for TASK_2025_045...`,
+    description: 'Test implementation for TASK_2026_045',
+    prompt: `You are senior-tester for TASK_2026_045...`,
   }),
   Task({
     subagent_type: 'code-style-reviewer',
-    description: 'Review code style for TASK_2025_045',
-    prompt: `You are code-style-reviewer for TASK_2025_045...`,
+    description: 'Review code style for TASK_2026_045',
+    prompt: `You are code-style-reviewer for TASK_2026_045...`,
   }),
   Task({
     subagent_type: 'code-logic-reviewer',
-    description: 'Review code logic for TASK_2025_045',
-    prompt: `You are code-logic-reviewer for TASK_2025_045...`,
+    description: 'Review code logic for TASK_2026_045',
+    prompt: `You are code-logic-reviewer for TASK_2026_045...`,
   }),
 ]);
 ```
@@ -484,7 +484,7 @@ Promise.all([
 _senior-tester_:
 
 ```
-TEST REPORT - TASK_2025_045
+TEST REPORT - TASK_2026_045
 
 Tests Created: 15
 - WebSocket service: 5 tests
@@ -498,7 +498,7 @@ All tests: PASSING
 _code-style-reviewer_:
 
 ```
-STYLE REVIEW - TASK_2025_045
+STYLE REVIEW - TASK_2026_045
 
 Issues Found: 2 (minor)
 1. Missing JSDoc on CursorRenderer.render() method
@@ -510,7 +510,7 @@ Recommendation: Minor fixes, non-blocking
 _code-logic-reviewer_:
 
 ```
-LOGIC REVIEW - TASK_2025_045
+LOGIC REVIEW - TASK_2026_045
 
 Issues Found: 0
 
@@ -529,10 +529,10 @@ Completeness: VERIFIED
 ```typescript
 Task({
   subagent_type: 'modernization-detector',
-  description: 'Analyze future improvements for TASK_2025_045',
-  prompt: `You are modernization-detector for TASK_2025_045.
+  description: 'Analyze future improvements for TASK_2026_045',
+  prompt: `You are modernization-detector for TASK_2026_045.
 
-**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2026_045
 **Changes**: Review tasks.md for what was implemented
 
 Identify opportunities for future improvements.
@@ -543,7 +543,7 @@ See modernization-detector.md for detailed instructions.`,
 **Modernization Detector Output** (future-enhancements.md):
 
 ```markdown
-# Future Enhancements - TASK_2025_045
+# Future Enhancements - TASK_2026_045
 
 ## Potential Improvements
 
@@ -570,7 +570,7 @@ See modernization-detector.md for detailed instructions.`,
 **Orchestrator Final Output**:
 
 ```
-WORKFLOW COMPLETE - TASK_2025_045
+WORKFLOW COMPLETE - TASK_2026_045
 
 Real-Time Collaboration with Live Cursor Sharing
 
@@ -588,7 +588,8 @@ Documents Created:
 - implementation-plan.md
 - tasks.md
 - test-report.md
-- code-review.md
+- code-style-review.md
+- code-logic-review.md
 - future-enhancements.md
 
 Time Elapsed: ~4 hours
