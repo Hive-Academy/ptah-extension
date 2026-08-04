@@ -9,8 +9,10 @@
  *    native-module failure case (NFR-5/NFR-6). Behaviour is identical; the
  *    RPC surface degrades transparently.
  *
- * Excluded folders (no valid frontmatter) get NO row — the excluded count
- * lives in `task_specs_scan_meta` and rides along on list/board results.
+ * Excluded folders (no valid frontmatter) get NO row in `task_specs` — they are
+ * not tasks. They ARE carried as typed rows on the scan meta so the board can
+ * name every skipped folder instead of reporting a bare count (TASK_2026_179,
+ * step 10).
  *
  * Store methods are synchronous (better-sqlite3 is synchronous); the async
  * seam is owned by `TaskIndexService`.
@@ -23,6 +25,7 @@ import {
   type SqliteDatabase,
 } from '@ptah-extension/persistence-sqlite';
 import type {
+  ExcludedTaskFolder,
   TaskSpecSummary,
   TaskStatus,
   TaskType,
@@ -35,8 +38,13 @@ export interface TaskIndexFilters {
   type?: readonly TaskType[];
 }
 
-/** Per-workspace scan metadata — excluded folder count + last full scan. */
+/** Per-workspace scan metadata — the excluded folders + last full scan. */
 export interface TaskIndexMeta {
+  /**
+   * Every folder the scan skipped, BY NAME with its typed reason. Written and
+   * read by both store impls; `excludedCount` is always `excluded.length`.
+   */
+  excluded: ExcludedTaskFolder[];
   excludedCount: number;
   lastFullScanAt: number | null;
 }
@@ -48,13 +56,16 @@ export interface TaskIndexMeta {
 export interface ITaskIndexStore {
   /**
    * Replace an entire workspace's rows in ONE transaction: delete every row
-   * for the workspace, re-insert `tasks`, and record `excludedCount`. This is
-   * the "rebuild equivalent to fresh" guarantee (R3.2) by construction.
+   * for the workspace, re-insert `tasks`, and record the `excluded` folders.
+   * This is the "rebuild equivalent to fresh" guarantee (R3.2) by construction.
+   *
+   * `excluded` is the FULL row set, not a count — the count is derived from it
+   * so the two can never disagree.
    */
   replaceWorkspace(
     workspaceRoot: string,
     tasks: readonly TaskSpecSummary[],
-    excludedCount: number,
+    excluded: readonly ExcludedTaskFolder[],
   ): void;
   /** Upsert rows without touching the rest of the workspace. */
   upsertMany(workspaceRoot: string, tasks: readonly TaskSpecSummary[]): void;
@@ -100,6 +111,13 @@ function applyFilters(
   });
 }
 
+/** Copy excluded rows so no caller can mutate what the store handed back. */
+function cloneExcluded(
+  excluded: readonly ExcludedTaskFolder[],
+): ExcludedTaskFolder[] {
+  return excluded.map((row) => ({ ...row }));
+}
+
 /** Deep-ish clone so in-memory callers never mutate stored rows. */
 function cloneSummary(task: TaskSpecSummary): TaskSpecSummary {
   return {
@@ -140,9 +158,24 @@ interface RawMetaRow {
  * SQLite-backed store over the shared connection. All SQL is static with bound
  * parameters (no interpolation). Filtering is applied in JS over the
  * workspace-scoped (indexed) row set — trivially fast for the phase-1 scale.
+ *
+ * ## Why the excluded ROWS are held in process, not in a table
+ *
+ * `task_specs_scan_meta` persists `excluded_count` only, and the design for
+ * TASK_2026_179 explicitly rejects a schema migration for this work. That
+ * rejection costs nothing here: the excluded set is pure scan output, and NO
+ * read path can observe it before a scan has produced it. `TaskIndexService`
+ * calls `ensureStarted` before every list/board read, and `ensureStarted`
+ * always performs a full `rebuild` → `replaceWorkspace`. A persisted copy would
+ * therefore be overwritten before it could ever be read — exactly as true of
+ * the `excluded_count` column that already exists. Keeping the rows beside the
+ * connection gives both impls identical semantics with no DDL.
  */
 @injectable()
 export class SqliteTaskIndexStore implements ITaskIndexStore {
+  /** Excluded rows per workspace root — see the class note above. */
+  private readonly excludedRows = new Map<string, ExcludedTaskFolder[]>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
@@ -156,7 +189,7 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
   replaceWorkspace(
     workspaceRoot: string,
     tasks: readonly TaskSpecSummary[],
-    excludedCount: number,
+    excluded: readonly ExcludedTaskFolder[],
   ): void {
     const now = Date.now();
     const del = this.db.prepare(
@@ -169,9 +202,12 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
       for (const task of tasks) {
         ins.run(...this.insertParams(workspaceRoot, task, now));
       }
-      meta.run(workspaceRoot, excludedCount, now);
+      meta.run(workspaceRoot, excluded.length, now);
     });
     txn();
+    // Only after the transaction commits, so a failed write leaves the rows
+    // and the count describing the same (previous) scan.
+    this.excludedRows.set(workspaceRoot, cloneExcluded(excluded));
   }
 
   upsertMany(workspaceRoot: string, tasks: readonly TaskSpecSummary[]): void {
@@ -210,6 +246,7 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
       .get(workspaceRoot) as RawMetaRow | undefined;
     if (!row) return null;
     return {
+      excluded: cloneExcluded(this.excludedRows.get(workspaceRoot) ?? []),
       excludedCount: row.excluded_count,
       lastFullScanAt: row.last_full_scan_at,
     };
@@ -218,7 +255,8 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
   setMeta(workspaceRoot: string, meta: TaskIndexMeta): void {
     this.db
       .prepare(this.metaUpsertSql())
-      .run(workspaceRoot, meta.excludedCount, meta.lastFullScanAt);
+      .run(workspaceRoot, meta.excluded.length, meta.lastFullScanAt);
+    this.excludedRows.set(workspaceRoot, cloneExcluded(meta.excluded));
   }
 
   private insertSql(): string {
@@ -339,7 +377,7 @@ export class InMemoryTaskIndexStore implements ITaskIndexStore {
   replaceWorkspace(
     workspaceRoot: string,
     tasks: readonly TaskSpecSummary[],
-    excludedCount: number,
+    excluded: readonly ExcludedTaskFolder[],
   ): void {
     const folder = new Map<string, TaskSpecSummary>();
     for (const task of tasks) {
@@ -347,7 +385,8 @@ export class InMemoryTaskIndexStore implements ITaskIndexStore {
     }
     this.rows.set(workspaceRoot, folder);
     this.meta.set(workspaceRoot, {
-      excludedCount,
+      excluded: cloneExcluded(excluded),
+      excludedCount: excluded.length,
       lastFullScanAt: Date.now(),
     });
   }
@@ -377,10 +416,14 @@ export class InMemoryTaskIndexStore implements ITaskIndexStore {
 
   getMeta(workspaceRoot: string): TaskIndexMeta | null {
     const meta = this.meta.get(workspaceRoot);
-    return meta ? { ...meta } : null;
+    return meta ? { ...meta, excluded: cloneExcluded(meta.excluded) } : null;
   }
 
   setMeta(workspaceRoot: string, meta: TaskIndexMeta): void {
-    this.meta.set(workspaceRoot, { ...meta });
+    this.meta.set(workspaceRoot, {
+      ...meta,
+      excluded: cloneExcluded(meta.excluded),
+      excludedCount: meta.excluded.length,
+    });
   }
 }

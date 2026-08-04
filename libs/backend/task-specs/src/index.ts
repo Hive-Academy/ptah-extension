@@ -66,3 +66,4 @@ export {
 // DI.
 export { TASK_SPECS_TOKENS, type TaskSpecsDIToken } from './lib/di/tokens';
 export { registerTaskSpecsServices } from './lib/di/register';
+export { startTaskSpecsIndex } from './lib/di/start-index';

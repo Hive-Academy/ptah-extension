@@ -11,6 +11,7 @@
  */
 
 import type {
+  ExcludedTaskFolder,
   TaskSpecSummary,
   TaskSpecDetail,
   TaskStatus,
@@ -63,7 +64,13 @@ export interface TasksUpdateStatusResult {
   success: boolean;
   task?: TaskSpecSummary;
   error?: {
-    code: 'TASK_NOT_FOUND' | 'TASK_EXCLUDED' | 'WRITE_FAILED';
+    /**
+     * `TASK_CONFLICT` (TASK_2026_179, step 4): the carrier changed on disk
+     * between the writer's read and its write, so the write was REFUSED rather
+     * than allowed to clobber the other writer. The board should re-read and
+     * retry; the on-disk file is whatever the other writer left.
+     */
+    code: 'TASK_NOT_FOUND' | 'TASK_EXCLUDED' | 'WRITE_FAILED' | 'TASK_CONFLICT';
     message: string;
   };
 }
@@ -81,6 +88,19 @@ export type TasksBoardParams = TasksWorkspaceScopedParams;
 export interface TasksBoardResult {
   /** all six status keys always present. */
   columns: Record<TaskStatus, TaskSpecSummary[]>;
+  /**
+   * Every skipped folder BY NAME with its typed reason (TASK_2026_179, step 10).
+   *
+   * A count alone tells a user that folders vanished without telling them which
+   * or why — that silent drop is the exact failure the exclusions drawer exists
+   * to end. `excludedCount` stays as the host's own total so an older host that
+   * cannot name its exclusions still reports the magnitude honestly.
+   *
+   * Reuses the shared {@link ExcludedTaskFolder} union deliberately: the board
+   * UI keys a `Record` off `reason`, so a second, divergent copy of the union
+   * would silently break that compile-time exhaustiveness guarantee.
+   */
+  excluded: ExcludedTaskFolder[];
   excludedCount: number;
   specsDirExists: boolean;
 }

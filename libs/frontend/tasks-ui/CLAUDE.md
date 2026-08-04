@@ -31,19 +31,24 @@ board/column/card/detail components, and `TASKS_CHANGED_MESSAGE_TYPE`.
 generateRegistry`); `MessageHandler` for `tasks:changed` → refresh. **No
   optimistic state** (R5.7): status changes re-fetch the authoritative board.
 - `src/lib/components/tasks-view.component.ts` — smart page: header actions
-  (New Task, Registry, excluded chip, Reindex), empty state with create CTA,
-  board + detail panel, New Task modal.
+  (New Task, Registry, the exclusions drawer trigger, Reindex), empty state with
+  create CTA, board + detail panel, New Task modal, exclusions drawer.
 - `src/lib/components/board/` — `task-board`, `task-column`, `task-card`
   (all presentational, pure `@Input`/`@Output`).
 - `src/lib/components/detail/task-detail.component.ts` — frontmatter facts,
   `depends_on`, validation warnings, body via `MarkdownBlockComponent`.
-- `src/lib/task-presentation.ts` — status/type label + daisyui badge maps.
+- `src/lib/task-presentation.ts` — status/type label + daisyui badge maps,
+  `WORKFLOW_ARTIFACTS` (derived from the shared `DOC_FILES` contract, never
+  hand-listed), and the exclusion-reason sentences keyed by the shared
+  `ExcludedTaskFolder['reason']` union.
 
 ## Dependencies
 
-**Internal**: `@ptah-extension/shared` (task-spec plain types + `tasks:*` RPC
-contracts), `@ptah-extension/core` (`ClaudeRpcService`, `MessageHandler`),
-`@ptah-extension/markdown` (`MarkdownBlockComponent`).
+**Internal**: `@ptah-extension/shared` (task-spec plain types, the
+`task-spec.contract` doc-file set, `tasks:*` RPC contracts),
+`@ptah-extension/core` (`ClaudeRpcService`, `MessageHandler`),
+`@ptah-extension/markdown` (`MarkdownBlockComponent`), `@ptah-extension/ui`
+(`NativeDrawerComponent`).
 
 **External**: `@angular/core`, `@angular/forms`, `lucide-angular`.
 
@@ -61,3 +66,11 @@ Standalone, `ChangeDetectionStrategy.OnPush` on every component, signals +
    (Batch D) inverts through the `AppStateManager` signal bridge.
 3. **No optimistic board state.** The board only moves on an authoritative
    re-fetch or the `tasks:changed` push.
+4. **Never hand-write a per-task `*.md` filename here.** Every document name
+   comes from the shared `DOC_FILES` contract; a CI ratchet fails the build on
+   any literal that reappears. The batch-breakdown stage accepts both
+   `BATCHES_FILE` and its pre-rename name — that fallback is PERMANENT and is
+   never deprecation-warned.
+5. **Excluded folders are listed by name, never counted.** A count tells a user
+   that folders vanished without telling them which or why; that silent drop is
+   the exact failure the drawer exists to end.

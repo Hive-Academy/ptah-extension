@@ -1,5 +1,11 @@
 import { TestBed } from '@angular/core/testing';
-import type { TaskSpecDetail } from '@ptah-extension/shared';
+import {
+  BATCHES_FILE,
+  CARRIER_FILE,
+  CONTEXT_FILE,
+  LEGACY_BATCHES_FILE,
+  type TaskSpecDetail,
+} from '@ptah-extension/shared';
 import { TaskDetailComponent } from './task-detail.component';
 
 function makeDetail(overrides: Partial<TaskSpecDetail> = {}): TaskSpecDetail {
@@ -15,7 +21,7 @@ function makeDetail(overrides: Partial<TaskSpecDetail> = {}): TaskSpecDetail {
     frontmatterValid: true,
     validationIssues: [],
     body: '# Heading\n\nSome body copy.',
-    artifacts: ['task.md', 'context.md'],
+    artifacts: [CARRIER_FILE, CONTEXT_FILE],
     ...overrides,
   };
 }
@@ -62,6 +68,22 @@ describe('TaskDetailComponent', () => {
     expect(text).toContain('created');
     expect(text).toContain('unparseable');
   });
+
+  // The batch breakdown stage accepts BOTH the current name and its pre-rename
+  // name. That fallback is permanent — folders on disk are gitignored, so no
+  // migration can be trusted to have run.
+  it.each([BATCHES_FILE, LEGACY_BATCHES_FILE])(
+    'marks the batch-breakdown stage present for %s',
+    (file) => {
+      const fixture = render(makeDetail({ artifacts: [CARRIER_FILE, file] }));
+      const host = fixture.nativeElement as HTMLElement;
+      const row = Array.from(host.querySelectorAll('button')).find((el) =>
+        el.textContent?.includes(file),
+      );
+      expect(row).toBeDefined();
+      expect(row?.textContent).not.toContain('not generated');
+    },
+  );
 
   it('shows a spinner while loading', () => {
     const fixture = render(null, true);

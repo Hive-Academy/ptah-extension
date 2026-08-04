@@ -1,13 +1,17 @@
 import { inject, injectable } from 'tsyringe';
 import * as path from 'path';
-import matter from 'gray-matter';
 import {
   PLATFORM_TOKENS,
   FileType,
   type IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import type { TaskSpecSummary, TaskType } from '@ptah-extension/shared';
+import {
+  CARRIER_FILE,
+  renderTaskMd,
+  type TaskSpecSummary,
+  type TaskType,
+} from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { allocateTaskId } from './id-allocator';
 import { parseTaskFile } from './task-frontmatter';
@@ -40,12 +44,20 @@ export type UpdateStatusResult =
   | {
       success: false;
       error: {
-        code: 'TASK_NOT_FOUND' | 'TASK_EXCLUDED' | 'WRITE_FAILED';
+        /**
+         * `TASK_CONFLICT` (TASK_2026_179, step 4): the carrier changed on disk
+         * between our read and our write. We REFUSE the write rather than
+         * clobber the other writer — `.ptah/**` is gitignored, so a clobbered
+         * status has no undo. The caller should re-read and retry.
+         */
+        code:
+          | 'TASK_NOT_FOUND'
+          | 'TASK_EXCLUDED'
+          | 'WRITE_FAILED'
+          | 'TASK_CONFLICT';
         message: string;
       };
     };
-
-const CARRIER_FILE = 'task.md';
 
 /**
  * Writes `task.md` carriers (R1.4/R1.5/R4.6/R6.3).
@@ -53,9 +65,19 @@ const CARRIER_FILE = 'task.md';
  *  - `create`: id-alloc → existence guard → leaf mkdir → write full valid
  *    frontmatter → round-trip parse with zero issues before returning. Never
  *    overwrites: an existing target folder/carrier yields `TASK_FOLDER_EXISTS`.
- *  - `updateStatus`: read raw → byte-preserving `updateFrontmatter` → write →
- *    reparse. The file mutation is ALWAYS the first step (R3.5 write-order),
- *    then the narrow index notifier reparses that one folder.
+ *  - `updateStatus`: read raw → byte-preserving `updateFrontmatter` →
+ *    PRE-WRITE RE-READ → write → reparse. The file mutation is ALWAYS the first
+ *    step (R3.5 write-order), then the narrow index notifier reparses that one
+ *    folder.
+ *
+ * The carrier BODY is rendered by the shared contract module
+ * (`renderTaskMd` in `@ptah-extension/shared`) so the Tasks board, the CLI and
+ * this writer all agree on one carrier shape. Note the asymmetry, which is
+ * deliberate: the WRITE path uses the contract module's dependency-free YAML
+ * emitter (it must stay importable from the frontend), while the READ path
+ * still goes through `gray-matter` inside `parseTaskFile` / `updateFrontmatter`.
+ * Every `create` round-trips its own output through `parseTaskFile` before
+ * returning, which is what keeps the two halves honest.
  */
 @injectable()
 export class TaskWriterService {
@@ -113,7 +135,14 @@ export class TaskWriterService {
         };
       }
 
-      const content = this.renderTaskMd(id, input);
+      const content = renderTaskMd({
+        id,
+        title: input.title,
+        type: input.type,
+        description: input.description,
+        dependsOn: input.dependsOn,
+        executor: input.executor,
+      });
       await this.fs.writeFile(carrier, content);
 
       const parsed = parseTaskFile(id, content);
@@ -188,6 +217,44 @@ export class TaskWriterService {
       updated: new Date().toISOString(),
     });
 
+    // Pre-write re-read (TASK_2026_179, step 4). `.ptah/**` is gitignored, so a
+    // clobbered carrier has no undo — if anything changed the file since our
+    // snapshot (an agent's `Edit`, another host, a second board), REFUSE the
+    // write and report the conflict instead of silently discarding their
+    // change. This is a plain content comparison rather than a hash: it is the
+    // collision-free form of the same check, and the file is small.
+    //
+    // This narrows the loss window; it does not close it. There is still a gap
+    // between this read and the write below, and no cross-process lock can shut
+    // it (an external `Edit` would not honour one). Closing it entirely needs a
+    // real CAS, which the port does not have.
+    let current: string;
+    try {
+      current = await this.fs.readFile(carrier);
+    } catch (error: unknown) {
+      this.logger.error(
+        '[task-specs] updateStatus re-read failed',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return {
+        success: false,
+        error: { code: 'WRITE_FAILED', message: 'Failed to read task.md.' },
+      };
+    }
+
+    if (current !== raw) {
+      this.logger.warn('[task-specs] updateStatus conflict — write refused', {
+        taskId,
+      });
+      return {
+        success: false,
+        error: {
+          code: 'TASK_CONFLICT',
+          message: `Task '${taskId}' changed on disk during the update; nothing was written. Reload and try again.`,
+        },
+      };
+    }
+
     try {
       await this.fs.writeFile(carrier, nextRaw);
     } catch (error: unknown) {
@@ -230,25 +297,5 @@ export class TaskWriterService {
     } catch {
       return [];
     }
-  }
-
-  private renderTaskMd(id: string, input: CreateTaskInput): string {
-    const now = new Date().toISOString();
-    const data: Record<string, unknown> = {
-      id,
-      status: 'backlog',
-      type: input.type,
-      title: input.title,
-      depends_on: input.dependsOn ?? [],
-      created: now,
-      updated: now,
-    };
-    if (input.description !== undefined)
-      data['description'] = input.description;
-    if (input.executor !== undefined) data['executor'] = input.executor;
-
-    const block = matter.stringify('', data);
-    const bodyText = input.description ?? input.title;
-    return `${block}\n## Description\n\n${bodyText}\n`;
   }
 }

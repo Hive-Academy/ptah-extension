@@ -14,7 +14,10 @@ import type { DependencyContainer } from 'tsyringe';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
-import { registerTaskSpecsServices } from '@ptah-extension/task-specs';
+import {
+  registerTaskSpecsServices,
+  startTaskSpecsIndex,
+} from '@ptah-extension/task-specs';
 import {
   registerVsCodeLmToolsServices,
   IDE_CAPABILITIES_TOKEN,
@@ -51,6 +54,10 @@ export function registerPhase2Libraries(
   // connection later in wire-runtime, so the store choice is deferred to first
   // resolution (wire-runtime.ts:176 precedent).
   registerTaskSpecsServices(container, logger);
+  // Warm the index at activation (TASK_2026_179 step 11) so `.ptah/specs/
+  // README.md` lands even for a user who never opens the Tasks board. Non-
+  // blocking and failure-swallowing by contract — see startTaskSpecsIndex.
+  startTaskSpecsIndex(container, logger);
   registerVsCodeLmToolsServices(container, logger);
   container.register(IDE_CAPABILITIES_TOKEN, {
     useValue: new VscodeIDECapabilities(),

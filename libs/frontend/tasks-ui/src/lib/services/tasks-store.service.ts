@@ -14,6 +14,7 @@ import {
 } from '@ptah-extension/core';
 import {
   TASK_STATUSES,
+  type ExcludedTaskFolder,
   type TaskSpecDetail,
   type TaskSpecSummary,
   type TaskStatus,
@@ -23,6 +24,7 @@ import {
   type TasksCreateParams,
   type TasksCreateResult,
 } from '@ptah-extension/shared';
+import { isTaskExclusionReason } from '../task-presentation';
 
 /**
  * Raw webview message type broadcast by the backend `TasksRpcHandlers` whenever
@@ -44,8 +46,44 @@ export interface TaskBoardColumn {
  */
 interface BoardSlice {
   columns: Record<TaskStatus, TaskSpecSummary[]>;
+  /** Every folder the scan refused, by name and typed reason. */
+  excluded: readonly ExcludedTaskFolder[];
   excludedCount: number;
   specsDirExists: boolean;
+}
+
+/**
+ * Read the typed exclusion list off a `tasks:board` payload.
+ *
+ * The board result declares `excludedCount` for the header total and carries
+ * the named list as an `excluded` array. Both halves are read defensively
+ * rather than trusted: this is an external boundary (the payload crosses the
+ * host bridge), the field is optional on hosts that predate the named-exclusion
+ * contract, and a malformed entry must never reach the template. Anything that
+ * is not a non-empty folder name paired with a reason from the shared union is
+ * dropped.
+ */
+export function readExcludedFolders(
+  data: TasksBoardResult,
+): readonly ExcludedTaskFolder[] {
+  const raw = (data as TasksBoardResult & { readonly excluded?: unknown })
+    .excluded;
+  if (!Array.isArray(raw)) return [];
+
+  const parsed: ExcludedTaskFolder[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { folderName, reason } = entry as {
+      folderName?: unknown;
+      reason?: unknown;
+    };
+    if (typeof folderName !== 'string' || folderName.trim().length === 0) {
+      continue;
+    }
+    if (!isTaskExclusionReason(reason)) continue;
+    parsed.push({ folderName, reason });
+  }
+  return parsed;
 }
 
 /** Empty six-key column map — every status key is always present (R4). */
@@ -110,6 +148,7 @@ export class TasksStore implements MessageHandler {
 
   private readonly _columns =
     signal<Record<TaskStatus, TaskSpecSummary[]>>(emptyColumns());
+  private readonly _excludedFolders = signal<readonly ExcludedTaskFolder[]>([]);
   private readonly _excludedCount = signal(0);
   private readonly _specsDirExists = signal(true);
   private readonly _loading = signal(false);
@@ -164,6 +203,12 @@ export class TasksStore implements MessageHandler {
 
   /** Board columns keyed by status (all six keys always present). */
   public readonly columns = this._columns.asReadonly();
+  /**
+   * Folders the scan refused, each with the typed reason it was refused for.
+   * The board is a lie without this: a folder missing from every column is
+   * otherwise indistinguishable from a folder that was never created.
+   */
+  public readonly excludedFolders = this._excludedFolders.asReadonly();
   public readonly excludedCount = this._excludedCount.asReadonly();
   public readonly specsDirExists = this._specsDirExists.asReadonly();
   public readonly loading = this._loading.asReadonly();
@@ -226,6 +271,15 @@ export class TasksStore implements MessageHandler {
   public readonly isEmpty = computed(
     () =>
       this._loaded() && (!this._specsDirExists() || this.totalCount() === 0),
+  );
+
+  /**
+   * The host reported excluded folders but named none of them. Surfaced so the
+   * drawer can say so out loud instead of rendering an empty list that reads as
+   * "nothing was excluded" — the silent-drop failure this drawer exists to end.
+   */
+  public readonly excludedNamesUnavailable = computed(
+    () => this._excludedCount() > 0 && this._excludedFolders().length === 0,
   );
 
   public constructor() {
@@ -613,9 +667,13 @@ export class TasksStore implements MessageHandler {
     for (const status of TASK_STATUSES) {
       normalized[status] = data.columns[status] ?? [];
     }
+    const excluded = readExcludedFolders(data);
     return {
       columns: normalized,
-      excludedCount: data.excludedCount,
+      excluded,
+      // Prefer the host's own total, but never report fewer than the names we
+      // actually received — the drawer must not claim "3 excluded" over 12 rows.
+      excludedCount: Math.max(data.excludedCount, excluded.length),
       specsDirExists: data.specsDirExists,
     };
   }
@@ -623,6 +681,7 @@ export class TasksStore implements MessageHandler {
   /** Paint a cached/fresh slice onto the visible board signals. */
   private applySlice(slice: BoardSlice): void {
     this._columns.set(slice.columns);
+    this._excludedFolders.set(slice.excluded);
     this._excludedCount.set(slice.excludedCount);
     this._specsDirExists.set(slice.specsDirExists);
     this._loaded.set(true);
@@ -631,6 +690,7 @@ export class TasksStore implements MessageHandler {
   /** Reset the visible board to the first-visit empty/loading baseline. */
   private resetVisibleForLoading(): void {
     this._columns.set(emptyColumns());
+    this._excludedFolders.set([]);
     this._excludedCount.set(0);
     this._specsDirExists.set(true);
     this._loaded.set(false);

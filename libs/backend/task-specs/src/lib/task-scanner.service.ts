@@ -6,9 +6,10 @@ import {
   type IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import type {
-  ExcludedTaskFolder,
-  TaskSpecSummary,
+import {
+  CARRIER_FILE,
+  type ExcludedTaskFolder,
+  type TaskSpecSummary,
 } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { parseTaskFile } from './task-frontmatter';
@@ -23,8 +24,6 @@ export interface TaskScanResult {
   /** false when `.ptah/specs/` does not exist (friendly no-op, R3.6). */
   specsDirExists: boolean;
 }
-
-const CARRIER_FILE = 'task.md';
 
 /**
  * Scans `.ptah/specs/<id>/task.md` and classifies each folder into an included

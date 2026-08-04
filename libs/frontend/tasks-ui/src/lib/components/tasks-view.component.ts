@@ -8,13 +8,20 @@ import {
 import { FormsModule } from '@angular/forms';
 import {
   ClipboardList,
+  EyeOff,
   FileText,
   LucideAngularModule,
   Plus,
   RefreshCw,
   X,
 } from 'lucide-angular';
-import { TASK_TYPES, type TaskType } from '@ptah-extension/shared';
+import { NativeDrawerComponent } from '@ptah-extension/ui';
+import {
+  SPEC_ROOT,
+  TASK_TYPES,
+  type ExcludedTaskFolder,
+  type TaskType,
+} from '@ptah-extension/shared';
 import { TasksStore } from '../services/tasks-store.service';
 import { TaskStartService } from '../services/task-start.service';
 import { TaskBoardComponent } from './board/task-board.component';
@@ -23,14 +30,25 @@ import type {
   TaskStatusChange,
 } from './board/task-card.component';
 import { TaskDetailComponent } from './detail/task-detail.component';
+import { taskExclusionReasonLabel } from '../task-presentation';
+
+/** One excluded folder plus the sentence explaining its typed reason. */
+interface ExcludedFolderRow extends ExcludedTaskFolder {
+  readonly reasonLabel: string;
+}
 
 /**
  * TasksViewComponent
  *
  * Top-level standalone Tasks surface. Owns the header actions (New Task,
- * Generate Registry, excluded-count chip, Reindex), the board, and the detail
- * panel. All data flows through {@link TasksStore}; this component holds only
- * transient form / modal UI state.
+ * Generate Registry, the exclusions drawer trigger, Reindex), the board, and
+ * the detail panel. All data flows through {@link TasksStore}; this component
+ * holds only transient form / modal / drawer UI state.
+ *
+ * The exclusions drawer lists EVERY skipped folder by name with its typed
+ * reason. It deliberately replaces the old count badge: a count tells a user
+ * that folders vanished without telling them which ones or why, which is the
+ * silent-drop failure the Tasks contract work exists to end.
  *
  * The Start action delegates to {@link TaskStartService} (agent-managed
  * worktree isolation via a prompt directive, the `ChatPromptRequest` bridge,
@@ -43,6 +61,7 @@ import { TaskDetailComponent } from './detail/task-detail.component';
   imports: [
     FormsModule,
     LucideAngularModule,
+    NativeDrawerComponent,
     TaskBoardComponent,
     TaskDetailComponent,
   ],
@@ -73,12 +92,20 @@ import { TaskDetailComponent } from './detail/task-detail.component';
         }
 
         @if (store.excludedCount() > 0) {
-          <span
-            class="badge badge-sm badge-ghost"
-            title="Folders without valid task.md frontmatter (excluded from the board)"
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs gap-1 text-warning"
+            aria-haspopup="dialog"
+            [attr.aria-expanded]="exclusionsOpen()"
+            data-testid="tasks-excluded-trigger"
+            title="Show every folder the board skipped, and why"
+            (click)="openExclusions()"
           >
-            {{ store.excludedCount() }} excluded
-          </span>
+            <lucide-angular [img]="EyeOffIcon" class="w-3.5 h-3.5" />
+            <span class="text-xs">
+              {{ store.excludedCount() }} skipped — see why
+            </span>
+          </button>
         }
 
         <div class="flex-1"></div>
@@ -291,6 +318,71 @@ import { TaskDetailComponent } from './detail/task-detail.component';
         ></button>
       </dialog>
     }
+
+    <!-- Excluded folders — every skipped folder BY NAME with its typed reason.
+         A count alone is the failure mode this drawer replaces: it tells a user
+         that folders vanished without telling them which, or why. -->
+    <ptah-native-drawer
+      [isOpen]="exclusionsOpen()"
+      ariaLabel="Folders excluded from the board"
+      widthClass="w-full max-w-xl"
+      (closed)="closeExclusions()"
+    >
+      <div drawer-header class="flex flex-col gap-0.5">
+        <h2 class="text-sm font-semibold">
+          {{ store.excludedCount() }} folder(s) skipped
+        </h2>
+        <p class="text-xs text-base-content/60">
+          These sub-folders of
+          <span class="font-mono">{{ specRoot }}</span> exist on disk but never
+          reach the board.
+        </p>
+      </div>
+
+      @if (excludedFolders().length > 0) {
+        <ul class="flex flex-col gap-2" data-testid="tasks-excluded-list">
+          @for (folder of excludedFolders(); track folder.folderName) {
+            <li
+              class="flex flex-col gap-1 rounded border border-base-300 px-3 py-2"
+              data-testid="tasks-excluded-row"
+            >
+              <div class="flex flex-wrap items-center gap-2">
+                <span
+                  class="font-mono text-xs break-all"
+                  data-testid="tasks-excluded-name"
+                >
+                  {{ folder.folderName }}
+                </span>
+                <span
+                  class="badge badge-xs badge-warning badge-outline font-mono"
+                >
+                  {{ folder.reason }}
+                </span>
+              </div>
+              <p
+                class="text-xs text-base-content/60"
+                data-testid="tasks-excluded-reason"
+              >
+                {{ folder.reasonLabel }}
+              </p>
+            </li>
+          }
+        </ul>
+      } @else if (store.excludedNamesUnavailable()) {
+        <p
+          class="text-xs text-base-content/60"
+          data-testid="tasks-excluded-unnamed"
+        >
+          This host reported {{ store.excludedCount() }} skipped folder(s) but
+          did not name them. Run Reindex; if the list stays empty the host
+          predates the named-exclusion contract and must be updated.
+        </p>
+      } @else {
+        <p class="text-xs text-base-content/60">
+          Nothing is being skipped — every task folder on disk is on the board.
+        </p>
+      }
+    </ptah-native-drawer>
   `,
 })
 export class TasksViewComponent {
@@ -309,7 +401,27 @@ export class TasksViewComponent {
     () => this.createTitle().trim().length > 0,
   );
 
+  /** Workspace-relative spec root, named in the drawer copy. */
+  protected readonly specRoot = SPEC_ROOT;
+
+  protected readonly exclusionsOpen = signal(false);
+
+  /**
+   * Excluded folders decorated with the human sentence for their typed reason.
+   * The raw `reason` token is rendered alongside it — the token is what appears
+   * in logs and in the backend contract, the sentence is what tells the user
+   * what to fix.
+   */
+  protected readonly excludedFolders = computed<readonly ExcludedFolderRow[]>(
+    () =>
+      this.store.excludedFolders().map((folder) => ({
+        ...folder,
+        reasonLabel: taskExclusionReasonLabel(folder.reason),
+      })),
+  );
+
   protected readonly ClipboardListIcon = ClipboardList;
+  protected readonly EyeOffIcon = EyeOff;
   protected readonly FileTextIcon = FileText;
   protected readonly RefreshCwIcon = RefreshCw;
   protected readonly PlusIcon = Plus;
@@ -334,6 +446,15 @@ export class TasksViewComponent {
 
   protected closeCreate(): void {
     this.createOpen.set(false);
+  }
+
+  protected openExclusions(): void {
+    this.exclusionsOpen.set(true);
+  }
+
+  /** The drawer only ever *requests* closure; this component owns `isOpen`. */
+  protected closeExclusions(): void {
+    this.exclusionsOpen.set(false);
   }
 
   protected async submitCreate(): Promise<void> {

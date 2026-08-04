@@ -16,6 +16,7 @@
  *   libs/backend/rpc-handlers/src/lib/handlers/tasks-rpc.handlers.ts
  */
 import 'reflect-metadata';
+import * as path from 'path';
 
 import type {
   Logger,
@@ -28,23 +29,58 @@ import {
 } from '@ptah-extension/vscode-core/testing';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
+  createMockFileSystemProvider,
   createMockWorkspaceProvider,
+  type MockFileSystemProvider,
   type MockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
+import {
+  MIGRATIONS,
+  type SqliteConnectionService,
+} from '@ptah-extension/persistence-sqlite';
 import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 import {
+  InMemoryTaskIndexStore,
+  SqliteTaskIndexStore,
+  TaskIndexService,
+  TaskScannerService,
   normalizeWorkspaceRoot,
-  type TaskIndexService,
+  type ITaskIndexStore,
   type TaskWriterService,
   type RegistryGeneratorService,
   type TaskIndexChangeEvent,
 } from '@ptah-extension/task-specs';
-import type { TaskSpecSummary } from '@ptah-extension/shared';
+import type {
+  ExcludedTaskFolder,
+  TaskSpecSummary,
+} from '@ptah-extension/shared';
 
 import { TasksRpcHandlers } from './tasks-rpc.handlers';
+
+/** Minimal surface of the better-sqlite3 constructor used by these specs. */
+interface BetterSqlite3Ctor {
+  new (path: string): {
+    exec(sql: string): unknown;
+    prepare(sql: string): unknown;
+    transaction<T extends (...a: unknown[]) => unknown>(fn: T): T;
+    close(): void;
+  };
+}
+
+/** Probe the native binding; null when its ABI does not match this runtime. */
+function loadBetterSqlite3(): BetterSqlite3Ctor | null {
+  try {
+    const Ctor = require('better-sqlite3') as unknown as BetterSqlite3Ctor;
+    const probe = new Ctor(':memory:');
+    probe.close();
+    return Ctor;
+  } catch {
+    return null;
+  }
+}
 
 interface FakeIndex {
   onDidChangeIndex: jest.Mock;
@@ -63,9 +99,12 @@ function createFakeIndex(): FakeIndex {
       return { dispose: jest.fn() };
     }),
     ensureStarted: jest.fn().mockResolvedValue(undefined),
-    list: jest
-      .fn()
-      .mockResolvedValue({ tasks: [], excludedCount: 0, specsDirExists: true }),
+    list: jest.fn().mockResolvedValue({
+      tasks: [],
+      excluded: [],
+      excludedCount: 0,
+      specsDirExists: true,
+    }),
     getDetail: jest.fn().mockResolvedValue(null),
     reindex: jest
       .fn()
@@ -233,6 +272,7 @@ describe('tasks:board', () => {
         { status: 'done' } as TaskSpecSummary,
         { status: 'done' } as TaskSpecSummary,
       ],
+      excluded: [],
       excludedCount: 2,
       specsDirExists: true,
     });
@@ -255,6 +295,165 @@ describe('tasks:board', () => {
     expect(result.columns['backlog']).toHaveLength(1);
     expect(result.columns['in_review']).toHaveLength(0);
     expect(result.excludedCount).toBe(2);
+  });
+});
+
+// ── tasks:board over a REAL index + REAL stores ──────────────────────────────
+//
+// The fake index above cannot prove the exclusion rows survive the store
+// boundary — that boundary is exactly where they used to be dropped (only
+// `excluded_count` was persisted). These cases therefore wire the real
+// `TaskScannerService` + `TaskIndexService` over an in-memory filesystem and
+// run the SAME assertions against BOTH `ITaskIndexStore` impls, because the DI
+// factory picks between them lazily and the user never sees which one won.
+
+const REAL_ROOT = normalizeWorkspaceRoot('D:\\real-ws');
+
+/** Folder name → the carrier content that makes it excluded (or valid). */
+const CARRIER_FIXTURES: ReadonlyArray<
+  readonly [folder: string, carrier: string | null]
+> = [
+  ['TASK_2026_001', '---\nstatus: backlog\ntype: FEATURE\ntitle: One\n---\nb'],
+  ['TASK_2026_002', '---\nstatus: done\ntype: BUGFIX\ntitle: Two\n---\nb'],
+  // no carrier at all — the 12-folder case in this workspace.
+  ['TASK_2026_155', null],
+  ['TASK_2026_160', null],
+  ['VOICE_PROVIDERS', null],
+  // carrier present, but the frontmatter cannot yield a task.
+  ['TASK_2026_161', 'no frontmatter at all, just prose'],
+  ['TASK_2026_162', '---\nstatus: nope\ntype: FEATURE\ntitle: Bad\n---\n'],
+  ['TASK_2026_163', '---\nstatus: backlog\ntype: FEATURE\n---\n'],
+];
+
+function seedRealWorkspace(fs: MockFileSystemProvider): void {
+  const specsDir = path.join(REAL_ROOT, '.ptah', 'specs');
+  for (const [folder, carrier] of CARRIER_FIXTURES) {
+    const target =
+      carrier === null
+        ? path.join(specsDir, folder, 'context.md')
+        : path.join(specsDir, folder, 'task.md');
+    fs.__state.files.set(
+      target,
+      new TextEncoder().encode(carrier ?? 'agent prose'),
+    );
+    fs.__state.directories.add(path.join(specsDir, folder).replace(/\\/g, '/'));
+  }
+  fs.__state.directories.add(specsDir.replace(/\\/g, '/'));
+}
+
+function buildRealSuite(store: ITaskIndexStore): {
+  rpc: MockRpcHandler;
+  dispose: () => void;
+} {
+  const logger = createMockLogger();
+  const rpc = createMockRpcHandler();
+  const workspace = createMockWorkspaceProvider({ folders: [REAL_ROOT] });
+  workspace.getWorkspaceRoot.mockReturnValue(REAL_ROOT);
+
+  const fs = createMockFileSystemProvider();
+  seedRealWorkspace(fs);
+
+  const scanner = new TaskScannerService(fs, logger as unknown as Logger);
+  const index = new TaskIndexService(
+    logger as unknown as Logger,
+    fs,
+    scanner,
+    store,
+  );
+
+  const handlers = new TasksRpcHandlers(
+    logger as unknown as Logger,
+    rpc as unknown as RpcHandler,
+    {
+      broadcastMessage: jest.fn().mockResolvedValue(undefined),
+    } as unknown as WebviewManager,
+    workspace as unknown as IWorkspaceProvider,
+    index,
+    {
+      create: jest.fn(),
+      updateStatus: jest.fn(),
+    } as unknown as TaskWriterService,
+    { generate: jest.fn() } as unknown as RegistryGeneratorService,
+  );
+  handlers.register();
+
+  return { rpc, dispose: () => index.dispose() };
+}
+
+/** Folder names that must appear as exclusions, with their expected reason. */
+const EXPECTED_EXCLUSIONS: ReadonlyArray<ExcludedTaskFolder> = [
+  { folderName: 'TASK_2026_155', reason: 'no_carrier' },
+  { folderName: 'TASK_2026_160', reason: 'no_carrier' },
+  { folderName: 'VOICE_PROVIDERS', reason: 'no_carrier' },
+  { folderName: 'TASK_2026_161', reason: 'no_frontmatter' },
+  { folderName: 'TASK_2026_162', reason: 'invalid_status' },
+  { folderName: 'TASK_2026_163', reason: 'missing_title' },
+];
+
+function runBoardExclusionContract(makeStore: () => ITaskIndexStore): void {
+  it('returns one named row per excluded folder, with its typed reason', async () => {
+    const { rpc, dispose } = buildRealSuite(makeStore());
+    try {
+      const result = (await getHandler(rpc, 'tasks:board')({})) as {
+        excluded: ExcludedTaskFolder[];
+        excludedCount: number;
+        columns: Record<string, unknown[]>;
+      };
+
+      expect([...result.excluded].sort(byFolder)).toEqual(
+        [...EXPECTED_EXCLUSIONS].sort(byFolder),
+      );
+      expect(result.excludedCount).toBe(EXPECTED_EXCLUSIONS.length);
+      // The valid folders still land on the board — exclusions are additive.
+      expect(result.columns['backlog']).toHaveLength(1);
+      expect(result.columns['done']).toHaveLength(1);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('names every excluded folder rather than only counting them', async () => {
+    const { rpc, dispose } = buildRealSuite(makeStore());
+    try {
+      const result = (await getHandler(rpc, 'tasks:board')({})) as {
+        excluded: ExcludedTaskFolder[];
+        excludedCount: number;
+      };
+      expect(result.excluded).toHaveLength(result.excludedCount);
+      for (const row of result.excluded) {
+        expect(row.folderName.length).toBeGreaterThan(0);
+      }
+    } finally {
+      dispose();
+    }
+  });
+}
+
+function byFolder(a: ExcludedTaskFolder, b: ExcludedTaskFolder): number {
+  return a.folderName.localeCompare(b.folderName);
+}
+
+describe('tasks:board exclusions — InMemoryTaskIndexStore', () => {
+  runBoardExclusionContract(
+    () => new InMemoryTaskIndexStore(createMockLogger() as unknown as Logger),
+  );
+});
+
+describe('tasks:board exclusions — SqliteTaskIndexStore', () => {
+  // The native binding may `require` fine yet throw on instantiation when the
+  // ABI mismatches — probe it and skip rather than fail the whole suite.
+  const Database = loadBetterSqlite3();
+  const maybe = Database ? describe : describe.skip;
+
+  maybe(':memory: + migration 0029', () => {
+    runBoardExclusionContract(() => {
+      const db = new (Database as BetterSqlite3Ctor)(':memory:');
+      db.exec(MIGRATIONS.find((m) => m.version === 29)?.sql ?? '');
+      return new SqliteTaskIndexStore(
+        createMockLogger() as unknown as Logger,
+        { db } as unknown as SqliteConnectionService,
+      );
+    });
   });
 });
 

@@ -115,7 +115,7 @@ import {
           <div class="flex flex-col gap-1">
             <span class="text-xs text-base-content/50">Workflow</span>
             <div class="flex flex-col gap-0.5">
-              @for (stage of workflowArtifacts(); track stage.file) {
+              @for (stage of workflowArtifacts(); track stage.label) {
                 @if (stage.present) {
                   <button
                     type="button"
@@ -208,13 +208,24 @@ export class TaskDetailComponent {
     return task ? TASK_STATUS_BADGE[task.status] : '';
   });
 
-  /** Canonical workflow artifacts tagged with on-disk presence. */
+  /**
+   * Canonical workflow artifacts tagged with on-disk presence.
+   *
+   * A stage carries one or more accepted filenames (the batch breakdown accepts
+   * both its current and its pre-rename name). The stage resolves to whichever
+   * of them is actually on disk; when none is, it falls back to the canonical
+   * name purely so the "not generated" row can name the file to create.
+   */
   protected readonly workflowArtifacts = computed(() => {
     const present = new Set(this.detail()?.artifacts ?? []);
-    return WORKFLOW_ARTIFACTS.map((stage) => ({
-      ...stage,
-      present: present.has(stage.file),
-    }));
+    return WORKFLOW_ARTIFACTS.map((stage) => {
+      const found = stage.files.find((file) => present.has(file));
+      return {
+        label: stage.label,
+        file: found ?? stage.files[0],
+        present: found !== undefined,
+      };
+    });
   });
 
   protected readonly XIcon = X;

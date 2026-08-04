@@ -8,8 +8,11 @@
  * state-file / marker-file completion inference (TASK_2026_157, no-legacy).
  *
  * The orchestration skill still writes graded, attributed artifacts here:
- *  - `tasks.md`  — per-batch `**Recommended Executor**` (the subagent slug) plus
- *                  a word-token COMPLETE/FAILED status.
+ *  - `batches.md` — per-batch `**Recommended Executor**` (the subagent slug)
+ *                  plus a word-token COMPLETE/FAILED status. Its former name
+ *                  `tasks.md` is read as a PERMANENT fallback: task folders live
+ *                  under the gitignored `.ptah/**`, so no migration can ever be
+ *                  assumed to have run, and the fallback is never deprecated.
  *  - `*-review.md` / `test-report.md` — graded critique of the work produced.
  *
  * The parse helpers (`parseBatchVerdicts`, `detectStatus`, `normalizeExecutor`)
@@ -18,6 +21,11 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { parseTaskFile } from '@ptah-extension/task-specs';
+import {
+  BATCHES_FILE,
+  CARRIER_FILE,
+  LEGACY_BATCHES_FILE,
+} from '@ptah-extension/shared';
 
 export type SpecBatchStatus = 'COMPLETE' | 'FAILED';
 
@@ -121,7 +129,7 @@ async function fileExists(path: string): Promise<boolean> {
 export async function extractSpec(dir: string): Promise<HarvestedSpec | null> {
   const taskId = basename(dir);
 
-  const taskMd = await readFileSafe(join(dir, 'task.md'));
+  const taskMd = await readFileSafe(join(dir, CARRIER_FILE));
   if (taskMd === null) return null; // no carrier — folder skipped
 
   const parsed = parseTaskFile(taskId, taskMd);
@@ -130,9 +138,12 @@ export async function extractSpec(dir: string): Promise<HarvestedSpec | null> {
   const completed =
     parsed.task.status === 'done' || parsed.task.status === 'cancelled';
 
-  const tasksMd = await readFileSafe(join(dir, 'tasks.md'));
+  // `batches.md` first, then its legacy name. PERMANENT fallback — never warn.
+  const batchesMd =
+    (await readFileSafe(join(dir, BATCHES_FILE))) ??
+    (await readFileSafe(join(dir, LEGACY_BATCHES_FILE)));
   const harvested = await fileExists(join(dir, HARVEST_MARKER_FILE));
-  const batches = tasksMd ? parseBatchVerdicts(tasksMd) : [];
+  const batches = batchesMd ? parseBatchVerdicts(batchesMd) : [];
 
   const findingsParts: string[] = [];
   for (const file of REVIEW_FILES) {

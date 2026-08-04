@@ -476,3 +476,73 @@ describe('SpecHarvesterService — real-store reconciliation provenance', () => 
     },
   );
 });
+
+describe('SpecHarvesterService — carrier-less folder warning', () => {
+  let root: string;
+  let specsRoot: string;
+  let logger: ReturnType<typeof makeLogger>;
+  let svc: SpecHarvesterService;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'spec-harvest-warn-'));
+    specsRoot = join(root, '.ptah', 'specs');
+    await mkdir(specsRoot, { recursive: true });
+    logger = makeLogger();
+    svc = new SpecHarvesterService(
+      logger as never,
+      { getWorkspaceRoot: jest.fn(() => root) } as never,
+      { reconcileSubagentEvent: jest.fn().mockReturnValue(true) } as never,
+    );
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('warns exactly once, naming the carrier-less folder', async () => {
+    await mkdir(join(specsRoot, 'TASK_2026_LEGACY'), { recursive: true });
+    await writeFile(
+      join(specsRoot, 'TASK_2026_LEGACY', 'context.md'),
+      'prose but no carrier',
+      'utf8',
+    );
+
+    await svc.harvest();
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const [message, payload] = logger.warn.mock.calls[0];
+    expect(String(message)).toContain('task.md');
+    expect((payload as { folders: string[] }).folders).toEqual([
+      'TASK_2026_LEGACY',
+    ]);
+  });
+
+  it('names every skipped folder in ONE warn, not one warn per folder', async () => {
+    const names = ['TASK_2026_150', 'TASK_2026_151', 'TASK_2026_152'];
+    for (const name of names) {
+      await mkdir(join(specsRoot, name), { recursive: true });
+    }
+
+    await svc.harvest();
+
+    // R8: a workspace with a dozen carrier-less folders must not produce a
+    // dozen log lines.
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const payload = logger.warn.mock.calls[0][1] as { folders: string[] };
+    expect(payload.folders.sort()).toEqual(names);
+  });
+
+  it('stays silent when every TASK_* folder carries a valid task.md', async () => {
+    const dir = join(specsRoot, 'TASK_2026_200');
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, 'task.md'),
+      taskMd('TASK_2026_200', 'done'),
+      'utf8',
+    );
+
+    await svc.harvest();
+
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+});

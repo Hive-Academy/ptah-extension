@@ -10,7 +10,10 @@
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
-import type { TaskSpecSummary } from '@ptah-extension/shared';
+import type {
+  ExcludedTaskFolder,
+  TaskSpecSummary,
+} from '@ptah-extension/shared';
 import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
 import {
   InMemoryTaskIndexStore,
@@ -80,14 +83,62 @@ const SEED: TaskSpecSummary[] = [
   }),
 ];
 
+/** `n` distinct excluded folders, cycling through every typed reason. */
+function excludedRows(n: number): ExcludedTaskFolder[] {
+  const reasons: ExcludedTaskFolder['reason'][] = [
+    'no_carrier',
+    'no_frontmatter',
+    'yaml_unparseable',
+    'invalid_status',
+    'missing_title',
+    'unreadable',
+  ];
+  return Array.from({ length: n }, (_unused, i) => ({
+    folderName: `TASK_2026_${String(900 + i).padStart(3, '0')}`,
+    reason: reasons[i % reasons.length],
+  }));
+}
+
 // ── shared contract exercised against any ITaskIndexStore ────────────────────
 
 function runContract(makeStore: () => ITaskIndexStore): void {
   it('replaceWorkspace inserts rows + records excluded count', () => {
     const store = makeStore();
-    store.replaceWorkspace(ROOT, SEED, 85);
+    store.replaceWorkspace(ROOT, SEED, excludedRows(85));
     expect(store.listByWorkspace(ROOT)).toHaveLength(3);
     expect(store.getMeta(ROOT)?.excludedCount).toBe(85);
+  });
+
+  it('replaceWorkspace persists the excluded ROWS, not just the count', () => {
+    const store = makeStore();
+    const excluded = excludedRows(3);
+    store.replaceWorkspace(ROOT, SEED, excluded);
+
+    const meta = store.getMeta(ROOT);
+    expect(meta?.excluded).toEqual(excluded);
+    expect(meta?.excludedCount).toBe(excluded.length);
+  });
+
+  it('replaceWorkspace clears excluded rows that no longer apply', () => {
+    const store = makeStore();
+    store.replaceWorkspace(ROOT, SEED, excludedRows(4));
+    store.replaceWorkspace(ROOT, SEED, []);
+
+    expect(store.getMeta(ROOT)?.excluded).toEqual([]);
+    expect(store.getMeta(ROOT)?.excludedCount).toBe(0);
+  });
+
+  it('does not leak the excluded array back to the caller', () => {
+    const store = makeStore();
+    store.replaceWorkspace(ROOT, SEED, excludedRows(2));
+
+    const first = store.getMeta(ROOT);
+    first?.excluded.push({ folderName: 'MUTATED', reason: 'unreadable' });
+
+    expect(store.getMeta(ROOT)?.excluded.map((e) => e.folderName)).toEqual([
+      'TASK_2026_900',
+      'TASK_2026_901',
+    ]);
   });
 
   it('orders newest-first by created (null last)', () => {
@@ -99,7 +150,7 @@ function runContract(makeStore: () => ITaskIndexStore): void {
         task({ id: 'TASK_2026_011', created: '2026-07-13T00:00:00.000Z' }),
         task({ id: 'TASK_2026_012', created: '2026-07-09T00:00:00.000Z' }),
       ],
-      0,
+      [],
     );
     expect(store.listByWorkspace(ROOT).map((t) => t.id)).toEqual([
       'TASK_2026_011',
@@ -110,7 +161,7 @@ function runContract(makeStore: () => ITaskIndexStore): void {
 
   it('filters by status and type', () => {
     const store = makeStore();
-    store.replaceWorkspace(ROOT, SEED, 0);
+    store.replaceWorkspace(ROOT, SEED, []);
     expect(store.listByWorkspace(ROOT, { status: ['done'] })).toHaveLength(2);
     expect(store.listByWorkspace(ROOT, { type: ['BUGFIX'] })).toHaveLength(1);
     expect(
@@ -120,14 +171,14 @@ function runContract(makeStore: () => ITaskIndexStore): void {
 
   it('replaceWorkspace is idempotent — rebuild equivalent to fresh', () => {
     const store = makeStore();
-    store.replaceWorkspace(ROOT, SEED, 5);
-    store.replaceWorkspace(ROOT, SEED, 5);
+    store.replaceWorkspace(ROOT, SEED, excludedRows(5));
+    store.replaceWorkspace(ROOT, SEED, excludedRows(5));
     expect(store.listByWorkspace(ROOT)).toHaveLength(3);
   });
 
   it('deleteByFolder removes a single row', () => {
     const store = makeStore();
-    store.replaceWorkspace(ROOT, SEED, 0);
+    store.replaceWorkspace(ROOT, SEED, []);
     store.deleteByFolder(ROOT, 'TASK_2026_002');
     expect(store.listByWorkspace(ROOT).map((t) => t.id)).not.toContain(
       'TASK_2026_002',
@@ -136,7 +187,7 @@ function runContract(makeStore: () => ITaskIndexStore): void {
 
   it('upsertMany updates existing + inserts new without clobbering the workspace', () => {
     const store = makeStore();
-    store.replaceWorkspace(ROOT, SEED, 0);
+    store.replaceWorkspace(ROOT, SEED, []);
     store.upsertMany(ROOT, [
       task({ id: 'TASK_2026_001', status: 'in_progress' }),
       task({ id: 'TASK_2026_099', status: 'blocked' }),
@@ -162,7 +213,7 @@ function runContract(makeStore: () => ITaskIndexStore): void {
           ],
         }),
       ],
-      0,
+      [],
     );
     const row = store.listByWorkspace(ROOT)[0];
     expect(row.dependsOn).toEqual(['TASK_2026_001', 'TASK_2026_002']);
@@ -177,7 +228,7 @@ describe('InMemoryTaskIndexStore', () => {
   it('does not leak internal references (stored rows are cloned)', () => {
     const store = new InMemoryTaskIndexStore(makeLogger());
     const input = [task({ id: 'TASK_2026_060', dependsOn: ['X'] })];
-    store.replaceWorkspace(ROOT, input, 0);
+    store.replaceWorkspace(ROOT, input, []);
     input[0].dependsOn.push('MUTATED');
     expect(store.listByWorkspace(ROOT)[0].dependsOn).toEqual(['X']);
   });
@@ -232,13 +283,19 @@ describe('store parity (InMemory vs SQLite)', () => {
         db,
       } as unknown as SqliteConnectionService);
 
-      mem.replaceWorkspace(ROOT, SEED, 7);
-      sqlite.replaceWorkspace(ROOT, SEED, 7);
+      mem.replaceWorkspace(ROOT, SEED, excludedRows(7));
+      sqlite.replaceWorkspace(ROOT, SEED, excludedRows(7));
 
       expect(sqlite.listByWorkspace(ROOT)).toEqual(mem.listByWorkspace(ROOT));
       expect(sqlite.getMeta(ROOT)?.excludedCount).toBe(
         mem.getMeta(ROOT)?.excludedCount,
       );
+      // The exclusion ROWS must agree too — the board names folders off these,
+      // and the two impls are chosen by a lazy DI factory the user never sees.
+      expect(sqlite.getMeta(ROOT)?.excluded).toEqual(
+        mem.getMeta(ROOT)?.excluded,
+      );
+      expect(sqlite.getMeta(ROOT)?.excluded).toEqual(excludedRows(7));
     },
   );
 });

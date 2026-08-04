@@ -54,7 +54,10 @@ import {
   registerSkillSynthesisServices,
   SKILL_REPROPAGATION_TOKEN,
 } from '@ptah-extension/skill-synthesis';
-import { registerTaskSpecsServices } from '@ptah-extension/task-specs';
+import {
+  registerTaskSpecsServices,
+  startTaskSpecsIndex,
+} from '@ptah-extension/task-specs';
 import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
 import {
   registerMessagingGatewayServices,
@@ -172,6 +175,11 @@ export function registerPhase2Libraries(
   }
   registerSkillSynthesisServices(container, logger);
   registerTaskSpecsServices(container, logger);
+  // Warm the index at activation (TASK_2026_179 step 11) so `.ptah/specs/
+  // README.md` lands even for a user who never opens the Tasks board. Electron
+  // restores its workspace AFTER DI, so the helper also re-attempts on
+  // `onDidChangeWorkspaceFolders`. Non-blocking and failure-swallowing.
+  startTaskSpecsIndex(container, logger);
   container.registerInstance(
     SKILL_REPROPAGATION_TOKEN,
     new ElectronSkillRepropagation(container),

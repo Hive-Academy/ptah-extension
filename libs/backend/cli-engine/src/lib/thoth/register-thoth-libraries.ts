@@ -25,7 +25,10 @@ import {
   registerSkillSynthesisServices,
   SKILL_REPROPAGATION_TOKEN,
 } from '@ptah-extension/skill-synthesis';
-import { registerTaskSpecsServices } from '@ptah-extension/task-specs';
+import {
+  registerTaskSpecsServices,
+  startTaskSpecsIndex,
+} from '@ptah-extension/task-specs';
 import {
   registerCronSchedulerServices,
   CRON_TOKENS,
@@ -120,6 +123,10 @@ export function registerThothLibraries(
   // fanned to all hosts via registerAllRpcHandlers, so its backing services
   // must resolve even if the skill-synthesis block above degraded.
   registerTaskSpecsServices(container, logger);
+  // Warm the index at activation (TASK_2026_179 step 11) so `.ptah/specs/
+  // README.md` lands even in a headless run that never touches the Tasks RPCs.
+  // Non-blocking and failure-swallowing by contract — see startTaskSpecsIndex.
+  startTaskSpecsIndex(container, logger);
 
   try {
     container.register(CRON_TOKENS.CRON_POWER_MONITOR, {

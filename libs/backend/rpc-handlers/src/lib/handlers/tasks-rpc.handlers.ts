@@ -233,10 +233,14 @@ export class TasksRpcHandlers {
         const root = this.resolveRoot(parsed.workspaceRoot);
         try {
           await this.index.ensureStarted(root);
-          const { tasks, excludedCount, specsDirExists } =
+          const { tasks, excluded, excludedCount, specsDirExists } =
             await this.index.list(root);
           return {
             columns: this.groupByStatus(tasks),
+            // Names + typed reasons, not just a magnitude: a folder that
+            // vanished from the board is only actionable once the user can see
+            // WHICH folder and WHY (TASK_2026_179, step 10).
+            excluded,
             excludedCount,
             specsDirExists,
           };

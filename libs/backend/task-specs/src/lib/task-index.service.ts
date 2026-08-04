@@ -30,7 +30,14 @@ import {
   type IDisposable,
 } from '@ptah-extension/platform-core';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import type { TaskSpecDetail, TaskSpecSummary } from '@ptah-extension/shared';
+import {
+  CARRIER_FILE,
+  SPECS_README_FILE,
+  renderSpecsReadme,
+  type ExcludedTaskFolder,
+  type TaskSpecDetail,
+  type TaskSpecSummary,
+} from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { parseTaskFile } from './task-frontmatter';
 import { TaskScannerService } from './task-scanner.service';
@@ -57,6 +64,12 @@ export interface ReindexResult {
 /** Board/list payload assembled from the derived index. */
 export interface IndexListResult {
   tasks: TaskSpecSummary[];
+  /**
+   * Every skipped folder BY NAME with its typed reason. `excludedCount` stays
+   * alongside it as the authoritative total, so a store that lost its rows can
+   * still report the magnitude honestly rather than claiming zero.
+   */
+  excluded: ExcludedTaskFolder[];
   excludedCount: number;
   specsDirExists: boolean;
 }
@@ -64,6 +77,13 @@ export interface IndexListResult {
 /** Per-workspace watcher + debounce state. */
 interface WorkspaceState {
   started: boolean;
+  /**
+   * The in-flight first start, if any. Concurrent callers JOIN it instead of
+   * returning early: since TASK_2026_179 step 11 the host calls `ensureStarted`
+   * at activation, so an RPC can now arrive while the very first scan is still
+   * running. Returning early there would hand that RPC an empty index.
+   */
+  startPromise: Promise<boolean> | null;
   watcher: IFileWatcher | null;
   subscriptions: IDisposable[];
   specsDirExists: boolean;
@@ -72,9 +92,23 @@ interface WorkspaceState {
 }
 
 const DEBOUNCE_MS = 300;
-const CARRIER_FILE = 'task.md';
 const REGISTRY_FILE = 'registry.md';
 const SPECS_GLOB = '**/.ptah/specs/**';
+
+/**
+ * Files this service itself generates at the ROOT of `.ptah/specs/`.
+ *
+ * Watcher events for these are dropped — they are our own writes, and a
+ * self-triggered rebuild loop is the whole hazard here (`ensureStarted` writes
+ * `README.md` into the very directory it watches). Suppression is path-based
+ * rather than a timing window on purpose: a window is racy under a slow or
+ * coalescing watcher, whereas these paths are NEVER a task folder, so dropping
+ * them is unconditionally correct.
+ */
+const GENERATED_ROOT_FILES: readonly string[] = [
+  REGISTRY_FILE,
+  SPECS_README_FILE,
+];
 
 @injectable()
 export class TaskIndexService implements ITaskIndexNotifier {
@@ -102,17 +136,27 @@ export class TaskIndexService implements ITaskIndexNotifier {
   }
 
   /**
-   * Lazy start: first call for a workspace performs a full (silent) reindex and
-   * creates the watcher. Idempotent — later calls are cheap no-ops. No app
-   * activation-file changes; the CLI never pays for a watcher it doesn't use.
+   * Lazy start: first call for a workspace performs a full (silent) reindex,
+   * creates the watcher and writes the specs README. Idempotent — later calls
+   * are cheap no-ops, and concurrent first calls collapse into exactly ONE
+   * rebuild and ONE README write (R4).
+   *
+   * Two callers race in practice: the host at activation and `tasks:*` RPCs.
+   * `started` is latched SYNCHRONOUSLY before the first `await`, so the second
+   * caller can never begin a rebuild of its own; it awaits the first instead.
    */
   async ensureStarted(workspaceRoot: string): Promise<void> {
     const root = normalizeWorkspaceRoot(workspaceRoot);
     const existing = this.states.get(root);
-    if (existing?.started) return;
+    if (existing?.started) {
+      // Join a still-warming first call rather than returning an empty index.
+      if (existing.startPromise) await existing.startPromise;
+      return;
+    }
 
     const state: WorkspaceState = existing ?? {
       started: false,
+      startPromise: null,
       watcher: null,
       subscriptions: [],
       specsDirExists: false,
@@ -122,10 +166,82 @@ export class TaskIndexService implements ITaskIndexNotifier {
     state.started = true;
     this.states.set(root, state);
 
+    const start = this.performStart(root, state);
+    state.startPromise = start;
+    try {
+      const indexWritten = await start;
+      if (!indexWritten) {
+        // The README landed but the derived index did not — the store is
+        // chosen lazily and its SQLite connection opens LATER in the Electron
+        // and CLI boot than DI registration does. Un-latch so the next caller
+        // performs a real warm-up instead of inheriting an empty index for the
+        // rest of the session.
+        state.started = false;
+      }
+    } catch (error: unknown) {
+      state.started = false;
+      throw error;
+    } finally {
+      state.startPromise = null;
+    }
+  }
+
+  /**
+   * The actual first-start work. Returns whether the derived index was written;
+   * the README write is independent and happens either way, because a host that
+   * cannot index yet still needs the contract doc on disk.
+   */
+  private async performStart(
+    root: string,
+    state: WorkspaceState,
+  ): Promise<boolean> {
     this.startWatcher(root, state);
     // Initial index is silent — the caller (RPC handler) returns the data
     // itself, so an extra push would be redundant noise.
-    await this.rebuild(root, [], 'reindex', false);
+    const { indexWritten } = await this.rebuild(root, [], 'reindex', false);
+    await this.ensureSpecsReadme(root, state);
+    return indexWritten;
+  }
+
+  /**
+   * Write `.ptah/specs/README.md` when its content differs from what we render.
+   *
+   * This is the data-plane doc: the ONLY channel that states the carrier
+   * contract to a user whose `.claude/` clone has diverged from the shipped
+   * orchestration skill. It is deliberately NOT a migration — nothing under a
+   * `TASK_*` folder is read, touched or rewritten here (automatic migration
+   * inside `ensureStarted` is explicitly rejected by the design).
+   *
+   * Only written when `.ptah/specs/` already exists: a workspace that has never
+   * used tasks should not have the tree materialized under it just by opening.
+   *
+   * Never throws — a read-only or otherwise unwritable workspace must degrade
+   * to "no README", not to a failed activation.
+   */
+  private async ensureSpecsReadme(
+    root: string,
+    state: WorkspaceState,
+  ): Promise<void> {
+    if (!state.specsDirExists) return;
+    const readmePath = path.join(root, '.ptah', 'specs', SPECS_README_FILE);
+    try {
+      const rendered = renderSpecsReadme();
+      // Content comparison IS the hash comparison, minus the collision risk.
+      // `renderSpecsReadme` is deterministic, so a matching file means there is
+      // genuinely nothing to do and we must not rewrite it — an unconditional
+      // write would touch the file on every activation.
+      let current: string | null = null;
+      if (await this.fs.exists(readmePath)) {
+        current = await this.fs.readFile(readmePath);
+      }
+      if (current === rendered) return;
+      await this.fs.writeFile(readmePath, rendered);
+      this.logger.info('[task-specs] wrote .ptah/specs/README.md');
+    } catch (error: unknown) {
+      this.logger.warn('[task-specs] failed to write specs README', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**
@@ -179,6 +295,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
     const state = this.states.get(root);
     return {
       tasks,
+      excluded: meta?.excluded ?? [],
       excludedCount: meta?.excludedCount ?? 0,
       specsDirExists: state?.specsDirExists ?? false,
     };
@@ -267,7 +384,8 @@ export class TaskIndexService implements ITaskIndexNotifier {
     if (rest.length === 0) return null;
     const folderName = rest.split('/')[0];
     if (!folderName) return null;
-    if (folderName === REGISTRY_FILE) return null; // generated file at specs root
+    // Our own generated files at the specs root (registry.md, README.md).
+    if (GENERATED_ROOT_FILES.includes(folderName)) return null;
     if (folderName.startsWith('.')) return null; // .archive/ + dot-dirs
     return folderName;
   }
@@ -291,18 +409,27 @@ export class TaskIndexService implements ITaskIndexNotifier {
     folderNames: string[],
     reason: TaskIndexChangeEvent['reason'],
     emit: boolean,
-  ): Promise<{ indexedCount: number; excludedCount: number }> {
+  ): Promise<{
+    indexedCount: number;
+    excludedCount: number;
+    indexWritten: boolean;
+  }> {
     const scan = await this.scanner.scan(root);
     const summaries: TaskSpecSummary[] = scan.tasks.map(
       ({ body: _body, ...summary }) => summary,
     );
+    let indexWritten = true;
     try {
-      this.store.replaceWorkspace(root, summaries, scan.excluded.length);
+      this.store.replaceWorkspace(root, summaries, scan.excluded);
     } catch (error: unknown) {
-      this.logger.error(
-        '[task-specs] index rebuild write failed',
-        error instanceof Error ? error : new Error(String(error)),
-      );
+      indexWritten = false;
+      // WARN, not ERROR: the commonest cause is a store whose SQLite
+      // connection has not been opened yet (Electron/CLI open it well after DI
+      // registration). `ensureStarted` treats this as "not started" and retries
+      // on the next call, so it is recoverable rather than a defect.
+      this.logger.warn('[task-specs] index rebuild write failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
     const state = this.states.get(root);
     if (state) state.specsDirExists = scan.specsDirExists;
@@ -312,6 +439,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
     return {
       indexedCount: summaries.length,
       excludedCount: scan.excluded.length,
+      indexWritten,
     };
   }
 
