@@ -17,6 +17,7 @@ import { HealthModule } from '../health/health.module';
 import { AdminModule } from '@ptah-api/admin';
 import { AuditModule } from '@ptah-api/audit';
 import { MarketingModule } from '@ptah-api/marketing';
+import { MembershipModule } from '@ptah-api/membership';
 import { CircleModule } from '@ptah-api/community';
 import { GoogleSessionsModule } from '@ptah-api/community';
 import { DiscourseModule } from '@ptah-api/community';
@@ -59,6 +60,12 @@ import { PacksModule } from '@ptah-api/community';
     EventEmitterModule.forRoot(),
     PrismaModule,
     AuditModule,
+    // TASK_2026_177 P1a — THE membership definition (@Global). R7.3 requires it
+    // to be registered BEFORE every consumer: `MemberGuard` and
+    // `MembershipService` are resolved out of the global provider scope, which
+    // only exists once this module has been instantiated. Every member
+    // controller in P2–P5 declares `@UseGuards(JwtAuthGuard, MemberGuard)`.
+    MembershipModule,
     CircleModule, // Circle community provisioning for paid Builders members
     GoogleSessionsModule, // Google Calendar/Meet Builders sessions + members area
     DiscourseModule, // DiscourseConnect SSO + builders group sync

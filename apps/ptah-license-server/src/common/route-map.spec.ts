@@ -223,7 +223,8 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * except `webhooks/paddle` and `webhooks/resend`, and that mapping is orthogonal
  * to the invariants below.
  *
- * Counted from source on 2026-08-01: **65 routes**. Cross-checked against the
+ * Counted from source on 2026-08-01: **65 routes**; **66** since `080cc3b3f`
+ * added `POST v1/admin/sessions/:eventId/invitations`. Cross-checked against the
  * running container's `RouterExplorer` log
  * (`docker logs ptah_license_server | grep -oE 'Mapped \{[^}]*\}' | sort -u`),
  * which also reports 65.
@@ -267,6 +268,14 @@ const EXPECTED_ROUTES: readonly string[] = [
   'GET v1/events/health',
   'GET v1/events/subscribe',
   'GET v1/licenses/me',
+  // AD-12: `MembersController` moved from @Controller('v1/members') + @Get('sessions')
+  // to @Controller('v1/members/sessions') + a bare @Get(). The resolved path is
+  // UNCHANGED — which is exactly why this line is not edited. The point of the
+  // move is RI-1: `v1/members` was a strict path-prefix of the `v1/members/hub`
+  // and `v1/members/entitlement` controllers that follow it, and a prefix
+  // relationship here is what RI-1 forbids. Every member controller is now a
+  // disjoint sibling at a depth-3 LITERAL segment, and none may ever declare a
+  // route parameter at segment 3.
   'GET v1/members/sessions',
   'GET v1/sessions/eligibility',
   'GET v1/sso/discourse',
@@ -284,6 +293,14 @@ const EXPECTED_ROUTES: readonly string[] = [
   'POST v1/admin/marketing/templates',
   'POST v1/admin/packs',
   'POST v1/admin/sessions',
+  // Landed by `080cc3b3f` (admin notifies guests when a session really moves)
+  // WITHOUT being written down here, so this ledger was already failing before
+  // TASK_2026_177 touched it. Recorded now rather than worked around: the whole
+  // point of this list is that a surface change shows up as a diff, and an
+  // entry that exists on the server but not here makes every later diff start
+  // from a red baseline. Not part of AD-12 — the member re-declaration below is
+  // byte-identical on the wire and produced no diff at all.
+  'POST v1/admin/sessions/:eventId/invitations',
   'POST v1/admin/users/bulk-email',
   'POST v1/admin/waitlist/invite',
   'POST v1/auth/login/email',

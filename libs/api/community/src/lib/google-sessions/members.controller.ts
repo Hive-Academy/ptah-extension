@@ -12,7 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '@ptah-api/identity';
-import { PrismaService } from '@ptah-api/core';
+import { MembershipService } from '@ptah-api/membership';
 import { SessionsService } from './sessions.service';
 import type { BuildersSession } from './google-sessions.types';
 import {
@@ -33,14 +33,33 @@ import {
  *
  * Feature-off (Google unconfigured): `sessions` is `[]` — the endpoint still
  * responds so the frontend has a stable contract.
+ *
+ * ── AD-12: WHY THE PREFIX IS THE FULL PATH AND THE @Get() IS BARE ──────────
+ * This used to be `@Controller('v1/members')` + `@Get('sessions')`. The
+ * resolved URL is byte-identical either way, so nothing on the wire changed —
+ * but `v1/members` is a strict path-PREFIX of `v1/members/hub`,
+ * `v1/members/entitlement` and every other member controller that follows,
+ * which fails RI-1 in `apps/ptah-license-server/src/common/route-map.spec.ts`
+ * and blocks the build.
+ *
+ * Re-declaring the controller at the full literal path makes every member
+ * controller a disjoint sibling at a fixed depth-3 LITERAL segment. No member
+ * controller may declare a route parameter at segment 3 — that is what keeps
+ * the whole family RI-1/RI-2 clean without anyone having to reason about
+ * module registration order.
  */
-@Controller('v1/members')
+@Controller('v1/members/sessions')
 export class MembersController {
   private readonly logger = new Logger(MembersController.name);
 
   constructor(
     @Inject(SessionsService) private readonly sessions: SessionsService,
-    @Inject(PrismaService) private readonly prisma: PrismaService,
+    // THE membership definition, extracted to `@ptah-api/membership` (R7.2).
+    // This controller used to carry its own inline copy of the
+    // subscription-then-license query; it was DELETED rather than merged, so
+    // there is now exactly one implementation and it cannot drift from the one
+    // every other member surface uses.
+    @Inject(MembershipService) private readonly membership: MembershipService,
     @Inject(ConfigService) private readonly configService: ConfigService,
     // Optional: member-cohort lookup for the sessions response. Bound by the
     // @Global() MemberGroupsModule; @Optional + best-effort read means a
@@ -50,7 +69,7 @@ export class MembersController {
     private readonly memberGroups?: MemberGroupsService,
   ) {}
 
-  @Get('sessions')
+  @Get()
   @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   async getSessions(@Req() req: Request): Promise<{
@@ -60,7 +79,7 @@ export class MembersController {
   }> {
     const user = req.user as { id: string; email: string };
 
-    const isBuilders = await this.isBuildersMember(user.id);
+    const isBuilders = await this.membership.isBuildersMember(user.id);
     if (!isBuilders) {
       throw new ForbiddenException({ reason: 'membership_required' });
     }
@@ -96,35 +115,5 @@ export class MembersController {
   private communityUrl(): string | null {
     const url = this.configService.get<string>('DISCOURSE_URL')?.trim();
     return url ? url.replace(/\/+$/, '') : null;
-  }
-
-  /**
-   * Resolve whether the user currently holds an active Builders membership,
-   * from the database (subscription first, then license) — mirrors the tier
-   * logic in JwtTokenService.determineTier but scoped to the Builders gate.
-   */
-  private async isBuildersMember(userId: string): Promise<boolean> {
-    const subscription = await this.prisma.subscription.findFirst({
-      where: {
-        userId,
-        status: { in: ['active', 'trialing'] },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-    if (subscription) {
-      return true;
-    }
-
-    const license = await this.prisma.license.findFirst({
-      where: { userId, status: 'active', plan: 'builders' },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!license) {
-      return false;
-    }
-    if (license.expiresAt && license.expiresAt < new Date()) {
-      return false;
-    }
-    return true;
   }
 }

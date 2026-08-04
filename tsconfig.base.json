@@ -175,12 +175,16 @@
       "@ptah-api/audit": ["./libs/api/audit/src/index.ts"],
       "@ptah-api/email": ["./libs/api/email/src/index.ts"],
       "@ptah-api/identity": ["./libs/api/identity/src/index.ts"],
+      "@ptah-api/membership": ["./libs/api/membership/src/index.ts"],
       "@ptah-api/community": ["./libs/api/community/src/index.ts"],
       "@ptah-api/marketing": ["./libs/api/marketing/src/index.ts"],
       "@ptah-api/licensing": ["./libs/api/licensing/src/index.ts"],
       "@ptah-api/billing": ["./libs/api/billing/src/index.ts"],
       "@ptah-api/billing/testing": ["./libs/api/billing/src/testing/index.ts"],
-      "@ptah-api/admin": ["./libs/api/admin/src/index.ts"]
+      "@ptah-api/admin": ["./libs/api/admin/src/index.ts"],
+      "@ptah-contracts/community": [
+        "./libs/api-contracts/community/src/index.ts"
+      ]
     }
   },
   "exclude": ["node_modules", "tmp"]
