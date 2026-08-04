@@ -14,9 +14,11 @@ import {
 } from '@ptah-extension/core';
 import {
   TASK_STATUSES,
+  TaskMetadataPatchSchema,
   buildTaskGraph,
   type ExcludedTaskFolder,
   type TaskGraph,
+  type TaskMetadataPatch,
   type TaskSpecDetail,
   type TaskSpecSummary,
   type TaskStatus,
@@ -25,6 +27,7 @@ import {
   type TasksChangedNotification,
   type TasksCreateParams,
   type TasksCreateResult,
+  type TasksUpdateMetadataResult,
 } from '@ptah-extension/shared';
 import { isTaskExclusionReason } from '../task-presentation';
 
@@ -135,6 +138,18 @@ function withRelationArrays(task: TaskSpecSummary): TaskSpecSummary {
   };
 }
 
+/** Options for {@link TasksStore.applyMetadata}. */
+export interface ApplyMetadataOptions {
+  /**
+   * Re-read the authoritative board (and the open detail, when it is this
+   * task) once the write succeeds. Defaults to `true`.
+   *
+   * The bulk paths pass `false` and issue exactly ONE reload for the whole
+   * run instead of one per carrier.
+   */
+  readonly reload?: boolean;
+}
+
 /** Empty six-key column map — every status key is always present (R4). */
 function emptyColumns(): Record<TaskStatus, TaskSpecSummary[]> {
   return TASK_STATUSES.reduce(
@@ -232,6 +247,13 @@ export class TasksStore implements MessageHandler {
    * A→B→A double fetch) can never let the older response win (Issue 4).
    */
   private readonly boardReqSeq = new Map<string, number>();
+
+  /**
+   * Per-task write queue: the tail of the promise chain currently outstanding
+   * for a task id. Consumed by {@link enqueueWrite}; the entry is removed once
+   * its own tail settles and nothing newer has replaced it.
+   */
+  private readonly writeTails = new Map<string, Promise<unknown>>();
 
   /**
    * Monotonic detail-request stamp. {@link openTask} bumps it before firing and
@@ -493,30 +515,88 @@ export class TasksStore implements MessageHandler {
   }
 
   /**
-   * Move a task to a new status. No optimistic transition (R5.7): the card only
-   * moves once the authoritative board re-fetch (or the `tasks:changed` push)
-   * lands.
+   * THE client mutation funnel. Every carrier write this webview issues goes
+   * through here and through `tasks:updateMetadata` — there is no second path.
+   *
+   * ## Full replacement, computed by the caller
+   *
+   * Each field of the patch REPLACES the carrier's value. Adding or removing a
+   * single label or relation is arithmetic the caller performs on the task it
+   * already holds, then sends as a whole array. `[]` and `null` remove the key
+   * — except `dependsOn: []`, which is still written as `[]` (pre-existing
+   * behaviour, deliberately not "fixed"). The writer stays free of
+   * read-modify-write semantics it has no way to make atomic.
+   *
+   * ## Validated against the SHARED schema, not a local copy
+   *
+   * The three label limits (no newline, ≤ 32 characters, ≤ 12 per task) and the
+   * single-path-segment rule for every task reference live in
+   * `TaskMetadataPatchSchema` and nowhere else. This method runs that exact
+   * schema and surfaces its issue message VERBATIM, so the sentence the user
+   * reads is the one the boundary actually enforces. Restating a limit here
+   * would drift the moment either side moved.
+   *
+   * Pre-validating is not redundant with the RPC boundary: the handler
+   * deliberately collapses every Zod failure to a generic
+   * "Invalid task request parameters." so that no internal detail reaches the
+   * wire. A caller told only that would have nothing to act on.
+   *
+   * ## `patch` is validated here; `taskId` deliberately is not
+   *
+   * A malformed `taskId` is refused by `TasksUpdateMetadataParamsSchema` at the
+   * RPC boundary and reaches the user as that same generic sentence — no
+   * specific one. That asymmetry is intentional, not an oversight. `patch`
+   * carries values a person TYPED, so a precise message is the difference
+   * between a fixable mistake and a dead end. `taskId` never does: every caller
+   * takes it from the board graph, a rendered card, or a relation chip, all of
+   * which come from folder names the scanner already accepted. There is no free
+   * text path into it, so a rejection here would mean a bug in this webview
+   * rather than a mistake the user could correct — and the guard that catches it
+   * is the shared `TaskIdRefSchema`, on the boundary that joins it onto a path.
+   * A client-side copy would be a fourth implementation of a check that exists
+   * once on purpose.
+   *
+   * ## Serialized per task
+   *
+   * The RPC is issued inside {@link enqueueWrite}, so two edits to the same
+   * carrier never overlap. See that method for what this does and does not
+   * guarantee.
+   *
+   * No optimistic state (R5.7): the board moves only on the authoritative
+   * re-fetch that follows a successful write.
+   */
+  public async applyMetadata(
+    taskId: string,
+    patch: TaskMetadataPatch,
+    options: ApplyMetadataOptions = {},
+  ): Promise<TasksUpdateMetadataResult> {
+    const parsed = TaskMetadataPatchSchema.safeParse(patch);
+    if (!parsed.success) {
+      // Verbatim, first issue first. The schema owns the wording.
+      const message =
+        parsed.error.issues[0]?.message ?? 'The requested change is not valid.';
+      this._error.set(message);
+      return { success: false, error: { code: 'INVALID_PARAMS', message } };
+    }
+
+    this._error.set(null);
+    const reload = options.reload ?? true;
+    return this.enqueueWrite(taskId, () =>
+      this.writeMetadata(taskId, parsed.data, reload),
+    );
+  }
+
+  /**
+   * Move a task to a new status.
+   *
+   * A thin call onto {@link applyMetadata} rather than a second write path: a
+   * status change IS a metadata patch, and the backend `updateStatus` is itself
+   * a delegate onto the same `applyFrontmatterPatch`. Keeping a parallel client
+   * path would mean two places to serialize, two places to surface a conflict,
+   * and two places for Batches 7/9/12/14 to diverge from.
    */
   public async updateStatus(taskId: string, status: TaskStatus): Promise<void> {
-    this._error.set(null);
-    const result = await this.rpc.call('tasks:updateStatus', {
-      taskId,
-      status,
-      ...this.workspaceParam(),
-    });
-    if (result.isSuccess() && result.data?.success) {
-      await this.loadBoard();
-      if (this._selectedTaskId() === taskId && result.data.task) {
-        // Refresh the open detail with the authoritative row (not a guess).
-        await this.openTask(taskId);
-      }
-    } else {
-      this._error.set(
-        result.data?.error?.message ??
-          result.error ??
-          'Failed to update task status',
-      );
-    }
+    await this.applyMetadata(taskId, { status });
   }
 
   /** Create a new task folder + `task.md`, then reload the board. */
@@ -619,6 +699,146 @@ export class TasksStore implements MessageHandler {
   private workspaceParam(): { workspaceRoot?: string } {
     const root = this.appState.workspaceInfo()?.path;
     return root ? { workspaceRoot: root } : {};
+  }
+
+  /**
+   * Serialize writes to ONE carrier: `op` runs only after every write already
+   * queued for `taskId` has settled.
+   *
+   * ## What this does NOT do
+   *
+   * It provides no correctness guarantee, and nothing here should be read as
+   * one. Correctness comes from the writer's own pre-write re-read: it compares
+   * the file byte-for-byte against what it parsed and refuses the write if
+   * anything touched it in between. That check is what makes a concurrent
+   * editor — another window, an agent, a text editor — safe, and it stays the
+   * only thing that does.
+   *
+   * ## What it DOES do
+   *
+   * It removes this UI's ability to manufacture a `TASK_CONFLICT` **against
+   * itself**. Every patch is a full replacement computed from a snapshot the
+   * caller already holds, so two overlapping writes to one carrier means the
+   * second was computed before the first landed — the writer sees a file that
+   * moved and refuses. Without this queue a user toggling two labels quickly
+   * would hit that constantly, and the refusal would be entirely self-inflicted.
+   *
+   * ## Two details that are not stylistic
+   *
+   * `prev.then(op, op)` passes `op` as BOTH handlers, so a REJECTED predecessor
+   * still starts the next write instead of leaving every later write on that
+   * task waiting on a promise that never fulfils.
+   *
+   * Stated precisely, because a reader who checks will find the second handler
+   * never fires today: what is stored in the map is `tail`, not `run`, and
+   * `tail` already swallows both outcomes — so `prev` is always a fulfilled
+   * promise and the rejection handler is unreachable *as currently wired*. It
+   * is kept because the guarantee has to survive the map holding something
+   * else. Store `run` instead of `tail` and the two lines stop being
+   * equivalent immediately: the queue wedges on the first failed write. That
+   * pair is pinned by "does not wedge the queue when a predecessor rejects" —
+   * verified to fail when `tail` is swapped for `run` while `then(op)` stands
+   * alone, and to pass when either half is present.
+   *
+   * The identity check before `delete` is what keeps the serialization working
+   * under the exact interleaving it exists to prevent. A stale cleanup that
+   * deleted unconditionally would drop a NEWER chain from the map, and the next
+   * write would find no tail and start immediately — overlapping the chain it
+   * was supposed to follow.
+   *
+   * The map holds only tasks with an outstanding write, so it self-empties.
+   */
+  private enqueueWrite<T>(taskId: string, op: () => Promise<T>): Promise<T> {
+    const prev = this.writeTails.get(taskId) ?? Promise.resolve();
+    const run = prev.then(op, op);
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.writeTails.set(taskId, tail);
+    void tail.then(() => {
+      if (this.writeTails.get(taskId) === tail) this.writeTails.delete(taskId);
+    });
+    return run;
+  }
+
+  /**
+   * One carrier write plus its authoritative re-read. Always invoked inside
+   * {@link enqueueWrite}; never called directly.
+   */
+  private async writeMetadata(
+    taskId: string,
+    patch: TaskMetadataPatch,
+    reload: boolean,
+  ): Promise<TasksUpdateMetadataResult> {
+    // The RPC service resolves with a failed `RpcResult` on timeout and abort,
+    // but a broken transport can still throw. A throw here would escape through
+    // a template event handler as an unhandled rejection and leave the user
+    // with a silent no-op, so it is turned into the same typed failure every
+    // other refusal takes.
+    let result: Awaited<
+      ReturnType<typeof this.rpc.call<'tasks:updateMetadata'>>
+    >;
+    try {
+      result = await this.rpc.call('tasks:updateMetadata', {
+        taskId,
+        patch,
+        ...this.workspaceParam(),
+      });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to update task metadata';
+      this._error.set(message);
+      return { success: false, error: { code: 'WRITE_FAILED', message } };
+    }
+
+    if (!(result.isSuccess() && result.data)) {
+      const message = result.error ?? 'Failed to update task metadata';
+      this._error.set(message);
+      return { success: false, error: { code: 'WRITE_FAILED', message } };
+    }
+
+    const data = result.data;
+    if (!data.success) {
+      this._error.set(data.error?.message ?? 'Failed to update task metadata');
+      return data;
+    }
+
+    if (reload) {
+      // The write has ALREADY LANDED by this point. A failure from here on is a
+      // refresh failure, not a write failure, and the two must not be conflated:
+      // telling a user their edit failed when it is on disk is worse than
+      // telling them nothing, because the obvious response is to make it again.
+      //
+      // Unguarded, a throw here rejects `applyMetadata`, escapes through a
+      // template event handler as an unhandled rejection, and sets no error at
+      // all — leaving the user looking at stale state with no signal that it is
+      // stale. That is precisely the state this batch newly makes reachable, so
+      // it is caught and named here rather than left to the caller.
+      try {
+        await this.loadBoard();
+        if (this._selectedTaskId() === taskId && data.task) {
+          // Refresh the open detail with the authoritative row (not a guess).
+          await this.openTask(taskId);
+        }
+      } catch (error: unknown) {
+        this._error.set(TasksStore.refreshFailedMessage(error));
+      }
+    }
+    return data;
+  }
+
+  /**
+   * The sentence shown when a write succeeded but the re-read that follows it
+   * did not. Deliberately distinguishable from every write-failure message: it
+   * states the change is saved FIRST, then that the view is stale, then the one
+   * action that fixes it.
+   */
+  private static refreshFailedMessage(error: unknown): string {
+    const detail = error instanceof Error ? error.message : String(error);
+    return `The change was saved, but the board could not be reloaded, so what you see may be out of date. Reindex or reopen the board to refresh. (${detail})`;
   }
 
   /**

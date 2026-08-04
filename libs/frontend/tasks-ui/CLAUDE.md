@@ -27,9 +27,16 @@ board/column/card/detail components, and `TASKS_CHANGED_MESSAGE_TYPE`.
 ## Internal Structure
 
 - `src/lib/services/tasks-store.service.ts` — root-provided signal store; all
-  data via `ClaudeRpcService` (`tasks:board/get/create/updateStatus/reindex/
+  data via `ClaudeRpcService` (`tasks:board/get/create/updateMetadata/reindex/
 generateRegistry`); `MessageHandler` for `tasks:changed` → refresh. **No
   optimistic state** (R5.7): status changes re-fetch the authoritative board.
+  **Every carrier write goes through `applyMetadata`, and through
+  `tasks:updateMetadata` — there is no second mutating call site.** A status
+  change is a metadata patch: `updateStatus` is a call onto `applyMetadata`, so
+  the board no longer issues `tasks:updateStatus` (the method still exists on
+  the wire for the CLI and MCP paths). Writes are serialized per task id by
+  `enqueueWrite`, which removes this UI's ability to raise a `TASK_CONFLICT`
+  against itself; correctness still comes from the writer's pre-write re-read.
 - `src/lib/components/tasks-view.component.ts` — smart page: header actions
   (New Task, Registry, the exclusions drawer trigger, Reindex), empty state with
   create CTA, board + detail panel, New Task modal, exclusions drawer.

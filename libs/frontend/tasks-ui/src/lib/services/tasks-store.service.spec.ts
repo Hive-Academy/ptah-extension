@@ -10,6 +10,8 @@ import { TestBed } from '@angular/core/testing';
 import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import {
   TASK_STATUSES,
+  TaskMetadataPatchSchema,
+  type TaskMetadataPatch,
   type TaskSpecSummary,
   type TaskStatus,
   type TasksBoardResult,
@@ -151,6 +153,9 @@ describe('TasksStore', () => {
     expect(rpcCall).not.toHaveBeenCalled();
   });
 
+  // `updateStatus` is a call onto `applyMetadata` — one client mutation funnel,
+  // one RPC method. `tasks:updateStatus` still exists on the wire for the CLI
+  // and MCP paths; the board does not use it.
   it('updateStatus does NOT optimistically move the card before re-fetch', async () => {
     rpcCall.mockResolvedValueOnce(
       ok(makeBoard({ backlog: [makeTask('TASK_2026_200', 'backlog')] })),
@@ -170,9 +175,9 @@ describe('TasksStore', () => {
 
     await store.updateStatus('TASK_2026_200', 'in_progress');
 
-    expect(rpcCall).toHaveBeenCalledWith('tasks:updateStatus', {
+    expect(rpcCall).toHaveBeenCalledWith('tasks:updateMetadata', {
       taskId: 'TASK_2026_200',
-      status: 'in_progress',
+      patch: { status: 'in_progress' },
     });
     // The board reflects the server-authoritative re-fetch, not a local guess.
     expect(store.columns().backlog).toHaveLength(0);
@@ -391,6 +396,465 @@ describe('TasksStore', () => {
       expect(store.columns().backlog[0].labels).toEqual([]);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // applyMetadata — the single client mutation funnel (Task 5.1)
+  // -------------------------------------------------------------------------
+  describe('applyMetadata', () => {
+    const TASK = 'TASK_2026_200';
+
+    /**
+     * The SHARED schema's own message for a patch it refuses.
+     *
+     * Read out of the schema rather than typed out here on purpose. A literal
+     * expectation would be a second copy of the wording, and the whole point of
+     * surfacing the issue verbatim is that there is exactly one copy.
+     */
+    function schemaMessage(patch: TaskMetadataPatch): string {
+      const parsed = TaskMetadataPatchSchema.safeParse(patch);
+      if (parsed.success) {
+        throw new Error('expected the shared schema to refuse this patch');
+      }
+      return parsed.error.issues[0].message;
+    }
+
+    it('writes through tasks:updateMetadata and re-reads the board', async () => {
+      const written = makeTask(TASK, 'backlog', { labels: ['licensing'] });
+      rpcCall.mockResolvedValueOnce(ok({ success: true, task: written }));
+      rpcCall.mockResolvedValueOnce(ok(makeBoard({ backlog: [written] })));
+
+      const result = await store.applyMetadata(TASK, { labels: ['licensing'] });
+
+      expect(result.success).toBe(true);
+      expect(rpcCall).toHaveBeenNthCalledWith(1, 'tasks:updateMetadata', {
+        taskId: TASK,
+        patch: { labels: ['licensing'] },
+      });
+      expect(rpcCall).toHaveBeenNthCalledWith(2, 'tasks:board', {});
+      expect(store.columns().backlog[0].labels).toEqual(['licensing']);
+    });
+
+    it('issues one write and no board fetch under { reload: false }', async () => {
+      rpcCall.mockResolvedValue(
+        ok({ success: true, task: makeTask(TASK, 'backlog') }),
+      );
+
+      await store.applyMetadata(TASK, { estimate: 'M' }, { reload: false });
+
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+      expect(rpcCall).toHaveBeenCalledWith('tasks:updateMetadata', {
+        taskId: TASK,
+        patch: { estimate: 'M' },
+      });
+    });
+
+    it('sends an emptied array verbatim — key removal is the writer’s decision', async () => {
+      rpcCall.mockResolvedValue(
+        ok({ success: true, task: makeTask(TASK, 'backlog') }),
+      );
+
+      await store.applyMetadata(
+        TASK,
+        { labels: [], duplicates: [], dependsOn: [] },
+        { reload: false },
+      );
+
+      // `[]` reaches the wire unchanged for all three. The writer removes the
+      // key for `labels` / `duplicates` and still writes `dependsOn: []` — the
+      // client does not encode that asymmetry a second time.
+      expect(rpcCall).toHaveBeenCalledWith('tasks:updateMetadata', {
+        taskId: TASK,
+        patch: { labels: [], duplicates: [], dependsOn: [] },
+      });
+    });
+
+    it('surfaces the structured backend error and reloads nothing', async () => {
+      rpcCall.mockResolvedValueOnce(
+        ok({
+          success: false,
+          error: {
+            code: 'TASK_CONFLICT',
+            message: 'the carrier moved on disk',
+          },
+        }),
+      );
+
+      const result = await store.applyMetadata(TASK, { estimate: 'L' });
+
+      expect(result.success).toBe(false);
+      expect(store.error()).toBe('the carrier moved on disk');
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+    });
+
+    // -----------------------------------------------------------------------
+    // The three label limits and the path-segment rule are enforced by the
+    // SHARED schema. These assert the behaviour AND that the sentence shown is
+    // the schema's own — the RPC boundary collapses every Zod failure to a
+    // generic "Invalid task request parameters.", so a caller that only saw
+    // that would have nothing to act on.
+    // -----------------------------------------------------------------------
+    it.each([
+      [
+        'more labels than the cap allows',
+        { labels: Array.from({ length: 13 }, (_, i) => `label-${i}`) },
+      ],
+      ['a label longer than the cap', { labels: ['x'.repeat(33)] }],
+      ['a label carrying a newline', { labels: ['two\nlines'] }],
+      ['a blank label', { labels: ['   '] }],
+      ['a parent that is not a single path segment', { parent: '../escape' }],
+      ['a relation entry with a drive prefix', { relatesTo: ['C:elsewhere'] }],
+      ['a patch that asks for nothing', {}],
+      ['a patch whose only key is undefined', { labels: undefined }],
+    ] as ReadonlyArray<readonly [string, TaskMetadataPatch]>)(
+      'refuses %s without issuing a write, quoting the schema verbatim',
+      async (_name, patch) => {
+        const result = await store.applyMetadata(TASK, patch);
+
+        expect(rpcCall).not.toHaveBeenCalled();
+        expect(result.success).toBe(false);
+        expect(result.error?.code).toBe('INVALID_PARAMS');
+        expect(result.error?.message).toBe(schemaMessage(patch));
+        expect(store.error()).toBe(schemaMessage(patch));
+        // Not the RPC boundary's generic text, which is the whole reason the
+        // client validates before the round trip.
+        expect(store.error()).not.toBe('Invalid task request parameters.');
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // A write that landed, followed by a re-read that did not.
+    //
+    // The failure mode being closed: `applyMetadata` rejects, the template
+    // handler has no catch, and it becomes an unhandled rejection with NO error
+    // set — the user is left looking at stale state with no signal at all, in
+    // the batch that first lets them mutate a carrier.
+    // -----------------------------------------------------------------------
+    describe('when the post-write reload fails', () => {
+      /** No write-failure message says this; the refresh message leads with it. */
+      const SAVED = 'The change was saved';
+
+      it('resolves as a SUCCESS and never rejects', async () => {
+        rpcCall.mockResolvedValueOnce(
+          ok({ success: true, task: makeTask(TASK, 'backlog') }),
+        );
+        rpcCall.mockRejectedValueOnce(new Error('board transport down'));
+
+        // `.resolves` IS the assertion about the unhandled rejection: the
+        // rejection was the only way one could arise, and a rejecting promise
+        // here fails this line rather than escaping into the event handler.
+        await expect(
+          store.applyMetadata(TASK, { estimate: 'L' }),
+        ).resolves.toEqual(expect.objectContaining({ success: true }));
+      });
+
+      it('says the change was saved and the VIEW is stale, not that the write failed', async () => {
+        rpcCall.mockResolvedValueOnce(
+          ok({ success: true, task: makeTask(TASK, 'backlog') }),
+        );
+        rpcCall.mockRejectedValueOnce(new Error('board transport down'));
+
+        await store.applyMetadata(TASK, { estimate: 'L' });
+
+        const message = store.error() ?? '';
+        // Distinguishable from every write-failure message, and it has to be:
+        // telling a user their edit failed when it is already on disk invites
+        // them to make it a second time.
+        expect(message).toContain(SAVED);
+        expect(message).toContain('out of date');
+        expect(message).toContain('board transport down');
+        expect(message).not.toBe('Failed to update task metadata');
+      });
+
+      it('catches a failing DETAIL refresh too, not just the board', async () => {
+        rpcCall.mockImplementation((method: string) => {
+          if (method === 'tasks:get') {
+            return Promise.resolve(
+              ok({
+                task: {
+                  ...makeTask(TASK, 'backlog'),
+                  body: '',
+                  artifacts: [],
+                },
+              }),
+            );
+          }
+          return Promise.resolve(ok(makeBoard({})));
+        });
+        await store.openTask(TASK);
+        expect(store.selectedTaskId()).toBe(TASK);
+
+        rpcCall.mockReset();
+        rpcCall.mockImplementation((method: string) => {
+          if (method === 'tasks:updateMetadata') {
+            return Promise.resolve(
+              ok({ success: true, task: makeTask(TASK, 'backlog') }),
+            );
+          }
+          if (method === 'tasks:board') {
+            return Promise.resolve(ok(makeBoard({})));
+          }
+          return Promise.reject(new Error('detail transport down'));
+        });
+
+        const result = await store.applyMetadata(TASK, { estimate: 'S' });
+
+        expect(result.success).toBe(true);
+        expect(store.error()).toContain(SAVED);
+        expect(store.error()).toContain('detail transport down');
+      });
+
+      it('leaves a genuine WRITE failure reading as a write failure', async () => {
+        // The complement: the two messages must not converge.
+        rpcCall.mockResolvedValueOnce(
+          ok({
+            success: false,
+            error: { code: 'TASK_CONFLICT', message: 'the carrier moved' },
+          }),
+        );
+
+        await store.applyMetadata(TASK, { estimate: 'L' });
+
+        expect(store.error()).toBe('the carrier moved');
+        expect(store.error()).not.toContain(SAVED);
+      });
+    });
+
+    it('accepts a patch that sits exactly on the label cap', async () => {
+      rpcCall.mockResolvedValue(
+        ok({ success: true, task: makeTask(TASK, 'backlog') }),
+      );
+
+      const result = await store.applyMetadata(
+        TASK,
+        { labels: Array.from({ length: 12 }, (_, i) => `label-${i}`) },
+        { reload: false },
+      );
+
+      expect(result.success).toBe(true);
+      expect(rpcCall).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Per-task write serialization (Task 5.1, FR-B5.8) — the Phase 3 gate item
+  // "two rapid same-task edits produce ZERO spurious conflicts".
+  //
+  // The mock below models the ONE thing that actually makes concurrent writes
+  // safe: the writer's pre-write re-read. A second write that starts while
+  // another is mid-flight sees a file that moved and is refused with
+  // TASK_CONFLICT. Serialization does not make the write correct — it removes
+  // this UI's ability to trigger that refusal against itself.
+  // -------------------------------------------------------------------------
+  describe('per-task write serialization', () => {
+    const TASK = 'TASK_2026_200';
+    const OTHER = 'TASK_2026_201';
+
+    interface WriteHarness {
+      /** Writes refused because another write on the SAME task was in flight. */
+      conflicts(): number;
+      /** Writes currently in flight, across all tasks. */
+      pending(): number;
+      /** Resolve the oldest in-flight write. */
+      settleNext(): void;
+    }
+
+    function installWriteMock(): WriteHarness {
+      const queue: Array<() => void> = [];
+      const active = new Set<string>();
+      let conflicts = 0;
+
+      rpcCall.mockImplementation(
+        (method: string, params: { taskId?: string }) => {
+          if (method !== 'tasks:updateMetadata') {
+            return Promise.resolve(ok(makeBoard({})));
+          }
+          const taskId = params.taskId ?? '';
+          if (active.has(taskId)) {
+            conflicts++;
+            return Promise.resolve(
+              ok({
+                success: false,
+                error: { code: 'TASK_CONFLICT', message: 'the carrier moved' },
+              }),
+            );
+          }
+          active.add(taskId);
+          return new Promise((resolve) => {
+            queue.push(() => {
+              active.delete(taskId);
+              resolve(ok({ success: true, task: makeTask(taskId, 'backlog') }));
+            });
+          });
+        },
+      );
+
+      return {
+        conflicts: () => conflicts,
+        pending: () => queue.length,
+        settleNext: () => {
+          const next = queue.shift();
+          if (!next) throw new Error('no write is in flight');
+          next();
+        },
+      };
+    }
+
+    /** Drain every microtask and timer callback the store may have queued. */
+    const settle = (): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, 0));
+
+    async function drain(harness: WriteHarness): Promise<void> {
+      for (let guard = 0; guard < 20 && harness.pending() > 0; guard++) {
+        harness.settleNext();
+        await settle();
+      }
+    }
+
+    it('produces ZERO spurious conflicts for two rapid edits to one task', async () => {
+      const harness = installWriteMock();
+
+      const first = store.applyMetadata(
+        TASK,
+        { labels: ['a'] },
+        { reload: false },
+      );
+      const second = store.applyMetadata(
+        TASK,
+        { labels: ['a', 'b'] },
+        { reload: false },
+      );
+      await settle();
+
+      // The second write has NOT been issued — that is the whole mechanism.
+      expect(harness.pending()).toBe(1);
+
+      harness.settleNext();
+      await settle();
+      expect(harness.pending()).toBe(1);
+      harness.settleNext();
+
+      expect((await first).success).toBe(true);
+      expect((await second).success).toBe(true);
+      expect(harness.conflicts()).toBe(0);
+      expect(store.error()).toBeNull();
+    });
+
+    it('produces ZERO conflicts across a burst of six edits to one task', async () => {
+      const harness = installWriteMock();
+
+      const writes = Array.from({ length: 6 }, (_, i) =>
+        store.applyMetadata(
+          TASK,
+          { labels: [`label-${i}`] },
+          { reload: false },
+        ),
+      );
+      await settle();
+      await drain(harness);
+
+      const results = await Promise.all(writes);
+      expect(results.every((r) => r.success)).toBe(true);
+      expect(harness.conflicts()).toBe(0);
+    });
+
+    // The identity check before `delete`. Write 1 settles while 2 is in flight
+    // and 3 is queued; a fourth edit arrives at that moment. Deleting the map
+    // entry unconditionally would drop write 3's tail, so write 4 would find no
+    // tail and start immediately — overlapping write 2.
+    it('keeps the queue intact when an early write settles under later ones', async () => {
+      const harness = installWriteMock();
+
+      const one = store.applyMetadata(
+        TASK,
+        { labels: ['a'] },
+        { reload: false },
+      );
+      const two = store.applyMetadata(
+        TASK,
+        { labels: ['b'] },
+        { reload: false },
+      );
+      const three = store.applyMetadata(
+        TASK,
+        { labels: ['c'] },
+        { reload: false },
+      );
+      await settle();
+
+      harness.settleNext();
+      await settle();
+
+      const four = store.applyMetadata(
+        TASK,
+        { labels: ['d'] },
+        { reload: false },
+      );
+      await settle();
+
+      await drain(harness);
+      const results = await Promise.all([one, two, three, four]);
+
+      expect(results.every((r) => r.success)).toBe(true);
+      expect(harness.conflicts()).toBe(0);
+    });
+
+    // A predecessor that REJECTS must not leave every later write on that task
+    // waiting on a promise that never fulfils.
+    //
+    // Exercised against the queue primitive directly, because no production op
+    // can reach this path any more: `writeMetadata` guards both its RPC call
+    // and its post-write reload, so it resolves with a typed failure instead of
+    // throwing. The primitive's contract still has to hold for the ops Batches
+    // 7, 9, 12 and 14 will add, and going through the private member is the
+    // only honest way left to state it — the alternative is deleting a
+    // guarantee because today's only caller happens not to need it.
+    it('does not wedge the queue when a predecessor rejects', async () => {
+      const queue = store as unknown as {
+        enqueueWrite<T>(taskId: string, op: () => Promise<T>): Promise<T>;
+      };
+      const order: string[] = [];
+
+      const first = queue.enqueueWrite(TASK, async () => {
+        order.push('first');
+        throw new Error('op failed');
+      });
+      const second = queue.enqueueWrite(TASK, async () => {
+        order.push('second');
+        return 'ok';
+      });
+
+      await expect(first).rejects.toThrow('op failed');
+      await expect(second).resolves.toBe('ok');
+      // Still serialized, not merely still running.
+      expect(order).toEqual(['first', 'second']);
+    });
+
+    // The queue is per CARRIER, not global. Two tasks are two conflict domains,
+    // and serializing them against each other would make a bulk run N times
+    // slower for no correctness gain.
+    it('does not serialize writes to different tasks against each other', async () => {
+      const harness = installWriteMock();
+
+      const here = store.applyMetadata(
+        TASK,
+        { labels: ['a'] },
+        { reload: false },
+      );
+      const there = store.applyMetadata(
+        OTHER,
+        { labels: ['b'] },
+        { reload: false },
+      );
+      await settle();
+
+      expect(harness.pending()).toBe(2);
+
+      await drain(harness);
+      expect((await here).success).toBe(true);
+      expect((await there).success).toBe(true);
+      expect(harness.conflicts()).toBe(0);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -458,9 +922,9 @@ describe('TasksStore — workspace awareness', () => {
     rpcCall.mockResolvedValueOnce(ok({ success: true }));
     rpcCall.mockResolvedValueOnce(ok(makeBoard({})));
     await store.updateStatus('TASK_2026_200', 'done');
-    expect(rpcCall).toHaveBeenNthCalledWith(1, 'tasks:updateStatus', {
+    expect(rpcCall).toHaveBeenNthCalledWith(1, 'tasks:updateMetadata', {
       taskId: 'TASK_2026_200',
-      status: 'done',
+      patch: { status: 'done' },
       workspaceRoot: 'D:/ws-a',
     });
 

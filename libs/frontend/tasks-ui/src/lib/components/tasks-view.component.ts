@@ -30,6 +30,7 @@ import type {
   TaskStatusChange,
 } from './board/task-card.component';
 import { TaskDetailComponent } from './detail/task-detail.component';
+import type { TaskMetadataWrite } from './detail/task-metadata-write';
 import { taskExclusionReasonLabel } from '../task-presentation';
 
 /** One excluded folder plus the sentence explaining its typed reason. */
@@ -52,8 +53,10 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
  *
  * The Start action delegates to {@link TaskStartService} (agent-managed
  * worktree isolation via a prompt directive, the `ChatPromptRequest` bridge,
- * then `tasks:updateStatus` on success), keeping this lib free of any `chat`
- * import (NFR-11).
+ * then `TasksStore.updateStatus` on success), keeping this lib free of any
+ * `chat` import (NFR-11). That store method now writes through
+ * `tasks:updateMetadata` like every other client mutation — the wire method
+ * changed, the service call did not, and `TaskStartService` is untouched.
  */
 @Component({
   selector: 'ptah-tasks-view',
@@ -233,10 +236,14 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
             <ptah-task-detail
               [detail]="store.taskDetail()"
               [graph]="store.graph()"
+              [knownLabels]="store.knownLabels()"
+              [knownTaskIds]="knownTaskIds()"
+              [busy]="writing()"
               [loading]="store.detailLoading()"
               (closed)="store.closeTask()"
               (openArtifact)="store.openArtifact($event)"
               (openTask)="store.openTask($event)"
+              (applyMetadata)="onApplyMetadata($event)"
             />
           }
         }
@@ -409,6 +416,18 @@ export class TasksViewComponent {
 
   protected readonly exclusionsOpen = signal(false);
 
+  /** True while a metadata write issued from the detail panel is outstanding. */
+  protected readonly writing = signal(false);
+
+  /**
+   * Every board-visible task id, for the detail panel's parent and relation
+   * completion. Read off the memoized graph rather than re-flattening the
+   * columns, so it costs one map read per change of the board payload.
+   */
+  protected readonly knownTaskIds = computed<readonly string[]>(() => [
+    ...this.store.graph().byId.keys(),
+  ]);
+
   /**
    * Excluded folders decorated with the human sentence for their typed reason.
    * The raw `reason` token is rendered alongside it — the token is what appears
@@ -480,6 +499,25 @@ export class TasksViewComponent {
 
   protected onStatusChange(change: TaskStatusChange): void {
     void this.store.updateStatus(change.taskId, change.status);
+  }
+
+  /**
+   * Route a detail-panel edit to the single client mutation funnel.
+   *
+   * `write.taskId` is used, never `store.selectedTaskId()`: the "this task
+   * blocks X" affordance targets X's carrier, because that is where the edge is
+   * authored. Substituting the open task here would write the wrong file.
+   *
+   * The store serializes per task on its own; the `writing` flag is only a UI
+   * affordance so the panel's controls read as busy rather than as available.
+   */
+  protected async onApplyMetadata(write: TaskMetadataWrite): Promise<void> {
+    this.writing.set(true);
+    try {
+      await this.store.applyMetadata(write.taskId, write.patch);
+    } finally {
+      this.writing.set(false);
+    }
   }
 
   /**

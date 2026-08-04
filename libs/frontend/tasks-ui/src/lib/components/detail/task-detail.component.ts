@@ -15,6 +15,8 @@ import {
   WORKFLOW_ARTIFACTS,
   labelChipClass,
 } from '../../task-presentation';
+import { TaskMetadataEditorComponent } from './task-metadata-editor.component';
+import type { TaskMetadataWrite } from './task-metadata-write';
 import { TaskRelationsComponent } from './task-relations.component';
 
 /**
@@ -30,6 +32,7 @@ import { TaskRelationsComponent } from './task-relations.component';
   imports: [
     LucideAngularModule,
     MarkdownBlockComponent,
+    TaskMetadataEditorComponent,
     TaskRelationsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -121,8 +124,33 @@ import { TaskRelationsComponent } from './task-relations.component';
           <ptah-task-relations
             [task]="task"
             [graph]="graph()"
+            [editable]="true"
+            [busy]="busy()"
             (openTask)="openTask.emit($event)"
+            (apply)="applyMetadata.emit($event)"
           />
+
+          <!-- Metadata editor. Collapsed by default: the panel above is the
+               read view, and a task carrying none of these fields should not
+               open onto a form asking for them. A native disclosure element
+               rather than a signal-driven block, so it is keyboard-operable
+               and screen-reader announced with no JavaScript at all. -->
+          <details class="text-xs" data-testid="task-detail-editor">
+            <summary
+              class="cursor-pointer select-none text-base-content/60 hover:text-base-content"
+            >
+              Edit metadata
+            </summary>
+            <div class="pt-2">
+              <ptah-task-metadata-editor
+                [task]="task"
+                [knownLabels]="knownLabels()"
+                [knownTaskIds]="knownTaskIds()"
+                [busy]="busy()"
+                (apply)="applyMetadata.emit($event)"
+              />
+            </div>
+          </details>
 
           <!-- Validation warnings.
                The track key must be unique per ROW, and the field name is not:
@@ -246,11 +274,27 @@ export class TaskDetailComponent {
    */
   public readonly graph = input<TaskGraph | null>(null);
 
+  /**
+   * The workspace label union, for label completion. There is no registry file
+   * — the union of what every carrier declares IS the completion source.
+   */
+  public readonly knownLabels = input<readonly string[]>([]);
+  /** Board-visible task ids, for parent and relation completion. */
+  public readonly knownTaskIds = input<readonly string[]>([]);
+  /** Set while a write is outstanding, so a second cannot be queued behind it. */
+  public readonly busy = input(false);
+
   public readonly closed = output<void>();
   /** Emits an artifact filename the host should open in the editor. */
   public readonly openArtifact = output<string>();
   /** Emits the id of a related task the user asked to open. A read. */
   public readonly openTask = output<string>();
+  /**
+   * A requested carrier write, naming the task it targets — which is NOT always
+   * the open one (FR-B4.3's "blocks" edge is authored on the other carrier).
+   * The host routes it to the single client mutation funnel.
+   */
+  public readonly applyMetadata = output<TaskMetadataWrite>();
 
   protected readonly estimateLabel = computed(() => {
     const estimate = this.detail()?.estimate;

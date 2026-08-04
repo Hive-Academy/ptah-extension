@@ -12,6 +12,8 @@ export type {
   TaskRelationEntry,
   TaskRelationGroupView,
 } from './lib/components/detail/task-relations.component';
+export { TaskMetadataEditorComponent } from './lib/components/detail/task-metadata-editor.component';
+export type { TaskMetadataWrite } from './lib/components/detail/task-metadata-write';
 export {
   LABEL_CHIP_CLASSES,
   TASK_RELATION_GROUPS,
@@ -30,5 +32,8 @@ export {
   TasksStore,
   TASKS_CHANGED_MESSAGE_TYPE,
 } from './lib/services/tasks-store.service';
-export type { TaskBoardColumn } from './lib/services/tasks-store.service';
+export type {
+  ApplyMetadataOptions,
+  TaskBoardColumn,
+} from './lib/services/tasks-store.service';
 export { TaskStartService } from './lib/services/task-start.service';

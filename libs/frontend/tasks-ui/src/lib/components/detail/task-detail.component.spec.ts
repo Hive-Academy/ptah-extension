@@ -447,10 +447,13 @@ describe('TaskDetailComponent', () => {
       expect(warnings).toEqual([]);
 
       const host = fixture.nativeElement as HTMLElement;
+      // Scoped to the chip itself. The panel renders the relation groups
+      // EDITABLE (Batch 5), so each authored entry now carries a remove control
+      // beside its chip and a bare `button` selector would count both.
       const chips = (key: string): string[] =>
         Array.from(
           host.querySelectorAll(
-            `[data-testid="task-relations-group-${key}"] button`,
+            `[data-testid="task-relations-group-${key}"] [data-testid="task-relation-chip"]`,
           ),
         ).map((el) => el.textContent?.trim() ?? '');
 
