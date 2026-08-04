@@ -11,7 +11,16 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { AuthService } from '@ptah-api/identity';
+import {
+  AuthService,
+  isAdminAllowlistConfigured,
+  // Aliased: this class keeps a private method of the same name (the SSO
+  // breadcrumb below is specific to this surface, and `discourse.controller.spec.ts`
+  // reaches it by name). The alias makes the delegation unambiguous rather than
+  // relying on the reader knowing that a bare identifier cannot resolve to a
+  // class method.
+  isAdminEmail as isOnAdminAllowlist,
+} from '@ptah-api/identity';
 import { PrismaService } from '@ptah-api/core';
 import { DiscourseSsoService } from './discourse-sso.service';
 
@@ -130,28 +139,27 @@ export class DiscourseController {
   }
 
   /**
-   * True when `email` is in the comma-separated ADMIN_EMAILS allowlist
-   * (split on `,`, `trim().toLowerCase()`, empties filtered — the exact parse
-   * semantics of AdminGuard). Unlike the guard this fails CLOSED *silently*
-   * when ADMIN_EMAILS is unset (→ false, no throw): SSO must still succeed for
-   * non-admins, just without admin/moderator asserted.
+   * True when `email` is on the `ADMIN_EMAILS` allowlist.
+   *
+   * The parse is `@ptah-api/identity`'s `isAdminEmail` — the single definition
+   * of "admin" the whole server now shares. This used to be a private copy of
+   * the same split/trim/lowercase, one of five.
+   *
+   * Unlike `AdminGuard` this fails CLOSED *silently* when `ADMIN_EMAILS` is
+   * unset (→ false, no throw): SSO must still succeed for non-admins, just
+   * without admin/moderator asserted. The unset case is still detected
+   * explicitly, because it deserves an operator breadcrumb — on a deploy where
+   * the allowlist is accidentally dropped, every admin is silently demoted to a
+   * regular Discourse user on next login, and this line makes that greppable.
    */
   private isAdminEmail(email: string): boolean {
-    const raw = this.configService.get<string>('ADMIN_EMAILS');
-    if (!raw || raw.trim().length === 0) {
-      // Fail closed, but leave an operator breadcrumb: on a deploy where the
-      // allowlist is accidentally dropped, every admin is silently demoted to a
-      // regular Discourse user on next login — this line makes that greppable.
+    if (!isAdminAllowlistConfigured(this.configService)) {
       this.logger.warn(
         'ADMIN_EMAILS is not configured — Discourse SSO asserting admin=false for all users',
       );
       return false;
     }
-    const allowlist = raw
-      .split(',')
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean);
-    return allowlist.includes(email.trim().toLowerCase());
+    return isOnAdminAllowlist(this.configService, email);
   }
 
   /** Build a display name from the DB profile, falling back to the email local part. */

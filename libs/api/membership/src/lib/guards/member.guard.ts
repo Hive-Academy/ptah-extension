@@ -12,6 +12,7 @@ import type { Request } from 'express';
 // it is ALSO what loads the `Express.Request.user` global augmentation that
 // lives beside it. Without this import `request.user` does not typecheck here.
 import type { RequestUser } from '@ptah-api/identity';
+import { isAdminEmail } from '@ptah-api/identity';
 import { CohortResolver } from '../cohort-resolver.service';
 import { MembershipService } from '../membership.service';
 import { MEMBERSHIP_REQUIRED, type MemberContext } from '../membership.types';
@@ -92,35 +93,21 @@ export class MemberGuard implements CanActivate {
       email: user.email,
       entitled: true,
       cohortKeys,
-      isAdmin: this.resolveIsAdmin(user.email),
+      // The INFORMATIONAL admin flag, resolved through the one shared
+      // definition in `@ptah-api/identity` — deliberately computed AFTER the
+      // entitlement `throw` above, so it can never influence access.
+      //
+      // `isAdminEmail` answers `false` (never throws) for an unconfigured
+      // allowlist, which is the required behaviour here and NOT the same as
+      // `AdminGuard`'s: that guard is authorizing and fail-closes on the same
+      // input. This flag only decides whether a moderation affordance renders,
+      // so "no allowlist configured" correctly means "nobody is flagged" and
+      // must not block a paying member. `member.guard.spec.ts` asserts exactly
+      // that.
+      isAdmin: isAdminEmail(this.config, user.email),
     };
     request.memberContext = memberContext;
 
     return true;
-  }
-
-  /**
-   * Informational admin flag for the resolved context.
-   *
-   * Reads the same `ADMIN_EMAILS` allowlist `AdminGuard` uses, through
-   * `ConfigService` (never `process.env`). It exists so a member-facing
-   * response can render an admin affordance, and it is deliberately computed
-   * AFTER the entitlement `throw` above.
-   *
-   * Unset/blank config yields `false` rather than throwing. `AdminGuard`
-   * fail-closes loudly because it is AUTHORIZING; this flag authorizes nothing,
-   * so the correct answer for "no allowlist configured" is simply "nobody is
-   * flagged as an admin".
-   */
-  private resolveIsAdmin(email: string): boolean {
-    const raw = this.config.get<string>('ADMIN_EMAILS');
-    if (!raw || raw.trim().length === 0) {
-      return false;
-    }
-    const allowlist = raw
-      .split(',')
-      .map((entry) => entry.trim().toLowerCase())
-      .filter(Boolean);
-    return allowlist.includes(email.toLowerCase());
   }
 }

@@ -1,4 +1,5 @@
 export * from './lib/identity.module';
+export * from './lib/admin-emails';
 export * from './lib/dto/login.dto';
 export * from './lib/dto/magic-link.dto';
 export * from './lib/dto/resend-verification.dto';

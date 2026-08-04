@@ -233,13 +233,13 @@ describe('MemberEntitlementController — GET /v1/members/entitlement', () => {
       expect(membership.isBuildersMember).not.toHaveBeenCalled();
     });
 
-    it('reads ADMIN_EMAILS through ConfigService, never process.env', () => {
+    it('resolves the admin flag through ConfigService and the SHARED allowlist, never process.env', () => {
       // Asserted on SOURCE TEXT, matching `membership.service.spec.ts`'s
       // idiom: `process.env` would still return the right value in every test
       // and in local dev, and would only diverge once config comes from
       // somewhere ConfigService knows about and the environment does not.
-      // Comments stripped first — the docblock on `resolveIsAdmin` names
-      // `process.env` in order to forbid it, and the assertion is about code.
+      // Comments stripped first — the docblocks here name `process.env` in
+      // order to forbid it, and the assertion is about code.
       const source = readFileSync(
         join(__dirname, 'member-entitlement.controller.ts'),
         'utf8',
@@ -247,8 +247,22 @@ describe('MemberEntitlementController — GET /v1/members/entitlement', () => {
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/\/\/.*$/gm, '');
 
+      // The invariant that actually matters, unchanged: config is read through
+      // Nest, never off the process.
       expect(source).not.toContain('process.env');
-      expect(source).toContain("this.config.get<string>('ADMIN_EMAILS')");
+
+      // This assertion USED to pin the literal `this.config.get<string>('ADMIN_EMAILS')`
+      // — i.e. it required this file to parse the allowlist ITSELF. That was
+      // the fifth such parse in the server, and the reason the definition of
+      // "admin" could drift per surface. The invariant is now the opposite one:
+      // this controller must NOT own a copy of the parse, and must delegate to
+      // the single definition in `@ptah-api/identity`. Weakening this to
+      // "no process.env" alone would let the private copy quietly come back.
+      expect(source).not.toContain("get<string>('ADMIN_EMAILS')");
+      expect(source).toContain('isAdminEmail(this.config,');
+      expect(source).toMatch(
+        /import\s*\{[^}]*\bisAdminEmail\b[^}]*\}\s*from\s*'@ptah-api\/identity'/,
+      );
     });
   });
 });

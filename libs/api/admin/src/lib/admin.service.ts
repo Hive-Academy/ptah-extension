@@ -13,6 +13,7 @@ import { Prisma } from '@ptah-api/core';
 import { PrismaService } from '@ptah-api/core';
 import { EmailService } from '@ptah-api/email';
 import { AuditLogService } from '@ptah-api/audit';
+import { isAdminEmail } from '@ptah-api/identity';
 import {
   ADMIN_MODELS,
   AdminModelConfig,
@@ -547,9 +548,14 @@ export class AdminService {
    *   - `hasActivePaidSubscription` — any subscription row in
    *     ('active' | 'trialing' | 'past_due'), plus the paddleSubscriptionId
    *     so the frontend can show "Paddle sub {id}" in the warning banner.
-   *   - `isAdminSelf` — target email (lower-cased) matches `ADMIN_EMAILS`.
+   *   - `isAdminSelf` — target email matches `ADMIN_EMAILS`, resolved through
+   *     `isAdminEmail` from `@ptah-api/identity` (the ONE parse of that
+   *     allowlist in the server — this file used to carry a private copy).
    *     Preview returns this so the UI can pre-disable the delete button;
    *     the service itself re-checks in `deleteUserCascade` to avoid a TOCTOU.
+   *     Note the posture: `isAdminEmail` returns `false` for an unconfigured
+   *     allowlist rather than throwing, which is safe HERE only because
+   *     `AdminGuard` fail-closes upstream, so this code never runs without one.
    *
    * Throws `NotFoundException` when the user id does not exist.
    */
@@ -579,7 +585,7 @@ export class AdminService {
       cascaded: { subscriptions, licenses, sessionRequests },
       hasActivePaidSubscription: activePaid !== null,
       activePaddleSubscriptionId: activePaid?.paddleSubscriptionId,
-      isAdminSelf: this.isAdminEmail(user.email),
+      isAdminSelf: isAdminEmail(this.config, user.email),
     };
   }
 
@@ -617,7 +623,7 @@ export class AdminService {
         if (!user) {
           throw new NotFoundException(`User ${id} not found`);
         }
-        if (this.isAdminEmail(user.email)) {
+        if (isAdminEmail(this.config, user.email)) {
           throw new ForbiddenException({
             code: 'CANNOT_DELETE_ADMIN',
             message: 'Admins cannot delete another admin account',
@@ -717,21 +723,5 @@ export class AdminService {
       }
       throw err;
     }
-  }
-
-  /**
-   * Case-insensitive check of `email` against the comma-separated
-   * `ADMIN_EMAILS` env var. Returns `false` when ADMIN_EMAILS is unset — the
-   * delete route is guarded by `AdminGuard` upstream which fail-closes on
-   * missing allowlist, so this service layer never runs without a list.
-   */
-  private isAdminEmail(email: string): boolean {
-    const raw = this.config.get<string>('ADMIN_EMAILS');
-    if (!raw || raw.trim().length === 0) return false;
-    const allowlist = raw
-      .split(',')
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean);
-    return allowlist.includes(email.trim().toLowerCase());
   }
 }

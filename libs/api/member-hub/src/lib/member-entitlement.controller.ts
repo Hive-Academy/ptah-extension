@@ -1,7 +1,11 @@
 import { Controller, Get, Inject, Req, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
-import { JwtAuthGuard, type RequestUser } from '@ptah-api/identity';
+import {
+  isAdminEmail,
+  JwtAuthGuard,
+  type RequestUser,
+} from '@ptah-api/identity';
 import { CohortResolver, MembershipService } from '@ptah-api/membership';
 import type { MemberEntitlementResponse } from '@ptah-contracts/community';
 import { CohortBadgesService } from './cohort-badges.service';
@@ -60,7 +64,15 @@ export class MemberEntitlementController {
     // is present. Narrowed rather than asserted so a wiring mistake surfaces as
     // `{ entitled: false }` and not a TypeError-shaped 500.
     const user: RequestUser | undefined = req.user;
-    const isAdmin = this.resolveIsAdmin(user?.email ?? '');
+    // The informational admin flag, resolved through the ONE shared definition
+    // in `@ptah-api/identity` (which reads `ADMIN_EMAILS` via `ConfigService`,
+    // never `process.env`). It used to be a private copy of the parse here —
+    // the fifth in the server. `isAdminEmail` answers `false` for an absent
+    // email and for an unconfigured allowlist rather than throwing, which is
+    // required: this endpoint runs for non-members and authorizes nothing.
+    // `AdminGuard` composes the same parse with an explicit fail-closed check;
+    // that difference in POLICY is intentional and lives at the guard.
+    const isAdmin = isAdminEmail(this.config, user?.email);
 
     if (!user?.id) {
       return { entitled: false, cohorts: [], isAdmin };
@@ -81,38 +93,5 @@ export class MemberEntitlementController {
     // `member`-visibility surface and simply matches no `cohort`-gated content.
     // Every user in the live database is in exactly this state today.
     return { entitled: true, cohorts, isAdmin };
-  }
-
-  /**
-   * The informational admin flag, read from the same `ADMIN_EMAILS` allowlist
-   * `AdminGuard` and `MemberGuard` use, through `ConfigService` (never
-   * `process.env`).
-   *
-   * Unset or blank yields `false` rather than throwing. `AdminGuard`
-   * fail-closes loudly because it is AUTHORIZING; this flag authorizes nothing
-   * — it decides whether a moderation affordance renders — so "no allowlist
-   * configured" correctly means "nobody is flagged".
-   *
-   * ⚠️ THIS IS THE FOURTH PARSE OF `ADMIN_EMAILS` IN THE SERVER
-   * (`identity/guards/admin.guard.ts`, `admin/admin.service.ts`,
-   * `membership/guards/member.guard.ts`, here). It is written out again rather
-   * than reaching into `MemberGuard`, because this endpoint deliberately does
-   * not run `MemberGuard` and `resolveIsAdmin` is private to it. The right fix
-   * is one exported `isAdminEmail(config, email)` in `@ptah-api/identity` with
-   * all four call sites moved onto it — out of scope for this batch, and
-   * flagged in the batch report rather than done quietly. The behavioural
-   * contract is meanwhile pinned by the same case table
-   * `member.guard.spec.ts` uses, in this controller's spec.
-   */
-  private resolveIsAdmin(email: string): boolean {
-    const raw = this.config.get<string>('ADMIN_EMAILS');
-    if (!raw || raw.trim().length === 0 || email.trim().length === 0) {
-      return false;
-    }
-    const allowlist = raw
-      .split(',')
-      .map((entry) => entry.trim().toLowerCase())
-      .filter(Boolean);
-    return allowlist.includes(email.toLowerCase());
   }
 }
