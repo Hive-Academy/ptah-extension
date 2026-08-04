@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Route } from '@angular/router';
 
-import { MemberGuard } from './guards/member.guard';
 import { MEMBER_ROUTES } from './members.routes';
 
 /**
@@ -23,6 +22,7 @@ describe('MEMBER_ROUTES — no catch-all (R9.4, RK-11)', () => {
     readonly path: string;
     readonly full: string;
     readonly isRedirect: boolean;
+    readonly guardCount: number;
   }
 
   function flatten(routes: readonly Route[], parent = ''): FlatRoute[] {
@@ -34,6 +34,10 @@ describe('MEMBER_ROUTES — no catch-all (R9.4, RK-11)', () => {
         path,
         full,
         isRedirect: typeof route.redirectTo === 'string',
+        guardCount:
+          (route.canActivate?.length ?? 0) +
+          (route.canActivateChild?.length ?? 0) +
+          (route.canMatch?.length ?? 0),
       });
       if (route.children) out.push(...flatten(route.children, full));
     }
@@ -50,14 +54,23 @@ describe('MEMBER_ROUTES — no catch-all (R9.4, RK-11)', () => {
     expect(flat.map((r) => r.full)).toContain('account');
   });
 
-  it('guards the panel root with MemberGuard (R7.7, R9.5)', () => {
-    // The guard's own spec proves it routes 401 -> /login, unentitled ->
-    // /pricing and entitled -> the hub. This proves it is actually WIRED, which
-    // no amount of guard-behaviour testing establishes. It sits here rather
-    // than on the `/members` route in app.routes.ts because
-    // `@nx/enforce-module-boundaries` forbids statically importing a symbol
-    // from a lib the same file lazy-loads — see the comment on MEMBER_ROUTES.
-    expect(MEMBER_ROUTES[0].canActivate).toEqual([MemberGuard]);
+  it('declares NO guard of its own — MemberGuard sits on /members (R7.7, R9.5)', () => {
+    // This assertion used to read `expect(MEMBER_ROUTES[0].canActivate)
+    // .toEqual([MemberGuard])`, back when the guard shipped in this lib and
+    // could not be named on the `/members` route in `app.routes.ts` —
+    // `@nx/enforce-module-boundaries` forbids statically importing a symbol out
+    // of a lib the same file lazy-loads. `MemberGuard` and `MemberSessionStore`
+    // have since moved into `@ptah-web/core`, so `/members` names the guard
+    // itself and this tree must declare none: a second declaration here would
+    // run the entitlement probe TWICE on every member navigation.
+    //
+    // The positive half of the wiring — that `/members` really does carry
+    // `canActivate: [MemberGuard]` — is asserted in
+    // `apps/ptah-landing-page/src/app/app.routes.spec.ts`, which is the file
+    // that owns that route, and exercised end-to-end through a real Router in
+    // `member-guard-wiring.spec.ts` beside this one.
+    const guarded = flat.filter((r) => r.guardCount > 0).map((r) => r.full);
+    expect(guarded).toEqual([]);
   });
 
   it('every member surface sits under that guarded root', () => {

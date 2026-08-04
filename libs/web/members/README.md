@@ -67,6 +67,18 @@ have no unread topics" and "the forum is down" are different messages.
 It is **cosmetic**. The server-side `MemberGuard` in `libs/api/membership` is the
 real enforcement (NFR-S8); never rely on this one for authorization.
 
+**It does not live here.** `MemberGuard` and `MemberSessionStore` are in
+`@ptah-web/core`, and `app.routes.ts` declares `canActivate: [MemberGuard]` on
+the `/members` route it lazy-loads this lib from. That is forced:
+`@nx/enforce-module-boundaries` rejects a static import out of a lib the same
+file lazy-loads ("Static imports of lazy-loaded libraries are forbidden"), which
+is why `AdminAuthGuard` has always sat in the never-lazy `@ptah-web/core` too.
+`MEMBER_ROUTES` therefore declares **no** `canActivate` of its own — a second
+declaration would run the probe twice per navigation, and
+`members.routes.spec.ts` fails if one reappears. `member-guard-wiring.spec.ts`
+drives the real Router over the real route shape to prove a denied probe never
+constructs `MemberLayout`.
+
 ## Tokens
 
 `docs/design-system/panel-theme-spec.md` is authoritative. Surfaces are

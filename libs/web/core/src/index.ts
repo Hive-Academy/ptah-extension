@@ -4,6 +4,8 @@ export * from './lib/config/sessions.config';
 export * from './lib/guards/admin-auth.guard';
 export * from './lib/guards/auth.guard';
 export * from './lib/guards/guest.guard';
+export * from './lib/guards/member.guard';
+export * from './lib/state/member-session.store';
 export * from './lib/models/license-data.interface';
 export * from './lib/services/auth-initializer.service';
 export * from './lib/services/auth.service';

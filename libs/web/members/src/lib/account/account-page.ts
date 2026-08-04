@@ -14,7 +14,7 @@ import {
   Sun,
 } from 'lucide-angular';
 
-import { AuthService } from '@ptah-web/core';
+import { AuthService, MemberSessionStore } from '@ptah-web/core';
 import { EmptyState } from '@ptah-web/panel-ui';
 
 import {
@@ -22,7 +22,6 @@ import {
   MEMBER_THEME_LIGHT,
   MemberThemeService,
 } from '../services/member-theme.service';
-import { MemberSessionStore } from '../state/member-session.store';
 
 /**
  * AccountPage — `/members/account`.

@@ -7,12 +7,11 @@ import {
 import { RouterLink } from '@angular/router';
 import { LucideAngularModule, Moon, ShieldCheck, Sun } from 'lucide-angular';
 
-import { AuthService } from '@ptah-web/core';
+import { AuthService, MemberSessionStore } from '@ptah-web/core';
 import { PanelLayout } from '@ptah-web/panel-ui';
 
 import { MEMBER_NAV_GROUPS } from '../member-nav.config';
 import { MemberThemeService } from '../services/member-theme.service';
-import { MemberSessionStore } from '../state/member-session.store';
 
 /**
  * MemberLayout — binds the member panel's nav data, theme and identity onto the

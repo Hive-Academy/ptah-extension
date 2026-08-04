@@ -16,6 +16,13 @@ import type { MemberEntitlementResponse } from '@ptah-contracts/community';
 import { MemberGuard } from './member.guard';
 import { MemberSessionStore } from '../state/member-session.store';
 
+/**
+ * Moved here with the guard itself. The three outcomes below are unchanged from
+ * when this spec lived in `@ptah-web/members` — relocating the guard into
+ * `@ptah-web/core` so `/members` can name it on its own route must not change
+ * WHAT it decides, only where it is declared.
+ */
+
 const PROBE_URL = '/api/v1/members/entitlement';
 
 describe('MemberGuard — three outcomes (R7.7, R9.5)', () => {

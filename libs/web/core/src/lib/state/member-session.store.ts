@@ -16,7 +16,14 @@ export type MemberContext = MemberEntitlementResponse;
 
 /**
  * MemberSessionStore — the entitlement probe's result, seeded once by
- * `MemberGuard` and read by the shell.
+ * `MemberGuard` (`../guards/member.guard.ts`) and read by the member shell in
+ * `@ptah-web/members`.
+ *
+ * It lives in `@ptah-web/core` rather than in the member lib because the guard
+ * that writes it must: `app.routes.ts` lazy-loads `@ptah-web/members`, so it
+ * cannot statically import a guard from there to name on the `/members` route
+ * (`@nx/enforce-module-boundaries`). The store follows the guard so the pair
+ * stays in one place; nothing else in core reads it.
  *
  * ⚠️ THIS IS PRESENTATION STATE, NOT AUTHORIZATION (NFR-S8). It says what the
  * server told us a moment ago so the chrome can render the right cohort chip

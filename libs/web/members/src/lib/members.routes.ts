@@ -1,12 +1,11 @@
 import { Routes } from '@angular/router';
 
-import { MemberGuard } from './guards/member.guard';
 import { MemberLayout } from './member-layout/member-layout';
 import type { MemberPlaceholderData } from './placeholder/member-phase-placeholder';
 
 /**
  * Member Routes — lazy-loaded child tree mounted at `/members` by
- * `app.routes.ts`, behind `MemberGuard`.
+ * `app.routes.ts`, behind the `MemberGuard` that route declares.
  *
  * ⚠️ THERE IS NO `:model` / `:model/:id` CATCH-ALL HERE, AND ONE MUST NEVER BE
  * ADDED (R9.4, RK-11 — Critical). `admin.routes.ts:174-183` keeps exactly that
@@ -41,28 +40,25 @@ import type { MemberPlaceholderData } from './placeholder/member-phase-placehold
 export const MEMBER_ROUTES: Routes = [
   {
     /**
-     * ⚠️ `MemberGuard` SITS HERE, NOT ON THE `/members` ROUTE IN
-     * `app.routes.ts`, AND THAT IS A LINT CONSTRAINT, NOT A PREFERENCE.
+     * ⚠️ NO `canActivate` HERE, AND RE-ADDING ONE WOULD RUN THE ENTITLEMENT
+     * PROBE TWICE PER NAVIGATION. `MemberGuard` guards the parent `/members`
+     * route in `app.routes.ts`, where a reader of the app's route table can see
+     * that the member panel is protected at all.
      *
-     * `@nx/enforce-module-boundaries` errors on "static imports of lazy-loaded
-     * libraries": `app.routes.ts` lazy-loads `@ptah-web/members` via
-     * `loadChildren`, so it may not ALSO statically import a symbol from it —
-     * the static import is what defeats the lazy boundary. `/admin` avoids this
-     * because `AdminAuthGuard` lives in `@ptah-web/core`, a lib that is never
-     * lazy-loaded; `MemberGuard` lives in this lib because it seeds
-     * `MemberSessionStore`, which lives here too.
+     * It used to sit here instead, because the guard shipped in THIS lib and
+     * `@nx/enforce-module-boundaries` forbids `app.routes.ts` from statically
+     * importing a symbol out of a lib the same file lazy-loads ("Static imports
+     * of lazy-loaded libraries are forbidden"). The fix was to move the guard —
+     * with `MemberSessionStore`, the only thing that tied it here — into
+     * `@ptah-web/core`, which the app imports eagerly and never lazy-loads,
+     * exactly as `AdminAuthGuard` already did for `/admin`.
+     * `members.routes.spec.ts` fails if a guard reappears anywhere in this tree.
      *
-     * Behaviourally identical to guarding the parent `/members` route: this is
-     * an ancestor route of every member surface, so `canActivate` runs on entry
-     * to the panel and not again while navigating inside it — exactly what the
-     * app-level placement would have done. The one difference is that an
-     * unentitled visitor downloads this chunk before being redirected to
-     * `/pricing`, which costs a wasted request and leaks nothing: the guard is
-     * cosmetic by design (NFR-S8) and every member endpoint is enforced
-     * server-side regardless of what the client managed to load.
+     * The move also stops an unentitled visitor from downloading this chunk
+     * before being bounced to `/pricing`: the probe now resolves before
+     * `loadChildren` runs at all.
      */
     path: '',
-    canActivate: [MemberGuard],
     component: MemberLayout,
     children: [
       {

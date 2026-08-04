@@ -4,8 +4,8 @@ import { CanActivateFn, Router } from '@angular/router';
 import { Observable, catchError, map, of } from 'rxjs';
 
 import { memberEntitlementResponseSchema } from '@ptah-contracts/community';
-import { validate } from '@ptah-web/core';
 
+import { validate } from '../services/validate-response';
 import { MemberSessionStore } from '../state/member-session.store';
 
 /** Where an unauthenticated or unentitled visitor is sent. */
@@ -16,8 +16,21 @@ const RETURN_URL = '/members';
 /**
  * MemberGuard — the frontend entitlement probe for `/members/*`.
  *
- * Modelled on `libs/web/core/src/lib/guards/admin-auth.guard.ts`, with one
- * deliberate difference: it reads a BODY, not a status.
+ * ⚠️ IT LIVES IN `@ptah-web/core`, AND THAT IS A ROUTING CONSTRAINT, NOT
+ * FILING PREFERENCE. `app.routes.ts` lazy-loads `@ptah-web/members` via
+ * `loadChildren`, and `@nx/enforce-module-boundaries` errors — "Static imports
+ * of lazy-loaded libraries are forbidden" — the moment that same file also
+ * statically imports a symbol from it. So a guard that ships inside the member
+ * lib cannot be named on the `/members` route that loads it; it has to hide on
+ * `MEMBER_ROUTES[0]`, one level below the route it belongs to, where nobody
+ * reading `app.routes.ts` can see that `/members` is guarded at all.
+ * `AdminAuthGuard` never had that problem because it sits in this lib, which is
+ * eagerly imported by the app and therefore never lazy. `MemberGuard` now sits
+ * beside it, and `MemberSessionStore` — the only reason the guard was ever in
+ * the member lib — came with it.
+ *
+ * Modelled on `admin-auth.guard.ts` (same folder), with one deliberate
+ * difference: it reads a BODY, not a status.
  * `GET /api/v1/members/entitlement` answers `200 { entitled: false }` for a
  * logged-in non-member rather than `403`, because "not logged in" and "logged
  * in, not a member" need different destinations and a client should not have to

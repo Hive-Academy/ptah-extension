@@ -4,6 +4,7 @@ import { LandingPageComponent } from '@ptah-web/landing';
 import { AdminAuthGuard } from '@ptah-web/core';
 import { AuthGuard } from '@ptah-web/core';
 import { GuestGuard } from '@ptah-web/core';
+import { MemberGuard } from '@ptah-web/core';
 
 /**
  * Application Routes
@@ -70,19 +71,23 @@ export const routes: Routes = [
     /**
      * The Ptah Builders member panel (R9.5, F-6, AD-1).
      *
-     * ⚠️ THE GUARD IS `MemberGuard`, AND IT IS DECLARED INSIDE `MEMBER_ROUTES`
-     * RATHER THAN HERE. It probes `GET /api/v1/members/entitlement` and routes
-     * the three outcomes apart: 401 → `/login`, `{ entitled: false }` →
-     * `/pricing`, entitled → the hub. `AuthGuard` — which is what this route
-     * used before — can only tell logged-out from logged-in, so a member whose
-     * subscription had lapsed landed on a login page instead of a renewal page.
+     * ⚠️ THE GUARD IS `MemberGuard`, NOT `AuthGuard`. It probes
+     * `GET /api/v1/members/entitlement` and routes the three outcomes apart:
+     * 401 → `/login?returnUrl=/members`, `{ entitled: false }` → `/pricing`,
+     * entitled → the hub, seeding `MemberSessionStore` on the way through.
+     * `AuthGuard` — which is what this route used before — can only tell
+     * logged-out from logged-in, so a member whose subscription had lapsed
+     * landed on a login page instead of a renewal page.
      *
-     * It cannot be named here: `@nx/enforce-module-boundaries` forbids a static
-     * import from a library this file also lazy-loads, and `MemberGuard` ships
-     * in `@ptah-web/members`. `/admin` gets to write `canActivate` inline only
-     * because `AdminAuthGuard` lives in the never-lazy `@ptah-web/core`. See the
-     * comment on `MEMBER_ROUTES` for why the placement is behaviourally
-     * equivalent.
+     * ⚠️ IT IS IMPORTED FROM `@ptah-web/core`, NOT `@ptah-web/members`, AND
+     * THAT IS LOAD-BEARING. This file lazy-loads `@ptah-web/members` below, and
+     * `@nx/enforce-module-boundaries` errors on "Static imports of lazy-loaded
+     * libraries are forbidden" for any symbol pulled statically out of that
+     * same lib. `MemberGuard` and `MemberSessionStore` therefore live in
+     * `@ptah-web/core` — eagerly imported, never lazy — exactly like
+     * `AdminAuthGuard` below. Moving either of them back into the member lib
+     * re-breaks this line. `MEMBER_ROUTES` declares no guard of its own;
+     * declaring one there too would run the probe twice per navigation.
      *
      * ⚠️ THE `providers` ARRAY IS LOAD-BEARING (AD-1). It creates a route-level
      * injector whose `MarkdownService` + `SANITIZE` shadow the app's `'basic'`
@@ -94,6 +99,7 @@ export const routes: Routes = [
      * installs NO DOMPurify override at all and is not safe for UGC (NFR-S2).
      */
     path: 'members',
+    canActivate: [MemberGuard],
     loadChildren: () =>
       import('@ptah-web/members').then((m) => m.MEMBER_ROUTES),
     providers: [provideMarkdownRendering({ extensions: 'member' })],
