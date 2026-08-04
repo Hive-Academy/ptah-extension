@@ -31,14 +31,45 @@ export type AdminAuditAction =
   | 'pack.create'
   | 'pack.update'
   | 'pack.delete'
+  // TASK_2026_177 P2: the NATIVE community forum's moderation writes (R8, plan
+  // §2.5, §3.3). These are the actions the note that used to sit here predicted.
+  //
+  // ⚠️ WHY THEY EXIST AT ALL, since the note they replace is worth keeping in
+  // substance: before P1b the admin community surface was READ-ONLY and the
+  // external forum kept its own moderation history, so `community.*` silence
+  // was a design statement. P1b deleted that forum. The native surface that
+  // replaces it owns moderation WRITES, and this server is now the only place
+  // that history can live — so an unaudited moderation route would lose it
+  // outright rather than defer it elsewhere.
+  //
+  // ⚠️ EVERY ONE OF THESE IS WRITTEN INSIDE THE MUTATION'S OWN `$transaction`
+  // (PRE-6), via `WriteAuditLogParams.tx`. An audit row written after the
+  // transaction commits is a row that can be missing for the one mutation
+  // anybody will ever ask about.
+  //
+  // The granularity is per-INTENT, not per-column: `pin`, `lock` and `move` are
+  // separate from the catch-all `update` because "who pinned this / who locked
+  // this / who moved this out of my category" are the three questions actually
+  // asked of a forum's moderation log, and answering them from a diff of an
+  // `update` row's `metadata.changed` array is reconstruction rather than
+  // record. A single `PATCH` that changes several of them writes one row per
+  // intent it expressed.
+  | 'community.category.create'
+  | 'community.category.update'
+  | 'community.category.delete'
+  | 'community.category.reorder'
+  | 'community.topic.pin'
+  | 'community.topic.lock'
+  | 'community.topic.move'
+  | 'community.topic.update'
+  | 'community.topic.delete'
+  // R8.5 — the counterpart to `delete`. A restore is not "an update that set
+  // `deletedAt` back to null": it is the action a 30-day recovery window exists
+  // for, and it is the one an admin has to justify.
+  | 'community.topic.restore'
+  | 'community.post.delete'
+  | 'community.post.restore'
   // TASK_2026_169: admin Google Calendar session writes.
-  // NOTE: there is no `community.*` action YET — but the reason has changed.
-  // It used to be that the admin community surface was READ-ONLY and the forum
-  // kept its own moderation history externally. TASK_2026_177 P1b deleted that
-  // external forum; the native community surface it replaces owns moderation
-  // WRITES, so `community.*` actions land with the moderation controllers in
-  // Phase 2 (plan §2.5, R8) and MUST be audited here — silence is no longer a
-  // design statement, only a not-yet.
   | 'sessions.event.create'
   | 'sessions.event.update'
   | 'sessions.event.delete'
@@ -58,8 +89,13 @@ export type AdminAuditTargetType =
   | 'Subscription'
   | 'Waitlist'
   | 'MemberGroup'
-  // Phase 2 adds `Category` / `Topic` / `Post` here with the native forum's
-  // moderation controllers (plan §6.2).
+  // TASK_2026_177 P2 — the native forum's three moderatable entities (plan
+  // §6.2). They are PRISMA MODEL NAMES, matching every other member of this
+  // union, so `targetType` + `targetId` is enough to look a row up without
+  // knowing which surface wrote it.
+  | 'Category'
+  | 'Topic'
+  | 'Post'
   | 'Pack'
   | 'CalendarEvent';
 

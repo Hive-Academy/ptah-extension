@@ -19,6 +19,7 @@ import { AuditModule } from '@ptah-api/audit';
 import { MarketingModule } from '@ptah-api/marketing';
 import { MembershipModule } from '@ptah-api/membership';
 import { MemberHubModule } from '@ptah-api/member-hub';
+import { ForumModule } from '@ptah-api/forum';
 import { CircleModule } from '@ptah-api/community';
 import { GoogleSessionsModule } from '@ptah-api/community';
 import { MemberGroupsModule } from '@ptah-api/community';
@@ -87,6 +88,23 @@ import { PacksModule } from '@ptah-api/community';
     // hub's sessions resolver takes `SessionsService` with `@Optional()`, so
     // the wrong order would degrade one card rather than fail the boot.
     MemberHubModule,
+    // TASK_2026_177 P2 — the native community forum. Five controllers:
+    // `v1/members/{community,search}` and `v1/admin/community/{categories,
+    // topics,posts}`.
+    //
+    // AFTER MembershipModule (R7.3), for the same reason as MemberHubModule:
+    // both member controllers declare `@UseGuards(JwtAuthGuard, MemberGuard)`,
+    // and `MemberGuard` is resolved out of MembershipModule's @Global provider
+    // scope — which exists only once that module has been instantiated.
+    //
+    // BEFORE MemberHubModule would ALSO work and is not required: nothing here
+    // is @Global, and MemberHubModule imports ForumModule explicitly for the
+    // two services it composes its `community` section from. Placed after it
+    // because that is the reading order — the hub is the older wiring.
+    //
+    // ⚠️ NotificationsModule is NOT wired here either; it does not exist until
+    // Batch 14 (RISK-L). See ForumModule's docblock.
+    ForumModule,
 
     LicenseModule,
     AuthModule,

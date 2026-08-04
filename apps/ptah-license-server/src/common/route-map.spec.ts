@@ -224,7 +224,21 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * Counted from source on 2026-08-01: **65 routes**; **66** since `080cc3b3f`
  * added `POST v1/admin/sessions/:eventId/invitations`; **68** since
  * TASK_2026_177 Batch 3 added `GET v1/members/entitlement` and
- * `GET v1/members/hub`. Cross-checked against the running container's
+ * `GET v1/members/hub`.
+ *
+ * ⚠️ **THEN 64, NOT 68 — THIS PROSE WAS STALE AND THE LIST WAS NOT.**
+ * TASK_2026_177 P1b deleted four routes with the external forum integration
+ * (`GET v1/sso/discourse`, `GET v1/community/summary`,
+ * `GET v1/admin/community/topics`, `GET v1/admin/community/review-queue`). The
+ * ARRAY below was updated correctly at the time — the anti-vacuity assertion
+ * compares against `EXPECTED_ROUTES.length`, so it stayed green — but this
+ * running total was not, and it read 68 against an actual 64 until
+ * TASK_2026_177 Batch 6 re-derived it. Recorded rather than quietly overwritten:
+ * a count in PROSE is the one thing in this file no assertion can keep honest,
+ * which is exactly why the list, and not the number, is the artefact.
+ *
+ * **90** since Batch 6 added the 26 community-forum routes listed first below
+ * (64 + 26). Cross-checked against the running container's
  * `RouterExplorer` log
  * (`docker logs ptah_license_server | grep -oE 'Mapped \{[^}]*\}' | sort -u`),
  * which reported 65 at the time it was taken.
@@ -240,6 +254,53 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * surface must show up as a diff HERE.
  */
 const EXPECTED_ROUTES: readonly string[] = [
+  // ── TASK_2026_177 P2, the native community forum: 26 routes ──────────────
+  // 11 admin across THREE controllers at three disjoint literal depth-4
+  // prefixes, and 15 member across two disjoint literal depth-3 prefixes.
+  //
+  // ⚠️ THREE ADMIN CONTROLLERS, NOT TWO. Plan §2.5 proposed
+  // `v1/admin/community/categories` + a second controller at the bare
+  // `v1/admin/community`. The second is a strict path-prefix of the first,
+  // which RI-1 below rejects — and `PREFIX_EXCEPTIONS` and `KNOWN_PREFIX_DEBT`
+  // are both empty arrays, deliberately, so there was nothing to excuse it
+  // with. Splitting into `…/categories`, `…/topics`, `…/posts` is what makes
+  // the surface legal rather than debt.
+  //
+  // ⚠️ `PATCH v1/admin/community/categories/reorder` UNIFIES WITH
+  // `PATCH v1/admin/community/categories/:id`, so RI-3 below is no longer
+  // vacuous: this is the first same-verb unifiable pair in the server, and the
+  // literal is declared FIRST in the controller. Reversed, Nest matches
+  // `:id === 'reorder'`.
+  'DELETE v1/admin/community/categories/:id',
+  'DELETE v1/admin/community/posts/:id',
+  'DELETE v1/admin/community/topics/:id',
+  'GET v1/admin/community/categories',
+  'GET v1/admin/community/topics',
+  'PATCH v1/admin/community/categories/:id',
+  'PATCH v1/admin/community/categories/reorder',
+  'PATCH v1/admin/community/topics/:id',
+  'POST v1/admin/community/categories',
+  'POST v1/admin/community/posts/:id/restore',
+  'POST v1/admin/community/topics/:id/restore',
+  'DELETE v1/members/community/posts/:id',
+  'DELETE v1/members/community/topics/:id',
+  'DELETE v1/members/community/topics/:id/accepted-answer',
+  'GET v1/members/community/categories',
+  'GET v1/members/community/topics',
+  'GET v1/members/community/topics/:slug',
+  'GET v1/members/search',
+  'PATCH v1/members/community/posts/:id',
+  'PATCH v1/members/community/topics/:id',
+  'POST v1/members/community/categories/:id/read-all',
+  'POST v1/members/community/topics',
+  'POST v1/members/community/topics/:id/posts',
+  'POST v1/members/community/topics/:id/read',
+  // PUT, not POST, on both toggles: each expresses a desired end state
+  // ("my reaction of this type should flip", "this post is the accepted
+  // answer"), so a retried request converges instead of double-toggling.
+  'PUT v1/members/community/posts/:id/reactions/:type',
+  'PUT v1/members/community/topics/:id/accepted-answer',
+  // ── everything that existed before ──────────────────────────────────────
   'DELETE v1/admin/groups/:id/members/:userId',
   'DELETE v1/admin/packs/:id',
   'DELETE v1/admin/sessions/:eventId',
@@ -560,12 +621,18 @@ describe("Route map — the server's HTTP surface and its routing invariants", (
     // more specific one (fewer :param segments) must come first — otherwise the
     // wildcard swallows the literal.
     //
-    // NOTE this currently finds zero unifiable pairs anywhere in the server:
-    // the only one that ever existed (`GET stats` vs `GET :model` on the old
-    // AdminController) was dissolved by the R2 split into two classes on two
-    // prefixes. The assertion is therefore vacuous TODAY and is kept for the
-    // day it is not — which is precisely why the `unifiable()` self-test in
-    // anti-vacuity below is not optional.
+    // ⚠️ NO LONGER VACUOUS. This used to find zero unifiable pairs anywhere in
+    // the server: the only one that ever existed (`GET stats` vs `GET :model`
+    // on the old AdminController) was dissolved by the R2 split into two
+    // classes on two prefixes, and the assertion was kept only for the day it
+    // was not. TASK_2026_177 Batch 6 is that day —
+    // `PATCH v1/admin/community/categories/reorder` and
+    // `PATCH v1/admin/community/categories/:id` are the same verb on the same
+    // controller and DO unify, so this now checks a live property: the literal
+    // must be declared first, or Nest matches `:id === 'reorder'` and the
+    // reorder endpoint silently becomes "update the category called reorder".
+    // The `unifiable()` self-test in anti-vacuity below remains what keeps this
+    // honest if the pair ever disappears again.
     const paramCount = (r: Route): number =>
       r.segments.filter((s) => s.kind === 'param').length;
 

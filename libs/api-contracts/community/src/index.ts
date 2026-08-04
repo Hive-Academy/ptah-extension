@@ -64,8 +64,32 @@ export {
 } from './lib/member/member-hub.contract';
 export {
   hubTopicSummarySchema,
+  memberCategorySchema,
+  memberPostSchema,
+  memberTopicSummarySchema,
+  memberTopicDetailSchema,
   type HubTopicSummary,
+  type MemberCategory,
+  type MemberPost,
+  type MemberTopicSummary,
+  type MemberTopicDetail,
 } from './lib/member/member-topic.contract';
+export {
+  SEARCH_KINDS,
+  isSearchKind,
+  searchExcerptSchema,
+  searchTopicHitSchema,
+  searchPostHitSchema,
+  searchLessonHitSchema,
+  memberSearchResultsSchema,
+  type SearchKind,
+  type SearchMatch,
+  type SearchExcerpt,
+  type SearchTopicHit,
+  type SearchPostHit,
+  type SearchLessonHit,
+  type MemberSearchResults,
+} from './lib/member/member-search.contract';
 export {
   continueLearningSchema,
   type ContinueLearning,
@@ -94,3 +118,8 @@ export {
 /* --- admin contracts ------------------------------------------------------ */
 export type { AdminPack } from './lib/admin/admin-pack.contract';
 export type { AdminSessionRequest } from './lib/admin/admin-session-request.contract';
+export type {
+  AdminCategory,
+  AdminTopicSummary,
+  AdminPost,
+} from './lib/admin/admin-topic.contract';

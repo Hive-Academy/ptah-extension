@@ -178,6 +178,7 @@
       "@ptah-api/identity": ["./libs/api/identity/src/index.ts"],
       "@ptah-api/membership": ["./libs/api/membership/src/index.ts"],
       "@ptah-api/member-hub": ["./libs/api/member-hub/src/index.ts"],
+      "@ptah-api/forum": ["./libs/api/forum/src/index.ts"],
       "@ptah-api/community": ["./libs/api/community/src/index.ts"],
       "@ptah-api/marketing": ["./libs/api/marketing/src/index.ts"],
       "@ptah-api/licensing": ["./libs/api/licensing/src/index.ts"],

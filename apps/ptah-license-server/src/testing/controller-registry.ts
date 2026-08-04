@@ -14,6 +14,11 @@ import { AdminSessionsController } from '@ptah-api/community';
 import { MembersController } from '@ptah-api/community';
 import { MemberEntitlementController } from '@ptah-api/member-hub';
 import { MemberHubController } from '@ptah-api/member-hub';
+import { AdminCommunityCategoriesController } from '@ptah-api/forum';
+import { AdminCommunityPostsController } from '@ptah-api/forum';
+import { AdminCommunityTopicsController } from '@ptah-api/forum';
+import { MemberCommunityController } from '@ptah-api/forum';
+import { MemberSearchController } from '@ptah-api/forum';
 import { HealthController } from '../health/health.controller';
 import { IntegrationLicensesController } from '@ptah-api/licensing';
 import { LicenseController } from '@ptah-api/licensing';
@@ -38,10 +43,15 @@ import { WaitlistController } from '@ptah-api/marketing';
  *     RI-1/RI-2/RI-3 routing invariants. (Added by R2.)
  *
  * ⚠️ WHY THIS IS A MODULE AND NOT A CONST IN ONE SPEC.
- * Both specs need the identical 21-entry list. Duplicating it would create
- * exactly the drift both specs exist to prevent: a controller added to one
- * list and not the other is enforced by one guard and invisible to the other,
- * with nothing failing. One list, two importers.
+ * Both specs need the identical list — 21 entries when this file was written,
+ * 24 after TASK_2026_177 P1d, 29 since P2 added `libs/api/forum`. Duplicating
+ * it would create exactly the drift both specs exist to prevent: a controller
+ * added to one list and not the other is enforced by one guard and invisible to
+ * the other, with nothing failing. One list, two importers.
+ *
+ * (The number is prose, not an assertion — the CENSUS below is what makes the
+ * list impossible to leave incomplete, and it compares against the filesystem
+ * rather than against a count.)
  *
  * ⚠️ WHY AN EXPLICIT IMPORT LIST AND NOT MODULE-GRAPH REFLECTION.
  * Reflecting over `AppModule` would drag Prisma's `onModuleInit` into specs
@@ -62,7 +72,7 @@ import { WaitlistController } from '@ptah-api/marketing';
  * api lib is covered the moment it exists — this file needs no edit for that.
  *
  * ⚠️ DO NOT ADD THIS MODULE TO `testing/index.ts`. The barrel is a general
- * test-harness surface; pulling 21 controller classes (and their entire DI
+ * test-harness surface; pulling every controller class (and its entire DI
  * import graph) into every consumer of `createMockPrisma()` is a needless
  * cost. Import it by direct path — which is what every existing consumer of
  * `src/testing/` already does (`'../testing/mock-prisma.factory'` etc.).
@@ -240,6 +250,45 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
     label: 'events/EventsController',
     file: 'libs/api/licensing/src/lib/events/events.controller.ts',
     controller: EventsController,
+  },
+  // TASK_2026_177 P2 — the native community forum (`libs/api/forum`). FIVE
+  // controllers, and the count is the point of RISK-J: plan §2.5 proposed FOUR,
+  // with the admin topic moderation sitting at the bare `v1/admin/community`.
+  // That prefix is a strict path-prefix of `v1/admin/community/categories`,
+  // which RI-1 rejects — and both ledgers it could be excused through
+  // (`PREFIX_EXCEPTIONS`, `KNOWN_PREFIX_DEBT`) are empty arrays, deliberately.
+  // Splitting the moderation surface into three disjoint literal depth-4
+  // prefixes is what makes the shape legal rather than debt.
+  {
+    label: 'forum/AdminCommunityCategoriesController',
+    file: 'libs/api/forum/src/lib/categories/admin-community-categories.controller.ts',
+    controller: AdminCommunityCategoriesController,
+  },
+  {
+    label: 'forum/AdminCommunityPostsController',
+    file: 'libs/api/forum/src/lib/posts/admin-community-posts.controller.ts',
+    controller: AdminCommunityPostsController,
+  },
+  {
+    label: 'forum/AdminCommunityTopicsController',
+    file: 'libs/api/forum/src/lib/topics/admin-community-topics.controller.ts',
+    controller: AdminCommunityTopicsController,
+  },
+  // Two member controllers, one lib, deliberately NOT one class — the same
+  // reasoning as the member-hub pair below. `v1/members/community` and
+  // `v1/members/search` are disjoint literal siblings at depth 3, and search
+  // spans more than the forum (`?kinds=…,lessons` lands in Phase 3), so hanging
+  // it off the community prefix would make Phase 3 either move a shipped URL or
+  // leave it lying about its scope.
+  {
+    label: 'forum/MemberCommunityController',
+    file: 'libs/api/forum/src/lib/topics/member-community.controller.ts',
+    controller: MemberCommunityController,
+  },
+  {
+    label: 'forum/MemberSearchController',
+    file: 'libs/api/forum/src/lib/search/member-search.controller.ts',
+    controller: MemberSearchController,
   },
   {
     label: 'google-sessions/AdminSessionsController',

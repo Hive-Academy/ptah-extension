@@ -1,12 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { RequestMethod } from '@nestjs/common';
 import {
+  METHOD_METADATA,
   MODULE_METADATA,
   PATH_METADATA,
   GUARDS_METADATA,
 } from '@nestjs/common/constants';
 import { AdminGuard } from '@ptah-api/identity';
 import { JwtAuthGuard } from '@ptah-api/identity';
+import { AdminCommunityCategoriesController } from '@ptah-api/forum';
+import { AdminCommunityPostsController } from '@ptah-api/forum';
+import { AdminCommunityTopicsController } from '@ptah-api/forum';
 import { PacksModule } from '@ptah-api/community';
 import { AdminPacksController } from '@ptah-api/community';
 import { AdminSessionsController } from '@ptah-api/community';
@@ -33,6 +38,15 @@ import { WORKSPACE_ROOT } from '../testing/controller-registry';
  * that replaces it owns moderation WRITES by design (plan §2.5, R8). Re-adding a
  * read-only assertion against the new admin moderation controllers would freeze
  * the opposite of the intended architecture.
+ *
+ * ⚠️ TASK_2026_177 P2 LANDED THOSE CONTROLLERS AND STILL DID NOT RESTORE G5.
+ * G1 below now enumerates all three (`AdminCommunityCategoriesController`,
+ * `AdminCommunityTopicsController`, `AdminCommunityPostsController`), and the
+ * two assertions added beside it are the INVERSE of G5's claim: the prefixes
+ * are disjoint (RISK-J), and the surface genuinely declares writes. What makes
+ * those writes safe is not that they do not exist — it is that each one records
+ * an `AdminAuditLog` row INSIDE its own transaction (PRE-6), asserted in
+ * `libs/api/forum`'s three controller specs.
  *
  * G3 ("registers PacksModule before AdminModule in AppModule") USED to live
  * here. It was DELETED by TASK_2026_170 R2, not moved. G3 froze an arbitrary
@@ -92,6 +106,16 @@ describe('Admin surface — structural guards', () => {
       ['AdminPacksController', AdminPacksController],
       ['AdminSessionsController', AdminSessionsController],
       ['MemberGroupsController', MemberGroupsController],
+      // TASK_2026_177 P2 — the three community moderation controllers. G1 is a
+      // HAND-MAINTAINED enumeration: an admin controller absent from it is not
+      // partially covered, it is simply untested by the guard test, and nothing
+      // else in the server asserts the class-level chain.
+      [
+        'AdminCommunityCategoriesController',
+        AdminCommunityCategoriesController,
+      ],
+      ['AdminCommunityTopicsController', AdminCommunityTopicsController],
+      ['AdminCommunityPostsController', AdminCommunityPostsController],
     ])(
       '%s declares JwtAuthGuard + AdminGuard at class level',
       (_name, ctrl) => {
@@ -110,9 +134,68 @@ describe('Admin surface — structural guards', () => {
     it.each([
       ['AdminPacksController', AdminPacksController],
       ['AdminSessionsController', AdminSessionsController],
+      [
+        'AdminCommunityCategoriesController',
+        AdminCommunityCategoriesController,
+      ],
+      ['AdminCommunityTopicsController', AdminCommunityTopicsController],
+      ['AdminCommunityPostsController', AdminCommunityPostsController],
     ])('%s is mounted under v1/admin/', (_name, ctrl) => {
       const path = Reflect.getMetadata(PATH_METADATA, ctrl) as string;
       expect(path.startsWith('v1/admin/')).toBe(true);
+    });
+
+    // ⚠️ RISK-J, asserted here as well as in `route-map.spec.ts`. The three
+    // community controllers sit at three DISJOINT literal depth-4 prefixes. The
+    // plan's §2.5 split put topic moderation at the bare `v1/admin/community`,
+    // a strict path-prefix of the categories controller — which RI-1 rejects,
+    // with `PREFIX_EXCEPTIONS` and `KNOWN_PREFIX_DEBT` both empty by design.
+    // Restated on this side so the failure names the ADMIN SURFACE rule rather
+    // than only the routing invariant.
+    it('the three community moderation prefixes are disjoint, with nothing at the bare v1/admin/community', () => {
+      const prefixes = [
+        AdminCommunityCategoriesController,
+        AdminCommunityTopicsController,
+        AdminCommunityPostsController,
+      ].map((ctrl) => Reflect.getMetadata(PATH_METADATA, ctrl) as string);
+
+      expect(prefixes.sort()).toEqual([
+        'v1/admin/community/categories',
+        'v1/admin/community/posts',
+        'v1/admin/community/topics',
+      ]);
+      expect(prefixes).not.toContain('v1/admin/community');
+    });
+
+    // ⚠️ G5 IS NOT COMING BACK, AND THIS IS NOT IT. G5 asserted that the admin
+    // community controller exposed only `@Get` handlers — a rule whose subject
+    // (an EXTERNAL forum owning its own moderation history) was deleted by P1b.
+    // The native surface owns moderation WRITES by design. What replaces the
+    // concern is the opposite assertion: the writes exist AND are audited, which
+    // `libs/api/forum`'s three controller specs check by asserting the audit row
+    // shares the mutation's transaction (PRE-6).
+    it('the community moderation surface declares WRITES, by design (the inverse of the deleted G5)', () => {
+      const writeVerbs = [
+        AdminCommunityCategoriesController,
+        AdminCommunityTopicsController,
+        AdminCommunityPostsController,
+      ].flatMap((ctrl) => {
+        const proto = ctrl.prototype as object;
+        return Object.getOwnPropertyNames(proto)
+          .filter((name) => name !== 'constructor')
+          .map((name) => {
+            const fn = Object.getOwnPropertyDescriptor(proto, name)
+              ?.value as object;
+            return Reflect.getMetadata(METHOD_METADATA, fn) as
+              | number
+              | undefined;
+          })
+          .filter((method): method is number => method !== undefined);
+      });
+
+      // RequestMethod.GET === 0, so this MUST compare against the enum rather
+      // than test truthiness.
+      expect(writeVerbs.some((verb) => verb !== RequestMethod.GET)).toBe(true);
     });
   });
 

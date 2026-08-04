@@ -109,17 +109,37 @@ const EXCLUDED: ReadonlyArray<{
  * Counted from source on 2026-08-01: 39 `@Body()`/`@Query()` params across every
  * controller in `ALL_CONTROLLERS` (31 whole-object + 8 named-primitive).
  * Re-counted 2026-08-04 at **37** (31 whole-object + 6 named-primitive) after
- * TASK_2026_177 P1b deleted three controllers with the forum integration. Raise
- * it only when you have counted again.
+ * TASK_2026_177 P1b deleted three controllers with the forum integration.
+ * Re-derived 2026-08-04 at **51** (45 whole-object + 6 named-primitive) after
+ * TASK_2026_177 P2 added the five `libs/api/forum` controllers. Raise it only
+ * when you have counted again.
  *
- * ⚠️ THE -2 IS ACCOUNTED FOR, WHICH IS THE ONLY REASON LOWERING THIS IS SAFE.
- * A floor that is lowered whenever it fails is not a floor. The entire drop is
- * the SSO controller's two named primitives (`sso`, `sig`) — which is why
- * `NAMED_PRIMITIVE_PARAM_COUNT` went 8 → 6 in the same change and the
- * whole-object count is UNCHANGED at 31. Both numbers were re-derived by
- * running this suite, not assumed: had a bound whole-object param also gone
- * missing, the total would read 36 or less against an unchanged 31 and the
- * arithmetic below would not close.
+ * ⚠️ THE -2, AND THEN THE +14, ARE BOTH ACCOUNTED FOR — WHICH IS THE ONLY
+ * REASON MOVING THIS NUMBER IS SAFE. A floor that is edited whenever it fails is
+ * not a floor.
+ *
+ * The 39 → 37 drop was entirely the SSO controller's two named primitives
+ * (`sso`, `sig`) — which is why `NAMED_PRIMITIVE_PARAM_COUNT` went 8 → 6 in the
+ * same change while the whole-object count stayed at 31.
+ *
+ * The 37 → 51 rise is entirely whole-object params on the five new forum
+ * controllers, and it decomposes exactly:
+ *
+ *   forum/MemberCommunityController              8   (2 @Query + 6 @Body)
+ *   forum/MemberSearchController                 1   (1 @Query)
+ *   forum/AdminCommunityCategoriesController     3   (3 @Body)
+ *   forum/AdminCommunityTopicsController         2   (1 @Query + 1 @Body)
+ *   forum/AdminCommunityPostsController          0   (delete + restore only)
+ *                                              ---
+ *                                               14   31 + 14 = 45 whole-object
+ *
+ * `NAMED_PRIMITIVE_PARAM_COUNT` is UNCHANGED at 6, and that is the load-bearing
+ * half: it is an exact-equality assertion (RISK-I), so every `@Query()` in
+ * `libs/api/forum` had to bind a whole-object DTO. It does — `ListTopicsQueryDto`,
+ * `ThreadQueryDto`, `SearchQueryDto` and `ListAdminTopicsQueryDto`, each with
+ * `@Type(() => Number)` on its numeric fields so `dtoPipe`'s `transform: true`
+ * has a target. Had one `@Query('q') q: string` slipped in, the total would read
+ * 51 against a named count of 7 and the arithmetic here would not close.
  *
  * ⚠️ It is ALSO the arithmetic check on TASK_2026_170's controller splits. R2
  * turned one 6-param `admin/AdminController` into five controllers holding
@@ -127,8 +147,13 @@ const EXCLUDED: ReadonlyArray<{
  * remove one, so this total must read EXACTLY the same across a split. That
  * property is intact — a DELETION is the one thing that legitimately lowers it,
  * and it must be justified in this docblock, as above, every time.
+ *
+ * ⚠️ LEAVING IT AT 37 WOULD HAVE BEEN THE REAL FAILURE. The assertion is
+ * `>= MIN`, so a stale floor does not fail — it silently stops covering the
+ * surface it was written for. At 37 against an actual 51, fourteen params could
+ * have vanished before this test noticed.
  */
-const MIN_TOTAL_PAYLOAD_PARAMS = 37;
+const MIN_TOTAL_PAYLOAD_PARAMS = 51;
 
 /**
  * Named-primitive params — `@Query('code') code: string` — bind a STRING, not a

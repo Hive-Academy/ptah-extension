@@ -1,0 +1,22 @@
+{
+  "name": "api-forum",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/api/forum/src",
+  "projectType": "library",
+  "tags": ["scope:api", "type:feature"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/api/forum/jest.config.cts"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsc --noEmit --project libs/api/forum/tsconfig.lib.json"
+      }
+    }
+  }
+}

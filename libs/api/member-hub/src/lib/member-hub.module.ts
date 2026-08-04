@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@ptah-api/core';
+import { ForumModule } from '@ptah-api/forum';
 import { IdentityModule } from '@ptah-api/identity';
 import { CohortBadgesService } from './cohort-badges.service';
 import { MemberEntitlementController } from './member-entitlement.controller';
@@ -55,9 +56,23 @@ import { SessionsSection } from './sections/sessions.section';
  * adding a Phase-N section is a compile error until the composer is updated,
  * whereas an injected array would silently compose four sections and ship an
  * envelope with a missing key.
+ *
+ * ⚠️ `ForumModule` (TASK_2026_177 P2) IS IMPORTED FOR ITS TWO EXPORTED
+ * SERVICES, and `CommunitySection` uses one of them (`TopicsReadService`) — see
+ * that file for why `ReadStateService` would be a second derivation of a number
+ * the feed already returns. It is a NORMAL import, not `@Optional()`: unlike
+ * `SessionsService`, which is genuinely feature-flagged behind
+ * `GOOGLE_OAUTH_*`, the forum is unconditionally part of the product, and a
+ * missing `ForumModule` is a wiring mistake that should fail at boot rather
+ * than silently degrade the community card to `'unavailable'` forever.
+ *
+ * ⚠️ THIS IMPORT DOES NOT WIDEN THE HUB'S REACH. `ForumModule` exports two READ
+ * services and nothing else — no `TopicsService`, no `PostsService`, no
+ * `CategoriesService`, none of `common/`. The hub cannot mutate the forum or
+ * read past a visibility clause; `forum.module.spec.ts` asserts that surface.
  */
 @Module({
-  imports: [ConfigModule, PrismaModule, IdentityModule],
+  imports: [ConfigModule, PrismaModule, IdentityModule, ForumModule],
   controllers: [MemberHubController, MemberEntitlementController],
   providers: [
     MemberHubService,
