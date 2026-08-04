@@ -224,10 +224,12 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * to the invariants below.
  *
  * Counted from source on 2026-08-01: **65 routes**; **66** since `080cc3b3f`
- * added `POST v1/admin/sessions/:eventId/invitations`. Cross-checked against the
- * running container's `RouterExplorer` log
+ * added `POST v1/admin/sessions/:eventId/invitations`; **68** since
+ * TASK_2026_177 Batch 3 added `GET v1/members/entitlement` and
+ * `GET v1/members/hub`. Cross-checked against the running container's
+ * `RouterExplorer` log
  * (`docker logs ptah_license_server | grep -oE 'Mapped \{[^}]*\}' | sort -u`),
- * which also reports 65.
+ * which reported 65 at the time it was taken.
  *
  * ⚠️ 65, NOT 64. The plan's prose says "64 routes before, 64 routes after"
  * (restructure-plan.md §2), but its own §2.3 per-prefix table sums to 65 and so
@@ -268,6 +270,15 @@ const EXPECTED_ROUTES: readonly string[] = [
   'GET v1/events/health',
   'GET v1/events/subscribe',
   'GET v1/licenses/me',
+  // TASK_2026_177 P1d — the two member-hub endpoints. THIS IS THE RI-1 PAYOFF
+  // the AD-12 re-declaration below was done for: `v1/members/entitlement`,
+  // `v1/members/hub` and `v1/members/sessions` are three disjoint LITERAL
+  // siblings at depth 3, so no member controller's prefix is a path-prefix of
+  // another's and no two of them can contest a concrete path. Had AD-12 not
+  // landed, `v1/members` would still be a proper prefix of both lines below and
+  // RI-1 would fail here rather than in review.
+  'GET v1/members/entitlement',
+  'GET v1/members/hub',
   // AD-12: `MembersController` moved from @Controller('v1/members') + @Get('sessions')
   // to @Controller('v1/members/sessions') + a bare @Get(). The resolved path is
   // UNCHANGED — which is exactly why this line is not edited. The point of the

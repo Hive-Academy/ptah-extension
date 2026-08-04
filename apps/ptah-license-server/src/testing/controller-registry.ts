@@ -15,6 +15,8 @@ import { DiscourseController } from '@ptah-api/community';
 import { EventsController } from '@ptah-api/licensing';
 import { AdminSessionsController } from '@ptah-api/community';
 import { MembersController } from '@ptah-api/community';
+import { MemberEntitlementController } from '@ptah-api/member-hub';
+import { MemberHubController } from '@ptah-api/member-hub';
 import { HealthController } from '../health/health.controller';
 import { IntegrationLicensesController } from '@ptah-api/licensing';
 import { LicenseController } from '@ptah-api/licensing';
@@ -301,6 +303,21 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
     label: 'member-groups/MemberGroupsController',
     file: 'libs/api/community/src/lib/member-groups/member-groups.controller.ts',
     controller: MemberGroupsController,
+  },
+  // TASK_2026_177 P1d. Two controllers, one lib, deliberately NOT one class:
+  // `v1/members/entitlement` runs `JwtAuthGuard` alone (a non-member gets
+  // `200 { entitled: false }`, R7.7) while `v1/members/hub` adds `MemberGuard`
+  // (a non-member gets 403). Guards are declared per class, so merging them
+  // would force the probe behind the gate it exists to report on.
+  {
+    label: 'member-hub/MemberEntitlementController',
+    file: 'libs/api/member-hub/src/lib/member-entitlement.controller.ts',
+    controller: MemberEntitlementController,
+  },
+  {
+    label: 'member-hub/MemberHubController',
+    file: 'libs/api/member-hub/src/lib/member-hub.controller.ts',
+    controller: MemberHubController,
   },
   {
     label: 'packs/AdminPacksController',

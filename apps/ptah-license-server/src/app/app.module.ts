@@ -18,6 +18,7 @@ import { AdminModule } from '@ptah-api/admin';
 import { AuditModule } from '@ptah-api/audit';
 import { MarketingModule } from '@ptah-api/marketing';
 import { MembershipModule } from '@ptah-api/membership';
+import { MemberHubModule } from '@ptah-api/member-hub';
 import { CircleModule } from '@ptah-api/community';
 import { GoogleSessionsModule } from '@ptah-api/community';
 import { DiscourseModule } from '@ptah-api/community';
@@ -79,6 +80,15 @@ import { PacksModule } from '@ptah-api/community';
     // now asserts that no two controllers can contest a path at all. Order this
     // array for readability; a routing bug can no longer hide in it.
     PacksModule, // TASK_2026_169: admin-only Builders pack registry
+    // TASK_2026_177 P1d — GET v1/members/hub + GET v1/members/entitlement.
+    // AFTER MembershipModule (R7.3): the hub controller declares
+    // `@UseGuards(JwtAuthGuard, MemberGuard)` and both controllers inject
+    // `MembershipService` / `CohortResolver` out of that @Global scope, which
+    // exists only once MembershipModule has been instantiated.
+    // AFTER GoogleSessionsModule too, though with a softer consequence: the
+    // hub's sessions resolver takes `SessionsService` with `@Optional()`, so
+    // the wrong order would degrade one card rather than fail the boot.
+    MemberHubModule,
 
     LicenseModule,
     AuthModule,
