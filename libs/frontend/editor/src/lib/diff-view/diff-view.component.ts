@@ -86,7 +86,7 @@ const DIFF_LAYOUT_SETTING_KEY = 'editor.diff.renderSideBySide';
   template: `
     <div class="w-full h-full flex flex-col bg-base-100">
       <!-- Diff header bar: identity, chrome and freshness in one row. -->
-      @if (diff(); as d) {
+      @if (showHeader() && diff(); as d) {
         <div
           class="flex items-center gap-2 px-2 py-1 text-xs bg-base-200 border-b border-base-content/10 flex-shrink-0"
           role="status"
@@ -273,6 +273,17 @@ export class DiffViewComponent implements OnDestroy {
    * `EditorService`.
    */
   readonly openDiffKeys = input<readonly string[]>([]);
+
+  /**
+   * Render the built-in git header bar (path, comparison chip, layout toggle,
+   * retry). Non-git consumers — e.g. the Skills library's enhancement preview,
+   * which reuses the Monaco diff surface for two in-memory bodies — supply
+   * their own chrome and turn this off, so the panel never claims a bogus
+   * `staged` / `working tree` provenance.
+   *
+   * @default true
+   */
+  readonly showHeader = input<boolean>(true);
 
   /** Emits the diff tab key when the user asks for a re-read. */
   readonly retryRequested = output<string>();

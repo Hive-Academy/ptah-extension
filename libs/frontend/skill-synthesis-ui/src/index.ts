@@ -6,6 +6,25 @@ export type { SkillCandidateAction } from './lib/components/skill-candidates-tab
 export { SkillInvocationsPanelComponent } from './lib/components/skill-invocations-panel.component';
 export { SkillSettingsPanelComponent } from './lib/components/skill-settings-panel.component';
 export { SkillClonesViewComponent } from './lib/components/clones/skill-clones-view.component';
+export { CloneCardComponent } from './lib/components/clones/clone-card.component';
+export { CloneDetailDrawerComponent } from './lib/components/clones/clone-detail-drawer.component';
+export type {
+  CloneHistoryDiff,
+  CloneHistoryRequest,
+} from './lib/components/clones/clone-detail-drawer.component';
+export { EnhancePreviewDrawerComponent } from './lib/components/clones/enhance-preview-drawer.component';
+export {
+  cloneActionModel,
+  cloneStatusLabel,
+  hasUpstreamSource,
+  KEEP_MINE_EXPLANATION,
+  REBASE_EXPLANATION,
+} from './lib/components/clones/clone-action-gating';
+export type {
+  CloneActionModel,
+  CloneActionState,
+  CloneEnhanceEligibility,
+} from './lib/components/clones/clone-action-gating';
 export { SkillSuggestionsViewComponent } from './lib/components/suggestions/skill-suggestions-view.component';
 export { SkillSynthesisRpcService } from './lib/services/skill-synthesis-rpc.service';
 export { SkillSynthesisStateService } from './lib/services/skill-synthesis-state.service';
