@@ -51,11 +51,14 @@ import {
   CARRIER_FILE,
   COMPLETION_ARTIFACTS,
   CONTEXT_FILE,
+  deriveCrossFileIssues,
   LEGACY_BATCHES_FILE,
   PLANNING_ARTIFACTS,
   SPEC_CONTRACT_VERSION,
+  type TaskSpecSummary,
   type TaskStatus,
   type TaskType,
+  type TaskValidationIssue,
 } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { parseTaskFile } from './task-frontmatter';
@@ -94,9 +97,30 @@ export interface RenameBatchesAction {
 
 export type DoctorAction = AdoptAction | RenameBatchesAction;
 
+/**
+ * Something worth SAYING that the doctor will not change on its own.
+ *
+ * The four cross-file codes (TASK_2026_181) are reported and NEVER repaired.
+ * There is deliberately no `DoctorAction` for any of them: a "normalize
+ * metadata" action would rewrite a carrier the user did not ask about, and
+ * `.ptah/**` is gitignored, so the rewrite would have no undo outside the
+ * journal. The `assertNever` exhaustiveness guard on the RPC projection of
+ * `DoctorAction` is the tripwire that keeps it that way — it must never be
+ * tripped by this feature.
+ */
 export interface DoctorWarning {
   folderName: string;
-  code: 'id_mismatch' | 'unparseable_carrier';
+  code:
+    | 'id_mismatch'
+    | 'unparseable_carrier'
+    /** `parent` names a folder that is not a readable task. */
+    | 'dangling_parent'
+    /** The task's parent chain closes on itself. */
+    | 'parent_cycle'
+    /** The declared parent itself declares a parent; parentage is one level. */
+    | 'parent_depth_exceeded'
+    /** A `duplicates` / `relates_to` entry pointing at nothing, or at itself. */
+    | 'dangling_relation';
   message: string;
 }
 
@@ -163,6 +187,58 @@ export interface DoctorJournal {
   entries: DoctorJournalEntry[];
 }
 
+/** What one carrier told us: warnings to report, plus the task when it parsed. */
+interface CarrierInspection {
+  warnings: DoctorWarning[];
+  /** Absent when the carrier could not be read or was excluded. */
+  task?: TaskSpecSummary;
+}
+
+/**
+ * The cross-file codes the doctor reports, mapped to the union it publishes.
+ *
+ * Keyed off {@link deriveCrossFileIssues}'s output rather than duplicated: the
+ * doctor and the scanner must agree on what counts as a broken parent claim, or
+ * a user gets a board that says one thing and a doctor that says another.
+ *
+ * Note what is NOT here: an action. Every one of these is reported and left
+ * alone, exactly like the pre-existing `id_mismatch` warning.
+ */
+const DOCTOR_CROSS_FILE_CODES = [
+  'dangling_parent',
+  'parent_cycle',
+  'parent_depth_exceeded',
+  'dangling_relation',
+] as const;
+
+type DoctorCrossFileCode = (typeof DOCTOR_CROSS_FILE_CODES)[number];
+
+function isDoctorCrossFileCode(
+  code: TaskValidationIssue['code'],
+): code is DoctorCrossFileCode {
+  return (DOCTOR_CROSS_FILE_CODES as readonly string[]).includes(code);
+}
+
+/**
+ * Run the whole-set pass over the carriers that parsed, and project its issues
+ * onto doctor warnings.
+ *
+ * The doctor's view of "which tasks exist" is the `TASK_*` folders that hold a
+ * READABLE carrier — narrower than the scanner's, which counts every non-dot
+ * directory. That is the correct view for a diagnostic: a parent pointing at a
+ * folder the doctor cannot read is a thing the author wants to hear about.
+ */
+function crossFileWarnings(tasks: readonly TaskSpecSummary[]): DoctorWarning[] {
+  const warnings: DoctorWarning[] = [];
+  for (const [folderName, issues] of deriveCrossFileIssues(tasks)) {
+    for (const issue of issues) {
+      if (!isDoctorCrossFileCode(issue.code)) continue;
+      warnings.push({ folderName, code: issue.code, message: issue.message });
+    }
+  }
+  return warnings;
+}
+
 type StampState =
   | { state: 'absent' }
   | { state: 'present'; version: number }
@@ -216,13 +292,22 @@ export class TaskDoctorService {
 
     const actions: DoctorAction[] = [];
     const warnings: DoctorWarning[] = [];
+    /**
+     * Every folder that parsed into a task, kept so the cross-file pass below
+     * can run. A parent claim, a duplicate marker and a `relates_to` entry are
+     * all statements about ANOTHER folder, so none of them can be judged from
+     * the file that makes them.
+     */
+    const parsed: TaskSpecSummary[] = [];
 
     for (const folderName of folders) {
       const folderPath = path.join(specsDir, folderName);
       const docs = await this.listFileNames(folderPath);
 
       if (docs.includes(CARRIER_FILE)) {
-        warnings.push(...(await this.inspectCarrier(folderPath, folderName)));
+        const inspection = await this.inspectCarrier(folderPath, folderName);
+        warnings.push(...inspection.warnings);
+        if (inspection.task !== undefined) parsed.push(inspection.task);
       } else {
         actions.push(await this.planAdoption(folderPath, folderName, docs));
       }
@@ -239,6 +324,8 @@ export class TaskDoctorService {
         });
       }
     }
+
+    warnings.push(...crossFileWarnings(parsed));
 
     return {
       ok: true,
@@ -532,41 +619,48 @@ export class TaskDoctorService {
   private async inspectCarrier(
     folderPath: string,
     folderName: string,
-  ): Promise<DoctorWarning[]> {
+  ): Promise<CarrierInspection> {
     let raw: string;
     try {
       raw = await this.fs.readFile(path.join(folderPath, CARRIER_FILE));
     } catch {
-      return [
-        {
-          folderName,
-          code: 'unparseable_carrier',
-          message: `${folderName} has a carrier that could not be read.`,
-        },
-      ];
+      return {
+        warnings: [
+          {
+            folderName,
+            code: 'unparseable_carrier',
+            message: `${folderName} has a carrier that could not be read.`,
+          },
+        ],
+      };
     }
 
     const parsed = parseTaskFile(folderName, raw);
     if (parsed.kind !== 'task') {
-      return [
-        {
-          folderName,
-          code: 'unparseable_carrier',
-          message: `${folderName} has a carrier excluded as '${parsed.excluded.reason}'. Fix it by hand — the doctor will not rewrite a carrier it cannot read.`,
-        },
-      ];
+      return {
+        warnings: [
+          {
+            folderName,
+            code: 'unparseable_carrier',
+            message: `${folderName} has a carrier excluded as '${parsed.excluded.reason}'. Fix it by hand — the doctor will not rewrite a carrier it cannot read.`,
+          },
+        ],
+      };
     }
 
-    return parsed.task.validationIssues
-      .filter((issue) => issue.code === 'id_mismatch')
-      .map((issue) => ({
-        folderName,
-        code: 'id_mismatch' as const,
-        message:
-          `${issue.message} Left as-is deliberately: the declared id is the ` +
-          `only record that it was ever handed out, and erasing it would let ` +
-          `the allocator re-issue it to a different task.`,
-      }));
+    return {
+      task: parsed.task,
+      warnings: parsed.task.validationIssues
+        .filter((issue) => issue.code === 'id_mismatch')
+        .map((issue) => ({
+          folderName,
+          code: 'id_mismatch' as const,
+          message:
+            `${issue.message} Left as-is deliberately: the declared id is the ` +
+            `only record that it was ever handed out, and erasing it would let ` +
+            `the allocator re-issue it to a different task.`,
+        })),
+    };
   }
 
   /**

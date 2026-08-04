@@ -194,6 +194,7 @@ function liftRelationArray(
         field: yamlKey,
         code: 'dangling_relation',
         message: `${yamlKey} entry '${entry}' refers to this task itself.`,
+        ref: entry,
       });
       continue;
     }
@@ -204,6 +205,7 @@ function liftRelationArray(
         field: yamlKey,
         code: 'dangling_relation',
         message: `${yamlKey} entry '${entry}' does not match any folder under .ptah/specs.`,
+        ref: entry,
       });
     }
   }
@@ -344,6 +346,7 @@ export function parseTaskFile(
             field: 'depends_on',
             code: 'dangling_depends_on',
             message: `depends_on entry '${dependency}' does not match any folder under .ptah/specs.`,
+            ref: dependency,
           });
         }
       }
@@ -456,12 +459,14 @@ export function parseTaskFile(
           field: 'parent',
           code: 'parent_cycle',
           message: `parent '${rawParent}' is this task itself.`,
+          ref: rawParent,
         });
       } else if (knownFolders !== undefined && !knownFolders.has(rawParent)) {
         issues.push({
           field: 'parent',
           code: 'dangling_parent',
           message: `parent '${rawParent}' does not match any folder under .ptah/specs.`,
+          ref: rawParent,
         });
       }
     }

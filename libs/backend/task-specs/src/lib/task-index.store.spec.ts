@@ -10,6 +10,7 @@
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
+import { buildTaskGraph } from '@ptah-extension/shared';
 import type {
   ExcludedTaskFolder,
   TaskSpecSummary,
@@ -226,6 +227,17 @@ function runContract(makeStore: () => ITaskIndexStore): void {
           frontmatterValid: false,
           validationIssues: [
             { field: 'type', code: 'invalid_type', message: 'bad type' },
+            // A finding that NAMES an entry. `ref` needs no column of its own —
+            // the whole array is one JSON blob — but "needs no column" is a
+            // claim about the store, so it gets asserted rather than assumed.
+            // Two entries under one field are only distinguishable by `ref`, so
+            // a store that dropped it would silently collapse them downstream.
+            {
+              field: 'relates_to',
+              code: 'dangling_relation',
+              message: 'points at nothing',
+              ref: 'TASK_2026_900',
+            },
           ],
         }),
       ],
@@ -235,6 +247,8 @@ function runContract(makeStore: () => ITaskIndexStore): void {
     expect(row.dependsOn).toEqual(['TASK_2026_001', 'TASK_2026_002']);
     expect(row.frontmatterValid).toBe(false);
     expect(row.validationIssues[0].code).toBe('invalid_type');
+    expect(row.validationIssues[0].ref).toBeUndefined();
+    expect(row.validationIssues[1].ref).toBe('TASK_2026_900');
   });
 
   // ── the five metadata columns (TASK_2026_181) ─────────────────────────────
@@ -431,6 +445,68 @@ describe('store parity (InMemory vs SQLite)', () => {
       expect(fromSqlite.parent).toBe('TASK_2026_001');
       expect(fromSqlite.duplicates).toEqual(['TASK_2026_081']);
       expect(fromSqlite.relatesTo).toEqual(['TASK_2026_082', 'TASK_2026_083']);
+    },
+  );
+
+  /**
+   * The board derives parentage, rollups and inverse relations CLIENT-SIDE from
+   * whatever the store hands back, so SQLite availability must gate nothing
+   * (NFR-11). Comparing the summaries is not quite enough: the graph is built
+   * out of the five metadata columns, and those are exactly the ones the two
+   * impls reach by different routes (a cloned array vs a JSON parse of `'[]'`).
+   */
+  (Database ? it : it.skip)(
+    'both impls yield an identical derived graph',
+    () => {
+      const seed: TaskSpecSummary[] = [
+        task({ id: 'TASK_2026_090', labels: ['Licensing'] }),
+        task({
+          id: 'TASK_2026_091',
+          parent: 'TASK_2026_090',
+          status: 'done',
+          labels: ['licensing '],
+          relatesTo: ['TASK_2026_092'],
+        }),
+        task({
+          id: 'TASK_2026_092',
+          parent: 'TASK_2026_090',
+          dependsOn: ['TASK_2026_091'],
+          duplicates: ['TASK_2026_090'],
+        }),
+      ];
+
+      const mem = new InMemoryTaskIndexStore(makeLogger());
+      const db = new (Database as BetterSqlite3Ctor)(':memory:');
+      db.exec(taskSpecsDdl);
+      const sqlite = new SqliteTaskIndexStore(makeLogger(), {
+        db,
+      } as unknown as SqliteConnectionService);
+
+      mem.replaceWorkspace(ROOT, seed, []);
+      sqlite.replaceWorkspace(ROOT, seed, []);
+
+      const fromMemory = buildTaskGraph(mem.listByWorkspace(ROOT));
+      const fromSqlite = buildTaskGraph(sqlite.listByWorkspace(ROOT));
+
+      expect([...fromSqlite.children]).toEqual([...fromMemory.children]);
+      expect([...fromSqlite.rollup]).toEqual([...fromMemory.rollup]);
+      expect([...fromSqlite.effectiveParent]).toEqual([
+        ...fromMemory.effectiveParent,
+      ]);
+      expect([...fromSqlite.blocks]).toEqual([...fromMemory.blocks]);
+      expect([...fromSqlite.duplicatedBy]).toEqual([
+        ...fromMemory.duplicatedBy,
+      ]);
+      expect([...fromSqlite.related]).toEqual([...fromMemory.related]);
+      expect(fromSqlite.knownLabels).toEqual(fromMemory.knownLabels);
+      // Sanity: the fixture actually exercises the derivation.
+      expect(fromMemory.rollup.get('TASK_2026_090')).toEqual({
+        total: 2,
+        done: 1,
+        cancelled: 0,
+        open: 1,
+      });
+      expect(fromMemory.knownLabels).toEqual(['Licensing']);
     },
   );
 });

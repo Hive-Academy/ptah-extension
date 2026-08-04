@@ -8,14 +8,50 @@ import {
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   CARRIER_FILE,
+  deriveCrossFileIssues,
   type ExcludedTaskFolder,
   type TaskSpecSummary,
+  type TaskValidationIssue,
 } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { parseTaskFile } from './task-frontmatter';
 
 /** A scanned, included task — summary plus its markdown body. */
 export type ScannedTask = TaskSpecSummary & { body: string };
+
+/**
+ * Identity of a validation FINDING, for de-duplication across the two passes
+ * that can report the same problem.
+ *
+ * ## Why `ref` is part of the key, and why omitting it was a real bug
+ *
+ * `duplicates` and `relates_to` are ARRAYS. One field can therefore carry
+ * several bad entries and produce several issues that agree on `field` and
+ * `code` and differ only in which ENTRY they are about. The two passes do not
+ * see the same set of bad entries: the parser is given `knownFolders`, the raw
+ * directory listing, so it stays silent about an entry naming a folder that
+ * exists but whose carrier failed to parse; the cross-file pass builds `byId`
+ * from the carriers that actually parsed, so that entry is exactly the one it
+ * catches.
+ *
+ * Keyed on `(code, field)` alone, a task whose `relates_to` held BOTH kinds of
+ * bad entry would have the parser's finding suppress the graph's — a real,
+ * actionable warning silently discarded with no other route to the board.
+ * `(code, field, ref)` distinguishes the entries, so each survives once.
+ *
+ * The MESSAGE is deliberately NOT part of the key: the parser and the graph
+ * word the same finding differently on purpose, and keying on the wording would
+ * make the de-duplication stop working the moment either sentence is edited.
+ * `ref` is the stable identity the wording only describes.
+ *
+ * `code` is a closed union, `field` is a frontmatter key, and `ref` is a folder
+ * name — none contains a space, so the triple is unambiguous. A code that names
+ * no entry has no `ref`, which collapses to the old `(code, field)` behaviour
+ * for exactly the cases where a field can hold only one value.
+ */
+function issueKey(issue: TaskValidationIssue): string {
+  return `${issue.code} ${issue.field} ${issue.ref ?? ''}`;
+}
 
 /** Result of a full folder scan of `.ptah/specs/`. */
 export interface TaskScanResult {
@@ -91,7 +127,51 @@ export class TaskScannerService {
       );
     }
 
+    this.mergeCrossFileIssues(tasks);
+
     return { tasks, excluded, specsDirExists: true };
+  }
+
+  /**
+   * Fold the issues that need a view of the WHOLE scanned set back onto each
+   * task, then recompute `frontmatterValid`.
+   *
+   * This runs HERE, before the caller hands the result to `replaceWorkspace`,
+   * so the persisted index row is self-describing: `tasks:list` carries the
+   * multi-node `parent_cycle` and `parent_depth_exceeded` warnings without any
+   * consumer having to rebuild the graph to discover them. They are recomputed
+   * identically on every rebuild, so nothing is lost by deleting the database.
+   *
+   * ## Why the merge de-duplicates, and on what
+   *
+   * The scanner is the one caller that already supplied `knownFolders` to
+   * `parseTaskFile`, so it has ALREADY been told about the self-parent case,
+   * dangling parents and dangling relations. `deriveCrossFileIssues` reports
+   * those too — deliberately, for callers with no directory view — so an
+   * unfiltered merge would show the author the same problem twice in two
+   * slightly different wordings.
+   *
+   * The de-duplication is per FINDING, not per field: see {@link issueKey} for
+   * why the entry a finding is about has to be part of its identity. Dropping
+   * everything the cross-file pass says about a field just because the parser
+   * said something about that field is how a real warning disappears.
+   */
+  private mergeCrossFileIssues(tasks: ScannedTask[]): void {
+    const crossFile = deriveCrossFileIssues(tasks);
+
+    for (const task of tasks) {
+      const derived = crossFile.get(task.id);
+      if (derived !== undefined && derived.length > 0) {
+        const alreadyReported = new Set(task.validationIssues.map(issueKey));
+        const added = derived.filter(
+          (issue) => !alreadyReported.has(issueKey(issue)),
+        );
+        if (added.length > 0) {
+          task.validationIssues = [...task.validationIssues, ...added];
+        }
+      }
+      task.frontmatterValid = task.validationIssues.length === 0;
+    }
   }
 
   private async scanFolder(

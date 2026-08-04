@@ -220,10 +220,31 @@ export type TasksDoctorAction =
   | TasksDoctorAdoptAction
   | TasksDoctorRenameBatchesAction;
 
-/** Something worth SAYING that the doctor will not change on its own. */
+/**
+ * Something worth SAYING that the doctor will not change on its own.
+ *
+ * Widened in lockstep with `DoctorWarning['code']` in `task-doctor.service.ts`
+ * — the handler passes the service's warnings straight onto the wire, so the
+ * two unions drifting apart is a compile error rather than a wire-shape bug.
+ *
+ * There is deliberately NO matching `TasksDoctorAction` for the four
+ * cross-file codes. These are reported and never repaired, for the same reason
+ * `id_mismatch` is: a repair here would rewrite a carrier the user did not ask
+ * about.
+ */
 export interface TasksDoctorWarning {
   folderName: string;
-  code: 'id_mismatch' | 'unparseable_carrier';
+  code:
+    | 'id_mismatch'
+    | 'unparseable_carrier'
+    /** `parent` names a folder that is not a readable task. */
+    | 'dangling_parent'
+    /** The task's parent chain closes on itself. */
+    | 'parent_cycle'
+    /** The declared parent itself declares a parent; parentage is one level. */
+    | 'parent_depth_exceeded'
+    /** A `duplicates` / `relates_to` entry pointing at nothing, or at itself. */
+    | 'dangling_relation';
   message: string;
 }
 

@@ -140,6 +140,82 @@ describe('TaskDoctorService.plan', () => {
     expect(result.plan.actions).toHaveLength(0);
   });
 
+  /**
+   * Cross-file warnings (TASK_2026_181).
+   *
+   * The doctor reports all four and repairs none. The assertion that matters
+   * most is the last one: `actions` stays empty. A "normalize metadata" action
+   * would rewrite carriers the user never asked about, in a tree with no undo
+   * outside the journal.
+   */
+  it('reports the four cross-file problems and repairs NONE of them', async () => {
+    const { fs, doctor } = makeDoctor();
+
+    function carrier(folder: string, extra: readonly string[]): string {
+      return [
+        '---',
+        'status: backlog',
+        'type: FEATURE',
+        `title: ${folder}`,
+        ...extra,
+        '---',
+        '',
+        'body',
+        '',
+      ].join('\n');
+    }
+
+    // A 2-cycle no single carrier can prove on its own.
+    await fs.writeFile(
+      specPath('TASK_2026_140', 'task.md'),
+      carrier('TASK_2026_140', ['parent: TASK_2026_141']),
+    );
+    await fs.writeFile(
+      specPath('TASK_2026_141', 'task.md'),
+      carrier('TASK_2026_141', ['parent: TASK_2026_140']),
+    );
+    // A parent naming nothing.
+    await fs.writeFile(
+      specPath('TASK_2026_142', 'task.md'),
+      carrier('TASK_2026_142', ['parent: TASK_2026_999']),
+    );
+    // A two-level parent claim: 144 -> 143 -> 142.
+    await fs.writeFile(
+      specPath('TASK_2026_143', 'task.md'),
+      carrier('TASK_2026_143', ['parent: TASK_2026_142']),
+    );
+    await fs.writeFile(
+      specPath('TASK_2026_144', 'task.md'),
+      carrier('TASK_2026_144', ['parent: TASK_2026_143']),
+    );
+    // A relation entry naming nothing.
+    await fs.writeFile(
+      specPath('TASK_2026_145', 'task.md'),
+      carrier('TASK_2026_145', ['relates_to:', '  - TASK_2026_998']),
+    );
+
+    const before = snapshot(fs);
+    const result = await doctor.plan(ROOT);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const byFolder = new Map(
+      result.plan.warnings.map((w) => [w.folderName, w.code]),
+    );
+    expect(byFolder.get('TASK_2026_140')).toBe('parent_cycle');
+    expect(byFolder.get('TASK_2026_141')).toBe('parent_cycle');
+    expect(byFolder.get('TASK_2026_142')).toBe('dangling_parent');
+    expect(byFolder.get('TASK_2026_144')).toBe('parent_depth_exceeded');
+    expect(byFolder.get('TASK_2026_145')).toBe('dangling_relation');
+    // 143's own claim is honoured — it is not the one making a bad claim.
+    expect(byFolder.has('TASK_2026_143')).toBe(false);
+
+    // Reported, never repaired, and `plan()` is READ-ONLY.
+    expect(result.plan.actions).toHaveLength(0);
+    expect(snapshot(fs)).toEqual(before);
+  });
+
   it('REFUSES to run when the contract stamp exists but is unreadable (fail-closed)', async () => {
     const { fs, doctor } = makeDoctor();
     await fs.writeFile(specPath('TASK_2026_155', 'context.md'), '# Orphan\n');

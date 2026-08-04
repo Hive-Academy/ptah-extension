@@ -100,6 +100,34 @@ export interface TaskValidationIssue {
     | 'dangling_relation'
     | 'schema_issue';
   message: string;
+  /**
+   * The offending ENTRY this issue is about, for the codes that name one:
+   * `dangling_depends_on`, `dangling_relation`, `dangling_parent`,
+   * `parent_cycle`, `parent_depth_exceeded`. Absent for every other code.
+   *
+   * ## Why this exists rather than parsing it back out of `message`
+   *
+   * `duplicates` and `relates_to` are ARRAYS, so one field can carry several
+   * bad entries and produce several issues that agree on `field` and `code` and
+   * differ only in which entry they are about. Two passes report on those
+   * arrays — the per-file parser, which knows which FOLDERS exist, and the
+   * cross-file graph, which knows which folders became readable TASKS — and the
+   * scanner has to fold the second into the first without restating what the
+   * first already said. Identifying a finding by `(code, field)` alone is not
+   * enough to do that: it cannot tell "the parser already reported this exact
+   * entry" from "the parser reported a DIFFERENT entry under the same field",
+   * and collapsing the two silently discards a real warning that has no other
+   * route to the board.
+   *
+   * The message is not usable as that identity. It is prose, it is worded
+   * differently by each pass on purpose, and keying on it would make the
+   * de-duplication fail the moment either sentence is edited.
+   *
+   * This is DERIVED data. It is never written to frontmatter — nothing in the
+   * emitter reads `validationIssues` — and it needs no index column, because
+   * the whole array is persisted as one JSON blob.
+   */
+  ref?: string;
 }
 
 /** Summary row — what list/board return and what the index stores. */
