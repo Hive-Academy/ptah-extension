@@ -1,6 +1,6 @@
 ---
 description: Orchestrate development workflows with specialist agents. Supports FEATURE, BUGFIX, REFACTORING, DOCS, RESEARCH, DEVOPS, and CREATIVE task types.
-argument-hint: '[task description] or TASK_2025_XXX'
+argument-hint: '[task description] or TASK_YYYY_NNN'
 ---
 
 # Orchestrate Development Workflow
@@ -11,7 +11,7 @@ Invoke the orchestration skill for development workflows.
 
 ```
 /orchestrate [task description]     # New task
-/orchestrate TASK_2025_XXX          # Continue existing task
+/orchestrate TASK_YYYY_NNN          # Continue existing task
 ```
 
 ## Execution

@@ -122,6 +122,14 @@ nx graph                             # Visualize dep graph
 - **RPC dual-registration**: new RPC namespace requires BOTH `libs/shared/.../rpc.types.ts` (compile-time) AND `libs/backend/vscode-core/src/messaging/rpc-handler.ts:46` `ALLOWED_METHOD_PREFIXES` (runtime guard).
 - **Windows paths**: always use complete absolute Windows paths for Read/Write — there's a Claude Code bug with relative paths in this workspace.
 
+## Task Specs (`.ptah/specs/`)
+
+- **Carrier**: each `TASK_YYYY_NNN/` folder MUST contain `task.md` — YAML frontmatter (`status`, `type`, `title`) + short body. A folder without it is invisible to the Tasks board.
+- **Prose**: user intent and narrative go in `context.md`. The team-leader batch breakdown goes in `tasks.md`. Never put prose in the carrier.
+- **Status change**: `Edit` exactly the `status:` line in `task.md` (`backlog | in_progress | in_review | blocked | done | cancelled`). Never rewrite the whole carrier with `Write`.
+- **ID allocation**: folder scan of `.ptah/specs/TASK_*` — highest `NNN` for the current year + 1, zero-padded. NEVER derive the ID from `registry.md` (it is generated and can be stale).
+- **Folder name is the canonical ID**: a mismatched `id:` field inside the frontmatter is a warning; do not "fix" it by renaming folders.
+
 ## VS Code Marketplace (BLOCKING)
 
 Scanner rejects extensions containing trademarked AI product names (`copilot`, `codex`, `claude`, `openai`, `anthropic`) in **non-JS files**. Rules:
@@ -210,3 +218,5 @@ Scanner rejects extensions containing trademarked AI product names (`copilot`, `
 ### Shared
 
 - [shared](./libs/shared/CLAUDE.md) — Cross-side types, RPC contracts, messages
+
+## Use caveman skill to talk percisly and on point

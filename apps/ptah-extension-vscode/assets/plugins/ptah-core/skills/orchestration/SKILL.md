@@ -22,7 +22,7 @@ If the task type is ambiguous, ask the user to clarify rather than defaulting to
 
 ```
 /orchestrate [task description]     # New task
-/orchestrate TASK_2025_XXX          # Continue existing task
+/orchestrate TASK_YYYY_NNN          # Continue existing task
 ```
 
 ### Strategy Quick Reference
@@ -127,7 +127,7 @@ See [strategies.md](references/strategies.md) for detailed selection guidance.
 ### Mode Detection
 
 ```
-if ($ARGUMENTS matches /^TASK_2025_\d{3}$/)
+if ($ARGUMENTS matches /^TASK_\d{4}_\d{3}$/)
     -> CONTINUATION mode (resume existing task)
 else
     -> NEW_TASK mode (create new task)
@@ -135,15 +135,19 @@ else
 
 ### NEW_TASK: Initialization
 
-1. **Read Registry**: `Read(.ptah/specs/registry.md)` - find highest TASK_ID, increment
+1. **Allocate ID by folder scan**: `Glob(.ptah/specs/TASK_*)` - find the highest `NNN` for the current year, add 1, zero-pad to three digits. NEVER derive the ID from `registry.md` - the registry is generated output and can be stale.
 2. **Create Task Folder**: `mkdir .ptah/specs/TASK_[ID]`
-3. **Create Context**: `Write(.ptah/specs/TASK_[ID]/context.md)` with user intent, strategy
-4. **Announce**: Present task ID, type, complexity, planned agent sequence
+3. **Create Carrier FIRST**: `Write(.ptah/specs/TASK_[ID]/task.md)` - the frontmatter carrier (see the template in [task-tracking.md](references/task-tracking.md)). A folder without `task.md` is invisible to the Tasks board and the registry.
+4. **Create Context**: `Write(.ptah/specs/TASK_[ID]/context.md)` with user intent, strategy
+5. **Announce**: Present task ID, type, complexity, planned agent sequence
+
+**Carrier rules**: `task.md` holds machine-read frontmatter (status, type, title). To change status later, `Edit` exactly the `status:` line - NEVER rewrite the whole file with `Write`. Prose belongs in `context.md`, not in the carrier.
 
 ### CONTINUATION: Phase Detection
 
 | Documents Present       | Next Action                         |
 | ----------------------- | ----------------------------------- |
+| No task.md              | Invalid - create the carrier first  |
 | context.md only         | Invoke project-manager              |
 | task-description.md     | User validate OR invoke architect   |
 | implementation-plan.md  | User validate OR team-leader MODE 1 |
