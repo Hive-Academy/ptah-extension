@@ -16,7 +16,7 @@ import { AuthHeroComponent } from './components/auth-hero.component';
 import { SocialLoginButtonsComponent } from './components/social-login-buttons.component';
 import { VerificationCodeComponent } from './components/verification-code.component';
 import { AuthApiService } from './services/auth-api.service';
-import { AuthService } from '@ptah-web/core';
+import { AuthService, PostLoginDestinationService } from '@ptah-web/core';
 import { API_BASE_URL } from '@ptah-web/core';
 import {
   AuthMode,
@@ -252,6 +252,7 @@ export class AuthPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly apiBaseUrl = inject(API_BASE_URL);
+  private readonly destination = inject(PostLoginDestinationService);
 
   /** Reference to the form component for resetting */
   private readonly authForm = viewChild(AuthFormComponent);
@@ -408,9 +409,26 @@ export class AuthPageComponent implements OnInit {
   }
 
   /**
-   * Navigate to appropriate page after successful authentication
-   * If returnUrl and plan were set (from pricing redirect), goes back with autoCheckout param
-   * Otherwise, defaults to profile page
+   * Navigate to appropriate page after successful authentication.
+   *
+   * ⚠️ `returnUrl` ALWAYS WINS, AND THE EARLY RETURN BELOW IS WHAT GUARANTEES
+   * IT. Every branch that honours a `returnUrl` leaves this method without ever
+   * consulting {@link PostLoginDestinationService}, so an admin arriving from
+   * `/login?returnUrl=%2Fmembers` — which is exactly what `MemberGuard` sets on
+   * its 401 path — lands on `/members` and is never diverted to `/admin`. If the
+   * default-destination probe is ever hoisted above this branch, a member panel
+   * that bounced an admin to sign in will silently stop being reachable.
+   *
+   * With no `returnUrl`, the DEFAULT destination is resolved from the identity:
+   * admin → `/admin`, entitled member → `/members`, everyone else → `/profile`.
+   * That is a landing preference only; nothing redirects between the panels
+   * afterwards.
+   *
+   * ⚠️ THIS COVERS THE PASSWORD AND EMAIL-VERIFICATION PATHS ONLY. OAuth and
+   * magic-link sign-ins never re-enter this component — `auth.controller.ts`
+   * redirects them server-side (`/?auth_hint=1` for OAuth,
+   * `/profile?auth_hint=1` for magic link) when no `returnUrl` was carried
+   * through. Changing those is a license-server edit and is out of scope here.
    */
   private navigateAfterAuth(): void {
     this.authService.setAuthHint();
@@ -447,7 +465,13 @@ export class AuthPageComponent implements OnInit {
         ...(fragment ? { fragment } : {}),
       });
     } else {
-      this.router.navigate(['/profile']);
+      // No explicit request — resolve the default from the same entitlement
+      // probe `MemberGuard` runs, so `isAdmin` keeps exactly one origin. The
+      // service never errors; an unknown state resolves to `/profile`, which is
+      // the destination this branch always had.
+      this.destination.resolveDefault().subscribe((path) => {
+        void this.router.navigate([path]);
+      });
     }
   }
 

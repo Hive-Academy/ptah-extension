@@ -65,6 +65,10 @@ class StubDestination {}
 const APP_SHAPED_ROUTES: Routes = [
   { path: 'login', component: StubDestination },
   { path: 'pricing', component: StubDestination },
+  // Present so an accidental bounce to the admin panel would RESOLVE rather
+  // than fail to match — a redirect that lands nowhere is indistinguishable
+  // from no redirect at all, and the admin tests below need to tell them apart.
+  { path: 'admin', component: StubDestination },
   {
     path: 'members',
     canActivate: [MemberGuard],
@@ -182,6 +186,71 @@ describe('MemberGuard guards /members from app.routes.ts (R9.5)', () => {
     expect(store.context()).toEqual(body);
     expect(store.primaryCohortName()).toBe('Builders Lounge');
   }));
+
+  /**
+   * ⚠️ RULE 2. The post-login default sends an admin to `/admin`. It is a
+   * LANDING PREFERENCE and nothing more — no guard, no redirect, no route rule
+   * may act on `isAdmin` during navigation. An admin who types `/members`, or
+   * clicks the Member Panel link in the admin sidebar, has asked for the member
+   * panel and must get it. If any of the three below ever go red, the member
+   * panel has become unreachable for every admin, including whoever is testing
+   * it.
+   */
+  describe('an admin is NEVER bounced out of /members (rule 2)', () => {
+    const entitledAdmin: MemberEntitlementResponse = {
+      entitled: true,
+      cohorts: [],
+      isAdmin: true,
+    };
+
+    it('`/members` — the admin sidebar link target — resolves to the hub, not /admin', fakeAsync(() => {
+      navigateWith('/members', entitledAdmin);
+
+      // The hub is the one member surface that fetches on activation. Answering
+      // it with a failure keeps this test about ROUTING: HubPage degrades to its
+      // error state either way, and the assertions below are about where the
+      // admin ended up, not what was on the page.
+      httpMock
+        .expectOne('/api/v1/members/hub')
+        .flush(null, { status: 500, statusText: 'Server Error' });
+      tick();
+      fixture.detectChanges();
+
+      expect(router.url).toBe('/members/hub');
+      expect(router.url).not.toContain('/admin');
+      expect(memberShellRendered()).toBe(true);
+    }));
+
+    it('a deep member URL is preserved too', fakeAsync(() => {
+      navigateWith('/members/account', entitledAdmin);
+
+      expect(router.url).toBe('/members/account');
+      expect(memberShellRendered()).toBe(true);
+      expect(store.isAdmin()).toBe(true);
+    }));
+
+    it('a placeholder member surface is not bounced either', fakeAsync(() => {
+      navigateWith('/members/live/replays', entitledAdmin);
+
+      expect(router.url).toBe('/members/live/replays');
+      expect(memberShellRendered()).toBe(true);
+    }));
+
+    it('an admin with NO entitlement still goes to /pricing, not /admin', fakeAsync(() => {
+      // The founder's account: admin, free `community` license. The guard turns
+      // on entitlement alone (R7.4), so admin-ness must not rescue this
+      // navigation any more than it may redirect the previous two.
+      navigateWith('/members/hub', {
+        entitled: false,
+        cohorts: [],
+        isAdmin: true,
+      });
+
+      expect(router.url).toBe('/pricing');
+      expect(memberShellRendered()).toBe(false);
+      expect(store.context()).toBeNull();
+    }));
+  });
 
   it('runs the probe exactly once per navigation (not twice)', fakeAsync(() => {
     // The guard used to be declared on BOTH `/members` and `MEMBER_ROUTES[0]`

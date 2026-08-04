@@ -1,12 +1,8 @@
-import { HttpClient } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
-import { Observable, catchError, map, of } from 'rxjs';
+import { Observable, map } from 'rxjs';
 
-import { memberEntitlementResponseSchema } from '@ptah-contracts/community';
-
-import { validate } from '../services/validate-response';
-import { MemberSessionStore } from '../state/member-session.store';
+import { MemberEntitlementService } from '../services/member-entitlement.service';
 
 /** Where an unauthenticated or unentitled visitor is sent. */
 const LOGIN_ROUTE = '/login';
@@ -51,34 +47,42 @@ const RETURN_URL = '/members';
  * ⚠️ THE PROBE PATH IS LOAD-BEARING. It fires on every `/members/*` activation,
  * which is why the server keeps it to a deliberately cheap two-query handler.
  * Do not repoint it at `GET /members/hub` to "save a request" — the hub
- * composes five sections and would then run on every navigation.
+ * composes five sections and would then run on every navigation. The request
+ * itself, the contract parse and the store seed now live in
+ * {@link MemberEntitlementService}, because the post-login landing decision
+ * needs the same three facts and a second copy of this call would give
+ * `isAdmin` two origins. What stays here is only the routing decision.
+ *
+ * ⚠️ IT NEVER SENDS AN ADMIN ANYWHERE. `isAdmin` rides along in the probe body
+ * and is read by the chrome (the membership card's Admin badge, the Admin nav
+ * item), but this guard's three outcomes turn on `entitled` alone. An admin who
+ * navigates to `/members` — directly, or from the admin panel's Member Panel
+ * link — must LAND on `/members`. A bounce to `/admin` here would make the
+ * member panel unreachable for every admin, including the person testing it.
  */
 export const MemberGuard: CanActivateFn = (): Observable<boolean> => {
-  const http = inject(HttpClient);
   const router = inject(Router);
-  const session = inject(MemberSessionStore);
+  const entitlement = inject(MemberEntitlementService);
 
-  return http.get<unknown>('/api/v1/members/entitlement').pipe(
-    map(validate(memberEntitlementResponseSchema, 'GET /members/entitlement')),
-    map((entitlement) => {
-      if (!entitlement.entitled) {
+  return entitlement.probe().pipe(
+    map((context) => {
+      // `null` is UNKNOWN, not "unentitled": a 401, a 5xx, a network failure or
+      // a body that fails the contract parse all arrive here. The conservative
+      // reading of unknown is "not authenticated", which is the same fallback
+      // `admin-auth.guard.ts` takes. Routing an unknown-state visitor to
+      // /pricing instead would tell someone who is already paying that they
+      // have not paid.
+      if (context === null) {
+        void router.navigate([LOGIN_ROUTE], {
+          queryParams: { returnUrl: RETURN_URL },
+        });
+        return false;
+      }
+      if (!context.entitled) {
         void router.navigate([UPGRADE_ROUTE]);
         return false;
       }
-      session.set(entitlement);
       return true;
-    }),
-    catchError(() => {
-      // 401 is the documented "no session" answer. Anything else — a 5xx, a
-      // network failure, a response that fails the contract parse — is an
-      // UNKNOWN state, and the conservative reading of unknown is "not
-      // authenticated", which is the same fallback `admin-auth.guard.ts` takes.
-      // Routing an unknown-state visitor to /pricing instead would tell someone
-      // who is already paying that they have not paid.
-      void router.navigate([LOGIN_ROUTE], {
-        queryParams: { returnUrl: RETURN_URL },
-      });
-      return of(false);
     }),
   );
 };
