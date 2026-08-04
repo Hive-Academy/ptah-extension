@@ -12,6 +12,7 @@
 
 import type {
   ExcludedTaskFolder,
+  TaskEstimate,
   TaskSpecSummary,
   TaskSpecDetail,
   TaskStatus,
@@ -46,6 +47,21 @@ export interface TasksCreateParams extends TasksWorkspaceScopedParams {
   description?: string;
   dependsOn?: string[];
   executor?: string;
+  /**
+   * Optional metadata, applied at creation time.
+   *
+   * Omitted or empty means the carrier is written without the corresponding
+   * frontmatter key at all — a task created with no labels does not get a
+   * `labels: []` line. The RESULT needs no such additions: every task-carrying
+   * result on this namespace is a `TaskSpecSummary`, so the five fields ride
+   * onto `tasks:list`, `tasks:board`, `tasks:get` and this method's own
+   * response without a single extra type.
+   */
+  labels?: string[];
+  estimate?: TaskEstimate;
+  parent?: string;
+  duplicates?: string[];
+  relatesTo?: string[];
 }
 export interface TasksCreateResult {
   success: boolean;

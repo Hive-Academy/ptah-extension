@@ -26,6 +26,7 @@ import {
 } from '@ptah-extension/persistence-sqlite';
 import type {
   ExcludedTaskFolder,
+  TaskEstimate,
   TaskSpecSummary,
   TaskStatus,
   TaskType,
@@ -118,11 +119,23 @@ function cloneExcluded(
   return excluded.map((row) => ({ ...row }));
 }
 
-/** Deep-ish clone so in-memory callers never mutate stored rows. */
+/**
+ * Deep-ish clone so in-memory callers never mutate stored rows.
+ *
+ * EVERY array field must be copied here. The spread above is shallow, so a
+ * missed array leaves the in-memory store handing out a live reference to its
+ * own state — a caller that pushes one label would silently rewrite the index
+ * for every other reader, and the SQLite impl (which round-trips through JSON)
+ * would not behave the same way. That divergence is exactly what the parity
+ * spec exists to catch.
+ */
 function cloneSummary(task: TaskSpecSummary): TaskSpecSummary {
   return {
     ...task,
     dependsOn: [...task.dependsOn],
+    labels: [...task.labels],
+    duplicates: [...task.duplicates],
+    relatesTo: [...task.relatesTo],
     validationIssues: task.validationIssues.map((i) => ({ ...i })),
   };
 }
@@ -140,6 +153,12 @@ interface RawTaskRow {
   assignee: string | null;
   depends_on: string;
   executor: string | null;
+  /** JSON `string[]`, `'[]'` when empty — same convention as `depends_on`. */
+  labels: string;
+  estimate: string | null;
+  parent: string | null;
+  duplicates: string;
+  relates_to: string;
   claim: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -263,10 +282,11 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
     return `
       INSERT INTO task_specs (
         workspace_root, folder_name, task_id, status, type, title,
-        description, assignee, depends_on, executor, claim,
+        description, assignee, depends_on, executor,
+        labels, estimate, parent, duplicates, relates_to, claim,
         created_at, updated_at, frontmatter_valid, validation_issues,
         last_indexed_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(workspace_root, folder_name) DO UPDATE SET
         task_id = excluded.task_id,
         status = excluded.status,
@@ -276,6 +296,11 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
         assignee = excluded.assignee,
         depends_on = excluded.depends_on,
         executor = excluded.executor,
+        labels = excluded.labels,
+        estimate = excluded.estimate,
+        parent = excluded.parent,
+        duplicates = excluded.duplicates,
+        relates_to = excluded.relates_to,
         claim = excluded.claim,
         created_at = excluded.created_at,
         updated_at = excluded.updated_at,
@@ -312,6 +337,11 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
       task.assignee ?? null,
       JSON.stringify(task.dependsOn ?? []),
       task.executor ?? null,
+      JSON.stringify(task.labels ?? []),
+      task.estimate ?? null,
+      task.parent ?? null,
+      JSON.stringify(task.duplicates ?? []),
+      JSON.stringify(task.relatesTo ?? []),
       null, // claim — reserved, phase 2
       task.created,
       task.updated,
@@ -330,6 +360,9 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
       type: (row.type as TaskType | null) ?? null,
       title: row.title,
       dependsOn: this.parseJsonArray(row.depends_on),
+      labels: this.parseJsonArray(row.labels),
+      duplicates: this.parseJsonArray(row.duplicates),
+      relatesTo: this.parseJsonArray(row.relates_to),
       created: row.created_at,
       updated: row.updated_at,
       frontmatterValid: row.frontmatter_valid === 1,
@@ -338,6 +371,10 @@ export class SqliteTaskIndexStore implements ITaskIndexStore {
     if (row.description !== null) summary.description = row.description;
     if (row.assignee !== null) summary.assignee = row.assignee;
     if (row.executor !== null) summary.executor = row.executor;
+    // Assigned conditionally, exactly like the other optional fields above, so
+    // an absent value is an absent key rather than an explicit `undefined`.
+    if (row.estimate !== null) summary.estimate = row.estimate as TaskEstimate;
+    if (row.parent !== null) summary.parent = row.parent;
     return summary;
   }
 

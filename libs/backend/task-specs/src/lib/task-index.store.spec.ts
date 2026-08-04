@@ -3,7 +3,7 @@
  *
  * `InMemoryTaskIndexStore` is exercised directly (runs everywhere). The
  * `SqliteTaskIndexStore` suite opens a real better-sqlite3 `:memory:` db and
- * applies migration 0029; it is SKIPPED automatically when the native module
+ * applies migrations 0029 + 0031; it is SKIPPED automatically when the native module
  * cannot load in this environment (known NODE_MODULE_VERSION mismatch) — QA
  * owns the env fix. The parity block asserts both impls return identical rows.
  */
@@ -30,8 +30,17 @@ function makeLogger(): Logger {
   } as unknown as Logger;
 }
 
-/** DDL for the task_specs tables (migration 0029), used to seed the :memory: db. */
-const migration0029 = MIGRATIONS.find((m) => m.version === 29)?.sql ?? '';
+/**
+ * DDL for the task_specs tables, used to seed the `:memory:` db.
+ *
+ * BOTH migrations are applied, in order: 0029 creates the table and 0031 adds
+ * the metadata columns. Seeding from 0029 alone would give the SQLite suite a
+ * schema no shipped database ever has, and every metadata assertion below would
+ * fail on a missing column rather than on the behaviour it means to test.
+ */
+const taskSpecsDdl = [29, 31]
+  .map((version) => MIGRATIONS.find((m) => m.version === version)?.sql ?? '')
+  .join('\n');
 
 const ROOT = 'd:/tmp/ws-index';
 
@@ -45,6 +54,9 @@ function task(
     type: overrides.type ?? 'FEATURE',
     title: overrides.title ?? overrides.id,
     dependsOn: overrides.dependsOn ?? [],
+    labels: overrides.labels ?? [],
+    duplicates: overrides.duplicates ?? [],
+    relatesTo: overrides.relatesTo ?? [],
     created:
       'created' in overrides
         ? (overrides.created ?? null)
@@ -61,6 +73,10 @@ function task(
     ...(overrides.executor !== undefined
       ? { executor: overrides.executor }
       : {}),
+    ...(overrides.estimate !== undefined
+      ? { estimate: overrides.estimate }
+      : {}),
+    ...(overrides.parent !== undefined ? { parent: overrides.parent } : {}),
   };
 }
 
@@ -220,6 +236,78 @@ function runContract(makeStore: () => ITaskIndexStore): void {
     expect(row.frontmatterValid).toBe(false);
     expect(row.validationIssues[0].code).toBe('invalid_type');
   });
+
+  // ── the five metadata columns (TASK_2026_181) ─────────────────────────────
+  //
+  // Run against BOTH impls. The board reads whichever the lazy DI factory
+  // picked, and the user never learns which — so a field that survives one
+  // store and not the other is a bug that only reproduces on the machine where
+  // the native module failed to load.
+
+  it('round-trips all five metadata fields', () => {
+    const store = makeStore();
+    store.replaceWorkspace(
+      ROOT,
+      [
+        task({
+          id: 'TASK_2026_070',
+          labels: ['licensing', 'needs:design'],
+          estimate: 'L',
+          parent: 'TASK_2026_001',
+          duplicates: ['TASK_2026_002'],
+          relatesTo: ['TASK_2026_003', 'TASK_2026_004'],
+        }),
+      ],
+      [],
+    );
+    const row = store.listByWorkspace(ROOT)[0];
+    expect(row.labels).toEqual(['licensing', 'needs:design']);
+    expect(row.estimate).toBe('L');
+    expect(row.parent).toBe('TASK_2026_001');
+    expect(row.duplicates).toEqual(['TASK_2026_002']);
+    expect(row.relatesTo).toEqual(['TASK_2026_003', 'TASK_2026_004']);
+  });
+
+  it('round-trips a task carrying NO metadata as empty arrays + absent scalars', () => {
+    const store = makeStore();
+    store.replaceWorkspace(ROOT, [task({ id: 'TASK_2026_071' })], []);
+    const row = store.listByWorkspace(ROOT)[0];
+    expect(row.labels).toEqual([]);
+    expect(row.duplicates).toEqual([]);
+    expect(row.relatesTo).toEqual([]);
+    expect(row.estimate).toBeUndefined();
+    expect(row.parent).toBeUndefined();
+  });
+
+  it('upsert REPLACES the metadata arrays rather than merging them', () => {
+    const store = makeStore();
+    store.replaceWorkspace(
+      ROOT,
+      [task({ id: 'TASK_2026_072', labels: ['a', 'b'], estimate: 'XL' })],
+      [],
+    );
+    store.upsertMany(ROOT, [task({ id: 'TASK_2026_072', labels: ['c'] })]);
+
+    const row = store.listByWorkspace(ROOT)[0];
+    // Full replacement, both ways: the new labels win AND the estimate that is
+    // no longer declared is gone. A merge here would make it impossible to
+    // ever clear a field through the index.
+    expect(row.labels).toEqual(['c']);
+    expect(row.estimate).toBeUndefined();
+  });
+
+  it('does not hand back a live reference to a stored metadata array', () => {
+    const store = makeStore();
+    store.replaceWorkspace(
+      ROOT,
+      [task({ id: 'TASK_2026_073', labels: ['x'] })],
+      [],
+    );
+
+    store.listByWorkspace(ROOT)[0].labels.push('MUTATED');
+
+    expect(store.listByWorkspace(ROOT)[0].labels).toEqual(['x']);
+  });
 }
 
 describe('InMemoryTaskIndexStore', () => {
@@ -261,16 +349,19 @@ function loadBetterSqlite3(): BetterSqlite3Ctor | null {
 const Database = loadBetterSqlite3();
 const describeSqlite = Database ? describe : describe.skip;
 
-describeSqlite('SqliteTaskIndexStore (:memory: + migration 0029)', () => {
-  function makeStore(): ITaskIndexStore {
-    const db = new (Database as BetterSqlite3Ctor)(':memory:');
-    db.exec(migration0029);
-    const connection = { db } as unknown as SqliteConnectionService;
-    return new SqliteTaskIndexStore(makeLogger(), connection);
-  }
+describeSqlite(
+  'SqliteTaskIndexStore (:memory: + migrations 0029 + 0031)',
+  () => {
+    function makeStore(): ITaskIndexStore {
+      const db = new (Database as BetterSqlite3Ctor)(':memory:');
+      db.exec(taskSpecsDdl);
+      const connection = { db } as unknown as SqliteConnectionService;
+      return new SqliteTaskIndexStore(makeLogger(), connection);
+    }
 
-  runContract(makeStore);
-});
+    runContract(makeStore);
+  },
+);
 
 describe('store parity (InMemory vs SQLite)', () => {
   (Database ? it : it.skip)(
@@ -278,7 +369,7 @@ describe('store parity (InMemory vs SQLite)', () => {
     () => {
       const mem = new InMemoryTaskIndexStore(makeLogger());
       const db = new (Database as BetterSqlite3Ctor)(':memory:');
-      db.exec(migration0029);
+      db.exec(taskSpecsDdl);
       const sqlite = new SqliteTaskIndexStore(makeLogger(), {
         db,
       } as unknown as SqliteConnectionService);
@@ -296,6 +387,50 @@ describe('store parity (InMemory vs SQLite)', () => {
         mem.getMeta(ROOT)?.excluded,
       );
       expect(sqlite.getMeta(ROOT)?.excluded).toEqual(excludedRows(7));
+    },
+  );
+
+  (Database ? it : it.skip)(
+    'both impls return identical METADATA, populated and empty alike',
+    () => {
+      const seed: TaskSpecSummary[] = [
+        task({
+          id: 'TASK_2026_080',
+          labels: ['licensing', 'needs:design', 'trailing '],
+          estimate: 'XS',
+          parent: 'TASK_2026_001',
+          duplicates: ['TASK_2026_081'],
+          relatesTo: ['TASK_2026_082', 'TASK_2026_083'],
+          created: '2026-07-20T00:00:00.000Z',
+        }),
+        // The zero-metadata case belongs in the SAME assertion: the two impls
+        // reach "empty" by different routes (a cloned array vs a JSON parse of
+        // `'[]'`), and that is precisely where they could diverge.
+        task({ id: 'TASK_2026_084', created: '2026-07-19T00:00:00.000Z' }),
+      ];
+
+      const mem = new InMemoryTaskIndexStore(makeLogger());
+      const db = new (Database as BetterSqlite3Ctor)(':memory:');
+      db.exec(taskSpecsDdl);
+      const sqlite = new SqliteTaskIndexStore(makeLogger(), {
+        db,
+      } as unknown as SqliteConnectionService);
+
+      mem.replaceWorkspace(ROOT, seed, []);
+      sqlite.replaceWorkspace(ROOT, seed, []);
+
+      expect(sqlite.listByWorkspace(ROOT)).toEqual(mem.listByWorkspace(ROOT));
+
+      const fromSqlite = sqlite.listByWorkspace(ROOT)[0];
+      expect(fromSqlite.labels).toEqual([
+        'licensing',
+        'needs:design',
+        'trailing ',
+      ]);
+      expect(fromSqlite.estimate).toBe('XS');
+      expect(fromSqlite.parent).toBe('TASK_2026_001');
+      expect(fromSqlite.duplicates).toEqual(['TASK_2026_081']);
+      expect(fromSqlite.relatesTo).toEqual(['TASK_2026_082', 'TASK_2026_083']);
     },
   );
 });

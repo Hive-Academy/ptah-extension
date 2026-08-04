@@ -13,9 +13,11 @@
 import matter from 'gray-matter';
 import { z } from 'zod';
 import {
+  TASK_ESTIMATES,
   TASK_STATUSES,
   TASK_TYPES,
   type ExcludedTaskFolder,
+  type TaskEstimate,
   type TaskSpecSummary,
   type TaskStatus,
   type TaskType,
@@ -36,6 +38,23 @@ export const TaskFrontmatterSchema = z.object({
   assignee: z.string().nullish(),
   depends_on: z.array(z.string()).nullish(),
   executor: z.string().nullish(),
+  /**
+   * Metadata fields (TASK_2026_181). All `.nullish()` for the same reason the
+   * rest of this schema is: it documents the carrier shape and types the
+   * writer's patch input, but it does NOT gate inclusion — `parseTaskFile`
+   * lifts each field individually so a bad one degrades to a warning instead
+   * of taking the whole task off the board.
+   *
+   * `estimate` is `z.string()` rather than the enum on purpose. Narrowing it
+   * here would make an unrecognised size a SCHEMA failure, and the required
+   * behaviour is a warning that NAMES the offending value — which needs the
+   * raw string to still be in hand.
+   */
+  labels: z.array(z.string()).nullish(),
+  estimate: z.string().nullish(),
+  parent: z.string().nullish(),
+  duplicates: z.array(z.string()).nullish(),
+  relates_to: z.array(z.string()).nullish(),
   claim: z.union([z.string(), z.record(z.string(), z.unknown())]).nullish(),
   created: z.string().nullish(),
   updated: z.string().nullish(),
@@ -87,8 +106,110 @@ function coerceIso(value: unknown): { iso: string | null; present: boolean } {
   return { iso: null, present: true };
 }
 
-/** Zod schema for the `depends_on` field. Applied at the file boundary only. */
-const DEPENDS_ON_SCHEMA = z.array(z.string());
+/**
+ * Shape guard for every `string[]` frontmatter field (`depends_on`, `labels`,
+ * `duplicates`, `relates_to`). Applied at the file boundary only.
+ */
+const STRING_ARRAY_SCHEMA = z.array(z.string());
+
+/** The recognised estimate values, as a set for O(1) membership. */
+const ESTIMATE_VALUES = new Set<string>(TASK_ESTIMATES);
+
+/**
+ * A folder name is one path segment and nothing else.
+ *
+ * This matters beyond tidiness: a `parent` value is a folder name that gets
+ * joined onto the spec root by later consumers. A traversal token or a
+ * separator reaching a write path would steer that write outside the spec
+ * tree, so the value is rejected at the first boundary that sees it rather
+ * than sanitized further downstream.
+ *
+ * ## Why the comparison is made against the TRIMMED value
+ *
+ * `'..'` and `' .. '` name the same directory to every filesystem API, so a
+ * guard that compares the raw string lets the padded form through. The check
+ * therefore runs on `value.trim()`. The RAW value is still what gets stored —
+ * trimming here would silently rewrite what the author typed, and `.ptah/**`
+ * is gitignored, so there is no undo for a normalization nobody asked for. A
+ * padded-but-otherwise-valid name simply matches no folder and is reported as
+ * `dangling_parent`, which is the honest outcome.
+ *
+ * The rejected shapes, each for its own reason:
+ *  - empty or whitespace-only — names nothing.
+ *  - `.` / `..` after trimming — traversal tokens.
+ *  - either separator — more than one segment by definition.
+ *  - a drive-letter prefix (`C:`, `C:work`) — Windows drive-RELATIVE paths
+ *    resolve against that drive's current directory and escape a join without
+ *    ever containing a separator, which is exactly the case a separator-only
+ *    check misses.
+ *  - an embedded NUL — truncates the path at the OS boundary, so the string
+ *    Node validates and the path the kernel opens are different strings.
+ */
+function isSinglePathSegment(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return false;
+  if (trimmed.includes('/') || trimmed.includes('\\')) return false;
+  if (trimmed.includes('\0')) return false;
+  if (trimmed === '.' || trimmed === '..') return false;
+  if (/^[A-Za-z]:/.test(trimmed)) return false;
+  return true;
+}
+
+/**
+ * Lift one relation array (`duplicates` / `relates_to`) into the summary.
+ *
+ * Both fields behave identically, differ only in their YAML key, and both
+ * degrade the same way — shape failure gives `[]` plus `invalid_relation`,
+ * while a well-formed entry that points at nothing gives `dangling_relation`
+ * and is KEPT. The entry is kept because the alternative is deciding, on the
+ * reader's behalf, that a typo means the author did not intend the relation.
+ *
+ * Duplicate entries inside one array are NOT removed (FR-B4.8). De-duplication
+ * is a display concern; doing it here would mean the value handed to a writer
+ * no longer matches the file, which is how a read path turns into a silent
+ * normalization pass.
+ */
+function liftRelationArray(
+  raw: unknown,
+  yamlKey: 'duplicates' | 'relates_to',
+  folderName: string,
+  knownFolders: ReadonlySet<string> | undefined,
+  issues: TaskValidationIssue[],
+): string[] {
+  if (raw === undefined || raw === null) return [];
+
+  const result = STRING_ARRAY_SCHEMA.safeParse(raw);
+  if (!result.success) {
+    issues.push({
+      field: yamlKey,
+      code: 'invalid_relation',
+      message: `${yamlKey} must be an array of task-id strings.`,
+    });
+    return [];
+  }
+
+  for (const entry of result.data) {
+    if (entry === folderName) {
+      issues.push({
+        field: yamlKey,
+        code: 'dangling_relation',
+        message: `${yamlKey} entry '${entry}' refers to this task itself.`,
+      });
+      continue;
+    }
+    // Only checkable when the caller told us which folders exist — see
+    // `ParseTaskFileOptions.knownFolders`.
+    if (knownFolders !== undefined && !knownFolders.has(entry)) {
+      issues.push({
+        field: yamlKey,
+        code: 'dangling_relation',
+        message: `${yamlKey} entry '${entry}' does not match any folder under .ptah/specs.`,
+      });
+    }
+  }
+
+  return result.data;
+}
 
 /**
  * Options for {@link parseTaskFile}.
@@ -166,6 +287,20 @@ export function parseTaskFile(
   // Everything below is non-essential — collect warnings, stay included.
   const issues: TaskValidationIssue[] = [];
 
+  /**
+   * The folder names that exist, when the caller knows them.
+   *
+   * `undefined` means the caller has no directory view — a single-file reparse
+   * legitimately does not have one. Every check that needs the set is SKIPPED
+   * in that case rather than guessed at, because reporting every reference as
+   * dangling would be a false alarm about the CALLER's ignorance rather than
+   * about anything wrong with the file. See {@link ParseTaskFileOptions}.
+   */
+  const knownFolders =
+    options?.knownFolders === undefined
+      ? undefined
+      : new Set(options.knownFolders);
+
   // id: folder name always wins (C1); warn on mismatch.
   const rawId = data['id'];
   if (typeof rawId === 'string' && rawId.length > 0 && rawId !== folderName) {
@@ -196,16 +331,15 @@ export function parseTaskFile(
   let dependsOn: string[] = [];
   const rawDepends = data['depends_on'];
   if (rawDepends !== undefined && rawDepends !== null) {
-    const dependsResult = DEPENDS_ON_SCHEMA.safeParse(rawDepends);
+    const dependsResult = STRING_ARRAY_SCHEMA.safeParse(rawDepends);
     if (dependsResult.success) {
       dependsOn = dependsResult.data;
 
       // Well-formed but possibly pointing at nothing. Only checkable when the
       // caller told us which folders exist.
-      if (options?.knownFolders !== undefined) {
-        const known = new Set(options.knownFolders);
+      if (knownFolders !== undefined) {
         for (const dependency of dependsOn) {
-          if (known.has(dependency)) continue;
+          if (knownFolders.has(dependency)) continue;
           issues.push({
             field: 'depends_on',
             code: 'dangling_depends_on',
@@ -253,6 +387,101 @@ export function parseTaskFile(
       ? (data['executor'] as string)
       : undefined;
 
+  // ── Metadata fields (TASK_2026_181) ───────────────────────────────────────
+  //
+  // One block per field, all following the `depends_on` shape above:
+  // PRESENT-BUT-MALFORMED means a warning plus a safe default, never an
+  // exclusion. A task with a typo in its estimate is still a task, and hiding
+  // it from the board would turn a cosmetic mistake into a lost work item.
+
+  // labels: [] when absent or the wrong shape; warn only on a bad value.
+  let labels: string[] = [];
+  const rawLabels = data['labels'];
+  if (rawLabels !== undefined && rawLabels !== null) {
+    const labelsResult = STRING_ARRAY_SCHEMA.safeParse(rawLabels);
+    if (labelsResult.success) {
+      labels = labelsResult.data;
+    } else {
+      issues.push({
+        field: 'labels',
+        code: 'invalid_labels',
+        message: 'labels must be an array of strings.',
+      });
+    }
+  }
+
+  // estimate: undefined unless it is one of the recognised sizes. The raw
+  // value is NAMED in the message — "invalid estimate" alone tells the author
+  // nothing about which of their five carriers they typed `Medium` into.
+  let estimate: TaskEstimate | undefined;
+  const rawEstimate = data['estimate'];
+  if (rawEstimate !== undefined && rawEstimate !== null) {
+    if (typeof rawEstimate === 'string' && ESTIMATE_VALUES.has(rawEstimate)) {
+      estimate = rawEstimate as TaskEstimate;
+    } else {
+      issues.push({
+        field: 'estimate',
+        code: 'invalid_estimate',
+        message: `Unknown estimate '${String(rawEstimate)}'; expected one of ${TASK_ESTIMATES.join(', ')}.`,
+      });
+    }
+  }
+
+  // parent: single-valued, one path segment, never this folder.
+  //
+  // Only `invalid_parent` CLEARS the field, and only because that value is
+  // structurally unsafe — it is a folder name that later gets joined onto the
+  // spec root, so a `..` must not survive the boundary that noticed it.
+  //
+  // A self-parent or a parent naming a missing folder is KEPT verbatim. The
+  // declared value is the only evidence of what the author meant, and the
+  // derived graph is the component that decides effectiveness; discarding the
+  // value here would leave every downstream consumer able to say "something
+  // was wrong" and unable to say what.
+  let parent: string | undefined;
+  const rawParent = data['parent'];
+  if (rawParent !== undefined && rawParent !== null) {
+    if (typeof rawParent !== 'string' || !isSinglePathSegment(rawParent)) {
+      issues.push({
+        field: 'parent',
+        code: 'invalid_parent',
+        message: `parent '${String(rawParent)}' must be a single task folder name.`,
+      });
+    } else {
+      parent = rawParent;
+      if (rawParent === folderName) {
+        // The one cycle a single file can prove on its own. Longer cycles need
+        // the whole scanned set and belong to the scanner's cross-file pass.
+        issues.push({
+          field: 'parent',
+          code: 'parent_cycle',
+          message: `parent '${rawParent}' is this task itself.`,
+        });
+      } else if (knownFolders !== undefined && !knownFolders.has(rawParent)) {
+        issues.push({
+          field: 'parent',
+          code: 'dangling_parent',
+          message: `parent '${rawParent}' does not match any folder under .ptah/specs.`,
+        });
+      }
+    }
+  }
+
+  const duplicates = liftRelationArray(
+    data['duplicates'],
+    'duplicates',
+    folderName,
+    knownFolders,
+    issues,
+  );
+  const relatesTo = liftRelationArray(
+    data['relates_to'],
+    'relates_to',
+    folderName,
+    knownFolders,
+    issues,
+  );
+
   const task: TaskSpecSummary = {
     id: folderName,
     folderName,
@@ -263,6 +492,11 @@ export function parseTaskFile(
     assignee,
     dependsOn,
     executor,
+    labels,
+    estimate,
+    parent,
+    duplicates,
+    relatesTo,
     created: created.iso,
     updated: updated.iso,
     frontmatterValid: issues.length === 0,

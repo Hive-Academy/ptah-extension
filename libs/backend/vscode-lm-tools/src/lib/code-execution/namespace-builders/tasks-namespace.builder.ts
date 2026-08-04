@@ -33,6 +33,7 @@
 import { z } from 'zod';
 import {
   CONTEXT_FILE,
+  TASK_ESTIMATES,
   TASK_STATUSES,
   TASK_TYPES,
   type ExcludedTaskFolder,
@@ -107,6 +108,7 @@ export interface TasksNamespaceDependencies {
 
 const statusEnum = z.enum(TASK_STATUSES);
 const typeEnum = z.enum(TASK_TYPES);
+const estimateEnum = z.enum(TASK_ESTIMATES);
 
 /**
  * `taskId` is a FOLDER NAME and gets joined onto `.ptah/specs` before a write.
@@ -127,6 +129,16 @@ export const TaskCreateArgsSchema = z.object({
   description: z.string().optional(),
   dependsOn: z.array(z.string().min(1)).optional(),
   executor: z.string().optional(),
+  /**
+   * Optional metadata. Every relation value reuses `taskIdSchema` for the same
+   * containment reason it exists for `taskId` — these are folder names, and an
+   * agent is exactly the kind of caller that will hand back a path.
+   */
+  labels: z.array(z.string().min(1)).optional(),
+  estimate: estimateEnum.optional(),
+  parent: taskIdSchema.optional(),
+  duplicates: z.array(taskIdSchema).optional(),
+  relatesTo: z.array(taskIdSchema).optional(),
 });
 
 export const TaskUpdateArgsSchema = z.object({

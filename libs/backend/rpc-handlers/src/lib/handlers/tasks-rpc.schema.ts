@@ -8,11 +8,31 @@
  * filter is rejected structurally rather than silently ignored.
  */
 import { z } from 'zod';
-import { TASK_STATUSES, TASK_TYPES } from '@ptah-extension/shared';
+import {
+  TASK_ESTIMATES,
+  TASK_STATUSES,
+  TASK_TYPES,
+} from '@ptah-extension/shared';
 
 const workspaceRoot = z.string().min(1).optional();
 const statusEnum = z.enum(TASK_STATUSES);
 const typeEnum = z.enum(TASK_TYPES);
+const estimateEnum = z.enum(TASK_ESTIMATES);
+
+/**
+ * A task-id reference: one path segment, never a path.
+ *
+ * `parent`, `duplicates` and `relates_to` values are folder names that end up
+ * joined onto the spec root, so a `..` or a separator reaching a write path
+ * would steer that write outside the spec tree. Rejected structurally here,
+ * exactly as `TasksAdoptParamsSchema.folderName` already is.
+ */
+const taskIdRef = z
+  .string()
+  .min(1)
+  .refine((id) => !id.includes('/') && !id.includes('\\') && id !== '..', {
+    message: 'a task id must be a single path segment',
+  });
 
 export const TasksListParamsSchema = z.object({
   workspaceRoot,
@@ -32,6 +52,14 @@ export const TasksCreateParamsSchema = z.object({
   description: z.string().optional(),
   dependsOn: z.array(z.string().min(1)).optional(),
   executor: z.string().optional(),
+  // Optional metadata carried at creation time. `estimate` is the enum, so an
+  // unrecognised size is refused at the boundary rather than written to a file
+  // and reported as a validation warning on the next scan.
+  labels: z.array(z.string().min(1)).optional(),
+  estimate: estimateEnum.optional(),
+  parent: taskIdRef.optional(),
+  duplicates: z.array(taskIdRef).optional(),
+  relatesTo: z.array(taskIdRef).optional(),
 });
 
 export const TasksUpdateStatusParamsSchema = z.object({

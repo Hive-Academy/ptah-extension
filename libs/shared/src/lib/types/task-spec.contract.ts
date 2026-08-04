@@ -23,7 +23,7 @@
  * that reason; its output is a strict subset of what `gray-matter` produces and
  * round-trips through `parseTaskFile`.
  */
-import type { TaskStatus, TaskType } from './task-spec.types';
+import type { TaskEstimate, TaskStatus, TaskType } from './task-spec.types';
 
 /** Workspace-relative root of the task-spec tree. */
 export const SPEC_ROOT = '.ptah/specs';
@@ -164,6 +164,21 @@ export interface RenderTaskMdInput {
   dependsOn?: readonly string[];
   executor?: string;
   /**
+   * Folder name of the parent task. Emitted ONLY when non-empty.
+   *
+   * An empty string is treated as "no parent" rather than as a value, so a
+   * caller clearing the field never leaves `parent: ""` behind.
+   */
+  parent?: string;
+  /** T-shirt size. Emitted only when set. */
+  estimate?: TaskEstimate;
+  /** Free-text labels. Emitted only when NON-EMPTY — see the note below. */
+  labels?: readonly string[];
+  /** Task folders this one duplicates. Emitted only when non-empty. */
+  duplicates?: readonly string[];
+  /** Loosely-related task folders. Emitted only when non-empty. */
+  relatesTo?: readonly string[];
+  /**
    * Emits `status_inferred: true` when set.
    *
    * ONLY the doctor's adoption path sets this. It marks a carrier whose
@@ -247,10 +262,26 @@ function toOneLine(value: string): string {
  *
  * The frontmatter field set and its ordering match what the writer emitted
  * before this module existed: `id, status, type, title, depends_on, created,
- * updated` plus optional `description` and `executor`.
+ * updated` plus optional `description` and `executor`, and now the five
+ * optional metadata fields.
+ *
+ * ## Why the metadata fields are OMITTED-WHEN-EMPTY, and `depends_on` is not
+ *
+ * `depends_on` has always been written as `[]`, and it stays that way: it is
+ * part of the shape every existing carrier on disk already has, and "fixing" it
+ * would rewrite the frontmatter of every task in every workspace for no gain.
+ * The five new fields have no such history, so they start with the better rule
+ * — a task that carries no labels carries no `labels:` line. That is what makes
+ * a zero-metadata carrier byte-identical to a pre-change one, which the
+ * contract ratchet asserts against a golden string.
+ *
+ * Every new value is a `string` or a `readonly string[]`, so
+ * {@link renderFrontmatterBlock} and `yamlScalar` handle them unchanged — a
+ * hostile label like `needs:design` or a trailing space round-trips through the
+ * existing double-quoted fallback with no emitter change at all.
  *
  * The BODY is a pointer, never prose: banner, a one-line summary, and an
- * explicit link to `./context.md`.
+ * explicit link to the context document.
  */
 export function renderTaskMd(input: RenderTaskMdInput): string {
   const now = input.now ?? new Date().toISOString();
@@ -268,6 +299,21 @@ export function renderTaskMd(input: RenderTaskMdInput): string {
   }
   if (input.executor !== undefined) {
     fields.push(['executor', input.executor]);
+  }
+  if (input.parent !== undefined && input.parent.length > 0) {
+    fields.push(['parent', input.parent]);
+  }
+  if (input.estimate !== undefined) {
+    fields.push(['estimate', input.estimate]);
+  }
+  if (input.labels !== undefined && input.labels.length > 0) {
+    fields.push(['labels', input.labels]);
+  }
+  if (input.duplicates !== undefined && input.duplicates.length > 0) {
+    fields.push(['duplicates', input.duplicates]);
+  }
+  if (input.relatesTo !== undefined && input.relatesTo.length > 0) {
+    fields.push(['relates_to', input.relatesTo]);
   }
   if (input.statusInferred === true) {
     fields.push(['status_inferred', true]);

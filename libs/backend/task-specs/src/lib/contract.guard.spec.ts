@@ -25,12 +25,17 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  CARRIER_BANNER,
   CARRIER_FILE,
+  CONTEXT_FILE,
   DOC_FILES,
   SPEC_ROOT,
+  TASK_ESTIMATES,
   TASK_STATUSES,
   TASK_TYPES,
   renderTaskMd,
+  type RenderTaskMdInput,
+  type TaskSpecSummary,
   type TaskStatus,
   type TaskType,
 } from '@ptah-extension/shared';
@@ -494,8 +499,444 @@ describe('contract guard — renderTaskMd round-trips through parseTaskFile', ()
     if (parsed.kind !== 'task') throw new Error('excluded');
 
     expect(parsed.body).toContain('Ptah carrier');
-    expect(parsed.body).toContain('./context.md');
+    expect(parsed.body).toContain(`./${CONTEXT_FILE}`);
     // The multi-line description must NOT be splatted into the body.
     expect(parsed.body).not.toContain('- and a leading dash line');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Duty 4, extended — the five metadata fields round-trip
+// ---------------------------------------------------------------------------
+//
+// The emitter and the parser are still two separate pieces of code that must
+// agree, and this task adds five more fields to the set they must agree on:
+// `labels`, `estimate`, `parent`, `duplicates`, `relates_to`. Each is exercised
+// across {absent, empty, single, many, quoted-scalar} because those are the five
+// shapes where an emitter and a parser can silently disagree:
+//
+//  - ABSENT  — the key must never be emitted, and the field must default.
+//  - EMPTY   — an empty array must REMOVE the key rather than emit `[]`. A
+//              carrier that accumulates `labels: []` on every write is metadata
+//              noise nobody asked for. (`depends_on` is the deliberate
+//              exception; it has always been written as `[]` and stays so.)
+//  - SINGLE / MANY — order and arity survive.
+//  - QUOTED  — the value fails `isPlainSafeScalar` and must round-trip through
+//              the double-quoted form verbatim, trailing space and all.
+//
+// Fixture ids are `TASK_2026_*` only, and every document name is interpolated
+// from the contract module — the ratchet above scans this file too.
+
+const META_FOLDER = 'TASK_2026_181';
+
+/**
+ * Labels chosen to break a naive YAML emitter. Every one of these is a shape a
+ * human types into a label field without thinking about YAML for one second.
+ */
+const HOSTILE_LABELS: ReadonlyArray<[label: string, value: string]> = [
+  ['a colon', 'needs:design'],
+  ['a hash', '#urgent'],
+  ['a leading digit', '2fa'],
+  ['a leading dash', '-wip'],
+  ['a YAML reserved word', 'no'],
+  ['a trailing space', 'trailing '],
+  ['unicode', 'sécurité'],
+];
+
+/**
+ * Relation entries that are legal folder names but hostile YAML scalars. A
+ * folder predating the `TASK_YYYY_NNN` convention is exactly this shape.
+ */
+const HOSTILE_RELATION_IDS: readonly string[] = ['2026_legacy_folder', 'no'];
+
+function renderWithMetadata(
+  overrides: Partial<RenderTaskMdInput> = {},
+): string {
+  return renderTaskMd({
+    id: META_FOLDER,
+    title: 'Metadata round trip',
+    type: 'FEATURE',
+    now: FIXED_NOW,
+    ...overrides,
+  });
+}
+
+/** Parse a carrier that MUST stay included; throws with the reason if not. */
+function parseIncluded(raw: string, folder = META_FOLDER): TaskSpecSummary {
+  const parsed = parseTaskFile(folder, raw);
+  if (parsed.kind !== 'task') {
+    throw new Error(`Carrier was EXCLUDED (${parsed.excluded.reason}).`);
+  }
+  return parsed.task;
+}
+
+/** Splice an extra frontmatter line in, to author shapes the emitter cannot. */
+function withExtraFrontmatterLines(raw: string, ...lines: string[]): string {
+  return raw.replace('depends_on: []', ['depends_on: []', ...lines].join('\n'));
+}
+
+interface ArrayFieldCase {
+  readonly name: string;
+  /** The YAML key as emitted. */
+  readonly key: string;
+  readonly render: (values: readonly string[]) => string;
+  readonly read: (task: TaskSpecSummary) => readonly string[];
+  readonly single: readonly string[];
+  readonly many: readonly string[];
+  readonly quoted: readonly string[];
+}
+
+const ARRAY_FIELDS: readonly ArrayFieldCase[] = [
+  {
+    name: 'labels',
+    key: 'labels',
+    render: (labels) => renderWithMetadata({ labels }),
+    read: (task) => task.labels,
+    single: ['licensing'],
+    many: ['licensing', 'billing', 'webview'],
+    quoted: HOSTILE_LABELS.map(([, value]) => value),
+  },
+  {
+    name: 'duplicates',
+    key: 'duplicates',
+    render: (duplicates) => renderWithMetadata({ duplicates }),
+    read: (task) => task.duplicates,
+    single: ['TASK_2026_001'],
+    many: ['TASK_2026_001', 'TASK_2026_002', 'TASK_2026_003'],
+    quoted: HOSTILE_RELATION_IDS,
+  },
+  {
+    name: 'relates_to',
+    key: 'relates_to',
+    render: (relatesTo) => renderWithMetadata({ relatesTo }),
+    read: (task) => task.relatesTo,
+    single: ['TASK_2026_010'],
+    many: ['TASK_2026_010', 'TASK_2026_011'],
+    quoted: HOSTILE_RELATION_IDS,
+  },
+];
+
+describe.each(ARRAY_FIELDS)(
+  'contract guard — $name round-trips through parseTaskFile',
+  (field) => {
+    it('ABSENT: the key is never emitted and the field reads back as []', () => {
+      const raw = renderWithMetadata();
+      expect(raw).not.toContain(`${field.key}:`);
+      const task = parseIncluded(raw);
+      expect(field.read(task)).toEqual([]);
+      expect(task.validationIssues).toEqual([]);
+    });
+
+    it('EMPTY: the key is REMOVED from the rendered text, and reads back as []', () => {
+      const raw = field.render([]);
+      expect(raw).not.toContain(`${field.key}:`);
+      expect(field.read(parseIncluded(raw))).toEqual([]);
+    });
+
+    it('SINGLE: one entry survives verbatim', () => {
+      const raw = field.render(field.single);
+      expect(raw).toContain(`${field.key}:`);
+      const task = parseIncluded(raw);
+      expect(field.read(task)).toEqual([...field.single]);
+      expect(task.validationIssues).toEqual([]);
+    });
+
+    it('MANY: every entry survives, in authored order', () => {
+      const raw = field.render(field.many);
+      const task = parseIncluded(raw);
+      expect(field.read(task)).toEqual([...field.many]);
+      expect(task.validationIssues).toEqual([]);
+    });
+
+    it('QUOTED-SCALAR: hostile entries are emitted quoted and read back byte-exact', () => {
+      const raw = field.render(field.quoted);
+      for (const value of field.quoted) {
+        // JSON string syntax IS a valid YAML double-quoted scalar — that is the
+        // emitter's whole fallback strategy, so assert it took that branch.
+        expect(raw).toContain(`  - ${JSON.stringify(value)}`);
+      }
+      const task = parseIncluded(raw);
+      expect(field.read(task)).toEqual([...field.quoted]);
+      expect(task.validationIssues).toEqual([]);
+    });
+  },
+);
+
+describe('contract guard — estimate round-trips through parseTaskFile', () => {
+  it('ABSENT: no estimate key is emitted and the field is undefined', () => {
+    const raw = renderWithMetadata();
+    expect(raw).not.toContain('estimate:');
+    expect(parseIncluded(raw).estimate).toBeUndefined();
+  });
+
+  it.each([...TASK_ESTIMATES])(
+    '%s emits as an UNQUOTED plain scalar and reads back unchanged',
+    (estimate) => {
+      const raw = renderWithMetadata({ estimate });
+      // None of the five collides with a YAML boolean token, so none is
+      // quoted. If one ever did, this assertion is where it surfaces.
+      expect(raw).toContain(`\nestimate: ${estimate}\n`);
+      const task = parseIncluded(raw);
+      expect(task.estimate).toBe(estimate);
+      expect(task.validationIssues).toEqual([]);
+    },
+  );
+
+  it('an unknown value is a WARNING naming the raw value, never an exclusion', () => {
+    const raw = withExtraFrontmatterLines(
+      renderWithMetadata(),
+      'estimate: HUGE',
+    );
+    const task = parseIncluded(raw);
+    expect(task.estimate).toBeUndefined();
+    const issue = task.validationIssues.find(
+      (i) => i.code === 'invalid_estimate',
+    );
+    expect(issue).toBeDefined();
+    expect(issue?.field).toBe('estimate');
+    expect(issue?.message).toContain('HUGE');
+    expect(task.frontmatterValid).toBe(false);
+  });
+});
+
+describe('contract guard — parent round-trips through parseTaskFile', () => {
+  it('ABSENT: no parent key is emitted and the field is undefined', () => {
+    const raw = renderWithMetadata();
+    expect(raw).not.toContain('parent:');
+    expect(parseIncluded(raw).parent).toBeUndefined();
+  });
+
+  it('EMPTY: an empty parent removes the key entirely', () => {
+    const raw = renderWithMetadata({ parent: '' });
+    expect(raw).not.toContain('parent:');
+    expect(parseIncluded(raw).parent).toBeUndefined();
+  });
+
+  it('SINGLE: a parent folder name survives', () => {
+    const raw = renderWithMetadata({ parent: 'TASK_2026_100' });
+    const task = parseIncluded(raw);
+    expect(task.parent).toBe('TASK_2026_100');
+    expect(task.validationIssues).toEqual([]);
+  });
+
+  it('QUOTED-SCALAR: a hostile parent folder name survives byte-exact', () => {
+    const raw = renderWithMetadata({ parent: '2026_legacy_folder' });
+    expect(raw).toContain('parent: "2026_legacy_folder"');
+    expect(parseIncluded(raw).parent).toBe('2026_legacy_folder');
+  });
+
+  it('a self-parent is reported as parent_cycle and keeps the DECLARED value', () => {
+    const raw = renderWithMetadata({ parent: META_FOLDER });
+    const task = parseIncluded(raw);
+    expect(task.validationIssues.map((i) => i.code)).toContain('parent_cycle');
+    // Kept, not cleared: the derived graph decides effectiveness, and a
+    // consumer that only sees `undefined` cannot explain what went wrong.
+    expect(task.parent).toBe(META_FOLDER);
+  });
+
+  it('a parent naming a folder that does not exist is dangling_parent, and is kept', () => {
+    const raw = renderWithMetadata({ parent: 'TASK_2026_999' });
+    const parsed = parseTaskFile(META_FOLDER, raw, {
+      knownFolders: [META_FOLDER, 'TASK_2026_100'],
+    });
+    if (parsed.kind !== 'task') throw new Error('excluded');
+    expect(parsed.task.validationIssues.map((i) => i.code)).toContain(
+      'dangling_parent',
+    );
+    expect(parsed.task.parent).toBe('TASK_2026_999');
+  });
+
+  it('a single-file reparse (no knownFolders) SKIPS the dangling check', () => {
+    // The deliberate contract at ParseTaskFileOptions: a caller with no
+    // directory view gets no dangling warnings rather than false ones.
+    const raw = renderWithMetadata({ parent: 'TASK_2026_999' });
+    expect(parseIncluded(raw).validationIssues).toEqual([]);
+  });
+
+  /**
+   * Every shape that must NOT survive as a parent.
+   *
+   * Each entry is the YAML scalar exactly as it would sit in a hand-authored
+   * carrier. They are all `invalid_parent` and they are all CLEARED — the one
+   * parent failure mode that does clear the field, because these values reach a
+   * path join in later consumers and a warning alone would not stop them.
+   */
+  const REJECTED_PARENTS: ReadonlyArray<[label: string, yaml: string]> = [
+    ['a traversal token', '".."'],
+    ['a PADDED traversal token', '" .. "'],
+    ['a current-directory token', '"."'],
+    ['a relative path', '"../TASK_2026_100"'],
+    ['a backslash-separated path', '"..\\\\TASK_2026_100"'],
+    ['an absolute POSIX path', '"/etc/passwd"'],
+    ['an absolute Windows path', '"C:\\\\Windows\\\\System32"'],
+    ['a bare Windows drive letter', '"C:"'],
+    ['a drive-RELATIVE Windows path', '"C:TASK_2026_100"'],
+    ['an embedded NUL', '"TASK_2026_100\\u0000"'],
+    ['whitespace only', '"   "'],
+  ];
+
+  it.each(REJECTED_PARENTS)(
+    'rejects %s as invalid_parent and clears the field',
+    (_label, yaml) => {
+      const raw = withExtraFrontmatterLines(
+        renderWithMetadata(),
+        `parent: ${yaml}`,
+      );
+      const task = parseIncluded(raw);
+      expect(task.validationIssues.map((i) => i.code)).toContain(
+        'invalid_parent',
+      );
+      expect(task.parent).toBeUndefined();
+      // Rejected, never excluded: the task still reaches the board (NFR-11).
+      expect(task.frontmatterValid).toBe(false);
+    },
+  );
+
+  it('a padded but otherwise VALID parent is kept verbatim, not trimmed', () => {
+    // The guard compares the trimmed value; the stored value stays raw. A
+    // silent trim here would rewrite what the author typed, and `.ptah/**` is
+    // gitignored — there is no undo. It matches no folder, so the scanner
+    // reports it as dangling, which is the honest outcome.
+    const raw = withExtraFrontmatterLines(
+      renderWithMetadata(),
+      'parent: " TASK_2026_100 "',
+    );
+    const task = parseIncluded(raw);
+    expect(task.validationIssues.map((i) => i.code)).not.toContain(
+      'invalid_parent',
+    );
+    expect(task.parent).toBe(' TASK_2026_100 ');
+  });
+});
+
+describe('contract guard — malformed metadata warns and defaults, never excludes', () => {
+  it('a non-array labels value warns and defaults to []', () => {
+    const raw = withExtraFrontmatterLines(
+      renderWithMetadata(),
+      'labels: licensing',
+    );
+    const task = parseIncluded(raw);
+    expect(task.labels).toEqual([]);
+    expect(task.validationIssues.map((i) => i.code)).toContain(
+      'invalid_labels',
+    );
+  });
+
+  it.each([
+    ['duplicates', 'duplicates'],
+    ['relates_to', 'relatesTo'],
+  ] as const)(
+    'a non-array %s value warns as invalid_relation and defaults to []',
+    (yamlKey, summaryField) => {
+      const raw = withExtraFrontmatterLines(
+        renderWithMetadata(),
+        `${yamlKey}: TASK_2026_001`,
+      );
+      const task = parseIncluded(raw);
+      expect(task[summaryField]).toEqual([]);
+      const issue = task.validationIssues.find(
+        (i) => i.code === 'invalid_relation',
+      );
+      expect(issue).toBeDefined();
+      expect(issue?.field).toBe(yamlKey);
+    },
+  );
+
+  it('a self-referencing relation is dangling_relation, not an exclusion', () => {
+    const raw = renderWithMetadata({ relatesTo: [META_FOLDER] });
+    const task = parseIncluded(raw);
+    expect(task.relatesTo).toEqual([META_FOLDER]);
+    expect(task.validationIssues.map((i) => i.code)).toContain(
+      'dangling_relation',
+    );
+  });
+
+  it('duplicate entries inside one relation array are PRESERVED, not de-duplicated', () => {
+    // FR-B4.8: de-duplication is a DISPLAY concern. Rewriting the array here
+    // would be a silent normalization of a file nobody asked us to touch.
+    const raw = renderWithMetadata({
+      duplicates: ['TASK_2026_001', 'TASK_2026_001'],
+    });
+    expect(parseIncluded(raw).duplicates).toEqual([
+      'TASK_2026_001',
+      'TASK_2026_001',
+    ]);
+  });
+});
+
+describe('contract guard — metadata survives every status × type pair', () => {
+  const pairs: Array<[TaskStatus, TaskType]> = TASK_STATUSES.flatMap((status) =>
+    TASK_TYPES.map((type): [TaskStatus, TaskType] => [status, type]),
+  );
+
+  it.each(pairs)('%s × %s carries all five fields through', (status, type) => {
+    const raw = renderWithMetadata({
+      status,
+      type,
+      dependsOn: ['TASK_2026_001'],
+      parent: 'TASK_2026_100',
+      estimate: 'M',
+      labels: ['licensing', 'needs:design'],
+      duplicates: ['TASK_2026_002'],
+      relatesTo: ['TASK_2026_003', '2026_legacy_folder'],
+    });
+
+    const task = parseIncluded(raw);
+    expect(task.status).toBe(status);
+    expect(task.type).toBe(type);
+    expect(task.parent).toBe('TASK_2026_100');
+    expect(task.estimate).toBe('M');
+    expect(task.labels).toEqual(['licensing', 'needs:design']);
+    expect(task.duplicates).toEqual(['TASK_2026_002']);
+    expect(task.relatesTo).toEqual(['TASK_2026_003', '2026_legacy_folder']);
+    expect(task.dependsOn).toEqual(['TASK_2026_001']);
+    // A carrier Ptah itself just wrote must be pristine, or every task the
+    // board creates arrives wearing a warning badge.
+    expect(task.validationIssues).toEqual([]);
+    expect(task.frontmatterValid).toBe(true);
+  });
+});
+
+/**
+ * The pre-change carrier, byte for byte.
+ *
+ * This is the single assertion that proves the five new fields cost nothing to
+ * a task that uses none of them. The frontmatter key list is spelled out on
+ * purpose — deriving it from the emitter would make the test agree with any
+ * change the emitter makes, which is the opposite of a golden.
+ */
+const GOLDEN_ZERO_METADATA_CARRIER = `---
+id: ${META_FOLDER}
+status: backlog
+type: FEATURE
+title: Metadata round trip
+depends_on: []
+created: "${FIXED_NOW}"
+updated: "${FIXED_NOW}"
+---
+
+${CARRIER_BANNER}
+
+Metadata round trip
+
+Full context, plan and discussion live in [./${CONTEXT_FILE}](./${CONTEXT_FILE}).
+`;
+
+describe('contract guard — a carrier with NO metadata is unchanged', () => {
+  it('is byte-identical to the pre-change golden string', () => {
+    expect(renderWithMetadata()).toBe(GOLDEN_ZERO_METADATA_CARRIER);
+  });
+
+  it('is byte-identical when every new field is passed EMPTY', () => {
+    // Empty is not "a value" — it is the absence of one, and it must produce
+    // exactly the same bytes as never having mentioned the field.
+    expect(
+      renderWithMetadata({
+        labels: [],
+        duplicates: [],
+        relatesTo: [],
+        parent: '',
+      }),
+    ).toBe(GOLDEN_ZERO_METADATA_CARRIER);
   });
 });

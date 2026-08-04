@@ -9,6 +9,7 @@ import { MCPToolDefinition } from '../types';
 import { PTAH_SYSTEM_PROMPT } from '../ptah-system-prompt.constant';
 import {
   CONTEXT_FILE,
+  TASK_ESTIMATES,
   TASK_STATUSES,
   TASK_TYPES,
 } from '@ptah-extension/shared';
@@ -65,6 +66,41 @@ export function buildTaskCreateTool(): MCPToolDefinition {
           type: 'string',
           description: 'Agent expected to execute it',
         },
+        labels: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Free-text labels. Matching is case- and whitespace-insensitive, ' +
+            'so reuse an existing label rather than inventing a variant of it. ' +
+            'Omit entirely when there are none.',
+        },
+        estimate: {
+          type: 'string',
+          enum: [...TASK_ESTIMATES],
+          description:
+            'Relative size, smallest first. It is a rough signal, not a ' +
+            'duration, and nothing sums it.',
+        },
+        parent: {
+          type: 'string',
+          description:
+            'Folder name of the parent task. Parentage is ONE level deep: a ' +
+            'parent that itself has a parent is reported as invalid rather ' +
+            'than nested further.',
+        },
+        duplicates: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Task folder names this task duplicates',
+        },
+        relatesTo: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Loosely-related task folder names. Declare the relation on ONE ' +
+            'side only — the other direction is derived, and writing both ' +
+            'sides is how the two disagree later.',
+        },
       },
       required: ['title', 'type'],
     },
@@ -104,7 +140,8 @@ export function buildTaskGetTool(): MCPToolDefinition {
     name: 'ptah_task_get',
     description:
       'Read one task: its metadata, its carrier body, and the documents present ' +
-      'in its folder. Returns TASK_NOT_FOUND when the folder has no carrier.',
+      'in its folder. Metadata includes labels, estimate, parent, duplicates ' +
+      'and relatesTo. Returns TASK_NOT_FOUND when the folder has no carrier.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -124,9 +161,11 @@ export function buildTaskListTool(): MCPToolDefinition {
   return {
     name: 'ptah_task_list',
     description:
-      'List tasks, optionally filtered by status and/or type. Use this to find ' +
-      'the highest existing id rather than reading a generated registry, which ' +
-      'can be stale.',
+      'List tasks, optionally filtered by status and/or type. Every task ' +
+      'carries its labels, estimate, parent, duplicates and relatesTo, so use ' +
+      'this to discover which labels a workspace already uses instead of ' +
+      'inventing new ones. Use it to find the highest existing id too, rather ' +
+      'than reading a generated registry, which can be stale.',
     inputSchema: {
       type: 'object',
       properties: {

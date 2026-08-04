@@ -16,8 +16,10 @@ import {
   isLegacyDocFile,
   type DocFile,
   type ExcludedTaskFolder,
+  type TaskEstimate,
   type TaskStatus,
   type TaskType,
+  type TaskValidationIssue,
 } from '@ptah-extension/shared';
 
 /** Human-readable column / badge label per status. */
@@ -44,6 +46,80 @@ export const TASK_STATUS_BADGE: Record<TaskStatus, string> = {
 export function taskTypeBadge(type: TaskType | null): string {
   return type ? 'badge-outline' : 'badge-warning badge-outline';
 }
+
+// ---------------------------------------------------------------------------
+// Estimates
+// ---------------------------------------------------------------------------
+
+/**
+ * Long-form name per t-shirt size, for tooltips and pickers where two letters
+ * are not enough to guess at.
+ *
+ * Keyed by the shared `TaskEstimate` union, so a size added backend-side fails
+ * to compile here until it is named. Deliberately NOT a numeric map: there is
+ * no point-value anywhere in the codebase, because the moment `M` becomes `3`
+ * somebody sums a column and reports a sprint total from a signal that was only
+ * ever meant to be a rough relative size.
+ */
+export const TASK_ESTIMATE_LABELS: Record<TaskEstimate, string> = {
+  XS: 'Extra small',
+  S: 'Small',
+  M: 'Medium',
+  L: 'Large',
+  XL: 'Extra large',
+};
+
+// ---------------------------------------------------------------------------
+// Validation warnings
+// ---------------------------------------------------------------------------
+
+/** The warning-code union carried by a shared {@link TaskValidationIssue}. */
+export type TaskValidationCode = TaskValidationIssue['code'];
+
+/**
+ * One sentence per validation code, saying what is wrong AND what the board did
+ * about it.
+ *
+ * Keyed by the shared code union — exactly the guarantee
+ * {@link TASK_EXCLUSION_REASON_LABELS} already provides one section below. A
+ * code added backend-side FAILS THIS LIB'S TYPECHECK until it is explained
+ * here, which is the whole mechanism: a warning badge that renders a raw
+ * `parent_depth_exceeded` at a user tells them a machine noticed something and
+ * nothing else.
+ *
+ * Every sentence states the fallback, because a warning without one reads as
+ * "your task may be broken" when the true meaning is always "your task is on
+ * the board, and this one field was ignored".
+ */
+export const TASK_VALIDATION_CODE_LABELS: Record<TaskValidationCode, string> = {
+  id_mismatch: `The frontmatter id disagrees with the folder name. The folder name wins, and nothing was renamed.`,
+  invalid_type:
+    'The task type is not one of the recognised types, so no type is shown.',
+  invalid_date:
+    'A created or updated stamp is not a parseable date, so it is shown as unknown.',
+  invalid_depends_on:
+    'The depends_on field is not a list of task ids, so no dependencies are shown.',
+  dangling_depends_on:
+    'A dependency names a task folder that does not exist. The entry is kept — usually it is a typo or a task not created yet.',
+  invalid_estimate:
+    'The estimate is not one of the recognised sizes, so no size is shown.',
+  invalid_labels:
+    'The labels field is not a list of strings, so no labels are shown.',
+  invalid_parent:
+    'The parent is not a single task folder name, so it was ignored entirely.',
+  dangling_parent:
+    'The parent names a task folder that does not exist. The value is kept, but no parent link is drawn.',
+  parent_cycle:
+    'The parent chain loops back to this task, so the parent link was dropped. Both tasks stay on the board.',
+  parent_depth_exceeded:
+    'The parent of this task already has a parent, and parentage is one level deep. The link was dropped; both tasks stay on the board.',
+  invalid_relation:
+    'A relation field is not a list of task ids, so that relation is not shown.',
+  dangling_relation:
+    'A relation names this task itself, or a folder that does not exist. The entry is kept and simply links nowhere.',
+  schema_issue:
+    'The frontmatter has a problem the board could not describe more precisely.',
+};
 
 // ---------------------------------------------------------------------------
 // Workflow-stage artifacts — derived from DOC_FILES, never hand-listed
