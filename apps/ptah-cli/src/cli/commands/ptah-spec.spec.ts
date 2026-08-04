@@ -32,7 +32,11 @@ import {
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 
-import { execute, type SpecExecuteHooks, type SpecOptions } from './spec.js';
+import {
+  execute,
+  type SpecExecuteHooks,
+  type SpecOptions,
+} from './ptah-spec.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import { JsonFormatter, type Formatter } from '../output/formatter.js';
 import { StdoutWriter } from '../io/stdout-writer.js';
