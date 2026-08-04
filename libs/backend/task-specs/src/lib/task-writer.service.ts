@@ -34,10 +34,75 @@ export type CreateTaskResult =
   | {
       success: false;
       error: {
-        code: 'TASK_FOLDER_EXISTS' | 'WRITE_FAILED' | 'INVALID_PARAMS';
+        /**
+         * `ID_ALLOCATION_EXHAUSTED` (TASK_2026_179, step 13 / risk R6): every
+         * one of `MAX_CREATE_ATTEMPTS` candidate ids lost the exclusive-create
+         * race. Surfaced as a TYPED result rather than a bare throw so the
+         * caller can distinguish "someone else is creating tasks right now,
+         * retry" from a genuine write failure. Ids may be skipped by a losing
+         * attempt; that is acceptable. Silently overwriting somebody else's
+         * folder is not.
+         */
+        code:
+          | 'TASK_FOLDER_EXISTS'
+          | 'WRITE_FAILED'
+          | 'INVALID_PARAMS'
+          | 'ID_ALLOCATION_EXHAUSTED';
         message: string;
       };
     };
+
+/** Input for {@link TaskWriterService.adoptFolder}. */
+export interface AdoptFolderInput {
+  title: string;
+  type: TaskType;
+  /** Status to record. The doctor infers this from the folder's artifacts. */
+  status: TaskSpecSummary['status'];
+  description?: string;
+  dependsOn?: string[];
+  executor?: string;
+  /** Emits `status_inferred: true`. The doctor always sets it. */
+  statusInferred?: boolean;
+}
+
+export type AdoptFolderResult =
+  | { success: true; task: TaskSpecSummary }
+  | {
+      success: false;
+      error: {
+        /**
+         * `CARRIER_EXISTS` is the load-bearing one: adoption must ABORT when
+         * the folder already has a `task.md`. It must never fall through to
+         * allocating a fresh id, because that would leave the workspace with
+         * two folders claiming one task.
+         */
+        code:
+          | 'FOLDER_NOT_FOUND'
+          | 'CARRIER_EXISTS'
+          | 'WRITE_FAILED'
+          | 'INVALID_PARAMS';
+        message: string;
+      };
+    };
+
+/**
+ * Bound on the allocate → claim retry loop (risk R6).
+ *
+ * Each attempt re-scans the folders on disk, so a lost race converges: the
+ * winner's folder is visible to the next allocation and pushes it past the
+ * collision. The bound exists for the pathological case where the scan is stale
+ * (a network share, an aggressive FS cache) and the loop would otherwise spin.
+ */
+const MAX_CREATE_ATTEMPTS = 5;
+
+/** True for the `EEXIST` rejection `createDirectoryExclusive` promises. */
+function isAlreadyExists(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as NodeJS.ErrnoException).code === 'EEXIST'
+  );
+}
 
 export type UpdateStatusResult =
   | { success: true; task: TaskSpecSummary }
@@ -104,60 +169,71 @@ export class TaskWriterService {
     const root = normalizeWorkspaceRoot(workspaceRoot);
     const specsDir = path.join(root, '.ptah', 'specs');
 
-    const existingFolders = await this.listFolderNames(specsDir);
-    const id = allocateTaskId(existingFolders);
-    const folderPath = path.join(specsDir, id);
-    const carrier = path.join(folderPath, CARRIER_FILE);
-
     try {
-      if (await this.fs.exists(folderPath)) {
+      // `createDirectoryExclusive` is NON-recursive by contract — it never
+      // creates parents — so `.ptah/specs` must exist before we can claim a
+      // leaf inside it. This recursive call is safe precisely because it is
+      // idempotent; it claims nothing.
+      await this.fs.createDirectory(specsDir);
+
+      // Allocate → CLAIM → retry (TASK_2026_179, step 13). The claim is
+      // `createDirectoryExclusive`, the port's only compare-and-swap: it either
+      // creates the folder or rejects with EEXIST, with no window in between.
+      // The old `exists()`-then-`createDirectory()` sequence was a check
+      // followed by a recursive, EEXIST-tolerant create — two operations that
+      // together could not detect a concurrent winner at all.
+      let claimedId: string | undefined;
+      const contended: string[] = [];
+
+      for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
+        // Re-scan every attempt. This is what makes the retry converge rather
+        // than re-propose the same losing id.
+        const id = allocateTaskId(await this.listFolderNames(specsDir));
+        try {
+          await this.fs.createDirectoryExclusive(path.join(specsDir, id));
+          claimedId = id;
+          break;
+        } catch (error: unknown) {
+          if (!isAlreadyExists(error)) throw error;
+          contended.push(id);
+          this.logger.warn(
+            '[task-specs] create lost an id race, re-allocating',
+            {
+              id,
+              attempt: attempt + 1,
+            },
+          );
+        }
+      }
+
+      if (claimedId === undefined) {
         return {
           success: false,
           error: {
-            code: 'TASK_FOLDER_EXISTS',
-            message: `Task folder '${id}' already exists.`,
+            code: 'ID_ALLOCATION_EXHAUSTED',
+            message:
+              `Could not claim a task id after ${MAX_CREATE_ATTEMPTS} attempts ` +
+              `(contended: ${contended.join(', ')}). Another process is creating ` +
+              `tasks concurrently — nothing was written. Try again.`,
           },
         };
       }
 
-      // createDirectory is recursive per the port — this materializes
-      // `.ptah/specs/<id>` (and `.ptah/specs` if absent) in one call.
-      await this.fs.createDirectory(folderPath);
-
-      // Defensive against a race: never overwrite an existing carrier.
-      if (await this.fs.exists(carrier)) {
-        return {
-          success: false,
-          error: {
-            code: 'TASK_FOLDER_EXISTS',
-            message: `Task carrier '${id}/task.md' already exists.`,
-          },
-        };
-      }
-
-      const content = renderTaskMd({
-        id,
-        title: input.title,
-        type: input.type,
-        description: input.description,
-        dependsOn: input.dependsOn,
-        executor: input.executor,
-      });
-      await this.fs.writeFile(carrier, content);
-
-      const parsed = parseTaskFile(id, content);
-      if (parsed.kind !== 'task' || parsed.task.validationIssues.length > 0) {
-        return {
-          success: false,
-          error: {
-            code: 'WRITE_FAILED',
-            message: 'Generated task.md failed round-trip validation.',
-          },
-        };
-      }
-
-      await this.notify(root, id);
-      return { success: true, task: parsed.task };
+      // The folder is ours and provably brand new: an exclusive create cannot
+      // succeed onto an existing path, so there is no carrier here to clobber.
+      const written = await this.writeCarrier(
+        root,
+        claimedId,
+        renderTaskMd({
+          id: claimedId,
+          title: input.title,
+          type: input.type,
+          description: input.description,
+          dependsOn: input.dependsOn,
+          executor: input.executor,
+        }),
+      );
+      return written;
     } catch (error: unknown) {
       this.logger.error(
         '[task-specs] create failed',
@@ -168,6 +244,125 @@ export class TaskWriterService {
         error: { code: 'WRITE_FAILED', message: 'Failed to write task.md.' },
       };
     }
+  }
+
+  /**
+   * Give an EXISTING, carrier-less folder a `task.md` so the Tasks board can
+   * see it. The folder name is, and stays, the canonical id.
+   *
+   * This is deliberately a separate method from `create` rather than a flag on
+   * it. `create` allocates an id; `adoptFolder` must NEVER do that. If adoption
+   * fell back to `allocateTaskId` on any failure path it would mint a second
+   * folder for a task that already exists on disk — which is precisely the
+   * class of bug this whole task set exists to remove. There is therefore no
+   * code path from here into the allocator.
+   *
+   * Aborts with `CARRIER_EXISTS` when a carrier is already present. It never
+   * overwrites one: `.ptah/**` is gitignored, so an overwrite has no undo.
+   */
+  async adoptFolder(
+    workspaceRoot: string,
+    folderName: string,
+    input: AdoptFolderInput,
+  ): Promise<AdoptFolderResult> {
+    if (!folderName || folderName.trim().length === 0) {
+      return {
+        success: false,
+        error: { code: 'INVALID_PARAMS', message: 'folderName is required.' },
+      };
+    }
+    if (!input.title || input.title.trim().length === 0) {
+      return {
+        success: false,
+        error: { code: 'INVALID_PARAMS', message: 'title is required.' },
+      };
+    }
+
+    const root = normalizeWorkspaceRoot(workspaceRoot);
+    const folderPath = path.join(root, '.ptah', 'specs', folderName);
+    const carrier = path.join(folderPath, CARRIER_FILE);
+
+    try {
+      if (!(await this.fs.exists(folderPath))) {
+        return {
+          success: false,
+          error: {
+            code: 'FOLDER_NOT_FOUND',
+            message: `Folder '${folderName}' does not exist under .ptah/specs.`,
+          },
+        };
+      }
+
+      if (await this.fs.exists(carrier)) {
+        return {
+          success: false,
+          error: {
+            code: 'CARRIER_EXISTS',
+            message: `Folder '${folderName}' already has a carrier; adoption aborted. Nothing was written and no id was allocated.`,
+          },
+        };
+      }
+
+      return await this.writeCarrier(
+        root,
+        folderName,
+        renderTaskMd({
+          id: folderName,
+          title: input.title,
+          type: input.type,
+          status: input.status,
+          description: input.description,
+          dependsOn: input.dependsOn,
+          executor: input.executor,
+          statusInferred: input.statusInferred,
+        }),
+      );
+    } catch (error: unknown) {
+      this.logger.error(
+        '[task-specs] adoptFolder failed',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return {
+        success: false,
+        error: { code: 'WRITE_FAILED', message: 'Failed to write task.md.' },
+      };
+    }
+  }
+
+  /**
+   * Write a rendered carrier into an owned folder, round-trip it through
+   * `parseTaskFile`, then notify the index (file first — R3.5 write-order).
+   *
+   * The round-trip is what keeps the dependency-free YAML emitter on the write
+   * side honest against `gray-matter` on the read side.
+   */
+  private async writeCarrier(
+    root: string,
+    folderName: string,
+    content: string,
+  ): Promise<
+    | { success: true; task: TaskSpecSummary }
+    | {
+        success: false;
+        error: { code: 'WRITE_FAILED'; message: string };
+      }
+  > {
+    const carrier = path.join(root, '.ptah', 'specs', folderName, CARRIER_FILE);
+    await this.fs.writeFile(carrier, content);
+
+    const parsed = parseTaskFile(folderName, content);
+    if (parsed.kind !== 'task' || parsed.task.validationIssues.length > 0) {
+      return {
+        success: false,
+        error: {
+          code: 'WRITE_FAILED',
+          message: 'Generated task.md failed round-trip validation.',
+        },
+      };
+    }
+
+    await this.notify(root, folderName);
+    return { success: true, task: parsed.task };
   }
 
   async updateStatus(

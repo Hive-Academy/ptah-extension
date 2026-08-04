@@ -6,6 +6,7 @@
  */
 
 import * as vscode from 'vscode';
+import * as nodeFs from 'node:fs/promises';
 import picomatch from 'picomatch';
 import type {
   IFileSystemProvider,
@@ -102,6 +103,37 @@ export class VscodeFileSystemProvider implements IFileSystemProvider {
 
   async createDirectory(path: string): Promise<void> {
     await vscode.workspace.fs.createDirectory(this.toUri(path));
+  }
+
+  /**
+   * Claim a directory name atomically.
+   *
+   * DELIBERATELY NOT `vscode.workspace.fs.createDirectory`. That API is
+   * recursive and resolves when the directory already exists, so building this
+   * method on top of it would produce something that looks like a
+   * compare-and-swap and silently is not — defeating the only reason the method
+   * exists. Node's `mkdir` WITHOUT `recursive` is the one primitive available
+   * here that fails with `EEXIST` in a single syscall.
+   *
+   * Stat-then-create is not an option either: the gap between the stat and the
+   * create is exactly the race being closed.
+   *
+   * The trade-off is that this is local-disk only. Virtual filesystems
+   * (`vscode-vfs://`, remote schemes) expose no exclusive-create primitive at
+   * all, so rather than silently degrade to a non-atomic emulation we reject
+   * and let the caller decide.
+   */
+  async createDirectoryExclusive(path: string): Promise<void> {
+    const uri = this.toUri(path);
+    if (uri.scheme !== 'file') {
+      throw new Error(
+        `createDirectoryExclusive requires a local file path, but '${path}' uses ` +
+          `the '${uri.scheme}' scheme. Virtual filesystems provide no atomic ` +
+          `exclusive-create, and emulating one would reintroduce the race this ` +
+          `method exists to prevent.`,
+      );
+    }
+    await nodeFs.mkdir(uri.fsPath);
   }
 
   async copy(

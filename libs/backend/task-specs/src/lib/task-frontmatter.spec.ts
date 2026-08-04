@@ -150,6 +150,88 @@ describe('parseTaskFile', () => {
       );
     });
   });
+
+  describe('dangling_depends_on (TASK_2026_179, step 15)', () => {
+    const withDeps = (deps: string): string =>
+      `---\nstatus: backlog\ntitle: x\ndepends_on:\n${deps}\n---\nbody`;
+
+    it('raises exactly one issue for a dependency naming no existing folder', () => {
+      const result = parseTaskFile(
+        'TASK_2026_010',
+        withDeps('  - TASK_2099_999'),
+        { knownFolders: ['TASK_2026_010', 'TASK_2026_011'] },
+      );
+      expect(result.kind).toBe('task');
+      if (result.kind !== 'task') return;
+
+      const dangling = result.task.validationIssues.filter(
+        (i) => i.code === 'dangling_depends_on',
+      );
+      expect(dangling).toHaveLength(1);
+      expect(dangling[0].message).toContain('TASK_2099_999');
+      // A broken pointer is a warning: the task stays visible on the board.
+      expect(result.task.dependsOn).toEqual(['TASK_2099_999']);
+    });
+
+    it('raises none when every dependency resolves', () => {
+      const result = parseTaskFile(
+        'TASK_2026_010',
+        withDeps('  - TASK_2026_011\n  - TASK_2026_012'),
+        {
+          knownFolders: ['TASK_2026_010', 'TASK_2026_011', 'TASK_2026_012'],
+        },
+      );
+      if (result.kind !== 'task') return;
+      expect(result.task.validationIssues).toEqual([]);
+      expect(result.task.frontmatterValid).toBe(true);
+    });
+
+    it('raises one issue PER dangling entry, naming each', () => {
+      const result = parseTaskFile(
+        'TASK_2026_010',
+        withDeps('  - TASK_2099_998\n  - TASK_2026_011\n  - TASK_2099_999'),
+        { knownFolders: ['TASK_2026_010', 'TASK_2026_011'] },
+      );
+      if (result.kind !== 'task') return;
+      const messages = result.task.validationIssues
+        .filter((i) => i.code === 'dangling_depends_on')
+        .map((i) => i.message);
+      expect(messages).toHaveLength(2);
+      expect(messages.join(' ')).toContain('TASK_2099_998');
+      expect(messages.join(' ')).toContain('TASK_2099_999');
+    });
+
+    it('skips the check entirely when the caller supplies no folder set', () => {
+      // A single-file reparse has no view of the directory. Reporting every
+      // dependency as dangling there would be a false alarm about the CALLER's
+      // ignorance, not about the file.
+      const result = parseTaskFile(
+        'TASK_2026_010',
+        withDeps('  - TASK_2099_999'),
+      );
+      if (result.kind !== 'task') return;
+      expect(result.task.validationIssues).toEqual([]);
+    });
+
+    it('still reports a mismatched id, and mutates nothing, alongside the new check', () => {
+      // TASK_2026_176 really does declare `id: TASK_2026_178` in this
+      // workspace. Normalizing it would erase the only record that 178 was ever
+      // handed out, so the allocator could re-issue it to a different task.
+      const raw =
+        '---\nid: TASK_2026_178\nstatus: in_progress\ntitle: x\ndepends_on:\n  - TASK_2099_999\n---\nbody';
+      const result = parseTaskFile('TASK_2026_176', raw, {
+        knownFolders: ['TASK_2026_176'],
+      });
+      if (result.kind !== 'task') return;
+
+      const codes = result.task.validationIssues.map((i) => i.code);
+      expect(codes).toContain('id_mismatch');
+      expect(codes).toContain('dangling_depends_on');
+      // Folder name wins; the declared id is reported, never rewritten.
+      expect(result.task.id).toBe('TASK_2026_176');
+      expect(raw).toContain('id: TASK_2026_178');
+    });
+  });
 });
 
 describe('updateFrontmatter (byte-preservation, R1.5)', () => {

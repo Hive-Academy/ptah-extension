@@ -84,7 +84,11 @@ import {
   buildCorpusNamespace,
   buildCodeNamespace,
   buildHarnessNamespace,
+  buildTasksNamespace,
+  type TaskSpecWriterLike,
+  type TaskSpecIndexLike,
 } from './namespace-builders';
+import { TASK_SPECS_TOKENS } from '@ptah-extension/task-specs';
 import { buildSessionAwareWorkspaceProvider } from './session-aware-workspace-provider';
 import { getCallerSessionId } from './mcp-core/mcp-request-context';
 import { resolveSessionWorkspaceRoot as resolveWorkspaceRootWithPrecedence } from './workspace-root-resolver';
@@ -378,6 +382,15 @@ export class PtahAPIBuilder {
 
     @inject(TOKENS.AUTH_SECRETS_SERVICE, { isOptional: true })
     private readonly authSecretsService: IAuthSecretsService | undefined,
+
+    // Task-spec collaborators (TASK_2026_179, step 17). Optional so a host that
+    // has not registered `task-specs` still boots — the namespace reports the
+    // absence instead of the whole API failing to construct.
+    @inject(TASK_SPECS_TOKENS.TASK_WRITER, { isOptional: true })
+    private readonly taskWriter: TaskSpecWriterLike | undefined,
+
+    @inject(TASK_SPECS_TOKENS.TASK_INDEX_SERVICE, { isOptional: true })
+    private readonly taskIndex: TaskSpecIndexLike | undefined,
   ) {
     this.logger.info('PtahAPIBuilder initialized with 21 namespaces');
   }
@@ -625,6 +638,13 @@ export class PtahAPIBuilder {
           getCodeSymbolSearch: () => this.codeSymbolReader,
           getMemorySearch: () => this.memorySearch,
           getSymbolIndexer: () => this.symbolIndexer,
+          getWorkspaceRoot: () => this.getWorkspaceRoot(),
+        }),
+      ),
+      tasks: this.buildNamespaceSafe('tasks', () =>
+        buildTasksNamespace({
+          getWriter: () => this.taskWriter,
+          getIndex: () => this.taskIndex,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
         }),
       ),

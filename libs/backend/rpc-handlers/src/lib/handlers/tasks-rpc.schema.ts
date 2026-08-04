@@ -52,6 +52,38 @@ export const TasksReindexParamsSchema = z.object({
   workspaceRoot,
 });
 
+/**
+ * `tasks:adopt` — note `status` is REQUIRED here while `tasks:create` has no
+ * status field at all. That asymmetry is the point: creation always starts at
+ * `backlog`, whereas adoption is retrofitting a carrier onto work that already
+ * happened, so the caller must say what state that work is in.
+ *
+ * `folderName` is constrained to a single path segment. It is joined onto
+ * `.ptah/specs` and then written to, so a `..` or a separator would let a
+ * caller steer the write outside the spec tree entirely.
+ */
+export const TasksAdoptParamsSchema = z.object({
+  workspaceRoot,
+  folderName: z
+    .string()
+    .min(1)
+    .refine(
+      (name) => !name.includes('/') && !name.includes('\\') && name !== '..',
+      { message: 'folderName must be a single path segment' },
+    ),
+  title: z.string().min(1),
+  type: typeEnum,
+  status: statusEnum,
+  description: z.string().optional(),
+  dependsOn: z.array(z.string().min(1)).optional(),
+  executor: z.string().optional(),
+  statusInferred: z.boolean().optional(),
+});
+
+export const TasksDoctorPlanParamsSchema = z.object({
+  workspaceRoot,
+});
+
 export type TasksListParamsParsed = z.infer<typeof TasksListParamsSchema>;
 export type TasksGetParamsParsed = z.infer<typeof TasksGetParamsSchema>;
 export type TasksCreateParamsParsed = z.infer<typeof TasksCreateParamsSchema>;

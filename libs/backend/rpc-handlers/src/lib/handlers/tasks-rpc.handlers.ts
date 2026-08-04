@@ -37,6 +37,8 @@ import {
   type TaskIndexService,
   type TaskIndexChangeEvent,
   type TaskWriterService,
+  type TaskDoctorService,
+  type DoctorAction,
   type RegistryGeneratorService,
 } from '@ptah-extension/task-specs';
 import {
@@ -58,6 +60,11 @@ import {
   type TasksBoardResult,
   type TasksReindexParams,
   type TasksReindexResult,
+  type TasksAdoptParams,
+  type TasksAdoptResult,
+  type TasksDoctorPlanParams,
+  type TasksDoctorPlanResult,
+  type TasksDoctorAction,
 } from '@ptah-extension/shared';
 import {
   TasksListParamsSchema,
@@ -67,7 +74,57 @@ import {
   TasksGenerateRegistryParamsSchema,
   TasksBoardParamsSchema,
   TasksReindexParamsSchema,
+  TasksAdoptParamsSchema,
+  TasksDoctorPlanParamsSchema,
 } from './tasks-rpc.schema';
+
+/**
+ * Last path segment, for either separator.
+ *
+ * Hand-rolled rather than `path.basename` because the doctor builds its paths
+ * with `path.join` on the HOST, and a Windows-authored plan carries `\`
+ * separators that POSIX `path.basename` would not split. This runs on the
+ * result of that join, so it must understand both.
+ */
+function baseName(filePath: string): string {
+  const segments = filePath.split(/[\\/]/);
+  return segments[segments.length - 1] ?? filePath;
+}
+
+/**
+ * Project a doctor action onto its wire shape.
+ *
+ * The switch is exhaustive by construction: `assertNever` on the default branch
+ * means adding a third `DoctorAction` kind fails typecheck HERE, rather than
+ * silently reaching the webview as an action the UI has no case for.
+ */
+function toWireAction(action: DoctorAction): TasksDoctorAction {
+  switch (action.kind) {
+    case 'adopt':
+      return {
+        kind: 'adopt',
+        folderName: action.folderName,
+        title: action.title,
+        type: action.type,
+        status: action.status,
+        inferredFrom: action.inferredFrom,
+      };
+    case 'renameLegacyBatches':
+      return {
+        kind: 'renameLegacyBatches',
+        folderName: action.folderName,
+        from: baseName(action.from),
+        to: baseName(action.to),
+      };
+    default:
+      return assertNever(action);
+  }
+}
+
+/** Compile-time exhaustiveness guard. */
+function assertNever(value: never): never {
+  throw new Error(`Unhandled doctor action: ${JSON.stringify(value)}`);
+}
 
 @injectable()
 export class TasksRpcHandlers {
@@ -80,6 +137,8 @@ export class TasksRpcHandlers {
     'tasks:generateRegistry',
     'tasks:board',
     'tasks:reindex',
+    'tasks:adopt',
+    'tasks:doctorPlan',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -95,6 +154,8 @@ export class TasksRpcHandlers {
     private readonly writer: TaskWriterService,
     @inject(TASK_SPECS_TOKENS.REGISTRY_GENERATOR)
     private readonly registry: RegistryGeneratorService,
+    @inject(TASK_SPECS_TOKENS.TASK_DOCTOR)
+    private readonly doctor: TaskDoctorService,
   ) {
     // Push every derived-index change to all webviews.
     this.index.onDidChangeIndex((event) => {
@@ -110,6 +171,89 @@ export class TasksRpcHandlers {
     this.registerGenerateRegistry();
     this.registerBoard();
     this.registerReindex();
+    this.registerAdopt();
+    this.registerDoctorPlan();
+  }
+
+  /**
+   * `tasks:adopt` — retrofit a carrier onto a folder that already exists.
+   *
+   * Delegates straight to `writer.adoptFolder`, which has NO code path into the
+   * id allocator. An existing carrier comes back as a typed `CARRIER_EXISTS`
+   * result, not as a fresh folder and not as an overwrite.
+   */
+  private registerAdopt(): void {
+    this.rpcHandler.registerMethod<TasksAdoptParams, TasksAdoptResult>(
+      'tasks:adopt',
+      async (params) => {
+        const parsed = this.parse(TasksAdoptParamsSchema, params);
+        const root = this.resolveRoot(parsed.workspaceRoot);
+        try {
+          await this.index.ensureStarted(root);
+          const result = await this.writer.adoptFolder(
+            root,
+            parsed.folderName,
+            {
+              title: parsed.title,
+              type: parsed.type,
+              status: parsed.status,
+              description: parsed.description,
+              dependsOn: parsed.dependsOn,
+              executor: parsed.executor,
+              statusInferred: parsed.statusInferred,
+            },
+          );
+          return result.success
+            ? { success: true, task: result.task }
+            : { success: false, error: result.error };
+        } catch (error: unknown) {
+          throw this.sanitize(error, 'tasks:adopt', 'Failed to adopt folder.');
+        }
+      },
+    );
+  }
+
+  /**
+   * `tasks:doctorPlan` — diagnosis only. ZERO writes.
+   *
+   * Note the deliberate absence of `index.ensureStarted` here, which every
+   * other method in this class calls. `ensureStarted` writes
+   * `.ptah/specs/README.md` when its hash differs, so warming the index would
+   * make this "read-only" method mutate the very directory it is reporting on.
+   * The doctor reads the tree directly and needs no warm index.
+   */
+  private registerDoctorPlan(): void {
+    this.rpcHandler.registerMethod<
+      TasksDoctorPlanParams,
+      TasksDoctorPlanResult
+    >('tasks:doctorPlan', async (params) => {
+      const parsed = this.parse(TasksDoctorPlanParamsSchema, params);
+      const root = this.resolveRoot(parsed.workspaceRoot);
+      try {
+        const result = await this.doctor.plan(root);
+        if (!result.ok) {
+          return { ok: false, error: result.error };
+        }
+        return {
+          ok: true,
+          plan: {
+            contractVersion: result.plan.contractVersion,
+            stampVersion: result.plan.stampVersion,
+            // `workspaceRoot` is deliberately dropped and rename paths are
+            // reduced to bare filenames — an absolute path in an RPC result
+            // leaks the user's directory layout to the webview (R4.4).
+            actions: result.plan.actions.map(toWireAction),
+            warnings: result.plan.warnings,
+          },
+        };
+      } catch (error: unknown) {
+        throw this.sanitize(
+          error,
+          'tasks:doctorPlan',
+          'Failed to diagnose the task-spec tree.',
+        );
+      }
+    });
   }
 
   private registerList(): void {

@@ -71,10 +71,24 @@ export class TaskScannerService {
     const tasks: ScannedTask[] = [];
     const excluded: ExcludedTaskFolder[] = [];
 
-    for (const entry of entries) {
-      if (entry.type !== FileType.Directory) continue;
-      if (entry.name.startsWith('.')) continue; // skips .archive/ + dot-dirs
-      await this.scanFolder(specsDir, entry.name, tasks, excluded);
+    // Every task-folder name on disk, gathered BEFORE parsing so a `depends_on`
+    // pointing at a folder later in the iteration order is not mistaken for a
+    // dangling reference. This is the one caller with a view of the whole
+    // directory, which is why the check lives here and not in a single-file
+    // reparse.
+    const folderNames = entries
+      .filter((e) => e.type === FileType.Directory && !e.name.startsWith('.'))
+      .map((e) => e.name);
+    const knownFolders = new Set(folderNames);
+
+    for (const folderName of folderNames) {
+      await this.scanFolder(
+        specsDir,
+        folderName,
+        tasks,
+        excluded,
+        knownFolders,
+      );
     }
 
     return { tasks, excluded, specsDirExists: true };
@@ -85,6 +99,7 @@ export class TaskScannerService {
     folderName: string,
     tasks: ScannedTask[],
     excluded: ExcludedTaskFolder[],
+    knownFolders: ReadonlySet<string>,
   ): Promise<void> {
     const carrier = path.join(specsDir, folderName, CARRIER_FILE);
     let raw: string;
@@ -103,7 +118,7 @@ export class TaskScannerService {
       return;
     }
 
-    const result = parseTaskFile(folderName, raw);
+    const result = parseTaskFile(folderName, raw, { knownFolders });
     if (result.kind === 'excluded') {
       excluded.push(result.excluded);
       return;

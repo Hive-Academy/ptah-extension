@@ -255,6 +255,15 @@ export type PtahNotification =
   | 'debug.di.phase'
   | 'doctor.report'
   | 'init.plan'
+  // `ptah spec` (TASK_2026_179, step 16). One per subcommand, and each
+  // subcommand emits exactly one — that is what makes `--json` output a single
+  // parseable document rather than an NDJSON stream.
+  | 'spec.created'
+  | 'spec.status'
+  | 'spec.detail'
+  | 'spec.list'
+  | 'spec.check'
+  | 'spec.doctor'
   | 'system.schema.version';
 
 /**

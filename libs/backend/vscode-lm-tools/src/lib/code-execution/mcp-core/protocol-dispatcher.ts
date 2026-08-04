@@ -70,6 +70,11 @@ import {
   buildRelevanceRankFilesTool,
   buildProjectDetectMonorepoTool,
   buildGetSymbolIndexTool,
+  buildTaskCreateTool,
+  buildTaskUpdateTool,
+  buildTaskGetTool,
+  buildTaskListTool,
+  buildTaskCheckTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -218,6 +223,13 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
  * Always-on core tools (never disabled by namespace toggles):
  * - workspace_analyze, search_files, get_diagnostics, count_tokens,
  *   web_search, execute_code, approval_prompt
+ * - ptah_task_create/update/get/list/check (TASK_2026_179, step 17). These sit
+ *   in the core set on purpose and have NO entry in the namespace-toggle list
+ *   below: an agent that cannot rely on the task tools being present will fall
+ *   back to hand-writing task metadata, which is the exact failure that makes
+ *   task folders vanish from the board. There is no `set_section` tool — the
+ *   carrier is machine-owned metadata, prose is agent-owned, and a
+ *   section-writer would collapse that boundary.
  *
  * Namespace-toggleable tool groups (disabled via disabledMcpNamespaces):
  * - 'ide': ptah_lsp_references, ptah_lsp_definitions, ptah_get_dirty_files
@@ -250,6 +262,12 @@ function handleToolsList(
     buildWebSearchTool(),
     buildExecuteCodeTool(),
     buildApprovalPromptTool(),
+    // Always-on: deliberately NOT wrapped in a `disabled.has(...)` guard.
+    buildTaskCreateTool(),
+    buildTaskUpdateTool(),
+    buildTaskGetTool(),
+    buildTaskListTool(),
+    buildTaskCheckTool(),
     ...(deps.hasIDECapabilities === true && !disabled.has('ide')
       ? [
           buildLspReferencesTool(),
@@ -1483,6 +1501,37 @@ async function handleIndividualTool(
           JSON.stringify({ files: index, count: index.length }),
           deps,
         );
+      }
+
+      // -- Task specs (TASK_2026_179, step 17) ----------------------------
+      //
+      // Each of these returns its namespace result verbatim. The namespace
+      // validates its own arguments with Zod and converts every failure into a
+      // typed `{ ok: false, error }` object, so these cases stay thin and the
+      // agent gets a machine-readable refusal rather than a thrown string.
+      case 'ptah_task_create': {
+        const result = await ptahAPI.tasks.create(args);
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_task_update': {
+        const result = await ptahAPI.tasks.update(args);
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_task_get': {
+        const result = await ptahAPI.tasks.get(args);
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_task_list': {
+        const result = await ptahAPI.tasks.list(args);
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
+      }
+
+      case 'ptah_task_check': {
+        const result = await ptahAPI.tasks.check();
+        return createToolSuccessResponse(request, JSON.stringify(result), deps);
       }
 
       default:

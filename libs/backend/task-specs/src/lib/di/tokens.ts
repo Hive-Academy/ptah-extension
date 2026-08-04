@@ -14,6 +14,8 @@ export const TASK_SPECS_TOKENS = {
   TASK_SCANNER: Symbol.for('TaskSpecsScanner'),
   /** TaskWriterService — create + updateStatus (byte-preserving). */
   TASK_WRITER: Symbol.for('TaskSpecsWriter'),
+  /** TaskDoctorService — plan()/apply()/undo(). Never runs automatically. */
+  TASK_DOCTOR: Symbol.for('TaskSpecsDoctor'),
   /** RegistryGeneratorService — deterministic registry.md table. */
   REGISTRY_GENERATOR: Symbol.for('TaskSpecsRegistryGenerator'),
   /** TaskIndexStore — SQLite derived index (Batch B). */

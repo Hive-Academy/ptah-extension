@@ -112,6 +112,27 @@ export const LEGACY_BATCHES_FILE = 'tasks.md';
 /** The agent-owned prose document. Machines never write it. */
 export const CONTEXT_FILE = 'context.md';
 
+/**
+ * Documents whose presence proves the task reached verification: a test report,
+ * or any review. A folder carrying one of these is FINISHED work that merely
+ * lost its carrier — adopting it as `backlog` would misreport completed work as
+ * not-started, which is worse than leaving it invisible.
+ */
+export const COMPLETION_ARTIFACTS: readonly DocFile[] = DOC_FILES.filter(
+  (name) => name === 'test-report.md' || name.endsWith('-review.md'),
+);
+
+/**
+ * Documents that prove work was PLANNED and probably started, but say nothing
+ * about it finishing.
+ */
+export const PLANNING_ARTIFACTS: readonly DocFile[] = DOC_FILES.filter(
+  (name) =>
+    name === 'implementation-plan.md' ||
+    name === 'batches.md' ||
+    name === 'tasks.md',
+);
+
 /** Narrow an arbitrary filename to a recognised per-task document. */
 export function isDocFile(name: string): name is DocFile {
   return (DOC_FILES as readonly string[]).includes(name);
@@ -142,6 +163,16 @@ export interface RenderTaskMdInput {
   description?: string;
   dependsOn?: readonly string[];
   executor?: string;
+  /**
+   * Emits `status_inferred: true` when set.
+   *
+   * ONLY the doctor's adoption path sets this. It marks a carrier whose
+   * `status` was deduced from the artifacts lying in the folder rather than
+   * declared by a human or a tool, so a reader can tell a guess from a fact.
+   * It is never removed automatically — a human editing the status is expected
+   * to drop the line themselves.
+   */
+  statusInferred?: boolean;
   /** ISO 8601 stamp for `created`/`updated`. Defaults to now. Injectable so
    *  round-trip tests stay deterministic. */
   now?: string;
@@ -185,13 +216,15 @@ function yamlScalar(value: string): string {
   return isPlainSafeScalar(value) ? value : JSON.stringify(value);
 }
 
-type FrontmatterField = readonly [string, string | readonly string[]];
+type FrontmatterField = readonly [string, string | boolean | readonly string[]];
 
 /** Render `---\n<yaml>---\n` — the frontmatter block and nothing else. */
 function renderFrontmatterBlock(fields: readonly FrontmatterField[]): string {
   const lines: string[] = ['---'];
   for (const [key, value] of fields) {
-    if (typeof value === 'string') {
+    if (typeof value === 'boolean') {
+      lines.push(`${key}: ${value ? 'true' : 'false'}`);
+    } else if (typeof value === 'string') {
       lines.push(`${key}: ${yamlScalar(value)}`);
     } else if (value.length === 0) {
       lines.push(`${key}: []`);
@@ -235,6 +268,9 @@ export function renderTaskMd(input: RenderTaskMdInput): string {
   }
   if (input.executor !== undefined) {
     fields.push(['executor', input.executor]);
+  }
+  if (input.statusInferred === true) {
+    fields.push(['status_inferred', true]);
   }
 
   const block = renderFrontmatterBlock(fields);

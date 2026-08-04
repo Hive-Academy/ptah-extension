@@ -502,6 +502,10 @@ import type {
   TasksBoardResult,
   TasksReindexParams,
   TasksReindexResult,
+  TasksAdoptParams,
+  TasksAdoptResult,
+  TasksDoctorPlanParams,
+  TasksDoctorPlanResult,
 } from './rpc/rpc-tasks.types';
 
 /**
@@ -1806,6 +1810,11 @@ export interface RpcMethodRegistry {
   };
   'tasks:board': { params: TasksBoardParams; result: TasksBoardResult };
   'tasks:reindex': { params: TasksReindexParams; result: TasksReindexResult };
+  'tasks:adopt': { params: TasksAdoptParams; result: TasksAdoptResult };
+  'tasks:doctorPlan': {
+    params: TasksDoctorPlanParams;
+    result: TasksDoctorPlanResult;
+  };
 }
 
 export interface SkillSynthesisCandidateSummary {
@@ -2964,6 +2973,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'tasks:generateRegistry': true,
   'tasks:board': true,
   'tasks:reindex': true,
+  'tasks:adopt': true,
+  'tasks:doctorPlan': true,
 };
 
 /**

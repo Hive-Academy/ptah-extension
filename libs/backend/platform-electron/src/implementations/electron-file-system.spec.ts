@@ -63,6 +63,8 @@ function remap(
     exists: (p) => provider.exists(rewrite(p)),
     delete: (p, opts) => provider.delete(rewrite(p), opts),
     createDirectory: (p) => provider.createDirectory(rewrite(p)),
+    createDirectoryExclusive: (p) =>
+      provider.createDirectoryExclusive(rewrite(p)),
     copy: (src, dst, opts) => provider.copy(rewrite(src), rewrite(dst), opts),
     findFiles: (pattern, exclude, max, cwd) =>
       provider.findFiles(pattern, exclude, max, cwd ? rewrite(cwd) : undefined),

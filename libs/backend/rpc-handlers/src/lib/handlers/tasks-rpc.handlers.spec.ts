@@ -48,6 +48,9 @@ import {
   TaskIndexService,
   TaskScannerService,
   normalizeWorkspaceRoot,
+  TaskDoctorService,
+  TaskWriterService as TaskWriterServiceClass,
+  NoOpTaskIndexNotifier,
   type ITaskIndexStore,
   type TaskWriterService,
   type RegistryGeneratorService,
@@ -56,6 +59,8 @@ import {
 import type {
   ExcludedTaskFolder,
   TaskSpecSummary,
+  TasksAdoptResult,
+  TasksDoctorPlanResult,
 } from '@ptah-extension/shared';
 
 import { TasksRpcHandlers } from './tasks-rpc.handlers';
@@ -122,8 +127,13 @@ interface Suite {
   rpc: MockRpcHandler;
   workspace: MockWorkspaceProvider;
   index: FakeIndex;
-  writer: { create: jest.Mock; updateStatus: jest.Mock };
+  writer: {
+    create: jest.Mock;
+    updateStatus: jest.Mock;
+    adoptFolder: jest.Mock;
+  };
   registry: { generate: jest.Mock };
+  doctor: { plan: jest.Mock; apply: jest.Mock; undo: jest.Mock };
   webviewManager: MockWebviewManager;
   logger: MockLogger;
 }
@@ -147,6 +157,24 @@ function buildSuite(wsRoot: string | null = 'D:\\workspace'): Suite {
       success: true,
       task: { id: 'TASK_2026_200' } as TaskSpecSummary,
     }),
+    adoptFolder: jest.fn().mockResolvedValue({
+      success: true,
+      task: { id: 'TASK_2026_155' } as TaskSpecSummary,
+    }),
+  };
+  const doctor = {
+    plan: jest.fn().mockResolvedValue({
+      ok: true,
+      plan: {
+        workspaceRoot: 'D:\\workspace',
+        contractVersion: 1,
+        stampVersion: null,
+        actions: [],
+        warnings: [],
+      },
+    }),
+    apply: jest.fn(),
+    undo: jest.fn(),
   };
   const registry = {
     generate: jest.fn().mockResolvedValue({
@@ -168,6 +196,7 @@ function buildSuite(wsRoot: string | null = 'D:\\workspace'): Suite {
     index as unknown as TaskIndexService,
     writer as unknown as TaskWriterService,
     registry as unknown as RegistryGeneratorService,
+    doctor as unknown as TaskDoctorService,
   );
   handlers.register();
 
@@ -178,6 +207,7 @@ function buildSuite(wsRoot: string | null = 'D:\\workspace'): Suite {
     index,
     writer,
     registry,
+    doctor,
     webviewManager,
     logger,
   };
@@ -196,7 +226,7 @@ function getHandler(
 }
 
 describe('TasksRpcHandlers.METHODS', () => {
-  it('owns exactly the 7 tasks:* methods', () => {
+  it('owns exactly the 9 tasks:* methods', () => {
     expect([...TasksRpcHandlers.METHODS]).toEqual([
       'tasks:list',
       'tasks:get',
@@ -205,12 +235,14 @@ describe('TasksRpcHandlers.METHODS', () => {
       'tasks:generateRegistry',
       'tasks:board',
       'tasks:reindex',
+      'tasks:adopt',
+      'tasks:doctorPlan',
     ]);
   });
 });
 
 describe('TasksRpcHandlers.register', () => {
-  it('wires all 7 methods into the RpcHandler', () => {
+  it('wires all 9 methods into the RpcHandler', () => {
     const { rpc } = buildSuite();
     for (const method of TasksRpcHandlers.METHODS) {
       expect(() => getHandler(rpc, method)).not.toThrow();
@@ -372,8 +404,14 @@ function buildRealSuite(store: ITaskIndexStore): {
     {
       create: jest.fn(),
       updateStatus: jest.fn(),
+      adoptFolder: jest.fn(),
     } as unknown as TaskWriterService,
     { generate: jest.fn() } as unknown as RegistryGeneratorService,
+    {
+      plan: jest.fn(),
+      apply: jest.fn(),
+      undo: jest.fn(),
+    } as unknown as TaskDoctorService,
   );
   handlers.register();
 
@@ -479,6 +517,237 @@ describe('tasks:create', () => {
     await expect(handler({ type: 'FEATURE' })).rejects.toMatchObject({
       errorCode: 'INVALID_PARAMS',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tasks:adopt (TASK_2026_179, step 18)
+// ---------------------------------------------------------------------------
+
+describe('tasks:adopt', () => {
+  it('delegates to adoptFolder with the folder name as the canonical id', async () => {
+    const { rpc, writer } = buildSuite();
+    const handler = getHandler(rpc, 'tasks:adopt');
+    const result = (await handler({
+      folderName: 'TASK_2026_155',
+      title: 'Recovered work',
+      type: 'FEATURE',
+      status: 'done',
+      statusInferred: true,
+    })) as TasksAdoptResult;
+
+    expect(result.success).toBe(true);
+    expect(writer.adoptFolder).toHaveBeenCalledWith(
+      normalizeWorkspaceRoot('D:\\workspace'),
+      'TASK_2026_155',
+      expect.objectContaining({
+        title: 'Recovered work',
+        type: 'FEATURE',
+        status: 'done',
+        statusInferred: true,
+      }),
+    );
+  });
+
+  /**
+   * The load-bearing case. Adoption onto an occupied folder must come back as a
+   * typed refusal — NOT as a freshly allocated id, and NOT as an overwrite. A
+   * silent re-allocation would leave two folders claiming one task, which is
+   * exactly the failure this task set exists to remove.
+   */
+  it('returns a typed CARRIER_EXISTS error instead of allocating a new id', async () => {
+    const { rpc, writer } = buildSuite();
+    writer.adoptFolder.mockResolvedValue({
+      success: false,
+      error: {
+        code: 'CARRIER_EXISTS',
+        message: 'Folder already has a carrier; adoption aborted.',
+      },
+    });
+
+    const handler = getHandler(rpc, 'tasks:adopt');
+    const result = (await handler({
+      folderName: 'TASK_2026_155',
+      title: 'Recovered work',
+      type: 'FEATURE',
+      status: 'backlog',
+    })) as TasksAdoptResult;
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('CARRIER_EXISTS');
+    expect(result.task).toBeUndefined();
+    // No id was minted: `create` is the only allocator path and it stayed untouched.
+    expect(writer.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a folderName that escapes the spec root', async () => {
+    const { rpc, writer } = buildSuite();
+    const handler = getHandler(rpc, 'tasks:adopt');
+    await expect(
+      handler({
+        folderName: '../../etc',
+        title: 'Escape',
+        type: 'FEATURE',
+        status: 'backlog',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(writer.adoptFolder).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing status with INVALID_PARAMS', async () => {
+    const { rpc } = buildSuite();
+    const handler = getHandler(rpc, 'tasks:adopt');
+    await expect(
+      handler({ folderName: 'TASK_2026_155', title: 'x', type: 'FEATURE' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tasks:doctorPlan (TASK_2026_179, step 18) — READ-ONLY
+// ---------------------------------------------------------------------------
+
+describe('tasks:doctorPlan', () => {
+  it('reduces rename paths to bare filenames (no absolute-path leakage, R4.4)', async () => {
+    const { rpc, doctor } = buildSuite();
+    doctor.plan.mockResolvedValue({
+      ok: true,
+      plan: {
+        workspaceRoot: 'D:\\workspace',
+        contractVersion: 1,
+        stampVersion: null,
+        actions: [
+          {
+            kind: 'renameLegacyBatches',
+            folderName: 'TASK_2026_155',
+            from: path.join('D:', 'workspace', '.ptah', 'specs', 'x', 'a.md'),
+            to: path.join('D:', 'workspace', '.ptah', 'specs', 'x', 'b.md'),
+          },
+        ],
+        warnings: [],
+      },
+    });
+
+    const handler = getHandler(rpc, 'tasks:doctorPlan');
+    const result = (await handler({})) as TasksDoctorPlanResult;
+
+    expect(result.ok).toBe(true);
+    expect(result.plan?.actions[0]).toEqual({
+      kind: 'renameLegacyBatches',
+      folderName: 'TASK_2026_155',
+      from: 'a.md',
+      to: 'b.md',
+    });
+    expect(JSON.stringify(result)).not.toContain('workspace');
+  });
+
+  it('surfaces a fail-closed stamp refusal as a typed error', async () => {
+    const { rpc, doctor } = buildSuite();
+    doctor.plan.mockResolvedValue({
+      ok: false,
+      error: { code: 'STAMP_UNREADABLE', message: 'stamp is corrupt' },
+    });
+
+    const handler = getHandler(rpc, 'tasks:doctorPlan');
+    const result = (await handler({})) as TasksDoctorPlanResult;
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe('STAMP_UNREADABLE');
+    expect(result.plan).toBeUndefined();
+  });
+
+  /**
+   * The acceptance test for step 18: a plan is only a plan.
+   *
+   * Runs the REAL `TaskDoctorService` and the REAL `TaskWriterService` against a
+   * seeded in-memory filesystem, so this asserts the behaviour of the shipping
+   * code rather than of a stub. Two distinct things are checked:
+   *
+   *   1. No mutating filesystem call happened at all.
+   *   2. `index.ensureStarted` was NOT called. That is the easy regression:
+   *      every other method in this class calls it, and it writes
+   *      `.ptah/specs/README.md` when the hash differs — warming the index here
+   *      would make the read-only method mutate the directory it reports on.
+   */
+  it('performs ZERO writes against a real doctor over a seeded tree', async () => {
+    const wsRoot = normalizeWorkspaceRoot('D:\\workspace');
+    const fsMock = createMockFileSystemProvider();
+    const specsDir = path.join(wsRoot, '.ptah', 'specs');
+
+    // A carrier-less folder (an adoption candidate) carrying a completion
+    // artifact, plus a legacy batch breakdown to rename. Seeding via `writeFile`
+    // rather than by touching `__state.directories` directly: the mock registers
+    // the whole parent chain on write, and a pre-added leaf directory would
+    // short-circuit that walk and leave `.ptah/specs` itself unregistered.
+    await fsMock.writeFile(
+      path.join(specsDir, 'TASK_2026_155', 'test-report.md'),
+      '# report',
+    );
+    await fsMock.writeFile(
+      path.join(specsDir, 'TASK_2026_155', 'tasks.md'),
+      '# batches',
+    );
+
+    const logger = createMockLogger();
+    const realWriter = new TaskWriterServiceClass(
+      fsMock,
+      logger as unknown as Logger,
+      new NoOpTaskIndexNotifier(),
+    );
+    const realDoctor = new TaskDoctorService(
+      fsMock,
+      logger as unknown as Logger,
+      realWriter,
+    );
+
+    const rpc = createMockRpcHandler();
+    const workspace = createMockWorkspaceProvider({ folders: [wsRoot] });
+    workspace.getWorkspaceRoot.mockReturnValue(wsRoot);
+    const index = createFakeIndex();
+    const handlers = new TasksRpcHandlers(
+      logger as unknown as Logger,
+      rpc as unknown as RpcHandler,
+      { broadcastMessage: jest.fn() } as unknown as WebviewManager,
+      workspace as unknown as IWorkspaceProvider,
+      index as unknown as TaskIndexService,
+      realWriter,
+      { generate: jest.fn() } as unknown as RegistryGeneratorService,
+      realDoctor,
+    );
+    handlers.register();
+
+    // Seeding used the mock's own writes — clear them so the assertion below
+    // measures only what the handler itself did.
+    fsMock.writeFile.mockClear();
+    fsMock.writeFileBytes.mockClear();
+    fsMock.delete.mockClear();
+    fsMock.createDirectory.mockClear();
+    fsMock.createDirectoryExclusive.mockClear();
+
+    const snapshot = new Map(fsMock.__state.files);
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:doctorPlan',
+    )({})) as TasksDoctorPlanResult;
+
+    expect(result.ok).toBe(true);
+    // It found real work to propose — otherwise "zero writes" would be vacuous.
+    expect(result.plan?.actions.length).toBeGreaterThan(0);
+
+    expect(fsMock.writeFile).not.toHaveBeenCalled();
+    expect(fsMock.writeFileBytes).not.toHaveBeenCalled();
+    expect(fsMock.delete).not.toHaveBeenCalled();
+    expect(fsMock.createDirectory).not.toHaveBeenCalled();
+    expect(fsMock.createDirectoryExclusive).not.toHaveBeenCalled();
+    expect(index.ensureStarted).not.toHaveBeenCalled();
+
+    // Byte-for-byte: the tree is exactly what it was.
+    expect([...fsMock.__state.files.keys()].sort()).toEqual(
+      [...snapshot.keys()].sort(),
+    );
+    for (const [key, bytes] of snapshot) {
+      expect(fsMock.__state.files.get(key)).toEqual(bytes);
+    }
   });
 });
 

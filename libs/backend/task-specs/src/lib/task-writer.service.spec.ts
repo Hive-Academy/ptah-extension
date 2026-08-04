@@ -3,6 +3,7 @@ import { createMockFileSystemProvider } from '@ptah-extension/platform-core/test
 import type { Logger } from '@ptah-extension/vscode-core';
 import { CARRIER_BANNER } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
+import * as idAllocator from './id-allocator';
 import { NoOpTaskIndexNotifier } from './task-index.port';
 import { parseTaskFile } from './task-frontmatter';
 import { TaskWriterService } from './task-writer.service';
@@ -77,17 +78,63 @@ describe('TaskWriterService.create', () => {
     expect(parsed.body).not.toContain('## Description');
   });
 
-  it('rejects a collision without overwriting (TASK_FOLDER_EXISTS)', async () => {
+  it('re-allocates past pre-existing colliding folders instead of failing (3 collisions → 4th id wins)', async () => {
     const { fs, writer } = makeWriter();
-    await writer.create(ROOT, { title: 'one', type: 'FEATURE' });
-    // Pre-create the next allocation target's folder.
-    await fs.createDirectory(path.join(specsDir(), `TASK_${YEAR}_002`));
+    // Occupy 001..003 so the first three allocation candidates are taken. The
+    // folders exist but hold no carrier, so a plain `readDirectory` scan sees
+    // them and the allocator must walk past all three.
+    for (const n of ['001', '002', '003']) {
+      await fs.createDirectory(path.join(specsDir(), `TASK_${YEAR}_${n}`));
+    }
 
-    const result = await writer.create(ROOT, { title: 'two', type: 'BUGFIX' });
+    const result = await writer.create(ROOT, { title: 'four', type: 'BUGFIX' });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.task.id).toBe(`TASK_${YEAR}_004`);
+  });
+
+  it('claims the folder with the exclusive-create CAS, never a recursive createDirectory', async () => {
+    const { fs, writer } = makeWriter();
+
+    const result = await writer.create(ROOT, { title: 'cas', type: 'FEATURE' });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+
+    const claimed = path.join(specsDir(), result.task.id);
+    expect(fs.createDirectoryExclusive).toHaveBeenCalledWith(claimed);
+    // `createDirectory` may only ever be used for the `.ptah/specs` parent —
+    // never for the task folder itself, because it is recursive and tolerates
+    // EEXIST, so it cannot detect a concurrent winner.
+    expect(fs.createDirectory).not.toHaveBeenCalledWith(claimed);
+  });
+
+  it('returns a TYPED ID_ALLOCATION_EXHAUSTED error after 5 consecutive collisions, writing nothing', async () => {
+    const { fs, writer } = makeWriter();
+
+    // A permanently contended filesystem: every claim loses. This models the
+    // pathological case R6 names — a stale scan that keeps proposing an id
+    // somebody else already owns.
+    fs.createDirectoryExclusive.mockImplementation(async (target: string) => {
+      const err = new Error(`EEXIST: file already exists, mkdir '${target}'`);
+      (err as NodeJS.ErrnoException).code = 'EEXIST';
+      throw err;
+    });
+    fs.writeFile.mockClear();
+
+    const result = await writer.create(ROOT, {
+      title: 'doomed',
+      type: 'FEATURE',
+    });
 
     expect(result.success).toBe(false);
     if (result.success) return;
-    expect(result.error.code).toBe('TASK_FOLDER_EXISTS');
+    // Typed, not a bare throw — the caller can tell "retry" from "broken".
+    expect(result.error.code).toBe('ID_ALLOCATION_EXHAUSTED');
+    // Bounded: exactly 5 attempts, no unbounded spin.
+    expect(fs.createDirectoryExclusive).toHaveBeenCalledTimes(5);
+    // And nothing was written anywhere.
+    expect(fs.writeFile).not.toHaveBeenCalled();
   });
 
   it('rejects an empty title', async () => {
@@ -96,6 +143,82 @@ describe('TaskWriterService.create', () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe('INVALID_PARAMS');
+  });
+});
+
+describe('TaskWriterService.adoptFolder', () => {
+  it('gives a carrier-less folder a task.md keyed on the FOLDER NAME', async () => {
+    const { fs, writer } = makeWriter();
+    await fs.createDirectory(path.join(specsDir(), 'TASK_2026_155'));
+
+    const result = await writer.adoptFolder(ROOT, 'TASK_2026_155', {
+      title: 'Adopted task',
+      type: 'REFACTORING',
+      status: 'done',
+      statusInferred: true,
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.task.id).toBe('TASK_2026_155');
+    expect(result.task.status).toBe('done');
+
+    const raw = await fs.readFile(
+      path.join(specsDir(), 'TASK_2026_155', 'task.md'),
+    );
+    expect(raw).toContain('status_inferred: true');
+  });
+
+  it('ABORTS on an existing carrier and never reaches the id allocator', async () => {
+    const { fs, writer } = makeWriter();
+    const created = await writer.create(ROOT, {
+      title: 'already here',
+      type: 'FEATURE',
+    });
+    expect(created.success).toBe(true);
+    if (!created.success) return;
+
+    // The allocator is a pure module function, so spy on the module export —
+    // this is the assertion the task hinges on: adoption must have NO path
+    // into id allocation, not merely "usually not take one".
+    const allocSpy = jest.spyOn(idAllocator, 'allocateTaskId');
+    fs.writeFile.mockClear();
+
+    const result = await writer.adoptFolder(ROOT, created.task.id, {
+      title: 'trying to re-adopt',
+      type: 'BUGFIX',
+      status: 'backlog',
+      statusInferred: true,
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('CARRIER_EXISTS');
+    expect(allocSpy).not.toHaveBeenCalled();
+    // The existing carrier is untouched.
+    expect(fs.writeFile).not.toHaveBeenCalled();
+
+    allocSpy.mockRestore();
+  });
+
+  it('returns FOLDER_NOT_FOUND rather than creating anything for a missing folder', async () => {
+    const { fs, writer } = makeWriter();
+    const allocSpy = jest.spyOn(idAllocator, 'allocateTaskId');
+
+    const result = await writer.adoptFolder(ROOT, 'TASK_2026_404', {
+      title: 'nope',
+      type: 'FEATURE',
+      status: 'backlog',
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('FOLDER_NOT_FOUND');
+    expect(allocSpy).not.toHaveBeenCalled();
+    expect(fs.createDirectory).not.toHaveBeenCalled();
+    expect(fs.createDirectoryExclusive).not.toHaveBeenCalled();
+
+    allocSpy.mockRestore();
   });
 });
 

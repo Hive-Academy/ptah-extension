@@ -88,6 +88,16 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
     await fs.mkdir(dirPath, { recursive: true });
   }
 
+  /**
+   * Non-recursive `mkdir(2)`. Omitting `recursive` is the entire point:
+   * `{ recursive: true }` resolves silently on an existing path, whereas the
+   * bare call fails with `EEXIST`, giving us a real compare-and-swap in one
+   * syscall. Never stat first — that would reopen the TOCTOU window.
+   */
+  async createDirectoryExclusive(dirPath: string): Promise<void> {
+    await fs.mkdir(dirPath);
+  }
+
   async copy(
     source: string,
     destination: string,

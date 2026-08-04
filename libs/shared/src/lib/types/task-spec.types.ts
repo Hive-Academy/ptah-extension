@@ -43,6 +43,16 @@ export interface TaskValidationIssue {
     | 'invalid_type'
     | 'invalid_date'
     | 'invalid_depends_on'
+    /**
+     * A `depends_on` entry naming a task folder that does not exist.
+     *
+     * Distinct from `invalid_depends_on`, which means the field is the wrong
+     * SHAPE. This one is well-formed but points at nothing — usually a typo, a
+     * folder that was renamed, or a dependency declared before its task was
+     * created. It is a warning: the task stays included, because a broken
+     * pointer is no reason to hide the task holding it.
+     */
+    | 'dangling_depends_on'
     | 'schema_issue';
   message: string;
 }

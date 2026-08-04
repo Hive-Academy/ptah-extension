@@ -8,7 +8,19 @@ module.exports = {
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'html'],
   coverageDirectory: '../../coverage/apps/ptah-cli',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
-  testPathIgnorePatterns: ['/node_modules/', '/tests/e2e/'],
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '/tests/e2e/',
+    // `commands/spec.ts` is the `ptah spec` COMMAND, not a test file.
+    //
+    // The Nx preset's testMatch is `**/?(*.)+(spec|test).?([mc])[jt]s?(x)`, in
+    // which the `?(*.)` prefix is OPTIONAL — so a file named exactly `spec.ts`
+    // matches and Jest fails it with "must contain at least one test". The
+    // command's own tests live in `commands/spec.spec.ts`, which still matches
+    // normally; this pattern is anchored to the single colliding path so it
+    // cannot mask a real suite elsewhere.
+    '/src/cli/commands/spec\\.ts$',
+  ],
   moduleNameMapper: {
     '^vscode$': '<rootDir>/../../__mocks__/vscode.ts',
     // Static `CliDIContainer` import in `with-engine.ts` pulls in the

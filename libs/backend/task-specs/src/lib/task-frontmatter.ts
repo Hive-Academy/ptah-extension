@@ -39,6 +39,12 @@ export const TaskFrontmatterSchema = z.object({
   claim: z.union([z.string(), z.record(z.string(), z.unknown())]).nullish(),
   created: z.string().nullish(),
   updated: z.string().nullish(),
+  /**
+   * Set by the doctor's adoption path: this `status` was DEDUCED from the
+   * artifacts in the folder, not declared. Purely informational — it never
+   * affects inclusion, and nothing removes it automatically.
+   */
+  status_inferred: z.boolean().nullish(),
 });
 
 export type TaskFrontmatter = z.infer<typeof TaskFrontmatterSchema>;
@@ -81,15 +87,38 @@ function coerceIso(value: unknown): { iso: string | null; present: boolean } {
   return { iso: null, present: true };
 }
 
+/** Zod schema for the `depends_on` field. Applied at the file boundary only. */
+const DEPENDS_ON_SCHEMA = z.array(z.string());
+
+/**
+ * Options for {@link parseTaskFile}.
+ */
+export interface ParseTaskFileOptions {
+  /**
+   * Folder names that exist under `.ptah/specs`. When supplied, every
+   * `depends_on` entry outside this set raises a `dangling_depends_on` warning.
+   *
+   * OPTIONAL by design. `parseTaskFile` is a pure function over one file's
+   * bytes and most callers legitimately have no view of the wider directory —
+   * the scanner does, a single-file reparse does not. Omitting the set simply
+   * skips the check rather than reporting every dependency as dangling, which
+   * would be a false alarm caused by the caller's ignorance rather than by
+   * anything wrong with the file.
+   */
+  knownFolders?: Iterable<string>;
+}
+
 /**
  * Parse a raw `task.md` string. NEVER throws (R1.2).
  *
  * @param folderName the owning folder name — becomes the canonical `id`.
  * @param raw the full file contents.
+ * @param options see {@link ParseTaskFileOptions}.
  */
 export function parseTaskFile(
   folderName: string,
   raw: string,
+  options?: ParseTaskFileOptions,
 ): ParseTaskFileResult {
   // Tolerate a leading BOM so a BOM-prefixed carrier parses normally instead
   // of being excluded as `no_frontmatter`.
@@ -167,9 +196,23 @@ export function parseTaskFile(
   let dependsOn: string[] = [];
   const rawDepends = data['depends_on'];
   if (rawDepends !== undefined && rawDepends !== null) {
-    const dependsResult = z.array(z.string()).safeParse(rawDepends);
+    const dependsResult = DEPENDS_ON_SCHEMA.safeParse(rawDepends);
     if (dependsResult.success) {
       dependsOn = dependsResult.data;
+
+      // Well-formed but possibly pointing at nothing. Only checkable when the
+      // caller told us which folders exist.
+      if (options?.knownFolders !== undefined) {
+        const known = new Set(options.knownFolders);
+        for (const dependency of dependsOn) {
+          if (known.has(dependency)) continue;
+          issues.push({
+            field: 'depends_on',
+            code: 'dangling_depends_on',
+            message: `depends_on entry '${dependency}' does not match any folder under .ptah/specs.`,
+          });
+        }
+      }
     } else {
       issues.push({
         field: 'depends_on',

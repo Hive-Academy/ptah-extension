@@ -33,7 +33,23 @@ export {
   type CreateTaskInput,
   type CreateTaskResult,
   type UpdateStatusResult,
+  type AdoptFolderInput,
+  type AdoptFolderResult,
 } from './lib/task-writer.service';
+export {
+  TaskDoctorService,
+  type AdoptAction,
+  type RenameBatchesAction,
+  type DoctorAction,
+  type DoctorWarning,
+  type DoctorPlan,
+  type DoctorPlanResult,
+  type DoctorApplyResult,
+  type DoctorUndoResult,
+  type DoctorErrorCode,
+  type DoctorJournal,
+  type DoctorJournalEntry,
+} from './lib/task-doctor.service';
 export {
   RegistryGeneratorService,
   type GenerateRegistryResult,

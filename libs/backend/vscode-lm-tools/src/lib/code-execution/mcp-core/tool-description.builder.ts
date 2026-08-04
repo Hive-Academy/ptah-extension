@@ -7,6 +7,158 @@
 
 import { MCPToolDefinition } from '../types';
 import { PTAH_SYSTEM_PROMPT } from '../ptah-system-prompt.constant';
+import {
+  CONTEXT_FILE,
+  TASK_STATUSES,
+  TASK_TYPES,
+} from '@ptah-extension/shared';
+
+// ---------------------------------------------------------------------------
+// Task specs (TASK_2026_179, step 17) — ALWAYS-ON core tools
+// ---------------------------------------------------------------------------
+//
+// These five are built unconditionally in `handleToolsList` and are never
+// filtered by `disabledMcpNamespaces`. There is deliberately no sixth tool for
+// writing prose into the carrier: the carrier is machine-owned metadata and
+// the prose doc is agent-owned, and a section-writer would put agent narrative
+// onto the very file the Tasks board also mutates. Agents write prose with
+// their ordinary file tools.
+//
+// The status/type enums are spread from the shared canonical lists rather than
+// hand-listed, so a new status cannot become describable to the agent without
+// also being real.
+
+/** Shared tail so every task tool teaches the same ownership rule. */
+const CARRIER_OWNERSHIP_NOTE =
+  `The carrier holds metadata only. Write background, plans and discussion to ` +
+  `${CONTEXT_FILE} in the same folder using your normal file tools — never into ` +
+  `the carrier, which Ptah rewrites.`;
+
+/** Build the ptah_task_create tool definition. */
+export function buildTaskCreateTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_task_create',
+    description:
+      `Create a task under .ptah/specs/. Allocates the next TASK_YYYY_NNN id, ` +
+      `claims the folder atomically, and writes a valid carrier — use this ` +
+      `instead of creating the folder and its metadata by hand, which is how ` +
+      `task folders end up invisible to the Tasks board. ${CARRIER_OWNERSHIP_NOTE}`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Short imperative title' },
+        type: {
+          type: 'string',
+          enum: [...TASK_TYPES],
+          description: 'Task type',
+        },
+        description: {
+          type: 'string',
+          description: 'One-line summary. Long-form context does NOT go here.',
+        },
+        dependsOn: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Task folder names this task depends on',
+        },
+        executor: {
+          type: 'string',
+          description: 'Agent expected to execute it',
+        },
+      },
+      required: ['title', 'type'],
+    },
+  };
+}
+
+/** Build the ptah_task_update tool definition. */
+export function buildTaskUpdateTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_task_update',
+    description:
+      `Move a task to a new status. Rewrites only the status line, and refuses ` +
+      `the write with a retryable TASK_CONFLICT if the carrier changed on disk ` +
+      `since it was read — so a concurrent edit is reported rather than ` +
+      `silently discarded. On TASK_CONFLICT, re-read with ptah_task_get and retry.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: {
+          type: 'string',
+          description: 'Task folder name, e.g. TASK_2026_179',
+        },
+        status: {
+          type: 'string',
+          enum: [...TASK_STATUSES],
+          description: 'New status',
+        },
+      },
+      required: ['taskId', 'status'],
+    },
+  };
+}
+
+/** Build the ptah_task_get tool definition. */
+export function buildTaskGetTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_task_get',
+    description:
+      'Read one task: its metadata, its carrier body, and the documents present ' +
+      'in its folder. Returns TASK_NOT_FOUND when the folder has no carrier.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: {
+          type: 'string',
+          description: 'Task folder name, e.g. TASK_2026_179',
+        },
+      },
+      required: ['taskId'],
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/** Build the ptah_task_list tool definition. */
+export function buildTaskListTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_task_list',
+    description:
+      'List tasks, optionally filtered by status and/or type. Use this to find ' +
+      'the highest existing id rather than reading a generated registry, which ' +
+      'can be stale.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: {
+          type: 'array',
+          items: { type: 'string', enum: [...TASK_STATUSES] },
+          description: 'Only include these statuses',
+        },
+        type: {
+          type: 'array',
+          items: { type: 'string', enum: [...TASK_TYPES] },
+          description: 'Only include these types',
+        },
+      },
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/** Build the ptah_task_check tool definition. */
+export function buildTaskCheckTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_task_check',
+    description:
+      'Health-check the whole task tree. Names every SKIPPED folder with the ' +
+      'typed reason it was skipped, plus every included task carrying a ' +
+      'validation warning. Run this when a task folder you expect is missing ' +
+      'from the board.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true },
+  };
+}
 
 /**
  * Build the execute_code tool definition
@@ -303,7 +455,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         taskFolder: {
           type: 'string',
           description:
-            'Task-tracking folder for shared workspace (e.g., ".ptah/specs/TASK_2025_157"). ' +
+            'Task-spec folder for shared workspace (e.g., ".ptah/specs/TASK_2026_157"). ' +
             'Agent will write deliverables here.',
         },
         model: {
