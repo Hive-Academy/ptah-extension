@@ -34,6 +34,29 @@ export interface BuildersSession {
 }
 
 /**
+ * The outcome of a member-facing upcoming-sessions read.
+ *
+ * ⚠️ THIS TYPE EXISTS TO SEPARATE "NOTHING SCHEDULED" FROM "WE COULD NOT LOOK".
+ * `listUpcomingSessions` answers `BuildersSession[]`, which has exactly one way
+ * to say "no sessions" — `[]` — and therefore cannot distinguish an empty
+ * calendar from a Google outage. A caller that renders that `[]` tells a paying
+ * member "you have no upcoming sessions" during an incident, which is a FALSE
+ * STATEMENT rather than a degraded one.
+ *
+ * `reason` is deliberately a closed vocabulary and NOT an error message:
+ *   - `'disabled'`     — `GOOGLE_OAUTH_*` unset. Nothing was attempted.
+ *   - `'fetch_failed'` — configured, attempted, and the Calendar call failed.
+ *
+ * Both are non-answers, and both map to the hub's `'unavailable'`. They stay
+ * distinct because only one of them is an incident worth paging about. Upstream
+ * status codes and bodies are logged, never carried here — NFR-S7 keeps raw
+ * upstream detail off anything a member-facing composer can reach.
+ */
+export type UpcomingSessionsResult =
+  | { ok: true; sessions: BuildersSession[] }
+  | { ok: false; reason: 'disabled' | 'fetch_failed' };
+
+/**
  * A session as returned by the ADMIN surface (`/api/v1/admin/sessions`).
  *
  * Identical to {@link BuildersSession} plus `description`, which the admin edit

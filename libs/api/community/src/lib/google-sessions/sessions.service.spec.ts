@@ -432,6 +432,92 @@ describe('SessionsService', () => {
   });
 
   /**
+   * `readUpcomingSessions` is the reporting variant that `listUpcomingSessions`
+   * is now a lossy view of. Its entire reason to exist is that the two `[]`
+   * cases above — disabled, and failed — are DIFFERENT ANSWERS, and a caller
+   * that renders "you have no upcoming sessions" must be able to tell them
+   * apart from a genuinely empty calendar.
+   */
+  describe('readUpcomingSessions — the reporting variant', () => {
+    it('reports { ok: false, reason: "disabled" } when Google is unconfigured', async () => {
+      const calendar = createCalendarMock(false);
+
+      const result = await build(
+        calendar,
+        createAuditMock(),
+      ).readUpcomingSessions(USER);
+
+      expect(result).toEqual({ ok: false, reason: 'disabled' });
+      expect(calendar.listEvents).not.toHaveBeenCalled();
+    });
+
+    it('reports { ok: false, reason: "fetch_failed" } when the calendar call fails', async () => {
+      const calendar = createCalendarMock(true);
+      calendar.listEvents.mockResolvedValue({
+        ok: false,
+        status: 500,
+        error: 'Google Calendar API returned status 500',
+      });
+
+      const result = await build(
+        calendar,
+        createAuditMock(),
+      ).readUpcomingSessions(USER);
+
+      expect(result).toEqual({ ok: false, reason: 'fetch_failed' });
+    });
+
+    it('does NOT throw on a failed read — the failure is a value', async () => {
+      // The hub composes sections with allSettled and must stay 200. A throw
+      // here would still be contained, but the Paddle fan-out also reaches this
+      // path via the welcome email and must never see an exception.
+      const calendar = createCalendarMock(true);
+      calendar.listEvents.mockResolvedValue({ ok: false, status: 503 });
+
+      await expect(
+        build(calendar, createAuditMock()).readUpcomingSessions(USER),
+      ).resolves.toMatchObject({ ok: false });
+    });
+
+    it('reports { ok: true, sessions: [] } for an ENABLED calendar with nothing scheduled', async () => {
+      // The case that must stay distinguishable from both failures above.
+      const calendar = createCalendarMock(true);
+      calendar.listEvents.mockResolvedValue({ ok: true, json: { items: [] } });
+
+      const result = await build(
+        calendar,
+        createAuditMock(),
+      ).readUpcomingSessions(USER);
+
+      expect(result).toEqual({ ok: true, sessions: [] });
+    });
+
+    it('reports { ok: true, sessions } with the same mapping listUpcomingSessions returns', async () => {
+      const calendar = createCalendarMock(true);
+      calendar.listEvents.mockResolvedValue({
+        ok: true,
+        json: {
+          items: [
+            {
+              id: 'evt_1',
+              summary: 'Builders Office Hours',
+              start: { dateTime: '2026-07-20T17:00:00Z' },
+              end: { dateTime: '2026-07-20T18:00:00Z' },
+            },
+          ],
+        },
+      });
+      const service = build(calendar, createAuditMock());
+
+      const result = await service.readUpcomingSessions(USER);
+      const flattened = await service.listUpcomingSessions(USER);
+
+      expect(result).toEqual({ ok: true, sessions: flattened });
+      expect(flattened.map((s) => s.id)).toEqual(['evt_1']);
+    });
+  });
+
+  /**
    * The two-cohort read path. Fixture models a calendar carrying an English
    * series, an Arabic series (each expanded into instances by singleEvents) and
    * a generic AMA belonging to no cohort.

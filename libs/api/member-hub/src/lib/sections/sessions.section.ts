@@ -27,13 +27,22 @@ import type { HubSectionResolver } from './hub-section';
  * `{ status: 'unavailable', data: null }`, with a `200` hub around it
  * (R6.4, R3.6, NFR-R1/R3).
  *
- * ⚠️ KNOWN NUANCE, DELIBERATELY NOT CHANGED HERE. `listUpcomingSessions` also
- * swallows an upstream Calendar *failure* into `[]` (it logs and returns empty
- * — `sessions.service.ts:172-179`). A live Calendar outage therefore surfaces
- * on the hub as `'empty'` rather than `'unavailable'`. Fixing that means
- * widening `SessionsService`'s return type, which would change the shape of
- * `GET /v1/members/sessions` — a member-facing contract this batch is not
- * scoped to touch. Recorded rather than silently absorbed.
+ * ── THE THIRD STATE: CONFIGURED, ASKED, AND GOOGLE DID NOT ANSWER ─────────
+ * Feature-off is not the only way to have no list. Google can be configured
+ * and enabled and still fail, and `listUpcomingSessions` used to flatten that
+ * failure into `[]` — which this section would then report as `'empty'`, i.e.
+ * "you have no upcoming sessions" during an outage. That is the same false
+ * claim NFR-R1 forbids for the feature-off case, arriving by a different door.
+ *
+ * So this reads `readUpcomingSessions`, which answers `{ ok: false, reason }`
+ * instead of an empty list, and BOTH non-answers map to `'unavailable'`. The
+ * distinction the member needs is "we could not look" vs "we looked and there
+ * is nothing" — not which of the two reasons we could not look. `'disabled'`
+ * and `'fetch_failed'` are separated in the LOG, where an operator can act on
+ * the difference.
+ *
+ * The failure stays a VALUE rather than a throw, so it never becomes a `500`:
+ * the hub answers `200` with this one card degraded (R6.4, R3.6, NFR-R3).
  */
 @Injectable()
 export class SessionsSection implements HubSectionResolver<HubSessionSummary | null> {
@@ -60,8 +69,19 @@ export class SessionsSection implements HubSectionResolver<HubSessionSummary | n
       return { status: 'unavailable', data: null };
     }
 
-    const upcoming = await this.sessions.listUpcomingSessions(ctx.userId);
-    const next = earliest(upcoming);
+    const result = await this.sessions.readUpcomingSessions(ctx.userId);
+    if (!result.ok) {
+      // Reached when Google IS configured but the Calendar read did not
+      // succeed. Reporting `'empty'` here would tell the member they have
+      // nothing scheduled on the strength of a request that failed.
+      this.logger.warn(
+        `Upcoming sessions unavailable for user ${ctx.userId} (${result.reason}) — ` +
+          'hub sessions section reports unavailable rather than empty',
+      );
+      return { status: 'unavailable', data: null };
+    }
+
+    const next = earliest(result.sessions);
     if (!next) {
       return { status: 'empty', data: null };
     }

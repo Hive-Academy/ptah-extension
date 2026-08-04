@@ -9,6 +9,7 @@ import type {
   BuildersSession,
   GoogleCalendarEvent,
   SessionAttendeeResult,
+  UpcomingSessionsResult,
 } from './google-sessions.types';
 
 /** Window of upcoming sessions surfaced to members. */
@@ -147,20 +148,30 @@ export class SessionsService {
   }
 
   /**
-   * List upcoming Builders sessions for `userId` over the next
-   * {@link LOOKAHEAD_DAYS} days. Feature-off (Google unconfigured) returns `[]`
-   * and logs once — the members endpoint stays responsive with a stable contract.
+   * Read upcoming Builders sessions for `userId` over the next
+   * {@link LOOKAHEAD_DAYS} days, REPORTING whether the read succeeded.
+   *
+   * This is the real implementation; {@link listUpcomingSessions} is the
+   * lossy view of it. Prefer this one anywhere the answer is RENDERED, because
+   * only this one can tell a caller the difference between "the calendar is
+   * empty" and "we never got an answer out of Google".
    *
    * The window, the returned shape and the cancelled-event filtering are
-   * unchanged; the only addition is COHORT SCOPING (see {@link scopeToCohort}),
-   * which is a no-op until some cohort configures its own event.
+   * unchanged from the original list path; COHORT SCOPING (see
+   * {@link scopeToCohort}) is applied here and is a no-op until some cohort
+   * configures its own event.
+   *
+   * Still NON-THROWING. A failed Calendar call is a value (`{ ok: false,
+   * reason: 'fetch_failed' }`), not an exception, so the Paddle fan-out and the
+   * hub composer keep the best-effort posture every other path here has. The
+   * upstream status and message are logged and dropped — NFR-S7.
    *
    * The admin surface owns its own read path in `AdminSessionsService` rather
    * than widening this one — admins see every cohort's sessions, deliberately.
    */
-  async listUpcomingSessions(userId: string): Promise<BuildersSession[]> {
+  async readUpcomingSessions(userId: string): Promise<UpcomingSessionsResult> {
     if (!this.isEnabledOrLogOnce()) {
-      return [];
+      return { ok: false, reason: 'disabled' };
     }
 
     const now = new Date();
@@ -175,16 +186,36 @@ export class SessionsService {
           result.status ?? 'n/a'
         }): ${result.error ?? 'unknown error'}`,
       );
-      return [];
+      return { ok: false, reason: 'fetch_failed' };
     }
 
     const items = extractEventItems(result.json).filter(
       (event) => event.status !== 'cancelled',
     );
     const visible = await this.scopeToCohort(items, userId);
-    return visible
-      .map((event) => toBuildersSession(event))
-      .filter((session): session is BuildersSession => session !== null);
+    return {
+      ok: true,
+      sessions: visible
+        .map((event) => toBuildersSession(event))
+        .filter((session): session is BuildersSession => session !== null),
+    };
+  }
+
+  /**
+   * {@link readUpcomingSessions} flattened to a bare list, where BOTH
+   * non-answers collapse to `[]`.
+   *
+   * ⚠️ THIS COLLAPSE IS LOSSY AND THAT IS WHY IT IS NOW A ONE-LINE VIEW RATHER
+   * THAN THE IMPLEMENTATION. It is kept because `GET /v1/members/sessions`
+   * documents `{ sessions: [] }` as its feature-off contract and the welcome
+   * email genuinely does not care WHY the list is short. Any caller that
+   * RENDERS a "you have no sessions" message must call
+   * {@link readUpcomingSessions} instead — through this method it would state,
+   * during a Google outage, something it has no evidence for.
+   */
+  async listUpcomingSessions(userId: string): Promise<BuildersSession[]> {
+    const result = await this.readUpcomingSessions(userId);
+    return result.ok ? result.sessions : [];
   }
 
   /**

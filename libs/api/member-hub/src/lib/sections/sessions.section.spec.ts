@@ -35,16 +35,26 @@ function session(overrides: Partial<BuildersSession> = {}): BuildersSession {
 function createSection(opts: {
   enabled?: boolean;
   sessions?: BuildersSession[];
+  /** Google is configured and enabled, but the Calendar call did not succeed. */
+  fetchFailed?: boolean;
   listThrows?: boolean;
   unbound?: boolean;
 }): { section: SessionsSection; list: jest.Mock } {
   const list = opts.listThrows
     ? jest.fn().mockRejectedValue(new Error('calendar quota exceeded'))
-    : jest.fn().mockResolvedValue(opts.sessions ?? []);
+    : jest
+        .fn()
+        .mockResolvedValue(
+          opts.fetchFailed
+            ? { ok: false, reason: 'fetch_failed' }
+            : { ok: true, sessions: opts.sessions ?? [] },
+        );
 
   const service = {
     isEnabled: jest.fn().mockReturnValue(opts.enabled ?? true),
-    listUpcomingSessions: list,
+    // The section reads the REPORTING variant, never the flattening one — that
+    // choice is the whole of the empty-vs-unavailable distinction below.
+    readUpcomingSessions: list,
   };
 
   const section = new SessionsSection(
@@ -69,9 +79,8 @@ describe('SessionsSection — the hub sessions card', () => {
         status: 'unavailable',
         data: null,
       });
-      // The switch is read BEFORE the list. `listUpcomingSessions` returns []
-      // when disabled, so reading it first would report "you have no upcoming
-      // sessions" — a claim we cannot make, having never looked.
+      // The switch is read BEFORE the list, so feature-off is answered without
+      // a Calendar round-trip at all.
       expect(list).not.toHaveBeenCalled();
     });
 
@@ -159,6 +168,30 @@ describe('SessionsSection — the hub sessions card', () => {
         status: 'empty',
         data: null,
       });
+    });
+  });
+
+  describe('a FAILED Calendar read is unavailable, not empty', () => {
+    // The third state, and the one a naive `[]` cannot express: Google is
+    // configured, we asked, and we did not get an answer. Reporting `'empty'`
+    // would tell a paying member "you have no upcoming sessions" during an
+    // outage — a false statement, not a degraded one.
+    it('enabled + fetch failure -> { status: unavailable, data: null }', async () => {
+      const { section } = createSection({ enabled: true, fetchFailed: true });
+
+      await expect(section.resolve(memberContext())).resolves.toEqual({
+        status: 'unavailable',
+        data: null,
+      });
+    });
+
+    it('does not become a 500 — the failure stays a value, so the hub stays 200', async () => {
+      // R6.4 / NFR-R3: an upstream outage degrades ONE card. If this rejected,
+      // `MemberHubService`'s allSettled would still contain it, but the section
+      // would lose the ability to distinguish its own reason.
+      const { section } = createSection({ enabled: true, fetchFailed: true });
+
+      await expect(section.resolve(memberContext())).resolves.toBeDefined();
     });
   });
 
