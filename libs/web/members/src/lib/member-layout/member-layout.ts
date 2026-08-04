@@ -5,13 +5,14 @@ import {
   signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { LucideAngularModule, Moon, ShieldCheck, Sun } from 'lucide-angular';
+import { LucideAngularModule, ShieldCheck } from 'lucide-angular';
 
 import { AuthService, MemberSessionStore } from '@ptah-web/core';
 import { PanelLayout } from '@ptah-web/panel-ui';
 
 import { MEMBER_NAV_GROUPS } from '../member-nav.config';
 import { MemberThemeService } from '../services/member-theme.service';
+import { MemberThemeToggle } from './member-theme-toggle';
 
 /**
  * MemberLayout — binds the member panel's nav data, theme and identity onto the
@@ -38,16 +39,20 @@ import { MemberThemeService } from '../services/member-theme.service';
   selector: 'ptah-member-layout',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PanelLayout, LucideAngularModule, RouterLink],
+  imports: [PanelLayout, LucideAngularModule, RouterLink, MemberThemeToggle],
   templateUrl: './member-layout.html',
 })
 export class MemberLayout {
   private readonly auth = inject(AuthService);
   private readonly session = inject(MemberSessionStore);
+
+  /**
+   * Read here only to bind `[theme]` onto the shell root. The control that
+   * CHANGES it is {@link MemberThemeToggle}, projected into the top bar — the
+   * layout does not also own a copy of the switching logic.
+   */
   protected readonly theme = inject(MemberThemeService);
 
-  protected readonly SunIcon = Sun;
-  protected readonly MoonIcon = Moon;
   protected readonly ShieldCheckIcon = ShieldCheck;
 
   /** Task-oriented nav groups — array order drives visual order. */

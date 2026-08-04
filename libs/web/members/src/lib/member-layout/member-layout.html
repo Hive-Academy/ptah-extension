@@ -24,19 +24,14 @@
       <span class="font-mono text-xs sm:text-sm">{{ email }}</span>
     }
 
-    <button
-      type="button"
-      class="btn btn-ghost btn-sm"
-      [attr.aria-label]="theme.toggleLabel()"
-      [title]="theme.toggleLabel()"
-      (click)="theme.toggle()"
-    >
-      <lucide-angular
-        [img]="theme.isDark() ? SunIcon : MoonIcon"
-        class="h-4 w-4"
-        aria-hidden="true"
-      />
-    </button>
+    <!--
+      The only theme switch in the panel chrome. It reads and writes
+      `MemberThemeService`, the same service `[theme]` above is bound to, so
+      clicking it swaps `data-theme` on the shell root and nothing else.
+      `AccountPage` offers the same choice as an explicit two-option control;
+      both drive that one service and one storage key.
+    -->
+    <ptah-member-theme-toggle />
   </ng-container>
 
   <!--

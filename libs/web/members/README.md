@@ -79,6 +79,14 @@ declaration would run the probe twice per navigation, and
 drives the real Router over the real route shape to prove a denied probe never
 constructs `MemberLayout`.
 
+## Theme
+
+Two themes, `operator-member` (default) and `operator-member-light`, owned by
+`MemberThemeService` and persisted to the single `ptah.members.theme` key.
+`MemberThemeToggle` in the top bar is the switch; `AccountPage` offers the same
+choice as an explicit two-option control. Both drive that one service — there is
+no second mechanism, no `class="dark"`, no document-level side effect.
+
 ## Tokens
 
 `docs/design-system/panel-theme-spec.md` is authoritative. Surfaces are

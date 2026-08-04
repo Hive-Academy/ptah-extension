@@ -48,6 +48,22 @@ export class MemberThemeService {
     this.isDark() ? 'Switch to light theme' : 'Switch to dark theme',
   );
 
+  /**
+   * The visible text on the toggle. Also the DESTINATION, so it agrees with
+   * {@link toggleLabel} rather than contradicting it — a control captioned
+   * "Dark" while announcing "Switch to light theme" is two different promises
+   * about the same click.
+   *
+   * ⚠️ IT IS A SUBSTRING OF {@link toggleLabel}, AND THAT IS THE POINT (WCAG
+   * 2.5.3, Label in Name). The `aria-label` REPLACES the visible text as the
+   * accessible name, so a speech-input user saying "click Light theme" only
+   * matches if the announced name still contains what they can read. Changing
+   * one of these two strings without the other silently breaks that.
+   */
+  public readonly destinationLabel = computed(() =>
+    this.isDark() ? 'Light theme' : 'Dark theme',
+  );
+
   public setTheme(theme: MemberTheme): void {
     this._theme.set(theme);
     this.persist(theme);
