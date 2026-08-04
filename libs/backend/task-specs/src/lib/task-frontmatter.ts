@@ -16,6 +16,7 @@ import {
   TASK_ESTIMATES,
   TASK_STATUSES,
   TASK_TYPES,
+  isSingleTaskPathSegment,
   type ExcludedTaskFolder,
   type TaskEstimate,
   type TaskSpecSummary,
@@ -118,42 +119,15 @@ const ESTIMATE_VALUES = new Set<string>(TASK_ESTIMATES);
 /**
  * A folder name is one path segment and nothing else.
  *
- * This matters beyond tidiness: a `parent` value is a folder name that gets
- * joined onto the spec root by later consumers. A traversal token or a
- * separator reaching a write path would steer that write outside the spec
- * tree, so the value is rejected at the first boundary that sees it rather
- * than sanitized further downstream.
- *
- * ## Why the comparison is made against the TRIMMED value
- *
- * `'..'` and `' .. '` name the same directory to every filesystem API, so a
- * guard that compares the raw string lets the padded form through. The check
- * therefore runs on `value.trim()`. The RAW value is still what gets stored —
- * trimming here would silently rewrite what the author typed, and `.ptah/**`
- * is gitignored, so there is no undo for a normalization nobody asked for. A
- * padded-but-otherwise-valid name simply matches no folder and is reported as
- * `dangling_parent`, which is the honest outcome.
- *
- * The rejected shapes, each for its own reason:
- *  - empty or whitespace-only — names nothing.
- *  - `.` / `..` after trimming — traversal tokens.
- *  - either separator — more than one segment by definition.
- *  - a drive-letter prefix (`C:`, `C:work`) — Windows drive-RELATIVE paths
- *    resolve against that drive's current directory and escape a join without
- *    ever containing a separator, which is exactly the case a separator-only
- *    check misses.
- *  - an embedded NUL — truncates the path at the OS boundary, so the string
- *    Node validates and the path the kernel opens are different strings.
+ * The implementation lives in `libs/shared` ({@link isSingleTaskPathSegment})
+ * because four boundaries need this exact decision — this parser's `parent`,
+ * the `tasks:` RPC schema, the MCP namespace, and `tasks:adopt` — and each one
+ * guards a value that is eventually joined onto the spec root. Four
+ * hand-written copies is how three of them came to accept `" .. "` while this
+ * one rejected it. The aliasing import keeps the local name and the call sites
+ * below unchanged.
  */
-function isSinglePathSegment(value: string): boolean {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return false;
-  if (trimmed.includes('/') || trimmed.includes('\\')) return false;
-  if (trimmed.includes('\0')) return false;
-  if (trimmed === '.' || trimmed === '..') return false;
-  if (/^[A-Za-z]:/.test(trimmed)) return false;
-  return true;
-}
+const isSinglePathSegment = isSingleTaskPathSegment;
 
 /**
  * Lift one relation array (`duplicates` / `relates_to`) into the summary.
@@ -511,6 +485,19 @@ export function parseTaskFile(
   return { kind: 'task', task, body };
 }
 
+/** Options for {@link updateFrontmatter}. */
+export interface UpdateFrontmatterOptions {
+  /**
+   * Keys DELETED from the merged frontmatter, applied after the patch merge.
+   *
+   * Removal cannot be expressed as `patch.labels = undefined`: the merged
+   * object is handed to js-yaml, which has no `undefined` to dump and throws.
+   * An explicit remove list is the only way to say "this key should stop
+   * existing" — which is what an emptied label set means (FR-B5.5).
+   */
+  readonly remove?: readonly string[];
+}
+
 /**
  * Byte-preserving frontmatter mutation (R1.5).
  *
@@ -524,6 +511,7 @@ export function parseTaskFile(
 export function updateFrontmatter(
   raw: string,
   patch: Partial<TaskFrontmatter>,
+  options?: UpdateFrontmatterOptions,
 ): string {
   // A leading BOM is stripped for parsing and re-applied on rewrite, so the
   // original file's encoding marker is preserved (safer than silently dropping
@@ -545,13 +533,26 @@ export function updateFrontmatter(
   }
 
   const merged: Record<string, unknown> = { ...existing, ...patch };
+  // Applied AFTER the merge so a caller that both patches and removes a key
+  // gets the removal — there is no shape in which "set it and also delete it"
+  // is a coherent request, and deleting last makes the outcome stated rather
+  // than dependent on object key order.
+  for (const key of options?.remove ?? []) delete merged[key];
   if (!('updated' in patch) || patch.updated === undefined) {
     merged['updated'] = new Date().toISOString();
   }
 
-  // gray-matter.stringify('', data) yields exactly "---\n<yaml>---\n" (empty
-  // content) — the frontmatter block only. Concatenate the untouched body.
-  const renderedBlock = matter.stringify('', merged);
+  // `matter.stringify('', data)` yields "---\n<yaml>---\n" PLUS one trailing
+  // newline — its own separator between the block and the content it was given.
+  // `FRONTMATTER_RE` consumed only up to and including the single newline that
+  // CLOSES the block, so the sliced body still carries its own leading newline.
+  // Concatenating both inserts a blank line at the boundary on every write, and
+  // because the next write slices the same way the blank lines ACCUMULATE —
+  // one per status change, forever, in a file that is gitignored and has no
+  // undo. Dropping the emitter's trailing padding makes the rebuild
+  // block-for-block, which is what "the body is copied through untouched"
+  // always claimed.
+  const renderedBlock = matter.stringify('', merged).replace(/\n$/, '');
   const rebuilt = renderedBlock + body;
   return hadBom ? '\uFEFF' + rebuilt : rebuilt;
 }

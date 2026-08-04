@@ -8,14 +8,17 @@ import {
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   CARRIER_FILE,
+  isSingleTaskPathSegment,
   renderTaskMd,
+  type TaskEstimate,
   type TaskSpecSummary,
+  type TaskStatus,
   type TaskType,
 } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { allocateTaskId } from './id-allocator';
 import { parseTaskFile } from './task-frontmatter';
-import { updateFrontmatter } from './task-frontmatter';
+import { updateFrontmatter, type TaskFrontmatter } from './task-frontmatter';
 import {
   TASK_INDEX_NOTIFIER_TOKEN,
   type ITaskIndexNotifier,
@@ -27,6 +30,18 @@ export interface CreateTaskInput {
   description?: string;
   dependsOn?: string[];
   executor?: string;
+  /**
+   * Optional metadata written at creation time (TASK_2026_181).
+   *
+   * Every one of these is OMITTED-WHEN-EMPTY by `renderTaskMd`, so a create
+   * that supplies none of them produces a carrier byte-identical to the one
+   * this writer produced before the fields existed.
+   */
+  labels?: readonly string[];
+  estimate?: TaskEstimate;
+  parent?: string;
+  duplicates?: readonly string[];
+  relatesTo?: readonly string[];
 }
 
 export type CreateTaskResult =
@@ -120,6 +135,51 @@ export type UpdateStatusResult =
           | 'TASK_EXCLUDED'
           | 'WRITE_FAILED'
           | 'TASK_CONFLICT';
+        message: string;
+      };
+    };
+
+/**
+ * Input for {@link TaskWriterService.updateMetadata}.
+ *
+ * EVERY field is a full replacement, never a merge — see the method doc for
+ * why the writer refuses to do read-modify-write on a caller's behalf.
+ */
+export interface UpdateMetadataInput {
+  status?: TaskStatus;
+  /** Full replacement. `[]` REMOVES the key. */
+  labels?: readonly string[];
+  /** `null` REMOVES the key. */
+  estimate?: TaskEstimate | null;
+  /** `null` REMOVES the key. */
+  parent?: string | null;
+  /** Full replacement. `[]` REMOVES the key. */
+  duplicates?: readonly string[];
+  /** Full replacement. `[]` REMOVES the key. */
+  relatesTo?: readonly string[];
+  /** Full replacement. `[]` is WRITTEN as `[]` — the documented exception. */
+  dependsOn?: readonly string[];
+}
+
+export type UpdateMetadataResult =
+  | { success: true; task: TaskSpecSummary }
+  | {
+      success: false;
+      error: {
+        /**
+         * `INVALID_PARAMS` is this union's only addition over
+         * {@link UpdateStatusResult}: a patch that asks for nothing, or a
+         * `taskId`/`parent` that is a path rather than a folder name. Callers
+         * Zod-validate upstream, so it is a backstop — `updateStatus` folds it
+         * onto `WRITE_FAILED` rather than widen its own wire union for a case
+         * that cannot reach it.
+         */
+        code:
+          | 'TASK_NOT_FOUND'
+          | 'TASK_EXCLUDED'
+          | 'WRITE_FAILED'
+          | 'TASK_CONFLICT'
+          | 'INVALID_PARAMS';
         message: string;
       };
     };
@@ -231,6 +291,16 @@ export class TaskWriterService {
           description: input.description,
           dependsOn: input.dependsOn,
           executor: input.executor,
+          // The five metadata fields ride through to the emitter. Mapping them
+          // explicitly (rather than spreading `input`) is what keeps this call
+          // honest: a field added to `CreateTaskInput` and forgotten here is
+          // silently dropped, which is exactly what happened between the schema
+          // landing and this line existing.
+          labels: input.labels,
+          estimate: input.estimate,
+          parent: input.parent,
+          duplicates: input.duplicates,
+          relatesTo: input.relatesTo,
         }),
       );
       return written;
@@ -365,12 +435,162 @@ export class TaskWriterService {
     return { success: true, task: parsed.task };
   }
 
+  /**
+   * Change a task's status.
+   *
+   * Now a thin delegate over {@link updateMetadata} — status is one metadata
+   * field among seven and there is no reason for it to have its own conflict
+   * domain. The exported signature and the `UpdateStatusResult` union are
+   * UNCHANGED, so the RPC handler, the MCP namespace and `apps/ptah-cli` need
+   * no edit on this path.
+   */
   async updateStatus(
     workspaceRoot: string,
     taskId: string,
     status: TaskSpecSummary['status'],
   ): Promise<UpdateStatusResult> {
-    const root = normalizeWorkspaceRoot(workspaceRoot);
+    const result = await this.updateMetadata(workspaceRoot, taskId, { status });
+    if (result.success) return result;
+
+    // Destructured so the narrowing below survives: TypeScript does not narrow
+    // a union through a property access on a property.
+    const { code, message } = result.error;
+    if (code === 'INVALID_PARAMS') {
+      // UNREACHABLE in practice: the only `INVALID_PARAMS` this path can
+      // produce is a non-segment `taskId`, and every caller Zod-validates that
+      // upstream. It is mapped rather than propagated because widening
+      // `UpdateStatusResult` — and with it the wire union in
+      // `rpc-tasks.types.ts` and every consumer's exhaustive switch — for a
+      // case that cannot occur costs more than it explains. The message is
+      // preserved verbatim, so a caller that somehow provokes it still learns
+      // exactly what was wrong.
+      return {
+        success: false,
+        error: { code: 'WRITE_FAILED', message },
+      };
+    }
+    return { success: false, error: { code, message } };
+  }
+
+  /**
+   * Change any subset of a task's metadata in ONE write, one conflict domain.
+   *
+   * **Every field is a FULL REPLACEMENT, never a merge.** Adding or removing a
+   * single label is arithmetic the caller does against the task it already
+   * holds; doing it here would make this a read-modify-write the writer has no
+   * way to make atomic, and the pre-write re-read would start conflicting with
+   * the caller's own stale snapshot rather than with a genuine third party.
+   *
+   * `null` (`estimate`, `parent`) and `[]` (`labels`, `duplicates`,
+   * `relatesTo`) both mean REMOVE THE KEY. `dependsOn: []` is the documented
+   * exception — it is still written as `[]`.
+   */
+  async updateMetadata(
+    workspaceRoot: string,
+    taskId: string,
+    input: UpdateMetadataInput,
+    opts?: { deferNotify?: boolean },
+  ): Promise<UpdateMetadataResult> {
+    // `taskId` is joined onto the spec root two lines into
+    // `applyFrontmatterPatch`. Every boundary above this one already rejects a
+    // non-segment id, so this is defence in depth rather than the primary
+    // guard — but this method is the funnel EVERY carrier write passes
+    // through, which makes it the one place worth being certain.
+    if (!isSingleTaskPathSegment(taskId)) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_PARAMS',
+          message: `Task id '${taskId}' must be a single task folder name, not a path.`,
+        },
+      };
+    }
+
+    const patch: Partial<TaskFrontmatter> = {};
+    const remove: string[] = [];
+
+    if (input.status !== undefined) patch.status = input.status;
+
+    if (input.estimate !== undefined) {
+      if (input.estimate === null) remove.push('estimate');
+      else patch.estimate = input.estimate;
+    }
+
+    if (input.parent !== undefined) {
+      if (input.parent === null) {
+        remove.push('parent');
+      } else if (!isSingleTaskPathSegment(input.parent)) {
+        return {
+          success: false,
+          error: {
+            code: 'INVALID_PARAMS',
+            message: `parent '${input.parent}' must be a single task folder name, not a path.`,
+          },
+        };
+      } else {
+        patch.parent = input.parent;
+      }
+    }
+
+    // The three array fields where EMPTY means "the key should stop existing".
+    // Expressed as a table rather than three near-identical blocks so the
+    // asymmetry with `depends_on` below is visible instead of buried.
+    const emptyRemovesKey = [
+      ['labels', input.labels],
+      ['duplicates', input.duplicates],
+      ['relates_to', input.relatesTo],
+    ] as const;
+    for (const [key, value] of emptyRemovesKey) {
+      if (value === undefined) continue;
+      if (value.length === 0) remove.push(key);
+      else patch[key] = [...value];
+    }
+
+    // `depends_on` is the deliberate exception: an empty array is WRITTEN as
+    // `[]`. Every carrier on disk already has that line and normalizing it away
+    // would rewrite the frontmatter of every task in every workspace to change
+    // nothing a reader can see.
+    if (input.dependsOn !== undefined) patch.depends_on = [...input.dependsOn];
+
+    if (Object.keys(patch).length === 0 && remove.length === 0) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_PARAMS',
+          message: 'The patch asks for no change; nothing was written.',
+        },
+      };
+    }
+
+    return this.applyFrontmatterPatch(
+      normalizeWorkspaceRoot(workspaceRoot),
+      taskId,
+      patch,
+      remove,
+      opts?.deferNotify === true,
+    );
+  }
+
+  /**
+   * read → parse → patch → PRE-WRITE RE-READ → byte-compare → write → notify.
+   *
+   * The single carrier-write funnel: `updateStatus` and `updateMetadata` are
+   * the only entry points into it, and nothing else in this service mutates an
+   * existing carrier. Keeping one implementation is the whole point — a second
+   * write path is a second conflict domain, and the two would drift.
+   *
+   * @param remove frontmatter keys deleted after the patch merge (FR-B5.5).
+   * @param deferNotify skip the per-write index notification. Bulk callers set
+   *   it so N writes cause ONE rescan and ONE `tasks:changed` broadcast instead
+   *   of N of each; they are then responsible for notifying once at the end.
+   */
+  private async applyFrontmatterPatch(
+    root: string,
+    taskId: string,
+    patch: Partial<TaskFrontmatter>,
+    remove: readonly string[],
+    deferNotify: boolean,
+  ): Promise<UpdateMetadataResult> {
     const carrier = path.join(root, '.ptah', 'specs', taskId, CARRIER_FILE);
 
     let raw: string;
@@ -387,7 +607,7 @@ export class TaskWriterService {
       raw = await this.fs.readFile(carrier);
     } catch (error: unknown) {
       this.logger.error(
-        '[task-specs] updateStatus read failed',
+        '[task-specs] carrier read failed',
         error instanceof Error ? error : new Error(String(error)),
       );
       return {
@@ -407,10 +627,11 @@ export class TaskWriterService {
       };
     }
 
-    const nextRaw = updateFrontmatter(raw, {
-      status,
-      updated: new Date().toISOString(),
-    });
+    const nextRaw = updateFrontmatter(
+      raw,
+      { ...patch, updated: new Date().toISOString() },
+      { remove },
+    );
 
     // Pre-write re-read (TASK_2026_179, step 4). `.ptah/**` is gitignored, so a
     // clobbered carrier has no undo — if anything changed the file since our
@@ -418,6 +639,11 @@ export class TaskWriterService {
     // write and report the conflict instead of silently discarding their
     // change. This is a plain content comparison rather than a hash: it is the
     // collision-free form of the same check, and the file is small.
+    //
+    // It compares the WHOLE file, deliberately. Narrowing it to the keys this
+    // patch touches would let a metadata write silently discard somebody else's
+    // body edit, and the conflict-fatigue that costs is accepted, not a defect
+    // to tune away.
     //
     // This narrows the loss window; it does not close it. There is still a gap
     // between this read and the write below, and no cross-process lock can shut
@@ -428,7 +654,7 @@ export class TaskWriterService {
       current = await this.fs.readFile(carrier);
     } catch (error: unknown) {
       this.logger.error(
-        '[task-specs] updateStatus re-read failed',
+        '[task-specs] carrier re-read failed',
         error instanceof Error ? error : new Error(String(error)),
       );
       return {
@@ -438,7 +664,7 @@ export class TaskWriterService {
     }
 
     if (current !== raw) {
-      this.logger.warn('[task-specs] updateStatus conflict — write refused', {
+      this.logger.warn('[task-specs] carrier conflict — write refused', {
         taskId,
       });
       return {
@@ -454,7 +680,7 @@ export class TaskWriterService {
       await this.fs.writeFile(carrier, nextRaw);
     } catch (error: unknown) {
       this.logger.error(
-        '[task-specs] updateStatus write failed',
+        '[task-specs] carrier write failed',
         error instanceof Error ? error : new Error(String(error)),
       );
       return {
@@ -464,7 +690,7 @@ export class TaskWriterService {
     }
 
     // File mutated first (R3.5) — now let the index reparse this folder.
-    await this.notify(root, taskId);
+    if (!deferNotify) await this.notify(root, taskId);
 
     const reparsed = parseTaskFile(taskId, nextRaw);
     const task = reparsed.kind === 'task' ? reparsed.task : parsed.task;

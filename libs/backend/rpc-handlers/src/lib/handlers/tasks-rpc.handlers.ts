@@ -54,6 +54,8 @@ import {
   type TasksCreateResult,
   type TasksUpdateStatusParams,
   type TasksUpdateStatusResult,
+  type TasksUpdateMetadataParams,
+  type TasksUpdateMetadataResult,
   type TasksGenerateRegistryParams,
   type TasksGenerateRegistryResult,
   type TasksBoardParams,
@@ -71,6 +73,7 @@ import {
   TasksGetParamsSchema,
   TasksCreateParamsSchema,
   TasksUpdateStatusParamsSchema,
+  TasksUpdateMetadataParamsSchema,
   TasksGenerateRegistryParamsSchema,
   TasksBoardParamsSchema,
   TasksReindexParamsSchema,
@@ -134,6 +137,7 @@ export class TasksRpcHandlers {
     'tasks:get',
     'tasks:create',
     'tasks:updateStatus',
+    'tasks:updateMetadata',
     'tasks:generateRegistry',
     'tasks:board',
     'tasks:reindex',
@@ -168,6 +172,7 @@ export class TasksRpcHandlers {
     this.registerGet();
     this.registerCreate();
     this.registerUpdateStatus();
+    this.registerUpdateMetadata();
     this.registerGenerateRegistry();
     this.registerBoard();
     this.registerReindex();
@@ -306,6 +311,16 @@ export class TasksRpcHandlers {
             description: parsed.description,
             dependsOn: parsed.dependsOn,
             executor: parsed.executor,
+            // The five metadata fields. Their absence here — while the schema
+            // above validated them — is what made a `tasks:create` carrying
+            // labels succeed and silently discard them. Mapped explicitly on
+            // purpose: an omission is then visible at this call site rather
+            // than hidden inside a spread.
+            labels: parsed.labels,
+            estimate: parsed.estimate,
+            parent: parsed.parent,
+            duplicates: parsed.duplicates,
+            relatesTo: parsed.relatesTo,
           });
           return result.success
             ? { success: true, task: result.task }
@@ -339,6 +354,41 @@ export class TasksRpcHandlers {
           error,
           'tasks:updateStatus',
           'Failed to update task status.',
+        );
+      }
+    });
+  }
+
+  /**
+   * `tasks:updateMetadata` — the one metadata write.
+   *
+   * Every field in `patch` is a FULL REPLACEMENT. Add/remove of a single label
+   * is arithmetic the client does against the task it already holds, then
+   * sends as a whole array; the writer deliberately does no read-modify-write,
+   * because it cannot make one atomic.
+   */
+  private registerUpdateMetadata(): void {
+    this.rpcHandler.registerMethod<
+      TasksUpdateMetadataParams,
+      TasksUpdateMetadataResult
+    >('tasks:updateMetadata', async (params) => {
+      const parsed = this.parse(TasksUpdateMetadataParamsSchema, params);
+      const root = this.resolveRoot(parsed.workspaceRoot);
+      try {
+        await this.index.ensureStarted(root);
+        const result = await this.writer.updateMetadata(
+          root,
+          parsed.taskId,
+          parsed.patch,
+        );
+        return result.success
+          ? { success: true, task: result.task }
+          : { success: false, error: result.error };
+      } catch (error: unknown) {
+        throw this.sanitize(
+          error,
+          'tasks:updateMetadata',
+          'Failed to update task metadata.',
         );
       }
     });

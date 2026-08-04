@@ -18,6 +18,7 @@ import type {
   TaskStatus,
   TaskType,
 } from '../task-spec.types';
+import type { TaskMetadataPatch } from '../task-view.types';
 
 /** Workspace scoping — same convention as GitWorkspaceScopedParams. */
 export interface TasksWorkspaceScopedParams {
@@ -96,6 +97,43 @@ export interface TasksUpdateStatusResult {
      * retry; the on-disk file is whatever the other writer left.
      */
     code: 'TASK_NOT_FOUND' | 'TASK_EXCLUDED' | 'WRITE_FAILED' | 'TASK_CONFLICT';
+    message: string;
+  };
+}
+
+/**
+ * `tasks:updateMetadata` — change any subset of a task's metadata in ONE write.
+ *
+ * Deliberately one method rather than one per field. Each carrier write is its
+ * own conflict domain, so five methods would mean five chances for a concurrent
+ * edit to be refused, and a UI editing two fields at once would conflict with
+ * itself. `patch` is the SHARED {@link TaskMetadataPatch} — the same type the
+ * MCP tool and the CLI compose from, so the three paths cannot enforce
+ * different limits.
+ */
+export interface TasksUpdateMetadataParams extends TasksWorkspaceScopedParams {
+  taskId: string;
+  patch: TaskMetadataPatch;
+}
+
+export interface TasksUpdateMetadataResult {
+  success: boolean;
+  task?: TaskSpecSummary;
+  error?: {
+    /**
+     * `TASK_CONFLICT` means the carrier changed on disk between the writer's
+     * read and its write, so NOTHING was written — re-read and retry.
+     * `INVALID_PARAMS` reaches the wire here (unlike on `tasks:updateStatus`)
+     * because a patch can legitimately be well-typed and still ask for no
+     * change at all, and a caller deserves to be told that rather than shown a
+     * generic write failure.
+     */
+    code:
+      | 'TASK_NOT_FOUND'
+      | 'TASK_EXCLUDED'
+      | 'WRITE_FAILED'
+      | 'TASK_CONFLICT'
+      | 'INVALID_PARAMS';
     message: string;
   };
 }

@@ -56,6 +56,7 @@ import {
   type RegistryGeneratorService,
   type TaskIndexChangeEvent,
 } from '@ptah-extension/task-specs';
+import { CARRIER_FILE } from '@ptah-extension/shared';
 import type {
   ExcludedTaskFolder,
   TaskSpecSummary,
@@ -130,6 +131,7 @@ interface Suite {
   writer: {
     create: jest.Mock;
     updateStatus: jest.Mock;
+    updateMetadata: jest.Mock;
     adoptFolder: jest.Mock;
   };
   registry: { generate: jest.Mock };
@@ -154,6 +156,10 @@ function buildSuite(wsRoot: string | null = 'D:\\workspace'): Suite {
       task: { id: 'TASK_2026_200' } as TaskSpecSummary,
     }),
     updateStatus: jest.fn().mockResolvedValue({
+      success: true,
+      task: { id: 'TASK_2026_200' } as TaskSpecSummary,
+    }),
+    updateMetadata: jest.fn().mockResolvedValue({
       success: true,
       task: { id: 'TASK_2026_200' } as TaskSpecSummary,
     }),
@@ -226,12 +232,13 @@ function getHandler(
 }
 
 describe('TasksRpcHandlers.METHODS', () => {
-  it('owns exactly the 9 tasks:* methods', () => {
+  it('owns exactly the 10 tasks:* methods', () => {
     expect([...TasksRpcHandlers.METHODS]).toEqual([
       'tasks:list',
       'tasks:get',
       'tasks:create',
       'tasks:updateStatus',
+      'tasks:updateMetadata',
       'tasks:generateRegistry',
       'tasks:board',
       'tasks:reindex',
@@ -242,7 +249,7 @@ describe('TasksRpcHandlers.METHODS', () => {
 });
 
 describe('TasksRpcHandlers.register', () => {
-  it('wires all 9 methods into the RpcHandler', () => {
+  it('wires every method into the RpcHandler', () => {
     const { rpc } = buildSuite();
     for (const method of TasksRpcHandlers.METHODS) {
       expect(() => getHandler(rpc, method)).not.toThrow();
@@ -517,6 +524,351 @@ describe('tasks:create', () => {
     await expect(handler({ type: 'FEATURE' })).rejects.toMatchObject({
       errorCode: 'INVALID_PARAMS',
     });
+  });
+
+  /**
+   * The five metadata fields reach the writer.
+   *
+   * `TasksCreateParamsSchema` validated them for a whole batch while this
+   * handler mapped its fields explicitly and never listed them — so a
+   * `tasks:create` carrying `labels` succeeded and silently discarded them.
+   * That is a SILENT failure on a tree with no undo, which is why it is
+   * asserted at the call boundary and again, below, against a real carrier.
+   */
+  it('passes the five metadata fields to the writer', async () => {
+    const { rpc, writer } = buildSuite();
+    const handler = getHandler(rpc, 'tasks:create');
+
+    await handler({
+      title: 'Created with metadata',
+      type: 'FEATURE',
+      labels: ['licensing', 'needs:design'],
+      estimate: 'L',
+      parent: 'TASK_2026_300',
+      duplicates: ['TASK_2026_310'],
+      relatesTo: ['TASK_2026_311'],
+    });
+
+    expect(writer.create).toHaveBeenCalledWith(
+      normalizeWorkspaceRoot('D:\\workspace'),
+      expect.objectContaining({
+        labels: ['licensing', 'needs:design'],
+        estimate: 'L',
+        parent: 'TASK_2026_300',
+        duplicates: ['TASK_2026_310'],
+        relatesTo: ['TASK_2026_311'],
+      }),
+    );
+  });
+
+  /**
+   * The same claim proven end to end against a REAL writer and a real carrier:
+   * a mock `create` that merely receives the fields would still be green if the
+   * writer dropped them one layer down.
+   */
+  it('round-trips labels onto the carrier on disk', async () => {
+    const wsRoot = normalizeWorkspaceRoot('D:\\workspace');
+    const fsMock = createMockFileSystemProvider();
+    const logger = createMockLogger();
+    const realWriter = new TaskWriterServiceClass(
+      fsMock,
+      logger as unknown as Logger,
+      new NoOpTaskIndexNotifier(),
+    );
+
+    const rpc = createMockRpcHandler();
+    const workspace = createMockWorkspaceProvider({ folders: [wsRoot] });
+    workspace.getWorkspaceRoot.mockReturnValue(wsRoot);
+    const handlers = new TasksRpcHandlers(
+      logger as unknown as Logger,
+      rpc as unknown as RpcHandler,
+      { broadcastMessage: jest.fn() } as unknown as WebviewManager,
+      workspace as unknown as IWorkspaceProvider,
+      createFakeIndex() as unknown as TaskIndexService,
+      realWriter,
+      { generate: jest.fn() } as unknown as RegistryGeneratorService,
+      { plan: jest.fn() } as unknown as TaskDoctorService,
+    );
+    handlers.register();
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:create',
+    )({
+      title: 'Created with metadata',
+      type: 'FEATURE',
+      labels: ['licensing', 'needs:design'],
+      estimate: 'L',
+    })) as { success: boolean; task?: TaskSpecSummary };
+
+    expect(result.success).toBe(true);
+    expect(result.task?.labels).toEqual(['licensing', 'needs:design']);
+    expect(result.task?.estimate).toBe('L');
+
+    const carrier = path.join(
+      wsRoot,
+      '.ptah',
+      'specs',
+      result.task?.id ?? '',
+      // Never a filename literal — every per-task name flows from the contract
+      // module, which is what the `.ptah/specs` ratchet enforces (BR-7).
+      CARRIER_FILE,
+    );
+    const raw = new TextDecoder().decode(
+      fsMock.__state.files.get(carrier) as Uint8Array,
+    );
+    expect(raw).toContain('labels:');
+    expect(raw).toContain('needs:design');
+    expect(raw).toContain('estimate: L');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tasks:updateMetadata (TASK_2026_181)
+// ---------------------------------------------------------------------------
+
+describe('tasks:updateMetadata', () => {
+  it('delegates the whole patch to the writer', async () => {
+    const { rpc, writer } = buildSuite();
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:updateMetadata',
+    )({
+      taskId: 'TASK_2026_181',
+      patch: { labels: ['licensing'], estimate: 'M' },
+    })) as { success: boolean };
+
+    expect(result.success).toBe(true);
+    expect(writer.updateMetadata).toHaveBeenCalledWith(
+      normalizeWorkspaceRoot('D:\\workspace'),
+      'TASK_2026_181',
+      { labels: ['licensing'], estimate: 'M' },
+    );
+  });
+
+  it('forwards a removal (null / []) rather than dropping it', async () => {
+    const { rpc, writer } = buildSuite();
+
+    await getHandler(
+      rpc,
+      'tasks:updateMetadata',
+    )({
+      taskId: 'TASK_2026_181',
+      patch: { estimate: null, labels: [] },
+    });
+
+    // `[]` and `null` are the REMOVE signals. A handler that stripped falsy
+    // values would turn "clear my labels" into a no-op.
+    expect(writer.updateMetadata).toHaveBeenCalledWith(
+      normalizeWorkspaceRoot('D:\\workspace'),
+      'TASK_2026_181',
+      { estimate: null, labels: [] },
+    );
+  });
+
+  it('surfaces TASK_CONFLICT as a structured error', async () => {
+    const { rpc, writer } = buildSuite();
+    writer.updateMetadata.mockResolvedValueOnce({
+      success: false,
+      error: { code: 'TASK_CONFLICT', message: 'changed on disk' },
+    });
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:updateMetadata',
+    )({ taskId: 'TASK_2026_181', patch: { status: 'done' } })) as {
+      success: boolean;
+      error?: { code: string };
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('TASK_CONFLICT');
+  });
+
+  it('rejects a patch that changes nothing, before reaching the writer', async () => {
+    const { rpc, writer } = buildSuite();
+
+    await expect(
+      getHandler(
+        rpc,
+        'tasks:updateMetadata',
+      )({
+        taskId: 'TASK_2026_181',
+        patch: {},
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(writer.updateMetadata).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a newline inside a label', { labels: ['multi\nline'] }],
+    ['a label over 32 characters', { labels: ['x'.repeat(33)] }],
+    [
+      'more than 12 labels',
+      { labels: Array.from({ length: 13 }, (_v, i) => `label-${i}`) },
+    ],
+    ['an unrecognised estimate', { estimate: 'Medium' }],
+  ] as const)('rejects %s with INVALID_PARAMS', async (_label, patch) => {
+    const { rpc, writer } = buildSuite();
+
+    await expect(
+      getHandler(
+        rpc,
+        'tasks:updateMetadata',
+      )({
+        taskId: 'TASK_2026_181',
+        patch,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(writer.updateMetadata).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The shared single-path-segment guard, on every tasks: write boundary
+// ---------------------------------------------------------------------------
+
+/**
+ * Every shape that must NOT survive as a task id or folder name. Mirrors the
+ * `REJECTED_PARENTS` table in `task-specs`' `contract.guard.spec.ts` — these
+ * guards decide the same question about the same class of value, and the whole
+ * reason they were unified onto one implementation is that they used to
+ * disagree. Everything below except the four leading-separator/traversal-path
+ * shapes was accepted by the previous local checks.
+ */
+const REJECTED_IDS: ReadonlyArray<[label: string, value: string]> = [
+  ['a traversal token', '..'],
+  ['a PADDED traversal token', ' .. '],
+  ['a current-directory token', '.'],
+  ['a relative path', '../TASK_2026_100'],
+  ['a backslash-separated path', '..\\TASK_2026_100'],
+  ['an absolute POSIX path', '/etc/passwd'],
+  ['an absolute Windows path', 'C:\\Windows\\System32'],
+  ['a bare Windows drive letter', 'C:'],
+  ['a drive-RELATIVE Windows path', 'C:TASK_2026_100'],
+  ['an NTFS alternate-data-stream name', 'TASK_2026_100:stream'],
+  ['an embedded NUL', 'TASK_2026_100\u0000'],
+  ['whitespace only', '   '],
+];
+
+describe('tasks: path-segment guard', () => {
+  it.each(REJECTED_IDS)(
+    'tasks:updateMetadata rejects %s as a taskId, writing nothing',
+    async (_label, value) => {
+      const { rpc, writer } = buildSuite();
+      await expect(
+        getHandler(
+          rpc,
+          'tasks:updateMetadata',
+        )({
+          taskId: value,
+          patch: { status: 'done' },
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(writer.updateMetadata).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(REJECTED_IDS)(
+    'tasks:updateStatus rejects %s as a taskId, writing nothing',
+    async (_label, value) => {
+      const { rpc, writer } = buildSuite();
+      await expect(
+        getHandler(
+          rpc,
+          'tasks:updateStatus',
+        )({
+          taskId: value,
+          status: 'done',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(writer.updateStatus).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(REJECTED_IDS)(
+    'tasks:adopt rejects %s as a folderName, writing nothing',
+    async (_label, value) => {
+      const { rpc, writer } = buildSuite();
+      await expect(
+        getHandler(
+          rpc,
+          'tasks:adopt',
+        )({
+          folderName: value,
+          title: 'T',
+          type: 'FEATURE',
+          status: 'done',
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(writer.adoptFolder).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(REJECTED_IDS)(
+    'tasks:create rejects %s as a parent, writing nothing',
+    async (_label, value) => {
+      const { rpc, writer } = buildSuite();
+      await expect(
+        getHandler(
+          rpc,
+          'tasks:create',
+        )({
+          title: 'T',
+          type: 'FEATURE',
+          parent: value,
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(writer.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(REJECTED_IDS)(
+    'tasks:updateMetadata rejects %s inside a relation array',
+    async (_label, value) => {
+      const { rpc, writer } = buildSuite();
+      await expect(
+        getHandler(
+          rpc,
+          'tasks:updateMetadata',
+        )({
+          taskId: 'TASK_2026_181',
+          patch: { relatesTo: [value] },
+        }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(writer.updateMetadata).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still accepts an ordinary folder name on every boundary', async () => {
+    const { rpc, writer } = buildSuite();
+    await getHandler(
+      rpc,
+      'tasks:updateMetadata',
+    )({
+      taskId: 'TASK_2026_181',
+      patch: { status: 'done' },
+    });
+    await getHandler(
+      rpc,
+      'tasks:updateStatus',
+    )({
+      taskId: 'TASK_2026_181',
+      status: 'done',
+    });
+    await getHandler(
+      rpc,
+      'tasks:adopt',
+    )({
+      folderName: 'TASK_2026_181',
+      title: 'T',
+      type: 'FEATURE',
+      status: 'done',
+    });
+    expect(writer.updateMetadata).toHaveBeenCalled();
+    expect(writer.updateStatus).toHaveBeenCalled();
+    expect(writer.adoptFolder).toHaveBeenCalled();
   });
 });
 

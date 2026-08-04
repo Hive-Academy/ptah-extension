@@ -16,6 +16,7 @@ export {
   TaskFrontmatterSchema,
   type TaskFrontmatter,
   type ParseTaskFileResult,
+  type UpdateFrontmatterOptions,
 } from './lib/task-frontmatter';
 
 // Pure helpers.
@@ -33,6 +34,8 @@ export {
   type CreateTaskInput,
   type CreateTaskResult,
   type UpdateStatusResult,
+  type UpdateMetadataInput,
+  type UpdateMetadataResult,
   type AdoptFolderInput,
   type AdoptFolderResult,
 } from './lib/task-writer.service';

@@ -9,6 +9,8 @@ import { MCPToolDefinition } from '../types';
 import { PTAH_SYSTEM_PROMPT } from '../ptah-system-prompt.constant';
 import {
   CONTEXT_FILE,
+  MAX_LABEL_LENGTH,
+  MAX_LABELS_PER_TASK,
   TASK_ESTIMATES,
   TASK_STATUSES,
   TASK_TYPES,
@@ -112,10 +114,14 @@ export function buildTaskUpdateTool(): MCPToolDefinition {
   return {
     name: 'ptah_task_update',
     description:
-      `Move a task to a new status. Rewrites only the status line, and refuses ` +
+      `Change a task's status and/or its metadata in one write. Give at least ` +
+      `one field besides taskId. Rewrites only the frontmatter, and refuses ` +
       `the write with a retryable TASK_CONFLICT if the carrier changed on disk ` +
       `since it was read — so a concurrent edit is reported rather than ` +
-      `silently discarded. On TASK_CONFLICT, re-read with ptah_task_get and retry.`,
+      `silently discarded. On TASK_CONFLICT, re-read with ptah_task_get and retry. ` +
+      `EVERY field is a FULL REPLACEMENT, never a merge: to add one label, read ` +
+      `the task first and send the complete new array. An empty array or null ` +
+      `REMOVES the field (dependsOn is the exception — [] clears it in place).`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -128,8 +134,49 @@ export function buildTaskUpdateTool(): MCPToolDefinition {
           enum: [...TASK_STATUSES],
           description: 'New status',
         },
+        labels: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            `Complete replacement label set (max ${MAX_LABELS_PER_TASK}, each ` +
+            `at most ${MAX_LABEL_LENGTH} characters, no newlines). [] removes ` +
+            `all labels. Call ptah_task_list first and reuse an existing label ` +
+            `rather than inventing a near-duplicate.`,
+        },
+        estimate: {
+          type: ['string', 'null'],
+          enum: [...TASK_ESTIMATES, null],
+          description: 'T-shirt size. null removes the field.',
+        },
+        parent: {
+          type: ['string', 'null'],
+          description:
+            'Folder name of the parent task. Parentage is ONE level deep — a ' +
+            'parent that itself has a parent is rejected. null removes it.',
+        },
+        duplicates: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Complete replacement list of task folders this one duplicates. ' +
+            '[] removes the field.',
+        },
+        relatesTo: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Complete replacement list of loosely-related task folders. [] ' +
+            'removes the field.',
+        },
+        dependsOn: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Complete replacement dependency list. There is no "blocks" ' +
+            "field: to record that A blocks B, add A to B's dependsOn.",
+        },
       },
-      required: ['taskId', 'status'],
+      required: ['taskId'],
     },
   };
 }

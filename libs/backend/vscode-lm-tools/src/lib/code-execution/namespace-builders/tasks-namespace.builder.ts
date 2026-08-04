@@ -33,10 +33,18 @@
 import { z } from 'zod';
 import {
   CONTEXT_FILE,
+  LabelSchema,
+  MAX_LABELS_PER_TASK,
   TASK_ESTIMATES,
+  TASK_METADATA_PATCH_SHAPE,
   TASK_STATUSES,
   TASK_TYPES,
+  TaskIdRefSchema,
+  buildTaskGraph,
   type ExcludedTaskFolder,
+  type TaskChildRollup,
+  type TaskEstimate,
+  type TaskMetadataPatch,
   type TaskSpecDetail,
   type TaskSpecSummary,
   type TaskStatus,
@@ -63,15 +71,35 @@ export interface TaskSpecWriterLike {
       description?: string;
       dependsOn?: string[];
       executor?: string;
+      /**
+       * Optional metadata written at creation time.
+       *
+       * This path never dropped them at the CALL: `create` forwards the whole
+       * parsed args object, so the five fields were already arriving. They
+       * were discarded one layer down, by `TaskWriterService.create`, which
+       * did not map them into `renderTaskMd`. Declaring them here makes the
+       * collaborator type say what the schema and the writer now both agree
+       * on, rather than staying silent about fields it forwards.
+       */
+      labels?: readonly string[];
+      estimate?: TaskEstimate;
+      parent?: string;
+      duplicates?: readonly string[];
+      relatesTo?: readonly string[];
     },
   ): Promise<
     | { success: true; task: TaskSpecSummary }
     | { success: false; error: { code: string; message: string } }
   >;
-  updateStatus(
+  /**
+   * The single metadata write. `update` routes through this for STATUS too, so
+   * an agent moving a status and an agent adding a label share one conflict
+   * domain rather than two divergent write paths.
+   */
+  updateMetadata(
     workspaceRoot: string,
     taskId: string,
-    status: TaskStatus,
+    patch: TaskMetadataPatch,
   ): Promise<
     | { success: true; task: TaskSpecSummary }
     | { success: false; error: { code: string; message: string } }
@@ -115,13 +143,14 @@ const estimateEnum = z.enum(TASK_ESTIMATES);
  * Constraining it to a single path segment is a containment guarantee, not
  * cosmetics: a `..` or a separator would let a tool call steer that write
  * anywhere on disk.
+ *
+ * This is the SHARED guard, not a local restatement. The previous local check
+ * tested only `'/'`, `'\\'` and an exact `'..'`, so `" .. "`, `"   "`, `"C:"`,
+ * the drive-relative `"C:NAME"` and an embedded NUL all passed it — while the
+ * frontmatter parser's guard over the same class of value rejected every one.
+ * An agent is exactly the caller that produces those shapes.
  */
-const taskIdSchema = z
-  .string()
-  .min(1)
-  .refine((id) => !id.includes('/') && !id.includes('\\') && id !== '..', {
-    message: 'taskId must be a single folder name, not a path',
-  });
+const taskIdSchema = TaskIdRefSchema;
 
 export const TaskCreateArgsSchema = z.object({
   title: z.string().min(1),
@@ -130,21 +159,43 @@ export const TaskCreateArgsSchema = z.object({
   dependsOn: z.array(z.string().min(1)).optional(),
   executor: z.string().optional(),
   /**
-   * Optional metadata. Every relation value reuses `taskIdSchema` for the same
-   * containment reason it exists for `taskId` — these are folder names, and an
-   * agent is exactly the kind of caller that will hand back a path.
+   * Optional metadata. `labels` uses the SHARED `LabelSchema` and its
+   * per-task cap so an agent creating a task cannot bypass limits that
+   * `ptah_task_update` would enforce a second later; every relation value
+   * reuses `taskIdSchema` for the same containment reason it exists for
+   * `taskId` — these are folder names, and an agent is exactly the kind of
+   * caller that will hand back a path.
    */
-  labels: z.array(z.string().min(1)).optional(),
+  labels: z.array(LabelSchema).max(MAX_LABELS_PER_TASK).optional(),
   estimate: estimateEnum.optional(),
   parent: taskIdSchema.optional(),
   duplicates: z.array(taskIdSchema).optional(),
   relatesTo: z.array(taskIdSchema).optional(),
 });
 
-export const TaskUpdateArgsSchema = z.object({
-  taskId: taskIdSchema,
-  status: statusEnum,
-});
+/**
+ * `ptah_task_update` — status OR metadata, in one call, one conflict domain.
+ *
+ * The patch half is `.extend`ed from the shared shape rather than restated, so
+ * this tool and `tasks:updateMetadata` cannot enforce different limits. The
+ * argument object stays FLAT (`{ taskId, status, labels, … }`) because that is
+ * the shape agents already call it with; nesting the patch would break every
+ * existing call for no gain.
+ *
+ * The refinement is what keeps `status` from silently becoming optional: an
+ * update naming only a `taskId` used to be a type error and must stay a
+ * rejection, not a write that refreshes `updated` and changes nothing.
+ */
+export const TaskUpdateArgsSchema = z
+  .object({ taskId: taskIdSchema })
+  .extend(TASK_METADATA_PATCH_SHAPE)
+  .refine(
+    (args) =>
+      Object.entries(args).some(
+        ([key, value]) => key !== 'taskId' && value !== undefined,
+      ),
+    { message: 'give at least one field to change (status, labels, …)' },
+  );
 
 export const TaskGetArgsSchema = z.object({ taskId: taskIdSchema });
 
@@ -161,8 +212,34 @@ export type TaskMutationResult =
   | { ok: true; task: TaskSpecSummary; note?: string }
   | { ok: false; error: string; code?: string };
 
+/**
+ * The relations a task did not author, plus its child rollup.
+ *
+ * Handed to the agent alongside the task so it never has to do graph maths
+ * over `ptah_task_list` output to answer "what blocks this?" or "how many of
+ * its children are done?". Everything here is DERIVED and recomputed on every
+ * read — none of it is a frontmatter key, and writing one back would create a
+ * second authored side that can disagree with the first.
+ */
+export interface TaskDerivedRelations {
+  /** Tasks whose honoured `parent` is this task, id-sorted. */
+  children: string[];
+  /** Counts over {@link children}. Absent when the task has none. */
+  childRollup?: TaskChildRollup;
+  /** The parent claim that was actually honoured, if any. */
+  effectiveParent?: string;
+  /** Tasks that declare a `depends_on` on this one. */
+  blocks: string[];
+  /** Tasks that declare this one a duplicate. */
+  duplicatedBy: string[];
+  /** Symmetric closure of `relates_to`: authored first, then derived. */
+  related: string[];
+  /** This task's `depends_on` entries that are neither done nor cancelled. */
+  unmetDependencies: string[];
+}
+
 export type TaskGetResult =
-  | { ok: true; task: TaskSpecDetail }
+  | { ok: true; task: TaskSpecDetail; derived: TaskDerivedRelations }
   | { ok: false; error: string; code?: string };
 
 export type TaskListResult =
@@ -202,6 +279,33 @@ export interface TasksNamespace {
   get(args: unknown): Promise<TaskGetResult>;
   list(args?: unknown): Promise<TaskListResult>;
   check(): Promise<TaskCheckResult>;
+}
+
+/**
+ * Project one task's derived relations out of the shared graph.
+ *
+ * Arrays are copied out of the graph's readonly maps because the result
+ * crosses a tool boundary and is JSON-serialized by the caller; handing out
+ * the graph's own arrays would let a consumer mutate a structure the next read
+ * rebuilds from scratch anyway.
+ */
+function deriveFor(
+  tasks: readonly TaskSpecSummary[],
+  taskId: string,
+): TaskDerivedRelations {
+  const graph = buildTaskGraph(tasks);
+  const rollup = graph.rollup.get(taskId);
+  return {
+    children: [...(graph.children.get(taskId) ?? [])],
+    ...(rollup === undefined ? {} : { childRollup: rollup }),
+    ...(graph.effectiveParent.has(taskId)
+      ? { effectiveParent: graph.effectiveParent.get(taskId) }
+      : {}),
+    blocks: [...(graph.blocks.get(taskId) ?? [])],
+    duplicatedBy: [...(graph.duplicatedBy.get(taskId) ?? [])],
+    related: [...(graph.related.get(taskId) ?? [])],
+    unmetDependencies: [...(graph.unmetDependencies.get(taskId) ?? [])],
+  };
 }
 
 /** Render a Zod failure as one readable line for the agent. */
@@ -304,11 +408,12 @@ export function buildTasksNamespace(
           error: 'Task specs are not available on this runtime.',
         };
       }
+      const { taskId, ...patch } = parsed.data;
       try {
-        const result = await context.writer.updateStatus(
+        const result = await context.writer.updateMetadata(
           context.root,
-          parsed.data.taskId,
-          parsed.data.status,
+          taskId,
+          patch,
         );
         if (!result.success) {
           // TASK_CONFLICT arrives here when somebody else changed the carrier
@@ -355,7 +460,15 @@ export function buildTasksNamespace(
             error: `No task '${parsed.data.taskId}'. It may have no carrier — run the spec doctor to see skipped folders.`,
           };
         }
-        return { ok: true, task };
+        // The derived block is computed from the SAME `buildTaskGraph` the
+        // board runs, so an agent and a human reading the same workspace never
+        // see two different answers about who blocks whom.
+        const { tasks } = await context.index.list(context.root);
+        return {
+          ok: true,
+          task,
+          derived: deriveFor(tasks, parsed.data.taskId),
+        };
       } catch (error: unknown) {
         return { ok: false, error: failure(error) };
       }

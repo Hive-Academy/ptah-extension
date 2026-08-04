@@ -771,6 +771,7 @@ describe('contract guard — parent round-trips through parseTaskFile', () => {
     ['an absolute Windows path', '"C:\\\\Windows\\\\System32"'],
     ['a bare Windows drive letter', '"C:"'],
     ['a drive-RELATIVE Windows path', '"C:TASK_2026_100"'],
+    ['an NTFS alternate-data-stream name', '"TASK_2026_100:stream"'],
     ['an embedded NUL', '"TASK_2026_100\\u0000"'],
     ['whitespace only', '"   "'],
   ];

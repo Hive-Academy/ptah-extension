@@ -83,6 +83,7 @@ export {
   type TaskSpecIndexLike,
   type TaskMutationResult,
   type TaskGetResult,
+  type TaskDerivedRelations,
   type TaskListResult,
   type TaskCheckResult,
 } from './tasks-namespace.builder';

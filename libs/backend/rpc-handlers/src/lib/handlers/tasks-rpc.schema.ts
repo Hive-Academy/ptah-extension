@@ -12,6 +12,10 @@ import {
   TASK_ESTIMATES,
   TASK_STATUSES,
   TASK_TYPES,
+  LabelSchema,
+  MAX_LABELS_PER_TASK,
+  TaskIdRefSchema,
+  TaskMetadataPatchSchema,
 } from '@ptah-extension/shared';
 
 const workspaceRoot = z.string().min(1).optional();
@@ -22,17 +26,19 @@ const estimateEnum = z.enum(TASK_ESTIMATES);
 /**
  * A task-id reference: one path segment, never a path.
  *
- * `parent`, `duplicates` and `relates_to` values are folder names that end up
- * joined onto the spec root, so a `..` or a separator reaching a write path
- * would steer that write outside the spec tree. Rejected structurally here,
- * exactly as `TasksAdoptParamsSchema.folderName` already is.
+ * `taskId`, `parent`, `duplicates` and `relates_to` values are folder names
+ * that end up joined onto the spec root, so a `..` or a separator reaching a
+ * write path would steer that write outside the spec tree.
+ *
+ * This is the SHARED guard ({@link TaskIdRefSchema}), not a local re-statement
+ * of it. The earlier local version tested only `'/'`, `'\\'` and an exact
+ * `'..'`, which let `" .. "`, `"   "`, `"C:"`, the drive-relative `"C:NAME"`
+ * and an embedded NUL straight through — none of which the frontmatter
+ * parser's guard accepted. Two guards over the same value disagreeing about
+ * what a folder name is has exactly one useful fix, and it is not a third
+ * copy.
  */
-const taskIdRef = z
-  .string()
-  .min(1)
-  .refine((id) => !id.includes('/') && !id.includes('\\') && id !== '..', {
-    message: 'a task id must be a single path segment',
-  });
+const taskIdRef = TaskIdRefSchema;
 
 export const TasksListParamsSchema = z.object({
   workspaceRoot,
@@ -42,7 +48,7 @@ export const TasksListParamsSchema = z.object({
 
 export const TasksGetParamsSchema = z.object({
   workspaceRoot,
-  taskId: z.string().min(1),
+  taskId: taskIdRef,
 });
 
 export const TasksCreateParamsSchema = z.object({
@@ -54,8 +60,11 @@ export const TasksCreateParamsSchema = z.object({
   executor: z.string().optional(),
   // Optional metadata carried at creation time. `estimate` is the enum, so an
   // unrecognised size is refused at the boundary rather than written to a file
-  // and reported as a validation warning on the next scan.
-  labels: z.array(z.string().min(1)).optional(),
+  // and reported as a validation warning on the next scan. `labels` uses the
+  // SHARED label schema and cap — a create that could plant 40 labels which
+  // `tasks:updateMetadata` would then refuse to edit is not a boundary, it is
+  // a hole beside one.
+  labels: z.array(LabelSchema).max(MAX_LABELS_PER_TASK).optional(),
   estimate: estimateEnum.optional(),
   parent: taskIdRef.optional(),
   duplicates: z.array(taskIdRef).optional(),
@@ -64,8 +73,22 @@ export const TasksCreateParamsSchema = z.object({
 
 export const TasksUpdateStatusParamsSchema = z.object({
   workspaceRoot,
-  taskId: z.string().min(1),
+  taskId: taskIdRef,
   status: statusEnum,
+});
+
+/**
+ * `tasks:updateMetadata` — the one metadata write method.
+ *
+ * `patch` is composed from the SHARED `TaskMetadataPatchSchema` rather than
+ * restated, so the RPC surface and the `ptah_task_update` MCP tool enforce
+ * byte-identical limits. Relaxing a limit in one place is impossible; there is
+ * only the one place.
+ */
+export const TasksUpdateMetadataParamsSchema = z.object({
+  workspaceRoot,
+  taskId: taskIdRef,
+  patch: TaskMetadataPatchSchema,
 });
 
 export const TasksGenerateRegistryParamsSchema = z.object({
@@ -86,19 +109,15 @@ export const TasksReindexParamsSchema = z.object({
  * `backlog`, whereas adoption is retrofitting a carrier onto work that already
  * happened, so the caller must say what state that work is in.
  *
- * `folderName` is constrained to a single path segment. It is joined onto
- * `.ptah/specs` and then written to, so a `..` or a separator would let a
- * caller steer the write outside the spec tree entirely.
+ * `folderName` is constrained to a single path segment by the SHARED guard. It
+ * is joined onto `.ptah/specs` and then written to, so a `..` or a separator
+ * would let a caller steer the write outside the spec tree entirely — and so
+ * would `" .. "` or a drive-relative `"C:NAME"`, which the earlier local
+ * check here did not catch.
  */
 export const TasksAdoptParamsSchema = z.object({
   workspaceRoot,
-  folderName: z
-    .string()
-    .min(1)
-    .refine(
-      (name) => !name.includes('/') && !name.includes('\\') && name !== '..',
-      { message: 'folderName must be a single path segment' },
-    ),
+  folderName: taskIdRef,
   title: z.string().min(1),
   type: typeEnum,
   status: statusEnum,
@@ -117,4 +136,7 @@ export type TasksGetParamsParsed = z.infer<typeof TasksGetParamsSchema>;
 export type TasksCreateParamsParsed = z.infer<typeof TasksCreateParamsSchema>;
 export type TasksUpdateStatusParamsParsed = z.infer<
   typeof TasksUpdateStatusParamsSchema
+>;
+export type TasksUpdateMetadataParamsParsed = z.infer<
+  typeof TasksUpdateMetadataParamsSchema
 >;
