@@ -1,0 +1,91 @@
+<!--
+  Member shell — a thin binding over the shared PanelLayout.
+
+  Surface roles (docs/design-system/panel-theme-spec.md): canvas = base-100,
+  chrome + cards = base-200, hover/active = surface-high, and every boundary is
+  border-hairline. base-300 is a FILL and never a border — at 1.05:1 against a
+  base-200 card it is invisible.
+
+  Both member themes render from here: `theme.theme()` is either
+  `operator-member` or `operator-member-light`, and it is the only thing that
+  switches. No `class="dark"`, no document-level side effect.
+-->
+<ptah-panel-layout
+  [navGroups]="navGroups"
+  [theme]="theme.theme()"
+  title="Ptah Builders"
+  [badgeLabel]="cohortLabel()"
+  badgeClass="badge-primary"
+  drawerId="member-drawer"
+>
+  <ng-container panelTopBar>
+    @if (currentEmail(); as email) {
+      <span class="hidden sm:inline">Signed in as</span>
+      <span class="font-mono text-xs sm:text-sm">{{ email }}</span>
+    }
+
+    <button
+      type="button"
+      class="btn btn-ghost btn-sm"
+      [attr.aria-label]="theme.toggleLabel()"
+      [title]="theme.toggleLabel()"
+      (click)="theme.toggle()"
+    >
+      <lucide-angular
+        [img]="theme.isDark() ? SunIcon : MoonIcon"
+        class="h-4 w-4"
+        aria-hidden="true"
+      />
+    </button>
+  </ng-container>
+
+  <!--
+    Membership card. Pinned below the nav by the shell's `mt-auto` slot.
+    Deliberately quiet: it states who is signed in and under what cohort, and
+    links to the one place those can be changed. It is not a second nav.
+  -->
+  <div panelSidebarFooter class="rounded-lg border border-hairline bg-base-100 p-3">
+    <p class="text-[11px] font-semibold uppercase tracking-wider text-base-content/60">
+      Membership
+    </p>
+
+    @if (currentEmail(); as email) {
+      <p class="mt-1 truncate font-mono text-xs text-base-content/80" [title]="email">
+        {{ email }}
+      </p>
+    }
+
+    <div class="mt-2 flex flex-wrap items-center gap-1">
+      @for (cohort of cohorts(); track cohort.key) {
+        <span class="badge badge-primary badge-sm">{{ cohort.name }}</span>
+      } @empty {
+        <!--
+          An entitled member with no MemberGroupAssignment is a valid state
+          (R7.8, A-2), not an error. Say what IS true — full member access —
+          rather than showing an empty row that reads as a broken badge.
+        -->
+        <span class="badge badge-ghost badge-sm text-base-content/80">
+          Full access
+        </span>
+      }
+
+      @if (isAdmin()) {
+        <span class="badge badge-outline badge-sm gap-1 text-base-content/80">
+          <lucide-angular
+            [img]="ShieldCheckIcon"
+            class="h-3 w-3"
+            aria-hidden="true"
+          />
+          Admin
+        </span>
+      }
+    </div>
+
+    <a
+      routerLink="/members/account"
+      class="mt-3 flex items-center justify-between rounded-md px-2 py-1.5 text-[13px] text-base-content/60 transition-colors hover:bg-surface-high hover:text-base-content/80"
+    >
+      Account settings
+    </a>
+  </div>
+</ptah-panel-layout>

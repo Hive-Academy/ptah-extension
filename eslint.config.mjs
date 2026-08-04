@@ -4,8 +4,14 @@ import nx from '@nx/eslint-plugin';
  * Message-constant restrictions applied everywhere. Kept in a const because
  * flat config replaces (rather than merges) a rule's options per file match,
  * so the apps-scoped block below must re-state them alongside its own.
+ *
+ * EXPORTED because that same replacement semantic applies across files:
+ * `libs/web/members/eslint.config.mjs` narrows `no-restricted-syntax` for its
+ * own `**\/*.ts` and would otherwise silently drop these two selectors for that
+ * lib. ESLint only reads the default export, so a named export alongside it
+ * changes nothing about how this config is loaded.
  */
-const MESSAGE_LITERAL_SELECTORS = [
+export const MESSAGE_LITERAL_SELECTORS = [
   {
     selector:
       "CallExpression[callee.property.name='postStrictMessage'][arguments.0.type='Literal']",

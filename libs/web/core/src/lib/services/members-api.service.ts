@@ -35,9 +35,20 @@ const memberGroupBadgeSchema = z.object({
   name: z.string(),
 });
 
+/**
+ * ⚠️ `communityUrl` IS DELIBERATELY ABSENT, AND THE ORDER MATTERS (RISK-C).
+ *
+ * The Discourse forum is being replaced by the native community under
+ * `/members`, so this field is going away on both sides. It is dropped HERE
+ * FIRST and on the server SECOND, because the two directions are not
+ * symmetric: `z.object()` STRIPS unknown keys, so a client that has already
+ * dropped the field parses a server that still sends it without complaint,
+ * while a client still REQUIRING the field breaks the moment the server stops
+ * sending it. Do not "tidy up" by removing the server field in the same change
+ * — that is the ordering this comment exists to protect.
+ */
 const membersSessionsResponseSchema = z.object({
   sessions: z.array(buildersSessionSchema),
-  communityUrl: z.string().nullable(),
   /**
    * Cohort/group memberships. Optional so older/mocked responses without the
    * field still validate — callers should default to `[]`.
@@ -46,32 +57,6 @@ const membersSessionsResponseSchema = z.object({
 });
 export type MembersSessionsResponse = z.infer<
   typeof membersSessionsResponseSchema
->;
-
-/**
- * One forum topic surfaced on the members Community card. Mirrors the
- * `GET /api/v1/community/summary` contract (server-proxied — the browser
- * never sees a Discourse key). `lastPostedAt` / `categoryName` are nullable
- * because Discourse omits them on brand-new or uncategorized topics.
- */
-const communityTopicSchema = z.object({
-  id: z.number(),
-  title: z.string(),
-  slug: z.string(),
-  postsCount: z.number(),
-  /** ISO 8601, or null if never posted to after creation. */
-  lastPostedAt: z.string().nullable(),
-  categoryName: z.string().nullable(),
-});
-export type CommunityTopic = z.infer<typeof communityTopicSchema>;
-
-const communitySummaryResponseSchema = z.object({
-  communityUrl: z.string().nullable(),
-  /** Newest first, max 5. `[]` when the integration is off or on any error. */
-  topics: z.array(communityTopicSchema),
-});
-export type CommunitySummaryResponse = z.infer<
-  typeof communitySummaryResponseSchema
 >;
 
 /**
@@ -108,21 +93,6 @@ export class MembersApiService {
       .get<unknown>(`${this.base}/sessions`)
       .pipe(
         map(validate(membersSessionsResponseSchema, 'GET /members/sessions')),
-      );
-  }
-
-  /**
-   * GET /api/v1/community/summary — latest forum topics for the Community
-   * card, proxied through the license server. Returns
-   * `{ communityUrl: null, topics: [] }` when the Discourse integration is
-   * off, and `topics: []` (never a 500) on any upstream error, so callers can
-   * treat an empty list as "nothing to show" rather than a failure.
-   */
-  public getCommunitySummary(): Observable<CommunitySummaryResponse> {
-    return this.http
-      .get<unknown>('/api/v1/community/summary')
-      .pipe(
-        map(validate(communitySummaryResponseSchema, 'GET /community/summary')),
       );
   }
 }

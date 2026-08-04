@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { provideMarkdownRendering } from '@ptah-extension/markdown';
 import { LandingPageComponent } from '@ptah-web/landing';
 import { AdminAuthGuard } from '@ptah-web/core';
 import { AuthGuard } from '@ptah-web/core';
@@ -66,10 +67,37 @@ export const routes: Routes = [
     canActivate: [AuthGuard],
   },
   {
+    /**
+     * The Ptah Builders member panel (R9.5, F-6, AD-1).
+     *
+     * ⚠️ THE GUARD IS `MemberGuard`, AND IT IS DECLARED INSIDE `MEMBER_ROUTES`
+     * RATHER THAN HERE. It probes `GET /api/v1/members/entitlement` and routes
+     * the three outcomes apart: 401 → `/login`, `{ entitled: false }` →
+     * `/pricing`, entitled → the hub. `AuthGuard` — which is what this route
+     * used before — can only tell logged-out from logged-in, so a member whose
+     * subscription had lapsed landed on a login page instead of a renewal page.
+     *
+     * It cannot be named here: `@nx/enforce-module-boundaries` forbids a static
+     * import from a library this file also lazy-loads, and `MemberGuard` ships
+     * in `@ptah-web/members`. `/admin` gets to write `canActivate` inline only
+     * because `AdminAuthGuard` lives in the never-lazy `@ptah-web/core`. See the
+     * comment on `MEMBER_ROUTES` for why the placement is behaviourally
+     * equivalent.
+     *
+     * ⚠️ THE `providers` ARRAY IS LOAD-BEARING (AD-1). It creates a route-level
+     * injector whose `MarkdownService` + `SANITIZE` shadow the app's `'basic'`
+     * pair for the member subtree ONLY. `provideMarkdown()` returns plain
+     * providers (its `MarkdownService` is a bare class provider, not
+     * `providedIn: 'root'`), so this needs no `app.config.ts` change and cannot
+     * leak the member sanitizer onto the marketing pages — or, more
+     * importantly, leak `'basic'` onto member-authored content. `'basic'`
+     * installs NO DOMPurify override at all and is not safe for UGC (NFR-S2).
+     */
     path: 'members',
-    loadComponent: () =>
-      import('@ptah-web/account').then((m) => m.MembersPageComponent),
-    canActivate: [AuthGuard],
+    loadChildren: () =>
+      import('@ptah-web/members').then((m) => m.MEMBER_ROUTES),
+    providers: [provideMarkdownRendering({ extensions: 'member' })],
+    data: { hideFromNav: true },
   },
   {
     path: 'contact',
