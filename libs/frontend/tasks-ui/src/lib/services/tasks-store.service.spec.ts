@@ -66,6 +66,55 @@ function makeBoard(
   };
 }
 
+/**
+ * Median wall-clock cost of `run`, over `samples` timed iterations after one
+ * untimed warm-up.
+ *
+ * ## This file's failure was a genuine outlier, not a clock artifact
+ *
+ * The single-sample form of the filter budget below flaked at a measured
+ * 1-in-2 rate, once reporting **62.07 ms** against 16 ms. It already used
+ * `performance.now()`, which is sub-millisecond — so that 62 ms was a real
+ * 62 ms of wall clock: a GC pause or a descheduled slice landing entirely
+ * inside the one sample that decided the result. One sample on a loaded
+ * machine measures the scheduler rather than the code.
+ *
+ * A median over nine discards such an outlier by construction — it would take
+ * five slow samples out of nine to move it — and the warm-up keeps first-call
+ * JIT out of the numbers.
+ *
+ * ## The twin in `task-filter.spec.ts` failed for a DIFFERENT reason
+ *
+ * Worth stating, because the two were briefly explained as one. That file used
+ * `Date.now()`, whose ~15.6 ms Windows tick made a ~0.34 ms operation measure
+ * 0 or 15.6 with nothing between — quantization against a budget of 16, not
+ * contention. It needed `performance.now()` as well as the median; this file
+ * only ever needed the median. Same remedy, two distinct causes; neither
+ * file's evidence explains the other's defect.
+ */
+function medianMs(run: () => void, samples = 9): number {
+  run();
+  const timings: number[] = [];
+  for (let i = 0; i < samples; i++) {
+    const started = performance.now();
+    run();
+    timings.push(performance.now() - started);
+  }
+  timings.sort((a, b) => a - b);
+  return timings[(samples - 1) >> 1];
+}
+
+/**
+ * Median ceiling for one full-facet recompute over 1 000 tasks.
+ *
+ * Kept at the original one-frame budget: the number was never the problem, the
+ * single sample was. The measured warm median here is **0.38 ms**, so this sits
+ * at roughly 42x headroom, and the regression this test exists to catch — the
+ * graph being rebuilt inside the filter path, or a predicate going quadratic —
+ * costs tens to hundreds of milliseconds at this size and trips it immediately.
+ */
+const FILTER_CEILING_MS = 16;
+
 const ok = <T>(data: T) => ({
   success: true,
   isSuccess: () => true,
@@ -553,27 +602,34 @@ describe('TasksStore', () => {
       const warmGraph = store.graph();
       expect(store.board()).toHaveLength(TASK_STATUSES.length);
 
-      const started = performance.now();
-      store.setFilter({
-        ...EMPTY_TASK_FILTER,
-        text: 'TASK_2026',
-        statuses: ['backlog'],
-        types: ['FEATURE'],
-        labels: ['licensing'],
-        labelsMode: 'any',
-        estimates: ['M'],
-        unestimated: true,
-        executors: ['backend-developer'],
-        parentage: ['child', 'standalone'],
+      // A FRESH spec object per run, so the `filtered` / `board` computeds
+      // genuinely re-run each time. Reusing one object would leave every
+      // iteration after the first reading a memoized value and timing nothing.
+      let columns: ReturnType<typeof store.board> = [];
+      let matched = 0;
+      const elapsed = medianMs(() => {
+        store.setFilter({
+          ...EMPTY_TASK_FILTER,
+          text: 'TASK_2026',
+          statuses: ['backlog'],
+          types: ['FEATURE'],
+          labels: ['licensing'],
+          labelsMode: 'any',
+          estimates: ['M'],
+          unestimated: true,
+          executors: ['backend-developer'],
+          parentage: ['child', 'standalone'],
+        });
+        columns = store.board();
+        matched = store.matchedCount();
       });
-      const columns = store.board();
-      const matched = store.matchedCount();
-      const elapsed = performance.now() - started;
 
       expect(matched).toBeGreaterThan(0);
       expect(columns.some((column) => column.tasks.length > 0)).toBe(true);
-      expect(elapsed).toBeLessThan(16);
-      // The payload did not move, so neither did the graph.
+      expect(elapsed).toBeLessThan(FILTER_CEILING_MS);
+      // The payload did not move, so neither did the graph. This is the
+      // structural half of the check and it is NOT timing-dependent: object
+      // identity is what proves the graph computed did not re-run.
       expect(store.graph()).toBe(warmGraph);
     });
 

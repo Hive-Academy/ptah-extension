@@ -73,6 +73,16 @@ export interface TaskFilterChip {
   readonly classes: string;
   readonly removeLabel: string;
   readonly next: TaskFilterSpec;
+  /**
+   * Why this value currently selects nothing — `undefined` when it is fine.
+   *
+   * Set for a label or executor the workspace no longer carries, which is what
+   * a saved view looks like after the last task using that label was retired
+   * (FR-C2.4). It is an ANNOTATION and never an edit: the facet still applies,
+   * still matches nothing, and stays in the spec until the user removes it.
+   * Auto-pruning it would silently rewrite a lens somebody saved.
+   */
+  readonly note?: string;
 }
 
 /**
@@ -418,14 +428,44 @@ export class TaskFacetMenuComponent {
                24px and the button is a 24x24 square inside it. -->
           @for (chip of chips(); track chip.key) {
             <li>
+              <!-- max-w-full is what keeps a chip inside the bar. The board
+                   column is 256px and the bar is the same width; without it a
+                   chip is as wide as its content and pushes the whole bar into
+                   a horizontal scroll. -->
               <span
-                class="inline-flex h-6 items-center gap-1 rounded-full border pl-2 text-xs"
+                class="inline-flex h-6 max-w-full items-center gap-1 rounded-full border pl-2 text-xs"
                 [class]="chip.classes"
               >
-                <span class="font-normal">{{ chip.facet }}</span>
-                <span class="max-w-[10rem] truncate font-medium">
+                <span class="shrink-0 font-normal">{{ chip.facet }}</span>
+                <!-- shrink-0, not min-w-0: the value and the note are both in
+                     this flex row, and if both can shrink then a short stale
+                     value competes with a long annotation for the same space.
+                     Losing that race leaves the note about the fact more
+                     legible than the fact. The value is capped at 10rem and
+                     truncates within that; the note absorbs the pressure. -->
+                <span class="max-w-[10rem] shrink-0 truncate font-medium">
                   {{ chip.value }}
                 </span>
+                @if (chip.note) {
+                  <!-- Said in words, not by colour or a tooltip alone: a chip
+                       that quietly matches nothing is indistinguishable from a
+                       board that lost its tasks.
+
+                       Bounded exactly like the value beside it, and for the
+                       same reason. Truncation hides the overflow visually while
+                       leaving the whole sentence in the text node, so assistive
+                       technology still reads it in full and the title gives a
+                       pointer user the same. Unbounded nowrap here overflowed
+                       the bar every time it rendered — which is the only time
+                       it renders at all. -->
+                  <span
+                    class="min-w-0 truncate font-normal"
+                    [title]="chip.note"
+                    data-testid="task-filter-chip-note"
+                  >
+                    — {{ chip.note }}
+                  </span>
+                }
                 <button
                   type="button"
                   class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[oklch(var(--s))]"
@@ -655,6 +695,23 @@ export class TaskFilterBarComponent {
    */
   protected readonly chips = computed<readonly TaskFilterChip[]>(() => {
     const filter = this.filter();
+    // Folded exactly as the predicate folds them, because a chip that decided
+    // "vanished" on a different comparison than the one that decides "matches"
+    // annotates the wrong chips:
+    //
+    //  - labels through the shared `labelKey` (trim + case-fold), and
+    //  - executors TRIMMED but case-SENSITIVE (FR-C1.1).
+    //
+    // The trim is not cosmetic. `matchesExecutors` (`task-filter.ts`) trims
+    // BOTH sides, and `buildTaskGraph` stores `knownExecutors` already trimmed
+    // — so a spec carrying `' gemini '` matches a task whose executor is
+    // `gemini`. Comparing the raw value here labelled that chip "no longer
+    // present in this workspace" while it was busy matching tasks, which is the
+    // precise contradiction this annotation exists to avoid.
+    const knownLabelKeys = new Set(this.knownLabels().map(labelKey));
+    const knownExecutors = new Set(
+      this.knownExecutors().map((executor) => executor.trim()),
+    );
     const chips: TaskFilterChip[] = [];
     const add = (
       facetKey: string,
@@ -662,6 +719,7 @@ export class TaskFilterBarComponent {
       value: string,
       next: TaskFilterSpec,
       classes = TaskFilterBarComponent.NEUTRAL_CHIP_CLASSES,
+      note?: string,
     ): void => {
       chips.push({
         key: `${facetKey}#${chips.length}#${value}`,
@@ -670,6 +728,7 @@ export class TaskFilterBarComponent {
         classes,
         removeLabel: `Remove the ${facet.toLowerCase()} filter ${value}`,
         next,
+        ...(note === undefined ? {} : { note }),
       });
     };
 
@@ -696,6 +755,9 @@ export class TaskFilterBarComponent {
         label,
         { ...filter, labels: toggle(filter.labels, label) },
         labelChipClass(label),
+        knownLabelKeys.has(labelKey(label))
+          ? undefined
+          : TaskFilterBarComponent.STALE_FACET_NOTE,
       );
     }
     for (const estimate of filter.estimates) {
@@ -711,10 +773,16 @@ export class TaskFilterBarComponent {
       });
     }
     for (const executor of filter.executors) {
-      add('executor', 'Executor', executor, {
-        ...filter,
-        executors: toggle(filter.executors, executor),
-      });
+      add(
+        'executor',
+        'Executor',
+        executor,
+        { ...filter, executors: toggle(filter.executors, executor) },
+        TaskFilterBarComponent.NEUTRAL_CHIP_CLASSES,
+        knownExecutors.has(executor.trim())
+          ? undefined
+          : TaskFilterBarComponent.STALE_FACET_NOTE,
+      );
     }
     for (const facet of filter.parentage) {
       add(
@@ -762,6 +830,20 @@ export class TaskFilterBarComponent {
    * absolute-hex palette carries its own audit table from Batch 3.
    */
   private static readonly NEUTRAL_CHIP_CLASSES = 'bg-base-200 border-base-300';
+
+  /**
+   * What a chip says when the workspace no longer carries the value it selects.
+   *
+   * A saved view outlives the tasks it was written against (FR-C2.4). When the
+   * last task carrying `licensing` is retired, a view filtering on `licensing`
+   * still APPLIES, still matches nothing on that facet, and is left exactly as
+   * the user saved it. This sentence is the whole of the response: the chip is
+   * not removed, the spec is not rewritten, and nothing is written to disk.
+   * Silently editing somebody's saved lens for them is the same class of act as
+   * backfilling a carrier.
+   */
+  private static readonly STALE_FACET_NOTE =
+    'no longer present in this workspace';
 
   private static readonly PARENTAGE_LABELS: Record<TaskParentageFacet, string> =
     {

@@ -1,14 +1,19 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import {
+  DEFAULT_TASK_SORT,
   EMPTY_TASK_FILTER,
   TASK_STATUSES,
   type ExcludedTaskFolder,
+  type SavedTaskView,
   type TaskStatus,
   type TaskSpecSummary,
   type TasksBoardResult,
+  type TasksGetViewsResult,
+  type TasksSaveViewsResult,
 } from '@ptah-extension/shared';
 import { TasksStore } from '../services/tasks-store.service';
+import { TaskViewsService } from '../services/task-views.service';
 import { TasksViewComponent } from './tasks-view.component';
 
 function task(
@@ -87,8 +92,26 @@ const ok = <T>(data: T) => ({ success: true, isSuccess: () => true, data });
 describe('TasksViewComponent', () => {
   let rpcCall: jest.Mock;
 
-  function setup(payload: BoardPayload = board({}, { specsDirExists: false })) {
-    rpcCall = jest.fn().mockResolvedValue(ok(payload));
+  /**
+   * The RPC double routes by METHOD rather than answering every call with the
+   * board payload.
+   *
+   * The surface now issues two independent reads on creation — `tasks:board`
+   * and `tasks:getViews` — and they carry unrelated shapes. A single blanket
+   * `mockResolvedValue` hands a board payload to the views reader, which is a
+   * response no host can produce and which would let a real defect in that
+   * reader pass unnoticed.
+   */
+  function setup(
+    payload: BoardPayload = board({}, { specsDirExists: false }),
+    views: TasksGetViewsResult = { views: [], activeViewId: null, skipped: 0 },
+    saveResult: TasksSaveViewsResult = { success: true },
+  ) {
+    rpcCall = jest.fn(async (method: string) => {
+      if (method === 'tasks:getViews') return ok(views);
+      if (method === 'tasks:saveViews') return ok(saveResult);
+      return ok(payload);
+    });
     TestBed.configureTestingModule({
       imports: [TasksViewComponent],
       providers: [
@@ -100,8 +123,12 @@ describe('TasksViewComponent', () => {
     });
   }
 
-  async function render(payload?: BoardPayload) {
-    setup(payload);
+  async function render(
+    payload?: BoardPayload,
+    views?: TasksGetViewsResult,
+    saveResult?: TasksSaveViewsResult,
+  ) {
+    setup(payload, views, saveResult);
     const fixture = TestBed.createComponent(TasksViewComponent);
     fixture.detectChanges();
     await fixture.whenStable();
@@ -358,6 +385,364 @@ describe('TasksViewComponent', () => {
       expect(
         host.querySelector('[data-testid="tasks-excluded-trigger"]'),
       ).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Saved views (Task 9.3)
+  // -------------------------------------------------------------------------
+  describe('the saved-views menu', () => {
+    const populated = board({
+      backlog: [task('TASK_2026_200', { labels: ['licensing'] })],
+      done: [task('TASK_2026_203', { status: 'done' })],
+    });
+
+    function savedView(overrides: Partial<SavedTaskView> = {}): SavedTaskView {
+      return {
+        id: 'view-a',
+        name: 'Done work',
+        filter: { ...EMPTY_TASK_FILTER, statuses: ['done'] },
+        sort: DEFAULT_TASK_SORT,
+        order: 0,
+        ...overrides,
+      };
+    }
+
+    it('reads the stored views on creation, alongside the board', async () => {
+      await render(populated);
+      expect(rpcCall).toHaveBeenCalledWith('tasks:getViews', {});
+      expect(rpcCall).toHaveBeenCalledWith('tasks:board', {});
+    });
+
+    it('renders the menu once the board holds anything', async () => {
+      const fixture = await render(populated, {
+        views: [savedView()],
+        activeViewId: null,
+        skipped: 0,
+      });
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(
+        host.querySelector('[data-testid="task-view-menu"]'),
+      ).not.toBeNull();
+      expect(
+        host.querySelector('[data-testid="task-view-apply"]')?.textContent,
+      ).toContain('Done work');
+    });
+
+    /**
+     * NFR-11. Saved views live in `~/.ptah/settings.json`, the board lives in
+     * the task index, and neither read gates the other. A settings store that
+     * cannot be read must still leave a full board on screen.
+     */
+    it('renders the whole board when the views read fails outright', async () => {
+      setup(populated);
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'tasks:getViews'
+          ? { success: false, isSuccess: () => false, error: 'unreadable' }
+          : ok(populated),
+      );
+      const fixture = TestBed.createComponent(TasksViewComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      expect(host.textContent).toContain('TASK_2026_200');
+      expect(host.textContent).toContain('TASK_2026_203');
+      expect(
+        host
+          .querySelector('[data-testid="task-filter-count"]')
+          ?.textContent?.trim(),
+      ).toBe('2');
+      expect(TestBed.inject(TaskViewsService).error()).toBe('unreadable');
+    });
+
+    it('reports entries that could not be read, and still lists the rest', async () => {
+      const fixture = await render(populated, {
+        views: [savedView()],
+        activeViewId: null,
+        skipped: 2,
+      });
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(
+        host.querySelector('[data-testid="task-view-skipped"]')?.textContent,
+      ).toContain('2 stored view(s) could not be read');
+      expect(
+        host.querySelectorAll('[data-testid="task-view-row"]'),
+      ).toHaveLength(1);
+    });
+
+    it('opens on the stored active view and narrows the board to it', async () => {
+      const fixture = await render(populated, {
+        views: [savedView()],
+        activeViewId: 'view-a',
+        skipped: 0,
+      });
+
+      const store = TestBed.inject(TasksStore);
+      expect(store.filter().statuses).toEqual(['done']);
+      expect(store.matchedCount()).toBe(1);
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector(
+          '[data-testid="task-view-modified-badge"]',
+        ),
+      ).toBeNull();
+    });
+
+    it('badges the menu once the board filter leaves the saved lens', async () => {
+      const fixture = await render(populated, {
+        views: [savedView()],
+        activeViewId: 'view-a',
+        skipped: 0,
+      });
+
+      TestBed.inject(TasksStore).setFilter(EMPTY_TASK_FILTER);
+      fixture.detectChanges();
+
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector(
+          '[data-testid="task-view-modified-badge"]',
+        ),
+      ).not.toBeNull();
+    });
+
+    /**
+     * FR-C2.4, end to end on the real surface. The view applies, the facet
+     * matches nothing, the chip says why, and no `tasks:saveViews` rewrites the
+     * spec to drop the dead label.
+     */
+    it('applies a view naming a vanished label, annotates it, and prunes nothing', async () => {
+      const stale = savedView({
+        id: 'view-stale',
+        name: 'Retired label',
+        filter: { ...EMPTY_TASK_FILTER, labels: ['retired-label'] },
+      });
+      const fixture = await render(populated, {
+        views: [stale],
+        activeViewId: 'view-stale',
+        skipped: 0,
+      });
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(TestBed.inject(TasksStore).matchedCount()).toBe(0);
+      expect(
+        host.querySelector('[data-testid="task-filter-chip-note"]')
+          ?.textContent,
+      ).toContain('no longer present in this workspace');
+      expect(
+        host.querySelector('[data-testid="tasks-filtered-empty"]'),
+      ).not.toBeNull();
+      expect(TestBed.inject(TaskViewsService).views()[0].filter.labels).toEqual(
+        ['retired-label'],
+      );
+      expect(rpcCall).not.toHaveBeenCalledWith(
+        'tasks:saveViews',
+        expect.anything(),
+      );
+    });
+
+    /**
+     * The chip's "vanished" test and the predicate's "matches" test have to
+     * agree. `matchesExecutors` trims both sides and `knownExecutors` is stored
+     * trimmed, so a view carrying `' gemini '` MATCHES a task whose executor is
+     * `gemini` — and a raw comparison in the chip labelled that same chip "no
+     * longer present in this workspace" at the same time.
+     *
+     * This runs both halves over one fixture, which is the only place the
+     * contradiction is visible.
+     */
+    it('never calls an executor vanished while it is still matching tasks', async () => {
+      const withExecutor = board({
+        backlog: [task('TASK_2026_210', { executor: 'gemini' })],
+      });
+      const fixture = await render(withExecutor, {
+        views: [
+          savedView({
+            id: 'view-exec',
+            name: 'Gemini work',
+            filter: { ...EMPTY_TASK_FILTER, executors: [' gemini '] },
+          }),
+        ],
+        activeViewId: 'view-exec',
+        skipped: 0,
+      });
+      const host = fixture.nativeElement as HTMLElement;
+
+      // The predicate matches it…
+      expect(TestBed.inject(TasksStore).matchedCount()).toBe(1);
+      // …so the chip must not claim the opposite.
+      expect(
+        host.querySelector('[data-testid="task-filter-chip-note"]'),
+      ).toBeNull();
+    });
+
+    it('routes a create from the menu into one whole-list write', async () => {
+      const fixture = await render(populated, {
+        views: [savedView()],
+        activeViewId: null,
+        skipped: 0,
+      });
+      const host = fixture.nativeElement as HTMLElement;
+
+      const name = host.querySelector<HTMLInputElement>(
+        '[data-testid="task-view-create-input"]',
+      );
+      if (name === null) throw new Error('the create input did not render');
+      name.value = 'Licensing';
+      name.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      host
+        .querySelector<HTMLButtonElement>('[data-testid="task-view-create"]')
+        ?.click();
+      await fixture.whenStable();
+
+      const call = rpcCall.mock.calls.find(
+        ([method]) => method === 'tasks:saveViews',
+      );
+      expect(call).toBeDefined();
+      const params = call?.[1] as { views: SavedTaskView[] };
+      expect(params.views).toHaveLength(2);
+      expect(params.views[1].name).toBe('Licensing');
+    });
+
+    async function typeAndSave(fixture: ComponentFixture<TasksViewComponent>) {
+      const host = fixture.nativeElement as HTMLElement;
+      const input = host.querySelector<HTMLInputElement>(
+        '[data-testid="task-view-create-input"]',
+      );
+      if (input === null) throw new Error('the create input did not render');
+      input.value = 'Fifty-first';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      host
+        .querySelector<HTMLButtonElement>('[data-testid="task-view-create"]')
+        ?.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return host;
+    }
+
+    it('clears the typed name once the save has landed', async () => {
+      const fixture = await render(populated, {
+        views: [savedView()],
+        activeViewId: null,
+        skipped: 0,
+      });
+
+      const host = await typeAndSave(fixture);
+
+      expect(
+        host.querySelector<HTMLInputElement>(
+          '[data-testid="task-view-create-input"]',
+        )?.value,
+      ).toBe('');
+    });
+
+    /**
+     * `CAP_EXCEEDED` resolves rather than throwing, and it is the case a user
+     * reaches after deliberately naming one more view. Discarding the name at
+     * that moment is the worst possible time to do it.
+     */
+    async function renameTo(
+      fixture: ComponentFixture<TasksViewComponent>,
+      name: string,
+    ) {
+      const host = fixture.nativeElement as HTMLElement;
+      host
+        .querySelector<HTMLButtonElement>('[data-testid="task-view-rename"]')
+        ?.click();
+      fixture.detectChanges();
+      const input = host.querySelector<HTMLInputElement>(
+        '[data-testid="task-view-rename-input"]',
+      );
+      if (input === null) throw new Error('the rename input did not render');
+      input.value = name;
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      host
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="task-view-rename-confirm"]',
+        )
+        ?.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return host;
+    }
+
+    it('closes the rename row once the save has landed', async () => {
+      const fixture = await render(populated, {
+        views: [savedView()],
+        activeViewId: null,
+        skipped: 0,
+      });
+
+      const host = await renameTo(fixture, 'Renamed');
+
+      expect(
+        host.querySelector('[data-testid="task-view-rename-input"]'),
+      ).toBeNull();
+      const call = rpcCall.mock.calls.find(
+        ([method]) => method === 'tasks:saveViews',
+      );
+      const params = call?.[1] as { views: SavedTaskView[] };
+      expect(params.views[0].name).toBe('Renamed');
+    });
+
+    /** The rename twin of the create case — one rule for both controls. */
+    it('keeps the rename row open and filled when the save was refused', async () => {
+      const fixture = await render(
+        populated,
+        { views: [savedView()], activeViewId: null, skipped: 0 },
+        {
+          success: false,
+          error: {
+            code: 'WRITE_FAILED',
+            message: 'Failed to save views. Nothing was changed.',
+          },
+        },
+      );
+
+      const host = await renameTo(fixture, 'Renamed');
+
+      expect(
+        host.querySelector<HTMLInputElement>(
+          '[data-testid="task-view-rename-input"]',
+        )?.value,
+      ).toBe('Renamed');
+      expect(
+        host.querySelector('[data-testid="task-view-error"]')?.textContent,
+      ).toContain('Nothing was changed.');
+      // The list did not move, so the row still shows the original name.
+      expect(
+        host.querySelector('[data-testid="task-view-apply"]')?.textContent,
+      ).toContain('Done work');
+    });
+
+    it('keeps the typed name when the save was refused, and says why', async () => {
+      const capMessage =
+        'You can save at most 50 views. This request carried 51. ' +
+        'Nothing was saved — delete a view and try again.';
+      const fixture = await render(
+        populated,
+        { views: [savedView()], activeViewId: null, skipped: 0 },
+        {
+          success: false,
+          error: { code: 'CAP_EXCEEDED', message: capMessage },
+        },
+      );
+
+      const host = await typeAndSave(fixture);
+
+      expect(
+        host.querySelector<HTMLInputElement>(
+          '[data-testid="task-view-create-input"]',
+        )?.value,
+      ).toBe('Fifty-first');
+      expect(
+        host.querySelector('[data-testid="task-view-error"]')?.textContent,
+      ).toContain(capMessage);
     });
   });
 });

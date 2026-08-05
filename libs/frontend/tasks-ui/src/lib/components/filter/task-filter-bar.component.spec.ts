@@ -329,4 +329,139 @@ describe('TaskFilterBarComponent', () => {
 
     expect(sorts).toHaveLength(0);
   });
+
+  // -------------------------------------------------------------------------
+  // Values the workspace no longer carries (FR-C2.4)
+  //
+  // This is what a saved view looks like once the last task carrying a label
+  // is retired. The facet still applies and still matches nothing; the chip
+  // says so, and NOTHING is pruned.
+  // -------------------------------------------------------------------------
+  describe('the stale-facet annotation', () => {
+    it('annotates a label no task on the board carries', () => {
+      const { host } = render(
+        { labels: ['retired'] },
+        { knownLabels: ['licensing'] },
+      );
+
+      expect(at(host, 'task-filter-chip-note')?.textContent).toContain(
+        'no longer present in this workspace',
+      );
+    });
+
+    it('annotates an executor no task on the board names', () => {
+      const { host } = render(
+        { executors: ['ghost'] },
+        { knownExecutors: ['backend-developer'] },
+      );
+
+      expect(at(host, 'task-filter-chip-note')?.textContent).toContain(
+        'no longer present in this workspace',
+      );
+    });
+
+    /** Folded on the shared `labelKey`, exactly as the predicate folds it (R9). */
+    it('does not annotate a label that differs only in case or trailing space', () => {
+      const { host } = render(
+        { labels: ['Licensing'] },
+        { knownLabels: ['licensing '] },
+      );
+
+      expect(at(host, 'task-filter-chip-note')).toBeNull();
+    });
+
+    /** Executors are matched case-SENSITIVELY, so the fold must not apply. */
+    it('annotates an executor that differs only in case', () => {
+      const { host } = render(
+        { executors: ['Alice'] },
+        { knownExecutors: ['alice'] },
+      );
+
+      expect(at(host, 'task-filter-chip-note')).not.toBeNull();
+    });
+
+    /**
+     * The mirror of the label trailing-space case, and it was missing.
+     *
+     * `matchesExecutors` trims BOTH sides and `buildTaskGraph` stores
+     * `knownExecutors` already trimmed, so `' gemini '` in a saved view MATCHES
+     * a task whose executor is `gemini`. Comparing raw here annotated that chip
+     * "no longer present in this workspace" while it was busy matching — the
+     * exact contradiction the annotation exists to prevent.
+     */
+    it('does not annotate an executor that differs only in surrounding space', () => {
+      const { host } = render(
+        { executors: [' gemini '] },
+        { knownExecutors: ['gemini'] },
+      );
+
+      expect(at(host, 'task-filter-chip-note')).toBeNull();
+    });
+
+    /** Trimming must not become folding: case still separates two agents. */
+    it('still annotates when trimming is not enough to match', () => {
+      const { host } = render(
+        { executors: [' Gemini '] },
+        { knownExecutors: ['gemini'] },
+      );
+
+      expect(at(host, 'task-filter-chip-note')).not.toBeNull();
+    });
+
+    /**
+     * The note renders only when something is wrong, so an unbounded
+     * `whitespace-nowrap` overflowed the 256px bar every single time it
+     * appeared. Bounded exactly like the value beside it — the full sentence
+     * stays in the text node for assistive technology and in `title` for a
+     * pointer.
+     */
+    it('bounds the note instead of letting it widen the bar', () => {
+      const { host } = render({ labels: ['retired'] }, { knownLabels: [] });
+
+      const note = at(host, 'task-filter-chip-note');
+      expect(note?.classList.contains('truncate')).toBe(true);
+      expect(note?.classList.contains('min-w-0')).toBe(true);
+      expect(note?.classList.contains('whitespace-nowrap')).toBe(false);
+      expect(note?.getAttribute('title')).toBe(
+        'no longer present in this workspace',
+      );
+      // The chip itself can no longer exceed the bar.
+      expect(
+        note?.closest('span.inline-flex')?.classList.contains('max-w-full'),
+      ).toBe(true);
+      // …and the value does not compete with the note for the space that is
+      // left, which would leave the annotation more legible than the fact.
+      expect(note?.previousElementSibling?.classList.contains('shrink-0')).toBe(
+        true,
+      );
+    });
+
+    it('leaves other facets unannotated', () => {
+      const { host } = render(
+        { statuses: ['done'], types: ['BUGFIX'], text: 'needle' },
+        { knownLabels: [], knownExecutors: [] },
+      );
+
+      expect(at(host, 'task-filter-chip-note')).toBeNull();
+    });
+
+    /**
+     * The annotation is a RENDER, never an edit. Removing it is still the
+     * user's act: the chip's own remove control is the only thing that changes
+     * the spec, and it emits exactly the same spec it would for a live value.
+     */
+    it('does not prune the stale value, and its removal is still the user act', () => {
+      const { host, emitted } = render(
+        { labels: ['retired'] },
+        { knownLabels: [] },
+      );
+
+      const chip = at(host, 'task-filter-chips');
+      expect(chip?.textContent).toContain('retired');
+      expect(emitted).toHaveLength(0);
+
+      (chip?.querySelector('button') as HTMLButtonElement).click();
+      expect(emitted[0].labels).toEqual([]);
+    });
+  });
 });

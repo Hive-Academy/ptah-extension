@@ -926,8 +926,68 @@ describe('sortTasks', () => {
 // Scale
 // ---------------------------------------------------------------------------
 
+/**
+ * Median wall-clock cost of `run`, over `samples` timed iterations after one
+ * untimed warm-up.
+ *
+ * ## Why a median, and why this file's own failure was NOT machine load
+ *
+ * This assertion previously took ONE sample and timed it with `Date.now()`.
+ * `Date.now()` advances on the system timer tick, which on Windows is ~15.6 ms,
+ * so an operation whose true cost is ~0.34 ms measured **0 or 15.6 with nothing
+ * in between** — a coin flip against a budget of 16. That is quantization, not
+ * contention: the machine was not slow, the clock could not see the work.
+ *
+ * The fix is therefore two independent changes, and both are needed:
+ *
+ *  - `performance.now()`, which is sub-millisecond, so the measurement can
+ *    resolve the operation at all;
+ *  - a median over nine samples after an untimed warm-up, which keeps a GC
+ *    pause or a descheduled slice from deciding the result, and keeps
+ *    first-call JIT out of the numbers.
+ *
+ * ## The 62 ms reading belongs to the OTHER suite, not this one
+ *
+ * Stated because the first version of this comment claimed it. The 62.07 ms
+ * failure was measured in `tasks-store.service.spec.ts`, whose twin of this
+ * helper carries the matching note. That file **already used
+ * `performance.now()`**, so its 62 ms was a real 62 ms — a genuine outlier
+ * under load, a different cause with the same symptom. Two suites, two causes,
+ * one remedy: the median is what fixes both, and neither file's evidence
+ * should be cited for the other's defect.
+ *
+ * The ceiling is deliberately generous rather than tight. This test exists to
+ * catch an ALGORITHMIC regression — a predicate that goes quadratic, or a graph
+ * rebuilt per task — which costs hundreds of milliseconds at this size. It is
+ * not a budget for the machine it happens to run on.
+ */
+function medianMs(run: () => void, samples = 9): number {
+  run();
+  const timings: number[] = [];
+  for (let i = 0; i < samples; i++) {
+    const started = performance.now();
+    run();
+    timings.push(performance.now() - started);
+  }
+  timings.sort((a, b) => a - b);
+  return timings[(samples - 1) >> 1];
+}
+
+/**
+ * Median ceiling for a full-facet pass over 1 000 tasks.
+ *
+ * Kept at the original one-frame budget deliberately — the number was never the
+ * problem, the single unwarmed `Date.now()` sample was. Applied to a median it
+ * is both meaningful and stable: the measured warm median here is **0.34 ms**,
+ * so this sits at roughly 47x headroom, while the two regressions worth
+ * catching at this size both blow straight through it — a quadratic predicate
+ * costs hundreds of milliseconds over 1 000 tasks, and rebuilding the graph per
+ * call costs tens.
+ */
+const SCALE_CEILING_MS = 16;
+
 describe('filterTasks — scale', () => {
-  it('filters 1 000 tasks on every facet at once well inside a frame', () => {
+  it('filters 1 000 tasks on every facet at once without going superlinear', () => {
     const tasks = Array.from({ length: 1000 }, (_, i) =>
       task({
         id: id(i),
@@ -951,11 +1011,12 @@ describe('filterTasks — scale', () => {
       parentage: ['child', 'standalone'],
     });
 
-    const started = Date.now();
-    const result = filterTasks(tasks, narrow, graph);
-    const elapsed = Date.now() - started;
+    let result: readonly TaskSpecSummary[] = [];
+    const elapsed = medianMs(() => {
+      result = filterTasks(tasks, narrow, graph);
+    });
 
     expect(result.length).toBeGreaterThan(0);
-    expect(elapsed).toBeLessThan(16);
+    expect(elapsed).toBeLessThan(SCALE_CEILING_MS);
   });
 });

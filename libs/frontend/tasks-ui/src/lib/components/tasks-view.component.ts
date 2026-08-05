@@ -25,6 +25,7 @@ import {
 } from '@ptah-extension/shared';
 import { TasksStore } from '../services/tasks-store.service';
 import { TaskStartService } from '../services/task-start.service';
+import { TaskViewsService } from '../services/task-views.service';
 import { TaskBoardComponent } from './board/task-board.component';
 import type {
   TaskStartRequest,
@@ -33,6 +34,8 @@ import type {
 import { TaskDetailComponent } from './detail/task-detail.component';
 import type { TaskMetadataWrite } from './detail/task-metadata-write';
 import { TaskFilterBarComponent } from './filter/task-filter-bar.component';
+import { TaskViewMenuComponent } from './filter/task-view-menu.component';
+import type { TaskViewRename } from './filter/task-view-menu.component';
 import { taskExclusionReasonLabel } from '../task-presentation';
 
 /** One excluded folder plus the sentence explaining its typed reason. */
@@ -70,6 +73,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
     TaskBoardComponent,
     TaskDetailComponent,
     TaskFilterBarComponent,
+    TaskViewMenuComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -189,6 +193,36 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
            hiding it once a filter empties the board would remove the only
            control that can undo that (FR-C1.3). -->
       @if (store.totalIndexed() > 0) {
+        <!-- Saved views (FR-C2). Above the filter bar rather than inside it,
+             because a view is a whole lens — filter AND sort — and reads as a
+             peer of the bar it fills in, not as one more facet on it. -->
+        <div
+          class="flex flex-wrap items-center gap-1 border-b border-base-300 px-3 py-1 text-base-content"
+          data-testid="task-view-bar"
+        >
+          <ptah-task-view-menu
+            [views]="views.views()"
+            [activeViewId]="views.activeViewId()"
+            [modified]="views.modified()"
+            [skipped]="views.skipped()"
+            [busy]="views.saving() || views.loading()"
+            [error]="views.error()"
+            [notice]="views.notice()"
+            [(createDraft)]="viewNameDraft"
+            [(renamingId)]="viewRenamingId"
+            [(renameDraft)]="viewRenameDraft"
+            (viewApplied)="views.applyView($event)"
+            (viewCreated)="onViewCreated($event)"
+            (viewRenamed)="onViewRenamed($event)"
+            (viewUpdated)="views.updateView($event)"
+            (viewDeleted)="views.deleteView($event)"
+            (viewMoved)="views.moveView($event.id, $event.direction)"
+            (activeCleared)="views.clearActiveView()"
+            (errorDismissed)="views.clearError()"
+            (noticeDismissed)="views.clearNotice()"
+          />
+        </div>
+
         <ptah-task-filter-bar
           [filter]="store.filter()"
           [sort]="store.sort()"
@@ -459,6 +493,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
 export class TasksViewComponent {
   protected readonly store = inject(TasksStore);
   protected readonly taskStart = inject(TaskStartService);
+  protected readonly views = inject(TaskViewsService);
 
   protected readonly taskTypes = TASK_TYPES;
 
@@ -476,6 +511,20 @@ export class TasksViewComponent {
   protected readonly specRoot = SPEC_ROOT;
 
   protected readonly exclusionsOpen = signal(false);
+
+  /**
+   * The saved-views menu's in-flight name drafts, and which row is being
+   * renamed.
+   *
+   * Held here rather than inside the menu because only this component learns
+   * whether a write landed — {@link onViewCreated} and {@link onViewRenamed}. A
+   * refused create or rename (`CAP_EXCEEDED`, a failed write) leaves the typed
+   * name where the user can correct or retry it, instead of clearing the box on
+   * a write that never reached disk.
+   */
+  protected readonly viewNameDraft = signal('');
+  protected readonly viewRenamingId = signal<string | null>(null);
+  protected readonly viewRenameDraft = signal('');
 
   /** True while a metadata write issued from the detail panel is outstanding. */
   protected readonly writing = signal(false);
@@ -513,6 +562,12 @@ export class TasksViewComponent {
 
   public constructor() {
     void this.store.loadBoard();
+    // Independent of the board load, and deliberately not awaited behind it:
+    // saved views live in `~/.ptah/settings.json`, not in the task index, so a
+    // settings file that cannot be read must not delay or block the board
+    // (NFR-11). The reverse holds too — a failed board load still leaves the
+    // views menu usable.
+    void this.views.load();
   }
 
   protected setCreateType(value: string): void {
@@ -556,6 +611,36 @@ export class TasksViewComponent {
       }
     } finally {
       this.creating.set(false);
+    }
+  }
+
+  /**
+   * Save the board's current lens as a new view, clearing the typed name ONLY
+   * once the write has actually landed.
+   *
+   * `createView` resolves `false` for a refusal that never reached disk — the
+   * 50-view cap resolves as a typed result rather than throwing — and the name
+   * has to survive that, because the cap is precisely the case a user hits
+   * after deliberately naming one more view.
+   */
+  protected async onViewCreated(name: string): Promise<void> {
+    if (await this.views.createView(name)) {
+      this.viewNameDraft.set('');
+    }
+  }
+
+  /**
+   * Rename one saved view, closing the inline row only once the write landed.
+   *
+   * The same rule as {@link onViewCreated}, applied to the control beside it. A
+   * rename loses less on a refusal — the original name is still on screen in
+   * the row — but two adjacent controls that discard typed input under
+   * different rules is the inconsistency, not the data loss.
+   */
+  protected async onViewRenamed(rename: TaskViewRename): Promise<void> {
+    if (await this.views.renameView(rename.id, rename.name)) {
+      this.viewRenamingId.set(null);
+      this.viewRenameDraft.set('');
     }
   }
 

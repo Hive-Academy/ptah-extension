@@ -18,6 +18,11 @@ export type {
   TaskFacetOption,
   TaskFilterChip,
 } from './lib/components/filter/task-filter-bar.component';
+export { TaskViewMenuComponent } from './lib/components/filter/task-view-menu.component';
+export type {
+  TaskViewMove,
+  TaskViewRename,
+} from './lib/components/filter/task-view-menu.component';
 export type { TaskMetadataWrite } from './lib/components/detail/task-metadata-write';
 export {
   LABEL_CHIP_CLASSES,
@@ -43,3 +48,10 @@ export type {
   TaskEstimateBuckets,
 } from './lib/services/tasks-store.service';
 export { TaskStartService } from './lib/services/task-start.service';
+export {
+  TaskViewsService,
+  nextViewId,
+  taskFilterEquals,
+  taskSortEquals,
+} from './lib/services/task-views.service';
+export type { TaskViewMoveDirection } from './lib/services/task-views.service';
