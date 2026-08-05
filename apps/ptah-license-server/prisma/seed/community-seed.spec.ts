@@ -39,6 +39,15 @@ import {
   IMPORTED_TOPIC_IDS,
 } from './map-topics';
 import {
+  buildCourseRows,
+  COURSE_SLUG,
+  COURSE_TITLE,
+  COURSE_SORT_ORDER,
+  CourseMappingError,
+  MODULE_TITLES,
+  SORT_ORDER_STEP,
+} from './map-course';
+import {
   EXPORT_PATH,
   parseArgs,
   runCommunitySeed,
@@ -96,6 +105,42 @@ interface StoredCategory {
   cohortKeys: string[];
 }
 
+interface StoredCourse {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  visibility: string;
+  cohortKeys: string[];
+  published: boolean;
+  sequential: boolean;
+  sortOrder: number;
+  createdBy: string | null;
+  createdAt?: Date;
+}
+
+interface StoredModule {
+  id: string;
+  courseId: string;
+  slug: string;
+  title: string;
+  sortOrder: number;
+  releaseAt?: Date | null;
+  createdAt?: Date;
+}
+
+interface StoredLesson {
+  id: string;
+  moduleId: string;
+  slug: string;
+  title: string;
+  bodyMarkdown: string;
+  sortOrder: number;
+  youtubeVideoId: string | null;
+  videoDurationSeconds: number | null;
+  createdAt: Date;
+}
+
 /**
  * An in-memory Prisma stand-in that behaves like the real one for the six
  * verbs the seed uses, keyed on the same natural uniques.
@@ -112,6 +157,9 @@ function createRecordingPrisma(): {
   categories: Map<string, StoredCategory>;
   topics: Map<string, StoredTopic>;
   posts: Map<string, StoredPost>;
+  courses: Map<string, StoredCourse>;
+  modules: Map<string, StoredModule>;
+  lessons: Map<string, StoredLesson>;
   writes(): RecordedCall[];
 } {
   const calls: RecordedCall[] = [];
@@ -119,6 +167,12 @@ function createRecordingPrisma(): {
   const topics = new Map<string, StoredTopic>();
   /** Keyed `${topicId}#${postNumber}` — the schema's @@unique. */
   const posts = new Map<string, StoredPost>();
+  /** Keyed by slug — `Course.slug` is @unique. */
+  const courses = new Map<string, StoredCourse>();
+  /** Keyed `${courseId}#${slug}` — `@@unique([courseId, slug])`. */
+  const modules = new Map<string, StoredModule>();
+  /** Keyed `${moduleId}#${slug}` — `@@unique([moduleId, slug])`. */
+  const lessons = new Map<string, StoredLesson>();
   let nextId = 1;
   const id = (prefix: string) => `${prefix}_${nextId++}`;
 
@@ -207,6 +261,100 @@ function createRecordingPrisma(): {
         return row;
       },
     },
+    // -- Batch 11 -----------------------------------------------------------
+    // Picked up from the same STRUCTURAL `SeedTransactionClient`, which is why
+    // the abort proofs above now cover the curriculum writes too without a
+    // second double.
+    course: {
+      findUnique: async (args) => {
+        record('course', 'findUnique', args);
+        const where = arg<{ slug: string }>(args, 'where');
+        return courses.get(where.slug) ?? null;
+      },
+      create: async (args) => {
+        record('course', 'create', args);
+        const data = arg<Omit<StoredCourse, 'id'>>(args, 'data');
+        const row = { ...data, id: id('course') };
+        courses.set(row.slug, row);
+        return row;
+      },
+      update: async (args) => {
+        record('course', 'update', args);
+        const where = arg<{ slug: string }>(args, 'where');
+        const data = arg<Partial<StoredCourse>>(args, 'data');
+        const existing = courses.get(where.slug);
+        if (!existing) throw new Error(`No course ${where.slug}`);
+        const row = { ...existing, ...data };
+        courses.set(row.slug, row);
+        return row;
+      },
+    },
+    courseModule: {
+      findUnique: async (args) => {
+        record('courseModule', 'findUnique', args);
+        const where = arg<{
+          courseId_slug: { courseId: string; slug: string };
+        }>(args, 'where');
+        return (
+          modules.get(
+            `${where.courseId_slug.courseId}#${where.courseId_slug.slug}`,
+          ) ?? null
+        );
+      },
+      create: async (args) => {
+        record('courseModule', 'create', args);
+        const data = arg<Omit<StoredModule, 'id'>>(args, 'data');
+        const row = { ...data, id: id('module') };
+        modules.set(`${row.courseId}#${row.slug}`, row);
+        return row;
+      },
+      update: async (args) => {
+        record('courseModule', 'update', args);
+        const where = arg<{
+          courseId_slug: { courseId: string; slug: string };
+        }>(args, 'where');
+        const data = arg<Partial<StoredModule>>(args, 'data');
+        const k = `${where.courseId_slug.courseId}#${where.courseId_slug.slug}`;
+        const existing = modules.get(k);
+        if (!existing) throw new Error(`No module ${k}`);
+        const row = { ...existing, ...data };
+        modules.set(k, row);
+        return row;
+      },
+    },
+    lesson: {
+      findUnique: async (args) => {
+        record('lesson', 'findUnique', args);
+        const where = arg<{
+          moduleId_slug: { moduleId: string; slug: string };
+        }>(args, 'where');
+        return (
+          lessons.get(
+            `${where.moduleId_slug.moduleId}#${where.moduleId_slug.slug}`,
+          ) ?? null
+        );
+      },
+      create: async (args) => {
+        record('lesson', 'create', args);
+        const data = arg<Omit<StoredLesson, 'id'>>(args, 'data');
+        const row = { ...data, id: id('lesson') };
+        lessons.set(`${row.moduleId}#${row.slug}`, row);
+        return row;
+      },
+      update: async (args) => {
+        record('lesson', 'update', args);
+        const where = arg<{
+          moduleId_slug: { moduleId: string; slug: string };
+        }>(args, 'where');
+        const data = arg<Partial<StoredLesson>>(args, 'data');
+        const k = `${where.moduleId_slug.moduleId}#${where.moduleId_slug.slug}`;
+        const existing = lessons.get(k);
+        if (!existing) throw new Error(`No lesson ${k}`);
+        const row = { ...existing, ...data };
+        lessons.set(k, row);
+        return row;
+      },
+    },
   };
 
   const client = {
@@ -241,6 +389,9 @@ function createRecordingPrisma(): {
     categories,
     topics,
     posts,
+    courses,
+    modules,
+    lessons,
     writes: () => calls.filter((c) => WRITE_VERBS.has(c.verb)),
   };
 }
@@ -634,13 +785,23 @@ describe('community seed — MG-1', () => {
 
     it('the field name appears in no file under prisma/seed/', () => {
       const files = walk(SEED_DIR);
-      // Guard against a glob that silently matches nothing and passes.
-      expect(files.length).toBeGreaterThanOrEqual(8);
+      // Guard against a glob that silently matches nothing and passes. The floor
+      // moved from 11 to 12 when Batch 11 added `map-course.ts`: a floor that
+      // does not move with the directory lets a new file drop out of the scan
+      // while the assertion stays green.
+      expect(files.length).toBeGreaterThanOrEqual(12);
 
       const offenders = files.filter((f) =>
         readFileSync(f, 'utf8').includes(FORBIDDEN_FIELD),
       );
       expect(offenders).toEqual([]);
+    });
+
+    it("covers Batch 11's new module by name, not just by count", () => {
+      const files = walk(SEED_DIR);
+      expect(files).toContain(join(SEED_DIR, 'map-course.ts'));
+      expect(files).toContain(join(SEED_DIR, 'community-seed.ts'));
+      expect(files).toContain(join(SEED_DIR, 'summary.ts'));
     });
 
     it('the parsed export does not carry the field at run time either', () => {
@@ -826,6 +987,606 @@ describe('community seed — MG-1', () => {
         expect(CURRICULUM_TOPIC_IDS).not.toContain(topic.sourceId);
         expect(topic.slug).not.toMatch(/^week-\d/);
       }
+    });
+  });
+
+  // =========================================================================
+  // Batch 11 — the curriculum course (MG-1.5, §7.3, Tasks 11.2–11.5)
+  // =========================================================================
+
+  describe('curriculum course — counts and the consumed split (MG-1.5)', () => {
+    it('writes 1 course, 8 modules and 8 lessons against the recording double', async () => {
+      const db = createRecordingPrisma();
+      const result = await seed(db.client, EXPORT_PATH);
+
+      expect(result.courses).toEqual({ created: 1, updated: 0 });
+      expect(result.modules).toEqual({ created: 8, updated: 0 });
+      expect(result.lessons).toEqual({ created: 8, updated: 0 });
+      expect(db.courses.size).toBe(1);
+      expect(db.modules.size).toBe(CURRICULUM_TOPIC_IDS.length);
+      expect(db.lessons.size).toBe(CURRICULUM_TOPIC_IDS.length);
+
+      // The community half is untouched by the curriculum writer.
+      expect(result.categories).toEqual({ created: 4, updated: 0 });
+      expect(result.topics).toEqual({ created: 9, updated: 0 });
+      expect(result.posts).toEqual({ created: 10, updated: 0 });
+    });
+
+    it('CURRICULUM_TOPIC_IDS is now CONSUMED by a writer, not merely excluded by one', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+
+      const data = readDiscourseExport(EXPORT_PATH);
+      const titleById = new Map(data.topics.map((t) => [t.id, t.title]));
+      const lessonTitles = [...db.lessons.values()].map((l) => l.title);
+
+      // Every curriculum id contributed exactly one lesson, titled with its
+      // SOURCE topic title — the "Week N build thread — " prefix retained (§7.3).
+      for (const id of CURRICULUM_TOPIC_IDS) {
+        expect(lessonTitles).toContain(titleById.get(id));
+      }
+      expect(lessonTitles).toHaveLength(CURRICULUM_TOPIC_IDS.length);
+      for (const title of lessonTitles) {
+        expect(title).toMatch(/^Week \d build thread — /);
+      }
+
+      // And the community half still refuses them, which now means something
+      // stronger than before: not "dropped", but "written in the other shape".
+      for (const topic of db.topics.values()) {
+        expect(topic.slug).not.toMatch(/^week-\d/);
+      }
+    });
+
+    it('lays the modules out sparsely at 100…800, one lesson each at 100', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+
+      const ordered = [...db.modules.values()].sort(
+        (a, b) => a.sortOrder - b.sortOrder,
+      );
+      expect(ordered.map((m) => m.slug)).toEqual([
+        'week-1',
+        'week-2',
+        'week-3',
+        'week-4',
+        'week-5',
+        'week-6',
+        'week-7',
+        'week-8',
+      ]);
+      expect(ordered.map((m) => m.sortOrder)).toEqual([
+        100, 200, 300, 400, 500, 600, 700, 800,
+      ]);
+      // R8.8: sparse, so one later insert does not force a full renumber.
+      expect(SORT_ORDER_STEP).toBe(100);
+      for (const lesson of db.lessons.values()) {
+        expect(lesson.sortOrder).toBe(100);
+        // §7.3: the lesson slug equals its module slug.
+        expect(lesson.slug).toMatch(/^week-[1-8]$/);
+      }
+      const modulesById = new Map(
+        [...db.modules.values()].map((m) => [m.id, m]),
+      );
+      for (const lesson of db.lessons.values()) {
+        expect(modulesById.get(lesson.moduleId)?.slug).toBe(lesson.slug);
+      }
+    });
+
+    it('carries the §7.3 course row, with the cohort key RESOLVED not hard-coded', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+
+      const course = db.courses.get(COURSE_SLUG);
+      expect(course).toBeDefined();
+      expect(course?.title).toBe(COURSE_TITLE);
+      expect(course?.visibility).toBe('cohort');
+      expect(course?.published).toBe(true);
+      // 🔴 Deliberately false: the source has no completion gate and MG-1.5 asks
+      // to preserve ordering, not to invent gating.
+      expect(course?.sequential).toBe(false);
+      expect(course?.sortOrder).toBe(COURSE_SORT_ORDER);
+      // A-4: no User row, so no author.
+      expect(course?.createdBy).toBeNull();
+      // The key came from the memberGroup lookup, not from a literal in the
+      // mapper: build the rows against a different key and the row follows.
+      expect(course?.cohortKeys).toEqual([DEFAULT_COHORT_KEY]);
+      const data = readDiscourseExport(EXPORT_PATH);
+      expect(
+        buildCourseRows(data, 'some-other-cohort').course.cohortKeys,
+      ).toEqual(['some-other-cohort']);
+    });
+
+    it('takes the module titles from MG-1.5, not from the topic titles', () => {
+      const data = readDiscourseExport(EXPORT_PATH);
+      const { modules } = buildCourseRows(data, DEFAULT_COHORT_KEY);
+      expect(modules.map((m) => m.title)).toEqual([...MODULE_TITLES]);
+
+      // 🔴 The anti-vacuity case. Source topic 21 is titled "Week 7 build
+      // thread — Hardening — tests, policies, observability" while MG-1.5's
+      // module title is "Hardening". A derivation from the topic title would
+      // produce the longer string, so this pair proves the table is editorial
+      // rather than computed.
+      const week7 = modules.find((m) => m.slug === 'week-7');
+      expect(week7?.title).toBe('Hardening');
+      expect(week7?.lesson.title).toContain('tests, policies, observability');
+      expect(week7?.lesson.title).not.toBe(week7?.title);
+    });
+
+    it('leaves youtubeVideoId AND videoDurationSeconds null ⇒ manual completion only', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+      expect(db.lessons.size).toBe(8);
+      for (const lesson of db.lessons.values()) {
+        expect(lesson.youtubeVideoId).toBeNull();
+        // ⚠️ ASSUMPTION-8: the 90% rule keys on the DURATION, not on the id, so
+        // this null — not the one above — is what makes the lesson manual-only
+        // as the running code evaluates it.
+        expect(lesson.videoDurationSeconds).toBeNull();
+      }
+    });
+
+    it('writes lesson createdAt from the source topic, and NOT now()', async () => {
+      const before = Date.now();
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+
+      const data = readDiscourseExport(EXPORT_PATH);
+      const { modules } = buildCourseRows(data, DEFAULT_COHORT_KEY);
+      const sourceById = new Map(data.topics.map((t) => [t.id, t]));
+
+      for (const module of modules) {
+        const source = sourceById.get(module.sourceTopicId);
+        expect(module.lesson.createdAt.toISOString()).toBe(
+          new Date(source?.createdAt ?? 0).toISOString(),
+        );
+        expect(module.lesson.createdAt.getTime()).toBeLessThan(before);
+      }
+
+      const lessonWrites = db
+        .writes()
+        .filter((c) => c.model === 'lesson' && c.verb === 'create');
+      expect(lessonWrites).toHaveLength(8);
+      for (const call of lessonWrites) {
+        expect(call.args['data']).toHaveProperty('createdAt');
+        expect(
+          (call.args['data'] as { createdAt: Date }).createdAt,
+        ).toBeInstanceOf(Date);
+      }
+    });
+
+    it('does NOT stamp the course or its modules with a source instant', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+
+      // The course and the modules are new editorial objects assembled in
+      // 2026-08 from eight threads written across three weeks; giving them a
+      // source instant would be a fabricated claim about when the curriculum was
+      // authored. They fall through to @default(now()).
+      const structural = db
+        .writes()
+        .filter((c) => c.model === 'course' || c.model === 'courseModule');
+      expect(structural).toHaveLength(9);
+      for (const call of structural) {
+        expect(call.args['data']).not.toHaveProperty('createdAt');
+      }
+    });
+  });
+
+  describe('curriculum course — natural keys and idempotency (AD-15, §7.4)', () => {
+    it('matches on Course.slug, [courseId, slug] and [moduleId, slug] — asserted, not claimed', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+      await seed(db.client, EXPORT_PATH);
+
+      const keysOf = (model: string) =>
+        db.calls
+          .filter((c) => c.model === model && c.verb === 'findUnique')
+          .map((c) => Object.keys(c.args['where'] as object));
+
+      const courseKeys = keysOf('course');
+      expect(courseKeys.length).toBeGreaterThan(0);
+      for (const keys of courseKeys) expect(keys).toEqual(['slug']);
+
+      const moduleKeys = keysOf('courseModule');
+      expect(moduleKeys.length).toBeGreaterThan(0);
+      for (const keys of moduleKeys) expect(keys).toEqual(['courseId_slug']);
+
+      const lessonKeys = keysOf('lesson');
+      expect(lessonKeys.length).toBeGreaterThan(0);
+      for (const keys of lessonKeys) expect(keys).toEqual(['moduleId_slug']);
+    });
+
+    it('a second run produces ZERO creates on all three new models', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+      const second = await seed(db.client, EXPORT_PATH);
+
+      expect(second.courses).toEqual({ created: 0, updated: 1 });
+      expect(second.modules).toEqual({ created: 0, updated: 8 });
+      expect(second.lessons).toEqual({ created: 0, updated: 8 });
+      expect(db.courses.size).toBe(1);
+      expect(db.modules.size).toBe(8);
+      expect(db.lessons.size).toBe(8);
+    });
+
+    it('zero creates on ALL SIX entity lines, which is the exit gate itself', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+      const second = await seed(db.client, EXPORT_PATH);
+      expect(
+        second.summary.entities.map((e) => [e.label, e.counts.created]),
+      ).toEqual([
+        ['categories', 0],
+        ['topics', 0],
+        ['posts', 0],
+        ['courses', 0],
+        ['modules', 0],
+        ['lessons', 0],
+      ]);
+      for (const entity of second.summary.entities) {
+        expect(entity.counts.updated).toBeGreaterThan(0);
+      }
+    });
+
+    it('writes the curriculum AFTER the forum rows, with no interleaving', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+
+      const models = db.calls
+        .filter((c) => c.verb !== 'open' && c.model !== 'memberGroup')
+        .map((c) => c.model);
+      const firstCurriculum = models.findIndex((m) =>
+        ['course', 'courseModule', 'lesson'].includes(m),
+      );
+      const lastForum = models.reduce(
+        (last, m, i) => (['category', 'topic', 'post'].includes(m) ? i : last),
+        -1,
+      );
+      expect(firstCurriculum).toBeGreaterThan(lastForum);
+
+      // One transaction for the whole import (§7.4): opened once, and every
+      // write happens after it.
+      const opens = db.calls.filter((c) => c.verb === 'open');
+      expect(opens).toHaveLength(1);
+      expect(db.calls.indexOf(opens[0] as RecordedCall)).toBeLessThan(
+        db.calls.findIndex((c) => c.verb === 'create'),
+      );
+    });
+  });
+
+  describe('curriculum course — --refresh-bodies reaches lessons (§7.4)', () => {
+    const EDITED = 'An admin rewrote this lesson body in the product.';
+
+    it('a default re-run does NOT overwrite an edited lesson body', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+
+      const key = [...db.lessons.keys()][0] as string;
+      const row = db.lessons.get(key);
+      if (!row) throw new Error('no seeded lesson');
+      db.lessons.set(key, { ...row, bodyMarkdown: EDITED });
+
+      const result = await seed(db.client, EXPORT_PATH);
+      expect(db.lessons.get(key)?.bodyMarkdown).toBe(EDITED);
+      expect(result.summary.refreshedBodies).toEqual([]);
+    });
+
+    /**
+     * ⚠️ THIS IS THE CASE MOST LIKELY TO BE MISSING, AND ITS ABSENCE IS SILENT.
+     * Wiring the new writes and forgetting the flag leaves `--refresh-bodies`
+     * looking like it works — it still refreshes posts — while lesson bodies go
+     * stale for ever.
+     */
+    it('--refresh-bodies restores it and logs exactly one line naming both slugs', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+
+      const key = [...db.lessons.keys()][0] as string;
+      const row = db.lessons.get(key);
+      if (!row) throw new Error('no seeded lesson');
+      const original = row.bodyMarkdown;
+      db.lessons.set(key, { ...row, bodyMarkdown: EDITED });
+
+      const result = await seed(db.client, EXPORT_PATH, true);
+      expect(db.lessons.get(key)?.bodyMarkdown).toBe(original);
+      expect(result.summary.refreshedBodies).toHaveLength(1);
+      expect(result.summary.refreshedBodies[0]).toEqual({
+        kind: 'lesson',
+        moduleSlug: row.slug,
+        lessonSlug: row.slug,
+        previousLength: EDITED.length,
+        newLength: original.length,
+      });
+      // Enough to reconstruct what was destroyed, on ONE logger shared with the
+      // post variant rather than a second one that could silently go unwired.
+      expect(formatSummary(result.summary)).toContain(
+        `refreshed: ${row.slug}/${row.slug} lesson`,
+      );
+    });
+
+    it('logs nothing when no lesson body actually differs', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+      const result = await seed(db.client, EXPORT_PATH, true);
+      expect(result.summary.refreshedBodies).toEqual([]);
+    });
+  });
+
+  describe('curriculum course — byte fidelity, MADE SENSITIVE (RK-9)', () => {
+    it('every lesson body is byte-for-byte its source topic post #1 raw', async () => {
+      const db = createRecordingPrisma();
+      await seed(db.client, EXPORT_PATH);
+
+      const data = readDiscourseExport(EXPORT_PATH);
+      const sourceById = new Map(data.topics.map((t) => [t.id, t]));
+      const { modules } = buildCourseRows(data, DEFAULT_COHORT_KEY);
+      const storedBySlug = new Map(
+        [...db.lessons.values()].map((l) => [l.slug, l]),
+      );
+
+      let compared = 0;
+      for (const module of modules) {
+        const source = sourceById.get(module.sourceTopicId);
+        const raw = source?.posts.find((p) => p.postNumber === 1)?.raw;
+        expect(typeof raw).toBe('string');
+        expect(Buffer.from(module.lesson.bodyMarkdown, 'utf8')).toEqual(
+          Buffer.from(raw ?? '<missing>', 'utf8'),
+        );
+        // …and what actually reached the writer, not only what the mapper built.
+        expect(
+          Buffer.from(
+            storedBySlug.get(module.slug)?.bodyMarkdown ?? '',
+            'utf8',
+          ),
+        ).toEqual(Buffer.from(raw ?? '<missing>', 'utf8'));
+        compared++;
+      }
+      expect(compared).toBe(CURRICULUM_TOPIC_IDS.length);
+    });
+
+    /**
+     * 🔴 THE ASSERTION ABOVE IS VACUOUS AGAINST THE MOST LIKELY TRANSFORMS AND
+     * THIS ONE IS NOT. Batch 8's Finding 6: adding `.trim()` to the post mapper
+     * left all 37 assertions green, because not one export body has leading or
+     * trailing whitespace or a CR. The eight curriculum bodies are no different
+     * — every one begins with `**` and ends with `.`. A byte comparison against
+     * a corpus that happens to be invariant under a transform detects nothing.
+     *
+     * The body below is hostile to every normalisation a well-meaning
+     * contributor might add: surrounding whitespace (`.trim()`), a tab, CRLF
+     * (line-ending normalisation), an HTML entity (entity decoding), a literal
+     * tag (tag stripping — correct for `Category.description`, wrong here), a
+     * non-ASCII em-dash (re-encoding) and a trailing blank line (paragraph
+     * re-wrapping). It is applied to a CURRICULUM topic, so it exercises the
+     * lesson write specifically.
+     */
+    it('preserves a LESSON body that is sensitive to every plausible transform', async () => {
+      const HOSTILE = '  \r\n\t**bold** &amp; <b>tag</b> — em nbsp\r\n\r\n  ';
+      const targetId = CURRICULUM_TOPIC_IDS[0] as number;
+      const path = fixtureFromExport('hostile-lesson', (parsed) => {
+        const p = parsed as unknown as {
+          topics: {
+            id: number;
+            posts: { postNumber: number; raw: string }[];
+          }[];
+        };
+        const topic = p.topics.find((t) => t.id === targetId);
+        const post = topic?.posts.find((x) => x.postNumber === 1);
+        if (!post) throw new Error('fixture shape changed');
+        post.raw = HOSTILE;
+      });
+
+      const db = createRecordingPrisma();
+      await seed(db.client, path);
+
+      const stored = db.lessons.get(
+        `${[...db.modules.values()].find((m) => m.slug === 'week-1')?.id}#week-1`,
+      );
+      expect(stored).toBeDefined();
+      expect(Buffer.from(stored?.bodyMarkdown ?? '', 'utf8')).toEqual(
+        Buffer.from(HOSTILE, 'utf8'),
+      );
+      expect(stored?.bodyMarkdown).toBe(HOSTILE);
+    });
+  });
+
+  describe('curriculum course — the aborts (MG-1.2, RK-9)', () => {
+    /**
+     * 🔴 AN EMPTY CURRICULUM BODY ABORTS; IT IS NOT SKIPPED. The community half
+     * skips one empty small-action reply because the thread still reads
+     * correctly without it. A lesson body is the whole lesson: there is nothing
+     * to skip to, and a blank lesson would ship silently.
+     */
+    it('a curriculum topic with an empty post #1 aborts at the census, writing nothing', async () => {
+      const targetId = CURRICULUM_TOPIC_IDS[3] as number;
+      const path = fixtureFromExport('empty-lesson-body', (parsed) => {
+        const p = parsed as unknown as {
+          topics: {
+            id: number;
+            posts: { postNumber: number; raw: string }[];
+          }[];
+        };
+        const post = p.topics
+          .find((t) => t.id === targetId)
+          ?.posts.find((x) => x.postNumber === 1);
+        if (!post) throw new Error('fixture shape changed');
+        post.raw = '';
+      });
+
+      const db = createRecordingPrisma();
+      // The FIRST control to fire is the export census: 17 non-empty bodies
+      // where EXPECTED_NON_EMPTY_BODY_POSTS demands 18.
+      await expect(seed(db.client, path)).rejects.toBeInstanceOf(
+        ExportValidationError,
+      );
+      expect(db.calls).toEqual([]);
+    });
+
+    it('…and aborts in the MAPPER too, when the census is compensated', async () => {
+      // Two mutations, and the second exists only to get past the census so the
+      // mapper's own guard is the thing under test: blank a curriculum body AND
+      // fill the one legitimately-empty community reply, keeping the non-empty
+      // total at 18. Without this the mapper guard would never be reached and
+      // "a blank lesson aborts" would be asserted only against the schema.
+      const targetId = CURRICULUM_TOPIC_IDS[3] as number;
+      const path = fixtureFromExport('empty-lesson-compensated', (parsed) => {
+        const p = parsed as unknown as {
+          topics: {
+            id: number;
+            posts: { postNumber: number; raw: string }[];
+          }[];
+        };
+        const blanked = p.topics
+          .find((t) => t.id === targetId)
+          ?.posts.find((x) => x.postNumber === 1);
+        const filled = p.topics
+          .find((t) => t.id === 13)
+          ?.posts.find((x) => x.postNumber === 2);
+        if (!blanked || !filled) throw new Error('fixture shape changed');
+        blanked.raw = '';
+        filled.raw = 'A body where the export has a small-action marker.';
+      });
+
+      const db = createRecordingPrisma();
+      await expect(seed(db.client, path)).rejects.toBeInstanceOf(
+        CourseMappingError,
+      );
+      await expect(seed(db.client, path)).rejects.toThrow(/empty post #1 body/);
+      // Mapping happens before the transaction opens, so nothing is written and
+      // nothing is even read.
+      expect(db.writes()).toEqual([]);
+      expect(db.calls.filter((c) => c.verb === 'open')).toEqual([]);
+    });
+
+    it('the cohort abort writes NO course either — not a member-visibility downgrade', async () => {
+      const db = createRecordingPrisma();
+      const client = {
+        ...db.client,
+        memberGroup: { findFirst: async () => null },
+      } as unknown as SeedPrismaClient;
+
+      await expect(seed(client, EXPORT_PATH)).rejects.toThrow(
+        /No MemberGroup has isDefault = true/,
+      );
+      expect(db.writes()).toEqual([]);
+      expect(db.courses.size).toBe(0);
+      expect(db.modules.size).toBe(0);
+      expect(db.lessons.size).toBe(0);
+      // Not a fallback to 'founding', not an empty cohortKeys, not a downgrade
+      // to visibility: 'member'. The seed refuses to write an ungated course.
+      expect(
+        db.calls.filter((c) =>
+          ['course', 'courseModule', 'lesson'].includes(c.model),
+        ),
+      ).toEqual([]);
+    });
+
+    it('the raw:null and U+FFFD fixtures still write no course, module or lesson', async () => {
+      for (const [name, mutate] of [
+        [
+          'raw-null-b11',
+          (p: { topics: { posts: { raw: string | null }[] }[] }) => {
+            (p.topics[0] as { posts: { raw: string | null }[] }).posts[0].raw =
+              null;
+          },
+        ],
+        [
+          'mojibake-b11',
+          (p: { topics: { posts: { raw: string | null }[] }[] }) => {
+            (p.topics[0] as { posts: { raw: string | null }[] }).posts[0].raw =
+              `Ptah ${String.fromCharCode(0xfffd)} week one`;
+          },
+        ],
+      ] as const) {
+        const path = fixtureFromExport(name, mutate as never);
+        const db = createRecordingPrisma();
+        await expect(seed(db.client, path)).rejects.toBeInstanceOf(
+          ExportValidationError,
+        );
+        expect(db.calls).toEqual([]);
+        expect(db.courses.size).toBe(0);
+        expect(db.modules.size).toBe(0);
+        expect(db.lessons.size).toBe(0);
+      }
+    });
+
+    it('aborts rather than zipping a mismatched title table against the topic ids', () => {
+      const data = readDiscourseExport(EXPORT_PATH);
+      expect(MODULE_TITLES).toHaveLength(CURRICULUM_TOPIC_IDS.length);
+      expect(() => buildCourseRows(data, '')).toThrow(CourseMappingError);
+      expect(() => buildCourseRows(data, '')).toThrow(/gated on nothing/);
+    });
+  });
+
+  describe('curriculum course — A-4 and the summary arithmetic (Task 11.4)', () => {
+    it('creates no User row while writing the curriculum', async () => {
+      const db = createRecordingPrisma();
+      // The poisoned `user` delegate throws on any property access, so the run
+      // resolving at all is the assertion — now with 17 more writes to do it in.
+      await expect(seed(db.client, EXPORT_PATH)).resolves.toBeDefined();
+      expect(db.calls.some((c) => c.model === 'user')).toBe(false);
+      expect(db.lessons.size).toBe(8);
+      for (const course of db.courses.values()) {
+        expect(course.createdBy).toBeNull();
+      }
+    });
+
+    it('closes both §7.5 assertion lines with computed numbers on both sides', async () => {
+      const db = createRecordingPrisma();
+      const { summary } = await seed(db.client, EXPORT_PATH);
+      const text = formatSummary(summary);
+
+      expect(summary.assertions[0]).toBe(
+        `source topics ${EXPECTED_TOPIC_COUNT} = ${CURRICULUM_TOPIC_IDS.length} curriculum + ` +
+          `${IMPORTED_TOPIC_IDS.length} topics OK`,
+      );
+      // 🔴 19 = 10 written + 1 skipped + 8 curriculum, NOT the plan's 11 + 8.
+      // The 11th post is the empty small-action marker Batch 8 skips.
+      expect(summary.assertions[1]).toBe(
+        `source posts ${EXPECTED_POST_COUNT} = 10 written + 1 skipped (empty source body) + ` +
+          `${CURRICULUM_TOPIC_IDS.length} curriculum bodies OK`,
+      );
+      expect(summary.assertions.join('\n')).not.toContain('MISMATCH');
+
+      // Six entity lines, in §7.5's order.
+      expect(summary.entities.map((e) => e.label)).toEqual([
+        'categories',
+        'topics',
+        'posts',
+        'courses',
+        'modules',
+        'lessons',
+      ]);
+      expect(text).toContain('courses:');
+      expect(text).toContain('modules:');
+      expect(text).toContain('lessons:');
+    });
+
+    it("reports 18 bodies imported — the export's non-empty total, now fully written", async () => {
+      const db = createRecordingPrisma();
+      const { summary } = await seed(db.client, EXPORT_PATH);
+      expect(summary.bodies.imported).toBe(EXPECTED_NON_EMPTY_BODY_POSTS);
+      expect(summary.bodies.total).toBe(EXPECTED_NON_EMPTY_BODY_POSTS);
+      expect(summary.bodies.transformed).toBe(0);
+      expect(formatSummary(summary)).toContain(
+        `bodies: ${EXPECTED_NON_EMPTY_BODY_POSTS}/${EXPECTED_NON_EMPTY_BODY_POSTS} imported from \`raw\`; 0 transformed`,
+      );
+    });
+
+    it('still names every source post as system-authored, and the count now closes', async () => {
+      const db = createRecordingPrisma();
+      const { summary } = await seed(db.client, EXPORT_PATH);
+      expect(summary.unmatchedUsernames).toEqual([
+        { username: 'system', postCount: EXPECTED_POST_COUNT },
+      ]);
+      const text = formatSummary(summary);
+      expect(text).toContain(
+        `unmatched usernames: system (${EXPECTED_POST_COUNT} posts)`,
+      );
+      // Batch 8's clause said the count was a superset of what the run wrote.
+      // It is not any more, and the wording moved with the fact.
+      expect(text).toContain('now fully accounted for');
+      expect(text).not.toContain('Batch 11 writes the rest');
     });
   });
 

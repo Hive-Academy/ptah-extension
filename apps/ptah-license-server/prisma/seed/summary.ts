@@ -1,11 +1,13 @@
 /**
- * The seed's summary output — TASK_2026_177 Task 8.6, plan §7.5, MG-1.10.
+ * The seed's summary output — TASK_2026_177 Task 8.6, plan §7.5, MG-1.10;
+ * extended by Task 11.4.
  *
- * ⚠️ DATA-DRIVEN ON PURPOSE. Batch 11 adds `courses`, `modules` and `lessons`
- * rows to this same block and completes the `11 + 8 = 19` post assertion. Keeping
- * the rows in an array means B11 appends entries rather than rewriting a
- * template literal — and a rewritten template is how the two batches' output
- * would end up disagreeing about the same run.
+ * ⚠️ DATA-DRIVEN ON PURPOSE. Batch 11 added `courses`, `modules` and `lessons`
+ * rows to this same block and completed the post assertion. Keeping the rows in
+ * an array meant B11 APPENDED entries rather than rewriting a template literal —
+ * and a rewritten template is how the two batches' output would end up
+ * disagreeing about the same run. `formatSummary` was not rewritten; it gained
+ * one branch, for the lesson variant of the `--refresh-bodies` log.
  */
 
 /** One `created N updated M` line. */
@@ -17,6 +19,33 @@ export interface EntityCounts {
 export function emptyCounts(): EntityCounts {
   return { created: 0, updated: 0 };
 }
+
+/**
+ * One `--refresh-bodies` overwrite, named precisely enough to reconstruct what
+ * was destroyed (§7.4).
+ *
+ * ⚠️ ONE LOG, TWO VARIANTS — NOT TWO LOGGERS. Task 11.3 is explicit that
+ * `--refresh-bodies` must reach lessons and that the existing logger is extended
+ * rather than duplicated. A second array would let the flag appear to work while
+ * silently leaving one of the two body kinds stale, which is exactly the failure
+ * mode the discriminant makes impossible: every overwrite lands in this one list
+ * and is printed by the one loop below.
+ */
+export type RefreshedBody =
+  | {
+      readonly kind: 'post';
+      readonly topicSlug: string;
+      readonly postNumber: number;
+      readonly previousLength: number;
+      readonly newLength: number;
+    }
+  | {
+      readonly kind: 'lesson';
+      readonly moduleSlug: string;
+      readonly lessonSlug: string;
+      readonly previousLength: number;
+      readonly newLength: number;
+    };
 
 /** Everything the summary needs. Batch 11 extends `entities` and `assertions`. */
 export interface SeedSummary {
@@ -49,12 +78,7 @@ export interface SeedSummary {
    * "N bodies refreshed" line cannot reconstruct what was destroyed, which is
    * the only reason to log a destructive operation at all.
    */
-  readonly refreshedBodies: readonly {
-    topicSlug: string;
-    postNumber: number;
-    previousLength: number;
-    newLength: number;
-  }[];
+  readonly refreshedBodies: readonly RefreshedBody[];
 }
 
 const LABEL_WIDTH = 12;
@@ -62,11 +86,14 @@ const LABEL_WIDTH = 12;
 /**
  * Render the summary.
  *
- * ⚠️ THE `unmatched usernames` COUNT DESCRIBES THE SOURCE, NOT THIS RUN. It
- * reports 19 posts while this batch writes 10, because all 19 of the export's
- * posts are authored by `system` and Batch 11 writes the remaining bodies from
- * the same 19 as lesson content. The line says so explicitly, so the arithmetic
- * is not read as a bug by the next person to run this.
+ * ⚠️ THE `unmatched usernames` COUNT DESCRIBES THE SOURCE, NOT ONE ENTITY. It
+ * reports 19 posts because all 19 of the export's posts are authored by
+ * `system`, which matches no `User` (A-4). Batch 8's wording said the count was
+ * a superset of what the run wrote, because the 8 curriculum bodies were still
+ * unwritten; **Task 11.4 closes that** — the same 19 now split into 10 forum
+ * posts, 1 skipped empty body and 8 lesson bodies, which is exactly what the two
+ * `assertions:` lines below show. The clause says so, so the arithmetic is not
+ * read as a bug by the next person to run this.
  *
  * ⚠️ `0 transformed` IS A CLAIM, NOT A DECORATION. `bodyMarkdown` is the
  * export's `raw` copied verbatim — no re-wrap, no entity decoding, not even a
@@ -88,8 +115,8 @@ export function formatSummary(summary: SeedSummary): string {
   for (const unmatched of summary.unmatchedUsernames) {
     lines.push(
       `  unmatched usernames: ${unmatched.username} (${unmatched.postCount} posts)` +
-        ' -> attributed to the system author (A-4); the count is the SOURCE total —' +
-        ' this batch writes a subset and Batch 11 writes the rest from the same posts',
+        ' -> attributed to the system author (A-4); the count is the SOURCE total,' +
+        ' now fully accounted for across forum posts and lesson bodies by the assertions below',
     );
   }
 
@@ -106,8 +133,12 @@ export function formatSummary(summary: SeedSummary): string {
   }
 
   for (const refreshed of summary.refreshedBodies) {
+    const subject =
+      refreshed.kind === 'post'
+        ? `${refreshed.topicSlug} post #${refreshed.postNumber}`
+        : `${refreshed.moduleSlug}/${refreshed.lessonSlug} lesson`;
     lines.push(
-      `  refreshed: ${refreshed.topicSlug} post #${refreshed.postNumber} — ` +
+      `  refreshed: ${subject} — ` +
         `overwrote ${refreshed.previousLength} chars with ${refreshed.newLength} (--refresh-bodies)`,
     );
   }

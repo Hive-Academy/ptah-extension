@@ -23,8 +23,11 @@
  * chokepoint; putting HTML through it would be a sanitiser mismatch, and this
  * quarantine is what makes "no HTML in the pipeline" total.
  *
- * ⚠️ THE 8 "Week N" TOPICS ARE DELIBERATELY NOT IMPORTED HERE. They become a
- * course in Batch 11 against this same module. See `IMPORTED_TOPIC_IDS`.
+ * ⚠️ THE 8 "Week N" TOPICS ARE NOT IMPORTED AS FORUM TOPICS. Batch 11 turns them
+ * into ONE `Course`, 8 `CourseModule` rows and 8 `Lesson` rows in this same
+ * transaction (MG-1.5, §7.3). See `IMPORTED_TOPIC_IDS` / `CURRICULUM_TOPIC_IDS`
+ * for the split and `map-course.ts` for the mapping. Every source topic is
+ * therefore written exactly once, in exactly one shape.
  *
  * Usage:
  *   npx nx run ptah-license-server:seed-community
@@ -50,9 +53,16 @@ import {
   type TopicSeedRow,
 } from './map-topics';
 import {
+  buildCourseRows,
+  CourseMappingError,
+  type CourseModuleSeedRow,
+  type CourseSeedRow,
+} from './map-course';
+import {
   emptyCounts,
   formatSummary,
   type EntityCounts,
+  type RefreshedBody,
   type SeedSummary,
 } from './summary';
 import {
@@ -110,11 +120,32 @@ interface PostRow {
   id: string;
   bodyMarkdown: string;
 }
+interface CourseRow {
+  id: string;
+  slug: string;
+}
+interface CourseModuleRow {
+  id: string;
+  slug: string;
+}
+interface LessonRow {
+  id: string;
+  bodyMarkdown: string;
+}
 
 export interface SeedTransactionClient {
   category: Delegate<CategoryRow>;
   topic: Delegate<TopicRow>;
   post: Delegate<PostRow>;
+  /**
+   * Batch 11's three delegates. Added to the same STRUCTURAL type on purpose:
+   * the recording double in `community-seed.spec.ts` is typed against this
+   * interface, so it picks them up without a second stand-in and the "wrote
+   * nothing" proofs keep covering the writes this batch added.
+   */
+  course: Delegate<CourseRow>;
+  courseModule: Delegate<CourseModuleRow>;
+  lesson: Delegate<LessonRow>;
 }
 
 export interface SeedPrismaClient {
@@ -132,16 +163,24 @@ export interface SeedResult {
   readonly categories: EntityCounts;
   readonly topics: EntityCounts;
   readonly posts: EntityCounts;
+  readonly courses: EntityCounts;
+  readonly modules: EntityCounts;
+  readonly lessons: EntityCounts;
 }
 
 /**
- * Resolve the cohort key the one `cohort` category is gated on (MG-1.4, RISK-G).
+ * Resolve the cohort key the `cohort` category AND the curriculum course are
+ * gated on (MG-1.4, MG-1.5, RISK-G).
  *
  * ⚠️ NEVER HARD-CODED, AND THE ABORT IS NOT NEGOTIABLE. `founding` is the
  * current value, but the check is the control that stops a cohort-gated category
- * from being seeded wide open: `cohortKeys: []` on a `cohort` category means
+ * or course from being seeded wide open: `cohortKeys: []` on a `cohort` row means
  * "gated on nothing", which the visibility resolver reads as visible to every
  * entitled member.
+ *
+ * ⚠️ ONE RESOLVER, USED TWICE. Task 11.3 is explicit that the course reuses this
+ * rather than adding a second lookup — two resolvers can disagree, and the one
+ * that disagrees quietly is the one that ungates the curriculum.
  */
 async function resolveCohortKey(prisma: SeedPrismaClient): Promise<string> {
   const group = await prisma.memberGroup.findFirst({
@@ -183,11 +222,18 @@ export async function runCommunitySeed(
   const cohortKey = await resolveCohortKey(prisma);
   const categoryRows = buildCategoryRows(exportData, cohortKey);
   const { topics: topicRows, skippedEmptyBodies } = buildTopicRows(exportData);
+  const { course: courseRow, modules: moduleRows } = buildCourseRows(
+    exportData,
+    cohortKey,
+  );
 
   const categories = emptyCounts();
   const topics = emptyCounts();
   const posts = emptyCounts();
-  const refreshedBodies: SeedSummary['refreshedBodies'][number][] = [];
+  const courses = emptyCounts();
+  const modules = emptyCounts();
+  const lessons = emptyCounts();
+  const refreshedBodies: RefreshedBody[] = [];
 
   await prisma.$transaction(
     async (tx) => {
@@ -211,54 +257,71 @@ export async function runCommunitySeed(
           refreshedBodies,
         });
       }
+
+      // ⚠️ THE CURRICULUM WRITES COME LAST AND DO NOT INTERLEAVE WITH THE FORUM
+      // WRITES. Two independent write groups inside one transaction is what makes
+      // a partial failure unambiguous: whatever aborts, the whole import rolls
+      // back, and the recorded call sequence reads as two blocks rather than as
+      // a shuffle nobody can reason about.
+      await writeCourse(tx, courseRow, moduleRows, courses, modules, lessons, {
+        refreshBodies: options.refreshBodies,
+        refreshedBodies,
+      });
     },
-    // The default 5s interactive-transaction budget is tight for ~60 round
-    // trips over a cold pool; a timeout here would look like a mapping bug.
+    // The default 5s interactive-transaction budget is tight for ~60 round trips
+    // over a cold pool; a timeout here would look like a mapping bug rather than
+    // a budget. Batch 11 adds 1 + 8 + 8 natural-key reads and the same number of
+    // writes — ~34 more round trips, ~94 in total. Measured wall time for the
+    // whole transaction on this workspace stayed well inside a second, so the
+    // 60s ceiling is left where Batch 8 set it: it was already ~60x the observed
+    // cost and raising it further would only delay a real hang.
     { maxWait: 10_000, timeout: 60_000 },
   );
 
   const importedBodies = topicRows.reduce((n, t) => n + t.posts.length, 0);
+  const curriculumBodies = moduleRows.length;
+  const accountedPosts =
+    importedBodies + skippedEmptyBodies.length + curriculumBodies;
 
   const summary: SeedSummary = {
     entities: [
       { label: 'categories', counts: categories },
       { label: 'topics', counts: topics },
       { label: 'posts', counts: posts },
+      { label: 'courses', counts: courses },
+      { label: 'modules', counts: modules },
+      { label: 'lessons', counts: lessons },
     ],
     unmatchedUsernames: collectUnmatchedUsernames(exportData),
     bodies: {
-      imported: importedBodies,
-      total: importedBodies,
+      // Both halves now, because both are written by this run: 10 forum post
+      // bodies + 8 lesson bodies = the export's 18 non-empty ones.
+      imported: importedBodies + curriculumBodies,
+      total: importedBodies + curriculumBodies,
       transformed: 0,
     },
     skippedEmptyBodies,
     refreshedBodies,
+    // ⚠️ EVERY NUMBER BELOW IS COMPUTED, NOT RESTATED. `17`, `19`, `9`, `8` and
+    // `10` are all derived from the census constants and the mapped rows, so a
+    // re-captured export moves the line instead of making it a lie. Task 11.4.
     assertions: [
-      `source topics ${EXPECTED_TOPIC_COUNT} = ${CURRICULUM_TOPIC_IDS.length} curriculum (batch 11) + ` +
+      `source topics ${EXPECTED_TOPIC_COUNT} = ${CURRICULUM_TOPIC_IDS.length} curriculum + ` +
         `${IMPORTED_TOPIC_IDS.length} topics ${
           CURRICULUM_TOPIC_IDS.length + IMPORTED_TOPIC_IDS.length ===
           EXPECTED_TOPIC_COUNT
             ? 'OK'
             : 'MISMATCH'
         }`,
-      `source posts ${EXPECTED_POST_COUNT} = ${importedBodies} written here + ` +
+      `source posts ${EXPECTED_POST_COUNT} = ${importedBodies} written + ` +
         `${skippedEmptyBodies.length} skipped (empty source body) + ` +
-        `${
-          EXPECTED_POST_COUNT - importedBodies - skippedEmptyBodies.length
-        } curriculum bodies (batch 11) ${
-          importedBodies +
-            skippedEmptyBodies.length +
-            (EXPECTED_POST_COUNT -
-              importedBodies -
-              skippedEmptyBodies.length) ===
-          EXPECTED_POST_COUNT
-            ? 'OK'
-            : 'MISMATCH'
+        `${curriculumBodies} curriculum bodies ${
+          accountedPosts === EXPECTED_POST_COUNT ? 'OK' : 'MISMATCH'
         }`,
     ],
   };
 
-  return { summary, categories, topics, posts };
+  return { summary, categories, topics, posts, courses, modules, lessons };
 }
 
 /**
@@ -283,6 +346,12 @@ function collectUnmatchedUsernames(
   return [...counts.entries()]
     .map(([username, postCount]) => ({ username, postCount }))
     .sort((a, b) => a.username.localeCompare(b.username));
+}
+
+/** The `--refresh-bodies` decision plus the one log both writers append to. */
+interface BodyPolicy {
+  refreshBodies: boolean;
+  refreshedBodies: RefreshedBody[];
 }
 
 async function writeCategories(
@@ -334,10 +403,7 @@ async function writeTopic(
   categoryId: string,
   topicCounts: EntityCounts,
   postCounts: EntityCounts,
-  bodyPolicy: {
-    refreshBodies: boolean;
-    refreshedBodies: SeedSummary['refreshedBodies'][number][];
-  },
+  bodyPolicy: BodyPolicy,
 ): Promise<void> {
   const existing = await tx.topic.findUnique({
     where: { slug: row.slug },
@@ -410,6 +476,7 @@ async function writeTopic(
 
     if (shouldRefresh) {
       bodyPolicy.refreshedBodies.push({
+        kind: 'post',
         topicSlug: row.slug,
         postNumber: post.postNumber,
         previousLength: existingPost.bodyMarkdown.length,
@@ -431,6 +498,183 @@ async function writeTopic(
     });
     postCounts.updated += 1;
   }
+}
+
+/**
+ * Write the course, its modules and their lessons (MG-1.5, §7.3, Task 11.3).
+ *
+ * ⚠️ NATURAL KEYS ONLY (AD-15), AND THEY ARE THE SCHEMA'S OWN UNIQUES:
+ * `Course.slug`, `CourseModule @@unique([courseId, slug])` and
+ * `Lesson @@unique([moduleId, slug])`. No synthetic `sourceRef` column exists —
+ * RK-1 rejected one — so the course's identity is the slug an operator can read
+ * in a URL, and a module's is its position in a course rather than a row id that
+ * changes every time the seed is re-pointed at a fresh database. That is why a
+ * second run updates in place instead of orphaning run 1's rows.
+ *
+ * ⚠️ `findUnique` + `create`/`update`, NOT `upsert` — Batch 8's Finding 4,
+ * unchanged. "A second run produces zero creates" is the exit gate's central
+ * observable and `upsert` cannot report which branch it took.
+ *
+ * ⚠️ THE UPDATE PAYLOADS ARE DELIBERATELY NARROWER THAN THE CREATE PAYLOADS.
+ * `bodyMarkdown` is excluded unless `--refresh-bodies` is passed (§7.4), and so
+ * are three columns the seed has no business owning after the first run:
+ *   - `Course.createdBy` — null here (A-4); an admin may since have claimed it;
+ *   - `CourseModule.releaseAt` — R2.4.1's weekly-release schedule. Re-running the
+ *     seed must not silently unschedule eight modules an admin has date-gated;
+ *   - `Lesson.youtubeVideoId` and the video columns — an admin may have attached
+ *     a recording, and clobbering it back to null would also reset every member's
+ *     completion basis for that lesson (ASSUMPTION-8).
+ * Every one of those is the same class of harm the `bodyMarkdown` exclusion
+ * exists to prevent: a re-run destroying work done in the product.
+ */
+async function writeCourse(
+  tx: SeedTransactionClient,
+  courseRow: CourseSeedRow,
+  moduleRows: readonly CourseModuleSeedRow[],
+  courseCounts: EntityCounts,
+  moduleCounts: EntityCounts,
+  lessonCounts: EntityCounts,
+  bodyPolicy: BodyPolicy,
+): Promise<void> {
+  const existingCourse = await tx.course.findUnique({
+    where: { slug: courseRow.slug },
+    select: { id: true, slug: true },
+  });
+
+  const courseData = {
+    title: courseRow.title,
+    description: courseRow.description,
+    visibility: courseRow.visibility,
+    cohortKeys: [...courseRow.cohortKeys],
+    published: courseRow.published,
+    sequential: courseRow.sequential,
+    sortOrder: courseRow.sortOrder,
+  };
+
+  let courseId: string;
+  if (existingCourse) {
+    const updated = await tx.course.update({
+      where: { slug: courseRow.slug },
+      data: courseData,
+      select: { id: true, slug: true },
+    });
+    courseCounts.updated += 1;
+    courseId = updated.id;
+  } else {
+    const created = await tx.course.create({
+      // ⚠️ `Course.createdAt` IS NOT SET AND THAT IS THE DECISION, NOT AN
+      // OVERSIGHT. §7.3 specifies source timestamps for topics and posts
+      // (MG-1.7) and says nothing about the course, because the course is a new
+      // editorial object assembled in 2026-08 from eight threads written across
+      // three weeks. Stamping it with one of their instants would be a
+      // fabricated claim about when the curriculum was authored. It falls
+      // through to `@default(now())`. See `map-course.ts`.
+      data: {
+        ...courseData,
+        slug: courseRow.slug,
+        createdBy: courseRow.createdBy,
+      },
+      select: { id: true, slug: true },
+    });
+    courseCounts.created += 1;
+    courseId = created.id;
+  }
+
+  for (const module of moduleRows) {
+    const existingModule = await tx.courseModule.findUnique({
+      where: { courseId_slug: { courseId, slug: module.slug } },
+      select: { id: true, slug: true },
+    });
+
+    const moduleData = {
+      title: module.title,
+      sortOrder: module.sortOrder,
+    };
+
+    let moduleId: string;
+    if (existingModule) {
+      const updated = await tx.courseModule.update({
+        where: { courseId_slug: { courseId, slug: module.slug } },
+        data: moduleData,
+        select: { id: true, slug: true },
+      });
+      moduleCounts.updated += 1;
+      moduleId = updated.id;
+    } else {
+      // `CourseModule.createdAt` also falls through to `@default(now())`: a
+      // module's identity is its MG-1.5 title, which no source topic supplies.
+      const created = await tx.courseModule.create({
+        data: { ...moduleData, courseId, slug: module.slug },
+        select: { id: true, slug: true },
+      });
+      moduleCounts.created += 1;
+      moduleId = created.id;
+    }
+
+    await writeLesson(tx, module, moduleId, lessonCounts, bodyPolicy);
+  }
+}
+
+async function writeLesson(
+  tx: SeedTransactionClient,
+  module: CourseModuleSeedRow,
+  moduleId: string,
+  lessonCounts: EntityCounts,
+  bodyPolicy: BodyPolicy,
+): Promise<void> {
+  const lesson = module.lesson;
+  const existing = await tx.lesson.findUnique({
+    where: { moduleId_slug: { moduleId, slug: lesson.slug } },
+    select: { id: true, bodyMarkdown: true },
+  });
+
+  if (!existing) {
+    await tx.lesson.create({
+      // ⚠️ `createdAt` IS WRITTEN EXPLICITLY. Unlike the course and the module,
+      // a lesson IS a source body, so its date is a true fact about it (MG-1.7's
+      // principle). A row that fell through to `@default(now())` would carry a
+      // plausible-looking wrong timestamp — the failure mode that is invisible
+      // in review.
+      data: {
+        moduleId,
+        slug: lesson.slug,
+        title: lesson.title,
+        bodyMarkdown: lesson.bodyMarkdown,
+        sortOrder: lesson.sortOrder,
+        youtubeVideoId: lesson.youtubeVideoId,
+        videoDurationSeconds: lesson.videoDurationSeconds,
+        createdAt: lesson.createdAt,
+      },
+      select: { id: true, bodyMarkdown: true },
+    });
+    lessonCounts.created += 1;
+    return;
+  }
+
+  const shouldRefresh =
+    bodyPolicy.refreshBodies && existing.bodyMarkdown !== lesson.bodyMarkdown;
+
+  if (shouldRefresh) {
+    bodyPolicy.refreshedBodies.push({
+      kind: 'lesson',
+      moduleSlug: module.slug,
+      lessonSlug: lesson.slug,
+      previousLength: existing.bodyMarkdown.length,
+      newLength: lesson.bodyMarkdown.length,
+    });
+  }
+
+  await tx.lesson.update({
+    where: { moduleId_slug: { moduleId, slug: lesson.slug } },
+    data: {
+      title: lesson.title,
+      sortOrder: lesson.sortOrder,
+      createdAt: lesson.createdAt,
+      ...(shouldRefresh ? { bodyMarkdown: lesson.bodyMarkdown } : {}),
+    },
+    select: { id: true, bodyMarkdown: true },
+  });
+  lessonCounts.updated += 1;
 }
 
 /**
@@ -478,6 +722,9 @@ if (require.main === module) {
     } else if (error instanceof MissingDefaultCohortError) {
       process.stderr.write(`\n[community-seed] ${error.message}\n`);
     } else if (error instanceof ExportValidationError) {
+      process.stderr.write(`\n[community-seed] ${error.message}\n`);
+    } else if (error instanceof CourseMappingError) {
+      // A content problem, not a bug: print the remedy, not a stack.
       process.stderr.write(`\n[community-seed] ${error.message}\n`);
     } else {
       process.stderr.write(
