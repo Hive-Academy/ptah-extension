@@ -1,4 +1,6 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
+
+import { IsOptionalNotNull } from '../../common/optional-field';
 
 /**
  * `PATCH /api/v1/members/community/topics/:id` — R1.2.3, R1.2.4, plan §3.3.
@@ -27,7 +29,7 @@ import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
  */
 export class UpdateTopicDto {
   /** 3–200 characters (§3.3). Sets `Topic.editedAt`; leaves `slug` untouched. */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(3)
   @MaxLength(200)
@@ -41,7 +43,7 @@ export class UpdateTopicDto {
    * POST's `editedAt` — so the "edited" marker appears where the change
    * actually happened rather than on the thread header.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(1)
   @MaxLength(50_000)

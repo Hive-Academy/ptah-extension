@@ -11,6 +11,7 @@ import {
 } from '@ptah-contracts/community';
 
 import { toAuthorNameMap } from '../common/author-name';
+import { repliesRead } from '../common/post-numbering';
 import {
   emptyPage,
   toPaged,
@@ -128,10 +129,35 @@ export class TopicsReadService {
       unreadClause = buildUnreadWhere(markers);
     }
 
+    /**
+     * R9.2 "My Threads" — a `where` CLAUSE, composed with everything else.
+     *
+     * ⚠️ THE AUTHOR ID COMES FROM `MemberContext`, NEVER FROM THE QUERY. The DTO
+     * carries a BOOLEAN (`?mine=true`), so there is no author id in the request
+     * to forge; `ListTopicsQueryDto.mine`'s docblock has the full reasoning. An
+     * `?authorId=` parameter would let any entitled member enumerate any other
+     * member's threads, and nothing downstream would refuse it — those topics
+     * really are visible to them.
+     *
+     * ⚠️ IT IS SPREAD INTO THE SAME `where` AS `NOT_DELETED` AND THE VISIBLE-
+     * CATEGORY RESTRICTION, so Postgres ANDs all three. It ADDS a restriction
+     * and can never relax one: a member whose own thread sits in a category an
+     * admin has since narrowed to `staff` does not get it back (asserted in
+     * `my-threads.spec.ts`). Spread CONDITIONALLY rather than as
+     * `authorId: mine ? ctx.userId : undefined` — Prisma treats an `undefined`
+     * value as "no filter", so both behave the same, but only one of them makes
+     * the absence visible in the `where` a spec reads.
+     *
+     * ⚠️ IT COSTS NO QUERY. It rides `@@index([authorId])`, which
+     * `implementation-plan.md:350` provisioned for exactly this and which had no
+     * reader until now, and the count below runs under the same `where` so
+     * `Paged.total` stays honest (R1.1.2). NFR-P4's budget is unchanged.
+     */
     const where: Prisma.TopicWhereInput = {
       ...NOT_DELETED,
       categoryId: categoryFilter,
       ...unreadClause,
+      ...(resolved.mine ? { authorId: ctx.userId } : {}),
     };
 
     /* topics page + matching count. */
@@ -428,10 +454,17 @@ const POST_SELECT = {
  *
  * ⚠️ THE COMPARISON IS EXPANDED INTO AN `OR`, BECAUSE PRISMA CANNOT COMPARE A
  * COLUMN TO A COLUMN IN ANOTHER TABLE. "Unread" is
- * `Topic.postCount > TopicReadState.lastReadPostNumber`, which is a join
- * predicate; what this builds instead is the same predicate with the read side
- * already resolved — one branch per topic the member has actually opened, plus
- * one branch covering every topic they have not.
+ * `Topic.postCount > repliesRead(TopicReadState.lastReadPostNumber)`, which is a
+ * join predicate; what this builds instead is the same predicate with the read
+ * side already resolved — one branch per topic the member has actually opened,
+ * plus one branch covering every topic they have not.
+ *
+ * ⚠️ `repliesRead` IS NOT OPTIONAL HERE, AND OMITTING IT IS A DIFFERENT BUG FROM
+ * THE BADGE. This clause and {@link unreadCount} answer the same question in two
+ * places — "does this topic have unread replies?" — and if they disagree, the
+ * `sort=unread` control HIDES a thread that the feed would badge as unread.
+ * Before TASK_2026_177 F-1 both used the raw marker, so they agreed and were
+ * both wrong; the conversion has to be applied to both or they diverge.
  *
  * ⚠️ IT SCALES WITH TOPICS-THE-MEMBER-HAS-READ, NOT WITH TOPICS. At §1.3 volume
  * that is single digits. If the forum grows past a few hundred read markers per
@@ -456,7 +489,7 @@ function buildUnreadWhere(
       { id: { notIn: read }, postCount: { gt: 0 } },
       ...[...markers.entries()].map(([topicId, lastRead]) => ({
         id: topicId,
-        postCount: { gt: lastRead },
+        postCount: { gt: repliesRead(lastRead) },
       })),
     ],
   };

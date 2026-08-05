@@ -7,13 +7,14 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
-  IsOptional,
   IsString,
   Max,
   MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
+
+import { IsOptionalNotNull } from '../../common/optional-field';
 
 /**
  * `GET /api/v1/admin/community/topics` — the moderation list (§3.3 admin table:
@@ -40,7 +41,7 @@ export class ListAdminTopicsQueryDto {
    * resolves to `false`. Defaulting to the SAFE direction is deliberate: the
    * failure mode of guessing wrong is deleted content on screen.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @Transform(
     ({ value }: { value: unknown }) =>
       value === true || value === 'true' || value === '1',
@@ -48,7 +49,7 @@ export class ListAdminTopicsQueryDto {
   @IsBoolean()
   includeDeleted?: boolean;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(1)
   @MaxLength(64)
@@ -61,19 +62,19 @@ export class ListAdminTopicsQueryDto {
    * trigram-indexed. A `contains` over `body_markdown` here would be a
    * sequential scan of every post in the forum on an admin keystroke.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(1)
   @MaxLength(200)
   search?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @Type(() => Number)
   @IsInt()
   @Min(FIRST_PAGE)
   page?: number;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @Type(() => Number)
   @IsInt()
   @Min(1)

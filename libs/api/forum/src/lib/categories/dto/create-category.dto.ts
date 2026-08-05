@@ -12,6 +12,8 @@ import {
   MinLength,
 } from 'class-validator';
 
+import { IsOptionalNotNull } from '../../common/optional-field';
+
 /**
  * `POST /api/v1/admin/community/categories` — R1.1.1, R8.8, plan §3.3.
  *
@@ -71,7 +73,7 @@ export class CreateCategoryDto {
    * every member — which is why `CategoriesService` answers `400` rather than
    * storing it (Task 6.6).
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ArrayMaxSize(20)
   @IsString({ each: true })
@@ -90,7 +92,7 @@ export class CreateCategoryDto {
    * client that has to compute a sort key to create a row is a client that
    * races every other admin doing the same.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsInt()
   @Min(0)
   sortOrder?: number;

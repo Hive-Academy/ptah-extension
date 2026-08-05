@@ -10,6 +10,7 @@ import { Prisma, PrismaService } from '@ptah-api/core';
 import type { MemberContext } from '@ptah-api/membership';
 
 import { assertWithinEditWindow } from '../common/edit-window';
+import { FIRST_POST_NUMBER } from '../common/post-numbering';
 import {
   NOT_DELETED,
   assertRestored,
@@ -23,16 +24,6 @@ import {
 
 import type { CreatePostDto } from './dto/create-post.dto';
 import type { UpdatePostDto } from './dto/update-post.dto';
-
-/**
- * The post number of the opening post. AD-9: it IS the topic body.
- *
- * Named rather than written as a bare `1` in five places, because every rule in
- * this service that treats the opening post differently — it is not counted by
- * `postCount`, it cannot be replied-to-as-a-child at depth 3, it cannot be
- * deleted through the post endpoint — keys off this number.
- */
-export const FIRST_POST_NUMBER = 1;
 
 /**
  * How many times a reply retries after losing the `postNumber` race.

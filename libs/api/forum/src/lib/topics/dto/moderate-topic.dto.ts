@@ -1,10 +1,6 @@
-import {
-  IsBoolean,
-  IsOptional,
-  IsString,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { IsBoolean, IsString, MaxLength, MinLength } from 'class-validator';
+
+import { IsOptionalNotNull } from '../../common/optional-field';
 
 /**
  * `PATCH /api/v1/admin/community/topics/:id` — R1.2.5, R1.2.6, R8.2, plan §3.3.
@@ -29,7 +25,7 @@ import {
  */
 export class ModerateTopicDto {
   /** R1.2.5 — sorts above unpinned topics in the feed. */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   pinned?: boolean;
 
@@ -41,7 +37,7 @@ export class ModerateTopicDto {
    * for reading, which is the whole difference between the two moderation
    * actions.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   locked?: boolean;
 
@@ -58,21 +54,21 @@ export class ModerateTopicDto {
    * The target category must exist; the service answers `400` if it does not,
    * rather than letting the FK raise a raw `P2003`.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(1)
   @MaxLength(64)
   categoryId?: string;
 
   /** R8.2 — moderator title correction. Never changes the slug (R1.2.2). */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(3)
   @MaxLength(200)
   title?: string;
 
   /** R8.2 — moderator body correction. Edits POST #1, not a topic column (AD-9). */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(1)
   @MaxLength(50_000)

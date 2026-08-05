@@ -4,9 +4,11 @@ import {
   MAX_PAGE_SIZE,
 } from '@ptah-contracts/community';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, Max, Min } from 'class-validator';
 
 import type { PageRequest } from '../../common/pagination';
+
+import { IsOptionalNotNull } from '../../common/optional-field';
 
 /**
  * `GET /api/v1/members/community/topics/:slug` — the thread read's paging
@@ -32,13 +34,13 @@ import type { PageRequest } from '../../common/pagination';
  * a request that looks honoured and is not. Two payload shapes, two classes.
  */
 export class ThreadQueryDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @Type(() => Number)
   @IsInt()
   @Min(FIRST_PAGE)
   page?: number;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @Type(() => Number)
   @IsInt()
   @Min(1)

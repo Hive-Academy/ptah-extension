@@ -12,6 +12,8 @@ import {
   MinLength,
 } from 'class-validator';
 
+import { IsOptionalNotNull } from '../../common/optional-field';
+
 /**
  * `PATCH /api/v1/admin/community/categories/:id` — plan §3.3.
  *
@@ -34,7 +36,7 @@ import {
  * "clear it" from "not supplied" (the `packs.service.ts` idiom).
  */
 export class UpdateCategoryDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(1)
   @MaxLength(120)
@@ -54,14 +56,14 @@ export class UpdateCategoryDto {
    * action, and it is the reason the admin surface is the only place it can
    * happen.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsIn(VISIBILITIES, {
     message: `visibility must be one of: ${VISIBILITIES.join(', ')}`,
   })
   visibility?: Visibility;
 
   /** Replaces the stored array wholesale. Validated against real `MemberGroup` rows in the service. */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ArrayMaxSize(20)
   @IsString({ each: true })
@@ -78,7 +80,7 @@ export class UpdateCategoryDto {
    * on a sparse scale, where setting one category's `sortOrder` by hand can
    * silently create a tie with another.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsInt()
   @Min(0)
   sortOrder?: number;

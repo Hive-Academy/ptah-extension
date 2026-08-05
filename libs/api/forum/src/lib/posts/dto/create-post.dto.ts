@@ -1,4 +1,9 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
+
+import {
+  IsOptionalNotNull,
+  NullMeansAbsent,
+} from '../../common/optional-field';
 
 /**
  * `POST /api/v1/members/community/topics/:id/posts` — R1.3.1, R1.3.3, plan §3.3.
@@ -42,8 +47,29 @@ export class CreatePostDto {
    *
    * A `parentId` naming a post in a DIFFERENT topic, or a soft-deleted one, is a
    * `404` — that is not a depth question, it is a "no such parent here".
+   *
+   * ⚠️ AN EXPLICIT `null` MEANS "NO PARENT" AND IS NORMALISED TO ABSENT HERE
+   * (TASK_2026_177 F-2). It used to reach `PostsService.resolveParentId`, whose
+   * only early exit is `requestedParentId === undefined`, and go on to
+   * `post.findFirst({ where: { id: null } })` — a Prisma validation error thrown
+   * OUTSIDE the retry loop's `catch`, so the member got a `500` on a reply they
+   * had written. Measured live:
+   *
+   *   {"bodyMarkdown":"…","parentId":null}  ->  500 Internal server error
+   *   {"bodyMarkdown":"…"}                  ->  201
+   *
+   * It is normalised rather than refused because the two genuinely mean the same
+   * thing: a post with no parent IS a top-level reply. `MemberPost.parentId` is
+   * `string | null` on the wire, so a client holding one and handing it straight
+   * back is doing a reasonable thing, and a `400` would discard a written reply
+   * over a distinction JSON does not have. `undefined` is how JSON says
+   * "unspecified"; `null` is how a typed client says it. Both arrive here as
+   * `undefined`, so nothing below this line ever sees a value it is not typed
+   * for — and {@link IsOptionalNotNull} keeps a wrong-TYPED `parentId` (a
+   * number, an empty string) a `400` as before.
    */
-  @IsOptional()
+  @NullMeansAbsent()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(1)
   @MaxLength(64)

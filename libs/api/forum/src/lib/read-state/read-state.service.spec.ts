@@ -60,8 +60,20 @@ describe('ReadStateService', () => {
   /* ---------------------------------------------------------------------- */
 
   describe('R1.6.2 / R1.6.3 — unreadCount', () => {
-    it('is postCount minus lastReadPostNumber', () => {
-      expect(unreadCount(10, 4)).toBe(6);
+    // ⚠️ THIS BLOCK USED TO READ `expect(unreadCount(10, 4)).toBe(6)` UNDER THE
+    // TITLE "is postCount minus lastReadPostNumber", and that was the sentence
+    // that let TASK_2026_177 F-1 ship. It restated the implementation's
+    // arithmetic as the expectation, over two integers whose UNITS never
+    // appeared — so it could not tell a correct subtraction from a subtraction
+    // between a reply count and a post number. The full unit treatment, with the
+    // expected value COUNTED from a modelled thread rather than computed, is
+    // `unread-units.spec.ts`; what is kept here is the boundary behaviour this
+    // service's own callers depend on.
+
+    it('a marker of N means the N-1 replies below it are read (AD-9 — post #1 is the body)', () => {
+      // 10 replies, read up to post #4 → posts #2, #3, #4 are replies 1-3, so
+      // seven replies remain.
+      expect(unreadCount(10, 4)).toBe(7);
     });
 
     it('is CLAMPED at 0 when the marker exceeds postCount', () => {
@@ -72,6 +84,12 @@ describe('ReadStateService', () => {
 
     it('a never-read topic (marker 0) reports its whole reply count (R1.6.3)', () => {
       expect(unreadCount(12, 0)).toBe(12);
+    });
+
+    it('a marker of 1 — the body read, no replies — reports the same (R1.6.3)', () => {
+      // The case the old arithmetic got wrong and no test asked about: "opened
+      // the thread" and "never opened it" are the same amount of replies read.
+      expect(unreadCount(12, 1)).toBe(12);
     });
 
     it('a topic with no replies is never unread', () => {
@@ -131,7 +149,9 @@ describe('ReadStateService', () => {
 
       const result = await service.markRead(CTX, 'topic-1', 2);
 
-      expect(result.unreadCount).toBe(1); // 10 - 9, not 10 - 2
+      // Computed from the STORED marker (9 → 8 replies read), not from the 2
+      // this request claimed. That is the property under test.
+      expect(result.unreadCount).toBe(2);
     });
 
     it('both statements run in ONE transaction', async () => {
@@ -141,11 +161,14 @@ describe('ReadStateService', () => {
     });
 
     it('reports the resulting unread count', async () => {
+      // 10 replies means post numbers 1..11, so the marker that clears the topic
+      // is 11 — NOT 10. Asserting 10 here is what the pre-fix arithmetic
+      // demanded, and it is the shape of the F-1 defect.
       prisma.topicReadState.findUnique.mockResolvedValue({
-        lastReadPostNumber: 10,
+        lastReadPostNumber: 11,
       });
 
-      expect(await service.markRead(CTX, 'topic-1', 10)).toEqual({
+      expect(await service.markRead(CTX, 'topic-1', 11)).toEqual({
         unreadCount: 0,
       });
     });
@@ -208,16 +231,21 @@ describe('ReadStateService', () => {
       expect(prisma.topicReadState.update).not.toHaveBeenCalled();
     });
 
-    it('writes each topic OWN postCount, not one uniform value', async () => {
+    it('writes each topic OWN marker, not one uniform value', async () => {
       // A uniform large value would mark every topic read forever: the next
-      // real reply computes `postCount - 999`, clamps to 0, and never shows.
+      // real reply computes `postCount - 998`, clamps to 0, and never shows.
+      //
+      // ⚠️ THE VALUE IS A POST NUMBER, SO IT IS `postCount + 1` (AD-9 — post #1
+      // is the body). This block previously asserted the bare `postCount`, which
+      // is a reply count; that mismatch is the write half of TASK_2026_177 F-1
+      // and it is why the round-trip case in `unread-units.spec.ts` exists.
       await service.markCategoryRead(CTX, 'cat-1');
 
       expect(prisma.topicReadState.createMany.mock.calls[0]?.[0]?.data).toEqual(
         [
-          { userId: CTX.userId, topicId: 't1', lastReadPostNumber: 4 },
-          { userId: CTX.userId, topicId: 't2', lastReadPostNumber: 0 },
-          { userId: CTX.userId, topicId: 't3', lastReadPostNumber: 9 },
+          { userId: CTX.userId, topicId: 't1', lastReadPostNumber: 5 },
+          { userId: CTX.userId, topicId: 't2', lastReadPostNumber: 1 },
+          { userId: CTX.userId, topicId: 't3', lastReadPostNumber: 10 },
         ],
       );
     });

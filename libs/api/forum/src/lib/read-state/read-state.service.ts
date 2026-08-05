@@ -3,11 +3,21 @@ import { PrismaService } from '@ptah-api/core';
 import type { MemberContext } from '@ptah-api/membership';
 
 import { CategoriesService } from '../categories/categories.service';
+import { markerForAllRepliesRead, repliesRead } from '../common/post-numbering';
 import { NOT_DELETED } from '../common/soft-delete';
 import { buildTopicCategoryVisibilityWhere } from '../common/visibility';
 
 /**
  * Unread for one topic — R1.6.2, R1.6.3.
+ *
+ * ⚠️ THE TWO ARGUMENTS ARE IN DIFFERENT UNITS, AND {@link repliesRead} IS THE
+ * CONVERSION. `postCount` is a count of REPLIES (post #1 is the body and is
+ * excluded, AD-9/AD-11); `lastReadPostNumber` is a POST NUMBER, which counts
+ * post #1. Subtracting one from the other directly is the TASK_2026_177 F-1
+ * defect: it under-reported every badge by exactly one on every topic that had
+ * been opened, and it was invisible with no marker at all because the default
+ * `0` made the arithmetic accidentally correct. Do not "simplify" this back —
+ * see `common/post-numbering.ts` and `unread-units.spec.ts`.
  *
  * ⚠️ CLAMPED AT 0, AND THE CLAMP IS NOT DEFENSIVE PROGRAMMING. `postCount`
  * DECREASES when a reply is soft-deleted (AD-11), while `lastReadPostNumber`
@@ -18,15 +28,17 @@ import { buildTopicCategoryVisibilityWhere } from '../common/visibility';
  *
  * ⚠️ A MISSING READ-STATE ROW IS THE "NEVER READ" SIGNAL (R1.6.3). No row is
  * written when a member merely opens a topic, so `lastRead` defaults to `0` and
- * a never-opened topic reports its WHOLE reply count. That is why this takes a
- * plain number rather than a row: the absence of a row and a row holding `0`
- * mean the same thing and must compute the same answer.
+ * a never-opened topic reports its WHOLE reply count. A marker of `1` — the
+ * member opened the thread and read the body only — must report the same thing,
+ * which is exactly what {@link repliesRead} collapses. That is why this takes a
+ * plain number rather than a row: the absence of a row, a row holding `0`, and a
+ * row holding `1` all mean "no replies read" and must compute the same answer.
  */
 export function unreadCount(
   postCount: number,
   lastReadPostNumber: number,
 ): number {
-  return Math.max(0, postCount - lastReadPostNumber);
+  return Math.max(0, postCount - repliesRead(lastReadPostNumber));
 }
 
 /**
@@ -141,12 +153,20 @@ export class ReadStateService {
    * half-apply if the connection drops.
    *
    * ⚠️ IT IS A `deleteMany` + `createMany` PAIR, AND THE REASON IS THAT EACH ROW
-   * NEEDS A DIFFERENT VALUE. "Read" means `lastReadPostNumber >= postCount`, and
-   * `postCount` differs per topic — so a single `updateMany` cannot express it,
-   * and a uniform large value would be actively WRONG: setting every marker to
-   * 999 means the next real reply computes `999 - postCount` unread, clamps to
-   * 0, and never shows as new again. Replacing the rows writes each topic's own
-   * count.
+   * NEEDS A DIFFERENT VALUE. "Read" means the marker sits above every reply, and
+   * the reply count differs per topic — so a single `updateMany` cannot express
+   * it, and a uniform large value would be actively WRONG: setting every marker
+   * to 999 means the next real reply computes `postCount - 998` unread, clamps
+   * to 0, and never shows as new again. Replacing the rows writes each topic's
+   * own value.
+   *
+   * ⚠️ THE VALUE WRITTEN IS A POST NUMBER, NOT `postCount` — {@link
+   * markerForAllRepliesRead} converts. This is the WRITE half of the unit
+   * conversion `unreadCount` performs on the read half, and the two must move
+   * together: writing a bare `postCount` here (as this did before
+   * TASK_2026_177 F-1 was fixed) leaves every marked topic reporting exactly one
+   * unread reply. `unread-units.spec.ts` asserts the round trip rather than
+   * either half, so the pair cannot drift apart again.
    *
    * That replacement can lower a marker numerically — only ever from a value a
    * client previously over-claimed down to the topic's true reply count — and
@@ -187,7 +207,7 @@ export class ReadStateService {
         data: topics.map((topic) => ({
           userId: ctx.userId,
           topicId: topic.id,
-          lastReadPostNumber: topic.postCount,
+          lastReadPostNumber: markerForAllRepliesRead(topic.postCount),
         })),
       });
     });

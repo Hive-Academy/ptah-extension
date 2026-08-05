@@ -14,6 +14,7 @@ import type {
   Visibility,
 } from '@ptah-contracts/community';
 
+import { repliesRead } from '../common/post-numbering';
 import { NOT_DELETED } from '../common/soft-delete';
 import { buildCategoryVisibilityWhere } from '../common/visibility';
 
@@ -126,7 +127,13 @@ export class CategoriesService {
 
       // ⚠️ A COUNT OF TOPICS WITH UNREAD ACTIVITY, NOT A SUM OF UNREAD POSTS —
       // see `MemberCategory.unreadCount`. Bounded above by `topicCount`.
-      if (topic.postCount > (lastRead.get(topic.id) ?? 0)) {
+      //
+      // ⚠️ `repliesRead` CONVERTS THE MARKER, AND IT IS THE SAME PREDICATE
+      // `unreadCount()` AND `buildUnreadWhere()` USE. `postCount` counts replies
+      // and the marker is a post number (AD-9/AD-11); comparing them raw is the
+      // TASK_2026_177 F-1 defect, and here it made the category rail under-count
+      // by one TOPIC for every thread whose only unread post was its newest.
+      if (topic.postCount > repliesRead(lastRead.get(topic.id) ?? 0)) {
         unreadCounts.set(
           topic.categoryId,
           (unreadCounts.get(topic.categoryId) ?? 0) + 1,

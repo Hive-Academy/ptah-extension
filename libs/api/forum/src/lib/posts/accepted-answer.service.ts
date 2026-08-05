@@ -9,10 +9,10 @@ import {
 import { PrismaService } from '@ptah-api/core';
 import type { MemberContext } from '@ptah-api/membership';
 
+import { FIRST_POST_NUMBER } from '../common/post-numbering';
 import { NOT_DELETED } from '../common/soft-delete';
 import { buildTopicCategoryVisibilityWhere } from '../common/visibility';
 
-import { FIRST_POST_NUMBER } from './posts.service';
 import type { AcceptAnswerDto } from './dto/accept-answer.dto';
 
 /**

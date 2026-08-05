@@ -160,10 +160,15 @@ export class MemberCommunityController {
   /* ---------------------------------------------------------------------- */
 
   /**
-   * `GET topics` → the feed. `?categoryId&sort=recent|unread&page&pageSize`.
+   * `GET topics` → the feed.
+   * `?categoryId&mine&sort=recent|unread&page&pageSize`.
    *
    * `pageSize > 50` is a `400` from `ListTopicsQueryDto`'s `@Max(MAX_PAGE_SIZE)`
    * — which only fires because the `dtoPipe` below supplies the expected type.
+   *
+   * ⚠️ `?mine=true` IS "MY THREADS" (R9.2) AND IT IS NOT A SECOND ROUTE. The
+   * author is `req.memberContext.userId`, resolved by the guard; the parameter
+   * is a boolean so no member can name another. See `ListTopicsQueryDto.mine`.
    */
   @Get('topics')
   async listTopics(

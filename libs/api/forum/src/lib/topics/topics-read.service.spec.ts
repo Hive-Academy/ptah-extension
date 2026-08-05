@@ -290,7 +290,13 @@ describe('TopicsReadService', () => {
       expect(prisma.topicReadState.createMany).not.toHaveBeenCalled();
     });
 
-    it('unread is postCount - lastReadPostNumber', async () => {
+    it('unread is the replies ABOVE the marker, and the marker counts post #1', async () => {
+      // ⚠️ THIS CASE USED TO ASSERT 6 UNDER THE TITLE "unread is postCount -
+      // lastReadPostNumber". `postCount` counts replies (AD-11) and the marker
+      // is a post number that includes the body (AD-9), so the raw subtraction
+      // was the TASK_2026_177 F-1 defect and this test was its accomplice: it
+      // restated the implementation rather than the requirement. A marker of 4
+      // means posts #2-#4 are read — three replies — leaving seven of ten.
       prisma.topic.findMany.mockResolvedValue([
         { ...topicRows(1)[0], id: 't1', postCount: 10 },
       ]);
@@ -300,7 +306,7 @@ describe('TopicsReadService', () => {
 
       const page = await service.listFeed(CTX, feedQuery());
 
-      expect(page.items[0]?.unreadCount).toBe(6);
+      expect(page.items[0]?.unreadCount).toBe(7);
     });
 
     it('unread is CLAMPED at 0 when lastReadPostNumber exceeds postCount', async () => {

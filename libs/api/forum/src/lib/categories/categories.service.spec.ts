@@ -202,9 +202,14 @@ describe('CategoriesService', () => {
     });
 
     it('a fully read category reports 0 unread', async () => {
+      // ⚠️ THE MARKERS ARE `postCount + 1`, NOT `postCount`. A marker is a POST
+      // NUMBER and post #1 is the body (AD-9), so a topic with 5 replies is
+      // fully read at post #6. This fixture previously used the bare reply
+      // count, which is the fixture half of TASK_2026_177 F-1 — it made the
+      // spec agree with the defect instead of with the requirement.
       prisma.topicReadState.findMany.mockResolvedValue([
-        { topicId: 't1', lastReadPostNumber: 5 },
-        { topicId: 't3', lastReadPostNumber: 2 },
+        { topicId: 't1', lastReadPostNumber: 6 },
+        { topicId: 't3', lastReadPostNumber: 3 },
       ]);
 
       const list = await service.listForMember(CTX);

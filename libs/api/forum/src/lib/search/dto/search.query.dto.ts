@@ -12,13 +12,14 @@ import {
   IsArray,
   IsIn,
   IsInt,
-  IsOptional,
   IsString,
   Max,
   MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
+
+import { IsOptionalNotNull } from '../../common/optional-field';
 
 /**
  * `GET /api/v1/members/search` — R1.7.1, R1.7.3, NFR-P5, NFR-S1, plan §3.3.
@@ -67,7 +68,7 @@ export class SearchQueryDto {
    * `?kinds=lesson` (singular) would return topic and post results the caller
    * did not ask for and no error to explain why.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @Transform(({ value }: { value: unknown }) => {
     if (typeof value === 'string') {
       return value
@@ -87,14 +88,14 @@ export class SearchQueryDto {
   kinds?: SearchKind[];
 
   /** 1-BASED, per NFR-P5. Applied independently to each result group. */
-  @IsOptional()
+  @IsOptionalNotNull()
   @Type(() => Number)
   @IsInt()
   @Min(FIRST_PAGE)
   page?: number;
 
   /** Default 25, hard maximum 50 — `> 50` is a `400` (NFR-P5). */
-  @IsOptional()
+  @IsOptionalNotNull()
   @Type(() => Number)
   @IsInt()
   @Min(1)
