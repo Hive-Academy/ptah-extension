@@ -71,9 +71,15 @@ import * as ts from 'typescript';
  * 6 carried this as item 5.)
  *
  * ⚠️ CURRENT COVERAGE — READ THIS BEFORE TRUSTING A GREEN RUN.
- * Batch 9A lands the scaffold and NO services; the services arrive in 9B/9C. So
- * the real-tree scan below finds ZERO files today and its "no violations"
- * assertion is honestly vacuous. What is NOT vacuous is the
+ * Batch 9A landed the scaffold and no services, so this paragraph originally
+ * recorded that the real-tree scan found ZERO files and that its "no
+ * violations" assertion was honestly vacuous. **Batch 9B changed that: it now
+ * scans SEVEN real service files, 34 filterable reads on the four
+ * soft-deletable models, 0 banned `findUnique`s and 0 exemptions**, and it BIT
+ * TWICE on real code while 9B was being written (an unfiltered nested `module`
+ * in `courses.service.ts` and, in a deliberate-failure run, an unfiltered
+ * `lessons` relation in `course-read.service.ts`). Both were fixed at the read,
+ * not by an exemption. What is additionally not vacuous is the
  * `analyze() actually detects` block: it runs fabricated sources through the
  * SAME function and proves each rule fires, that violations are reported
  * exhaustively rather than short-circuiting, and — the half that is usually
@@ -528,12 +534,16 @@ describe('AD-5 — every member read in api-learning filters soft-deleted rows',
       // nobody reads a green run as "the real tree was checked".
       expect({
         scanned: SERVICE_FILES.length,
-        note: 'zero is correct until batch 9B lands the services',
+        note: 'batch 9B landed the services; zero would now mean a broken loader',
       }).toEqual({
         scanned: SERVICE_FILES.length,
-        note: 'zero is correct until batch 9B lands the services',
+        note: 'batch 9B landed the services; zero would now mean a broken loader',
       });
-      expect(SERVICE_FILES.length).toBeGreaterThanOrEqual(0);
+      // ⚠️ RAISED FROM `>= 0` BY BATCH 9B, AND THIS IS THE POINT OF THE FILE.
+      // While 9A held the lib, `>= 0` was the only honest bound; now that seven
+      // services exist, a scan finding NONE of them means the loader broke, and
+      // every "no violations" assertion above would be silently vacuous again.
+      expect(SERVICE_FILES.length).toBeGreaterThanOrEqual(7);
     });
   });
 

@@ -91,9 +91,30 @@ export {
   type MemberSearchResults,
 } from './lib/member/member-search.contract';
 export {
+  LOCK_REASONS,
+  isLockReason,
   continueLearningSchema,
+  memberCourseSummarySchema,
+  memberCourseDetailSchema,
+  memberModuleSummarySchema,
+  memberLessonSummarySchema,
+  memberLessonRefSchema,
+  memberLessonProgressSchema,
+  memberLessonDetailSchema,
+  type LockReason,
   type ContinueLearning,
+  type MemberCourseSummary,
+  type MemberCourseDetail,
+  type MemberModuleSummary,
+  type MemberLessonSummary,
+  type MemberLessonRef,
+  type MemberLessonProgress,
+  type MemberLessonDetail,
 } from './lib/member/member-course.contract';
+export {
+  memberLessonCommentSchema,
+  type MemberLessonComment,
+} from './lib/member/member-lesson-comment.contract';
 export {
   HUB_SESSION_KINDS,
   hubSessionSummarySchema,
@@ -123,3 +144,8 @@ export type {
   AdminTopicSummary,
   AdminPost,
 } from './lib/admin/admin-topic.contract';
+export type {
+  AdminCourse,
+  AdminCourseModule,
+  AdminLesson,
+} from './lib/admin/admin-course.contract';
