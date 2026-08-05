@@ -51,6 +51,7 @@ import {
   TaskDoctorService,
   TaskWriterService as TaskWriterServiceClass,
   NoOpTaskIndexNotifier,
+  updateFrontmatter,
   type ITaskIndexStore,
   type TaskWriterService,
   type RegistryGeneratorService,
@@ -58,12 +59,14 @@ import {
 } from '@ptah-extension/task-specs';
 import type { TasksSettings } from '@ptah-extension/settings-core';
 import {
+  BULK_CHUNK_SIZE,
   CARRIER_FILE,
   DEFAULT_TASK_SORT,
   EMPTY_TASK_FILTER,
   MAX_SAVED_TASK_VIEWS,
   buildTaskGraph,
   filterTasks,
+  renderTaskMd,
 } from '@ptah-extension/shared';
 import type {
   ExcludedTaskFolder,
@@ -71,6 +74,7 @@ import type {
   TaskFilterSpec,
   TaskSpecSummary,
   TasksAdoptResult,
+  TasksBulkUpdateStatusResult,
   TasksDoctorPlanResult,
   TasksGetViewsResult,
   TasksListResult,
@@ -298,13 +302,14 @@ function getHandler(
 }
 
 describe('TasksRpcHandlers.METHODS', () => {
-  it('owns exactly the 12 tasks:* methods', () => {
+  it('owns exactly the 13 tasks:* methods', () => {
     expect([...TasksRpcHandlers.METHODS]).toEqual([
       'tasks:list',
       'tasks:get',
       'tasks:create',
       'tasks:updateStatus',
       'tasks:updateMetadata',
+      'tasks:bulkUpdateStatus',
       'tasks:generateRegistry',
       'tasks:board',
       'tasks:reindex',
@@ -2084,4 +2089,593 @@ describe('tasks:saveViews', () => {
     expect(result.activeViewId).toBe('roundtrip');
     expect(result.views[0]).toEqual(view);
   });
+});
+
+// ---------------------------------------------------------------------------
+// tasks:bulkUpdateStatus (TASK_2026_181, FR-C4 / R2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The bulk path, end to end against a REAL writer, a REAL index and real
+ * carriers on a mock filesystem.
+ *
+ * ## Why this is not a mocked-writer test
+ *
+ * Every claim this block makes is about something that happens BELOW the
+ * handler: that the pre-write re-read refuses exactly the contended task, that
+ * `deferNotify` keeps the funnel silent so one rebuild suffices, and that the
+ * enrichment reports what is genuinely on disk after the other writer finished.
+ * A `jest.fn()` writer would satisfy all three by construction and prove none
+ * of them.
+ *
+ * ## Why five ids, with the conflict in the middle
+ *
+ * A fixture that narrows to one item cannot tell "reported the conflict and
+ * carried on" from "stopped at the conflict" — both yield one failing entry, so
+ * the buggy and the correct implementation give the same answer and the test
+ * cannot fail. The contended id is third of five precisely so the two ids after
+ * it have to succeed.
+ */
+const BULK_ROOT = normalizeWorkspaceRoot('D:\\bulk-workspace');
+const BULK_TASK_IDS = [
+  'TASK_2026_181',
+  'TASK_2026_182',
+  'TASK_2026_183',
+  'TASK_2026_184',
+  'TASK_2026_185',
+] as const;
+/** Third of five — deliberately neither first nor last. */
+const BULK_CONTENDED_ID = BULK_TASK_IDS[2];
+
+function bulkCarrierPath(taskId: string): string {
+  return path.join(BULK_ROOT, '.ptah', 'specs', taskId, CARRIER_FILE);
+}
+
+/**
+ * Make a mock filesystem behave like NTFS: two paths differing only in case
+ * resolve to ONE file.
+ *
+ * The mock is a `Map` keyed on the exact path string, so by default it is
+ * case-sensitive and cannot express the hazard canonical dedupe exists to
+ * prevent. This rewrites an incoming path to whichever existing key matches it
+ * case-insensitively, leaving everything else — including the pre-write
+ * re-read that detects conflicts — completely untouched.
+ *
+ * Applied per-test rather than globally: the other bulk fixtures rely on
+ * ordinary case-sensitive behaviour, and quietly changing it for all of them
+ * would alter what they prove.
+ */
+function makeCaseInsensitive(fs: MockFileSystemProvider): void {
+  const resolve = (p: string): string => {
+    if (fs.__state.files.has(p)) return p;
+    const folded = p.toLowerCase();
+    for (const key of fs.__state.files.keys()) {
+      if (key.toLowerCase() === folded) return key;
+    }
+    return p;
+  };
+
+  const readFile = fs.readFile.getMockImplementation() as (
+    p: string,
+  ) => Promise<string>;
+  const writeFile = fs.writeFile.getMockImplementation() as (
+    p: string,
+    content: string,
+  ) => Promise<void>;
+  const exists = fs.exists.getMockImplementation() as (
+    p: string,
+  ) => Promise<boolean>;
+
+  fs.readFile.mockImplementation((p: string) => readFile(resolve(p)));
+  fs.writeFile.mockImplementation((p: string, content: string) =>
+    writeFile(resolve(p), content),
+  );
+  fs.exists.mockImplementation((p: string) => exists(resolve(p)));
+}
+
+function readBulkCarrier(fs: MockFileSystemProvider, taskId: string): string {
+  const bytes = fs.__state.files.get(bulkCarrierPath(taskId));
+  if (!bytes) throw new Error(`no carrier on disk for ${taskId}`);
+  return new TextDecoder().decode(bytes as Uint8Array);
+}
+
+interface BulkSuite {
+  rpc: MockRpcHandler;
+  fs: MockFileSystemProvider;
+  applyFolderChange: jest.SpyInstance;
+  updateMetadata: jest.SpyInstance;
+  externalWrites: () => number;
+  dispose: () => void;
+}
+
+/**
+ * Seed five backlog carriers, warm the index, then arm ONE external whole-file
+ * write inside the contended task's read → write window.
+ *
+ * The arming happens AFTER `ensureStarted`, because the initial index scan
+ * reads every carrier and would otherwise consume the trap before the writer
+ * ever ran — the interleave has to land inside the WRITER's window, not the
+ * scanner's.
+ *
+ * @param interleave false disarms the external write entirely (the control).
+ * @param throwOnTaskId make the writer THROW (not return a typed failure) for
+ *   this one id, standing in for an unexpected fault mid-loop.
+ */
+async function buildBulkSuite(
+  interleave = true,
+  throwOnTaskId?: string,
+): Promise<BulkSuite> {
+  const logger = createMockLogger();
+  const rpc = createMockRpcHandler();
+  const workspace = createMockWorkspaceProvider({ folders: [BULK_ROOT] });
+  workspace.getWorkspaceRoot.mockReturnValue(BULK_ROOT);
+
+  const fs = createMockFileSystemProvider();
+  for (const taskId of BULK_TASK_IDS) {
+    await fs.writeFile(
+      bulkCarrierPath(taskId),
+      renderTaskMd({
+        id: taskId,
+        title: `Bulk member ${taskId}`,
+        type: 'FEATURE',
+        status: 'backlog',
+        now: '2026-08-04T00:00:00.000Z',
+      }),
+    );
+    fs.__state.directories.add(
+      path.join(BULK_ROOT, '.ptah', 'specs', taskId).replace(/\\/g, '/'),
+    );
+  }
+  fs.__state.directories.add(
+    path.join(BULK_ROOT, '.ptah', 'specs').replace(/\\/g, '/'),
+  );
+
+  const scanner = new TaskScannerService(fs, logger as unknown as Logger);
+  const store = new InMemoryTaskIndexStore(
+    createMockLogger() as unknown as Logger,
+  );
+  const index = new TaskIndexService(
+    logger as unknown as Logger,
+    fs,
+    scanner,
+    store,
+  );
+  // The writer's notifier is the SAME index the handler holds, because that is
+  // how DI wires it in production (`register.ts` points
+  // `TASK_INDEX_NOTIFIER_TOKEN` at `TaskIndexService`). A `NoOpTaskIndexNotifier`
+  // here would be more convenient and would quietly destroy the R5 assertion
+  // below: with a no-op notifier the rebuild count is 1 whether or not
+  // `deferNotify` is passed, so the "exactly one" test would pass against a
+  // handler that had dropped the flag entirely.
+  const writer = new TaskWriterServiceClass(
+    fs,
+    logger as unknown as Logger,
+    index,
+  );
+
+  if (throwOnTaskId !== undefined) {
+    const passthrough = writer.updateMetadata.bind(writer);
+    // The message carries an absolute path on purpose, so the assertions can
+    // also prove it is NOT forwarded to the client (R4.4).
+    writer.updateMetadata = (async (
+      ...args: Parameters<typeof passthrough>
+    ) => {
+      if (args[1] === throwOnTaskId) {
+        throw new Error(`EBUSY: D:\\secrets\\${throwOnTaskId}\\task.md locked`);
+      }
+      return passthrough(...args);
+    }) as typeof writer.updateMetadata;
+  }
+
+  const handlers = new TasksRpcHandlers(
+    logger as unknown as Logger,
+    rpc as unknown as RpcHandler,
+    {
+      broadcastMessage: jest.fn().mockResolvedValue(undefined),
+    } as unknown as WebviewManager,
+    workspace as unknown as IWorkspaceProvider,
+    index,
+    writer,
+    { generate: jest.fn() } as unknown as RegistryGeneratorService,
+    { plan: jest.fn() } as unknown as TaskDoctorService,
+    createMockTasksSettings() as unknown as TasksSettings,
+  );
+  handlers.register();
+
+  // Warm the index BEFORE arming, so the trap belongs to the writer's window.
+  await index.ensureStarted(BULK_ROOT);
+
+  const contendedCarrier = bulkCarrierPath(BULK_CONTENDED_ID);
+  const externalContent = `${updateFrontmatter(
+    readBulkCarrier(fs, BULK_CONTENDED_ID),
+    { status: 'in_review' },
+  )}\nAn external agent appended this paragraph.\n`;
+
+  const defaultReadFile = fs.readFile.getMockImplementation() as (
+    p: string,
+  ) => Promise<string>;
+  const defaultWriteFile = fs.writeFile.getMockImplementation() as (
+    p: string,
+    content: string,
+  ) => Promise<void>;
+
+  let armed = interleave;
+  let externalWrites = 0;
+  fs.readFile.mockImplementation(async (p: string): Promise<string> => {
+    const content = await defaultReadFile(p);
+    if (p === contendedCarrier && armed) {
+      armed = false;
+      externalWrites++;
+      await defaultWriteFile(contendedCarrier, externalContent);
+    }
+    return content;
+  });
+
+  return {
+    rpc,
+    fs,
+    applyFolderChange: jest.spyOn(index, 'applyFolderChange'),
+    updateMetadata: jest.spyOn(writer, 'updateMetadata'),
+    externalWrites: () => externalWrites,
+    dispose: () => index.dispose(),
+  };
+}
+
+async function callBulk(
+  suite: BulkSuite,
+  status = 'done',
+  taskIds: readonly string[] = BULK_TASK_IDS,
+): Promise<TasksBulkUpdateStatusResult> {
+  return (await getHandler(
+    suite.rpc,
+    'tasks:bulkUpdateStatus',
+  )({ taskIds: [...taskIds], status })) as TasksBulkUpdateStatusResult;
+}
+
+describe('tasks:bulkUpdateStatus — five ids, one interleaved external write', () => {
+  it('returns one TASK_CONFLICT carrying currentStatus, and four successes', async () => {
+    const suite = await buildBulkSuite();
+    try {
+      const result = await callBulk(suite);
+
+      // The interleaving really happened — otherwise everything below is
+      // vacuous, which is exactly how a bulk test passes while proving nothing.
+      expect(suite.externalWrites()).toBe(1);
+
+      // Whole-shape equality over all five entries, in request order. Counting
+      // successes would let a conflict on the WRONG task pass; asserting only
+      // the failing entry would let a silently-dropped entry pass.
+      expect(result.results).toEqual([
+        { taskId: 'TASK_2026_181', ok: true },
+        { taskId: 'TASK_2026_182', ok: true },
+        {
+          taskId: BULK_CONTENDED_ID,
+          ok: false,
+          error: {
+            code: 'TASK_CONFLICT',
+            message: expect.stringContaining(BULK_CONTENDED_ID),
+          },
+          // FR-C4.7 — what the OTHER writer left, not what we attempted
+          // (`done`) and not what we read before it landed (`backlog`).
+          currentStatus: 'in_review',
+        },
+        { taskId: 'TASK_2026_184', ok: true },
+        { taskId: 'TASK_2026_185', ok: true },
+      ]);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('issues exactly ONE index rebuild for the whole call (R5 / FR-C4.10)', async () => {
+    const suite = await buildBulkSuite();
+    try {
+      await callBulk(suite);
+
+      // Not "at most one" — exactly one. Four carriers changed, so zero would
+      // leave the board stale, and the pre-`deferNotify` behaviour would be
+      // four (one per successful write) plus this one.
+      expect(suite.applyFolderChange).toHaveBeenCalledTimes(1);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('passes deferNotify on every write, which is what makes that one rebuild possible', async () => {
+    const suite = await buildBulkSuite();
+    try {
+      await callBulk(suite);
+
+      expect(suite.updateMetadata).toHaveBeenCalledTimes(5);
+      for (const call of suite.updateMetadata.mock.calls) {
+        expect(call[3]).toEqual({ deferNotify: true });
+      }
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('writes the two tasks that come AFTER the refusal', async () => {
+    const suite = await buildBulkSuite();
+    try {
+      await callBulk(suite);
+
+      // Only reachable if the loop continued past the conflict.
+      for (const taskId of ['TASK_2026_184', 'TASK_2026_185']) {
+        const raw = readBulkCarrier(suite.fs, taskId);
+        expect(raw).toContain('status: done');
+      }
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('leaves the contended carrier exactly as the external writer left it', async () => {
+    const suite = await buildBulkSuite();
+    try {
+      await callBulk(suite);
+
+      const raw = readBulkCarrier(suite.fs, BULK_CONTENDED_ID);
+      expect(raw).toContain('status: in_review');
+      expect(raw).toContain('An external agent appended this paragraph.');
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('with no interleaving, all five succeed and still cost ONE rebuild', async () => {
+    // The control: without it, an implementation that refused every task would
+    // satisfy the conflict assertions above for entirely the wrong reason.
+    const suite = await buildBulkSuite(false);
+    try {
+      const result = await callBulk(suite);
+
+      expect(suite.externalWrites()).toBe(0);
+      expect(result.results).toEqual(
+        BULK_TASK_IDS.map((taskId) => ({ taskId, ok: true })),
+      );
+      expect(suite.applyFolderChange).toHaveBeenCalledTimes(1);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('rebuilds NOTHING when no write landed', async () => {
+    const suite = await buildBulkSuite(false);
+    try {
+      const result = await callBulk(suite, 'done', ['TASK_2026_999']);
+
+      expect(result.results).toEqual([
+        {
+          taskId: 'TASK_2026_999',
+          ok: false,
+          error: {
+            code: 'TASK_NOT_FOUND',
+            message: expect.stringContaining('TASK_2026_999'),
+          },
+        },
+      ]);
+      // A rebuild is a full rescan of every folder. Buying one when nothing
+      // changed is the per-task-reload cost R5 exists to remove, re-entering
+      // through the empty case.
+      expect(suite.applyFolderChange).not.toHaveBeenCalled();
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('enriches ONLY a conflict — a missing task carries no currentStatus', async () => {
+    const suite = await buildBulkSuite(false);
+    try {
+      const result = await callBulk(suite, 'done', ['TASK_2026_999']);
+
+      expect(result.results[0]).not.toHaveProperty('currentStatus');
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('collapses a repeated id to one entry and one write', async () => {
+    const suite = await buildBulkSuite(false);
+    try {
+      const result = await callBulk(suite, 'done', [
+        'TASK_2026_181',
+        'TASK_2026_181',
+        'TASK_2026_182',
+      ]);
+
+      // FR-C4.3 is one entry per TASK, not one per array slot.
+      expect(result.results).toEqual([
+        { taskId: 'TASK_2026_181', ok: true },
+        { taskId: 'TASK_2026_182', ok: true },
+      ]);
+      expect(suite.updateMetadata).toHaveBeenCalledTimes(2);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  /**
+   * A differently-cased duplicate names the SAME task, so it must collapse to
+   * ONE entry and ONE write.
+   *
+   * ## What this test does and does not prove
+   *
+   * `createMockFileSystemProvider` is backed by a `Map` keyed on the exact path
+   * string, so it is case-SENSITIVE — unlike the Windows filesystem this
+   * project primarily runs on. Under exact-string dedupe this fixture
+   * therefore produces a spurious `TASK_NOT_FOUND` for the second casing,
+   * not the `TASK_CONFLICT` that a real case-insensitive volume would produce.
+   *
+   * So the pin here is the DEDUPE itself — one entry, one write — which is the
+   * property the fix actually establishes and which fails loudly either way.
+   * Asserting "no `TASK_CONFLICT` appears" would look like it covered the
+   * hazard while being satisfied trivially by this mock, so it is deliberately
+   * NOT asserted here. The conflict mechanism is pinned in the next test, on a
+   * filesystem that can express it.
+   */
+  it('treats a differently-cased duplicate as ONE task and ONE write', async () => {
+    const suite = await buildBulkSuite(false);
+    try {
+      const result = await callBulk(suite, 'done', [
+        'TASK_2026_181',
+        'task_2026_181',
+      ]);
+
+      // One entry, carrying the casing the caller sent first.
+      expect(result.results).toEqual([{ taskId: 'TASK_2026_181', ok: true }]);
+      expect(suite.updateMetadata).toHaveBeenCalledTimes(1);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  /**
+   * The hazard itself, on a filesystem that can express it.
+   *
+   * `makeCaseInsensitive` folds path lookups the way NTFS does, so
+   * `TASK_2026_181` and `task_2026_181` resolve to ONE file.
+   *
+   * ## What exact-string dedupe actually costs here — measured, not assumed
+   *
+   * It is tempting to say the second write's pre-write re-read sees the first
+   * write's bytes and reports `TASK_CONFLICT` against a write that succeeded.
+   * **That is not what happens, and this test was corrected after the mutation
+   * disproved it.** The conflict check is `current !== raw`, where `raw` is
+   * that call's OWN snapshot (`task-writer.service.ts`). The duplicate runs
+   * after the first write finished, so it snapshots the already-updated file
+   * and its re-read agrees with it. No conflict fires.
+   *
+   * The real cost is quieter and still worth refusing: the caller gets TWO
+   * result entries for ONE task, which FR-C4.3 forbids outright, and the
+   * carrier is written TWICE — a second `updated` refresh on a gitignored file
+   * with no undo, for a change nobody asked for.
+   */
+  it('writes one file once when two casings name the same task', async () => {
+    const suite = await buildBulkSuite(false);
+    makeCaseInsensitive(suite.fs);
+    const carrier = bulkCarrierPath('TASK_2026_181');
+    const writesToCarrier = (): number =>
+      suite.fs.writeFile.mock.calls.filter(([p]) => p === carrier).length;
+    const before = writesToCarrier();
+    try {
+      const result = await callBulk(suite, 'done', [
+        'TASK_2026_181',
+        'task_2026_181',
+      ]);
+
+      // One entry — FR-C4.3 is one result per TASK, and these two ids are one
+      // task on this filesystem.
+      expect(result.results).toEqual([{ taskId: 'TASK_2026_181', ok: true }]);
+      // ONE write to the single underlying file. Without canonical dedupe this
+      // is 2: a redundant rewrite that only refreshes `updated`.
+      expect(writesToCarrier() - before).toBe(1);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  /**
+   * An UNEXPECTED throw (not a typed writer failure) must not convert a
+   * complete result list into an exception.
+   *
+   * The throw is placed at item 4 of 5 so there are three landed writes before
+   * it and one task after it. Those three `ok: true` entries are the difference
+   * between "retry the two that failed" and "retry all five" — and retrying a
+   * write that already landed is how a bulk operation manufactures conflicts.
+   */
+  it('preserves the results of writes that already landed when item 4 throws', async () => {
+    const suite = await buildBulkSuite(false, 'TASK_2026_184');
+    try {
+      const result = await callBulk(suite);
+
+      expect(result.results).toEqual([
+        { taskId: 'TASK_2026_181', ok: true },
+        { taskId: 'TASK_2026_182', ok: true },
+        { taskId: 'TASK_2026_183', ok: true },
+        {
+          taskId: 'TASK_2026_184',
+          ok: false,
+          error: { code: 'WRITE_FAILED', message: expect.any(String) },
+        },
+        // The loop carried on past the unexpected fault, exactly as it does
+        // past a typed one.
+        { taskId: 'TASK_2026_185', ok: true },
+      ]);
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('does not leak the raw error text of an unexpected throw to the client', async () => {
+    const suite = await buildBulkSuite(false, 'TASK_2026_184');
+    try {
+      const result = await callBulk(suite);
+
+      const failed = result.results.find((r) => !r.ok);
+      // R4.4 — the thrown message carried `D:\secrets\...`; the wire must not.
+      expect(failed?.error?.message).not.toContain('D:\\secrets');
+      expect(failed?.error?.message).not.toContain('EBUSY');
+    } finally {
+      suite.dispose();
+    }
+  });
+
+  it('still rebuilds once when a mid-loop throw follows landed writes', async () => {
+    const suite = await buildBulkSuite(false, 'TASK_2026_184');
+    try {
+      await callBulk(suite);
+
+      // Four carriers changed around the fault; the index must learn about
+      // them, and must do so exactly once.
+      expect(suite.applyFolderChange).toHaveBeenCalledTimes(1);
+    } finally {
+      suite.dispose();
+    }
+  });
+});
+
+describe('tasks:bulkUpdateStatus — boundary', () => {
+  it('rejects a selection larger than BULK_CHUNK_SIZE', async () => {
+    const { rpc, writer } = buildSuite();
+    const tooMany = Array.from(
+      { length: BULK_CHUNK_SIZE + 1 },
+      (_v, i) => `TASK_2026_${200 + i}`,
+    );
+
+    await expect(
+      getHandler(
+        rpc,
+        'tasks:bulkUpdateStatus',
+      )({ taskIds: tooMany, status: 'done' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(writer.updateMetadata).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty selection', async () => {
+    const { rpc, writer } = buildSuite();
+    await expect(
+      getHandler(
+        rpc,
+        'tasks:bulkUpdateStatus',
+      )({ taskIds: [], status: 'done' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(writer.updateMetadata).not.toHaveBeenCalled();
+  });
+
+  it.each(REJECTED_IDS)(
+    'rejects %s among the taskIds, writing nothing',
+    async (_label, value) => {
+      const { rpc, writer } = buildSuite();
+      await expect(
+        getHandler(
+          rpc,
+          'tasks:bulkUpdateStatus',
+        )({ taskIds: ['TASK_2026_181', value], status: 'done' }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      // The whole call is refused — a bad entry does not get nineteen writes
+      // issued around it.
+      expect(writer.updateMetadata).not.toHaveBeenCalled();
+    },
+  );
 });

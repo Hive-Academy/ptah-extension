@@ -59,7 +59,10 @@ import type { Logger } from '@ptah-extension/vscode-core';
 
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { parseTaskFile, updateFrontmatter } from './task-frontmatter';
-import { NoOpTaskIndexNotifier } from './task-index.port';
+import {
+  NoOpTaskIndexNotifier,
+  type ITaskIndexNotifier,
+} from './task-index.port';
 import { TaskWriterService } from './task-writer.service';
 
 const WORKSPACE = normalizeWorkspaceRoot('D:\\workspace');
@@ -274,5 +277,253 @@ describe('TaskWriterService.updateStatus — the loss interleaving', () => {
       fs.__state.files.get(CARRIER) as Uint8Array,
     );
     expect(statusOf(finalRaw)).toBe('in_progress');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The BULK interleaving (TASK_2026_181, FR-C4 / R2)
+// ---------------------------------------------------------------------------
+
+/**
+ * A bulk status change is N of the single-task cycle above, and this block pins
+ * the two properties the RPC layer above it is entitled to assume.
+ *
+ * ## Why five ids and not one
+ *
+ * With one id there is nothing to distinguish "reported the conflict" from
+ * "stopped at the conflict" — both produce the same single failing result, so a
+ * one-item fixture is green against a loop that aborts on first failure. That is
+ * the defect this fixture exists to catch, so the conflict is placed in the
+ * MIDDLE, with tasks after it whose success is only possible if the loop
+ * continued past the refusal.
+ *
+ * ## The two properties
+ *
+ *  1. One interleaved external write refuses exactly ONE task. The other four
+ *     are written. Partial failure is the expected shape of the outcome.
+ *  2. `deferNotify: true` suppresses every per-write index notification, which
+ *     is what lets the caller collapse N rebuilds into one. Pinned against a
+ *     control run WITHOUT the flag, so the assertion measures the flag rather
+ *     than a notifier that was never going to fire.
+ */
+const BULK_IDS = [
+  'TASK_2026_181',
+  'TASK_2026_182',
+  'TASK_2026_183',
+  'TASK_2026_184',
+  'TASK_2026_185',
+] as const;
+
+/** The id whose bytes change underneath the writer — deliberately not first. */
+const CONTENDED_INDEX = 2;
+const CONTENDED_ID = BULK_IDS[CONTENDED_INDEX];
+
+function carrierPathOf(taskId: string): string {
+  return path.join(WORKSPACE, '.ptah', 'specs', taskId, CARRIER_FILE);
+}
+
+/** `statusOf`, for a carrier that is not `TASK_ID`. */
+function statusOfCarrier(taskId: string, raw: string): string {
+  const parsed = parseTaskFile(taskId, raw);
+  if (parsed.kind !== 'task') {
+    throw new Error(`carrier was excluded: ${parsed.excluded.reason}`);
+  }
+  return parsed.task.status;
+}
+
+function readCarrier(fs: MockFileSystemProvider, taskId: string): string {
+  const bytes = fs.__state.files.get(carrierPathOf(taskId));
+  if (!bytes) throw new Error(`no carrier on disk for ${taskId}`);
+  return new TextDecoder().decode(bytes as Uint8Array);
+}
+
+interface BulkHarness {
+  fs: MockFileSystemProvider;
+  writer: TaskWriterService;
+  notifier: { applyFolderChange: jest.Mock };
+  /** What the external writer left on the contended carrier. */
+  externalContent: string;
+  externalWrites: () => number;
+}
+
+/**
+ * Seed five carriers and arm ONE external write inside the contended task's
+ * read→write window.
+ *
+ * @param interleave when false the external write never fires — the control
+ *   that proves the conflict below is caused by the interleaving and not by
+ *   something incidental to writing five files in a row.
+ */
+async function buildBulkHarness(interleave = true): Promise<BulkHarness> {
+  const fs = createMockFileSystemProvider();
+
+  for (const taskId of BULK_IDS) {
+    await fs.writeFile(
+      carrierPathOf(taskId),
+      renderTaskMd({
+        id: taskId,
+        title: `Bulk member ${taskId}`,
+        type: 'FEATURE',
+        status: 'backlog',
+        now: '2026-08-04T00:00:00.000Z',
+      }),
+    );
+  }
+
+  const contendedCarrier = carrierPathOf(CONTENDED_ID);
+  const externalContent = `${updateFrontmatter(readCarrier(fs, CONTENDED_ID), {
+    status: 'in_review',
+  })}\nAn external agent appended this paragraph.\n`;
+
+  const defaultReadFile = fs.readFile.getMockImplementation() as (
+    p: string,
+  ) => Promise<string>;
+  const defaultWriteFile = fs.writeFile.getMockImplementation() as (
+    p: string,
+    content: string,
+  ) => Promise<void>;
+
+  let armed = interleave;
+  let externalWrites = 0;
+  fs.readFile.mockImplementation(async (p: string): Promise<string> => {
+    const content = await defaultReadFile(p);
+    if (p === contendedCarrier && armed) {
+      // Fires once, on the contended task's FIRST read — after the writer has
+      // its snapshot, before it writes. The other four carriers are never
+      // touched, so any failure among them is a real defect rather than
+      // fixture noise.
+      armed = false;
+      externalWrites++;
+      await defaultWriteFile(contendedCarrier, externalContent);
+    }
+    return content;
+  });
+
+  const notifier = {
+    applyFolderChange: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const writer = new TaskWriterService(
+    fs,
+    silentLogger(),
+    notifier as unknown as ITaskIndexNotifier,
+  );
+
+  return {
+    fs,
+    writer,
+    notifier,
+    externalContent,
+    externalWrites: () => externalWrites,
+  };
+}
+
+/** Run the bulk loop the RPC handler runs, and hand back its per-task results. */
+async function runBulk(
+  harness: BulkHarness,
+  opts?: { deferNotify?: boolean },
+): Promise<Array<{ taskId: string; ok: boolean; code?: string }>> {
+  const results: Array<{ taskId: string; ok: boolean; code?: string }> = [];
+  for (const taskId of BULK_IDS) {
+    const result = await harness.writer.updateMetadata(
+      WORKSPACE,
+      taskId,
+      { status: 'done' },
+      opts,
+    );
+    results.push(
+      result.success
+        ? { taskId, ok: true }
+        : { taskId, ok: false, code: result.error.code },
+    );
+  }
+  return results;
+}
+
+describe('TaskWriterService.updateMetadata — a five-task bulk, one interleaved write', () => {
+  it('refuses exactly the contended task and writes the other four', async () => {
+    const harness = await buildBulkHarness();
+
+    const results = await runBulk(harness, { deferNotify: true });
+
+    // The interleaving really happened — otherwise everything below is vacuous.
+    expect(harness.externalWrites()).toBe(1);
+
+    // ONE refusal, FOUR writes. Asserted as whole-shape equality rather than by
+    // counting, so a second unexpected conflict — or a conflict that landed on
+    // the wrong task — fails here instead of averaging out.
+    expect(results).toEqual([
+      { taskId: 'TASK_2026_181', ok: true },
+      { taskId: 'TASK_2026_182', ok: true },
+      { taskId: CONTENDED_ID, ok: false, code: 'TASK_CONFLICT' },
+      { taskId: 'TASK_2026_184', ok: true },
+      { taskId: 'TASK_2026_185', ok: true },
+    ]);
+  });
+
+  it('continues past the refusal — the tasks AFTER it are written to disk', async () => {
+    const harness = await buildBulkHarness();
+
+    await runBulk(harness, { deferNotify: true });
+
+    // The distinction a one-item fixture cannot make: these two ids come after
+    // the conflict in the loop order, so `done` on disk is only reachable if
+    // the loop did not abort on the first failure.
+    for (const taskId of ['TASK_2026_184', 'TASK_2026_185']) {
+      expect(statusOfCarrier(taskId, readCarrier(harness.fs, taskId))).toBe(
+        'done',
+      );
+    }
+  });
+
+  it('leaves the contended carrier exactly as the external writer left it', async () => {
+    const harness = await buildBulkHarness();
+
+    await runBulk(harness, { deferNotify: true });
+
+    const finalRaw = readCarrier(harness.fs, CONTENDED_ID);
+    // Not `!== 'done'` — that would also pass if the bulk had corrupted the
+    // file into some third state. The other writer's status AND its body edit
+    // both survive intact.
+    expect(statusOfCarrier(CONTENDED_ID, finalRaw)).toBe('in_review');
+    expect(finalRaw).toContain('An external agent appended this paragraph.');
+  });
+
+  it('with no interleaving, all five are written and none conflicts', async () => {
+    // The control. Without it, a bulk path that refused EVERY task would pass
+    // the conflict assertions above for entirely the wrong reason.
+    const harness = await buildBulkHarness(false);
+
+    const results = await runBulk(harness, { deferNotify: true });
+
+    expect(harness.externalWrites()).toBe(0);
+    expect(results.every((r) => r.ok)).toBe(true);
+    for (const taskId of BULK_IDS) {
+      expect(statusOfCarrier(taskId, readCarrier(harness.fs, taskId))).toBe(
+        'done',
+      );
+    }
+  });
+
+  it('issues ZERO index notifications under deferNotify', async () => {
+    const harness = await buildBulkHarness();
+
+    await runBulk(harness, { deferNotify: true });
+
+    // This is what makes ONE rebuild per bulk call possible at the RPC layer:
+    // the funnel itself emits nothing, so the caller owns the single rebuild.
+    expect(harness.notifier.applyFolderChange).not.toHaveBeenCalled();
+  });
+
+  it('WITHOUT deferNotify, notifies once per successful write — the cost being avoided', async () => {
+    const harness = await buildBulkHarness();
+
+    await runBulk(harness);
+
+    // The control for the assertion above. Four successful writes, four full
+    // `.ptah/specs` rescans and four `tasks:changed` broadcasts. If this were
+    // 0, the previous test would be measuring a notifier that never fires
+    // rather than the flag that suppresses it.
+    expect(harness.notifier.applyFolderChange).toHaveBeenCalledTimes(4);
   });
 });

@@ -498,6 +498,8 @@ import type {
   TasksUpdateStatusResult,
   TasksUpdateMetadataParams,
   TasksUpdateMetadataResult,
+  TasksBulkUpdateStatusParams,
+  TasksBulkUpdateStatusResult,
   TasksGenerateRegistryParams,
   TasksGenerateRegistryResult,
   TasksBoardParams,
@@ -1814,6 +1816,10 @@ export interface RpcMethodRegistry {
     params: TasksUpdateMetadataParams;
     result: TasksUpdateMetadataResult;
   };
+  'tasks:bulkUpdateStatus': {
+    params: TasksBulkUpdateStatusParams;
+    result: TasksBulkUpdateStatusResult;
+  };
   'tasks:generateRegistry': {
     params: TasksGenerateRegistryParams;
     result: TasksGenerateRegistryResult;
@@ -2989,6 +2995,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'tasks:create': true,
   'tasks:updateStatus': true,
   'tasks:updateMetadata': true,
+  'tasks:bulkUpdateStatus': true,
   'tasks:generateRegistry': true,
   'tasks:board': true,
   'tasks:reindex': true,

@@ -9,6 +9,7 @@
  */
 import { z } from 'zod';
 import {
+  BULK_CHUNK_SIZE,
   TASK_ESTIMATES,
   TASK_STATUSES,
   TASK_TYPES,
@@ -108,6 +109,35 @@ export const TasksUpdateMetadataParamsSchema = z.object({
   patch: TaskMetadataPatchSchema,
 });
 
+/**
+ * `tasks:bulkUpdateStatus` — move a set of tasks to one status (FR-C4).
+ *
+ * ## `taskIds` uses the SAME `taskIdRef` as every single-task method
+ *
+ * Each entry is joined onto the spec root by the write funnel exactly as a
+ * single-task `taskId` is, so a bulk call is not a place where the containment
+ * guard gets to be weaker. Restating it per-element rather than validating the
+ * array as `z.array(z.string())` is the whole point: one bad entry among twenty
+ * is refused at the boundary instead of reaching a path join nineteen writes in.
+ *
+ * ## The cap is a Zod `.max()` here, unlike `tasks:saveViews`
+ *
+ * Exceeding `BULK_CHUNK_SIZE` is a CLIENT bug, not a user action — the client
+ * owns the chunking, so a request over the cap means its loop is wrong, and a
+ * generic `INVALID_PARAMS` is the correct and complete answer. That is the
+ * opposite of the saved-views cap, which a user reaches by saving views and so
+ * needs a typed message naming the limit.
+ *
+ * `.min(1)` because a bulk call over nothing has no meaningful result list, and
+ * accepting it would let a client's empty-selection bug reach the write path
+ * and trigger an index rebuild for no writes at all.
+ */
+export const TasksBulkUpdateStatusParamsSchema = z.object({
+  workspaceRoot,
+  taskIds: z.array(taskIdRef).min(1).max(BULK_CHUNK_SIZE),
+  status: statusEnum,
+});
+
 export const TasksGenerateRegistryParamsSchema = z.object({
   workspaceRoot,
 });
@@ -195,6 +225,9 @@ export type TasksUpdateStatusParamsParsed = z.infer<
 >;
 export type TasksUpdateMetadataParamsParsed = z.infer<
   typeof TasksUpdateMetadataParamsSchema
+>;
+export type TasksBulkUpdateStatusParamsParsed = z.infer<
+  typeof TasksBulkUpdateStatusParamsSchema
 >;
 export type TasksSaveViewsParamsParsed = z.infer<
   typeof TasksSaveViewsParamsSchema

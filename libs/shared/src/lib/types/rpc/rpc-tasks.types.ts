@@ -154,6 +154,99 @@ export interface TasksUpdateMetadataResult {
   };
 }
 
+/**
+ * One task's outcome inside a bulk operation (FR-C4.3).
+ *
+ * ## Why this is a list element and not a summary
+ *
+ * There is no transaction across N carrier files. A bulk operation is N
+ * independent read → compare → write cycles against files a live agent may be
+ * editing at the same time, so N independent things can happen. A single
+ * success flag for the whole call would have to pick one of them to report and
+ * discard the rest — which is not a simplification, it is a false statement
+ * about what happened on disk.
+ *
+ * Every task the caller named gets exactly one entry here, in the order it was
+ * named, whether it succeeded, failed, or was skipped. Partial failure is the
+ * EXPECTED outcome of this API, not an error path bolted onto it.
+ */
+export interface TasksBulkResultItem {
+  /** The id the caller asked for, echoed so results need no positional match. */
+  taskId: string;
+  /** Whether this ONE task's write landed. Says nothing about the others. */
+  ok: boolean;
+  /**
+   * Nothing needed writing — the task already carried the requested state.
+   *
+   * A no-op is a SUCCESS (`ok: true`) that issued no write, so it must not be
+   * counted as a failure and must not refresh the carrier's `updated` stamp.
+   *
+   * Set by the bulk LABEL path (FR-C5.2: adding a label to a task that already
+   * carries it). The bulk STATUS path deliberately never sets it: deciding
+   * "already in that status" would need a read taken before the write, and a
+   * stale one would turn a write the user asked for into a silent skip — the
+   * precise failure FR-C4 exists to make impossible. Status writes therefore
+   * always go through the funnel and are reported on what the funnel did.
+   */
+  noop?: boolean;
+  /**
+   * Why this ONE task failed. Present only when `ok` is false.
+   *
+   * The codes are exactly the write funnel's own — this wire shape adds no
+   * bulk-specific failure mode, because bulk introduces none: every entry here
+   * is the result of the same single-task write path used by
+   * `tasks:updateStatus`.
+   */
+  error?: {
+    code:
+      | 'TASK_CONFLICT'
+      | 'TASK_NOT_FOUND'
+      | 'TASK_EXCLUDED'
+      | 'WRITE_FAILED'
+      | 'INVALID_PARAMS';
+    message: string;
+  };
+  /**
+   * ON `TASK_CONFLICT` ONLY: the status the carrier actually holds right now
+   * (FR-C4.7).
+   *
+   * A conflict means somebody else wrote the file between our read and our
+   * write, and we refused rather than clobber them. "It changed, try again" is
+   * a dead end; "it changed, and it now says `in_review`" lets the user decide
+   * whether they still want their transition. Read back from disk AFTER the
+   * refusal, so it reflects the other writer's result rather than our snapshot.
+   *
+   * Absent when the carrier could not be re-read or no longer parses — the
+   * conflict itself is still reported.
+   */
+  currentStatus?: TaskStatus;
+}
+
+/**
+ * `tasks:bulkUpdateStatus` — move a set of tasks to ONE status (FR-C4).
+ *
+ * `taskIds` is capped at {@link BULK_CHUNK_SIZE}; a caller with a larger
+ * selection chunks it and issues several calls. The cap is what keeps one call
+ * bounded in duration so the client's progress and cancellation stay meaningful
+ * — cancellation is chunk-granular, and an unbounded call would have nothing to
+ * cancel between.
+ */
+export interface TasksBulkUpdateStatusParams extends TasksWorkspaceScopedParams {
+  taskIds: string[];
+  status: TaskStatus;
+}
+
+/**
+ * One entry per requested id, in request order.
+ *
+ * Note what this interface does NOT have: a top-level success flag (D5). The
+ * results ARE the answer; there is no summary of them that is both shorter and
+ * still true.
+ */
+export interface TasksBulkUpdateStatusResult {
+  results: TasksBulkResultItem[];
+}
+
 export type TasksGenerateRegistryParams = TasksWorkspaceScopedParams;
 export interface TasksGenerateRegistryResult {
   success: boolean;

@@ -92,6 +92,28 @@ export const MAX_LABEL_LENGTH = 32;
 export const MAX_LABELS_PER_TASK = 12;
 
 /**
+ * The most task ids one bulk call may carry (FR-C4.9).
+ *
+ * ## Why the number lives here rather than in the client that chunks
+ *
+ * It is a single number with two enforcers: the client slices its selection by
+ * it, and the RPC boundary REFUSES a request that exceeds it. Those two have to
+ * be the same number or one of them is wrong — a client chunking at 20 against
+ * a boundary capping at 10 fails every call, and the reverse silently permits
+ * an unbounded write burst that cancellation cannot interrupt. Declaring it
+ * beside the other shared task-write limits is what makes "the same number"
+ * structural instead of a review responsibility.
+ *
+ * ## Why there is a cap at all
+ *
+ * Cancellation is chunk-granular: a bulk run can only stop BETWEEN calls,
+ * because every write already issued has landed and is not reversed. The cap is
+ * therefore the resolution of the cancel button. It also bounds how long one
+ * call holds the write path before the single index rebuild at its end.
+ */
+export const BULK_CHUNK_SIZE = 20;
+
+/**
  * One label.
  *
  * The three FR-B1.7 limits (no newline, ≤ 32 characters, ≤ 12 per task) are

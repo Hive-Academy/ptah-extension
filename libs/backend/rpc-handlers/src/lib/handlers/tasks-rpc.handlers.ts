@@ -7,6 +7,7 @@
  *   - tasks:get              - single task detail (body + artifacts)
  *   - tasks:create           - create a new TASK_YYYY_NNN folder + task.md
  *   - tasks:updateStatus     - byte-preserving status transition
+ *   - tasks:bulkUpdateStatus - N independent status writes, one result each
  *   - tasks:generateRegistry - (re)write the derived registry.md
  *   - tasks:board            - all six status columns
  *   - tasks:reindex          - full rebuild of the derived index
@@ -63,6 +64,9 @@ import {
   type TasksUpdateStatusResult,
   type TasksUpdateMetadataParams,
   type TasksUpdateMetadataResult,
+  type TasksBulkResultItem,
+  type TasksBulkUpdateStatusParams,
+  type TasksBulkUpdateStatusResult,
   type TasksGenerateRegistryParams,
   type TasksGenerateRegistryResult,
   type TasksBoardParams,
@@ -85,6 +89,7 @@ import {
   TasksCreateParamsSchema,
   TasksUpdateStatusParamsSchema,
   TasksUpdateMetadataParamsSchema,
+  TasksBulkUpdateStatusParamsSchema,
   TasksGenerateRegistryParamsSchema,
   TasksBoardParamsSchema,
   TasksReindexParamsSchema,
@@ -142,6 +147,52 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled doctor action: ${JSON.stringify(value)}`);
 }
 
+/**
+ * Collapse a bulk request's ids to one entry per TASK, in first-requested
+ * order, keeping each id exactly as the caller sent it.
+ *
+ * ## Why the key is case-folded and the value is not
+ *
+ * A task id IS a folder name, and this project's primary platform has a
+ * case-insensitive filesystem: `TASK_2026_100` and `task_2026_100` name the
+ * SAME `task.md`. Deduplicating on exact string identity lets both survive, and
+ * both then write to that one file.
+ *
+ * The consequence is NOT a manufactured `TASK_CONFLICT` — that was the expected
+ * failure and the mutation disproved it. `applyFrontmatterPatch` compares
+ * `current` against that call's OWN snapshot, and the duplicate runs after the
+ * first write completed, so it snapshots the updated file and its re-read
+ * agrees. What actually happens is quieter: the caller receives TWO result
+ * entries for ONE task, which FR-C4.3 forbids, and the carrier is rewritten a
+ * second time purely to refresh `updated` — on a gitignored file with no undo.
+ * The client's write serialization cannot prevent either, because from its view
+ * these are two different tasks.
+ *
+ * The value keeps the caller's original casing so results still match what was
+ * asked for; only the identity TEST is case-folded. `toLowerCase` rather than
+ * `toLocaleLowerCase`: this is a filesystem identity question, not a
+ * presentation one, and a locale-sensitive fold would make the answer depend on
+ * the host's locale (the Turkish dotless-i being the standing example).
+ *
+ * This is not a claim that every filesystem is case-insensitive — on a
+ * case-sensitive one the two really are different folders, and folding merges
+ * them. That direction is accepted: the caller is told about the first casing
+ * it named instead of both, which is a visible under-report rather than a
+ * silent double write, and no producer in this codebase can emit a cased
+ * duplicate anyway — ids come from the folder scan.
+ */
+function dedupeTaskIds(taskIds: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const taskId of taskIds) {
+    const key = taskId.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(taskId);
+  }
+  return unique;
+}
+
 @injectable()
 export class TasksRpcHandlers {
   /** RPC methods owned by this handler (SHARED_HANDLERS coverage invariant). */
@@ -151,6 +202,7 @@ export class TasksRpcHandlers {
     'tasks:create',
     'tasks:updateStatus',
     'tasks:updateMetadata',
+    'tasks:bulkUpdateStatus',
     'tasks:generateRegistry',
     'tasks:board',
     'tasks:reindex',
@@ -190,6 +242,7 @@ export class TasksRpcHandlers {
     this.registerCreate();
     this.registerUpdateStatus();
     this.registerUpdateMetadata();
+    this.registerBulkUpdateStatus();
     this.registerGenerateRegistry();
     this.registerBoard();
     this.registerReindex();
@@ -626,6 +679,218 @@ export class TasksRpcHandlers {
         );
       }
     });
+  }
+
+  /**
+   * `tasks:bulkUpdateStatus` — move a set of tasks to one status (FR-C4).
+   *
+   * ## Partial failure is the EXPECTED outcome, not an error path
+   *
+   * There is no transaction across N carrier files, and this method does not
+   * pretend otherwise. It is N independent read → compare → write cycles
+   * through the SAME single-task funnel `tasks:updateStatus` uses, against
+   * files a live agent may be editing while the loop runs. Every requested id
+   * gets exactly one result entry (FR-C4.3) describing what happened to THAT
+   * task, and the loop never aborts early: one task's conflict says nothing
+   * about the next task's, so stopping would refuse writes the user asked for
+   * on the strength of an unrelated failure.
+   *
+   * There is deliberately no top-level success flag (D5). The entries are the
+   * answer.
+   *
+   * ## Once a write has landed, this method stops being able to fail
+   *
+   * Only `ensureStarted` can make it throw, and that runs before the first
+   * write, when "nothing happened" is still true. From the loop onward every
+   * failure — typed or unexpected — becomes an ENTRY, because an exception
+   * raised after three of five carriers changed would discard the three
+   * `ok: true` facts the caller needs in order to retry only what failed. See
+   * {@link applyBulkStatus}.
+   *
+   * ## One index rebuild for the whole call (R5 / FR-C4.10)
+   *
+   * Each write passes `deferNotify: true`, which suppresses the funnel's
+   * per-write index notification. Without it, N writes would cause N full
+   * `.ptah/specs` rescans (~180 folders each) and N `tasks:changed`
+   * broadcasts. The single `applyFolderChange` in the `finally` pays that cost
+   * once.
+   *
+   * It is in a `finally` rather than after the loop so that an unexpected throw
+   * mid-loop still rebuilds the index over the writes that already landed —
+   * those writes are on disk and are not reversed, so an index that does not
+   * know about them is simply wrong.
+   */
+  private registerBulkUpdateStatus(): void {
+    this.rpcHandler.registerMethod<
+      TasksBulkUpdateStatusParams,
+      TasksBulkUpdateStatusResult
+    >('tasks:bulkUpdateStatus', async (params) => {
+      const parsed = this.parse(TasksBulkUpdateStatusParamsSchema, params);
+      const root = this.resolveRoot(parsed.workspaceRoot);
+      const taskIds = dedupeTaskIds(parsed.taskIds);
+
+      // Failing here means NOTHING was written, so throwing is the honest
+      // answer — there is no partial outcome to report yet. Every failure from
+      // this point on becomes a result ENTRY instead, because from the first
+      // write onward an exception would be discarding facts about disk.
+      try {
+        await this.index.ensureStarted(root);
+      } catch (error: unknown) {
+        throw this.sanitize(
+          error,
+          'tasks:bulkUpdateStatus',
+          'Failed to update task statuses.',
+        );
+      }
+
+      const results: TasksBulkResultItem[] = [];
+      /** Folders whose bytes actually changed — drives the single rebuild. */
+      const written: string[] = [];
+
+      try {
+        for (const taskId of taskIds) {
+          results.push(
+            await this.applyBulkStatus(root, taskId, parsed.status, written),
+          );
+        }
+
+        return { results };
+      } finally {
+        // Exactly one rebuild + one `tasks:changed` push per call, and none at
+        // all when nothing was written — an empty rebuild is a full rescan
+        // bought for no change.
+        if (written.length > 0) {
+          await this.rebuildAfterBulk(root, written[0]);
+        }
+      }
+    });
+  }
+
+  /**
+   * One task's write inside a bulk loop. **This method does not throw.**
+   *
+   * That is its entire reason for existing. Once any write in the loop has
+   * landed, an escaping exception would replace a result list that records
+   * which carriers changed with an error that records nothing — and those
+   * writes are on disk and are not reversed. A caller told "the call failed"
+   * after three of five succeeded has no way to distinguish that from "nothing
+   * happened", so its only safe move is to retry all five, and retrying a write
+   * that already landed is how a bulk operation manufactures the very conflicts
+   * this batch exists to report accurately.
+   *
+   * The typed failures the writer RETURNS are already handled below; this
+   * catches the ones it THROWS, which are by definition the unexpected ones.
+   * They are sanitized exactly as a single-task method's would be — the raw
+   * error (which carries absolute paths) is logged server-side only (R4.4).
+   *
+   * @param written appended to when this task's bytes actually changed.
+   */
+  private async applyBulkStatus(
+    root: string,
+    taskId: string,
+    status: TaskStatus,
+    written: string[],
+  ): Promise<TasksBulkResultItem> {
+    try {
+      const result = await this.writer.updateMetadata(
+        root,
+        taskId,
+        { status },
+        { deferNotify: true },
+      );
+
+      if (result.success) {
+        written.push(taskId);
+        return { taskId, ok: true };
+      }
+
+      return {
+        taskId,
+        ok: false,
+        error: result.error,
+        // FR-C4.7 — enrich ONLY a conflict. Every other code already says
+        // everything there is to say; a conflict alone leaves the user asking
+        // "changed to what?", and that question has an answer.
+        ...(result.error.code === 'TASK_CONFLICT'
+          ? await this.readCurrentStatus(root, taskId)
+          : {}),
+      };
+    } catch (error: unknown) {
+      const sanitized = this.sanitize(
+        error,
+        'tasks:bulkUpdateStatus',
+        `Failed to update '${taskId}'.`,
+      );
+      // `WRITE_FAILED` because that is what the caller can act on: it is not a
+      // conflict (nothing is known to have changed underneath us) and not a
+      // missing task. Whether the carrier was written before the throw is
+      // genuinely unknown here, which is precisely why the OTHER entries must
+      // survive — they are the ones the caller can still trust.
+      return {
+        taskId,
+        ok: false,
+        error: { code: 'WRITE_FAILED', message: sanitized.message },
+      };
+    }
+  }
+
+  /**
+   * The single post-bulk index rebuild.
+   *
+   * ## Why one folder name is not an under-report of the rebuild
+   *
+   * `TaskIndexService.applyFolderChange` performs a FULL workspace scan and
+   * replaces the whole index in one transaction — `folderNames` is carried
+   * into the emitted `tasks:changed` payload as a hint and does not scope the
+   * scan. So every task this call wrote is reindexed regardless of which name
+   * is passed. The push payload does narrow to one name; no consumer reads it
+   * (the board reloads wholesale), and widening the notifier port to carry a
+   * list would be a change to the write-order seam bought for a field nothing
+   * reads.
+   *
+   * ## Why failures here are swallowed
+   *
+   * The writes have already landed. Letting a rebuild failure throw would
+   * replace a complete per-task result list with an exception, leaving the
+   * caller unable to tell which of its tasks were written — the one outcome
+   * worse than a stale index, which the next scan corrects anyway. This mirrors
+   * `TaskWriterService.notify`, which swallows for the same reason.
+   */
+  private async rebuildAfterBulk(
+    root: string,
+    folderName: string,
+  ): Promise<void> {
+    try {
+      await this.index.applyFolderChange(root, folderName);
+    } catch (error: unknown) {
+      this.logger.warn('[TasksRpc] bulk index rebuild failed', {
+        folderName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Re-read a carrier from disk after a refused write and report the status it
+   * actually holds now (FR-C4.7).
+   *
+   * Read AFTER the refusal, so it reflects what the other writer left rather
+   * than the snapshot our own write was computed from. `getDetail` is the
+   * existing disk read — it opens the carrier and runs it through
+   * `parseTaskFile` — so this adds no second notion of where a carrier lives
+   * or how it is parsed.
+   *
+   * Returns an empty object when the carrier cannot be read or no longer
+   * parses (the other writer may have left it mid-edit, or removed it). The
+   * conflict itself is still reported; only the enrichment is missing, and an
+   * absent `currentStatus` is honest where a guessed one would not be.
+   */
+  private async readCurrentStatus(
+    root: string,
+    taskId: string,
+  ): Promise<{ currentStatus?: TaskStatus }> {
+    const detail = await this.index.getDetail(root, taskId);
+    return detail ? { currentStatus: detail.status } : {};
   }
 
   private registerGenerateRegistry(): void {
