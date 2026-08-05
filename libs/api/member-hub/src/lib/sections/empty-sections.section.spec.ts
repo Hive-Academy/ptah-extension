@@ -1,5 +1,6 @@
 import type { MemberContext } from '@ptah-api/membership';
 import type { TopicsReadService } from '@ptah-api/forum';
+import type { CourseReadService } from '@ptah-api/learning';
 import { CommunitySection } from './community.section';
 import { EMPTY_NOTIFICATIONS } from './hub-section';
 import { LearningSection } from './learning.section';
@@ -26,6 +27,22 @@ import { PacksSection } from './packs.section';
  * which is precisely the transition worth asserting. Its `'ok'` and
  * `'unavailable'` paths live in `community.section.spec.ts`.
  *
+ * ⚠️ `learning` IS NO LONGER ONE OF THE CONSTANT ONES EITHER (TASK_2026_177 P3),
+ * for exactly the same reason and by exactly the same transition. Phase 1
+ * returned a hard-coded `{ status: 'empty', data: null }` because `Course`,
+ * `Lesson` and `LessonProgress` did not exist; Batch 9 created them and this
+ * section now queries `CourseReadService`. It is kept here with an injected stub
+ * whose lookup genuinely returns NOTHING — a member with no visible course —
+ * because "the query ran and found nothing" is the case this file is about. Its
+ * `'ok'` and `'unavailable'` paths live in `learning.section.spec.ts`.
+ *
+ * ⚠️ AND ITS EMPTY PAYLOAD IS `null`, NOT `[]`, WHICH IS NOT AN INCONSISTENCY.
+ * The `[]`-in-every-status rule (R6.3) applies to ARRAY sections so one client
+ * renderer handles all three statuses. `ContinueLearning` is a single object and
+ * there is no such thing as an empty one; `null` is the honest empty for it, and
+ * `'unavailable'` carries the same `null` so the shape still does not vary by
+ * status.
+ *
  * The empty SHAPES are pinned for the same reason as before: the contract
  * requires array sections to send `[]` in every status so one client renderer
  * handles all three (R6.3). A `null` here would make the member panel's
@@ -44,6 +61,22 @@ function memberContext(overrides: Partial<MemberContext> = {}): MemberContext {
   };
 }
 
+/**
+ * A curriculum whose course list genuinely returns nothing — not one that
+ * failed.
+ *
+ * `getCourse` is a `jest.fn()` with NO implementation on purpose: the section
+ * must not reach it when there is no course to detail, and an unstubbed call
+ * would resolve `undefined` and blow up on `.resumeLesson` — which is a louder
+ * failure than a silently-passing stub.
+ */
+function emptyCurriculum(): CourseReadService {
+  return {
+    listCourses: jest.fn().mockResolvedValue([]),
+    getCourse: jest.fn(),
+  } as unknown as CourseReadService;
+}
+
 /** A forum whose feed genuinely returns nothing — not one that failed. */
 function emptyForum(): TopicsReadService {
   return {
@@ -60,7 +93,7 @@ function emptyForum(): TopicsReadService {
 describe('the Phase-1 empty sections', () => {
   it('learning is empty with a null payload (there is no such thing as an empty ContinueLearning)', async () => {
     await expect(
-      new LearningSection().resolve(memberContext()),
+      new LearningSection(emptyCurriculum()).resolve(memberContext()),
     ).resolves.toEqual({ status: 'empty', data: null });
   });
 
@@ -89,7 +122,7 @@ describe('the Phase-1 empty sections', () => {
   it('none of them reports "unavailable" — nothing is broken or switched off', async () => {
     const statuses = await Promise.all(
       [
-        new LearningSection(),
+        new LearningSection(emptyCurriculum()),
         new CommunitySection(emptyForum()),
         new PacksSection(),
         new NotificationsSection(),

@@ -111,7 +111,9 @@ const EXCLUDED: ReadonlyArray<{
  * Re-counted 2026-08-04 at **37** (31 whole-object + 6 named-primitive) after
  * TASK_2026_177 P1b deleted three controllers with the forum integration.
  * Re-derived 2026-08-04 at **51** (45 whole-object + 6 named-primitive) after
- * TASK_2026_177 P2 added the five `libs/api/forum` controllers. Raise it only
+ * TASK_2026_177 P2 added the five `libs/api/forum` controllers.
+ * Re-derived 2026-08-05 at **67** (61 whole-object + 6 named-primitive) after
+ * TASK_2026_177 P3 added the five `libs/api/learning` controllers. Raise it only
  * when you have counted again.
  *
  * ⚠️ THE -2, AND THEN THE +14, ARE BOTH ACCOUNTED FOR — WHICH IS THE ONLY
@@ -141,6 +143,35 @@ const EXCLUDED: ReadonlyArray<{
  * has a target. Had one `@Query('q') q: string` slipped in, the total would read
  * 51 against a named count of 7 and the arithmetic here would not close.
  *
+ * The 51 → 67 rise is entirely whole-object params on the five new learning
+ * controllers, and it decomposes exactly:
+ *
+ *   learning/MemberCoursesController             2   (2 @Body)
+ *   learning/MemberLessonCommentsController      3   (3 @Body)
+ *   learning/AdminCoursesController              4   (4 @Body)
+ *   learning/AdminCourseModulesController        3   (3 @Body)
+ *   learning/AdminLessonsController              4   (4 @Body)
+ *                                              ---
+ *                                               16   45 + 16 = 61 whole-object
+ *                                                    61 +  6 = 67 total
+ *
+ * ⚠️ EVERY ONE OF THE SIXTEEN IS A `@Body()`; THIS BATCH ADDED NO `@Query()` AT
+ * ALL. That is not an accident of the surface — the member course list is
+ * unpaged (a curriculum is tens of courses, not thousands), the admin course
+ * list takes no filters, and plan §3.4's admin table has no `?includeDeleted`
+ * for courses. So `NAMED_PRIMITIVE_PARAM_COUNT` is UNCHANGED at 6, which is the
+ * load-bearing half: it is an exact-equality assertion (RISK-I), and a single
+ * `@Query('slug') slug: string` anywhere in `libs/api/learning` would make the
+ * total read 68 against a named count of 7 and the arithmetic here would not
+ * close.
+ *
+ * ⚠️ THE FOUR `@Param()`s PER LESSON ROUTE ARE NOT COUNTED BY EITHER NUMBER, and
+ * that is correct rather than a gap: `paramBindings` filters on
+ * `PARAMTYPE.BODY | QUERY`, because `@Param('slug')` binds a path segment that
+ * Express has already produced and `dtoPipe` has nothing to validate it against.
+ * `GET v1/members/courses/:slug/lessons/:lessonSlug` therefore contributes zero
+ * to both, despite carrying two route params.
+ *
  * ⚠️ It is ALSO the arithmetic check on TASK_2026_170's controller splits. R2
  * turned one 6-param `admin/AdminController` into five controllers holding
  * 2 + 2 + 1 + 1 + 0 = 6 params. A split MOVES params; it can never add or
@@ -151,9 +182,19 @@ const EXCLUDED: ReadonlyArray<{
  * ⚠️ LEAVING IT AT 37 WOULD HAVE BEEN THE REAL FAILURE. The assertion is
  * `>= MIN`, so a stale floor does not fail — it silently stops covering the
  * surface it was written for. At 37 against an actual 51, fourteen params could
- * have vanished before this test noticed.
+ * have vanished before this test noticed; at 51 against an actual 67, sixteen
+ * could. That is the whole argument for re-deriving the floor in every batch
+ * that adds a controller, and it is why "it still passes" is not a reason to
+ * leave it alone.
+ *
+ * HOW EACH RE-DERIVATION ABOVE WAS DONE, so the next one is mechanical rather
+ * than a recount by eye: set this constant to `9999`, run
+ * `npx nx test ptah-license-server --skip-nx-cache --testPathPatterns=controller-validation`,
+ * and read the ACTUAL total out of the failure message
+ * (`Expected: >= 9999 / Received: 67`), then restore it to that number and write
+ * the per-controller breakdown here so the arithmetic closes.
  */
-const MIN_TOTAL_PAYLOAD_PARAMS = 51;
+const MIN_TOTAL_PAYLOAD_PARAMS = 67;
 
 /**
  * Named-primitive params — `@Query('code') code: string` — bind a STRING, not a

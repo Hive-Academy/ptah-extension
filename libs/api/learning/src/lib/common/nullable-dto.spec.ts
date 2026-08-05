@@ -50,9 +50,9 @@ import * as ts from 'typescript';
  * that assertion is load-bearing, because `NOT_DELETED` leaving that lib would
  * let a consumer hand-build a `where` and read the forum past every visibility
  * clause. Widening the forum's public barrel for two decorators is a worse
- * trade than ~20 duplicated lines. The file is created by the batch that writes
- * this lib's first DTO (9B/9C); Batch 9A deliberately did not create an unused
- * one, and this paragraph is the handoff.
+ * trade than ~20 duplicated lines. The file was created by Batch 9B (which
+ * needed it for nothing but recorded the decision in the tree) and is used by
+ * every DTO Batch 9C wrote.
  *
  * ⚠️ AND THE PERMITTED ONES ARE ENUMERATED. {@link EXPECTED_NULLABLE_OPTIONALS}
  * lists every `@IsOptional()` in the lib. Adding one fails this test until the
@@ -60,13 +60,21 @@ import * as ts from 'typescript';
  * in a list a reviewer reads rather than a decorator nobody looks at twice.
  *
  * ⚠️ CURRENT COVERAGE — READ THIS BEFORE TRUSTING A GREEN RUN.
- * Batch 9A ships NO DTOs, so the real-tree scan finds ZERO files today and its
- * "no violations" assertion is honestly vacuous. What is NOT vacuous is the
- * `violationsIn() actually detects` block plus the loader assertion. This spec
- * was proven to fail on the REAL TREE before it was trusted: a throwaway
- * `courses/dto/tmp-proof.dto.ts` carrying `@IsOptional() @IsString() name?:
- * string` was staged, this spec failed and named the property by path, and the
- * file was then deleted and the suite re-confirmed green.
+ * Batch 9C landed this lib's sixteen DTO classes across fourteen `*.dto.ts`
+ * files, so the real-tree scan is no longer vacuous: it walks every one of them,
+ * finds {@link MIN_DTO_FILES} or more, and takes exactly THREE nullable
+ * optionals — every other optional field in the lib uses `@IsOptionalNotNull()`.
+ *
+ * (Batch 9A's version of this paragraph said the scan "finds ZERO files today
+ * and its 'no violations' assertion is honestly vacuous". That became false the
+ * moment the DTOs landed. It is rewritten rather than appended to: a count in
+ * prose that no assertion keeps honest is exactly the hazard `EXPECTED_ROUTES`'s
+ * docblock is called out for.)
+ *
+ * This spec was proven to fail on the REAL TREE before it was trusted: a
+ * throwaway `courses/dto/tmp-proof.dto.ts` carrying `@IsOptional() @IsString()
+ * name?: string` was staged, this spec failed and named the property by path,
+ * and the file was then deleted and the suite re-confirmed green.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -83,20 +91,69 @@ const NULL_STRICT = 'IsOptionalNotNull';
  * EVERY property in this lib allowed to carry `@IsOptional()`, with the reason
  * its type genuinely includes `null`.
  *
- * 🔴 IT IS `[]`, AND IT SHOULD STILL BE `[]` AT THE END OF BATCH 9. Every
- * optional DTO field in this batch uses `@IsOptionalNotNull()`.
+ * 🔴 IT HOLDS **THREE** ENTRIES AFTER BATCH 9C, AND BATCH 9A EXPECTED ZERO.
+ * That prediction was wrong in the same shape Batch 6C's `EXPECTED_EXEMPTIONS`
+ * prediction was wrong (it said one entry; two were unavoidable). Task 9.15's
+ * own text names the three candidates — `Course.coverImageUrl`,
+ * `CourseModule.description`, `CourseModule.releaseAt` — and says "each one
+ * added is a line a reviewer reads". These are those three, and each is argued
+ * individually below rather than accepted as a group.
+ *
+ * ⚠️ ALL THREE ARE ON **UPDATE** DTOs, AND NONE IS ON A CREATE DTO. That is the
+ * distinction that keeps the list at three: on a create, "no cover image" and
+ * "the key was omitted" are the same request and there is nothing to clear, so
+ * `CreateCourseDto.coverImageUrl`, `CreateModuleDto.description` and
+ * `CreateModuleDto.releaseAt` all use `@IsOptionalNotNull()`. `null` only earns
+ * an entry where CLEARING AN EXISTING VALUE is a request the endpoint must be
+ * able to express.
+ *
+ * ⚠️ A FOURTH WAS PREDICTED BY BATCH 9B AND IS DELIBERATELY NOT HERE.
+ * `UpdateLessonDto.youtubeVideoId` (`null` = "detach the video") is a real
+ * requirement, but `LessonVideoService.resolveVideoColumns` already treats an
+ * EMPTY string exactly as it treats an absent one — it returns `NO_VIDEO` and
+ * clears all five video columns — so the tri-state is expressible without
+ * `null`, and adding one would be a fourth spelling of a meaning that already
+ * has three. See `UpdateLessonDto`'s docblock.
  *
  * ⚠️ A NEW ENTRY IS A REVIEW EVENT. It means an endpoint now accepts `null` as
  * a VALUE. If the answer is "no, `null` should be rejected", the fix is
- * `@IsOptionalNotNull()`, not a line here.
- *
- * The realistic future entries, so that a reviewer can recognise a legitimate
- * one: `UpdateModuleDto.releaseAt` (`null` = "unschedule this module, open it
- * now") and `UpdateLessonDto.youtubeVideoId` (`null` = "detach the video").
- * Both are genuine clear-the-value semantics. `UpdateCourseDto.title` is not,
- * and should be refused.
+ * `@IsOptionalNotNull()`, not a line here. `UpdateCourseDto.title` is the
+ * archetypal refusal: `null` there would have to mean "clear the title", which
+ * is not a state a course may be in.
  */
-const EXPECTED_NULLABLE_OPTIONALS: readonly string[] = [];
+const EXPECTED_NULLABLE_OPTIONALS: readonly string[] = [
+  // `null` = "remove the cover image I set last week". `''` is not a substitute:
+  // an empty string in a nullable column renders as a broken `<img src="">`
+  // rather than as no image.
+  'courses/dto/update-course.dto.ts:coverImageUrl',
+  // `null` = "remove this module's description". `''` renders as an empty
+  // paragraph rather than as no paragraph, and the two are visibly different in
+  // the outline.
+  'courses/dto/update-module.dto.ts:description',
+  // 🔴 The clearest of the three. `null` = "UNSCHEDULE this module — open it
+  // now" (R2.4.1), which `CoursesService.updateModule` already implements. There
+  // is no other spelling: omitting the key means "leave the schedule alone",
+  // `''` is not a date, and a far-past timestamp would be a lie in the audit
+  // trail about when the module was actually opened.
+  'courses/dto/update-module.dto.ts:releaseAt',
+];
+
+/**
+ * Anti-vacuity floor for the DTO scan.
+ *
+ * 🔴 THIS REPLACES BATCH 9A's "the loader can see `common/`" GUARD AS THE THING
+ * THAT MAKES A GREEN RUN MEAN SOMETHING. While the lib had no DTOs, `>= 0` was
+ * the only honest bound and the loader check was all there was. Now that twelve
+ * `*.dto.ts` files exist, a scan finding none of them means the walk broke — and
+ * every "no violations" assertion above would go silently vacuous again, which
+ * is precisely how a census stops covering the surface it was written for.
+ *
+ * FOURTEEN files as of Batch 9C: nine under `courses/dto/`, two under
+ * `progress/dto/`, three under `comments/dto/`. They declare SIXTEEN classes,
+ * because `reorder.dto.ts` holds three — one per parent scope; see its docblock
+ * for why they are not one class with an optional parent id.
+ */
+const MIN_DTO_FILES = 14;
 
 /* -------------------------------------------------------------------------- */
 /* Analysis                                                                    */
@@ -237,19 +294,40 @@ describe('F-2 — in api-learning, an explicit `null` is a 400, never a 500', ()
     });
 
     it('is rooted at src/lib and can see common/ — the loader is not pointed at nothing', () => {
-      // 🔴 THE ANTI-VACUITY GUARD THAT MATTERS MOST TODAY. Batch 9A ships no
-      // DTOs, so DTO_FILES is empty and the assertions above are honestly
-      // vacuous. The forum sibling asserts `DTO_FILES.length >= 10`, which
-      // cannot be written here without being a lie. This replaces it: it fails
-      // if the loader is ever pointed at a directory it cannot see — the
-      // failure mode that would make the scan cover nothing FOREVER rather than
-      // only until 9B/9C.
+      // Batch 9A wrote this when the lib had no DTOs at all: the forum sibling
+      // asserts `DTO_FILES.length >= 10`, which could not be written here
+      // without being a lie, so this replaced it. It fails if the loader is ever
+      // pointed at a directory it cannot see — the failure mode that would make
+      // the scan cover nothing FOREVER rather than only until 9B/9C.
       const dirs = readdirSync(LIB_ROOT, { withFileTypes: true })
         .filter((e) => e.isDirectory())
         .map((e) => e.name);
 
       expect(LIB_ROOT.endsWith(`src${sep}lib`)).toBe(true);
       expect(dirs).toContain('common');
+    });
+
+    it(`scans at least ${MIN_DTO_FILES} real DTO files (the bound 9A could not write)`, () => {
+      // 🔴 THE ANTI-VACUITY GUARD THAT MATTERS NOW. Batch 9C landed the DTOs, so
+      // the forum sibling's bound is finally expressible here — and it is the
+      // one that catches the real failure: a walk that silently matches nothing
+      // turns every "no violations" assertion above green on an empty set.
+      // Listing the paths, not just counting them, so a failure says WHICH file
+      // stopped being seen.
+      const scanned = DTO_FILES.map((full) =>
+        full.slice(LIB_ROOT.length + 1).replace(/\\/g, '/'),
+      ).sort();
+
+      expect({ count: scanned.length, scanned }).toEqual({
+        count: scanned.length,
+        scanned,
+      });
+      expect(scanned.length).toBeGreaterThanOrEqual(MIN_DTO_FILES);
+      // …and the walk really did reach all three DTO directories, not just the
+      // first one it found.
+      expect(scanned.some((f) => f.startsWith('courses/dto/'))).toBe(true);
+      expect(scanned.some((f) => f.startsWith('progress/dto/'))).toBe(true);
+      expect(scanned.some((f) => f.startsWith('comments/dto/'))).toBe(true);
     });
 
     it('the AST walk can actually see a decorated property (the parser is wired)', () => {

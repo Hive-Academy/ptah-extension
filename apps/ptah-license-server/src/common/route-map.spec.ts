@@ -238,7 +238,10 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * which is exactly why the list, and not the number, is the artefact.
  *
  * **90** since Batch 6 added the 26 community-forum routes listed first below
- * (64 + 26). Cross-checked against the running container's
+ * (64 + 26). **117** since TASK_2026_177 Batch 9 added the 27 course-curriculum
+ * routes (`libs/api/learning`) listed second below (90 + 27): 5 member course +
+ * 4 member lesson-comment + 8 admin course + 4 admin module + 6 admin lesson.
+ * Cross-checked against the running container's
  * `RouterExplorer` log
  * (`docker logs ptah_license_server | grep -oE 'Mapped \{[^}]*\}' | sort -u`),
  * which reported 65 at the time it was taken.
@@ -300,6 +303,59 @@ const EXPECTED_ROUTES: readonly string[] = [
   // answer"), so a retried request converges instead of double-toggling.
   'PUT v1/members/community/posts/:id/reactions/:type',
   'PUT v1/members/community/topics/:id/accepted-answer',
+  // ── TASK_2026_177 P3, the course curriculum: 27 routes ───────────────────
+  // 18 admin across THREE controllers at three disjoint literal depth-3
+  // prefixes, and 9 member across two disjoint literal depth-3 prefixes.
+  //
+  // 🔴 `v1/admin/course-modules` IS A SIBLING OF `v1/admin/courses`, NOT A CHILD
+  // OF IT (RISK-N). The nested form `v1/admin/courses/modules` WOULD be a proper
+  // segment-wise path prefix of `v1/admin/courses` and RI-1 below rejects it —
+  // the same shape that forced Batch 6's three-controller split. That
+  // `v1/admin/courses` is a *string* prefix of `v1/admin/course-modules` is
+  // irrelevant: RI-1 compares parsed SEGMENTS, and segment 3 differs.
+  // `PREFIX_EXCEPTIONS` and `KNOWN_PREFIX_DEBT` are untouched by this batch.
+  //
+  // 🔴 THREE MORE RI-3 PAIRS. `PATCH …/reorder` unifies with `PATCH …/:id` on
+  // ALL THREE admin controllers, and the literal is declared first in each.
+  // Batch 6 made RI-3 non-vacuous with one such pair; this triples it.
+  // `POST v1/admin/lessons/refresh-metadata` and
+  // `POST v1/admin/lessons/:id/refresh-metadata` do NOT unify (different segment
+  // counts) — the bulk one is declared first anyway, at zero cost.
+  //
+  // ⚠️ THE TWO MEMBER PROGRESS ROUTES DO NOT UNIFY EITHER. Both are `PUT` with
+  // seven segments, but segment 7 is a LITERAL on both sides and the two
+  // literals differ, so no concrete request can match both.
+  'DELETE v1/admin/course-modules/:id',
+  'DELETE v1/admin/courses/:id',
+  'DELETE v1/admin/lessons/:id',
+  'DELETE v1/members/lesson-comments/:id',
+  'GET v1/admin/courses',
+  'GET v1/admin/courses/:id',
+  'GET v1/members/courses',
+  'GET v1/members/courses/:slug',
+  'GET v1/members/courses/:slug/lessons/:lessonSlug',
+  'PATCH v1/admin/course-modules/:id',
+  'PATCH v1/admin/course-modules/reorder',
+  'PATCH v1/admin/courses/:id',
+  'PATCH v1/admin/courses/reorder',
+  'PATCH v1/admin/lessons/:id',
+  'PATCH v1/admin/lessons/reorder',
+  'PATCH v1/members/lesson-comments/:id',
+  'POST v1/admin/course-modules',
+  'POST v1/admin/courses',
+  'POST v1/admin/courses/:id/restore',
+  'POST v1/admin/lessons',
+  'POST v1/admin/lessons/:id/refresh-metadata',
+  'POST v1/admin/lessons/refresh-metadata',
+  'POST v1/members/lesson-comments',
+  // PUT, not POST, on all four toggles: each expresses a desired end state
+  // ("this course should be published", "I have reached second 240", "this
+  // lesson is complete", "this comment is answered"), so a retried request
+  // converges instead of toggling back or double-counting.
+  'PUT v1/admin/courses/:id/published',
+  'PUT v1/members/courses/:slug/lessons/:lessonSlug/completion',
+  'PUT v1/members/courses/:slug/lessons/:lessonSlug/progress',
+  'PUT v1/members/lesson-comments/:id/answered',
   // ── everything that existed before ──────────────────────────────────────
   'DELETE v1/admin/groups/:id/members/:userId',
   'DELETE v1/admin/packs/:id',
@@ -633,6 +689,14 @@ describe("Route map — the server's HTTP surface and its routing invariants", (
     // reorder endpoint silently becomes "update the category called reorder".
     // The `unifiable()` self-test in anti-vacuity below remains what keeps this
     // honest if the pair ever disappears again.
+    //
+    // ⚠️ TASK_2026_177 Batch 9 ADDS THREE MORE OF THE SAME PAIR, on
+    // `v1/admin/courses`, `v1/admin/course-modules` and `v1/admin/lessons`. So
+    // this assertion now covers four live pairs rather than one, and its
+    // vacuity would have to be re-established by deleting all four. Each of the
+    // three is ALSO asserted locally in its own controller spec, together with a
+    // check that the two paths genuinely unify — because the ordering claim is
+    // decoration without it.
     const paramCount = (r: Route): number =>
       r.segments.filter((s) => s.kind === 'param').length;
 

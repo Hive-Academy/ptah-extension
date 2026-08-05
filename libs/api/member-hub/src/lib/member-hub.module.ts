@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@ptah-api/core';
 import { ForumModule } from '@ptah-api/forum';
 import { IdentityModule } from '@ptah-api/identity';
+import { LearningModule } from '@ptah-api/learning';
 import { CohortBadgesService } from './cohort-badges.service';
 import { MemberEntitlementController } from './member-entitlement.controller';
 import { MemberHubController } from './member-hub.controller';
@@ -70,9 +71,34 @@ import { SessionsSection } from './sections/sessions.section';
  * services and nothing else — no `TopicsService`, no `PostsService`, no
  * `CategoriesService`, none of `common/`. The hub cannot mutate the forum or
  * read past a visibility clause; `forum.module.spec.ts` asserts that surface.
+ *
+ * ⚠️ `LearningModule` (TASK_2026_177 P3) IS IMPORTED ON EXACTLY THE SAME TERMS.
+ * `LearningSection` injects ONE of its two exported services —
+ * `CourseReadService` — because every number the card renders
+ * (`completedLessons`, `totalLessons`, `percent`, the resume pointer and the
+ * module lock verdict) is already computed inside that service's own query
+ * budget; a second injection of `ProgressService` would be a duplicate
+ * derivation of one number, which is how a card and a page start disagreeing
+ * (D-6.15a). It is a NORMAL import, not `@Optional()`: learning is
+ * unconditionally part of the product, so a missing module is a wiring mistake
+ * that should fail at boot rather than degrade the card to `'unavailable'`
+ * forever.
+ *
+ * ⚠️ AND IT DOES NOT WIDEN THE HUB'S REACH EITHER. `LearningModule` exports two
+ * READ services and nothing else — no `CoursesService`, no `ReorderService`, no
+ * `LessonVideoService`, none of `common/`, and nothing that can reach
+ * `@ptah-api/youtube`. The hub cannot author a course, evaluate a lock against a
+ * hand-built tree, or issue a third-party request (NFR-P6);
+ * `learning.module.spec.ts` asserts that surface by exact array equality.
  */
 @Module({
-  imports: [ConfigModule, PrismaModule, IdentityModule, ForumModule],
+  imports: [
+    ConfigModule,
+    PrismaModule,
+    IdentityModule,
+    ForumModule,
+    LearningModule,
+  ],
   controllers: [MemberHubController, MemberEntitlementController],
   providers: [
     MemberHubService,

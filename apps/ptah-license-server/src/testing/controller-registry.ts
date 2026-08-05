@@ -19,6 +19,11 @@ import { AdminCommunityPostsController } from '@ptah-api/forum';
 import { AdminCommunityTopicsController } from '@ptah-api/forum';
 import { MemberCommunityController } from '@ptah-api/forum';
 import { MemberSearchController } from '@ptah-api/forum';
+import { AdminCourseModulesController } from '@ptah-api/learning';
+import { AdminCoursesController } from '@ptah-api/learning';
+import { AdminLessonsController } from '@ptah-api/learning';
+import { MemberCoursesController } from '@ptah-api/learning';
+import { MemberLessonCommentsController } from '@ptah-api/learning';
 import { HealthController } from '../health/health.controller';
 import { IntegrationLicensesController } from '@ptah-api/licensing';
 import { LicenseController } from '@ptah-api/licensing';
@@ -44,7 +49,8 @@ import { WaitlistController } from '@ptah-api/marketing';
  *
  * ⚠️ WHY THIS IS A MODULE AND NOT A CONST IN ONE SPEC.
  * Both specs need the identical list — 21 entries when this file was written,
- * 24 after TASK_2026_177 P1d, 29 since P2 added `libs/api/forum`. Duplicating
+ * 24 after TASK_2026_177 P1d, 29 since P2 added `libs/api/forum`, 34 since P3
+ * added `libs/api/learning`. Duplicating
  * it would create exactly the drift both specs exist to prevent: a controller
  * added to one list and not the other is enforced by one guard and invisible to
  * the other, with nothing failing. One list, two importers.
@@ -289,6 +295,47 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
     label: 'forum/MemberSearchController',
     file: 'libs/api/forum/src/lib/search/member-search.controller.ts',
     controller: MemberSearchController,
+  },
+  // TASK_2026_177 P3 — the course curriculum (`libs/api/learning`). FIVE
+  // controllers at five disjoint LITERAL prefixes.
+  //
+  // 🔴 `v1/admin/course-modules` IS NOT A TYPO FOR `v1/admin/courses/modules`
+  // AND MUST NEVER BE "SIMPLIFIED" INTO ONE (RISK-N). The nested form would be a
+  // proper SEGMENT-WISE path prefix of `v1/admin/courses`, which RI-1 rejects —
+  // the same shape (RISK-J) that forced the forum's moderation surface into
+  // three controllers one phase earlier. `v1/admin/courses` IS a *string* prefix
+  // of `v1/admin/course-modules`, and that is fine: RI-1 compares parsed
+  // segments and segment 3 differs, which is precisely why the hyphenated
+  // sibling is legal where the nested one is not.
+  //
+  // Two member controllers, one lib, deliberately NOT one class: plan §3.4 says
+  // lesson comments are "separate, to avoid contesting `courses/:slug`". Hung
+  // off the courses prefix, a comment route would sit beside `:slug` at the same
+  // depth and the two would contest a concrete path.
+  {
+    label: 'learning/AdminCourseModulesController',
+    file: 'libs/api/learning/src/lib/courses/admin-course-modules.controller.ts',
+    controller: AdminCourseModulesController,
+  },
+  {
+    label: 'learning/AdminCoursesController',
+    file: 'libs/api/learning/src/lib/courses/admin-courses.controller.ts',
+    controller: AdminCoursesController,
+  },
+  {
+    label: 'learning/AdminLessonsController',
+    file: 'libs/api/learning/src/lib/courses/admin-lessons.controller.ts',
+    controller: AdminLessonsController,
+  },
+  {
+    label: 'learning/MemberCoursesController',
+    file: 'libs/api/learning/src/lib/courses/member-courses.controller.ts',
+    controller: MemberCoursesController,
+  },
+  {
+    label: 'learning/MemberLessonCommentsController',
+    file: 'libs/api/learning/src/lib/comments/member-lesson-comments.controller.ts',
+    controller: MemberLessonCommentsController,
   },
   {
     label: 'google-sessions/AdminSessionsController',

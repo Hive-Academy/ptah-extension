@@ -20,6 +20,7 @@ import { MarketingModule } from '@ptah-api/marketing';
 import { MembershipModule } from '@ptah-api/membership';
 import { MemberHubModule } from '@ptah-api/member-hub';
 import { ForumModule } from '@ptah-api/forum';
+import { LearningModule } from '@ptah-api/learning';
 import { CircleModule } from '@ptah-api/community';
 import { GoogleSessionsModule } from '@ptah-api/community';
 import { MemberGroupsModule } from '@ptah-api/community';
@@ -105,6 +106,32 @@ import { PacksModule } from '@ptah-api/community';
     // ⚠️ NotificationsModule is NOT wired here either; it does not exist until
     // Batch 14 (RISK-L). See ForumModule's docblock.
     ForumModule,
+    // TASK_2026_177 P3 — the course curriculum. Five controllers:
+    // `v1/members/{courses,lesson-comments}` and
+    // `v1/admin/{courses,course-modules,lessons}`.
+    //
+    // AFTER MembershipModule (R7.3), for the same reason as ForumModule and
+    // MemberHubModule: both member controllers declare
+    // `@UseGuards(JwtAuthGuard, MemberGuard)`, and `MemberGuard` is resolved out
+    // of MembershipModule's @Global provider scope — which exists only once that
+    // module has been instantiated. That ordering is a REQUIREMENT.
+    //
+    // Its position relative to MemberHubModule is NOT a requirement, even though
+    // MemberHubModule imports this one for `CourseReadService`. Nothing here is
+    // @Global, and a Nest module's imports are resolved by the injector rather
+    // than by array position — MemberHubModule names LearningModule explicitly,
+    // so it gets the same singleton whichever appears first. Placed after
+    // ForumModule because that is the reading order: P2 then P3.
+    //
+    // ⚠️ YoutubeModule is NOT registered here. `LearningModule` imports it (and
+    // Batch 12's community lib will too). A second registration would create a
+    // second provider instance and therefore a second `loggedDisabled` flag,
+    // which is how "the disabled notice is logged exactly once" quietly becomes
+    // "once per module that touched it".
+    //
+    // ⚠️ NotificationsModule is not wired here either — Batch 14 (RISK-L). See
+    // LearningModule's docblock for why the omission is a decision.
+    LearningModule,
 
     LicenseModule,
     AuthModule,

@@ -69,6 +69,43 @@ export type AdminAuditAction =
   | 'community.topic.restore'
   | 'community.post.delete'
   | 'community.post.restore'
+  // TASK_2026_177 P3: the COURSE AUTHORING writes (R2, R8, plan §2.6, §3.4).
+  //
+  // ⚠️ THESE ARE THE ONLY RECORD OF WHO DELETED A COURSE, MODULE OR LESSON.
+  // `Course`, `CourseModule` and `Lesson` carry `deletedAt` and NO `deletedBy`
+  // column (plan §1.4 — `LessonComment` is the one course model that has one).
+  // So unlike the `community.*` deletes above, where the row itself names the
+  // actor, `learning.course.delete` and its two siblings are the whole answer to
+  // "who removed this". That is why every one of them is written INSIDE the
+  // mutation's own `$transaction` (PRE-6) via `WriteAuditLogParams.tx`: a row
+  // written after the commit is a row that can be missing for exactly the
+  // deletion somebody asks about, and here there is no column to fall back on.
+  //
+  // The granularity is per-INTENT, matching `community.*`: `publish` is separate
+  // from `update` because "who made this course visible to members" is a
+  // different question from "who corrected its description", and `reorder` is
+  // separate because it has no single target row at all (its `targetId` is
+  // `undefined`).
+  | 'learning.course.create'
+  | 'learning.course.update'
+  | 'learning.course.delete'
+  | 'learning.course.publish'
+  | 'learning.course.restore'
+  | 'learning.course.reorder'
+  | 'learning.module.create'
+  | 'learning.module.update'
+  | 'learning.module.delete'
+  | 'learning.module.reorder'
+  | 'learning.lesson.create'
+  | 'learning.lesson.update'
+  | 'learning.lesson.delete'
+  | 'learning.lesson.reorder'
+  // R2.2.5 — a MANUAL admin action, deliberately (RK-6, plan §4.5): there is no
+  // refresh cron, because an automatic job would reintroduce the YouTube quota
+  // surface the authoring-time fetch decision removed. Audited separately from
+  // `learning.lesson.update` so "who last re-pulled this video's metadata, and
+  // when" is answerable without diffing update rows.
+  | 'learning.lesson.refresh_metadata'
   // TASK_2026_169: admin Google Calendar session writes.
   | 'sessions.event.create'
   | 'sessions.event.update'
@@ -96,6 +133,23 @@ export type AdminAuditTargetType =
   | 'Category'
   | 'Topic'
   | 'Post'
+  // TASK_2026_177 P3 — the three authorable course entities (plan §1.4, §6.2).
+  // PRISMA MODEL NAMES, like every other member of this union, so `targetType` +
+  // `targetId` locates a row without knowing which surface wrote it.
+  //
+  // ⚠️ `CourseModule`, NOT `Module`. The Prisma model is `CourseModule` (its
+  // table is `course_modules`); `Module` would be both ambiguous with a Nest
+  // module and unresolvable against the schema.
+  //
+  // ⚠️ THERE IS NO `LessonComment` HERE, AND THAT IS DELIBERATE. Lesson comments
+  // are moderated by their AUTHOR or an admin through the MEMBER surface
+  // (`v1/members/lesson-comments`), which is not an admin audit path — and that
+  // model is the one course model that carries its own `deletedBy` column, so
+  // the row records its own actor. Adding a target type for it would imply an
+  // admin moderation surface that plan §3.4 does not ship.
+  | 'Course'
+  | 'CourseModule'
+  | 'Lesson'
   | 'Pack'
   | 'CalendarEvent';
 

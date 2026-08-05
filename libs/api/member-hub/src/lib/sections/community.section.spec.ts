@@ -243,7 +243,14 @@ describe('CommunitySection', () => {
         {
           resolveBadges: jest.fn().mockResolvedValue([]),
         } as unknown as CohortBadgesService,
-        new LearningSection(),
+        // TASK_2026_177 P3 — `LearningSection` now takes `CourseReadService`.
+        // A curriculum that genuinely returns nothing, so this composer's
+        // `learning` section stays `'empty'` and does not perturb the community
+        // assertions below.
+        new LearningSection({
+          listCourses: jest.fn().mockResolvedValue([]),
+          getCourse: jest.fn(),
+        } as never),
         new CommunitySection(topics),
         {
           resolve: jest

@@ -12,6 +12,9 @@ import { JwtAuthGuard } from '@ptah-api/identity';
 import { AdminCommunityCategoriesController } from '@ptah-api/forum';
 import { AdminCommunityPostsController } from '@ptah-api/forum';
 import { AdminCommunityTopicsController } from '@ptah-api/forum';
+import { AdminCourseModulesController } from '@ptah-api/learning';
+import { AdminCoursesController } from '@ptah-api/learning';
+import { AdminLessonsController } from '@ptah-api/learning';
 import { PacksModule } from '@ptah-api/community';
 import { AdminPacksController } from '@ptah-api/community';
 import { AdminSessionsController } from '@ptah-api/community';
@@ -116,6 +119,12 @@ describe('Admin surface — structural guards', () => {
       ],
       ['AdminCommunityTopicsController', AdminCommunityTopicsController],
       ['AdminCommunityPostsController', AdminCommunityPostsController],
+      // TASK_2026_177 P3 — the three curriculum authoring controllers. Same
+      // reasoning: G1 is a HAND-MAINTAINED enumeration, so an admin controller
+      // absent from it is untested rather than partially covered.
+      ['AdminCoursesController', AdminCoursesController],
+      ['AdminCourseModulesController', AdminCourseModulesController],
+      ['AdminLessonsController', AdminLessonsController],
     ])(
       '%s declares JwtAuthGuard + AdminGuard at class level',
       (_name, ctrl) => {
@@ -140,6 +149,9 @@ describe('Admin surface — structural guards', () => {
       ],
       ['AdminCommunityTopicsController', AdminCommunityTopicsController],
       ['AdminCommunityPostsController', AdminCommunityPostsController],
+      ['AdminCoursesController', AdminCoursesController],
+      ['AdminCourseModulesController', AdminCourseModulesController],
+      ['AdminLessonsController', AdminLessonsController],
     ])('%s is mounted under v1/admin/', (_name, ctrl) => {
       const path = Reflect.getMetadata(PATH_METADATA, ctrl) as string;
       expect(path.startsWith('v1/admin/')).toBe(true);
@@ -165,6 +177,79 @@ describe('Admin surface — structural guards', () => {
         'v1/admin/community/topics',
       ]);
       expect(prefixes).not.toContain('v1/admin/community');
+    });
+
+    // 🔴 THE SAME TWO ASSERTIONS FOR TASK_2026_177 P3's THREE CURRICULUM
+    // CONTROLLERS, and the first of them is the one that would catch the shape
+    // most likely to be "tidied up" later.
+    it('the three curriculum prefixes are disjoint SIBLINGS at depth 3 (RISK-N)', () => {
+      const prefixes = [
+        AdminCoursesController,
+        AdminCourseModulesController,
+        AdminLessonsController,
+      ].map((ctrl) => Reflect.getMetadata(PATH_METADATA, ctrl) as string);
+
+      expect(prefixes.sort()).toEqual([
+        'v1/admin/course-modules',
+        'v1/admin/courses',
+        'v1/admin/lessons',
+      ]);
+
+      // 🔴 `v1/admin/courses/modules` WOULD be a proper segment-wise path prefix
+      // of `v1/admin/courses`, which RI-1 rejects (RISK-J's shape). The
+      // hyphenated sibling is NOT, because segment 3 differs — even though one
+      // prefix is a *string* prefix of the other, which is exactly what makes a
+      // naive `startsWith` check get this backwards. Restated on this side so a
+      // failure names the ADMIN SURFACE rule rather than only the routing
+      // invariant.
+      expect(prefixes).not.toContain('v1/admin/courses/modules');
+      for (const prefix of prefixes) {
+        expect(prefix.split('/')).toHaveLength(3);
+      }
+
+      const violations: string[] = [];
+      for (const a of prefixes) {
+        for (const b of prefixes) {
+          if (a === b) continue;
+          const left = a.split('/');
+          const right = b.split('/');
+          if (left.length >= right.length) continue;
+          if (left.every((segment, i) => segment === right[i])) {
+            violations.push(`${a} < ${b}`);
+          }
+        }
+      }
+      expect(violations).toEqual([]);
+    });
+
+    it('the curriculum authoring surface declares WRITES, by design', () => {
+      // The analogue of the assertion below: authoring is a write surface, and
+      // what makes those writes safe is that each records an `AdminAuditLog` row
+      // INSIDE its own transaction (PRE-6) — asserted in `libs/api/learning`'s
+      // three admin controller specs. That matters more here than in the forum:
+      // `Course`, `CourseModule` and `Lesson` carry no `deletedBy` column, so
+      // the audit row is the ONLY record of who deleted one.
+      const writeVerbs = [
+        AdminCoursesController,
+        AdminCourseModulesController,
+        AdminLessonsController,
+      ].flatMap((ctrl) => {
+        const proto = ctrl.prototype as object;
+        return Object.getOwnPropertyNames(proto)
+          .filter((name) => name !== 'constructor')
+          .map((name) => {
+            const fn = Object.getOwnPropertyDescriptor(proto, name)
+              ?.value as object;
+            return Reflect.getMetadata(METHOD_METADATA, fn) as
+              | number
+              | undefined;
+          })
+          .filter((method): method is number => method !== undefined);
+      });
+
+      // RequestMethod.GET === 0, so this MUST compare against the enum rather
+      // than test truthiness.
+      expect(writeVerbs.some((verb) => verb !== RequestMethod.GET)).toBe(true);
     });
 
     // ⚠️ G5 IS NOT COMING BACK, AND THIS IS NOT IT. G5 asserted that the admin

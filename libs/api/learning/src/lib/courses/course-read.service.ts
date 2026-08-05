@@ -23,6 +23,7 @@ import { buildCourseVisibilityWhere } from '../common/visibility';
 import {
   ProgressService,
   toMemberLessonProgress,
+  type LessonProgressRow,
 } from '../progress/progress.service';
 
 import {
@@ -202,39 +203,11 @@ export class CourseReadService {
     slug: string,
     lessonSlug: string,
   ): Promise<MemberLessonDetail> {
-    const [course] = await this.fetchCourseTrees(ctx, { slug });
-    if (!course) throw new NotFoundException('Course not found');
-
-    const flat = flatten(course);
-    const index = flat.findIndex((entry) => entry.lesson.slug === lessonSlug);
-    if (index === -1) throw new NotFoundException('Lesson not found');
-
-    const entry = flat[index];
-    // Narrowed rather than asserted: `findIndex` already proved it is there,
-    // and a `!` would hide the day someone reorders these two statements.
-    if (!entry) throw new NotFoundException('Lesson not found');
-    const progressRows = await this.progress.listProgressFor(
+    const { flat, index, entry, progressRows } = await this.requireOpenLesson(
       ctx,
-      flat.map((e) => e.lesson.id),
+      slug,
+      lessonSlug,
     );
-    const completed = completedFrom(progressRows);
-
-    const verdict = this.locks.evaluate(
-      toLockModule(entry.module),
-      toLockCourse(course),
-      completed,
-      new Date(),
-    );
-    if (verdict.locked) {
-      // ⚠️ THE MACHINE `reason` AND `unlocksAt`, NEVER A SENTENCE. `LOCK_REASONS`
-      // is the shared vocabulary; the UI matches on the value, so a copy edit
-      // to the message must never change which screen a member sees.
-      throw new ForbiddenException({
-        reason: verdict.reason satisfies LockReason | null,
-        unlocksAt: verdict.unlocksAt?.toISOString() ?? null,
-        message: 'This module is not open yet.',
-      });
-    }
 
     const body = await this.prisma.lesson.findFirst({
       where: { id: entry.lesson.id, ...NOT_DELETED },
@@ -274,9 +247,115 @@ export class CourseReadService {
     };
   }
 
+  /**
+   * Resolve a lesson the member may WRITE TO, by the course-scoped slug pair —
+   * the seam the two progress endpoints stand on.
+   *
+   * 🔴 IT EXISTS SO THE `403` ON A PROGRESS WRITE IS THE SAME DECISION AS THE
+   * `403` ON A LESSON READ, NOT A SECOND ONE. `ProgressService` deliberately
+   * does not evaluate the module lock (Batch 9B, Task 9.13): the lock is a
+   * property of the MODULE and evaluating it needs the course tree and the
+   * member's completed lessons, which a one-row write has no reason to fetch.
+   * Plan §3.4 still annotates `PUT …/progress` and `PUT …/completion` with
+   * `403`, so the composition has to happen somewhere — and the only safe
+   * "somewhere" is code that runs {@link ModuleLockService} over the same tree
+   * `getLesson` runs it over. That is literally what this does: both methods
+   * call {@link requireOpenLesson}, so a change to the lock semantics cannot
+   * reach one and miss the other.
+   *
+   * ⚠️ TWO QUERIES, NOT FIVE — AND THAT IS WHY IT IS NOT JUST `getLesson()`.
+   * Composing the progress routes through `getLesson` would have been one line
+   * and would have cost the lesson BODY, the whole comment thread and a batched
+   * author lookup on **every progress ping**. A member watching a lesson emits
+   * one write per 15 seconds plus flushes on pause and teardown (which is why
+   * the throttle tier is 60/min, not 10/min); paying five queries and a full
+   * markdown payload for each of those is the shape that turns a working feature
+   * into an incident. This pays the two the DECISION actually needs.
+   *
+   * ⚠️ IT RETURNS THE ID AND NOTHING ELSE. `MemberLessonDetail` is the read
+   * model's business; a write path needs the primary key and the permission,
+   * and returning more would invite a caller to use this as a cheaper read and
+   * then wonder why the body is missing.
+   *
+   * `404` for a course or lesson this member cannot see (R2.1.2 — a draft or an
+   * out-of-cohort course produces no row and nothing here learns it existed);
+   * `403 { reason, unlocksAt }` for a VISIBLE course whose module is locked. The
+   * two are not interchangeable and are not unified.
+   */
+  async resolveWritableLesson(
+    ctx: MemberContext,
+    slug: string,
+    lessonSlug: string,
+  ): Promise<{ lessonId: string }> {
+    const { entry } = await this.requireOpenLesson(ctx, slug, lessonSlug);
+    return { lessonId: entry.lesson.id };
+  }
+
   /* ---------------------------------------------------------------------- */
   /* Internals                                                               */
   /* ---------------------------------------------------------------------- */
+
+  /**
+   * 🔴 THE ONE IMPLEMENTATION OF "may this member open this lesson right now".
+   *
+   * Extracted from {@link getLesson} so {@link resolveWritableLesson} is the
+   * SAME decision rather than a second one that happens to agree today. R2.4.5
+   * requires the lock to be evaluated server-side on every lesson access; two
+   * copies of that evaluation is the shape in which one of them silently stops
+   * matching the other.
+   *
+   * TWO QUERIES: the course tree, and this member's progress for its lessons.
+   * It returns the flattened list and the progress rows as well as the target,
+   * because `getLesson` needs both for prev/next (R2.1.5) and for the progress
+   * block — re-reading them would make the extraction cost a query.
+   */
+  private async requireOpenLesson(
+    ctx: MemberContext,
+    slug: string,
+    lessonSlug: string,
+  ): Promise<{
+    course: CourseTree;
+    flat: FlatEntry[];
+    index: number;
+    entry: FlatEntry;
+    progressRows: ReadonlyMap<string, LessonProgressRow>;
+  }> {
+    const [course] = await this.fetchCourseTrees(ctx, { slug });
+    if (!course) throw new NotFoundException('Course not found');
+
+    const flat = flatten(course);
+    const index = flat.findIndex((e) => e.lesson.slug === lessonSlug);
+    if (index === -1) throw new NotFoundException('Lesson not found');
+
+    const entry = flat[index];
+    // Narrowed rather than asserted: `findIndex` already proved it is there,
+    // and a `!` would hide the day someone reorders these two statements.
+    if (!entry) throw new NotFoundException('Lesson not found');
+
+    const progressRows = await this.progress.listProgressFor(
+      ctx,
+      flat.map((e) => e.lesson.id),
+    );
+
+    const verdict = this.locks.evaluate(
+      toLockModule(entry.module),
+      toLockCourse(course),
+      completedFrom(progressRows),
+      new Date(),
+    );
+    if (verdict.locked) {
+      // ⚠️ THE MACHINE `reason` AND `unlocksAt`, NEVER A SENTENCE. `LOCK_REASONS`
+      // is the shared vocabulary; the UI matches on the value, so a copy edit
+      // to the message must never change which screen a member sees.
+      throw new ForbiddenException({
+        reason: verdict.reason satisfies LockReason | null,
+        unlocksAt: verdict.unlocksAt?.toISOString() ?? null,
+        message: 'This module is not open yet.',
+      });
+    }
+
+    return { course, flat, index, entry, progressRows };
+  }
 
   /**
    * The ONE course-tree read, shared by all three public methods.

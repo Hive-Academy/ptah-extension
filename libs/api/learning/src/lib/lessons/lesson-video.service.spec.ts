@@ -570,12 +570,23 @@ describe('🔴 ASSUMPTION-9 — bulk refresh is per-lesson atomic and batch-tole
   });
 });
 
-describe('NFR-P6 — this is the ONLY importer of @ptah-api/youtube in the lib', () => {
+describe('NFR-P6 — this is the ONLY CONSUMER of @ptah-api/youtube in the lib', () => {
   it('and the sibling directories do not reach it', () => {
     // Task 9.17 owns the full structural assertion by name and proves it by
     // deliberate failure. This is the local half, so the property is checked
     // from the moment the importer lands rather than only at the end of the
     // batch.
+    //
+    // 🔴 THE SET IS **TWO** FILES, NOT ONE, AND THE SECOND IS UNAVOIDABLE.
+    // Batch 9B wrote this assertion when `learning.module.ts` did not exist yet
+    // and recorded a set of one. `LearningModule` MUST import `YoutubeModule` to
+    // provide `YouTubeMetadataProvider` to `LessonVideoService` — that is Nest
+    // wiring, and there is no way to register a provider without naming the
+    // module that exports it. Widening this array is therefore a CORRECTION, not
+    // a relaxation, and the property NFR-P6 actually cares about is preserved
+    // exactly by the assertion below it: the module imports only the MODULE
+    // token, which has no `fetchVideo` on it, so it cannot issue a request. This
+    // file remains the only place a YouTube call can be made from.
     const { readdirSync, readFileSync } =
       require('node:fs') as typeof import('node:fs');
     const { join } = require('node:path') as typeof import('node:path');
@@ -597,6 +608,49 @@ describe('NFR-P6 — this is the ONLY importer of @ptah-api/youtube in the lib',
       )
       .map((f) => f.slice(libRoot.length + 1).replace(/\\/g, '/'));
 
-    expect(importers).toEqual(['lessons/lesson-video.service.ts']);
+    expect(importers).toEqual([
+      'learning.module.ts',
+      'lessons/lesson-video.service.ts',
+    ]);
+  });
+
+  it('the module imports the MODULE token only — it cannot fetch anything', () => {
+    // The half that makes the two-file set safe. `YoutubeModule` is a Nest
+    // module: it has no `fetchVideo`, no `isEnabled`, and importing it grants
+    // the importer no ability to reach YouTube — only the ability to make the
+    // provider injectable somewhere else. The PROVIDER, which is the thing that
+    // can issue a request, must be reachable from exactly one file, and that
+    // file is this one.
+    //
+    // ⚠️ IT READS THE IMPORT CLAUSE, NOT THE FILE TEXT (Batch 9B's F-5, third
+    // occurrence). `learning.module.ts`'s docblock NAMES the provider in prose
+    // to explain why the module must not import it, and a `not.toContain` over
+    // the raw source reads that documentation as the violation — so the only way
+    // to stay green would be to delete the warning. Parsing the named bindings
+    // out of the one import statement is strictly stronger anyway: it cannot be
+    // fooled by an alias, a re-export or a second import line.
+    const { readFileSync } = require('node:fs') as typeof import('node:fs');
+    const { join } = require('node:path') as typeof import('node:path');
+
+    const moduleSource = readFileSync(
+      join(__dirname, '..', 'learning.module.ts'),
+      'utf8',
+    );
+
+    const clauses = [
+      ...moduleSource.matchAll(
+        /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*'@ptah-api\/youtube'/g,
+      ),
+    ].map((match) =>
+      (match[1] ?? '')
+        .split(',')
+        .map((binding) => binding.trim())
+        .filter(Boolean)
+        .sort(),
+    );
+
+    // Exactly one import statement, binding exactly one name, and that name is
+    // the module.
+    expect(clauses).toEqual([['YoutubeModule']]);
   });
 });

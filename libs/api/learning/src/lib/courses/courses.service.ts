@@ -159,6 +159,41 @@ export class CoursesService {
     );
   }
 
+  /**
+   * ONE live course in its admin shape — `GET /v1/admin/courses/:id`.
+   *
+   * ⚠️ IT EXISTS BECAUSE plan §3.4 LISTS THE ROUTE AND BATCH 9B LISTED NO
+   * METHOD FOR IT. Batch 6C recorded the identical gap as its C-5 (three admin
+   * service capabilities named by a route table and by no file list). Filtering
+   * `listForAdmin()` in the controller was the alternative and is rejected: it
+   * reads every course and their whole module and lesson trees to answer about
+   * one, which is a scan that grows with the curriculum for a lookup that does
+   * not.
+   *
+   * ⚠️ IT EXCLUDES TOMBSTONES AND TAKES NO AD-5 EXEMPTION, exactly like
+   * {@link listForAdmin}. plan §3.4's admin table has no `?includeDeleted`
+   * anywhere, so an admin holding a deleted course's id gets a `404` here — and
+   * `POST :id/restore` is still available to them, because that path evaluates
+   * the 30-day window INSIDE the `UPDATE`'s own `WHERE` and never reads a
+   * tombstone (Batch 9B's F-3). `EXPECTED_EXEMPTIONS` therefore stays `[]`.
+   *
+   * THREE QUERIES: the course, its live modules, the count of their live
+   * lessons — the same shape {@link listForAdmin} uses, via `hydrateCourse`, so
+   * a single-course read and a list row are produced by one mapper and cannot
+   * disagree.
+   */
+  async getForAdmin(id: string): Promise<AdminCourse> {
+    // `findFirst`, not `findUnique`: `Course` is soft-deletable and
+    // `findUnique`'s `where` takes unique fields only, so `{ id, ...NOT_DELETED }`
+    // would not compile. See `requireLiveCourse` for the same note.
+    const course = await this.prisma.course.findFirst({
+      where: { id, ...NOT_DELETED },
+    });
+    if (!course) throw new NotFoundException('Course not found');
+
+    return this.hydrateCourse(course);
+  }
+
   /* ---------------------------------------------------------------------- */
   /* Courses                                                                 */
   /* ---------------------------------------------------------------------- */
@@ -574,14 +609,32 @@ export class CoursesService {
   }
 
   /**
-   * Patch a lesson's non-video fields.
+   * Patch a lesson's text fields and, optionally, its ALREADY-RESOLVED video
+   * columns.
    *
-   * ⚠️ THE VIDEO COLUMNS ARE NOT PATCHABLE FROM HERE. They move together or not
-   * at all (R2.2.4) and they are `LessonVideoService`'s to write —
-   * `resolveAndPersist` owns the fetch, the §4.4 mapping and the five-column
-   * write. Accepting a loose `videoTitle` here would let an admin type a title
-   * onto an `'api'`-sourced row and leave `videoMetadataFetchedAt` claiming it
-   * came from YouTube.
+   * ⚠️ A LOOSE `videoTitle` IS STILL NOT ACCEPTED, AND THAT IS THE POINT OF THE
+   * `video` FIELD'S TYPE. `input.video` is a {@link LessonVideoColumns} — the
+   * complete five-column block `LessonVideoService.resolveVideoColumns` produces
+   * — never three hand-typed strings. So an admin cannot type a title onto an
+   * `'api'`-sourced row and leave `videoMetadataFetchedAt` claiming it came from
+   * YouTube: the source and the fetch timestamp are decided by the resolver,
+   * together with the other three, or not at all (R2.2.4).
+   *
+   * 🔴 WHY THE VIDEO MOVES THROUGH THIS METHOD RATHER THAN THROUGH
+   * `LessonVideoService.resolveAndPersist`. `PATCH /v1/admin/lessons/:id` can
+   * legitimately carry a title edit AND a video change in one request, and
+   * R2.2.4 wants the result to be one consistent lesson. Two calls would be two
+   * transactions and a window in which the text landed and the video did not.
+   * `createLesson` already takes the resolved columns for exactly this reason;
+   * this is the symmetric half.
+   *
+   * ⚠️ THE FETCH STILL HAPPENS BEFORE THE TRANSACTION OPENS. The caller resolves
+   * the columns first (`resolveVideoColumns` touches no database) and hands the
+   * result in — so a 10-second YouTube abort budget never holds a Postgres
+   * connection, and a failed fetch means no transaction was opened at all.
+   *
+   * `input.video === undefined` leaves all five columns exactly as they are;
+   * `NO_VIDEO` clears all five.
    */
   async updateLesson(
     id: string,
@@ -598,6 +651,9 @@ export class CoursesService {
           data.bodyMarkdown = input.bodyMarkdown;
         }
         if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder;
+        // All five, or none. Spreading the block is what makes "they move
+        // together" a property of the shape rather than of this if-statement.
+        if (input.video !== undefined) Object.assign(data, input.video);
 
         const row = await tx.lesson.update({ where: { id }, data });
         await audit?.(tx, row.id);
@@ -1009,6 +1065,22 @@ export interface UpdateLessonInput {
   readonly title?: string;
   readonly bodyMarkdown?: string;
   readonly sortOrder?: number;
+  /**
+   * The ALREADY-RESOLVED five video columns, or `undefined` to leave them
+   * untouched.
+   *
+   * ⚠️ IT IS THE WHOLE BLOCK, NEVER INDIVIDUAL FIELDS — see
+   * {@link CoursesService.updateLesson}. `NO_VIDEO` detaches the video;
+   * `undefined` is "the request said nothing about the video".
+   *
+   * ⚠️ ONLY `LessonVideoService.resolveVideoColumns` MAY PRODUCE ONE. That is
+   * not enforceable by the type (the interface is structural), so it is stated:
+   * the resolver is where the id is extracted and validated, where §4.4's
+   * outcome table is applied, and where `videoMetadataSource` /
+   * `videoMetadataFetchedAt` are decided. A hand-built literal here would
+   * bypass all three.
+   */
+  readonly video?: LessonVideoColumns;
 }
 
 /**
