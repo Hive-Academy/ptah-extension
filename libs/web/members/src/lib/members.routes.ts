@@ -19,9 +19,9 @@ import type { MemberPlaceholderData } from './placeholder/member-phase-placehold
  * Shape:
  *   /members                              -> redirects to /members/hub
  *   /members/hub                          -> HubPage (one request, R6.2)
- *   /members/courses                      -> course list          (phase 3)
- *   /members/courses/:slug                -> course detail        (phase 3)
- *   /members/courses/:slug/lessons/:lessonSlug -> lesson player   (phase 3)
+ *   /members/courses                      -> CoursesPage          (phase 3)
+ *   /members/courses/:slug                -> CoursePage            (phase 3)
+ *   /members/courses/:slug/lessons/:lessonSlug -> LessonPage       (phase 3)
  *   /members/packs                        -> member packs         (phase 5)
  *   /members/live                         -> upcoming sessions    (phase 4)
  *   /members/live/replays                 -> replays              (phase 4)
@@ -71,31 +71,35 @@ export const MEMBER_ROUTES: Routes = [
         loadComponent: () => import('./hub/hub-page').then((m) => m.HubPage),
       },
       {
+        /**
+         * ⚠️ THESE THREE WERE PLACEHOLDERS FOR TWO PHASES, AND THE REASON IS
+         * WORTH KEEPING. Phase 3 needed the whole `libs/api/learning` domain —
+         * five tables, five controllers and the `@ptah-contracts/community`
+         * course contracts — before a member surface could render anything but
+         * a stub. Batch 9 landed that; Batch 10 swapped these three.
+         *
+         * ⚠️ THE LESSON ROUTE IS THE ONLY MEMBER ROUTE WITH TWO PARAMETER
+         * SEGMENTS. `members.routes.spec.ts` asserts every parameter segment
+         * comes from an allowlist, and `:lessonSlug` was already in it — added
+         * with the placeholder in Batch 4 rather than with the real component,
+         * so nothing had to change here.
+         *
+         * `loadComponent` on each, so no sibling surface enters the hub's
+         * bundle: three new lazy chunks, not one shared one.
+         */
         path: 'courses',
-        loadComponent: loadPlaceholder,
-        data: placeholder({
-          surface: 'Courses',
-          phase: 3,
-          summary: 'The cohort curriculum is not published yet.',
-        }),
+        loadComponent: () =>
+          import('./learning/courses-page').then((m) => m.CoursesPage),
       },
       {
         path: 'courses/:slug',
-        loadComponent: loadPlaceholder,
-        data: placeholder({
-          surface: 'Course',
-          phase: 3,
-          summary: 'Course detail opens with the curriculum.',
-        }),
+        loadComponent: () =>
+          import('./learning/course-page').then((m) => m.CoursePage),
       },
       {
         path: 'courses/:slug/lessons/:lessonSlug',
-        loadComponent: loadPlaceholder,
-        data: placeholder({
-          surface: 'Lesson',
-          phase: 3,
-          summary: 'The lesson player opens with the curriculum.',
-        }),
+        loadComponent: () =>
+          import('./learning/lesson-page').then((m) => m.LessonPage),
       },
       {
         path: 'packs',

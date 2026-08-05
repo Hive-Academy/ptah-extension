@@ -234,3 +234,178 @@ export function cleanupCommunityCategory(categoryId: string): void {
     /* teardown is best-effort — see the module docblock */
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Course fixtures — TASK_2026_177 Batch 10                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ⚠️ THESE HELPERS CREATE AND REMOVE ONLY WHAT THEY CREATED, BY ID — and that
+ * discipline matters more here than it did for the forum. `courses`,
+ * `course_modules` and `course_lessons` are being filled CONCURRENTLY by
+ * TASK_2026_177 Batch 11's curriculum seed. So nothing below counts rows,
+ * asserts a table is empty, or truncates anything: every fixture carries a
+ * timestamped slug, and {@link cleanupCourse} deletes strictly the ids it was
+ * given, children first, in FK order
+ * (`lesson_comments` -> `lesson_progress` -> `course_lessons` ->
+ * `course_modules` -> `courses`).
+ *
+ * ⚠️ WRITTEN DIRECTLY RATHER THAN THROUGH THE ADMIN API, and the reason is
+ * consistency with every other fixture in this file rather than convenience.
+ * `seedCommunityCategory` and `seedForeignTopic` write SQL for the same reason:
+ * a fixture that drives the product's own write path tests that path twice and
+ * the feature under test once, and it would additionally require an
+ * `ADMIN_EMAILS` account inside every spec that wants a course. The admin write
+ * path IS exercised — live, with real HTTP — in Batch 10's report.
+ */
+
+export interface SeededCourse {
+  courseId: string;
+  courseSlug: string;
+  /** The open module, available immediately. */
+  openModuleId: string;
+  /** A module with a FUTURE `release_at` — the R2.4.1 lock. */
+  lockedModuleId: string;
+  /** A lesson in the open module WITH a real 11-character YouTube id. */
+  videoLessonId: string;
+  videoLessonSlug: string;
+  /** A lesson in the open module with NO video — the §7.3 default shape. */
+  textLessonId: string;
+  textLessonSlug: string;
+  /** A lesson inside the locked module. Requesting it is a 403. */
+  lockedLessonId: string;
+  lockedLessonSlug: string;
+}
+
+/** The first line of a multi-line psql error, for a one-line warning. */
+function firstLine(message: string): string {
+  const [first] = message.split(/\r?\n/);
+  return first.trim();
+}
+
+/**
+ * A published, member-visible course with one open module and one locked one.
+ *
+ * ⚠️ `visibility: 'member'` AND `cohort_keys: '{}'` DELIBERATELY. The e2e
+ * Builder holds no `member_group_assignment` — matching the dev account, whose
+ * empty assignment table is load-bearing evidence elsewhere — so a `'cohort'`
+ * course would be invisible and every assertion would fail as a 404 that looked
+ * like a rendering bug.
+ *
+ * ⚠️ 🔴 THE VIDEO LESSON CARRIES A REAL 11-CHARACTER ID, AND THAT IS WHAT MAKES
+ * THE NFR-S3 NETWORK ASSERTION NON-VACUOUS. Every lesson in Batch 11's seed has
+ * `youtube_video_id: null` (§7.3), so a "no YouTube request fired" assertion run
+ * against seeded content would be true because there was nothing to request.
+ *
+ * ⚠️ `video_thumbnail_url` IS SET HERE EVEN THOUGH THE LIVE AUTHORING PATH
+ * CANNOT PRODUCE ONE (`YOUTUBE_API_KEY` is unset — ASSUMPTION-6). It is set so
+ * the poster renders the `<img>` branch, which is the branch that contacts
+ * `i.ytimg.com` and therefore the branch the network assertion's allowlist has
+ * to be honest about. Testing the cheaper branch would prove less.
+ */
+export function seedCourse(slugPrefix: string): SeededCourse {
+  const stamp = Date.now();
+  const courseId = `crs_${randomUUID()}`;
+  const courseSlug = `${slugPrefix}-${stamp}`;
+  const openModuleId = `mod_${randomUUID()}`;
+  const lockedModuleId = `mod_${randomUUID()}`;
+  const videoLessonId = `les_${randomUUID()}`;
+  const textLessonId = `les_${randomUUID()}`;
+  const lockedLessonId = `les_${randomUUID()}`;
+
+  psql(
+    `INSERT INTO courses (id, slug, title, description, visibility, cohort_keys, published, sequential, sort_order, created_at, updated_at) ` +
+      `VALUES ('${courseId}', '${courseSlug}', 'E2E Course ${stamp}', 'A throwaway course for the Batch 10 e2e run.', 'member', '{}', true, false, 900, now(), now())`,
+  );
+
+  psql(
+    `INSERT INTO course_modules (id, course_id, slug, title, description, sort_order, created_at, updated_at) ` +
+      `VALUES ('${openModuleId}', '${courseId}', 'open-module', 'Open module', 'Available now.', 0, now(), now())`,
+  );
+  // ⚠️ A FUTURE `release_at` — R2.4.1's date rule, evaluated SERVER-SIDE.
+  psql(
+    `INSERT INTO course_modules (id, course_id, slug, title, description, sort_order, release_at, created_at, updated_at) ` +
+      `VALUES ('${lockedModuleId}', '${courseId}', 'locked-module', 'Locked module', 'Opens later.', 1, TIMESTAMP '2027-12-25 09:00:00', now(), now())`,
+  );
+
+  psql(
+    `INSERT INTO course_lessons (id, module_id, slug, title, body_markdown, sort_order, youtube_video_id, video_title, video_duration_seconds, video_thumbnail_url, video_metadata_source, created_at, updated_at) ` +
+      `VALUES ('${videoLessonId}', '${openModuleId}', 'video-lesson', 'Video lesson', ` +
+      // ⚠️ `E'…'` PLUS A DOUBLED BACKSLASH. The template literal must hand SQL
+      // a LITERAL `\n`, not a real newline: `docker exec … psql -tAc "…"` is one
+      // line, and an actual newline terminates the quoted string mid-statement
+      // (`ERROR: unterminated quoted string`). `E'…'` is what makes Postgres
+      // read the two characters back as a newline.
+      `E'# Video lesson\\n\\nThis body is **real markdown** and must render as such.', 0, ` +
+      `'dQw4w9WgXcQ', 'E2E probe video', 212, 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg', 'manual', now(), now())`,
+  );
+  psql(
+    `INSERT INTO course_lessons (id, module_id, slug, title, body_markdown, sort_order, created_at, updated_at) ` +
+      `VALUES ('${textLessonId}', '${openModuleId}', 'text-lesson', 'Text lesson', ` +
+      `E'# Text lesson\\n\\nNo video on this one — the **default** shape.', 1, now(), now())`,
+  );
+  psql(
+    `INSERT INTO course_lessons (id, module_id, slug, title, body_markdown, sort_order, created_at, updated_at) ` +
+      `VALUES ('${lockedLessonId}', '${lockedModuleId}', 'locked-lesson', 'Locked lesson', ` +
+      `'# SECRET_E2E_LOCKED_BODY_MARKER', 0, now(), now())`,
+  );
+
+  return {
+    courseId,
+    courseSlug,
+    openModuleId,
+    lockedModuleId,
+    videoLessonId,
+    videoLessonSlug: 'video-lesson',
+    textLessonId,
+    textLessonSlug: 'text-lesson',
+    lockedLessonId,
+    lockedLessonSlug: 'locked-lesson',
+  };
+}
+
+/**
+ * Removes a seeded course and everything under it, children first.
+ *
+ * Best-effort and id-scoped: it never touches a row it did not create, and the
+ * order respects the FKs. `lesson_comments.parent_id` is `onDelete: Restrict`,
+ * so replies go before their parents — done here by deleting the whole lesson's
+ * comment set in one statement rather than row by row.
+ */
+export function cleanupCourse(courseId: string): void {
+  const lessons = `SELECT l.id FROM course_lessons l JOIN course_modules m ON m.id = l.module_id WHERE m.course_id='${courseId}'`;
+
+  // ⚠️ 🔴 EACH STATEMENT IS ISOLATED, AND THAT IS A REPAIR RATHER THAN A STYLE
+  // CHOICE. The first version wrapped the whole sequence in ONE `try`, so a
+  // single failing child delete abandoned the PARENT row — and the first full
+  // e2e run left nine orphaned courses and eighteen orphaned modules behind,
+  // in tables Batch 11 is seeding concurrently. A best-effort teardown that
+  // gives up on the parent because a child failed is exactly how a table fills
+  // with orphans, and the swallowed exception is what made it invisible.
+  //
+  // Order still respects the FKs (`lesson_comments.parent_id` is
+  // `onDelete: Restrict`, so replies go before their parents); isolating the
+  // statements only means a failure at one level cannot strand every level
+  // above it.
+  for (const statement of [
+    `DELETE FROM lesson_comments WHERE parent_id IN (SELECT id FROM lesson_comments WHERE lesson_id IN (${lessons}))`,
+    `DELETE FROM lesson_comments WHERE lesson_id IN (${lessons})`,
+    `DELETE FROM lesson_progress WHERE lesson_id IN (${lessons})`,
+    `DELETE FROM course_lessons WHERE module_id IN (SELECT id FROM course_modules WHERE course_id='${courseId}')`,
+    `DELETE FROM course_modules WHERE course_id='${courseId}'`,
+    `DELETE FROM courses WHERE id='${courseId}'`,
+  ]) {
+    try {
+      psql(statement);
+    } catch (error: unknown) {
+      // ⚠️ REPORTED, NEVER SILENT. A teardown that fails quietly leaves rows in
+      // a table another batch is writing to, and the next reader has no way to
+      // tell a leak from a seed.
+      console.warn(
+        `[cleanupCourse] ${statement.slice(0, 60)}… failed: ${
+          error instanceof Error ? firstLine(error.message) : String(error)
+        }`,
+      );
+    }
+  }
+}

@@ -211,6 +211,16 @@ describe('NFR-S2 — one markdown renderer, one sanitizer, across libs/web/membe
       expect(labels).toContain('lib/community/components/topic-composer.ts');
       expect(labels).toContain('lib/community/components/reply-composer.ts');
       expect(labels).toContain('lib/search/search-page.ts');
+      // Phase 3 — every new surface is in scope from the moment it exists.
+      expect(labels).toContain('lib/learning/lesson-page.ts');
+      expect(labels).toContain('lib/learning/components/lesson-comments.ts');
+      expect(labels).toContain(
+        'lib/learning/components/lesson-comment-composer.ts',
+      );
+      // …including the player, which renders no markdown at all but is still
+      // policed for `[innerHTML]` and the direct-parser imports.
+      expect(labels).toContain('lib/learning/youtube-player.ts');
+      expect(labels).toContain('lib/learning/youtube-player.html');
     });
 
     it('excluded ONLY itself and the specs', () => {
@@ -327,10 +337,25 @@ describe('NFR-S2 — one markdown renderer, one sanitizer, across libs/web/membe
       }
     });
 
-    it('the renderer is imported ONLY from the shared lib', () => {
+    it('the renderer is imported ONLY from the shared lib, BY NAME', () => {
       // The component may be imported; the pipeline behind it may not be
       // reconfigured. This is the import-side statement of the same rule the
       // negative half makes on `ngx-markdown` / `marked` / `dompurify`.
+      //
+      // ⚠️ EXTENDING THIS LIST IS THE POINT. A new renderer must be A DIFF A
+      // REVIEWER READS, not a discovery. It was THREE after Batch 7 (the forum)
+      // and is SIX after Batch 10 (the course surfaces).
+      //
+      // 🔴 SIX, NOT THE FIVE TASK 10.11 PREDICTED. The task named
+      // `lesson-page.ts` and `lesson-comment-composer.ts` and stopped there.
+      // `lesson-comments.ts` is the sixth and it is not an oversight in the
+      // code: it renders every COMMENT BODY, which is member-authored text
+      // arriving over the network, and it stands in exactly the relationship to
+      // `lesson-comment-composer.ts` that `thread-page.ts` stands in to
+      // `reply-composer.ts` — the list renders what the composer wrote. A
+      // five-entry list could only have been made true by moving comment
+      // rendering into the composer, which would have made one component both
+      // write and display.
       const importers = FILES.filter((file) =>
         file.code.includes('@ptah-extension/markdown'),
       ).map((file) => file.label);
@@ -339,6 +364,9 @@ describe('NFR-S2 — one markdown renderer, one sanitizer, across libs/web/membe
         'lib/community/components/reply-composer.ts',
         'lib/community/components/topic-composer.ts',
         'lib/community/thread-page.ts',
+        'lib/learning/components/lesson-comment-composer.ts',
+        'lib/learning/components/lesson-comments.ts',
+        'lib/learning/lesson-page.ts',
       ]);
     });
   });
