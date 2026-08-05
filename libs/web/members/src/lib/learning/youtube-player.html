@@ -1,0 +1,75 @@
+<!--
+  Three mutually exclusive states, in the order §4.6 puts them:
+    1. unavailable  — no video, or an id this client will not trust
+    2. activated    — the iframe, built from the validated URL
+    3. the POSTER   — the default, and the one that costs nothing
+-->
+@if (unavailable()) {
+  <div
+    class="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl border border-hairline bg-base-300 text-center"
+    role="status"
+    data-testid="video-unavailable"
+  >
+    <lucide-angular
+      [img]="VideoOffIcon"
+      class="h-8 w-8 text-base-content/60"
+      aria-hidden="true"
+    />
+    <p class="px-4 text-sm text-base-content/60">
+      This video is unavailable. The lesson notes below are complete on their
+      own, and you can mark the lesson complete when you are done.
+    </p>
+  </div>
+} @else if (activated()) {
+  <div class="aspect-video w-full overflow-hidden rounded-xl bg-base-300">
+    <!--
+      The src is the SafeResourceUrl produced by the one bypass call, which
+      only runs on a non-null return from buildYoutubeEmbedUrl().
+    -->
+    <iframe
+      #frame
+      class="h-full w-full border-0"
+      [src]="trustedUrl()"
+      [title]="title()"
+      allow="accelerometer; encrypted-media; picture-in-picture"
+      allowfullscreen
+      data-testid="video-frame"
+    ></iframe>
+  </div>
+} @else {
+  <!--
+    A real button: in the tab order, and the browser synthesises a click for
+    Enter and Space, so keyboard operability needs no extra listener.
+  -->
+  <button
+    type="button"
+    class="group relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-xl border border-hairline bg-base-300 transition-colors hover:bg-surface-high focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+    [attr.aria-label]="activateLabel()"
+    data-testid="video-poster"
+    (click)="activate()"
+  >
+    @if (thumbnailUrl(); as poster) {
+      <!--
+        Decorative: the button already carries the accessible name, so alt=""
+        keeps a screen reader from hearing the title twice.
+      -->
+      <img
+        class="absolute inset-0 h-full w-full object-cover"
+        [src]="poster"
+        alt=""
+        loading="lazy"
+        data-testid="video-poster-image"
+      />
+    }
+    <span
+      class="relative flex flex-col items-center gap-2 text-base-content"
+      aria-hidden="true"
+    >
+      <lucide-angular
+        [img]="PlayIcon"
+        class="h-14 w-14 text-primary transition-transform group-hover:scale-110"
+      />
+      <span class="font-mono text-xs uppercase tracking-wide">Play lesson</span>
+    </span>
+  </button>
+}
