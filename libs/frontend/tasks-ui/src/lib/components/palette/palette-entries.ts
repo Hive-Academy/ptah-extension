@@ -78,6 +78,18 @@ export type TaskPaletteAction =
       readonly taskId: string;
       readonly labels: readonly string[];
     }
+  /**
+   * Move the whole MULTI-SELECTION to one status (FR-C6.7).
+   *
+   * It carries no ids. The selection is the store's, and re-listing it here
+   * would freeze a snapshot taken when the palette opened — a user who
+   * Ctrl-clicked two more cards with the palette open would write the wrong
+   * set. It also carries no consent: the dispatcher hands this to
+   * `TasksStore.requestBulkStatus`, which is where the FR-C4.12 confirmation
+   * lives, so a palette-launched move asks exactly as the bulk bar's picker
+   * does. There is deliberately no way to express "and skip the confirmation".
+   */
+  | { readonly kind: 'bulkSetStatus'; readonly status: TaskStatus }
   | { readonly kind: 'createTask' }
   /** The whole next spec, already computed. The view only calls `setFilter`. */
   | { readonly kind: 'setFilter'; readonly filter: TaskFilterSpec }
@@ -90,15 +102,23 @@ export const TASK_PALETTE_GROUPS = [
   'tasks',
   'views',
   'selection',
+  'bulk',
   'filters',
   'board',
 ] as const;
 export type TaskPaletteGroup = (typeof TASK_PALETTE_GROUPS)[number];
 
+/**
+ * `selection` and `bulk` are two groups because they act on two different
+ * things: `selection` writes the ONE task the detail panel is open on, `bulk`
+ * writes every checked card. Filing them together would put "Set status: Done"
+ * and "Move 42 selected tasks to Done" under one heading, one keystroke apart.
+ */
 export const TASK_PALETTE_GROUP_LABELS: Record<TaskPaletteGroup, string> = {
   tasks: 'Jump to a task',
   views: 'Saved views',
   selection: 'The selected task',
+  bulk: 'The checked tasks',
   filters: 'Filters',
   board: 'Board',
 };
@@ -131,6 +151,13 @@ export interface TaskPaletteContext {
   readonly estimatesInUse: readonly TaskEstimate[];
   /** The task the detail panel is open on, or `null`. */
   readonly selectedTask: TaskSpecSummary | null;
+  /**
+   * How many tasks are CHECKED (the multi-selection), which is a different
+   * number from `selectedTask` being non-null. Only the count is needed: the
+   * bulk action names no ids, so the catalogue only has to decide whether the
+   * entry can run and what number to say.
+   */
+  readonly selectionCount: number;
   readonly excludedCount: number;
   /** True while a board-wide write or reindex is outstanding. */
   readonly busy: boolean;
@@ -138,6 +165,9 @@ export interface TaskPaletteContext {
 
 const NO_SELECTION_REASON =
   'No task is selected — open a task first, then run this from the palette.';
+
+const NO_CHECKED_TASKS_REASON =
+  'No tasks are checked — tick a card, or use the checkbox and Shift-click on the board, then run this from the palette.';
 
 // ---------------------------------------------------------------------------
 // Filter-facet toggles (FR-C6.2: "toggle any single filter facet")
@@ -309,6 +339,32 @@ function statusEntries(selected: TaskSpecSummary | null): TaskPaletteEntry[] {
 }
 
 /**
+ * Bulk status moves over the checked tasks (FR-C6.7).
+ *
+ * Every status is offered, including the one some checked tasks already hold —
+ * unlike {@link statusEntries}, which omits the open task's own status. With a
+ * set there is no single current status to omit, and hiding a target because
+ * *some* of the selection is already in it would remove the command a user
+ * needs precisely when they are consolidating a mixed selection.
+ *
+ * The count is in the label so the palette says what the bulk bar says. A
+ * command that reads "Move the checked tasks to Done" tells a user nothing
+ * about whether they checked three cards or ninety.
+ */
+function bulkStatusEntries(selectionCount: number): TaskPaletteEntry[] {
+  return TASK_STATUSES.map((status) => ({
+    id: `bulk:status:${status}`,
+    label:
+      selectionCount === 0
+        ? `Move the checked tasks to ${TASK_STATUS_LABELS[status]}`
+        : `Move ${selectionCount} checked task(s) to ${TASK_STATUS_LABELS[status]}`,
+    group: 'bulk' as const,
+    disabledReason: selectionCount === 0 ? NO_CHECKED_TASKS_REASON : null,
+    action: { kind: 'bulkSetStatus' as const, status },
+  }));
+}
+
+/**
  * Add/remove entries for every label in the workspace union (FR-C6.2).
  *
  * The action carries the FULL replacement list rather than a delta, because
@@ -409,6 +465,7 @@ export function buildPaletteEntries(
 
   entries.push(...statusEntries(context.selectedTask));
   entries.push(...labelEntries(context.selectedTask, context.knownLabels));
+  entries.push(...bulkStatusEntries(context.selectionCount));
 
   for (const task of context.tasks) {
     entries.push({
@@ -439,6 +496,7 @@ export const EMPTY_PALETTE_CONTEXT: TaskPaletteContext = {
   knownExecutors: [],
   estimatesInUse: [],
   selectedTask: null,
+  selectionCount: 0,
   excludedCount: 0,
   busy: false,
 };

@@ -32,9 +32,12 @@ import { TaskStartService } from '../services/task-start.service';
 import { TaskViewsService } from '../services/task-views.service';
 import { TaskBoardComponent } from './board/task-board.component';
 import type {
+  TaskSelectionToggle,
   TaskStartRequest,
   TaskStatusChange,
 } from './board/task-card.component';
+import { TaskBulkBarComponent } from './bulk/task-bulk-bar.component';
+import { TaskBulkSummaryComponent } from './bulk/task-bulk-summary.component';
 import { TaskDetailComponent } from './detail/task-detail.component';
 import type { TaskMetadataWrite } from './detail/task-metadata-write';
 import { TaskFilterBarComponent } from './filter/task-filter-bar.component';
@@ -81,6 +84,8 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
     LucideAngularModule,
     NativeDrawerComponent,
     TaskBoardComponent,
+    TaskBulkBarComponent,
+    TaskBulkSummaryComponent,
     TaskDetailComponent,
     TaskCommandPaletteComponent,
     TaskFilterBarComponent,
@@ -267,6 +272,46 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
         />
       }
 
+      <!-- The bulk bar appears only once there is something to act on, and
+           stays through the confirmation and the run. It is not permanent
+           chrome: a toolbar offering to move zero tasks is a row of controls
+           that cannot do anything, on a board that is mostly reading. -->
+      @if (bulkBarVisible()) {
+        <ptah-task-bulk-bar
+          [count]="store.selectionCount()"
+          [hiddenCount]="store.hiddenSelectionCount()"
+          [matchedCount]="store.matchedCount()"
+          [requested]="store.bulkRequest()"
+          [progress]="store.bulk()"
+          (statusPicked)="store.requestBulkStatus($event)"
+          (confirmRequest)="store.confirmBulkRequest()"
+          (cancelRequest)="store.cancelBulkRequest()"
+          (cancelRun)="store.cancelBulk()"
+          (selectAllMatching)="store.selectAllMatching()"
+          (clearSelection)="store.clearSelection()"
+        />
+      }
+
+      <!-- Persistent, NOT a toast (FR-C4.5). It outlives the run that produced
+           it and is cleared only by the user or by the next run.
+
+           HIDDEN while a confirmation is pending or a run is in flight, rather
+           than cleared. Two different failures are being avoided at once: left
+           visible, a Retry confirmation is read against the previous run's
+           failure list sitting right underneath it, and the user cannot tell
+           which run the numbers on screen belong to. But CLEARING it on the
+           request would destroy that list for a user who then declines the
+           confirmation — and the list is the thing they were reading in order
+           to decide. Hiding satisfies both: decline the retry and the summary
+           comes straight back. -->
+      @if (bulkSummaryVisible(); as summary) {
+        <ptah-task-bulk-summary
+          [summary]="summary"
+          (retry)="store.requestBulkStatus($event)"
+          (dismissed)="store.clearBulkSummary()"
+        />
+      }
+
       <!-- Body -->
       <div class="flex flex-1 min-h-0">
         @if (store.loading() && !store.loaded()) {
@@ -350,8 +395,12 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
                 [columns]="store.board()"
                 [graph]="store.graph()"
                 [selectedTaskId]="store.selectedTaskId()"
+                [selection]="store.selection()"
+                [pending]="store.pending()"
+                [outcomes]="store.lastRunOutcomes()"
                 (taskSelect)="store.openTask($event)"
                 (taskToggle)="onTaskToggle($event)"
+                (selectionToggle)="onSelectionToggle($event)"
                 (escapePressed)="onBoardEscape()"
                 (statusChange)="onStatusChange($event)"
                 (startTask)="onStartTask($event)"
@@ -587,10 +636,40 @@ export class TasksViewComponent {
       knownExecutors: this.store.knownExecutors(),
       estimatesInUse: this.estimatesInUse(),
       selectedTask: this.selectedTask(),
+      selectionCount: this.store.selectionCount(),
       excludedCount: this.store.excludedCount(),
       busy: this.store.busy() || this.store.loading(),
     }),
   );
+
+  /**
+   * Whether the bulk bar has anything to say.
+   *
+   * Three states keep it up, and the last two matter: a run in flight owns the
+   * only Cancel button there is, and a pending confirmation owns the only
+   * Confirm. Gating the bar on the selection count alone would make both
+   * unreachable the moment a selection emptied underneath them.
+   */
+  protected readonly bulkBarVisible = computed(
+    () =>
+      this.store.selectionCount() > 0 ||
+      this.store.bulk() !== null ||
+      this.store.bulkRequest() !== null,
+  );
+
+  /**
+   * The last run's summary, but only while nothing newer is being decided.
+   *
+   * Returns `null` — so the `@if` drops the panel entirely — whenever a
+   * confirmation is pending or a run is in flight. The summary is NOT cleared;
+   * declining the confirmation brings it straight back, because the failure
+   * list is what the user was reading in order to decide.
+   */
+  protected readonly bulkSummaryVisible = computed(() => {
+    if (this.store.bulkRequest() !== null) return null;
+    if (this.store.bulk() !== null) return null;
+    return this.store.bulkSummary();
+  });
 
   /**
    * The estimate buckets that actually hold a task.
@@ -763,6 +842,13 @@ export class TasksViewComponent {
           labels: [...action.labels],
         });
         return;
+      case 'bulkSetStatus':
+        // FR-C6.7: the SAME entry point the bulk bar's picker calls, so a
+        // palette-launched move over 40 tasks asks for confirmation exactly as
+        // the bar's does. There is no second route into `bulkUpdateStatus`
+        // from this dispatcher, and adding one would be the whole failure.
+        this.store.requestBulkStatus(action.status);
+        return;
       case 'createTask':
         this.openCreate();
         return;
@@ -787,32 +873,63 @@ export class TasksViewComponent {
   }
 
   /**
-   * Space on the focused card (FR-C7.2) — toggle its selection.
+   * Space on the focused card (FR-C7.2) — add or remove it from the
+   * multi-selection.
    *
-   * The board's only selection today is the single open task, so "toggle"
-   * means close it if it is the one already open and open it otherwise. Stated
-   * rather than dressed up: FR-C7.2 and FR-C7.3 are written against FR-C4's
-   * multi-select model, which lands in a later batch. When it does, this method
-   * and {@link onBoardEscape} are the two places it re-points, and neither the
-   * board nor the card changes.
+   * ## This is one of the two seam reducers, re-pointed
+   *
+   * The event was plumbed card → column → board → here by the batch that built
+   * the keyboard navigation, with a body that toggled the DETAIL PANEL, because
+   * the multi-select model did not exist yet and that was the only selection
+   * there was to toggle. FR-C4's model exists now, and re-pointing it meant
+   * changing this method body and nothing else: the card still emits "Space
+   * happened on this card", the column still forwards it, the board still
+   * tracks focus through it. Neither component was edited for this.
+   *
+   * It deliberately no longer opens or closes the detail panel. Space is now
+   * the keyboard equivalent of the checkbox, which is what FR-C7.2 asked for,
+   * and Enter remains the key that opens.
    */
   protected onTaskToggle(taskId: string): void {
-    if (this.store.selectedTaskId() === taskId) {
-      this.store.closeTask();
-      return;
-    }
-    void this.store.openTask(taskId);
+    this.store.toggleSelection(taskId);
   }
 
   /**
-   * Escape on the board (FR-C7.3).
+   * A pointer selection gesture — the checkbox, Ctrl-click, or Shift-click.
    *
-   * "Clear the selection when one exists, otherwise close the detail panel"
-   * describes two branches over a selection model that does not exist yet —
-   * with one selected task those two acts are the same act. It is implemented
-   * as the one act it currently is, in the one place FR-C4 will split it.
+   * The store owns what a range means, because it is the only thing that can
+   * see the filtered, sorted, column-flattened order the range resolves
+   * against (plan §6.3). This method only routes the gesture.
+   */
+  protected onSelectionToggle(toggle: TaskSelectionToggle): void {
+    if (toggle.range) {
+      this.store.selectRangeTo(toggle.taskId);
+      return;
+    }
+    this.store.toggleSelection(toggle.taskId);
+  }
+
+  /**
+   * Escape on the board (FR-C7.3) — the second seam reducer, also re-pointed.
+   *
+   * FR-C7.3 always described two branches, and until FR-C4 there was one
+   * selection model for them to branch on, so they collapsed into one act. Now
+   * they do not: clear the multi-selection first, and close the detail panel
+   * only when there is no selection to clear.
+   *
+   * That order is the recoverable one. A selection can cost a user twelve
+   * clicks and cannot be restored; a detail panel is one click away. When both
+   * are open, Escape should discard the cheap thing first.
+   *
+   * Like {@link onTaskToggle}, this changed here and nowhere else —
+   * `TaskBoardComponent` still emits "Escape happened on the board" and has no
+   * opinion about what that means.
    */
   protected onBoardEscape(): void {
+    if (this.store.selectionCount() > 0) {
+      this.store.clearSelection();
+      return;
+    }
     if (this.store.selectedTaskId() !== null) this.store.closeTask();
   }
 

@@ -9,6 +9,7 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import {
+  BULK_CHUNK_SIZE,
   EMPTY_TASK_FILTER,
   TASK_STATUSES,
   TaskMetadataPatchSchema,
@@ -16,8 +17,10 @@ import {
   type TaskSpecSummary,
   type TaskStatus,
   type TasksBoardResult,
+  type TasksBulkResultItem,
 } from '@ptah-extension/shared';
 import {
+  BULK_CONFIRM_THRESHOLD,
   TasksStore,
   TASKS_CHANGED_MESSAGE_TYPE,
   normalizeRootKey,
@@ -1552,6 +1555,775 @@ describe('TasksStore — workspace awareness', () => {
       workspaceRoot: 'D:/ws-b',
     });
     expect(store.columns().done).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Selection + bulk status (FR-C4) — Batch 12
+// ---------------------------------------------------------------------------
+describe('TasksStore — selection and bulk status', () => {
+  let store: TasksStore;
+  let rpcCall: jest.Mock;
+
+  /** Every `tasks:board` call the spy has seen — the R5 counter. */
+  const boardCalls = (): unknown[][] =>
+    rpcCall.mock.calls.filter((call) => call[0] === 'tasks:board');
+
+  const bulkCalls = (): unknown[][] =>
+    rpcCall.mock.calls.filter((call) => call[0] === 'tasks:bulkUpdateStatus');
+
+  /** `n` backlog tasks, ids in ascending order. */
+  function tasks(count: number, prefix = 'TASK_2026_'): TaskSpecSummary[] {
+    return Array.from({ length: count }, (_, index) =>
+      makeTask(`${prefix}${String(index).padStart(3, '0')}`, 'backlog'),
+    );
+  }
+
+  /**
+   * Answer `tasks:bulkUpdateStatus` per id, and `tasks:board` with `payload`.
+   *
+   * `outcome` decides each id's entry, so a test states its failure shape
+   * rather than assembling result lists by hand.
+   */
+  function installBulkMock(
+    payload: TasksBoardResult,
+    outcome: (taskId: string) => TasksBulkResultItem = (taskId) => ({
+      taskId,
+      ok: true,
+    }),
+  ): void {
+    rpcCall.mockImplementation(
+      (method: string, params: { taskIds?: string[] }) => {
+        if (method === 'tasks:bulkUpdateStatus') {
+          return Promise.resolve(
+            ok({ results: (params.taskIds ?? []).map(outcome) }),
+          );
+        }
+        return Promise.resolve(ok(payload));
+      },
+    );
+  }
+
+  beforeEach(() => {
+    rpcCall = jest.fn();
+    TestBed.configureTestingModule({
+      providers: [
+        TasksStore,
+        {
+          provide: ClaudeRpcService,
+          useValue: { call: rpcCall as unknown as ClaudeRpcService['call'] },
+        },
+      ],
+    });
+    store = TestBed.inject(TasksStore);
+  });
+
+  // -------------------------------------------------------------------------
+  // The selection model (FR-C4.1–4.2) — Task 12.1
+  // -------------------------------------------------------------------------
+  describe('selection', () => {
+    beforeEach(async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: tasks(5) })));
+      await store.loadBoard();
+    });
+
+    it('toggles one task on and off', () => {
+      store.toggleSelection('TASK_2026_001');
+      expect([...store.selection()]).toEqual(['TASK_2026_001']);
+      store.toggleSelection('TASK_2026_001');
+      expect([...store.selection()]).toEqual([]);
+    });
+
+    /**
+     * The independence contract, in the one direction that is easy to break by
+     * accident: a selection gesture must not open the detail panel.
+     */
+    it('opens no detail panel and closes none', async () => {
+      await store.openTask('TASK_2026_000');
+      store.toggleSelection('TASK_2026_001');
+      expect(store.selectedTaskId()).toBe('TASK_2026_000');
+
+      store.clearSelection();
+      expect(store.selectedTaskId()).toBe('TASK_2026_000');
+      expect(store.selectionCount()).toBe(0);
+    });
+
+    it('extends a range across the visible, sorted order from the anchor', () => {
+      store.toggleSelection('TASK_2026_001');
+      store.selectRangeTo('TASK_2026_003');
+
+      expect([...store.selection()].sort()).toEqual([
+        'TASK_2026_001',
+        'TASK_2026_002',
+        'TASK_2026_003',
+      ]);
+    });
+
+    /**
+     * The range means what the user SEES — resolved against the SORT.
+     *
+     * ## Reversing the sort would NOT have tested anything
+     *
+     * The first version of this asserted a `desc` id sort, and it could not
+     * fail: the set of ids lying between two endpoints is identical in a list
+     * and in its reverse, so the assertion held against `allTasks()` just as
+     * well as against `visibleOrder()`. It was green and worthless.
+     *
+     * A sort that REORDERS rather than reverses is what discriminates. The
+     * `updated` stamps below are deliberately shuffled, so the rendered order
+     * is `004, 001, 003, 000, 002` — and the range from 004 to 003 is
+     * `{001, 003, 004}` on screen against `{003, 004}` in payload order, where
+     * the two ids sit adjacent.
+     *
+     * The two answers differ by ONE task — `TASK_2026_001` — and that one is
+     * the whole test. An earlier version of this comment claimed two, which
+     * overstated it: the payload-order answer is a SUBSET here, not a different
+     * span. One wrongly-written carrier is still a wrongly-written carrier, and
+     * the mutation below confirms the assertion moves on exactly that id.
+     */
+    it('resolves a range against the SORTED order, not the payload order', async () => {
+      const stamps = [
+        '2026-08-01T00:00:02.000Z',
+        '2026-08-01T00:00:04.000Z',
+        '2026-08-01T00:00:01.000Z',
+        '2026-08-01T00:00:03.000Z',
+        '2026-08-01T00:00:05.000Z',
+      ];
+      rpcCall.mockResolvedValue(
+        ok(
+          makeBoard({
+            backlog: stamps.map((updated, index) =>
+              makeTask(`TASK_2026_00${index}`, 'backlog', { updated }),
+            ),
+          }),
+        ),
+      );
+      await store.loadBoard();
+      store.setSort({ field: 'updated', direction: 'desc' });
+
+      expect(store.visibleOrder()).toEqual([
+        'TASK_2026_004',
+        'TASK_2026_001',
+        'TASK_2026_003',
+        'TASK_2026_000',
+        'TASK_2026_002',
+      ]);
+
+      store.toggleSelection('TASK_2026_004');
+      store.selectRangeTo('TASK_2026_003');
+
+      expect([...store.selection()].sort()).toEqual([
+        'TASK_2026_001',
+        'TASK_2026_003',
+        'TASK_2026_004',
+      ]);
+    });
+
+    /**
+     * …and against the FILTER. A hidden task is not "between" two visible ones
+     * as far as the user can tell, so a range must step over it rather than
+     * write a carrier that is not on screen.
+     */
+    it('steps over a filtered-away task inside a range', async () => {
+      // 002 is hidden by a LABEL facet, so it stays in the middle of the
+      // payload order while leaving the middle of the rendered one. Hiding it
+      // by status would not discriminate: the status columns flatten in
+      // TASK_STATUSES order, which would move it past both endpoints and make
+      // the two answers agree by accident.
+      rpcCall.mockResolvedValue(
+        ok(
+          makeBoard({
+            backlog: [0, 1, 2, 3].map((index) =>
+              makeTask(`TASK_2026_00${index}`, 'backlog', {
+                labels: index === 2 ? [] : ['keep'],
+              }),
+            ),
+          }),
+        ),
+      );
+      await store.loadBoard();
+      store.setFilter({ ...EMPTY_TASK_FILTER, labels: ['keep'] });
+      expect(store.visibleOrder()).toEqual([
+        'TASK_2026_000',
+        'TASK_2026_001',
+        'TASK_2026_003',
+      ]);
+
+      store.toggleSelection('TASK_2026_001');
+      store.selectRangeTo('TASK_2026_003');
+
+      expect([...store.selection()].sort()).toEqual([
+        'TASK_2026_001',
+        'TASK_2026_003',
+      ]);
+    });
+
+    it('honours the filter in select-all-matching', () => {
+      store.selectAllMatching();
+      expect(store.selectionCount()).toBe(5);
+
+      store.clearSelection();
+      store.setFilter({ ...EMPTY_TASK_FILTER, text: 'TASK_2026_003' });
+      store.selectAllMatching();
+      expect([...store.selection()]).toEqual(['TASK_2026_003']);
+    });
+
+    it('degrades a range with no anchor to a plain toggle', () => {
+      store.selectRangeTo('TASK_2026_002');
+      expect([...store.selection()]).toEqual(['TASK_2026_002']);
+    });
+
+    /**
+     * A selection the filter hides is REPORTED, never silently pruned — see
+     * `hiddenSelectionCount`. Pruning here would discard the user's work with
+     * no undo; saying nothing would write carriers they cannot see.
+     */
+    it('keeps a filtered-away selection and counts it as hidden', () => {
+      store.selectAllMatching();
+      expect(store.selectionCount()).toBe(5);
+
+      store.setFilter({ ...EMPTY_TASK_FILTER, text: 'TASK_2026_003' });
+
+      expect(store.selectionCount()).toBe(5);
+      expect(store.hiddenSelectionCount()).toBe(4);
+    });
+
+    /**
+     * A task that has LEFT the index is a different case, and it is pruned: it
+     * is not hidden, it is gone, and a count that can never be acted on is a
+     * count nobody can correct.
+     */
+    it('prunes ids the reloaded board no longer holds', async () => {
+      store.selectAllMatching();
+      expect(store.selectionCount()).toBe(5);
+
+      rpcCall.mockResolvedValue(
+        ok(makeBoard({ backlog: tasks(5).slice(0, 2) })),
+      );
+      await store.loadBoard();
+
+      expect([...store.selection()].sort()).toEqual([
+        'TASK_2026_000',
+        'TASK_2026_001',
+      ]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The chunked loop, and the ≤ 1 reload it is held to (Task 12.3 / R5)
+  // -------------------------------------------------------------------------
+  describe('bulkUpdateStatus', () => {
+    /**
+     * THE assertion of this batch (R5 / FR-C4.10).
+     *
+     * Fifty ids is three chunks at BULK_CHUNK_SIZE = 20, and the mock fires a
+     * `tasks:changed` push after EVERY chunk — which is what the backend
+     * actually does, once per call, from `rebuildAfterBulk`. Both fronts are
+     * under test at once: the loop must not reload, and the push handler must
+     * not reload on its behalf.
+     *
+     * `toBeLessThanOrEqual(1)`, not "about one". The number this replaces is
+     * four.
+     */
+    it('issues at most ONE tasks:board call for a 50-task bulk with a push after every chunk', async () => {
+      const fifty = tasks(50);
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: fifty })));
+      await store.loadBoard();
+      store.selectAllMatching();
+      expect(store.selectionCount()).toBe(50);
+
+      installBulkMock(makeBoard({ backlog: fifty }));
+      // Every chunk's response is followed by the push the backend sends.
+      const withPush = rpcCall.getMockImplementation();
+      rpcCall.mockImplementation(async (method: string, params: unknown) => {
+        const result = await (
+          withPush as (m: string, p: unknown) => Promise<unknown>
+        )(method, params);
+        if (method === 'tasks:bulkUpdateStatus') {
+          store.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE });
+        }
+        return result;
+      });
+      rpcCall.mockClear();
+
+      await store.bulkUpdateStatus('done');
+
+      expect(bulkCalls()).toHaveLength(3);
+      expect(boardCalls().length).toBeLessThanOrEqual(1);
+    });
+
+    it('chunks the selection at BULK_CHUNK_SIZE and never sends more', async () => {
+      const fifty = tasks(50);
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: fifty })));
+      await store.loadBoard();
+      store.selectAllMatching();
+      installBulkMock(makeBoard({ backlog: fifty }));
+
+      await store.bulkUpdateStatus('in_review');
+
+      const sizes = bulkCalls().map(
+        (call) => (call[1] as { taskIds: string[] }).taskIds.length,
+      );
+      expect(sizes).toEqual([BULK_CHUNK_SIZE, BULK_CHUNK_SIZE, 10]);
+      for (const size of sizes) {
+        expect(size).toBeLessThanOrEqual(BULK_CHUNK_SIZE);
+      }
+    });
+
+    /**
+     * FR-C4.6 — the split that makes a partial outcome usable.
+     *
+     * Two of five refuse. The three that landed leave the selection so the user
+     * is not offered them again; the two that did not stay in it so Retry has
+     * something to aim at.
+     */
+    it('deselects successes and keeps failures selected', async () => {
+      const five = tasks(5);
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: five })));
+      await store.loadBoard();
+      store.selectAllMatching();
+
+      installBulkMock(makeBoard({ backlog: five }), (taskId) =>
+        taskId === 'TASK_2026_001' || taskId === 'TASK_2026_003'
+          ? {
+              taskId,
+              ok: false,
+              error: { code: 'TASK_CONFLICT', message: 'the carrier moved' },
+              currentStatus: 'in_review',
+            }
+          : { taskId, ok: true },
+      );
+
+      await store.bulkUpdateStatus('done');
+
+      expect([...store.selection()].sort()).toEqual([
+        'TASK_2026_001',
+        'TASK_2026_003',
+      ]);
+      const summary = store.bulkSummary();
+      expect(summary?.succeeded).toBe(3);
+      expect(summary?.failures.map((failure) => failure.taskId)).toEqual([
+        'TASK_2026_001',
+        'TASK_2026_003',
+      ]);
+    });
+
+    /** FR-C4.7 — the conflict's on-disk status survives into the summary. */
+    it('carries currentStatus through to the failure summary', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: tasks(1) })));
+      await store.loadBoard();
+      store.selectAllMatching();
+      installBulkMock(makeBoard({ backlog: tasks(1) }), (taskId) => ({
+        taskId,
+        ok: false,
+        error: { code: 'TASK_CONFLICT', message: 'the carrier moved' },
+        currentStatus: 'blocked',
+      }));
+
+      await store.bulkUpdateStatus('done');
+
+      const failure = store.bulkSummary()?.failures[0];
+      expect(failure?.currentStatus).toBe('blocked');
+      expect(failure?.message).toBe('the carrier moved');
+      expect(failure?.title).toBe('Title TASK_2026_000');
+    });
+
+    /** FR-C4.8 — nothing re-issues a failed write. */
+    it('never re-issues a failed write on its own', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: tasks(3) })));
+      await store.loadBoard();
+      store.selectAllMatching();
+      installBulkMock(makeBoard({ backlog: tasks(3) }), (taskId) => ({
+        taskId,
+        ok: false,
+        error: { code: 'WRITE_FAILED', message: 'the write was refused' },
+      }));
+      rpcCall.mockClear();
+
+      await store.bulkUpdateStatus('done');
+
+      expect(bulkCalls()).toHaveLength(1);
+    });
+
+    /**
+     * FR-C4.9 — cancellation is chunk-granular, and the three groups it
+     * produces are kept apart.
+     *
+     * Cancel fires from inside the first chunk's response, so the second chunk
+     * is never issued. The twenty that were written are gone from the
+     * selection; the twenty that were not stay in it and are counted as
+     * NEITHER succeeded nor failed — reporting them as failures would tell the
+     * user twenty tasks broke when they pressed Cancel.
+     */
+    it('stops between chunks, leaving un-attempted tasks selected and uncounted', async () => {
+      const forty = tasks(40);
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: forty })));
+      await store.loadBoard();
+      store.selectAllMatching();
+
+      installBulkMock(makeBoard({ backlog: forty }));
+      const inner = rpcCall.getMockImplementation();
+      rpcCall.mockImplementation(async (method: string, params: unknown) => {
+        const result = await (
+          inner as (m: string, p: unknown) => Promise<unknown>
+        )(method, params);
+        if (method === 'tasks:bulkUpdateStatus') store.cancelBulk();
+        return result;
+      });
+      rpcCall.mockClear();
+
+      await store.bulkUpdateStatus('done');
+
+      expect(bulkCalls()).toHaveLength(1);
+      const summary = store.bulkSummary();
+      expect(summary?.cancelled).toBe(true);
+      expect(summary?.attempted).toBe(BULK_CHUNK_SIZE);
+      expect(summary?.requested).toBe(40);
+      expect(summary?.succeeded).toBe(BULK_CHUNK_SIZE);
+      expect(summary?.failures).toEqual([]);
+      expect(store.selectionCount()).toBe(20);
+
+      // The third group is recorded as its OWN list, not merged into failures.
+      expect(summary?.untouched).toHaveLength(20);
+      expect(summary?.untouched[0].taskId).toBe('TASK_2026_020');
+      // Every requested task lands in exactly one group — the invariant that
+      // makes the report complete.
+      expect(
+        (summary?.succeeded ?? 0) +
+          (summary?.failures.length ?? 0) +
+          (summary?.untouched.length ?? 0),
+      ).toBe(summary?.requested);
+    });
+
+    /**
+     * The board's half of the three-group split.
+     *
+     * After a cancelled run both groups leave a card CHECKED, so without this
+     * map they are one visual state carrying two meanings. A run that mixes a
+     * refusal and a cancellation is the only fixture that can tell them apart.
+     */
+    it('reports failed and untouched as distinct per-card outcomes', async () => {
+      const forty = tasks(40);
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: forty })));
+      await store.loadBoard();
+      store.selectAllMatching();
+
+      installBulkMock(makeBoard({ backlog: forty }), (taskId) =>
+        taskId === 'TASK_2026_005'
+          ? {
+              taskId,
+              ok: false,
+              error: { code: 'TASK_CONFLICT', message: 'the carrier moved' },
+              currentStatus: 'in_review',
+            }
+          : { taskId, ok: true },
+      );
+      const inner = rpcCall.getMockImplementation();
+      rpcCall.mockImplementation(async (method: string, params: unknown) => {
+        const result = await (
+          inner as (m: string, p: unknown) => Promise<unknown>
+        )(method, params);
+        if (method === 'tasks:bulkUpdateStatus') store.cancelBulk();
+        return result;
+      });
+
+      await store.bulkUpdateStatus('done');
+
+      const outcomes = store.lastRunOutcomes();
+      expect(outcomes.get('TASK_2026_005')).toBe('failed');
+      expect(outcomes.get('TASK_2026_020')).toBe('untouched');
+      // A task that SUCCEEDED is not in the map at all — it is no longer
+      // selected, so there is nothing about it left to explain.
+      expect(outcomes.has('TASK_2026_000')).toBe(false);
+    });
+
+    it('empties the per-card outcomes when the summary is dismissed', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: tasks(2) })));
+      await store.loadBoard();
+      store.selectAllMatching();
+      installBulkMock(makeBoard({ backlog: tasks(2) }), (taskId) => ({
+        taskId,
+        ok: false,
+        error: { code: 'WRITE_FAILED', message: 'the write was refused' },
+      }));
+
+      await store.bulkUpdateStatus('done');
+      expect(store.lastRunOutcomes().size).toBe(2);
+
+      store.clearBulkSummary();
+      expect(store.lastRunOutcomes().size).toBe(0);
+    });
+
+    /**
+     * A transport failure is not an answer about any one task, but every task
+     * still needs one — otherwise ids silently vanish out of the run.
+     */
+    it('turns a failed chunk call into one failure entry per requested id', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: tasks(3) })));
+      await store.loadBoard();
+      store.selectAllMatching();
+
+      rpcCall.mockImplementation((method: string) =>
+        method === 'tasks:bulkUpdateStatus'
+          ? Promise.resolve(err('the host is unreachable'))
+          : Promise.resolve(ok(makeBoard({ backlog: tasks(3) }))),
+      );
+
+      await store.bulkUpdateStatus('done');
+
+      const summary = store.bulkSummary();
+      expect(summary?.failures).toHaveLength(3);
+      expect(summary?.succeeded).toBe(0);
+      expect(summary?.failures[0].message).toBe('the host is unreachable');
+      expect(store.selectionCount()).toBe(3);
+    });
+
+    it('refuses to start a second run while one is in flight', async () => {
+      const twenty = tasks(20);
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: twenty })));
+      await store.loadBoard();
+      store.selectAllMatching();
+      installBulkMock(makeBoard({ backlog: twenty }));
+      rpcCall.mockClear();
+
+      const first = store.bulkUpdateStatus('done');
+      await store.bulkUpdateStatus('blocked');
+      await first;
+
+      expect(bulkCalls()).toHaveLength(1);
+      expect((bulkCalls()[0][1] as { status: string }).status).toBe('done');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Push suppression (front b) — the one most likely to pass for the wrong
+  // reason, so it is pinned from both sides.
+  // -------------------------------------------------------------------------
+  describe('tasks:changed suppression during a run', () => {
+    it('reloads the board when a push arrives OUTSIDE a run', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: tasks(1) })));
+      await store.loadBoard();
+      rpcCall.mockClear();
+
+      store.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(boardCalls()).toHaveLength(1);
+    });
+
+    /**
+     * The control for the assertion above: the SAME push, delivered while a run
+     * is in flight, must not reload. Without both halves, "the push handler is
+     * suppressed" is satisfied by a handler that never worked at all.
+     */
+    it('drops the same push while a run is in flight', async () => {
+      const twenty = tasks(20);
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: twenty })));
+      await store.loadBoard();
+      store.selectAllMatching();
+
+      installBulkMock(makeBoard({ backlog: twenty }));
+      const inner = rpcCall.getMockImplementation();
+      let boardCallsDuringRun = -1;
+      rpcCall.mockImplementation(async (method: string, params: unknown) => {
+        const result = await (
+          inner as (m: string, p: unknown) => Promise<unknown>
+        )(method, params);
+        if (method === 'tasks:bulkUpdateStatus') {
+          store.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE });
+          await Promise.resolve();
+          await Promise.resolve();
+          boardCallsDuringRun = boardCalls().length;
+        }
+        return result;
+      });
+      rpcCall.mockClear();
+
+      await store.bulkUpdateStatus('done');
+
+      // Measured INSIDE the run, before the finally's own reload — so a
+      // reload that merely arrives late cannot be mistaken for suppression.
+      expect(boardCallsDuringRun).toBe(0);
+      expect(boardCalls()).toHaveLength(1);
+    });
+
+    /**
+     * The THIRD front, which I wrongly reported as untestable.
+     *
+     * I claimed jsdom would not deliver these events here and chose to disclose
+     * the gap rather than imply the guard was pinned. The disclosure was
+     * factually wrong: this same file already dispatches `focus` and
+     * `visibilitychange` successfully, twice, in the reconcile block above. The
+     * coverage was available the whole time.
+     *
+     * The guard itself is real. `reconcile()` short-circuits on `_loading` and
+     * `_loaded`, and NEITHER is set during a bulk run — the run does not touch
+     * `_loading` — so a window regaining focus mid-run walks straight into
+     * `loadBoard()` unless `_bulk()` stops it. That is a second board fetch
+     * during a run that is only allowed one, from an input no push suppression
+     * covers.
+     */
+    it('ignores a focus event that arrives mid-run', async () => {
+      const twenty = tasks(20);
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: twenty })));
+      await store.loadBoard();
+      store.selectAllMatching();
+
+      installBulkMock(makeBoard({ backlog: twenty }));
+      const inner = rpcCall.getMockImplementation();
+      let boardCallsDuringRun = -1;
+      rpcCall.mockImplementation(async (method: string, params: unknown) => {
+        const result = await (
+          inner as (m: string, p: unknown) => Promise<unknown>
+        )(method, params);
+        if (method === 'tasks:bulkUpdateStatus') {
+          window.dispatchEvent(new Event('focus'));
+          await Promise.resolve();
+          await Promise.resolve();
+          boardCallsDuringRun = boardCalls().length;
+        }
+        return result;
+      });
+      rpcCall.mockClear();
+
+      await store.bulkUpdateStatus('done');
+
+      expect(boardCallsDuringRun).toBe(0);
+      expect(boardCalls().length).toBeLessThanOrEqual(1);
+    });
+
+    /**
+     * The control for it: the same event, outside a run, still reconciles. Two
+     * halves again — without this, "focus is ignored during a run" is satisfied
+     * by a reconcile that never worked.
+     */
+    it('still reconciles on focus outside a run', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: tasks(1) })));
+      await store.loadBoard();
+      rpcCall.mockClear();
+
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(boardCalls()).toHaveLength(1);
+    });
+
+    /**
+     * What the suppression OWES, and the only consumer of the missed-push flag.
+     *
+     * The open task here is NOT in the run, so the board reload is the only
+     * thing the run itself would refresh — and `loadBoard` does not touch the
+     * detail panel. A push dropped during the run therefore has exactly one
+     * path back: the flag. Drop the flag and this detail sits stale forever,
+     * with no later push to correct it.
+     */
+    it('refreshes the open detail after the run when a push was dropped', async () => {
+      const five = tasks(5);
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: five })));
+      await store.loadBoard();
+      await store.openTask('TASK_2026_004');
+      store.toggleSelection('TASK_2026_000');
+
+      installBulkMock(makeBoard({ backlog: five }));
+      const inner = rpcCall.getMockImplementation();
+      rpcCall.mockImplementation(async (method: string, params: unknown) => {
+        if (method === 'tasks:get') {
+          return Promise.resolve(
+            ok({ task: { id: 'TASK_2026_004' } as unknown }),
+          );
+        }
+        const result = await (
+          inner as (m: string, p: unknown) => Promise<unknown>
+        )(method, params);
+        if (method === 'tasks:bulkUpdateStatus') {
+          store.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE });
+        }
+        return result;
+      });
+      rpcCall.mockClear();
+
+      await store.bulkUpdateStatus('done');
+
+      expect(
+        rpcCall.mock.calls.filter((call) => call[0] === 'tasks:get'),
+      ).toHaveLength(1);
+      expect(boardCalls().length).toBeLessThanOrEqual(1);
+    });
+
+    it('leaves an unrelated open detail alone when no push was dropped', async () => {
+      const five = tasks(5);
+      rpcCall.mockResolvedValue(ok(makeBoard({ backlog: five })));
+      await store.loadBoard();
+      await store.openTask('TASK_2026_004');
+      store.toggleSelection('TASK_2026_000');
+      installBulkMock(makeBoard({ backlog: five }));
+      rpcCall.mockClear();
+
+      await store.bulkUpdateStatus('done');
+
+      expect(
+        rpcCall.mock.calls.filter((call) => call[0] === 'tasks:get'),
+      ).toEqual([]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The confirmation gate (FR-C4.12) — Task 12.4's rule, enforced in the store
+  // so the palette cannot route around it (FR-C6.7).
+  // -------------------------------------------------------------------------
+  describe('requestBulkStatus', () => {
+    async function selectN(count: number): Promise<void> {
+      const board = makeBoard({ backlog: tasks(count) });
+      rpcCall.mockResolvedValue(ok(board));
+      await store.loadBoard();
+      store.selectAllMatching();
+      installBulkMock(board);
+      rpcCall.mockClear();
+    }
+
+    it(`runs immediately at exactly ${BULK_CONFIRM_THRESHOLD}`, async () => {
+      await selectN(BULK_CONFIRM_THRESHOLD);
+
+      store.requestBulkStatus('done');
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(store.bulkRequest()).toBeNull();
+      expect(bulkCalls().length).toBeGreaterThan(0);
+    });
+
+    it(`asks first at ${BULK_CONFIRM_THRESHOLD + 1}, and writes nothing until confirmed`, async () => {
+      await selectN(BULK_CONFIRM_THRESHOLD + 1);
+
+      store.requestBulkStatus('done');
+      await Promise.resolve();
+
+      expect(store.bulkRequest()).toBe('done');
+      expect(bulkCalls()).toEqual([]);
+
+      store.confirmBulkRequest();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(store.bulkRequest()).toBeNull();
+      expect(bulkCalls().length).toBeGreaterThan(0);
+    });
+
+    it('discards the pending request without touching the selection', async () => {
+      await selectN(BULK_CONFIRM_THRESHOLD + 1);
+      store.requestBulkStatus('done');
+
+      store.cancelBulkRequest();
+      await Promise.resolve();
+
+      expect(store.bulkRequest()).toBeNull();
+      expect(bulkCalls()).toEqual([]);
+      expect(store.selectionCount()).toBe(BULK_CONFIRM_THRESHOLD + 1);
+    });
   });
 });
 

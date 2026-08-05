@@ -1,5 +1,6 @@
 import { ApplicationRef } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import {
   DEFAULT_TASK_SORT,
@@ -16,6 +17,8 @@ import {
 import { TasksStore } from '../services/tasks-store.service';
 import { TaskViewsService } from '../services/task-views.service';
 import { TasksViewComponent } from './tasks-view.component';
+import type { TaskPaletteAction } from './palette/palette-entries';
+import { TaskBulkBarComponent } from './bulk/task-bulk-bar.component';
 
 function task(
   id: string,
@@ -1056,20 +1059,33 @@ describe('TasksViewComponent', () => {
       expect(store.selectedTaskId()).toBe('TASK_2026_200');
     });
 
-    it('toggles the selection with Space', async () => {
+    /**
+     * The Space seam, re-pointed by FR-C4 (Batch 12).
+     *
+     * Until the multi-select model existed, Space toggled the DETAIL PANEL,
+     * because that was the only selection there was. This asserts what it does
+     * now AND what it must no longer do: the panel stays shut. The second half
+     * is the half worth having — a re-point that added the selection while
+     * still opening the panel would pass an assertion that only checked the
+     * selection, and would be exactly the conflation `checked` and `selected`
+     * exist to prevent.
+     */
+    it('toggles the MULTI-SELECTION with Space, and opens no detail panel', async () => {
       const fixture = await render(populated);
       const store = TestBed.inject(TasksStore);
 
       key(fixture, card(fixture, 'TASK_2026_200'), ' ');
       await fixture.whenStable();
-      expect(store.selectedTaskId()).toBe('TASK_2026_200');
+      expect([...store.selection()]).toEqual(['TASK_2026_200']);
+      expect(store.selectedTaskId()).toBeNull();
 
       key(fixture, card(fixture, 'TASK_2026_200'), ' ');
       await fixture.whenStable();
+      expect([...store.selection()]).toEqual([]);
       expect(store.selectedTaskId()).toBeNull();
     });
 
-    it('closes the detail panel with Escape', async () => {
+    it('closes the detail panel with Escape when nothing is selected', async () => {
       const fixture = await render(populated);
       const store = TestBed.inject(TasksStore);
 
@@ -1082,6 +1098,243 @@ describe('TasksViewComponent', () => {
       await fixture.whenStable();
 
       expect(store.selectedTaskId()).toBeNull();
+    });
+
+    /**
+     * The Escape seam, re-pointed by FR-C7.3's two branches.
+     *
+     * Both are open here, which is the only arrangement that can tell the
+     * branches apart: the FIRST Escape must clear the selection and leave the
+     * panel alone, and only the second closes the panel. A reducer that cleared
+     * both at once, or that closed the panel first, fails this — and either
+     * would discard the twelve-click artefact in preference to the one-click
+     * one.
+     */
+    it('clears the selection with Escape BEFORE it closes the detail panel', async () => {
+      const fixture = await render(populated);
+      const store = TestBed.inject(TasksStore);
+
+      key(fixture, card(fixture, 'TASK_2026_200'), 'Enter');
+      await fixture.whenStable();
+      fixture.detectChanges();
+      key(fixture, card(fixture, 'TASK_2026_200'), ' ');
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(store.selectedTaskId()).toBe('TASK_2026_200');
+      expect(store.selectionCount()).toBe(1);
+
+      key(fixture, card(fixture, 'TASK_2026_200'), 'Escape');
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(store.selectionCount()).toBe(0);
+      expect(store.selectedTaskId()).toBe('TASK_2026_200');
+
+      key(fixture, card(fixture, 'TASK_2026_200'), 'Escape');
+      await fixture.whenStable();
+      expect(store.selectedTaskId()).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Bulk (FR-C4 / FR-C6.7) — the view's half: what is rendered, and where a
+  // palette-launched move goes.
+  // -------------------------------------------------------------------------
+  describe('bulk', () => {
+    const populated = board({
+      backlog: [task('TASK_2026_200'), task('TASK_2026_201')],
+    });
+
+    const bar = (fixture: ComponentFixture<TasksViewComponent>) =>
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="task-bulk-bar"]',
+      );
+
+    /**
+     * THE BINDINGS THEMSELVES (`tasks-view.component.ts`, the bulk-bar block).
+     *
+     * ## Why this test exists, stated plainly
+     *
+     * Every other test in this batch exercises logic that lives in a method.
+     * The template's output→store wiring is not a method: it is six bindings,
+     * and `cancelRun`, `selectAllMatching`, `clearSelection`, `confirmRequest`
+     * and `cancelRequest` all take no argument and return void. **Swap any two
+     * of them and typecheck passes, because their signatures are identical.**
+     *
+     * The concrete failure that motivates it: a swapped `(cancelRun)` makes
+     * Cancel a silent no-op on a live 120-task run. The user presses the one
+     * control that exists to stop the operation and nothing stops — no error,
+     * no log, and the writes keep landing. A same-signature swap is exactly the
+     * class of defect a compiler cannot see, so it needs an assertion that
+     * names which output reaches which method.
+     *
+     * Each output is emitted through the real child component instance, so the
+     * binding under test is the one the template actually declares.
+     */
+    it('wires every bulk-bar output to its own store method', async () => {
+      const fixture = await render(populated);
+      const store = TestBed.inject(TasksStore);
+      store.toggleSelection('TASK_2026_200');
+      fixture.detectChanges();
+
+      const bar = fixture.debugElement.query(By.directive(TaskBulkBarComponent))
+        .componentInstance as TaskBulkBarComponent;
+
+      const spies = {
+        requestBulkStatus: jest
+          .spyOn(store, 'requestBulkStatus')
+          .mockImplementation(() => undefined),
+        confirmBulkRequest: jest
+          .spyOn(store, 'confirmBulkRequest')
+          .mockImplementation(() => undefined),
+        cancelBulkRequest: jest
+          .spyOn(store, 'cancelBulkRequest')
+          .mockImplementation(() => undefined),
+        cancelBulk: jest
+          .spyOn(store, 'cancelBulk')
+          .mockImplementation(() => undefined),
+        selectAllMatching: jest
+          .spyOn(store, 'selectAllMatching')
+          .mockImplementation(() => undefined),
+        clearSelection: jest
+          .spyOn(store, 'clearSelection')
+          .mockImplementation(() => undefined),
+      };
+
+      const emissions: Array<[() => void, keyof typeof spies]> = [
+        [() => bar.statusPicked.emit('done'), 'requestBulkStatus'],
+        [() => bar.confirmRequest.emit(), 'confirmBulkRequest'],
+        [() => bar.cancelRequest.emit(), 'cancelBulkRequest'],
+        [() => bar.cancelRun.emit(), 'cancelBulk'],
+        [() => bar.selectAllMatching.emit(), 'selectAllMatching'],
+        [() => bar.clearSelection.emit(), 'clearSelection'],
+      ];
+
+      for (const [emit, expected] of emissions) {
+        for (const spy of Object.values(spies)) spy.mockClear();
+        emit();
+        fixture.detectChanges();
+
+        // The named method ran…
+        expect(spies[expected]).toHaveBeenCalledTimes(1);
+        // …and NO other did. This half is what catches a swap: a wrong
+        // binding still calls exactly one store method, so counting only the
+        // expected one would pass against every permutation.
+        for (const [name, spy] of Object.entries(spies)) {
+          if (name === expected) continue;
+          expect(spy).not.toHaveBeenCalled();
+        }
+      }
+
+      // The one output that carries a VALUE forwards it unchanged. A binding
+      // that dropped or hard-coded the status would satisfy every assertion
+      // above, because those only count calls.
+      for (const spy of Object.values(spies)) spy.mockClear();
+      bar.statusPicked.emit('in_review');
+      fixture.detectChanges();
+      expect(spies.requestBulkStatus).toHaveBeenCalledWith('in_review');
+    });
+
+    /**
+     * A pending confirmation must not be read against the PREVIOUS run's
+     * failure list.
+     *
+     * Both halves matter and they pull in opposite directions. Left visible,
+     * the user confirming a Retry sees two sets of numbers on screen and cannot
+     * tell which run they describe. But CLEARED on the request, a user who then
+     * declines loses the very list they were consulting in order to decide — so
+     * the summary must come back intact.
+     */
+    it('hides a stale summary under a confirmation, and restores it on decline', async () => {
+      const many = board({
+        backlog: Array.from({ length: 11 }, (_, index) =>
+          task(`TASK_2026_2${String(index).padStart(2, '0')}`),
+        ),
+      });
+      const fixture = await render(many);
+      const store = TestBed.inject(TasksStore);
+      const panel = () =>
+        (fixture.nativeElement as HTMLElement).querySelector(
+          '[data-testid="task-bulk-summary"]',
+        );
+
+      // Stage a finished run that left failures behind.
+      rpcCall.mockImplementation((method: string, params: unknown) => {
+        if (method === 'tasks:bulkUpdateStatus') {
+          const ids = (params as { taskIds: string[] }).taskIds;
+          return Promise.resolve(
+            ok({
+              results: ids.map((taskId) => ({
+                taskId,
+                ok: false,
+                error: { code: 'WRITE_FAILED', message: 'the write failed' },
+              })),
+            }),
+          );
+        }
+        return Promise.resolve(ok(many));
+      });
+      store.selectAllMatching();
+      await store.bulkUpdateStatus('done');
+      fixture.detectChanges();
+      expect(panel()).not.toBeNull();
+
+      // A retry over 11 tasks needs confirming — the old summary steps aside.
+      store.requestBulkStatus('done');
+      fixture.detectChanges();
+      expect(store.bulkRequest()).toBe('done');
+      expect(panel()).toBeNull();
+
+      // Declining brings it back rather than having destroyed it.
+      store.cancelBulkRequest();
+      fixture.detectChanges();
+      expect(panel()).not.toBeNull();
+      expect(store.bulkSummary()?.failures).toHaveLength(11);
+    });
+
+    it('shows no bulk bar until something is selected', async () => {
+      const fixture = await render(populated);
+      expect(bar(fixture)).toBeNull();
+
+      TestBed.inject(TasksStore).toggleSelection('TASK_2026_200');
+      fixture.detectChanges();
+
+      expect(bar(fixture)?.textContent).toContain('1 selected');
+    });
+
+    /**
+     * FR-C6.7 — the palette does not get its own consent path.
+     *
+     * Eleven tasks are selected (one over BULK_CONFIRM_THRESHOLD) and the bulk
+     * entry is run from the palette catalogue. The assertion is that NO write
+     * was issued and a confirmation is pending instead: if the dispatcher
+     * called `bulkUpdateStatus` directly — the obvious, wrong wiring — the RPC
+     * spy would show a `tasks:bulkUpdateStatus` call here.
+     */
+    it('routes a palette bulk action through the same confirmation', async () => {
+      const many = board({
+        backlog: Array.from({ length: 11 }, (_, index) =>
+          task(`TASK_2026_2${String(index).padStart(2, '0')}`),
+        ),
+      });
+      const fixture = await render(many);
+      const store = TestBed.inject(TasksStore);
+      store.selectAllMatching();
+      fixture.detectChanges();
+      expect(store.selectionCount()).toBe(11);
+
+      const entry = fixture.componentInstance as unknown as {
+        onPaletteRun(action: TaskPaletteAction): void;
+      };
+      entry.onPaletteRun({ kind: 'bulkSetStatus', status: 'done' });
+      fixture.detectChanges();
+
+      expect(store.bulkRequest()).toBe('done');
+      expect(
+        rpcCall.mock.calls.filter(
+          (call) => call[0] === 'tasks:bulkUpdateStatus',
+        ),
+      ).toEqual([]);
+      expect(bar(fixture)?.textContent).toContain('Move 11 task(s) to Done?');
     });
   });
 });

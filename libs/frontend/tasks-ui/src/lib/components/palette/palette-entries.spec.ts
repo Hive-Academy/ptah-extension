@@ -325,6 +325,59 @@ describe('buildPaletteEntries', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  // -------------------------------------------------------------------------
+  // Bulk entries (FR-C6.7) — the checked tasks, not the open one
+  // -------------------------------------------------------------------------
+  describe('bulk entries', () => {
+    it('lists a bulk move for every status, disabled with a reason when nothing is checked', () => {
+      const entries = buildPaletteEntries(context({ selectionCount: 0 }));
+      const bulk = entries.filter((entry) => entry.group === 'bulk');
+
+      expect(bulk).toHaveLength(6);
+      for (const entry of bulk) {
+        expect(entry.disabledReason).toContain('No tasks are checked');
+      }
+    });
+
+    /**
+     * The count is in the label, and it comes from `selectionCount` rather than
+     * from `selectedTask`. Those are two different numbers: a user can have one
+     * task open for reading and forty checked for writing, and an entry that
+     * read the wrong one would offer to move a set of one.
+     */
+    it('names the checked count and stays enabled, independent of the open task', () => {
+      const entries = buildPaletteEntries(
+        context({ selectionCount: 42, selectedTask: null }),
+      );
+      const entry = byId(entries, 'bulk:status:done');
+
+      expect(entry.disabledReason).toBeNull();
+      expect(entry.label).toBe('Move 42 checked task(s) to Done');
+      expect(entry.action).toEqual({ kind: 'bulkSetStatus', status: 'done' });
+    });
+
+    /**
+     * Unlike the single-task status entries, the bulk list omits nothing.
+     * There is no one "current status" across a set, and dropping a target
+     * because part of the selection already holds it would remove the command
+     * needed to consolidate a mixed selection.
+     */
+    it('offers every status, including one the open task already holds', () => {
+      const selected = task('TASK_2026_200', { status: 'in_progress' });
+      const entries = buildPaletteEntries(
+        context({
+          tasks: [selected],
+          selectedTask: selected,
+          selectionCount: 3,
+        }),
+      );
+      const ids = entries.map((entry) => entry.id);
+
+      expect(ids).not.toContain('status:in_progress');
+      expect(ids).toContain('bulk:status:in_progress');
+    });
+  });
+
   it('builds nothing but the always-available commands from the empty context', () => {
     const entries = buildPaletteEntries(EMPTY_PALETTE_CONTEXT);
     expect(entries.some((e) => e.group === 'tasks')).toBe(false);

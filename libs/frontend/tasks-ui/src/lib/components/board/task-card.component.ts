@@ -10,6 +10,8 @@ import {
   AlertTriangle,
   Ban,
   CheckCircle2,
+  CircleDashed,
+  CircleX,
   Copy,
   CornerLeftUp,
   GitBranch,
@@ -26,6 +28,7 @@ import {
   type TaskSpecSummary,
   type TaskStatus,
 } from '@ptah-extension/shared';
+import type { TaskBulkOutcome } from '../../services/tasks-store.service';
 import {
   TASK_ESTIMATE_LABELS,
   TASK_STATUS_LABELS,
@@ -51,6 +54,20 @@ export interface TaskStatusChange {
 }
 
 /**
+ * A request to change the MULTI-SELECTION (FR-C4.1) — never the detail panel.
+ *
+ * `range` carries the Shift modifier rather than a resolved list of ids,
+ * because the card cannot see the board: what lies "between" two cards is a
+ * property of the filtered, sorted, column-flattened order, which only the
+ * store knows. The card reports the gesture; the store resolves what it means.
+ */
+export interface TaskSelectionToggle {
+  readonly taskId: string;
+  /** Shift was held — extend from the store's anchor instead of toggling one. */
+  readonly range: boolean;
+}
+
+/**
  * Presentational task card. Pure `@Input`/`@Output`; owns only the local
  * worktree-isolation toggle UI state. The Start action emits {@link startTask};
  * `TaskStartService` (wired by `TasksViewComponent`) runs the launch flow.
@@ -61,26 +78,107 @@ export interface TaskStatusChange {
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <!-- Checked and selected are shown DIFFERENTLY on purpose: a ring for the
+         open task, a filled surface for a checked one. Sharing one treatment
+         would make "I am reading this" and "a bulk action will write this"
+         indistinguishable at a glance, on a board where only the second is
+         destructive. The checkbox carries the state redundantly, so the
+         surface is never the only visual signal (WCAG 1.4.1). -->
     <div
       class="card card-compact bg-base-100 border transition-colors cursor-pointer hover:border-primary/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
       [class.border-base-content]="selected()"
       [class.border-opacity-20]="!selected()"
       [class.ring-1]="selected()"
       [class.ring-primary]="selected()"
+      [class.bg-base-200]="checked()"
       role="button"
       [attr.tabindex]="rovingTabIndex()"
       [attr.data-task-id]="task().id"
       [attr.aria-label]="'Open task ' + task().id"
-      (click)="selectTask.emit(task().id)"
+      (click)="onCardClick($event)"
       (keydown.enter)="onCardEnter($event)"
       (keydown.space)="onCardSpace($event)"
     >
       <div class="card-body gap-1.5">
-        <!-- Header row: id + warning + status menu -->
+        <!-- Header row: checkbox + id + warning + status menu -->
         <div class="flex items-start justify-between gap-1">
-          <span class="text-[10px] font-mono text-base-content/50 truncate">
+          <!-- The multi-select checkbox (FR-C4.1). It is the DISCOVERABLE half
+               of the selection model: Ctrl-click and Shift-click do the same
+               job faster, but neither announces itself, and a selection model
+               reachable only by modifier keys is one most users never find.
+
+               It binds click rather than change, because the gesture needs the
+               Shift modifier and a change event does not carry one. The native
+               toggle still happens; the checked binding is re-applied from the
+               store on the change-detection pass, so the store stays the only
+               authority on what is selected. -->
+          <!-- 24x24, not checkbox-xs's 16. SC 2.5.8's floor, and the third
+               control in this task to be held to it after Batch 7's rollup
+               (badge-xs 12px -> btn-xs 24px) and Batch 9's chip remove. It is
+               also the control a user hits repeatedly while building a
+               selection, so it is the one where an undersized target costs the
+               most mis-clicks — and a mis-click here silently changes which
+               carriers a bulk write lands on.
+
+               Disabled while its own write is in flight: leaving it live
+               allows an unchecked-and-spinning card, which claims the task is
+               out of the run at the moment it is being written. -->
+          <input
+            type="checkbox"
+            class="checkbox h-6 w-6 shrink-0"
+            data-testid="task-card-select"
+            [attr.tabindex]="rovingTabIndex()"
+            [checked]="checked()"
+            [disabled]="pending()"
+            [attr.aria-label]="selectAriaLabel()"
+            [title]="selectAriaLabel()"
+            (click)="onCheckboxClick($event)"
+          />
+          <span
+            class="text-[10px] font-mono text-base-content/50 truncate flex-1"
+          >
             {{ task().id }}
           </span>
+          <!-- A write for THIS card is in flight (FR-C4.11). Per-card rather
+               than a board-wide busy state: a 120-task run takes several
+               seconds, and "the whole board is busy" tells the user nothing
+               about which twenty carriers are being written right now. -->
+          @if (pending()) {
+            <span
+              class="loading loading-spinner loading-xs shrink-0"
+              data-testid="task-card-pending"
+              role="status"
+              [attr.aria-label]="'Updating ' + task().id"
+            ></span>
+          }
+          <!-- How the LAST run left this card, for the two states that both
+               leave it checked. Without this, a cancelled 120-task run shows
+               eighty cards in one visual state carrying two different
+               meanings — one refused a write, the other was never asked — and
+               the user cannot tell which of them Retry is for.
+
+               The word is the signal, never the colour: "refused" and "not
+               attempted" say it outright, and the glyph beside each is
+               aria-hidden reinforcement (WCAG 1.4.1). -->
+          @if (bulkOutcome(); as outcome) {
+            <span
+              class="badge badge-xs badge-outline gap-0.5 shrink-0 text-base-content"
+              [attr.data-testid]="'task-card-outcome-' + outcome"
+              [title]="outcomeTitle()"
+              [attr.aria-label]="outcomeTitle()"
+            >
+              <lucide-angular
+                [img]="outcome === 'failed' ? CircleXIcon : CircleDashedIcon"
+                class="w-2.5 h-2.5"
+                aria-hidden="true"
+              />
+              @if (outcome === 'failed') {
+                refused
+              } @else {
+                not attempted
+              }
+            </span>
+          }
           <div class="flex items-center gap-1 flex-shrink-0">
             @if (!task().frontmatterValid) {
               <span
@@ -355,7 +453,26 @@ export interface TaskStatusChange {
 })
 export class TaskCardComponent {
   public readonly task = input.required<TaskSpecSummary>();
+  /**
+   * This card is the one the DETAIL PANEL is open on.
+   *
+   * Not the same thing as {@link checked}, and the two are deliberately not
+   * merged: `selected` means "you are reading this", `checked` means "a bulk
+   * action would write this". A card can be either, both, or neither, and the
+   * card renders them differently because confusing them is how a user comes to
+   * believe that opening a task put it in the selection.
+   */
   public readonly selected = input(false);
+  /** This card is in the MULTI-SELECTION (FR-C4.1). See {@link selected}. */
+  public readonly checked = input(false);
+  /** A bulk write covering this card is in flight right now (FR-C4.11). */
+  public readonly pending = input(false);
+  /**
+   * How the last bulk run left this task, or `null` if it was not in one (or
+   * it succeeded, in which case the card is no longer selected and there is
+   * nothing to explain). See {@link TaskBulkOutcome}.
+   */
+  public readonly bulkOutcome = input<TaskBulkOutcome | null>(null);
   /**
    * Whether this card is the board's ONE roving tab stop (FR-C7.1).
    *
@@ -390,12 +507,23 @@ export class TaskCardComponent {
   /**
    * Space was pressed on the card itself — toggle its selection (FR-C7.2).
    *
-   * Distinct from {@link selectTask}, which always opens. Today the board's
-   * only selection model is the single open task, so the host maps this onto
-   * "close it if it is already open, open it otherwise". FR-C4's multi-select
-   * model re-points the same event without touching this component.
+   * Distinct from {@link selectTask}, which always opens. The host now maps it
+   * onto the multi-selection: Space adds or removes this card from the set that
+   * a bulk action would write, and opens nothing. FR-C4's model re-pointed the
+   * reducer for this event; this component did not change to carry it, which is
+   * what the event being "Space happened on this card" rather than "close the
+   * panel" bought.
    */
   public readonly toggleTask = output<string>();
+  /**
+   * A multi-selection gesture: the checkbox, Ctrl-click, or Shift-click
+   * (FR-C4.1–4.2).
+   *
+   * Separate from {@link toggleTask}, which is the keyboard's Space and carries
+   * no modifier information, and from {@link selectTask}, which opens the
+   * detail panel. Three events because there are three distinct intents.
+   */
+  public readonly selectionToggle = output<TaskSelectionToggle>();
   public readonly statusChange = output<TaskStatusChange>();
   public readonly startTask = output<TaskStartRequest>();
   /**
@@ -554,6 +682,8 @@ export class TaskCardComponent {
   protected readonly CopyIcon = Copy;
   protected readonly CornerLeftUpIcon = CornerLeftUp;
   protected readonly ListTreeIcon = ListTree;
+  protected readonly CircleXIcon = CircleX;
+  protected readonly CircleDashedIcon = CircleDashed;
 
   protected statusLabel(status: TaskStatus): string {
     return TASK_STATUS_LABELS[status];
@@ -566,6 +696,73 @@ export class TaskCardComponent {
 
   protected onIsolateToggle(event: Event): void {
     this.isolate.set((event.target as HTMLInputElement).checked);
+  }
+
+  /**
+   * The checkbox's accessible name — and it names the ACTION, not the state.
+   *
+   * "Select TASK_2026_181" on a checked box would be wrong, and a bare
+   * "Select" would be one of 181 identical controls to anyone navigating by
+   * name. The checked state is already announced by the control's role, so the
+   * name only has to say which task and which direction.
+   */
+  /**
+   * The outcome badge's full sentence. It states what happened AND what is
+   * true now, because the badge text alone ("not attempted") does not say that
+   * the task is still selected and still waiting.
+   */
+  protected readonly outcomeTitle = computed(() => {
+    const outcome = this.bulkOutcome();
+    if (outcome === null) return '';
+    return outcome === 'failed'
+      ? `The last bulk change was refused for ${this.task().id}. It is still selected — see the summary above for the reason.`
+      : `The last bulk change never reached ${this.task().id} — it was cancelled first, so nothing was written. It is still selected.`;
+  });
+
+  protected readonly selectAriaLabel = computed(() =>
+    this.checked()
+      ? `Deselect task ${this.task().id}`
+      : `Select task ${this.task().id}`,
+  );
+
+  /**
+   * A click on the checkbox is always a selection gesture, never an open.
+   *
+   * `stopPropagation` keeps it off the card root's handler — without it the
+   * detail panel would open every time somebody ticked a box, which is the
+   * precise conflation `checked` and `selected` exist to keep apart.
+   */
+  protected onCheckboxClick(event: MouseEvent): void {
+    event.stopPropagation();
+    this.selectionToggle.emit({
+      taskId: this.task().id,
+      range: event.shiftKey,
+    });
+  }
+
+  /**
+   * A click on the card body: open it, unless a modifier says otherwise.
+   *
+   * Ctrl/Cmd-click toggles the selection and Shift-click extends it — the two
+   * gestures every list in every desktop application has used for thirty years.
+   * A plain click still opens the detail panel, so nothing a user already knew
+   * about this board has changed.
+   *
+   * The modifier branch does NOT open the panel as well. Doing both would mean
+   * a Ctrl-click that adds a card to a twelve-task selection also throws the
+   * detail panel open over it, which is neither of the two things the user
+   * asked for.
+   */
+  protected onCardClick(event: MouseEvent): void {
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      this.selectionToggle.emit({
+        taskId: this.task().id,
+        range: event.shiftKey,
+      });
+      return;
+    }
+    this.selectTask.emit(this.task().id);
   }
 
   /**

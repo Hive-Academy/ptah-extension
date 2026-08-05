@@ -598,4 +598,140 @@ describe('TaskCardComponent', () => {
     expect(crumb?.getAttribute('role')).toBeNull();
     expect(crumb?.getAttribute('aria-label')).toBeNull();
   });
+
+  // -------------------------------------------------------------------------
+  // Multi-selection (FR-C4.1) — checkbox, modifiers, pending, last-run outcome
+  // -------------------------------------------------------------------------
+  describe('selection affordances', () => {
+    const checkbox = (host: HTMLElement) =>
+      host.querySelector<HTMLInputElement>('[data-testid="task-card-select"]');
+
+    /**
+     * SC 2.5.8's 24px floor, pinned by CLASS rather than by measurement.
+     *
+     * jsdom applies no stylesheet, so `getBoundingClientRect()` reports 0 here
+     * and a size assertion against it would pass for any control at all. The
+     * class is the construct that carries the size, and `checkbox-xs` (16px) is
+     * the specific regression this guards — it is what the control shipped as
+     * before review, and it is one character away from returning.
+     */
+    it('gives the selection checkbox a 24px target', () => {
+      const host = render(makeTask()).nativeElement as HTMLElement;
+      const classes = checkbox(host)?.className ?? '';
+
+      expect(classes).toContain('h-6');
+      expect(classes).toContain('w-6');
+      expect(classes).not.toContain('checkbox-xs');
+    });
+
+    it('reflects the checked input and names the action it offers', () => {
+      const unchecked = render(makeTask()).nativeElement as HTMLElement;
+      expect(checkbox(unchecked)?.getAttribute('aria-label')).toBe(
+        'Select task TASK_2026_200',
+      );
+
+      const fixture = render(makeTask());
+      fixture.componentRef.setInput('checked', true);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      expect(checkbox(host)?.checked).toBe(true);
+      expect(checkbox(host)?.getAttribute('aria-label')).toBe(
+        'Deselect task TASK_2026_200',
+      );
+    });
+
+    /**
+     * An unchecked-and-spinning card claims the task is out of the run at the
+     * exact moment its carrier is being written.
+     */
+    it('disables the checkbox while that card is being written', () => {
+      const fixture = render(makeTask());
+      fixture.componentRef.setInput('pending', true);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(checkbox(host)?.disabled).toBe(true);
+      expect(
+        host.querySelector('[data-testid="task-card-pending"]'),
+      ).not.toBeNull();
+    });
+
+    it('emits a selection toggle from the checkbox without opening the task', () => {
+      const fixture = render(makeTask());
+      const toggles: unknown[] = [];
+      const opens: string[] = [];
+      fixture.componentInstance.selectionToggle.subscribe((event) =>
+        toggles.push(event),
+      );
+      fixture.componentInstance.selectTask.subscribe((id) => opens.push(id));
+
+      checkbox(fixture.nativeElement as HTMLElement)?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, shiftKey: true }),
+      );
+
+      expect(toggles).toEqual([{ taskId: 'TASK_2026_200', range: true }]);
+      expect(opens).toEqual([]);
+    });
+
+    it('treats Ctrl-click on the card as a selection gesture, not an open', () => {
+      const fixture = render(makeTask());
+      const toggles: unknown[] = [];
+      const opens: string[] = [];
+      fixture.componentInstance.selectionToggle.subscribe((event) =>
+        toggles.push(event),
+      );
+      fixture.componentInstance.selectTask.subscribe((id) => opens.push(id));
+
+      const card = (
+        fixture.nativeElement as HTMLElement
+      ).querySelector<HTMLElement>('[data-task-id]');
+      card?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, ctrlKey: true }),
+      );
+      expect(toggles).toEqual([{ taskId: 'TASK_2026_200', range: false }]);
+      expect(opens).toEqual([]);
+
+      // …and a PLAIN click still opens, unchanged from before this batch.
+      card?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(opens).toEqual(['TASK_2026_200']);
+    });
+
+    /**
+     * The two still-checked states after a cancelled run must not look alike.
+     *
+     * Both leave the card checked, and they mean different things: one refused
+     * a write, the other was never asked. The assertion is on the WORDS, since
+     * the words are the signal and the glyph is aria-hidden reinforcement.
+     */
+    it('distinguishes a refused card from one that was never attempted', () => {
+      const failed = render(makeTask());
+      failed.componentRef.setInput('bulkOutcome', 'failed');
+      failed.detectChanges();
+      const failedHost = failed.nativeElement as HTMLElement;
+      expect(
+        failedHost.querySelector('[data-testid="task-card-outcome-failed"]')
+          ?.textContent,
+      ).toContain('refused');
+      expect(failedHost.textContent).not.toContain('not attempted');
+
+      const skipped = render(makeTask());
+      skipped.componentRef.setInput('bulkOutcome', 'untouched');
+      skipped.detectChanges();
+      const skippedHost = skipped.nativeElement as HTMLElement;
+      const badge = skippedHost.querySelector(
+        '[data-testid="task-card-outcome-untouched"]',
+      );
+      expect(badge?.textContent).toContain('not attempted');
+      expect(badge?.getAttribute('aria-label')).toContain(
+        'nothing was written',
+      );
+    });
+
+    it('renders no outcome badge for a card that was not in the last run', () => {
+      const host = render(makeTask()).nativeElement as HTMLElement;
+      expect(
+        host.querySelector('[data-testid^="task-card-outcome"]'),
+      ).toBeNull();
+    });
+  });
 });

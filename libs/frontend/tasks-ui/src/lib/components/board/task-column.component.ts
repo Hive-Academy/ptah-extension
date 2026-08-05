@@ -10,8 +10,10 @@ import type {
   TaskSpecSummary,
   TaskStatus,
 } from '@ptah-extension/shared';
+import type { TaskBulkOutcome } from '../../services/tasks-store.service';
 import {
   TaskCardComponent,
+  type TaskSelectionToggle,
   type TaskStartRequest,
   type TaskStatusChange,
 } from './task-card.component';
@@ -62,9 +64,13 @@ import { TASK_STATUS_BADGE, TASK_STATUS_LABELS } from '../../task-presentation';
             [task]="task"
             [graph]="graph()"
             [selected]="task.id === selectedTaskId()"
+            [checked]="selection().has(task.id)"
+            [pending]="pending().has(task.id)"
+            [bulkOutcome]="outcomes().get(task.id) ?? null"
             [focused]="task.id === focusedTaskId()"
             (selectTask)="taskSelect.emit($event)"
             (toggleTask)="taskToggle.emit($event)"
+            (selectionToggle)="selectionToggle.emit($event)"
             (statusChange)="statusChange.emit($event)"
             (startTask)="startTask.emit($event)"
             (filterChildren)="filterChildren.emit($event)"
@@ -106,6 +112,30 @@ export class TaskColumnComponent {
   public readonly total = input<number | null>(null);
   public readonly selectedTaskId = input<string | null>(null);
   /**
+   * The whole multi-selection, membership-tested per card (FR-C4.1).
+   *
+   * A `ReadonlySet` rather than a per-card boolean because the column renders
+   * the cards: it is the only place that can turn one set into N booleans
+   * without the board materializing N inputs. The set is replaced wholesale on
+   * every change, so the identity check that drives OnPush still works.
+   *
+   * Defaults to an empty set, so a column rendered without it — the standalone
+   * and pre-selection cases — shows no checkboxes ticked and behaves exactly as
+   * it did before.
+   */
+  public readonly selection = input<ReadonlySet<string>>(new Set());
+  /** Ids whose bulk write is in flight, same shape as {@link selection}. */
+  public readonly pending = input<ReadonlySet<string>>(new Set());
+  /**
+   * How the last bulk run left each still-selected task — see
+   * `TasksStore.lastRunOutcomes`. One map rather than two id sets, so the
+   * "refused" and "not attempted" groups cannot disagree about a card on the
+   * way down.
+   */
+  public readonly outcomes = input<ReadonlyMap<string, TaskBulkOutcome>>(
+    new Map(),
+  );
+  /**
    * The board's single roving tab stop, forwarded to the card that owns it
    * (FR-C7.1).
    *
@@ -126,6 +156,8 @@ export class TaskColumnComponent {
   public readonly taskSelect = output<string>();
   /** Space on a focused card — see `TaskCardComponent.toggleTask`. */
   public readonly taskToggle = output<string>();
+  /** A checkbox / Ctrl-click / Shift-click gesture, forwarded verbatim. */
+  public readonly selectionToggle = output<TaskSelectionToggle>();
   public readonly statusChange = output<TaskStatusChange>();
   public readonly startTask = output<TaskStartRequest>();
   /** A card's child-rollup click: narrow the board to that task's sub-tasks. */

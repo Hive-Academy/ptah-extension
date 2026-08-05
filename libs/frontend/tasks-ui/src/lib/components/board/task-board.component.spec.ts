@@ -144,16 +144,22 @@ describe('TaskBoardComponent', () => {
 
     it('confines every tab stop on the board to the ONE focused card', () => {
       // Three cards in one column, each carrying the full control set: the
-      // card root, the status-menu trigger, its menu container, six status
-      // options, the isolate toggle and Start — eleven focusable nodes.
+      // card root, the multi-select checkbox, the status-menu trigger, its
+      // menu container, six status options, the isolate toggle and Start —
+      // twelve focusable nodes.
+      //
+      // The checkbox is the twelfth, and it is counted here rather than
+      // exempted: it is a real `<input>` inside the card, so a checkbox that
+      // skipped the roving treatment would put one extra tab stop on all 181
+      // cards — the exact defect this test exists to pin, in a new control.
       //
       // The arithmetic is the finding, and it is measured rather than
       // asserted from reading. `focusableNodes` counts what the browser COULD
       // focus, ignoring the roving attribute; `tabStops` counts what Tab
       // actually reaches. Before the descendants were rovered those two
       // numbers were IDENTICAL — no node in the card carried `tabindex="-1"`,
-      // so every one of the 33 was reachable. On the 181-task board this task
-      // was written against that is ~1 991 tab stops.
+      // so every one of the 36 was reachable. On the 181-task board this task
+      // was written against that is ~2 172 tab stops.
       const fixture = render(
         columns({
           backlog: [
@@ -169,10 +175,10 @@ describe('TaskBoardComponent', () => {
       );
       const stops = tabStops(fixture);
 
-      expect(focusableNodes).toHaveLength(33);
-      expect(stops).toHaveLength(11);
+      expect(focusableNodes).toHaveLength(36);
+      expect(stops).toHaveLength(12);
 
-      // …and all eleven belong to the one focused card.
+      // …and all twelve belong to the one focused card.
       for (const stop of stops) {
         expect(stop === focused || focused.contains(stop)).toBe(true);
       }

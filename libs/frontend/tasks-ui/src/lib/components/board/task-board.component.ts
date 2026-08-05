@@ -10,8 +10,15 @@ import {
 } from '@angular/core';
 import type { TaskGraph } from '@ptah-extension/shared';
 import { TaskColumnComponent } from './task-column.component';
-import type { TaskStartRequest, TaskStatusChange } from './task-card.component';
-import type { TaskBoardColumn } from '../../services/tasks-store.service';
+import type {
+  TaskSelectionToggle,
+  TaskStartRequest,
+  TaskStatusChange,
+} from './task-card.component';
+import type {
+  TaskBoardColumn,
+  TaskBulkOutcome,
+} from '../../services/tasks-store.service';
 import { isTextEntryTarget } from '../keyboard-target';
 
 /**
@@ -64,9 +71,13 @@ import { isTextEntryTarget } from '../keyboard-target';
           [total]="column.total"
           [graph]="graph()"
           [selectedTaskId]="selectedTaskId()"
+          [selection]="selection()"
+          [pending]="pending()"
+          [outcomes]="outcomes()"
           [focusedTaskId]="focusedTaskId()"
           (taskSelect)="onTaskSelect($event)"
           (taskToggle)="onTaskToggle($event)"
+          (selectionToggle)="onSelectionToggle($event)"
           (statusChange)="statusChange.emit($event)"
           (startTask)="startTask.emit($event)"
           (filterChildren)="filterChildren.emit($event)"
@@ -78,6 +89,14 @@ import { isTextEntryTarget } from '../keyboard-target';
 export class TaskBoardComponent {
   public readonly columns = input.required<TaskBoardColumn[]>();
   public readonly selectedTaskId = input<string | null>(null);
+  /** The multi-selection (FR-C4.1) — see `TaskColumnComponent.selection`. */
+  public readonly selection = input<ReadonlySet<string>>(new Set());
+  /** Ids with a bulk write in flight (FR-C4.11). */
+  public readonly pending = input<ReadonlySet<string>>(new Set());
+  /** Last-run outcomes — see `TaskColumnComponent.outcomes`. */
+  public readonly outcomes = input<ReadonlyMap<string, TaskBulkOutcome>>(
+    new Map(),
+  );
   /**
    * The derived board graph, forwarded to every card so it can render its child
    * rollup and resolve its parent claim. Optional — a board handed no graph
@@ -88,15 +107,17 @@ export class TaskBoardComponent {
   public readonly taskSelect = output<string>();
   /** Space on the focused card (FR-C7.2). See `TaskCardComponent.toggleTask`. */
   public readonly taskToggle = output<string>();
+  /** A pointer selection gesture from a card — checkbox, Ctrl, or Shift. */
+  public readonly selectionToggle = output<TaskSelectionToggle>();
   /**
    * Escape was pressed with focus on the board (FR-C7.3).
    *
    * The board does not decide what Escape means, because what it means depends
-   * on state the board cannot see. Today the host reads it as "close the detail
-   * panel"; FR-C4's multi-select model gives it the earlier branch — clear the
-   * selection first, close the panel only when there is none. Stated plainly
-   * because the requirement reads as two branches and there is currently one
-   * selection model for them to branch on.
+   * on state the board cannot see. The host now reads it as both branches
+   * FR-C7.3 always described: clear the multi-selection when there is one,
+   * otherwise close the detail panel. That second selection model arrived with
+   * FR-C4, and this component did not change to carry it — the event was
+   * always "Escape happened here", and only its reducer moved.
    */
   public readonly escapePressed = output<void>();
   public readonly statusChange = output<TaskStatusChange>();
@@ -284,5 +305,15 @@ export class TaskBoardComponent {
   protected onTaskToggle(taskId: string): void {
     this._focusedTaskId.set(taskId);
     this.taskToggle.emit(taskId);
+  }
+
+  /**
+   * A card's selection gesture. The roving focus follows it for the same reason
+   * it follows an open: the next arrow key should move from the card the user
+   * just acted on, not from wherever the keyboard was left.
+   */
+  protected onSelectionToggle(toggle: TaskSelectionToggle): void {
+    this._focusedTaskId.set(toggle.taskId);
+    this.selectionToggle.emit(toggle);
   }
 }

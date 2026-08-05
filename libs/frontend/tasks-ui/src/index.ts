@@ -3,9 +3,12 @@ export { TaskBoardComponent } from './lib/components/board/task-board.component'
 export { TaskColumnComponent } from './lib/components/board/task-column.component';
 export { TaskCardComponent } from './lib/components/board/task-card.component';
 export type {
+  TaskSelectionToggle,
   TaskStartRequest,
   TaskStatusChange,
 } from './lib/components/board/task-card.component';
+export { TaskBulkBarComponent } from './lib/components/bulk/task-bulk-bar.component';
+export { TaskBulkSummaryComponent } from './lib/components/bulk/task-bulk-summary.component';
 export { TaskDetailComponent } from './lib/components/detail/task-detail.component';
 export { TaskRelationsComponent } from './lib/components/detail/task-relations.component';
 export type {
@@ -57,12 +60,18 @@ export type {
   TaskRelationOrigin,
 } from './lib/task-presentation';
 export {
+  BULK_CONFIRM_THRESHOLD,
   TasksStore,
   TASKS_CHANGED_MESSAGE_TYPE,
 } from './lib/services/tasks-store.service';
 export type {
   ApplyMetadataOptions,
+  BulkFailure,
+  BulkProgress,
+  BulkSummary,
+  BulkUntouched,
   TaskBoardColumn,
+  TaskBulkOutcome,
   TaskEstimateBuckets,
 } from './lib/services/tasks-store.service';
 export { TaskStartService } from './lib/services/task-start.service';
