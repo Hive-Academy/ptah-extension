@@ -48,6 +48,23 @@ model User {
   posts            Post[]           @relation("PostAuthor")
   postReactions    PostReaction[]
   topicReadStates  TopicReadState[]
+  // TASK_2026_177 Phase 3 — courses (see the models at the end of this file).
+  // TWO back-relations, not four: §1.4's five course models name `User` in
+  // exactly two relation fields, `LessonProgress.user` and
+  // `LessonComment.author`. `Course.createdBy` and `LessonComment.answeredBy`
+  // are PLAIN STRING COLUMNS, not relations — they record who acted for audit
+  // display and deliberately carry no FK, so deleting an admin cannot cascade
+  // into course content or fail on a Restrict.
+  //   lessonProgress -> `Cascade`. Personal progress state has no meaning once
+  //                     the user is gone.
+  //   lessonComments -> `SetNull`. Same rule as topics/posts (A-4): deleting a
+  //                     user must not delete the conversation.
+  // §1.7 lists eight back-relations across ALL phases. The Phase-5
+  // `notifications` / `actedNotifications` pair names a model that does not
+  // exist until then and would not validate — same reason Batch 6A held them
+  // back (its D-7).
+  lessonProgress   LessonProgress[]
+  lessonComments   LessonComment[]  @relation("LessonCommentAuthor")
 
   @@index([workosId])
   @@index([paddleCustomerId])
@@ -482,3 +499,197 @@ model TopicReadState {
 // No surrogate id and no extra index. The composite PK leads with userId, which
 // is exactly the feed query ("every read state for this member, for these topic
 // ids"). Unread = Topic.postCount - lastReadPostNumber, clamped at 0 (R1.6.2).
+
+// ===========================================================================
+// TASK_2026_177 Phase 3 — COURSES (plan §1.4)
+//
+// Five models: Course, CourseModule, Lesson, LessonProgress, LessonComment.
+// Migration 3 (`<ts>_courses`) creates all five.
+//
+// 🔴 THE LESSON-TITLE TRIGRAM INDEX EXISTS ONLY IN SQL AND IS INVISIBLE HERE.
+// `CREATE INDEX "course_lessons_title_trgm" ON "course_lessons" USING gin
+// (title gin_trgm_ops);` is hand-written into migration 3 below the generated
+// DDL, because Prisma cannot express `gin_trgm_ops` in a model. Consequences a
+// schema reader must know:
+//   - `prisma migrate diff` will NEVER mention it. It is not drift; it is
+//     outside the model.
+//   - A later migration can therefore SILENTLY DROP IT, and nothing in this
+//     file will say so. THE GENERATED SQL OF EVERY SUBSEQUENT MIGRATION IN
+//     THIS APP MUST BE READ before it is applied.
+//   - Losing it is a SILENT PERFORMANCE failure, not an error: lesson search
+//     still returns correct results, by sequential scan.
+// The same warning already applies to `community_topics_title_trgm` and
+// `community_posts_body_trgm` from migration 2.
+//
+// 🔴 RISK-O — THREE MUTUALLY CONFUSABLE UNITS LIVE IN THIS BLOCK. Read this
+// before touching any number below.
+//   1. A POSITION in seconds — `LessonProgress.furthestPositionSeconds`.
+//      Where the member got to. Monotonic; the server only ever advances it.
+//   2. A DURATION in seconds — `Lesson.videoDurationSeconds`. How long the
+//      video is. The ONLY duration R2.3.2's 90% rule may read (ASSUMPTION-8).
+//   3. A PERCENTAGE — which HAS NO COLUMN ANYWHERE IN THIS SCHEMA, on purpose.
+//      R2.3.5's course percentage is derived from LESSON COUNTS
+//      (completedLessons / totalLessons), never from seconds. If you find
+//      yourself adding a percent column here, or computing a course percentage
+//      from a sum of seconds, that is the bug.
+// (1) and (2) are both `Int` and both end in `Seconds`, so they are
+// interchangeable at every call site WITHOUT A TYPE ERROR — swapping the
+// operands of `furthest >= 0.9 * duration` yields a plausible boolean, not a
+// compile failure. That is why the comparison belongs in exactly one named
+// file (`libs/api/learning/src/lib/progress/completion.ts`, Task 9.13) and
+// never as a bare `* 0.9` at a call site. This is the same class of defect as
+// `Topic.postCount` vs `lastReadPostNumber`, which was "consistent with each
+// other and all wrong" across four sites and which no single-site test saw.
+// ===========================================================================
+
+model Course {
+  id            String    @id @default(cuid())
+  slug          String    @unique
+  title         String
+  description   String
+  coverImageUrl String?   @map("cover_image_url")
+  visibility    String    @default("member")   // 'member' | 'cohort' | 'staff'
+  cohortKeys    String[]  @default([]) @map("cohort_keys")
+  /// R2.1.2: a draft course is invisible to every member endpoint (404).
+  published     Boolean   @default(false)
+  /// R2.4.2: when true, a module unlocks only after every lesson in the
+  /// preceding module is complete. When false only releaseAt applies (R2.4.3).
+  sequential    Boolean   @default(false)
+  sortOrder     Int       @default(0) @map("sort_order")
+  createdBy     String?   @map("created_by")
+  deletedAt     DateTime? @map("deleted_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  modules CourseModule[]
+
+  @@index([published, sortOrder])   // the member course list, in one seek
+  @@map("courses")
+}
+
+model CourseModule {
+  id          String    @id @default(cuid())
+  courseId    String    @map("course_id")
+  slug        String
+  title       String
+  description String?
+  /// Sparse ordering, gaps of 100 (AD: see R8.8 note below).
+  sortOrder   Int       @map("sort_order")
+  /// R2.4.1: future date ⇒ locked, lessons return 403.
+  releaseAt   DateTime? @map("release_at")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons Lesson[]
+
+  @@unique([courseId, slug])       // stable URLs + AD-15 migration idempotency key
+  @@index([courseId, sortOrder])   // R2.1.4 strict sort order render
+  @@map("course_modules")
+}
+
+// @@unique([courseId, sortOrder]) DELIBERATELY NOT DECLARED. R8.8 forbids
+// renumbering siblings one request at a time; a uniqueness constraint would
+// force the bulk reorder to sequence its UPDATEs to dodge transient collisions.
+// Ties break deterministically on (sortOrder, createdAt, id) — R2.1.4.
+
+model Lesson {
+  id           String @id @default(cuid())
+  moduleId     String @map("module_id")
+  slug         String
+  title        String
+  bodyMarkdown String @map("body_markdown")
+  sortOrder    Int    @map("sort_order")
+
+  /// R2.2.1: the 11-char YouTube id, extracted server-side from an id or URL.
+  youtubeVideoId         String?   @map("youtube_video_id")
+  /// R2.2.2 + NFR-R2: fetched ONCE at authoring time and persisted. A member
+  /// page view never calls YouTube.
+  videoTitle             String?   @map("video_title")
+  /// The number R2.3.2's 90% completion threshold is computed against — the
+  /// reason the Data API was chosen over a manual checkbox at Checkpoint 0.
+  ///
+  /// A DURATION IN SECONDS, NOT A POSITION — see the RISK-O banner above.
+  /// NULLABLE, and ASSUMPTION-8 makes the null meaningful: a lesson with
+  /// videoDurationSeconds = null is MANUAL-COMPLETION-ONLY even when it has a
+  /// youtubeVideoId. That is exactly the R2.2.6 feature-off shape, where an
+  /// admin typed a title and no runtime. Keying manual-only on the DURATION
+  /// rather than on the ID is the only reading that cannot compute a threshold
+  /// against null.
+  videoDurationSeconds   Int?      @map("video_duration_seconds")
+  videoThumbnailUrl      String?   @map("video_thumbnail_url")
+  videoMetadataFetchedAt DateTime? @map("video_metadata_fetched_at")
+  /// 'api' | 'manual' — 'manual' is the R2.2.6 feature-off path when
+  /// YOUTUBE_API_KEY is unset and an admin typed the metadata.
+  videoMetadataSource    String?   @map("video_metadata_source")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  module   CourseModule     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  progress LessonProgress[]
+  comments LessonComment[]
+
+  @@unique([moduleId, slug])
+  @@index([moduleId, sortOrder])   // R2.1.5 prev/next across module boundaries
+  @@map("course_lessons")
+}
+
+/// R2.3. Per member per lesson. Composite PK, no surrogate id.
+model LessonProgress {
+  userId                  String    @map("user_id") @db.Uuid
+  lessonId                String    @map("lesson_id")
+  /// R2.3.1. Monotonic — the server only ever advances it.
+  ///
+  /// A POSITION IN SECONDS, NOT A DURATION — see the RISK-O banner above. It
+  /// is compared against Lesson.videoDurationSeconds, which has the same type
+  /// and is a different quantity.
+  furthestPositionSeconds Int       @default(0) @map("furthest_position_seconds")
+  completedAt             DateTime? @map("completed_at")
+  /// 'auto' (R2.3.2 threshold) | 'manual' (R2.3.3). Manual is reversible.
+  completionSource        String?   @map("completion_source")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@id([userId, lessonId])
+  @@map("lesson_progress")
+}
+
+// @@index([lessonId]) REJECTED. The composite PK leads with userId, which
+// serves every query this task issues ("this member's progress across these
+// lessons" — R2.3.5, R2.3.6, R2.4.2, hub continue-learning). A lessonId-leading
+// index would only serve cross-member analytics, which §5 does not ship.
+// It also enforces NFR-S4/R2.3.7 by SHAPE: there is no efficient way to ask
+// "who else completed this lesson", so no member endpoint accidentally can.
+
+/// R2.5 + Checkpoint 0: a DISTINCT model, never a polymorphic comment table
+/// shared with Post. Same one-level nesting rule and same server enforcement
+/// as R1.3.
+model LessonComment {
+  id           String    @id @default(cuid())
+  lessonId     String    @map("lesson_id")
+  parentId     String?   @map("parent_id")
+  bodyMarkdown String    @map("body_markdown")
+  authorId     String?   @map("author_id") @db.Uuid
+  /// R2.5.3 "Answered" treatment. A-8: lesson comments get this INSTEAD of
+  /// reactions, matching the course_learning screens.
+  answeredAt   DateTime? @map("answered_at")
+  answeredBy   String?   @map("answered_by")
+  editedAt     DateTime? @map("edited_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletedBy    String?   @map("deleted_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  lesson   Lesson          @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  parent   LessonComment?  @relation("LessonCommentChildren", fields: [parentId], references: [id], onDelete: Restrict)
+  children LessonComment[] @relation("LessonCommentChildren")
+  author   User?           @relation("LessonCommentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([lessonId, createdAt])   // the lesson comment thread render
+  @@map("lesson_comments")
+}
