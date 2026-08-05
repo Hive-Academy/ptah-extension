@@ -28,7 +28,7 @@ import type { MemberPlaceholderData } from './placeholder/member-phase-placehold
  *   /members/live/request                 -> request a session    (phase 4)
  *   /members/community                    -> FeedPage             (phase 2)
  *   /members/community/topics/:slug       -> ThreadPage           (phase 2)
- *   /members/community/my-threads         -> my threads    (blocked, see below)
+ *   /members/community/my-threads         -> MyThreadsPage         (phase 2)
  *   /members/notifications                -> inbox                (phase 5)
  *   /members/search                       -> SearchPage           (phase 2)
  *   /members/account                      -> AccountPage
@@ -146,39 +146,26 @@ export const MEMBER_ROUTES: Routes = [
       },
       {
         /**
-         * ⚠️ STILL A PLACEHOLDER, AND NOT BECAUSE THE SCREEN WAS SKIPPED.
+         * ⚠️ THIS ROUTE WAS A PLACEHOLDER FOR ONE BATCH, AND THE REASON IS
+         * WORTH KEEPING. "My Threads" is the feed with an AUTHOR FILTER (R9.2),
+         * and Batch 6 shipped no way to express one: `ListTopicsQueryDto`
+         * accepted `categoryId`, `sort`, `page` and `pageSize` and nothing else,
+         * while the global `ValidationPipe` runs `forbidNonWhitelisted: true`,
+         * so an invented `?authorId=me` was a `400` rather than an ignored
+         * parameter. Nothing on the client could substitute — `MemberSessionStore`
+         * carries no user id, and matching `authorName` would be identity by
+         * string comparison — so the screen was reported blocked instead of
+         * being faked with a list of everyone's threads.
          *
-         * "My Threads" is the feed with an AUTHOR FILTER (R9.2), and Batch 6
-         * shipped no way to express one: `ListTopicsQueryDto` accepts
-         * `categoryId`, `sort` (`recent | unread`), `page` and `pageSize` and
-         * nothing else, and the app's global `ValidationPipe` runs with
-         * `forbidNonWhitelisted: true`, so an invented `?authorId=me` is a `400`
-         * rather than an ignored parameter. The plan anticipated the query —
-         * `@@index([authorId])` exists on both `Topic` and `Post` (§1.3) for
-         * exactly this page — but the endpoint never grew the filter.
-         *
-         * Nothing on the client can substitute for it. `MemberSessionStore`
-         * carries `entitled` / `isAdmin` / `cohorts` and no user id, and
-         * `MemberTopicSummary.authorName` is a DISPLAY NAME — matching on it
-         * would be identity by string comparison, would break on two members
-         * sharing a name, and would silently show one member another's threads.
-         * The alternative, paging the whole feed and filtering client-side, is
-         * the fan-out Task 7.6's own validation note forbids.
-         *
-         * So this route keeps the placeholder until the server can answer the
-         * question. The unblocking change is small and entirely server-side: one
-         * optional `mine?: boolean` on `ListTopicsQueryDto` and one
-         * `authorId: ctx.userId` clause in `TopicsReadService.listFeed`. When it
-         * lands, this becomes a `loadComponent` like the two above.
+         * The server closed it with a `mine?: boolean` on that same whole-object
+         * DTO plus one conditional `authorId: ctx.userId` spread into the feed's
+         * existing `where`. It is a CLAUSE, NOT A ROUTE:
+         * `GET .../community/my-threads` is still a 404, the endpoint is the
+         * shared `GET .../community/topics`, and the filter costs no extra query.
          */
         path: 'community/my-threads',
-        loadComponent: loadPlaceholder,
-        data: placeholder({
-          surface: 'My threads',
-          phase: 2,
-          summary:
-            'Your own topics and replies get their own view shortly. In the meantime the community feed lists every thread you can see.',
-        }),
+        loadComponent: () =>
+          import('./community/my-threads-page').then((m) => m.MyThreadsPage),
       },
       {
         path: 'notifications',

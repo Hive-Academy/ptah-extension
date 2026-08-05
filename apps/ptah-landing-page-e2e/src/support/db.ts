@@ -156,6 +156,47 @@ export function seedForeignReply(
   return id;
 }
 
+/**
+ * A whole topic authored by SOMEONE ELSE, body post included (AD-9).
+ *
+ * ⚠️ IT EXISTS FOR THE NEGATIVE HALF OF THE `?mine=true` SPEC. A "my threads"
+ * filter that quietly returned everything looks perfectly healthy in a
+ * screenshot; the only assertion that tests the filter is that a thread by a
+ * DIFFERENT author, in the SAME category, is absent. Both rows have to be on
+ * the unfiltered feed for that absence to mean anything.
+ *
+ * ⚠️ WRITTEN DIRECTLY RATHER THAN THROUGH THE API, and only because the topic
+ * must come from a different member — the same reason `seedForeignReply` does.
+ * Driving a second authenticated context through the composer would test the
+ * composer twice and the filter once.
+ *
+ * `post_count` is `0` because it counts REPLIES and post #1 IS the body
+ * (AD-9/AD-11) — the same unit confusion that produced the `unreadCount`
+ * off-by-one, so it is worth being explicit about here.
+ */
+export function seedForeignTopic(
+  categoryId: string,
+  authorId: string,
+  title: string,
+  bodyMarkdown: string,
+): string {
+  const id = `top_${randomUUID()}`;
+  const slug = `${title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60)}-${randomUUID().slice(0, 8)}`;
+  psql(
+    `INSERT INTO community_topics (id, category_id, slug, title, author_id, pinned, locked, post_count, last_posted_at, created_at, updated_at) ` +
+      `VALUES ('${id}', '${categoryId}', '${slug}', '${title.replace(/'/g, "''")}', '${authorId}', false, false, 0, now(), now(), now())`,
+  );
+  psql(
+    `INSERT INTO community_posts (id, topic_id, parent_id, post_number, body_markdown, author_id, created_at, updated_at) ` +
+      `VALUES ('post_${randomUUID()}', '${id}', NULL, 1, '${bodyMarkdown.replace(/'/g, "''")}', '${authorId}', now(), now())`,
+  );
+  return id;
+}
+
 /** The ids of every topic in a category — for a teardown that deletes by id. */
 export function topicIdsInCategory(categoryId: string): string[] {
   const out = psql(

@@ -185,6 +185,93 @@ describe('MemberCommunityApiService', () => {
       });
     });
 
+    it('sends ?mine=true for the "My Threads" filter (R9.2)', () => {
+      firstValueFrom(api.listTopics({ mine: true }));
+      const request = httpMock.expectOne(
+        (r) => r.url === `${BASE}/topics` && r.params.get('mine') === 'true',
+      );
+
+      // ⚠️ THE SPELLING IS EXACT. `forbidNonWhitelisted: true` is on, so an
+      // invented parameter is a 400 rather than an ignored one, and the DTO's
+      // transform accepts only `true` / `'true'` / `'1'`.
+      expect(request.request.params.keys()).toEqual(['mine']);
+      request.flush({
+        items: [],
+        page: 1,
+        pageSize: 25,
+        total: 0,
+        hasMore: false,
+      });
+    });
+
+    it('OMITS `mine` when it is false — it is not sent as mine=false', () => {
+      // The server accepts only the affirmative spellings BECAUSE Express hands
+      // query values over as strings and `'false'` is a truthy string. So
+      // `?mine=false` already resolves to `false` and is identical to omitting
+      // it (measured live: both return the same unfiltered total). Sending it
+      // would decorate every ordinary feed request with a parameter that reads
+      // like a toggle someone could flip and expect the opposite of.
+      firstValueFrom(api.listTopics({ mine: false, categoryId: 'cat_1' }));
+      const request = httpMock.expectOne((r) => r.url === `${BASE}/topics`);
+
+      expect(request.request.params.has('mine')).toBe(false);
+      expect(request.request.params.get('categoryId')).toBe('cat_1');
+      request.flush({
+        items: [],
+        page: 1,
+        pageSize: 25,
+        total: 0,
+        hasMore: false,
+      });
+    });
+
+    it('composes `mine` with categoryId, sort and paging on ONE request', () => {
+      // It is a `where` clause, not a route: there is no
+      // `GET .../community/my-threads` (that path is a 404), so every filter
+      // stacks on the same endpoint and the feed's five-query budget is unmoved.
+      firstValueFrom(
+        api.listTopics({
+          mine: true,
+          categoryId: 'cat_1',
+          sort: 'unread',
+          page: 2,
+        }),
+      );
+      const request = httpMock.expectOne((r) => r.url === `${BASE}/topics`);
+
+      expect(request.request.params.get('mine')).toBe('true');
+      expect(request.request.params.get('categoryId')).toBe('cat_1');
+      expect(request.request.params.get('sort')).toBe('unread');
+      expect(request.request.params.get('page')).toBe('2');
+      request.flush({
+        items: [],
+        page: 2,
+        pageSize: 25,
+        total: 0,
+        hasMore: false,
+      });
+    });
+
+    it('sends NO author identity of any kind — the server knows who is asking', () => {
+      // `ListTopicsQueryDto` declares no `authorId` / `userId` / `authorEmail`,
+      // and `forbidNonWhitelisted` makes one a 400. That is an AUTHORISATION
+      // property, not an ergonomic one: a named-author parameter would let any
+      // entitled member enumerate any other member's threads, and no downstream
+      // visibility filter would refuse it. Asserting the absence here is what
+      // stops a future "convenience" from being added to the query interface.
+      firstValueFrom(api.listTopics({ mine: true, page: 3 }));
+      const request = httpMock.expectOne((r) => r.url === `${BASE}/topics`);
+
+      expect(request.request.params.keys().sort()).toEqual(['mine', 'page']);
+      request.flush({
+        items: [],
+        page: 3,
+        pageSize: 25,
+        total: 0,
+        hasMore: false,
+      });
+    });
+
     it('sends NO pagination params when the caller omits them', async () => {
       // The server's defaults (page 1, pageSize 25) are then the effective ones
       // and are echoed back in the envelope, so the client never hard-codes 25.

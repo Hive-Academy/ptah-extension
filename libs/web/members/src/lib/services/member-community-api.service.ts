@@ -75,6 +75,25 @@ export type TopicSort = 'recent' | 'unread';
 export interface ListTopicsQuery {
   categoryId?: string;
   sort?: TopicSort;
+  /**
+   * "My Threads" — restrict the feed to topics THIS member authored (R9.2).
+   *
+   * ⚠️ IT IS A BOOLEAN, NOT AN AUTHOR ID, AND THAT IS THE SERVER'S
+   * AUTHORISATION DECISION RATHER THAN A CONVENIENCE. `MemberGuard` has already
+   * resolved `req.memberContext.userId` before the handler runs, so the server
+   * knows who is asking; a parameter that NAMED an author would let any
+   * entitled member enumerate any other member's threads, and no downstream
+   * visibility filter would refuse it because those topics genuinely are
+   * visible to them. `ListTopicsQueryDto` has no such field — sending
+   * `?authorId=…` is a `400`.
+   *
+   * ⚠️ IT COMPOSES WITH VISIBILITY AND SOFT-DELETE, IT DOES NOT REPLACE THEM.
+   * `authorId` is spread into the SAME `where` as `NOT_DELETED` and the
+   * visible-category restriction, so a member does not get back their own
+   * soft-deleted topic, nor their own topic in a category they can no longer
+   * see. Both verified live against the running server, not inferred.
+   */
+  mine?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -187,13 +206,26 @@ export class MemberCommunityApiService {
   /* Topics — read                                                           */
   /* ---------------------------------------------------------------------- */
 
-  /** `GET topics` — the feed, pinned first then `lastPostedAt` desc (R1.2.5). */
+  /**
+   * `GET topics` — the feed, pinned first then `lastPostedAt` desc (R1.2.5).
+   *
+   * ⚠️ `mine: false` IS OMITTED FROM THE WIRE RATHER THAN SENT AS `mine=false`,
+   * and the reason is the server's transform. `ListTopicsQueryDto.mine` accepts
+   * only the affirmative spellings (`true` / `'true'` / `'1'`) precisely
+   * because Express hands query values over as STRINGS and `'false'` is a
+   * truthy string — so `?mine=false` resolves to `false` and is already
+   * identical to omitting it (measured: both return the same unfiltered
+   * total). Sending it anyway would put a parameter on every ordinary feed
+   * request whose only effect is to look like it has one, and it would read
+   * like a toggle a reader could flip to `'false'` and expect the opposite.
+   */
   public listTopics(
     query: ListTopicsQuery = {},
   ): Observable<Paged<MemberTopicSummary>> {
     let params = pageParams(query.page, query.pageSize);
     if (query.categoryId) params = params.set('categoryId', query.categoryId);
     if (query.sort) params = params.set('sort', query.sort);
+    if (query.mine) params = params.set('mine', 'true');
 
     return this.http
       .get<unknown>(`${BASE}/topics`, { params })
