@@ -26,11 +26,11 @@ import type { MemberPlaceholderData } from './placeholder/member-phase-placehold
  *   /members/live                         -> upcoming sessions    (phase 4)
  *   /members/live/replays                 -> replays              (phase 4)
  *   /members/live/request                 -> request a session    (phase 4)
- *   /members/community                    -> feed                 (phase 2)
- *   /members/community/topics/:slug       -> thread               (phase 2)
- *   /members/community/my-threads         -> my threads           (phase 2)
+ *   /members/community                    -> FeedPage             (phase 2)
+ *   /members/community/topics/:slug       -> ThreadPage           (phase 2)
+ *   /members/community/my-threads         -> my threads    (blocked, see below)
  *   /members/notifications                -> inbox                (phase 5)
- *   /members/search                       -> search               (phase 2)
+ *   /members/search                       -> SearchPage           (phase 2)
  *   /members/account                      -> AccountPage
  *
  * Every route renders INSIDE {@link MemberLayout}, which binds the shared
@@ -136,29 +136,48 @@ export const MEMBER_ROUTES: Routes = [
       },
       {
         path: 'community',
-        loadComponent: loadPlaceholder,
-        data: placeholder({
-          surface: 'Community feed',
-          phase: 2,
-          summary: 'The native community replaces the old forum in phase 2.',
-        }),
+        loadComponent: () =>
+          import('./community/feed-page').then((m) => m.FeedPage),
       },
       {
         path: 'community/topics/:slug',
-        loadComponent: loadPlaceholder,
-        data: placeholder({
-          surface: 'Thread',
-          phase: 2,
-          summary: 'Discussion threads arrive with the community.',
-        }),
+        loadComponent: () =>
+          import('./community/thread-page').then((m) => m.ThreadPage),
       },
       {
+        /**
+         * ⚠️ STILL A PLACEHOLDER, AND NOT BECAUSE THE SCREEN WAS SKIPPED.
+         *
+         * "My Threads" is the feed with an AUTHOR FILTER (R9.2), and Batch 6
+         * shipped no way to express one: `ListTopicsQueryDto` accepts
+         * `categoryId`, `sort` (`recent | unread`), `page` and `pageSize` and
+         * nothing else, and the app's global `ValidationPipe` runs with
+         * `forbidNonWhitelisted: true`, so an invented `?authorId=me` is a `400`
+         * rather than an ignored parameter. The plan anticipated the query —
+         * `@@index([authorId])` exists on both `Topic` and `Post` (§1.3) for
+         * exactly this page — but the endpoint never grew the filter.
+         *
+         * Nothing on the client can substitute for it. `MemberSessionStore`
+         * carries `entitled` / `isAdmin` / `cohorts` and no user id, and
+         * `MemberTopicSummary.authorName` is a DISPLAY NAME — matching on it
+         * would be identity by string comparison, would break on two members
+         * sharing a name, and would silently show one member another's threads.
+         * The alternative, paging the whole feed and filtering client-side, is
+         * the fan-out Task 7.6's own validation note forbids.
+         *
+         * So this route keeps the placeholder until the server can answer the
+         * question. The unblocking change is small and entirely server-side: one
+         * optional `mine?: boolean` on `ListTopicsQueryDto` and one
+         * `authorId: ctx.userId` clause in `TopicsReadService.listFeed`. When it
+         * lands, this becomes a `loadComponent` like the two above.
+         */
         path: 'community/my-threads',
         loadComponent: loadPlaceholder,
         data: placeholder({
           surface: 'My threads',
           phase: 2,
-          summary: 'Your own topics and replies arrive with the community.',
+          summary:
+            'Your own topics and replies get their own view shortly. In the meantime the community feed lists every thread you can see.',
         }),
       },
       {
@@ -172,12 +191,8 @@ export const MEMBER_ROUTES: Routes = [
       },
       {
         path: 'search',
-        loadComponent: loadPlaceholder,
-        data: placeholder({
-          surface: 'Search',
-          phase: 2,
-          summary: 'Search covers community content, so it lands with it.',
-        }),
+        loadComponent: () =>
+          import('./search/search-page').then((m) => m.SearchPage),
       },
       {
         path: 'account',

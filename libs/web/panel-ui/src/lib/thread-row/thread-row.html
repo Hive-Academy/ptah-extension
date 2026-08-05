@@ -1,0 +1,60 @@
+<div class="flex flex-col gap-1 py-3">
+  <div class="flex items-start gap-2">
+    @if (pinned()) {
+      <lucide-angular
+        [img]="PinIcon"
+        class="mt-0.5 h-4 w-4 shrink-0 text-primary"
+        aria-label="Pinned"
+      />
+    }
+    @if (locked()) {
+      <lucide-angular
+        [img]="LockIcon"
+        class="mt-0.5 h-4 w-4 shrink-0 text-base-content/60"
+        aria-label="Locked"
+      />
+    }
+
+    <span class="flex-1 text-sm font-semibold text-base-content">
+      {{ title() }}
+    </span>
+
+    @if (accepted()) {
+      <lucide-angular
+        [img]="CheckIcon"
+        class="mt-0.5 h-4 w-4 shrink-0 text-success"
+        aria-label="Has an accepted answer"
+      />
+    }
+
+    @if (unreadCount() > 0) {
+      <span
+        class="badge badge-primary badge-sm shrink-0 font-mono"
+        [attr.aria-label]="unreadLabel()"
+      >
+        {{ unreadCount() }} new
+      </span>
+    }
+  </div>
+
+  <div
+    class="flex flex-wrap items-center gap-2 font-mono text-xs text-base-content/60"
+  >
+    <span>{{ authorLabel() }}</span>
+    <span aria-hidden="true">·</span>
+    <span class="inline-flex items-center gap-1">
+      <lucide-angular
+        [img]="MessageSquareIcon"
+        class="h-3.5 w-3.5"
+        aria-hidden="true"
+      />
+      {{ replyLabel() }}
+    </span>
+    <!--
+      Consumer-supplied trailing metadata — a category chip and a <time> on the
+      member feed, an author email and a deletion timestamp on the admin table.
+      See the class docblock for why this is projection and not an input.
+    -->
+    <ng-content />
+  </div>
+</div>

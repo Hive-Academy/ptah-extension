@@ -100,4 +100,68 @@ test.describe('Member panel — entitled Builder @p0', () => {
       new URL(baseURL as string).origin,
     );
   });
+
+  /**
+   * R6.2 / R6.6 — THE ONE-REQUEST ASSERTION, RE-RUN AGAINST THE LIVE HUB.
+   *
+   * ⚠️ ADDED BY TASK_2026_177 BATCH 7, AND IT IS DELIBERATELY THE SAME CLAIM AS
+   * THE FIRST TEST IN THIS FILE, MADE WITHOUT THE STUB.
+   *
+   * The stubbed version above proves the PAGE issues one request. This one
+   * proves the property survives the thing that could plausibly break it:
+   * `sections.community` now returns REAL forum data (Batch 6 moved it from
+   * `'empty'` to `'ok'`), and the obvious way to ship that regression is for a
+   * community card to start fetching its own topics. That is invisible to the
+   * stubbed test, because a stubbed hub still renders whatever the card asks
+   * for afterwards.
+   *
+   * Which is exactly the claim R6.6 makes — that a later phase adds VALUES to
+   * the envelope, not requests to the page — and re-running the original
+   * assertion is the only thing that tests it.
+   *
+   * The response itself is NOT asserted on: `community` legitimately reports
+   * `'empty'` on a fresh database and `'ok'` once seeded, and a concurrent seed
+   * may be filling those tables right now. The request COUNT is the invariant.
+   */
+  test('the live hub still costs exactly one request now that community returns real data', async ({
+    builderPage,
+  }) => {
+    const memberApiCalls: string[] = [];
+    builderPage.on('request', (request) => {
+      const { pathname } = new URL(request.url());
+      if (pathname.startsWith('/api/v1/members/')) {
+        memberApiCalls.push(pathname);
+      }
+    });
+
+    await builderPage.goto('/members/hub');
+    await expect(builderPage.locator('ptah-member-layout')).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      builderPage.getByRole('heading', { level: 1, name: /Welcome back/ }),
+    ).toBeVisible({ timeout: 20_000 });
+
+    // Let any child that WOULD fetch actually get the chance to.
+    await builderPage.waitForTimeout(1_500);
+
+    // ⚠️ EXACTLY ONE, and it is the aggregate. `/entitlement` is the guard's
+    // probe and runs before this page exists, so it is excluded by counting
+    // only what the hub route issued — assert the hub count directly and show
+    // the full list on failure.
+    const hubCalls = memberApiCalls.filter((p) => p === '/api/v1/members/hub');
+    expect(
+      hubCalls.length,
+      `member API calls during hub render: ${JSON.stringify(memberApiCalls)}`,
+    ).toBe(1);
+
+    // And no community/search call was made on the member's behalf — the whole
+    // point of the aggregate.
+    expect(
+      memberApiCalls.filter((p) => p.startsWith('/api/v1/members/community')),
+    ).toEqual([]);
+    expect(
+      memberApiCalls.filter((p) => p.startsWith('/api/v1/members/search')),
+    ).toEqual([]);
+  });
 });

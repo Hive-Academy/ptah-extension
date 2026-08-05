@@ -24,6 +24,7 @@ import {
   Hammer,
   LayoutDashboard,
   Megaphone,
+  MessagesSquare,
   Package,
   ScrollText,
   TrendingUp,
@@ -129,6 +130,23 @@ export const ADMIN_NAV_GROUPS: readonly PanelNavGroup[] = [
         route: '/admin/builders/sessions',
         primary: true,
         icon: CalendarDays,
+      },
+      {
+        // TASK_2026_177 Batch 7 — the NATIVE community moderation surface.
+        //
+        // ⚠️ IT BELONGS HERE, NOT UNDER "People & Community". This group is
+        // where member-facing CONTENT admin lives, beside Packs and Sessions,
+        // and a thread is content. `Member Groups` deliberately stays under
+        // People & Community because cohorts are people-shaped — that split is
+        // the existing IA and this entry does not change it.
+        //
+        // The entry that used to exist for the EXTERNAL forum's read-only
+        // triage view was deleted in P1b with the endpoints behind it. This is
+        // a new screen against new contracts, not that one restored.
+        label: 'Community',
+        route: '/admin/builders/community',
+        primary: true,
+        icon: MessagesSquare,
       },
     ],
   },

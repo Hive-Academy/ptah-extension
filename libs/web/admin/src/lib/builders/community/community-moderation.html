@@ -1,0 +1,357 @@
+<div class="flex flex-col gap-5">
+  <header class="flex flex-col gap-1">
+    <h1 class="text-2xl font-bold tracking-tight text-base-content">
+      Community moderation
+    </h1>
+    <p class="text-sm text-base-content/60">
+      Pin, lock, move, remove and restore member threads. Every action here
+      writes an audit entry.
+    </p>
+  </header>
+
+  <!-- Filters ------------------------------------------------------------ -->
+  <div class="flex flex-wrap items-end gap-3">
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-base-content/60" for="moderation-category">
+        Category
+      </label>
+      <select
+        id="moderation-category"
+        class="select select-bordered select-sm bg-base-100 text-sm"
+        (change)="onCategoryChange($event)"
+      >
+        <option value="" [selected]="categoryFilter() === ''">
+          Every category
+        </option>
+        @for (category of categories(); track category.id) {
+          <option [value]="category.id" [selected]="category.id === categoryFilter()">
+            {{ category.name }}
+          </option>
+        }
+      </select>
+    </div>
+
+    <form class="flex flex-col gap-1" (submit)="applySearch($event)">
+      <label class="text-xs font-medium text-base-content/60" for="moderation-search">
+        Search titles
+      </label>
+      <div class="flex items-center gap-2">
+        <input
+          id="moderation-search"
+          type="search"
+          class="input input-bordered input-sm bg-base-100 text-sm"
+          placeholder="Title contains…"
+          [value]="searchDraft()"
+          (input)="onSearchInput($event)"
+        />
+        <button type="submit" class="btn btn-sm btn-primary normal-case">
+          Search
+        </button>
+      </div>
+    </form>
+
+    <label class="flex cursor-pointer items-center gap-2 text-sm text-base-content">
+      <input
+        type="checkbox"
+        class="checkbox checkbox-sm"
+        [checked]="includeDeleted()"
+        (change)="toggleDeleted()"
+      />
+      <!--
+        The ONLY way to see a tombstone. Every other forum read filters
+        deletedAt IS NULL (AD-5); this flag is the declared exemption.
+      -->
+      Show deleted
+    </label>
+
+    <p class="ml-auto font-mono text-xs text-base-content/60">
+      {{ total() }} threads
+    </p>
+  </div>
+
+  @if (selectedCount() > 0) {
+    <ptah-selection-toolbar
+      [count]="selectedCount()"
+      itemNoun="thread"
+      (cleared)="clearSelection()"
+    >
+      <button
+        type="button"
+        class="btn btn-sm normal-case"
+        (click)="bulkSetLocked(true)"
+      >
+        Lock
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm normal-case"
+        (click)="bulkSetLocked(false)"
+      >
+        Unlock
+      </button>
+    </ptah-selection-toolbar>
+  }
+
+  @if (error(); as message) {
+    <div
+      class="rounded-lg border border-hairline bg-base-200 p-4 text-sm text-error"
+      role="alert"
+    >
+      {{ message }}
+    </div>
+  }
+
+  <!-- Queue -------------------------------------------------------------- -->
+  @if (loading()) {
+    <div class="flex flex-col gap-2" aria-busy="true" aria-live="polite">
+      <span class="sr-only">Loading the moderation queue</span>
+      <div class="h-16 animate-pulse rounded-lg bg-base-200"></div>
+      <div class="h-16 animate-pulse rounded-lg bg-base-200"></div>
+      <div class="h-16 animate-pulse rounded-lg bg-base-200"></div>
+    </div>
+  } @else if (topics().length === 0) {
+    <div class="rounded-xl border border-hairline bg-base-200">
+      <ptah-empty-state
+        [icon]="MessagesSquareIcon"
+        message="No threads match these filters."
+        hint="Clear the search, pick another category, or switch on “Show deleted” to include tombstones."
+      />
+    </div>
+  } @else {
+    <ul class="divide-y divide-hairline rounded-xl border border-hairline bg-base-200 px-4">
+      @for (topic of topics(); track topic.id) {
+        <li class="flex items-start gap-3 py-1">
+          <input
+            type="checkbox"
+            class="checkbox checkbox-sm mt-5"
+            [checked]="isSelected(topic.id)"
+            [attr.aria-label]="'Select ' + topic.title"
+            (change)="toggleSelection(topic.id)"
+          />
+
+          <div class="min-w-0 flex-1">
+            <!--
+              ⚠️ The SECOND consumer of ThreadRow. That is what licenses its
+              promotion into @ptah-web/panel-ui under §5.3.
+            -->
+            <ptah-thread-row
+              [title]="topic.title"
+              [author]="topic.authorName"
+              [replyCount]="topic.replyCount"
+              [pinned]="topic.pinned"
+              [locked]="topic.locked"
+              [accepted]="topic.hasAcceptedAnswer"
+            >
+              <span aria-hidden="true">·</span>
+              <ptah-tag-chip [label]="topic.categoryName" />
+              <span aria-hidden="true">·</span>
+              <time [attr.datetime]="topic.lastPostedAt">
+                {{ topic.lastPostedAt | date: 'MMM d, HH:mm' }}
+              </time>
+              <span aria-hidden="true">·</span>
+              <ptah-status-badge
+                [variant]="deletedVariant(topic)"
+                [label]="stateLabel(topic)"
+                size="xs"
+              />
+            </ptah-thread-row>
+
+            <div class="flex flex-wrap items-center gap-2 pb-3">
+              @if (topic.deletedAt === null) {
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs normal-case"
+                  [disabled]="busyId() === topic.id"
+                  (click)="togglePin(topic)"
+                >
+                  {{ topic.pinned ? 'Unpin' : 'Pin' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs normal-case"
+                  [disabled]="busyId() === topic.id"
+                  (click)="toggleLock(topic)"
+                >
+                  {{ topic.locked ? 'Unlock' : 'Lock' }}
+                </button>
+
+                <label class="sr-only" [attr.for]="'move-' + topic.id">
+                  Move {{ topic.title }} to another category
+                </label>
+                <select
+                  [id]="'move-' + topic.id"
+                  class="select select-bordered select-xs bg-base-100 text-xs"
+                  [disabled]="busyId() === topic.id || categories().length === 0"
+                  (change)="move(topic, $event)"
+                >
+                  @for (category of categories(); track category.id) {
+                    <option
+                      [value]="category.id"
+                      [selected]="category.id === topic.categoryId"
+                    >
+                      {{ category.name }}
+                    </option>
+                  }
+                </select>
+
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs text-error normal-case"
+                  [disabled]="busyId() === topic.id"
+                  (click)="remove(topic)"
+                >
+                  Delete
+                </button>
+              } @else {
+                <!--
+                  R8.5 — restore is the reverse of a soft delete, and the window
+                  it is judged against runs from deletedAt, not updatedAt.
+                -->
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs normal-case"
+                  [disabled]="busyId() === topic.id"
+                  (click)="restore(topic)"
+                >
+                  Restore
+                </button>
+                <span class="font-mono text-xs text-base-content/60">
+                  deleted
+                  <time [attr.datetime]="topic.deletedAt">
+                    {{ topic.deletedAt | date: 'MMM d, y, HH:mm' }}
+                  </time>
+                  by {{ topic.deletedBy ?? 'unknown' }}
+                </span>
+              }
+
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs normal-case"
+                (click)="openDrawer(topic)"
+              >
+                Details
+              </button>
+            </div>
+          </div>
+        </li>
+      }
+    </ul>
+
+    @if (showPager()) {
+      <nav class="flex items-center justify-between gap-3" aria-label="Pagination">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm normal-case"
+          [disabled]="page() <= firstPage"
+          (click)="goToPage(page() - 1)"
+        >
+          Previous
+        </button>
+        <p class="font-mono text-xs text-base-content/60">Page {{ page() }}</p>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm normal-case"
+          [disabled]="!hasMore()"
+          (click)="goToPage(page() + 1)"
+        >
+          Next
+        </button>
+      </nav>
+    }
+  }
+</div>
+
+<!-- Detail drawer -------------------------------------------------------- -->
+<ptah-detail-drawer
+  [open]="drawerTopic() !== null"
+  [title]="drawerTopic()?.title ?? 'Thread'"
+  (closed)="closeDrawer()"
+>
+  @if (drawerTopic(); as topic) {
+    <dl class="flex flex-col gap-3 text-sm">
+      <div>
+        <dt class="text-xs uppercase tracking-wide text-base-content/60">Slug</dt>
+        <dd class="font-mono text-base-content">{{ topic.slug }}</dd>
+      </div>
+      <div>
+        <dt class="text-xs uppercase tracking-wide text-base-content/60">
+          Category
+        </dt>
+        <dd class="text-base-content">{{ topic.categoryName }}</dd>
+      </div>
+      <div>
+        <dt class="text-xs uppercase tracking-wide text-base-content/60">Author</dt>
+        <dd class="text-base-content">{{ topic.authorName ?? 'Unknown' }}</dd>
+        <!--
+          ⚠️ ADMIN-ONLY. `authorEmail` is the single field the member/admin
+          contract split most exists to keep apart (NFR-S4). It must never
+          appear on a member surface.
+        -->
+        <dd class="font-mono text-xs text-base-content/60">
+          {{ topic.authorEmail ?? 'no account on file' }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs uppercase tracking-wide text-base-content/60">State</dt>
+        <dd class="flex flex-wrap items-center gap-2">
+          <ptah-status-badge
+            [variant]="deletedVariant(topic)"
+            [label]="stateLabel(topic)"
+            size="sm"
+          />
+          @if (topic.pinned) {
+            <ptah-tag-chip label="Pinned" variant="info" size="sm" />
+          }
+          @if (topic.locked) {
+            <ptah-tag-chip label="Locked" variant="warning" size="sm" />
+          }
+          @if (topic.hasAcceptedAnswer) {
+            <ptah-tag-chip label="Answered" variant="success" size="sm" />
+          }
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs uppercase tracking-wide text-base-content/60">
+          Replies
+        </dt>
+        <dd class="font-mono text-base-content">{{ topic.replyCount }}</dd>
+      </div>
+      <div>
+        <dt class="text-xs uppercase tracking-wide text-base-content/60">
+          Created
+        </dt>
+        <dd class="font-mono text-base-content">
+          <time [attr.datetime]="topic.createdAt">
+            {{ topic.createdAt | date: 'MMM d, y, HH:mm' }}
+          </time>
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs uppercase tracking-wide text-base-content/60">
+          Last post
+        </dt>
+        <dd class="font-mono text-base-content">
+          <time [attr.datetime]="topic.lastPostedAt">
+            {{ topic.lastPostedAt | date: 'MMM d, y, HH:mm' }}
+          </time>
+        </dd>
+      </div>
+      @if (topic.deletedAt) {
+        <div>
+          <dt class="text-xs uppercase tracking-wide text-base-content/60">
+            Deleted
+          </dt>
+          <dd class="font-mono text-base-content">
+            <time [attr.datetime]="topic.deletedAt">
+              {{ topic.deletedAt | date: 'MMM d, y, HH:mm' }}
+            </time>
+            by {{ topic.deletedBy ?? 'unknown' }}
+          </dd>
+          <dd class="mt-1 text-xs text-base-content/60">
+            Restore is available for at least 30 days from this timestamp (R8.5).
+          </dd>
+        </div>
+      }
+    </dl>
+  }
+</ptah-detail-drawer>

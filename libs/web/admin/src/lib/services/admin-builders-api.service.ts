@@ -3,6 +3,13 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 import { z } from 'zod';
 
+import {
+  MAX_PAGE_SIZE,
+  VISIBILITIES,
+  type AdminCategory,
+  type AdminTopicSummary,
+  type Paged,
+} from '@ptah-contracts/community';
 import { validate } from '@ptah-web/core';
 
 /**
@@ -238,6 +245,146 @@ const adminSessionsEnvelopeSchema = z.object({
 });
 export type AdminSessionsResponse = z.infer<typeof adminSessionsEnvelopeSchema>;
 
+/* -------------------------------------------------------------------------- */
+/* Community moderation — R8.2, R8.5, §3.3 admin table                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ⚠️ THE TYPES COME FROM `@ptah-contracts/community`; THE SCHEMAS ARE DECLARED
+ * HERE, AND THAT SPLIT IS THE CONTRACT LIB'S OWN DECISION.
+ *
+ * `admin-topic.contract.ts` ships TYPES ONLY, with no Zod, and says why: the
+ * MEMBER schemas exist because the member panel parses them at its HTTP
+ * boundary, while "the admin surface in `libs/web/admin` carries its own
+ * response envelopes. Adding unparsed schemas there would be decoration that
+ * drifts." This file is that admin surface, so this is where the parse lives.
+ *
+ * Every schema below is bound to its contract type with `satisfies
+ * z.ZodType<T>`. That is not decoration: it is a COMPILE-TIME proof that the
+ * runtime parse and the wire type agree, so renaming a field on the contract
+ * breaks the build here instead of returning `undefined` in a template.
+ *
+ * ⚠️ THESE SHAPES CARRY `authorEmail`, `deletedAt` AND `deletedBy` — the three
+ * fields deliberately absent from every member shape (NFR-S4, RK-8). They are
+ * why the member/admin split exists at all. Nothing in this file may be reused
+ * on a member surface, and `libs/web/members` imports none of it.
+ */
+const adminCategorySchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  visibility: z.enum(VISIBILITIES),
+  /** `MemberGroup.key` values, ANY-match. Empty unless `visibility` is 'cohort'. */
+  cohortKeys: z.array(z.string()),
+  /** Denormalised `MemberGroup.name` per key, same order. */
+  cohortNames: z.array(z.string()),
+  sortOrder: z.number().int(),
+  /** ⚠️ INCLUDES soft-deleted topics — unlike `MemberCategory.topicCount`. */
+  topicCount: z.number().int(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+}) satisfies z.ZodType<AdminCategory>;
+
+const adminCategoriesEnvelopeSchema = z.object({
+  categories: z.array(adminCategorySchema),
+});
+
+const adminTopicSummarySchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+  title: z.string(),
+  categoryId: z.string(),
+  categoryName: z.string(),
+  authorName: z.string().nullable(),
+  /** ⚠️ ADMIN-ONLY. The concrete leak the member/admin split prevents. */
+  authorEmail: z.string().nullable(),
+  pinned: z.boolean(),
+  locked: z.boolean(),
+  replyCount: z.number().int(),
+  hasAcceptedAnswer: z.boolean(),
+  /** Non-null means a tombstone. R8.5's window is measured from THIS. */
+  deletedAt: z.string().nullable(),
+  deletedBy: z.string().nullable(),
+  lastPostedAt: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  editedAt: z.string().nullable(),
+}) satisfies z.ZodType<AdminTopicSummary>;
+
+export type { AdminCategory, AdminTopicSummary };
+
+/**
+ * ⚠️ THERE IS NO `AdminPost` SCHEMA HERE, AND ITS ABSENCE IS A DECISION.
+ *
+ * Batch 6 shipped `AdminPost` as a contract type but gave it NO read endpoint:
+ * the admin posts controller exposes `DELETE :id` and `POST :id/restore` and
+ * nothing that returns a post (an unpaged scan of the largest table, serving a
+ * screen nobody asked for — RK-1). A schema for a shape that never arrives on
+ * any response would parse nothing and drift unnoticed, which is precisely the
+ * "decoration that drifts" `admin-topic.contract.ts` declines to ship. It is
+ * added the day a read endpoint exists.
+ */
+
+/**
+ * The `Paged<T>` envelope, re-declared here over the admin item type.
+ *
+ * `pagedSchema()` from `@ptah-contracts/community` would do, and is used by the
+ * member panel; it is not used here only because that factory returns an
+ * inferred type that cannot carry the `satisfies z.ZodType<Paged<AdminTopicSummary>>`
+ * proof at a generic instantiation (its own docblock explains the Zod 4 reason).
+ * The five fields are the same five, and `Paged` is the single envelope for
+ * every list endpoint in the domain.
+ */
+const adminTopicsPageSchema = z.object({
+  items: z.array(adminTopicSummarySchema),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  total: z.number().int(),
+  hasMore: z.boolean(),
+}) satisfies z.ZodType<Paged<AdminTopicSummary>>;
+
+export type AdminTopicsPage = z.infer<typeof adminTopicsPageSchema>;
+
+/**
+ * `{ id, changed }` from a moderation PATCH — the fields the server ACTUALLY
+ * applied, which after a partial patch is not the same as the fields sent.
+ */
+const moderationResultSchema = z.object({
+  id: z.string(),
+  changed: z.array(z.string()),
+});
+export type ModerationResult = z.infer<typeof moderationResultSchema>;
+
+const restoredResponseSchema = z.object({
+  restored: z.boolean(),
+});
+export type RestoredResponse = z.infer<typeof restoredResponseSchema>;
+
+/** Query for `GET /api/v1/admin/community/topics`. Every field optional. */
+export interface ListAdminTopicsQuery {
+  /** The ONLY way to see a tombstone (AD-5's declared exemption). */
+  includeDeleted?: boolean;
+  categoryId?: string;
+  search?: string;
+  /** 1-based. */
+  page?: number;
+  /** 1..50. Rejected above the cap, not clamped. */
+  pageSize?: number;
+}
+
+/**
+ * Body for `PATCH /api/v1/admin/community/topics/:id`. Every field optional;
+ * `categoryId` is the "move" operation.
+ */
+export interface ModerateTopicRequest {
+  pinned?: boolean;
+  locked?: boolean;
+  categoryId?: string;
+  title?: string;
+  bodyMarkdown?: string;
+}
+
 const groupMemberSchema = z.object({
   userId: z.string(),
   email: z.string(),
@@ -395,12 +542,166 @@ export class AdminBuildersApiService {
       );
   }
 
-  // NOTE: `listCommunityTopics()` and `getReviewQueue()` used to sit here,
-  // reading `GET /admin/community/{topics,review-queue}`. TASK_2026_177 P1b
-  // deleted both endpoints with the external forum they proxied, so the methods
-  // and their Zod envelopes went with them rather than being left to 404. The
-  // native moderation surface arrives in Batch 7 against new contracts in
-  // `@ptah-api-contracts/community` — it is a new API, not this one restored.
+  // --- Community moderation (R8.2, R8.5) ---
+  //
+  // ⚠️ A NEW API, NOT A RESTORATION. `listCommunityTopics()` and
+  // `getReviewQueue()` used to sit here, proxying the external forum's
+  // `GET /admin/community/{topics,review-queue}`. TASK_2026_177 P1b deleted both
+  // endpoints with the forum itself, and the methods went with them rather than
+  // being left to 404. What follows reads Batch 6's THREE native admin
+  // controllers (`…/categories`, `…/topics`, `…/posts` — three disjoint literal
+  // prefixes, not one) and, unlike the read-only surface it replaces, it WRITES:
+  // pin, lock, move, soft-delete and restore. Structural test G5, which asserted
+  // the old surface was read-only, was deleted in P1b for exactly this reason
+  // and must not be restored.
+
+  /**
+   * `GET /admin/community/categories` — every category, unfiltered.
+   *
+   * ⚠️ NO VISIBILITY FILTER APPLIES TO AN ADMIN. The member endpoint hides
+   * cohort- and staff-scoped categories in the SQL; this one returns all of
+   * them, because moderating content requires seeing where it lives.
+   */
+  public listCommunityCategories(): Observable<AdminCategory[]> {
+    return this.http.get<unknown>(`${this.base}/community/categories`).pipe(
+      map(
+        validate(
+          adminCategoriesEnvelopeSchema,
+          'GET /admin/community/categories',
+        ),
+      ),
+      map((response) => response.categories),
+    );
+  }
+
+  /**
+   * `GET /admin/community/topics` — the moderation queue.
+   *
+   * ⚠️ `includeDeleted` IS THE ONLY WAY TO SEE A TOMBSTONE. Every other read in
+   * the forum filters `deletedAt IS NULL` (AD-5); this one flag is the declared
+   * exemption, and the rows it adds carry `deletedAt` + `deletedBy` so an
+   * operator can judge R8.5's ≥30-day restore window from the deletion
+   * timestamp rather than from `updatedAt`.
+   *
+   * `pageSize` is capped at {@link MAX_PAGE_SIZE} server-side and REJECTED, not
+   * clamped, above it.
+   */
+  public listCommunityTopics(
+    q: ListAdminTopicsQuery = {},
+  ): Observable<AdminTopicsPage> {
+    let params = new HttpParams();
+    if (q.includeDeleted) params = params.set('includeDeleted', 'true');
+    if (q.categoryId) params = params.set('categoryId', q.categoryId);
+    if (q.search) params = params.set('search', q.search);
+    if (q.page != null) params = params.set('page', String(q.page));
+    if (q.pageSize != null) {
+      if (q.pageSize < 1 || q.pageSize > MAX_PAGE_SIZE) {
+        throw new RangeError(
+          `pageSize must be 1..${MAX_PAGE_SIZE} (NFR-P5); received ${q.pageSize}. ` +
+            'The server rejects an over-cap request with 400 rather than clamping it.',
+        );
+      }
+      params = params.set('pageSize', String(q.pageSize));
+    }
+
+    return this.http
+      .get<unknown>(`${this.base}/community/topics`, { params })
+      .pipe(
+        map(validate(adminTopicsPageSchema, 'GET /admin/community/topics')),
+      );
+  }
+
+  /**
+   * `PATCH /admin/community/topics/:id` — pin, lock, move, retitle, rewrite.
+   *
+   * Returns `{ id, changed }` rather than the row: `changed` is the list of
+   * fields the server actually applied, which is what the caller needs to know
+   * after a partial patch, and re-reading the list is a cheaper way to get the
+   * new row than trusting an echo.
+   *
+   * ⚠️ EVERY CALL WRITES AN AUDIT ROW server-side, inside the mutation's own
+   * transaction (PRE-6). That is the whole reason an admin edits here rather
+   * than through the member `PATCH` route, which has no `isAdmin` escape hatch
+   * and would 403 them like anyone else.
+   */
+  public moderateCommunityTopic(
+    id: string,
+    body: ModerateTopicRequest,
+  ): Observable<ModerationResult> {
+    return this.http
+      .patch<unknown>(`${this.base}/community/topics/${id}`, body)
+      .pipe(
+        map(
+          validate(
+            moderationResultSchema,
+            `PATCH /admin/community/topics/${id}`,
+          ),
+        ),
+      );
+  }
+
+  /** `DELETE /admin/community/topics/:id` — soft delete (AD-5), reversible. */
+  public deleteCommunityTopic(id: string): Observable<DeletedResponse> {
+    return this.http
+      .delete<unknown>(`${this.base}/community/topics/${id}`)
+      .pipe(
+        map(
+          validate(
+            deletedResponseSchema,
+            `DELETE /admin/community/topics/${id}`,
+          ),
+        ),
+      );
+  }
+
+  /** `POST /admin/community/topics/:id/restore` — R8.5's undo. */
+  public restoreCommunityTopic(id: string): Observable<RestoredResponse> {
+    return this.http
+      .post<unknown>(`${this.base}/community/topics/${id}/restore`, {})
+      .pipe(
+        map(
+          validate(
+            restoredResponseSchema,
+            `POST /admin/community/topics/${id}/restore`,
+          ),
+        ),
+      );
+  }
+
+  /**
+   * `DELETE /admin/community/posts/:id` — soft delete one post.
+   *
+   * ⚠️ THERE IS NO ADMIN POST LIST ENDPOINT, DELIBERATELY (Batch 6). An unpaged
+   * scan of the largest table would serve a screen nobody asked for (RK-1);
+   * moderating a post is something an operator does from a thread. So these two
+   * take an id the caller already has.
+   */
+  public deleteCommunityPost(id: string): Observable<DeletedResponse> {
+    return this.http
+      .delete<unknown>(`${this.base}/community/posts/${id}`)
+      .pipe(
+        map(
+          validate(
+            deletedResponseSchema,
+            `DELETE /admin/community/posts/${id}`,
+          ),
+        ),
+      );
+  }
+
+  /** `POST /admin/community/posts/:id/restore`. */
+  public restoreCommunityPost(id: string): Observable<RestoredResponse> {
+    return this.http
+      .post<unknown>(`${this.base}/community/posts/${id}/restore`, {})
+      .pipe(
+        map(
+          validate(
+            restoredResponseSchema,
+            `POST /admin/community/posts/${id}/restore`,
+          ),
+        ),
+      );
+  }
 
   // --- Cohort members drill-down ---
 

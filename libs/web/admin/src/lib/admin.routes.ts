@@ -164,12 +164,33 @@ export const ADMIN_ROUTES: Routes = [
             (m) => m.SessionsList,
           ),
       },
-      // NOTE: `builders/community` used to sit here — a read-only triage view
-      // over the external forum. TASK_2026_177 P1b deleted the two admin
-      // endpoints behind it (`GET v1/admin/community/{topics,review-queue}`)
-      // together with the forum itself, so the route could only 404. Batch 7
-      // (P2-FE) adds the native moderation surface; it is a new screen against
-      // new endpoints, not a restoration of this one.
+      {
+        /**
+         * The native community moderation surface (TASK_2026_177 Batch 7,
+         * R8.2/R8.5).
+         *
+         * ⚠️ A NEW SCREEN AT AN OLD PATH, NOT A RESTORATION. A read-only triage
+         * view over the EXTERNAL forum used to sit here; P1b deleted it together
+         * with the two endpoints behind it
+         * (`GET v1/admin/community/{topics,review-queue}`), so the route could
+         * only 404. `CommunityModeration` reads Batch 6's three NATIVE admin
+         * controllers and — unlike its predecessor — writes: pin, lock, move,
+         * soft-delete, restore. Structural test G5 asserted the old surface was
+         * read-only and was deleted for that reason; do not restore it.
+         *
+         * ⚠️ IT IS DECLARED ABOVE `:model` AND THAT ORDER IS LOAD-BEARING. The
+         * generic catch-all below would otherwise match `builders/community`…
+         * except it would not, because `:model` is one segment and this is two —
+         * `builders/:model` is what would collide, and no such route exists. The
+         * ordering is kept anyway so a future single-segment sibling does not
+         * quietly get swallowed.
+         */
+        path: 'builders/community',
+        loadComponent: () =>
+          import('./builders/community/community-moderation').then(
+            (m) => m.CommunityModeration,
+          ),
+      },
       {
         path: ':model',
         loadComponent: () =>
