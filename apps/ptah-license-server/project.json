@@ -122,6 +122,12 @@
     "prisma:validate": {
       "executor": "@nx-tools/nx-prisma:validate"
     },
+    "seed-community": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ts-node --project apps/ptah-license-server/prisma/seed/tsconfig.json apps/ptah-license-server/prisma/seed/community-seed.ts"
+      }
+    },
     "test": {
       "executor": "@nx/jest:jest",
       "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
