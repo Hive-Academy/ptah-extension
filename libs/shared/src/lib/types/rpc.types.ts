@@ -508,6 +508,10 @@ import type {
   TasksAdoptResult,
   TasksDoctorPlanParams,
   TasksDoctorPlanResult,
+  TasksGetViewsParams,
+  TasksGetViewsResult,
+  TasksSaveViewsParams,
+  TasksSaveViewsResult,
 } from './rpc/rpc-tasks.types';
 
 /**
@@ -1821,6 +1825,14 @@ export interface RpcMethodRegistry {
     params: TasksDoctorPlanParams;
     result: TasksDoctorPlanResult;
   };
+  'tasks:getViews': {
+    params: TasksGetViewsParams;
+    result: TasksGetViewsResult;
+  };
+  'tasks:saveViews': {
+    params: TasksSaveViewsParams;
+    result: TasksSaveViewsResult;
+  };
 }
 
 export interface SkillSynthesisCandidateSummary {
@@ -2982,6 +2994,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'tasks:reindex': true,
   'tasks:adopt': true,
   'tasks:doctorPlan': true,
+  'tasks:getViews': true,
+  'tasks:saveViews': true,
 };
 
 /**

@@ -56,19 +56,25 @@ import {
   type RegistryGeneratorService,
   type TaskIndexChangeEvent,
 } from '@ptah-extension/task-specs';
+import type { TasksSettings } from '@ptah-extension/settings-core';
 import {
   CARRIER_FILE,
+  DEFAULT_TASK_SORT,
   EMPTY_TASK_FILTER,
+  MAX_SAVED_TASK_VIEWS,
   buildTaskGraph,
   filterTasks,
 } from '@ptah-extension/shared';
 import type {
   ExcludedTaskFolder,
+  SavedTaskView,
   TaskFilterSpec,
   TaskSpecSummary,
   TasksAdoptResult,
   TasksDoctorPlanResult,
+  TasksGetViewsResult,
   TasksListResult,
+  TasksSaveViewsResult,
 } from '@ptah-extension/shared';
 
 import { TasksRpcHandlers } from './tasks-rpc.handlers';
@@ -130,6 +136,53 @@ interface MockWebviewManager {
   broadcastMessage: jest.Mock;
 }
 
+/**
+ * A `TasksSettings` double backed by a mutable cell per key.
+ *
+ * Deliberately mirrors `BaseSettingsRepository.handleFor()`'s contract rather
+ * than the file store beneath it: `get()` is synchronous and total, `set()` is
+ * async. `savedViews.get` is a `jest.Mock` so a test can make the READ throw,
+ * which is the "unreadable settings file" case the board must survive.
+ */
+interface MockTasksSettings {
+  savedViews: { get: jest.Mock; set: jest.Mock };
+  activeViewId: { get: jest.Mock; set: jest.Mock };
+}
+
+function createMockTasksSettings(
+  storedViews: unknown[] = [],
+  storedActiveViewId = '',
+): MockTasksSettings {
+  let views = storedViews;
+  let activeViewId = storedActiveViewId;
+  return {
+    savedViews: {
+      get: jest.fn(() => views),
+      set: jest.fn(async (next: unknown[]) => {
+        views = next;
+      }),
+    },
+    activeViewId: {
+      get: jest.fn(() => activeViewId),
+      set: jest.fn(async (next: string) => {
+        activeViewId = next;
+      }),
+    },
+  };
+}
+
+/** A valid saved view; overrides let a test bend exactly one field. */
+function makeView(overrides: Partial<SavedTaskView> = {}): SavedTaskView {
+  return {
+    id: 'view-1',
+    name: 'In progress',
+    filter: EMPTY_TASK_FILTER,
+    sort: DEFAULT_TASK_SORT,
+    order: 0,
+    ...overrides,
+  };
+}
+
 interface Suite {
   handlers: TasksRpcHandlers;
   rpc: MockRpcHandler;
@@ -145,9 +198,13 @@ interface Suite {
   doctor: { plan: jest.Mock; apply: jest.Mock; undo: jest.Mock };
   webviewManager: MockWebviewManager;
   logger: MockLogger;
+  tasksSettings: MockTasksSettings;
 }
 
-function buildSuite(wsRoot: string | null = 'D:\\workspace'): Suite {
+function buildSuite(
+  wsRoot: string | null = 'D:\\workspace',
+  tasksSettings: MockTasksSettings = createMockTasksSettings(),
+): Suite {
   const logger = createMockLogger();
   const rpc = createMockRpcHandler();
   const workspace = createMockWorkspaceProvider(
@@ -210,6 +267,7 @@ function buildSuite(wsRoot: string | null = 'D:\\workspace'): Suite {
     writer as unknown as TaskWriterService,
     registry as unknown as RegistryGeneratorService,
     doctor as unknown as TaskDoctorService,
+    tasksSettings as unknown as TasksSettings,
   );
   handlers.register();
 
@@ -223,6 +281,7 @@ function buildSuite(wsRoot: string | null = 'D:\\workspace'): Suite {
     doctor,
     webviewManager,
     logger,
+    tasksSettings,
   };
 }
 
@@ -239,7 +298,7 @@ function getHandler(
 }
 
 describe('TasksRpcHandlers.METHODS', () => {
-  it('owns exactly the 10 tasks:* methods', () => {
+  it('owns exactly the 12 tasks:* methods', () => {
     expect([...TasksRpcHandlers.METHODS]).toEqual([
       'tasks:list',
       'tasks:get',
@@ -251,6 +310,8 @@ describe('TasksRpcHandlers.METHODS', () => {
       'tasks:reindex',
       'tasks:adopt',
       'tasks:doctorPlan',
+      'tasks:getViews',
+      'tasks:saveViews',
     ]);
   });
 });
@@ -426,6 +487,7 @@ function buildRealSuite(store: ITaskIndexStore): {
       apply: jest.fn(),
       undo: jest.fn(),
     } as unknown as TaskDoctorService,
+    createMockTasksSettings() as unknown as TasksSettings,
   );
   handlers.register();
 
@@ -605,6 +667,7 @@ describe('tasks:create', () => {
       realWriter,
       { generate: jest.fn() } as unknown as RegistryGeneratorService,
       { plan: jest.fn() } as unknown as TaskDoctorService,
+      createMockTasksSettings() as unknown as TasksSettings,
     );
     handlers.register();
 
@@ -1081,6 +1144,7 @@ describe('tasks:doctorPlan', () => {
       realWriter,
       { generate: jest.fn() } as unknown as RegistryGeneratorService,
       realDoctor,
+      createMockTasksSettings() as unknown as TasksSettings,
     );
     handlers.register();
 
@@ -1343,6 +1407,7 @@ function buildParitySuite(store: ITaskIndexStore): {
       apply: jest.fn(),
       undo: jest.fn(),
     } as unknown as TaskDoctorService,
+    createMockTasksSettings() as unknown as TasksSettings,
   );
   handlers.register();
 
@@ -1585,5 +1650,438 @@ describe('tasks:list filter parity (FR-C1.5) — SqliteTaskIndexStore', () => {
         { db } as unknown as SqliteConnectionService,
       );
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tasks:getViews / tasks:saveViews — saved board views (FR-C2)
+// ---------------------------------------------------------------------------
+
+describe('tasks:getViews', () => {
+  it('returns the stored views with skipped: 0 when all of them parse', async () => {
+    const stored = [
+      makeView({ id: 'a', order: 0 }),
+      makeView({ id: 'b', order: 1 }),
+    ];
+    const { rpc } = buildSuite(
+      'D:\\workspace',
+      createMockTasksSettings(stored, 'b'),
+    );
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:getViews',
+    )({})) as TasksGetViewsResult;
+
+    expect(result.views.map((v) => v.id)).toEqual(['a', 'b']);
+    expect(result.activeViewId).toBe('b');
+    expect(result.skipped).toBe(0);
+  });
+
+  /**
+   * The BR-4 / F4 behaviour, asserted end to end.
+   *
+   * This is the case a strict per-item schema in settings-core would have
+   * turned into ZERO surviving views: `handleFor()` safeParses the WHOLE array
+   * and falls back to its default, so one bad entry would have discarded the
+   * good one alongside it. Here the good view survives and the two bad entries
+   * are counted rather than hidden.
+   */
+  it('skips malformed entries, keeps the rest, and reports how many it dropped', async () => {
+    const good = makeView({ id: 'keeper' });
+    const { rpc, logger } = buildSuite(
+      'D:\\workspace',
+      createMockTasksSettings([good, 42, { bad: 1 }]),
+    );
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:getViews',
+    )({})) as TasksGetViewsResult;
+
+    expect(result.views).toHaveLength(1);
+    expect(result.views[0].id).toBe('keeper');
+    expect(result.skipped).toBe(2);
+    expect(logger.warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('renders an empty board rather than throwing when the store cannot be read', async () => {
+    const settings = createMockTasksSettings();
+    settings.savedViews.get.mockImplementation(() => {
+      throw new Error('EACCES: permission denied, open settings.json');
+    });
+    const { rpc } = buildSuite('D:\\workspace', settings);
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:getViews',
+    )({})) as TasksGetViewsResult;
+
+    expect(result).toEqual({ views: [], activeViewId: null, skipped: 0 });
+  });
+
+  it('survives an active-view-id read that throws', async () => {
+    const settings = createMockTasksSettings([makeView({ id: 'a' })]);
+    settings.activeViewId.get.mockImplementation(() => {
+      throw new Error('EACCES');
+    });
+    const { rpc } = buildSuite('D:\\workspace', settings);
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:getViews',
+    )({})) as TasksGetViewsResult;
+
+    expect(result.views).toHaveLength(1);
+    expect(result.activeViewId).toBeNull();
+  });
+
+  it('reports nothing skipped when the store held no readable array at all', async () => {
+    // `z.array(z.unknown())` rejects a non-array whole value, so `handleFor`
+    // hands back the definition default. Nothing was parseable, so nothing was
+    // SKIPPED — an empty list is not two dropped views.
+    const { rpc } = buildSuite('D:\\workspace', createMockTasksSettings([]));
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:getViews',
+    )({})) as TasksGetViewsResult;
+
+    expect(result).toEqual({ views: [], activeViewId: null, skipped: 0 });
+  });
+
+  it('sorts by order, not by stored array position', async () => {
+    const stored = [
+      makeView({ id: 'third', order: 2 }),
+      makeView({ id: 'first', order: 0 }),
+      makeView({ id: 'second', order: 1 }),
+    ];
+    const { rpc } = buildSuite(
+      'D:\\workspace',
+      createMockTasksSettings(stored),
+    );
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:getViews',
+    )({})) as TasksGetViewsResult;
+
+    expect(result.views.map((v) => v.id)).toEqual(['first', 'second', 'third']);
+  });
+
+  it('reports no active view when the stored id names none of the survivors', async () => {
+    const { rpc } = buildSuite(
+      'D:\\workspace',
+      createMockTasksSettings([makeView({ id: 'a' })], 'deleted-view'),
+    );
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:getViews',
+    )({})) as TasksGetViewsResult;
+
+    expect(result.activeViewId).toBeNull();
+  });
+
+  it('rejects the call when no workspace is open', async () => {
+    const { rpc } = buildSuite(null);
+    await expect(getHandler(rpc, 'tasks:getViews')({})).rejects.toMatchObject({
+      errorCode: 'WORKSPACE_NOT_OPEN',
+    });
+  });
+});
+
+describe('tasks:saveViews', () => {
+  it('replaces the whole list and stores the active id', async () => {
+    const settings = createMockTasksSettings();
+    const { rpc } = buildSuite('D:\\workspace', settings);
+    const views = [makeView({ id: 'a' }), makeView({ id: 'b', order: 1 })];
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:saveViews',
+    )({
+      views,
+      activeViewId: 'b',
+    })) as TasksSaveViewsResult;
+
+    expect(result).toEqual({ success: true });
+    expect(settings.savedViews.set).toHaveBeenCalledWith(views);
+    expect(settings.activeViewId.set).toHaveBeenCalledWith('b');
+  });
+
+  it('names the limit in a CAP_EXCEEDED error and writes NOTHING', async () => {
+    const settings = createMockTasksSettings();
+    const { rpc } = buildSuite('D:\\workspace', settings);
+    const views = Array.from({ length: MAX_SAVED_TASK_VIEWS + 1 }, (_, i) =>
+      makeView({ id: `view-${i}`, order: i }),
+    );
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:saveViews',
+    )({
+      views,
+    })) as TasksSaveViewsResult;
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('CAP_EXCEEDED');
+    expect(result.error?.message).toContain(String(MAX_SAVED_TASK_VIEWS));
+    // A clear message, not a silent truncation.
+    expect(settings.savedViews.set).not.toHaveBeenCalled();
+  });
+
+  it('accepts exactly the cap', async () => {
+    const settings = createMockTasksSettings();
+    const { rpc } = buildSuite('D:\\workspace', settings);
+    const views = Array.from({ length: MAX_SAVED_TASK_VIEWS }, (_, i) =>
+      makeView({ id: `view-${i}`, order: i }),
+    );
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:saveViews',
+    )({
+      views,
+    })) as TasksSaveViewsResult;
+
+    expect(result).toEqual({ success: true });
+  });
+
+  it('clears an active id that names no view in the new list', async () => {
+    // What deleting the active view looks like: a normal action, reconciled
+    // rather than rejected, so the board never reports an active view it has
+    // no way to show.
+    const settings = createMockTasksSettings(
+      [makeView({ id: 'gone' })],
+      'gone',
+    );
+    const { rpc } = buildSuite('D:\\workspace', settings);
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:saveViews',
+    )({
+      views: [makeView({ id: 'kept' })],
+    })) as TasksSaveViewsResult;
+
+    expect(result).toEqual({ success: true });
+    expect(settings.activeViewId.set).toHaveBeenCalledWith('');
+  });
+
+  it('preserves the stored active id when the key is omitted', async () => {
+    const settings = createMockTasksSettings([makeView({ id: 'a' })], 'a');
+    const { rpc } = buildSuite('D:\\workspace', settings);
+
+    await getHandler(
+      rpc,
+      'tasks:saveViews',
+    )({ views: [makeView({ id: 'a' })] });
+
+    expect(settings.activeViewId.set).toHaveBeenCalledWith('a');
+  });
+
+  it('clears the active id when the caller sends null', async () => {
+    const settings = createMockTasksSettings([makeView({ id: 'a' })], 'a');
+    const { rpc } = buildSuite('D:\\workspace', settings);
+
+    await getHandler(
+      rpc,
+      'tasks:saveViews',
+    )({
+      views: [makeView({ id: 'a' })],
+      activeViewId: null,
+    });
+
+    expect(settings.activeViewId.set).toHaveBeenCalledWith('');
+  });
+
+  it('rejects duplicate view ids', async () => {
+    const settings = createMockTasksSettings();
+    const { rpc } = buildSuite('D:\\workspace', settings);
+
+    await expect(
+      getHandler(
+        rpc,
+        'tasks:saveViews',
+      )({
+        views: [makeView({ id: 'same' }), makeView({ id: 'same', order: 1 })],
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(settings.savedViews.set).not.toHaveBeenCalled();
+  });
+
+  it('rejects a view carrying an unknown filter facet value', async () => {
+    const settings = createMockTasksSettings();
+    const { rpc } = buildSuite('D:\\workspace', settings);
+
+    await expect(
+      getHandler(
+        rpc,
+        'tasks:saveViews',
+      )({
+        views: [
+          makeView({
+            filter: {
+              ...EMPTY_TASK_FILTER,
+              statuses: ['not_a_status'],
+            } as unknown as TaskFilterSpec,
+          }),
+        ],
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(settings.savedViews.set).not.toHaveBeenCalled();
+  });
+
+  it('returns WRITE_FAILED without leaking the underlying path', async () => {
+    const settings = createMockTasksSettings();
+    settings.savedViews.set.mockRejectedValue(
+      new Error(
+        'EACCES: permission denied, open D:\\Users\\me\\.ptah\\settings.json',
+      ),
+    );
+    const { rpc, logger } = buildSuite('D:\\workspace', settings);
+
+    const result = (await getHandler(
+      rpc,
+      'tasks:saveViews',
+    )({
+      views: [makeView()],
+    })) as TasksSaveViewsResult;
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('WRITE_FAILED');
+    expect(result.error?.message).not.toContain('.ptah');
+    expect(result.warning).toBeUndefined();
+    // The list write is the one that failed, so the active id is never
+    // attempted — a pointer must not outlive the list it points into.
+    expect(settings.activeViewId.set).not.toHaveBeenCalled();
+    // The real error is kept server-side, where the path is not a leak.
+    expect(logger.error).toHaveBeenCalled();
+  });
+
+  /**
+   * `views` and `activeViewId` are two settings keys and therefore two separate
+   * whole-file writes, which cannot be made one atomic act. When the second
+   * fails the first has ALREADY LANDED, and reporting that as `WRITE_FAILED`
+   * tells the user to redo work that is already on disk.
+   */
+  describe('when the active-view write fails after the views landed', () => {
+    function buildPartialFailure(): {
+      settings: MockTasksSettings;
+      rpc: MockRpcHandler;
+      logger: MockLogger;
+    } {
+      const settings = createMockTasksSettings();
+      settings.activeViewId.set.mockRejectedValue(
+        new Error(
+          'EACCES: permission denied, open D:\\Users\\me\\.ptah\\settings.json',
+        ),
+      );
+      const { rpc, logger } = buildSuite('D:\\workspace', settings);
+      return { settings, rpc, logger };
+    }
+
+    async function save(rpc: MockRpcHandler): Promise<TasksSaveViewsResult> {
+      return (await getHandler(
+        rpc,
+        'tasks:saveViews',
+      )({
+        views: [makeView({ id: 'kept' })],
+        activeViewId: 'kept',
+      })) as TasksSaveViewsResult;
+    }
+
+    it('does NOT report the save as failed — the views genuinely persisted', async () => {
+      const { settings, rpc } = buildPartialFailure();
+
+      const result = await save(rpc);
+
+      expect(result.success).toBe(true);
+      expect(result.error).toBeUndefined();
+      expect(settings.savedViews.set).toHaveBeenCalledTimes(1);
+    });
+
+    it('says what actually happened instead of staying silent', async () => {
+      const { rpc } = buildPartialFailure();
+
+      const result = await save(rpc);
+
+      expect(result.warning?.code).toBe('ACTIVE_VIEW_ID_NOT_SAVED');
+      // Names the real outcome: views saved, active view not recorded, and no
+      // reason to try again.
+      expect(result.warning?.message).toMatch(/views were saved/i);
+      expect(result.warning?.message).toMatch(/active view/i);
+      expect(result.warning?.message).toMatch(/nothing to save again/i);
+      // Still no absolute path on the wire (R4.4).
+      expect(result.warning?.message).not.toContain('.ptah');
+    });
+
+    it('logs the real failure server-side', async () => {
+      const { rpc, logger } = buildPartialFailure();
+
+      await save(rpc);
+
+      expect(logger.error).toHaveBeenCalled();
+    });
+
+    it('self-heals on the next read rather than leaving wrong data', async () => {
+      // The stale pointer needs no repair path: `readViews` reconciles the
+      // stored id against the views it actually read, so a pointer that names
+      // nothing surfaces as `activeViewId: null` — never as a view the board
+      // cannot show.
+      const settings = createMockTasksSettings(
+        [makeView({ id: 'stale-pointer-target' })],
+        'stale-pointer-target',
+      );
+      settings.activeViewId.set.mockRejectedValue(new Error('EACCES'));
+      const { rpc } = buildSuite('D:\\workspace', settings);
+
+      const saved = (await getHandler(
+        rpc,
+        'tasks:saveViews',
+      )({
+        views: [makeView({ id: 'brand-new' })],
+        activeViewId: 'brand-new',
+      })) as TasksSaveViewsResult;
+      expect(saved.success).toBe(true);
+      expect(saved.warning?.code).toBe('ACTIVE_VIEW_ID_NOT_SAVED');
+
+      const reread = (await getHandler(
+        rpc,
+        'tasks:getViews',
+      )({})) as TasksGetViewsResult;
+
+      expect(reread.views.map((v) => v.id)).toEqual(['brand-new']);
+      expect(reread.activeViewId).toBeNull();
+    });
+  });
+
+  it('round-trips a saved view back through tasks:getViews', async () => {
+    const settings = createMockTasksSettings();
+    const { rpc } = buildSuite('D:\\workspace', settings);
+    const view = makeView({
+      id: 'roundtrip',
+      name: 'Unestimated bugs',
+      filter: { ...EMPTY_TASK_FILTER, types: ['BUGFIX'], unestimated: true },
+      sort: { field: 'title', direction: 'asc' },
+      order: 0,
+    });
+
+    await getHandler(
+      rpc,
+      'tasks:saveViews',
+    )({
+      views: [view],
+      activeViewId: 'roundtrip',
+    });
+    const result = (await getHandler(
+      rpc,
+      'tasks:getViews',
+    )({})) as TasksGetViewsResult;
+
+    expect(result.skipped).toBe(0);
+    expect(result.activeViewId).toBe('roundtrip');
+    expect(result.views[0]).toEqual(view);
   });
 });

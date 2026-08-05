@@ -10,6 +10,8 @@
  *   - tasks:generateRegistry - (re)write the derived registry.md
  *   - tasks:board            - all six status columns
  *   - tasks:reindex          - full rebuild of the derived index
+ *   - tasks:getViews         - per-user saved board views, malformed ones skipped
+ *   - tasks:saveViews        - whole-list replace of the saved views
  *
  * Every method:
  *   1. Zod-parses params (tasks-rpc.schema.ts) → RpcUserError('INVALID_PARAMS').
@@ -41,9 +43,14 @@ import {
   type DoctorAction,
   type RegistryGeneratorService,
 } from '@ptah-extension/task-specs';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { TasksSettings } from '@ptah-extension/settings-core';
 import {
+  MAX_SAVED_TASK_VIEWS,
+  SavedTaskViewSchema,
   TASK_STATUSES,
   type RpcMethodName,
+  type SavedTaskView,
   type TaskSpecSummary,
   type TaskStatus,
   type TasksListParams,
@@ -67,6 +74,10 @@ import {
   type TasksDoctorPlanParams,
   type TasksDoctorPlanResult,
   type TasksDoctorAction,
+  type TasksGetViewsParams,
+  type TasksGetViewsResult,
+  type TasksSaveViewsParams,
+  type TasksSaveViewsResult,
 } from '@ptah-extension/shared';
 import {
   TasksListParamsSchema,
@@ -79,6 +90,8 @@ import {
   TasksReindexParamsSchema,
   TasksAdoptParamsSchema,
   TasksDoctorPlanParamsSchema,
+  TasksGetViewsParamsSchema,
+  TasksSaveViewsParamsSchema,
 } from './tasks-rpc.schema';
 
 /**
@@ -143,6 +156,8 @@ export class TasksRpcHandlers {
     'tasks:reindex',
     'tasks:adopt',
     'tasks:doctorPlan',
+    'tasks:getViews',
+    'tasks:saveViews',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -160,6 +175,8 @@ export class TasksRpcHandlers {
     private readonly registry: RegistryGeneratorService,
     @inject(TASK_SPECS_TOKENS.TASK_DOCTOR)
     private readonly doctor: TaskDoctorService,
+    @inject(SETTINGS_TOKENS.TASKS_SETTINGS)
+    private readonly tasksSettings: TasksSettings,
   ) {
     // Push every derived-index change to all webviews.
     this.index.onDidChangeIndex((event) => {
@@ -178,6 +195,211 @@ export class TasksRpcHandlers {
     this.registerReindex();
     this.registerAdopt();
     this.registerDoctorPlan();
+    this.registerGetViews();
+    this.registerSaveViews();
+  }
+
+  /**
+   * `tasks:getViews` — read the saved views, dropping only what is unreadable.
+   *
+   * ## This method does not fail
+   *
+   * The board opens on this call, so every failure mode short of a programming
+   * error resolves to a rendered board with fewer views, never to an error the
+   * user cannot act on (NFR-11). Three distinct failures collapse here:
+   *
+   *  - ONE malformed entry — skipped, counted, the rest load. This is the half
+   *    the permissive settings schema exists to make possible: `handleFor()`
+   *    `safeParse`s the whole array and falls back to `[]` on failure, so a
+   *    strict per-item schema down in settings-core would have turned one bad
+   *    view into no views at all (FR-C2.3, BR-4).
+   *  - The stored value is not an array — the settings schema itself rejects
+   *    it and hands back `[]`. Nothing was parseable, so nothing was skipped.
+   *  - The store cannot be read at all — caught below, `[]` again.
+   *
+   * `workspaceRoot` is parsed and resolved like every other method in this
+   * class even though views are PER-USER (D2/Q3) and not scoped by it: the
+   * board's call carries the parameter, and accepting-then-ignoring it silently
+   * would be worse than rejecting a request made with no workspace open.
+   */
+  private registerGetViews(): void {
+    this.rpcHandler.registerMethod<TasksGetViewsParams, TasksGetViewsResult>(
+      'tasks:getViews',
+      async (params) => {
+        const parsed = this.parse(TasksGetViewsParamsSchema, params);
+        this.resolveRoot(parsed.workspaceRoot);
+        return this.readViews();
+      },
+    );
+  }
+
+  /**
+   * `tasks:saveViews` — replace the whole list.
+   *
+   * Create, rename, update, delete and reorder (FR-C2.5) are all this one
+   * method: the client does the arithmetic on the list it already holds and
+   * sends the result, exactly as `PTAH_CLI_AGENTS_DEF` is written. There is no
+   * read-modify-write here, because a settings file gives no way to make one
+   * atomic.
+   */
+  private registerSaveViews(): void {
+    this.rpcHandler.registerMethod<TasksSaveViewsParams, TasksSaveViewsResult>(
+      'tasks:saveViews',
+      async (params) => {
+        const parsed = this.parse(TasksSaveViewsParamsSchema, params);
+        this.resolveRoot(parsed.workspaceRoot);
+
+        if (parsed.views.length > MAX_SAVED_TASK_VIEWS) {
+          return {
+            success: false,
+            error: {
+              code: 'CAP_EXCEEDED',
+              message:
+                `You can save at most ${MAX_SAVED_TASK_VIEWS} views. ` +
+                `This request carried ${parsed.views.length}. ` +
+                `Nothing was saved — delete a view and try again.`,
+            },
+          };
+        }
+
+        const views = parsed.views;
+        // `undefined` means "leave the stored value alone"; `null` clears it.
+        const requested =
+          parsed.activeViewId === undefined
+            ? this.readActiveViewId()
+            : (parsed.activeViewId ?? '');
+        // Reconcile rather than reject: an active id naming no view in the new
+        // list is what DELETING the active view looks like, which is a normal
+        // action rather than a bad request. Storing it anyway would leave the
+        // board reporting an active view it cannot show.
+        const activeViewId = views.some((view) => view.id === requested)
+          ? requested
+          : '';
+
+        // The two keys are two whole-file writes and cannot be made one atomic
+        // act, so they are attempted — and reported — SEPARATELY. Collapsing
+        // them into one try block reports a `savedViews` write that genuinely
+        // landed as a failure whenever the second write throws, and the only
+        // response a user has to "failed" is to save again, which would be
+        // pointless work over data already on disk.
+        try {
+          await this.tasksSettings.savedViews.set([...views]);
+        } catch (error: unknown) {
+          // Logged with its real message (which may carry an absolute path)
+          // server-side only; the client gets a generic one (R4.4).
+          this.logger.error(
+            '[TasksRpc] tasks:saveViews failed to persist the view list',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return {
+            success: false,
+            error: {
+              code: 'WRITE_FAILED',
+              message: 'Failed to save views. Nothing was changed.',
+            },
+          };
+        }
+
+        try {
+          await this.tasksSettings.activeViewId.set(activeViewId);
+        } catch (error: unknown) {
+          this.logger.error(
+            '[TasksRpc] tasks:saveViews saved the views but not the active id',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          // The views ARE saved, so this is a success carrying a warning. The
+          // stale pointer needs no repair path: `readViews` reconciles it
+          // against the views it actually read, so the next load either finds
+          // the named view or reports no active view at all.
+          return {
+            success: true,
+            warning: {
+              code: 'ACTIVE_VIEW_ID_NOT_SAVED',
+              message:
+                'Your views were saved. The active view could not be recorded, ' +
+                'so the board may open on a different view than the one you ' +
+                'selected. There is nothing to save again.',
+            },
+          };
+        }
+
+        return { success: true };
+      },
+    );
+  }
+
+  /**
+   * Read + per-entry validate the stored views.
+   *
+   * Returns the survivors sorted by `order`. Sorting here rather than leaving
+   * it to the caller is what makes `order` mean something: it is the only
+   * reason the field exists, and a stored list is otherwise just whatever array
+   * order the last write happened to use. Ties fall back to surviving position,
+   * so the result is deterministic even for a hand-edited file that gave two
+   * views the same `order`.
+   */
+  private readViews(): TasksGetViewsResult {
+    const activeViewId = this.readActiveViewId();
+    let stored: unknown[];
+    try {
+      stored = this.tasksSettings.savedViews.get();
+    } catch (error: unknown) {
+      this.logger.error(
+        '[TasksRpc] tasks:getViews could not read the settings store',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return { views: [], activeViewId: null, skipped: 0 };
+    }
+
+    const views: SavedTaskView[] = [];
+    let skipped = 0;
+    for (const entry of stored) {
+      const result = SavedTaskViewSchema.safeParse(entry);
+      if (result.success) {
+        views.push(result.data);
+        continue;
+      }
+      skipped += 1;
+      this.logger.warn(
+        `[TasksRpc] Skipping an unreadable saved view: ${result.error.issues
+          .map(
+            (issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`,
+          )
+          .join('; ')}`,
+      );
+    }
+
+    const ordered = views
+      .map((view, index) => ({ view, index }))
+      .sort((a, b) => a.view.order - b.view.order || a.index - b.index)
+      .map((entry) => entry.view);
+
+    return {
+      views: ordered,
+      activeViewId: ordered.some((view) => view.id === activeViewId)
+        ? activeViewId
+        : null,
+      skipped,
+    };
+  }
+
+  /**
+   * The stored active-view id; `''` means none.
+   *
+   * Swallows a store failure rather than propagating it: which view was active
+   * is a preference, and losing it must not be able to take down either the
+   * read that renders the board or the write that saves the user's views.
+   */
+  private readActiveViewId(): string {
+    try {
+      return this.tasksSettings.activeViewId.get();
+    } catch (error: unknown) {
+      this.logger.error(
+        '[TasksRpc] Could not read the active view id',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return '';
+    }
   }
 
   /**

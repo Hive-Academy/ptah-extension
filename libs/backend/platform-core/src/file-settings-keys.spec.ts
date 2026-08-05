@@ -86,6 +86,33 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('saved Tasks-board view keys (TASK_2026_181)', () => {
+    // Gate 1. These two keys have no `package.json contributes.configuration`
+    // declaration behind them, so file routing is not a preference here — it is
+    // the difference between a saved view persisting and the write being
+    // discarded by vscode.workspace.getConfiguration with no error at all.
+    const savedViewKeys = ['tasks.savedViews', 'tasks.activeViewId'] as const;
+
+    it.each(savedViewKeys)(
+      'registers %s in FILE_BASED_SETTINGS_KEYS',
+      (key) => {
+        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      },
+    );
+
+    it.each(savedViewKeys)('routes %s through isFileBasedSettingKey', (key) => {
+      expect(isFileBasedSettingKey(key)).toBe(true);
+    });
+
+    it('declares an empty list as the saved-views default', () => {
+      expect(FILE_BASED_SETTINGS_DEFAULTS['tasks.savedViews']).toEqual([]);
+    });
+
+    it('declares the empty string — meaning "no active view" — as the default', () => {
+      expect(FILE_BASED_SETTINGS_DEFAULTS['tasks.activeViewId']).toBe('');
+    });
+  });
+
   describe('curator/synthesis trigger keys (TASK_2026_126)', () => {
     const memoryTriggerKeys = [
       'memory.triggers.preCompact',

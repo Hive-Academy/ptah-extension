@@ -30,6 +30,7 @@ export * from './lib/types/task-spec.contract';
 export * from './lib/types/task-graph';
 export * from './lib/types/task-filter';
 export * from './lib/types/task-view.types';
+export * from './lib/types/task-saved-view.types';
 export * from './lib/type-guards/guards';
 export * from './lib/utils/message-normalizer';
 export * from './lib/utils';

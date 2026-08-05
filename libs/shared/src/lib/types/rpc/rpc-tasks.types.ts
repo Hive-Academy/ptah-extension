@@ -20,6 +20,7 @@ import type {
 } from '../task-spec.types';
 import type { TaskFilterSpec } from '../task-filter';
 import type { TaskMetadataPatch } from '../task-view.types';
+import type { SavedTaskView } from '../task-saved-view.types';
 
 /** Workspace scoping — same convention as GitWorkspaceScopedParams. */
 export interface TasksWorkspaceScopedParams {
@@ -331,6 +332,100 @@ export interface TasksDoctorPlanResult {
       | 'JOURNAL_NOT_FOUND'
       | 'JOURNAL_UNREADABLE'
       | 'APPLY_FAILED';
+    message: string;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// tasks:getViews / tasks:saveViews — saved board views (FR-C2)
+// ---------------------------------------------------------------------------
+
+export type TasksGetViewsParams = TasksWorkspaceScopedParams;
+
+/**
+ * The stored views, as far as they could be read.
+ *
+ * Reading views NEVER fails: a malformed entry, a settings file full of
+ * nonsense and a settings file that cannot be read at all all produce a
+ * successful result with whatever survived, because the board renders off this
+ * call and refusing to answer would take the board down over a settings file
+ * (NFR-11).
+ */
+export interface TasksGetViewsResult {
+  /** Sorted ascending by `order`. */
+  views: SavedTaskView[];
+  /**
+   * The view the board should open on, or `null`.
+   *
+   * `null` also covers a stored id that no surviving view carries — an active
+   * view that is not in the list is a state the board has no way to render.
+   */
+  activeViewId: string | null;
+  /**
+   * Stored entries dropped because they failed validation (FR-C2.3).
+   *
+   * Reported rather than hidden: the alternative to saying "2 of your views
+   * could not be read" is a menu that is quietly shorter than the user left it.
+   */
+  skipped: number;
+}
+
+/**
+ * Replace the WHOLE stored list.
+ *
+ * Per-view create / rename / update / delete / reorder (FR-C2.5) are all
+ * arithmetic the client performs on the list it already holds, followed by one
+ * call to this method — mirroring `PTAH_CLI_AGENTS_DEF`. A per-view CRUD
+ * surface would need read-modify-write semantics that a settings file cannot
+ * make atomic, and five methods where one does.
+ */
+export interface TasksSaveViewsParams extends TasksWorkspaceScopedParams {
+  /** At most `MAX_SAVED_TASK_VIEWS`; ids must be unique within the list. */
+  views: SavedTaskView[];
+  /**
+   * `undefined` leaves the stored value alone; `null` clears it.
+   *
+   * Either way the result is reconciled against `views` before it is written,
+   * so a stored active id can never outlive the view it names.
+   */
+  activeViewId?: string | null;
+}
+
+export interface TasksSaveViewsResult {
+  /** True when the view LIST persisted. See `warning` for the partial case. */
+  success: boolean;
+  /**
+   * The views were saved; something secondary was not.
+   *
+   * ## Why a partial outcome is reported as success rather than failure
+   *
+   * `views` and `activeViewId` are two settings keys and therefore two separate
+   * whole-file writes. There is no way to make them one atomic act, so the
+   * second can fail after the first has genuinely landed. Reporting that as
+   * `WRITE_FAILED` would be a lie with a cost: the only sensible response a
+   * user has to "failed" is to do it again, and re-saving is pointless here
+   * because their views are already on disk.
+   *
+   * The stale pointer is self-correcting rather than wrong data —
+   * `tasks:getViews` reconciles `activeViewId` against the views it actually
+   * read and returns `null` when it names none of them — so the ONLY defect in
+   * this case is what the caller is told. Hence: success, plus a warning that
+   * names what actually happened.
+   */
+  warning?: {
+    code: 'ACTIVE_VIEW_ID_NOT_SAVED';
+    message: string;
+  };
+  /**
+   * Set only when NOTHING was saved.
+   *
+   * There is deliberately no `INVALID_PARAMS` member: a schema failure throws
+   * an `RpcUserError` at the boundary and never reaches this shape, so
+   * declaring the code here would invite a client to write a branch that can
+   * never run.
+   */
+  error?: {
+    code: 'CAP_EXCEEDED' | 'WRITE_FAILED';
     message: string;
   };
 }

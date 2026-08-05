@@ -169,6 +169,14 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'gateway.slack.botTokenCipher',
   'gateway.slack.appTokenCipher',
   'gateway.slack.allowedTeamIds',
+  // Saved Tasks-board views (TASK_2026_181, FR-C2). These two are per-user
+  // state with no `package.json contributes.configuration` declaration behind
+  // them, so routing them here is what makes them PERSIST AT ALL: without the
+  // entry, VscodeWorkspaceProvider hands the key to
+  // vscode.workspace.getConfiguration, which has no schema for it, and the
+  // write is discarded with no error and no warning.
+  'tasks.savedViews',
+  'tasks.activeViewId',
   ...KNOWN_AUTH_KEYS_FOR_FILE_ROUTING.flatMap((k) => [
     `provider.${k}.selectedModel`,
     `provider.${k}.reasoningEffort`,
@@ -321,6 +329,9 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'gateway.slack.botTokenCipher': '',
   'gateway.slack.appTokenCipher': '',
   'gateway.slack.allowedTeamIds': [],
+  // Must stay in lockstep with the two `tasks.*` entries above.
+  'tasks.savedViews': [],
+  'tasks.activeViewId': '',
   ...Object.fromEntries(
     KNOWN_AUTH_KEYS_FOR_FILE_ROUTING.flatMap((k) => [
       [`provider.${k}.selectedModel`, ''],

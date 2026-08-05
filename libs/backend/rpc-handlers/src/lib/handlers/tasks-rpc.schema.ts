@@ -14,6 +14,8 @@ import {
   TASK_TYPES,
   LabelSchema,
   MAX_LABELS_PER_TASK,
+  MAX_SAVED_VIEW_ID_LENGTH,
+  SavedTaskViewSchema,
   TaskFilterSpecSchema,
   TaskIdRefSchema,
   TaskMetadataPatchSchema,
@@ -146,6 +148,45 @@ export const TasksDoctorPlanParamsSchema = z.object({
   workspaceRoot,
 });
 
+export const TasksGetViewsParamsSchema = z.object({
+  workspaceRoot,
+});
+
+/**
+ * `tasks:saveViews` — whole-list replace (FR-C2.5).
+ *
+ * ## The 50-view cap is deliberately NOT a Zod `.max()`
+ *
+ * Every schema failure in this file funnels through `TasksRpcHandlers.parse`,
+ * which throws a single generic `INVALID_PARAMS` and discards the Zod message.
+ * That is right for a malformed request and wrong for a full list: "invalid
+ * parameters" tells a user who just hit the limit nothing they can act on. The
+ * cap is therefore checked in the handler, which can return the typed
+ * `CAP_EXCEEDED` result naming the limit — a clear message rather than a silent
+ * truncation. `MAX_SAVED_TASK_VIEWS` stays the one number, in one place; adding
+ * a `.max()` here as well would be a second limit for a later reader to tighten
+ * independently.
+ *
+ * ## Ids must be unique
+ *
+ * `activeViewId` selects a view BY ID, so two views sharing one id is a state
+ * with no single answer to "which view is active" and no way for a rename to
+ * hit only one of them. It is a client bug rather than a user action, so it is
+ * refused at the boundary instead of being reconciled.
+ */
+export const TasksSaveViewsParamsSchema = z.object({
+  workspaceRoot,
+  views: z
+    .array(SavedTaskViewSchema)
+    .refine(
+      (views) => new Set(views.map((view) => view.id)).size === views.length,
+      { message: 'saved view ids must be unique' },
+    ),
+  // `null` clears the active view; omitting the key leaves the stored value
+  // alone. Both are reconciled against `views` before anything is written.
+  activeViewId: z.string().max(MAX_SAVED_VIEW_ID_LENGTH).nullable().optional(),
+});
+
 export type TasksListParamsParsed = z.infer<typeof TasksListParamsSchema>;
 export type TasksGetParamsParsed = z.infer<typeof TasksGetParamsSchema>;
 export type TasksCreateParamsParsed = z.infer<typeof TasksCreateParamsSchema>;
@@ -154,4 +195,7 @@ export type TasksUpdateStatusParamsParsed = z.infer<
 >;
 export type TasksUpdateMetadataParamsParsed = z.infer<
   typeof TasksUpdateMetadataParamsSchema
+>;
+export type TasksSaveViewsParamsParsed = z.infer<
+  typeof TasksSaveViewsParamsSchema
 >;

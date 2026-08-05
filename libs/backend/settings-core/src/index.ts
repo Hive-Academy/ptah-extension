@@ -35,6 +35,10 @@ export { SMITHERY_API_KEY_DEF } from './schema/smithery-schema';
 export { MEMORY_SETTING_DEFS } from './schema/memory-schema';
 export { SKILL_SYNTHESIS_SETTING_DEFS } from './schema/skill-synthesis-schema';
 export { CRON_SETTING_DEFS } from './schema/cron-schema';
+export {
+  TASKS_SAVED_VIEWS_DEF,
+  TASKS_ACTIVE_VIEW_ID_DEF,
+} from './schema/tasks-schema';
 export { SETTINGS_SCHEMA } from './schema/index';
 export { ReactiveSettingsStore } from './reactive/reactive-settings-store';
 export type { SettingHandle } from './repositories/setting-handle';
@@ -56,6 +60,7 @@ export { GatewaySettings } from './repositories/gateway-settings';
 export { MemorySettings } from './repositories/memory-settings';
 export { SkillSynthesisSettings } from './repositories/skill-synthesis-settings';
 export { CronSettings } from './repositories/cron-settings';
+export { TasksSettings } from './repositories/tasks-settings';
 export { MigrationRunner } from './migrations/runner';
 export type { MigrationFn } from './migrations/runner';
 export { runV1Migration } from './migrations/v1-migration';
