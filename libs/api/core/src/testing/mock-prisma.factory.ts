@@ -1,11 +1,23 @@
 /**
  * MockPrisma factory for NestJS unit tests.
  *
- * Provides a fully typed, per-model Prisma mock covering every model in
+ * Provides a fully typed, per-model Prisma mock covering NINE of the models in
  * `apps/ptah-license-server/prisma/schema.prisma`:
  *   - user, subscription, license, failedWebhook, trialReminder,
  *     sessionRequest, adminAuditLog, marketingCampaignTemplate,
  *     marketingCampaign
+ *
+ * ⚠️ THIS IS NOT "EVERY MODEL", AND THE DOCBLOCK CLAIMED IT WAS UNTIL
+ * 2026-08-05. `Pack`, `MemberGroup`, `Waitlist` and the five `community_*`
+ * forum models are all absent. A spec needing one of those hand-rolls a local
+ * double — `packs.service.spec.ts` and `member-groups.service.spec.ts` set that
+ * precedent, and `libs/api/forum/src/testing/mock-forum-prisma.ts` follows it.
+ *
+ * Extending this factory is a TWO-file change, deliberately: `MODEL_KEYS` is
+ * asserted by EXACT EQUALITY in `mock-prisma.factory.spec.ts`, so adding a
+ * model without updating that census turns `api-core:test` red. The census is
+ * the reason the list above can be trusted; the stale sentence above it is what
+ * happens when prose is asked to do a census's job.
  *
  * Each delegate exposes the read/write verbs we commonly use
  * (`findUnique`, `findMany`, `findFirst`, `create`, `update`, `delete`,

@@ -69,8 +69,13 @@ const STAFF_VISIBILITY = 'staff' satisfies Visibility;
  * a smaller query.
  *
  * ⚠️ ASSUMPTION-4 — `visibility: 'staff'` RESOLVES VISIBLE TO ADMINS ONLY, AND
- * THIS IS THE ONE PLACE IN THIS LIB WHERE `isAdmin` ENTERS A MEMBER-SIDE
- * DECISION.
+ * THIS IS THE ONE PLACE IN THIS LIB WHERE `isAdmin` AFFECTS *VISIBILITY*.
+ *
+ * Narrowed from "the one place `isAdmin` enters a member-side decision", which
+ * was overstated: `AcceptedAnswerService.accept` also reads it (R1.5.3 — the
+ * topic author OR an admin), and the admin moderation surface acts on admin
+ * identity throughout. Those widen who may *act*; this one widens what is
+ * *visible*, and it is the only one of its kind.
  *
  * R1.1.1 defines the three values and R1.1.3 fixes the 404 posture, but no
  * requirement states who may see `staff`. "Admin only" is the reading the word

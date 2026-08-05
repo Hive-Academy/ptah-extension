@@ -334,9 +334,19 @@ export const memberTopicSummarySchema = z.object({
  * the answer unreachable without paging to wherever it landed — page 4 of a
  * long thread — which is the entire point of accepting an answer. Filtering it
  * out of the list would put a hole in the chronology and detach any replies
- * made to it. {@link acceptedPost} is additionally `null` whenever the accepted
- * post is not on the requested page's slice, so a client can rely on it being
- * present regardless of paging.
+ * made to it.
+ *
+ * {@link acceptedPost} is therefore populated WHENEVER THE TOPIC HAS A LIVE
+ * ACCEPTED ANSWER, including — especially — when that post is off the requested
+ * page's slice. It is `null` only when there is no accepted answer at all. The
+ * server pays one extra query for the off-page case, and only for topics that
+ * have one.
+ *
+ * (This paragraph previously ended by nulling `acceptedPost` when the post was
+ * off-page, which negated the argument it was attached to: it removed the hoist
+ * in exactly the long-thread case the hoist exists for, and left it doing
+ * nothing in the only case where it was already redundant. Corrected before any
+ * client rendered it.)
  *
  * ⚠️ NO `bodyMarkdown` FIELD. Post #1 is the body (AD-9); it is
  * `posts.items[0]` on page 1.
