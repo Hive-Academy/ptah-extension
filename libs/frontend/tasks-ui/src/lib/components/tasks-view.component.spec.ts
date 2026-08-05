@@ -1,3 +1,4 @@
+import { ApplicationRef } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import {
@@ -743,6 +744,344 @@ describe('TasksViewComponent', () => {
       expect(
         host.querySelector('[data-testid="task-view-error"]')?.textContent,
       ).toContain(capMessage);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The command palette (FR-C6) and the host-scoped shortcut (R10)
+  //
+  // Every keyboard assertion here dispatches a real event on a real element
+  // inside the surface, so it proves the `host:` BINDING as well as the
+  // handler. A test that called `onKeyDown` directly would pass identically
+  // whether the binding existed, was on `window`, or had been deleted.
+  // -------------------------------------------------------------------------
+  describe('command palette', () => {
+    const populated = board({
+      backlog: [
+        task('TASK_2026_200', { labels: ['licensing'] }),
+        task('TASK_2026_201'),
+      ],
+      done: [task('TASK_2026_203', { status: 'done' })],
+    });
+
+    function press(
+      fixture: ComponentFixture<TasksViewComponent>,
+      target: Element,
+      key: string,
+      modifiers: {
+        ctrlKey?: boolean;
+        metaKey?: boolean;
+        altKey?: boolean;
+      } = {},
+    ): KeyboardEvent {
+      const event = new KeyboardEvent('keydown', {
+        key,
+        bubbles: true,
+        cancelable: true,
+        ...modifiers,
+      });
+      target.dispatchEvent(event);
+      fixture.detectChanges();
+      return event;
+    }
+
+    const dialog = (fixture: ComponentFixture<TasksViewComponent>) =>
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="task-palette-dialog"]',
+      );
+
+    it('opens from the always-visible toolbar button', async () => {
+      const fixture = await render(populated);
+      const host = fixture.nativeElement as HTMLElement;
+      const trigger = host.querySelector<HTMLButtonElement>(
+        '[data-testid="tasks-palette-trigger"]',
+      );
+
+      expect(trigger).not.toBeNull();
+      expect(dialog(fixture)).toBeNull();
+
+      trigger?.click();
+      fixture.detectChanges();
+
+      expect(dialog(fixture)).not.toBeNull();
+      expect(trigger?.getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('opens on Ctrl+K raised inside the surface, and consumes it', async () => {
+      const fixture = await render(populated);
+      const card = (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-task-id="TASK_2026_200"]',
+      );
+      expect(card).not.toBeNull();
+
+      const event = press(fixture, card as Element, 'k', { ctrlKey: true });
+
+      expect(dialog(fixture)).not.toBeNull();
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('opens on Cmd+K too', async () => {
+      const fixture = await render(populated);
+      press(fixture, fixture.nativeElement as HTMLElement, 'K', {
+        metaKey: true,
+      });
+      expect(dialog(fixture)).not.toBeNull();
+    });
+
+    it('ignores Ctrl+K raised inside a text field (R10)', async () => {
+      // The filter bar's free-text box lives inside this host, so a
+      // window-scoped or unguarded handler would steal the keystroke from
+      // whatever the host application binds it to while a user was typing.
+      const fixture = await render(populated);
+      const text = (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="task-filter-text"]',
+      );
+      expect(text).not.toBeNull();
+
+      const event = press(fixture, text as Element, 'k', { ctrlKey: true });
+
+      expect(dialog(fixture)).toBeNull();
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('leaves every other combination alone', async () => {
+      const fixture = await render(populated);
+      const host = fixture.nativeElement as HTMLElement;
+
+      // Bare k, Alt+Ctrl+K, and Ctrl+P are all somebody else's keys.
+      expect(press(fixture, host, 'k').defaultPrevented).toBe(false);
+      expect(
+        press(fixture, host, 'k', { ctrlKey: true, altKey: true })
+          .defaultPrevented,
+      ).toBe(false);
+      expect(
+        press(fixture, host, 'p', { ctrlKey: true }).defaultPrevented,
+      ).toBe(false);
+      expect(dialog(fixture)).toBeNull();
+    });
+
+    it('is bound to the host element, not to the document (R10)', async () => {
+      const fixture = await render(populated);
+
+      // The same keystroke, raised OUTSIDE the Tasks surface. If the handler
+      // were on `window` or `document` this would open the palette, and the
+      // shortcut would be stolen from every other webview surface for as long
+      // as this component was alive.
+      const outside = document.createElement('div');
+      document.body.appendChild(outside);
+      try {
+        press(fixture, outside, 'k', { ctrlKey: true });
+        expect(dialog(fixture)).toBeNull();
+      } finally {
+        outside.remove();
+      }
+    });
+
+    it('lists the selection-scoped actions disabled when nothing is selected', async () => {
+      const fixture = await render(populated);
+      (fixture.nativeElement as HTMLElement)
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="tasks-palette-trigger"]',
+        )
+        ?.click();
+      fixture.detectChanges();
+
+      const disabled = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll(
+          '[data-testid="task-palette-option-disabled"]',
+        ),
+      );
+      expect(disabled.length).toBeGreaterThan(0);
+      expect(
+        disabled.some((option) =>
+          option.textContent?.includes('No task is selected'),
+        ),
+      ).toBe(true);
+    });
+
+    it('runs a filter toggle from the palette and closes', async () => {
+      const fixture = await render(populated);
+      const store = TestBed.inject(TasksStore);
+      (fixture.nativeElement as HTMLElement)
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="tasks-palette-trigger"]',
+        )
+        ?.click();
+      fixture.detectChanges();
+
+      const input = (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="task-palette-dialog"] input',
+      ) as HTMLInputElement;
+      input.value = 'Filter by status: Done';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      press(fixture, input, 'Enter');
+
+      expect(store.filter().statuses).toEqual(['done']);
+      expect(dialog(fixture)).toBeNull();
+    });
+
+    it('jumps to a task by id from the palette', async () => {
+      const fixture = await render(populated);
+      const store = TestBed.inject(TasksStore);
+      (fixture.nativeElement as HTMLElement)
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="tasks-palette-trigger"]',
+        )
+        ?.click();
+      fixture.detectChanges();
+
+      const input = (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="task-palette-dialog"] input',
+      ) as HTMLInputElement;
+      input.value = 'TASK_2026_203';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      press(fixture, input, 'Enter');
+      await fixture.whenStable();
+
+      expect(store.selectedTaskId()).toBe('TASK_2026_203');
+    });
+
+    it('registers no run action anywhere in the catalogue (BR-8)', async () => {
+      const fixture = await render(populated);
+      (fixture.nativeElement as HTMLElement)
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="tasks-palette-trigger"]',
+        )
+        ?.click();
+      fixture.detectChanges();
+
+      const rendered = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll(
+          '[data-testid="task-palette-dialog"] [role="option"]',
+        ),
+      ).map((option) => option.textContent?.toLowerCase() ?? '');
+
+      expect(rendered.length).toBeGreaterThan(0);
+      for (const label of rendered) {
+        expect(label).not.toContain('start task');
+        expect(label).not.toContain('run task');
+      }
+    });
+
+    it('issues no RPC at all while it is opened, typed into and navigated', async () => {
+      // The palette is a `computed()` over a payload already in hand (FR-C1.4)
+      // and R4's "rendering the board writes nothing" applies to it too: not
+      // "no WRITE", no call. A catalogue that fetched would put an RPC on every
+      // keystroke of a surface designed to be typed into fast.
+      const fixture = await render(populated);
+      rpcCall.mockClear();
+
+      const host = fixture.nativeElement as HTMLElement;
+      host
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="tasks-palette-trigger"]',
+        )
+        ?.click();
+      fixture.detectChanges();
+
+      const input = host.querySelector(
+        '[data-testid="task-palette-dialog"] input',
+      ) as HTMLInputElement;
+      input.value = 'filter';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      press(fixture, input, 'ArrowDown');
+      press(fixture, input, 'Escape');
+      await fixture.whenStable();
+
+      expect(rpcCall).not.toHaveBeenCalled();
+    });
+
+    it('closes on Escape and gives focus back to the trigger', async () => {
+      const fixture = await render(populated);
+      const trigger = (
+        fixture.nativeElement as HTMLElement
+      ).querySelector<HTMLButtonElement>(
+        '[data-testid="tasks-palette-trigger"]',
+      );
+      trigger?.focus();
+      trigger?.click();
+      fixture.detectChanges();
+      TestBed.inject(ApplicationRef).tick();
+
+      const input = (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="task-palette-dialog"] input',
+      ) as HTMLInputElement;
+      expect(document.activeElement).toBe(input);
+
+      press(fixture, input, 'Escape');
+
+      expect(dialog(fixture)).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Board keyboard activation (FR-C7.2 / FR-C7.3), through the real surface
+  // -------------------------------------------------------------------------
+  describe('board keyboard', () => {
+    const populated = board({
+      backlog: [task('TASK_2026_200'), task('TASK_2026_201')],
+    });
+
+    const card = (fixture: ComponentFixture<TasksViewComponent>, id: string) =>
+      (fixture.nativeElement as HTMLElement).querySelector(
+        `[data-task-id="${id}"]`,
+      ) as HTMLElement;
+
+    function key(
+      fixture: ComponentFixture<TasksViewComponent>,
+      target: Element,
+      value: string,
+    ): void {
+      target.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: value,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      fixture.detectChanges();
+    }
+
+    it('opens the detail panel with Enter on the focused card', async () => {
+      const fixture = await render(populated);
+      const store = TestBed.inject(TasksStore);
+
+      key(fixture, card(fixture, 'TASK_2026_200'), 'Enter');
+      await fixture.whenStable();
+
+      expect(store.selectedTaskId()).toBe('TASK_2026_200');
+    });
+
+    it('toggles the selection with Space', async () => {
+      const fixture = await render(populated);
+      const store = TestBed.inject(TasksStore);
+
+      key(fixture, card(fixture, 'TASK_2026_200'), ' ');
+      await fixture.whenStable();
+      expect(store.selectedTaskId()).toBe('TASK_2026_200');
+
+      key(fixture, card(fixture, 'TASK_2026_200'), ' ');
+      await fixture.whenStable();
+      expect(store.selectedTaskId()).toBeNull();
+    });
+
+    it('closes the detail panel with Escape', async () => {
+      const fixture = await render(populated);
+      const store = TestBed.inject(TasksStore);
+
+      key(fixture, card(fixture, 'TASK_2026_200'), 'Enter');
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(store.selectedTaskId()).toBe('TASK_2026_200');
+
+      key(fixture, card(fixture, 'TASK_2026_200'), 'Escape');
+      await fixture.whenStable();
+
+      expect(store.selectedTaskId()).toBeNull();
     });
   });
 });

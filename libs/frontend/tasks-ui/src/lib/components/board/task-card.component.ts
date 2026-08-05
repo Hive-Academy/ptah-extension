@@ -62,17 +62,18 @@ export interface TaskStatusChange {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
-      class="card card-compact bg-base-100 border transition-colors cursor-pointer hover:border-primary/40"
+      class="card card-compact bg-base-100 border transition-colors cursor-pointer hover:border-primary/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
       [class.border-base-content]="selected()"
       [class.border-opacity-20]="!selected()"
       [class.ring-1]="selected()"
       [class.ring-primary]="selected()"
       role="button"
-      tabindex="0"
+      [attr.tabindex]="rovingTabIndex()"
+      [attr.data-task-id]="task().id"
       [attr.aria-label]="'Open task ' + task().id"
       (click)="selectTask.emit(task().id)"
-      (keydown.enter)="selectTask.emit(task().id)"
-      (keydown.space)="$event.preventDefault(); selectTask.emit(task().id)"
+      (keydown.enter)="onCardEnter($event)"
+      (keydown.space)="onCardSpace($event)"
     >
       <div class="card-body gap-1.5">
         <!-- Header row: id + warning + status menu -->
@@ -95,7 +96,7 @@ export interface TaskStatusChange {
             <div class="dropdown dropdown-end">
               <button
                 type="button"
-                tabindex="0"
+                [attr.tabindex]="rovingTabIndex()"
                 class="btn btn-ghost btn-xs btn-square min-h-0 h-5 w-5 p-0"
                 aria-label="Change status"
                 title="Change status"
@@ -104,7 +105,7 @@ export interface TaskStatusChange {
                 <lucide-angular [img]="MoreVerticalIcon" class="w-3 h-3" />
               </button>
               <ul
-                tabindex="0"
+                [attr.tabindex]="rovingTabIndex()"
                 class="dropdown-content menu menu-xs z-20 bg-base-200 rounded-box shadow border border-base-content/10 w-36 p-1"
               >
                 @for (option of statusOptions(); track option) {
@@ -112,6 +113,7 @@ export interface TaskStatusChange {
                     <button
                       type="button"
                       class="justify-between"
+                      [attr.tabindex]="rovingTabIndex()"
                       [class.active]="option === task().status"
                       (click)="$event.stopPropagation(); onStatusPick(option)"
                     >
@@ -145,6 +147,7 @@ export interface TaskStatusChange {
               <button
                 type="button"
                 class="text-[10px] font-mono text-base-content/60 hover:text-primary hover:underline truncate"
+                [attr.tabindex]="rovingTabIndex()"
                 [attr.aria-label]="'Open parent task ' + crumb.id"
                 [title]="'Open parent task ' + crumb.id"
                 (click)="$event.stopPropagation(); selectTask.emit(crumb.id)"
@@ -225,6 +228,7 @@ export interface TaskStatusChange {
             <button
               type="button"
               class="btn btn-outline btn-xs gap-1 px-1.5 font-normal tabular-nums focus-visible:outline-offset-2"
+              [attr.tabindex]="rovingTabIndex()"
               [title]="rollupActionTitle()"
               data-testid="task-card-rollup"
               (click)="$event.stopPropagation(); filterChildren.emit(task().id)"
@@ -306,6 +310,7 @@ export interface TaskStatusChange {
               <input
                 type="checkbox"
                 class="toggle toggle-xs"
+                [attr.tabindex]="rovingTabIndex()"
                 [checked]="isolate()"
                 (click)="$event.stopPropagation()"
                 (change)="onIsolateToggle($event)"
@@ -316,6 +321,7 @@ export interface TaskStatusChange {
             <button
               type="button"
               class="btn btn-primary btn-xs gap-1"
+              [attr.tabindex]="rovingTabIndex()"
               (click)="$event.stopPropagation(); onStart()"
               [attr.aria-label]="'Start task ' + task().id"
             >
@@ -351,6 +357,24 @@ export class TaskCardComponent {
   public readonly task = input.required<TaskSpecSummary>();
   public readonly selected = input(false);
   /**
+   * Whether this card is the board's ONE roving tab stop (FR-C7.1).
+   *
+   * Fed board → column → card. `TaskBoardComponent` guarantees exactly one
+   * card carries `true` whenever the board holds any task, so a board rendered
+   * with a filter that hides the previously-focused card still has a way in
+   * from the keyboard.
+   *
+   * ## What the roving treatment actually covers
+   *
+   * Every focusable node in this template, not just the root. The card root is
+   * a `role="button"` that CONTAINS the status-menu trigger, its menu, the
+   * parent crumb, the child rollup, the isolate toggle and Start — six
+   * focusable descendants. Roving the root alone would leave all six of them in
+   * the tab order on all 181 cards, which is the defect this input exists to
+   * close rather than a smaller version of the same problem.
+   */
+  public readonly focused = input(false);
+  /**
    * The derived board graph, for the two facts a card cannot know about itself:
    * whether its declared `parent` claim was honoured, and how many children
    * claim IT.
@@ -363,6 +387,15 @@ export class TaskCardComponent {
   public readonly graph = input<TaskGraph | null>(null);
 
   public readonly selectTask = output<string>();
+  /**
+   * Space was pressed on the card itself — toggle its selection (FR-C7.2).
+   *
+   * Distinct from {@link selectTask}, which always opens. Today the board's
+   * only selection model is the single open task, so the host maps this onto
+   * "close it if it is already open, open it otherwise". FR-C4's multi-select
+   * model re-points the same event without touching this component.
+   */
+  public readonly toggleTask = output<string>();
   public readonly statusChange = output<TaskStatusChange>();
   public readonly startTask = output<TaskStartRequest>();
   /**
@@ -374,6 +407,12 @@ export class TaskCardComponent {
 
   /** Local UI state: whether the Start action should request isolation. */
   public readonly isolate = signal(false);
+
+  /**
+   * `0` on the focused card, `-1` on every other — bound to the root AND to
+   * each focusable descendant. See {@link focused}.
+   */
+  protected readonly rovingTabIndex = computed(() => (this.focused() ? 0 : -1));
 
   protected readonly statusOptions = computed(() => TASK_STATUSES);
   protected readonly typeBadgeClass = computed(() =>
@@ -527,6 +566,45 @@ export class TaskCardComponent {
 
   protected onIsolateToggle(event: Event): void {
     this.isolate.set((event.target as HTMLInputElement).checked);
+  }
+
+  /**
+   * Enter on the CARD opens it (FR-C7.2).
+   *
+   * ## The guard is the whole point of this method
+   *
+   * The card root is a `role="button"` wrapping four-to-six real `<button>`
+   * descendants. Each of those stops the `click` it produces — but a keyboard
+   * activation is a `keydown` that bubbles to this handler FIRST and then, in a
+   * real browser, a synthesised `click` that the descendant stops. So before
+   * this guard existed, pressing Enter on the child rollup narrowed the board
+   * to that parent's sub-tasks (which excludes the parent) AND opened the
+   * detail panel for the now-invisible parent, from one keypress.
+   *
+   * `event.target !== event.currentTarget` is the exact test: `currentTarget`
+   * is this root div for the duration of the dispatch, and `target` is whatever
+   * the user was actually on. A descendant's activation therefore leaves this
+   * handler without doing anything, and the descendant's own handler is left to
+   * do its one job.
+   *
+   * This defect predates the child rollup — Batch 3 established the pattern and
+   * every button added since inherited it. The `.click()`-driven assertion that
+   * covered the rollup proved only the MOUSE path; the keyboard path is
+   * asserted in `task-card.component.spec.ts` alongside this.
+   */
+  protected onCardEnter(event: Event): void {
+    if (event.target !== event.currentTarget) return;
+    event.preventDefault();
+    this.selectTask.emit(this.task().id);
+  }
+
+  /** Space on the CARD toggles its selection (FR-C7.2). Same guard, same why. */
+  protected onCardSpace(event: Event): void {
+    if (event.target !== event.currentTarget) return;
+    // Unconditional: a Space that reaches a card must never also scroll the
+    // column, whether or not it ends up toggling anything.
+    event.preventDefault();
+    this.toggleTask.emit(this.task().id);
   }
 
   protected onStatusPick(status: TaskStatus): void {

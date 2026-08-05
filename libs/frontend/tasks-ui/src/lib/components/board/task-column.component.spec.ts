@@ -146,4 +146,62 @@ describe('TaskColumnComponent', () => {
     expect(view.host.querySelectorAll('ptah-task-card')).toHaveLength(2);
     expect(view.count()).toBe('2 of 5');
   });
+
+  // ---------------------------------------------------------------------------
+  // The focus pass-through (transferred from Task 7.3 — FR-C7.1)
+  //
+  // The column holds no focus state; it exists on this path only because the
+  // board cannot reach the cards without it. These assert the forwarding, which
+  // is the whole of the column's contribution.
+  // ---------------------------------------------------------------------------
+  describe('focus forwarding', () => {
+    function withFocus(focusedTaskId: string | null) {
+      const view = render([
+        makeTask('TASK_2026_200'),
+        makeTask('TASK_2026_201'),
+      ]);
+      view.fixture.componentRef.setInput('focusedTaskId', focusedTaskId);
+      view.fixture.detectChanges();
+      return view.host;
+    }
+
+    it('gives the tab stop to the named card and to no other', () => {
+      const host = withFocus('TASK_2026_201');
+      const roots = Array.from(host.querySelectorAll('[data-task-id]'));
+
+      expect(roots.map((root) => root.getAttribute('tabindex'))).toEqual([
+        '-1',
+        '0',
+      ]);
+    });
+
+    it('leaves every card out of the tab order when nothing is focused', () => {
+      // The column does NOT invent a default — the board owns the fallback, so
+      // that "exactly one card is focused" is decided once across six columns
+      // rather than six times.
+      const host = withFocus(null);
+      const roots = Array.from(host.querySelectorAll('[data-task-id]'));
+
+      expect(roots.map((root) => root.getAttribute('tabindex'))).toEqual([
+        '-1',
+        '-1',
+      ]);
+    });
+
+    it('forwards a card toggle upward', () => {
+      const view = render([makeTask('TASK_2026_200')]);
+      const toggled: string[] = [];
+      view.fixture.componentInstance.taskToggle.subscribe((id) =>
+        toggled.push(id),
+      );
+
+      view.host
+        .querySelector('[data-task-id="TASK_2026_200"]')
+        ?.dispatchEvent(
+          new KeyboardEvent('keydown', { key: ' ', bubbles: true }),
+        );
+
+      expect(toggled).toEqual(['TASK_2026_200']);
+    });
+  });
 });

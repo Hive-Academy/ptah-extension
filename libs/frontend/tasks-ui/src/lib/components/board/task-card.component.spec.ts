@@ -254,6 +254,185 @@ describe('TaskCardComponent', () => {
     expect(srOnly?.textContent).toContain('show only these sub-tasks');
   });
 
+  // -------------------------------------------------------------------------
+  // Keyboard activation (FR-C7.2), and the pre-existing double-fire it closes
+  //
+  // Every assertion below dispatches a real `keydown` on a real element. The
+  // `.click()`-driven test further down proves the MOUSE path and nothing
+  // else: a descendant's `click` handler calls `stopPropagation`, so the mouse
+  // path was never the broken one. The keyboard path had no such guard — the
+  // `keydown` bubbles to the card root before the browser synthesises the
+  // descendant's click — and that is what these pin.
+  // -------------------------------------------------------------------------
+  describe('keyboard activation', () => {
+    function keydown(target: Element, key: string): KeyboardEvent {
+      const event = new KeyboardEvent('keydown', {
+        key,
+        bubbles: true,
+        cancelable: true,
+      });
+      target.dispatchEvent(event);
+      return event;
+    }
+
+    function withRollup() {
+      const parent = makeTask();
+      const child = makeTask({
+        id: 'TASK_2026_201',
+        folderName: 'TASK_2026_201',
+        parent: 'TASK_2026_200',
+      });
+      const fixture = render(parent, buildTaskGraph([parent, child]));
+      const opened: string[] = [];
+      const toggled: string[] = [];
+      const narrowed: string[] = [];
+      fixture.componentInstance.selectTask.subscribe((id) => opened.push(id));
+      fixture.componentInstance.toggleTask.subscribe((id) => toggled.push(id));
+      fixture.componentInstance.filterChildren.subscribe((id) =>
+        narrowed.push(id),
+      );
+      return { fixture, opened, toggled, narrowed };
+    }
+
+    const at = (fixture: { nativeElement: unknown }, selector: string) =>
+      (fixture.nativeElement as HTMLElement).querySelector(
+        selector,
+      ) as HTMLElement;
+
+    it('carries an explicit focus ring, because the card root is a div (NFR-12)', () => {
+      // The webview's global focus rule (`styles.css:439`) covers
+      // `button/input/select/textarea/a`. The card root is a
+      // `<div role="button">`, so it is outside that rule and would otherwise
+      // show the browser default — which is the exact Batch 7 finding #8 that
+      // the two filter components already fixed. The token is the same one
+      // they use, so the board has ONE ring rather than a second opinion.
+      //
+      // Pinned as the CONSTRUCT, not as a contrast ratio: jsdom computes no
+      // colours and no layout, so a ratio assertion here would be theatre. The
+      // ratio belongs to the visual pass.
+      const classes =
+        (render(makeTask()).nativeElement as HTMLElement).querySelector(
+          '[role="button"]',
+        )?.className ?? '';
+
+      expect(classes).toContain('focus-visible:outline');
+      expect(classes).toContain('focus-visible:outline-2');
+      expect(classes).toContain('focus-visible:outline-offset-2');
+      expect(classes).toContain('focus-visible:outline-[oklch(var(--s))]');
+    });
+
+    it('opens the card when Enter lands on the card itself', () => {
+      const { fixture, opened } = withRollup();
+      const event = keydown(at(fixture, '[role="button"]'), 'Enter');
+
+      expect(opened).toEqual(['TASK_2026_200']);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('toggles the card when Space lands on the card itself', () => {
+      const { fixture, opened, toggled } = withRollup();
+      const event = keydown(at(fixture, '[role="button"]'), ' ');
+
+      expect(toggled).toEqual(['TASK_2026_200']);
+      expect(opened).toEqual([]);
+      // Space on a card must never also scroll the column.
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    /**
+     * A card whose declared parent WAS honoured, so the crumb renders as a
+     * button.
+     *
+     * A second fixture is needed because parentage is one level deep: a task
+     * with children can never also declare a parent, so the rollup and the
+     * crumb are mutually exclusive on a valid board and cannot be covered by
+     * one card. The rendered card is TASK_2026_200 in both, so every selector
+     * below is stable across the pair.
+     */
+    function withParent() {
+      const parent = makeTask({
+        id: 'TASK_2026_100',
+        folderName: 'TASK_2026_100',
+      });
+      const child = makeTask({ parent: 'TASK_2026_100' });
+      const fixture = render(child, buildTaskGraph([parent, child]));
+      const opened: string[] = [];
+      const toggled: string[] = [];
+      fixture.componentInstance.selectTask.subscribe((id) => opened.push(id));
+      fixture.componentInstance.toggleTask.subscribe((id) => toggled.push(id));
+      return { fixture, opened, toggled };
+    }
+
+    /**
+     * EVERY focusable descendant of a card, and which fixture renders it.
+     *
+     * The count is the finding: the card root is a role="button" holding TEN
+     * focusable descendants — the status-menu trigger, its menu container, its
+     * six status options, the isolate toggle and Start — eleven nodes with the
+     * root, twelve where a parent crumb renders. The six menu options are one
+     * repeated control and are covered by the trigger plus the board spec's
+     * count; the five DISTINCT controls are enumerated here and each is
+     * exercised against BOTH activation keys.
+     */
+    const DESCENDANTS = [
+      [
+        'the status-menu trigger',
+        'button[aria-label="Change status"]',
+        'rollup',
+      ],
+      ['a status menu option', '.dropdown-content button', 'rollup'],
+      ['Start', 'button[aria-label="Start task TASK_2026_200"]', 'rollup'],
+      ['the isolate toggle', 'input[type="checkbox"]', 'rollup'],
+      ['the child rollup', '[data-testid="task-card-rollup"]', 'rollup'],
+      ['the parent crumb', '[data-testid="task-card-parent"] button', 'parent'],
+    ] as const;
+
+    const fixtureFor = (which: 'rollup' | 'parent') =>
+      which === 'rollup' ? withRollup() : withParent();
+
+    it('does NOT open the card when Enter lands on the child rollup', () => {
+      // Called out separately from the table because this one has a named,
+      // documented consequence: Enter on the rollup narrowed the board to this
+      // task's children — which EXCLUDES this task — while opening the detail
+      // panel for the task that had just become invisible. One keypress, two
+      // contradictory outcomes.
+      const { fixture, opened, toggled } = withRollup();
+
+      keydown(at(fixture, '[data-testid="task-card-rollup"]'), 'Enter');
+
+      expect(opened).toEqual([]);
+      expect(toggled).toEqual([]);
+    });
+
+    it.each(DESCENDANTS)(
+      'does NOT open or toggle the card when Enter lands on %s',
+      (_name, selector, which) => {
+        const { fixture, opened, toggled } = fixtureFor(which);
+
+        const target = at(fixture, selector);
+        expect(target).not.toBeNull();
+        keydown(target, 'Enter');
+
+        expect(opened).toEqual([]);
+        expect(toggled).toEqual([]);
+      },
+    );
+
+    it.each(DESCENDANTS)(
+      'does NOT open or toggle the card when Space lands on %s',
+      (_name, selector, which) => {
+        const { fixture, opened, toggled } = fixtureFor(which);
+
+        const target = at(fixture, selector);
+        expect(target).not.toBeNull();
+        keydown(target, ' ');
+
+        expect(opened).toEqual([]);
+        expect(toggled).toEqual([]);
+      },
+    );
+  });
+
   it('emits the PARENT id from the rollup, and does not open the card', () => {
     const task = makeTask();
     const child = makeTask({

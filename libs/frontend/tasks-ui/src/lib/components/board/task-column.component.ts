@@ -62,7 +62,9 @@ import { TASK_STATUS_BADGE, TASK_STATUS_LABELS } from '../../task-presentation';
             [task]="task"
             [graph]="graph()"
             [selected]="task.id === selectedTaskId()"
+            [focused]="task.id === focusedTaskId()"
             (selectTask)="taskSelect.emit($event)"
+            (toggleTask)="taskToggle.emit($event)"
             (statusChange)="statusChange.emit($event)"
             (startTask)="startTask.emit($event)"
             (filterChildren)="filterChildren.emit($event)"
@@ -103,10 +105,27 @@ export class TaskColumnComponent {
    */
   public readonly total = input<number | null>(null);
   public readonly selectedTaskId = input<string | null>(null);
+  /**
+   * The board's single roving tab stop, forwarded to the card that owns it
+   * (FR-C7.1).
+   *
+   * The column is a pass-through here and holds no focus state of its own —
+   * the board owns exactly one focused id across all six columns, and a
+   * per-column notion of "the focused card" would immediately give the board
+   * six tab stops instead of one.
+   *
+   * Batch 7 was asked for this input and deliberately did not ship it, because
+   * at that point no card read it: an input nothing consumes is a dead prop.
+   * It arrives here, beside `TaskCardComponent.focused`, which is the code that
+   * reads it.
+   */
+  public readonly focusedTaskId = input<string | null>(null);
   /** Forwarded verbatim to every card; see `TaskCardComponent.graph`. */
   public readonly graph = input<TaskGraph | null>(null);
 
   public readonly taskSelect = output<string>();
+  /** Space on a focused card — see `TaskCardComponent.toggleTask`. */
+  public readonly taskToggle = output<string>();
   public readonly statusChange = output<TaskStatusChange>();
   public readonly startTask = output<TaskStartRequest>();
   /** A card's child-rollup click: narrow the board to that task's sub-tasks. */

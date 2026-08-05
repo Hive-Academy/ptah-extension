@@ -23,6 +23,24 @@ export type {
   TaskViewMove,
   TaskViewRename,
 } from './lib/components/filter/task-view-menu.component';
+export { TaskCommandPaletteComponent } from './lib/components/palette/task-command-palette.component';
+export {
+  EMPTY_PALETTE_CONTEXT,
+  TASK_PALETTE_GROUPS,
+  TASK_PALETTE_GROUP_LABELS,
+  buildPaletteEntries,
+} from './lib/components/palette/palette-entries';
+export type {
+  TaskPaletteAction,
+  TaskPaletteContext,
+  TaskPaletteEntry,
+  TaskPaletteGroup,
+} from './lib/components/palette/palette-entries';
+export {
+  rankPaletteMatches,
+  scorePaletteMatch,
+} from './lib/components/palette/palette-match';
+export type { PaletteLabelled } from './lib/components/palette/palette-match';
 export type { TaskMetadataWrite } from './lib/components/detail/task-metadata-write';
 export {
   LABEL_CHIP_CLASSES,

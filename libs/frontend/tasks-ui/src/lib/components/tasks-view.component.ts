@@ -8,6 +8,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import {
   ClipboardList,
+  Command,
   EyeOff,
   FileText,
   FilterX,
@@ -19,8 +20,11 @@ import {
 import { NativeDrawerComponent } from '@ptah-extension/ui';
 import {
   SPEC_ROOT,
+  TASK_ESTIMATES,
   TASK_TYPES,
   type ExcludedTaskFolder,
+  type TaskEstimate,
+  type TaskSpecSummary,
   type TaskType,
 } from '@ptah-extension/shared';
 import { TasksStore } from '../services/tasks-store.service';
@@ -36,6 +40,12 @@ import type { TaskMetadataWrite } from './detail/task-metadata-write';
 import { TaskFilterBarComponent } from './filter/task-filter-bar.component';
 import { TaskViewMenuComponent } from './filter/task-view-menu.component';
 import type { TaskViewRename } from './filter/task-view-menu.component';
+import { isTextEntryTarget } from './keyboard-target';
+import { TaskCommandPaletteComponent } from './palette/task-command-palette.component';
+import {
+  buildPaletteEntries,
+  type TaskPaletteAction,
+} from './palette/palette-entries';
 import { taskExclusionReasonLabel } from '../task-presentation';
 
 /** One excluded folder plus the sentence explaining its typed reason. */
@@ -72,10 +82,14 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
     NativeDrawerComponent,
     TaskBoardComponent,
     TaskDetailComponent,
+    TaskCommandPaletteComponent,
     TaskFilterBarComponent,
     TaskViewMenuComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // R10: the palette shortcut is bound to THIS component's host element, never
+  // to `window` or `document`. See {@link TasksViewComponent.onKeyDown}.
+  host: { '(keydown)': 'onKeyDown($event)' },
   template: `
     <div class="flex flex-col h-full w-full bg-base-100">
       <!-- Header -->
@@ -119,6 +133,23 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
         }
 
         <div class="flex-1"></div>
+
+        <!-- The palette's PRIMARY affordance (FR-C6.1). The shortcut is the
+             convenience; this button is the contract, because a shortcut is
+             invisible, is not discoverable, and is the one part of this feature
+             a host application can take away. -->
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs gap-1"
+          aria-haspopup="dialog"
+          [attr.aria-expanded]="paletteOpen()"
+          data-testid="tasks-palette-trigger"
+          title="Open the command palette (Ctrl+K / Cmd+K)"
+          (click)="openPalette()"
+        >
+          <lucide-angular [img]="CommandIcon" class="w-3.5 h-3.5" />
+          <span class="text-xs">Commands</span>
+        </button>
 
         <button
           type="button"
@@ -320,6 +351,8 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
                 [graph]="store.graph()"
                 [selectedTaskId]="store.selectedTaskId()"
                 (taskSelect)="store.openTask($event)"
+                (taskToggle)="onTaskToggle($event)"
+                (escapePressed)="onBoardEscape()"
                 (statusChange)="onStatusChange($event)"
                 (startTask)="onStartTask($event)"
                 (filterChildren)="store.showChildrenOf($event)"
@@ -344,6 +377,18 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
         }
       </div>
     </div>
+
+    <!-- Command palette (FR-C6). Rendered inside an @if so that closing it
+         DESTROYS it — which is the single close path its focus restore hangs
+         off, and the reason there is no way to close it without giving focus
+         back to whatever opened it. -->
+    @if (paletteOpen()) {
+      <ptah-task-command-palette
+        [entries]="paletteEntries()"
+        (run)="onPaletteRun($event)"
+        (closed)="closePalette()"
+      />
+    }
 
     <!-- New Task modal -->
     @if (createOpen()) {
@@ -511,6 +556,53 @@ export class TasksViewComponent {
   protected readonly specRoot = SPEC_ROOT;
 
   protected readonly exclusionsOpen = signal(false);
+  protected readonly paletteOpen = signal(false);
+
+  /**
+   * The task the detail panel is open on, resolved against the loaded board.
+   *
+   * The palette's selection-scoped actions need the task's CURRENT labels and
+   * status to decide what running them would write, and `store.taskDetail()`
+   * is a separate fetch that lags the board. Reading the board payload keeps
+   * the palette's arithmetic and the card's rendering on the same snapshot.
+   */
+  private readonly selectedTask = computed<TaskSpecSummary | null>(() => {
+    const id = this.store.selectedTaskId();
+    if (id === null) return null;
+    return this.store.allTasks().find((task) => task.id === id) ?? null;
+  });
+
+  /**
+   * Every command the palette offers, rebuilt from the board snapshot.
+   *
+   * A `computed()` over payload that is already in hand — it issues no RPC and
+   * triggers no reload, exactly like the filter path it reads (FR-C1.4).
+   */
+  protected readonly paletteEntries = computed(() =>
+    buildPaletteEntries({
+      tasks: this.store.allTasks(),
+      views: this.views.views(),
+      filter: this.store.filter(),
+      knownLabels: this.store.knownLabels(),
+      knownExecutors: this.store.knownExecutors(),
+      estimatesInUse: this.estimatesInUse(),
+      selectedTask: this.selectedTask(),
+      excludedCount: this.store.excludedCount(),
+      busy: this.store.busy() || this.store.loading(),
+    }),
+  );
+
+  /**
+   * The estimate buckets that actually hold a task.
+   *
+   * Offering all five sizes unconditionally would put four commands that match
+   * nothing in front of a workspace that only ever uses `M` — the same reason
+   * the filter bar shows counts rather than an unconditional list.
+   */
+  private readonly estimatesInUse = computed<readonly TaskEstimate[]>(() => {
+    const sized = this.store.estimateBuckets().sized;
+    return TASK_ESTIMATES.filter((estimate) => sized[estimate] > 0);
+  });
 
   /**
    * The saved-views menu's in-flight name drafts, and which row is being
@@ -553,6 +645,7 @@ export class TasksViewComponent {
   );
 
   protected readonly ClipboardListIcon = ClipboardList;
+  protected readonly CommandIcon = Command;
   protected readonly EyeOffIcon = EyeOff;
   protected readonly FilterXIcon = FilterX;
   protected readonly FileTextIcon = FileText;
@@ -589,6 +682,138 @@ export class TasksViewComponent {
 
   protected openExclusions(): void {
     this.exclusionsOpen.set(true);
+  }
+
+  protected openPalette(): void {
+    this.paletteOpen.set(true);
+  }
+
+  protected closePalette(): void {
+    this.paletteOpen.set(false);
+  }
+
+  /**
+   * The palette shortcut, and nothing else (FR-C6.1, R10).
+   *
+   * ## Bound to the host element, never to `window` or `document`
+   *
+   * See the `host` metadata above. A `document` listener would fire while the
+   * user was anywhere else in the webview — the chat composer, the editor, the
+   * marketplace — and "Ctrl+K stopped working in chat because the Tasks tab is
+   * open somewhere" is not a bug anyone would successfully report. Because the
+   * binding is host-scoped, the shortcut exists only while focus is inside the
+   * Tasks surface, and the host application keeps every combination it owns
+   * whenever focus is anywhere else.
+   *
+   * ## Ignored inside text entry
+   *
+   * `isTextEntryTarget` short-circuits every key whose target is an `<input>`,
+   * `<textarea>`, `<select>` or `[contenteditable]` — including the filter
+   * bar's free-text box, the New Task form, and the palette's own query input.
+   *
+   * ## `preventDefault` only on consumption
+   *
+   * The one combination this consumes is `Ctrl/Cmd+K` without `Alt`. Every
+   * other key returns untouched, so nothing this component does can stop a key
+   * it did not act on from reaching the host.
+   */
+  protected onKeyDown(event: KeyboardEvent): void {
+    if (isTextEntryTarget(event.target)) return;
+    if (event.altKey) return;
+    if (!event.ctrlKey && !event.metaKey) return;
+    if (event.key.toLowerCase() !== 'k') return;
+
+    this.openPalette();
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  /**
+   * Run one palette action.
+   *
+   * The `switch` is exhaustive over `TaskPaletteAction['kind']` and the
+   * `never` assignment at the end is what enforces it: an action variant added
+   * to the catalogue without an arm here fails typecheck rather than silently
+   * doing nothing when a user presses Enter on it.
+   *
+   * The palette closes on every run, including the filter toggles. Closing on
+   * some actions and not others would mean the surface behaves differently
+   * depending on which command you picked, which is a worse trade than the
+   * extra keystroke to re-open it for a second toggle.
+   *
+   * **BR-8 / R12**: there is no `start` arm, because there is no `start`
+   * variant. `TaskStartService` is injected by this component for the CARD's
+   * Start button, which predates this batch and is untouched — the palette
+   * neither reads it nor reaches it.
+   */
+  protected onPaletteRun(action: TaskPaletteAction): void {
+    this.closePalette();
+    switch (action.kind) {
+      case 'openTask':
+        void this.store.openTask(action.taskId);
+        return;
+      case 'applyView':
+        void this.views.applyView(action.viewId);
+        return;
+      case 'setStatus':
+        void this.store.updateStatus(action.taskId, action.status);
+        return;
+      case 'setLabels':
+        void this.store.applyMetadata(action.taskId, {
+          labels: [...action.labels],
+        });
+        return;
+      case 'createTask':
+        this.openCreate();
+        return;
+      case 'setFilter':
+        this.store.setFilter(action.filter);
+        return;
+      case 'clearFilter':
+        this.store.clearFilter();
+        return;
+      case 'openExclusions':
+        this.openExclusions();
+        return;
+      case 'reindex':
+        void this.store.reindex();
+        return;
+      default: {
+        const unhandled: never = action;
+        void unhandled;
+        return;
+      }
+    }
+  }
+
+  /**
+   * Space on the focused card (FR-C7.2) — toggle its selection.
+   *
+   * The board's only selection today is the single open task, so "toggle"
+   * means close it if it is the one already open and open it otherwise. Stated
+   * rather than dressed up: FR-C7.2 and FR-C7.3 are written against FR-C4's
+   * multi-select model, which lands in a later batch. When it does, this method
+   * and {@link onBoardEscape} are the two places it re-points, and neither the
+   * board nor the card changes.
+   */
+  protected onTaskToggle(taskId: string): void {
+    if (this.store.selectedTaskId() === taskId) {
+      this.store.closeTask();
+      return;
+    }
+    void this.store.openTask(taskId);
+  }
+
+  /**
+   * Escape on the board (FR-C7.3).
+   *
+   * "Clear the selection when one exists, otherwise close the detail panel"
+   * describes two branches over a selection model that does not exist yet —
+   * with one selected task those two acts are the same act. It is implemented
+   * as the one act it currently is, in the one place FR-C4 will split it.
+   */
+  protected onBoardEscape(): void {
+    if (this.store.selectedTaskId() !== null) this.store.closeTask();
   }
 
   /** The drawer only ever *requests* closure; this component owns `isOpen`. */
