@@ -18,6 +18,7 @@ import type {
   TaskStatus,
   TaskType,
 } from '../task-spec.types';
+import type { TaskFilterSpec } from '../task-filter';
 import type { TaskMetadataPatch } from '../task-view.types';
 
 /** Workspace scoping — same convention as GitWorkspaceScopedParams. */
@@ -26,8 +27,22 @@ export interface TasksWorkspaceScopedParams {
 }
 
 export interface TasksListParams extends TasksWorkspaceScopedParams {
+  /**
+   * Legacy status facet. Kept because `ptah_task_list` and `ptah spec list`
+   * shipped with it; folded into `filter.statuses` before the predicate runs,
+   * so there is one path through `filterTasks` rather than two.
+   */
   status?: TaskStatus[];
+  /** Legacy type facet — see `status`. */
   type?: TaskType[];
+  /**
+   * The multi-axis filter (FR-C1.5).
+   *
+   * Applied server-side by the SAME `filterTasks` the board runs client-side,
+   * over the same summaries. A partial spec is completed with the neutral
+   * defaults at the Zod boundary.
+   */
+  filter?: TaskFilterSpec;
 }
 export interface TasksListResult {
   tasks: TaskSpecSummary[];

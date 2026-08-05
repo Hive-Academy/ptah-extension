@@ -10,7 +10,7 @@
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
-import { buildTaskGraph } from '@ptah-extension/shared';
+import { EMPTY_TASK_FILTER, buildTaskGraph } from '@ptah-extension/shared';
 import type {
   ExcludedTaskFolder,
   TaskSpecSummary,
@@ -184,6 +184,137 @@ function runContract(makeStore: () => ITaskIndexStore): void {
     expect(
       store.listByWorkspace(ROOT, { status: ['done'], type: ['FEATURE'] }),
     ).toHaveLength(1);
+  });
+
+  // ── the shared filter spec, through the store (TASK_2026_181, Task 6.3) ─────
+  //
+  // These run against the SQL row set as well as the Map one, which is the only
+  // way to know the metadata columns round-trip into a shape the shared
+  // predicate can actually read. `labels` and `estimate` are JSON/TEXT columns
+  // on the SQLite side and plain arrays on the in-memory side; a filter that
+  // works on one and not the other would be invisible without this.
+
+  const FILTER_SEED: TaskSpecSummary[] = [
+    task({
+      id: 'TASK_2026_020',
+      status: 'in_progress',
+      labels: ['Licensing', 'ui'],
+      estimate: 'L',
+      executor: 'backend-developer',
+    }),
+    task({
+      id: 'TASK_2026_021',
+      status: 'backlog',
+      labels: ['licensing '],
+      estimate: 'XS',
+      parent: 'TASK_2026_020',
+    }),
+    task({ id: 'TASK_2026_022', status: 'backlog', labels: ['ui'] }),
+  ];
+
+  it('applies a label facet from the shared spec', () => {
+    const store = makeStore();
+    store.replaceWorkspace(ROOT, FILTER_SEED, []);
+    const rows = store.listByWorkspace(ROOT, {
+      filter: {
+        ...EMPTY_TASK_FILTER,
+        labels: ['LICENSING'],
+        labelsMode: 'any',
+      },
+    });
+    // `Licensing`, `licensing ` and `LICENSING` are ONE label (labelKey).
+    expect(rows.map((t) => t.id).sort()).toEqual([
+      'TASK_2026_020',
+      'TASK_2026_021',
+    ]);
+  });
+
+  it('applies the estimate facet, including `unestimated`', () => {
+    const store = makeStore();
+    store.replaceWorkspace(ROOT, FILTER_SEED, []);
+    expect(
+      store
+        .listByWorkspace(ROOT, {
+          filter: { ...EMPTY_TASK_FILTER, unestimated: true },
+        })
+        .map((t) => t.id),
+    ).toEqual(['TASK_2026_022']);
+    expect(
+      store
+        .listByWorkspace(ROOT, {
+          filter: { ...EMPTY_TASK_FILTER, estimates: ['L'] },
+        })
+        .map((t) => t.id),
+    ).toEqual(['TASK_2026_020']);
+  });
+
+  it('applies a graph-backed facet without being handed a graph', () => {
+    const store = makeStore();
+    store.replaceWorkspace(ROOT, FILTER_SEED, []);
+    expect(
+      store
+        .listByWorkspace(ROOT, {
+          filter: { ...EMPTY_TASK_FILTER, parentage: ['child'] },
+        })
+        .map((t) => t.id),
+    ).toEqual(['TASK_2026_021']);
+  });
+
+  it('ANDs the spec with the legacy status list', () => {
+    const store = makeStore();
+    store.replaceWorkspace(ROOT, FILTER_SEED, []);
+    expect(
+      store
+        .listByWorkspace(ROOT, {
+          status: ['backlog'],
+          filter: { ...EMPTY_TASK_FILTER, labels: ['ui'] },
+        })
+        .map((t) => t.id),
+    ).toEqual(['TASK_2026_022']);
+  });
+
+  it('returns nothing when the spec and the legacy list contradict', () => {
+    const store = makeStore();
+    store.replaceWorkspace(ROOT, FILTER_SEED, []);
+    // NOT "no constraint" — the empty intersection means no task qualifies.
+    expect(
+      store.listByWorkspace(ROOT, {
+        status: ['backlog'],
+        filter: { ...EMPTY_TASK_FILTER, statuses: ['in_progress'] },
+      }),
+    ).toEqual([]);
+  });
+
+  it('preserves the newest-first ordering through the filter', () => {
+    const store = makeStore();
+    store.replaceWorkspace(
+      ROOT,
+      [
+        task({
+          id: 'TASK_2026_030',
+          labels: ['ui'],
+          created: '2026-07-09T00:00:00.000Z',
+        }),
+        task({
+          id: 'TASK_2026_031',
+          labels: ['ui'],
+          created: '2026-07-13T00:00:00.000Z',
+        }),
+        task({
+          id: 'TASK_2026_032',
+          labels: ['other'],
+          created: '2026-07-11T00:00:00.000Z',
+        }),
+      ],
+      [],
+    );
+    expect(
+      store
+        .listByWorkspace(ROOT, {
+          filter: { ...EMPTY_TASK_FILTER, labels: ['ui'] },
+        })
+        .map((t) => t.id),
+    ).toEqual(['TASK_2026_031', 'TASK_2026_030']);
   });
 
   it('replaceWorkspace is idempotent — rebuild equivalent to fresh', () => {

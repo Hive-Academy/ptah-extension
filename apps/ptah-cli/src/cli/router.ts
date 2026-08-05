@@ -851,6 +851,8 @@ export function buildRouter(): Command {
       process.exitCode = exit;
     });
 
+  // `--label` / `--estimate` fold into a TaskFilterSpec that the SERVER applies
+  // through the shared `filterTasks` (FR-C1.5). Nothing is filtered in-process.
   spec
     .command('list')
     .description('emit spec.list via tasks:list')
@@ -860,14 +862,32 @@ export function buildRouter(): Command {
       collectCsv,
     )
     .option('--type <list>', 'comma-separated types to include', collectCsv)
+    .option(
+      '--label <list>',
+      'comma-separated labels; a task matching ANY of them is included',
+      collectCsv,
+    )
+    .option(
+      '--estimate <list>',
+      'comma-separated sizes (XS|S|M|L|XL) and/or "unestimated"',
+      collectCsv,
+    )
     .option('--json', 'emit a single JSON document on stdout', false)
     .action(
-      async (opts: { status?: string[]; type?: string[]; json?: boolean }) => {
+      async (opts: {
+        status?: string[];
+        type?: string[];
+        label?: string[];
+        estimate?: string[];
+        json?: boolean;
+      }) => {
         const exit = await specCmd.execute(
           {
             subcommand: 'list',
             status: opts.status,
             filterType: opts.type,
+            label: opts.label,
+            estimate: opts.estimate,
             json: opts.json === true,
           },
           resolveGlobals(program),

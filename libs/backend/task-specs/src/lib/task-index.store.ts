@@ -24,9 +24,11 @@ import {
   type SqliteConnectionService,
   type SqliteDatabase,
 } from '@ptah-extension/persistence-sqlite';
+import { filterTasks, mergeStatusTypeFacets } from '@ptah-extension/shared';
 import type {
   ExcludedTaskFolder,
   TaskEstimate,
+  TaskFilterSpec,
   TaskSpecSummary,
   TaskStatus,
   TaskType,
@@ -35,8 +37,22 @@ import type {
 
 /** Optional filters applied to a workspace listing (list/board RPCs). */
 export interface TaskIndexFilters {
+  /**
+   * Legacy status facet — `ptah_task_list` and `ptah spec list` both use it.
+   * Folded into {@link filter}'s `statuses` before the predicate runs.
+   */
   status?: readonly TaskStatus[];
+  /** Legacy type facet — see {@link status}. */
   type?: readonly TaskType[];
+  /**
+   * The multi-axis filter spec (FR-C1.5).
+   *
+   * Applied by the SHARED `filterTasks`, the same function the board runs over
+   * the same summaries — which is what makes the parity assertion in
+   * `tasks-rpc.handlers.spec.ts` meaningful rather than a comparison of two
+   * implementations that happen to agree.
+   */
+  filter?: TaskFilterSpec;
 }
 
 /** Per-workspace scan metadata — the excluded folders + last full scan. */
@@ -95,21 +111,38 @@ function orderSummaries(tasks: TaskSpecSummary[]): TaskSpecSummary[] {
   });
 }
 
-/** Apply optional status/type filters (both are OR-within, AND-across). */
+/**
+ * Apply a listing's filters through the SHARED predicate.
+ *
+ * ## There is no comparison over task fields in this file any more
+ *
+ * This function used to hand-roll the status/type test. It does not now, and
+ * nothing else here may either: `filterTasks` in `libs/shared` is the ONE
+ * implementation (FR-C1.5), and a "quick" `WHERE status IN (…)` added to the
+ * SQL below — or a convenience `.filter()` added beside a handler — would
+ * silently become a second one. The SQL therefore stays `WHERE workspace_root
+ * = ?` and every facet is decided in JS, over the row set both store impls
+ * return identically.
+ *
+ * The graph argument is deliberately omitted: `filterTasks` builds one on
+ * demand, and only when a parentage or relation facet is actually active, so an
+ * unfiltered board listing pays nothing for facets it is not using.
+ */
 function applyFilters(
   tasks: TaskSpecSummary[],
   filters?: TaskIndexFilters,
 ): TaskSpecSummary[] {
   if (!filters) return tasks;
-  return tasks.filter((t) => {
-    if (filters.status && filters.status.length > 0) {
-      if (!filters.status.includes(t.status)) return false;
-    }
-    if (filters.type && filters.type.length > 0) {
-      if (t.type === null || !filters.type.includes(t.type)) return false;
-    }
-    return true;
-  });
+  const spec = mergeStatusTypeFacets(
+    filters.filter,
+    filters.status,
+    filters.type,
+  );
+  // `null` means the two spellings of one facet contradict each other, which no
+  // task can satisfy. Writing the empty intersection back as `[]` would read as
+  // "no constraint" and return everything — see `mergeStatusTypeFacets`.
+  if (spec === null) return [];
+  return filterTasks(tasks, spec);
 }
 
 /** Copy excluded rows so no caller can mutate what the store handed back. */

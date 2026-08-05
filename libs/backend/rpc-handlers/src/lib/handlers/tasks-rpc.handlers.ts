@@ -261,6 +261,17 @@ export class TasksRpcHandlers {
     });
   }
 
+  /**
+   * `tasks:list` — the same method it always was, now carrying the shared
+   * filter spec (FR-C1.5). **No new RPC method, therefore no
+   * `ALLOWED_METHOD_PREFIXES` edit** (BR-1).
+   *
+   * The three facet bags are handed to the index untouched. Folding them into
+   * one spec and running the predicate happens in ONE place — the store — so
+   * the MCP `ptah_task_list` path, which reaches the store with only
+   * `status`/`type`, goes through the identical predicate rather than a second
+   * comparison that agrees with it today.
+   */
   private registerList(): void {
     this.rpcHandler.registerMethod<TasksListParams, TasksListResult>(
       'tasks:list',
@@ -272,6 +283,7 @@ export class TasksRpcHandlers {
           return await this.index.list(root, {
             status: parsed.status,
             type: parsed.type,
+            filter: parsed.filter,
           });
         } catch (error: unknown) {
           throw this.sanitize(error, 'tasks:list', 'Failed to list tasks.');

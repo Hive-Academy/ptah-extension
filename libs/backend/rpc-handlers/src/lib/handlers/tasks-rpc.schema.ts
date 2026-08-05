@@ -14,6 +14,7 @@ import {
   TASK_TYPES,
   LabelSchema,
   MAX_LABELS_PER_TASK,
+  TaskFilterSpecSchema,
   TaskIdRefSchema,
   TaskMetadataPatchSchema,
 } from '@ptah-extension/shared';
@@ -40,10 +41,24 @@ const estimateEnum = z.enum(TASK_ESTIMATES);
  */
 const taskIdRef = TaskIdRefSchema;
 
+/**
+ * `tasks:list` — no new method, one new optional facet bag (FR-C1.5).
+ *
+ * `status` / `type` stay exactly as they were: `ptah_task_list` and
+ * `ptah spec list` both use them, and this is not the batch that breaks them.
+ * They are folded into the SAME two facets of the spec before the predicate
+ * runs (`mergeStatusTypeFacets`), so adding `filter` did not add a second
+ * comparison path — it removed the possibility of one.
+ *
+ * `TaskFilterSpecSchema` is IMPORTED, never restated: the board, this boundary
+ * and the CLI must agree on what a filter is, and three copies of a facet list
+ * is how they stop agreeing.
+ */
 export const TasksListParamsSchema = z.object({
   workspaceRoot,
   status: z.array(statusEnum).optional(),
   type: z.array(typeEnum).optional(),
+  filter: TaskFilterSpecSchema.optional(),
 });
 
 export const TasksGetParamsSchema = z.object({

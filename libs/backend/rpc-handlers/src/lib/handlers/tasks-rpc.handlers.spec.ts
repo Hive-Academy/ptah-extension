@@ -56,12 +56,19 @@ import {
   type RegistryGeneratorService,
   type TaskIndexChangeEvent,
 } from '@ptah-extension/task-specs';
-import { CARRIER_FILE } from '@ptah-extension/shared';
+import {
+  CARRIER_FILE,
+  EMPTY_TASK_FILTER,
+  buildTaskGraph,
+  filterTasks,
+} from '@ptah-extension/shared';
 import type {
   ExcludedTaskFolder,
+  TaskFilterSpec,
   TaskSpecSummary,
   TasksAdoptResult,
   TasksDoctorPlanResult,
+  TasksListResult,
 } from '@ptah-extension/shared';
 
 import { TasksRpcHandlers } from './tasks-rpc.handlers';
@@ -490,10 +497,20 @@ describe('tasks:board exclusions — SqliteTaskIndexStore', () => {
   const Database = loadBetterSqlite3();
   const maybe = Database ? describe : describe.skip;
 
-  maybe(':memory: + migration 0029', () => {
+  maybe(':memory: + migrations 0029 and 0031', () => {
     runBoardExclusionContract(() => {
       const db = new (Database as BetterSqlite3Ctor)(':memory:');
-      db.exec(MIGRATIONS.find((m) => m.version === 29)?.sql ?? '');
+      // BOTH migrations, in order. 0029 creates `task_specs`; 0031 adds the
+      // five metadata columns that `SqliteTaskIndexStore.insertSql()` has
+      // written since TASK_2026_181 Batch 1. Seeding from 0029 alone gives this
+      // suite a schema no shipped database has ever had, so every insert throws
+      // on a missing column and the board comes back empty — which stayed
+      // invisible because this block self-skips whenever the native addon's ABI
+      // does not match the runner. Same fix, same reason, as
+      // `task-index.store.spec.ts`.
+      for (const version of [29, 31]) {
+        db.exec(MIGRATIONS.find((m) => m.version === version)?.sql ?? '');
+      }
       return new SqliteTaskIndexStore(
         createMockLogger() as unknown as Logger,
         { db } as unknown as SqliteConnectionService,
@@ -1119,5 +1136,447 @@ describe('tasks:changed broadcast', () => {
         folderNames: ['TASK_2026_200'],
       },
     );
+  });
+});
+
+// ── FR-C1.5 — the parity block ───────────────────────────────────────────────
+//
+// The claim under test is that there is exactly ONE filter predicate. That is
+// only checkable end to end: `filterTasks` is asserted against `tasks:list`
+// over the SAME fixture and the SAME spec, and the two must return an identical
+// id list — same members, same order.
+//
+// The client side of each case is computed the way the board computes it (plan
+// §6.1): `filterTasks(allTasks, spec, buildTaskGraph(allTasks))` over the full,
+// unfiltered listing. The server side is a real handler over a real scanner,
+// index and store. Nothing here re-implements a comparison; if anybody adds a
+// second predicate on either side, these cases stop agreeing.
+
+const PARITY_ROOT = normalizeWorkspaceRoot('D:\\parity-ws');
+
+/**
+ * Eight carriers exercising every facet at once.
+ *
+ * `TASK_2026_301` is the parent; `302`/`303` are its children; `304` claims a
+ * parent that does not exist (so it is standalone in the graph while still
+ * carrying a `parent` string); `305` duplicates `301`; `306` depends on the
+ * unfinished `301`; `307` depends only on the finished `303`; `308` carries an
+ * unrecognised estimate, so it lands with a validation issue and no size.
+ */
+const PARITY_CARRIERS: ReadonlyArray<readonly [folder: string, body: string]> =
+  [
+    [
+      'TASK_2026_301',
+      [
+        '---',
+        'status: in_progress',
+        'type: FEATURE',
+        'title: Filter bar',
+        'description: the multi-axis filter surface',
+        'executor: backend-developer',
+        'labels: [Licensing, ui]',
+        'estimate: L',
+        'created: 2026-08-01T00:00:00.000Z',
+        'updated: 2026-08-05T00:00:00.000Z',
+        '---',
+        'body',
+      ].join('\n'),
+    ],
+    [
+      'TASK_2026_302',
+      [
+        '---',
+        'status: backlog',
+        'type: BUGFIX',
+        'title: Chip contrast',
+        'executor: frontend-developer',
+        'labels: [licensing]',
+        'estimate: XS',
+        'parent: TASK_2026_301',
+        'created: 2026-08-02T00:00:00.000Z',
+        'updated: 2026-08-04T00:00:00.000Z',
+        '---',
+        'body',
+      ].join('\n'),
+    ],
+    [
+      'TASK_2026_303',
+      [
+        '---',
+        'status: done',
+        'type: FEATURE',
+        'title: Sort order',
+        'labels: [ui]',
+        'parent: TASK_2026_301',
+        'created: 2026-08-03T00:00:00.000Z',
+        'updated: 2026-08-03T00:00:00.000Z',
+        '---',
+        'body',
+      ].join('\n'),
+    ],
+    [
+      'TASK_2026_304',
+      [
+        '---',
+        'status: blocked',
+        'type: RESEARCH',
+        'title: Vanished parent',
+        'parent: TASK_2026_999',
+        'estimate: XL',
+        'created: 2026-08-04T00:00:00.000Z',
+        'updated: 2026-08-02T00:00:00.000Z',
+        '---',
+        'body',
+      ].join('\n'),
+    ],
+    [
+      'TASK_2026_305',
+      [
+        '---',
+        'status: cancelled',
+        'type: FEATURE',
+        'title: Duplicate of the filter bar',
+        'duplicates: [TASK_2026_301]',
+        'created: 2026-08-05T00:00:00.000Z',
+        'updated: 2026-08-01T00:00:00.000Z',
+        '---',
+        'body',
+      ].join('\n'),
+    ],
+    [
+      'TASK_2026_306',
+      [
+        '---',
+        'status: in_review',
+        'type: DEVOPS',
+        'title: Waiting on the filter bar',
+        'depends_on: [TASK_2026_301]',
+        'executor: backend-developer',
+        'estimate: M',
+        'created: 2026-08-06T00:00:00.000Z',
+        'updated: 2026-08-06T00:00:00.000Z',
+        '---',
+        'body',
+      ].join('\n'),
+    ],
+    [
+      'TASK_2026_307',
+      [
+        '---',
+        'status: backlog',
+        'type: DOCUMENTATION',
+        'title: Document the LICENSING facet',
+        'depends_on: [TASK_2026_303]',
+        'labels: [" Licensing "]',
+        'estimate: S',
+        'created: 2026-08-07T00:00:00.000Z',
+        'updated: 2026-08-07T00:00:00.000Z',
+        '---',
+        'body',
+      ].join('\n'),
+    ],
+    [
+      'TASK_2026_308',
+      [
+        '---',
+        'status: backlog',
+        'type: CREATIVE',
+        'title: Bad size',
+        'estimate: HUGE',
+        'created: 2026-08-08T00:00:00.000Z',
+        'updated: 2026-08-08T00:00:00.000Z',
+        '---',
+        'body',
+      ].join('\n'),
+    ],
+  ];
+
+function seedParityWorkspace(fs: MockFileSystemProvider): void {
+  const specsDir = path.join(PARITY_ROOT, '.ptah', 'specs');
+  for (const [folder, carrier] of PARITY_CARRIERS) {
+    fs.__state.files.set(
+      path.join(specsDir, folder, 'task.md'),
+      new TextEncoder().encode(carrier),
+    );
+    fs.__state.directories.add(path.join(specsDir, folder).replace(/\\/g, '/'));
+  }
+  fs.__state.directories.add(specsDir.replace(/\\/g, '/'));
+}
+
+function buildParitySuite(store: ITaskIndexStore): {
+  rpc: MockRpcHandler;
+  dispose: () => void;
+} {
+  const logger = createMockLogger();
+  const rpc = createMockRpcHandler();
+  const workspace = createMockWorkspaceProvider({ folders: [PARITY_ROOT] });
+  workspace.getWorkspaceRoot.mockReturnValue(PARITY_ROOT);
+
+  const fs = createMockFileSystemProvider();
+  seedParityWorkspace(fs);
+
+  const scanner = new TaskScannerService(fs, logger as unknown as Logger);
+  const index = new TaskIndexService(
+    logger as unknown as Logger,
+    fs,
+    scanner,
+    store,
+  );
+
+  const handlers = new TasksRpcHandlers(
+    logger as unknown as Logger,
+    rpc as unknown as RpcHandler,
+    {
+      broadcastMessage: jest.fn().mockResolvedValue(undefined),
+    } as unknown as WebviewManager,
+    workspace as unknown as IWorkspaceProvider,
+    index,
+    {
+      create: jest.fn(),
+      updateStatus: jest.fn(),
+      updateMetadata: jest.fn(),
+      adoptFolder: jest.fn(),
+    } as unknown as TaskWriterService,
+    { generate: jest.fn() } as unknown as RegistryGeneratorService,
+    {
+      plan: jest.fn(),
+      apply: jest.fn(),
+      undo: jest.fn(),
+    } as unknown as TaskDoctorService,
+  );
+  handlers.register();
+
+  return { rpc, dispose: () => index.dispose() };
+}
+
+/** Every facet, exercised alone and then in combination. */
+const PARITY_CASES: ReadonlyArray<
+  readonly [name: string, spec: TaskFilterSpec]
+> = [
+  ['the neutral spec', { ...EMPTY_TASK_FILTER }],
+  ['free text over title', { ...EMPTY_TASK_FILTER, text: 'licensing' }],
+  ['free text over id', { ...EMPTY_TASK_FILTER, text: '2026_306' }],
+  [
+    'free text that is regex syntax, matching nothing on both sides',
+    { ...EMPTY_TASK_FILTER, text: '(a+)+$' },
+  ],
+  [
+    'status, OR-within',
+    { ...EMPTY_TASK_FILTER, statuses: ['backlog', 'done'] },
+  ],
+  ['type', { ...EMPTY_TASK_FILTER, types: ['FEATURE'] }],
+  [
+    'labels ANY, matched on labelKey',
+    { ...EMPTY_TASK_FILTER, labels: ['LICENSING'], labelsMode: 'any' },
+  ],
+  [
+    'labels ALL',
+    { ...EMPTY_TASK_FILTER, labels: ['licensing', 'ui'], labelsMode: 'all' },
+  ],
+  ['estimates', { ...EMPTY_TASK_FILTER, estimates: ['XS', 'L'] }],
+  ['unestimated', { ...EMPTY_TASK_FILTER, unestimated: true }],
+  [
+    'estimates OR unestimated',
+    { ...EMPTY_TASK_FILTER, estimates: ['M'], unestimated: true },
+  ],
+  ['executor', { ...EMPTY_TASK_FILTER, executors: ['backend-developer'] }],
+  ['parentage: parent', { ...EMPTY_TASK_FILTER, parentage: ['parent'] }],
+  ['parentage: child', { ...EMPTY_TASK_FILTER, parentage: ['child'] }],
+  [
+    'parentage: standalone, including an unhonoured claim',
+    { ...EMPTY_TASK_FILTER, parentage: ['standalone'] },
+  ],
+  [
+    'relations: unmet dependencies',
+    { ...EMPTY_TASK_FILTER, relations: ['unmet_dependencies'] },
+  ],
+  ['relations: duplicate', { ...EMPTY_TASK_FILTER, relations: ['duplicate'] }],
+  ['validation issues', { ...EMPTY_TASK_FILTER, hasValidationIssues: true }],
+  [
+    'every facet at once',
+    {
+      ...EMPTY_TASK_FILTER,
+      text: 'filter',
+      statuses: ['in_progress'],
+      types: ['FEATURE'],
+      labels: ['licensing'],
+      labelsMode: 'any',
+      estimates: ['L'],
+      executors: ['backend-developer'],
+      parentage: ['parent'],
+    },
+  ],
+  [
+    'a combination that matches nothing',
+    { ...EMPTY_TASK_FILTER, statuses: ['done'], estimates: ['XL'] },
+  ],
+];
+
+/** The cases that are deliberately at an extreme of the fixture. */
+const NON_DISCRIMINATING = new Set([
+  'the neutral spec',
+  'free text that is regex syntax, matching nothing on both sides',
+  'a combination that matches nothing',
+]);
+
+function runFilterParityContract(makeStore: () => ITaskIndexStore): void {
+  /** The unfiltered listing — the exact payload the board holds client-side. */
+  async function loadAllTasks(rpc: MockRpcHandler): Promise<TaskSpecSummary[]> {
+    const result = (await getHandler(rpc, 'tasks:list')({})) as TasksListResult;
+    return result.tasks;
+  }
+
+  async function listIds(
+    rpc: MockRpcHandler,
+    params: Record<string, unknown>,
+  ): Promise<string[]> {
+    const result = (await getHandler(
+      rpc,
+      'tasks:list',
+    )(params)) as TasksListResult;
+    return result.tasks.map((task) => task.id);
+  }
+
+  it('indexes the whole parity fixture', async () => {
+    const { rpc, dispose } = buildParitySuite(makeStore());
+    try {
+      const all = await loadAllTasks(rpc);
+      expect(all.map((task) => task.id).sort()).toEqual(
+        PARITY_CARRIERS.map(([folder]) => folder).sort(),
+      );
+    } finally {
+      dispose();
+    }
+  });
+
+  it.each(PARITY_CASES)(
+    'returns an identical id list from filterTasks and tasks:list — %s',
+    async (name, spec) => {
+      const { rpc, dispose } = buildParitySuite(makeStore());
+      try {
+        const all = await loadAllTasks(rpc);
+        const clientSide = filterTasks(all, spec, buildTaskGraph(all)).map(
+          (task) => task.id,
+        );
+        const serverSide = await listIds(rpc, { filter: spec });
+
+        expect(serverSide).toEqual(clientSide);
+        // A case that matches everything, or nothing, proves nothing about the
+        // predicate — so the fixture is asserted to be discriminating.
+        if (!NON_DISCRIMINATING.has(name)) {
+          expect(clientSide.length).toBeGreaterThan(0);
+          expect(clientSide.length).toBeLessThan(PARITY_CARRIERS.length);
+        }
+      } finally {
+        dispose();
+      }
+    },
+  );
+
+  it('folds the legacy status list into the same facet', async () => {
+    const { rpc, dispose } = buildParitySuite(makeStore());
+    try {
+      const all = await loadAllTasks(rpc);
+      const viaLegacy = await listIds(rpc, { status: ['backlog', 'done'] });
+      const viaSpec = filterTasks(all, {
+        ...EMPTY_TASK_FILTER,
+        statuses: ['backlog', 'done'],
+      }).map((task) => task.id);
+      expect(viaLegacy).toEqual(viaSpec);
+      expect(viaLegacy.length).toBeGreaterThan(0);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('ANDs the legacy type list with a spec constraining other facets', async () => {
+    const { rpc, dispose } = buildParitySuite(makeStore());
+    try {
+      const all = await loadAllTasks(rpc);
+      const spec: TaskFilterSpec = {
+        ...EMPTY_TASK_FILTER,
+        labels: ['ui'],
+        labelsMode: 'any',
+      };
+      const serverSide = await listIds(rpc, {
+        type: ['FEATURE'],
+        filter: spec,
+      });
+      const clientSide = filterTasks(all, { ...spec, types: ['FEATURE'] }).map(
+        (task) => task.id,
+      );
+      expect(serverSide).toEqual(clientSide);
+      expect(serverSide.length).toBeGreaterThan(0);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('returns nothing when the legacy list and the spec contradict', async () => {
+    const { rpc, dispose } = buildParitySuite(makeStore());
+    try {
+      const ids = await listIds(rpc, {
+        status: ['backlog'],
+        filter: { ...EMPTY_TASK_FILTER, statuses: ['done'] },
+      });
+      // The empty intersection is NOT written back as `[]` — that would read as
+      // "no constraint" and hand back every task.
+      expect(ids).toEqual([]);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('completes a PARTIAL filter with the neutral defaults', async () => {
+    const { rpc, dispose } = buildParitySuite(makeStore());
+    try {
+      const all = await loadAllTasks(rpc);
+      const serverSide = await listIds(rpc, { filter: { unestimated: true } });
+      const clientSide = filterTasks(all, {
+        ...EMPTY_TASK_FILTER,
+        unestimated: true,
+      }).map((task) => task.id);
+      expect(serverSide).toEqual(clientSide);
+      expect(serverSide.length).toBeGreaterThan(0);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('rejects a malformed filter rather than ignoring it', async () => {
+    const { rpc, dispose } = buildParitySuite(makeStore());
+    try {
+      await expect(
+        getHandler(rpc, 'tasks:list')({ filter: { labelsMode: 'either' } }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    } finally {
+      dispose();
+    }
+  });
+}
+
+describe('tasks:list filter parity (FR-C1.5) — InMemoryTaskIndexStore', () => {
+  runFilterParityContract(
+    () => new InMemoryTaskIndexStore(createMockLogger() as unknown as Logger),
+  );
+});
+
+describe('tasks:list filter parity (FR-C1.5) — SqliteTaskIndexStore', () => {
+  const Database = loadBetterSqlite3();
+  const maybe = Database ? describe : describe.skip;
+
+  maybe(':memory: + migrations 0029 and 0031', () => {
+    runFilterParityContract(() => {
+      const db = new (Database as BetterSqlite3Ctor)(':memory:');
+      // 0031 adds the five metadata columns the parity fixture exercises, so
+      // both are applied — 0029 alone cannot hold `labels` or `estimate`.
+      for (const version of [29, 31]) {
+        db.exec(MIGRATIONS.find((m) => m.version === version)?.sql ?? '');
+      }
+      return new SqliteTaskIndexStore(
+        createMockLogger() as unknown as Logger,
+        { db } as unknown as SqliteConnectionService,
+      );
+    });
   });
 });

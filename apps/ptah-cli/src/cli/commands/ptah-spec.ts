@@ -5,9 +5,22 @@
  *   new --title --type [...]   RPC `tasks:create`       -> spec.created
  *   status <id> --to <status>  RPC `tasks:updateStatus` -> spec.status
  *   show <id>                  RPC `tasks:get`          -> spec.detail
- *   list [--status --type]     RPC `tasks:list`         -> spec.list
+ *   list [--status --type
+ *         --label --estimate]  RPC `tasks:list`         -> spec.list
  *   check                      RPC `tasks:board`        -> spec.check
  *   doctor --plan|--fix|--undo TaskDoctorService        -> spec.doctor
+ *
+ * ## `list` filters run on the SERVER, through the shared predicate
+ *
+ * `--label` and `--estimate` fold into a `TaskFilterSpec` and travel as
+ * `tasks:list`'s `filter` parameter. They are NOT applied here. `filterTasks`
+ * in `libs/shared` is the one filter implementation in the repository
+ * (FR-C1.5), and a convenience `.filter()` in this file would quietly make that
+ * false — the CLI would drift from the board the first time either changed.
+ *
+ * The five metadata fields (`labels`, `estimate`, `parent`, `duplicates`,
+ * `relatesTo`) need no code here at all: `spec.list` and `spec.detail` emit
+ * whole `TaskSpecSummary` values, so `--json` carries them for free.
  *
  * ## One notification per invocation — load-bearing
  *
@@ -39,6 +52,8 @@ import {
   type TaskDoctorService,
 } from '@ptah-extension/task-specs';
 import type {
+  TaskEstimate,
+  TaskFilterSpec,
   TasksBoardResult,
   TasksCreateResult,
   TasksGetResult,
@@ -47,7 +62,13 @@ import type {
   TaskStatus,
   TaskType,
 } from '@ptah-extension/shared';
-import { TASK_STATUSES, TASK_TYPES } from '@ptah-extension/shared';
+import {
+  EMPTY_TASK_FILTER,
+  TASK_ESTIMATES,
+  TASK_STATUSES,
+  TASK_TYPES,
+  isTaskFilterActive,
+} from '@ptah-extension/shared';
 
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
@@ -85,6 +106,20 @@ export interface SpecOptions {
   status?: string[];
   /** For `list` — type filter. */
   filterType?: string[];
+  /**
+   * For `list` — label filter, matched case- and whitespace-insensitively.
+   *
+   * ANY semantics: a task matching at least one of these is included. There is
+   * no ALL switch on the CLI because there is no way to offer one without a
+   * second flag whose meaning has to be explained in a help line; the board is
+   * where that toggle belongs.
+   */
+  label?: string[];
+  /**
+   * For `list` — estimate filter. Accepts the {@link TASK_ESTIMATES} sizes and
+   * the literal `unestimated`, which is a facet value rather than a size.
+   */
+  estimate?: string[];
   /** For `doctor`. Defaults to `plan` — the only non-mutating mode. */
   doctorMode?: SpecDoctorMode;
   /**
@@ -336,6 +371,45 @@ async function runShow(
   });
 }
 
+/** The `--estimate` value that means "carries no size at all". */
+const UNESTIMATED_FLAG_VALUE = 'unestimated';
+
+/**
+ * Fold `--label` / `--estimate` into a filter spec (V-3).
+ *
+ * The CLI does NOT filter locally. The spec goes over `tasks:list`, where the
+ * SHARED `filterTasks` applies it — the same function the board runs. A local
+ * `.filter()` here would be a second predicate, and FR-C1.5's single-predicate
+ * claim would be false on exactly the surface nobody re-reads.
+ *
+ * Returns `null` when an estimate value is not a recognised size and is not
+ * `unestimated`, so the caller can report a usage error naming the accepted
+ * values instead of silently ignoring the flag.
+ */
+function buildListFilter(opts: SpecOptions): TaskFilterSpec | null {
+  const estimates: TaskEstimate[] = [];
+  let unestimated = false;
+  for (const raw of opts.estimate ?? []) {
+    const value = raw.trim();
+    if (value.toLowerCase() === UNESTIMATED_FLAG_VALUE) {
+      unestimated = true;
+      continue;
+    }
+    if (!(TASK_ESTIMATES as readonly string[]).includes(value)) return null;
+    estimates.push(value as TaskEstimate);
+  }
+
+  return {
+    ...EMPTY_TASK_FILTER,
+    // Stored as typed — `labelKey` normalization happens inside the predicate,
+    // so the CLI must not pre-fold it and end up with a second normalizer.
+    labels: opts.label?.map((value) => value.trim()).filter(Boolean) ?? [],
+    labelsMode: 'any',
+    estimates,
+    unestimated,
+  };
+}
+
 async function runList(
   opts: SpecOptions,
   globals: GlobalOptions,
@@ -356,12 +430,24 @@ async function runList(
       `spec list --type accepts only: ${TASK_TYPES.join(', ')}`,
     );
   }
+  const filter = buildListFilter(opts);
+  if (filter === null) {
+    return usageError(
+      formatter,
+      `spec list --estimate accepts only: ${TASK_ESTIMATES.join(
+        ', ',
+      )}, ${UNESTIMATED_FLAG_VALUE}`,
+    );
+  }
 
   return engine(globals, oneshot(), async (ctx) => {
     const result = await callRpc<TasksListResult>(ctx.transport, 'tasks:list', {
       workspaceRoot: globals.cwd,
       status: status.length > 0 ? (status as TaskStatus[]) : undefined,
       type: type.length > 0 ? (type as TaskType[]) : undefined,
+      // Omitted entirely when no new facet was asked for, so an invocation that
+      // predates these flags puts exactly the bytes on the wire it always did.
+      filter: isTaskFilterActive(filter) ? filter : undefined,
     });
     await formatter.writeNotification('spec.list', {
       tasks: result?.tasks ?? [],

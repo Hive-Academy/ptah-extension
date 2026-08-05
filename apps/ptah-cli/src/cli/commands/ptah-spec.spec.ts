@@ -24,6 +24,7 @@ import * as path from 'node:path';
 import { Writable } from 'node:stream';
 
 import { CliFileSystemProvider } from '@ptah-extension/platform-cli';
+import { EMPTY_TASK_FILTER } from '@ptah-extension/shared';
 import {
   NoOpTaskIndexNotifier,
   TaskDoctorService,
@@ -382,6 +383,24 @@ describe('ptah spec — routing', () => {
     expect(engine.rpcCalls).toEqual([]);
   });
 
+  it('sends no `filter` when neither --label nor --estimate was given', async () => {
+    const engine = makeEngine();
+    engine.scripted.set('tasks:list', {
+      success: true,
+      data: { tasks: [], excludedCount: 0, specsDirExists: true },
+    });
+    const trace = makeFormatter();
+
+    await execute({ subcommand: 'list', status: ['backlog'] }, baseGlobals, {
+      formatter: trace.formatter,
+      withEngine: engine.withEngine,
+    });
+
+    const params = engine.rpcCalls[0].params as Record<string, unknown>;
+    expect(params['filter']).toBeUndefined();
+    expect(params['status']).toEqual(['backlog']);
+  });
+
   it('surfaces a TASK_CONFLICT code so a script can retry', async () => {
     const engine = makeEngine();
     engine.scripted.set('tasks:updateStatus', {
@@ -403,6 +422,176 @@ describe('ptah spec — routing', () => {
     expect(trace.notifications).toHaveLength(1);
     expect(trace.notifications[0].params).toMatchObject({
       code: 'TASK_CONFLICT',
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `spec list --label / --estimate` (V-3)
+// ---------------------------------------------------------------------------
+//
+// The point of these cases is NOT that the flags parse. It is that they leave
+// the process as a `TaskFilterSpec` on the `tasks:list` params and are applied
+// by the shared `filterTasks` on the other side — never here. The last case in
+// this block is the one that would fail if somebody added a local `.filter()`.
+
+describe('ptah spec list — filter flags', () => {
+  function listEngine(tasks: unknown[] = []): MockEngine {
+    const engine = makeEngine();
+    engine.scripted.set('tasks:list', {
+      success: true,
+      data: { tasks, excludedCount: 0, specsDirExists: true },
+    });
+    return engine;
+  }
+
+  async function filterSentFor(
+    opts: SpecOptions,
+  ): Promise<Record<string, unknown> | undefined> {
+    const engine = listEngine();
+    const trace = makeFormatter();
+    await execute(opts, baseGlobals, {
+      formatter: trace.formatter,
+      withEngine: engine.withEngine,
+    });
+    const params = engine.rpcCalls[0]?.params as Record<string, unknown>;
+    return params?.['filter'] as Record<string, unknown> | undefined;
+  }
+
+  it('folds --label into a COMPLETE spec, ANY mode', async () => {
+    const filter = await filterSentFor({
+      subcommand: 'list',
+      label: ['Licensing', 'ui'],
+    });
+    expect(filter).toEqual({
+      ...EMPTY_TASK_FILTER,
+      labels: ['Licensing', 'ui'],
+      labelsMode: 'any',
+    });
+  });
+
+  it('passes labels through verbatim — normalization belongs to the predicate', async () => {
+    const filter = await filterSentFor({
+      subcommand: 'list',
+      label: ['  Licensing  '],
+    });
+    // Trimmed of the shell's padding, but NOT case-folded: `labelKey` inside
+    // `filterTasks` is the one normalizer, and a second one here could drift.
+    expect(filter?.['labels']).toEqual(['Licensing']);
+  });
+
+  it('folds --estimate sizes into the estimate facet', async () => {
+    const filter = await filterSentFor({
+      subcommand: 'list',
+      estimate: ['XS', 'L'],
+    });
+    expect(filter?.['estimates']).toEqual(['XS', 'L']);
+    expect(filter?.['unestimated']).toBe(false);
+  });
+
+  it('treats `unestimated` as a facet value, not a size', async () => {
+    const filter = await filterSentFor({
+      subcommand: 'list',
+      estimate: ['M', 'unestimated'],
+    });
+    expect(filter?.['estimates']).toEqual(['M']);
+    expect(filter?.['unestimated']).toBe(true);
+  });
+
+  it('accepts `unestimated` in any case', async () => {
+    const filter = await filterSentFor({
+      subcommand: 'list',
+      estimate: ['UNESTIMATED'],
+    });
+    expect(filter?.['unestimated']).toBe(true);
+  });
+
+  it('combines --label and --estimate onto one spec', async () => {
+    const filter = await filterSentFor({
+      subcommand: 'list',
+      label: ['ui'],
+      estimate: ['XS'],
+    });
+    expect(filter?.['labels']).toEqual(['ui']);
+    expect(filter?.['estimates']).toEqual(['XS']);
+  });
+
+  it('rejects an unknown --estimate before touching the backend', async () => {
+    const engine = listEngine();
+    const trace = makeFormatter();
+
+    const exit = await execute(
+      { subcommand: 'list', estimate: ['HUGE'] },
+      baseGlobals,
+      { formatter: trace.formatter, withEngine: engine.withEngine },
+    );
+
+    expect(exit).toBe(ExitCode.UsageError);
+    expect(engine.rpcCalls).toEqual([]);
+    expect(trace.notifications).toHaveLength(1);
+    expect(trace.notifications[0].method).toBe('task.error');
+    expect(
+      (trace.notifications[0].params as { message: string }).message,
+    ).toContain('unestimated');
+  });
+
+  /**
+   * The single-predicate assertion for this surface (FR-C1.5). The scripted
+   * response deliberately contains a task the filter would NOT match; the CLI
+   * must still emit it, because filtering is not its job. A local `.filter()`
+   * added to `runList` fails exactly here.
+   */
+  it('does not filter locally — the server result is emitted verbatim', async () => {
+    const engine = listEngine([
+      { id: 'TASK_2026_401', labels: ['ui'] },
+      { id: 'TASK_2026_402', labels: [] },
+    ]);
+    const trace = makeFormatter();
+
+    await execute({ subcommand: 'list', label: ['ui'] }, baseGlobals, {
+      formatter: trace.formatter,
+      withEngine: engine.withEngine,
+    });
+
+    const params = trace.notifications[0].params as {
+      tasks: Array<{ id: string }>;
+      count: number;
+    };
+    expect(params.tasks.map((task) => task.id)).toEqual([
+      'TASK_2026_401',
+      'TASK_2026_402',
+    ]);
+    expect(params.count).toBe(2);
+  });
+
+  /** The five metadata fields ride on `TaskSpecSummary` — no CLI code needed. */
+  it('carries the metadata fields into spec.list under --json', async () => {
+    const engine = listEngine([
+      {
+        id: 'TASK_2026_403',
+        labels: ['Licensing'],
+        estimate: 'L',
+        parent: 'TASK_2026_401',
+        duplicates: ['TASK_2026_402'],
+        relatesTo: ['TASK_2026_404'],
+      },
+    ]);
+    const trace = makeFormatter();
+
+    await execute({ subcommand: 'list', json: true }, baseGlobals, {
+      formatter: trace.formatter,
+      withEngine: engine.withEngine,
+    });
+
+    const params = trace.notifications[0].params as {
+      tasks: Array<Record<string, unknown>>;
+    };
+    expect(params.tasks[0]).toMatchObject({
+      labels: ['Licensing'],
+      estimate: 'L',
+      parent: 'TASK_2026_401',
+      duplicates: ['TASK_2026_402'],
+      relatesTo: ['TASK_2026_404'],
     });
   });
 });
