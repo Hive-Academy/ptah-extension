@@ -26,11 +26,13 @@ import type { TaskBoardColumn } from '../../services/tasks-store.service';
         <ptah-task-column
           [status]="column.status"
           [tasks]="column.tasks"
+          [total]="column.total"
           [graph]="graph()"
           [selectedTaskId]="selectedTaskId()"
           (taskSelect)="taskSelect.emit($event)"
           (statusChange)="statusChange.emit($event)"
           (startTask)="startTask.emit($event)"
+          (filterChildren)="filterChildren.emit($event)"
         />
       }
     </div>
@@ -49,4 +51,6 @@ export class TaskBoardComponent {
   public readonly taskSelect = output<string>();
   public readonly statusChange = output<TaskStatusChange>();
   public readonly startTask = output<TaskStartRequest>();
+  /** Forwarded from a card's child rollup — the id of the PARENT clicked. */
+  public readonly filterChildren = output<string>();
 }

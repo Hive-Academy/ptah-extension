@@ -39,6 +39,7 @@ import type {
   TaskStatus,
   TaskType,
 } from './task-spec.types';
+import { TaskIdRefSchema } from './task-view.types';
 
 // ---------------------------------------------------------------------------
 // Facet vocabularies
@@ -125,6 +126,26 @@ export interface TaskFilterSpec {
   /** Matched on the trimmed value; see {@link matchesExecutors}. */
   readonly executors: readonly string[];
   readonly parentage: readonly TaskParentageFacet[];
+  /**
+   * Only the children of these parents (FR-B3.3).
+   *
+   * ## Why this is a facet rather than something the board does for itself
+   *
+   * The card's child rollup is a control: clicking it narrows the board to that
+   * parent's sub-tasks. "Is this task a child of X" is a comparison, and every
+   * comparison a board makes about a task belongs in this one predicate — a
+   * convenience `.filter()` beside the rollup handler would be the second
+   * implementation of matching that FR-C1.5 exists to prevent, and it would
+   * apply on the board while `tasks:list` and the CLI knew nothing about it.
+   *
+   * Matched against the DERIVED effective parent, exactly like
+   * {@link TASK_PARENTAGE_FACETS}. That is what makes the count on the rollup
+   * and the number of cards left after the click the same number: the graph's
+   * `children` map is built from the same `effectiveParent` read here, so a
+   * child whose parent claim was refused (cycle, dangling, two levels deep) is
+   * absent from both.
+   */
+  readonly childrenOf: readonly string[];
   readonly relations: readonly TaskRelationFacet[];
   /** Only tasks carrying at least one validation issue. */
   readonly hasValidationIssues: boolean;
@@ -141,6 +162,7 @@ export const EMPTY_TASK_FILTER: TaskFilterSpec = {
   unestimated: false,
   executors: [],
   parentage: [],
+  childrenOf: [],
   relations: [],
   hasValidationIssues: false,
 };
@@ -163,6 +185,7 @@ export function isTaskFilterActive(filter: TaskFilterSpec): boolean {
     filter.unestimated ||
     filter.executors.length > 0 ||
     filter.parentage.length > 0 ||
+    filter.childrenOf.length > 0 ||
     filter.relations.length > 0 ||
     filter.hasValidationIssues
   );
@@ -241,6 +264,11 @@ export const TaskFilterSpecSchema = z.object({
     .array(z.enum(TASK_PARENTAGE_FACETS))
     .max(MAX_TASK_FILTER_VALUES)
     .default([]),
+  // A task id, so it is validated as one — `TaskIdRefSchema` from
+  // `task-view.types`, never a re-derived containment check (BR-14). Nothing
+  // joins a filter value onto a path today, which is precisely why the guard
+  // belongs here rather than at whichever consumer first does.
+  childrenOf: z.array(TaskIdRefSchema).max(MAX_TASK_FILTER_VALUES).default([]),
   relations: z
     .array(z.enum(TASK_RELATION_FACETS))
     .max(MAX_TASK_FILTER_VALUES)
@@ -341,6 +369,23 @@ function matchesParentage(
   });
 }
 
+/**
+ * "Is this task a child of one of these parents?"
+ *
+ * Read off `effectiveParent`, so the answer agrees with `graph.children` and
+ * therefore with the rollup count the click came from. `undefined` — no
+ * honoured parent at all — matches nothing, and cannot collide with a selected
+ * id because it is checked before the lookup.
+ */
+function matchesChildrenOf(
+  task: TaskSpecSummary,
+  selected: readonly string[],
+  graph: TaskGraph,
+): boolean {
+  const parent = graph.effectiveParent.get(task.id);
+  return parent !== undefined && selected.includes(parent);
+}
+
 function matchesRelations(
   task: TaskSpecSummary,
   selected: readonly TaskRelationFacet[],
@@ -413,6 +458,12 @@ export function filterTasks(
     if (
       filter.parentage.length > 0 &&
       !matchesParentage(task, filter.parentage, graphOf())
+    ) {
+      return false;
+    }
+    if (
+      filter.childrenOf.length > 0 &&
+      !matchesChildrenOf(task, filter.childrenOf, graphOf())
     ) {
       return false;
     }

@@ -9,6 +9,7 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import {
+  EMPTY_TASK_FILTER,
   TASK_STATUSES,
   TaskMetadataPatchSchema,
   type TaskMetadataPatch,
@@ -394,6 +395,305 @@ describe('TasksStore', () => {
       expect(() => store.graph()).not.toThrow();
       expect(store.knownLabels()).toEqual([]);
       expect(store.columns().backlog[0].labels).toEqual([]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The filter path (Phase 4 / Task 7.1)
+  //
+  // The claims under test are the two the phase gate names — a filter change
+  // costs ZERO RPC calls, and a recompute over a full-sized board fits inside a
+  // frame — plus the counter asymmetry that makes "23 of 181" sayable.
+  // -------------------------------------------------------------------------
+  describe('filter and sort', () => {
+    /** Four tasks that every facet in this block can tell apart. */
+    async function loadFixture(): Promise<void> {
+      rpcCall.mockResolvedValue(
+        ok(
+          makeBoard({
+            backlog: [
+              makeTask('TASK_2026_200', 'backlog', {
+                labels: ['licensing'],
+                estimate: 'M',
+                executor: 'backend-developer',
+                updated: '2026-08-01T00:00:00.000Z',
+              }),
+              makeTask('TASK_2026_201', 'backlog', {
+                parent: 'TASK_2026_200',
+                updated: '2026-08-03T00:00:00.000Z',
+              }),
+              makeTask('TASK_2026_202', 'backlog', {
+                parent: 'TASK_2026_200',
+                labels: ['ui'],
+                updated: '2026-08-02T00:00:00.000Z',
+              }),
+            ],
+            done: [
+              makeTask('TASK_2026_203', 'done', {
+                labels: ['licensing'],
+                estimate: 'XS',
+              }),
+            ],
+          }),
+        ),
+      );
+      await store.loadBoard();
+    }
+
+    it('opens neutral: every task shown, nothing marked as filtered', async () => {
+      await loadFixture();
+
+      expect(store.filterActive()).toBe(false);
+      expect(store.matchedCount()).toBe(4);
+      expect(store.totalIndexed()).toBe(4);
+      expect(store.filteredEmpty()).toBe(false);
+    });
+
+    it('narrows the columns while the header counters stay INDEXED', async () => {
+      await loadFixture();
+
+      store.setFilter({ ...EMPTY_TASK_FILTER, labels: ['LICENSING'] });
+
+      // Columns report the filtered set...
+      expect(store.matchedCount()).toBe(2);
+      const backlog = store.board().find((c) => c.status === 'backlog');
+      expect(backlog?.tasks.map((t) => t.id)).toEqual(['TASK_2026_200']);
+      // ...and each column still states what it is hiding.
+      expect(backlog?.total).toBe(3);
+
+      // ...while the header counters keep reading `_columns` directly. This
+      // asymmetry IS the `23 of 181` contract — do not "fix" it into agreement.
+      expect(store.totalCount()).toBe(4);
+      expect(store.totalIndexed()).toBe(4);
+      expect(store.statusCounts().backlog).toBe(3);
+      expect(store.doneCount()).toBe(1);
+    });
+
+    /**
+     * THE PHASE 4 GATE, half one. Not "no reload" — no CALL of any kind.
+     *
+     * Every facet is exercised, every derived signal is read, and the
+     * microtask queue is drained afterwards so a deferred call could not
+     * escape the assertion.
+     */
+    it('issues ZERO RPC calls for a filter or sort change (FR-C1.4)', async () => {
+      await loadFixture();
+      rpcCall.mockClear();
+
+      store.setFilter({
+        ...EMPTY_TASK_FILTER,
+        text: 'title',
+        statuses: ['backlog'],
+        types: ['FEATURE'],
+        labels: ['licensing'],
+        labelsMode: 'any',
+        estimates: ['M'],
+        unestimated: true,
+        executors: ['backend-developer'],
+        parentage: ['parent', 'child'],
+        relations: ['duplicate'],
+        hasValidationIssues: false,
+      });
+      store.setSort({ field: 'title', direction: 'asc' });
+      store.showChildrenOf('TASK_2026_200');
+      store.clearFilter();
+
+      // Read everything the board, the bar and the columns read.
+      store.filtered();
+      store.filteredIds();
+      store.board();
+      store.matchedCount();
+      store.totalIndexed();
+      store.filterActive();
+      store.filteredEmpty();
+      store.estimateBuckets();
+      store.knownLabels();
+      store.knownExecutors();
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(rpcCall).not.toHaveBeenCalled();
+    });
+
+    /**
+     * THE PHASE 4 GATE, half two.
+     *
+     * The budget is a frame, and it is a budget on what a KEYSTROKE costs — so
+     * the graph is warmed first, exactly as it is on a board the user has been
+     * looking at. The identity assertion afterwards is the structural half of
+     * the same claim: if a filter signal were ever read inside the graph
+     * computed, the graph would be a different object here and the 16 ms would
+     * be a rebuild over every task rather than a filter pass.
+     */
+    it('recomputes 1 000 tasks in under 16 ms without rebuilding the graph', async () => {
+      const many = Array.from({ length: 1000 }, (_, i) =>
+        makeTask(
+          `TASK_2026_${String(i).padStart(4, '0')}`,
+          i % 2 === 0 ? 'backlog' : 'in_progress',
+          {
+            labels: i % 3 === 0 ? ['Licensing'] : ['ui'],
+            estimate: i % 5 === 0 ? 'M' : undefined,
+            executor: 'backend-developer',
+            ...(i > 0 && i % 7 === 0 ? { parent: 'TASK_2026_0000' } : {}),
+          },
+        ),
+      );
+      rpcCall.mockResolvedValue(
+        ok(
+          makeBoard({
+            backlog: many.filter((t) => t.status === 'backlog'),
+            in_progress: many.filter((t) => t.status === 'in_progress'),
+          }),
+        ),
+      );
+      await store.loadBoard();
+
+      // Warm the memoized graph, as a rendered board already has.
+      const warmGraph = store.graph();
+      expect(store.board()).toHaveLength(TASK_STATUSES.length);
+
+      const started = performance.now();
+      store.setFilter({
+        ...EMPTY_TASK_FILTER,
+        text: 'TASK_2026',
+        statuses: ['backlog'],
+        types: ['FEATURE'],
+        labels: ['licensing'],
+        labelsMode: 'any',
+        estimates: ['M'],
+        unestimated: true,
+        executors: ['backend-developer'],
+        parentage: ['child', 'standalone'],
+      });
+      const columns = store.board();
+      const matched = store.matchedCount();
+      const elapsed = performance.now() - started;
+
+      expect(matched).toBeGreaterThan(0);
+      expect(columns.some((column) => column.tasks.length > 0)).toBe(true);
+      expect(elapsed).toBeLessThan(16);
+      // The payload did not move, so neither did the graph.
+      expect(store.graph()).toBe(warmGraph);
+    });
+
+    it('sorts every column stably, tie-broken by id', async () => {
+      rpcCall.mockResolvedValue(
+        ok(
+          makeBoard({
+            // Three tasks sharing one `updated` stamp, handed over in an order
+            // that is neither ascending nor descending by id.
+            backlog: [
+              makeTask('TASK_2026_202', 'backlog'),
+              makeTask('TASK_2026_200', 'backlog'),
+              makeTask('TASK_2026_201', 'backlog'),
+            ],
+          }),
+        ),
+      );
+      await store.loadBoard();
+
+      const idsOf = (): string[] =>
+        store
+          .board()
+          .find((c) => c.status === 'backlog')
+          ?.tasks.map((t) => t.id) ?? [];
+
+      // Default sort is `updated desc`; the stamps are equal, so only the
+      // tie-break can decide — and it is ASCENDING by id in both directions.
+      expect(idsOf()).toEqual([
+        'TASK_2026_200',
+        'TASK_2026_201',
+        'TASK_2026_202',
+      ]);
+      store.setSort({ field: 'updated', direction: 'asc' });
+      expect(idsOf()).toEqual([
+        'TASK_2026_200',
+        'TASK_2026_201',
+        'TASK_2026_202',
+      ]);
+    });
+
+    it('survives a reload, because loadBoard only replaces the columns', async () => {
+      await loadFixture();
+      store.setFilter({ ...EMPTY_TASK_FILTER, statuses: ['done'] });
+      expect(store.matchedCount()).toBe(1);
+
+      await store.loadBoard();
+
+      expect(store.filter().statuses).toEqual(['done']);
+      expect(store.matchedCount()).toBe(1);
+    });
+
+    it('reports filteredEmpty only when tasks exist but none match', async () => {
+      await loadFixture();
+      expect(store.filteredEmpty()).toBe(false);
+
+      store.setFilter({ ...EMPTY_TASK_FILTER, text: 'nothing-matches-this' });
+
+      expect(store.matchedCount()).toBe(0);
+      expect(store.filteredEmpty()).toBe(true);
+      // Distinct from "there are no tasks" — the workspace is still full.
+      expect(store.isEmpty()).toBe(false);
+      expect(store.totalIndexed()).toBe(4);
+    });
+
+    it('never reports filteredEmpty on an empty workspace', async () => {
+      rpcCall.mockResolvedValue(ok(makeBoard({})));
+      await store.loadBoard();
+
+      expect(store.isEmpty()).toBe(true);
+      expect(store.filteredEmpty()).toBe(false);
+    });
+
+    it('showChildrenOf narrows to exactly that parent’s sub-tasks (FR-B3.3)', async () => {
+      await loadFixture();
+
+      store.showChildrenOf('TASK_2026_200');
+
+      expect(store.filtered().map((task) => task.id)).toEqual([
+        'TASK_2026_201',
+        'TASK_2026_202',
+      ]);
+      // The count on the badge and the number of cards left are the same
+      // number, because both are read off the same derived parentage.
+      expect(store.graph().rollup.get('TASK_2026_200')?.total).toBe(2);
+    });
+
+    it('showChildrenOf keeps the rest of the filter rather than resetting it', async () => {
+      await loadFixture();
+      store.setFilter({ ...EMPTY_TASK_FILTER, labels: ['ui'] });
+
+      store.showChildrenOf('TASK_2026_200');
+
+      expect(store.filter().labels).toEqual(['ui']);
+      expect(store.filtered().map((task) => task.id)).toEqual([
+        'TASK_2026_202',
+      ]);
+    });
+
+    it('counts estimate buckets over the INDEXED set, not the filtered one', async () => {
+      await loadFixture();
+      store.setFilter({ ...EMPTY_TASK_FILTER, statuses: ['done'] });
+
+      const buckets = store.estimateBuckets();
+
+      expect(buckets.sized.M).toBe(1);
+      expect(buckets.sized.XS).toBe(1);
+      expect(buckets.sized.L).toBe(0);
+      expect(buckets.unestimated).toBe(2);
+    });
+
+    it('clearFilter restores the neutral spec', async () => {
+      await loadFixture();
+      store.setFilter({ ...EMPTY_TASK_FILTER, statuses: ['done'] });
+      expect(store.filterActive()).toBe(true);
+
+      store.clearFilter();
+
+      expect(store.filter()).toEqual(EMPTY_TASK_FILTER);
+      expect(store.filterActive()).toBe(false);
+      expect(store.matchedCount()).toBe(4);
     });
   });
 

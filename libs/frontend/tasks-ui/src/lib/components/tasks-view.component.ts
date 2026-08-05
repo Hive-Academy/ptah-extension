@@ -10,6 +10,7 @@ import {
   ClipboardList,
   EyeOff,
   FileText,
+  FilterX,
   LucideAngularModule,
   Plus,
   RefreshCw,
@@ -31,6 +32,7 @@ import type {
 } from './board/task-card.component';
 import { TaskDetailComponent } from './detail/task-detail.component';
 import type { TaskMetadataWrite } from './detail/task-metadata-write';
+import { TaskFilterBarComponent } from './filter/task-filter-bar.component';
 import { taskExclusionReasonLabel } from '../task-presentation';
 
 /** One excluded folder plus the sentence explaining its typed reason. */
@@ -67,6 +69,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
     NativeDrawerComponent,
     TaskBoardComponent,
     TaskDetailComponent,
+    TaskFilterBarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -182,6 +185,23 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
         </div>
       }
 
+      <!-- Filter + sort. Rendered whenever the board holds anything at all:
+           hiding it once a filter empties the board would remove the only
+           control that can undo that (FR-C1.3). -->
+      @if (store.totalIndexed() > 0) {
+        <ptah-task-filter-bar
+          [filter]="store.filter()"
+          [sort]="store.sort()"
+          [knownLabels]="store.knownLabels()"
+          [knownExecutors]="store.knownExecutors()"
+          [estimateBuckets]="store.estimateBuckets()"
+          [matchedCount]="store.matchedCount()"
+          [totalIndexed]="store.totalIndexed()"
+          (filterChange)="store.setFilter($event)"
+          (sortChange)="store.setSort($event)"
+        />
+      }
+
       <!-- Body -->
       <div class="flex flex-1 min-h-0">
         @if (store.loading() && !store.loaded()) {
@@ -198,14 +218,14 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
               class="w-12 h-12 text-base-content/20"
             />
             <div class="flex flex-col gap-1">
-              <p class="text-sm font-medium text-base-content/70">
+              <p class="text-sm font-medium text-base-content">
                 @if (!store.specsDirExists()) {
                   No .ptah/specs directory yet
                 } @else {
                   No tasks on the board
                 }
               </p>
-              <p class="text-xs text-base-content/40 max-w-xs">
+              <p class="text-xs text-base-content max-w-xs">
                 Create a task to generate a
                 <span class="font-mono">task.md</span> with valid frontmatter —
                 it becomes the first card on the board.
@@ -222,14 +242,55 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
           </div>
         } @else {
           <div class="flex-1 min-w-0">
-            <ptah-task-board
-              [columns]="store.board()"
-              [graph]="store.graph()"
-              [selectedTaskId]="store.selectedTaskId()"
-              (taskSelect)="store.openTask($event)"
-              (statusChange)="onStatusChange($event)"
-              (startTask)="onStartTask($event)"
-            />
+            <!-- "Nothing matches" is NOT "nothing exists" (FR-C1.3). The
+                 create CTA is deliberately absent here: offering to create a
+                 182nd task to someone whose 181 are behind a chip answers a
+                 question they did not ask. The only action is the one that
+                 brings them back. -->
+            @if (store.filteredEmpty()) {
+              <div
+                class="flex flex-col items-center justify-center h-full text-center gap-3 p-6"
+                data-testid="tasks-filtered-empty"
+              >
+                <!-- Decorative and redundant with the sentence below it, so it
+                     is hidden from the accessibility tree and exempt from the
+                     text-contrast gate. It is the one place in this block an
+                     opacity modifier survives. -->
+                <lucide-angular
+                  [img]="FilterXIcon"
+                  class="w-10 h-10 text-base-content/20"
+                  aria-hidden="true"
+                />
+                <div class="flex flex-col gap-1">
+                  <p class="text-sm font-medium text-base-content">
+                    No tasks match the current filter
+                  </p>
+                  <p class="text-xs text-base-content max-w-xs">
+                    All {{ store.totalIndexed() }} indexed task(s) are still on
+                    the board — the active filter is hiding every one of them.
+                    Remove a chip above, or clear the filter.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline gap-1"
+                  data-testid="tasks-filtered-empty-clear"
+                  (click)="store.clearFilter()"
+                >
+                  Clear the filter
+                </button>
+              </div>
+            } @else {
+              <ptah-task-board
+                [columns]="store.board()"
+                [graph]="store.graph()"
+                [selectedTaskId]="store.selectedTaskId()"
+                (taskSelect)="store.openTask($event)"
+                (statusChange)="onStatusChange($event)"
+                (startTask)="onStartTask($event)"
+                (filterChildren)="store.showChildrenOf($event)"
+              />
+            }
           </div>
 
           @if (store.selectedTaskId()) {
@@ -444,6 +505,7 @@ export class TasksViewComponent {
 
   protected readonly ClipboardListIcon = ClipboardList;
   protected readonly EyeOffIcon = EyeOff;
+  protected readonly FilterXIcon = FilterX;
   protected readonly FileTextIcon = FileText;
   protected readonly RefreshCwIcon = RefreshCw;
   protected readonly PlusIcon = Plus;

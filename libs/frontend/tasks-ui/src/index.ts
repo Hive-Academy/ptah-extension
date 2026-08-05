@@ -13,6 +13,11 @@ export type {
   TaskRelationGroupView,
 } from './lib/components/detail/task-relations.component';
 export { TaskMetadataEditorComponent } from './lib/components/detail/task-metadata-editor.component';
+export { TaskFilterBarComponent } from './lib/components/filter/task-filter-bar.component';
+export type {
+  TaskFacetOption,
+  TaskFilterChip,
+} from './lib/components/filter/task-filter-bar.component';
 export type { TaskMetadataWrite } from './lib/components/detail/task-metadata-write';
 export {
   LABEL_CHIP_CLASSES,
@@ -35,5 +40,6 @@ export {
 export type {
   ApplyMetadataOptions,
   TaskBoardColumn,
+  TaskEstimateBuckets,
 } from './lib/services/tasks-store.service';
 export { TaskStartService } from './lib/services/task-start.service';

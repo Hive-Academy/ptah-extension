@@ -205,14 +205,29 @@ export interface TaskStatusChange {
               {{ task().dependsOn.length }}
             </span>
           }
-          <!-- Child rollup (FR-B3.3): completed over total. A plain value, not
-               a control — the board has no filter to drive yet, and a button
-               that silently does nothing is worse than a number. -->
+          <!-- Child rollup (FR-B3.3): completed over total, and a CONTROL —
+               clicking it narrows the board to this task's sub-tasks. It was
+               rendered as a plain value until the filter existed to drive;
+               that filter is the shared childrenOf facet, so the click edits
+               the one spec every surface filters by rather than doing anything
+               to the board directly. -->
+          <!-- It is a btn, not a badge, and that is the whole point. The
+               three badges beside it (executor, depends-on, duplicate) are
+               inert spans sharing one recipe; a fourth that looked identical
+               announced itself only on hover, which is no announcement at all
+               to touch or to anyone scanning. btn-outline gives it a border
+               at rest, .btn gives it cursor: pointer (.badge sets none),
+               and btn-xs is 24px — SC 2.5.8's floor, against badge-xs's
+               12px. Its colours are the base-content/base-100 pair at full
+               opacity in both states, so they are audited on every theme;
+               hover:badge-primary was 4.14:1 on anubis, the app default. -->
           @if (childRollup(); as rollup) {
-            <span
-              class="badge badge-xs badge-ghost gap-0.5 tabular-nums"
-              [title]="rollupTitle()"
+            <button
+              type="button"
+              class="btn btn-outline btn-xs gap-1 px-1.5 font-normal tabular-nums focus-visible:outline-offset-2"
+              [title]="rollupActionTitle()"
               data-testid="task-card-rollup"
+              (click)="$event.stopPropagation(); filterChildren.emit(task().id)"
             >
               <lucide-angular
                 [img]="ListTreeIcon"
@@ -220,12 +235,13 @@ export interface TaskStatusChange {
                 aria-hidden="true"
               />
               <!-- "1 / 3" is not an accessible name. The visible glyph stays
-                   compact; the full sentence is what assistive tech reads. -->
-              <span class="sr-only">{{ rollupTitle() }}</span>
+                   compact; the full sentence is what assistive tech reads —
+                   and it now has to state what activating it DOES. -->
+              <span class="sr-only">{{ rollupActionTitle() }}</span>
               <span aria-hidden="true" data-testid="task-card-rollup-glyph">
                 {{ rollup.done }} / {{ rollup.total }}
               </span>
-            </span>
+            </button>
           }
           <!-- Duplicate marker (FR-B4.4) — deliberately de-emphasised. -->
           @if (task().duplicates.length > 0) {
@@ -349,6 +365,12 @@ export class TaskCardComponent {
   public readonly selectTask = output<string>();
   public readonly statusChange = output<TaskStatusChange>();
   public readonly startTask = output<TaskStartRequest>();
+  /**
+   * The child rollup was activated: narrow the board to THIS task's sub-tasks
+   * (FR-B3.3). Carries this task's id — the PARENT — because that is what the
+   * shared `childrenOf` facet is keyed by.
+   */
+  public readonly filterChildren = output<string>();
 
   /** Local UI state: whether the Start action should request isolation. */
   public readonly isolate = signal(false);
@@ -410,6 +432,19 @@ export class TaskCardComponent {
     const rollup = this.childRollup();
     if (rollup === null) return '';
     return `Sub-tasks: ${rollup.done} done · ${rollup.open} open · ${rollup.cancelled} cancelled (${rollup.total} total)`;
+  });
+
+  /**
+   * The rollup's accessible name and tooltip.
+   *
+   * It states the counts AND what activating it does. A control named only by
+   * its value tells a screen-reader user what it says and nothing about what
+   * pressing it will do to the board.
+   */
+  protected readonly rollupActionTitle = computed(() => {
+    const rollup = this.childRollup();
+    if (rollup === null) return '';
+    return `${this.rollupTitle()} — show only these sub-tasks`;
   });
 
   /**

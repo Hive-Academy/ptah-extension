@@ -13,12 +13,21 @@ import {
   type MessageHandler,
 } from '@ptah-extension/core';
 import {
+  DEFAULT_TASK_SORT,
+  EMPTY_TASK_FILTER,
+  TASK_ESTIMATES,
   TASK_STATUSES,
   TaskMetadataPatchSchema,
   buildTaskGraph,
+  filterTasks,
+  isTaskFilterActive,
+  sortTasks,
   type ExcludedTaskFolder,
+  type TaskEstimate,
+  type TaskFilterSpec,
   type TaskGraph,
   type TaskMetadataPatch,
+  type TaskSortSpec,
   type TaskSpecDetail,
   type TaskSpecSummary,
   type TaskStatus,
@@ -38,10 +47,32 @@ import { isTaskExclusionReason } from '../task-presentation';
  */
 export const TASKS_CHANGED_MESSAGE_TYPE = 'tasks:changed';
 
-/** One rendered board column: a status plus the tasks currently in it. */
+/**
+ * One rendered board column: a status, the tasks currently visible in it, and
+ * how many the workspace holds for that status regardless of the filter.
+ *
+ * Both counts, because a column that says `3` while the header says `181 total`
+ * cannot be read: the user cannot tell a nearly-empty status from a heavily
+ * filtered one. `total` is what makes `3 of 12` sayable per column, the same
+ * contract the header states for the board (FR-C1.2).
+ */
 export interface TaskBoardColumn {
   status: TaskStatus;
   tasks: TaskSpecSummary[];
+  /** Indexed count for this status — unfiltered, straight off the payload. */
+  total: number;
+}
+
+/**
+ * How many tasks carry each estimate, plus how many carry none.
+ *
+ * Counted over the INDEXED set, never the filtered one: these numbers label the
+ * choices in the estimate menu, and a menu whose counts collapse as you select
+ * from it cannot tell you what selecting the next entry would do.
+ */
+export interface TaskEstimateBuckets {
+  readonly sized: Readonly<Record<TaskEstimate, number>>;
+  readonly unestimated: number;
 }
 
 /**
@@ -225,6 +256,21 @@ export class TasksStore implements MessageHandler {
   private readonly _detailLoading = signal(false);
 
   /**
+   * The active filter and sort. SESSION STATE — never persisted, never sent.
+   *
+   * Nothing writes these to disk or to settings, and no `tasks:*` call carries
+   * them: the whole retrieval layer is `computed()` over the payload the board
+   * already holds, so changing a facet issues NO RPC and triggers NO reload
+   * (FR-C1.4, NFR-10). Saved views are a separate, explicit act.
+   *
+   * They survive a reload for free, and deliberately without machinery:
+   * `loadBoard` replaces `_columns` and touches nothing else, so a board that
+   * refreshes under an active filter comes back filtered (FR-C1.7).
+   */
+  private readonly _filter = signal<TaskFilterSpec>(EMPTY_TASK_FILTER);
+  private readonly _sort = signal<TaskSortSpec>(DEFAULT_TASK_SORT);
+
+  /**
    * Last-known board per workspace, keyed by {@link normalizeRootKey}. Used to
    * repaint the target board instantly on switch and to update background
    * workspaces from `tasks:changed` pushes without touching the visible board.
@@ -297,14 +343,10 @@ export class TasksStore implements MessageHandler {
   public readonly taskDetail = this._taskDetail.asReadonly();
   public readonly detailLoading = this._detailLoading.asReadonly();
 
-  /** Ordered board columns (canonical `TASK_STATUSES` / B1 order). */
-  public readonly board = computed<TaskBoardColumn[]>(() => {
-    const columns = this._columns();
-    return TASK_STATUSES.map((status) => ({
-      status,
-      tasks: columns[status],
-    }));
-  });
+  /** The active filter spec — read-only; mutate through {@link setFilter}. */
+  public readonly filter = this._filter.asReadonly();
+  /** The active sort spec — read-only; mutate through {@link setSort}. */
+  public readonly sort = this._sort.asReadonly();
 
   /**
    * Every board-visible task, flattened in canonical column order.
@@ -359,6 +401,124 @@ export class TasksStore implements MessageHandler {
    */
   public readonly knownLabels = computed<readonly string[]>(
     () => this.graph().knownLabels,
+  );
+
+  /**
+   * Every distinct executor named on the board, for the executor facet menu.
+   *
+   * A projection of the memoized {@link graph}, exactly like
+   * {@link knownLabels}. Executors are NOT case-folded (unlike labels) — see
+   * `matchesExecutors` in the shared predicate for why.
+   */
+  public readonly knownExecutors = computed<readonly string[]>(
+    () => this.graph().knownExecutors,
+  );
+
+  // -------------------------------------------------------------------------
+  // The filter path (FR-C1) — `computed()` over an ALREADY-LOADED payload
+  //
+  // Nothing below issues an RPC, and nothing below is a second predicate. The
+  // shared `filterTasks` decides what matches; `sortTasks` decides what order;
+  // this store only decides WHICH payload they run over and memoizes the
+  // result. A comparison written here that a `TaskFilterSpec` field already
+  // describes would be the second implementation FR-C1.5 exists to prevent.
+  //
+  // The dependency direction is deliberate and one-way: `filtered` reads
+  // `graph`, `graph` reads NOTHING a user types. Reading a filter signal inside
+  // the graph computed would rebuild the whole graph on every keystroke — the
+  // 1 000-task budget in the store spec is the guard on that.
+  // -------------------------------------------------------------------------
+
+  /** The tasks matching the active filter, in payload order (unsorted). */
+  public readonly filtered = computed<readonly TaskSpecSummary[]>(() =>
+    filterTasks(this.allTasks(), this._filter(), this.graph()),
+  );
+
+  /**
+   * Match set as ids, so {@link board} can partition the columns with a set
+   * membership test instead of running the predicate once per column.
+   */
+  public readonly filteredIds = computed<ReadonlySet<string>>(
+    () => new Set(this.filtered().map((task) => task.id)),
+  );
+
+  /**
+   * Ordered board columns (canonical `TASK_STATUSES` / B1 order), narrowed to
+   * the filter and sorted by the active sort.
+   *
+   * Each column keeps its INDEXED total beside its filtered task list — the
+   * per-column half of the `23 of 181` contract (FR-C1.2).
+   */
+  public readonly board = computed<TaskBoardColumn[]>(() => {
+    const columns = this._columns();
+    const keep = this.filteredIds();
+    const sort = this._sort();
+    return TASK_STATUSES.map((status) => ({
+      status,
+      tasks: sortTasks(
+        columns[status].filter((task) => keep.has(task.id)),
+        sort,
+      ),
+      total: columns[status].length,
+    }));
+  });
+
+  /** How many tasks the active filter matches — the `23` of `23 of 181`. */
+  public readonly matchedCount = computed(() => this.filtered().length);
+
+  /**
+   * How many tasks are indexed — the `181` of `23 of 181`.
+   *
+   * Deliberately NOT the same number as {@link matchedCount} when a filter is
+   * on, and deliberately the same signal the header counters
+   * ({@link totalCount}, {@link statusCounts}, {@link doneCount},
+   * {@link activeCount}) read: those report INDEXED totals while the columns
+   * report FILTERED counts. That asymmetry is the contract, not an oversight —
+   * "23 of 181" is unsayable if both halves move together.
+   */
+  public readonly totalIndexed = computed(() => this.allTasks().length);
+
+  /** True when the active spec would exclude anything at all (FR-C1.6). */
+  public readonly filterActive = computed(() =>
+    isTaskFilterActive(this._filter()),
+  );
+
+  /**
+   * Per-estimate counts over the indexed set, plus the unestimated tally.
+   *
+   * Counted here rather than in the filter bar because the bar is
+   * presentational and because this is one memoized pass over a payload that
+   * changes once per board load — recounting it per keystroke is exactly the
+   * NFR-10 failure the filter path is built to avoid.
+   */
+  public readonly estimateBuckets = computed<TaskEstimateBuckets>(() => {
+    const sized = TASK_ESTIMATES.reduce(
+      (acc, estimate) => {
+        acc[estimate] = 0;
+        return acc;
+      },
+      {} as Record<TaskEstimate, number>,
+    );
+    let unestimated = 0;
+    for (const task of this.allTasks()) {
+      const estimate = task.estimate;
+      if (estimate === undefined) unestimated++;
+      else sized[estimate]++;
+    }
+    return { sized, unestimated };
+  });
+
+  /**
+   * "Your filter matches nothing" — as distinct from "there are no tasks".
+   *
+   * The two need different words and different actions: one is fixed by
+   * clearing a facet, the other by creating a task, and showing the create CTA
+   * to someone whose 181 tasks are hidden behind a chip is the failure this
+   * flag exists to prevent (FR-C1.3).
+   */
+  public readonly filteredEmpty = computed(
+    () =>
+      this._loaded() && this.totalIndexed() > 0 && this.matchedCount() === 0,
   );
 
   /** Total number of included (board-visible) tasks. */
@@ -668,6 +828,50 @@ export class TasksStore implements MessageHandler {
   /** Dismiss the transient action banner. */
   public clearActionMessage(): void {
     this._actionMessage.set(null);
+  }
+
+  /**
+   * Replace the active filter.
+   *
+   * A whole spec, not a patch, for the same reason `TaskFilterSpec` has no
+   * optional fields: "absent" and "empty" are the difference between a facet
+   * that constrains nothing and one that constrains everything, and a partial
+   * update is where two callers start disagreeing about which they meant.
+   *
+   * This writes a signal and returns. It issues no RPC and triggers no reload —
+   * every consumer downstream is a `computed()` over the payload already in
+   * hand (FR-C1.4).
+   */
+  public setFilter(filter: TaskFilterSpec): void {
+    this._filter.set(filter);
+  }
+
+  /** Drop every facet, back to the neutral spec (FR-C1.6). */
+  public clearFilter(): void {
+    this._filter.set(EMPTY_TASK_FILTER);
+  }
+
+  /** Change the board's sort field/direction (FR-C3). */
+  public setSort(sort: TaskSortSpec): void {
+    this._sort.set(sort);
+  }
+
+  /**
+   * Narrow the board to one parent's sub-tasks — the card rollup's click
+   * target (FR-B3.3).
+   *
+   * Expressed as the `childrenOf` FACET on the shared spec, so the board runs
+   * the one predicate every other surface runs. There is no "show children"
+   * code path beside it.
+   *
+   * The rest of the filter is left standing rather than reset. Two reasons: a
+   * click that silently discarded the user's other facets would be a
+   * destructive act with no undo affordance, and every surviving facet is
+   * visible as a removable chip, so a rollup click that lands on zero cards
+   * says why on screen instead of appearing to do nothing.
+   */
+  public showChildrenOf(parentId: string): void {
+    this._filter.update((filter) => ({ ...filter, childrenOf: [parentId] }));
   }
 
   /** Convenience filter used by the New Task form's type picker. */

@@ -96,6 +96,7 @@ describe('EMPTY_TASK_FILTER', () => {
     ['unestimated', spec({ unestimated: true })],
     ['executors', spec({ executors: ['agent'] })],
     ['parentage', spec({ parentage: ['parent'] })],
+    ['childrenOf', spec({ childrenOf: [id(1)] })],
     ['relations', spec({ relations: ['duplicate'] })],
     ['hasValidationIssues', spec({ hasValidationIssues: true })],
   ])('reports the %s facet as active', (_facet, value) => {
@@ -362,6 +363,86 @@ describe('filterTasks — parentage', () => {
   });
 });
 
+describe('filterTasks — childrenOf (FR-B3.3)', () => {
+  //  1 ── parent of 2 and 3;  4 standalone;  5 claims a parent that does not
+  //  exist;  6 is a child of 4, so a second parent exists to tell 1 apart from.
+  const tasks = [
+    task({ id: id(1) }),
+    task({ id: id(2), parent: id(1) }),
+    task({ id: id(3), parent: id(1) }),
+    task({ id: id(4) }),
+    task({ id: id(5), parent: id(99) }),
+    task({ id: id(6), parent: id(4) }),
+  ];
+  const graph = buildTaskGraph(tasks);
+
+  it('selects exactly the children of the named parent', () => {
+    expect(
+      ids(filterTasks(tasks, spec({ childrenOf: [id(1)] }), graph)),
+    ).toEqual([id(2), id(3)]);
+  });
+
+  /**
+   * The rollup badge says "1 / 3" and the click has to leave 3 cards. Both
+   * numbers are read off `effectiveParent`, so this is the assertion that they
+   * cannot drift apart.
+   */
+  it('returns exactly as many tasks as the parent rollup counts', () => {
+    const rollup = graph.rollup.get(id(1));
+    expect(rollup?.total).toBe(2);
+    expect(
+      filterTasks(tasks, spec({ childrenOf: [id(1)] }), graph),
+    ).toHaveLength(rollup?.total ?? -1);
+  });
+
+  it('does not select the parent itself', () => {
+    expect(
+      ids(filterTasks(tasks, spec({ childrenOf: [id(1)] }), graph)),
+    ).not.toContain(id(1));
+  });
+
+  it('ORs within the facet, so two parents yield both broods', () => {
+    expect(
+      ids(filterTasks(tasks, spec({ childrenOf: [id(1), id(4)] }), graph)),
+    ).toEqual([id(2), id(3), id(6)]);
+  });
+
+  it('matches nothing for a parent that has no honoured children', () => {
+    expect(filterTasks(tasks, spec({ childrenOf: [id(99)] }), graph)).toEqual(
+      [],
+    );
+  });
+
+  it('ANDs with the other facets like every facet does', () => {
+    expect(
+      ids(
+        filterTasks(tasks, spec({ childrenOf: [id(1)], text: id(3) }), graph),
+      ),
+    ).toEqual([id(3)]);
+  });
+
+  it('builds its own graph when none is supplied, reaching the same answer', () => {
+    expect(ids(filterTasks(tasks, spec({ childrenOf: [id(1)] })))).toEqual([
+      id(2),
+      id(3),
+    ]);
+  });
+
+  /**
+   * A refused parent claim (dangling here) makes a task `standalone` for
+   * `parentage`, and it must make it invisible to `childrenOf` for the same
+   * reason: the board never drew that edge.
+   */
+  it('ignores a parent claim the graph refused', () => {
+    expect(filterTasks(tasks, spec({ childrenOf: [id(99)] }), graph)).toEqual(
+      [],
+    );
+    expect(
+      ids(filterTasks(tasks, spec({ parentage: ['standalone'] }), graph)),
+    ).toContain(id(5));
+  });
+});
+
 describe('filterTasks — relations', () => {
   const tasks = [
     task({ id: id(1), status: 'in_progress' }),
@@ -588,6 +669,31 @@ describe('TaskFilterSpecSchema', () => {
   it('accepts a label longer than the write-path cap', () => {
     expect(
       TaskFilterSpecSchema.safeParse({ labels: ['x'.repeat(40)] }).success,
+    ).toBe(true);
+  });
+
+  /**
+   * `childrenOf` carries task ids, so it runs the SHARED `TaskIdRefSchema` —
+   * the same guard every write boundary runs, not a second containment check
+   * (BR-14 / GATING NOTE G3).
+   */
+  it.each([
+    ['a traversal token', '..'],
+    ['a padded traversal token', ' .. '],
+    ['whitespace only', '   '],
+    ['a forward slash', 'TASK_2026_001/x'],
+    ['a back slash', 'TASK_2026_001\\x'],
+    ['a drive prefix', 'C:'],
+    ['an alternate data stream', 'TASK_2026_001:stream'],
+  ])('rejects %s in childrenOf', (_case, value) => {
+    expect(
+      TaskFilterSpecSchema.safeParse({ childrenOf: [value] }).success,
+    ).toBe(false);
+  });
+
+  it('accepts a plain folder name in childrenOf', () => {
+    expect(
+      TaskFilterSpecSchema.safeParse({ childrenOf: ['TASK_2026_001'] }).success,
     ).toBe(true);
   });
 });

@@ -1387,6 +1387,13 @@ const PARITY_CASES: ReadonlyArray<
     { ...EMPTY_TASK_FILTER, parentage: ['standalone'] },
   ],
   [
+    // The card's rollup click (FR-B3.3). It travels as a facet on the SAME
+    // spec, so the board and `tasks:list` answer it with the same predicate —
+    // which is the whole reason it is not a `.filter()` beside the handler.
+    'childrenOf: the parent rollup click',
+    { ...EMPTY_TASK_FILTER, childrenOf: ['TASK_2026_301'] },
+  ],
+  [
     'relations: unmet dependencies',
     { ...EMPTY_TASK_FILTER, relations: ['unmet_dependencies'] },
   ],

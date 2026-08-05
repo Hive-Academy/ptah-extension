@@ -1,13 +1,37 @@
 import { TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import {
+  EMPTY_TASK_FILTER,
   TASK_STATUSES,
   type ExcludedTaskFolder,
   type TaskStatus,
   type TaskSpecSummary,
   type TasksBoardResult,
 } from '@ptah-extension/shared';
+import { TasksStore } from '../services/tasks-store.service';
 import { TasksViewComponent } from './tasks-view.component';
+
+function task(
+  id: string,
+  overrides: Partial<TaskSpecSummary> = {},
+): TaskSpecSummary {
+  return {
+    id,
+    folderName: id,
+    status: 'backlog',
+    type: 'FEATURE',
+    title: `Title ${id}`,
+    dependsOn: [],
+    labels: [],
+    duplicates: [],
+    relatesTo: [],
+    created: '2026-08-01T00:00:00.000Z',
+    updated: '2026-08-01T00:00:00.000Z',
+    frontmatterValid: true,
+    validationIssues: [],
+    ...overrides,
+  };
+}
 
 /**
  * `tasks:board` payload. The named exclusion list rides alongside the count —
@@ -102,6 +126,144 @@ describe('TasksViewComponent', () => {
     expect(text).toContain('New Task');
     expect(text).toContain('Reindex');
     expect(text).toContain('Registry');
+  });
+
+  // -------------------------------------------------------------------------
+  // The filter surface (Tasks 7.3 / 7.4)
+  // -------------------------------------------------------------------------
+  describe('filter surface', () => {
+    const populated = board({
+      backlog: [
+        task('TASK_2026_200', { labels: ['licensing'] }),
+        task('TASK_2026_201', { parent: 'TASK_2026_200' }),
+        task('TASK_2026_202', { parent: 'TASK_2026_200' }),
+      ],
+      done: [task('TASK_2026_203', { status: 'done' })],
+    });
+
+    it('renders no filter bar for a workspace with no tasks', async () => {
+      const fixture = await render();
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector(
+          '[data-testid="task-filter-text"]',
+        ),
+      ).toBeNull();
+    });
+
+    it('renders the filter bar once the board holds anything', async () => {
+      const fixture = await render(populated);
+      const host = fixture.nativeElement as HTMLElement;
+      expect(
+        host.querySelector('[data-testid="task-filter-text"]'),
+      ).not.toBeNull();
+      // No filter is active, so the counter states the board size rather than
+      // the redundant "4 of 4" — the same rule the column counter follows.
+      expect(
+        host
+          .querySelector('[data-testid="task-filter-count"]')
+          ?.textContent?.trim(),
+      ).toBe('4');
+    });
+
+    it('states the filtered count beside the indexed one per column', async () => {
+      const fixture = await render(populated);
+      TestBed.inject(TasksStore).setFilter({
+        ...EMPTY_TASK_FILTER,
+        labels: ['licensing'],
+      });
+      fixture.detectChanges();
+
+      const counts = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll(
+          '[data-testid="task-column-count"]',
+        ),
+      ).map((el) => el.textContent?.replace(/\s+/g, ' ').trim());
+
+      // Backlog holds 3 indexed, 1 matching; Done holds 1 indexed, 0 matching.
+      expect(counts).toContain('1 of 3');
+      expect(counts).toContain('0 of 1');
+    });
+
+    /**
+     * FR-C1.3. The distinction is the whole point: "nothing matches" offers the
+     * control that undoes it, "nothing exists" offers the one that creates a
+     * task, and showing the wrong one is how a user with 181 hidden tasks is
+     * invited to make a 182nd.
+     */
+    it('shows the filtered-empty state — and NOT the create CTA — when nothing matches', async () => {
+      const fixture = await render(populated);
+      TestBed.inject(TasksStore).setFilter({
+        ...EMPTY_TASK_FILTER,
+        text: 'matches-nothing-at-all',
+      });
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const empty = host.querySelector('[data-testid="tasks-filtered-empty"]');
+      expect(empty).not.toBeNull();
+      expect(empty?.textContent).toContain('No tasks match the current filter');
+      expect(host.textContent).not.toContain('Create your first task');
+    });
+
+    it('clears the filter from the filtered-empty state', async () => {
+      const fixture = await render(populated);
+      const store = TestBed.inject(TasksStore);
+      store.setFilter({ ...EMPTY_TASK_FILTER, text: 'matches-nothing-at-all' });
+      fixture.detectChanges();
+
+      (fixture.nativeElement as HTMLElement)
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="tasks-filtered-empty-clear"]',
+        )
+        ?.click();
+      fixture.detectChanges();
+
+      expect(store.filterActive()).toBe(false);
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector(
+          '[data-testid="tasks-filtered-empty"]',
+        ),
+      ).toBeNull();
+    });
+
+    /** FR-B3.3 — the rollup is a control, and this is what it controls. */
+    it('narrows the board to a parent’s sub-tasks when its rollup is clicked', async () => {
+      const fixture = await render(populated);
+      const store = TestBed.inject(TasksStore);
+
+      const rollup = (
+        fixture.nativeElement as HTMLElement
+      ).querySelector<HTMLButtonElement>('[data-testid="task-card-rollup"]');
+      expect(rollup).not.toBeNull();
+      rollup?.click();
+      fixture.detectChanges();
+
+      expect(store.filter().childrenOf).toEqual(['TASK_2026_200']);
+      expect(store.filtered().map((t) => t.id)).toEqual([
+        'TASK_2026_201',
+        'TASK_2026_202',
+      ]);
+      // The click is undoable from the bar, like every other facet value.
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector(
+          '[data-testid="task-filter-chips"]',
+        )?.textContent,
+      ).toContain('TASK_2026_200');
+    });
+
+    it('issues no further RPC when the board is filtered', async () => {
+      const fixture = await render(populated);
+      rpcCall.mockClear();
+
+      TestBed.inject(TasksStore).setFilter({
+        ...EMPTY_TASK_FILTER,
+        statuses: ['done'],
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(rpcCall).not.toHaveBeenCalled();
+    });
   });
 
   describe('exclusions drawer', () => {

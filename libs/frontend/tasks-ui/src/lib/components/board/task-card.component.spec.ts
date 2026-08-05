@@ -202,7 +202,7 @@ describe('TaskCardComponent', () => {
     expect(at('task-card-duplicate')?.textContent).toContain('duplicate');
   });
 
-  it('renders a child rollup of completed over total', () => {
+  it('renders a child rollup of completed over total, as a control', () => {
     // Parentage is ONE level deep, so a task with children can never also
     // declare a parent — the rollup and the breadcrumb are mutually exclusive
     // on a valid board, and this fixture is the parent half of that pair.
@@ -246,6 +246,38 @@ describe('TaskCardComponent', () => {
     );
     expect(glyph?.textContent?.replace(/\s+/g, ' ')).toContain('1 / 3');
     expect(glyph?.getAttribute('aria-hidden')).toBe('true');
+
+    // FR-B3.3: it is a button, and its accessible name says what pressing it
+    // does — a control named only by its value tells a screen-reader user what
+    // it reads and nothing about what it will do.
+    expect(rollup?.tagName).toBe('BUTTON');
+    expect(srOnly?.textContent).toContain('show only these sub-tasks');
+  });
+
+  it('emits the PARENT id from the rollup, and does not open the card', () => {
+    const task = makeTask();
+    const child = makeTask({
+      id: 'TASK_2026_201',
+      folderName: 'TASK_2026_201',
+      parent: 'TASK_2026_200',
+    });
+    const fixture = render(task, buildTaskGraph([task, child]));
+
+    const parents: string[] = [];
+    const opened: string[] = [];
+    fixture.componentInstance.filterChildren.subscribe((id) =>
+      parents.push(id),
+    );
+    fixture.componentInstance.selectTask.subscribe((id) => opened.push(id));
+
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('[data-testid="task-card-rollup"]')
+      ?.click();
+
+    expect(parents).toEqual(['TASK_2026_200']);
+    // The click is stopped at the badge: narrowing the board and opening the
+    // detail panel are different intents and must not both fire.
+    expect(opened).toEqual([]);
   });
 
   // -------------------------------------------------------------------------
