@@ -501,6 +501,77 @@ describe('EditorPanelComponent — resize drags coalesce to one update per frame
 
     releaseMouse();
   });
+
+  // ---------------------------------------------------------------------------
+  // TASK_2026_176 — blur + Escape interruption (folded here from Task 4.4)
+  // ---------------------------------------------------------------------------
+
+  it('restores the sidebar width and cancels the frame on window blur', () => {
+    mouseDownOn('Resize sidebar');
+    moveTo(5000);
+    expect(frames.size).toBe(1);
+
+    window.dispatchEvent(new Event('blur'));
+
+    expect(cafSpy).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(readSignal('sidebarWidth')).toBe(256);
+
+    moveTo(400);
+    expect(rafSpy).toHaveBeenCalledTimes(1);
+    expect(readSignal('sidebarWidth')).toBe(256);
+  });
+
+  it('restores the sidebar width and cancels the frame on Escape', () => {
+    mouseDownOn('Resize sidebar');
+    moveTo(5000);
+    expect(frames.size).toBe(1);
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+
+    expect(cafSpy).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(readSignal('sidebarWidth')).toBe(256);
+  });
+
+  it('restores the terminal height and ends the drag on blur', () => {
+    editor.terminalHeight.set(300);
+    editor.terminalVisible.set(true);
+    fixture.detectChanges();
+
+    mouseDownOn('Resize terminal');
+    moveTo(100, 90);
+    moveTo(100, 10);
+    expect(frames.size).toBe(1);
+
+    window.dispatchEvent(new Event('blur'));
+
+    expect(cafSpy).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(editor.setTerminalHeight).toHaveBeenCalledWith(300);
+
+    moveTo(100, 5);
+    expect(rafSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores the split divider percentage and ends the drag on Escape', () => {
+    editor.splitActive.set(true);
+    fixture.detectChanges();
+
+    mouseDownOn('Resize split panes');
+    moveTo(5000);
+    expect(frames.size).toBe(1);
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+
+    expect(cafSpy).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(readSignal('splitLeftPercent')).toBe(50);
+  });
 });
 
 // ---------------------------------------------------------------------------

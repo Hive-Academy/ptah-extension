@@ -527,14 +527,22 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   /** Bound mouse event handlers for terminal resize drag (stored for cleanup). */
   private _resizeMouseMove: ((e: MouseEvent) => void) | null = null;
   private _resizeMouseUp: (() => void) | null = null;
+  private _resizeBlurHandler: (() => void) | null = null;
+  private _resizeKeydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
   /** Bound mouse event handlers for sidebar resize drag (stored for cleanup). */
   private _sidebarResizeMouseMove: ((e: MouseEvent) => void) | null = null;
   private _sidebarResizeMouseUp: (() => void) | null = null;
+  private _sidebarResizeBlurHandler: (() => void) | null = null;
+  private _sidebarResizeKeydownHandler: ((e: KeyboardEvent) => void) | null =
+    null;
 
   /** Bound mouse event handlers for split divider drag (stored for cleanup). */
   private _splitResizeMouseMove: ((e: MouseEvent) => void) | null = null;
   private _splitResizeMouseUp: (() => void) | null = null;
+  private _splitResizeBlurHandler: (() => void) | null = null;
+  private _splitResizeKeydownHandler: ((e: KeyboardEvent) => void) | null =
+    null;
 
   /** Bound keydown handler for Ctrl+P / Cmd+P Quick Open shortcut. */
   private readonly _quickOpenKeydown = (e: KeyboardEvent): void => {
@@ -909,6 +917,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
     const startY = event.clientY;
     const startHeight = this.editorService.terminalHeight();
+    const originalHeight = startHeight;
     this.ngZone.runOutsideAngular(() => {
       // Coalesce to at most one zone re-entry (and therefore one change-detection
       // pass + one layout write) per animation frame. `mousemove` only records
@@ -933,6 +942,18 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         });
       };
 
+      const endDrag = (restore = false): void => {
+        this.cancelDragFrame();
+        if (restore) {
+          this.ngZone.run(() => {
+            this.editorService.setTerminalHeight(originalHeight);
+          });
+        } else {
+          applyLatest();
+        }
+        this.cleanupResizeListeners();
+      };
+
       this._resizeMouseMove = (e: MouseEvent) => {
         latestEvent = e;
         if (this._dragFrame === null) {
@@ -940,16 +961,19 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         }
       };
 
-      this._resizeMouseUp = () => {
-        // Cancel the pending frame and apply the final position synchronously,
-        // so coalescing can never drop the last update before release.
-        this.cancelDragFrame();
-        applyLatest();
-        this.cleanupResizeListeners();
+      this._resizeMouseUp = () => endDrag(false);
+      this._resizeBlurHandler = () => endDrag(true);
+      this._resizeKeydownHandler = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          endDrag(true);
+        }
       };
 
       document.addEventListener('mousemove', this._resizeMouseMove);
       document.addEventListener('mouseup', this._resizeMouseUp);
+      window.addEventListener('blur', this._resizeBlurHandler);
+      document.addEventListener('keydown', this._resizeKeydownHandler);
     });
   }
 
@@ -966,6 +990,14 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
       document.removeEventListener('mouseup', this._resizeMouseUp);
       this._resizeMouseUp = null;
     }
+    if (this._resizeBlurHandler) {
+      window.removeEventListener('blur', this._resizeBlurHandler);
+      this._resizeBlurHandler = null;
+    }
+    if (this._resizeKeydownHandler) {
+      document.removeEventListener('keydown', this._resizeKeydownHandler);
+      this._resizeKeydownHandler = null;
+    }
   }
 
   /**
@@ -978,6 +1010,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
     const startX = event.clientX;
     const startWidth = this.sidebarWidth();
+    const originalWidth = startWidth;
 
     this.ngZone.runOutsideAngular(() => {
       // Coalesce to at most one zone re-entry (and therefore one change-detection
@@ -1000,6 +1033,18 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         });
       };
 
+      const endDrag = (restore = false): void => {
+        this.cancelDragFrame();
+        if (restore) {
+          this.ngZone.run(() => {
+            this.sidebarWidth.set(originalWidth);
+          });
+        } else {
+          applyLatest();
+        }
+        this.cleanupSidebarResizeListeners();
+      };
+
       this._sidebarResizeMouseMove = (e: MouseEvent) => {
         latestEvent = e;
         if (this._dragFrame === null) {
@@ -1007,16 +1052,19 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         }
       };
 
-      this._sidebarResizeMouseUp = () => {
-        // Cancel the pending frame and apply the final position synchronously,
-        // so coalescing can never drop the last update before release.
-        this.cancelDragFrame();
-        applyLatest();
-        this.cleanupSidebarResizeListeners();
+      this._sidebarResizeMouseUp = () => endDrag(false);
+      this._sidebarResizeBlurHandler = () => endDrag(true);
+      this._sidebarResizeKeydownHandler = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          endDrag(true);
+        }
       };
 
       document.addEventListener('mousemove', this._sidebarResizeMouseMove);
       document.addEventListener('mouseup', this._sidebarResizeMouseUp);
+      window.addEventListener('blur', this._sidebarResizeBlurHandler);
+      document.addEventListener('keydown', this._sidebarResizeKeydownHandler);
     });
   }
 
@@ -1030,6 +1078,17 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
       document.removeEventListener('mouseup', this._sidebarResizeMouseUp);
       this._sidebarResizeMouseUp = null;
     }
+    if (this._sidebarResizeBlurHandler) {
+      window.removeEventListener('blur', this._sidebarResizeBlurHandler);
+      this._sidebarResizeBlurHandler = null;
+    }
+    if (this._sidebarResizeKeydownHandler) {
+      document.removeEventListener(
+        'keydown',
+        this._sidebarResizeKeydownHandler,
+      );
+      this._sidebarResizeKeydownHandler = null;
+    }
   }
 
   /**
@@ -1042,6 +1101,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
 
     const startX = event.clientX;
     const startPercent = this.splitLeftPercent();
+    const originalPercent = startPercent;
     const container = (event.target as HTMLElement).parentElement;
     if (!container) return;
     const containerWidth = container.clientWidth;
@@ -1068,6 +1128,18 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         });
       };
 
+      const endDrag = (restore = false): void => {
+        this.cancelDragFrame();
+        if (restore) {
+          this.ngZone.run(() => {
+            this.splitLeftPercent.set(originalPercent);
+          });
+        } else {
+          applyLatest();
+        }
+        this.cleanupSplitResizeListeners();
+      };
+
       this._splitResizeMouseMove = (e: MouseEvent) => {
         latestEvent = e;
         if (this._dragFrame === null) {
@@ -1075,16 +1147,19 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
         }
       };
 
-      this._splitResizeMouseUp = () => {
-        // Cancel the pending frame and apply the final position synchronously,
-        // so coalescing can never drop the last update before release.
-        this.cancelDragFrame();
-        applyLatest();
-        this.cleanupSplitResizeListeners();
+      this._splitResizeMouseUp = () => endDrag(false);
+      this._splitResizeBlurHandler = () => endDrag(true);
+      this._splitResizeKeydownHandler = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          endDrag(true);
+        }
       };
 
       document.addEventListener('mousemove', this._splitResizeMouseMove);
       document.addEventListener('mouseup', this._splitResizeMouseUp);
+      window.addEventListener('blur', this._splitResizeBlurHandler);
+      document.addEventListener('keydown', this._splitResizeKeydownHandler);
     });
   }
 
@@ -1100,6 +1175,14 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     if (this._splitResizeMouseUp) {
       document.removeEventListener('mouseup', this._splitResizeMouseUp);
       this._splitResizeMouseUp = null;
+    }
+    if (this._splitResizeBlurHandler) {
+      window.removeEventListener('blur', this._splitResizeBlurHandler);
+      this._splitResizeBlurHandler = null;
+    }
+    if (this._splitResizeKeydownHandler) {
+      document.removeEventListener('keydown', this._splitResizeKeydownHandler);
+      this._splitResizeKeydownHandler = null;
     }
   }
 

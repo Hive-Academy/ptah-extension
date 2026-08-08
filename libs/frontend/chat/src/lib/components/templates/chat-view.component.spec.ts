@@ -142,6 +142,11 @@ function makeHarness(
      * it. Absent → token not provided (treated as always visible).
      */
     sessionVisible?: boolean;
+    /**
+     * When true, the component's own real `PanelResizeService` is used instead
+     * of the jest stub, so drag coalescing tests can read the live signal.
+     */
+    realPanelResize?: boolean;
   } = {},
 ) {
   const {
@@ -151,6 +156,7 @@ function makeHarness(
     useRealBanner = false,
     sessionContextTabId,
     sessionVisible,
+    realPanelResize = false,
   } = opts;
   const sessionVisibleSig =
     sessionVisible === undefined ? null : signal<boolean>(sessionVisible);
@@ -332,7 +338,12 @@ function makeHarness(
         useValue: compactionLifecycleStub,
       },
       { provide: AgentMonitorStore, useValue: agentMonitorStoreStub },
-      { provide: PanelResizeService, useValue: panelResizeStub },
+      {
+        provide: PanelResizeService,
+        useValue: realPanelResize
+          ? new PanelResizeService()
+          : (panelResizeStub as unknown as PanelResizeService),
+      },
       { provide: AppStateManager, useValue: appStateStub },
       { provide: ExecutionTreeBuilderService, useValue: treeBuilderStub },
       { provide: ConversationRegistry, useValue: conversationRegistryStub },
@@ -1074,5 +1085,247 @@ describe('ChatViewComponent — showBackgroundStrip() / traySessionId()', () => 
     expect(h.component.resolvedSessionId()).toBe(h.sessionId);
     expect(h.component.showBackgroundStrip()).toBe(true);
     expect(h.component.traySessionId()).toBe(h.sessionId);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// TASK_2026_176 — panel resize coalescing + blur/Escape teardown
+//
+// The pointer-move listener used to run inside the Angular zone and called
+// getBoundingClientRect() once per native pointer event, costing a change-
+// detection pass plus a forced synchronous layout each time. It now runs
+// outside the zone, records only the latest pointer event, and arms a single
+// requestAnimationFrame. The actual width write (and the template-bound
+// signal) only happens inside ngZone.run in the frame callback, so live visual
+// feedback is preserved while the per-event overhead is removed.
+// -----------------------------------------------------------------------------
+describe('ChatViewComponent — panel resize coalescing and teardown (TASK_2026_176)', () => {
+  let h: ReturnType<typeof makeHarness>;
+  let host: HTMLElement;
+  let handle: HTMLElement;
+  let setPointerCapture: jest.Mock;
+  let hasPointerCapture: jest.Mock;
+  let releasePointerCapture: jest.Mock;
+  let frames: Map<number, FrameRequestCallback>;
+  let nextFrameId: number;
+  let rafSpy: jest.SpyInstance;
+  let cafSpy: jest.SpyInstance;
+
+  function tickFrame(): void {
+    const pending = [...frames.values()];
+    frames.clear();
+    for (const cb of pending) cb(performance.now());
+  }
+
+  function pointerEvent(
+    type: string,
+    init: {
+      clientX?: number;
+      pointerId?: number;
+      button?: number;
+      bubbles?: boolean;
+      cancelable?: boolean;
+    } = {},
+  ): Event {
+    const event = new MouseEvent(type, {
+      bubbles: init.bubbles ?? true,
+      cancelable: init.cancelable ?? true,
+      clientX: init.clientX ?? 0,
+      button: init.button ?? 0,
+    });
+    Object.defineProperty(event, 'pointerId', {
+      value: init.pointerId ?? 0,
+      configurable: true,
+    });
+    return event;
+  }
+
+  function startDrag(clientX: number): void {
+    rafSpy.mockClear();
+    frames.clear();
+    const event = pointerEvent('pointerdown', {
+      button: 0,
+      clientX,
+      pointerId: 1,
+    });
+    Object.defineProperty(event, 'currentTarget', {
+      value: handle,
+      configurable: true,
+    });
+    h.component.onResizeStart(event as unknown as PointerEvent);
+  }
+
+  function moveTo(clientX: number): void {
+    handle.dispatchEvent(
+      pointerEvent('pointermove', { clientX, pointerId: 1 }),
+    );
+  }
+
+  function endDrag(): void {
+    handle.dispatchEvent(pointerEvent('pointerup', { pointerId: 1 }));
+  }
+
+  beforeEach(() => {
+    frames = new Map();
+    nextFrameId = 1;
+    rafSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        const id = nextFrameId++;
+        frames.set(id, cb);
+        return id;
+      });
+    cafSpy = jest
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((id: number) => {
+        frames.delete(id);
+      });
+
+    h = makeHarness({ realPanelResize: true });
+    host = h.fixture.nativeElement as HTMLElement;
+    Object.defineProperty(host, 'clientWidth', {
+      value: 1000,
+      configurable: true,
+    });
+    host.getBoundingClientRect = () => ({ right: 1000 }) as DOMRect;
+
+    handle = document.createElement('div');
+    host.appendChild(handle);
+    setPointerCapture = jest.fn();
+    hasPointerCapture = jest.fn().mockReturnValue(true);
+    releasePointerCapture = jest.fn();
+    Object.defineProperties(handle, {
+      setPointerCapture: { value: setPointerCapture, configurable: true },
+      hasPointerCapture: { value: hasPointerCapture, configurable: true },
+      releasePointerCapture: {
+        value: releasePointerCapture,
+        configurable: true,
+      },
+    });
+  });
+
+  afterEach(() => {
+    h.fixture.destroy();
+    rafSpy.mockRestore();
+    cafSpy.mockRestore();
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('coalesces pointermove to one setCustomWidth per frame and applies only the latest width', () => {
+    const service = h.component.panelResizeService;
+    service.setCustomWidth(400, 1000);
+    const spy = jest.spyOn(service, 'setCustomWidth');
+
+    startDrag(600);
+    moveTo(700); // width 300 → min 300
+    moveTo(600); // width 400 → 400
+    moveTo(500); // width 500 → 500
+
+    expect(rafSpy).toHaveBeenCalledTimes(1);
+    expect(spy).not.toHaveBeenCalled();
+
+    tickFrame();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(service.customWidth()).toBe(500);
+
+    moveTo(650); // width 350 → 350
+    moveTo(550); // width 450 → 450
+    expect(rafSpy).toHaveBeenCalledTimes(2);
+
+    tickFrame();
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(service.customWidth()).toBe(450);
+
+    endDrag();
+    spy.mockRestore();
+  });
+
+  it('cancels the pending frame on pointerup and still applies the release width', () => {
+    const service = h.component.panelResizeService;
+    service.setCustomWidth(400, 1000);
+    const spy = jest.spyOn(service, 'setCustomWidth');
+
+    startDrag(600);
+    moveTo(700); // width 300 → min 300
+    expect(frames.size).toBe(1);
+
+    endDrag();
+    expect(cafSpy).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(service.customWidth()).toBe(300);
+
+    moveTo(400);
+    expect(rafSpy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    spy.mockRestore();
+  });
+
+  it('preserves the 300px/600px panel clamp', () => {
+    const service = h.component.panelResizeService;
+    service.setCustomWidth(400, 1000);
+
+    startDrag(600);
+    moveTo(0); // width 1000 → max 600
+    tickFrame();
+    expect(service.customWidth()).toBe(600);
+
+    moveTo(950); // width 50 → min 300
+    tickFrame();
+    expect(service.customWidth()).toBe(300);
+
+    endDrag();
+  });
+
+  it('restores the original width and ends the drag on window blur', () => {
+    const service = h.component.panelResizeService;
+    service.setCustomWidth(400, 1000);
+
+    startDrag(600);
+    moveTo(500); // would become 500
+
+    window.dispatchEvent(new Event('blur'));
+
+    expect(cafSpy).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(service.customWidth()).toBe(400);
+    expect(service.dragging()).toBe(false);
+    expect(releasePointerCapture).toHaveBeenCalled();
+  });
+
+  it('restores the original width and ends the drag on Escape', () => {
+    const service = h.component.panelResizeService;
+    service.setCustomWidth(400, 1000);
+
+    startDrag(600);
+    moveTo(500);
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+
+    expect(frames.size).toBe(0);
+    expect(service.customWidth()).toBe(400);
+    expect(service.dragging()).toBe(false);
+  });
+
+  it('cancels a pending frame on destroy so no update lands after teardown', () => {
+    const service = h.component.panelResizeService;
+    service.setCustomWidth(400, 1000);
+    const spy = jest.spyOn(service, 'setCustomWidth');
+
+    startDrag(600);
+    moveTo(500);
+    expect(frames.size).toBe(1);
+
+    h.fixture.destroy();
+
+    expect(cafSpy).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(spy).not.toHaveBeenCalled();
+
+    spy.mockRestore();
   });
 });
