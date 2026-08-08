@@ -48,19 +48,31 @@ import { appendSortOrder } from '../common/sort-order';
  * this API is the control. Delete is soft, everywhere, and the only `delete`
  * verb in this file is the one Prisma does not have.
  *
- * 🔴 `Course`, `CourseModule` AND `Lesson` HAVE NO `deletedBy` COLUMN. Plan
- * §1.4 gives one only to `LessonComment` among the five course models — so
- * Task 9.9's instruction to soft-delete with "`deletedAt`/`deletedBy`" is not
- * implementable for three of the four soft-deletable models here, and adding
- * the column would need migration 4's slot. WHAT IS PRESERVED IS THE PROPERTY
- * THE INSTRUCTION EXISTS FOR (Batch 6C, D-6.13i): every delete method takes a
- * `deletedBy` and it is a REAL admin id or the request never reaches here —
- * 9C's `requireAdminUserId` refuses rather than substituting `'unknown'` —
- * and the actor is recorded on the audit row, which commits inside the SAME
- * transaction as the tombstone (PRE-6) and therefore cannot go missing for the
- * one deletion anybody will ever ask about. The value is also logged. What is
- * lost is only the ability to answer "who deleted this" by reading the row
- * alone; the audit trail answers it.
+ * ✅ `Course`, `CourseModule` AND `Lesson` NOW CARRY A `deletedBy` COLUMN —
+ * Batch 9B's F-1, CLOSED by migration 4 (`20260826090000_live_and_private_sessions`,
+ * Batch 12).
+ *
+ * This paragraph used to say the opposite, and the history matters because the
+ * gap it describes is the reason the audit posture below is built the way it
+ * is. Plan §1.4 gave a `deletedBy` only to `LessonComment` among the five
+ * course models, so Task 9.9's "soft-delete with `deletedAt`/`deletedBy`" was
+ * not implementable for three of the four soft-deletable models here. Batch 9B
+ * found it as a COMPILE ERROR (`TS2353: … 'deletedBy' does not exist in type
+ * 'CourseUpdateInput'`), which is the good outcome — a permissive input type
+ * would have written the column into nothing.
+ *
+ * 🔴 THE COLUMN CORROBORATES THE AUDIT ROW; IT DOES NOT REPLACE IT. Nothing
+ * about the posture below changes now that the column exists:
+ *   - every delete method still DEMANDS a real `deletedBy` — 9C's
+ *     `requireAdminUserId` refuses rather than substituting `'unknown'`, so the
+ *     value reaching here is a real admin id or the request never arrives;
+ *   - the audit row still commits inside the SAME transaction as the tombstone
+ *     (PRE-6), so the actor cannot go missing for the one deletion anybody will
+ *     ever ask about;
+ *   - the value is still logged.
+ * What the column adds is the ability to answer "who deleted this" by reading
+ * the row alone, without joining the audit log. That is what R8.5's restore
+ * trail actually wants, and it is what 9B's F-1 recommended.
  *
  * ⚠️ PRE-6 — EVERY MUTATION TAKES AN OPTIONAL {@link AuditHook} AND CALLS IT
  * WITH ITS OWN `tx`, FROM INSIDE ITS OWN `$transaction`. See the type's
@@ -359,14 +371,16 @@ export class CoursesService {
     await this.withMappedPrismaErrors(async () =>
       this.prisma.$transaction(async (tx) => {
         await this.requireLiveCourse(tx, id);
-        // ⚠️ `Course` HAS NO `deletedBy` COLUMN (plan §1.4 — only
-        // `LessonComment` carries one among the five course models). The actor
-        // is recorded on the audit row, which commits in THIS transaction, and
-        // the caller still had to produce a real id to get here (9C's
-        // `requireAdminUserId` refuses rather than writing a placeholder).
+        // `deletedBy` exists as of migration 4 (Batch 9B's F-1, closed by
+        // Batch 12). It is written HERE **and** carried on the audit row that
+        // commits in THIS transaction — the column answers "who deleted this"
+        // from the row alone; the audit row keeps answering it with the full
+        // request context. The caller still had to produce a real id to get
+        // here (9C's `requireAdminUserId` refuses rather than writing a
+        // placeholder), which is what keeps the column honest.
         await tx.course.update({
           where: { id },
-          data: { deletedAt: new Date() },
+          data: { deletedAt: new Date(), deletedBy },
         });
         await audit?.(tx, id);
       }),
@@ -510,10 +524,8 @@ export class CoursesService {
         await this.requireLiveModule(tx, id);
         await tx.courseModule.update({
           where: { id },
-          // `CourseModule` has no `deletedBy` column (plan §1.4) — only
-          // `Course` and `LessonComment` do. The actor is recorded in the audit
-          // row instead, which is why that row commits in this transaction.
-          data: { deletedAt: new Date() },
+          // `deletedBy` exists as of migration 4 — see `deleteCourse`.
+          data: { deletedAt: new Date(), deletedBy },
         });
         await audit?.(tx, id);
       }),
@@ -674,11 +686,10 @@ export class CoursesService {
     await this.withMappedPrismaErrors(async () =>
       this.prisma.$transaction(async (tx) => {
         await this.requireLiveLesson(tx, id);
-        // `Lesson` has no `deletedBy` column (plan §1.4); the actor is on the
-        // audit row, which commits in this same transaction.
+        // `deletedBy` exists as of migration 4 — see `deleteCourse`.
         await tx.lesson.update({
           where: { id },
-          data: { deletedAt: new Date() },
+          data: { deletedAt: new Date(), deletedBy },
         });
         await audit?.(tx, id);
       }),

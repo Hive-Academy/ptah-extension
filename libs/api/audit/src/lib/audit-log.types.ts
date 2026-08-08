@@ -113,7 +113,36 @@ export type AdminAuditAction =
   // The only admin action in this module that sends email. Audited separately
   // from `sessions.event.update` precisely so "who emailed this guest list, and
   // when" is answerable without reconstructing it from patch rows.
-  | 'sessions.event.invite';
+  | 'sessions.event.invite'
+  // TASK_2026_177 P4 — Ptah-scheduled live sessions (plan §1.5, R3, R8).
+  //
+  // ⚠️ NAMESPACED `community.*`, NOT `sessions.*`. The `sessions.event.*` block
+  // above describes writes to the founder's GOOGLE CALENDAR made through
+  // `AdminSessionsService`; these describe writes to the `live_sessions` TABLE.
+  // They are two different systems of record that happen to both be called
+  // "sessions", and a shared prefix would make "what did an admin change about
+  // sessions" unanswerable without inspecting `targetType` on every row.
+  | 'community.live_session.create'
+  | 'community.live_session.update'
+  | 'community.live_session.delete'
+  | 'community.live_session.restore'
+  // R3.2 — a MANUAL admin action for the same reason
+  // `learning.lesson.refresh_metadata` is one (RK-6): no refresh cron, because
+  // an automatic job reintroduces the YouTube quota surface the authoring-time
+  // fetch decision removed.
+  | 'community.live_session.refresh_metadata'
+  // TASK_2026_177 P4 — the private-session request lifecycle (R4, plan §3.5).
+  //
+  // ⚠️ THREE ACTIONS, AND NO `create`. A request is CREATED BY THE MEMBER
+  // through `v1/members/session-requests`, which is not an admin action and has
+  // no admin actor to record — `AdminAuditLog.actorEmail` would be null for
+  // every row and the ledger would be mostly member traffic. Only the three
+  // ADMIN decisions are audited, and each one either creates, patches or
+  // deletes a real Google Calendar event, which is exactly the class of action
+  // this log exists for.
+  | 'community.session_request.accept'
+  | 'community.session_request.reschedule'
+  | 'community.session_request.decline';
 
 /**
  * Target type enum — the kind of entity an audit row describes.
@@ -143,15 +172,30 @@ export type AdminAuditTargetType =
   //
   // ⚠️ THERE IS NO `LessonComment` HERE, AND THAT IS DELIBERATE. Lesson comments
   // are moderated by their AUTHOR or an admin through the MEMBER surface
-  // (`v1/members/lesson-comments`), which is not an admin audit path — and that
-  // model is the one course model that carries its own `deletedBy` column, so
-  // the row records its own actor. Adding a target type for it would imply an
-  // admin moderation surface that plan §3.4 does not ship.
+  // (`v1/members/lesson-comments`), which is not an admin audit path. Adding a
+  // target type for it would imply an admin moderation surface that plan §3.4
+  // does not ship.
+  //
+  // (This comment used to add "and it is the one course model carrying its own
+  // `deletedBy`". That stopped being true with migration 4, which gave the
+  // column to `Course`, `CourseModule` and `Lesson` as well — Batch 9B's F-1.
+  // The reason above never depended on it.)
   | 'Course'
   | 'CourseModule'
   | 'Lesson'
   | 'Pack'
-  | 'CalendarEvent';
+  | 'CalendarEvent'
+  // TASK_2026_177 P4 (plan §1.5, §3.5). PRISMA MODEL NAMES, like every other
+  // member of this union.
+  //
+  // ⚠️ `LiveSession` IS NOT `CalendarEvent`. `CalendarEvent` above targets a
+  // row in the founder's Google Calendar, addressed by a Google event id;
+  // `LiveSession` targets a row in OUR `live_sessions` table, addressed by its
+  // cuid. A `LiveSession` may CLAIM a calendar event (AD-3), which is precisely
+  // why the two need distinguishing — an audit row whose `targetId` could be
+  // either kind of id is not a lookup key.
+  | 'LiveSession'
+  | 'SessionRequest';
 
 /**
  * Input shape for `AuditLogService.write`.

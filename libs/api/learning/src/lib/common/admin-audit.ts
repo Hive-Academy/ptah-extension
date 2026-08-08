@@ -69,15 +69,28 @@ export function adminActor(req: Request): AdminActor {
  * The acting admin's USER ID, for the `deletedBy` argument every soft delete in
  * this lib takes.
  *
- * 🔴 REFUSES RATHER THAN WRITING A PLACEHOLDER, AND THAT IS LOAD-BEARING EVEN
- * THOUGH THREE OF THE FOUR MODELS HAVE NO COLUMN TO WRITE IT TO. Batch 9B's F-1
- * found that `Course`, `CourseModule` and `Lesson` carry no `deletedBy`, so the
- * value supplied here reaches a logger and the audit row rather than a column.
- * The refusal is what keeps that honest: `CoursesService.deleteCourse` still
- * DEMANDS a real actor id, so "who deleted this" can never be answered with a
- * substituted `'unknown'` — the request simply does not happen. Substituting a
- * placeholder here would silently manufacture the one fact the audit row exists
- * to carry.
+ * 🔴 REFUSES RATHER THAN WRITING A PLACEHOLDER. Substituting an `'unknown'`
+ * here would silently manufacture the one fact the audit row exists to carry.
+ * `CoursesService.deleteCourse` DEMANDS a real actor id, so "who deleted this"
+ * can never be answered with a placeholder — the request simply does not
+ * happen.
+ *
+ * ✅ AND THE VALUE NOW REACHES A COLUMN, NOT ONLY A LOG AND AN AUDIT ROW.
+ * Batch 9B's F-1 found that `Course`, `CourseModule` and `Lesson` carried no
+ * `deletedBy`, so this id had nowhere to land on three of the four
+ * soft-deletable models. **Migration 4 (`20260826090000_live_and_private_sessions`,
+ * Batch 12) added the column to all three**, and `CoursesService`'s three
+ * tombstone writes now include it.
+ *
+ * ⚠️ THAT CHANGES NOTHING ABOUT THIS FUNCTION OR ABOUT PRE-6. The audit row
+ * still commits inside the mutation's own transaction, because the column and
+ * the row answer different questions: the column says WHO, from the row alone;
+ * the audit row says who, from where, with what user agent, and in a sequence
+ * with every other admin action. An audit row written after the transaction
+ * commits is a row that can be missing for precisely the deletion somebody asks
+ * about — and that is still true now that there is a column to fall back on,
+ * because the column is written in the same statement that would be rolled
+ * back.
  *
  * `AdminGuard` runs after `JwtAuthGuard`, so `req.user.id` is present on every
  * route that reaches here and this branch is a wiring tripwire, exactly like

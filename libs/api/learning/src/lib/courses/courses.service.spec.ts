@@ -390,6 +390,45 @@ describe('soft delete — AD-5', () => {
     expect(prisma.course.deleteMany).not.toHaveBeenCalled();
   });
 
+  /**
+   * Batch 9B's F-1, closed by migration 4 (Batch 12).
+   *
+   * ⚠️ THIS ASSERTION EXISTS BECAUSE THE PREVIOUS ONE COULD NOT SEE THE BUG IT
+   * REPLACES. `deleteCourse` has always TAKEN a `deletedBy` and, until
+   * migration 4, had no column to write it to — so the actor was reachable only
+   * through the audit row. The test above reads only `data.deletedAt` and
+   * therefore passes identically whether or not the actor is persisted. This
+   * one pins the column, for all three models, so a future refactor that drops
+   * the field from a payload is a failing test rather than a silently
+   * unanswerable "who deleted this".
+   */
+  it('🔴 persists the acting admin on the tombstone of all three models (9B F-1)', async () => {
+    const { prisma, service } = wire();
+
+    prisma.course.findFirst.mockResolvedValue({ id: 'course-1' });
+    prisma.course.update.mockResolvedValue(
+      courseRow({ deletedAt: new Date() }),
+    );
+    await service.deleteCourse('course-1', ADMIN_ID);
+    expect(prisma.course.update.mock.calls[0]?.[0]?.data?.deletedBy).toBe(
+      ADMIN_ID,
+    );
+
+    prisma.courseModule.findFirst.mockResolvedValue({ id: 'module-1' });
+    prisma.courseModule.update.mockResolvedValue({ id: 'module-1' });
+    await service.deleteModule('module-1', ADMIN_ID);
+    expect(prisma.courseModule.update.mock.calls[0]?.[0]?.data?.deletedBy).toBe(
+      ADMIN_ID,
+    );
+
+    prisma.lesson.findFirst.mockResolvedValue({ id: 'lesson-1' });
+    prisma.lesson.update.mockResolvedValue({ id: 'lesson-1' });
+    await service.deleteLesson('lesson-1', ADMIN_ID);
+    expect(prisma.lesson.update.mock.calls[0]?.[0]?.data?.deletedBy).toBe(
+      ADMIN_ID,
+    );
+  });
+
   it('🔴 the tombstone removes it from member reads immediately', async () => {
     const shape: CourseShape = {
       visibility: 'member',

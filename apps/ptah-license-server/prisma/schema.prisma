@@ -254,12 +254,124 @@ model SessionRequest {
   paymentStatus       String    @default("none") @map("payment_status") // none | pending | completed
   paddleTransactionId String?   @map("paddle_transaction_id")
   scheduledAt         DateTime? @map("scheduled_at")
+
+  // ── TASK_2026_177 migration 4 — OQ-1 / AD-2 ────────────────────────────────
+  // Option (a): four nullable columns on this row, NOT a separate
+  // `ScheduledSession` child table. A 1:1-optional child adds a join to every
+  // read of a table that will hold a few hundred rows and expresses no
+  // invariant the unique column below does not — and R4.10 requires the
+  // payment fields above to stay here regardless, so splitting the scheduling
+  // half off would spread one row's lifecycle across two tables for no gain.
+  //
+  // ⚠️ EVERY FIELD ABOVE THIS BLOCK IS UNCHANGED (R4.10). `isFreeSession`,
+  // `paymentStatus` and `paddleTransactionId` keep their exact prior meanings;
+  // nothing in the Phase-4 scheduling path writes any of them.
+
+  /// R4.6 + AD-2. The Google Calendar event created when an admin ACCEPTS this
+  /// request.
+  ///
+  /// 🔴 `@unique` IS THE LOAD-BEARING PART OF AD-2, not a tidiness constraint.
+  /// It makes "two requests reconciled to one event" — the state R4.6 calls a
+  /// defect — UNREPRESENTABLE rather than merely unlikely. Reschedule and
+  /// decline locate the event BY THIS COLUMN, never by a fuzzy
+  /// (title, startsAt) match.
+  ///
+  /// Postgres treats multiple NULLs as distinct, so every `pending` request is
+  /// unconstrained and the index costs nothing until an accept happens.
+  calendarEventId     String?   @unique @map("calendar_event_id")
+  /// R4.1 + PRE-5. Resolved from the created event's `hangoutLink` /
+  /// `conferenceData` — NEVER from a Meet API, none of which is called and
+  /// none of which is built. An accept that creates an event but cannot
+  /// resolve this link fails `502 { reason: 'meet_link_unresolved' }` and
+  /// DELETES the orphan event, so a `scheduled` row with a null `meet_link` is
+  /// unreachable through the API.
+  meetLink            String?   @map("meet_link")
+  /// Admin-supplied at accept time. Persisted because `endsAt` must be
+  /// reconstructible on reschedule without re-reading Google.
+  durationMinutes     Int?      @map("duration_minutes")
+  /// R4.8. Admin-supplied reason on decline. MEMBER-VISIBLE by design — it is
+  /// on `MemberSessionRequest`, unlike every other column added here.
+  declineReason       String?   @map("decline_reason")
+
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
   @@index([userId])
-  @@index([status])
+  // TASK_2026_177 migration 4: was `@@index([status])`. R4.4's admin queue is
+  // `where status = 'pending' order by created_at asc` — the single-column
+  // index serves the filter and leaves the sort to a heap sort over every
+  // pending row. The composite serves both in one seek.
+  @@index([status, createdAt])
   @@map("session_requests")
+}
+
+/// R3 + OQ-3/AD-3 (TASK_2026_177, Phase 4). A scheduled or past Ptah live
+/// session.
+///
+/// ⚠️ BOTH LINKAGES ARE OPTIONAL AND THAT IS THE WHOLE DESIGN. A Ptah-scheduled
+/// stream has a `youtubeVideoId` and no `calendarEventId`; an existing Google
+/// Calendar cohort session that later gains a replay has a `calendarEventId`
+/// and a `replayYoutubeVideoId`. Rejected (option b): two entities merged only
+/// at read time with no linkage column — replays would have nowhere to attach
+/// for calendar-sourced sessions, and de-duplication would have to key on a
+/// fuzzy (title, startsAt) match.
+///
+/// ⚠️ NO `published` COLUMN, DELIBERATELY (ASSUMPTION-13). Unlike `Course`
+/// there is no draft posture: a session is visible the moment it exists, to
+/// whom `visibility` says. Adding one later is one column and one clause in
+/// `buildLiveSessionVisibilityWhere`.
+model LiveSession {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  startsAt    DateTime  @map("starts_at")
+  endsAt      DateTime? @map("ends_at")
+  /// 'member' | 'cohort' | 'staff' — the same three-branch rule as a forum
+  /// category and a course (ASSUMPTION-12).
+  visibility  String    @default("member")
+  /// AD-10: a `String[]`, not a join table. ANY-match via `hasSome`.
+  cohortKeys  String[]  @default([]) @map("cohort_keys")
+
+  /// R3.1: the scheduled unlisted stream.
+  youtubeVideoId         String?   @map("youtube_video_id")
+  /// R3.4: the recording. Often the same id as the stream; kept SEPARATE so a
+  /// re-uploaded recording does not overwrite the stream reference.
+  replayYoutubeVideoId   String?   @map("replay_youtube_video_id")
+  /// R3.2 + §4.5: fetched ONCE at authoring time through the SAME
+  /// `@ptah-api/youtube` provider the lessons path uses, and persisted.
+  /// Persistence IS the cache — a member read makes no YouTube request.
+  videoTitle             String?   @map("video_title")
+  videoDurationSeconds   Int?      @map("video_duration_seconds")
+  videoThumbnailUrl      String?   @map("video_thumbnail_url")
+  videoMetadataFetchedAt DateTime? @map("video_metadata_fetched_at")
+  /// 'api' | 'manual' — 'manual' is the feature-off path when YOUTUBE_API_KEY
+  /// is unset and an admin typed the metadata.
+  videoMetadataSource    String?   @map("video_metadata_source")
+
+  /// AD-3: claims an existing Google Calendar event, so a replay can attach to
+  /// it and the Live feed de-duplicates DETERMINISTICALLY rather than on a
+  /// fuzzy (title, startsAt) match.
+  ///
+  /// ⚠️ THE MERGE MATCHES THIS AGAINST BOTH `event.id` AND
+  /// `event.recurringEventId` (RISK-V). `listEvents` expands recurrences, so
+  /// members see INSTANCES whose ids differ from the master id stored here;
+  /// comparing only `id` would de-duplicate none of them and show every
+  /// occurrence twice.
+  calendarEventId String? @unique @map("calendar_event_id")
+
+  createdBy String?   @map("created_by")
+  deletedAt DateTime? @map("deleted_at")
+  /// ASSUMPTION-14 — the same column migration 4 adds to `Course`,
+  /// `CourseModule` and `Lesson` for Batch 9B's F-1. Authoring this model
+  /// without one would reproduce, in the very migration that closes that gap,
+  /// exactly the gap it closes.
+  deletedBy String?   @map("deleted_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  /// Serves the upcoming / live / replay split AND the hub's "next session".
+  @@index([startsAt])
+  @@map("live_sessions")
 }
 
 // TASK_2025_292: Append-only audit log for admin actions (user deletion, complimentary license issuance, marketing campaigns, bounce/complaint webhooks, unsubscribe/resubscribe).
@@ -558,6 +670,12 @@ model Course {
   sortOrder     Int       @default(0) @map("sort_order")
   createdBy     String?   @map("created_by")
   deletedAt     DateTime? @map("deleted_at")
+  /// TASK_2026_177 migration 4, closing Batch 9B's F-1. The admin `User.id`
+  /// that soft-deleted this row. Batch 9B's `CoursesService.deleteCourse`
+  /// already DEMANDED a real actor id and had nowhere to put it, so "who
+  /// deleted this" was answerable only from the audit row. It now lives on the
+  /// tombstone too, matching `Topic`, `Post` and `LessonComment`.
+  deletedBy     String?   @map("deleted_by")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
@@ -578,6 +696,8 @@ model CourseModule {
   /// R2.4.1: future date ⇒ locked, lessons return 403.
   releaseAt   DateTime? @map("release_at")
   deletedAt   DateTime? @map("deleted_at")
+  /// TASK_2026_177 migration 4 — see `Course.deletedBy` (Batch 9B's F-1).
+  deletedBy   String?   @map("deleted_by")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
@@ -625,6 +745,8 @@ model Lesson {
   videoMetadataSource    String?   @map("video_metadata_source")
 
   deletedAt DateTime? @map("deleted_at")
+  /// TASK_2026_177 migration 4 — see `Course.deletedBy` (Batch 9B's F-1).
+  deletedBy String?   @map("deleted_by")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
