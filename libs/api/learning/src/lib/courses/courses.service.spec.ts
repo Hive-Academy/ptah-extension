@@ -1,3 +1,4 @@
+import { Prisma } from '@ptah-api/core';
 import type { MemberContext } from '@ptah-api/membership';
 
 import {
@@ -775,9 +776,18 @@ describe('NFR-S7 — no Prisma error escapes raw', () => {
       ),
       { code: 'P2002', clientVersion: '7.7.0' },
     );
+    // 🔴 A STATIC IMPORT, NOT `require('@ptah-api/core')` — TASK_2026_177
+    // Batch 11's F-1, closed here. Nx classifies a `require()` of a workspace
+    // library as a LAZY LOAD, which then makes every STATIC `import` of that
+    // same library elsewhere in the lib illegal under
+    // `@nx/enforce-module-boundaries`. One `require` on this line produced
+    // TWELVE lint errors across `learning.module.ts`, `reorder.service.ts`,
+    // `lesson-video.service.ts` and `progress.service.ts` — files that had done
+    // nothing wrong. `api-learning:eslint:lint` has been red at HEAD since
+    // Batch 9B because of it.
     Object.setPrototypeOf(
       p2002,
-      require('@ptah-api/core').Prisma.PrismaClientKnownRequestError.prototype,
+      Prisma.PrismaClientKnownRequestError.prototype as object,
     );
     prisma.course.create.mockRejectedValue(p2002);
 
