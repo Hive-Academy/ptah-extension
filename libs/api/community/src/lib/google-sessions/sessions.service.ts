@@ -4,11 +4,17 @@ import { AuditLogService } from '@ptah-api/audit';
 import { EmailService } from '@ptah-api/email';
 import { MemberGroupsService } from '../member-groups/member-groups.service';
 import { GoogleCalendarProvider } from './google-calendar.provider';
-import { extractEventItems, toBuildersSession } from './google-event.mapper';
+import {
+  extractEventItems,
+  toBuildersSession,
+  toCalendarFeedEvent,
+} from './google-event.mapper';
 import type {
   BuildersSession,
+  CalendarFeedEvent,
   GoogleCalendarEvent,
   SessionAttendeeResult,
+  UpcomingCalendarFeedResult,
   UpcomingSessionsResult,
 } from './google-sessions.types';
 
@@ -170,6 +176,70 @@ export class SessionsService {
    * than widening this one — admins see every cohort's sessions, deliberately.
    */
   async readUpcomingSessions(userId: string): Promise<UpcomingSessionsResult> {
+    const result = await this.readVisibleEvents(userId);
+    if (!result.ok) {
+      return { ok: false, reason: result.reason };
+    }
+    return {
+      ok: true,
+      sessions: result.events
+        .map((event) => toBuildersSession(event))
+        .filter((session): session is BuildersSession => session !== null),
+    };
+  }
+
+  /**
+   * The same read, mapped to {@link CalendarFeedEvent} — the Phase-4 Live feed's
+   * half of AD-3's merge (TASK_2026_177, R3.3, RISK-V).
+   *
+   * 🔴 IT DIFFERS FROM {@link readUpcomingSessions} IN EXACTLY ONE FIELD, AND
+   * THAT FIELD IS THE REASON IT EXISTS. `recurringEventId` is what lets
+   * `LiveFeedService` de-duplicate a `LiveSession` that claims a MASTER series
+   * against the INSTANCES `listEvents` expands. Comparing only `id` would
+   * de-duplicate zero of them.
+   *
+   * ⚠️ BOTH METHODS ARE THIN VIEWS OVER ONE PRIVATE READ. Written as a second
+   * copy of the window, the cancelled-event filter and the cohort scoping, the
+   * two would drift — and the drift would be invisible, because each has its own
+   * green test. `readVisibleEvents` is the single implementation; these two
+   * differ only in their mapper, which is the whole of the difference between
+   * them.
+   *
+   * ⚠️ THE EXTRA FIELD NEVER REACHES THE WIRE. `GET /v1/members/sessions` calls
+   * the OTHER method, whose mapper produces a `BuildersSession` with no such
+   * key, so that response is byte-identical to before this method existed.
+   */
+  async readUpcomingCalendarFeed(
+    userId: string,
+  ): Promise<UpcomingCalendarFeedResult> {
+    const result = await this.readVisibleEvents(userId);
+    if (!result.ok) {
+      return { ok: false, reason: result.reason };
+    }
+    return {
+      ok: true,
+      events: result.events
+        .map((event) => toCalendarFeedEvent(event))
+        .filter((event): event is CalendarFeedEvent => event !== null),
+    };
+  }
+
+  /**
+   * The ONE Calendar read behind both public list methods: the
+   * {@link LOOKAHEAD_DAYS} window, cancelled events dropped, cohort scoping
+   * applied — and NO mapping, so each caller applies its own.
+   *
+   * Still NON-THROWING. A failed Calendar call is a value, not an exception, so
+   * the Paddle fan-out, the hub composer and the Live feed keep the best-effort
+   * posture every other path here has. The upstream status and message are
+   * logged and dropped — NFR-S7.
+   */
+  private async readVisibleEvents(
+    userId: string,
+  ): Promise<
+    | { ok: true; events: GoogleCalendarEvent[] }
+    | { ok: false; reason: 'disabled' | 'fetch_failed' }
+  > {
     if (!this.isEnabledOrLogOnce()) {
       return { ok: false, reason: 'disabled' };
     }
@@ -192,13 +262,7 @@ export class SessionsService {
     const items = extractEventItems(result.json).filter(
       (event) => event.status !== 'cancelled',
     );
-    const visible = await this.scopeToCohort(items, userId);
-    return {
-      ok: true,
-      sessions: visible
-        .map((event) => toBuildersSession(event))
-        .filter((session): session is BuildersSession => session !== null),
-    };
+    return { ok: true, events: await this.scopeToCohort(items, userId) };
   }
 
   /**

@@ -1,6 +1,7 @@
 import type {
   AdminSession,
   BuildersSession,
+  CalendarFeedEvent,
   GoogleCalendarEvent,
   SessionAttendee,
 } from './google-sessions.types';
@@ -67,6 +68,32 @@ export function toBuildersSession(
     meetLink: resolveMeetLink(event),
     recurring: Boolean(event.recurringEventId || event.recurrence),
   };
+}
+
+/**
+ * Map a raw Google Calendar event to the PHASE-4 LIVE FEED shape — the member
+ * contract plus the master series id — or null when it lacks the minimum
+ * fields.
+ *
+ * 🔴 `recurringEventId` IS THE WHOLE POINT (TASK_2026_177, RISK-V, AD-3).
+ * `toBuildersSession` deliberately reduces it to a `recurring: boolean`, which
+ * is all a member card needs and is NOT enough to de-duplicate against a
+ * `LiveSession.calendarEventId` holding a MASTER id: `listEvents` expands
+ * recurrences, so the instances a member sees carry ids the admin never typed.
+ * A merge comparing only `id` would de-duplicate none of them and show every
+ * occurrence of a claimed series twice.
+ *
+ * Built on {@link toBuildersSession} so the shared fields can never drift
+ * between the member feed and the sessions endpoint.
+ */
+export function toCalendarFeedEvent(
+  event: GoogleCalendarEvent,
+): CalendarFeedEvent | null {
+  const base = toBuildersSession(event);
+  if (!base) {
+    return null;
+  }
+  return { ...base, recurringEventId: event.recurringEventId ?? null };
 }
 
 /**

@@ -57,6 +57,50 @@ export type UpcomingSessionsResult =
   | { ok: false; reason: 'disabled' | 'fetch_failed' };
 
 /**
+ * A Calendar event as the PHASE-4 LIVE FEED needs it — {@link BuildersSession}
+ * plus the one field AD-3's de-duplication cannot work without.
+ *
+ * 🔴 WHY THIS TYPE EXISTS AT ALL (TASK_2026_177, RISK-V). `listEvents` requests
+ * `singleEvents=true`, so Google EXPANDS recurrences and members see INSTANCES
+ * whose ids are NOT the master series id. `LiveSession.calendarEventId` (AD-3)
+ * normally holds the MASTER id — that is what an admin copies out of Google
+ * Calendar. So a merge that compares only `event.id` de-duplicates ZERO
+ * instances of a claimed series, and every occurrence appears twice in the feed:
+ * once as the claiming `LiveSession` and once as an unclaimed calendar event.
+ * `scopeToCohort` already documents exactly this trap for cohort scoping, and
+ * matches both fields for exactly this reason.
+ *
+ * ⚠️ IT IS A SEPARATE TYPE RATHER THAN A FIELD ON `BuildersSession`, and the
+ * reason is the same one `AdminSession`'s docblock gives. `BuildersSession` is
+ * the MEMBER contract for `GET /api/v1/members/sessions`; widening it would put
+ * an internal Google series id on a shipped member-facing response as a side
+ * effect of an internal merge. {@link SessionsService.readUpcomingSessions}
+ * keeps returning `BuildersSession` and is byte-identical to before.
+ *
+ * ⚠️ AND IT NEVER REACHES THE WIRE EITHER. `LiveFeedService` folds these into
+ * `LiveFeedItem`, which has no `recurringEventId`. The field exists to be
+ * COMPARED, not to be served.
+ */
+export interface CalendarFeedEvent extends BuildersSession {
+  /**
+   * The MASTER series id when this event is an expanded instance; `null` for a
+   * one-off event, and `null` when the event IS the master.
+   */
+  recurringEventId: string | null;
+}
+
+/**
+ * {@link UpcomingSessionsResult}, carrying {@link CalendarFeedEvent}s.
+ *
+ * Same two non-answers, for the same reason: `'disabled'` and `'fetch_failed'`
+ * are both "we could not look", and the Live feed maps both to
+ * `calendarAvailable: false` (R3.6) while still rendering its Ptah-sourced half.
+ */
+export type UpcomingCalendarFeedResult =
+  | { ok: true; events: CalendarFeedEvent[] }
+  | { ok: false; reason: 'disabled' | 'fetch_failed' };
+
+/**
  * A session as returned by the ADMIN surface (`/api/v1/admin/sessions`).
  *
  * Identical to {@link BuildersSession} plus `description`, which the admin edit
