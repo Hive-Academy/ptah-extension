@@ -30,12 +30,12 @@
  *
  * ## Usage
  *
- *   npm run test:native                      # both native-backed projects
+ *   npm run test:native                      # every project whose suite self-skips
  *   npm run test:native -- persistence-sqlite
- *   npm run test:native -- task-specs -t 'rowToSummary'
+ *   npm run test:native -- ptah-electron -t 'wizard-seed'
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,13 +46,25 @@ const repoRoot = path.resolve(
   '..',
 );
 
-/** The projects whose suites self-skip when the native addon will not load. */
-const DEFAULT_PROJECTS = ['persistence-sqlite', 'task-specs'];
+const NATIVE_ABI_PROJECTS = JSON.parse(
+  readFileSync(
+    path.join(repoRoot, 'scripts', 'native-abi-projects.json'),
+    'utf8',
+  ),
+);
 
 const args = process.argv.slice(2);
 const requested = args.filter((arg) => !arg.startsWith('-'));
 const jestArgs = args.filter((arg) => arg.startsWith('-'));
-const projects = requested.length > 0 ? requested : DEFAULT_PROJECTS;
+const projects = requested.length > 0 ? requested : NATIVE_ABI_PROJECTS;
+
+function resolveJestConfig(project) {
+  const candidates = [
+    path.join(repoRoot, 'libs', 'backend', project, 'jest.config.ts'),
+    path.join(repoRoot, 'apps', project, 'jest.config.ts'),
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
 
 /** `electron`'s main export is the absolute path to its executable. */
 const electronPath = require('electron');
@@ -73,23 +85,35 @@ if (!existsSync(jestBin)) {
 let exitCode = 0;
 
 for (const project of projects) {
-  const config = path.join(
-    repoRoot,
-    'libs',
-    'backend',
-    project,
-    'jest.config.ts',
-  );
-  if (!existsSync(config)) {
-    console.error(`[test:native] no jest config for '${project}' at ${config}`);
+  const config = resolveJestConfig(project);
+  if (!config) {
+    console.error(`[test:native] no jest config for '${project}'`);
     exitCode = 1;
     continue;
   }
 
   console.log(`\n[test:native] ${project} — electron-as-node (ABI-matched)`);
+
+  const cacheDir = path.join(
+    repoRoot,
+    'node_modules',
+    '.cache',
+    'test-native',
+    project,
+  );
+  rmSync(cacheDir, { recursive: true, force: true });
+  mkdirSync(cacheDir, { recursive: true });
+
   const result = spawnSync(
     electronPath,
-    [jestBin, '--config', config, ...jestArgs],
+    [
+      jestBin,
+      '--config',
+      config,
+      '--cacheDirectory',
+      cacheDir,
+      ...jestArgs,
+    ],
     {
       stdio: 'inherit',
       cwd: repoRoot,
