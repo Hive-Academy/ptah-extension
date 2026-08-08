@@ -117,9 +117,19 @@ export {
 } from './lib/member/member-lesson-comment.contract';
 export {
   HUB_SESSION_KINDS,
+  LIVE_SOURCES,
+  LIVE_STATES,
+  isLiveSource,
+  isLiveState,
   hubSessionSummarySchema,
+  liveFeedItemSchema,
+  memberLiveResponseSchema,
   type HubSessionKind,
   type HubSessionSummary,
+  type LiveFeedItem,
+  type LiveSource,
+  type LiveState,
+  type MemberLiveResponse,
 } from './lib/member/member-live.contract';
 export {
   memberPackSchema,
@@ -139,6 +149,7 @@ export {
 /* --- admin contracts ------------------------------------------------------ */
 export type { AdminPack } from './lib/admin/admin-pack.contract';
 export type { AdminSessionRequest } from './lib/admin/admin-session-request.contract';
+export type { AdminLiveSession } from './lib/admin/admin-live.contract';
 export type {
   AdminCategory,
   AdminTopicSummary,
