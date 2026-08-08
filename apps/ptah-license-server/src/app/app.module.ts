@@ -23,6 +23,11 @@ import { ForumModule } from '@ptah-api/forum';
 import { LearningModule } from '@ptah-api/learning';
 import { CircleModule } from '@ptah-api/community';
 import { GoogleSessionsModule } from '@ptah-api/community';
+// TASK_2026_177 Phase 4. Registered in the same region as ForumModule and
+// LearningModule: a feature module the hub composes, imported explicitly rather
+// than made @Global(). Its private-session half rides GoogleSessionsModule above
+// (AD-6) and needs no separate registration.
+import { LiveSessionsModule } from '@ptah-api/community';
 import { MemberGroupsModule } from '@ptah-api/community';
 import { PacksModule } from '@ptah-api/community';
 
@@ -132,6 +137,26 @@ import { PacksModule } from '@ptah-api/community';
     // ⚠️ NotificationsModule is not wired here either — Batch 14 (RISK-L). See
     // LearningModule's docblock for why the omission is a decision.
     LearningModule,
+
+    // TASK_2026_177 Phase 4 — the Ptah-authored live schedule and the AD-3
+    // merged member feed (`v1/members/live`, `v1/admin/live-sessions`).
+    //
+    // ⚠️ IT IMPORTS `YoutubeModule` ITSELF, for the reason stated above
+    // LearningModule: one registration, one provider instance, one
+    // `loggedDisabled` flag.
+    //
+    // ⚠️ IT DOES NOT IMPORT `GoogleSessionsModule`, although `LiveFeedService`
+    // reads `SessionsService`. That module is `@Global()` and exports it, and
+    // the injection is `@Optional()` — so an unregistered Google integration
+    // degrades `calendarAvailable` to `false` (R3.6) rather than failing this
+    // module's construction and taking the whole live surface with it.
+    //
+    // ⚠️ THE PRIVATE-SESSION HALF OF PHASE 4 IS NOT A SEPARATE ENTRY. R4 extends
+    // `SessionRequest` and the Calendar write path, so its service and its two
+    // controllers ride `GoogleSessionsModule` above (AD-6).
+    //
+    // ⚠️ NotificationsModule is not wired here either — Batch 14 (RISK-L).
+    LiveSessionsModule,
 
     LicenseModule,
     AuthModule,

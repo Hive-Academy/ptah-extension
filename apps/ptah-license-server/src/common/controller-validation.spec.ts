@@ -179,6 +179,33 @@ const EXCLUDED: ReadonlyArray<{
  * property is intact — a DELETION is the one thing that legitimately lowers it,
  * and it must be justified in this docblock, as above, every time.
  *
+ * Re-derived 2026-08-08 at **76** (70 whole-object + 6 named-primitive) after
+ * TASK_2026_177 P4 added the four live/private-session controllers. The 67 → 76
+ * rise decomposes exactly:
+ *
+ *   live-sessions/MemberLiveController            1   (1 @Query)
+ *   google-sessions/MemberSessionRequestsController 1 (1 @Body)
+ *   live-sessions/AdminLiveSessionsController     3   (1 @Query + 2 @Body)
+ *   google-sessions/AdminSessionRequestsController 4  (1 @Query + 3 @Body)
+ *                                                ---
+ *                                                  9   61 +  9 = 70 whole-object
+ *                                                      70 +  6 = 76 total
+ *
+ * ⚠️ TWO OF THE NINE ARE `@Query()`, AND BOTH ARE WHOLE-OBJECT DTOs — WHICH IS
+ * THE LOAD-BEARING HALF. `NAMED_PRIMITIVE_PARAM_COUNT` is UNCHANGED at 6, and it
+ * is an exact-equality assertion (RISK-I): a single `@Query('status') status:
+ * string` on the admin queue, or `@Query('page') page: string` on the replay
+ * archive, would make the total read 76 against a named count of 7 and the
+ * arithmetic here would not close. They are `ListSessionRequestsQueryDto`,
+ * `ListLiveQueryDto` and `ListAdminLiveQueryDto`, each with `@Type(() => Number)`
+ * on its numeric fields so `dtoPipe`'s `transform: true` has a target.
+ *
+ * ⚠️ `POST v1/admin/live-sessions/:id/refresh-metadata` CONTRIBUTES ZERO, and
+ * that is correct rather than a gap: it takes NO BODY. The target is the path
+ * parameter and the video is resolved from the row, so there is nothing for a
+ * DTO to validate — which is also why P4 lands nine DTO files rather than the
+ * ten `tasks.md` predicts.
+ *
  * ⚠️ LEAVING IT AT 37 WOULD HAVE BEEN THE REAL FAILURE. The assertion is
  * `>= MIN`, so a stale floor does not fail — it silently stops covering the
  * surface it was written for. At 37 against an actual 51, fourteen params could
@@ -194,7 +221,7 @@ const EXCLUDED: ReadonlyArray<{
  * (`Expected: >= 9999 / Received: 67`), then restore it to that number and write
  * the per-controller breakdown here so the arithmetic closes.
  */
-const MIN_TOTAL_PAYLOAD_PARAMS = 67;
+const MIN_TOTAL_PAYLOAD_PARAMS = 76;
 
 /**
  * Named-primitive params — `@Query('code') code: string` — bind a STRING, not a

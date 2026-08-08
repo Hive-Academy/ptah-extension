@@ -241,6 +241,14 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * (64 + 26). **117** since TASK_2026_177 Batch 9 added the 27 course-curriculum
  * routes (`libs/api/learning`) listed second below (90 + 27): 5 member course +
  * 4 member lesson-comment + 8 admin course + 4 admin module + 6 admin lesson.
+ * **132** since TASK_2026_177 Batch 12 added the 15 live/private-session routes
+ * listed third below (117 + 15): 1 member live + 3 member session-request +
+ * 7 admin live-session + 4 admin session-request.
+ *
+ * ⚠️ THE PROSE TOTAL IS RE-DERIVED IN EVERY BATCH THAT MOVES IT, and the note
+ * above about it having read 68 against an actual 64 is why: this number is the
+ * one thing in the file no assertion keeps honest, and the list — not the
+ * number — is the artefact.
  * Cross-checked against the running container's
  * `RouterExplorer` log
  * (`docker logs ptah_license_server | grep -oE 'Mapped \{[^}]*\}' | sort -u`),
@@ -356,6 +364,50 @@ const EXPECTED_ROUTES: readonly string[] = [
   'PUT v1/members/courses/:slug/lessons/:lessonSlug/completion',
   'PUT v1/members/courses/:slug/lessons/:lessonSlug/progress',
   'PUT v1/members/lesson-comments/:id/answered',
+  // ── TASK_2026_177 P4, live + private sessions: 15 routes ─────────────────
+  // 11 admin across TWO controllers at two disjoint literal depth-3 prefixes
+  // (7 + 4), and 4 member across two more (1 + 3).
+  //
+  // 🔴 `v1/admin/live-sessions` AND `v1/admin/session-requests` ARE SIBLINGS OF
+  // `v1/admin/sessions`, NOT CHILDREN OF IT. The nested forms
+  // `v1/admin/sessions/live` and `v1/admin/sessions/requests` WOULD be proper
+  // segment-wise path prefixes of the existing `v1/admin/sessions` controller
+  // and RI-1 below rejects them — the same shape (RISK-J) that forced Batch 6's
+  // three-controller split and Batch 9's hyphenated `v1/admin/course-modules`.
+  // That `v1/admin/sessions` is a *string* prefix of neither is irrelevant in
+  // both directions: RI-1 compares parsed SEGMENTS, and segment 3 differs.
+  // `PREFIX_EXCEPTIONS` and `KNOWN_PREFIX_DEBT` are untouched by this batch.
+  //
+  // ⚠️ NO NEW RI-3 PAIR. Nothing here unifies with anything: the three
+  // `POST v1/admin/session-requests/:id/<verb>` routes share a segment count but
+  // differ in the LITERAL at segment 5, and
+  // `POST v1/admin/live-sessions/:id/restore` and
+  // `POST v1/admin/live-sessions/:id/refresh-metadata` do the same. No concrete
+  // request can match two of them.
+  //
+  // ⚠️ AND THERE IS DELIBERATELY NO BULK `POST v1/admin/live-sessions/refresh-metadata`.
+  // The lessons surface has one; a batch refresh is the shape that grows into a
+  // cron, and the authoring-time fetch exists precisely so there is no cron
+  // (RK-6).
+  'DELETE v1/admin/live-sessions/:id',
+  'GET v1/admin/live-sessions',
+  'GET v1/admin/live-sessions/:id',
+  'GET v1/admin/session-requests',
+  'PATCH v1/admin/live-sessions/:id',
+  'POST v1/admin/live-sessions',
+  'POST v1/admin/live-sessions/:id/refresh-metadata',
+  'POST v1/admin/live-sessions/:id/restore',
+  'POST v1/admin/session-requests/:id/accept',
+  'POST v1/admin/session-requests/:id/decline',
+  'POST v1/admin/session-requests/:id/reschedule',
+  // 🔴 `v1/members/live` AND `v1/members/session-requests` vs the existing
+  // `v1/members/sessions`: segment 3 differs in every pair, and neither new
+  // prefix is even a *string* prefix of the old one. `v1/members/sessions/live`
+  // would have nested and reproduced RISK-J.
+  'DELETE v1/members/session-requests/:id',
+  'GET v1/members/live',
+  'GET v1/members/session-requests',
+  'POST v1/members/session-requests',
   // ── everything that existed before ──────────────────────────────────────
   'DELETE v1/admin/groups/:id/members/:userId',
   'DELETE v1/admin/packs/:id',

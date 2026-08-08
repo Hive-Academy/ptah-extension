@@ -12,6 +12,10 @@ import { ContactController } from '@ptah-api/marketing';
 import { EventsController } from '@ptah-api/licensing';
 import { AdminSessionsController } from '@ptah-api/community';
 import { MembersController } from '@ptah-api/community';
+import { AdminLiveSessionsController } from '@ptah-api/community';
+import { AdminSessionRequestsController } from '@ptah-api/community';
+import { MemberLiveController } from '@ptah-api/community';
+import { MemberSessionRequestsController } from '@ptah-api/community';
 import { MemberEntitlementController } from '@ptah-api/member-hub';
 import { MemberHubController } from '@ptah-api/member-hub';
 import { AdminCommunityCategoriesController } from '@ptah-api/forum';
@@ -50,7 +54,8 @@ import { WaitlistController } from '@ptah-api/marketing';
  * ⚠️ WHY THIS IS A MODULE AND NOT A CONST IN ONE SPEC.
  * Both specs need the identical list — 21 entries when this file was written,
  * 24 after TASK_2026_177 P1d, 29 since P2 added `libs/api/forum`, 34 since P3
- * added `libs/api/learning`. Duplicating
+ * added `libs/api/learning`, 38 since P4 added the live and private session
+ * surfaces to `libs/api/community`. Duplicating
  * it would create exactly the drift both specs exist to prevent: a controller
  * added to one list and not the other is enforced by one guard and invisible to
  * the other, with nothing failing. One list, two importers.
@@ -346,6 +351,48 @@ export const ALL_CONTROLLERS: readonly ControllerRegistryEntry[] = [
     label: 'google-sessions/MembersController',
     file: 'libs/api/community/src/lib/google-sessions/members.controller.ts',
     controller: MembersController,
+  },
+  // TASK_2026_177 P4 — live sessions and private-session requests. FOUR
+  // controllers at four disjoint LITERAL depth-3 prefixes, in ONE lib
+  // (`libs/api/community`) but TWO Nest modules: `LiveSessionsModule` owns the
+  // two `live` surfaces, and `GoogleSessionsModule` absorbs the two
+  // `session-request` ones because R4 extends `SessionRequest` and the Calendar
+  // write path it already owns (AD-6).
+  //
+  // 🔴 `v1/admin/live-sessions` AND `v1/admin/session-requests` ARE SIBLINGS OF
+  // THE EXISTING `v1/admin/sessions`, NOT CHILDREN OF IT. The nested forms
+  // `v1/admin/sessions/{live,requests}` would be proper SEGMENT-WISE path
+  // prefixes of it, which RI-1 rejects — the same shape (RISK-J) that forced the
+  // forum's moderation surface into three controllers in Batch 6 and made
+  // `v1/admin/course-modules` a hyphenated sibling in Batch 9. The same holds on
+  // the member side for `v1/members/{live,session-requests}` against
+  // `v1/members/sessions`.
+  //
+  // Two member controllers, deliberately NOT one class: `v1/members/live` is a
+  // READ of a schedule anyone entitled may see, `v1/members/session-requests` is
+  // a member's OWN correspondence with the founder. Merging them would hang R4.3's
+  // own-only rule off the same prefix as a public feed, and the two would then
+  // contest nothing — but the class would have two reasons to change and one
+  // guard chain covering both.
+  {
+    label: 'google-sessions/AdminSessionRequestsController',
+    file: 'libs/api/community/src/lib/google-sessions/admin-session-requests.controller.ts',
+    controller: AdminSessionRequestsController,
+  },
+  {
+    label: 'google-sessions/MemberSessionRequestsController',
+    file: 'libs/api/community/src/lib/google-sessions/member-session-requests.controller.ts',
+    controller: MemberSessionRequestsController,
+  },
+  {
+    label: 'live-sessions/AdminLiveSessionsController',
+    file: 'libs/api/community/src/lib/live-sessions/admin-live-sessions.controller.ts',
+    controller: AdminLiveSessionsController,
+  },
+  {
+    label: 'live-sessions/MemberLiveController',
+    file: 'libs/api/community/src/lib/live-sessions/member-live.controller.ts',
+    controller: MemberLiveController,
   },
   {
     label: 'health/HealthController',
