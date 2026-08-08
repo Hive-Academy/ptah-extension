@@ -206,10 +206,8 @@ export interface TaskRelationGroupView {
             [attr.data-testid]="'task-relations-group-' + group.key"
           >
             <div class="flex items-baseline gap-1.5">
-              <span class="text-xs text-base-content/50">{{
-                group.label
-              }}</span>
-              <span class="text-[10px] text-base-content/40 tabular-nums">
+              <span class="text-xs text-base-content">{{ group.label }}</span>
+              <span class="text-[10px] text-base-content tabular-nums">
                 {{ group.entries.length }}
               </span>
             </div>
@@ -217,7 +215,7 @@ export interface TaskRelationGroupView {
                  only place that says which carrier owns the edge. It is
                  therefore held to the same 4.5:1 the chips are — 5.01:1 at its
                  worst across the four audited themes, at 12px. -->
-            <p class="text-xs leading-tight text-base-content/80">
+            <p class="text-xs leading-tight text-base-content">
               {{ group.note }}
             </p>
             <div class="flex flex-wrap items-center gap-1">
@@ -262,13 +260,13 @@ export interface TaskRelationGroupView {
         @if (editable()) {
           <div class="flex flex-col gap-1" data-testid="task-relations-add">
             <span
-              class="text-xs text-base-content/50"
+              class="text-xs text-base-content"
               id="task-relation-add-label"
             >
               Declare a relation
             </span>
             <div class="flex flex-wrap items-center gap-1">
-              <span class="text-xs text-base-content/60">This task</span>
+              <span class="text-xs text-base-content">This task</span>
               <select
                 class="select select-xs select-bordered"
                 aria-label="Relation kind"

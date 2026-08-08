@@ -50,7 +50,7 @@ module.exports = {
           // PRIMARY: Bright Blue (visible on dark surfaces)
           primary: '#2563eb',
           'primary-focus': '#1d4ed8',
-          'primary-content': '#e8e6e1',
+          'primary-content': '#f8f7f4',
 
           // SECONDARY: Pharaoh's Gold (unchanged - brand anchor)
           secondary: '#d4af37',
