@@ -4,6 +4,7 @@ import { PrismaModule } from '@ptah-api/core';
 import { ForumModule } from '@ptah-api/forum';
 import { IdentityModule } from '@ptah-api/identity';
 import { LearningModule } from '@ptah-api/learning';
+import { LiveSessionsModule } from '@ptah-api/community';
 import { CohortBadgesService } from './cohort-badges.service';
 import { MemberEntitlementController } from './member-entitlement.controller';
 import { MemberHubController } from './member-hub.controller';
@@ -90,6 +91,30 @@ import { SessionsSection } from './sections/sessions.section';
  * `@ptah-api/youtube`. The hub cannot author a course, evaluate a lock against a
  * hand-built tree, or issue a third-party request (NFR-P6);
  * `learning.module.spec.ts` asserts that surface by exact array equality.
+ *
+ * ⚠️ `LiveSessionsModule` (TASK_2026_177 P4) IS IMPORTED FOR ONE EXPORTED READ
+ * SERVICE — `LiveFeedService`, which `SessionsSection` folds into the hub's
+ * "what is next" card as `kind: 'live'` (R6.6).
+ *
+ * 🔴 THE IMPORT IS REQUIRED, NOT DECORATIVE, EVEN THOUGH THE INJECTION IS
+ * `@Optional()`. `LiveSessionsModule` is NOT `@Global()` — unlike
+ * `GoogleSessionsModule`, which is how `SessionsService` and
+ * `SessionRequestsService` reach the same section without an import. Without
+ * this line the `@Optional()` would resolve to `undefined` FOR EVER and the
+ * live source would be silently and permanently omitted from the card, with one
+ * `logger.warn` at first request and a perfectly plausible response. The
+ * `@Optional()` is there so a wiring mistake degrades one card instead of
+ * failing `/hub`; this import is what makes the card correct.
+ *
+ * ⚠️ AND IT DOES NOT WIDEN THE HUB'S REACH. `LiveSessionsModule` exports ONE
+ * READ service and nothing else — no `LiveSessionsService`, none of
+ * `live-sessions/common/`, and nothing that can reach `@ptah-api/youtube`. The
+ * hub cannot author or delete a live session, hand-build a visibility `where`,
+ * or issue a third-party request (NFR-P6); `live-sessions.module.spec.ts`
+ * asserts that surface.
+ *
+ * ⚠️ NO NEW LIB EDGE. `api-member-hub` already depends on `@ptah-api/community`
+ * for `SessionsService`; this is a second module out of the same package.
  */
 @Module({
   imports: [
@@ -98,6 +123,7 @@ import { SessionsSection } from './sections/sessions.section';
     IdentityModule,
     ForumModule,
     LearningModule,
+    LiveSessionsModule,
   ],
   controllers: [MemberHubController, MemberEntitlementController],
   providers: [
