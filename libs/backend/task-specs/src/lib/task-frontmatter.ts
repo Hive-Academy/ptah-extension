@@ -77,6 +77,32 @@ export type ParseTaskFileResult =
 const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/;
 
 /**
+ * Options handed to EVERY `matter()` call in this file, and the reason is not
+ * the option itself — it is that passing any options object at all defeats
+ * gray-matter's module-global cache. That cache makes the parser
+ * NON-DETERMINISTIC on a malformed file:
+ *
+ *   `index.js:36` takes the cache branch only `if (!options)`. On a cache MISS
+ *   it stores the file object BEFORE parsing, then throws out of the YAML
+ *   engine. The half-built entry survives with an empty `data`, so the SECOND
+ *   call on identical bytes returns `{}` instead of throwing — and
+ *   `parseTaskFile` falls past its `catch` and reports `invalid_status` for a
+ *   file whose real defect is `yaml_unparseable`.
+ *
+ * Observed live, not theorised: `TASK_2026_182`/`188`/`189` were reported
+ * `yaml_unparseable` by one `doctor plan()` and `invalid_status` by the next,
+ * four seconds later, in one process. The exclusions drawer shows that reason
+ * to a user, so a call-order-dependent diagnosis is a wrong answer, and the
+ * cache is also unbounded in a long-lived extension host.
+ *
+ * `language: 'yaml'` is gray-matter's own default, so this changes nothing
+ * about how the block is parsed. It is a typed, explicit way to say "no
+ * cache" — the runtime honours a literal `{ cache: false }` too, but that key
+ * is absent from the shipped `.d.ts`.
+ */
+const MATTER_OPTIONS = { language: 'yaml' } as const;
+
+/**
  * Strip a single leading UTF-8 BOM (U+FEFF) if present. A BOM at byte 0 is
  * common from Windows tooling (PowerShell `Out-File`, some editors) and would
  * otherwise defeat `FRONTMATTER_RE`'s `^---` anchor, silently excluding an
@@ -230,7 +256,7 @@ export function parseTaskFile(
   let data: Record<string, unknown>;
   let body: string;
   try {
-    const parsed = matter(normalized);
+    const parsed = matter(normalized, MATTER_OPTIONS);
     data = parsed.data as Record<string, unknown>;
     body = parsed.content;
   } catch {
@@ -527,7 +553,10 @@ export function updateFrontmatter(
 
   let existing: Record<string, unknown> = {};
   try {
-    existing = matter(source).data as Record<string, unknown>;
+    // Same global-cache hazard as `parseTaskFile` — see `MATTER_OPTIONS`. A
+    // cached empty `data` here would silently drop every existing frontmatter
+    // field that the patch does not itself set.
+    existing = matter(source, MATTER_OPTIONS).data as Record<string, unknown>;
   } catch {
     existing = {};
   }

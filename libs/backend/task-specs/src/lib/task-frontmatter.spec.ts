@@ -84,6 +84,44 @@ describe('parseTaskFile', () => {
       expect(result.excluded.reason).toBe('yaml_unparseable');
     });
 
+    /**
+     * D5 — the exclusion REASON must not depend on call order.
+     *
+     * gray-matter caches by input string and, on a YAML throw, leaves a
+     * half-built entry with an empty `data` behind. Without the options object
+     * that defeats that cache, this sequence reads
+     * `yaml_unparseable | invalid_status | invalid_status`: the same bytes
+     * diagnosed two different ways inside one process. That reason is shown to
+     * a user in the exclusions drawer, so the second answer is simply wrong.
+     *
+     * Reproduced live during the 2026-08-09 doctor run on `TASK_2026_182`,
+     * `188` and `189`.
+     */
+    it('reports the SAME reason on repeated parses of identical bytes', () => {
+      // A description written as a plain scalar containing a flow mapping —
+      // the exact shape that made three carriers vanish from the board.
+      const raw = [
+        '---',
+        'id: TASK_2026_188',
+        'status: backlog',
+        'title: x',
+        'description: a client sending {"field": null} to a dtoPipe endpoint',
+        '---',
+        'body',
+      ].join('\n');
+
+      const reasons = [0, 1, 2].map(() => {
+        const result = parseTaskFile('TASK_X', raw);
+        return result.kind === 'excluded' ? result.excluded.reason : 'task';
+      });
+
+      expect(reasons).toEqual([
+        'yaml_unparseable',
+        'yaml_unparseable',
+        'yaml_unparseable',
+      ]);
+    });
+
     it('excludes an invalid status', () => {
       const raw = '---\nstatus: wip\ntitle: x\n---\nbody';
       const result = parseTaskFile('TASK_X', raw);
