@@ -89,41 +89,107 @@ describe('TerminalRpcHandlers', () => {
     return { handlers, rpcHandler, workspace, ptyManager };
   }
 
+  // A shell that is allowlisted on the host running the suite, so the
+  // "reaches ptyManager.create" assertions are OS-independent.
+  const ALLOWED_SHELL = process.platform === 'win32' ? 'cmd.exe' : 'bash';
+
   describe('terminal:create', () => {
     it('uses the workspace root as cwd when no explicit cwd param is given', async () => {
+      // Was pinned with `shell: 'bash'`; a raw `'bash'` now fails the win32
+      // allowlist, so this assertion is decoupled from shell — it pins the
+      // wsRoot-default cwd with the host default shell (absent). (TASK_2026_174)
       const { rpcHandler, ptyManager } = buildHandlers(['/ws/root']);
       ptyManager.create.mockReturnValue({ id: 't1', pid: 111 });
 
       const raw = await rpcHandler.handleMessage({
         method: 'terminal:create',
-        params: { shell: 'bash', name: 'main' },
+        params: { name: 'main' },
         correlationId: 'c-create-wsroot',
       });
 
       expect(ptyManager.create).toHaveBeenCalledWith({
         cwd: '/ws/root',
-        shell: 'bash',
+        shell: undefined,
         name: 'main',
       });
       expect(raw.success).toBe(true);
       expect(raw.data).toEqual({ id: 't1', pid: 111 });
     });
 
-    it('prefers an explicit params.cwd over the workspace root', async () => {
+    it('prefers an explicit params.cwd contained in the workspace over the workspace root', async () => {
       const { rpcHandler, ptyManager } = buildHandlers(['/ws/root']);
       ptyManager.create.mockReturnValue({ id: 't2', pid: 222 });
 
       await rpcHandler.handleMessage({
         method: 'terminal:create',
-        params: { cwd: '/explicit', shell: 'bash' },
+        params: { cwd: '/ws/root/sub' },
         correlationId: 'c-create-explicit-cwd',
       });
 
       expect(ptyManager.create).toHaveBeenCalledWith({
-        cwd: '/explicit',
-        shell: 'bash',
+        cwd: '/ws/root/sub',
+        shell: undefined,
         name: undefined,
       });
+    });
+
+    it('rejects a cwd outside the workspace root and home, without calling ptyManager.create', async () => {
+      // Was pinned as "prefers /explicit"; /explicit is outside every workspace
+      // root and outside home, so P2 containment now rejects it. (TASK_2026_174)
+      const { rpcHandler, ptyManager } = buildHandlers(['/ws/root']);
+
+      const raw = await rpcHandler.handleMessage({
+        method: 'terminal:create',
+        params: { cwd: '/explicit' },
+        correlationId: 'c-create-cwd-outside',
+      });
+
+      expect(ptyManager.create).not.toHaveBeenCalled();
+      expect(raw.success).toBe(false);
+    });
+
+    it('rejects a shell outside the allowlist, without calling ptyManager.create', async () => {
+      const { rpcHandler, ptyManager } = buildHandlers(['/ws/root']);
+
+      const raw = await rpcHandler.handleMessage({
+        method: 'terminal:create',
+        params: { shell: 'rm' },
+        correlationId: 'c-create-shell-disallowed',
+      });
+
+      expect(ptyManager.create).not.toHaveBeenCalled();
+      expect(raw.success).toBe(false);
+    });
+
+    it('rejects a shell that supplies a path separator, without calling ptyManager.create', async () => {
+      const { rpcHandler, ptyManager } = buildHandlers(['/ws/root']);
+
+      const raw = await rpcHandler.handleMessage({
+        method: 'terminal:create',
+        params: { shell: '/tmp/evil/bash' },
+        correlationId: 'c-create-shell-path',
+      });
+
+      expect(ptyManager.create).not.toHaveBeenCalled();
+      expect(raw.success).toBe(false);
+    });
+
+    it('passes an allowlisted shell through to ptyManager.create', async () => {
+      const { rpcHandler, ptyManager } = buildHandlers(['/ws/root']);
+      ptyManager.create.mockReturnValue({ id: 't4', pid: 444 });
+
+      const raw = await rpcHandler.handleMessage({
+        method: 'terminal:create',
+        params: { shell: ALLOWED_SHELL },
+        correlationId: 'c-create-shell-allowed',
+      });
+
+      expect(ptyManager.create).toHaveBeenCalledWith({
+        cwd: '/ws/root',
+        shell: ALLOWED_SHELL,
+        name: undefined,
+      });
+      expect(raw.success).toBe(true);
     });
 
     it('CHARACTERIZATION: falls back to require("os").homedir() when there is no cwd param and no workspace root', async () => {

@@ -27,6 +27,12 @@ import type {
   TerminalKillResult,
 } from '@ptah-extension/shared';
 
+import { isAuthorizedTerminalCwd } from '../utils/workspace-authorization';
+import {
+  parseTerminalCreateParams,
+  parseTerminalKillParams,
+} from './terminal-rpc.schema';
+
 @injectable()
 export class TerminalRpcHandlers {
   static readonly METHODS = [
@@ -51,6 +57,13 @@ export class TerminalRpcHandlers {
   /**
    * terminal:create - Spawn a new PTY session.
    *
+   * Params are validated at the boundary via `terminal-rpc.schema.ts`: `shell`
+   * is narrowed to the platform allowlist (renderer-supplied executable reaches
+   * node-pty's spawn), and `cwd`, when explicitly supplied, is contained to an
+   * open workspace folder or the home directory. Both rejections surface as a
+   * structured RPC error (a fixed-message throw the transport catches), never a
+   * silent substitution.
+   *
    * Uses the workspace root as default cwd if no explicit cwd is provided.
    * Falls back to user home directory if no workspace is open.
    */
@@ -58,23 +71,37 @@ export class TerminalRpcHandlers {
     this.rpcHandler.registerMethod<TerminalCreateParams, TerminalCreateResult>(
       'terminal:create',
       async (params) => {
+        const parsed = parseTerminalCreateParams(params);
+        if (!parsed) {
+          throw new Error('terminal:create: invalid or disallowed parameters');
+        }
+
+        if (
+          parsed.cwd &&
+          !isAuthorizedTerminalCwd(parsed.cwd, this.workspace)
+        ) {
+          throw new Error(
+            'terminal:create: cwd outside workspace root and home',
+          );
+        }
+
         const wsRoot = this.workspace.getWorkspaceRoot();
-        const cwd = params?.cwd || wsRoot || homedir();
+        const cwd = parsed.cwd || wsRoot || homedir();
 
         this.logger.info('[TerminalRpc] Creating terminal session', {
           cwd,
-          shell: params?.shell,
-          name: params?.name,
+          shell: parsed.shell,
+          name: parsed.name,
         } as unknown as Error);
 
         try {
           const result = this.ptyManager.create({
             cwd,
-            shell: params?.shell,
-            name: params?.name,
+            shell: parsed.shell,
+            name: parsed.name,
           });
           return result;
-        } catch (error) {
+        } catch (error: unknown) {
           const message =
             error instanceof Error ? error.message : String(error);
           this.logger.error('[TerminalRpc] Failed to create terminal', {
@@ -93,15 +120,16 @@ export class TerminalRpcHandlers {
     this.rpcHandler.registerMethod<TerminalKillParams, TerminalKillResult>(
       'terminal:kill',
       async (params) => {
-        if (!params?.id) {
+        const parsed = parseTerminalKillParams(params);
+        if (!parsed) {
           return { success: false, error: 'id is required' };
         }
 
         this.logger.info('[TerminalRpc] Killing terminal session', {
-          id: params.id,
+          id: parsed.id,
         } as unknown as Error);
 
-        return this.ptyManager.kill(params.id);
+        return this.ptyManager.kill(parsed.id);
       },
     );
   }

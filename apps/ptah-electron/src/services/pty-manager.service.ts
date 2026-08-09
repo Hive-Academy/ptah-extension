@@ -17,6 +17,7 @@ import * as pty from 'node-pty';
 import { randomUUID } from 'crypto';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IPtyHost } from '@ptah-extension/platform-core';
+import { isAllowedShell } from '@ptah-extension/platform-core';
 
 const MAX_TOTAL_SESSIONS = 20;
 const MAX_SESSIONS_PER_WORKSPACE = 5;
@@ -66,6 +67,15 @@ export class PtyManagerService implements IPtyHost {
     id: string;
     pid: number;
   } {
+    // Defence in depth: re-validate the caller-SUPPLIED shell override before
+    // the sink, independent of the RPC-boundary check. `isAllowedShell(undefined)`
+    // is true, so an absent override (the common case) passes and defaults to
+    // the host shell below. The host default itself (COMSPEC / SHELL, a full
+    // path) is trusted and is deliberately NOT run through the allowlist.
+    if (!isAllowedShell(params.shell)) {
+      throw new Error('PtyManager: shell not permitted');
+    }
+
     if (this.sessions.size >= MAX_TOTAL_SESSIONS) {
       throw new Error(
         `Maximum total terminal sessions reached (${MAX_TOTAL_SESSIONS})`,
