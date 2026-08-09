@@ -107,7 +107,12 @@ export class TerminalRpcHandlers {
           this.logger.error('[TerminalRpc] Failed to create terminal', {
             error: message,
           } as unknown as Error);
-          throw new Error(message);
+          // Do not reflect the raw node-pty spawn failure (errno / offending
+          // path) back across the RPC boundary — it lets the renderer probe
+          // filesystem state. Log the real message host-side (above) for
+          // diagnostics, re-throw a fixed, non-reflecting message. Consistent
+          // with the two fixed-string rejections earlier in this handler.
+          throw new Error('terminal:create: failed to spawn terminal');
         }
       },
     );

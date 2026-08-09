@@ -207,10 +207,14 @@ describe('TerminalRpcHandlers', () => {
       );
     });
 
-    it('CHARACTERIZATION: re-throws (does not swallow) when ptyManager.create throws an Error', async () => {
+    it('re-throws a FIXED non-reflecting message (not the raw spawn error) when ptyManager.create throws an Error, but still logs the raw message host-side', async () => {
+      // F3 (TASK_2026_174): the raw node-pty spawn failure (errno / offending
+      // path) must NOT cross the RPC boundary — it would let the renderer probe
+      // filesystem state. The handler re-throws a fixed string but keeps the
+      // raw message in the host-side logger.error for diagnostics.
       const { rpcHandler, ptyManager } = buildHandlers(['/ws/root']);
       ptyManager.create.mockImplementation(() => {
-        throw new Error('spawn failed');
+        throw new Error('spawn failed: ENOENT /home/victim/secret-dir');
       });
 
       const raw = await rpcHandler.handleMessage({
@@ -223,14 +227,20 @@ describe('TerminalRpcHandlers', () => {
       // way production RpcHandler does, so the re-throw surfaces as a
       // failed response rather than an unhandled rejection.
       expect(raw.success).toBe(false);
-      expect(raw.error).toBe('spawn failed');
+      // Fixed message reaches the renderer — no errno / path reflected.
+      expect(raw.error).toBe('terminal:create: failed to spawn terminal');
+      expect(raw.error).not.toContain('ENOENT');
+      expect(raw.error).not.toContain('secret-dir');
+      // The raw diagnostic is retained host-side.
       expect(logger.error).toHaveBeenCalledWith(
         '[TerminalRpc] Failed to create terminal',
-        expect.objectContaining({ error: 'spawn failed' }),
+        expect.objectContaining({
+          error: 'spawn failed: ENOENT /home/victim/secret-dir',
+        }),
       );
     });
 
-    it('CHARACTERIZATION: stringifies a non-Error throw before re-throwing', async () => {
+    it('re-throws the same FIXED message on a non-Error throw, and logs the stringified raw value host-side', async () => {
       const { rpcHandler, ptyManager } = buildHandlers(['/ws/root']);
       ptyManager.create.mockImplementation(() => {
         throw 'boom';
@@ -243,7 +253,12 @@ describe('TerminalRpcHandlers', () => {
       });
 
       expect(raw.success).toBe(false);
-      expect(raw.error).toBe('boom');
+      expect(raw.error).toBe('terminal:create: failed to spawn terminal');
+      // Raw value still stringified into the host-side diagnostic.
+      expect(logger.error).toHaveBeenCalledWith(
+        '[TerminalRpc] Failed to create terminal',
+        expect.objectContaining({ error: 'boom' }),
+      );
     });
   });
 
