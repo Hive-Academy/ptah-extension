@@ -135,9 +135,9 @@ else
 
 ### NEW_TASK: Initialization
 
-1. **Allocate ID by folder scan**: `Glob(.ptah/specs/TASK_*)` - find the highest `NNN` for the current year, add 1, zero-pad to three digits. NEVER derive the ID from `registry.md` - the registry is generated output and can be stale.
-2. **Create Task Folder**: `mkdir .ptah/specs/TASK_[ID]`
-3. **Create Carrier FIRST**: `Write(.ptah/specs/TASK_[ID]/task.md)` - the frontmatter carrier (see the template in [task-tracking.md](references/task-tracking.md)). A folder without `task.md` is invisible to the Tasks board and the registry.
+1. **Allocate ID by atomic reserve**: prefer the `tasks:create` RPC (`TaskWriterService.create`), which reserves atomically and never overwrites. If allocating by hand: `Glob(.ptah/specs/TASK_*)` - highest `NNN` for the year + 1, zero-pad - then **reserve it with an exclusive, fail-if-exists `mkdir`** (`fs.mkdirSync(dir)` without `recursive`, NOT `mkdir -p`). On `EEXIST` a concurrent session took that id: re-scan, increment, retry. The folder creation IS the lock. NEVER derive the ID from `registry.md` - it is generated output and can be stale.
+2. **Reserve Task Folder (exclusive)**: `mkdir .ptah/specs/TASK_[ID]` with fail-if-exists semantics - a succeeding `mkdir` is your reservation, a failing one is a retry.
+3. **Create Carrier FIRST, never overwriting**: `Write(.ptah/specs/TASK_[ID]/task.md)` - the frontmatter carrier (see the template in [task-tracking.md](references/task-tracking.md)). The write MUST fail if `task.md` already exists (exclusive create), so a residual race surfaces as an error instead of silent loss. A folder without `task.md` is invisible to the Tasks board and the registry.
 4. **Create Context**: `Write(.ptah/specs/TASK_[ID]/context.md)` with user intent, strategy
 5. **Announce**: Present task ID, type, complexity, planned agent sequence
 

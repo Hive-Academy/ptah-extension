@@ -183,18 +183,28 @@ ground truth if the two ever appear to differ (regenerate to reconcile).
 
 ### Generating a New Task ID
 
-The next id is derived from a **folder scan**, not from registry contents:
+The next id is derived from a **folder scan**, then **reserved atomically**. A
+plain scan-then-write races two concurrent sessions onto the same id and the
+second write silently clobbers the first (this is what TASK_2026_194 fixes):
 
 1. Scan all `TASK_YYYY_*` folder names (including excluded/legacy folders).
-2. Find the highest `NNN` for the current year.
-3. Increment by 1.
-4. Zero-pad to three digits: `TASK_YYYY_NNN`.
+2. Find the highest `NNN` for the current year, increment by 1, zero-pad to
+   `TASK_YYYY_NNN`.
+3. **Reserve it with an exclusive, fail-if-exists `mkdir`** (`fs.mkdirSync(dir)`
+   without `recursive: true` — NOT `mkdir -p`). The atomic folder creation is the
+   lock.
+4. On `EEXIST`, a concurrent session already claimed that id — re-scan from step
+   1, increment, and retry (bounded; give up with an error rather than overwrite).
+5. Write `task.md` with an **exclusive create** so it fails loudly if the carrier
+   already exists — never overwrite an occupied folder.
 
-**Example**: If the highest for the year is `TASK_2026_109`, next is `TASK_2026_110`.
+**Example**: If the highest for the year is `TASK_2026_109`, the candidate is
+`TASK_2026_110`; if that `mkdir` throws `EEXIST`, retry `111`, and so on.
 
-Create the folder and write its `task.md` (with `status: backlog` or
-`in_progress`) as the first artifact — the folder joins the board and the next
-registry regeneration automatically.
+`registry.md` is generated, derived output — it is **never** an allocation input.
+The canonical implementation is `TaskWriterService.create` (behind the
+`tasks:create` RPC); hand-allocation must follow the same reserve-then-write rule.
+The folder joins the board and the next registry regeneration automatically.
 
 ---
 
