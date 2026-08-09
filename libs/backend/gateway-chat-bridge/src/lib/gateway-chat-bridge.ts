@@ -6,10 +6,18 @@
  * Inbound `GatewayInboundEvent`s are serialized per conversation via
  * {@link ConversationQueue}; each turn either starts a new SDK session (first
  * message for the conversation row) or resumes the one persisted on it.
- * Gateway-originated sessions are auto-approved from turn one: each start/resume
- * seeds the session's permission level to the frontend `'yolo'` level, so the
- * first tool call is auto-approved (no post-hoc bypass flip, no permission
- * prompt that a chat platform cannot render).
+ *
+ * SECURITY — inbound permission gate (TASK_2026_192): gateway inbound is a
+ * REMOTE, non-interactive path. A message the gateway accepts drives a host
+ * agent turn under the local user's privileges, and no chat platform can render
+ * a tool-approval prompt. Each start/resume therefore seeds the session's
+ * permission level from `ptah.gateway.permissionLevel`, defaulting to the safe
+ * `'ask'` level: the SDK gate auto-approves only read-only SAFE tools, while
+ * `Write`/`Edit`/`Bash`, network and MCP tools are NOT auto-approved — they
+ * route to the local Ptah approval surface and fail closed when it is absent.
+ * An operator who wants autonomous write/exec from chat must opt in explicitly
+ * by raising that setting (`'auto-edit'` or `'yolo'`). The level is seeded at
+ * start/resume, never flipped post-hoc.
  *
  * Each turn runs in the conversation's EFFECTIVE workspace: the
  * conversation-pinned root first, then the binding root, then the active
@@ -39,6 +47,7 @@ import {
   SessionId,
   type IAgentAdapter,
   type FlatStreamEventUnion,
+  type PermissionLevel,
 } from '@ptah-extension/shared';
 import {
   SETTINGS_TOKENS,
@@ -71,6 +80,30 @@ const TURN_WATCHDOG_MS = 10 * 60_000;
  */
 const WORKSPACE_UNAVAILABLE_MESSAGE =
   "This thread's workspace is no longer available in Ptah. Run /workspace use to pick another.";
+
+/**
+ * Settings key (under the `ptah` section) for the gateway inbound permission
+ * level. Read per turn via `IWorkspaceProvider.getConfiguration`, mirroring
+ * `GatewayService`'s config reads.
+ */
+const GATEWAY_PERMISSION_LEVEL_KEY = 'gateway.permissionLevel';
+
+/**
+ * Permission levels an operator may configure for gateway inbound sessions —
+ * the boundary allowlist for {@link GATEWAY_PERMISSION_LEVEL_KEY}. Deliberately
+ * a subset of the SDK's full set: `'plan'` is excluded (it would block every
+ * turn) and there is no way to express "more than yolo". Any value outside this
+ * set is rejected and falls back to {@link DEFAULT_GATEWAY_PERMISSION_LEVEL}.
+ */
+const GATEWAY_PERMISSION_LEVELS = ['ask', 'auto-edit', 'yolo'] as const;
+
+/**
+ * Default gateway inbound permission level. SECURITY (TASK_2026_192): the safe
+ * default is `'ask'` so a remote, non-interactive message never silently drives
+ * `Bash`/`Write`/`Edit`/MCP — only read-only SAFE tools auto-approve; anything
+ * dangerous routes to the local Ptah approval surface (fail-closed when absent).
+ */
+const DEFAULT_GATEWAY_PERMISSION_LEVEL: PermissionLevel = 'ask';
 
 /**
  * Session context resolved once per turn and threaded into the start/resume
@@ -414,13 +447,14 @@ export class GatewayChatBridge {
       !!persistedId &&
       this.agentAdapter.isSessionActive(SessionId.from(persistedId));
     const model = this.resolveModel();
+    const permissionLevel = this.resolvePermissionLevel();
     if (persistedId && canResume) {
       return this.agentAdapter.resumeSession(SessionId.from(persistedId), {
         prompt: body,
         tabId,
         projectPath: workspaceRoot,
         model,
-        permissionLevel: 'yolo',
+        permissionLevel,
         mcpServerRunning: sdkContext.mcpServerRunning,
         enhancedPromptsContent: sdkContext.enhancedPromptsContent,
         pluginPaths: sdkContext.pluginPaths,
@@ -435,7 +469,7 @@ export class GatewayChatBridge {
             tabId,
             projectPath: workspaceRoot,
             model,
-            permissionLevel: 'yolo',
+            permissionLevel,
             mcpServerRunning: sdkContext.mcpServerRunning,
             enhancedPromptsContent: sdkContext.enhancedPromptsContent,
             pluginPaths: sdkContext.pluginPaths,
@@ -467,7 +501,7 @@ export class GatewayChatBridge {
       workspaceId: workspaceRoot,
       model: this.resolveModel(),
       includePartialMessages: true,
-      permissionLevel: 'yolo',
+      permissionLevel: this.resolvePermissionLevel(),
       mcpServerRunning: sdkContext.mcpServerRunning,
       enhancedPromptsContent: sdkContext.enhancedPromptsContent,
       pluginPaths: sdkContext.pluginPaths,
@@ -476,6 +510,24 @@ export class GatewayChatBridge {
 
   private resolveModel(): string {
     return this.modelSettings.selectedModel.get() || 'default';
+  }
+
+  /**
+   * Resolve the permission level for gateway inbound sessions from settings,
+   * validated against {@link GATEWAY_PERMISSION_LEVELS}. Any unset or unknown
+   * value falls back to {@link DEFAULT_GATEWAY_PERMISSION_LEVEL} (`'ask'`) — a
+   * gateway turn is never silently promoted to `'yolo'`. Read per turn (like
+   * the model) so a settings change takes effect without a restart.
+   */
+  private resolvePermissionLevel(): PermissionLevel {
+    const raw = this.workspace.getConfiguration<string>(
+      'ptah',
+      GATEWAY_PERMISSION_LEVEL_KEY,
+      DEFAULT_GATEWAY_PERMISSION_LEVEL,
+    );
+    return (GATEWAY_PERMISSION_LEVELS as readonly string[]).includes(raw ?? '')
+      ? (raw as PermissionLevel)
+      : DEFAULT_GATEWAY_PERMISSION_LEVEL;
   }
 
   private async pumpStream(

@@ -229,7 +229,10 @@ interface Harness {
     >
   >;
   workspace: jest.Mocked<
-    Pick<IWorkspaceProvider, 'getWorkspaceRoot' | 'getWorkspaceFolders'>
+    Pick<
+      IWorkspaceProvider,
+      'getWorkspaceRoot' | 'getWorkspaceFolders' | 'getConfiguration'
+    >
   >;
   turnTracker: ConversationTurnTracker;
   selectedModelGet: jest.Mock<string, []>;
@@ -252,6 +255,12 @@ function setup(options?: {
   enhancedPromptsContent?: string | null;
   enabledPluginIds?: string[];
   resolvedPluginPaths?: string[];
+  /**
+   * Raw `ptah.gateway.permissionLevel` setting value the workspace mock returns.
+   * `undefined` means "unset" — `getConfiguration` returns the caller's default,
+   * exercising the safe fallback. A non-enum string exercises the reject path.
+   */
+  gatewayPermissionLevel?: string;
 }): Harness {
   const gateway = new FakeGateway();
   const conversations = {
@@ -277,6 +286,14 @@ function setup(options?: {
     getWorkspaceFolders: jest
       .fn()
       .mockReturnValue(options?.workspaceFolders ?? []),
+    // Return the configured gateway permission level for its key; every other
+    // key resolves to the caller-supplied default (mirrors the real provider).
+    getConfiguration: jest.fn(
+      (_section: string, key: string, defaultValue?: unknown) =>
+        key === 'gateway.permissionLevel'
+          ? (options?.gatewayPermissionLevel ?? defaultValue)
+          : defaultValue,
+    ),
   } as unknown as Harness['workspace'];
   const turnTracker = new ConversationTurnTracker();
   const selectedModelGet = jest
@@ -489,7 +506,7 @@ describe('GatewayChatBridge', () => {
     expect(h.adapter.endSession).toHaveBeenCalledWith(SDK_UUID);
   });
 
-  it('auto-approves via the initial yolo permission level, not a post-hoc bypass flip', async () => {
+  it('seeds the safe default permission level (ask) at start, not a post-hoc bypass flip (TASK_2026_192)', async () => {
     const h = setup();
     const binding = makeBinding({ workspaceRoot: '/ws/proj' });
     h.adapter.startChatSession.mockResolvedValue(
@@ -507,7 +524,7 @@ describe('GatewayChatBridge', () => {
 
     expect(h.adapter.setSessionPermissionLevel).not.toHaveBeenCalled();
     expect(h.adapter.startChatSession.mock.calls[0][0].permissionLevel).toBe(
-      'yolo',
+      'ask',
     );
   });
 
@@ -958,18 +975,20 @@ describe('GatewayChatBridge', () => {
 });
 
 // ---------------------------------------------------------------------------
-// F1 — permissionLevel: 'yolo' on resume (TASK_2026_155, Task 2.1/3.3)
+// F1 — seeded permissionLevel on resume (TASK_2026_155, Task 2.1/3.3)
+// Updated for TASK_2026_192: the seeded level is the configurable gateway
+// level (safe default 'ask'), no longer an unconditional 'yolo'.
 // ---------------------------------------------------------------------------
 //
-// `startChatSession` carrying `permissionLevel: 'yolo'` and `bindSession`
-// never calling `setSessionPermissionLevel` are already exercised by
-// 'auto-approves via the initial yolo permission level...' above. These two
-// specs close the remaining acceptance-criteria gaps: BOTH `resumeSession`
-// call sites (the canResume fast path and the try/catch resume-recovery
-// path) must also carry `permissionLevel: 'yolo'`, and `bindSession` must
-// still persist the sessionId even though it no longer flips permissions.
+// `startChatSession` carrying the seeded level and `bindSession` never calling
+// `setSessionPermissionLevel` are already exercised by the "seeds the safe
+// default permission level (ask) at start..." spec above. These two specs close
+// the remaining gaps: BOTH `resumeSession` call sites (the canResume fast path
+// and the try/catch resume-recovery path) must also carry the seeded level, and
+// `bindSession` must still persist the sessionId even though it never flips
+// permissions.
 describe('GatewayChatBridge — F1 resume permissionLevel + bindSession (Task 2.1/2.2/3.3)', () => {
-  it('resumeSession receives permissionLevel: "yolo" on the canResume fast path', async () => {
+  it('resumeSession receives the safe default permissionLevel ("ask") on the canResume fast path', async () => {
     const h = setup();
     const binding = makeBinding({ workspaceRoot: '/ws/proj' });
     const conversation = makeConversation(binding, { ptahSessionId: SDK_UUID });
@@ -989,11 +1008,11 @@ describe('GatewayChatBridge — F1 resume permissionLevel + bindSession (Task 2.
 
     expect(h.adapter.resumeSession).toHaveBeenCalledTimes(1);
     expect(h.adapter.resumeSession.mock.calls[0][1]?.permissionLevel).toBe(
-      'yolo',
+      'ask',
     );
   });
 
-  it('resumeSession receives permissionLevel: "yolo" on the try/catch resume-recovery path (persisted but not active)', async () => {
+  it('resumeSession receives the safe default permissionLevel ("ask") on the try/catch resume-recovery path (persisted but not active)', async () => {
     const h = setup();
     const binding = makeBinding({ workspaceRoot: '/ws/proj' });
     const conversation = makeConversation(binding, { ptahSessionId: SDK_UUID });
@@ -1017,7 +1036,7 @@ describe('GatewayChatBridge — F1 resume permissionLevel + bindSession (Task 2.
     expect(h.adapter.resumeSession).toHaveBeenCalledTimes(1);
     expect(h.adapter.startChatSession).not.toHaveBeenCalled();
     expect(h.adapter.resumeSession.mock.calls[0][1]?.permissionLevel).toBe(
-      'yolo',
+      'ask',
     );
   });
 
@@ -1043,6 +1062,120 @@ describe('GatewayChatBridge — F1 resume permissionLevel + bindSession (Task 2.
       conversation.id,
       SDK_UUID,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Inbound permission gate (TASK_2026_192)
+// ---------------------------------------------------------------------------
+//
+// Gateway inbound is a REMOTE, non-interactive path. The bridge must seed the
+// session's permission level from `ptah.gateway.permissionLevel`, defaulting to
+// the safe `'ask'` — NEVER an unconditional `'yolo'`. At `'ask'` the downstream
+// SdkPermissionHandler routes every DANGEROUS_TOOL (`Write`/`Edit`/`Bash`/
+// `NotebookEdit`), network, and MCP tool to an approval surface instead of
+// auto-approving; only when the operator explicitly opts into `'yolo'` are those
+// tools auto-approved. These specs pin the seeded level at the bridge boundary
+// (the SDK-side gate mapping is covered by sdk-permission-handler.spec.ts).
+describe('GatewayChatBridge — inbound permission gate (TASK_2026_192)', () => {
+  const DANGEROUS_TOOLS = ['Write', 'Edit', 'Bash', 'NotebookEdit'] as const;
+
+  async function seededLevelForNewSession(
+    gatewayPermissionLevel?: string,
+  ): Promise<string | undefined> {
+    const h = setup(
+      gatewayPermissionLevel === undefined
+        ? undefined
+        : { gatewayPermissionLevel },
+    );
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'x'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    return h.adapter.startChatSession.mock.calls[0][0].permissionLevel;
+  }
+
+  it('defaults a new gateway session to "ask" — dangerous tools are NOT auto-approved without explicit opt-in', async () => {
+    const level = await seededLevelForNewSession();
+    expect(level).toBe('ask');
+    // The safe default is precisely the level at which the SDK gate does NOT
+    // auto-approve any dangerous tool — assert it is not the auto-approve-all
+    // level for each dangerous tool the gateway session could otherwise reach.
+    expect(level).not.toBe('yolo');
+    expect(DANGEROUS_TOOLS.length).toBeGreaterThan(0);
+    for (const _tool of DANGEROUS_TOOLS) {
+      expect(level).not.toBe('yolo');
+    }
+  });
+
+  it('defaults a resumed gateway session to "ask" (not "yolo")', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, { ptahSessionId: SDK_UUID });
+    h.adapter.isSessionActive.mockReturnValue(true);
+    h.adapter.resumeSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'r'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'again', { conversation }));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.resumeSession.mock.calls[0][1]?.permissionLevel).toBe(
+      'ask',
+    );
+    expect(h.adapter.resumeSession.mock.calls[0][1]?.permissionLevel).not.toBe(
+      'yolo',
+    );
+  });
+
+  it('auto-approves (yolo) ONLY when the operator explicitly configures it', async () => {
+    expect(await seededLevelForNewSession('yolo')).toBe('yolo');
+  });
+
+  it('honors an explicit "auto-edit" opt-in', async () => {
+    expect(await seededLevelForNewSession('auto-edit')).toBe('auto-edit');
+  });
+
+  it('rejects an unknown/invalid configured level and falls back to the safe default "ask"', async () => {
+    expect(await seededLevelForNewSession('bypassPermissions')).toBe('ask');
+    expect(await seededLevelForNewSession('plan')).toBe('ask');
+    expect(await seededLevelForNewSession('')).toBe('ask');
+    expect(await seededLevelForNewSession('garbage')).toBe('ask');
+  });
+
+  it('never flips the session permission level post-hoc regardless of configured level', async () => {
+    const h = setup({ gatewayPermissionLevel: 'yolo' });
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'x'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.setSessionPermissionLevel).not.toHaveBeenCalled();
   });
 });
 
