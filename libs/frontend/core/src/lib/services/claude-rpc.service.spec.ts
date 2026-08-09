@@ -285,14 +285,14 @@ describe('ClaudeRpcService', () => {
 
       service.handleResponse({
         success: false,
-        error: 'pro tier required',
-        errorCode: 'PRO_TIER_REQUIRED',
+        error: 'sign in required',
+        errorCode: 'AUTH_REQUIRED',
         correlationId: sent.payload.correlationId,
       });
 
       const result = await pending;
       expect(result.isError()).toBe(true);
-      expect(result.errorCode).toBe('PRO_TIER_REQUIRED');
+      expect(result.errorCode).toBe('AUTH_REQUIRED');
     });
   });
 

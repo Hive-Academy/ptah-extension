@@ -81,8 +81,8 @@ describe('RpcHandler.handleMessage — RpcUserError handling', () => {
 
   it('passes errorCode through for each RpcUserError variant', async () => {
     const cases = [
-      'LICENSE_REQUIRED',
-      'PRO_TIER_REQUIRED',
+      'AUTH_REQUIRED',
+      'PERSISTENCE_UNAVAILABLE',
       'WORKSPACE_NOT_OPEN',
       'MESSAGE_ID_NOT_FOUND',
       'MODEL_NOT_AVAILABLE',
