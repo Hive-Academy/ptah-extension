@@ -65,6 +65,7 @@ import type {
   Query,
   ResultStatsCallback,
 } from './helpers';
+import { NoActivityWatchdog } from './helpers';
 import type { IAuthEnvProvider } from './auth-env.port';
 import type {
   ClaudeCliDetector,
@@ -550,23 +551,25 @@ describe('SdkAgentAdapter', () => {
       });
     });
 
-    it('threads the AbortController from executeQuery() into StreamTransformer.transform()', async () => {
+    it('threads the no-activity watchdog from executeQuery() into StreamTransformer.transform()', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
       const sdkQuery = createFakeQuery();
       const abortController = new AbortController();
+      const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
         abortController,
+        activityWatchdog,
       } as ExecuteQueryResult);
 
       await h.adapter.startChatSession(makeSessionConfig());
 
       expect(h.streamTransformer.transform).toHaveBeenCalledTimes(1);
       const transformArg = h.streamTransformer.transform.mock.calls[0][0];
-      expect(transformArg.abortController).toBe(abortController);
+      expect(transformArg.activityWatchdog).toBe(activityWatchdog);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
       expect(transformArg.sessionId).toBe('tab_1');
       expect(transformArg.initialModel).toBe('claude-sonnet-4-20250514');
@@ -697,17 +700,19 @@ describe('SdkAgentAdapter', () => {
       expect(transformArg.tabId).toBe('tab-resume');
     });
 
-    it('dispatches a new executeQuery() when no active session exists, threading AbortController through', async () => {
+    it('dispatches a new executeQuery() when no active session exists, threading the watchdog through', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
       h.sessionLifecycle.find.mockReturnValueOnce(undefined);
       const sdkQuery = createFakeQuery();
       const abortController = new AbortController();
+      const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
         abortController,
+        activityWatchdog,
       } as ExecuteQueryResult);
 
       await h.adapter.resumeSession('sess-1' as SessionId);
@@ -719,7 +724,7 @@ describe('SdkAgentAdapter', () => {
         }),
       );
       const transformArg = h.streamTransformer.transform.mock.calls[0][0];
-      expect(transformArg.abortController).toBe(abortController);
+      expect(transformArg.activityWatchdog).toBe(activityWatchdog);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
     });
   });
@@ -732,16 +737,18 @@ describe('SdkAgentAdapter', () => {
       ).rejects.toBeInstanceOf(SdkError);
     });
 
-    it('delegates to executeSlashCommandQuery and threads AbortController into the transformer', async () => {
+    it('delegates to executeSlashCommandQuery and threads the watchdog into the transformer', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
 
       const sdkQuery = createFakeQuery();
       const abortController = new AbortController();
+      const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       h.sessionLifecycle.executeSlashCommandQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
         abortController,
+        activityWatchdog,
       } as ExecuteQueryResult);
 
       await h.adapter.executeSlashCommand('sess-1' as SessionId, '/help', {
@@ -754,7 +761,7 @@ describe('SdkAgentAdapter', () => {
         expect.any(Object),
       );
       const transformArg = h.streamTransformer.transform.mock.calls[0][0];
-      expect(transformArg.abortController).toBe(abortController);
+      expect(transformArg.activityWatchdog).toBe(activityWatchdog);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
       expect(transformArg.tabId).toBe('tab-1');
     });

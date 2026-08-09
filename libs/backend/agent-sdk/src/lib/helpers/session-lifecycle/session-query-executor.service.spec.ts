@@ -31,6 +31,7 @@ import type {
 } from '@ptah-extension/shared';
 
 import { SessionQueryExecutor } from './session-query-executor.service';
+import { NO_ACTIVITY_TIMEOUT_MS } from '../no-activity-watchdog';
 import { SessionRegistry } from './session-registry.service';
 import type { SessionStreamPump } from './session-stream-pump.service';
 import type { SdkModuleLoader } from '../sdk-module-loader';
@@ -85,6 +86,7 @@ interface Harness {
   registry: SessionRegistry;
   buildSpy: jest.Mock;
   getPermissionLevelSpy: jest.Mock;
+  cleanupSpy: jest.Mock;
   sdkQuery: Query;
 }
 
@@ -104,8 +106,10 @@ function makeHarness(globalPermissionLevel: PermissionLevel): Harness {
   const getPermissionLevelSpy = jest
     .fn()
     .mockReturnValue(globalPermissionLevel);
+  const cleanupSpy = jest.fn();
   const permissionHandler = {
     getPermissionLevel: getPermissionLevelSpy,
+    cleanupPendingPermissions: cleanupSpy,
   } as unknown as ISdkPermissionHandler;
 
   const queryFn = jest.fn();
@@ -154,7 +158,14 @@ function makeHarness(globalPermissionLevel: PermissionLevel): Harness {
     queryRunner,
   );
 
-  return { executor, registry, buildSpy, getPermissionLevelSpy, sdkQuery };
+  return {
+    executor,
+    registry,
+    buildSpy,
+    getPermissionLevelSpy,
+    cleanupSpy,
+    sdkQuery,
+  };
 }
 
 function makeConfig(
@@ -239,5 +250,73 @@ describe('SessionQueryExecutor — permission-level seeding (F1, Task 1.2)', () 
       permissionMode?: string;
     };
     expect(buildInput.permissionMode).toBe('acceptEdits');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// No-activity watchdog policy (TASK_2026_190)
+// ---------------------------------------------------------------------------
+//
+// executeQuery() builds a NoActivityWatchdog whose onTimeout is the abort
+// policy that replaced the stderr-pattern `onProviderError`. The StreamTransformer
+// arms/kicks/stops it in production; here we drive it directly with fake timers
+// to prove the policy: resolve pending permissions BEFORE aborting (the
+// session-lifecycle-abort invariant), then abort the controller with a
+// descriptive error that is NOT classified as a benign user abort.
+
+describe('SessionQueryExecutor — no-activity watchdog policy (TASK_2026_190)', () => {
+  it('returns a watchdog that, on timeout, cleans up pending permissions then aborts with a surfaced error', async () => {
+    const { executor, cleanupSpy } = makeHarness('ask');
+
+    const result = await executor.executeQuery(makeConfig('tab-timeout'));
+
+    // Not aborted before the window elapses.
+    expect(result.abortController.signal.aborted).toBe(false);
+
+    jest.useFakeTimers();
+    try {
+      result.activityWatchdog.start();
+      jest.advanceTimersByTime(NO_ACTIVITY_TIMEOUT_MS);
+    } finally {
+      jest.useRealTimers();
+    }
+
+    // Invariant: pending permissions resolved for THIS tab before the abort.
+    expect(cleanupSpy).toHaveBeenCalledTimes(1);
+    expect(cleanupSpy).toHaveBeenCalledWith('tab-timeout');
+
+    // The controller is aborted with a descriptive Error…
+    expect(result.abortController.signal.aborted).toBe(true);
+    const reason = result.abortController.signal.reason as Error;
+    expect(reason).toBeInstanceOf(Error);
+    // …whose wording is NOT classified as a benign user abort by the
+    // StreamTransformer catch (so it surfaces as a real error).
+    const msg = reason.message.toLowerCase();
+    expect(msg).not.toContain('abort');
+    expect(msg).not.toContain('cancel');
+    expect(msg).toContain('no stream activity');
+  });
+
+  it('does not fire the watchdog (no cleanup, no abort) when it is kicked within the window', async () => {
+    const { executor, cleanupSpy } = makeHarness('ask');
+
+    const result = await executor.executeQuery(makeConfig('tab-active'));
+
+    jest.useFakeTimers();
+    try {
+      result.activityWatchdog.start();
+      // A slow-but-alive turn: kick just before every deadline.
+      for (let i = 0; i < 5; i++) {
+        jest.advanceTimersByTime(NO_ACTIVITY_TIMEOUT_MS - 1);
+        result.activityWatchdog.kick();
+      }
+    } finally {
+      // stop() in finally mirrors the StreamTransformer teardown.
+      result.activityWatchdog.stop();
+      jest.useRealTimers();
+    }
+
+    expect(cleanupSpy).not.toHaveBeenCalled();
+    expect(result.abortController.signal.aborted).toBe(false);
   });
 });

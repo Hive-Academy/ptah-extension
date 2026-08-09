@@ -26,6 +26,10 @@ export {
   type ResultModelUsage,
   type StreamTransformConfig,
 } from './stream-transformer';
+export {
+  NoActivityWatchdog,
+  NO_ACTIVITY_TIMEOUT_MS,
+} from './no-activity-watchdog';
 export * from './attachment-processor.service';
 export { SubagentHookHandler } from './subagent-hook-handler';
 export {

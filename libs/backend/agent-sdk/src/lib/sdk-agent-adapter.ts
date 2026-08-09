@@ -472,7 +472,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       { mcpServerRunning, providerId: providerProfile?.providerId },
     );
 
-    const { sdkQuery, initialModel, abortController } =
+    const { sdkQuery, initialModel, activityWatchdog } =
       await this.sessionLifecycle.executeQuery({
         sessionId: trackingId,
         sessionConfig: sessionConfigWithProfileModel,
@@ -519,7 +519,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         this.callbacks.getResultStats(),
       ),
       tabId: config?.tabId,
-      abortController,
+      activityWatchdog,
     });
   }
 
@@ -584,7 +584,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       providerId: providerProfile?.providerId,
     });
 
-    const { sdkQuery, initialModel, abortController } =
+    const { sdkQuery, initialModel, activityWatchdog } =
       await this.sessionLifecycle.executeQuery({
         sessionId,
         sessionConfig: sessionConfigWithProfileModel,
@@ -624,7 +624,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         this.callbacks.getResultStats(),
       ),
       tabId: config?.tabId,
-      abortController,
+      activityWatchdog,
     });
   }
 
@@ -703,7 +703,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       { command: command.substring(0, 50) },
     );
 
-    const { sdkQuery, initialModel, abortController } =
+    const { sdkQuery, initialModel, activityWatchdog } =
       await this.sessionLifecycle.executeSlashCommandQuery(sessionId, command, {
         sessionConfig: config.sessionConfig,
         mcpServerRunning: config.mcpServerRunning,
@@ -728,7 +728,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         this.callbacks.getResultStats(),
       ),
       tabId: config.tabId,
-      abortController,
+      activityWatchdog,
     });
   }
 

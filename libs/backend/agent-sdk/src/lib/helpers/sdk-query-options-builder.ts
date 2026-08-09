@@ -78,48 +78,6 @@ import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 /**
- * Detect a FATAL, non-retryable upstream provider error in a stderr chunk.
- *
- * Purpose: the SDK sometimes logs a fatal HTTP/API error to stderr without
- * forwarding it through the message stream, leaving the UI hung with no
- * response. A true match here aborts the query so the hang surfaces as an
- * error instead. Because that abort tears down the whole CLI transport — and
- * rejects any in-flight `can_use_tool` permission with "Stream closed", which
- * wedges every subsequent tool call until the session is recreated — the match
- * MUST be precise. Two rules keep it precise:
- *
- * 1. Never match a bare number. `\b5\d\d\b` (and friends) collided with byte
- *    counts, line numbers, timings ("took 504 ms"), and ports in verbose CLI
- *    stderr and spuriously killed healthy sessions. Numbers are only honoured
- *    as part of a canonical HTTP status line ("401 Unauthorized"), which a
- *    stray integer never is.
- * 2. Only fatal, non-retryable signatures. Transient errors (429, 5xx,
- *    rate_limit_error, overloaded_error, api_error) are deliberately EXCLUDED:
- *    the SDK retries them, so aborting on the first stderr blip defeats the
- *    retry and kills the session for an error that would have recovered.
- */
-export function isFatalUpstreamProviderError(stderrChunk: string): boolean {
-  const lower = stderrChunk.toLowerCase();
-  // Anthropic structured, non-retryable error `type` strings. Specific enough
-  // as substrings — these do not appear in benign CLI stderr.
-  if (
-    lower.includes('authentication_error') ||
-    lower.includes('permission_error') ||
-    lower.includes('invalid_request_error') ||
-    lower.includes('not_found_error') ||
-    lower.includes('model_not_found')
-  ) {
-    return true;
-  }
-  // Canonical HTTP status lines for the non-retryable codes only. The reason
-  // phrase must accompany the number; a bare integer in a log line never has
-  // one, which is what removes the false-positive latch-abort.
-  return /\b(?:401\s+unauthorized|403\s+forbidden|404\s+not\s+found)\b/i.test(
-    stderrChunk,
-  );
-}
-
-/**
  * Build model identity clarification prompt for third-party providers
  *
  * When using Anthropic-compatible providers (Moonshot, Z.AI, etc.), the Claude SDK's
@@ -333,17 +291,6 @@ export interface QueryOptionsInput {
    */
   pathToClaudeCodeExecutable?: string;
   /**
-   * Optional callback invoked when the SDK's stderr stream contains an
-   * obvious upstream provider error (HTTP 4xx, model_not_found,
-   * invalid_request_error, authentication failures). The callee is
-   * responsible for surfacing the error to the UI â€” typically by aborting
-   * the query's AbortController with a descriptive Error, which then
-   * causes the stream iterator to throw. Without this hook, stderr-only
-   * errors (e.g., Moonshot returning model_not_found for an unsupported
-   * tier mapping) can leave the UI hanging with no response.
-   */
-  onProviderError?: (message: string) => void;
-  /**
    * When true, resume + forkSession together create a NEW session ID instead
    * of mutating the resumed transcript. Used by the fork-session RPC path.
    * Has no effect unless `resumeSessionId` is also set.
@@ -525,7 +472,6 @@ export class SdkQueryOptionsBuilder {
       pluginPaths,
       permissionMode = 'default',
       pathToClaudeCodeExecutable,
-      onProviderError,
       forkSession,
       enableFileCheckpointing,
       includePartialMessages,
@@ -700,23 +646,15 @@ export class SdkQueryOptionsBuilder {
             : {}),
         } as Record<string, string | undefined>,
         stderr: (data: string) => {
+          // stderr is for logging/observability only. Stuck-session detection
+          // is handled by the no-activity watchdog (NoActivityWatchdog),
+          // NOT by pattern-matching stderr text — no session is aborted here.
           if (data.includes('[ERROR]')) {
             this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
           } else if (data.includes('[WARN]')) {
             this.logger.warn(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
           } else {
             this.logger.debug(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
-          }
-
-          if (onProviderError && isFatalUpstreamProviderError(data)) {
-            try {
-              onProviderError(data);
-            } catch (hookErr) {
-              this.logger.warn(
-                '[SdkQueryOptionsBuilder] onProviderError hook threw',
-                hookErr instanceof Error ? hookErr : new Error(String(hookErr)),
-              );
-            }
           }
         },
         hooks,
