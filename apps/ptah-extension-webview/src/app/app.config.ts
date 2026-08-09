@@ -35,6 +35,17 @@ import {
   provideModelRefreshControl,
 } from '@ptah-extension/chat';
 import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
+// NOTE: intentionally the WIDE barrel, and there is deliberately no
+// `@ptah-extension/setup-wizard/services` barrel (TASK_2026_187 R6/R15).
+// The setup wizard is a LAUNCH SURFACE: `onCommand:ptah.setupAgents`
+// (apps/ptah-extension-vscode/package.json:41) opens a dedicated webview panel
+// whose HTML hardcodes `initialView: 'setup-wizard'`
+// (agent-generation/.../wizard/webview-lifecycle.service.ts:153), so a fresh
+// Angular bootstrap lands straight on this component with a user waiting.
+// `WizardViewComponent` therefore stays eagerly imported here, which keeps the
+// wide barrel in the eager graph regardless of where the two services are
+// imported from — a narrow barrel would move zero bytes. Same structural
+// no-op as the dashboard barrel dropped in Batch 3.
 import {
   WizardViewComponent,
   provideWizardInternalState,
@@ -55,12 +66,8 @@ import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/se
 // (`ptah.openDashboard`) so it is deliberately NOT deferred. Dead scaffolding
 // dropped per TASK_2026_187 R6.
 import { ThothStatusService } from '@ptah-extension/dashboard';
-import {
-  HarnessBuilderViewComponent,
-  SetupHubComponent,
-  HarnessWorkflowMessageHandler,
-} from '@ptah-extension/harness-builder';
-import { TasksViewComponent, TasksStore } from '@ptah-extension/tasks-ui';
+import { HarnessWorkflowMessageHandler } from '@ptah-extension/harness-builder/services';
+import { TasksStore } from '@ptah-extension/tasks-ui/services';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui/services';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
 class WebviewErrorHandler implements ErrorHandler {
@@ -117,6 +124,10 @@ export const appConfig: ApplicationConfig = {
       provide: WORKSPACE_COORDINATOR,
       useExisting: WorkspaceCoordinatorService,
     },
+    // EAGER on purpose (TASK_2026_187 Batch 4, R15). `ptah.setupAgents` is a VS
+    // Code activation event that opens a new panel hardcoded to
+    // `initialView: 'setup-wizard'`, so this component IS the launch surface for
+    // that panel. Do not convert this to a loader — see the import note above.
     { provide: WIZARD_VIEW_COMPONENT, useValue: WizardViewComponent },
     // EAGER on purpose (TASK_2026_187). Deferring the canvas cost 50-70 ms of
     // Electron startup TTI, because ElectronShellComponent forces grid mode in
@@ -127,11 +138,22 @@ export const appConfig: ApplicationConfig = {
     // NEVER `useFactory`, which would invoke the arrow at injection time and
     // start every import eagerly at bootstrap. LazyViewService.resolveWhen is
     // what decides when each arrow actually runs.
+    // Both of these resolve out of @ptah-extension/harness-builder, so ONE lazy
+    // chunk serves both views. That is expected — do not restructure to force two.
     {
       provide: HARNESS_BUILDER_COMPONENT,
-      useValue: HarnessBuilderViewComponent,
+      useValue: () =>
+        import('@ptah-extension/harness-builder').then(
+          (m) => m.HarnessBuilderViewComponent,
+        ),
     },
-    { provide: SETUP_HUB_COMPONENT, useValue: SetupHubComponent },
+    {
+      provide: SETUP_HUB_COMPONENT,
+      useValue: () =>
+        import('@ptah-extension/harness-builder').then(
+          (m) => m.SetupHubComponent,
+        ),
+    },
     {
       provide: MARKETPLACE_COMPONENT,
       useValue: () =>
@@ -146,7 +168,11 @@ export const appConfig: ApplicationConfig = {
           (m) => m.TribunalPageComponent,
         ),
     },
-    { provide: TASKS_VIEW_COMPONENT, useValue: TasksViewComponent },
+    {
+      provide: TASKS_VIEW_COMPONENT,
+      useValue: () =>
+        import('@ptah-extension/tasks-ui').then((m) => m.TasksViewComponent),
+    },
     { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),

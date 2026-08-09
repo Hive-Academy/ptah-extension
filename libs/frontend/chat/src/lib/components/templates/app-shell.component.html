@@ -46,8 +46,8 @@
   <!-- Harness Builder: Full-width setup wizard (injected via DI token to break circular dep) -->
   @case ('harness-builder') {
     <div class="h-full w-full">
-      @if (harnessBuilderComponent) {
-        <ng-container *ngComponentOutlet="harnessBuilderComponent" />
+      @if (harnessBuilderComponent(); as cmp) {
+        <ng-container *ngComponentOutlet="cmp" />
       } @else {
         <div class="flex items-center justify-center h-full">
           <span class="loading loading-spinner loading-md"></span>
@@ -59,8 +59,8 @@
   <!-- Setup Hub: Unified configuration dashboard (injected via DI token to break circular dep) -->
   @case ('setup-hub') {
     <div class="h-full w-full">
-      @if (setupHubComponent) {
-        <ng-container *ngComponentOutlet="setupHubComponent" />
+      @if (setupHubComponent(); as cmp) {
+        <ng-container *ngComponentOutlet="cmp" />
       } @else {
         <div class="flex items-center justify-center h-full">
           <span class="loading loading-spinner loading-md"></span>
@@ -119,8 +119,8 @@
   <!-- Tasks: standalone .ptah/specs board (injected via DI token to break circular dep) -->
   @case ('tasks') {
     <div class="h-full w-full">
-      @if (tasksComponent) {
-        <ng-container *ngComponentOutlet="tasksComponent" />
+      @if (tasksComponent(); as cmp) {
+        <ng-container *ngComponentOutlet="cmp" />
       } @else {
         <div class="flex items-center justify-center h-full">
           <span class="loading loading-spinner loading-md"></span>

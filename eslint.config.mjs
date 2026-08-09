@@ -70,6 +70,23 @@ export default [
         {
           enforceBuildableLibDependency: true,
           allow: ['^.*/eslint(\\.base)?\\.config\\.[cm]?[jt]s$'],
+          // TASK_2026_187 Unit 5. These libs are lazy-loaded by the webview
+          // composition root via `import('@ptah-extension/<lib>')`, but their
+          // `MESSAGE_HANDLERS` services MUST stay eager to receive push
+          // messages at bootstrap (invariant I-3). The narrow `/services`
+          // subpath is a SEPARATE entry point that exports no components, so
+          // importing it statically does not defeat the split — measured at
+          // -126,834 B (tasks-ui) and -40,694 B (harness-builder) of initial
+          // bundle. Nx's check is project-granular and cannot see that.
+          //
+          // Only the `/services` subpaths are exempt. A static import of the
+          // BARE barrel (`@ptah-extension/tasks-ui`) still errors, which is
+          // exactly the regression guard we want: it is how an eager consumer
+          // would silently pull the whole lib back into the initial bundle.
+          checkDynamicDependenciesExceptions: [
+            '@ptah-extension/tasks-ui/services',
+            '@ptah-extension/harness-builder/services',
+          ],
           depConstraints: [
             {
               sourceTag: 'scope:shared',

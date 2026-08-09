@@ -181,18 +181,27 @@ export class AppShellComponent {
     inject(ORCHESTRA_CANVAS_COMPONENT, { optional: true }) ?? null;
 
   /**
-   * HarnessBuilderViewComponent provided via DI token â€” breaks circular dependency.
-   * Provided by the application bootstrapper (app.config.ts).
+   * HarnessBuilderViewComponent, resolved from a deferred loader token — breaks
+   * the circular dependency between @ptah-extension/harness-builder and
+   * @ptah-extension/chat. Loads when the harness-builder view is opened.
    */
-  readonly harnessBuilderComponent =
-    inject(HARNESS_BUILDER_COMPONENT, { optional: true }) ?? null;
+  readonly harnessBuilderComponent = this.lazyViews.resolveWhen(
+    HARNESS_BUILDER_COMPONENT,
+    () => this.currentView() === 'harness-builder',
+  );
 
   /**
-   * SetupHubComponent provided via DI token â€” breaks circular dependency.
-   * Provided by the application bootstrapper (app.config.ts).
+   * SetupHubComponent, resolved from a deferred loader token — breaks the
+   * circular dependency between @ptah-extension/harness-builder and
+   * @ptah-extension/chat. Loads when the setup-hub view is opened.
+   *
+   * Shares its lazy chunk with {@link harnessBuilderComponent} — both components
+   * live in the same library, so opening either view fetches the same chunk.
    */
-  readonly setupHubComponent =
-    inject(SETUP_HUB_COMPONENT, { optional: true }) ?? null;
+  readonly setupHubComponent = this.lazyViews.resolveWhen(
+    SETUP_HUB_COMPONENT,
+    () => this.currentView() === 'setup-hub',
+  );
 
   /**
    * MarketplaceHubComponent, resolved from a deferred loader token — breaks the
@@ -215,12 +224,14 @@ export class AppShellComponent {
   );
 
   /**
-   * TasksViewComponent provided via DI token — breaks circular dependency
-   * between @ptah-extension/tasks-ui and @ptah-extension/chat.
-   * Provided by the application bootstrapper (app.config.ts).
+   * TasksViewComponent, resolved from a deferred loader token — breaks the
+   * circular dependency between @ptah-extension/tasks-ui and
+   * @ptah-extension/chat. Loads when the tasks view is opened.
    */
-  readonly tasksComponent =
-    inject(TASKS_VIEW_COMPONENT, { optional: true }) ?? null;
+  readonly tasksComponent = this.lazyViews.resolveWhen(
+    TASKS_VIEW_COMPONENT,
+    () => this.currentView() === 'tasks',
+  );
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
   readonly CalendarDaysIcon = CalendarDays;

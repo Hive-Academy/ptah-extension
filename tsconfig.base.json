@@ -85,6 +85,9 @@
         "./libs/frontend/skill-synthesis-ui/src/services.ts"
       ],
       "@ptah-extension/tasks-ui": ["./libs/frontend/tasks-ui/src/index.ts"],
+      "@ptah-extension/tasks-ui/services": [
+        "./libs/frontend/tasks-ui/src/services.ts"
+      ],
       "@ptah-extension/core/testing": [
         "./libs/frontend/core/src/testing/index.ts"
       ],
@@ -141,6 +144,9 @@
       ],
       "@ptah-extension/harness-builder": [
         "./libs/frontend/harness-builder/src/index.ts"
+      ],
+      "@ptah-extension/harness-builder/services": [
+        "./libs/frontend/harness-builder/src/services.ts"
       ],
       "@ptah-extension/marketplace": [
         "./libs/frontend/marketplace/src/index.ts"

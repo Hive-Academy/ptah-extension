@@ -62,6 +62,22 @@ import { InjectionToken, Type } from '@angular/core';
  */
 export type LazyViewLoader = () => Promise<Type<unknown>>;
 
+/**
+ * Token for WizardViewComponent — breaks circular dependency between
+ * @ptah-extension/setup-wizard and @ptah-extension/chat.
+ *
+ * **Deliberately EAGER — do not convert this to a {@link LazyViewLoader}.**
+ * The setup wizard is a *launch surface*, checked and rejected for deferral in
+ * TASK_2026_187 Batch 4 (R15). The VS Code activation event
+ * `onCommand:ptah.setupAgents` (`apps/ptah-extension-vscode/package.json:41`,
+ * contributed command `:91`, menu entry `:141`) opens a **dedicated new webview
+ * panel** whose HTML hardcodes `initialView: 'setup-wizard'`
+ * (`libs/backend/agent-generation/src/lib/services/wizard/webview-lifecycle.service.ts:153`).
+ * `'setup-wizard'` passes both allow-lists, so `AppStateManager` sets
+ * `currentView` to it at service construction, before first render — the user
+ * who clicked "Setup Ptah Agents" is waiting on exactly this component.
+ * Deferring it would add a module hop to that wait for no benefit.
+ */
 export const WIZARD_VIEW_COMPONENT = new InjectionToken<Type<unknown>>(
   'WIZARD_VIEW_COMPONENT',
 );
@@ -85,16 +101,24 @@ export const ORCHESTRA_CANVAS_COMPONENT = new InjectionToken<Type<unknown>>(
 /**
  * Token for HarnessBuilderViewComponent — breaks circular dependency between
  * @ptah-extension/harness-builder and @ptah-extension/chat (AppShellComponent renders the view).
+ *
+ * Bound to a {@link LazyViewLoader} (TASK_2026_187). `'harness-builder'` is
+ * absent from both `initialView` allow-lists and is not persisted, so it is
+ * reachable only by explicit navigation — safe to defer (R15).
  */
-export const HARNESS_BUILDER_COMPONENT = new InjectionToken<Type<unknown>>(
+export const HARNESS_BUILDER_COMPONENT = new InjectionToken<LazyViewLoader>(
   'HARNESS_BUILDER_COMPONENT',
 );
 
 /**
  * Token for SetupHubComponent — breaks circular dependency between
  * @ptah-extension/harness-builder and @ptah-extension/chat (AppShellComponent renders the view).
+ *
+ * Bound to a {@link LazyViewLoader} (TASK_2026_187). Resolves out of the **same**
+ * library as {@link HARNESS_BUILDER_COMPONENT}, so one lazy chunk serves both —
+ * that is expected, not a bug to be restructured away.
  */
-export const SETUP_HUB_COMPONENT = new InjectionToken<Type<unknown>>(
+export const SETUP_HUB_COMPONENT = new InjectionToken<LazyViewLoader>(
   'SETUP_HUB_COMPONENT',
 );
 
@@ -122,7 +146,11 @@ export const TRIBUNAL_COMPONENT = new InjectionToken<LazyViewLoader>(
  * Token for TasksViewComponent — breaks circular dependency between
  * @ptah-extension/tasks-ui and @ptah-extension/chat (AppShellComponent renders
  * the view). Provided by the application bootstrapper (app.config.ts).
+ *
+ * Bound to a {@link LazyViewLoader} (TASK_2026_187). `'tasks'` is absent from
+ * both `initialView` allow-lists and is not persisted, so it is reachable only
+ * by explicit navigation — safe to defer (R15).
  */
-export const TASKS_VIEW_COMPONENT = new InjectionToken<Type<unknown>>(
+export const TASKS_VIEW_COMPONENT = new InjectionToken<LazyViewLoader>(
   'TASKS_VIEW_COMPONENT',
 );
