@@ -6,7 +6,16 @@
   />
   <p class="text-sm text-base-content/60">{{ message() }}</p>
   @if (hint(); as h) {
-    <p class="max-w-sm text-xs text-base-content/40">{{ h }}</p>
+    <!--
+      🔴 `/60`, NOT `/40`. Batch 13's axe pass measured this exact paragraph at
+      3.2:1 (#656b79 on #151c27, 12px normal) on `/members/live/request` and
+      failed WCAG AA's 4.5:1 for body text. `panel-theme-spec.md` §2 rules
+      `base-content/40` legal ONLY for glanceable metadata — the decorative icon
+      above keeps it because it is `aria-hidden` and carries no information the
+      hint does not. A hint is a sentence a member is meant to READ, so it takes
+      the muted-text token the spec measures as passing.
+    -->
+    <p class="max-w-sm text-xs text-base-content/60">{{ h }}</p>
   }
   <div class="mt-1 empty:hidden">
     <ng-content />
