@@ -364,6 +364,135 @@ export function seedCourse(slugPrefix: string): SeededCourse {
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Live-session fixtures — TASK_2026_177 Batch 13                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ⚠️ 🔴 `calendar_event_id` IS ALWAYS LEFT NULL BY THESE HELPERS, AND THAT IS A
+ * SAFETY RULE RATHER THAN A SIMPLIFICATION.
+ *
+ * `live_sessions.calendar_event_id` carries a `@unique` (AD-2), and a
+ * `LiveSession` that CLAIMS an event id changes what the member feed returns for
+ * the founder's REAL Google Calendar: Batch 12 proved live that claiming one
+ * recurring master de-duplicated all 43 of its expanded instances out of the
+ * feed. A fixture that claimed an id would therefore mutate what every other
+ * spec — and the developer sitting in front of the app — sees on
+ * `/members/live`, for as long as the row existed. Nothing here claims one.
+ *
+ * ⚠️ AND NO FIXTURE HERE CREATES A GOOGLE CALENDAR EVENT. Batch 12's gate
+ * created and deleted real events on a real calendar; Batch 13 is read-only
+ * against Google. A `LiveSession` row is ours alone.
+ *
+ * ⚠️ `visibility: 'member'` AND `cohort_keys: '{}'` DELIBERATELY, for the same
+ * reason `seedCourse` does it: the e2e Builder holds no
+ * `member_group_assignment`, so a `'cohort'` session would be invisible and
+ * every assertion would fail as an empty list that looked like a rendering bug.
+ */
+
+export interface SeededLiveSession {
+  id: string;
+  title: string;
+}
+
+/**
+ * A future session — `state: 'upcoming'` in the feed.
+ *
+ * `youtube_video_id` and the whole metadata block are left NULL, which is the
+ * DEFAULT shape in this workspace: `YOUTUBE_API_KEY` is empty (ASSUMPTION-6) so
+ * nothing has ever had metadata resolved, and all fifty real upcoming items
+ * measured on 2026-08-09 carry `durationSeconds: null`.
+ */
+export function seedUpcomingLiveSession(title: string): SeededLiveSession {
+  const id = `lvs_${randomUUID()}`;
+  psql(
+    `INSERT INTO live_sessions (id, title, description, starts_at, ends_at, visibility, cohort_keys, created_by, created_at, updated_at) ` +
+      `VALUES ('${id}', '${title.replace(/'/g, "''")}', 'A throwaway session for the Batch 13 e2e run.', ` +
+      `now() + interval '3 days', now() + interval '3 days 1 hour', 'member', '{}', 'batch-13-e2e', now(), now())`,
+  );
+  return { id, title };
+}
+
+/**
+ * A session that has started and not ended — `state: 'live'`.
+ *
+ * ⚠️ A REAL `ends_at` IN THE FUTURE, NOT A NULL ONE. A null end would rely on
+ * `LIVE_FALLBACK_MINUTES` (120), which is a second rule to get wrong in a
+ * fixture; an explicit window makes the state unambiguous.
+ */
+export function seedLiveNowSession(title: string): SeededLiveSession {
+  const id = `lvs_${randomUUID()}`;
+  psql(
+    `INSERT INTO live_sessions (id, title, starts_at, ends_at, visibility, cohort_keys, created_by, created_at, updated_at) ` +
+      `VALUES ('${id}', '${title.replace(/'/g, "''")}', now() - interval '10 minutes', now() + interval '50 minutes', 'member', '{}', 'batch-13-e2e', now(), now())`,
+  );
+  return { id, title };
+}
+
+/**
+ * A past session WITH a recording — `state: 'replay'`.
+ *
+ * 🔴 `replay_youtube_video_id` IS WHAT MAKES IT A REPLAY AT ALL.
+ * `deriveLiveState` returns `null` — i.e. the item is DROPPED FROM THE FEED —
+ * for a past session with no recording, so a fixture without this column would
+ * seed a row that never appears and the assertion would fail as an empty
+ * archive that looked like a paging bug.
+ *
+ * ⚠️ THE ID IS A REAL 11-CHARACTER ONE and the duration is set, because the
+ * replay card renders a runtime and the player takes an id. This is the ONE
+ * place in this batch where the populated-metadata branch is exercised;
+ * everything the live server actually serves has both as null.
+ */
+export function seedReplaySession(title: string): SeededLiveSession {
+  const id = `lvs_${randomUUID()}`;
+  psql(
+    `INSERT INTO live_sessions (id, title, starts_at, ends_at, visibility, cohort_keys, replay_youtube_video_id, video_title, video_duration_seconds, video_metadata_source, created_by, created_at, updated_at) ` +
+      `VALUES ('${id}', '${title.replace(/'/g, "''")}', now() - interval '8 days', now() - interval '8 days' + interval '1 hour', 'member', '{}', ` +
+      `'dQw4w9WgXcQ', 'B13 e2e replay', 1800, 'manual', 'batch-13-e2e', now(), now())`,
+  );
+  return { id, title };
+}
+
+/**
+ * Removes seeded live sessions by id, one statement per row.
+ *
+ * ⚠️ PER-ROW ISOLATION AND A LOUD WARNING, the shape `cleanupCourse` was
+ * repaired into. A best-effort teardown that abandons the rest because one
+ * statement failed is how a table fills with orphans, and a swallowed exception
+ * is what makes it invisible — B10's first full e2e run left nine orphaned
+ * courses behind exactly that way.
+ *
+ * ⚠️ A HARD DELETE, NOT A SOFT ONE. `deleted_at` would leave the row in a table
+ * whose census other batches read, and the point of a fixture is to leave
+ * nothing.
+ */
+export function cleanupLiveSessions(ids: readonly string[]): void {
+  for (const id of ids) {
+    try {
+      psql(`DELETE FROM live_sessions WHERE id='${id}'`);
+    } catch (error: unknown) {
+      console.warn(
+        `[cleanupLiveSessions] ${id} failed: ${
+          error instanceof Error ? firstLine(error.message) : String(error)
+        }`,
+      );
+    }
+  }
+}
+
+/** This member's own session requests, for a teardown that deletes by owner. */
+export function cleanupSessionRequests(userId: string): void {
+  try {
+    psql(`DELETE FROM session_requests WHERE user_id='${userId}'`);
+  } catch (error: unknown) {
+    console.warn(
+      `[cleanupSessionRequests] ${userId} failed: ${
+        error instanceof Error ? firstLine(error.message) : String(error)
+      }`,
+    );
+  }
+}
+
 /**
  * Removes a seeded course and everything under it, children first.
  *
