@@ -199,6 +199,7 @@
     "@angular/build": "21.2.7",
     "@angular/cdk": "21.2.4",
     "@angular/compiler-cli": "21.2.6",
+    "@axe-core/playwright": "^4.12.1",
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
     "@jest/globals": "^30.0.0",
