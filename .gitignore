@@ -126,6 +126,10 @@ ptah-settings-export.json
 # Security audit reports (may contain redacted findings)
 # ============================================
 .ptah/**
+# ...except the task specs, which are tracked history: carriers, planning prose,
+# review artifacts and their screenshots.
+!.ptah/specs/
+!.ptah/specs/**
 .agent-legacy/**
 .github/agents/**
 # ============================================
