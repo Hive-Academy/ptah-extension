@@ -30,7 +30,7 @@ import {
                   <input
                     type="checkbox"
                     class="checkbox checkbox-sm"
-                    [checked]="checkboxState()[cb.id] ?? false"
+                    [checked]="checkboxState()[cb.id]"
                     (change)="onCheckboxChange(cb.id, $event)"
                   />
                   <span class="label-text">{{ cb.label }}</span>
@@ -39,10 +39,7 @@ import {
             </div>
           }
           <div class="modal-action">
-            <button
-              class="btn btn-ghost"
-              (click)="onCancel()"
-            >
+            <button class="btn btn-ghost" (click)="onCancel()">
               {{ options.cancelLabel }}
             </button>
             <button
