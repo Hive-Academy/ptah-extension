@@ -17,7 +17,10 @@ import * as pty from 'node-pty';
 import { randomUUID } from 'crypto';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IPtyHost } from '@ptah-extension/platform-core';
-import { isAllowedShell } from '@ptah-extension/platform-core';
+import {
+  isAllowedShell,
+  isPathWithinRoots,
+} from '@ptah-extension/platform-core';
 
 const MAX_TOTAL_SESSIONS = 20;
 const MAX_SESSIONS_PER_WORKSPACE = 5;
@@ -63,7 +66,12 @@ export class PtyManagerService implements IPtyHost {
    * @returns Session ID and PID of the spawned process
    * @throws Error if session limits are exceeded
    */
-  create(params: { cwd: string; shell?: string; name?: string }): {
+  create(params: {
+    cwd: string;
+    shell?: string;
+    name?: string;
+    authorizedRoots: readonly string[];
+  }): {
     id: string;
     pid: number;
   } {
@@ -74,6 +82,17 @@ export class PtyManagerService implements IPtyHost {
     // path) is trusted and is deliberately NOT run through the allowlist.
     if (!isAllowedShell(params.shell)) {
       throw new Error('PtyManager: shell not permitted');
+    }
+
+    // Defence in depth: re-validate the caller-SUPPLIED cwd against the
+    // authorized roots the caller handed down (open workspace folders + home),
+    // independent of the RPC-boundary containment check (TASK_2026_191 F4). The
+    // roots ARRIVE with the request, so the sink stays decoupled from workspace
+    // discovery. Fails closed: an empty root set contains nothing. Shares the
+    // exact containment predicate the boundary uses — same policy, one
+    // implementation.
+    if (!isPathWithinRoots(params.cwd, params.authorizedRoots)) {
+      throw new Error('PtyManager: cwd not permitted');
     }
 
     if (this.sessions.size >= MAX_TOTAL_SESSIONS) {

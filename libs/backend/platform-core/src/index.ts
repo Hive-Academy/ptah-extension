@@ -71,6 +71,7 @@ export {
   WIN_SHELLS,
   POSIX_SHELLS,
 } from './utils/shell-allowlist';
+export { isPathWithinRoots } from './utils/path-containment';
 export { PtahFileSettingsManager } from './file-settings-manager';
 export type { FileSettingsDefaults } from './file-settings-manager';
 export {

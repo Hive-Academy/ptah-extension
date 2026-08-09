@@ -14,6 +14,16 @@ export interface PtySpawnRequest {
   readonly shell?: string;
   /** Display name; carried for reference, not used to spawn. */
   readonly name?: string;
+  /**
+   * The authorized root set the caller contained `cwd` within (open workspace
+   * folders + home). Carried DOWN so the spawn sink can re-validate `cwd` at the
+   * `pty.spawn` call site without doing its own workspace discovery — the
+   * defence-in-depth counterpart to the `shell` allowlist re-check
+   * (TASK_2026_191 F4). REQUIRED so a future second caller of this port cannot
+   * inherit the shell guard yet spawn with an unbounded cwd; the sink fails
+   * closed when the set does not contain `cwd`.
+   */
+  readonly authorizedRoots: readonly string[];
 }
 
 export interface PtySpawnResult {

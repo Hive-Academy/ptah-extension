@@ -27,7 +27,9 @@ import type {
   TerminalKillResult,
 } from '@ptah-extension/shared';
 
-import { isAuthorizedTerminalCwd } from '../utils/workspace-authorization';
+import { isPathWithinRoots } from '@ptah-extension/platform-core';
+
+import { authorizedTerminalRoots } from '../utils/workspace-authorization';
 import {
   parseTerminalCreateParams,
   parseTerminalKillParams,
@@ -76,10 +78,13 @@ export class TerminalRpcHandlers {
           throw new Error('terminal:create: invalid or disallowed parameters');
         }
 
-        if (
-          parsed.cwd &&
-          !isAuthorizedTerminalCwd(parsed.cwd, this.workspace)
-        ) {
+        // The authorized-root set (open workspace folders + home). Computed once
+        // so the boundary check below and the spawn-sink re-check
+        // (PtyManagerService.create) enforce byte-identical policy — the array
+        // is handed DOWN the port rather than re-derived at the sink.
+        const authorizedRoots = authorizedTerminalRoots(this.workspace);
+
+        if (parsed.cwd && !isPathWithinRoots(parsed.cwd, authorizedRoots)) {
           throw new Error(
             'terminal:create: cwd outside workspace root and home',
           );
@@ -99,6 +104,7 @@ export class TerminalRpcHandlers {
             cwd,
             shell: parsed.shell,
             name: parsed.name,
+            authorizedRoots,
           });
           return result;
         } catch (error: unknown) {

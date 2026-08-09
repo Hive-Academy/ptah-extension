@@ -111,6 +111,9 @@ describe('TerminalRpcHandlers', () => {
         cwd: '/ws/root',
         shell: undefined,
         name: 'main',
+        // The authorized-root set (workspace folders + home) is handed down the
+        // port so the sink can re-validate cwd (TASK_2026_191 F4).
+        authorizedRoots: ['/ws/root', homedir()],
       });
       expect(raw.success).toBe(true);
       expect(raw.data).toEqual({ id: 't1', pid: 111 });
@@ -130,6 +133,7 @@ describe('TerminalRpcHandlers', () => {
         cwd: '/ws/root/sub',
         shell: undefined,
         name: undefined,
+        authorizedRoots: ['/ws/root', homedir()],
       });
     });
 
@@ -188,6 +192,7 @@ describe('TerminalRpcHandlers', () => {
         cwd: '/ws/root',
         shell: ALLOWED_SHELL,
         name: undefined,
+        authorizedRoots: ['/ws/root', homedir()],
       });
       expect(raw.success).toBe(true);
     });
