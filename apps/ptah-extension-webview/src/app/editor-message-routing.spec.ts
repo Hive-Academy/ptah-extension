@@ -29,7 +29,10 @@ import {
   MessageRouterService,
   VSCodeService,
 } from '@ptah-extension/core';
-import { EditorService, GitStatusService } from '@ptah-extension/editor';
+import {
+  EditorService,
+  GitStatusService,
+} from '@ptah-extension/editor/services';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 /**

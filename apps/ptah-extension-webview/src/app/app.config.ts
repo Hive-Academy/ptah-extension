@@ -44,7 +44,7 @@ import {
   provideEditorInternalState,
   EditorService,
   GitStatusService,
-} from '@ptah-extension/editor';
+} from '@ptah-extension/editor/services';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui';
 import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui';
