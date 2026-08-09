@@ -1,6 +1,43 @@
 import { test, expect } from '../../support/fixtures';
 
 test.describe('Canvas', () => {
+  test('Electron forces grid layout even when a persisted preference requests single mode', async ({
+    ui,
+  }) => {
+    // Moved here from the retired canvas-lazy-load.spec.ts (TASK_2026_187) —
+    // this is the empirical proof behind the finding that single layout mode
+    // is not a reachable state in Electron: `ElectronShellComponent`'s
+    // constructor calls `setLayoutMode('grid')` unconditionally, every launch
+    // (`electron-shell.component.ts:296-299`, "Electron uses the canvas as
+    // its sole chat surface"), and again on the "Canvas" tab click
+    // (`:327-328`). `toggleLayoutMode()` has zero call sites anywhere under
+    // `electron-shell.component.ts`. `AppStateManager.initializeState()`
+    // restores a persisted `'single'` preference from `localStorage` first
+    // (`app-state.service.ts:331-335`), but the shell's constructor runs
+    // immediately after in the same synchronous chain and overwrites it back
+    // to `'grid'` before any template renders — this is unrelated to whether
+    // canvas is eager or lazy (it was true before, during, and after the R14
+    // lazy-load experiment; see e2e-validation-report.md §§3.3,6-8), so it
+    // keeps failing loudly if anyone ever reintroduces single-mode to
+    // Electron without accounting for it. This is what makes the "canvas is
+    // the launch surface in Electron" claim (R15) checkable, not just a
+    // code-reading.
+    const page = ui.page;
+
+    // Seed a 'single' preference exactly as a returning VS Code user's
+    // profile would carry it, then reload through the same boot path every
+    // other Electron e2e test uses.
+    await page.evaluate(() => {
+      localStorage.setItem('ptah-layout-mode', 'single');
+    });
+    await ui.prepare();
+
+    // No single-chat tab strip exists in Electron; the canvas grid is the
+    // only content surface, and it must be showing.
+    await expect(page.locator('[data-testid="canvas-grid"]')).toBeVisible();
+    await expect(page.locator('ptah-tab-bar')).toHaveCount(0);
+  });
+
   test('grid renders in grid mode', async ({ ui }) => {
     await ui.goto('canvas');
 

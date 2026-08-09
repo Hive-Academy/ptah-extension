@@ -7,7 +7,9 @@ export type ElectronView =
   | 'editor'
   | 'settings'
   | 'setup-wizard'
-  | 'thoth';
+  | 'thoth'
+  | 'marketplace'
+  | 'tribunal';
 
 export type ThothTab = 'memory' | 'skills' | 'cron' | 'gateway';
 
