@@ -459,6 +459,66 @@ describe('contract guard — renderTaskMd round-trips through parseTaskFile', ()
     expect(parsed.task.validationIssues).toEqual([]);
   });
 
+  /**
+   * The three descriptions that actually made carriers vanish (D6).
+   *
+   * On 2026-08-09 `TASK_2026_182`, `188` and `189` were invisible to the board:
+   * each held a `description:` written as an unquoted plain YAML scalar, which
+   * terminates at the first `: `, so the whole document failed to parse and the
+   * task disappeared rather than merely mislabelling itself.
+   *
+   * `renderTaskMd` did NOT write those three — every one of them carries
+   * `assignee:` and `claim:`, fields the renderer has never emitted, so they
+   * were hand-authored from the orchestration skill's template (fixed in the
+   * same commit as this test). The renderer routes any unsafe scalar through
+   * `JSON.stringify`, which is a valid YAML double-quoted scalar, and it is
+   * correct today. This block is the RATCHET that keeps it correct: these exact
+   * strings, verbatim, through render → parse → byte equality.
+   */
+  const KILLING_DESCRIPTIONS: ReadonlyArray<[label: string, text: string]> = [
+    [
+      '182 — a ternary with colon-space',
+      'nativeAvailable ? describe : describe.skip',
+    ],
+    [
+      '188 — a JSON flow mapping',
+      'a client sending {"field": null} to a dtoPipe endpoint',
+    ],
+    [
+      '189 — a call with a quoted path',
+      "config({ path: resolve(__dirname, '.env') })",
+    ],
+    [
+      'all four hostile characters at once',
+      'colon: brace { quote " apostrophe \'',
+    ],
+  ];
+
+  it.each(KILLING_DESCRIPTIONS)(
+    'a description containing %s round-trips byte-exact',
+    (_label, description) => {
+      const raw = renderTaskMd({
+        id: FOLDER,
+        title: 'Carrier with a hostile description',
+        type: 'BUGFIX',
+        status: 'done',
+        description,
+        now: FIXED_NOW,
+      });
+
+      const parsed = parseTaskFile(FOLDER, raw);
+      if (parsed.kind !== 'task') {
+        throw new Error(
+          `Carrier EXCLUDED (${parsed.excluded.reason}) for description: ${description}`,
+        );
+      }
+      // Byte equality on the field, not merely "it parsed".
+      expect(parsed.task.description).toBe(description);
+      expect(parsed.task.status).toBe('done');
+      expect(parsed.task.validationIssues).toEqual([]);
+    },
+  );
+
   it('emits an empty depends_on that parses back as an empty array', () => {
     const raw = renderTaskMd({
       id: FOLDER,

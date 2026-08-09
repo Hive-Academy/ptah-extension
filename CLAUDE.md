@@ -125,6 +125,7 @@ nx graph                             # Visualize dep graph
 
 - **Carrier**: each `TASK_YYYY_NNN/` folder MUST contain `task.md` — YAML frontmatter (`status`, `type`, `title`) + short body. A folder without it is invisible to the Tasks board.
 - **Prose**: user intent and narrative go in `context.md`. The team-leader batch breakdown goes in `tasks.md`. Never put prose in the carrier.
+- **`description` is ALWAYS a `>-` block scalar** — a plain YAML scalar ends at the first colon-space, so a description quoting code makes the whole carrier unparseable and the task vanishes from the board. Three carriers were dark for exactly this (repaired 2026-08-09). Same rule for `title` when it contains a colon.
 - **Status change**: `Edit` exactly the `status:` line in `task.md` (`backlog | in_progress | in_review | blocked | done | cancelled`). Never rewrite the whole carrier with `Write`.
 - **ID allocation**: folder scan of `.ptah/specs/TASK_*` — highest `NNN` for the current year + 1, zero-padded. NEVER derive the ID from `registry.md` (it is generated and can be stale).
 - **Folder name is the canonical ID**: a mismatched `id:` field inside the frontmatter is a warning; do not "fix" it by renaming folders.

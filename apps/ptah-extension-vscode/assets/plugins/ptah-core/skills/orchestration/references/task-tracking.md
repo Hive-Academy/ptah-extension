@@ -45,7 +45,9 @@ id: TASK_2026_158
 status: backlog # backlog | in_progress | in_review | blocked | done | cancelled
 type: FEATURE # FEATURE | BUGFIX | REFACTORING | DOCUMENTATION | RESEARCH | DEVOPS | SAAS_INIT | CREATIVE
 title: Short imperative title
-description: One-line summary (optional; long form goes in the body)
+description: >-
+  One-line summary (optional; long form goes in the body). ALWAYS use this
+  block-scalar form, even for a short summary.
 assignee: # reserved
 depends_on: [] # e.g. [TASK_2026_140, TASK_2026_155]
 executor: # optional agent lane hint
@@ -62,19 +64,42 @@ is the only machine-read part; edit the body freely.
 
 ### Field Rules
 
-| Field         | Required    | Notes                                                           |
-| ------------- | ----------- | --------------------------------------------------------------- |
-| `status`      | **Yes**     | Must be one of the six values below. Invalid ⇒ folder excluded. |
-| `title`       | **Yes**     | Non-empty. Missing ⇒ folder excluded.                           |
-| `id`          | Recommended | Folder name always wins on mismatch (warning only).             |
-| `type`        | Optional    | Unknown value ⇒ warning, treated as unset.                      |
-| `description` | Optional    | One-line card summary.                                          |
-| `depends_on`  | Optional    | Array of task ids. Malformed ⇒ warning, treated as `[]`.        |
-| `executor`    | Optional    | Agent lane hint.                                                |
-| `assignee`    | Optional    | Reserved.                                                       |
-| `claim`       | Optional    | Reserved.                                                       |
-| `created`     | Optional    | ISO 8601. Unparseable ⇒ warning, treated as unset.              |
-| `updated`     | Optional    | ISO 8601. Refreshed automatically on every status transition.   |
+| Field         | Required    | Notes                                                            |
+| ------------- | ----------- | ---------------------------------------------------------------- |
+| `status`      | **Yes**     | Must be one of the six values below. Invalid ⇒ folder excluded.  |
+| `title`       | **Yes**     | Non-empty. Missing ⇒ folder excluded.                            |
+| `id`          | Recommended | Folder name always wins on mismatch (warning only).              |
+| `type`        | Optional    | Unknown value ⇒ warning, treated as unset.                       |
+| `description` | Optional    | One-line card summary. **Always `>-` block scalar** — see below. |
+| `depends_on`  | Optional    | Array of task ids. Malformed ⇒ warning, treated as `[]`.         |
+| `executor`    | Optional    | Agent lane hint.                                                 |
+| `assignee`    | Optional    | Reserved.                                                        |
+| `claim`       | Optional    | Reserved.                                                        |
+| `created`     | Optional    | ISO 8601. Unparseable ⇒ warning, treated as unset.               |
+| `updated`     | Optional    | ISO 8601. Refreshed automatically on every status transition.    |
+
+### `description` MUST be a block scalar — this one has already cost tasks
+
+Write it as `>-` with the text indented on the following lines, ALWAYS:
+
+```yaml
+description: >-
+  Any text at all, including a ternary like a ? b : c, a mapping such as
+  {"field": null}, "double quotes" and it's apostrophes.
+```
+
+A plain (unquoted) YAML scalar **terminates at the first colon-space**, so a
+description that quotes code destroys the whole frontmatter block. The carrier
+then fails to parse, and a folder whose carrier does not parse is **invisible to
+the board** — the failure is total, not cosmetic. Three carriers written from an
+earlier version of this template were dark for exactly this reason
+(`TASK_2026_182`, `188`, `189`, repaired 2026-08-09). A block scalar survives
+colons, braces, quotes and apostrophes with no escaping at all.
+
+The same rule applies to `title` whenever it contains a colon.
+
+Ptah's own writer (`renderTaskMd`) emits a quoted scalar and is safe; this rule
+exists because agents hand-write carriers from this template.
 
 ### Status Values (`task.md` frontmatter)
 
@@ -185,7 +210,8 @@ id: TASK_[ID]
 status: in_progress
 type: FEATURE
 title: [Short imperative title]
-description: [One-line summary]
+description: >-
+  [One-line summary — block scalar ALWAYS, see the frontmatter contract above]
 depends_on: []
 created: [ISO date]
 updated: [ISO date]
