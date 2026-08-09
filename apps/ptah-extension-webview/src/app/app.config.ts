@@ -46,8 +46,14 @@ import {
   GitStatusService,
 } from '@ptah-extension/editor/services';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
-import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui';
-import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui';
+import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui/services';
+import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/services';
+// NOTE: intentionally the WIDE barrel. A narrow `@ptah-extension/dashboard/services`
+// barrel was built and measured for this import and moved 0 bytes
+// (dashboard: 35.7 kB -> 35.8 kB), because `DashboardGridComponent` stays eager
+// via `AppShellComponent.imports` — the analytics view is startup-reachable
+// (`ptah.openDashboard`) so it is deliberately NOT deferred. Dead scaffolding
+// dropped per TASK_2026_187 R6.
 import { ThothStatusService } from '@ptah-extension/dashboard';
 import {
   HarnessBuilderViewComponent,
@@ -55,7 +61,7 @@ import {
   HarnessWorkflowMessageHandler,
 } from '@ptah-extension/harness-builder';
 import { TasksViewComponent, TasksStore } from '@ptah-extension/tasks-ui';
-import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui';
+import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui/services';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
 class WebviewErrorHandler implements ErrorHandler {
   public handleError(error: unknown): void {

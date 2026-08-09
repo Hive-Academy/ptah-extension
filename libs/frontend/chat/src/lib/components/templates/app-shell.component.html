@@ -70,9 +70,23 @@
   }
 
   <!-- Thoth: Memory / Skills / Cron / Gateway hub (Electron-only; VS Code shows placeholder) -->
+  <!--
+    @defer cuts the static template edge to ThothShellComponent, which in turn
+    pulls memory-curator-ui, skill-synthesis-ui, cron-scheduler-ui and
+    messaging-gateway-ui via its own imports: array. 'thoth' is NOT reachable as
+    a startup view (it is absent from the initialView allow-lists in
+    app.ts and webview-html-generator.ts), so this is never the launch surface
+    and deferring it cannot regress startup TTI (TASK_2026_187, R15).
+  -->
   @case ('thoth') {
     <div class="h-full w-full">
-      <ptah-thoth-shell />
+      @defer (on immediate) {
+        <ptah-thoth-shell />
+      } @placeholder {
+        <div class="flex items-center justify-center h-full">
+          <span class="loading loading-spinner loading-md"></span>
+        </div>
+      }
     </div>
   }
 

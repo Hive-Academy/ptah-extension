@@ -60,17 +60,29 @@
       "@ptah-extension/cron-scheduler-ui": [
         "./libs/frontend/cron-scheduler-ui/src/index.ts"
       ],
+      "@ptah-extension/cron-scheduler-ui/services": [
+        "./libs/frontend/cron-scheduler-ui/src/services.ts"
+      ],
       "@ptah-extension/thoth-shell": [
         "./libs/frontend/thoth-shell/src/index.ts"
       ],
       "@ptah-extension/memory-curator-ui": [
         "./libs/frontend/memory-curator-ui/src/index.ts"
       ],
+      "@ptah-extension/memory-curator-ui/services": [
+        "./libs/frontend/memory-curator-ui/src/services.ts"
+      ],
       "@ptah-extension/messaging-gateway-ui": [
         "./libs/frontend/messaging-gateway-ui/src/index.ts"
       ],
+      "@ptah-extension/messaging-gateway-ui/services": [
+        "./libs/frontend/messaging-gateway-ui/src/services.ts"
+      ],
       "@ptah-extension/skill-synthesis-ui": [
         "./libs/frontend/skill-synthesis-ui/src/index.ts"
+      ],
+      "@ptah-extension/skill-synthesis-ui/services": [
+        "./libs/frontend/skill-synthesis-ui/src/services.ts"
       ],
       "@ptah-extension/tasks-ui": ["./libs/frontend/tasks-ui/src/index.ts"],
       "@ptah-extension/core/testing": [
