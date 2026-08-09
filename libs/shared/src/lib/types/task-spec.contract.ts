@@ -117,21 +117,50 @@ export const CONTEXT_FILE = 'context.md';
  * or any review. A folder carrying one of these is FINISHED work that merely
  * lost its carrier — adopting it as `backlog` would misreport completed work as
  * not-started, which is worse than leaving it invisible.
+ *
+ * ## Why this is a PATTERN and not an intersection with `DOC_FILES` (D1)
+ *
+ * It used to be `DOC_FILES.filter(...)`, which collapsed to exactly four exact
+ * filenames. Real task folders do not carry those four names. `TASK_2026_161`
+ * carries `batch2-logic-review.md`, `batch1-report.md` and `batch3-report.md`;
+ * the intersection matched none of them, so the doctor planned `status: backlog`
+ * for a task with three shipped commits — the "board lies with confidence"
+ * failure, produced by the tool built to prevent it.
+ *
+ * `DOC_FILES` answers "which filenames may an agent create?" and stays CLOSED
+ * for the CI ratchet. Status inference answers "does this folder show evidence
+ * of finished work?" over whatever is actually on disk. Those are different
+ * questions and they need different sets.
  */
-export const COMPLETION_ARTIFACTS: readonly DocFile[] = DOC_FILES.filter(
-  (name) => name === 'test-report.md' || name.endsWith('-review.md'),
-);
+export const COMPLETION_ARTIFACT_PATTERNS: readonly RegExp[] = [
+  /-review\.md$/,
+  // Covers the canonical `test-report.md` as well as `batch3-report.md` and
+  // `implementation-report-b0.md`, both of which exist in this tree.
+  /-report\.md$/,
+];
 
 /**
  * Documents that prove work was PLANNED and probably started, but say nothing
  * about it finishing.
+ *
+ * Pattern-based for the same reason as {@link COMPLETION_ARTIFACT_PATTERNS} —
+ * `implementation-plan-b2.md` is as much a plan as `implementation-plan.md`.
  */
-export const PLANNING_ARTIFACTS: readonly DocFile[] = DOC_FILES.filter(
-  (name) =>
-    name === 'implementation-plan.md' ||
-    name === 'batches.md' ||
-    name === 'tasks.md',
-);
+export const PLANNING_ARTIFACT_PATTERNS: readonly RegExp[] = [
+  /^implementation-plan.*\.md$/,
+  /^batches\.md$/,
+  /^tasks\.md$/,
+];
+
+/** Does this on-disk filename count as evidence that the work FINISHED? */
+export function isCompletionArtifact(name: string): boolean {
+  return COMPLETION_ARTIFACT_PATTERNS.some((re) => re.test(name));
+}
+
+/** Does this on-disk filename count as evidence that the work was PLANNED? */
+export function isPlanningArtifact(name: string): boolean {
+  return PLANNING_ARTIFACT_PATTERNS.some((re) => re.test(name));
+}
 
 /** Narrow an arbitrary filename to a recognised per-task document. */
 export function isDocFile(name: string): name is DocFile {

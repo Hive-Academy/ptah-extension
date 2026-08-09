@@ -49,12 +49,13 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   BATCHES_FILE,
   CARRIER_FILE,
-  COMPLETION_ARTIFACTS,
   CONTEXT_FILE,
   deriveCrossFileIssues,
+  isCompletionArtifact,
+  isPlanningArtifact,
   LEGACY_BATCHES_FILE,
-  PLANNING_ARTIFACTS,
   SPEC_CONTRACT_VERSION,
+  TASK_TYPES,
   type TaskSpecSummary,
   type TaskStatus,
   type TaskType,
@@ -85,6 +86,15 @@ export interface AdoptAction {
   status: TaskStatus;
   /** The artifact filenames the status was deduced from. Empty ⇒ `backlog`. */
   inferredFrom: string[];
+  /**
+   * One-line card summary, forwarded to the carrier when present (D4).
+   *
+   * The doctor never invents one — nothing in an orphaned folder is reliably a
+   * description. The field exists so a caller that DOES know (a human editing
+   * the plan before `apply()`, or an RPC client) is not silently dropped
+   * between two layers that both already accept it.
+   */
+  description?: string;
 }
 
 /** Move a legacy batch breakdown onto its current name. */
@@ -120,7 +130,12 @@ export interface DoctorWarning {
     /** The declared parent itself declares a parent; parentage is one level. */
     | 'parent_depth_exceeded'
     /** A `duplicates` / `relates_to` entry pointing at nothing, or at itself. */
-    | 'dangling_relation';
+    | 'dangling_relation'
+    /**
+     * The carrier says `backlog` while the folder holds a review or a test
+     * report — the board is reporting finished work as never started.
+     */
+    | 'status_contradicted_by_artifacts';
   message: string;
 }
 
@@ -239,6 +254,94 @@ function crossFileWarnings(tasks: readonly TaskSpecSummary[]): DoctorWarning[] {
   return warnings;
 }
 
+/**
+ * Report a carrier whose declared status the folder's own artifacts contradict.
+ *
+ * ## Why this exists at all
+ *
+ * The defect that produced D1 has a general shape: a file claims a state, the
+ * artifacts next to it prove another, and nothing compares the two, so the drift
+ * survives until a human happens to look. `TASK_2026_179`'s own batch file
+ * carried `PENDING` markers for three batches that had shipped, undetected for
+ * days. Adoption fixes that only for folders with NO carrier; this fixes the
+ * reverse case, and it is the whole reason the doctor is worth running twice.
+ *
+ * ## Deliberately narrow
+ *
+ * Only `backlog` + a completion artifact. That pair has no innocent reading: a
+ * folder holding a review or a test report is not work that was never started.
+ * `in_progress` alongside a review is ordinary mid-flight state and stays
+ * silent — a diagnostic that cries wolf gets ignored, and an ignored diagnostic
+ * is worse than none.
+ *
+ * REPORTED, never repaired. Same rule as every other doctor warning: rewriting a
+ * carrier the user did not ask about is the clobbering this task set exists to
+ * stop, and `.ptah/**` is gitignored, so it would have no undo.
+ */
+function statusContradiction(
+  folderName: string,
+  status: TaskStatus,
+  docs: readonly string[],
+): DoctorWarning | undefined {
+  if (status !== 'backlog') return undefined;
+  const evidence = docs.filter(isCompletionArtifact).sort();
+  if (evidence.length === 0) return undefined;
+
+  return {
+    folderName,
+    code: 'status_contradicted_by_artifacts',
+    message:
+      `${folderName} declares 'backlog' but holds ${evidence.join(', ')} — ` +
+      `artifacts that only exist once work reached verification. The board is ` +
+      `reporting finished work as never started. Left as-is: only a human can ` +
+      `say which is true.`,
+  };
+}
+
+/** Narrow a declared string to a `TaskType`, case-insensitively. */
+function toTaskType(value: string): TaskType | undefined {
+  const upper = value.trim().toUpperCase();
+  return (TASK_TYPES as readonly string[]).includes(upper)
+    ? (upper as TaskType)
+    : undefined;
+}
+
+/**
+ * Generic words a `context.md` H1 pairs with the id when it is titling the
+ * DOCUMENT rather than the task. `# TASK_2026_170 — Context` is a heading for
+ * the context file; it is not a title for the work.
+ */
+const UNINFORMATIVE_TITLE_SUFFIXES = [
+  'context',
+  'notes',
+  'plan',
+  'report',
+  'overview',
+  'readme',
+  'tasks',
+  'batches',
+  'spec',
+];
+
+/**
+ * Reject a title that carries no information beyond the folder name: the bare
+ * id, or the id plus a separator plus one generic word.
+ */
+function isUninformativeTitle(title: string, folderName: string): boolean {
+  const trimmed = title.trim();
+  if (trimmed.length === 0) return true;
+  if (trimmed.toLowerCase() === folderName.toLowerCase()) return true;
+
+  const lower = trimmed.toLowerCase();
+  const prefix = folderName.toLowerCase();
+  if (!lower.startsWith(prefix)) return false;
+
+  // Everything after the id, with any separator run (—, -, :, |, whitespace)
+  // stripped from the front.
+  const rest = lower.slice(prefix.length).replace(/^[\s–—:|-]+/, '');
+  return UNINFORMATIVE_TITLE_SUFFIXES.includes(rest);
+}
+
 type StampState =
   | { state: 'absent' }
   | { state: 'present'; version: number }
@@ -307,7 +410,15 @@ export class TaskDoctorService {
       if (docs.includes(CARRIER_FILE)) {
         const inspection = await this.inspectCarrier(folderPath, folderName);
         warnings.push(...inspection.warnings);
-        if (inspection.task !== undefined) parsed.push(inspection.task);
+        if (inspection.task !== undefined) {
+          parsed.push(inspection.task);
+          const contradiction = statusContradiction(
+            folderName,
+            inspection.task.status,
+            docs,
+          );
+          if (contradiction) warnings.push(contradiction);
+        }
       } else {
         actions.push(await this.planAdoption(folderPath, folderName, docs));
       }
@@ -676,49 +787,150 @@ export class TaskDoctorService {
     folderName: string,
     docs: string[],
   ): Promise<AdoptAction> {
-    const completion = COMPLETION_ARTIFACTS.filter((name) =>
-      docs.includes(name),
-    );
-    const planning = PLANNING_ARTIFACTS.filter((name) => docs.includes(name));
+    // Matched against the folder's ACTUAL filenames (D1). The previous version
+    // intersected `docs` with the closed `DOC_FILES` set, so a folder whose
+    // only evidence was `batch2-logic-review.md` produced an empty
+    // `inferredFrom` and adopted as `backlog` despite three shipped commits.
+    const completion = docs.filter(isCompletionArtifact).sort();
+    const planning = docs.filter(isPlanningArtifact).sort();
 
     let status: TaskStatus = 'backlog';
     let inferredFrom: string[] = [];
     if (completion.length > 0) {
       status = 'done';
-      inferredFrom = [...completion];
+      inferredFrom = completion;
     } else if (planning.length > 0) {
       status = 'in_progress';
-      inferredFrom = [...planning];
+      inferredFrom = planning;
     }
+
+    const declared = await this.readDeclaredMetadata(folderPath);
 
     return {
       kind: 'adopt',
       folderName,
-      title: await this.inferTitle(folderPath, folderName),
-      // No artifact reliably encodes the task TYPE, so the plan states the
-      // neutral default explicitly rather than pretending to know. The user
-      // sees it in `--plan` output before anything is written.
-      type: 'FEATURE',
+      title: await this.inferTitle(folderPath, folderName, declared.title),
+      // Lifted from the prose doc when it declares one (D2). `status` is NEVER
+      // lifted the same way: several folders declare a stale `in_progress` in
+      // prose that the artifacts contradict, and the artifacts are evidence
+      // while the prose is a claim. Absent a declaration this stays the neutral
+      // default, stated in `--plan` output before anything is written.
+      type: declared.type ?? 'FEATURE',
       status,
       inferredFrom,
     };
   }
 
-  /** First markdown H1 in the prose doc, else the folder name. */
+  /**
+   * Lift `type` and `title` from whatever the folder's prose already declares.
+   *
+   * Two shapes are recognised, both present in this tree:
+   *  - a full carrier frontmatter block at the head of `context.md`
+   *    (`TASK_2026_164`, `TASK_2026_166` declare `type: CREATIVE` there);
+   *  - a `**Type**: BUGFIX` line in the opening prose (`161`, `168`, `170`).
+   *
+   * This is deliberately a hand-rolled scan rather than a `parseTaskFile` call:
+   * `context.md` is agent-owned prose that happens to open with frontmatter, not
+   * a carrier, and running the carrier parser over it would report exclusions
+   * for a file that is not required to satisfy the carrier contract at all.
+   */
+  private async readDeclaredMetadata(
+    folderPath: string,
+  ): Promise<{ type?: TaskType; title?: string }> {
+    let raw: string;
+    try {
+      raw = await this.fs.readFile(path.join(folderPath, CONTEXT_FILE));
+    } catch {
+      return {};
+    }
+
+    const lines = raw.split(/\r?\n/);
+    const declared: { type?: TaskType; title?: string } = {};
+
+    // Frontmatter block, when the prose opens with one.
+    if (lines[0]?.trim() === '---') {
+      for (const line of lines.slice(1)) {
+        if (line.trim() === '---') break;
+        const field = /^([A-Za-z_]+):\s*(.+?)\s*$/.exec(line);
+        if (!field) continue;
+        const [, key, value] = field;
+        const unquoted = value.replace(/^["']|["']$/g, '');
+        if (key === 'type') declared.type = toTaskType(unquoted);
+        else if (key === 'title' && unquoted.length > 0) {
+          declared.title = unquoted;
+        }
+      }
+    }
+
+    // `**Type**: X` in the opening prose. Bounded to the first 40 lines so a
+    // sentence deep in a narrative cannot masquerade as a declaration.
+    if (declared.type === undefined) {
+      for (const line of lines.slice(0, 40)) {
+        const match = /^\s*[*_]{0,2}Type[*_]{0,2}\s*:\s*([A-Za-z_]+)/.exec(
+          line,
+        );
+        const parsed = match ? toTaskType(match[1]) : undefined;
+        if (parsed !== undefined) {
+          declared.type = parsed;
+          break;
+        }
+      }
+    }
+
+    return declared;
+  }
+
+  /**
+   * Best available human-readable title, in descending order of trust.
+   *
+   * The fallback chain exists because the naive "first H1 of `context.md`"
+   * produced content-free titles for 3 of 12 real folders (D3): `context.md`
+   * conventionally opens `# TASK_2026_170 — Context`, which restates the id and
+   * says nothing, and a folder with no `context.md` fell straight through to the
+   * bare folder name while its one review file carried a serviceable H1. A board
+   * row reading "TASK_2026_170 — Context" is the unknown-task outcome under a
+   * different spelling.
+   */
   private async inferTitle(
     folderPath: string,
     folderName: string,
+    declaredTitle?: string,
   ): Promise<string> {
-    try {
-      const raw = await this.fs.readFile(path.join(folderPath, CONTEXT_FILE));
+    if (
+      declaredTitle !== undefined &&
+      !isUninformativeTitle(declaredTitle, folderName)
+    ) {
+      return declaredTitle;
+    }
+
+    const docs = await this.listFileNames(folderPath);
+    // `context.md` first, then the rest of the prose in a stable order, so the
+    // proposed title does not depend on directory-listing order.
+    const candidates = [
+      CONTEXT_FILE,
+      ...docs
+        .filter((name) => name !== CONTEXT_FILE && name.endsWith('.md'))
+        .sort(),
+    ];
+
+    for (const doc of candidates) {
+      let raw: string;
+      try {
+        raw = await this.fs.readFile(path.join(folderPath, doc));
+      } catch {
+        continue;
+      }
       for (const line of raw.split(/\r?\n/)) {
         const heading = /^#\s+(.+?)\s*$/.exec(line);
-        if (heading && heading[1].length > 0) return heading[1];
+        if (!heading) continue;
+        const title = heading[1];
+        if (title.length > 0 && !isUninformativeTitle(title, folderName)) {
+          return title;
+        }
       }
-    } catch {
-      // No prose doc, or unreadable — the folder name is a perfectly honest
-      // title and needs no apology.
     }
+
+    // Nothing in the folder says anything. The folder name is at least honest.
     return folderName;
   }
 
@@ -781,6 +993,7 @@ export class TaskDoctorService {
           title: action.title,
           type: action.type,
           status: action.status,
+          description: action.description,
           // ALWAYS. A deduced status that does not say it was deduced is a
           // fabricated fact.
           statusInferred: true,

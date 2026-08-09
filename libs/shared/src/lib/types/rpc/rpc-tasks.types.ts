@@ -391,7 +391,12 @@ export interface TasksDoctorWarning {
     /** The declared parent itself declares a parent; parentage is one level. */
     | 'parent_depth_exceeded'
     /** A `duplicates` / `relates_to` entry pointing at nothing, or at itself. */
-    | 'dangling_relation';
+    | 'dangling_relation'
+    /**
+     * The carrier declares `backlog` while the folder holds a review or a test
+     * report. Reported so board-vs-disk drift is visible; never repaired.
+     */
+    | 'status_contradicted_by_artifacts';
   message: string;
 }
 

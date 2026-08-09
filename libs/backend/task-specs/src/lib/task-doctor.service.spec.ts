@@ -232,6 +232,294 @@ describe('TaskDoctorService.plan', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// The defect batch found by the first production run — 2026-08-09
+// ---------------------------------------------------------------------------
+
+/**
+ * Every case below is a real folder from this workspace's adoption run, not a
+ * constructed edge. The doctor got each of them wrong the first time it was
+ * pointed at real data, which is the only reason these tests exist.
+ */
+describe('TaskDoctorService.plan — evidence the doctor used to discard', () => {
+  it('D1: a NON-CANONICAL review filename still proves the work finished', async () => {
+    const { fs, doctor } = makeDoctor();
+    // `TASK_2026_161`, verbatim. None of these three names is in `DOC_FILES`,
+    // so intersecting with that closed set yielded no evidence at all and the
+    // doctor planned `backlog` for a task with three shipped commits.
+    await fs.writeFile(
+      specPath('TASK_2026_161', 'batch2-logic-review.md'),
+      'x',
+    );
+    await fs.writeFile(specPath('TASK_2026_161', 'batch1-report.md'), 'x');
+    await fs.writeFile(specPath('TASK_2026_161', 'batch3-report.md'), 'x');
+
+    const result = await doctor.plan(ROOT);
+    if (!result.ok) throw new Error('plan failed');
+    const action = result.plan.actions.find(
+      (a) => a.kind === 'adopt' && a.folderName === 'TASK_2026_161',
+    );
+    if (action?.kind !== 'adopt') throw new Error('expected an adopt action');
+
+    expect(action.status).toBe('done');
+    // Every matching file is cited, so `--plan` output shows WHY.
+    expect(action.inferredFrom).toEqual([
+      'batch1-report.md',
+      'batch2-logic-review.md',
+      'batch3-report.md',
+    ]);
+  });
+
+  it('D1: a folder with no evidence at all is still `backlog`', async () => {
+    // The control. Without it, "match a pattern" could degenerate into
+    // "call everything done", which fails in the opposite direction.
+    const { fs, doctor } = makeDoctor();
+    await fs.writeFile(specPath('TASK_2026_900', 'notes.md'), 'x');
+
+    const result = await doctor.plan(ROOT);
+    if (!result.ok) throw new Error('plan failed');
+    const action = result.plan.actions.find(
+      (a) => a.kind === 'adopt' && a.folderName === 'TASK_2026_900',
+    );
+    if (action?.kind !== 'adopt') throw new Error('expected an adopt action');
+    expect(action.status).toBe('backlog');
+    expect(action.inferredFrom).toEqual([]);
+  });
+
+  it('D2: lifts `type` from a frontmatter block at the head of context.md', async () => {
+    const { fs, doctor } = makeDoctor();
+    // `TASK_2026_164` / `166` open exactly like this. The doctor read straight
+    // past it and proposed FEATURE for all twelve folders.
+    await fs.writeFile(
+      specPath('TASK_2026_164', 'context.md'),
+      [
+        '---',
+        'id: TASK_2026_164',
+        'status: in_progress',
+        'type: CREATIVE',
+        'title: Reshape the admin dashboard into a task-oriented console',
+        '---',
+        '',
+        '# TASK_2026_164 — Context',
+        '',
+        'prose',
+        '',
+      ].join('\n'),
+    );
+    await fs.writeFile(specPath('TASK_2026_164', 'visual-review.md'), 'x');
+
+    const result = await doctor.plan(ROOT);
+    if (!result.ok) throw new Error('plan failed');
+    const action = result.plan.actions.find(
+      (a) => a.kind === 'adopt' && a.folderName === 'TASK_2026_164',
+    );
+    if (action?.kind !== 'adopt') throw new Error('expected an adopt action');
+
+    expect(action.type).toBe('CREATIVE');
+    expect(action.title).toBe(
+      'Reshape the admin dashboard into a task-oriented console',
+    );
+    // The declared `in_progress` is IGNORED: the artifacts are evidence, the
+    // prose is a claim, and `164`'s claim was stale by two commits.
+    expect(action.status).toBe('done');
+  });
+
+  it('D2: falls back to a `**Type**:` line when there is no frontmatter', async () => {
+    const { fs, doctor } = makeDoctor();
+    await fs.writeFile(
+      specPath('TASK_2026_170', 'context.md'),
+      ['# Real title here', '', '**Type**: BUGFIX', ''].join('\n'),
+    );
+
+    const result = await doctor.plan(ROOT);
+    if (!result.ok) throw new Error('plan failed');
+    const action = result.plan.actions.find(
+      (a) => a.kind === 'adopt' && a.folderName === 'TASK_2026_170',
+    );
+    if (action?.kind !== 'adopt') throw new Error('expected an adopt action');
+    expect(action.type).toBe('BUGFIX');
+  });
+
+  it('D2: defaults to FEATURE when nothing declares a type', async () => {
+    const { fs, doctor } = makeDoctor();
+    await fs.writeFile(specPath('TASK_2026_901', 'context.md'), '# Untyped\n');
+
+    const result = await doctor.plan(ROOT);
+    if (!result.ok) throw new Error('plan failed');
+    const action = result.plan.actions.find(
+      (a) => a.kind === 'adopt' && a.folderName === 'TASK_2026_901',
+    );
+    if (action?.kind !== 'adopt') throw new Error('expected an adopt action');
+    expect(action.type).toBe('FEATURE');
+  });
+
+  it('D3: rejects the "<id> — Context" H1 and reads the next prose file', async () => {
+    const { fs, doctor } = makeDoctor();
+    // The literal shape of `TASK_2026_170/context.md` and
+    // `TASK_2026_VOICE_PROVIDERS/context.md`. Proposing it as a title puts a
+    // row on the board that restates the id and says nothing.
+    await fs.writeFile(
+      specPath('TASK_2026_170', 'context.md'),
+      '# TASK_2026_170 — Context\n\nprose\n',
+    );
+    await fs.writeFile(
+      specPath('TASK_2026_170', 'code-logic-review.md'),
+      '# Guard payload validation across every controller\n\nreview\n',
+    );
+
+    const result = await doctor.plan(ROOT);
+    if (!result.ok) throw new Error('plan failed');
+    const action = result.plan.actions.find(
+      (a) => a.kind === 'adopt' && a.folderName === 'TASK_2026_170',
+    );
+    if (action?.kind !== 'adopt') throw new Error('expected an adopt action');
+    expect(action.title).toBe(
+      'Guard payload validation across every controller',
+    );
+  });
+
+  it('D3: with no context.md, takes the H1 from the only file present', async () => {
+    const { fs, doctor } = makeDoctor();
+    // `TASK_WORKSPACE_SCOPING_REVIEW`: one file, a perfectly serviceable H1,
+    // and the doctor proposed the bare folder name.
+    await fs.writeFile(
+      specPath('TASK_WORKSPACE_SCOPING_REVIEW', 'code-logic-review.md'),
+      '# Workspace scoping is applied inconsistently across the read paths\n',
+    );
+
+    const result = await doctor.plan(ROOT);
+    if (!result.ok) throw new Error('plan failed');
+    const action = result.plan.actions.find(
+      (a) =>
+        a.kind === 'adopt' && a.folderName === 'TASK_WORKSPACE_SCOPING_REVIEW',
+    );
+    if (action?.kind !== 'adopt') throw new Error('expected an adopt action');
+    expect(action.title).toBe(
+      'Workspace scoping is applied inconsistently across the read paths',
+    );
+  });
+
+  it('D3: the folder name survives as a LAST resort', async () => {
+    const { fs, doctor } = makeDoctor();
+    await fs.writeFile(specPath('TASK_2026_902', 'context.md'), 'no heading\n');
+
+    const result = await doctor.plan(ROOT);
+    if (!result.ok) throw new Error('plan failed');
+    const action = result.plan.actions.find(
+      (a) => a.kind === 'adopt' && a.folderName === 'TASK_2026_902',
+    );
+    if (action?.kind !== 'adopt') throw new Error('expected an adopt action');
+    expect(action.title).toBe('TASK_2026_902');
+  });
+
+  /**
+   * D — the drift class that produced D1 one layer up.
+   *
+   * `TASK_2026_179`'s own batch file carried `PENDING` markers for three
+   * batches that had shipped. Nothing compared the claim to the disk, so the
+   * drift survived until a human looked. This warning is the machine-checkable
+   * half of that: a carrier saying `backlog` next to a review has no innocent
+   * reading.
+   */
+  it('warns when a carrier says `backlog` while the folder holds a review', async () => {
+    const { fs, doctor } = makeDoctor();
+    await fs.writeFile(
+      specPath('TASK_2026_903', 'task.md'),
+      [
+        '---',
+        'id: TASK_2026_903',
+        'status: backlog',
+        'type: FEATURE',
+        'title: Claims to be unstarted',
+        'depends_on: []',
+        '---',
+        '',
+        'body',
+        '',
+      ].join('\n'),
+    );
+    await fs.writeFile(
+      specPath('TASK_2026_903', 'batch2-logic-review.md'),
+      'x',
+    );
+
+    const before = snapshot(fs);
+    const result = await doctor.plan(ROOT);
+    if (!result.ok) throw new Error('plan failed');
+
+    const warning = result.plan.warnings.find(
+      (w) => w.folderName === 'TASK_2026_903',
+    );
+    expect(warning?.code).toBe('status_contradicted_by_artifacts');
+    expect(warning?.message).toContain('batch2-logic-review.md');
+    // REPORTED, never repaired — no action, and not one byte moved.
+    expect(result.plan.actions).toHaveLength(0);
+    expect(snapshot(fs)).toEqual(before);
+  });
+
+  it('stays SILENT for `in_progress` next to a review — ordinary mid-flight state', async () => {
+    // The false-positive control. A diagnostic that fires on normal work gets
+    // ignored, and an ignored diagnostic is worse than none.
+    const { fs, doctor } = makeDoctor();
+    await fs.writeFile(
+      specPath('TASK_2026_904', 'task.md'),
+      [
+        '---',
+        'id: TASK_2026_904',
+        'status: in_progress',
+        'type: FEATURE',
+        'title: Mid-flight',
+        'depends_on: []',
+        '---',
+        '',
+        'body',
+        '',
+      ].join('\n'),
+    );
+    await fs.writeFile(specPath('TASK_2026_904', 'code-logic-review.md'), 'x');
+
+    const result = await doctor.plan(ROOT);
+    if (!result.ok) throw new Error('plan failed');
+    expect(
+      result.plan.warnings.filter(
+        (w) => w.code === 'status_contradicted_by_artifacts',
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('TaskDoctorService.apply — D4', () => {
+  it('forwards a plan-supplied description onto the written carrier', async () => {
+    const { fs, doctor } = makeDoctor();
+    await fs.writeFile(specPath('TASK_2026_905', 'context.md'), '# Adopt me\n');
+
+    const planned = await doctor.plan(ROOT);
+    if (!planned.ok) throw new Error('plan failed');
+
+    // The human-in-the-loop contract: the caller edits the plan and hands it
+    // back. Before D4 the field was declared nowhere on `AdoptAction`, so a
+    // description could not survive the trip even though `adoptFolder` and
+    // `renderTaskMd` both accept one.
+    const description =
+      'A description with a colon: braces {"a": 1} and it\'s "quoted".';
+    for (const action of planned.plan.actions) {
+      if (action.kind === 'adopt') action.description = description;
+    }
+
+    const applied = await doctor.apply(planned.plan);
+    expect(applied.ok).toBe(true);
+
+    const raw = await fs.readFile(specPath('TASK_2026_905', 'task.md'));
+    const parsed = parseTaskFile('TASK_2026_905', raw);
+    if (parsed.kind !== 'task') {
+      throw new Error(`carrier excluded: ${parsed.excluded.reason}`);
+    }
+    expect(parsed.task.description).toBe(description);
+    // Adoption ALWAYS says the status was guessed, description or not.
+    expect(raw).toContain('status_inferred: true');
+  });
+});
+
 describe('TaskDoctorService.apply', () => {
   it('mutates NOTHING when the journal write fails (fail-closed, R7)', async () => {
     const { fs, doctor } = makeDoctor();
