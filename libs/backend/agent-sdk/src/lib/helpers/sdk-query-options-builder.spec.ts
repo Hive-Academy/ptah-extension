@@ -19,6 +19,7 @@ import 'reflect-metadata';
 
 import {
   SdkQueryOptionsBuilder,
+  isFatalUpstreamProviderError,
   type SdkQueryOptions,
 } from './sdk-query-options-builder';
 import { ModelNotAvailableError } from '../errors';
@@ -135,6 +136,77 @@ describe('SdkQueryOptionsBuilder.mergeMcpOverride', () => {
       url: 'http://override.example/added',
       headers: { 'X-Trace': 'on' },
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isFatalUpstreamProviderError — the stderr predicate that gates onProviderError
+// ---------------------------------------------------------------------------
+//
+// A true result aborts the whole SDK query, which rejects any in-flight
+// `can_use_tool` permission with "Stream closed" and wedges every subsequent
+// tool call until the session is recreated. These specs pin the predicate to
+// FATAL, non-retryable signatures only and prove that benign stderr and
+// transient errors can no longer trip the abort.
+
+describe('isFatalUpstreamProviderError', () => {
+  it('matches Anthropic structured non-retryable error types', () => {
+    expect(
+      isFatalUpstreamProviderError(
+        '{"type":"error","error":{"type":"authentication_error","message":"x"}}',
+      ),
+    ).toBe(true);
+    expect(
+      isFatalUpstreamProviderError('error: invalid_request_error (bad model)'),
+    ).toBe(true);
+    expect(isFatalUpstreamProviderError('permission_error')).toBe(true);
+    expect(isFatalUpstreamProviderError('not_found_error')).toBe(true);
+    expect(isFatalUpstreamProviderError('model_not_found: kimi-k9')).toBe(true);
+  });
+
+  it('matches canonical HTTP status lines for non-retryable codes', () => {
+    expect(isFatalUpstreamProviderError('HTTP/1.1 401 Unauthorized')).toBe(
+      true,
+    );
+    expect(isFatalUpstreamProviderError('403 Forbidden')).toBe(true);
+    expect(isFatalUpstreamProviderError('404 Not Found')).toBe(true);
+  });
+
+  it('does NOT match a bare number in benign verbose stderr (the false-positive latch-abort)', () => {
+    // Every one of these tripped the old `\b(401|403|404|429|5\d\d)\b` regex
+    // and spuriously killed a healthy session mid-work.
+    expect(isFatalUpstreamProviderError('[DEBUG] took 504 ms to spawn')).toBe(
+      false,
+    );
+    expect(isFatalUpstreamProviderError('processed 500 files, 0 errors')).toBe(
+      false,
+    );
+    expect(isFatalUpstreamProviderError('read 512 bytes from pipe')).toBe(
+      false,
+    );
+    expect(isFatalUpstreamProviderError('listening on 127.0.0.1:429')).toBe(
+      false,
+    );
+    expect(isFatalUpstreamProviderError('resolved at line 404 of cli.js')).toBe(
+      false,
+    );
+  });
+
+  it('does NOT match transient/retryable errors — the SDK retries these', () => {
+    // Aborting on the first transient blip killed sessions that would have
+    // recovered on retry. These are intentionally excluded from the abort.
+    expect(isFatalUpstreamProviderError('429 Too Many Requests')).toBe(false);
+    expect(isFatalUpstreamProviderError('rate_limit_error')).toBe(false);
+    expect(isFatalUpstreamProviderError('500 Internal Server Error')).toBe(
+      false,
+    );
+    expect(isFatalUpstreamProviderError('overloaded_error')).toBe(false);
+    expect(isFatalUpstreamProviderError('api_error')).toBe(false);
+  });
+
+  it('is case-insensitive for both type strings and status lines', () => {
+    expect(isFatalUpstreamProviderError('AUTHENTICATION_ERROR')).toBe(true);
+    expect(isFatalUpstreamProviderError('http 403 forbidden')).toBe(true);
   });
 });
 

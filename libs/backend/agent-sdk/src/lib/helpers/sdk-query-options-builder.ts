@@ -78,26 +78,44 @@ import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 /**
- * Detect obvious upstream provider error signatures in a stderr chunk.
+ * Detect a FATAL, non-retryable upstream provider error in a stderr chunk.
  *
- * The SDK sometimes logs HTTP / API errors to stderr without forwarding them
- * through the message stream, which causes the UI to hang. These patterns
- * cover the common cases we've seen from Anthropic-compatible providers
- * (Moonshot, Z.AI, OpenRouter) â€” HTTP status codes, Anthropic error type
- * strings, and common auth/model keywords.
+ * Purpose: the SDK sometimes logs a fatal HTTP/API error to stderr without
+ * forwarding it through the message stream, leaving the UI hung with no
+ * response. A true match here aborts the query so the hang surfaces as an
+ * error instead. Because that abort tears down the whole CLI transport — and
+ * rejects any in-flight `can_use_tool` permission with "Stream closed", which
+ * wedges every subsequent tool call until the session is recreated — the match
+ * MUST be precise. Two rules keep it precise:
+ *
+ * 1. Never match a bare number. `\b5\d\d\b` (and friends) collided with byte
+ *    counts, line numbers, timings ("took 504 ms"), and ports in verbose CLI
+ *    stderr and spuriously killed healthy sessions. Numbers are only honoured
+ *    as part of a canonical HTTP status line ("401 Unauthorized"), which a
+ *    stray integer never is.
+ * 2. Only fatal, non-retryable signatures. Transient errors (429, 5xx,
+ *    rate_limit_error, overloaded_error, api_error) are deliberately EXCLUDED:
+ *    the SDK retries them, so aborting on the first stderr blip defeats the
+ *    retry and kills the session for an error that would have recovered.
  */
-function isUpstreamProviderError(stderrChunk: string): boolean {
+export function isFatalUpstreamProviderError(stderrChunk: string): boolean {
   const lower = stderrChunk.toLowerCase();
-  return (
-    /\b(401|403|404|429|5\d\d)\b/.test(stderrChunk) ||
-    lower.includes('model_not_found') ||
-    lower.includes('invalid_request_error') ||
+  // Anthropic structured, non-retryable error `type` strings. Specific enough
+  // as substrings — these do not appear in benign CLI stderr.
+  if (
     lower.includes('authentication_error') ||
     lower.includes('permission_error') ||
+    lower.includes('invalid_request_error') ||
     lower.includes('not_found_error') ||
-    lower.includes('rate_limit_error') ||
-    lower.includes('overloaded_error') ||
-    lower.includes('api_error')
+    lower.includes('model_not_found')
+  ) {
+    return true;
+  }
+  // Canonical HTTP status lines for the non-retryable codes only. The reason
+  // phrase must accompany the number; a bare integer in a log line never has
+  // one, which is what removes the false-positive latch-abort.
+  return /\b(?:401\s+unauthorized|403\s+forbidden|404\s+not\s+found)\b/i.test(
+    stderrChunk,
   );
 }
 
@@ -690,7 +708,7 @@ export class SdkQueryOptionsBuilder {
             this.logger.debug(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
           }
 
-          if (onProviderError && isUpstreamProviderError(data)) {
+          if (onProviderError && isFatalUpstreamProviderError(data)) {
             try {
               onProviderError(data);
             } catch (hookErr) {
