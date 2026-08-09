@@ -70,6 +70,7 @@ const BORDER_FILL_MISUSE = ['border', 'base-300'].join('-');
       [videoId]="videoId()"
       [title]="title()"
       [thumbnailUrl]="thumbnailUrl()"
+      [startActivated]="startActivated()"
       (clockReady)="clock = $event"
       (playbackPaused)="pauses = pauses + 1"
       (playbackEnded)="ends = ends + 1"
@@ -80,6 +81,7 @@ class Host {
   public readonly videoId = signal<string | null>('dQw4w9WgXcQ');
   public readonly title = signal('Reconcile loop fundamentals');
   public readonly thumbnailUrl = signal<string | null>(null);
+  public readonly startActivated = signal(false);
   public clock: (() => number) | null = null;
   public pauses = 0;
   public ends = 0;
@@ -287,6 +289,86 @@ describe('YouTubePlayer (§4.6, NFR-S3, NFR-U4, RISK-S)', () => {
   /* ---------------------------------------------------------------------- */
   /* 🔴 The null branch — RISK-S                                             */
   /* ---------------------------------------------------------------------- */
+
+  /* ---------------------------------------------------------------------- */
+  /* `startActivated` — Batch 13's addition                                  */
+  /* ---------------------------------------------------------------------- */
+
+  describe('🔴 startActivated — the caller owns the activation', () => {
+    it('DEFAULTS TO FALSE, so the facade is still the resting state', async () => {
+      // NFR-S3 in one assertion. If this default ever flips, every lesson page
+      // loads the API script on render and the facade design is gone.
+      await TestBed.resetTestingModule();
+      await TestBed.configureTestingModule({
+        imports: [Host],
+      }).compileComponents();
+      const plain = TestBed.createComponent(Host);
+      plain.detectChanges();
+
+      expect(
+        (plain.nativeElement as HTMLElement).querySelector('iframe'),
+      ).toBeNull();
+      expect(
+        (plain.nativeElement as HTMLElement).querySelector(
+          '[data-testid="video-poster"]',
+        ),
+      ).not.toBeNull();
+    });
+
+    it('🔴 with `true`, the iframe is rendered with NO click on this component', async () => {
+      // 🔴 THIS IS THE ASSERTION THE FIRST IMPLEMENTATION FAILED. That version
+      // read `this.startActivated()` in the CONSTRUCTOR — where a signal input
+      // has not been bound yet and always reads its default — so the branch
+      // never ran, every existing spec stayed green, and only a browser
+      // noticed. An effect is what makes the input reach the component.
+      fixture.componentInstance.startActivated.set(true);
+      fixture.detectChanges();
+      await Promise.resolve();
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      expect(iframe()).not.toBeNull();
+      expect(poster()).toBeNull();
+    });
+
+    it('requests the API script exactly once, as a real activation does', async () => {
+      fixture.componentInstance.startActivated.set(true);
+      fixture.detectChanges();
+      await Promise.resolve();
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      expect(apiScripts()).toHaveLength(1);
+    });
+
+    it('does NOT activate when the id fails validation', async () => {
+      // The trust gate is upstream of the activation and stays upstream.
+      fixture.componentInstance.videoId.set('not-an-id');
+      fixture.componentInstance.startActivated.set(true);
+      fixture.detectChanges();
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      expect(iframe()).toBeNull();
+      expect(apiScripts()).toHaveLength(0);
+    });
+
+    it('flipping it back to false does NOT tear a playing video down', async () => {
+      // One-way by design: it is a starting condition, not a second control
+      // fighting the member.
+      fixture.componentInstance.startActivated.set(true);
+      fixture.detectChanges();
+      await Promise.resolve();
+      await Promise.resolve();
+      fixture.detectChanges();
+      expect(iframe()).not.toBeNull();
+
+      fixture.componentInstance.startActivated.set(false);
+      fixture.detectChanges();
+
+      expect(iframe()).not.toBeNull();
+    });
+  });
 
   describe('🔴 an id that does not validate NEVER produces an iframe', () => {
     beforeEach(() => installApiStub());

@@ -212,6 +212,28 @@ export class YouTubePlayer {
   public readonly thumbnailUrl = input<string | null>(null);
 
   /**
+   * Skip this component's OWN poster and go straight to the iframe.
+   *
+   * 🔴 THIS DOES NOT WEAKEN NFR-S3, AND THE REASON MATTERS. NFR-S3 forbids a
+   * YouTube script, embed or cookie **before the member activates** — it does
+   * not require that the activation happen on THIS component's button. Batch 13
+   * added it because the replays surface already has an activation of its own:
+   * `SessionCard` renders a "Watch replay" control, and mounting a facade
+   * behind it made playing a recording take TWO clicks, the second one on a
+   * poster labelled "Play lesson". The alternative was a second embed
+   * constructor on the replays page, which `youtube-embed-chokepoint.spec.ts`
+   * exists to forbid.
+   *
+   * ⚠️ IT IS A `false` DEFAULT AND EVERY CALLER THAT PASSES `true` OWNS THE
+   * ACTIVATION. `LessonPage` does not pass it: on a lesson the poster IS the
+   * activation and there is nothing in front of it. A caller that passed `true`
+   * on first render — with no member action ahead of it — would be the thing
+   * NFR-S3 forbids, and a spec asserts the default is `false` so that has to be
+   * a deliberate edit rather than an accident.
+   */
+  public readonly startActivated = input<boolean>(false);
+
+  /**
    * Emitted once, when the player is ready, carrying a getter for the current
    * playback position IN SECONDS.
    *
@@ -299,6 +321,25 @@ export class YouTubePlayer {
 
   public constructor() {
     inject(DestroyRef).onDestroy(() => this.teardown());
+
+    /**
+     * 🔴 AN EFFECT, NOT A CONSTRUCTOR READ, AND THE FIRST VERSION WAS THE BUG.
+     * A signal `input()` is bound AFTER the constructor runs, so
+     * `if (this.startActivated())` in the constructor body reads the DEFAULT —
+     * `false` — for every caller, always. It compiled, every unit spec stayed
+     * green (they assert the component is MOUNTED, not that the iframe exists),
+     * and the only thing that noticed was the browser.
+     *
+     * ⚠️ ONE-WAY. The effect can only ever turn activation ON; a later `false`
+     * does not tear a playing video down, because `activate()` guards on
+     * `activated()` and nothing here calls `teardown()`. That keeps the input a
+     * starting condition rather than a second control fighting the member's own
+     * click.
+     */
+    effect(() => {
+      if (!this.startActivated() || this.activated() || this.failed()) return;
+      untracked(() => this.activate());
+    });
 
     // Attaches exactly once, as soon as BOTH the API and the iframe exist, in
     // whichever order they arrive. `untracked` keeps the attach from taking a
