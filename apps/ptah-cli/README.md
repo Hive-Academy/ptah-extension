@@ -30,7 +30,7 @@ npm view @hive-academy/ptah-cli --json | jq '.dist.attestations'
 
 ## First-time setup
 
-A fresh `ptah` install needs a provider, credentials for it, and (for premium features) a license. A fresh install has **no default provider** (`llm.defaultProvider: ""`), so you must pick one before turns will start. Pick one of the paths below.
+A fresh `ptah` install needs a provider and credentials for it; a license key is optional (Community tier works without one). A fresh install has **no default provider** (`llm.defaultProvider: ""`), so you must pick one before turns will start. Pick one of the paths below.
 
 `ptah doctor` is the source of truth on whether the CLI is ready. When `effective.ready` is `false` it emits a `hints` array of the exact commands needed to get green — read it after every setup step. `doctor` reflects the exact secret slot the SDK reads, so `doctor` and `session start` always agree.
 
@@ -111,7 +111,7 @@ All commands accept the [global flags](#global-flags). Most commands emit JSON-R
 | `--help` / `-h`               | Print usage and exit.                                                                                       |
 | `init`                        | First-run setup wizard. Interactive on a TTY with `--human`; otherwise emits a non-interactive `init.plan`. |
 | `doctor` / `diagnose`         | Readiness oracle — emits `doctor.report` (`effective.ready` + `hints[]`).                                   |
-| `analyze`                     | Run multi-phase workspace analysis (`wizard:deep-analyze`). Premium-gated.                                  |
+| `analyze`                     | Run multi-phase workspace analysis (`wizard:deep-analyze`).                                                 |
 | `setup`                       | Run the 5-phase Setup Wizard end-to-end.                                                                    |
 | `run --task <text>`           | DEPRECATED alias for `session start --task`. Emits a stderr deprecation notice.                             |
 | `execute-spec --id <task-id>` | Execute a stored spec via the Team Leader agent.                                                            |
@@ -297,15 +297,15 @@ Step ids are `license`, `provider.default`, `provider.credential`, and `verify`.
 | `mcp list`            | —                                                       | List installed MCP servers across targets.    |
 | `mcp popular`         | —                                                       | Emit popular / trending MCP servers.          |
 
-### `prompts *` — Enhanced Prompts (premium-gated)
+### `prompts *` — Enhanced Prompts
 
-| Sub-subcommand                       | Args / flags   | Description                                                                              |
-| ------------------------------------ | -------------- | ---------------------------------------------------------------------------------------- |
-| `prompts status`                     | —              | Emit `prompts.status`.                                                                   |
-| `prompts enable` / `prompts disable` | —              | Toggle Enhanced Prompts.                                                                 |
-| `prompts regenerate`                 | `[--no-force]` | Regenerate the project prompt. Premium-gated. Streams via `setup-wizard:enhance-stream`. |
-| `prompts show <name>`                | —              | Emit the combined prompt content.                                                        |
-| `prompts download`                   | —              | Download the combined prompt to disk.                                                    |
+| Sub-subcommand                       | Args / flags   | Description                                                               |
+| ------------------------------------ | -------------- | ------------------------------------------------------------------------- |
+| `prompts status`                     | —              | Emit `prompts.status`.                                                    |
+| `prompts enable` / `prompts disable` | —              | Toggle Enhanced Prompts.                                                  |
+| `prompts regenerate`                 | `[--no-force]` | Regenerate the project prompt. Streams via `setup-wizard:enhance-stream`. |
+| `prompts show <name>`                | —              | Emit the combined prompt content.                                         |
+| `prompts download`                   | —              | Download the combined prompt to disk.                                     |
 
 ### `websearch *` — web-search provider
 
@@ -407,7 +407,7 @@ hosts have no UI surface to render Ptah's permission prompts; without
 it, any approval-gated `tools/call` will hang for 5 minutes and exit
 `3` (`auth_required`).
 
-Full reference — MVP tool catalog, premium-gate behavior, cost
+Full reference — MVP tool catalog, cost
 attribution, cancellation/drain semantics, and troubleshooting — lives
 in the `ptah-cli-usage` skill, section 16 ("MCP-serve — Drive Ptah
 from external agents") at
@@ -487,7 +487,7 @@ Errors are written to **stderr** as JSON-RPC error objects with the standard `co
 
 **`license set` accepted a bad key on Community tier** — It no longer does. A server-rejected key fails with exit `4` (`license_required`) and a `task.error` like "License key was not accepted (not_found)" instead of silently downgrading to `tier:community`. Read the exit code.
 
-**`license_required` on `session start` / `setup` / `analyze`** — Premium-gated commands require a valid Ptah license. Set one via `ptah license set --key ptah_lic_...`. Read-only commands (`license status`, `config list`, `auth status`) are unaffected.
+**`license set` exits `4` (`license_required`)** — This is the only command that produces this error, and only when the license server rejects the key. It does not mean any command is gated on having a license; every other command (including `session start`, `setup`, and `analyze`) runs fine with no license key set.
 
 **OAuth login hangs in headless / CI environments** — `auth login copilot` and `auth login codex` need a browser. In `interact` mode the CLI emits an `oauth.url.open` JSON-RPC request to the peer; in one-shot mode the URL is printed on stderr for manual paste. For CI, set `PTAH_AUTO_APPROVE=true` to skip permission prompts and pre-seed credentials via `provider set-key` instead.
 
