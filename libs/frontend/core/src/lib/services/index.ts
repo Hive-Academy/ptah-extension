@@ -42,3 +42,4 @@ export {
   type CommandSuggestion,
 } from './command-discovery.facade';
 export { setIfChanged } from './idempotent-setters';
+export { LazyViewService } from './lazy-view.service';

@@ -54,8 +54,6 @@ import {
   SetupHubComponent,
   HarnessWorkflowMessageHandler,
 } from '@ptah-extension/harness-builder';
-import { MarketplaceHubComponent } from '@ptah-extension/marketplace';
-import { TribunalPageComponent } from '@ptah-extension/tribunal-panel';
 import { TasksViewComponent, TasksStore } from '@ptah-extension/tasks-ui';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
@@ -114,14 +112,34 @@ export const appConfig: ApplicationConfig = {
       useExisting: WorkspaceCoordinatorService,
     },
     { provide: WIZARD_VIEW_COMPONENT, useValue: WizardViewComponent },
+    // EAGER on purpose (TASK_2026_187). Deferring the canvas cost 50-70 ms of
+    // Electron startup TTI, because ElectronShellComponent forces grid mode in
+    // its constructor — the canvas IS the launch surface there, so there is no
+    // path on which deferring it helps. Do not convert this to a loader.
     { provide: ORCHESTRA_CANVAS_COMPONENT, useValue: OrchestraCanvasComponent },
+    // Deferred surfaces (TASK_2026_187). `useValue` with an arrow function —
+    // NEVER `useFactory`, which would invoke the arrow at injection time and
+    // start every import eagerly at bootstrap. LazyViewService.resolveWhen is
+    // what decides when each arrow actually runs.
     {
       provide: HARNESS_BUILDER_COMPONENT,
       useValue: HarnessBuilderViewComponent,
     },
     { provide: SETUP_HUB_COMPONENT, useValue: SetupHubComponent },
-    { provide: MARKETPLACE_COMPONENT, useValue: MarketplaceHubComponent },
-    { provide: TRIBUNAL_COMPONENT, useValue: TribunalPageComponent },
+    {
+      provide: MARKETPLACE_COMPONENT,
+      useValue: () =>
+        import('@ptah-extension/marketplace').then(
+          (m) => m.MarketplaceHubComponent,
+        ),
+    },
+    {
+      provide: TRIBUNAL_COMPONENT,
+      useValue: () =>
+        import('@ptah-extension/tribunal-panel').then(
+          (m) => m.TribunalPageComponent,
+        ),
+    },
     { provide: TASKS_VIEW_COMPONENT, useValue: TasksViewComponent },
     { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
     ...provideModelRefreshControl(),

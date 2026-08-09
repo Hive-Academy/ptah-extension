@@ -79,8 +79,8 @@
   <!-- Marketplace: Skills + MCP provider hub (injected via DI token to break circular dep) -->
   @case ('marketplace') {
     <div class="h-full w-full">
-      @if (marketplaceComponent) {
-        <ng-container *ngComponentOutlet="marketplaceComponent" />
+      @if (marketplaceComponent(); as cmp) {
+        <ng-container *ngComponentOutlet="cmp" />
       } @else {
         <div class="flex items-center justify-center h-full">
           <span class="loading loading-spinner loading-md"></span>
@@ -92,8 +92,8 @@
   <!-- Tribunal: multi-vendor peer-panel view (injected via DI token to break circular dep) -->
   @case ('tribunal') {
     <div class="h-full w-full">
-      @if (tribunalComponent) {
-        <ng-container *ngComponentOutlet="tribunalComponent" />
+      @if (tribunalComponent(); as cmp) {
+        <ng-container *ngComponentOutlet="cmp" />
       } @else {
         <div class="flex items-center justify-center h-full">
           <span class="loading loading-spinner loading-md"></span>
@@ -656,6 +656,10 @@
       <div class="h-full" [class.hidden]="layoutMode() !== 'grid'">
         @if (orchestraCanvasComponent) {
           <ng-container *ngComponentOutlet="orchestraCanvasComponent" />
+        } @else {
+          <div class="flex items-center justify-center h-full">
+            <span class="loading loading-spinner loading-md"></span>
+          </div>
         }
       </div>
       <div class="h-full" [class.hidden]="layoutMode() !== 'single'">
