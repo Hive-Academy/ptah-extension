@@ -105,7 +105,12 @@ test.describe('Editor — Monaco panel', () => {
     const monacoHost = page.locator('[data-testid="editor-monaco"]');
     await expect(monacoHost).toBeVisible();
 
-    const monacoInstance = page.locator('.monaco-editor').first();
+    // Scoped to the code-editor's own host: `.monaco-editor` unscoped also
+    // matches the diff-view's permanently-mounted (but currently
+    // `invisible`) Monaco instance since 3a73a037d made both surfaces
+    // always-mounted siblings, and `.first()` picked whichever is first in
+    // DOM order — the hidden diff editor, not this test's code editor.
+    const monacoInstance = monacoHost.locator('.monaco-editor').first();
     await expect(monacoInstance).toBeVisible({ timeout: 15_000 });
     await expect(monacoHost).toContainText('export const x = 1;', {
       timeout: 15_000,
