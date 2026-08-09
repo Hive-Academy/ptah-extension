@@ -117,6 +117,43 @@ describe('MEMBER_ROUTES — no catch-all (R9.4, RK-11)', () => {
     expect(wildcards[0].isRedirect).toBe(true);
   });
 
+  it('🔴 the three live routes resolve REAL components, not the phase placeholder', () => {
+    // Batch 13's swap. Asserted by RESOLVING the lazy import rather than by
+    // reading the source, because a route can point at the right file and
+    // still export the placeholder.
+    const children = MEMBER_ROUTES[0].children ?? [];
+    const live = children.filter((route) =>
+      ['live', 'live/replays', 'live/request'].includes(route.path ?? ''),
+    );
+
+    expect(live).toHaveLength(3);
+
+    return Promise.all(
+      live.map(async (route) => {
+        expect(route.loadComponent).toBeDefined();
+        expect(route.data).toBeUndefined();
+
+        const component = await (
+          route.loadComponent as () => Promise<{ name: string }>
+        )();
+        expect(component.name).not.toBe('MemberPhasePlaceholder');
+      }),
+    ).then((resolved) => {
+      expect(resolved).toHaveLength(3);
+    });
+  });
+
+  it('the placeholder still serves the two routes Batch 15 owns', () => {
+    // Anti-vacuity for the assertion above: the placeholder mechanism is still
+    // wired, so "not the placeholder" means something.
+    const children = MEMBER_ROUTES[0].children ?? [];
+    const stubbed = children
+      .filter((route) => route.data !== undefined)
+      .map((route) => route.path);
+
+    expect(stubbed).toEqual(['packs', 'notifications']);
+  });
+
   it('matches the route table plan §5.2 specifies, exactly', () => {
     expect(flat.map((r) => r.full)).toEqual([
       '',

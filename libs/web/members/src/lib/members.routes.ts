@@ -23,9 +23,9 @@ import type { MemberPlaceholderData } from './placeholder/member-phase-placehold
  *   /members/courses/:slug                -> CoursePage            (phase 3)
  *   /members/courses/:slug/lessons/:lessonSlug -> LessonPage       (phase 3)
  *   /members/packs                        -> member packs         (phase 5)
- *   /members/live                         -> upcoming sessions    (phase 4)
- *   /members/live/replays                 -> replays              (phase 4)
- *   /members/live/request                 -> request a session    (phase 4)
+ *   /members/live                         -> LivePage             (phase 4)
+ *   /members/live/replays                 -> ReplaysPage          (phase 4)
+ *   /members/live/request                 -> RequestSessionPage   (phase 4)
  *   /members/community                    -> FeedPage             (phase 2)
  *   /members/community/topics/:slug       -> ThreadPage           (phase 2)
  *   /members/community/my-threads         -> MyThreadsPage         (phase 2)
@@ -111,32 +111,39 @@ export const MEMBER_ROUTES: Routes = [
         }),
       },
       {
+        /**
+         * ⚠️ THESE THREE WERE PLACEHOLDERS FOR THREE PHASES, AND THE REASON IS
+         * WORTH KEEPING. The Live surface is a MERGE (AD-3) of two systems
+         * neither of which existed here until Phase 4: `LiveSession` rows we
+         * own, and the Google Calendar cohort sessions
+         * `SessionsService.readUpcomingCalendarFeed` resolves. Until Batch 12
+         * shipped `GET /v1/members/live`, the only honest render was a stub —
+         * the hub's next-session card was the whole of what could be said.
+         * Batch 13 swapped these three.
+         *
+         * ⚠️ NONE OF THEM TAKES A PARAMETER, so `members.routes.spec.ts`'s
+         * parameter allowlist (`:slug`, `:lessonSlug`, `:id`) is unchanged by
+         * this batch. `live/replays` and `live/request` are LITERAL second
+         * segments under `live`, not a `live/:id` that would make every future
+         * session id a URL a member could type (R9.4, RK-11).
+         *
+         * `loadComponent` on each, so no sibling surface enters another's
+         * bundle: three new lazy chunks, not one shared one.
+         */
         path: 'live',
-        loadComponent: loadPlaceholder,
-        data: placeholder({
-          surface: 'Sessions',
-          phase: 4,
-          summary:
-            'Your next session already shows on the hub. The full schedule lands with live sessions.',
-        }),
+        loadComponent: () => import('./live/live-page').then((m) => m.LivePage),
       },
       {
         path: 'live/replays',
-        loadComponent: loadPlaceholder,
-        data: placeholder({
-          surface: 'Replays',
-          phase: 4,
-          summary: 'Session recordings are published from phase 4 onward.',
-        }),
+        loadComponent: () =>
+          import('./live/replays-page').then((m) => m.ReplaysPage),
       },
       {
         path: 'live/request',
-        loadComponent: loadPlaceholder,
-        data: placeholder({
-          surface: 'Request a session',
-          phase: 4,
-          summary: 'Private one-to-one session requests open in phase 4.',
-        }),
+        loadComponent: () =>
+          import('./live/request-session-page').then(
+            (m) => m.RequestSessionPage,
+          ),
       },
       {
         path: 'community',
@@ -201,6 +208,15 @@ export const MEMBER_ROUTES: Routes = [
   },
 ];
 
+/**
+ * ⚠️ TWO CONSUMERS LEFT: `packs` and `notifications`, both Batch 15's.
+ *
+ * Batch 10 took the three course routes and Batch 13 took the three live ones,
+ * so this helper is down from eight to two. **It is not dead and must not be
+ * deleted**: the placeholder component is what keeps a nav item that Batch 4
+ * shipped from being a broken link for a whole phase, and Batch 15 is the
+ * change that removes the last two — with the component and both helpers.
+ */
 function loadPlaceholder() {
   return import('./placeholder/member-phase-placeholder').then(
     (m) => m.MemberPhasePlaceholder,

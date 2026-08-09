@@ -230,9 +230,17 @@ describe('MemberGuard guards /members from app.routes.ts (R9.5)', () => {
     }));
 
     it('a placeholder member surface is not bounced either', fakeAsync(() => {
-      navigateWith('/members/live/replays', entitledAdmin);
+      // ⚠️ THIS USED TO NAVIGATE TO `/members/live/replays`, AND BATCH 13 MOVED
+      // IT. That route became a real, fetching surface when the live pages
+      // landed, so the assertion started failing on an unanswered
+      // `GET /members/live` — a routing test failing on a data request. Moved to
+      // `/members/packs`, which is still a Batch-15 placeholder and therefore
+      // still tests what this case is about: a surface with NO activation fetch
+      // is not bounced. Batch 15 will have to move it again, or answer the
+      // request the way the `/members` case above does.
+      navigateWith('/members/packs', entitledAdmin);
 
-      expect(router.url).toBe('/members/live/replays');
+      expect(router.url).toBe('/members/packs');
       expect(memberShellRendered()).toBe(true);
     }));
 
