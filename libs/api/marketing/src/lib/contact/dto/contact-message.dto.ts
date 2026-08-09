@@ -1,10 +1,6 @@
-import {
-  IsString,
-  IsOptional,
-  IsEnum,
-  MinLength,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsEnum, MinLength, MaxLength } from 'class-validator';
+
+import { IsOptionalNotNull } from '@ptah-api/core';
 
 export enum ContactCategory {
   GENERAL = 'general',
@@ -25,7 +21,7 @@ export class ContactMessageDto {
   @MaxLength(5000)
   message!: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsEnum(ContactCategory)
   category?: ContactCategory;
 }

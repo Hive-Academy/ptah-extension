@@ -1,4 +1,6 @@
-import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsString, MaxLength } from 'class-validator';
+
+import { IsOptionalNotNull } from '@ptah-api/core';
 
 /**
  * Payload for POST /api/v1/waitlist.
@@ -12,7 +14,7 @@ export class JoinWaitlistDto {
   @MaxLength(320)
   email!: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(50)
   source?: string;

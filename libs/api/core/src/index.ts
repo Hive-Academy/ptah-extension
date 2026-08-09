@@ -1,4 +1,5 @@
 export * from './lib/common/dto-validation.pipe';
+export * from './lib/common/optional-field';
 export * from './lib/config/checkout.config';
 export * from './lib/config/plans.config';
 export * from './lib/generated-prisma-client/client';

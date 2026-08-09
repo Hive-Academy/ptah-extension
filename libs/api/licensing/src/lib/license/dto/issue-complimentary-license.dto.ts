@@ -3,7 +3,6 @@ import {
   IsEmail,
   IsIn,
   IsISO8601,
-  IsOptional,
   IsString,
   IsUUID,
   Length,
@@ -14,6 +13,8 @@ import {
   ValidationOptions,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
+
+import { IsOptionalNotNull } from '@ptah-api/core';
 
 /**
  * Duration presets supported by the complimentary-license flow.
@@ -89,7 +90,7 @@ export class IssueComplimentaryLicenseDto {
    * Target the recipient by existing user id. Validated as a v4 UUID only when
    * present; see `durationPreset` for the EXACTLY-ONE-OF `userId`/`email` rule.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsUUID('4')
   userId?: string;
 
@@ -98,7 +99,7 @@ export class IssueComplimentaryLicenseDto {
    * the boundary; the service find-or-creates the user by this value. See
    * `durationPreset` for the EXACTLY-ONE-OF `userId`/`email` rule.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsEmail()
   @MaxLength(320)
   @Transform(({ value }: { value: unknown }) =>
@@ -118,7 +119,7 @@ export class IssueComplimentaryLicenseDto {
     (o: IssueComplimentaryLicenseDto) => o.durationPreset === 'custom',
   )
   @IsISO8601()
-  @IsOptional()
+  @IsOptionalNotNull()
   customExpiresAt?: string;
 
   @IsIn(['builders'])
@@ -129,7 +130,7 @@ export class IssueComplimentaryLicenseDto {
   reason!: string;
 
   /** Defaults to `true` in the service when omitted. */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   sendEmail?: boolean;
 
@@ -138,7 +139,7 @@ export class IssueComplimentaryLicenseDto {
    * new complimentary license on top of the active paid license. The paid
    * license is NOT revoked.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   stackOnTopOfPaid?: boolean;
 }

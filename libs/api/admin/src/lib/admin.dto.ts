@@ -5,13 +5,14 @@ import {
   IsArray,
   IsIn,
   IsInt,
-  IsOptional,
   IsString,
   IsUUID,
   Max,
   MaxLength,
   Min,
 } from 'class-validator';
+
+import { IsOptionalNotNull } from '@ptah-api/core';
 
 /**
  * Query DTO for GET /api/v1/admin/:model
@@ -22,29 +23,29 @@ import {
  * Prisma (see AdminService.list / admin-models.config.ts).
  */
 export class ListQueryDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   page?: number = 1;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(100)
   pageSize?: number = 25;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(64)
   sortBy?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsIn(['asc', 'desc'])
   sortOrder?: 'asc' | 'desc' = 'desc';
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(256)
   search?: string;
@@ -58,7 +59,7 @@ export class ListQueryDto {
    * `AdminService.list`, which rejects unknown fields with 400. Combined with
    * `search` using AND semantics (search within the filtered set).
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(128)
   filter?: string;
@@ -120,14 +121,14 @@ export class UpdateRecordDto {
  * plain strings with a length cap rather than `@IsUUID`.
  */
 export class InviteWaitlistDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ArrayMaxSize(1000)
   @IsString({ each: true })
   @MaxLength(64, { each: true })
   ids?: string[];
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @Type(() => Number)
   @IsInt()
   @Min(1)

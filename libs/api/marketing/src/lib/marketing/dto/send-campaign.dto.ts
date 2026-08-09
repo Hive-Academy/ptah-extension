@@ -1,13 +1,14 @@
 import {
   IsString,
   IsNotEmpty,
-  IsOptional,
   Length,
   IsArray,
   IsUUID,
   IsIn,
   ArrayMaxSize,
 } from 'class-validator';
+
+import { IsOptionalNotNull } from '@ptah-api/core';
 
 export class SendCampaignDto {
   @IsString()
@@ -16,21 +17,21 @@ export class SendCampaignDto {
   name!: string;
 
   @IsUUID()
-  @IsOptional()
+  @IsOptionalNotNull()
   templateId?: string;
 
   @IsString()
-  @IsOptional()
+  @IsOptionalNotNull()
   @Length(1, 200)
   subject?: string;
 
   @IsString()
-  @IsOptional()
+  @IsOptionalNotNull()
   @Length(1, 50000)
   htmlBody?: string;
 
   @IsString()
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsIn(['all', 'buildersActive', 'communityActive', 'subscriptionPastDue'])
   segment?:
     | 'all'
@@ -39,7 +40,7 @@ export class SendCampaignDto {
     | 'subscriptionPastDue';
 
   @IsArray()
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsUUID('4', { each: true })
   @ArrayMaxSize(5000)
   userIds?: string[];

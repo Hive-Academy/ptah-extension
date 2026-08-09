@@ -1,4 +1,6 @@
-import { IsEmail, IsIn, IsOptional, IsBoolean } from 'class-validator';
+import { IsEmail, IsIn, IsBoolean } from 'class-validator';
+
+import { IsOptionalNotNull } from '@ptah-api/core';
 
 /**
  * DTO for admin license creation requests
@@ -19,6 +21,6 @@ export class CreateLicenseDto {
   plan!: 'community' | 'builders';
 
   @IsBoolean()
-  @IsOptional()
+  @IsOptionalNotNull()
   sendEmail?: boolean;
 }

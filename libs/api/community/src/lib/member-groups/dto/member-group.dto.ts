@@ -15,6 +15,8 @@ import {
   MinLength,
 } from 'class-validator';
 
+import { IsOptionalNotNull } from '@ptah-api/core';
+
 /** Lowercase slug: 2–40 chars of [a-z0-9-]. */
 const GROUP_KEY_REGEX = /^[a-z0-9-]{2,40}$/;
 
@@ -55,12 +57,12 @@ export class CreateMemberGroupDto {
   @MaxLength(120)
   name!: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(500)
   description?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(SESSION_EVENT_ID_MAX)
   @Matches(SESSION_EVENT_ID_REGEX, {
@@ -69,7 +71,7 @@ export class CreateMemberGroupDto {
   })
   sessionEventId?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   isDefault?: boolean;
 }
@@ -78,13 +80,21 @@ export class CreateMemberGroupDto {
  * Body DTO for PATCH /api/v1/admin/groups/:id.
  *
  * All fields optional. `key` is intentionally NOT patchable (stable slug).
- * `description` / `sessionEventId` accept `null` to clear the
- * stored value — `@IsOptional()` skips validation for both `null` and
- * `undefined`, and the service writes only KEYS PRESENT on the body, so `null`
- * clears while omission leaves the column untouched.
+ *
+ * ⚠️ TWO DISTINCT OPTIONALITIES HERE, AND THE DIFFERENCE IS THE POINT.
+ * `description` and `sessionEventId` are declared `string | null` and keep
+ * `@IsOptional()`: `null` is a REAL value meaning "clear this column", and the
+ * service writes only KEYS PRESENT on the body, so `null` clears while omission
+ * leaves the column untouched. `name` and `isDefault` have no such meaning —
+ * `null` on them is never a request, only a malformed one — so they use
+ * `@IsOptionalNotNull()`, which lets an explicit `null` fall through to the
+ * field's own validator and become a `400` naming the property rather than an
+ * unvalidated `null` reaching the service below the boundary (NFR-S7,
+ * TASK_2026_188). See `@ptah-api/core`'s `optional-field.ts` and the census in
+ * `common/nullable-dto.spec.ts`.
  */
 export class UpdateMemberGroupDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(1)
   @MaxLength(120)
@@ -104,7 +114,7 @@ export class UpdateMemberGroupDto {
   })
   sessionEventId?: string | null;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   isDefault?: boolean;
 }
@@ -116,13 +126,13 @@ export class UpdateMemberGroupDto {
  * service resolves + dedupes them and skips any that do not map to a user.
  */
 export class AssignMembersDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ArrayMaxSize(1000)
   @IsUUID('4', { each: true })
   userIds?: string[];
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ArrayMaxSize(1000)
   @IsEmail({}, { each: true })
@@ -138,20 +148,20 @@ export class AssignMembersDto {
  * generic admin list envelope.
  */
 export class ListGroupMembersQueryDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   page?: number = 1;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(100)
   pageSize?: number = 25;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(256)
   search?: string;

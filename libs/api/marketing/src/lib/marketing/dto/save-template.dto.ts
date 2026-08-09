@@ -1,10 +1,6 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsOptional,
-  Length,
-  IsArray,
-} from 'class-validator';
+import { IsString, IsNotEmpty, Length, IsArray } from 'class-validator';
+
+import { IsOptionalNotNull } from '@ptah-api/core';
 
 export class SaveTemplateDto {
   @IsString()
@@ -23,7 +19,7 @@ export class SaveTemplateDto {
   htmlBody!: string;
 
   @IsArray()
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString({ each: true })
   variables?: string[];
 }

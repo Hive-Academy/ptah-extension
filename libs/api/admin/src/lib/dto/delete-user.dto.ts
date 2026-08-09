@@ -1,4 +1,6 @@
-import { IsBoolean, IsEmail, IsOptional } from 'class-validator';
+import { IsBoolean, IsEmail } from 'class-validator';
+
+import { IsOptionalNotNull } from '@ptah-api/core';
 
 /**
  * DeleteUserDto — request body for `DELETE /api/v1/admin/users/:id`
@@ -18,7 +20,7 @@ export class DeleteUserDto {
   @IsEmail()
   confirmEmail!: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   acknowledgePaidSubscription?: boolean;
 }

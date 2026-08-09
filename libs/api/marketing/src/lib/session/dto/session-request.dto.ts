@@ -1,15 +1,17 @@
-import { IsString, IsOptional, MaxLength } from 'class-validator';
+import { IsString, MaxLength } from 'class-validator';
+
+import { IsOptionalNotNull } from '@ptah-api/core';
 
 export class SessionRequestDto {
   @IsString()
   sessionTopicId!: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(2000)
   additionalNotes?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   paddleTransactionId?: string;
 }

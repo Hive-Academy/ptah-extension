@@ -1,4 +1,6 @@
-import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsString, MinLength } from 'class-validator';
+
+import { IsOptionalNotNull } from '@ptah-api/core';
 
 /**
  * DTO for user signup
@@ -12,11 +14,11 @@ export class SignupDto {
   @MinLength(8, { message: 'Password must be at least 8 characters' })
   password!: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   firstName?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   lastName?: string;
 }

@@ -8,6 +8,8 @@ import {
   MinLength,
 } from 'class-validator';
 
+import { IsOptionalNotNull } from '@ptah-api/core';
+
 /** Lowercase slug: 2–64 chars of [a-z0-9-]. Matches the frontend PACK_SLUG_REGEX. */
 const PACK_SLUG_REGEX = /^[a-z0-9-]{2,64}$/;
 
@@ -36,12 +38,12 @@ const GITHUB_URL_MESSAGE =
  * allowlist discipline is satisfied by construction.
  */
 export class ListPacksQueryDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(120)
   search?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(40)
   cohortKey?: string;
@@ -80,7 +82,7 @@ export class CreatePackDto {
   @MaxLength(2000)
   notes?: string | null;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ArrayMaxSize(20)
   @IsString({ each: true })
@@ -98,31 +100,40 @@ export class CreatePackDto {
 /**
  * Body DTO for PATCH /api/v1/admin/packs/:id.
  *
- * All fields optional. `notes` and `cohortKey` accept `null` to clear the stored
- * value (`@IsOptional()` skips validation for null while keeping the key
- * present, so the service can distinguish "clear it" from "not supplied").
+ * All fields optional. `notes` and `cohortKey` are declared `string | null` and
+ * keep `@IsOptional()`: `null` is a REAL value meaning "clear the stored
+ * column", and because the service writes only keys present on the body it can
+ * still tell "clear it" from "not supplied".
+ *
+ * ⚠️ EVERY OTHER FIELD USES `@IsOptionalNotNull()`. `slug`, `title`,
+ * `description`, `repoUrl` and `tags` have no meaning as `null` — an explicit
+ * `{"slug": null}` used to skip every validator and reach `packs.service.ts`
+ * unchecked, writing `null` into a NOT NULL column below the boundary (NFR-S7,
+ * TASK_2026_188). `@IsOptionalNotNull()` lets that `null` fall through to the
+ * field's own validator, so it becomes a `400` naming the property instead. See
+ * `@ptah-api/core`'s `optional-field.ts` and `common/nullable-dto.spec.ts`.
  */
 export class UpdatePackDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @Matches(PACK_SLUG_REGEX, {
     message: 'slug must be a lowercase slug (2-64 chars of a-z, 0-9, -)',
   })
   slug?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(1)
   @MaxLength(160)
   title?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(1)
   @MaxLength(2000)
   description?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(300)
   @Matches(GITHUB_REPO_URL_REGEX, { message: GITHUB_URL_MESSAGE })
@@ -133,7 +144,7 @@ export class UpdatePackDto {
   @MaxLength(2000)
   notes?: string | null;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ArrayMaxSize(20)
   @IsString({ each: true })

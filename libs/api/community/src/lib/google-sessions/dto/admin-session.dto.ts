@@ -6,13 +6,14 @@ import {
   IsEmail,
   IsISO8601,
   IsInt,
-  IsOptional,
   IsString,
   Max,
   MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
+
+import { IsOptionalNotNull } from '@ptah-api/core';
 
 /**
  * Upper bound on a guest list supplied in one request.
@@ -31,7 +32,7 @@ const MAX_ATTENDEES = 100;
  * see further out. Capped at 365 to bound the upstream Calendar query.
  */
 export class ListSessionsQueryDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -55,7 +56,7 @@ export class CreateSessionDto {
   @MaxLength(300)
   title!: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(5000)
   description?: string;
@@ -66,11 +67,11 @@ export class CreateSessionDto {
   @IsISO8601()
   endsAt!: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   createMeetLink?: boolean;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ArrayMaxSize(MAX_ATTENDEES)
   @IsEmail({}, { each: true })
@@ -92,30 +93,30 @@ export class CreateSessionDto {
  * complete list it wants the event to end up with. Still emails nobody.
  */
 export class UpdateSessionDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MinLength(1)
   @MaxLength(300)
   title?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   @MaxLength(5000)
   description?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsISO8601()
   startsAt?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsISO8601()
   endsAt?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   createMeetLink?: boolean;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ArrayMaxSize(MAX_ATTENDEES)
   @IsEmail({}, { each: true })
@@ -135,7 +136,7 @@ export class UpdateSessionDto {
    * mean the guest list learns about a new time in a second email that arrives
    * after the calendar entry already moved under them.
    */
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   notifyGuests?: boolean;
 }
@@ -153,7 +154,7 @@ export class UpdateSessionDto {
  * whoever is already invited.
  */
 export class SendInvitationsDto {
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ArrayMaxSize(MAX_ATTENDEES)
   @IsEmail({}, { each: true })

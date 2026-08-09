@@ -1,4 +1,6 @@
-import { IsEmail, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsString } from 'class-validator';
+
+import { IsOptionalNotNull } from '@ptah-api/core';
 
 /**
  * DTO for magic link request
@@ -8,11 +10,11 @@ export class MagicLinkDto {
   @IsEmail({}, { message: 'Please provide a valid email address' })
   email!: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   returnUrl?: string;
 
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsString()
   plan?: string;
 }
