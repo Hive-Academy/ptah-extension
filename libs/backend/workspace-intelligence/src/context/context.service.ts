@@ -1,7 +1,10 @@
 import { injectable, inject } from 'tsyringe';
 import * as fs from 'fs';
 import * as path from 'path';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  normalizeWorkspaceRoot,
+} from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
   IWorkspaceProvider,
@@ -63,6 +66,38 @@ export interface FileSearchOptions {
   readonly maxResults?: number;
   readonly sortBy?: 'name' | 'path' | 'modified' | 'relevance';
   readonly fileTypes?: string[];
+  /**
+   * Answer for this workspace root specifically. Omit for the process-global
+   * active folder (today's behaviour). See {@link WorkspaceRootMismatchError}.
+   */
+  readonly workspaceRoot?: string;
+}
+
+/**
+ * Thrown when a caller asked for a specific workspace root and the file index
+ * is not — or is no longer — holding it.
+ *
+ * This is the "loud mismatch" half of TASK_2026_200's R5 rule. The index is
+ * single-active-root by design (context.md §7.2): a request for root B
+ * supersedes root A, so two roots cannot be served at the same instant. The one
+ * outcome that is NEVER acceptable is quietly returning the other root's files
+ * — that silent wrong answer is the entire defect class this task exists to
+ * kill. When a rebuild for the requested root cannot be honoured, the caller
+ * gets this error instead of somebody else's file list.
+ */
+export class WorkspaceRootMismatchError extends Error {
+  constructor(
+    readonly requestedRoot: string,
+    readonly indexedRoot: string | undefined,
+  ) {
+    super(
+      `Workspace file index is not serving the requested root. ` +
+        `Requested "${requestedRoot}", index currently holds ` +
+        `"${indexedRoot ?? '<none>'}". The index serves one workspace at a ` +
+        `time; a concurrent request for another workspace superseded this one.`,
+    );
+    this.name = 'WorkspaceRootMismatchError';
+  }
 }
 
 /**
@@ -396,11 +431,65 @@ export class ContextService {
    */
 
   /**
+   * Ask the file index to hold `workspaceRoot`, or — when it is omitted — the
+   * process-global active folder (today's behaviour, no throw).
+   *
+   * This is the REBUILD half of R5: `ensureReadyFor` supersedes whatever root
+   * the index currently holds and rebuilds for the requested one, so the normal
+   * outcome of "requested root ≠ built root" is a rebuild, not an error.
+   *
+   * ⚠️ This method AWAITS. It therefore cannot be the last word on which root
+   * the index holds — see {@link assertIndexServes}, which every caller must
+   * run again in the same synchronous block as its query.
+   */
+  private async ensureIndexFor(workspaceRoot?: string): Promise<void> {
+    if (workspaceRoot === undefined) {
+      await this.fileIndex.ensureReady();
+      return;
+    }
+    await this.fileIndex.ensureReadyFor(workspaceRoot);
+  }
+
+  /**
+   * The ERROR half of R5, and the reason it is a separate, SYNCHRONOUS method.
+   *
+   * `ensureIndexFor` awaits. Awaiting yields to the microtask queue, and the
+   * index is a process-wide singleton whose `ensureReadyFor` clears the maps
+   * SYNCHRONOUSLY before its first await. So between "our rebuild for A
+   * resolved" and "we read the maps", another in-flight request for root B can
+   * run its continuation and take the index away from us. Re-checking after the
+   * await is not paranoia — it is the only point at which the answer is true.
+   *
+   * Callers MUST invoke this immediately before their `fileIndex.*` read, with
+   * NO await in between. Every read below (`search`, `getAll`,
+   * `searchDirectories`) is synchronous, so guard + read form one atomic block
+   * and the check cannot go stale between them. If you ever introduce an await
+   * into one of those blocks, this guard stops working and the silent
+   * wrong-workspace answer comes back.
+   *
+   * We do not retry/rebuild in a loop here: under two callers contending for
+   * different roots that livelocks. Losing the race is rare, and a loud error
+   * is an acceptable outcome under context.md §7.2 — a quiet one is not.
+   */
+  private assertIndexServes(workspaceRoot?: string): void {
+    if (workspaceRoot === undefined) return;
+    const requestedKey = normalizeWorkspaceRoot(workspaceRoot);
+    if (this.fileIndex.indexedRoot === requestedKey) return;
+    throw new WorkspaceRootMismatchError(
+      workspaceRoot,
+      this.fileIndex.indexedRoot,
+    );
+  }
+
+  /**
    * Search files by fuzzy query. Backed by the live index (synchronous scoring
    * over the in-memory list) — instant and always fresh.
+   *
+   * `options.workspaceRoot` scopes the answer to one workspace; omitting it
+   * keeps the pre-TASK_2026_200 behaviour (process-global active folder).
    */
   async searchFiles(options: FileSearchOptions): Promise<FileSearchResult[]> {
-    await this.fileIndex.ensureReady();
+    await this.ensureIndexFor(options.workspaceRoot);
 
     const {
       query,
@@ -409,6 +498,8 @@ export class ContextService {
       fileTypes = [],
     } = options;
 
+    // R5 guard + index read: one synchronous block, do not separate them.
+    this.assertIndexServes(options.workspaceRoot);
     let results = this.fileIndex.search(
       query,
       Math.max(maxResults * 2, maxResults),
@@ -436,9 +527,12 @@ export class ContextService {
     includeImages = false,
     offset = 0,
     limit = this.MAX_SEARCH_RESULTS,
+    workspaceRoot?: string,
   ): Promise<FileSearchResult[]> {
-    await this.fileIndex.ensureReady();
+    await this.ensureIndexFor(workspaceRoot);
 
+    // R5 guard + index read: one synchronous block, do not separate them.
+    this.assertIndexServes(workspaceRoot);
     let all = this.fileIndex.getAll(this.MAX_SEARCH_RESULTS);
     if (!includeImages) {
       all = all.filter((f) => f.fileType !== 'image');
@@ -476,14 +570,22 @@ export class ContextService {
   async getFileSuggestions(
     query: string,
     limit = 20,
+    workspaceRoot?: string,
   ): Promise<FileSearchResult[]> {
-    await this.fileIndex.ensureReady();
+    await this.ensureIndexFor(workspaceRoot);
 
     if (!query || query.length < 2) {
-      const allFiles = await this.getAllFiles(true, 0, limit);
+      // Delegates: `getAllFiles` re-asserts the root itself in its own atomic
+      // block, so the await here is safe — we never read the index after it.
+      const allFiles = await this.getAllFiles(true, 0, limit, workspaceRoot);
       return allFiles.slice(0, limit);
     }
 
+    // R5 guard + index reads: one synchronous block, do not separate them.
+    // `search`, `searchDirectories` and the `isFileIncluded` comparator below
+    // are ALL synchronous — introducing an await among them reopens the
+    // cross-workspace leak this guard closes.
+    this.assertIndexServes(workspaceRoot);
     const searchResults = this.fileIndex.search(query, limit * 2);
     const directoryMatches = this.searchDirectories(query, limit);
 

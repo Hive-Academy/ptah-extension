@@ -12,6 +12,7 @@ export {
 } from './services/file-system.service';
 export {
   ContextService,
+  WorkspaceRootMismatchError,
   type FileSearchResult,
   type FileSearchOptions,
 } from './context/context.service';

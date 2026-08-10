@@ -10,8 +10,38 @@ import type {
   QualityHistoryEntry,
 } from '../quality-assessment.types';
 
+/**
+ * Workspace-scoping param shared by the `@` file picker (`context:*`) and the
+ * `/` command picker (`autocomplete:*`). Same convention as
+ * {@link GitWorkspaceScopedParams} / {@link TasksWorkspaceScopedParams} — one
+ * optional `workspaceRoot` field, absolute path, host-native form.
+ *
+ * **Omitting it means "the process-global active workspace folder"** — i.e.
+ * whatever `IWorkspaceProvider.getWorkspaceRoot()` reports at the instant the
+ * request is served. That fallback is a deliberate part of the contract, not an
+ * accident: an older webview build and any MCP-side caller that has no root to
+ * offer must keep working unchanged.
+ *
+ * The process-global root is subject to switch timing (Electron flips the
+ * active folder at runtime) and, in VS Code, it is the *window's* folder even
+ * when the calling chat tab is bound to a different session root. A caller that
+ * knows which workspace it means should therefore ALWAYS pass it — that is the
+ * only thing on this wire that can disambiguate, since the RPC envelope carries
+ * no session id (TASK_2026_200).
+ *
+ * Send the field or omit it — never send `''`. The empty string is not "no
+ * opinion", and the backend rejects it at the Zod boundary.
+ */
+export interface PickerWorkspaceScopedParams {
+  /**
+   * Absolute path of the workspace to answer for. Omit for the process-global
+   * active workspace folder.
+   */
+  workspaceRoot?: string;
+}
+
 /** Parameters for context:getAllFiles RPC method */
-export interface ContextGetAllFilesParams {
+export interface ContextGetAllFilesParams extends PickerWorkspaceScopedParams {
   /** Whether to include image files */
   includeImages?: boolean;
   /** Maximum number of files to return */
@@ -19,7 +49,7 @@ export interface ContextGetAllFilesParams {
 }
 
 /** Parameters for context:getFileSuggestions RPC method */
-export interface ContextGetFileSuggestionsParams {
+export interface ContextGetFileSuggestionsParams extends PickerWorkspaceScopedParams {
   /** Search query for file suggestions */
   query?: string;
   /** Maximum number of suggestions to return */
@@ -50,7 +80,7 @@ export interface ContextGetFileSuggestionsResult {
 }
 
 /** Parameters for autocomplete:agents RPC method */
-export interface AutocompleteAgentsParams {
+export interface AutocompleteAgentsParams extends PickerWorkspaceScopedParams {
   /** Search query for agents */
   query?: string;
   /** Maximum number of results */
@@ -58,7 +88,7 @@ export interface AutocompleteAgentsParams {
 }
 
 /** Parameters for autocomplete:commands RPC method */
-export interface AutocompleteCommandsParams {
+export interface AutocompleteCommandsParams extends PickerWorkspaceScopedParams {
   /** Search query for commands */
   query?: string;
   /** Maximum number of results */

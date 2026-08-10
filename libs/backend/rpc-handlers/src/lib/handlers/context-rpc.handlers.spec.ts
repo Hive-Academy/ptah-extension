@@ -274,4 +274,107 @@ describe('ContextRpcHandlers', () => {
       expect(h.sentry.captureException).toHaveBeenCalled();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_200 — explicit workspace scoping (criterion 9) + Zod boundary
+  // -------------------------------------------------------------------------
+
+  describe('workspaceRoot scoping', () => {
+    it('forwards workspaceRoot to the orchestration service on context:getAllFiles', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'context:getAllFiles', {
+        includeImages: false,
+        limit: 1000,
+        workspaceRoot: 'D:\\proj-b',
+      });
+
+      expect(h.orchestration.getAllFiles).toHaveBeenCalledWith({
+        includeImages: false,
+        limit: 1000,
+        workspaceRoot: 'D:\\proj-b',
+      });
+    });
+
+    it('forwards workspaceRoot to the orchestration service on context:getFileSuggestions', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'context:getFileSuggestions', {
+        query: 'auth',
+        workspaceRoot: '/proj-b',
+      });
+
+      expect(h.orchestration.getFileSuggestions).toHaveBeenCalledWith({
+        query: 'auth',
+        workspaceRoot: '/proj-b',
+      });
+    });
+
+    it('omitting workspaceRoot leaves the payload untouched (optional-param regression guard)', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'context:getAllFiles', { limit: 50 });
+
+      const [payload] = h.orchestration.getAllFiles.mock.calls[0];
+      expect(payload).toEqual({ limit: 50 });
+      expect('workspaceRoot' in payload).toBe(false);
+    });
+  });
+
+  describe('Zod boundary rejection', () => {
+    it.each([
+      ['empty string', ''],
+      ['number', 42],
+      ['null', null],
+      ['array', ['D:\\x']],
+    ])(
+      'rejects a %s workspaceRoot on context:getAllFiles without calling orchestration',
+      async (_label, workspaceRoot) => {
+        const h = makeHarness();
+        h.handlers.register();
+
+        const response = await h.rpcHandler.handleMessage({
+          method: 'context:getAllFiles',
+          params: { workspaceRoot } as Record<string, unknown>,
+          correlationId: 'corr',
+        });
+
+        expect(response.success).toBe(false);
+        expect(response.error).toMatch(/invalid context:getAllFiles/i);
+        // Rejected at the boundary — the service must never see it.
+        expect(h.orchestration.getAllFiles).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rejects a malformed workspaceRoot on context:getFileSuggestions without calling orchestration', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const response = await h.rpcHandler.handleMessage({
+        method: 'context:getFileSuggestions',
+        params: { workspaceRoot: '' },
+        correlationId: 'corr',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/invalid context:getFileSuggestions/i);
+      expect(h.orchestration.getFileSuggestions).not.toHaveBeenCalled();
+    });
+
+    it('does not report a caller-side validation failure to Sentry as a backend error', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await h.rpcHandler.handleMessage({
+        method: 'context:getAllFiles',
+        params: { workspaceRoot: '' },
+        correlationId: 'corr',
+      });
+
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
+    });
+  });
 });

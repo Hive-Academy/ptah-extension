@@ -50,6 +50,8 @@ interface AgentDiscoveryService {
   searchAgents(request: {
     query: string;
     maxResults?: number;
+    /** TASK_2026_200 — explicit workspace scoping. */
+    workspaceRoot?: string;
   }): Promise<unknown>;
 }
 
@@ -57,6 +59,8 @@ interface CommandDiscoveryService {
   searchCommands(request: {
     query: string;
     maxResults?: number;
+    /** TASK_2026_200 — explicit workspace scoping. */
+    workspaceRoot?: string;
   }): Promise<unknown>;
 }
 
@@ -286,6 +290,95 @@ describe('AutocompleteRpcHandlers', () => {
       expect(response.error).toMatch(/failed to search commands/i);
       expect(response.error).toMatch(/registry offline/);
       expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_200 — explicit workspace scoping (criterion 10) + Zod boundary
+  // -------------------------------------------------------------------------
+
+  describe('workspaceRoot scoping', () => {
+    it('forwards workspaceRoot to AgentDiscoveryService', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'autocomplete:agents', {
+        query: 'debug',
+        maxResults: 5,
+        workspaceRoot: 'D:\\proj-b',
+      });
+
+      expect(h.agentDiscovery.searchAgents).toHaveBeenCalledWith({
+        query: 'debug',
+        maxResults: 5,
+        workspaceRoot: 'D:\\proj-b',
+      });
+    });
+
+    it('forwards workspaceRoot to CommandDiscoveryService', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'autocomplete:commands', {
+        query: 'hel',
+        workspaceRoot: '/proj-b',
+      });
+
+      expect(h.commandDiscovery.searchCommands).toHaveBeenCalledWith({
+        query: 'hel',
+        maxResults: undefined,
+        workspaceRoot: '/proj-b',
+      });
+    });
+
+    it('omitting workspaceRoot sends undefined, so the service falls back to the provider', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'autocomplete:agents', { query: 'x' });
+
+      const [payload] = h.agentDiscovery.searchAgents.mock.calls[0];
+      expect(payload.workspaceRoot).toBeUndefined();
+    });
+  });
+
+  describe('Zod boundary rejection', () => {
+    it.each([
+      ['autocomplete:agents', /invalid autocomplete:agents/i],
+      ['autocomplete:commands', /invalid autocomplete:commands/i],
+    ])(
+      'rejects an empty-string workspaceRoot on %s',
+      async (method, pattern) => {
+        const h = makeHarness();
+        h.handlers.register();
+
+        const response = await h.rpcHandler.handleMessage({
+          method,
+          params: { query: 'x', workspaceRoot: '' },
+          correlationId: 'corr',
+        });
+
+        expect(response.success).toBe(false);
+        expect(response.error).toMatch(pattern);
+        expect(h.agentDiscovery.searchAgents).not.toHaveBeenCalled();
+        expect(h.commandDiscovery.searchCommands).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rejects a non-string workspaceRoot without reaching the discovery service', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const response = await h.rpcHandler.handleMessage({
+        method: 'autocomplete:agents',
+        params: { workspaceRoot: 42 },
+        correlationId: 'corr',
+      });
+
+      expect(response.success).toBe(false);
+      expect(h.agentDiscovery.searchAgents).not.toHaveBeenCalled();
+      // A caller-side validation failure is not a backend fault.
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
     });
   });
 });

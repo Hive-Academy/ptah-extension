@@ -3,7 +3,10 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import matter from 'gray-matter';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  normalizeWorkspaceRoot,
+} from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IFileSystemProvider,
@@ -149,6 +152,12 @@ export interface CommandDiscoveryResult {
 export interface CommandSearchRequest {
   query: string;
   maxResults?: number;
+  /**
+   * Answer for this workspace specifically, overriding the process-global
+   * `IWorkspaceProvider`. Omit for the active folder (pre-TASK_2026_200
+   * behaviour). Same contract as `AgentSearchRequest.workspaceRoot`.
+   */
+  workspaceRoot?: string;
 }
 
 /**
@@ -171,6 +180,16 @@ export interface CommandSearchRequest {
 @injectable()
 export class CommandDiscoveryService {
   private cache: CommandInfo[] = [];
+  /**
+   * `normalizeWorkspaceRoot()` of the root {@link cache} was built from.
+   *
+   * TASK_2026_200: `cache` is process-global and `searchCommands` served it to
+   * every caller regardless of the workspace asked about, so the first
+   * workspace to populate it answered for all later ones. Keying it is what
+   * makes the explicit `workspaceRoot` override observable rather than accepted
+   * and ignored. Written only alongside `cache`, synchronously and adjacently.
+   */
+  private cacheRootKey: string | undefined;
   private watchers: IDisposable[] = [];
 
   constructor(
@@ -189,14 +208,26 @@ export class CommandDiscoveryService {
    */
   invalidateCache(): void {
     this.cache = [];
+    // Clear the key with the list. Leaving a stale key behind a cleared cache
+    // is harmless today (`cache.length > 0` is checked first) but becomes a
+    // wrong-root cache hit the moment that check is relaxed.
+    this.cacheRootKey = undefined;
   }
 
   /**
-   * Discover all commands (built-in + custom + skills)
+   * Discover all commands (built-in + custom + skills).
+   *
+   * @param explicitRoot Scan this workspace instead of the process-global
+   * active folder. Omitted → `IWorkspaceProvider.getWorkspaceRoot()`, exactly
+   * as before TASK_2026_200.
    */
-  async discoverCommands(): Promise<CommandDiscoveryResult> {
+  async discoverCommands(
+    explicitRoot?: string,
+  ): Promise<CommandDiscoveryResult> {
     try {
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      // An explicit root ALWAYS wins over the provider — see discoverAgents.
+      const workspaceRoot =
+        explicitRoot ?? this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
         return { success: false, error: 'No workspace folder open' };
       }
@@ -217,7 +248,10 @@ export class CommandDiscoveryService {
         ...userCommands.map((c) => ({ ...c, scope: 'user' as const })),
         ...workspaceSkills,
       ];
+      // List and its root key published together — two adjacent synchronous
+      // writes, no await between them, so the pair can never disagree.
       this.cache = allCommands;
+      this.cacheRootKey = normalizeWorkspaceRoot(workspaceRoot);
 
       return { success: true, commands: allCommands };
     } catch (error) {
@@ -237,18 +271,37 @@ export class CommandDiscoveryService {
     request: CommandSearchRequest,
   ): Promise<CommandDiscoveryResult> {
     try {
-      if (this.cache.length === 0) {
-        await this.discoverCommands();
+      const { query, maxResults = 20, workspaceRoot } = request;
+      const root = workspaceRoot ?? this.workspaceProvider.getWorkspaceRoot();
+      const rootKey = root ? normalizeWorkspaceRoot(root) : undefined;
+
+      // Resolve into a LOCAL and filter that — never re-read `this.cache`
+      // after an await. See `AgentDiscoveryService.searchAgents` for why:
+      // a concurrent discovery for another workspace can replace the field
+      // while we are suspended.
+      let commands: CommandInfo[];
+      if (this.cache.length > 0 && this.cacheRootKey === rootKey) {
+        // Check and read in one synchronous block.
+        commands = this.cache;
+      } else {
+        const discovered = await this.discoverCommands(root);
+        // The awaited call's OWN return value — immune to a later publish.
+        //
+        // A failed discovery degrades to an empty list rather than propagating
+        // `success: false`. That is deliberate bug-for-bug parity with the
+        // pre-TASK_2026_200 code, which ignored `discoverCommands()`'s return
+        // entirely and then sliced an empty `cache`. Propagating here would
+        // turn "no workspace folder open" from an empty `/` picker into an
+        // error toast — a UX regression outside this task's scope.
+        commands = discovered.commands ?? [];
       }
 
-      const { query, maxResults = 20 } = request;
-
       if (!query || query.trim() === '') {
-        return { success: true, commands: this.cache.slice(0, maxResults) };
+        return { success: true, commands: commands.slice(0, maxResults) };
       }
 
       const lowerQuery = query.toLowerCase();
-      const filtered = this.cache.filter(
+      const filtered = commands.filter(
         (cmd) =>
           cmd.name.toLowerCase().includes(lowerQuery) ||
           cmd.description.toLowerCase().includes(lowerQuery),
@@ -266,7 +319,14 @@ export class CommandDiscoveryService {
   }
 
   /**
-   * Initialize file watchers
+   * Initialize file watchers.
+   *
+   * DELIBERATELY NOT root-parameterized (TASK_2026_200 task 2.4) — same
+   * reasoning as `AgentDiscoveryService.initializeWatchers`: a background
+   * refresh armed once at activation has no caller whose workspace it could be
+   * scoped to, and pinning it to the activation-time root would be worse than
+   * tracking the process-global active folder. Per-request correctness lives in
+   * `searchCommands`/`discoverCommands`. Please do not "fix" this.
    */
   initializeWatchers(): void {
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
