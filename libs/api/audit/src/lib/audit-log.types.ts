@@ -96,6 +96,27 @@ export type AdminAuditAction =
   | 'learning.module.update'
   | 'learning.module.delete'
   | 'learning.module.reorder'
+  // TASK_2026_202 C4 — `POST v1/admin/course-modules/schedule` sets `releaseAt`
+  // on every live module of one course from a single cohort start date.
+  //
+  // ONE ROW PER SCHEDULE, NOT ONE PER MODULE, for `reorder`'s reason exactly:
+  // "the admin scheduled this course" is ONE intent, and ten rows would make
+  // the log useless for the one question it exists to answer. `targetId` is
+  // `undefined` for the same reason as `reorder` — there is no single target
+  // row.
+  //
+  // 🔴 THE METADATA CARRIES `{ slug, from, to }` PER CHANGED MODULE, AND THAT
+  // IS LOAD-BEARING RATHER THAN VERBOSE. The action OVERWRITES any manual date
+  // an admin set through `PATCH .../:id`, and `CourseModule` has no column
+  // recording a previous `releaseAt` — so this row is the ONLY record of what
+  // the old dates were, and therefore the only thing that makes a wrong
+  // re-schedule recoverable. The list is bounded by the course's live module
+  // count.
+  //
+  // ⚠️ AND NO ROW IS WRITTEN BY `…/schedule/preview`. The preview exists to be
+  // run repeatedly until the dates look right; a log full of rehearsals is a
+  // log nobody reads.
+  | 'learning.module.schedule'
   | 'learning.lesson.create'
   | 'learning.lesson.update'
   | 'learning.lesson.delete'

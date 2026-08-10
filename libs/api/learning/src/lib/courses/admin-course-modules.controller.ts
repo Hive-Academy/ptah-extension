@@ -20,7 +20,10 @@ import {
   AdminThrottlerGuard,
   JwtAuthGuard,
 } from '@ptah-api/identity';
-import type { AdminCourseModule } from '@ptah-contracts/community';
+import type {
+  AdminCourseModule,
+  AdminModuleSchedule,
+} from '@ptah-contracts/community';
 
 import {
   adminActor,
@@ -28,9 +31,14 @@ import {
   requireAdminUserId,
 } from '../common/admin-audit';
 
+import { CourseScheduleService } from './course-schedule.service';
 import { CoursesService } from './courses.service';
 import { CreateModuleDto } from './dto/create-module.dto';
 import { ReorderModulesDto } from './dto/reorder.dto';
+import {
+  ApplyModuleScheduleDto,
+  PreviewModuleScheduleDto,
+} from './dto/schedule-modules.dto';
 import { UpdateModuleDto } from './dto/update-module.dto';
 import { ReorderService, type ReorderResult } from './reorder.service';
 
@@ -58,6 +66,14 @@ const ADMIN_WRITES = { default: { limit: 20, ttl: 60_000 } } as const;
  * unify; reversed, Nest matches `:id === 'reorder'`. The spec asserts the
  * ordering AND the unification.
  *
+ * ⚠️ `POST schedule/preview` IS ALSO DECLARED BEFORE `POST schedule`, AND THAT
+ * PAIR DOES **NOT** UNIFY — five literal segments against four, so no concrete
+ * request can match both and no new RI-3 obligation is created. The ordering is
+ * kept anyway at zero cost, mirroring the
+ * `POST v1/admin/lessons/refresh-metadata` precedent
+ * (`route-map.spec.ts:333-335`). Neither contests `POST v1/admin/course-modules`
+ * for the same segment-count reason, so `KNOWN_CONTESTED` stays empty.
+ *
  * ── THERE IS NO `GET` ON THIS CONTROLLER, AND IT IS A DECISION ─────────────
  * §3.4's module row is `POST`, `PATCH/DELETE :id`, `PATCH reorder` — no list and
  * no single read. A module is always authored in the context of its course, and
@@ -81,6 +97,8 @@ export class AdminCourseModulesController {
   constructor(
     @Inject(CoursesService) private readonly courses: CoursesService,
     @Inject(ReorderService) private readonly reorderService: ReorderService,
+    @Inject(CourseScheduleService)
+    private readonly scheduleService: CourseScheduleService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
   ) {}
 
@@ -124,6 +142,103 @@ export class AdminCourseModulesController {
       `Admin created module: actor=${actor.email ?? 'unknown'} id=${created.id} courseId=${dto.courseId}`,
     );
     return created;
+  }
+
+  /**
+   * `POST schedule/preview` — C4's REHEARSAL. `200`, writes nothing, audits
+   * nothing.
+   *
+   * 🔴 THE PREVIEW IS THE GUARD, NOT A CONVENIENCE. The failure this action is
+   * designed against is *a mis-typed start date silently shifting ten
+   * member-visible dates*, and there is no admin course UI in `libs/web/admin` —
+   * this is driven by `curl`. The apply refuses to run unless the caller echoes
+   * back `confirmModuleCount` and `confirmLastReleaseDate`, and those two values
+   * cannot be produced without having read this response (or having done the
+   * weekday arithmetic by hand). Apply-directly was rejected, and so was a
+   * single route with a `dryRun` flag: a required flag makes the caller type a
+   * word, not look at a date, so it defends nothing.
+   *
+   * ⚠️ `POST`, NOT `GET`, AND THAT IS DELIBERATE. The rehearsal must accept the
+   * SAME input shape as the apply. A `GET` forces a second, query-shaped DTO,
+   * and the two would drift the first time either changed — at which point the
+   * preview would stop describing the apply and the guard would be worthless.
+   * A `POST` that writes nothing is the smaller cost.
+   *
+   * ⚠️ NO AUDIT HOOK IS PASSED. The preview exists to be run repeatedly until
+   * the dates look right; a log full of rehearsals is a log nobody reads.
+   */
+  @Post('schedule/preview')
+  @HttpCode(200)
+  @UseGuards(AdminThrottlerGuard)
+  @Throttle(ADMIN_WRITES)
+  async previewSchedule(
+    @Req() req: Request,
+    @Body(dtoPipe(PreviewModuleScheduleDto)) dto: PreviewModuleScheduleDto,
+  ): Promise<AdminModuleSchedule> {
+    const actor = adminActor(req);
+    const schedule = await this.scheduleService.schedule(dto, false);
+
+    this.logger.log(
+      `Admin previewed cohort schedule: actor=${actor.email ?? 'unknown'} ` +
+        `courseId=${dto.courseId} start=${dto.startDate} tz=${dto.timeZone} ` +
+        `changed=${schedule.changedCount}/${schedule.moduleCount}`,
+    );
+    return schedule;
+  }
+
+  /**
+   * 🔴 `POST schedule` — C4's APPLY. `200`, one audit row.
+   *
+   * Sets `releaseAt` on every live module of the course, in day order, on
+   * weekday offsets with the weekend skipped — ten dates from one input, and
+   * twelve from one input for a twelve-module cohort 2, because the count comes
+   * from the rows.
+   *
+   * ⚠️ IT IS A TOTAL RE-SCHEDULE AND IT OVERWRITES MANUAL DATES. Only the rows
+   * whose date actually moves are written, so a second identical apply reports
+   * `changedCount: 0` and issues zero updates; and the audit metadata carries
+   * `{ slug, from, to }` per changed module, which is the only record of the
+   * previous dates. `CourseScheduleService`'s docblock has the full argument.
+   *
+   * ⚠️ `ApplyModuleScheduleDto` EXTENDS the preview DTO, so this endpoint and
+   * `…/preview` are genuinely distinct on the wire: an apply payload sent to the
+   * preview is a `400` for two non-whitelisted keys, and a preview payload sent
+   * here is a `400` for two missing required keys. Both are spec cases.
+   */
+  @Post('schedule')
+  @HttpCode(200)
+  @UseGuards(AdminThrottlerGuard)
+  @Throttle(ADMIN_WRITES)
+  async applySchedule(
+    @Req() req: Request,
+    @Body(dtoPipe(ApplyModuleScheduleDto)) dto: ApplyModuleScheduleDto,
+  ): Promise<AdminModuleSchedule> {
+    const actor = adminActor(req);
+    const schedule = await this.scheduleService.schedule(dto, true, (tx, changed) =>
+      // ⚠️ THE HOOK IS BUILT PER CALL BECAUSE ITS METADATA IS NOT KNOWN UNTIL
+      // THE SERVICE HAS COMPUTED THE SCHEDULE. `changed` carries the PREVIOUS
+      // dates, per module: `CourseModule` has no column holding a former
+      // `releaseAt`, so this list is the only thing that makes a wrong
+      // re-schedule recoverable. It is bounded by the course's live module
+      // count — the same set the response renders in full — and carries no row
+      // dump beyond the three fields (NFR-S7).
+      auditHook(this.audit, actor, 'learning.module.schedule', 'CourseModule', {
+        courseId: dto.courseId,
+        startDate: dto.startDate,
+        timeOfDay: dto.timeOfDay,
+        timeZone: dto.timeZone,
+        changedCount: changed.length,
+        changed,
+      })(tx, null),
+    );
+
+    this.logger.log(
+      `Admin applied cohort schedule: actor=${actor.email ?? 'unknown'} ` +
+        `courseId=${dto.courseId} start=${dto.startDate} tz=${dto.timeZone} ` +
+        `changed=${schedule.changedCount}/${schedule.moduleCount} ` +
+        `last=${schedule.lastReleaseDate}`,
+    );
+    return schedule;
   }
 
   /**

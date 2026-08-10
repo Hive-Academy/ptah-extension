@@ -16,6 +16,7 @@ import { AdminCourseModulesController } from './courses/admin-course-modules.con
 import { AdminCoursesController } from './courses/admin-courses.controller';
 import { AdminLessonsController } from './courses/admin-lessons.controller';
 import { CourseReadService } from './courses/course-read.service';
+import { CourseScheduleService } from './courses/course-schedule.service';
 import { CoursesService } from './courses/courses.service';
 import { MemberCoursesController } from './courses/member-courses.controller';
 import { ModuleLockService } from './courses/module-lock.service';
@@ -28,7 +29,7 @@ import { ProgressService } from './progress/progress.service';
  * (plan §2.6, R2, R8 authoring).
  *
  * Five controllers: two member (`v1/members/{courses,lesson-comments}`) and
- * three admin (`v1/admin/{courses,course-modules,lessons}`). Seven services.
+ * three admin (`v1/admin/{courses,course-modules,lessons}`). Eight services.
  *
  * ── ⚠️ `NotificationsModule` IS STILL ABSENT, AND SO IS ANY PRODUCER (RISK-L)
  *
@@ -95,7 +96,8 @@ import { ProgressService } from './progress/progress.service';
  * `CourseReadService` and `ProgressService` — the member read model and the
  * completion/resume source the hub's `learning` section composes (Task 9.17).
  * Everything else stays internal: `CoursesService`, `ReorderService`,
- * `LessonVideoService`, `LessonCommentsService` and `ModuleLockService` carry the
+ * `CourseScheduleService`, `LessonVideoService`, `LessonCommentsService` and
+ * `ModuleLockService` carry the
  * WRITE paths, the YouTube authoring path and the lock EVALUATION, and they are
  * reachable only through this module's own controllers — i.e. only behind
  * `JwtAuthGuard` + `MemberGuard`, or `JwtAuthGuard` + `AdminGuard`. Exporting
@@ -145,6 +147,7 @@ import { ProgressService } from './progress/progress.service';
     CoursesService,
     CourseReadService,
     ReorderService,
+    CourseScheduleService,
     ModuleLockService,
     LessonVideoService,
     LessonCommentsService,

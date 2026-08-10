@@ -248,6 +248,13 @@ const segmentsOfPrefix = (prefix: string): string[] =>
  * fourth below (132 + 5): 1 member pack + 4 member notification. NO admin route
  * was added — R10 is a member-owned inbox with no admin surface (RK-1), and the
  * pack `memberVisible` toggle rides the EXISTING `PATCH v1/admin/packs/:id`.
+ * **139** since TASK_2026_202 Batch 3 added the 2 C4 cohort-scheduling routes
+ * (137 + 2): `POST v1/admin/course-modules/schedule/preview` and
+ * `POST v1/admin/course-modules/schedule`, both on the EXISTING
+ * `AdminCourseModulesController` and both inserted in the P3 curriculum block
+ * below. That block therefore reads 29 rather than 27; the P3 heading comment
+ * records the split. NO new controller, so the controller census and all three
+ * prefix ledgers are untouched.
  *
  * ⚠️ THE PROSE TOTAL IS RE-DERIVED IN EVERY BATCH THAT MOVES IT, and the note
  * above about it having read 68 against an actual 64 is why: this number is the
@@ -315,9 +322,11 @@ const EXPECTED_ROUTES: readonly string[] = [
   // answer"), so a retried request converges instead of double-toggling.
   'PUT v1/members/community/posts/:id/reactions/:type',
   'PUT v1/members/community/topics/:id/accepted-answer',
-  // ── TASK_2026_177 P3, the course curriculum: 27 routes ───────────────────
-  // 18 admin across THREE controllers at three disjoint literal depth-3
-  // prefixes, and 9 member across two disjoint literal depth-3 prefixes.
+  // ── TASK_2026_177 P3, the course curriculum: 27 routes, PLUS the 2 added
+  //    by TASK_2026_202 C4 below = 29 in this block ─────────────────────────
+  // 18 admin (20 with C4) across THREE controllers at three disjoint literal
+  // depth-3 prefixes, and 9 member across two disjoint literal depth-3
+  // prefixes.
   //
   // 🔴 `v1/admin/course-modules` IS A SIBLING OF `v1/admin/courses`, NOT A CHILD
   // OF IT (RISK-N). The nested form `v1/admin/courses/modules` WOULD be a proper
@@ -354,6 +363,23 @@ const EXPECTED_ROUTES: readonly string[] = [
   'PATCH v1/admin/lessons/reorder',
   'PATCH v1/members/lesson-comments/:id',
   'POST v1/admin/course-modules',
+  // ── TASK_2026_202 C4: cohort scheduling, preview then apply ──────────────
+  // TWO routes on the EXISTING `AdminCourseModulesController` — no new
+  // controller, so `ALL_CONTROLLERS`, `PREFIX_EXCEPTIONS`, `KNOWN_PREFIX_DEBT`
+  // and `KNOWN_CONTESTED` are all untouched.
+  //
+  // ⚠️ THEY DO NOT UNIFY WITH EACH OTHER (five literal segments against four)
+  // and neither contests `POST v1/admin/course-modules` (four against three),
+  // so RI-2 has nothing to arbitrate and RI-3 gains no obligation. `…/preview`
+  // is declared first in the controller anyway, at zero cost, mirroring the
+  // `POST v1/admin/lessons/refresh-metadata` note below.
+  //
+  // ⚠️ AND THE PREVIEW IS A `POST` RATHER THAN A `GET` DELIBERATELY. It must
+  // accept the SAME input shape as the apply — a `GET` forces a second,
+  // query-shaped DTO and the two would drift, at which point the preview would
+  // stop describing the apply and the confirm-echo guard would be worthless.
+  'POST v1/admin/course-modules/schedule',
+  'POST v1/admin/course-modules/schedule/preview',
   'POST v1/admin/courses',
   'POST v1/admin/courses/:id/restore',
   'POST v1/admin/lessons',

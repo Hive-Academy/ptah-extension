@@ -279,13 +279,17 @@ describe('LearningModule', () => {
   });
 
   describe('the registered surface', () => {
-    it('declares the seven services', () => {
+    it('declares the eight services', () => {
       const providers = metadata<{ name?: string }>(MODULE_METADATA.PROVIDERS)
         .map((p) => p?.name ?? String(p))
         .filter((name) => name.endsWith('Service'));
 
       expect(providers.sort()).toEqual([
         'CourseReadService',
+        // TASK_2026_202 C4 — cohort scheduling. A PROVIDER ONLY: it is not in
+        // `exports` and not in the barrel, because it carries a WRITE path and
+        // the barrel-export assertion above is what keeps that rule true.
+        'CourseScheduleService',
         'CoursesService',
         'LessonCommentsService',
         'LessonVideoService',

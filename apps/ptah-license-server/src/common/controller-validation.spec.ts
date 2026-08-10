@@ -268,8 +268,39 @@ const EXCLUDED: ReadonlyArray<{
  * (the others: a query string's length is bounded by the server's URL limit
  * rather than by `@ArrayMaxSize`, and every proxy in the path logs it).
  * `UNVALIDATED_DEBT` is still `[]`.
+ *
+ * ── 78 -> 80, TASK_2026_202 Batch 3 (C4 cohort scheduling) ────────────────
+ * Re-derived by exactly the procedure above: `Expected: >= 9999 / Received: 80`.
+ *
+ * **+2, AND BOTH ARE WHOLE-OBJECT BODIES.** Two routes are added to the
+ * EXISTING `AdminCourseModulesController` — no new controller, so
+ * `ALL_CONTROLLERS` and the census are untouched:
+ *
+ *   courses/AdminCourseModulesController.previewSchedule
+ *       `@Body(dtoPipe(PreviewModuleScheduleDto))`                          +1
+ *   courses/AdminCourseModulesController.applySchedule
+ *       `@Body(dtoPipe(ApplyModuleScheduleDto))`                            +1
+ *                                                                          ---
+ *                                              72 + 2 = 74 whole-object
+ *                                                       74 + 6 = 80 total
+ *
+ * 🔴 `NAMED_PRIMITIVE_PARAM_COUNT` IS UNCHANGED AT 6, AND THAT IS ONCE MORE THE
+ * LOAD-BEARING HALF (RISK-I). The obvious alternative shape for the preview is
+ * `POST .../schedule/preview?courseId=…` — one `@Query('courseId')`. That would
+ * make the total read 80 against a named count of 7 and the arithmetic here
+ * would not close. It is also rejected on its own merits: the preview must
+ * accept the SAME payload class as the apply or the two drift, and a drifted
+ * preview silently stops describing the apply it is supposed to rehearse.
+ *
+ * ⚠️ THE TWO DTOs ARE A CLASS AND ITS SUBCLASS (`ApplyModuleScheduleDto extends
+ * PreviewModuleScheduleDto`), which is deliberate and is what makes each route
+ * reject the other's payload — but it means the two `expectedType`s are NOT
+ * interchangeable. `admin-course-modules.controller.spec.ts` asserts each
+ * handler binds its own, in both directions, because this file can only see
+ * that SOME `ValidationPipe` with SOME `expectedType` is bound.
+ * `UNVALIDATED_DEBT` is still `[]`.
  */
-const MIN_TOTAL_PAYLOAD_PARAMS = 78;
+const MIN_TOTAL_PAYLOAD_PARAMS = 80;
 
 /**
  * Named-primitive params — `@Query('code') code: string` — bind a STRING, not a
