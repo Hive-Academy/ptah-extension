@@ -255,7 +255,8 @@
           "nx build-preload ptah-electron --watch",
           "nx build-embedder-worker ptah-electron --watch",
           "nx build-voice-worker ptah-electron --watch",
-          "nx build ptah-extension-webview --configuration=development --watch"
+          "nx build ptah-extension-webview --configuration=development --watch",
+          "node apps/ptah-electron/scripts/watch-renderer.js"
         ],
         "parallel": true
       }
