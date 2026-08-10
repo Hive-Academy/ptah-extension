@@ -184,3 +184,55 @@ describe('EditorService message routing (C1)', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 });
+
+// ============================================================================
+// SEQ-2 gate closure — A2 AC5 (TASK_2026_173 seq-2-verification.md).
+//
+// "GIVEN a diff tab of either kind, WHEN the tab is persisted and the
+// workspace is reopened, THEN the tab SHALL restore the same comparison it
+// had, or SHALL be discarded — it SHALL NOT silently restore as the other
+// comparison." R-2's mitigation: old-format persisted diff tab entries are
+// dropped cleanly on load, not misinterpreted.
+//
+// EditorService is the coordinator constructed fresh on every real webview
+// bootstrap (an actual VS Code/Electron reload tears down and rebuilds the
+// whole Angular injector, this service included — it is `providedIn: 'root'`,
+// not a cross-reload singleton). This proves its constructor never reads
+// `openTabs` (or anything diff-tab-shaped) out of `VSCodeService.getState()`,
+// even when `getState()` is stubbed to return exactly the kind of stale,
+// old-format payload R-2 describes. That is what makes "discard" true for a
+// GENUINE reload, as distinct from the in-session workspace-switch round trip
+// covered in `editor-workspace.spec.ts`.
+// ============================================================================
+describe('EditorService construction — no diff tab survives a reload (A2 AC5, discard branch)', () => {
+  it('starts with zero open tabs even when VSCodeService.getState() holds an old-format persisted tab list', () => {
+    const staleOldFormatPayload = {
+      // Shape predates diffTabKey()'s `diff:<comparison>:<path>` scheme —
+      // whatever it once was, it must never reach `openTabs`.
+      openTabs: [
+        {
+          filePath: 'a.ts::diff::HEAD::worktree', // pre-SEQ-1 shape, illustrative
+          fileName: 'a.ts',
+          content: 'stale',
+          isDirty: false,
+        },
+      ],
+    };
+    const vscodeStub = makeVscodeStub();
+    (vscodeStub.getState as jest.Mock).mockReturnValue(staleOldFormatPayload);
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        EditorService,
+        { provide: VSCodeService, useValue: vscodeStub },
+      ],
+    });
+    const freshService = TestBed.inject(EditorService);
+
+    // The stub's getState() was wired to return old-format tab data on ANY
+    // call; the assertion is that EditorService's constructor never called it
+    // for tabs in the first place.
+    expect(freshService.openTabs()).toEqual([]);
+  });
+});

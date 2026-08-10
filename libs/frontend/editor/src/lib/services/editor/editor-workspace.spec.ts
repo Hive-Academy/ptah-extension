@@ -765,3 +765,135 @@ describe('EditorWorkspaceHelper.switchWorkspace — panes restore from the tab r
     expect(ctx.state.splitFileContent()).toBe('v1 split edit');
   });
 });
+
+// ============================================================================
+// SEQ-2 gate closure — A2 AC5 (TASK_2026_173 seq-2-verification.md).
+//
+// "GIVEN a diff tab of either kind, WHEN the tab is persisted and the
+// workspace is reopened, THEN the tab SHALL restore the same comparison it
+// had... it SHALL NOT silently restore as the other comparison."
+//
+// `switchWorkspace` restores `openTabs` as a direct object reference from
+// `workspaceEditorState` (an in-memory Map keyed by workspace path) — there is
+// no serialize/re-parse step for a diff tab's `comparison` field, which is
+// exactly the class of bug (a persisted key re-derived incorrectly) AC5 is
+// worried about. This round-trips a 'staged' and a 'worktree' tab for the
+// SAME path through an away-and-back workspace switch and asserts neither
+// comparison is swapped.
+// ============================================================================
+
+interface DiffTab extends CachedTab {
+  diff: {
+    comparison: 'staged' | 'worktree';
+    path: string;
+    originalPath: string;
+  };
+}
+
+function diffTab(
+  key: string,
+  comparison: 'staged' | 'worktree',
+  path: string,
+): DiffTab {
+  return {
+    filePath: key,
+    fileName: `${path.split('/').pop()} (${comparison})`,
+    content: `${comparison} content for ${path}`,
+    isDirty: false,
+    diff: { comparison, path, originalPath: path },
+  };
+}
+
+describe('EditorWorkspaceHelper.switchWorkspace — diff tab comparison round trip (A2 AC5)', () => {
+  it('restores a staged diff tab as staged, never as worktree, across an away-and-back switch', () => {
+    // makeState() starts active.path at '/ws' already — switchWorkspace('/ws')
+    // would be a same-workspace no-op (early return), so the LIVE state is set
+    // directly, exactly as it would be after openDiff() ran while '/ws' was
+    // active. saveCurrentWorkspaceState() (called at the top of the first real
+    // switchWorkspace below) is what snapshots this into the cache.
+    const { helper, ctx } = makeHelper();
+    const stagedTab = diffTab('diff:staged:a.ts', 'staged', 'a.ts');
+    ctx.state.activeFilePath.set('diff:staged:a.ts');
+    ctx.state.activeFileContent.set(stagedTab.content);
+    ctx.state.openTabs.set([stagedTab] as never);
+    ctx.workspaceMap.set('/away', {
+      fileTree: [],
+      activeFilePath: undefined,
+      activeFileContent: '',
+      openTabs: [] as never,
+    });
+
+    helper.switchWorkspace('/away'); // saves '/ws' (the staged tab), loads '/away' (empty)
+    helper.switchWorkspace('/ws'); // saves '/away', restores '/ws' from cache
+
+    const restored = ctx.state
+      .openTabs()
+      .find((t) => (t as DiffTab).filePath === 'diff:staged:a.ts') as
+      | DiffTab
+      | undefined;
+    expect(restored).toBeDefined();
+    expect(restored?.diff.comparison).toBe('staged');
+    expect(restored?.diff.comparison).not.toBe('worktree');
+  });
+
+  it('keeps two simultaneous tabs for the same path (staged + worktree) distinct across the round trip', () => {
+    const { helper, ctx } = makeHelper();
+    const stagedTab = diffTab('diff:staged:a.ts', 'staged', 'a.ts');
+    const worktreeTab = diffTab('diff:worktree:a.ts', 'worktree', 'a.ts');
+    ctx.state.activeFilePath.set('diff:staged:a.ts');
+    ctx.state.activeFileContent.set(stagedTab.content);
+    ctx.state.openTabs.set([stagedTab, worktreeTab] as never);
+    ctx.workspaceMap.set('/away', {
+      fileTree: [],
+      activeFilePath: undefined,
+      activeFileContent: '',
+      openTabs: [] as never,
+    });
+
+    helper.switchWorkspace('/away');
+    helper.switchWorkspace('/ws');
+
+    const tabs = ctx.state.openTabs() as unknown as DiffTab[];
+    const staged = tabs.find((t) => t.filePath === 'diff:staged:a.ts');
+    const worktree = tabs.find((t) => t.filePath === 'diff:worktree:a.ts');
+    expect(staged?.diff.comparison).toBe('staged');
+    expect(worktree?.diff.comparison).toBe('worktree');
+  });
+});
+
+// ============================================================================
+// SEQ-2 gate closure — A2 AC5, the "discard" branch.
+//
+// R-2's mitigation (task-description.md): "Treat old-format diff tab entries
+// as unrecognized and drop them cleanly on load... test the upgrade path
+// explicitly with pre-existing persisted state." `switchWorkspace`'s
+// cache-miss branch is what runs on a genuinely new/never-seen workspace path
+// — the same code path that runs after a real reload, since
+// `workspaceEditorState` is only ever populated by the live JS instance and
+// is never hydrated from `VSCodeService.getState()` (see EditorService's
+// constructor — no such call exists). This proves the cache-miss branch
+// starts every workspace with zero tabs, so there is no code path through
+// which an old-format (or any persisted) diff tab entry could survive into
+// `openTabs` in the first place — the discard is structural, not a promise.
+// ============================================================================
+
+describe('EditorWorkspaceHelper.switchWorkspace — no persisted tabs survive a first-seen workspace (A2 AC5, discard branch)', () => {
+  it('starts a never-before-cached workspace with zero tabs — a live diff tab does not leak across', () => {
+    const { helper, ctx } = makeHelper();
+    // Stand in for "a diff tab was open in whatever workspace was active
+    // before" — the closest constructible analogue of "a persisted entry
+    // exists" for a helper that has no persisted-storage dependency at all.
+    // No entry in ctx.workspaceMap for '/never-seen' — this is the exact
+    // shape of a genuine post-reload EditorService: workspaceEditorState is a
+    // fresh empty Map (see editor.service.ts's constructor), so EVERY
+    // workspace looks "never-before-cached" to the first switchWorkspace call
+    // after a reload, including ones that held diff tabs (any format) before.
+    ctx.state.openTabs.set([
+      diffTab('diff:staged:leftover.ts', 'staged', 'leftover.ts'),
+    ] as never);
+
+    helper.switchWorkspace('/never-seen');
+
+    expect(ctx.state.openTabs()).toEqual([]);
+  });
+});

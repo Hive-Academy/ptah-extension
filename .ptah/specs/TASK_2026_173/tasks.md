@@ -1,7 +1,7 @@
 # Development Tasks — TASK_2026_173
 
 **Title**: Editor panel — git-diff correctness, measured performance, and hunk-level stage/revert
-**Total Batches**: 10 (0–9) | **Total Tasks**: 61 | **Status**: 7/10 complete (0–6), batch 7 dispatched — refreshed 2026-08-10
+**Total Batches**: 10 (0–9) | **Total Tasks**: 61 | **Status**: 8/10 complete (0–7). **SEQ-2 SATISFIED 2026-08-10** (`seq-2-verification.md`) — Batch 8 is UNBLOCKED and dispatched via `batch-8-dispatch.md`. Batch 9 reachable in parallel.
 **Source plan**: `implementation-plan.md` §9, adopted with **two corrections** (see Plan Validation Summary).
 **Binding overrides**: `amendments.md` supersedes `task-description.md` wherever they conflict. A-1..A-5, the A-group merge, and N1/N2/N3 are settled — do not re-litigate.
 **CLI agent delegation**: **DISABLED** (user decision, Checkpoint 0.1). Every executor below is a sub-agent. Do not spawn CLI agents for any batch.
@@ -422,9 +422,15 @@ submodule path · symlink · path with spaces · path with non-ASCII characters 
 - Standing gates 1–7 pass
 - **ONE commit for all fourteen tasks**
 
-> ### 🔒 SEQ-2 CHECKPOINT — READ BEFORE BATCH 8
+> ### 🔓 SEQ-2 CHECKPOINT — **CLEARED 2026-08-10** (was: READ BEFORE BATCH 8)
 >
-> **Batch 8 (D2 hunk stage/revert) MUST NOT START until this batch is independently verified against every A1–A4 acceptance criterion above.** Not "implemented" — _independently verified_. This is a data-integrity constraint, not a scheduling preference. A hunk stage/revert applies a derived patch to the user's git index or working tree, and is only as correct as the diff it derives from. Against A1 unfixed it applies a patch from an arbitrarily old snapshot — worst case applying cleanly at a shifted offset and silently corrupting the file. Against A2 unfixed it stages the exact content the user deliberately left unstaged. Against A3 unfixed it stages a fabricated whole-file addition whose real HEAD content was never read. **The git index holds work the user is about to commit; the working tree holds work that may exist nowhere else. Corruption here is not recoverable by undo.**
+> **SEQ-2 is SATISFIED.** Evidence: `seq-2-verification.md`. **A1, A2, A3 and A4 all verified** against the **current tree** — not against this batch's commit `61628f623`, and not against the batch's own claims. That distinction was load-bearing: the verifier established that the git-read backend carrying A3's classification ladder and A2's side-resolution table is **untouched since July**, while the frontend layer that renders and drives it was rewritten by Batches 4, 6 and 7, so backend claims rest on "unchanged + version-matched live re-check" and frontend claims rest on direct reading of today's code.
+>
+> **The gate was failed first and closed second.** The verification initially returned **NOT SATISFIED** on A2 AC5 — _unproven_, not failed. It was then closed by tracing `openTabs` to its two real paths: the in-session `switchWorkspace` restore is a direct object-reference assignment out of an in-memory `Map` with no serialize/parse step that could scramble `comparison`; and on the cross-reload path `EditorService`'s constructor never calls `getState()` for tabs while `switchWorkspace`'s cache-miss branch unconditionally resets `openTabs` to `[]`. Four permanent regression tests were added, **each proven non-vacuous** by reintroducing the exact hazard it guards, confirming the failure, then reverting.
+>
+> This gate was cleared **by verification, not by assumption and not by fatigue.** Read `seq-2-verification.md` before questioning any part of it.
+>
+> _Original wording, retained for provenance:_ **Batch 8 (D2 hunk stage/revert) MUST NOT START until this batch is independently verified against every A1–A4 acceptance criterion above.** Not "implemented" — _independently verified_. This is a data-integrity constraint, not a scheduling preference. A hunk stage/revert applies a derived patch to the user's git index or working tree, and is only as correct as the diff it derives from. Against A1 unfixed it applies a patch from an arbitrarily old snapshot — worst case applying cleanly at a shifted offset and silently corrupting the file. Against A2 unfixed it stages the exact content the user deliberately left unstaged. Against A3 unfixed it stages a fabricated whole-file addition whose real HEAD content was never read. **The git index holds work the user is about to commit; the working tree holds work that may exist nowhere else. Corruption here is not recoverable by undo.**
 
 ---
 
@@ -852,7 +858,7 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 
 ---
 
-## Batch 7: Split-Pane Save (C2) ✅ COMPLETE — 2026-08-10
+## Batch 7: Split-Pane Save (C2) ✅ COMPLETE — `f47351d14` (2026-08-10)
 
 > Executed by a `frontend-developer` sub-agent per `batch-7-dispatch.md`, reported in
 > `batch-7-report.md`, reviewed by `code-logic-reviewer` (`batch-7-code-logic-review.md`) over two
@@ -1042,20 +1048,55 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 
 **Batches 0–7 are complete, committed and coherent as delivered.** C1 + A-group + B + D1 + D3 + C2 form a shippable unit on their own: the diff is correct, measured, accessible, and no longer loses work. Stopping here costs the D2 feature and nothing else — no partial state, no half-migrated scheme.
 
-**Everything below this line is gated.** Batch 8 is a feature project in its own right and is the only batch that writes to the user's git index; it is blocked on SEQ-2, which Batch 7 did **not** clear and cannot clear. Batch 9 is filing work and may proceed from this cut line independently of Batch 8.
+**Everything below this line is gated.** Batch 8 is a feature project in its own right and is the only batch that writes to the user's git index. It was blocked on SEQ-2 — which Batch 7 did **not** clear and could not clear — and **SEQ-2 was cleared on 2026-08-10 by an independent verification pass** (`seq-2-verification.md`, A1–A4 all verified against the current tree). Batch 8 is now dispatchable. Batch 9 is filing work and may proceed from this cut line independently of Batch 8.
 
 ---
 
-## Batch 8: D2 — Hunk Stage / Revert ⛔ BLOCKED ON SEQ-2 — **NOT ASSIGNED, NOT READY**
+## Batch 8: D2 — Hunk Stage / Revert 🔄 IN PROGRESS — **SEQ-2 SATISFIED, DISPATCHED 2026-08-10**
 
-> **Status as of 2026-08-10, after Batch 7 committed**: Batch 7's sequential dependency is satisfied.
-> **SEQ-2 is not.** Batch 2's A1–A4 acceptance criteria have not been _independently verified_ —
-> implemented and committed is not the bar. Batch 7 did not touch Batch 2's correctness and does not
-> clear the gate; the executor states this in its own report §11 and the reviewer concurs
-> ("This does **not** touch SEQ-2 or Batch 8 readiness").
+> ### ✅ SEQ-2 SATISFIED — A1, A2, A3 and A4 ALL VERIFIED
 >
-> **Do not dispatch this batch, and do not read the completion of Batch 7 as permission to.** The
-> independent A1–A4 verification is running as its own step; only its result can unblock this.
+> **Evidence: `seq-2-verification.md`.** Both of Batch 8's preconditions now hold: Batch 7's
+> sequential dependency was satisfied when `f47351d14` landed, and **SEQ-2 was cleared on
+> 2026-08-10 by an independent verification pass** run as its own step, exactly as this gate
+> required. **Implemented-and-committed was never the bar; independently verified is, and that
+> bar was met.**
+>
+> **Verified against the current tree, not against Batch 2's commit `61628f623`.** That choice was
+> load-bearing rather than pedantic: the verifier established that the git-read backend carrying
+> A3's classification ladder and A2's side-resolution table **has not changed a line since July**,
+> while the frontend layer that renders and drives it was rewritten by Batches 4, 6 and 7. Backend
+> claims therefore rest on "unchanged + a version-matched live re-check against real `git`"; frontend
+> claims rest on direct reading of the code that exists today. Verifying against the old commit would
+> have proved something true of a tree nobody is shipping.
+>
+> **The gate was FAILED FIRST and CLOSED SECOND.** The first pass returned **NOT SATISFIED** on
+> A2 AC5 — _unproven_, not failed, and reported as such rather than rounded up. It was then closed
+> by tracing `openTabs` end to end to its two real paths:
+>
+> - **In-session restore** — `EditorWorkspaceHelper.switchWorkspace` assigns the cached
+>   `EditorTab[]` **by direct object reference** out of an in-memory `Map`. There is no
+>   serialize/parse step anywhere on that path, so no code exists that could re-derive or scramble
+>   a tab's `diff.comparison` on the way back.
+> - **Cross-reload discard** — `EditorService`'s constructor never calls `getState()` for tabs, and
+>   `switchWorkspace`'s cache-miss branch (hit for every path after a reload, since that `Map` is
+>   rebuilt empty) **unconditionally** sets `openTabs` to `[]`. Tabs are not persisted at all, so an
+>   old-format entry categorically cannot reach `openTabs`.
+>
+> **Four permanent regression tests were added, and each was proven non-vacuous** by reintroducing
+> the exact hazard it guards, confirming the test fails, then reverting and confirming it passes.
+> They stay in the suite: a future change that reintroduces stale-comparison restoration,
+> cross-workspace tab leakage, or reload-time hydration from persisted state will fail them.
+>
+> **Anyone reading this later: the gate was cleared by verification, not by assumption and not by
+> fatigue.** Five non-vacuous mutation probes, three live real-git scratch-repo spot-checks, and the
+> full editor / vscode-core / rpc-handlers suites green. Two limits are disclosed in the artifact
+> rather than buried — nothing ran in a real Electron/VS Code host with real Monaco, and one
+> unrelated synthetic `diff:worktree:` literal exists outside this write path (filed, not a defect
+> against this gate). Read `seq-2-verification.md` in full before questioning any part of it.
+>
+> **Dispatch: `batch-8-dispatch.md` is the executor's source of truth.** Every line number in
+> Tasks 8.1–8.7 below is **stale** and is corrected there.
 
 **Recommended Executor** (on unblock): **two sequential passes, one batch, ONE commit**
 
@@ -1068,11 +1109,13 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 **Rationale**: Same reasoning as batch 2 — the backend write path and the Monaco decoration layer are different disciplines, but they ship together because a half-landed write path is worse than none.
 **Tasks**: 7 | **Satisfies**: D2
 
-> ### ⛔⛔ SEQ-2 — ABSOLUTE BLOCKING PRECONDITION ⛔⛔
+> ### ✅ SEQ-2 — PRECONDITION MET (retained in full; the stakes below still bind)
 >
-> **Dependencies: Batch 7 (sequential) AND — non-negotiably — Batch 2 independently verified against every one of A1's, A2's, A3's and A4's acceptance criteria.**
+> **Dependencies: Batch 7 (sequential) ✅ `f47351d14` AND — non-negotiably — Batch 2 independently verified against every one of A1's, A2's, A3's and A4's acceptance criteria ✅ `seq-2-verification.md`, 2026-08-10.**
 >
-> **No part of the D2 hunk stage/revert write path may start until the keystone batch (A1+A2+A3+A4) has been independently verified.** Not "implemented", not "committed" — _independently verified against its acceptance criteria_.
+> **The precondition is satisfied. Everything below it is NOT obsolete** — it is why the executor must treat this batch as the highest-risk unit in the task. The four failure modes enumerated below are the reasons the gate existed; the gate closing means the diff Batch 8 derives its patches from is trustworthy, **not** that a bad patch has stopped being unrecoverable.
+>
+> _Original wording, retained for provenance:_ **No part of the D2 hunk stage/revert write path may start until the keystone batch (A1+A2+A3+A4) has been independently verified.** Not "implemented", not "committed" — _independently verified against its acceptance criteria_.
 >
 > This is a data-integrity constraint, not a scheduling preference. A hunk stage/revert takes the diff on screen and applies a derived patch to the user's git index or working tree. That operation is only as correct as the diff it derives from:
 >
@@ -1083,7 +1126,7 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 >
 > **The git index holds work the user is about to commit. The working tree holds work that may exist nowhere else. Corruption here is not recoverable by undo.**
 >
-> **Orchestrator: before spawning batch 8, re-read batch 2's acceptance criteria and confirm each one was verified, not merely claimed. If any is unverified, batch 8 does not start.**
+> **Orchestrator: before spawning batch 8, re-read batch 2's acceptance criteria and confirm each one was verified, not merely claimed. If any is unverified, batch 8 does not start.** — **DONE.** Every A1–A4 criterion was re-read from `task-description.md` verbatim (not paraphrased from this file or from Batch 2's commit message) and dispositioned individually in `seq-2-verification.md`. A2 AC5 was the one that came back unproven; it was closed on a second pass rather than waved through.
 
 ### Task 8.1: Extend `GitDiffFileResult` with patch + hunks ⏸️ PENDING
 
