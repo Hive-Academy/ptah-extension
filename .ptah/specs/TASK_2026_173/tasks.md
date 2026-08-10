@@ -1,7 +1,7 @@
 # Development Tasks — TASK_2026_173
 
 **Title**: Editor panel — git-diff correctness, measured performance, and hunk-level stage/revert
-**Total Batches**: 10 (0–9) | **Total Tasks**: 61 | **Status**: 5/10 complete (0–4), batch 5 dispatched — refreshed 2026-08-10
+**Total Batches**: 10 (0–9) | **Total Tasks**: 61 | **Status**: 7/10 complete (0–6), batch 7 dispatched — refreshed 2026-08-10
 **Source plan**: `implementation-plan.md` §9, adopted with **two corrections** (see Plan Validation Summary).
 **Binding overrides**: `amendments.md` supersedes `task-description.md` wherever they conflict. A-1..A-5, the A-group merge, and N1/N2/N3 are settled — do not re-litigate.
 **CLI agent delegation**: **DISABLED** (user decision, Checkpoint 0.1). Every executor below is a sub-agent. Do not spawn CLI agents for any batch.
@@ -643,7 +643,28 @@ startDragTracking({ onMove(e), onCommit(), onCancel() })
 
 ---
 
-## Batch 5: Watcher Exclusions (B4) 🔄 IN PROGRESS — dispatched 2026-08-10 to `backend-developer` per `batch-5-dispatch.md`
+## Batch 5: Watcher Exclusions (B4) ✅ COMPLETE — `6df1984a7` (2026-08-10)
+
+> Executed by a `backend-developer` sub-agent per `batch-5-dispatch.md`; reviewed by
+> `code-logic-reviewer` (`batch-5-code-logic-review.md`): **APPROVED WITH FOLLOW-UPS, 8/10, 0 critical,
+> 0 serious, 2 moderate**. The reviewer re-ran every affected suite live and diffed the working tree
+> rather than trusting the report; no discrepancy was found between the report's claims and the tree.
+>
+> **M3 target MET and met for the right reason**: 26 → 1 `git status` invocations over a 60 s window,
+> **0 from excluded paths**. The executor added a paired same-session control on the old predicate
+> (reproducing 26 against the recorded baseline of 25), so the fall is attributable to the change and
+> not to a quiet machine — the baseline alone could not have carried that claim.
+>
+> **B4 AC3 was proved positively, not by absence.** The single surviving invocation was the mid-window
+> tracked-file edit, identified by name in the trace. A literal 0 would have been a _failure_ here, not
+> a better number — it would have meant the real edit was swallowed too, which is precisely the R-9
+> defect this batch existed to avoid. A permanent unit test now carries the same positive control.
+>
+> Both moderate findings were dispositioned before the commit: **Issue 1 is CLOSED by direct
+> verification** (see the Axis 2 block above — `.angular`'s gitignore entry is unanchored, confirmed by
+> `git check-ignore` at four nesting depths, evidence recorded in the constant's docstring so it
+> travels with the code), and **Issue 2 (harness drift detection) is filed as Batch 9 candidate 1**,
+> not silently accepted.
 
 **Recommended Executor**: `backend-developer`
 **Fallback Executor**: `devops-engineer`
@@ -735,7 +756,56 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 
 ---
 
-## Batch 6: Accessibility (D1) ⏸️ PENDING
+## Batch 6: Accessibility (D1) ✅ COMPLETE — 2026-08-10
+
+> Executed by a `frontend-developer` sub-agent per `batch-6-dispatch.md`, reported in
+> `batch-6-report.md`, reviewed by `code-logic-reviewer` (`batch-6-code-logic-review.md`):
+> **APPROVED WITH FOLLOW-UPS, 8/10, 0 critical, 0 serious, 2 moderate** — both moderates explicitly
+> non-blocking and both are documentation corrections, not code defects. The reviewer re-ran every
+> live-runnable claim (all four gate suites, both DOM guards, the `stopPropagation` grep, and a
+> fresh independent axe-core run) rather than trusting the report.
+>
+> **All seven D1 acceptance criteria pass.** `nested-interactive` — the rule D1 AC1 names — clears
+> on both trees, 20 nodes. AC6 is evidenced at **35/35 identical measurements** in real headless
+> Chromium against the DOM Angular actually produced (`createElement`/`appendChild`, not the
+> parser-flattened form), which caught and fixed a real `uppercase` regression on the way. AC5 is
+> structural, not a promise: all four `stopPropagation()` calls **and all four `MouseEvent`
+> parameters** are gone from the signatures, so no future edit can quietly reintroduce the
+> dependency.
+>
+> ### ⚖️ THE BATCH TRADES ONE CRITICAL AXE VIOLATION FOR ANOTHER — user-ruled, do not re-open
+>
+> De-nesting the tab close button onto a `role="presentation"` wrapper makes axe descend through the
+> wrapper (which is what lets `role="tab"` pass `aria-required-parent`) and therefore re-parents the
+> **close button** onto the `role="tablist"`, which permits only `tab` as an owned element. That is a
+> **new critical `aria-required-children` violation on a rule that previously passed.**
+>
+> **The user ruled: keep the `tablist`/`tab` shape and accept it.** `nested-interactive` was a real
+> operability defect — it is _why_ the `stopPropagation()` calls existed, and it made hit-testing and
+> AT traversal disagree with the template — whereas here the close button remains reachable,
+> focusable, labelled and operable and only its ownership is wrong. **Filed to Batch 9 as item 4.
+> Do not propose `role="toolbar"`, `aria-owns`, or hoisting the buttons.**
+>
+> Two moderate review findings were actioned before the commit, both by editing `batch-6-report.md`
+> and neither by touching code: §3.3's claim that `host: { role: 'presentation' }` was _necessary_
+> is **wrong** (the reviewer built both variants and both pass — softened to "added defensively"),
+> and §8's empty-list item was **understated** (the reviewer reproduced it as a live critical
+> violation today, not an inspection-only risk — promoted to Batch 9 item 5 as a confirmed defect
+> with a known one-line fix).
+
+> ### ⚠️ EVERY LINE NUMBER BELOW IS STALE — corrected in `batch-6-dispatch.md`
+>
+> Batch 4 (`06b900d85`) rewrote `editor-panel.component.ts` substantially (three drag blocks collapsed
+> into one helper, three listener quartets into one), and batches 2 and 3 moved the other two files.
+> **Every citation in Tasks 6.1–6.4 predates that.** All were re-verified against the working tree on
+> 2026-08-10; the corrected offsets live in the dispatch, which is the executor's source of truth.
+>
+> The re-verification also surfaced a **structural finding that changes the shape of this batch**: in
+> all three files the outer clickable is already a `<button>` with the action buttons nested _inside_
+> it. Nested interactive content inside a `<button>` is invalid HTML — the browser flattens it in the
+> parsed DOM — which is why the `stopPropagation()` calls exist at all. Task 6.4 therefore cannot be
+> done independently of 6.1–6.3: deleting `stopPropagation` only works once the nesting is gone. See
+> the dispatch for the per-file de-nesting shape.
 
 **Recommended Executor**: `frontend-developer`
 **Fallback Executor**: `senior-tester`
@@ -743,27 +813,27 @@ The watcher and the tree builder disagree in **both** directions today: the tree
 **Rationale**: Pure template/semantics work across three components. Low risk, but it edits `editor-panel.component.ts` and both source-control components — files batches 2, 3 and 4 also touched.
 **Tasks**: 4 | **Dependencies**: **Batch 5 (sequential — CORRECTED from plan §9, which claimed batch 6 may run parallel with 3–5; it edits `editor-panel.component.ts:206-232` and `:672`, overlapping batches 3 and 4)** | **Satisfies**: D1
 
-### Task 6.1: De-nest the tab close button ⏸️ PENDING
+### Task 6.1: De-nest the tab close button ✅ COMPLETE — 2026-08-10; reviewer APPROVED. Shape landed as specified; padding split (`py-1.5 pl-3 pr-2.5` on the tab button, `pr-3` on the wrapper) so the left inset stays inside the tab's hit target. The `aria-required-children` consequence is accepted by user ruling, Batch 9 item 4
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\editor-panel\editor-panel.component.ts` (`:229` inside `:206`)
 **Requirement**: D1 AC1, AC2, AC4, AC6
 **Details**: Outer becomes `<div role="presentation">` carrying the tab chrome classes; inside it, a `<button role="tab" [attr.aria-selected]>` for the label and a **sibling** `<button [attr.aria-label]="'Close ' + fileName">`.
 **Validation Notes**: **AC6 — visual appearance must be unchanged.** Preserve it by moving the chrome classes to the container. Preserve the batch-2 stale/error glyph and the dirty-dot slot.
 
-### Task 6.2: De-nest the section headers ⏸️ PENDING
+### Task 6.2: De-nest the section headers ✅ COMPLETE — 2026-08-10; reviewer APPROVED. `aria-expanded` did not exist before and now does; `aria-controls` points at per-instance list ids (a static counter, so two mounted panels cannot collide on `duplicate-id`). **Caught a bug the dispatch did not anticipate**: Tailwind preflight sets `text-transform: none` on `button`, so wrapping the label in a button silently dropped the header out of caps (108.39px → 96.78px) — `uppercase` repeated on the toggle, with a regression test
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\source-control\source-control-panel.component.ts` (`:92` inside `:78`; `:140` inside `:126`)
 **Requirement**: D1 AC1, AC3, AC4, AC6
 **Details**: Same pattern — container `<div>`, a `<button [attr.aria-expanded]>` expand/collapse toggle plus a **sibling** stage-all / unstage-all action button.
 
-### Task 6.3: De-nest the file row ⏸️ PENDING
+### Task 6.3: De-nest the file row ✅ COMPLETE — 2026-08-10; reviewer APPROVED. `role="listitem"` moved off the `<button>` (a genuine semantic conflict — `listitem` was overriding the button's own role); row gained the `'Open diff for …'` label it never had. `host: { role: 'presentation' }` added defensively, **not** necessary — see the corrected §3.3
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\source-control\source-control-file.component.ts` (`:68`, `:79`, `:91` inside `:39`)
 **Requirement**: D1 AC1, AC4, AC6
 **Details**: Row becomes a `<div role="listitem">` containing a `<button>` for open-diff plus sibling action buttons.
 **Validation Notes**: This third site is not named in the original findings but is the same defect and sits inside the panel D1 AC1 scopes.
 
-### Task 6.4: Delete `stopPropagation`; add focus-visible rings ⏸️ PENDING
+### Task 6.4: Delete `stopPropagation`; add focus-visible rings ✅ COMPLETE — 2026-08-10; reviewer APPROVED. All four calls **and all four `MouseEvent` parameters** deleted — the isolation is structural. Only live `stopPropagation()` left in these files is `closeSplit` (`editor-panel.component.ts:622`), out of scope. **`btn-ghost` does NOT suppress the focus ring** (daisyui 4.12.24 `dist/styled.css:1652` sets it); the project utilities were applied anyway and measured to win at equal specificity
 
 **Files**: `source-control-panel.component.ts` (`:228`, `:233`), `source-control-file.component.ts` (`:175`), `editor-panel.component.ts` (`:672`)
 **Requirement**: D1 AC5, AC7
@@ -966,7 +1036,7 @@ Post-apply refresh (AC8): `git apply --cached` writes `.git/index`, which the El
 **Recommended Executor**: `senior-tester`
 **Fallback Executor**: `devops-engineer`
 **Execution Mode**: sequential
-**Tasks**: 2 | **Dependencies**: Batch 8 (or batch 7 if the cut line was taken) | **Satisfies**: DoD items 9, 10
+**Tasks**: 3 | **Dependencies**: Batch 8 (or batch 7 if the cut line was taken) | **Satisfies**: DoD items 9, 10
 
 ### Task 9.1: File B6 (file-tree virtualization) as a follow-up task ⏸️ PENDING
 
@@ -978,18 +1048,20 @@ Post-apply refresh (AC8): `git apply --cached` writes `.git/index`, which the El
 **Requirement**: DoD item 9; task-description Out-of-Scope item 8
 **Details**: Every case in `r3-triage.md` marked "follow-up finding" becomes a filed record. Same for any additional hot path profiling revealed during B-group work — **recorded as findings for a follow-up task, never absorbed into this one**.
 
-### Task 9.3: File the accumulated per-batch follow-up candidates ⏸️ PENDING
+### Task 9.3: File the accumulated per-batch follow-up candidates — **FIVE items** ⏸️ PENDING
 
 **Requirement**: DoD item 9 (same "file, never absorb" rule as Task 9.2)
 **Details**: These were raised by `code-logic-reviewer` during batch execution, dispositioned as
 **genuine follow-ups rather than blockers**, and deliberately **not** fixed in the batch that found
 them (NFR-9). Each becomes its own filed record. **Do not fix any of them inside TASK_2026_173.**
 
-| #   | Candidate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Raised by                                | Severity |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | -------- |
-| 1   | **Drift detection between `libs/shared/src/lib/constants/workspace-scan.constants.ts` and `apps/ptah-electron-e2e/src/specs/editor/perf-m3-watcher-churn.script.mjs`'s hand-maintained `IGNORED_DIRS` copy.** The `.mjs` harness cannot import the TS constant without dragging itself into the build graph and forfeiting the "zero product-code change" property that makes the M3 before/after numbers comparable — so the copy is justified, but its only safeguard today is a comment banner. A text/AST-level test that fails CI when the two lists diverge turns that comment's promise into an enforced invariant. Tooling-only: drift corrupts a future measurement, never production behaviour. | Batch 5 review, Failure Mode 4 / Issue 2 | MODERATE |
-| 2   | **Pre-existing B4 AC4 asymmetry, undocumented anywhere.** An explicitly-targeted ignored directory is enumerable via `editor:getFileTree` with an explicit `rootPath` (`buildFileTree` filters `root`'s _children_, never `root` itself) and openable via `handleFileOpen` (which applies no exclusion filter at all) — even though the same directory is unreachable by navigation from the workspace root. Confirmed byte-identical to `HEAD` before and after Batch 5, so genuinely pre-existing and untouched. Arguably the correct "user asked for it explicitly" behaviour, but it is written down nowhere. **File as documentation, not as a bug**, unless a decision is taken to change it.       | Batch 5 review, Judgment Call 3          | LOW      |
-| 3   | **Pointer capture on the three editor-panel resize handles**, carried over from Batch 4's review. Would make the double-`mousedown` drag re-entry structurally impossible rather than merely benign. Batch 4's reviewer ruled **no action needed** there — the post-refactor code is strictly safer than the pre-refactor behaviour, which registered two racing listener quartets — so this is a hardening improvement, not a defect fix.                                                                                                                                                                                                                                                                | Batch 4 review, Failure Mode 3           | LOW      |
+| #   | Candidate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Raised by                                                              | Severity |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------- |
+| 1   | **Drift detection between `libs/shared/src/lib/constants/workspace-scan.constants.ts` and `apps/ptah-electron-e2e/src/specs/editor/perf-m3-watcher-churn.script.mjs`'s hand-maintained `IGNORED_DIRS` copy.** The `.mjs` harness cannot import the TS constant without dragging itself into the build graph and forfeiting the "zero product-code change" property that makes the M3 before/after numbers comparable — so the copy is justified, but its only safeguard today is a comment banner. A text/AST-level test that fails CI when the two lists diverge turns that comment's promise into an enforced invariant. Tooling-only: drift corrupts a future measurement, never production behaviour.                                                                                                                                                                                                                                                                                                                                                              | Batch 5 review, Failure Mode 4 / Issue 2                               | MODERATE |
+| 2   | **Pre-existing B4 AC4 asymmetry, undocumented anywhere.** An explicitly-targeted ignored directory is enumerable via `editor:getFileTree` with an explicit `rootPath` (`buildFileTree` filters `root`'s _children_, never `root` itself) and openable via `handleFileOpen` (which applies no exclusion filter at all) — even though the same directory is unreachable by navigation from the workspace root. Confirmed byte-identical to `HEAD` before and after Batch 5, so genuinely pre-existing and untouched. Arguably the correct "user asked for it explicitly" behaviour, but it is written down nowhere. **File as documentation, not as a bug**, unless a decision is taken to change it.                                                                                                                                                                                                                                                                                                                                                                    | Batch 5 review, Judgment Call 3                                        | LOW      |
+| 3   | **Pointer capture on the three editor-panel resize handles**, carried over from Batch 4's review. Would make the double-`mousedown` drag re-entry structurally impossible rather than merely benign. Batch 4's reviewer ruled **no action needed** there — the post-refactor code is strictly safer than the pre-refactor behaviour, which registered two racing listener quartets — so this is a hardening improvement, not a defect fix.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Batch 4 review, Failure Mode 3                                         | LOW      |
+| 4   | **`aria-required-children` ownership violation on `role="tablist"` — INTRODUCED by Batch 6 and ACCEPTED BY USER DECISION.** De-nesting the tab close button onto a `role="presentation"` wrapper makes axe descend through the wrapper, which re-parents the close button onto the `tablist`; ARIA permits only `tab` as an owned element. **This is a regression on a rule that previously passed** — the batch trades one critical axe violation for another. The user ruled the trade favourable and instructed that the `tablist`/`tab` shape be kept: `nested-interactive` was a real operability defect, while here the close button stays reachable, focusable, labelled and operable and only its ownership is wrong. **File it; do not re-litigate it, and do not propose `role="toolbar"` + `aria-current`, `aria-owns`, or hoisting the buttons — all three were evaluated and ruled out.** The one clean resolution changes what a screen reader announces ("button, current" vs "tab, selected") and deserves its own D1 AC4 review in a task of its own. | Batch 6 report §6 + review, Integration Risk; user decision 2026-08-10 | MODERATE |
+| 5   | **Empty-state `role="list"` ownership violation — CONFIRMED DEFECT, known one-line fix.** When a source-control section has zero files, `SourceControlPanelComponent` renders a plain `<div>` ("No staged changes" / "No changes") inside the `role="list"` region (`source-control-panel.component.ts:141-144, 201-204`). **Not hypothetical**: Batch 6's report called it an inspection-only risk because its axe run used a populated fixture, but the reviewer ran `axe-core` over the exact empty-state markup and reproduced a **live critical `aria-required-children` violation on both branches, today**. It hits the common case — most working trees have nothing staged. Genuinely pre-existing and untouched by Batch 6 (confirmed: the empty-state lines fall outside every hunk in that diff), so correctly excluded there. **Fix: give the empty-state message `role="listitem"`. One line per section, no visual change.**                                                                                                                            | Batch 6 review, Failure Mode 1 / Issue 2                               | MODERATE |
 
 **Validation Notes**: Also still open from Batch 5 §10.2, already covered by Task 9.2's "any
 additional findings" clause but repeated here so it is not lost: the two **glob-string** exclusion

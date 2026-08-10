@@ -208,49 +208,68 @@ import type { FileTreeNode } from '../models/file-tree.model';
                   aria-label="Open editor tabs"
                 >
                   @for (tab of editorService.openTabs(); track tab.filePath) {
-                    <button
-                      class="group flex items-center gap-2 px-3 py-1.5 text-xs whitespace-nowrap select-none transition-colors"
+                    <!-- The tab chrome is a PRESENTATIONAL wrapper, not a
+                         control. role="presentation" keeps it out of the
+                         accessibility tree so the inner role="tab" stays
+                         effectively a child of the role="tablist" above; the
+                         label button and the close button are SIBLINGS, never
+                         nested (D1 AC1 — a button inside a button is invalid
+                         HTML and the browser silently flattens it). -->
+                    <div
+                      class="group flex items-center pr-3 text-xs whitespace-nowrap select-none transition-colors"
                       [ngClass]="
                         tab.filePath === editorService.activeFilePath()
                           ? 'bg-base-100 text-base-content'
                           : 'bg-transparent text-base-content/50 hover:text-base-content/70 hover:bg-base-200/50'
                       "
-                      role="tab"
-                      [attr.aria-selected]="
-                        tab.filePath === editorService.activeFilePath()
-                      "
-                      [attr.aria-label]="'Switch to ' + tab.fileName"
-                      (click)="onTabClick(tab.filePath)"
+                      role="presentation"
                     >
-                      <span class="truncate max-w-[120px]">{{
-                        tab.fileName
-                      }}</span>
-                      @if (tab.isDirty) {
-                        <span
-                          class="w-1.5 h-1.5 rounded-full bg-primary/70 flex-shrink-0"
-                          title="Unsaved changes"
-                        ></span>
-                      }
-                      @if (tab.diff && tab.diff.status !== 'fresh') {
-                        <lucide-angular
-                          [img]="AlertTriangleIcon"
-                          class="w-3 h-3 flex-shrink-0"
-                          [class.text-error]="tab.diff.status === 'error'"
-                          [class.text-warning]="tab.diff.status === 'stale'"
-                          [class.opacity-50]="tab.diff.status === 'refreshing'"
-                          data-testid="diff-tab-status-glyph"
-                          [attr.title]="diffStatusTitle(tab)"
-                          [attr.aria-label]="diffStatusTitle(tab)"
-                        />
-                      }
                       <button
-                        class="ml-0.5 p-0.5 rounded opacity-0 group-hover:opacity-60 hover:opacity-100 hover:bg-base-content/10 transition-all"
+                        type="button"
+                        class="flex items-center gap-2 py-1.5 pl-3 pr-2.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[oklch(var(--s))]"
+                        role="tab"
+                        [attr.aria-selected]="
+                          tab.filePath === editorService.activeFilePath()
+                        "
+                        [attr.aria-label]="'Switch to ' + tab.fileName"
+                        (click)="onTabClick(tab.filePath)"
+                      >
+                        <span class="truncate max-w-[120px]">{{
+                          tab.fileName
+                        }}</span>
+                        @if (tab.isDirty) {
+                          <span
+                            class="w-1.5 h-1.5 rounded-full bg-primary/70 flex-shrink-0"
+                            title="Unsaved changes"
+                          ></span>
+                        }
+                        @if (tab.diff && tab.diff.status !== 'fresh') {
+                          <lucide-angular
+                            [img]="AlertTriangleIcon"
+                            class="w-3 h-3 flex-shrink-0"
+                            [class.text-error]="tab.diff.status === 'error'"
+                            [class.text-warning]="tab.diff.status === 'stale'"
+                            [class.opacity-50]="
+                              tab.diff.status === 'refreshing'
+                            "
+                            data-testid="diff-tab-status-glyph"
+                            [attr.title]="diffStatusTitle(tab)"
+                            [attr.aria-label]="diffStatusTitle(tab)"
+                          />
+                        }
+                      </button>
+                      <!-- focus-visible:opacity-100 is not visual drift: this
+                           control is opacity-0 until hover, so a keyboard user
+                           tabbing onto it previously saw NOTHING (D1 AC7). -->
+                      <button
+                        type="button"
+                        class="p-0.5 rounded opacity-0 group-hover:opacity-60 hover:opacity-100 focus-visible:opacity-100 hover:bg-base-content/10 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[oklch(var(--s))]"
                         [attr.aria-label]="'Close ' + tab.fileName"
-                        (click)="onTabClose($event, tab.filePath)"
+                        (click)="onTabClose(tab.filePath)"
                       >
                         <lucide-angular [img]="XIcon" class="w-3 h-3" />
                       </button>
-                    </button>
+                    </div>
                   }
                 </div>
               }
@@ -741,8 +760,12 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
     this.editorService.switchTab(filePath);
   }
 
-  protected onTabClose(event: MouseEvent, filePath: string): void {
-    event.stopPropagation();
+  /**
+   * Close a tab. Takes no event: the close button is a SIBLING of the tab
+   * button, not a descendant, so activating it cannot reach `onTabClick`.
+   * Isolation is structural, not a suppressed propagation (D1 AC5).
+   */
+  protected onTabClose(filePath: string): void {
     this.editorService.closeTab(filePath);
   }
 

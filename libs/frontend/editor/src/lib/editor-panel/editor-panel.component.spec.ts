@@ -148,12 +148,18 @@ function makeEditorServiceStub() {
     startFileTreeWatcher: jest.fn(),
     stopFileTreeWatcher: jest.fn(),
     clearError: jest.fn(),
+    switchTab: jest.fn(),
+    closeTab: jest.fn(),
+    setFocusedPane: jest.fn(),
   } as unknown as EditorService & {
     isLoading: ReturnType<typeof signal<boolean>>;
     activeFilePath: ReturnType<typeof signal<string | undefined>>;
+    openTabs: ReturnType<typeof signal<unknown[]>>;
     terminalVisible: ReturnType<typeof signal<boolean>>;
     splitActive: ReturnType<typeof signal<boolean>>;
     setTerminalHeight: jest.Mock;
+    switchTab: jest.Mock;
+    closeTab: jest.Mock;
   };
 }
 
@@ -712,5 +718,212 @@ describe('EditorPanelComponent — diff and code editor stay mounted together (N
     fixture.detectChanges();
 
     expect(diffView().componentInstance.openDiffKeys()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D1 — the tab strip has no nested interactive elements (TASK_2026_173)
+//
+// The tab used to be a <button role="tab"> with the close <button> nested
+// INSIDE it. That is invalid HTML: the browser flattens the inner button out
+// in the parsed DOM, so the tree a screen reader and hit-testing see never
+// matched the template — and `onTabClose` had to call stopPropagation() to
+// stop a close from also switching tabs. Both buttons are now siblings inside
+// a role="presentation" wrapper, so the isolation is structural and
+// stopPropagation is gone. Space and Enter come free from using real buttons;
+// the specs below assert exactly that, because the previous shape could not
+// deliver it no matter how the handlers were written.
+// ---------------------------------------------------------------------------
+describe('EditorPanelComponent — tab strip controls are siblings, not nested (D1)', () => {
+  let fixture: ComponentFixture<EditorPanelComponent>;
+  let editor: ReturnType<typeof makeEditorServiceStub>;
+
+  const TABS = [
+    { filePath: '/ws/a.ts', fileName: 'a.ts', content: '', isDirty: false },
+    { filePath: '/ws/b.ts', fileName: 'b.ts', content: '', isDirty: true },
+  ];
+
+  function tabButton(index = 0): HTMLButtonElement {
+    const els = fixture.nativeElement.querySelectorAll('[role="tab"]');
+    return els[index] as HTMLButtonElement;
+  }
+
+  function closeButton(index = 0): HTMLButtonElement {
+    const els = fixture.nativeElement.querySelectorAll(
+      'button[aria-label^="Close "]',
+    );
+    return els[index] as HTMLButtonElement;
+  }
+
+  beforeEach(() => {
+    editor = makeEditorServiceStub();
+    editor.openTabs.set(TABS);
+    editor.activeFilePath.set('/ws/a.ts');
+
+    TestBed.configureTestingModule({
+      imports: [EditorPanelComponent],
+      providers: [
+        { provide: EditorService, useValue: editor },
+        { provide: GitStatusService, useValue: makeGitStatusStub() },
+        { provide: VimModeService, useValue: makeVimStub() },
+        { provide: VSCodeService, useValue: makeVscodeStub() },
+      ],
+    });
+
+    TestBed.overrideComponent(EditorPanelComponent, {
+      set: {
+        imports: [
+          NgClass,
+          LucideAngularModule,
+          StubCodeEditorComponent,
+          StubDiffViewComponent,
+          StubSidebarComponent,
+          StubGitStatusBarComponent,
+          StubTerminalPanelComponent,
+          StubContextMenuComponent,
+          StubQuickOpenComponent,
+        ],
+      },
+    });
+
+    fixture = TestBed.createComponent(EditorPanelComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('renders no interactive element inside another interactive element (AC1)', () => {
+    const interactive = 'a[href], button, input, select, textarea, [tabindex]';
+    const nested: string[] = [];
+    for (const el of fixture.nativeElement.querySelectorAll(interactive)) {
+      // Start the walk at the PARENT: `closest` matches the element itself,
+      // so `closest(sel) !== el` can never flag anything. (It cannot — that
+      // exact mistake was caught by running the check against the pre-batch-6
+      // markup, where it wrongly reported zero nesting.)
+      if ((el as HTMLElement).parentElement?.closest(interactive)) {
+        nested.push((el as HTMLElement).outerHTML.slice(0, 120));
+      }
+    }
+    expect(nested).toEqual([]);
+  });
+
+  it('keeps the tab and its close control as siblings under a presentational wrapper (AC1)', () => {
+    const tab = tabButton();
+    const close = closeButton();
+
+    expect(tab.tagName).toBe('BUTTON');
+    expect(close.tagName).toBe('BUTTON');
+    // Siblings, and the wrapper is transparent to ARIA so role="tab" is still
+    // effectively owned by role="tablist".
+    expect(close.parentElement).toBe(tab.parentElement);
+    expect(tab.parentElement?.getAttribute('role')).toBe('presentation');
+    expect(tab.parentElement?.parentElement?.getAttribute('role')).toBe(
+      'tablist',
+    );
+    // Neither button can submit a form by accident.
+    expect(tab.type).toBe('button');
+    expect(close.type).toBe('button');
+  });
+
+  it('labels every control distinctly and reflects the selected tab (AC4)', () => {
+    expect(tabButton(0).getAttribute('aria-label')).toBe('Switch to a.ts');
+    expect(tabButton(0).getAttribute('aria-selected')).toBe('true');
+    expect(tabButton(1).getAttribute('aria-label')).toBe('Switch to b.ts');
+    expect(tabButton(1).getAttribute('aria-selected')).toBe('false');
+    expect(closeButton(0).getAttribute('aria-label')).toBe('Close a.ts');
+    expect(closeButton(1).getAttribute('aria-label')).toBe('Close b.ts');
+  });
+
+  it('closes a tab WITHOUT switching to it — no stopPropagation involved (AC5)', () => {
+    // A real bubbling click, exactly as the browser dispatches one.
+    closeButton(1).dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+
+    expect(editor.closeTab).toHaveBeenCalledWith('/ws/b.ts');
+    expect(editor.switchTab).not.toHaveBeenCalled();
+  });
+
+  it('does not suppress propagation — the close click still reaches the pane (AC5)', () => {
+    // Proof the isolation is structural rather than a stopped event: the click
+    // is allowed to keep bubbling all the way to the pane click handler.
+    const seen: EventTarget[] = [];
+    fixture.nativeElement.addEventListener('click', (e: Event) => {
+      seen.push(e.target as EventTarget);
+    });
+
+    closeButton(0).dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+
+    expect(seen.length).toBe(1);
+    expect(editor.closeTab).toHaveBeenCalledWith('/ws/a.ts');
+  });
+
+  it('gives both controls independent keyboard reachability and click activation (AC2)', () => {
+    // HONEST SCOPE: jsdom does not implement the user-agent default action
+    // that turns Enter/Space on a <button> into a click, so no unit test can
+    // observe that key press. What CAN be asserted — and is the entire reason
+    // the fix is a real <button> rather than a div with a keydown handler — is
+    // that each control is a natively focusable, non-disabled, in-tab-order
+    // <button> whose sole activation path is (click). Enter/Space then follow
+    // from the user agent, for every <button>, unconditionally.
+    for (const el of [tabButton(0), closeButton(0)]) {
+      expect(el.tagName).toBe('BUTTON');
+      expect(el.hasAttribute('disabled')).toBe(false);
+      expect(el.getAttribute('tabindex')).toBeNull();
+      el.focus();
+      expect(document.activeElement).toBe(el);
+    }
+    // They focus independently: focusing one does not focus the other.
+    tabButton(0).focus();
+    expect(document.activeElement).not.toBe(closeButton(0));
+
+    tabButton(1).click();
+    expect(editor.switchTab).toHaveBeenCalledWith('/ws/b.ts');
+    closeButton(1).click();
+    expect(editor.closeTab).toHaveBeenCalledWith('/ws/b.ts');
+  });
+
+  it('reveals the hover-gated close control on keyboard focus (AC7)', () => {
+    const cls = closeButton(0).className;
+    // Hover-only reveal left keyboard users with an invisible control.
+    expect(cls).toContain('opacity-0');
+    expect(cls).toContain('group-hover:opacity-60');
+    expect(cls).toContain('focus-visible:opacity-100');
+    // Both controls carry a visible focus ring.
+    expect(tabButton(0).className).toContain('focus-visible:outline-2');
+    expect(cls).toContain('focus-visible:outline-2');
+  });
+
+  it('keeps the dirty dot and the diff status glyph inside the tab button (AC6)', () => {
+    editor.openTabs.set([
+      {
+        filePath: '/ws/b.ts',
+        fileName: 'b.ts',
+        content: '',
+        isDirty: true,
+        diff: { comparison: 'worktree', path: 'b.ts', status: 'stale' },
+      },
+    ]);
+    fixture.detectChanges();
+
+    const tab = tabButton();
+    const glyph = fixture.nativeElement.querySelector(
+      '[data-testid="diff-tab-status-glyph"]',
+    );
+    expect(glyph).toBeTruthy();
+    expect(tab.contains(glyph)).toBe(true);
+    expect(glyph.classList).toContain('text-warning');
+
+    const dot = tab.querySelector('[title="Unsaved changes"]');
+    expect(dot).toBeTruthy();
+    // DOM order is unchanged: filename span → dirty dot → diff glyph.
+    expect(
+      dot.compareDocumentPosition(glyph) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });

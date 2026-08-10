@@ -37,41 +37,63 @@ import type { OpenDiffRequest } from '../services/editor/editor-tab.types';
   standalone: true,
   imports: [LucideAngularModule],
   template: `
-    <button
-      type="button"
-      class="group flex items-center gap-1.5 w-full px-2 py-0.5 text-left text-xs
-             hover:bg-base-content/10 transition-colors cursor-pointer"
+    <!-- The row itself is the listitem — NOT a control. The open-diff button
+         and the three inline actions are SIBLINGS inside it. Previously the
+         whole row was a <button role="listitem"> with the action buttons
+         nested inside, which is invalid HTML (the browser flattens it) and
+         also stripped the row's own button role. That nesting was the sole
+         reason onAction needed stopPropagation (D1 AC1/AC5). -->
+    <div
       role="listitem"
-      [title]="rowTitle()"
-      (click)="openDiff.emit(diffRequest())"
+      class="group flex items-center gap-1.5 w-full px-2 py-0.5 text-left text-xs
+             hover:bg-base-content/10 transition-colors"
     >
-      <!-- Status icon -->
-      <lucide-angular
-        [img]="statusIcon()"
-        [class]="'w-3.5 h-3.5 flex-shrink-0 ' + statusColor()"
-        aria-hidden="true"
-      />
+      <button
+        type="button"
+        class="flex items-center gap-1.5 min-w-0 flex-1 text-left cursor-pointer
+               focus-visible:outline focus-visible:outline-2
+               focus-visible:outline-offset-[-2px]
+               focus-visible:outline-[oklch(var(--s))]"
+        [title]="rowTitle()"
+        [attr.aria-label]="'Open diff for ' + fileName()"
+        (click)="openDiff.emit(diffRequest())"
+      >
+        <!-- Status icon -->
+        <lucide-angular
+          [img]="statusIcon()"
+          [class]="'w-3.5 h-3.5 flex-shrink-0 ' + statusColor()"
+          aria-hidden="true"
+        />
 
-      <!-- File name + parent dir -->
-      <span class="flex items-center gap-1 min-w-0 flex-1">
-        <span class="font-medium truncate">{{ fileName() }}</span>
-        @if (parentDir()) {
-          <span class="opacity-40 text-[10px] truncate">{{ parentDir() }}</span>
-        }
-      </span>
+        <!-- File name + parent dir -->
+        <span class="flex items-center gap-1 min-w-0 flex-1">
+          <span class="font-medium truncate">{{ fileName() }}</span>
+          @if (parentDir()) {
+            <span class="opacity-40 text-[10px] truncate">{{
+              parentDir()
+            }}</span>
+          }
+        </span>
+      </button>
 
-      <!-- Inline actions (visible on hover) -->
+      <!-- Inline actions (visible on hover, and on keyboard focus — the
+           focus-within/focus-visible pair is a NEW state, not visual drift:
+           these controls previously rendered nothing at all for a keyboard
+           user who tabbed onto them, D1 AC7). -->
       <span
-        class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+        class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex-shrink-0"
       >
         @if (staged()) {
           <!-- Unstage button -->
           <button
             type="button"
-            class="btn btn-ghost btn-xs p-0.5 h-auto min-h-0"
+            class="btn btn-ghost btn-xs p-0.5 h-auto min-h-0
+                   focus-visible:outline focus-visible:outline-2
+                   focus-visible:outline-offset-[-2px]
+                   focus-visible:outline-[oklch(var(--s))]"
             title="Unstage"
             aria-label="Unstage file"
-            (click)="onAction($event, 'unstage')"
+            (click)="onAction('unstage')"
           >
             <lucide-angular [img]="MinusIcon" class="w-3.5 h-3.5" />
           </button>
@@ -79,10 +101,13 @@ import type { OpenDiffRequest } from '../services/editor/editor-tab.types';
           <!-- Stage button -->
           <button
             type="button"
-            class="btn btn-ghost btn-xs p-0.5 h-auto min-h-0"
+            class="btn btn-ghost btn-xs p-0.5 h-auto min-h-0
+                   focus-visible:outline focus-visible:outline-2
+                   focus-visible:outline-offset-[-2px]
+                   focus-visible:outline-[oklch(var(--s))]"
             title="Stage"
             aria-label="Stage file"
-            (click)="onAction($event, 'stage')"
+            (click)="onAction('stage')"
           >
             <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
           </button>
@@ -91,10 +116,13 @@ import type { OpenDiffRequest } from '../services/editor/editor-tab.types';
         <!-- Discard button -->
         <button
           type="button"
-          class="btn btn-ghost btn-xs p-0.5 h-auto min-h-0"
+          class="btn btn-ghost btn-xs p-0.5 h-auto min-h-0
+                 focus-visible:outline focus-visible:outline-2
+                 focus-visible:outline-offset-[-2px]
+                 focus-visible:outline-[oklch(var(--s))]"
           title="Discard changes"
           aria-label="Discard changes"
-          (click)="onAction($event, 'discard')"
+          (click)="onAction('discard')"
         >
           <lucide-angular [img]="Undo2Icon" class="w-3.5 h-3.5" />
         </button>
@@ -104,8 +132,12 @@ import type { OpenDiffRequest } from '../services/editor/editor-tab.types';
       <span class="text-[10px] font-mono opacity-40 flex-shrink-0">{{
         file().status
       }}</span>
-    </button>
+    </div>
   `,
+  // The component HOST sits between the panel's role="list" and this row's
+  // role="listitem". Marking it presentational keeps it out of the
+  // accessibility tree so the listitem is still owned by the list.
+  host: { role: 'presentation' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SourceControlFileComponent {
@@ -192,11 +224,12 @@ export class SourceControlFileComponent {
     }
   });
 
-  protected onAction(
-    event: MouseEvent,
-    action: 'stage' | 'unstage' | 'discard',
-  ): void {
-    event.stopPropagation();
+  /**
+   * Inline row action. Takes no event: the three action buttons are SIBLINGS
+   * of the open-diff button, so activating one cannot open the diff. The
+   * isolation is structural rather than a suppressed propagation (D1 AC5).
+   */
+  protected onAction(action: 'stage' | 'unstage' | 'discard'): void {
     const path = this.file().path;
     switch (action) {
       case 'stage':

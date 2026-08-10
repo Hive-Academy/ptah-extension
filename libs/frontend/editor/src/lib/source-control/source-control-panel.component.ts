@@ -76,33 +76,58 @@ import { WorktreeSectionComponent } from '../worktree/worktree-section.component
 
       <!-- Staged Changes section -->
       <div class="flex-shrink-0">
-        <button
-          type="button"
+        <!-- Header bar is a PRESENTATIONAL row: the disclosure toggle and the
+             unstage-all action are SIBLINGS. Nesting the action inside the
+             toggle (as this was) is invalid HTML and was the only reason
+             onUnstageAll needed stopPropagation (D1 AC1/AC5).
+
+             Two AC6 details that are easy to lose:
+             - opacity-70/hover:opacity-100 stays on the ROW, not the toggle,
+               so the action button's resting opacity and the whole-header
+               hover response are exactly what they were.
+             - the toggle repeats the uppercase class. Tailwind preflight resets
+               text-transform to none on <button>, so the label would silently
+               drop out of caps now that the text lives inside a button rather
+               than being the button (measured: 108.39px -> 96.78px). -->
+        <div
           class="flex items-center gap-1 w-full px-2 py-1 text-[10px] font-semibold
                  uppercase tracking-wider opacity-70 hover:opacity-100
-                 bg-base-200 transition-opacity cursor-pointer"
-          (click)="stagedExpanded.set(!stagedExpanded())"
-          aria-label="Toggle staged changes section"
+                 bg-base-200 transition-opacity"
         >
-          <lucide-angular
-            [img]="stagedExpanded() ? ChevronDownIcon : ChevronRightIcon"
-            class="w-3 h-3 flex-shrink-0"
-          />
-          <span>Staged Changes ({{ stagedFiles().length }})</span>
+          <button
+            type="button"
+            class="flex flex-1 items-center gap-1 -my-1 -ml-2 py-1 pl-2 uppercase
+                   cursor-pointer focus-visible:outline focus-visible:outline-2
+                   focus-visible:outline-offset-[-2px]
+                   focus-visible:outline-[oklch(var(--s))]"
+            [attr.aria-expanded]="stagedExpanded()"
+            [attr.aria-controls]="stagedListId"
+            aria-label="Toggle staged changes section"
+            (click)="stagedExpanded.set(!stagedExpanded())"
+          >
+            <lucide-angular
+              [img]="stagedExpanded() ? ChevronDownIcon : ChevronRightIcon"
+              class="w-3 h-3 flex-shrink-0"
+            />
+            <span>Staged Changes ({{ stagedFiles().length }})</span>
+          </button>
           @if (stagedFiles().length > 0) {
             <button
               type="button"
-              class="btn btn-ghost btn-xs p-0.5 h-auto min-h-0 ml-auto"
+              class="btn btn-ghost btn-xs p-0.5 h-auto min-h-0 ml-auto
+                     focus-visible:outline focus-visible:outline-2
+                     focus-visible:outline-offset-[-2px]
+                     focus-visible:outline-[oklch(var(--s))]"
               title="Unstage all"
               aria-label="Unstage all files"
-              (click)="onUnstageAll($event)"
+              (click)="onUnstageAll()"
             >
               <lucide-angular [img]="MinusIcon" class="w-3.5 h-3.5" />
             </button>
           }
-        </button>
+        </div>
         @if (stagedExpanded()) {
-          <div role="list" aria-label="Staged files">
+          <div [id]="stagedListId" role="list" aria-label="Staged files">
             @for (file of stagedFiles(); track file.path) {
               <ptah-source-control-file
                 [file]="file"
@@ -122,35 +147,47 @@ import { WorktreeSectionComponent } from '../worktree/worktree-section.component
         }
       </div>
 
-      <!-- Unstaged Changes section -->
+      <!-- Unstaged Changes section — same de-nested shape as Staged above. -->
       <div class="flex-shrink-0">
-        <button
-          type="button"
+        <div
           class="flex items-center gap-1 w-full px-2 py-1 text-[10px] font-semibold
                  uppercase tracking-wider opacity-70 hover:opacity-100
-                 bg-base-200 transition-opacity cursor-pointer"
-          (click)="unstagedExpanded.set(!unstagedExpanded())"
-          aria-label="Toggle changes section"
+                 bg-base-200 transition-opacity"
         >
-          <lucide-angular
-            [img]="unstagedExpanded() ? ChevronDownIcon : ChevronRightIcon"
-            class="w-3 h-3 flex-shrink-0"
-          />
-          <span>Changes ({{ unstagedFiles().length }})</span>
+          <button
+            type="button"
+            class="flex flex-1 items-center gap-1 -my-1 -ml-2 py-1 pl-2 uppercase
+                   cursor-pointer focus-visible:outline focus-visible:outline-2
+                   focus-visible:outline-offset-[-2px]
+                   focus-visible:outline-[oklch(var(--s))]"
+            [attr.aria-expanded]="unstagedExpanded()"
+            [attr.aria-controls]="unstagedListId"
+            aria-label="Toggle changes section"
+            (click)="unstagedExpanded.set(!unstagedExpanded())"
+          >
+            <lucide-angular
+              [img]="unstagedExpanded() ? ChevronDownIcon : ChevronRightIcon"
+              class="w-3 h-3 flex-shrink-0"
+            />
+            <span>Changes ({{ unstagedFiles().length }})</span>
+          </button>
           @if (unstagedFiles().length > 0) {
             <button
               type="button"
-              class="btn btn-ghost btn-xs p-0.5 h-auto min-h-0 ml-auto"
+              class="btn btn-ghost btn-xs p-0.5 h-auto min-h-0 ml-auto
+                     focus-visible:outline focus-visible:outline-2
+                     focus-visible:outline-offset-[-2px]
+                     focus-visible:outline-[oklch(var(--s))]"
               title="Stage all"
               aria-label="Stage all files"
-              (click)="onStageAll($event)"
+              (click)="onStageAll()"
             >
               <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
             </button>
           }
-        </button>
+        </div>
         @if (unstagedExpanded()) {
-          <div role="list" aria-label="Changed files">
+          <div [id]="unstagedListId" role="list" aria-label="Changed files">
             @for (file of unstagedFiles(); track file.path) {
               <ptah-source-control-file
                 [file]="file"
@@ -188,6 +225,16 @@ export class SourceControlPanelComponent {
   protected readonly isCommitting = signal(false);
   protected readonly stagedExpanded = signal(true);
   protected readonly unstagedExpanded = signal(true);
+
+  /**
+   * Per-instance ids for the two `role="list"` regions, so each disclosure
+   * toggle can point `aria-controls` at the region it expands (D1 AC3/AC4)
+   * without two mounted panels ever emitting a duplicate id.
+   */
+  private static instanceCount = 0;
+  private readonly instanceId = SourceControlPanelComponent.instanceCount++;
+  protected readonly stagedListId = `sc-staged-list-${this.instanceId}`;
+  protected readonly unstagedListId = `sc-unstaged-list-${this.instanceId}`;
   readonly PlusIcon = Plus;
   readonly MinusIcon = Minus;
   readonly ChevronDownIcon = ChevronDown;
@@ -226,13 +273,17 @@ export class SourceControlPanelComponent {
     await this.sourceControl.discardChanges(path);
   }
 
-  protected onStageAll(event: MouseEvent): void {
-    event.stopPropagation();
+  /**
+   * Stage-all / unstage-all take no event. Both buttons are SIBLINGS of the
+   * section disclosure toggle rather than children of it, so activating them
+   * cannot toggle the section. The isolation is structural — there is no
+   * `stopPropagation()` to forget (D1 AC5).
+   */
+  protected onStageAll(): void {
     void this.sourceControl.stageAll();
   }
 
-  protected onUnstageAll(event: MouseEvent): void {
-    event.stopPropagation();
+  protected onUnstageAll(): void {
     void this.sourceControl.unstageAll();
   }
 
